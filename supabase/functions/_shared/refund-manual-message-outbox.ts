@@ -5,10 +5,12 @@ import {
 } from "./refund-email.ts";
 import { dispatchRefundCaseGmailReply } from "./refund-gmail-transport.ts";
 import { RefundGmailError } from "./refund-gmail.ts";
+import { automaticRefundCustomerContactEnabled } from "./refund-deterministic-follow-up.ts";
 import { tryIssueRefundStatusCapabilityForMessage } from "./refund-status-capability.ts";
 import {
   bindRefundTransactionalDelivery,
   markRefundTransactionalDeliveryAttempt,
+  RefundTransactionalDeliveryGateError,
 } from "./refund-transactional-delivery.ts";
 import { TransactionalEmailDeliveryUnknownError } from "./internal-email.ts";
 import { issueRefundCorrectionForMessage, STORED_CORRECTION_LINK_MARKER } from "./refund-correction-delivery.ts";
@@ -21,6 +23,25 @@ const STORED_STATUS_LINK_MARKER =
 export const refundManualMessageOutboxEnabled = () =>
   Deno.env.get("REFUND_MANUAL_MESSAGE_OUTBOX_ENABLED")?.trim().toLowerCase() !==
     "false";
+const refundAutomationEnabled = () =>
+  Deno.env.get("REFUND_AUTOMATION_ENABLED")?.trim().toLowerCase() === "true";
+export const refundOutboxAutomaticSendGate = (
+  deliveryKind: "manual" | "automatic",
+) => {
+  if (deliveryKind === "manual") return null;
+  if (!refundAutomationEnabled()) return "refund_automation_disabled" as const;
+  if (!automaticRefundCustomerContactEnabled()) {
+    return "automatic_contact_disabled" as const;
+  }
+  return null;
+};
+
+class RefundOutboxGateError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+    this.name = "RefundOutboxGateError";
+  }
+}
 
 export type RefundManualMessageClaimReference = {
   messageId: string;
@@ -29,7 +50,7 @@ export type RefundManualMessageClaimReference = {
 
 export type RefundManualMessageDeliveryResult = {
   messageId: string;
-  outcome: "sent" | "failed" | "delivery_unknown";
+  outcome: "sent" | "failed" | "delivery_unknown" | "deferred";
   transport: "gmail_thread" | "transactional_email" | null;
   managerCcCount: number;
   recipientResolutionStatus: string | null;
@@ -45,6 +66,12 @@ type RefundManualMessageRow = {
   recipient_email: string;
   subject: string;
   body: string;
+  delivery_kind: "manual" | "automatic";
+  manual_delivery_provider_attempted_at: string | null;
+  delivery_transport: string | null;
+  provider_message_id: string | null;
+  delivery_state: string | null;
+  delivery_state_updated_at: string | null;
   manual_delivery_state: string;
   manual_delivery_claim_token: string;
   manual_delivery_expected_case_version: number;
@@ -54,9 +81,48 @@ type RefundManualMessageRow = {
   created_by: string;
 };
 
+const PROVIDER_MESSAGE_ID_PATTERN = /^[A-Za-z0-9_-]{8,255}$/;
+const automaticTransactionalRecovery = (
+  message: RefundManualMessageRow,
+): "sent" | "failed" | "delivery_unknown" | null => {
+  if (
+    message.delivery_kind !== "automatic" ||
+    message.delivery_transport === null
+  ) {
+    return null;
+  }
+  if (
+    message.delivery_transport !== "resend" ||
+    !message.delivery_state_updated_at
+  ) {
+    throw new Error("Automatic transactional delivery evidence is invalid.");
+  }
+  if (
+    message.provider_message_id &&
+    PROVIDER_MESSAGE_ID_PATTERN.test(message.provider_message_id) &&
+    ["accepted", "deferred", "delivered"].includes(message.delivery_state ?? "")
+  ) {
+    return "sent";
+  }
+  if (
+    message.provider_message_id === null && message.delivery_state === "unknown"
+  ) {
+    return "delivery_unknown";
+  }
+  if (
+    message.provider_message_id &&
+    PROVIDER_MESSAGE_ID_PATTERN.test(message.provider_message_id) &&
+    ["failed", "bounced", "complained"].includes(message.delivery_state ?? "")
+  ) {
+    return "failed";
+  }
+  throw new Error("Automatic transactional delivery evidence is invalid.");
+};
+
 const safeErrorCode = (error: unknown, deliveryUnknown: boolean) => {
   if (
-    error instanceof RefundGmailError && /^[a-z0-9_:-]{3,160}$/.test(error.code)
+    error && typeof error === "object" && "code" in error &&
+    typeof error.code === "string" && /^[a-z0-9_:-]{3,160}$/.test(error.code)
   ) {
     return error.code;
   }
@@ -127,6 +193,12 @@ const getClaimedMessage = async (
       recipient_email,
       subject,
       body,
+      delivery_kind,
+      manual_delivery_provider_attempted_at,
+      delivery_transport,
+      provider_message_id,
+      delivery_state,
+      delivery_state_updated_at,
       manual_delivery_state,
       manual_delivery_claim_token,
       manual_delivery_expected_case_version,
@@ -148,6 +220,7 @@ const getClaimedMessage = async (
     !UUID_PATTERN.test(message.created_by) ||
     !Number.isSafeInteger(message.manual_delivery_expected_case_version) ||
     message.manual_delivery_expected_case_version < 1 ||
+    !["manual", "automatic"].includes(message.delivery_kind) ||
     !message.recipient_email || !message.subject || !message.body
   ) {
     throw new Error("Manual-message outbox row is not deliverable.");
@@ -191,6 +264,31 @@ const finishClaim = async ({
     throw new Error("Manual-message delivery result could not be recorded.");
   }
   return result;
+};
+
+const deferAutomaticClaim = async ({
+  supabase,
+  reference,
+  reason,
+}: {
+  supabase: SupabaseClient;
+  reference: RefundManualMessageClaimReference;
+  reason: "refund_automation_disabled" | "automatic_contact_disabled";
+}) => {
+  const { data, error } = await supabase.rpc(
+    "service_defer_refund_automatic_completion_delivery",
+    {
+      p_refund_case_message_id: reference.messageId,
+      p_claim_token: reference.claimToken,
+      p_reason: reason,
+    },
+  );
+  const result = data && typeof data === "object"
+    ? data as Record<string, unknown>
+    : null;
+  if (error || result?.deferred !== true || result.payloadRedacted !== true) {
+    throw new Error("Automatic completion deferral could not be recorded.");
+  }
 };
 
 const recordReviewedTriageDelivery = async ({
@@ -242,6 +340,12 @@ const markProviderAttempt = async (
   const result = data && typeof data === "object"
     ? data as Record<string, unknown>
     : null;
+  if (
+    !error && result?.payloadRedacted === true && result.marked === false &&
+    result.status === "automatic_contact_disabled"
+  ) {
+    throw new RefundOutboxGateError("automatic_contact_disabled");
+  }
   if (error || result?.marked !== true || result.payloadRedacted !== true) {
     throw new Error("Manual-message provider attempt could not be marked.");
   }
@@ -291,6 +395,8 @@ export const deliverRefundManualMessageClaim = async ({
     };
   }
 
+  const transactionalRecovery = automaticTransactionalRecovery(message);
+
   const baseBody = message.body.replaceAll(STORED_STATUS_LINK_MARKER, "")
     .trim();
   const statusCapability = message.manual_delivery_status_link_requested && !message.body.includes(STORED_CORRECTION_LINK_MARKER)
@@ -314,6 +420,43 @@ export const deliverRefundManualMessageClaim = async ({
   let providerAttemptStarted = false;
   let providerAccepted = false;
   try {
+    if (transactionalRecovery) {
+      await markProviderAttempt(supabase, reference);
+      providerAttemptStarted = true;
+      const sent = transactionalRecovery === "sent";
+      const errorCode = transactionalRecovery === "delivery_unknown"
+        ? "transactional_delivery_reconciliation_required"
+        : transactionalRecovery === "failed"
+        ? `transactional_delivery_${message.delivery_state}`
+        : null;
+      await finishClaim({
+        supabase,
+        reference,
+        outcome: transactionalRecovery,
+        transport: sent ? "transactional_email" : null,
+        errorCode,
+        managerCcCount: 0,
+        recipientResolutionStatus: null,
+      });
+      return {
+        messageId: message.id,
+        outcome: transactionalRecovery,
+        transport: sent ? "transactional_email" : null,
+        managerCcCount: 0,
+        recipientResolutionStatus: null,
+        triageReviewStatus: "not_applicable",
+        payloadRedacted: true,
+      };
+    }
+    if (
+      message.delivery_kind === "automatic" &&
+      message.manual_delivery_provider_attempted_at === null
+    ) {
+      const automaticGate = refundOutboxAutomaticSendGate(
+        message.delivery_kind,
+      );
+      if (automaticGate) throw new RefundOutboxGateError(automaticGate);
+    }
     if (message.body.includes(STORED_CORRECTION_LINK_MARKER)) {
       const correctionUrl = await issueRefundCorrectionForMessage({ supabase, messageId: message.id, factVersion: currentCase.deterministic_fact_version });
       const correctionText = baseBody.replaceAll(STORED_CORRECTION_LINK_MARKER, correctionUrl);
@@ -330,12 +473,16 @@ export const deliverRefundManualMessageClaim = async ({
       refundCaseMessageId: message.id,
       recipientEmail: message.recipient_email,
       email,
-      deliveryKind: "manual",
+      deliveryKind: message.delivery_kind,
       syntheticProofAuthorizationId:
         message.synthetic_gmail_proof_authorization_id,
     });
     providerAccepted = gmailDelivery.usedGmail;
     if (!gmailDelivery.usedGmail) {
+      const automaticGate = refundOutboxAutomaticSendGate(
+        message.delivery_kind,
+      );
+      if (automaticGate) throw new RefundOutboxGateError(automaticGate);
       await markRefundTransactionalDeliveryAttempt({
         supabase,
         refundCaseMessageId: message.id,
@@ -384,6 +531,45 @@ export const deliverRefundManualMessageClaim = async ({
       payloadRedacted: true,
     };
   } catch (error) {
+    if (
+      error instanceof RefundGmailError &&
+      error.code === "gmail_shutdown_claim_settlement_failed"
+    ) {
+      throw error;
+    }
+    const automaticGateReason = error instanceof RefundOutboxGateError
+      ? error.code
+      : error instanceof RefundTransactionalDeliveryGateError
+      ? error.code
+      : error instanceof RefundGmailError && [
+          "refund_automation_disabled",
+          "automatic_contact_disabled",
+        ].includes(error.code)
+      ? error.code
+      : null;
+    if (
+      message.delivery_kind === "automatic" && !providerAccepted &&
+      ["refund_automation_disabled", "automatic_contact_disabled"].includes(
+        automaticGateReason ?? "",
+      )
+    ) {
+      await deferAutomaticClaim({
+        supabase,
+        reference,
+        reason: automaticGateReason as
+          | "refund_automation_disabled"
+          | "automatic_contact_disabled",
+      });
+      return {
+        messageId: message.id,
+        outcome: "deferred",
+        transport: null,
+        managerCcCount: 0,
+        recipientResolutionStatus: null,
+        triageReviewStatus: "not_applicable",
+        payloadRedacted: true,
+      };
+    }
     const deliveryUnknown =
       (error instanceof RefundGmailError && error.deliveryUncertain) ||
       error instanceof TransactionalEmailDeliveryUnknownError ||
@@ -430,10 +616,12 @@ export const drainRefundManualMessageOutbox = async ({
   supabase,
   messageId = null,
   limit = 10,
+  deliverClaim = deliverRefundManualMessageClaim,
 }: {
   supabase: SupabaseClient;
   messageId?: string | null;
   limit?: number;
+  deliverClaim?: typeof deliverRefundManualMessageClaim;
 }) => {
   if (!refundManualMessageOutboxEnabled()) return [];
   const claims = await claimRefundManualMessageDeliveries({
@@ -444,7 +632,7 @@ export const drainRefundManualMessageOutbox = async ({
   const results: RefundManualMessageDeliveryResult[] = [];
   for (const reference of claims) {
     results.push(
-      await deliverRefundManualMessageClaim({ supabase, reference }),
+      await deliverClaim({ supabase, reference }),
     );
   }
   return results;

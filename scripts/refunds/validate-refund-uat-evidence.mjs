@@ -190,7 +190,8 @@ const machineFixtures = {
       },
       customerContact: {
         disabled: true,
-        deliveryClaimCount: 0,
+        deliveryClaimCount: 1,
+        deliveryFinishCount: 1,
         providerFetchCount: 0,
         providerSendCount: 0,
       },
@@ -248,7 +249,8 @@ const rawFragmentFixtures = {
       },
       customerContact: {
         disabled: true,
-        deliveryClaimCount: 0,
+        deliveryClaimCount: 1,
+        deliveryFinishCount: 1,
         providerFetchCount: 0,
         providerSendCount: 0,
       },

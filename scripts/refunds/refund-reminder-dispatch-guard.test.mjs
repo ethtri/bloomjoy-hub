@@ -112,7 +112,9 @@ function harness(transport, { bounceAfterPending = false, bounceAfterProviderAcc
         providerThreadId: 'synthetic-provider-thread', subject: gmailSubject, ...route }, error: null };
     },
   };
-  const gmail = execute(read('supabase/functions/_shared/refund-gmail-transport.ts'), {}, {
+  const gmail = execute(read('supabase/functions/_shared/refund-gmail-transport.ts'), {
+    Deno: { env: { get: (name) => name === 'REFUND_AUTOMATION_ENABLED' ? 'true' : undefined } },
+  }, {
     './refund-gmail.ts': {
       RefundGmailError,
       getRefundGmailConfig: () => ({ mailbox: 'mailbox@example.invalid', mailboxIdentities: ['mailbox@example.invalid'] }),

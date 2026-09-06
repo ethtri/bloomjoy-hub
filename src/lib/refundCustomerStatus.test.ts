@@ -206,3 +206,26 @@ Deno.test('confirmed copy distinguishes Nayax approval from bank posting', () =>
   );
   assertEquals(copy.detail, 'Nayax has approved your refund. Your bank may take up to 4 business days to show it on your account.');
 });
+
+Deno.test('receipt notice exceptions keep refreshing while accounting details stay private', () => {
+  for (const messageState of ['pending', 'failed', 'delivery_unconfirmed'] as const) {
+    const receipt = {
+      ...lifecycle('refund_confirmed', 70),
+      reasonCode: 'settlement_time_unknown',
+      paymentWorkComplete: true,
+      accountingState: {
+        state: 'pending', owner: 'Refund Operations', settlementTimePrecision: 'unknown',
+        settledAt: null, blocksPaymentCompletion: false, blocksCustomerNotice: false,
+        payloadRedacted: true, providerReference: 'private',
+      },
+      managerQueue: { bucket: 'accounting_review', owner: 'Refund Operations' },
+      messageState: { state: messageState, payloadRedacted: true },
+    };
+    const parsed = requireRefundCustomerLifecycle(receipt);
+    assertEquals(getRefundCustomerRefreshMs(parsed), 5_000, `${messageState} keeps polling`);
+    assertEquals(getRefundCustomerStatusCopy(parsed).title, 'Refund confirmed');
+    assertEquals(Object.keys(parsed).includes('paymentWorkComplete'), false);
+    assertEquals(Object.keys(parsed).includes('accountingState'), false);
+    assertEquals(Object.keys(parsed).includes('managerQueue'), false);
+  }
+});

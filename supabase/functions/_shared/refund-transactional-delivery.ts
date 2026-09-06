@@ -27,6 +27,13 @@ export type RefundTransactionalDeliveryWebhook = {
   eventAt: string;
 };
 
+export class RefundTransactionalDeliveryGateError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+    this.name = "RefundTransactionalDeliveryGateError";
+  }
+}
+
 const PROVIDER_MESSAGE_ID_PATTERN = /^[A-Za-z0-9_-]{8,255}$/;
 
 const RESEND_EVENT_STATES: Record<string, RefundTransactionalDeliveryState> = {
@@ -122,6 +129,14 @@ export const markRefundTransactionalDeliveryAttempt = async ({
   const result = data && typeof data === "object"
     ? data as Record<string, unknown>
     : null;
+  if (
+    !error && result?.payloadRedacted === true && result.marked === false &&
+    result.status === "automatic_contact_disabled"
+  ) {
+    throw new RefundTransactionalDeliveryGateError(
+      "automatic_contact_disabled",
+    );
+  }
   if (error || result?.marked !== true || result.payloadRedacted !== true) {
     throw new Error("Transactional delivery attempt could not be recorded.");
   }

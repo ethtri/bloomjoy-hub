@@ -24,6 +24,7 @@ export const refundManagerQueueBuckets = [
   "ready_to_pay",
   "in_progress",
   "provider_hold",
+  "accounting_review",
   "integrity_hold",
   "waiting_on_customer",
   "completed",
@@ -39,6 +40,16 @@ export type RefundManagerQueueContract = {
   nextAction: string;
   safeRetryEligible: boolean;
   customerActionFields?: string[];
+  payloadRedacted: true;
+};
+
+export type RefundAccountingState = {
+  state: "pending";
+  owner: "Refund Operations";
+  settlementTimePrecision: "unknown";
+  settledAt: null;
+  blocksPaymentCompletion: false;
+  blocksCustomerNotice: false;
   payloadRedacted: true;
 };
 
@@ -62,6 +73,8 @@ export type RefundLifecycleContract = {
     payloadRedacted: true;
   };
   paymentState: string;
+  paymentWorkComplete?: true;
+  accountingState?: RefundAccountingState;
   messageState: {
     state: string;
     messageType: string | null;
@@ -97,6 +110,7 @@ export type RefundLifecycleContract = {
   terminal: boolean;
   refreshAfterSeconds: number | null;
   managerQueue: RefundManagerQueueContract;
+  managerVisibility?: "restricted";
   definitiveNoRefund?: boolean;
   safeRetryEligible?: boolean;
   lookup: {
@@ -107,8 +121,8 @@ export type RefundLifecycleContract = {
   };
   operations: {
     required: boolean;
-    queue: "Refund Operations";
-    owner: "Refund Operations";
+    queue: "Refund Operations" | "System";
+    owner: "Refund Operations" | "System";
     slaMinutes: 60;
     ageMinutes: number | null;
     dueAt: string | null;
@@ -122,6 +136,12 @@ export type RefundLifecycleContract = {
 
 const stageSet = new Set<string>(refundLifecycleStages);
 const managerQueueBucketSet = new Set<string>(refundManagerQueueBuckets);
+const exactObjectKeys = (value: Record<string, unknown>, expected: string[]) => {
+  const actual = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  return actual.length === sortedExpected.length &&
+    actual.every((key, index) => key === sortedExpected[index]);
+};
 
 export const isRefundLifecycleContract = (
   value: unknown,
@@ -137,6 +157,27 @@ export const isRefundLifecycleContract = (
   const locationEvidence = contract.locationEvidence as Record<string, unknown> | null;
   const customerReported = locationEvidence?.customerReported as Record<string, unknown> | null;
   const normalizedLocation = locationEvidence?.normalized as Record<string, unknown> | null;
+  const accountingState = contract.accountingState as Record<string, unknown> | null;
+  const hasAccountingState = contract.paymentWorkComplete !== undefined ||
+    contract.accountingState !== undefined;
+  const hasRestrictedManagerProjection = contract.managerVisibility !== undefined;
+  const noticeComplete = ["sent", "delivered"].includes(String(messageState?.state));
+  const projectedAction = noticeComplete ? "none" : "wait";
+  const projectedBucket = noticeComplete ? "completed" : "in_progress";
+  const projectedLabel = noticeComplete
+    ? "Refund confirmed · customer notified"
+    : messageState?.state === "pending"
+    ? "Refund confirmed · customer notice queued"
+    : ["failed", "delivery_unconfirmed"].includes(String(messageState?.state))
+    ? "Refund confirmed · customer notice delivery pending"
+    : "Refund confirmed · customer notice pending";
+  const projectedReason = noticeComplete
+    ? "completion_sent"
+    : messageState?.state === "delivery_unconfirmed"
+    ? "completion_delivery_unconfirmed"
+    : messageState?.state === "failed"
+    ? "completion_delivery_failed"
+    : "customer_notification_pending";
   return contract.schemaVersion === REFUND_LIFECYCLE_SCHEMA_VERSION &&
     typeof contract.version === "number" && Number.isSafeInteger(contract.version) &&
     contract.version >= 1 &&
@@ -154,6 +195,101 @@ export const isRefundLifecycleContract = (
     typeof managerAction?.safeRetryEligible === "boolean" &&
     managerAction?.payloadRedacted === true &&
     typeof contract.paymentState === "string" &&
+    (!hasAccountingState ||
+      (contract.paymentWorkComplete === true &&
+        Boolean(accountingState) &&
+        exactObjectKeys(accountingState!, [
+          "blocksCustomerNotice", "blocksPaymentCompletion", "owner", "payloadRedacted",
+          "settledAt", "settlementTimePrecision", "state",
+        ]) &&
+        contract.reasonCode === "settlement_time_unknown" &&
+        contract.paymentState === "confirmed" &&
+        ["refund_confirmed", "customer_notified"].includes(String(contract.stage)) &&
+        contract.safeRetryEligible === false &&
+        contract.managerNextAction === "review_accounting_date" &&
+        contract.terminal === noticeComplete &&
+        contract.refreshAfterSeconds === (noticeComplete ? null : 5) &&
+        exactObjectKeys(managerAction!, [
+          "action", "owner", "payloadRedacted", "safeRetryEligible",
+        ]) &&
+        managerAction?.action === "review_accounting_date" &&
+        managerAction?.owner === "Refund Operations" &&
+        managerAction?.safeRetryEligible === false &&
+        managerAction?.payloadRedacted === true &&
+        Boolean(managerQueue) &&
+        exactObjectKeys(managerQueue!, [
+          "bucket", "customerActionFields", "label", "nextAction", "payloadRedacted",
+          "safeRetryEligible", "schemaVersion",
+        ]) &&
+        managerQueue?.schemaVersion === "refund_manager_queue_v2" &&
+        managerQueue?.bucket === "accounting_review" &&
+        managerQueue?.label === "Refund confirmed · accounting review" &&
+        managerQueue?.nextAction === "review_accounting_date" &&
+        managerQueue?.safeRetryEligible === false &&
+        Array.isArray(managerQueue?.customerActionFields) &&
+        managerQueue.customerActionFields.length === 0 &&
+        managerQueue?.payloadRedacted === true &&
+        lookup?.safeRetryEligible === false &&
+        operations?.required === true &&
+        operations?.queue === "Refund Operations" &&
+        operations?.owner === "Refund Operations" &&
+        operations?.safeStage === "payment_confirmed_accounting_pending" &&
+        operations?.failureClass === "settlement_time_unknown" &&
+        accountingState?.state === "pending" &&
+        accountingState?.owner === "Refund Operations" &&
+        accountingState?.settlementTimePrecision === "unknown" &&
+        accountingState?.settledAt === null &&
+        accountingState?.blocksPaymentCompletion === false &&
+        accountingState?.blocksCustomerNotice === false &&
+        accountingState?.payloadRedacted === true)) &&
+    (!hasRestrictedManagerProjection ||
+      (contract.managerVisibility === "restricted" &&
+        !hasAccountingState &&
+        contract.paymentState === "confirmed" &&
+        ["refund_confirmed", "customer_notified"].includes(String(contract.stage)) &&
+        contract.reasonCode === projectedReason &&
+        contract.safeRetryEligible === false &&
+        lookup?.safeRetryEligible === false &&
+        contract.managerNextAction === projectedAction &&
+        contract.terminal === noticeComplete &&
+        contract.refreshAfterSeconds === (noticeComplete ? null : 5) &&
+        exactObjectKeys(managerAction!, [
+          "action", "owner", "payloadRedacted", "safeRetryEligible",
+        ]) &&
+        managerAction?.action === projectedAction &&
+        managerAction?.owner === "System" &&
+        managerAction?.safeRetryEligible === false &&
+        managerAction?.payloadRedacted === true &&
+        Boolean(managerQueue) &&
+        exactObjectKeys(managerQueue!, [
+          "bucket", "customerActionFields", "label", "nextAction", "payloadRedacted",
+          "safeRetryEligible", "schemaVersion",
+        ]) &&
+        managerQueue?.schemaVersion === "refund_manager_queue_v2" &&
+        managerQueue?.bucket === projectedBucket &&
+        managerQueue?.label === projectedLabel &&
+        managerQueue?.nextAction === projectedAction &&
+        managerQueue?.safeRetryEligible === false &&
+        Array.isArray(managerQueue?.customerActionFields) &&
+        managerQueue.customerActionFields.length === 0 &&
+        managerQueue?.payloadRedacted === true &&
+        Boolean(operations) &&
+        exactObjectKeys(operations!, [
+          "ageMinutes", "dueAt", "failureClass", "nextStep", "owner", "queue",
+          "required", "safeStage", "slaBreached", "slaMinutes",
+        ]) &&
+        operations?.required === false &&
+        operations?.queue === "System" &&
+        operations?.owner === "System" &&
+        operations?.slaMinutes === 60 &&
+        operations?.ageMinutes === null &&
+        operations?.dueAt === null &&
+        operations?.slaBreached === false &&
+        operations?.safeStage === (noticeComplete
+          ? "customer_notice_complete"
+          : "customer_notice_pending") &&
+        operations?.failureClass === null &&
+        operations?.nextStep === null)) &&
     Boolean(messageState) && typeof messageState?.state === "string" &&
     messageState?.payloadRedacted === true &&
     ["customer", "internal_test"].includes(String(contract.classification)) &&
@@ -188,8 +324,11 @@ export const isRefundLifecycleContract = (
     contract.payloadRedacted === true &&
     Boolean(lookup) && typeof lookup?.status === "string" &&
     typeof lookup?.safeRetryEligible === "boolean" &&
-    Boolean(operations) && operations?.queue === "Refund Operations" &&
-    operations?.owner === "Refund Operations" &&
+    Boolean(operations) &&
+    ((hasRestrictedManagerProjection && operations?.queue === "System" &&
+      operations?.owner === "System") ||
+      (!hasRestrictedManagerProjection && operations?.queue === "Refund Operations" &&
+        operations?.owner === "Refund Operations")) &&
     operations?.slaMinutes === 60 &&
     typeof operations?.required === "boolean";
 };

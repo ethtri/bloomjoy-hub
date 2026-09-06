@@ -467,11 +467,13 @@ const validateCustomerContactKillSwitchCounts = (value, label) => {
   assertExactKeys(value, [
     'disabled',
     'deliveryClaimCount',
+    'deliveryFinishCount',
     'providerFetchCount',
     'providerSendCount',
   ], label);
   assertLiteral(value.disabled, true, `${label} disabled flag`);
-  assertLiteral(value.deliveryClaimCount, 0, `${label} delivery-claim count`);
+  assertLiteral(value.deliveryClaimCount, 1, `${label} delivery-claim count`);
+  assertLiteral(value.deliveryFinishCount, 1, `${label} delivery-finish count`);
   assertLiteral(value.providerFetchCount, 0, `${label} provider-fetch count`);
   assertLiteral(value.providerSendCount, 0, `${label} provider-send count`);
 };

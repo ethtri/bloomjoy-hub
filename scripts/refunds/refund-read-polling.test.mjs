@@ -88,6 +88,10 @@ test('overview cadence recovers missing reads without declaring terminal and res
  assert.equal(refundOverviewPollingInterval([{lifecycle:{terminal:true,refreshAfterSeconds:5}}]),false);
  assert.equal(refundOverviewPollingInterval([{lifecycle:{terminal:false,refreshAfterSeconds:5}}]),5000);
  assert.equal(refundOverviewPollingInterval([{lifecycle:{terminal:false,refreshAfterSeconds:60}}]),15000);
+ for(const messageState of ['pending','failed','delivery_unconfirmed']) {
+  assert.equal(refundOverviewPollingInterval([{lifecycle:{terminal:false,refreshAfterSeconds:5,
+   paymentWorkComplete:true,accountingState:{state:'pending'},messageState:{state:messageState}}}]),5000,messageState);
+ }
 });
 
 test('terminal availability includes only the same authorized internal-case scope as the workbench',()=>{
