@@ -23,7 +23,7 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
   issue_summary,incident_at,incident_timezone,payment_method,payment_amount_cents,refund_amount_cents,card_last4,
   status,decision,decision_reason,decided_by,decided_at,correlation_status,correlation_source,deterministic_fact_version,
   nayax_refund_execution_status,matched_nayax_transaction_id,duplicate_of_refund_case_id,refund_completed_at,
-  customer_request_received_at,customer_request_received_source)
+  customer_request_received_at,customer_request_received_source,incident_time_resolution,incident_time_confidence)
 select pg_temp.case_id(n),'RF-APPROVED-LOOKUP-'||n,'fa440000-0000-4000-8000-000000000001',
   'fa430000-0000-4000-8000-000000000001','lookup-customer@example.invalid','Synthetic approved lookup',
   now()-interval '2 days','America/New_York',case when n=8 then 'cash' else 'card' end,963,963,'4242',
@@ -34,7 +34,7 @@ select pg_temp.case_id(n),'RF-APPROVED-LOOKUP-'||n,'fa440000-0000-4000-8000-0000
   case when n=7 then 'EXISTING-ORIGINAL-0007' else null end,
   case when n=6 then pg_temp.case_id(1) else null end,
   case when n in(4,11) then now()-interval '1 hour' else null end,
-  now()-interval '1 day','hosted_refund_intake'
+  now()-interval '1 day','hosted_refund_intake','exact','exact'
 from generate_series(1,19) n;
 
 -- Active triggers remain enabled. These retained historical records distinguish
@@ -115,17 +115,29 @@ begin
     (823456780+n)::text,6,now()-interval '2 days',original_amount,'4242','USD',
     jsonb_build_object(
       'selection_allowed',true,'is_recommended',true,'one_click_eligible',true,
-      'recommendation_state','high_confidence','policy_version','2026-09-05.v8',
+      'recommendation_state','high_confidence','policy_version','2026-09-05.v10',
+      'identifier_policy_version','2026-09-05.identifier.v1','customer_fact_version',1,
+      'customer_credential_class','customer_identifier_unknown',
+      'provider_identifier_class','last_sales_identifier_unknown',
+      'card_last4_comparison','exact_support','card_network_comparison','missing',
+      'payment_interaction_comparison','unknown','same_identifier_equivalence_proven',false,
+      'identifier_review_state','exact_support','customer_correction_fields','[]'::jsonb,
+      'hard_exclusions','[]'::jsonb,'reason_codes','[]'::jsonb,
       'lookup_account_scope','APPROVED_LOOKUP_ACCOUNT','lookup_provider_machine_id','APPROVED-LOOKUP-MACHINE',
       'provider_machine_id','APPROVED-LOOKUP-MACHINE','machine_authorization_time_raw','2026-09-02T10:10:00',
-      'machine_authorization_time_source','MachineAuthorizationTime','provider_time_resolution','exact',
+      'machine_authorization_at',now()-interval '2 days',
+      'machine_authorization_time_source','MachineAuthorizationTime','machine_time_resolution','exact',
+      'provider_time_resolution','exact',
       'provider_time_source','authorization_gmt','authorized_at',now()-interval '2 days',
       'customer_request_received_at',now()-interval '1 day',
       'customer_request_received_source','hosted_refund_intake',
-      'request_time_boundary','before_or_at_request','transaction_occurrence_comparable',true
+      'request_time_boundary','before_or_at_request','transaction_occurrence_comparable',true,
+      'payment_status','approved','payment_status_evidence','last_sales_contract',
+      'provider_refund_state','clear','duplicate_provider_record',false,
+      'amount_delta_cents',abs(original_amount-963),'time_delta_minutes',0
     ),now()+interval '1 hour');
   perform public.service_commit_refund_nayax_lookup(pg_temp.case_id(n),generation,1,'match_found','high_confidence',
-    '2026-09-05.v8',now(),'Synthetic exact candidate',null,1,'manual','fa410000-0000-4000-8000-000000000001');
+    '2026-09-05.v10',now(),'Synthetic exact candidate',null,1,'manual','fa410000-0000-4000-8000-000000000001');
   return token_id;
 end;
 $$;

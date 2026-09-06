@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(34);
+select plan(39);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('fe110000-0000-4000-8000-000000000001','authenticated','authenticated',
@@ -65,7 +65,7 @@ create function pg_temp.identifier_evidence(
     'selection_allowed',true,'is_recommended',recommended,'one_click_eligible',false,
     'recommendation_state',case when recommended then 'manual_exception' else 'ambiguous' end,
     'confidence_class',case when recommended then 'evidence_aware_review' else 'ambiguous_manual' end,
-    'policy_version','2026-09-05.v9','identifier_policy_version','2026-09-05.identifier.v1',
+    'policy_version','2026-09-05.v10','identifier_policy_version','2026-09-05.identifier.v1',
     'customer_fact_version',c.deterministic_fact_version,
     'customer_credential_class','customer_physical_contactless_pan',
     'provider_identifier_class','last_sales_contactless_identifier_unverified',
@@ -78,6 +78,7 @@ create function pg_temp.identifier_evidence(
     'recommendation_rank',1,'lookup_account_scope','IDENTIFIER_ACCOUNT',
     'lookup_provider_machine_id','IDENTIFIER-MACHINE','provider_machine_id','IDENTIFIER-MACHINE',
     'machine_authorization_time_raw','2026-09-05T11:15:00','machine_authorization_time_source','MachineAuthorizationTime',
+    'machine_authorization_at',authorized_at,
     'machine_time_resolution','exact','provider_time_resolution','exact','provider_time_source','authorization_gmt',
     'authorized_at',authorized_at,'customer_request_received_at',c.customer_request_received_at,
     'customer_request_received_source',c.customer_request_received_source,
@@ -149,7 +150,45 @@ select is(public.refund_nayax_identifier_evidence_state(4,
 select is(public.refund_nayax_identifier_evidence_state(4,
   pg_temp.identifier_evidence('fe150000-0000-4000-8000-000000000001','2026-09-05T18:15:00Z',true)
     - 'identifier_policy_version'),
-  'refresh','Current v9 evidence cannot bypass identifier validation by omitting its policy version');
+  'refresh','Current v10 evidence cannot bypass identifier validation by omitting its policy version');
+
+select is(public.refund_nayax_candidate_identifier_evidence_state(
+  'fe150000-0000-4000-8000-000000000001','fe140000-0000-4000-8000-000000000001',7,
+  '2026-09-05T18:14:58.810Z',1090,'6768','USD',
+  pg_temp.exact_identifier_evidence(
+    'fe150000-0000-4000-8000-000000000001','2026-09-05T18:15:00Z',0,true
+  ) || jsonb_build_object('machine_authorization_at','2026-09-05T18:14:58.810Z')),
+  'valid','Occurrence time drives distance while the distinct machine clock remains the exact API binding');
+select is(public.refund_nayax_candidate_identifier_evidence_state(
+  'fe150000-0000-4000-8000-000000000001','fe140000-0000-4000-8000-000000000001',7,
+  '2026-09-05T18:14:58.810Z',1090,'6768','USD',
+  pg_temp.exact_identifier_evidence(
+    'fe150000-0000-4000-8000-000000000001','2026-09-05T18:15:00Z',0,true
+  )),
+  'invalid','The normalized raw machine clock cannot be replaced by the separate occurrence time');
+select is(public.refund_nayax_candidate_identifier_evidence_state(
+  'fe150000-0000-4000-8000-000000000003','fe140000-0000-4000-8000-000000000001',7,
+  '2026-09-05T18:15:00Z',1090,'6768','USD',
+  pg_temp.exact_identifier_evidence(
+    'fe150000-0000-4000-8000-000000000003','2026-09-05T18:15:00Z',0,false
+  ) || jsonb_build_object(
+    'customer_request_received_at',null,'customer_request_received_source',null,
+    'request_time_boundary','request_time_unknown','reason_codes','["customer_request_time_unknown"]'::jsonb
+  )),
+  'valid','Unknown immutable request time retains exact-suffix provider evidence for manager review');
+select is(public.refund_nayax_candidate_identifier_evidence_state(
+  'fe150000-0000-4000-8000-000000000003','fe140000-0000-4000-8000-000000000001',7,
+  '2026-09-05T18:15:00Z',1090,'3760','USD',
+  pg_temp.identifier_evidence(
+    'fe150000-0000-4000-8000-000000000003','2026-09-05T18:15:00Z',false
+  ) || jsonb_build_object(
+    'selection_allowed',false,'identifier_review_state','needs_corroboration',
+    'customer_correction_fields','[]'::jsonb,
+    'customer_request_received_at',null,'customer_request_received_source',null,
+    'request_time_boundary','request_time_unknown',
+    'reason_codes','["card_last4_mismatch","customer_request_time_unknown"]'::jsonb
+  )),
+  'valid','Unknown immutable request time retains suffix-mismatch evidence without inventing customer work');
 
 create temp table parity_claim as
 select (public.service_begin_refund_nayax_lookup('fe150000-0000-4000-8000-000000000004',4,'manual',
@@ -244,7 +283,7 @@ select 'fe160000-0000-4000-8000-000000000014','fe150000-0000-4000-8000-000000000
      'reason_codes','["machine_exact","amount_exact","card_last4_mismatch","customer_occurrence_evidence_needed","nearby_attempt_count_needed"]'::jsonb),
  statement_timestamp()+interval '1 hour' from correction_claim;
 select is((public.service_commit_refund_nayax_lookup('fe150000-0000-4000-8000-000000000005',
-  (select generation from correction_claim),4,'manual_exception','manual_exception','2026-09-05.v9',
+  (select generation from correction_claim),4,'manual_exception','manual_exception','2026-09-05.v10',
   statement_timestamp(),'Two customer facts can resolve the same case',null,1,'manual',
   'fe110000-0000-4000-8000-000000000001')->>'applied'),'true',
   'The structured v9 correction lookup commits through the generation guard');
@@ -299,11 +338,14 @@ select 'fe160000-0000-4000-8000-000000000006','fe150000-0000-4000-8000-000000000
      'provider_identifier_class','card_last4_comparison','card_network_comparison',
      'payment_interaction_comparison','same_identifier_equivalence_proven',
      'identifier_review_state','customer_correction_fields'])
-   || '{"policy_version":"2026-08-26.v5"}'::jsonb,
+   || jsonb_build_object(
+     'policy_version','2026-09-05.v8','customer_request_received_at',null,
+     'customer_request_received_source',null,'request_time_boundary','request_time_unknown'
+   ),
  statement_timestamp()+interval '1 hour' from readonly_claim$$,
- 'Historical pre-v8 evidence can load without changing its immutable audit row');
+ 'Historical v8 evidence can load without changing its immutable audit row');
 select is((public.service_commit_refund_nayax_lookup('fe150000-0000-4000-8000-000000000003',
-  (select generation from readonly_claim),4,'manual_exception','manual_exception','2026-08-26.v5',
+  (select generation from readonly_claim),4,'manual_exception','manual_exception','2026-09-05.v8',
   statement_timestamp(),'Historical evidence requires refresh',null,1,'manual',
   'fe110000-0000-4000-8000-000000000001')->>'applied'),'true',
   'Historical read-only evidence can complete its lookup lifecycle');
@@ -313,7 +355,7 @@ select throws_ok(format($$select public.service_select_refund_nayax_candidate_as
   'fe160000-0000-4000-8000-000000000006',null)$$,
   (select official_action_version from public.refund_cases where id='fe150000-0000-4000-8000-000000000003')),
   'P4626','Refresh Nayax transactions to use current identifier evidence',
-  'Historical pre-v8 evidence cannot create a new exact transaction binding');
+  'Historical v8 evidence cannot create a new exact transaction binding');
 reset role;
 select is(public.refund_nayax_candidate_identifier_evidence_state(
   'fe150000-0000-4000-8000-000000000003','fe140000-0000-4000-8000-000000000001',8,
@@ -327,7 +369,7 @@ select is(public.refund_nayax_candidate_identifier_evidence_state(
     || '{"customer_credential_class":"customer_wallet_device_token"}'::jsonb),
   'invalid','Current payment interaction, provenance, source and wallet facts bind the credential class');
 select is((public.service_commit_refund_nayax_lookup('fe150000-0000-4000-8000-000000000001',
-  (select generation from review_claim),4,'manual_exception','manual_exception','2026-09-05.v9',
+  (select generation from review_claim),4,'manual_exception','manual_exception','2026-09-05.v10',
   statement_timestamp(),'One transaction needs manager review',null,1,'manual',
   'fe110000-0000-4000-8000-000000000001')->>'applied'),'true',
   'The reviewable lookup commits through the generation guard');
@@ -340,6 +382,26 @@ select is((public.service_select_refund_nayax_candidate_as_actor(
   (select official_action_version from public.refund_cases where id='fe150000-0000-4000-8000-000000000001'),
   'fe160000-0000-4000-8000-000000000001',null)->>'selectionApplied'),'true',
   'One recommended reviewable uncertainty needs no redundant disagreement reason');
+reset role;
+insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
+ actor_user_id,reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,
+ amount_cents,card_last4,currency_code,evidence_summary,expires_at)
+select 'fe160000-0000-4000-8000-000000000015','fe150000-0000-4000-8000-000000000001',generation,
+ 'fe110000-0000-4000-8000-000000000001','fe140000-0000-4000-8000-000000000001',
+ 'IDENTIFIER-REVIEW-TX',7,'2026-09-05T18:15:00Z',1090,'3760','USD',
+ (pg_temp.identifier_evidence('fe150000-0000-4000-8000-000000000001','2026-09-05T18:15:00Z',true)
+   - array['identifier_policy_version','customer_fact_version','customer_credential_class',
+     'provider_identifier_class','card_last4_comparison','card_network_comparison',
+     'payment_interaction_comparison','same_identifier_equivalence_proven',
+     'identifier_review_state','customer_correction_fields'])
+   || '{"policy_version":"2026-09-05.v8"}'::jsonb,
+ statement_timestamp()+interval '1 hour' from review_claim;
+set local role service_role;
+select lives_ok(format($$select public.service_select_refund_nayax_candidate_as_actor(
+  'fe110000-0000-4000-8000-000000000001','fe150000-0000-4000-8000-000000000001',%s,
+  'fe160000-0000-4000-8000-000000000015',null)$$,
+  (select official_action_version from public.refund_cases where id='fe150000-0000-4000-8000-000000000001')),
+  'An unchanged exact replay preserves the binding without granting legacy evidence new selection authority');
 reset role;
 select ok((select matched_nayax_transaction_id='IDENTIFIER-REVIEW-TX'
   and nayax_match_execution_eligible=false from public.refund_cases
@@ -369,7 +431,7 @@ from ambiguous_claim cross join (values
  ('fe160000-0000-4000-8000-000000000003'::uuid,'IDENTIFIER-AMBIGUOUS-B',9,'2026-09-05T18:16:00Z'::timestamptz,'4488')
 ) v(token,transaction_id,site_id,authorized_at,last4);
 select is((public.service_commit_refund_nayax_lookup('fe150000-0000-4000-8000-000000000002',
-  (select generation from ambiguous_claim),4,'multiple_matches','ambiguous','2026-09-05.v9',
+  (select generation from ambiguous_claim),4,'multiple_matches','ambiguous','2026-09-05.v10',
   statement_timestamp(),'Two transactions require manager corroboration',null,2,'manual',
   'fe110000-0000-4000-8000-000000000001')->>'applied'),'true',
   'Ambiguous evidence remains visible');

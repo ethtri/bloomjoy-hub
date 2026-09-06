@@ -39,11 +39,12 @@ $$;
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,
  issue_summary,incident_at,incident_timezone,payment_method,payment_amount_cents,refund_amount_cents,card_last4,
  status,decision,decision_reason,decided_by,decided_at,correlation_status,correlation_source,deterministic_fact_version,
- nayax_refund_execution_status,incident_time_confidence,customer_request_received_at,customer_request_received_source)
+ nayax_refund_execution_status,incident_time_resolution,incident_time_confidence,
+ customer_request_received_at,customer_request_received_source)
 select pg_temp.case_id(n),'RF-DIAGNOSTIC-'||n,'fc440000-0000-4000-8000-000000000001',
  'fc430000-0000-4000-8000-000000000001','diagnostics-customer@example.invalid','Synthetic diagnostics',
  '2026-08-29T20:10:00Z','America/New_York','card',963,963,'4242','needs_review','approved','Ordinary decision',
- 'fc410000-0000-4000-8000-000000000001',now()-interval '1 day','no_match','nayax',1,'not_requested',
+ 'fc410000-0000-4000-8000-000000000001',now()-interval '1 day','no_match','nayax',1,'not_requested','exact',
  case n when 5 then 'within_15_minutes' when 6 then 'within_1_hour' else 'rough' end,
  '2026-08-30T00:00:00Z','hosted_refund_intake'
 from generate_series(1,8) n;
@@ -114,19 +115,23 @@ begin
     provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
   values(token_id,pg_temp.case_id(n),generation,'fc410000-0000-4000-8000-000000000001','fc440000-0000-4000-8000-000000000001',
     (923456780+n)::text,4,'2026-08-29T20:10:00Z'::timestamptz+minute_offset*interval '1 minute',963,'4242','USD',
-    '{"selection_allowed":true,"is_recommended":true,"one_click_eligible":true,"recommendation_state":"high_confidence","policy_version":"2026-09-05.v8","lookup_account_scope":"CLOCK_ACCOUNT","lookup_provider_machine_id":"CLOCK-MACHINE","provider_machine_id":"CLOCK-MACHINE","machine_authorization_time_raw":"2026-08-29T13:10:00","machine_authorization_time_source":"MachineAuthorizationTime","machine_time_resolution":"exact","provider_time_resolution":"exact","provider_time_source":"verified_machine_clock","customer_request_received_at":"2026-08-30T00:00:00Z","customer_request_received_source":"hosted_refund_intake","request_time_boundary":"before_or_at_request","transaction_occurrence_comparable":true}'::jsonb
-      ||jsonb_build_object('machine_clock_context',coalesce(clock_override,pg_temp.clock_context()),
+    '{"selection_allowed":true,"is_recommended":true,"one_click_eligible":true,"recommendation_state":"high_confidence","policy_version":"2026-09-05.v10","identifier_policy_version":"2026-09-05.identifier.v1","customer_fact_version":1,"customer_credential_class":"customer_identifier_unknown","provider_identifier_class":"last_sales_identifier_unknown","card_last4_comparison":"exact_support","card_network_comparison":"missing","payment_interaction_comparison":"unknown","same_identifier_equivalence_proven":false,"identifier_review_state":"exact_support","customer_correction_fields":[],"hard_exclusions":[],"reason_codes":[],"lookup_account_scope":"CLOCK_ACCOUNT","lookup_provider_machine_id":"CLOCK-MACHINE","provider_machine_id":"CLOCK-MACHINE","machine_authorization_time_raw":"2026-08-29T13:10:00","machine_authorization_time_source":"MachineAuthorizationTime","machine_time_resolution":"exact","provider_time_resolution":"exact","provider_time_source":"verified_machine_clock","customer_request_received_at":"2026-08-30T00:00:00Z","customer_request_received_source":"hosted_refund_intake","request_time_boundary":"before_or_at_request","transaction_occurrence_comparable":true,"payment_status":"approved","payment_status_evidence":"last_sales_contract","provider_refund_state":"clear","duplicate_provider_record":false,"amount_delta_cents":0}'::jsonb
+      ||jsonb_build_object('customer_fact_version',fact_version,
+        'machine_clock_context',coalesce(clock_override,pg_temp.clock_context()),
         'machine_authorization_time_raw',to_char('2026-08-29T13:10:00'::timestamp+minute_offset*interval '1 minute','YYYY-MM-DD"T"HH24:MI:SS'),
-        'authorized_at','2026-08-29T20:10:00Z'::timestamptz+minute_offset*interval '1 minute'),
+        'machine_authorization_at','2026-08-29T20:10:00Z'::timestamptz+minute_offset*interval '1 minute',
+        'authorized_at','2026-08-29T20:10:00Z'::timestamptz+minute_offset*interval '1 minute',
+        'time_delta_minutes',abs(minute_offset)),
     now()+interval '1 hour');
   perform public.service_commit_refund_nayax_lookup(pg_temp.case_id(n),generation,fact_version,'match_found','high_confidence',
-    '2026-09-05.v8',now(),'Synthetic exact candidate',null,1,'manual','fc410000-0000-4000-8000-000000000001');
+    '2026-09-05.v10',now(),'Synthetic exact candidate',null,1,'manual','fc410000-0000-4000-8000-000000000001');
   return token_id;
 end;
 $$;
 -- Case8 is an undecided synthetic case, so an actual non-replay reselection can
 -- exercise its existing supported path without rewriting a real approval.
 update public.refund_cases set decision=null,decision_reason=null,decided_by=null,decided_at=null where id=pg_temp.case_id(8);
+update public.refund_cases set incident_time_confidence='exact' where id in(pg_temp.case_id(7),pg_temp.case_id(8));
 create temp table clock_selection_tokens as select n,pg_temp.prepare_candidate(n) token from generate_series(6,8)n;
 grant select,update on clock_selection_tokens to service_role;
 create function pg_temp.select_candidate(p_n integer) returns jsonb language sql as $$
@@ -147,7 +152,11 @@ begin
   provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
  select next_token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
   provider_transaction_id,site_id,machine_authorization_time+interval '1 minute',amount_cents,card_last4,currency_code,
-  jsonb_set(evidence_summary,'{machine_authorization_time_raw}','"2026-08-29T13:11:00"'),expires_at
+  jsonb_set(
+    jsonb_set(evidence_summary,'{machine_authorization_time_raw}','"2026-08-29T13:11:00"'),
+    '{machine_authorization_at}',
+    to_jsonb(machine_authorization_time+interval '1 minute')
+  ),expires_at
  from public.refund_nayax_lookup_candidates where token=old_token;
  return next_token;
 end;

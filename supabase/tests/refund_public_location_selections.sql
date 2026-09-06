@@ -308,7 +308,7 @@ values (
     'recommendation_state', 'high_confidence',
     'confidence_class', 'strong_card',
     'one_click_eligible', false,
-    'policy_version', '2026-09-05.v9',
+    'policy_version', '2026-09-05.v10',
     'identifier_policy_version', '2026-09-05.identifier.v1',
     'customer_fact_version', (
       select deterministic_fact_version from public.refund_cases
@@ -332,6 +332,7 @@ values (
     'lookup_provider_machine_id', '921900002',
     'provider_machine_id', '921900002',
     'machine_authorization_time_raw', to_char(now() - interval '30 minutes', 'YYYY-MM-DD"T"HH24:MI:SS'),
+    'machine_authorization_at', now() - interval '30 minutes',
     'machine_authorization_time_source', 'MachineAuthorizationTime',
     'machine_time_resolution', 'exact',
     'provider_time_resolution', 'exact',
