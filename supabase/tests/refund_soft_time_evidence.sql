@@ -234,6 +234,7 @@ set evidence_summary=jsonb_set(
 where refund_case_id='fb150000-0000-4000-8000-000000000001';
 set local session_replication_role=origin;
 
+set local session_replication_role=replica;
 update public.refund_nayax_lookup_candidates
 set evidence_summary=evidence_summary || jsonb_build_object(
   'selection_allowed',false,
@@ -243,6 +244,7 @@ set evidence_summary=evidence_summary || jsonb_build_object(
     jsonb_build_array('multiple_candidates_need_distinguishing_time')
 )
 where refund_case_id='fb150000-0000-4000-8000-000000000001';
+set local session_replication_role=origin;
 select is(public.refund_nayax_candidate_identifier_evidence_state(
   'fb150000-0000-4000-8000-000000000001','fb140000-0000-4000-8000-000000000001',14,
   '2026-09-05T18:05:00.123Z',1090,'6768','USD',
