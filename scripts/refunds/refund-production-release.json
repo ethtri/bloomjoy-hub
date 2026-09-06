@@ -163,7 +163,8 @@
     "20260906190125_refund_valley_mall_product_unknown.sql",
     "20260906190727_refund_correction_production_parity.sql",
     "20260906202500_refund_correction_overview_parity.sql",
-    "20260906202952_refund_attempt_continuation_outcomes.sql"
+    "20260906202952_refund_attempt_continuation_outcomes.sql",
+    "20260906222000_refund_attempt_continuation_readiness.sql"
   ],
   "migrationFilesSha256": "4382b1e162966ae53087273d73b4d767c585de05e7a443d4a5783a907c064a12",
   "migrationVersionSetSha256": "f7cc16d3117aee4abae94c1ba9c15a26bc780e627908bc0d39cf5fc0b16fe93f",
