@@ -242,9 +242,9 @@ select lives_ok($$insert into public.refund_nayax_lookup_candidates(token,refund
 select 'fe160000-0000-4000-8000-000000000010','fe150000-0000-4000-8000-000000000004',generation,
  'fe110000-0000-4000-8000-000000000001','fe140000-0000-4000-8000-000000000001',
  'IDENTIFIER-OUTSIDE-AMOUNT',13,'2026-09-05T18:15:00Z',1391,'6768','USD',
- pg_temp.exact_identifier_evidence('fe150000-0000-4000-8000-000000000004','2026-09-05T18:15:00Z',301,false),
+ pg_temp.exact_identifier_evidence('fe150000-0000-4000-8000-000000000004','2026-09-05T18:15:00Z',301,true),
  statement_timestamp()+interval '1 hour' from parity_claim$$,
- 'Exact-suffix amount outside the tolerance persists read-only');
+ 'Exact-suffix amount outside the automatic tolerance remains manager-selectable');
 select throws_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
  actor_user_id,reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,
  amount_cents,card_last4,currency_code,evidence_summary,expires_at)

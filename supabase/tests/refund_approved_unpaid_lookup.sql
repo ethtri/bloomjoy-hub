@@ -167,14 +167,19 @@ create function pg_temp.select_candidate(p_n integer) returns jsonb language sql
 $$;
 set local role service_role;
 select is(pg_temp.select_candidate(12)->>'selectionApplied','true','Exact original selection preserves existing full approval');
-select throws_ok($$select pg_temp.select_candidate(13)$$,'P4604',null,'A larger original cannot silently expand the existing full-refund contract');
+select is(pg_temp.select_candidate(13)->>'selectionApplied','true','Manager selection binds the larger provider original without a second decision');
 select is(pg_temp.select_candidate(12)->>'selectionApplied','false','Exact selection replay creates no second confirmation');
-select throws_ok($$select pg_temp.select_candidate(14)$$,'P4604',null,'A smaller original cannot silently change or exceed the approved amount');
+select is(pg_temp.select_candidate(14)->>'selectionApplied','true','Manager selection binds the smaller provider original without a second decision');
 reset role;
 select ok(not exists(select 1 from selection_approvals_before b join public.refund_cases c using(id)
-  where row(c.decision,c.decision_reason,c.decided_by,c.decided_at,c.refund_amount_cents)
-  is distinct from row(b.decision,b.decision_reason,b.decided_by,b.decided_at,b.refund_amount_cents)),
-  'Successful selection and rejected amount changes keep approved decision, reason, actor, date and amount');
+  where row(c.decision,c.decision_reason,c.decided_by,c.decided_at)
+  is distinct from row(b.decision,b.decision_reason,b.decided_by,b.decided_at)),
+  'Provider-amount rebinding preserves the existing decision, reason, actor and date');
+select ok((select refund_amount_cents=1200 and matched_nayax_amount_cents=1200
+  from public.refund_cases where id=pg_temp.case_id(13))
+  and (select refund_amount_cents=800 and matched_nayax_amount_cents=800
+  from public.refund_cases where id=pg_temp.case_id(14)),
+  'Approved continuations use each selected provider transaction full amount');
 select is(public.refund_case_nayax_manager_readiness('fa410000-0000-4000-8000-000000000001',pg_temp.case_id(12))->>'canIssueCardRefund',
   'true','Selected approved purchase reaches the existing manager refund path without reapproval');
 
@@ -219,7 +224,8 @@ select ok((select nayax_lookup_status='lookup_failed' and nayax_lookup_failure_c
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts where refund_case_id in(pg_temp.case_id(12),pg_temp.case_id(13))),0,
   'Selection and amount rejection perform no payment');
 select ok(not exists(select 1 from public.refund_cases where id in(pg_temp.case_id(13),pg_temp.case_id(14))
-  and matched_nayax_transaction_id is not null),'Different amounts remain unbound for internal review');
+  and refund_amount_cents is distinct from matched_nayax_amount_cents),
+  'Different customer amounts remain exactly bounded to the selected provider originals');
 
 select * from finish();
 rollback;

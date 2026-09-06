@@ -156,7 +156,7 @@ select 'fc160000-0000-4000-8000-000000000002','fc150000-0000-4000-8000-000000000
 
 select is((public.service_commit_refund_nayax_lookup('fc150000-0000-4000-8000-000000000001',
   (select generation from lookup_claim),2,'manual_exception','manual_exception','2026-09-05.v11',
-  statement_timestamp(),'One contactless transaction needs manager review',null,1,'manual',
+  statement_timestamp(),'Two contactless transactions need manager review',null,2,'manual',
   'fc110000-0000-4000-8000-000000000001')->>'applied'),'true',
   'Contactless review result commits through the generation guard');
 
