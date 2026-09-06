@@ -120,6 +120,7 @@ import { cn } from '@/lib/utils';
 const refundSearchViewLabel = (refundCase: RefundCaseRecord) => ({
   needs_action: 'Action needed', ready_to_pay: 'Ready to refund', in_progress: 'In progress',
   waiting_on_customer: 'Waiting', provider_hold: 'Needs Refund Operations',
+  accounting_review: 'Needs Refund Operations',
   integrity_hold: 'Needs Refund Operations', completed: 'Done', internal_archive: 'Internal/test archive',
 })[getRefundManagerQueueBucket(refundCase)];
 
@@ -938,7 +939,7 @@ const isRefundInProgressCase = (refundCase: RefundCaseRecord) => {
 };
 
 const isRefundOperationsCase = (refundCase: RefundCaseRecord) => {
-  if (refundCase.lifecycle) return ['provider_hold', 'integrity_hold'].includes(canonicalQueueBucket(refundCase));
+  if (refundCase.lifecycle) return ['accounting_review', 'provider_hold', 'integrity_hold'].includes(canonicalQueueBucket(refundCase));
   return refundCase.paymentMethod === 'card' &&
     refundCase.lifecycle?.stage === 'needs_refund_operations';
 };

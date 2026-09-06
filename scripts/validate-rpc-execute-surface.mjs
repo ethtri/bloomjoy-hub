@@ -125,6 +125,12 @@ const serviceRoleOnlyFunctions = [
     name: 'operator_pay_statement_payload_for_item',
     migrationName: '202605200006_operator_pay_statements.sql',
   },
+  {
+    signature:
+      'public.service_defer_refund_automatic_completion_delivery(uuid, uuid, text)',
+    name: 'service_defer_refund_automatic_completion_delivery',
+    migrationName: '20260906005234_refund_receipt_automatic_completion_kernel.sql',
+  },
 ];
 
 const protectedAuthenticatedFunctions = [

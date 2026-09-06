@@ -101,9 +101,13 @@ const cardCase = (contract: RefundLifecycleContract) => ({
 
 Deno.test('v2 exception buckets map to visible filters without exposing archive deep links', () => {
   const integrity = { id: 'integrity-case', ...cardCase(lifecycle('integrity_hold', 'integrity_hold', 'refund_operations')) };
+  const accounting = { id: 'accounting-case', ...cardCase(lifecycle('refund_confirmed', 'accounting_review', 'review_accounting_date')) };
   const archived = { id: 'archived-case', ...cardCase(lifecycle('internal_test_archived', 'internal_archive', 'none')) };
   assertEquals(getRefundQueueFilterForCase(integrity, true), 'provider_hold');
   assertEquals(getRefundQueueFilterForCase(integrity, false), 'all');
+  assertEquals(getRefundManagerQueueBucket(accounting), 'accounting_review');
+  assertEquals(getRefundQueueFilterForCase(accounting, true), 'provider_hold');
+  assertEquals(getRefundQueueFilterForCase(accounting, false), 'all');
   assertEquals(getRefundQueueFilterForCase(archived, true), 'internal_test');
   assertEquals(findRefundDeepLinkedCase('integrity-case', [integrity], []), integrity);
   assertEquals(findRefundDeepLinkedCase('archived-case', [integrity], [archived]), archived);

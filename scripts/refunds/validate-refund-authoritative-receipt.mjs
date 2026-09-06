@@ -12,7 +12,7 @@ const edge = read('supabase/functions/refund-case-admin-update/index.ts');
 const tests = read('supabase/tests/refund_authoritative_reconciliation_receipt.sql');
 const panel = read('src/components/refunds/RefundAuthoritativeReceiptPanel.tsx');
 const client = read('src/lib/refundAuthoritativeReceiptApi.ts');
-assert.match(buildReceiptWrapperParityTest(path.resolve('.')), /select plan\(20\)/);
+assert.match(buildReceiptWrapperParityTest(path.resolve('.')), /select plan\(25\)/);
 assert.match(panel, /buildReceiptRecordRequest\(v, reference, reviewedPayment\)/);
 assert.match(panel, /buildReceiptAdoptionRequest\(v, messageId, reviewedNotice\)/);
 assert.match(panel, /Refresh saved evidence/);

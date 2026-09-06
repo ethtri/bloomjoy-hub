@@ -12,7 +12,7 @@ type RefundQueueCase = {
 };
 
 export type RefundQueueFilter =
-  | Exclude<RefundManagerQueueBucket, 'integrity_hold' | 'internal_archive'>
+  | Exclude<RefundManagerQueueBucket, 'accounting_review' | 'integrity_hold' | 'internal_archive'>
   | 'missing_information' | 'possible_duplicate' | 'aging' | 'blocked'
   | 'internal_test' | 'all';
 
@@ -23,7 +23,7 @@ export const getRefundQueueFilterForCase = (
 ): RefundQueueFilter => {
   const bucket = getRefundManagerQueueBucket(refundCase);
   if (bucket === 'internal_archive') return refundOperationsAccess ? 'internal_test' : 'all';
-  if (bucket === 'integrity_hold' || bucket === 'provider_hold') {
+  if (bucket === 'accounting_review' || bucket === 'integrity_hold' || bucket === 'provider_hold') {
     return refundOperationsAccess ? 'provider_hold' : 'all';
   }
   return bucket;

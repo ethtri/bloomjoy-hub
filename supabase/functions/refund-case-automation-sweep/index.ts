@@ -371,6 +371,10 @@ const runManualMessageOutboxSweep = async (counters: SweepCounters) => {
       addReason(counters, "manual_message_outbox_sent");
       continue;
     }
+    if (result.outcome === "deferred") {
+      addReason(counters, "automatic_message_outbox_deferred");
+      continue;
+    }
     counters.actionsFailed += 1;
     addReason(
       counters,
@@ -378,6 +382,44 @@ const runManualMessageOutboxSweep = async (counters: SweepCounters) => {
         ? "manual_message_outbox_delivery_unknown"
         : "manual_message_outbox_failed",
     );
+  }
+};
+
+const queueAutomaticReceiptCompletions = async (
+  counters: SweepCounters,
+) => {
+  if (!supabase) return;
+  const { data, error } = await supabase.rpc(
+    "service_ensure_refund_receipt_automatic_completions",
+    { p_limit: 10 },
+  );
+  if (error) throw error;
+  const result = data && typeof data === "object" && !Array.isArray(data)
+    ? data as Record<string, unknown>
+    : null;
+  if (result?.payloadRedacted !== true) {
+    throw new Error(
+      "Automatic receipt completion queue returned an invalid result.",
+    );
+  }
+  const count = (value: unknown) =>
+    typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+      ? value
+      : 0;
+  const queued = count(result.queued);
+  const replayed = count(result.replayed);
+  const suppressed = count(result.suppressed);
+  counters.actionsAttempted += queued;
+  counters.actionsSucceeded += queued;
+  counters.actionsSuppressed += replayed + suppressed;
+  if (queued > 0) {
+    addReason(counters, "automatic_receipt_completion_queued", queued);
+  }
+  if (replayed > 0) {
+    addReason(counters, "automatic_receipt_completion_replayed", replayed);
+  }
+  if (suppressed > 0) {
+    addReason(counters, "automatic_receipt_completion_suppressed", suppressed);
   }
 };
 
@@ -3925,8 +3967,21 @@ serve(async (req) => {
       }, alertStatus === "sent" ? 200 : 502);
     }
 
-    // This exact content was already approved in the manager portal, so its
-    // durable queue does not depend on automatic-contact or policy-window gates.
+    // Only future, immutable terminal-source authorities can enter this
+    // bounded queue. The environment, policy-window, and database contact
+    // gates all apply before queueing. The RPC scans authorities, never receipts.
+    if (
+      automationEnabled && policyWindowIsOpen(scheduledAt) &&
+      await automaticCustomerContactAllowed()
+    ) {
+      failureStage = "automatic_receipt_completion_queue";
+      await queueAutomaticReceiptCompletions(counters);
+    }
+
+    // Manual messages remain independent of automatic gates. Automatic receipt
+    // completions retain their delivery kind, so the shared worker rechecks its
+    // kill switches before any fresh provider attempt. The policy window is not
+    // a delivery cancellation boundary for already queued work.
     failureStage = "manual_message_outbox";
     await runManualMessageOutboxSweep(counters);
     if (counters.actionsFailed > 0) {

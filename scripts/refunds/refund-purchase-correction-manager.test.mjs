@@ -14,6 +14,12 @@ function load(name,dependencies){
 const managerModule = { exports: {} };
 vm.runInNewContext(ts.transpileModule(fs.readFileSync(new URL('../../src/lib/refundManagerState.ts',import.meta.url),'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,managerModule);
 const dependencies={...managerModule.exports,hasConfirmedRefundReceipt:c=>c.receipt===true,getLatestCustomerMessage:()=>null,isDefinitiveNoRefundRetryReady:()=>false,transactionalDeliveryLabel:state=>state,hasTransactionMatch:c=>Boolean(c.matched),derivePortalRefundMissingFields:()=>[],isWaitingCase:()=>true,activeNayaxCandidate:()=>null,hasSelectedCardEvidence:()=>true,formatCurrency:amount=>`$${(amount/100).toFixed(2)}`};
+test('actual workbench maps accounting review into the protected Refund Operations view',()=>{
+ const refundCase={lifecycle:{managerQueue:{bucket:'accounting_review'}}};
+ const bucket=caseValue=>caseValue.lifecycle.managerQueue.bucket;
+ assert.equal(load('refundSearchViewLabel',{getRefundManagerQueueBucket:bucket})(refundCase),'Needs Refund Operations');
+ assert.equal(load('isRefundOperationsCase',{canonicalQueueBucket:bucket})(refundCase),true);
+});
 test('actual manager action respects current scope, delivery holds and terminal truth',()=>{
  const action=load('primaryActionConfig',dependencies);
  const base={status:'needs_review',paymentMethod:'card',customerCorrection:{state:'pending',isActive:true,isUsable:true}};
@@ -25,7 +31,12 @@ test('actual manager action respects current scope, delivery holds and terminal 
  assert.equal(action({...base,providerHold:true},editor,[],null).label,'Refund status not confirmed');
  assert.equal(action({...base,status:'completed'},editor,[],null).label,'Case complete');
  assert.equal(action({...base,status:'denied'},editor,[],null).label,'Request denied');
- assert.notEqual(action({...base,receipt:true},editor,[],null).label,'Waiting for customer response');
+ for(const messageState of ['none','pending','failed','delivery_unconfirmed','sent']) {
+  const receiptAction=action({...base,receipt:true,lifecycle:{messageState:{state:messageState},managerQueue:{bucket:'accounting_review'}}},editor,[],null);
+  assert.equal(receiptAction.disabled,true,messageState);
+  assert.equal(receiptAction.mode,undefined,messageState);
+  assert.equal(receiptAction.label,'Refund confirmed · accounting review',messageState);
+ }
 });
 test('actual one-action correction sends canonical fields without unreviewed triage/editor content',async()=>{
  let sent;let refreshed=0;const errors=[];const customerDraftDirtyUpdates=[];
