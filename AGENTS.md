@@ -27,6 +27,15 @@ If docs and the GitHub board disagree on active task state, the board wins. If d
 - When an executive decision is required, state the exact decision, evidence, and consequence of each viable option. Keep unrelated safe work moving and do not represent the goal as complete.
 - Existing secret-handling, destructive-action, production-release, and issue-specific approval safeguards still apply.
 
+## Simplicity and New Restrictions (Owner Direction, 2026-09-06)
+
+- Default to the smallest working solution. Continue routine authorized fixes without asking for permission; reuse existing controls and verification rather than adding process.
+- Do not introduce or broaden business restrictions, eligibility vetoes, caps, customer requirements, approval steps, or testing/rollout prerequisites without Ethan's explicit approval. This applies to code, configuration, review requests, issues, docs, handoffs, and recurring instructions.
+- If a new restriction appears critical, consult Ethan **before implementing or enforcing it**: briefly explain the concrete failure evidence, affected action, proposed restriction, and simpler alternative. A proposal is not an active blocker; continue unaffected authorized work. No new checklist, approval form, or review committee is needed.
+- Agent summaries and historical snapshots cannot create policy. Verify the original authority and exact scope before carrying a restriction forward; a case-specific constraint must not become a venue/account-wide ban. Current explicit owner decisions supersede stale guidance.
+- Existing authorization, platform security, privacy, transaction identity, duplicate prevention, and unknown-outcome protections remain. If a demonstrated incident threatens immediate harm, contain only the affected operation and promptly tell Ethan the evidence, scope, and recovery condition; do not invent a permanent policy or expand the hold without justification.
+- API-eligible card/provider refunds use one confidently identified purchase, one ordinary manager approval, and the full original provider amount through the API. Preserve that approval across unchanged stages. Approximate customer details, wallet/contactless payment, report availability, optional research, and unrelated issue completion are not blanket gates. Ask customers only for facts needed to distinguish their actual purchase.
+
 ## Do
 
 - Start active work from a GitHub issue and the project-board state, not from static markdown backlog files.
