@@ -16,12 +16,17 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 const RESULT_KEYS = [
   'read_only',
   'selected_pilot_machine_count',
+  'live_enabled_machine_count',
+  'legacy_shadow_disabled_machine_count',
   'active_manager_assignment_count',
   'active_manager_identity_count',
   'manager_only_identity_count',
   'manager_only_with_shadow_ready_assignment_count',
   'mapped_with_shadow_ready_assignment_count',
+  'manager_only_with_live_enabled_assignment_count',
+  'mapped_with_live_enabled_assignment_count',
   'exact_pilot_eligible_identity_count',
+  'exact_selected_live_enabled_identity_count',
   'super_admin_overlap_count',
   'scoped_admin_overlap_count',
   'corporate_partner_overlap_count',
@@ -142,20 +147,20 @@ export function validateAggregateRow(row) {
 export function determineReadiness(row) {
   if (row.selected_pilot_machine_count > 0) {
     return {
-      ready: row.exact_pilot_eligible_identity_count > 0,
+      ready: row.exact_selected_live_enabled_identity_count > 0,
       label:
-        row.exact_pilot_eligible_identity_count > 0
-          ? 'READY: CURRENT MAPPED MANAGER EXISTS FOR SELECTED MACHINE SCOPE'
-          : 'MAPPED MANAGER SETUP REQUIRED FOR SELECTED MACHINE SCOPE',
+        row.exact_selected_live_enabled_identity_count > 0
+          ? 'READY: CURRENT MAPPED MANAGER EXISTS FOR LIVE-ENABLED SELECTED MACHINE SCOPE'
+          : 'LIVE-ENABLED MAPPED MANAGER SETUP REQUIRED FOR SELECTED MACHINE SCOPE',
     };
   }
 
   return {
-    ready: row.mapped_with_shadow_ready_assignment_count > 0,
+    ready: row.live_enabled_machine_count > 0 && row.mapped_with_live_enabled_assignment_count > 0,
     label:
-      row.mapped_with_shadow_ready_assignment_count > 0
-        ? 'READY: CURRENT MAPPED MANAGER EXISTS'
-        : 'MAPPED MANAGER SETUP REQUIRED',
+      row.live_enabled_machine_count > 0 && row.mapped_with_live_enabled_assignment_count > 0
+        ? 'READY: CURRENT MAPPED MANAGER EXISTS FOR LIVE-ENABLED INVENTORY'
+        : 'LIVE-ENABLED MAPPED MANAGER SETUP REQUIRED',
   };
 }
 
@@ -165,17 +170,31 @@ function printAggregate(row, projectRef) {
   console.log(`Project ref: ${projectRef}`);
   console.log('Read-only query: yes');
   console.log(`Selected exact-machine scope: ${row.selected_pilot_machine_count}`);
+  console.log(`Live-enabled published inventory machines: ${row.live_enabled_machine_count}`);
   console.log(`Active Machine Manager assignments: ${row.active_manager_assignment_count}`);
   console.log(`Active Machine Manager identities: ${row.active_manager_identity_count}`);
   console.log(`Manager-only identities: ${row.manager_only_identity_count}`);
   console.log(
-    `Manager-only identities with a refund-ready assignment: ${row.manager_only_with_shadow_ready_assignment_count}`
+    `Manager-only identities with a live-enabled assignment: ${row.manager_only_with_live_enabled_assignment_count}`
   );
   console.log(
-    `All mapped identities with a refund-ready assignment: ${row.mapped_with_shadow_ready_assignment_count}`
+    `All mapped identities with a live-enabled assignment: ${row.mapped_with_live_enabled_assignment_count}`
+  );
+  if (row.exact_selected_live_enabled_identity_count !== null) {
+    console.log(
+      `Selected-scope identities mapped to every live-enabled selected machine: ${row.exact_selected_live_enabled_identity_count}`
+    );
+  }
+  console.log('Legacy shadow-only diagnostics (disabled machines; never production readiness):');
+  console.log(`- Published shadow-disabled machines: ${row.legacy_shadow_disabled_machine_count}`);
+  console.log(
+    `- Manager-only identities with a shadow-disabled assignment: ${row.manager_only_with_shadow_ready_assignment_count}`
+  );
+  console.log(
+    `- All mapped identities with a shadow-disabled assignment: ${row.mapped_with_shadow_ready_assignment_count}`
   );
   if (row.exact_pilot_eligible_identity_count !== null) {
-    console.log(`Selected-scope eligible identities: ${row.exact_pilot_eligible_identity_count}`);
+    console.log(`- Selected-scope shadow-only identities: ${row.exact_pilot_eligible_identity_count}`);
   }
   console.log('Overlapping access counts (categories may overlap):');
   console.log(`- Super Admin: ${row.super_admin_overlap_count}`);

@@ -394,7 +394,7 @@ npm run refunds:manager-uat-readiness -- --project-ref <project-ref> --confirm-p
 npm run refunds:manager-uat-readiness -- --project-ref <project-ref> --confirm-project-ref <project-ref> --pilot-machine-id <uuid>
 ```
 
-The discovery audit passes when a currently mapped manager has at least one shadow-ready assignment. The cohort audit passes only when the same identity is mapped to every selected pilot machine and those assignments are shadow-ready. Broader admin access is reported as context but neither grants nor revokes refund authority; the exact machine mapping and personal action-bound TOTP remain mandatory. Keep identity selection private and post counts only in `#435`.
+The current production-access audit passes when a currently mapped manager has at least one assignment in the live-enabled published inventory. The selected-machine audit passes only when the same identity is mapped to every selected machine and every selected machine is live-enabled. Legacy shadow-disabled counts remain separate historical diagnostics and never satisfy production readiness. Broader admin access is reported as context but neither grants nor revokes refund authority; the exact machine mapping remains mandatory. Keep identity selection private and post counts only.
 
 Owner-supervised refund authenticator enrollment (`#782`):
 
