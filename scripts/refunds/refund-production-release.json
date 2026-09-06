@@ -161,7 +161,8 @@
     "20260906160618_refund_contactless_review_evidence_truth.sql",
     "20260906170907_refund_current_fact_correction_fields.sql",
     "20260906190125_refund_valley_mall_product_unknown.sql",
-    "20260906190727_refund_correction_production_parity.sql"
+    "20260906190727_refund_correction_production_parity.sql",
+    "20260906202500_refund_correction_overview_parity.sql"
   ],
   "migrationFilesSha256": "e76258057aa930e211bc2604387ffc81d272deb6925e5833bd1b09aabfd242f0",
   "migrationVersionSetSha256": "cd162dc95250c044a42da85a8523963f10451a7ea979a61e26d5e67976f8cfe5",
