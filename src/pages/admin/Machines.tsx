@@ -1807,7 +1807,7 @@ function RefundNayaxInventoryPanel({
     focusedInventoryId ? 'all' : 'attention'
   );
   const [inventorySearch, setInventorySearch] = useState('');
-  const [inventoryCategory, setInventoryCategory] = useState<'all' | 'cotton_candy' | 'snapcase' | 'unclassified'>('all');
+  const [inventoryCategory, setInventoryCategory] = useState<'all' | 'cotton_candy' | 'snapcase' | 'unknown' | 'unclassified'>('all');
   const [inventoryMapping, setInventoryMapping] = useState<'all' | 'linked' | 'unlinked'>('all');
   const activeMachines = inventory?.machines.filter((machine) => machine.providerActive) ?? [];
   const normalizedSearch = inventorySearch.trim().toLowerCase();
@@ -1923,6 +1923,7 @@ function RefundNayaxInventoryPanel({
                 <option value="all">All categories</option>
                 <option value="cotton_candy">Cotton candy</option>
                 <option value="snapcase">Snapcase</option>
+                <option value="unknown">Product unverified</option>
                 <option value="unclassified">Unclassified</option>
               </select>
               <select aria-label="Filter exact mapping" value={inventoryMapping} onChange={(event) => setInventoryMapping(event.target.value as typeof inventoryMapping)} className="h-11 rounded-md border border-input bg-background px-3 text-sm">
@@ -2088,6 +2089,7 @@ function RefundNayaxInventoryRow({
               <option value="">Not classified</option>
               <option value="cotton_candy">Cotton candy</option>
               <option value="snapcase">Snapcase</option>
+              <option value="unknown">Product unverified</option>
             </select>
           </div>
         </div>
