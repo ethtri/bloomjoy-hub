@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(23);
+select plan(27);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('cf110000-0000-4000-8000-000000000001','authenticated','authenticated',
@@ -137,6 +137,37 @@ select is(public.refund_purchase_correction_request_fields(
 select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id='cf150000-0000-4000-8000-000000000001'),0,
   'Refresh-only correction inspection creates no customer message');
+
+update public.refund_nayax_lookup_candidates
+set expires_at=statement_timestamp()-interval '1 minute'
+where provider_transaction_id='CURRENT-CORRECTION-TX';
+select is(public.refund_purchase_correction_request_fields(
+  'cf150000-0000-4000-8000-000000000001'), '{}'::text[],
+  'An expired current generation with no usable candidate stays customer-silent');
+update public.refund_nayax_lookup_candidates
+set expires_at=statement_timestamp()+interval '1 hour',
+  evidence_summary=jsonb_set(jsonb_set(evidence_summary,
+    '{identifier_policy_version}','"2026-09-05.identifier.v2"'),
+    '{card_last4_comparison}','"missing"')
+where provider_transaction_id='CURRENT-CORRECTION-TX';
+select is((select public.refund_nayax_candidate_identifier_evidence_state(
+    candidate.refund_case_id,candidate.reporting_machine_id,candidate.site_id,
+    candidate.machine_authorization_time,candidate.amount_cents,candidate.card_last4,
+    candidate.currency_code,candidate.evidence_summary)
+  from public.refund_nayax_lookup_candidates candidate
+  where candidate.provider_transaction_id='CURRENT-CORRECTION-TX'), 'invalid',
+  'Contradictory exact-support evidence is invalid');
+select is(public.refund_purchase_correction_request_fields(
+  'cf150000-0000-4000-8000-000000000001'), '{}'::text[],
+  'Invalid current-generation evidence stays customer-silent');
+select is((select count(*)::integer from public.refund_case_messages
+  where refund_case_id='cf150000-0000-4000-8000-000000000001'),0,
+  'Expired and invalid scope inspection creates no outbox message');
+update public.refund_nayax_lookup_candidates
+set evidence_summary=pg_temp.current_fact_evidence(
+  'cf150000-0000-4000-8000-000000000001','2026-09-05T21:15:00Z',
+  '2026-09-05.identifier.v1','["card_last4_source"]',true,1)
+where provider_transaction_id='CURRENT-CORRECTION-TX';
 
 create temp table refreshed_claim as
 select (public.service_begin_refund_nayax_lookup(

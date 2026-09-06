@@ -74,8 +74,10 @@ begin
   limit 1;
 
   evidence := candidate_row.evidence_summary;
-  if candidate_row.token is null
-    or evidence ->> 'policy_version' is distinct from '2026-09-05.v11'
+  if candidate_row.token is null then
+    return '{}'::text[];
+  end if;
+  if evidence ->> 'policy_version' is distinct from '2026-09-05.v11'
     or evidence ->> 'is_top_ranked' is distinct from 'true'
     or evidence ->> 'identifier_review_state' is distinct from 'exact_support' then
     return public.canonical_refund_follow_up_fields(fields);
@@ -91,11 +93,10 @@ begin
     candidate_row.currency_code,
     evidence
   );
-  if evidence_state in ('refresh', 'stale') then
+  if evidence_state is distinct from 'valid' then
     return '{}'::text[];
   end if;
-  if evidence_state is distinct from 'valid'
-    or evidence -> 'customer_correction_fields' is distinct from '[]'::jsonb then
+  if evidence -> 'customer_correction_fields' is distinct from '[]'::jsonb then
     return public.canonical_refund_follow_up_fields(fields);
   end if;
 
