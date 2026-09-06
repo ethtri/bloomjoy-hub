@@ -2456,6 +2456,13 @@ export default function AdminRefundsPage() {
   const detailPanelRef = useRef<HTMLDivElement>(null);
   const denialReasonRef = useRef<HTMLSelectElement>(null);
   const denialTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const denialPreviousStateRef = useRef<{
+    caseId: string;
+    editor: EditorState;
+    messageType: RefundCustomerPortalMessageType;
+    messageSubject: string;
+    messageBody: string;
+  } | null>(null);
   const cashCompletionInFlightRef = useRef(false);
   const evidenceSelectionInFlightRef = useRef(false);
   const nayaxRefundInFlightRef = useRef(false);
@@ -5624,14 +5631,39 @@ export default function AdminRefundsPage() {
 
     const chooseDenial = (trigger: HTMLButtonElement) => {
       denialTriggerRef.current = trigger;
+      denialPreviousStateRef.current = {
+        caseId: selectedCase.id,
+        editor: { ...editor },
+        messageType,
+        messageSubject,
+        messageBody,
+      };
       setEditor((current) => current ? editorForDenial(current) : current);
       handleMessageTypeChange('denied');
       window.requestAnimationFrame(() => denialReasonRef.current?.focus());
     };
 
     const cancelDenial = () => {
-      setEditor(toEditorState(selectedCase));
-      handleMessageTypeChange(selectedCase.status === 'draft' ? 'more_info' : 'status_update');
+      const previousState = denialPreviousStateRef.current?.caseId === selectedCase.id
+        ? denialPreviousStateRef.current
+        : null;
+      denialPreviousStateRef.current = null;
+      if (previousState) {
+        setEditor(previousState.editor);
+        setMessageType(previousState.messageType);
+        setMessageSubject(previousState.messageSubject);
+        setMessageBody(previousState.messageBody);
+      } else {
+        const restoredEditor = toEditorState(selectedCase);
+        const restoredMessageType: RefundCustomerPortalMessageType = selectedCase.status === 'draft'
+          ? 'more_info'
+          : 'status_update';
+        const restoredMessage = getCustomerMessageDraft(selectedCase, restoredMessageType, restoredEditor);
+        setEditor(restoredEditor);
+        setMessageType(restoredMessageType);
+        setMessageSubject(restoredMessage.subject);
+        setMessageBody(restoredMessage.body);
+      }
       window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
         const trigger = denialTriggerRef.current?.isConnected
           ? denialTriggerRef.current

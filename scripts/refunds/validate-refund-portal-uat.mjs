@@ -6473,6 +6473,9 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
     await page.keyboard.press('Enter');
     const denialReason = page.getByTestId('refund-card-denial-reason');
     await denialReason.waitFor({ timeout: 10000 });
+    await page.waitForFunction(() =>
+      document.activeElement?.getAttribute('data-testid') === 'refund-card-denial-reason'
+    );
     recorder.assert(
       `${scenario.name} denial moves keyboard focus to the required reason without acting`,
       await denialReason.evaluate((element) => element === document.activeElement) &&
