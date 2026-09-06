@@ -65,7 +65,7 @@ create function pg_temp.identifier_evidence(
     'selection_allowed',true,'is_recommended',recommended,'one_click_eligible',false,
     'recommendation_state',case when recommended then 'manual_exception' else 'ambiguous' end,
     'confidence_class',case when recommended then 'evidence_aware_review' else 'ambiguous_manual' end,
-    'policy_version','2026-09-05.v11','identifier_policy_version','2026-09-05.identifier.v1',
+    'policy_version','2026-09-05.v11','identifier_policy_version','2026-09-05.identifier.v2',
     'customer_fact_version',c.deterministic_fact_version,
     'customer_credential_class','customer_physical_contactless_pan',
     'provider_identifier_class','last_sales_contactless_identifier_unverified',
@@ -197,13 +197,14 @@ select is(public.refund_nayax_candidate_identifier_evidence_state(
   pg_temp.identifier_evidence(
     'fe150000-0000-4000-8000-000000000003','2026-09-05T18:15:00Z',false
   ) || jsonb_build_object(
-    'selection_allowed',false,'identifier_review_state','needs_corroboration',
+    'selection_allowed',true,'identifier_review_state','reviewable_uncertainty',
     'customer_correction_fields','[]'::jsonb,
     'customer_request_received_at',null,'customer_request_received_source',null,
     'request_time_boundary','request_time_unknown',
-    'reason_codes','["card_last4_mismatch","customer_request_time_unknown"]'::jsonb
+    'manual_review_reasons','["card_last4_mismatch_reviewable","customer_request_time_unknown","transaction_occurrence_time_uncertain"]'::jsonb,
+    'reason_codes','["card_last4_mismatch_neutral_unproven_scope","card_last4_mismatch","customer_request_time_unknown","transaction_occurrence_time_uncertain"]'::jsonb
   )),
-  'valid','Unknown immutable request time retains suffix-mismatch evidence without inventing customer work');
+  'valid','Unknown immutable request time retains a neutral contactless mismatch for explicit manager review');
 
 create temp table parity_claim as
 select (public.service_begin_refund_nayax_lookup('fe150000-0000-4000-8000-000000000004',4,'manual',
@@ -241,9 +242,9 @@ select lives_ok($$insert into public.refund_nayax_lookup_candidates(token,refund
 select 'fe160000-0000-4000-8000-000000000010','fe150000-0000-4000-8000-000000000004',generation,
  'fe110000-0000-4000-8000-000000000001','fe140000-0000-4000-8000-000000000001',
  'IDENTIFIER-OUTSIDE-AMOUNT',13,'2026-09-05T18:15:00Z',1391,'6768','USD',
- pg_temp.exact_identifier_evidence('fe150000-0000-4000-8000-000000000004','2026-09-05T18:15:00Z',301,false),
+ pg_temp.exact_identifier_evidence('fe150000-0000-4000-8000-000000000004','2026-09-05T18:15:00Z',301,true),
  statement_timestamp()+interval '1 hour' from parity_claim$$,
- 'Exact-suffix amount outside the tolerance persists read-only');
+ 'Exact-suffix amount outside the automatic tolerance remains manager-selectable');
 select throws_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
  actor_user_id,reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,
  amount_cents,card_last4,currency_code,evidence_summary,expires_at)
@@ -290,9 +291,10 @@ insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_ge
 select 'fe160000-0000-4000-8000-000000000014','fe150000-0000-4000-8000-000000000005',generation,
  'fe110000-0000-4000-8000-000000000001','fe140000-0000-4000-8000-000000000001',
  'IDENTIFIER-CORRECTION-TX',15,'2026-09-05T18:15:00Z',1090,'3760','USD',
- pg_temp.identifier_evidence('fe150000-0000-4000-8000-000000000005','2026-09-05T18:15:00Z',false)
-   || jsonb_build_object('selection_allowed',false,'is_top_ranked',true,
-     'identifier_review_state','needs_corroboration',
+  pg_temp.identifier_evidence('fe150000-0000-4000-8000-000000000005','2026-09-05T18:15:00Z',false)
+    || jsonb_build_object('selection_allowed',false,'is_top_ranked',true,
+      'card_last4_comparison','mismatch_negative_unproven_equivalence',
+      'identifier_review_state','needs_corroboration',
      'customer_correction_fields','["incident_time_source","nearby_attempt_count"]'::jsonb,
      'manual_review_reasons','["customer_occurrence_evidence_needed","nearby_attempt_count_needed"]'::jsonb,
      'reason_codes','["machine_exact","amount_exact","card_last4_mismatch","customer_occurrence_evidence_needed","nearby_attempt_count_needed"]'::jsonb),
@@ -315,7 +317,12 @@ select lives_ok($$insert into public.refund_nayax_lookup_candidates(token,refund
 select 'fe160000-0000-4000-8000-000000000001','fe150000-0000-4000-8000-000000000001',generation,
  'fe110000-0000-4000-8000-000000000001','fe140000-0000-4000-8000-000000000001',
  'IDENTIFIER-REVIEW-TX',7,'2026-09-05T18:15:00Z',1090,'3760','USD',
- pg_temp.identifier_evidence('fe150000-0000-4000-8000-000000000001','2026-09-05T18:15:00Z',true),
+ pg_temp.identifier_evidence('fe150000-0000-4000-8000-000000000001','2026-09-05T18:15:00Z',true)
+   || jsonb_build_object(
+     'provider_identifier_class','last_sales_swipe_identifier_unverified',
+     'payment_interaction_comparison','conflict_unverified_provider_semantics',
+     'manual_review_reasons','["card_last4_mismatch_reviewable","payment_interaction_conflict_reviewable"]'::jsonb
+   ),
  statement_timestamp()+interval '1 hour' from review_claim$$,
   'A card-suffix mismatch remains selectable for one manager review');
 select throws_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
@@ -424,8 +431,13 @@ select ok((select matched_nayax_transaction_id='IDENTIFIER-REVIEW-TX'
   where id='fe150000-0000-4000-8000-000000000001'),
   'Manager selection binds the exact transaction and records explicit manager-confirmed execution eligibility');
 select ok((select count(*)=1 and bool_and((metadata->>'payload_redacted')::boolean)
-  and bool_and(metadata->'corroboration_codes' @> '["machine_exact","amount_exact","approved_sale",
-    "occurrence_time_within_60m","customer_time_from_alert_or_receipt","customer_reports_one_nearby_attempt"]'::jsonb)
+  and bool_and(metadata->'corroboration_codes' = '["machine_exact","provider_sale_approved","amount_exact",
+    "customer_physical_contactless_fact","customer_time_from_alert_or_receipt","customer_reports_one_nearby_attempt"]'::jsonb)
+  and bool_and(metadata->'uncertainty_codes' =
+    '["card_last4_mismatch_reviewable","payment_interaction_conflict_reviewable"]'::jsonb)
+  and bool_and(metadata->>'customer_payment_interaction' = 'tap_card')
+  and bool_and(metadata->>'payment_interaction_comparison' = 'conflict_unverified_provider_semantics')
+  and bool_and(metadata->>'transaction_occurrence_comparable' = 'false')
   and bool_and(not (metadata ? 'provider_transaction_id'))
   from public.refund_case_events where refund_case_id='fe150000-0000-4000-8000-000000000001'
     and event_type='nayax_identifier_evidence_selected'),

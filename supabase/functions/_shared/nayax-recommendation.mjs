@@ -655,13 +655,37 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     request.incidentTimeSource === "transaction_alert_or_receipt" &&
     ["exact", "within_15_minutes"].includes(request.incidentTimeConfidence) &&
     request.nearbyAttemptCount === "one";
-  const evidenceAwareReviewEligible =
+  const corroboratedMismatchReviewEligible =
     commonProviderEvidence &&
     exactCustomerOccurrenceEvidence &&
     mismatchPresent &&
-    amountDeltaCents === 0 &&
     (!Number.isFinite(candidate.timeDeltaMinutes) ||
       candidate.timeDeltaMinutes <= policy.maximumOneClickTimeDeltaMinutes);
+  const neutralPhysicalContactlessMismatch =
+    identifierEvidence.customerCredentialClass === "customer_physical_contactless_pan" &&
+    identifierEvidence.cardLast4Comparison === "mismatch_neutral_unproven_scope" &&
+    identifierEvidence.cardNetworkComparison !== "mismatch_negative_unproven_equivalence";
+  const managerSelectionCore =
+    hardExclusions.length === 0 &&
+    candidate.providerMachineId === request.expectedMachineId &&
+    request.incidentTimeResolution === "exact" &&
+    request.incidentTimeConfidence !== "rough" &&
+    request.amountCents > 0 &&
+    candidate.amountCents > 0 &&
+    amountDeltaCents !== null &&
+    candidate.siteId !== null &&
+    candidate.providerTimeResolution === "exact" &&
+    candidate.machineTimeResolution === "exact" &&
+    Boolean(candidate.machineAuthorizationTimeRaw) &&
+    candidate.currencyCode === "USD" &&
+    candidate.paymentStatus === "approved" &&
+    ["explicit", "last_sales_contract"].includes(candidate.paymentStatusEvidence) &&
+    candidate.providerRefundState === "clear" &&
+    candidate.requestTimeBoundaryState !== "after_request" &&
+    !candidate.duplicateProviderRecord;
+  const evidenceAwareReviewEligible =
+    corroboratedMismatchReviewEligible ||
+    (managerSelectionCore && neutralPhysicalContactlessMismatch);
   const identifierReviewState = hardExclusions.length > 0
     ? "blocked_safety"
     : evidenceAwareReviewEligible
@@ -671,6 +695,9 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     : identifierEvidence.cardLast4Comparison === "exact_support"
     ? "exact_support"
     : "no_identifier_conflict";
+  const cardLast4SourceKnown =
+    ["physical_card", "wallet_device", "bank_record"].includes(request.cardLast4Source) ||
+    ["physical_card", "wallet_device_token"].includes(request.cardLast4Provenance);
   const customerCorrectionFields = identifierReviewState === "needs_corroboration"
     ? [
         amountDeltaCents !== 0 && "amount",
@@ -680,7 +707,7 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
           !["exact", "within_15_minutes"].includes(request.incidentTimeConfidence) ||
           request.nearbyAttemptCount === "multiple") && "incident_time",
         (!request.paymentInteraction || ["unsure", "insert_or_swipe"].includes(request.paymentInteraction)) && "payment_interaction",
-        (!request.cardLast4Source || request.cardLast4Source === "unknown") && "card_last4_source",
+        !cardLast4SourceKnown && "card_last4_source",
         (!request.cardNetwork || request.cardNetwork === "other_unknown") && "card_network",
         request.paymentInteraction === "phone_watch_wallet" &&
           (!request.walletDeviceKind || request.walletDeviceKind === "unknown") && "wallet_device_kind",
@@ -688,27 +715,6 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
         request.nearbyAttemptCount !== "one" && "nearby_attempt_count",
       ].filter(Boolean)
     : [];
-  const managerSelectionCore =
-    hardExclusions.length === 0 &&
-    candidate.providerMachineId === request.expectedMachineId &&
-    request.incidentTimeResolution === "exact" &&
-    request.incidentTimeConfidence !== "rough" &&
-    request.amountCents > 0 &&
-    candidate.amountCents > 0 &&
-    amountDeltaCents !== null &&
-    amountDeltaCents <= policy.maximumStrongCardAmountDeltaCents &&
-    candidate.siteId !== null &&
-    candidate.providerTimeResolution === "exact" &&
-    candidate.machineTimeResolution === "exact" &&
-    Boolean(candidate.machineAuthorizationTimeRaw) &&
-    (candidate.timeDeltaMinutes === null ||
-      candidate.timeDeltaMinutes <= policy.maximumUniqueQrIncidentDeltaMinutes) &&
-    candidate.currencyCode === "USD" &&
-    candidate.paymentStatus === "approved" &&
-    ["explicit", "last_sales_contract"].includes(candidate.paymentStatusEvidence) &&
-    candidate.providerRefundState === "clear" &&
-    candidate.requestTimeBoundaryState !== "after_request" &&
-    !candidate.duplicateProviderRecord;
   const selectionAllowed = managerSelectionCore &&
     (!mismatchPresent || evidenceAwareReviewEligible);
   const strongCardEligible =
@@ -1179,10 +1185,10 @@ export const buildNayaxRecommendation = ({
     },
     manual_exception: {
       summary: confidenceClass === "evidence_aware_review"
-        ? "Nayax found one sale with matching machine, amount, and close timing. The card details differ, but Nayax has not proved those fields use the same identifier for this payment interaction."
+        ? "Nayax found one sale on the matching machine. The customer and provider amounts are shown for comparison. The card details differ, and Nayax has not proved those fields use the same identifier for this payment interaction. Transaction timing is shown separately and may be unproved."
         : "Nayax found a possible sale, but one or more details still need a manager to compare them.",
       recommendedAction: confidenceClass === "evidence_aware_review"
-        ? "Review this sale once and confirm it only if the machine, amount, time, and customer details identify the same purchase. One-click refund stays unavailable."
+        ? "Review this sale once and confirm it only if the machine, amount comparison, and available customer and payment evidence identify the same purchase. The refund uses the selected provider transaction's full amount. One-click refund stays unavailable."
         : "Compare the customer details with the possible sale before choosing the next step.",
     },
     no_safe_match: {

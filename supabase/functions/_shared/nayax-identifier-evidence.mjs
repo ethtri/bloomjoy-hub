@@ -1,4 +1,4 @@
-export const NAYAX_IDENTIFIER_POLICY_VERSION = "2026-09-05.identifier.v1";
+export const NAYAX_IDENTIFIER_POLICY_VERSION = "2026-09-05.identifier.v2";
 
 const valueIn = (value, allowed) => allowed.includes(value) ? value : null;
 

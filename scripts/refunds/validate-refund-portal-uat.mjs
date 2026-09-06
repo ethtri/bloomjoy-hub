@@ -1763,11 +1763,12 @@ const buildTransactionalDeliveryTruthOverview = ({
 const buildPhysicalCardMismatchRefundOverview = () => {
   const overview = buildPendingNayaxRefundOverview();
   overview.cases[0].cardLast4 = '6768';
-  overview.cases[0].cardLast4Source = 'physical_card';
+  overview.cases[0].cardLast4Source = null;
+  overview.cases[0].cardLast4Provenance = 'physical_card';
   overview.cases[0].paymentAmountCents = 1090;
   overview.cases[0].paymentInteraction = 'tap_card';
-  overview.cases[0].incidentTimeSource = 'transaction_alert_or_receipt';
-  overview.cases[0].nearbyAttemptCount = 'one';
+  overview.cases[0].incidentTimeSource = null;
+  overview.cases[0].nearbyAttemptCount = null;
   return overview;
 };
 
@@ -5983,8 +5984,8 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         providerWindowRecordCount: 1,
         candidateCount: 1,
         windowHours: 6,
-        summary: 'Nayax found one sale with matching machine, amount, and close timing. The card details differ, but Nayax has not proved those fields use the same identifier for this payment interaction.',
-        recommendedAction: 'Review this sale once and confirm it only if the machine, amount, time, and customer details identify the same purchase. One-click refund stays unavailable.',
+        summary: 'Nayax found one sale on the matching machine. The customer and provider amounts are shown for comparison. The card details differ, and Nayax has not proved those fields use the same identifier for this payment interaction. Transaction timing is shown separately and may be unproved.',
+        recommendedAction: "Review this sale once and confirm it only if the machine, amount comparison, and available customer and payment evidence identify the same purchase. The refund uses the selected provider transaction's full amount. One-click refund stays unavailable.",
         candidates: [
           {
             candidateToken: '41000000-0000-4000-8000-000000000205',
@@ -5997,7 +5998,11 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
             recognitionMethod: 'contactless',
             paymentStatus: 'approved',
             amountDeltaCents: 0,
-            timeDeltaMinutes: 15,
+            timeDeltaMinutes: null,
+            providerProcessingTimeDeltaMinutes: 15,
+            requestTimeBoundary: 'request_time_unknown',
+            transactionOccurrenceComparable: false,
+            transactionOccurrenceSemantics: 'unknown',
             recommendationRank: 1,
             isTopRanked: true,
             isRecommended: true,
@@ -6007,8 +6012,8 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
             oneClickEligible: false,
             selectionAllowed: true,
             matchStrength: 'review',
-            policyVersion: '2026-09-05.v9',
-            identifierPolicyVersion: '2026-09-05.identifier.v1',
+            policyVersion: '2026-09-05.v11',
+            identifierPolicyVersion: '2026-09-05.identifier.v2',
             customerFactVersion: 1,
             customerCredentialClass: 'customer_physical_contactless_pan',
             providerIdentifierClass: 'last_sales_contactless_identifier_unverified',
@@ -6023,7 +6028,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
             matchFactors: [
               { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
               { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
-              { key: 'incident_time', outcome: 'match', label: 'Transaction is 15 minutes from the reported time' },
+              { key: 'incident_time', outcome: 'manual', label: 'Provider record is 15 minutes from the reported time; purchase time is unproved' },
               { key: 'card', outcome: 'manual', label: 'Card digits differ; contactless or source differences may explain it' },
             ],
             matchReason: 'Exact machine and amount; close time; card identifier mismatch needs manager review.',
@@ -6034,7 +6039,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedStatus: 'Likely match',
       expectedManagerNotice: 'Transaction results updated.',
       expectedBadge: 'Needs comparison',
-      expectedAction: 'Next: Review Machine transaction once. Select it only if the machine, amount, time, and customer details identify the same purchase.',
+      expectedAction: "Next: Review Machine transaction once. Select it only if the machine, amount comparison, and available customer and payment evidence identify the same purchase. The refund uses the selected provider transaction's full amount.",
       expectedCandidateCount: 1,
       expectedReviewableMismatch: true,
     },
@@ -6377,6 +6382,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
           await page.getByTestId('nayax-candidate-availability').getByText('1 transaction available to select', { exact: true }).isVisible() &&
             await candidateOption.getByText('Review this', { exact: true }).isVisible() &&
             await candidateOption.locator('input[type="radio"]').isEnabled() &&
+            await page.getByText('Last four from physical card', { exact: true }).isVisible() &&
             await page.getByText(/Card ending differs; wallet, contactless, or source differences may explain it/).first().isVisible() &&
             (await page.getByText('Ask customer for details', { exact: true }).count()) === 0
         );

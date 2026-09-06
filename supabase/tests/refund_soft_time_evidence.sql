@@ -47,7 +47,7 @@ create function pg_temp.soft_time_evidence(
   select jsonb_build_object(
     'selection_allowed',boundary <> 'after_request','is_recommended',true,'one_click_eligible',false,
     'recommendation_state','manual_exception','confidence_class','ambiguous_manual',
-    'policy_version','2026-09-05.v11','identifier_policy_version','2026-09-05.identifier.v1',
+    'policy_version','2026-09-05.v11','identifier_policy_version','2026-09-05.identifier.v2',
     'customer_fact_version',c.deterministic_fact_version,
     'customer_credential_class','customer_physical_contactless_pan',
     'provider_identifier_class','last_sales_contactless_identifier_unverified',

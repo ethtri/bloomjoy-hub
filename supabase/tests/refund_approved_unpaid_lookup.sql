@@ -119,7 +119,7 @@ begin
     jsonb_build_object(
       'selection_allowed',true,'is_recommended',true,'one_click_eligible',true,
       'recommendation_state','high_confidence','policy_version','2026-09-05.v11',
-      'identifier_policy_version','2026-09-05.identifier.v1','customer_fact_version',1,
+      'identifier_policy_version','2026-09-05.identifier.v2','customer_fact_version',1,
       'customer_credential_class','customer_identifier_unknown',
       'provider_identifier_class','last_sales_identifier_unknown',
       'card_last4_comparison','exact_support','card_network_comparison','missing',
@@ -167,16 +167,28 @@ create function pg_temp.select_candidate(p_n integer) returns jsonb language sql
 $$;
 set local role service_role;
 select is(pg_temp.select_candidate(12)->>'selectionApplied','true','Exact original selection preserves existing full approval');
-select throws_ok($$select pg_temp.select_candidate(13)$$,'P4604',null,'A larger original cannot silently expand the existing full-refund contract');
+select is(pg_temp.select_candidate(13)->>'selectionApplied','true','Manager selection binds the larger provider original without a second decision');
 select is(pg_temp.select_candidate(12)->>'selectionApplied','false','Exact selection replay creates no second confirmation');
-select throws_ok($$select pg_temp.select_candidate(14)$$,'P4604',null,'A smaller original cannot silently change or exceed the approved amount');
+select is(pg_temp.select_candidate(14)->>'selectionApplied','true','Manager selection binds the smaller provider original without a second decision');
 reset role;
 select ok(not exists(select 1 from selection_approvals_before b join public.refund_cases c using(id)
-  where row(c.decision,c.decision_reason,c.decided_by,c.decided_at,c.refund_amount_cents)
-  is distinct from row(b.decision,b.decision_reason,b.decided_by,b.decided_at,b.refund_amount_cents)),
-  'Successful selection and rejected amount changes keep approved decision, reason, actor, date and amount');
+  where row(c.decision,c.decision_reason,c.decided_by,c.decided_at)
+  is distinct from row(b.decision,b.decision_reason,b.decided_by,b.decided_at)),
+  'Provider-amount rebinding preserves the existing decision, reason, actor and date');
+select ok((select refund_amount_cents=1200 and matched_nayax_amount_cents=1200
+  from public.refund_cases where id=pg_temp.case_id(13))
+  and (select refund_amount_cents=800 and matched_nayax_amount_cents=800
+  from public.refund_cases where id=pg_temp.case_id(14)),
+  'Approved continuations use each selected provider transaction full amount');
 select is(public.refund_case_nayax_manager_readiness('fa410000-0000-4000-8000-000000000001',pg_temp.case_id(12))->>'canIssueCardRefund',
   'true','Selected approved purchase reaches the existing manager refund path without reapproval');
+select ok((select (metadata ->> 'one_click_eligible')::boolean = true
+    and (metadata ->> 'execution_eligible_after_manager_selection')::boolean = true
+    and not (metadata ? 'recognition_method')
+  from public.refund_case_events
+  where refund_case_id=pg_temp.case_id(12)
+    and event_type='nayax_identifier_evidence_selected' order by created_at desc limit 1),
+  'High-confidence v2 evidence without a recognition label records truthful one-click and execution eligibility');
 
 -- Decisions/outcomes can progress while a provider read is in flight without
 -- changing deterministic matching facts. Their authority wins over late reads.
@@ -216,10 +228,18 @@ select ok(not exists(select 1 from late_cases_before b join public.refund_cases 
 select ok((select nayax_lookup_status='lookup_failed' and nayax_lookup_failure_class='worker_interrupted'
   and nayax_lookup_safe_retry_eligible and decision='approved' from public.refund_cases where id=pg_temp.case_id(19)),
   'Eligible interrupted lookup retains approval and the existing safe read retry');
-select is((select count(*)::integer from public.refund_case_nayax_refund_attempts where refund_case_id in(pg_temp.case_id(12),pg_temp.case_id(13))),0,
-  'Selection and amount rejection perform no payment');
+select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
+  where refund_case_id in(pg_temp.case_id(12),pg_temp.case_id(13),pg_temp.case_id(14))),0,
+  'Selection and provider-amount rebinding create no payment attempt');
+select is((select count(*)::integer from public.refund_authoritative_receipts
+  where refund_case_id in(pg_temp.case_id(12),pg_temp.case_id(13),pg_temp.case_id(14))),0,
+  'Selection and provider-amount rebinding create no refund receipt');
+select is((select count(*)::integer from public.refund_case_messages
+  where refund_case_id in(pg_temp.case_id(12),pg_temp.case_id(13),pg_temp.case_id(14))),0,
+  'Selection and provider-amount rebinding create no customer message');
 select ok(not exists(select 1 from public.refund_cases where id in(pg_temp.case_id(13),pg_temp.case_id(14))
-  and matched_nayax_transaction_id is not null),'Different amounts remain unbound for internal review');
+  and refund_amount_cents is distinct from matched_nayax_amount_cents),
+  'Different customer amounts remain exactly bounded to the selected provider originals');
 
 select * from finish();
 rollback;

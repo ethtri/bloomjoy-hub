@@ -1153,10 +1153,19 @@ const cardLast4ProvenanceLabel = (refundCase: RefundCaseRecord) => {
   }
 };
 
-const cardLast4SourceLabel = (refundCase: RefundCaseRecord) => ({
-  physical_card: 'physical card', wallet_device: 'wallet or device',
-  bank_record: 'bank record or alert', unknown: 'source not sure',
-}[refundCase.cardLast4Source ?? ''] ?? 'source not provided');
+const cardLast4SourceLabel = (refundCase: RefundCaseRecord) => {
+  const source = refundCase.cardLast4Source ?? (
+    refundCase.cardLast4Provenance === 'physical_card'
+      ? 'physical_card'
+      : refundCase.cardLast4Provenance === 'wallet_device_token'
+      ? 'wallet_device'
+      : null
+  );
+  return ({
+    physical_card: 'physical card', wallet_device: 'wallet or device',
+    bank_record: 'bank record or alert', unknown: 'source not sure',
+  }[source ?? ''] ?? 'source not provided');
+};
 
 const incidentTimeSourceLabel = (refundCase: RefundCaseRecord) => ({
   transaction_alert_or_receipt: 'time from alert or receipt', memory: 'time from memory',
@@ -1594,7 +1603,7 @@ const nayaxNextActionText = (
       return 'Next: Compare the possible transactions. Select one only if it is clearly the customer\'s purchase.';
     case 'manual_exception':
       return summary.confidenceClass === 'evidence_aware_review'
-        ? 'Next: Review Machine transaction once. Select it only if the machine, amount, time, and customer details identify the same purchase.'
+        ? "Next: Review Machine transaction once. Select it only if the machine, amount comparison, and available customer and payment evidence identify the same purchase. The refund uses the selected provider transaction's full amount."
         : 'Next: Compare the possible transactions. Select one only if it is clearly the customer\'s purchase.';
     case 'no_match':
       return 'Next: Keep the case open. Do not choose a transaction unless you can clearly identify it.';
@@ -5379,7 +5388,7 @@ export default function AdminRefundsPage() {
                   ? `The closest result cannot be selected. ${candidateUnavailableReason(leadCandidate, selectedCase)}`
                   : waitingOnCustomer
                     ? 'These are the current search results. Selection stays paused until the customer replies and the assistant runs the search again.'
-                    : 'Choose one only when the customer, amount, time, and payment details clearly agree.'}
+                    : "Choose one only when the machine, amount comparison, and available customer and payment evidence identify the same purchase. The refund uses the selected provider transaction's full amount."}
               </p>
             </div>
             {selectableCandidates.length > 0 && (
@@ -5657,8 +5666,8 @@ export default function AdminRefundsPage() {
         ? {
             id: 'match_attention',
             label: 'Review transaction',
-            explanation: 'Bloomjoy found one close transaction. Its card identifier differs, and Nayax has not proved the compared fields are equivalent.',
-            nextStep: 'Review Machine transaction once. Select it only if the machine, amount, time, and customer details identify the same purchase.',
+            explanation: 'Bloomjoy found one transaction on the matching machine. The customer and provider amounts are shown for comparison. Its card identifier differs, and Nayax has not proved the compared fields are equivalent. Timing is shown separately and may be unproved.',
+            nextStep: "Review Machine transaction once. Select it only if the machine, amount comparison, and available customer and payment evidence identify the same purchase. The refund uses the selected provider transaction's full amount.",
             tone: 'info',
           }
       : !hasSelectedMatch &&
