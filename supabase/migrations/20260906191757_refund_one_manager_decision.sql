@@ -31,10 +31,12 @@ declare
   expected_customer_credential text;
   mismatch_present boolean;
   expected_machine_in_scope boolean;
+  base_selection_allowed boolean;
   expected_selection_allowed boolean;
   neutral_physical_contactless_mismatch boolean;
   conservative_competing_purchase_hold boolean := false;
   rough_same_card_candidate_count integer := 0;
+  candidate_already_persisted boolean := false;
   machine_timezone text;
   raw_machine_authorization_at timestamptz;
 begin
@@ -209,6 +211,7 @@ begin
         )
       );
   end if;
+  base_selection_allowed := expected_selection_allowed;
   if expected_selection_allowed
     and case_row.card_last4 is not null
     and not (
@@ -221,6 +224,20 @@ begin
       and sibling.lookup_generation = case_row.nayax_lookup_generation
       and sibling.expires_at > statement_timestamp()
       and sibling.card_last4 = case_row.card_last4
+      and sibling.amount_cents = p_amount_cents
+      and sibling.currency_code = p_currency_code
+      and (
+        (case_row.reporting_machine_id is not null
+          and sibling.reporting_machine_id = case_row.reporting_machine_id)
+        or (
+          case_row.reporting_machine_id is null
+          and case_row.intake_selection_kind = 'livermore_pair'
+          and case_row.intake_selection_key = public.refund_livermore_selection_key()
+          and case_row.intake_selection_machine_ids = public.refund_livermore_selection_machine_ids()
+          and sibling.reporting_machine_id = any(case_row.intake_selection_machine_ids)
+          and public.refund_livermore_selection_is_valid()
+        )
+      )
       and sibling.evidence_summary ->> 'policy_version' = '2026-09-05.v11'
       and sibling.evidence_summary ->> 'card_last4_comparison' = 'exact_support'
       and jsonb_typeof(sibling.evidence_summary -> 'hard_exclusions') = 'array'
@@ -239,9 +256,23 @@ begin
       expected_selection_allowed := false;
     end if;
   end if;
+  select exists(
+    select 1
+    from public.refund_nayax_lookup_candidates persisted
+    where persisted.refund_case_id = p_case_id
+      and persisted.lookup_generation = case_row.nayax_lookup_generation
+      and persisted.reporting_machine_id = p_reporting_machine_id
+      and persisted.site_id is not distinct from p_site_id
+      and persisted.machine_authorization_time is not distinct from p_machine_authorization_time
+      and persisted.amount_cents is not distinct from p_amount_cents
+      and persisted.card_last4 is not distinct from p_card_last4
+      and persisted.currency_code is not distinct from p_currency_code
+      and persisted.evidence_summary = p_evidence
+  ) into candidate_already_persisted;
   conservative_competing_purchase_hold :=
-    expected_selection_allowed
+    base_selection_allowed
     and selection_allowed is false
+    and (rough_same_card_candidate_count > 1 or not candidate_already_persisted)
     and not (
       case_row.incident_time_resolution in ('exact','legacy_absolute')
       and case_row.incident_time_confidence is distinct from 'rough'
@@ -286,17 +317,20 @@ declare
   fields text[];
   candidate_fields text[] := '{}'::text[];
   candidate_count integer := 0;
+  grouped_collision_compatible boolean := true;
+  all_candidates_valid boolean := true;
+  any_selection_allowed boolean := false;
+  canonical_collision_hold boolean;
+  upgrade_collision_hold boolean;
+  candidate_in_scope boolean;
+  candidate_evidence_state text;
 begin
   fields := public.refund_purchase_correction_request_fields_pre_one_manager_decision_v1(p_case_id);
-  if cardinality(fields) > 0 then
-    return public.canonical_refund_follow_up_fields(fields);
-  end if;
-
   select * into case_row from public.refund_cases where id = p_case_id;
   if not found
     or case_row.decision is not null
-    or case_row.nayax_recommendation_state <> 'ambiguous'
-    or case_row.nayax_lookup_status <> 'multiple_matches'
+    or case_row.nayax_recommendation_state not in ('ambiguous','manual_exception')
+    or case_row.nayax_lookup_status not in ('multiple_matches','manual_exception')
     or case_row.nayax_recommendation_evaluated_at < case_row.deterministic_facts_updated_at then
     return public.canonical_refund_follow_up_fields(fields);
   end if;
@@ -309,22 +343,81 @@ begin
       and candidate.expires_at > statement_timestamp()
     order by candidate.created_at, candidate.token
   loop
-    if candidate_row.evidence_summary ->> 'policy_version' is distinct from '2026-09-05.v11'
-      or candidate_row.evidence_summary ->> 'selection_allowed' is distinct from 'false'
-      or candidate_row.evidence_summary ->> 'identifier_review_state' is distinct from 'needs_corroboration'
-      or public.refund_nayax_candidate_identifier_evidence_state(
-        candidate_row.refund_case_id,
-        candidate_row.reporting_machine_id,
-        candidate_row.site_id,
-        candidate_row.machine_authorization_time,
-        candidate_row.amount_cents,
-        candidate_row.card_last4,
-        candidate_row.currency_code,
-        candidate_row.evidence_summary
-      ) is distinct from 'valid' then
-      return public.canonical_refund_follow_up_fields(fields);
-    end if;
     candidate_count := candidate_count + 1;
+    candidate_in_scope :=
+      (case_row.reporting_machine_id is not null
+        and candidate_row.reporting_machine_id = case_row.reporting_machine_id)
+      or (
+        case_row.reporting_machine_id is null
+        and case_row.intake_selection_kind = 'livermore_pair'
+        and case_row.intake_selection_key = public.refund_livermore_selection_key()
+        and case_row.intake_selection_machine_ids = public.refund_livermore_selection_machine_ids()
+        and candidate_row.reporting_machine_id = any(case_row.intake_selection_machine_ids)
+        and public.refund_livermore_selection_is_valid()
+      );
+    candidate_evidence_state := public.refund_nayax_candidate_identifier_evidence_state(
+      candidate_row.refund_case_id,
+      candidate_row.reporting_machine_id,
+      candidate_row.site_id,
+      candidate_row.machine_authorization_time,
+      candidate_row.amount_cents,
+      candidate_row.card_last4,
+      candidate_row.currency_code,
+      candidate_row.evidence_summary
+    );
+    canonical_collision_hold :=
+      candidate_row.evidence_summary ->> 'selection_allowed' = 'false'
+      and candidate_row.evidence_summary ->> 'identifier_review_state' = 'needs_corroboration'
+      and candidate_row.evidence_summary -> 'customer_correction_fields' = '["incident_time"]'::jsonb
+      and coalesce(candidate_row.evidence_summary -> 'reason_codes','[]'::jsonb)
+        ? 'multiple_candidates_need_distinguishing_time'
+      and candidate_evidence_state = 'valid';
+    upgrade_collision_hold :=
+      candidate_row.evidence_summary ->> 'selection_allowed' = 'false'
+      and case_row.nayax_recommendation_state = 'ambiguous'
+      and case_row.nayax_lookup_status = 'multiple_matches'
+      and candidate_row.evidence_summary ->> 'policy_version' = '2026-09-05.v11'
+      and candidate_row.evidence_summary ->> 'customer_fact_version' = case_row.deterministic_fact_version::text
+      and candidate_in_scope
+      and case_row.incident_time_confidence = 'rough'
+      and case_row.card_last4 is not null
+      and candidate_row.card_last4 = case_row.card_last4
+      and candidate_row.evidence_summary ->> 'card_last4_comparison' = 'exact_support'
+      and jsonb_typeof(candidate_row.evidence_summary -> 'hard_exclusions') = 'array'
+      and jsonb_array_length(candidate_row.evidence_summary -> 'hard_exclusions') = 0
+      and candidate_row.amount_cents = case_row.payment_amount_cents
+      and candidate_row.amount_cents > 0
+      and candidate_row.currency_code = 'USD'
+      and candidate_row.site_id is not null
+      and candidate_row.machine_authorization_time is not null
+      and exists (
+        select 1
+        from public.reporting_machines machine
+        where machine.id = candidate_row.reporting_machine_id
+          and candidate_row.evidence_summary ->> 'lookup_account_scope' =
+            regexp_replace(upper(btrim(machine.nayax_account_key)), '[^A-Z0-9_]', '_', 'g')
+          and candidate_row.evidence_summary ->> 'lookup_provider_machine_id' = machine.nayax_machine_id
+          and candidate_row.evidence_summary ->> 'provider_machine_id' = machine.nayax_machine_id
+      )
+      and candidate_row.evidence_summary ->> 'payment_status' = 'approved'
+      and candidate_row.evidence_summary ->> 'provider_refund_state' = 'clear'
+      and candidate_row.evidence_summary ->> 'duplicate_provider_record' = 'false'
+      and (
+        (
+          candidate_row.evidence_summary ->> 'identifier_review_state' = 'exact_support'
+          and coalesce(candidate_row.evidence_summary -> 'customer_correction_fields','[]'::jsonb) = '[]'::jsonb
+        )
+        or (
+          candidate_row.evidence_summary ->> 'identifier_review_state' = 'needs_corroboration'
+          and coalesce(candidate_row.evidence_summary -> 'customer_correction_fields','[]'::jsonb)
+            = '["card_last4_source"]'::jsonb
+        )
+      );
+    grouped_collision_compatible := grouped_collision_compatible
+      and (canonical_collision_hold or upgrade_collision_hold);
+    all_candidates_valid := all_candidates_valid and candidate_evidence_state = 'valid';
+    any_selection_allowed := any_selection_allowed
+      or candidate_row.evidence_summary ->> 'selection_allowed' = 'true';
     candidate_fields := candidate_fields || array(
       select jsonb_array_elements_text(
         coalesce(candidate_row.evidence_summary -> 'customer_correction_fields', '[]'::jsonb)
@@ -332,10 +425,19 @@ begin
     );
   end loop;
 
-  if candidate_count < 2 then
-    return public.canonical_refund_follow_up_fields(fields);
+  if candidate_count >= 2 and grouped_collision_compatible then
+    return array['incident_time']::text[];
   end if;
-  return public.canonical_refund_follow_up_fields(fields || candidate_fields);
+  -- Invalid current evidence needs an internal refresh. Do not ask the
+  -- customer speculative questions or make old rows selectable.
+  if candidate_count > 0 and not all_candidates_valid then
+    return '{}'::text[];
+  end if;
+  if any_selection_allowed then return '{}'::text[]; end if;
+  if candidate_count > 0 then
+    return public.canonical_refund_follow_up_fields(fields || candidate_fields);
+  end if;
+  return public.canonical_refund_follow_up_fields(fields);
 end;
 $$;
 revoke all on function public.refund_purchase_correction_request_fields(uuid)

@@ -167,6 +167,21 @@ Deno.test("rough-time grouped candidates with distinct card endings remain manag
   ), true);
 });
 
+Deno.test("rough-time same-card purchases with distinct amounts remain manager-reviewable", () => {
+  const result = rankGroupedNayaxCandidates([
+    { reportingMachineId: "machine-a", machineDisplayLabel: "Cotton candy machine A", candidates: [candidate("txn-a")] },
+    { reportingMachineId: "machine-b", machineDisplayLabel: "Cotton candy machine B", candidates: [candidate("txn-b", { amountCents: 1290 })] },
+  ], {
+    incidentTimeResolution: "time_window",
+    incidentTimeConfidence: "rough",
+  });
+  assertEquals(result.recommendationState, "ambiguous");
+  assertEquals(result.candidates.map((item) => item.selectionAllowed), [true, true]);
+  assertEquals(result.candidates.every((item) =>
+    !item.reasonCodes.includes("multiple_candidates_need_distinguishing_time")
+  ), true);
+});
+
 Deno.test("a grouped selectable sale joins an existing same-card rough-time hold", () => {
   const held = (transactionId: string) => candidate(transactionId, {
     selectionAllowed: false,

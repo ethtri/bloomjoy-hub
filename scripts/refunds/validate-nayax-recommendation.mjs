@@ -373,6 +373,22 @@ assert.deepEqual(
 );
 assert.equal(roughSameCardCompetingPurchases.candidates.some((candidate) => candidate.isRecommended), false);
 
+const roughSameCardDistinctAmounts = recommend([
+  sale({ id: "rough-same-card-amount-a", at: "2026-07-21T18:55:00.000Z" }),
+  sale({ id: "rough-same-card-amount-b", at: "2026-07-21T19:05:00.000Z", amount: 9.99 }),
+], {
+  incidentTimeConfidence: "rough",
+  incidentTimeResolution: "ambiguous",
+});
+assert.equal(roughSameCardDistinctAmounts.recommendationState, "ambiguous");
+assert.deepEqual(
+  roughSameCardDistinctAmounts.candidates.map((candidate) => candidate.selectionAllowed),
+  [true, true],
+);
+assert.equal(roughSameCardDistinctAmounts.candidates.every((candidate) =>
+  !candidate.reasonCodes.includes("multiple_candidates_need_distinguishing_time")
+), true);
+
 const wrongAmount = recommend([sale({ id: "wrong-amount", amount: 10.01 })]);
 assert.equal(wrongAmount.recommendationState, "manual_exception");
 assert.equal(wrongAmount.oneClickEligible, false);

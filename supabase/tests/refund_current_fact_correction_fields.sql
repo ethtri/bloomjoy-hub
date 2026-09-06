@@ -58,10 +58,10 @@ create function pg_temp.current_fact_evidence(
     'card_last4_comparison','exact_support','card_network_comparison','missing',
     'payment_interaction_comparison','supporting','same_identifier_equivalence_proven',false,
     'identifier_review_state','needs_corroboration',
-    'customer_correction_fields','["card_last4_source"]'::jsonb,
+    'customer_correction_fields','["incident_time"]'::jsonb,
     'hard_exclusions','[]'::jsonb,
     'manual_review_reasons','["customer_occurrence_evidence_needed"]'::jsonb,
-    'reason_codes','["machine_exact","amount_exact","customer_time_rough"]'::jsonb,
+    'reason_codes','["machine_exact","amount_exact","customer_time_rough","multiple_candidates_need_distinguishing_time"]'::jsonb,
     'match_factors','[]'::jsonb,'match_reason','One purchase needs current customer context',
     'recommendation_rank',1,'is_top_ranked',true,
     'lookup_account_scope','CURRENT_CORRECTION_ACCOUNT',
@@ -105,12 +105,14 @@ select (public.service_begin_refund_nayax_lookup(
 insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
   actor_user_id,reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,
   amount_cents,card_last4,currency_code,evidence_summary,expires_at)
-select 'cf160000-0000-4000-8000-000000000001','cf150000-0000-4000-8000-000000000001',
+select gen_random_uuid(),'cf150000-0000-4000-8000-000000000001',
   generation,'cf110000-0000-4000-8000-000000000001','cf140000-0000-4000-8000-000000000001',
-  'CURRENT-CORRECTION-TX',91,'2026-09-05T21:15:00Z',1060,'1003','USD',
-  pg_temp.current_fact_evidence('cf150000-0000-4000-8000-000000000001','2026-09-05T21:15:00Z'),
+  'CURRENT-CORRECTION-TX-' || series.value,90+series.value,
+  '2026-09-05T21:15:00Z'::timestamptz+(series.value-1)*interval '1 minute',1060,'1003','USD',
+  pg_temp.current_fact_evidence('cf150000-0000-4000-8000-000000000001',
+    '2026-09-05T21:15:00Z'::timestamptz+(series.value-1)*interval '1 minute'),
   statement_timestamp()+interval '1 hour'
-from correction_claim;
+from correction_claim cross join generate_series(1,2) series(value);
 
 select is(public.refund_nayax_candidate_identifier_evidence_state(
   'cf150000-0000-4000-8000-000000000001','cf140000-0000-4000-8000-000000000001',
@@ -120,15 +122,15 @@ select is(public.refund_nayax_candidate_identifier_evidence_state(
 
 select is((public.service_commit_refund_nayax_lookup(
   'cf150000-0000-4000-8000-000000000001',(select generation from correction_claim),2,
-  'manual_exception','manual_exception','2026-09-05.v11',statement_timestamp(),
-  'Current customer facts can resolve the same case',null,1,'manual',
+  'multiple_matches','ambiguous','2026-09-05.v11',statement_timestamp(),
+  'One distinguishing time resolves the grouped purchases',null,2,'manual',
   'cf110000-0000-4000-8000-000000000001'
 )->>'applied'),'true','The correction lookup commits through the generation guard');
 
 select is(public.refund_purchase_correction_request_fields(
   'cf150000-0000-4000-8000-000000000001'),
-  array['incident_time','incident_time_source','card_network','nearby_attempt_count']::text[],
-  'Current rough time, missing source, card type, and nearby attempts replace the settled last-four source');
+  array['incident_time']::text[],
+  'Grouped exact-card purchases request only the one distinguishing time');
 
 create function pg_temp.queue_current_fact_scope(p_fields text[])
 returns jsonb language sql as $$
@@ -154,7 +156,7 @@ select is((select count(*)::integer from public.refund_case_messages
 
 create temp table correction_message as
 select pg_temp.queue_current_fact_scope(
-  array['incident_time','incident_time_source','card_network','nearby_attempt_count']
+  array['incident_time']
 ) value;
 select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id='cf150000-0000-4000-8000-000000000001'),1,
@@ -165,7 +167,7 @@ select lives_ok(format(
 ), 'The one message receives one secure existing-case correction capability');
 select ok((select count(*)=1
     and bool_and(correction_requested_fields =
-      array['incident_time','incident_time_source','card_network','nearby_attempt_count']::text[])
+      array['incident_time']::text[])
   from public.refund_wallet_correction_contexts
   where refund_case_id='cf150000-0000-4000-8000-000000000001'),
   'The secure capability contains only the current useful fields');
@@ -179,10 +181,7 @@ select lives_ok($$
   select public.service_submit_refund_purchase_correction(
     repeat('c',64),2,
     '{
-      "incident_time":{"disposition":"cannot_provide"},
-      "incident_time_source":{"disposition":"cannot_provide"},
-      "card_network":{"disposition":"cannot_provide"},
-      "nearby_attempt_count":{"disposition":"cannot_provide"}
+      "incident_time":{"disposition":"cannot_provide"}
     }'::jsonb
   )
 $$, 'Choosing Not sure for every requested field completes the correction once');
