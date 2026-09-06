@@ -19,6 +19,7 @@ const files = {
   pendingApprovalRecoveryMigration: 'supabase/migrations/20260820041101_refund_nayax_pending_approval_recovery.sql',
   dailyReadinessUsageMigration: 'supabase/migrations/20260824224813_refund_nayax_daily_readiness_usage.sql',
   productionSimplificationMigration: 'supabase/migrations/20260830202234_refund_production_simplification.sql',
+  oneManagerDecisionMigration: 'supabase/migrations/20260906191757_refund_one_manager_decision.sql',
   providerOrchestration: 'supabase/functions/_shared/nayax-refund-orchestration.ts',
   providerGates: 'supabase/functions/_shared/nayax-refund-gates.ts',
   providerGatesTest: 'supabase/functions/_shared/nayax-refund-gates.test.ts',
@@ -70,6 +71,7 @@ const providerCapsMigration = read(files.providerCapsMigration);
 const pendingApprovalRecoveryMigration = read(files.pendingApprovalRecoveryMigration);
 const dailyReadinessUsageMigration = read(files.dailyReadinessUsageMigration);
 const productionSimplificationMigration = read(files.productionSimplificationMigration);
+const oneManagerDecisionMigration = read(files.oneManagerDecisionMigration);
 const executionContextMigration = read('supabase/migrations/20260903134847_refund_selected_nayax_execution_context.sql');
 const providerOrchestration = read(files.providerOrchestration);
 const providerGates = read(files.providerGates);
@@ -558,6 +560,16 @@ assert(
   'Nayax execution must require an audited manager selection and the exact selected provider amount without treating wallet digits, confidence, or the reported amount as execution gates.'
 );
 assert(
+  oneManagerDecisionMigration.includes('create or replace function public.refund_nayax_candidate_identifier_evidence_state') &&
+    oneManagerDecisionMigration.includes("or p_evidence ->> 'card_last4_comparison' is not distinct from 'exact_support'") &&
+    oneManagerDecisionMigration.includes("case_row.incident_time_confidence in ('exact','within_15_minutes')") &&
+    oneManagerDecisionMigration.includes('create or replace function public.refund_nayax_retry_safe_case_is_current') &&
+    !oneManagerDecisionMigration.includes('p_case.card_wallet_used = false') &&
+    oneManagerDecisionMigration.includes('p_case.refund_amount_cents = p_case.matched_nayax_amount_cents') &&
+    oneManagerDecisionMigration.includes('duplicate_case.matched_nayax_transaction_id = p_case.matched_nayax_transaction_id'),
+  'Rough time and wallet classification may not categorically block a manager-selected exact transaction; mismatch corroboration, full selected amount, and duplicate controls remain required.'
+);
+assert(
   refundAdminUpdate.includes('selection_allowed') &&
     refundAdminUpdate.includes('nayaxDisagreementReason') &&
     refundAdminUpdate.includes('nayax_match_execution_eligible: false'),
@@ -569,12 +581,14 @@ assert(
   'The refund admin endpoint must enforce evidence-only Nayax selection and reject premature card approvals server-side.'
 );
 assert(
-  refundOperationsUi.includes("label: 'Confirm this transaction'") &&
-    refundOperationsUi.includes("This does not issue a refund or email the customer") &&
-    refundOperationsUi.includes("targetStatus: 'needs_review'") &&
-    refundOperationsUi.includes("mode: 'nayax_evidence_selection'") &&
+  refundOperationsUi.includes('label: `Refund ${formatCurrency(selectedCandidate.amountCents)}`') &&
+    refundOperationsUi.includes('Confirm this exact transaction and refund its full provider amount in one decision.') &&
+    refundOperationsUi.includes("mode: 'nayax_refund_execution'") &&
+    refundOperationsUi.includes('quietTransactionConfirmation: true') &&
+    refundOperationsUi.includes('selectionResult.refundReadiness.canIssueCardRefund !== true') &&
+    !refundOperationsUi.includes("mode: 'nayax_evidence_selection'") &&
     !refundOperationsUi.includes("label: 'Confirm this card sale'"),
-  'The manager UI must present transaction selection as evidence review, never as refund approval.'
+  'The manager UI must fold exact transaction binding into one ordinary refund decision and stop before payment if current server readiness changed.'
 );
 assert(
   refundOperationsUi.includes('candidateOption(') &&
@@ -584,9 +598,11 @@ assert(
     refundOperationsUi.includes('type="radio"') &&
     refundOperationsUi.includes('candidateUnavailableReason') &&
     refundOperationsUi.includes('caseAllowsCandidateSelection') &&
+    refundOperationsUi.includes('candidate.selectionAllowed === false') &&
+    refundOperationsUi.includes('if (!caseAllowsCandidateSelection || candidate.selectionAllowed === false) return;') &&
     refundOperationsUi.includes('refundAmount:') &&
     refundOperationsUi.includes('(candidate.amountCents / 100).toFixed(2)') &&
-    refundOperationsUi.includes('const refundAmountCents = selectedCase.matchedNayaxAmountCents') &&
+    refundOperationsUi.includes('const refundAmountCents = candidateBeingSelected?.amountCents ?? selectedCase.matchedNayaxAmountCents') &&
     refundOperationsUi.includes('The full selected Nayax transaction amount is set automatically') &&
     refundOperationsUi.includes("refundCase.reviewedNayaxPortalFallbackKind === 'ordinary_exact_match'") &&
     !refundOperationsUi.includes("refundReadiness?.blockReason === 'provider_remaining_value_unverified'") &&
