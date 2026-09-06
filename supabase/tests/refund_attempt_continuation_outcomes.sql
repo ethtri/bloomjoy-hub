@@ -33,7 +33,8 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
   nayax_recommendation_policy_version,nayax_match_execution_eligible,nayax_refund_execution_status)
 select ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-CONTINUE-'||n,
   'ca300000-0000-4000-8000-000000000001','ca200000-0000-4000-8000-000000000001',
-  'fixture-'||n||'@example.test','Synthetic continuation fixture',now()-interval '3 days',
+  'fixture-'||n||'@example.test','Synthetic continuation fixture',
+  now()-(n||' days')::interval,
   'card',800,800,'4242','needs_review','matched','nayax',1,'approved',(823456780+n)::text,
   800,'USD','2026-08-26T18:17:09.810Z',6,'high_confidence','2026-07-21.v1',true,'not_requested'
 from generate_series(1,6) n;
@@ -204,7 +205,8 @@ select is((select status from public.refund_case_nayax_refund_attempts
   'Settlement-after-effect recovery commits the existing attempt');
 
 select pg_temp.record_request(5,'accepted',true,true,'True','Pending Approval');
-update public.reporting_machine_refund_managers set status='revoked',revoked_at=now()
+update public.reporting_machine_refund_managers
+set status='revoked',revoked_at=now(),revoke_reason='Synthetic continuation revocation'
 where id='ca400000-0000-4000-8000-000000000001';
 select throws_ok($$select pg_temp.continue_attempt(5)$$,'P4628',null,
   'Revoked manager authority cannot continue approval');
