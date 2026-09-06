@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(29);
+select plan(35);
 
 insert into public.customer_accounts (id, name, account_type)
 values (
@@ -26,6 +26,27 @@ values (
   '88910000-0000-4000-8000-000000000001',
   '88920000-0000-4000-8000-000000000001',
   'Form-only refund machine'
+);
+
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+)
+values (
+  '00000000-0000-0000-0000-000000000000',
+  '88900000-0000-4000-8000-000000000001',
+  'authenticated', 'authenticated', 'form-manager@example.test', '', now(),
+  '{}'::jsonb, '{}'::jsonb, now(), now()
+);
+
+insert into public.reporting_machine_refund_managers (
+  id, reporting_machine_id, manager_user_id, manager_email, status, grant_reason
+)
+values (
+  '88940000-0000-4000-8000-000000000001',
+  '88930000-0000-4000-8000-000000000001',
+  '88900000-0000-4000-8000-000000000001',
+  'form-manager@example.test', 'active', 'Linked-form confirmation test'
 );
 
 create temporary table case_baseline as
@@ -242,6 +263,16 @@ select public.service_create_refund_case_from_gmail_contact_form(
 ) as result;
 
 select is(
+  (select (result ->> 'gmail_thread_id')::uuid from linked_form_case),
+  (
+    select id
+    from public.refund_gmail_threads
+    where provider_thread_id = 'form-only-thread-one'
+  ),
+  'Linked-form creation returns the exact newly attached Gmail thread'
+);
+
+select is(
   (select count(*)::integer from public.refund_cases),
   (select count + 1 from case_baseline),
   'Submitting the hosted form creates exactly one refund case'
@@ -298,6 +329,90 @@ select ok(
     where thread.provider_thread_id = 'form-only-thread-one'
   ),
   'The original inbound message and sent response move to the new case thread'
+);
+
+update public.refund_customer_contact_settings
+set automatic_customer_contact_enabled = true
+where singleton;
+
+insert into public.refund_case_messages (
+  id, refund_case_id, message_type, status, recipient_email, subject, body,
+  template_key
+)
+select
+  '88960000-0000-4000-8000-000000000001',
+  (result ->> 'id')::uuid,
+  'confirmation', 'pending', 'form-only-customer@example.test',
+  'We received your refund request', 'Synthetic linked-form confirmation.',
+  'refund_confirmation_v1'
+from linked_form_case;
+
+create temporary table linked_form_confirmation_claim as
+select public.service_claim_refund_gmail_outbound_v3(
+  (select (result ->> 'id')::uuid from linked_form_case),
+  '88960000-0000-4000-8000-000000000001',
+  'refund-case-message:88960000-0000-4000-8000-000000000001',
+  'info@bloomjoysweets.com',
+  'form-only-customer@example.test',
+  'Synthetic linked-form confirmation.',
+  array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+  'automatic',
+  (select (result ->> 'gmail_thread_id')::uuid from linked_form_case)
+) as result;
+
+select is(
+  (select (result ->> 'claimed')::boolean from linked_form_confirmation_claim),
+  true,
+  'The confirmation claims one send on the returned source thread'
+);
+
+select is(
+  (select result ->> 'providerThreadId' from linked_form_confirmation_claim),
+  'form-only-thread-one',
+  'The confirmation claim stays on the originating customer conversation'
+);
+
+select ok(
+  public.service_finish_refund_gmail_outbound(
+    (select (result ->> 'transportMessageId')::uuid from linked_form_confirmation_claim),
+    'sent',
+    'form-only-confirmation-provider-send',
+    '<form-only-confirmation-provider-send@example.test>',
+    null
+  ),
+  'The provider-confirmed linked-form confirmation is recorded once'
+);
+
+select is(
+  (
+    public.service_claim_refund_gmail_outbound_v3(
+      (select (result ->> 'id')::uuid from linked_form_case),
+      '88960000-0000-4000-8000-000000000001',
+      'refund-case-message:88960000-0000-4000-8000-000000000001',
+      'info@bloomjoysweets.com',
+      'form-only-customer@example.test',
+      'Synthetic linked-form confirmation.',
+      array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+      'automatic',
+      (select (result ->> 'gmail_thread_id')::uuid from linked_form_case)
+    ) ->> 'reconciled'
+  )::boolean,
+  true,
+  'Retry reconciles the known provider send without claiming another delivery'
+);
+
+select is(
+  (
+    select count(*)::integer
+    from public.refund_gmail_messages
+    where operation_key = 'refund-case-message:88960000-0000-4000-8000-000000000001'
+      and status = 'sent'
+      and gmail_thread_id = (
+        select (result ->> 'gmail_thread_id')::uuid from linked_form_case
+      )
+  ),
+  1,
+  'Confirmation retry leaves one durable sent message on the exact source thread'
 );
 
 select is(
