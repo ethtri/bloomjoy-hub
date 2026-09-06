@@ -171,6 +171,22 @@ const parsePatterns = (patterns, stage, allowIncomplete = false) => {
   return Object.freeze(parsed);
 };
 
+const retainSanitizedBusinessOutcomeValue = (value) => {
+  if (
+    typeof value !== "string" ||
+    value.length < 1 ||
+    value.length > 80 ||
+    value !== value.trim() ||
+    /[\u0000-\u001f\u007f]/u.test(value) ||
+    /@|https?:\/\//iu.test(value) ||
+    /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/iu.test(value) ||
+    /\d/u.test(value)
+  ) {
+    return null;
+  }
+  return value;
+};
+
 export function parseNayaxRefundProviderContract(rawValue) {
   let parsed;
   try {
@@ -548,6 +564,16 @@ export function classifyNayaxRefundResponse({
     )
     : undefined;
   const semanticPairMatched = Boolean(pattern);
+  // Persist only exact pairs already reviewed into the active server contract.
+  // Unknown provider text remains represented by categorical/schema metadata and
+  // the keyed classification digest; it never becomes stored diagnostic text.
+  const businessResult = pattern
+    ? retainSanitizedBusinessOutcomeValue(pattern.result)
+    : null;
+  const businessStatus = pattern
+    ? retainSanitizedBusinessOutcomeValue(pattern.status)
+    : null;
+  const businessPairRetained = businessResult !== null && businessStatus !== null;
   const contractMatched = safeFailureType === null &&
     httpAccepted &&
     safeMediaTypeClass === "application_json" &&
@@ -574,6 +600,13 @@ export function classifyNayaxRefundResponse({
     schemaMatched,
     semanticPairMatched,
     contractMatched,
+    ...(schemaMatched
+      ? {
+        businessResult: businessPairRetained ? businessResult : null,
+        businessStatus: businessPairRetained ? businessStatus : null,
+        businessPairRetained,
+      }
+      : {}),
     ...(safeFailureType ? { failureType: safeFailureType } : {}),
     payloadRedacted: true,
   });
@@ -838,6 +871,53 @@ export async function executeNayaxRefundProvider({
   });
 }
 
+// Current journal-v3 continuation only. The database must first prove that the
+// same immutable attempt recorded an accepted request and issue a one-use
+// continuation claim. This intentionally does not use the retired legacy
+// approval-only contract/runtime.
+export async function executeNayaxRefundApprovalContinuation({
+  contract,
+  approveToken,
+  transactionId,
+  siteId,
+  machineAuthorizationTime,
+  fetchImpl = fetch,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  onStageEvent = async (_stageEvent) => {},
+}) {
+  if (
+    contract?.schemaVersion !== 2 ||
+    !Array.isArray(contract?.requestResponses) ||
+    !Array.isArray(contract?.approveResponses)
+  ) {
+    throw new Error("Current Nayax provider contract is required for continuation.");
+  }
+  const approveBody = buildNayaxRefundApprovalBody({
+    transactionId,
+    siteId,
+    machineAuthorizationTime,
+  });
+  await onStageEvent(Object.freeze({ stage: "approve", event: "started" }));
+  const approve = await postNayaxRefundStep({
+    stage: "approve",
+    contract,
+    token: approveToken,
+    body: approveBody,
+    fetchImpl,
+    timeoutMs,
+  });
+  await onStageEvent(Object.freeze({
+    stage: "approve",
+    event: "result",
+    result: approve,
+  }));
+  return Object.freeze({
+    request: null,
+    approve,
+    executed: approve.outcome === "succeeded",
+  });
+}
+
 export function parseNayaxRefundApprovalContract(rawValue) {
   let parsed;
   try {
@@ -1051,6 +1131,13 @@ export const buildRedactedNayaxStageDigest = async ({
     semanticPairMatched: typeof result.semanticPairMatched === "boolean"
       ? result.semanticPairMatched
       : null,
+    businessResult: result.businessPairRetained === true
+      ? text(result.businessResult, 80)
+      : null,
+    businessStatus: result.businessPairRetained === true
+      ? text(result.businessStatus, 80)
+      : null,
+    businessPairRetained: result.businessPairRetained === true,
     contractMatched: typeof result.contractMatched === "boolean"
       ? result.contractMatched
       : null,
@@ -1161,7 +1248,7 @@ export function createNayaxRefundProviderAdapter({
   return Object.freeze({
     mode: "live",
     contractVersion: contract.contractVersion,
-    execute: async (request) => {
+    execute: async (request, executionPlan = "request_and_approve") => {
       const input = assertPlainObject(request, "Nayax orchestration request");
       if (
         input.caseId !== evidence.caseId ||
@@ -1174,18 +1261,32 @@ export function createNayaxRefundProviderAdapter({
         );
       }
 
-      const result = await executeNayaxRefundProvider({
-        contract,
-        requestToken,
-        approveToken,
-        amountCents: evidence.amountCents,
-        transactionId: evidence.transactionId,
-        siteId: evidence.siteId,
-        machineAuthorizationTime: evidence.machineAuthorizationTime,
-        fetchImpl,
-        timeoutMs: boundedTimeoutMs,
-        onStageEvent,
-      });
+      if (!new Set(["request_and_approve", "approval_continuation"]).has(executionPlan)) {
+        throw new Error("Unsupported Nayax provider execution plan.");
+      }
+      const result = executionPlan === "approval_continuation"
+        ? await executeNayaxRefundApprovalContinuation({
+          contract,
+          approveToken,
+          transactionId: evidence.transactionId,
+          siteId: evidence.siteId,
+          machineAuthorizationTime: evidence.machineAuthorizationTime,
+          fetchImpl,
+          timeoutMs: boundedTimeoutMs,
+          onStageEvent,
+        })
+        : await executeNayaxRefundProvider({
+          contract,
+          requestToken,
+          approveToken,
+          amountCents: evidence.amountCents,
+          transactionId: evidence.transactionId,
+          siteId: evidence.siteId,
+          machineAuthorizationTime: evidence.machineAuthorizationTime,
+          fetchImpl,
+          timeoutMs: boundedTimeoutMs,
+          onStageEvent,
+        });
       return Object.freeze(await mapNayaxRefundExecutionOutcome(
         result,
         contract.contractVersion,

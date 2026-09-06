@@ -139,7 +139,11 @@ for (const stage of ['refund_confirmed', 'customer_notified']) {
   assert.equal(result.action.mode, undefined, 'No financial or messaging action is exposed');
   assert.doesNotMatch(result.action.helper + result.next, /result is unclear|not confirmed|No refund is recorded/);
 }
-assert.match(workbench, /const managerState: RefundManagerState = hasConfirmedRefundReceipt\(selectedCase\) \|\| hasProtectedRefundLifecycle\(selectedCase\)/);
+assert.match(
+  workbench,
+  /const managerState: RefundManagerState = hasConfirmedRefundReceipt\(selectedCase\) \|\|\s*\(hasProtectedRefundLifecycle\(selectedCase\) && !selectedCaseApprovalContinuationReady\)/,
+  'Protected receipt states stay dominant while the exact server-proved continuation is the only in-progress exception',
+);
 assert.match(workbench, /!hasConfirmedRefundReceipt\(selectedCase\) && refundOperationsBlockedCaseIds.has/);
 assert.match(workbench, /hasConfirmedRefundReceipt\(selectedCase\) \? \(\s*<p data-testid="refund-receipt-accounting-only"/);
 assert.match(receiptClient, /\['admin-refund-operations-overview'\]/);

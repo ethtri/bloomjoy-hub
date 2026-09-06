@@ -19,6 +19,8 @@ import {
   type NayaxAttemptSettlement,
   type NayaxCompletionDelivery,
   orchestrateNayaxRefund,
+  selectNayaxReservationAfterContinuation,
+  shouldRequestNayaxApprovalContinuation,
 } from "../_shared/nayax-refund-orchestration.ts";
 // @deno-types="../_shared/nayax-refund-provider.d.ts"
 import {
@@ -134,6 +136,9 @@ const providerJournalCompatible = async (
     capability.approvalPolicyVersion === NAYAX_REFUND_APPROVAL_POLICY_VERSION &&
     capability.responseEnvelopeVersion ===
       NAYAX_REFUND_RESPONSE_ENVELOPE_VERSION &&
+    capability.businessOutcomeRecordVersion === "nayax-business-outcome-v2" &&
+    capability.approvalContinuationVersion ===
+      "same-attempt-approval-continuation-v1" &&
     supported.includes(providerContractVersion) &&
     capability.providerContractConfirmationRequired === true &&
     capability.payloadRedacted === true;
@@ -1265,7 +1270,7 @@ serve(async (req) => {
           stageEvent,
         });
         const { data, error } = await supabase.rpc(
-          "service_record_nayax_refund_provider_stage_v3",
+          "service_record_nayax_refund_provider_stage_v3_outcomes",
           {
             p_executor_assertion: executionConfig.executorAssertion,
             p_attempt_id: normalAttemptId,
@@ -1315,6 +1320,17 @@ serve(async (req) => {
               typeof result.semanticPairMatched === "boolean"
                 ? result.semanticPairMatched
                 : null,
+            p_business_result:
+              result.businessPairRetained === true
+                ? sanitizeText(result.businessResult, 80) || null
+                : null,
+            p_business_status:
+              result.businessPairRetained === true
+                ? sanitizeText(result.businessStatus, 80) || null
+                : null,
+            p_business_pair_retained:
+              stageEvent.event === "result" &&
+                result.businessPairRetained === true,
           },
         );
         if (error || !data || typeof data !== "object") {
@@ -1334,6 +1350,8 @@ serve(async (req) => {
             NAYAX_REFUND_APPROVAL_POLICY_VERSION ||
           decision.responseEnvelopeVersion !==
             NAYAX_REFUND_RESPONSE_ENVELOPE_VERSION ||
+          decision.businessOutcomeRecordVersion !==
+            "nayax-business-outcome-v2" ||
           decision.payloadRedacted !== true
         ) {
           throw new Error("provider_journal_version_mismatch");
@@ -1379,10 +1397,51 @@ serve(async (req) => {
               p_journal_contract_version: NAYAX_REFUND_JOURNAL_CONTRACT_VERSION,
             },
           );
-          if (error || !data || typeof data !== "object") {
+          // A reloaded interrupted attempt can fail the ordinary reservation's
+          // fresh-action eligibility check. Only a missing reservation or an
+          // unsettled in-progress replay asks the continuation boundary. Known
+          // success/rejection/hold replays retain their ordinary snapshot.
+          let reservation = !error && data && typeof data === "object"
+            ? data as NayaxAttemptReservation
+            : null;
+          if (shouldRequestNayaxApprovalContinuation(reservation)) {
+            const { data: continuationData, error: continuationError } =
+              await supabase.rpc(
+                "service_reserve_nayax_refund_approval_continuation_v1",
+                {
+                  p_executor_assertion: executionConfig.executorAssertion,
+                  p_actor_user_id: user.id,
+                  p_case_id: request.caseId,
+                  p_expected_case_version: expectedOfficialActionVersion,
+                  p_idempotency_key: request.idempotencyKey,
+                  p_amount_cents: request.amountCents,
+                  p_currency_code: request.currencyCode,
+                  p_provider_contract_version: managerContract!.contractVersion,
+                  p_journal_contract_version:
+                    NAYAX_REFUND_JOURNAL_CONTRACT_VERSION,
+                },
+              );
+            const continuationReservation =
+              !continuationError && continuationData &&
+                typeof continuationData === "object"
+                ? continuationData as NayaxAttemptReservation
+                : null;
+            reservation = selectNayaxReservationAfterContinuation({
+              ordinaryReservation: reservation,
+              continuationReservation,
+            });
+            // A concurrent/stale continuation rejection must not erase an
+            // otherwise valid ordinary replay. With no ordinary snapshot, both
+            // reservation paths still fail closed before provider transport.
+            if (!reservation) {
+              throw new Error(error
+                ? "Unable to reserve this Nayax refund safely."
+                : "Unable to reserve this Nayax approval continuation safely.");
+            }
+          }
+          if (!reservation) {
             throw new Error("Unable to reserve this Nayax refund safely.");
           }
-          const reservation = data as NayaxAttemptReservation;
           if (reservation.attempt?.shouldExecute) {
             normalAttemptId = reservation.attempt.attemptId;
             normalProviderClaimToken = reservation.providerClaimToken ?? "";

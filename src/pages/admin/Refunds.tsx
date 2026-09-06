@@ -893,13 +893,21 @@ const getCustomerContactAgeLabel = (refundCase: RefundCaseRecord) => {
   return `Last contact ${formatAge(latest.sentAt ?? latest.createdAt)} ago`;
 };
 
-const hasCardRefundAuthority = (refundCase: RefundCaseRecord) =>
-  (
-    refundCase.canPerformOfficialAction === true ||
-    refundCase.officialActionBlockReason === 'manager_verification_required'
-  ) &&
+const hasCardRefundAuthority = (
+  refundCase: RefundCaseRecord,
+  refundReadiness: RefundReadiness | null | undefined = refundCase.refundReadiness
+) =>
   Number(refundCase.officialActionVersion ?? 0) > 0 &&
-  refundCase.reconciliationActionBlocked !== true;
+  (
+    refundReadiness?.approvalContinuationReady === true ||
+    (
+      (
+        refundCase.canPerformOfficialAction === true ||
+        refundCase.officialActionBlockReason === 'manager_verification_required'
+      ) &&
+      refundCase.reconciliationActionBlocked !== true
+    )
+  );
 
 const canonicalQueueBucket = (refundCase: RefundCaseRecord) =>
   getRefundManagerQueueBucket(refundCase);
@@ -1766,14 +1774,17 @@ const primaryActionConfig = (
       disabled: true,
     };
   }
-  if (refundCase.providerHold) {
+  if (refundCase.providerHold && refundReadiness?.approvalContinuationReady !== true) {
     return {
       label: 'Refund status not confirmed',
       helper: 'The refund result is unclear. Do not try again until payment support confirms what happened.',
       disabled: true,
     };
   }
-  if (hasProtectedRefundLifecycle(refundCase)) {
+  if (
+    hasProtectedRefundLifecycle(refundCase) &&
+    refundReadiness?.approvalContinuationReady !== true
+  ) {
     const current = getRefundManagerState(refundCase);
     return { label: current.label, helper: current.nextStep, disabled: true };
   }
@@ -2963,6 +2974,8 @@ export default function AdminRefundsPage() {
     if (nayaxCardRefundAvailability.transactionConfirmed !== true) {
       return {
         transactionConfirmed: false,
+        approvalContinuationReady:
+          nayaxCardRefundAvailability.approvalContinuationReady === true,
         canIssueCardRefund: false,
         blockReason: nayaxCardRefundAvailability.blockReason,
         refundAmountCents: nayaxCardRefundAvailability.refundAmountCents ?? null,
@@ -2973,6 +2986,8 @@ export default function AdminRefundsPage() {
     }
     return {
       transactionConfirmed: true,
+      approvalContinuationReady:
+        nayaxCardRefundAvailability.approvalContinuationReady === true,
       canIssueCardRefund: nayaxCardRefundAvailability.canIssueCardRefund === true,
       blockReason: nayaxCardRefundAvailability.blockReason,
       refundAmountCents: nayaxCardRefundAvailability.refundAmountCents ?? null,
@@ -3039,10 +3054,14 @@ export default function AdminRefundsPage() {
   const selectedCaseOfficialActionBlockReason = selectedCase?.officialActionBlockReason ??
     (selectedCase?.canPerformOfficialAction !== true ? 'manager_mapping_required' : null);
   const selectedCaseIsTerminal = selectedCase ? doneStatuses.has(selectedCase.status) : false;
+  const selectedCaseApprovalContinuationReady =
+    selectedRefundReadiness?.approvalContinuationReady === true;
   const selectedCaseIsReviewOnly = selectedCaseIsTerminal ||
-    selectedCase?.reconciliationActionBlocked === true ||
+    (selectedCase?.reconciliationActionBlocked === true &&
+      !selectedCaseApprovalContinuationReady) ||
     (selectedCase?.canPerformOfficialAction !== true &&
-      selectedCaseOfficialActionBlockReason !== 'manager_verification_required');
+      selectedCaseOfficialActionBlockReason !== 'manager_verification_required' &&
+      !selectedCaseApprovalContinuationReady);
   const selectedCaseOfficialActionBlockMessage = selectedCase?.legacyStateReviewRequired === true
     ? 'Run a fresh transaction check before approving, declining, completing, issuing a refund, or contacting the customer.'
     : selectedCase?.reconciliationActionBlocked === true
@@ -3221,7 +3240,7 @@ export default function AdminRefundsPage() {
           selectedCase,
           editor,
           nayaxCandidates,
-          hasCardRefundAuthority(selectedCase) ? selectedRefundReadiness : {
+          hasCardRefundAuthority(selectedCase, selectedRefundReadiness) ? selectedRefundReadiness : {
             transactionConfirmed: selectedCase.hasMatchedNayaxTransaction,
             canIssueCardRefund: false,
             blockReason: 'unauthorized',
@@ -5736,7 +5755,8 @@ export default function AdminRefundsPage() {
     const hasUnsavedTransactionChoice =
       !selectedCase.hasMatchedNayaxTransaction &&
       Boolean(editor.matchedNayaxCandidateToken.trim());
-    const managerState: RefundManagerState = hasConfirmedRefundReceipt(selectedCase) || hasProtectedRefundLifecycle(selectedCase) ||
+    const managerState: RefundManagerState = hasConfirmedRefundReceipt(selectedCase) ||
+      (hasProtectedRefundLifecycle(selectedCase) && !selectedCaseApprovalContinuationReady) ||
       (selectedCase.customerDeliveryException && !hasUnpaidRefundReview(selectedCase))
       ? baseManagerState
       : paymentActionNeedsOperations

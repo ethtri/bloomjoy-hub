@@ -19,7 +19,7 @@ const files = {
   pendingApprovalRecoveryMigration: 'supabase/migrations/20260820041101_refund_nayax_pending_approval_recovery.sql',
   dailyReadinessUsageMigration: 'supabase/migrations/20260824224813_refund_nayax_daily_readiness_usage.sql',
   productionSimplificationMigration: 'supabase/migrations/20260830202234_refund_production_simplification.sql',
-  oneManagerDecisionMigration: 'supabase/migrations/20260906223000_refund_one_manager_decision.sql',
+  oneManagerDecisionMigration: 'supabase/migrations/20260906230000_refund_one_manager_decision.sql',
   providerOrchestration: 'supabase/functions/_shared/nayax-refund-orchestration.ts',
   providerGates: 'supabase/functions/_shared/nayax-refund-gates.ts',
   providerGatesTest: 'supabase/functions/_shared/nayax-refund-gates.test.ts',

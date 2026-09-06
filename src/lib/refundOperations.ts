@@ -383,6 +383,7 @@ export type RefundReadinessBlockReason =
 
 export type RefundReadiness = {
   transactionConfirmed: boolean;
+  approvalContinuationReady?: boolean;
   canIssueCardRefund: boolean;
   blockReason: RefundReadinessBlockReason | null;
   refundAmountCents: number | null;
@@ -1527,6 +1528,7 @@ export type NayaxCardRefundAvailabilityResponse = {
     | null;
   caseId?: string;
   transactionConfirmed?: boolean;
+  approvalContinuationReady?: boolean;
   canIssueCardRefund?: boolean;
   refundAmountCents?: number | null;
   machineLimitCents?: number | null;
