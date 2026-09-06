@@ -2,6 +2,7 @@
 
 import {
   canConfirmRefundCandidate,
+  getDisplayedRefundManagerNextStep,
   getRefundManagerState,
   getRefundPaymentStateLabel,
   hasUnpaidRefundReview,
@@ -19,6 +20,42 @@ const baseCase = {
   providerOutcome: 'not_attempted' as const,
   nayaxRecommendationState: 'high_confidence' as const,
 };
+
+Deno.test('displayed manager next step follows an available ask-for-details action', () => {
+  const managerState = getRefundManagerState({
+    ...baseCase,
+    status: 'draft',
+    correlationStatus: 'multiple_candidates',
+    nayaxLookupSummary: {
+      lookupStatus: 'multiple_matches',
+      recommendationState: 'ambiguous',
+    },
+    lifecycle: lifecycle('needs_transaction_selection', 20, 'select_transaction'),
+  });
+  const askAction = {
+    label: 'Ask for missing purchase details',
+    helper: 'Send one friendly reply in the original Gmail thread.',
+    messageType: 'more_info',
+    mode: 'retry_message',
+  };
+
+  assertEquals(managerState.nextStep.includes('Select one'), true, 'canonical lifecycle instruction');
+  assertEquals(
+    getDisplayedRefundManagerNextStep(managerState, askAction),
+    askAction.helper,
+    'displayed customer action instruction',
+  );
+  assertEquals(
+    getDisplayedRefundManagerNextStep(managerState, { ...askAction, disabled: true }),
+    managerState.nextStep,
+    'disabled action cannot replace lifecycle instruction',
+  );
+  assertEquals(
+    getDisplayedRefundManagerNextStep(managerState, { ...askAction, messageType: 'status_update' }),
+    managerState.nextStep,
+    'unrelated message action cannot replace lifecycle instruction',
+  );
+});
 
 Deno.test('approved unpaid cases can confirm one exact candidate without another decision', () => {
   assertEquals(canConfirmRefundCandidate({
@@ -582,7 +619,7 @@ Deno.test('canonical selection lifecycle preserves ambiguous comparison guidance
   assertEquals(result.label, 'More than one possible match', 'ambiguous label');
   assertEquals(
     result.nextStep,
-    'Compare the details. Select one only if it is clearly the customer\'s purchase.',
+    'Compare Customer request with Machine transaction. Select one only when they clearly describe the same purchase.',
     'ambiguous next step'
   );
 });
