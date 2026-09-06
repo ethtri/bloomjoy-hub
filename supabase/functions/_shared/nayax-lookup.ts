@@ -592,9 +592,16 @@ export const rankGroupedNayaxCandidates = (groups: Array<{
   const customerTimeSupportsManagerSelection =
     ["exact", "legacy_absolute"].includes(customerTime.incidentTimeResolution ?? "") &&
     customerTime.incidentTimeConfidence !== "rough";
-  const selectableBeforeGlobalHold = combinedCandidates.filter((candidate) => candidate.selectionAllowed);
+  const collisionRelevantCandidates = combinedCandidates.filter((candidate) =>
+    candidate.selectionAllowed || (
+      candidate.identifierReviewState === "needs_corroboration" &&
+      candidate.customerCorrectionFields.length === 1 &&
+      candidate.customerCorrectionFields[0] === "incident_time" &&
+      candidate.reasonCodes.includes("multiple_candidates_need_distinguishing_time")
+    )
+  );
   const selectableLast4Counts = new Map<string, number>();
-  for (const candidate of selectableBeforeGlobalHold) {
+  for (const candidate of collisionRelevantCandidates) {
     if (!candidate.cardLast4) continue;
     selectableLast4Counts.set(
       candidate.cardLast4,

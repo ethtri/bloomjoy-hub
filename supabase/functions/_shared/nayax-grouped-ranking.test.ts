@@ -167,6 +167,38 @@ Deno.test("rough-time grouped candidates with distinct card endings remain manag
   ), true);
 });
 
+Deno.test("a grouped selectable sale joins an existing same-card rough-time hold", () => {
+  const held = (transactionId: string) => candidate(transactionId, {
+    selectionAllowed: false,
+    oneClickEligible: false,
+    identifierReviewState: "needs_corroboration",
+    customerCorrectionFields: ["incident_time"],
+    reasonCodes: ["multiple_candidates_need_distinguishing_time"],
+    manualReviewReasons: ["multiple_candidates_need_distinguishing_time"],
+  });
+  const result = rankGroupedNayaxCandidates([
+    {
+      reportingMachineId: "machine-a",
+      machineDisplayLabel: "Cotton candy machine A",
+      candidates: [held("txn-a1"), held("txn-a2")],
+    },
+    {
+      reportingMachineId: "machine-b",
+      machineDisplayLabel: "Cotton candy machine B",
+      candidates: [candidate("txn-b")],
+    },
+  ], {
+    incidentTimeResolution: "time_window",
+    incidentTimeConfidence: "rough",
+  });
+  assertEquals(result.recommendationState, "ambiguous");
+  assertEquals(result.selectableCandidates, []);
+  assertEquals(result.candidates.map((item) => item.selectionAllowed), [false, false, false]);
+  assertEquals(result.candidates.every((item) =>
+    item.customerCorrectionFields.length === 1 && item.customerCorrectionFields[0] === "incident_time"
+  ), true);
+});
+
 Deno.test("global ranking is deterministic across repeated input", () => {
   const machineA = [candidate("txn-z", { rankingPoints: 90, timeDeltaMinutes: 1 })];
   const machineB = [candidate("txn-a", { rankingPoints: 90, timeDeltaMinutes: 1 })];
