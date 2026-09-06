@@ -17,6 +17,8 @@ export const EXPECTED_SCREENSHOTS = [
   'machine-refunds-ready-desktop.png',
   'machine-refunds-ready-to-activate-desktop.png',
   'machine-refunds-setup-needed-desktop.png',
+  'machine-refunds-valley-product-unverified-desktop.png',
+  'machine-refunds-valley-product-unverified-mobile.png',
   'refund-direct-intake-card-type-desktop.png',
   'refund-direct-intake-cash-desktop.png',
   'refund-direct-intake-desktop.png',

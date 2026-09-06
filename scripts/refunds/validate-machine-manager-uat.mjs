@@ -100,6 +100,7 @@ const mockSession = {
 };
 
 const machineId = 'machine-1';
+const valleyMachineId = 'f77bc8a8-71b3-4300-8a76-c935b8b1972f';
 const firstManagerEmail = 'manager-one@example.test';
 const secondManagerEmail = 'manager-two@example.test';
 const thirdManagerEmail = 'manager-three@example.test';
@@ -139,6 +140,16 @@ const buildMockSetup = () => ({
       account_name: 'Bloomjoy UAT',
       location_name: 'Mall Atrium',
       latest_sale_date: '2026-05-11',
+    },
+    {
+      id: valleyMachineId,
+      machine_label: 'Valley Mall — product type unverified',
+      machine_type: 'unknown',
+      sunze_machine_id: null,
+      status: 'active',
+      account_name: 'Bloomjoy UAT',
+      location_name: 'Valley Mall',
+      latest_sale_date: '2026-09-06',
     },
   ],
   assignments: [],
@@ -377,13 +388,13 @@ const installMockSupabaseRoutes = async (context, state) => {
 
     if (url.includes('/admin_get_refund_nayax_inventory')) {
       return route.fulfill(jsonResponse({
-        summary: { active: 3, published: 1, needsSetup: 1, excluded: 1, stalePublished: 0 },
+        summary: { active: 4, published: 2, needsSetup: 1, excluded: 1, stalePublished: 0 },
         lastRun: {
           status: 'completed',
           completedAt: now.toISOString(),
           errorCode: null,
-          activeCount: 3,
-          previousActiveCount: 3,
+          activeCount: 4,
+          previousActiveCount: 4,
           largeDrop: false,
         },
         machines: [
@@ -406,8 +417,8 @@ const installMockSupabaseRoutes = async (context, state) => {
           {
             id: '55555555-5555-4555-8555-555555555552',
             accountKey: 'UAT_ACCOUNT',
-            nayaxMachineId: 'UAT-NAYAX-SNAP',
-            machineName: 'Snapcase UAT',
+            nayaxMachineId: 'UAT-NAYAX-002',
+            machineName: 'SnapCase setup needed',
             machineNumber: '002',
             providerActive: true,
             category: 'snapcase',
@@ -421,6 +432,22 @@ const installMockSupabaseRoutes = async (context, state) => {
           },
           {
             id: '55555555-5555-4555-8555-555555555553',
+            accountKey: 'TGPACI_USA_DB',
+            nayaxMachineId: '224560057',
+            machineName: 'Preit1085-Valley mall',
+            machineNumber: '434334924111783AutoI&IBl',
+            providerActive: true,
+            category: 'unknown',
+            reportingMachineId: valleyMachineId,
+            state: 'published',
+            setupReason: 'ready',
+            exclusionReason: null,
+            missingSuccessfulSnapshots: 0,
+            lastSeenAt: now.toISOString(),
+            lastSuccessfulSyncAt: now.toISOString(),
+          },
+          {
+            id: '55555555-5555-4555-8555-555555555554',
             accountKey: 'UAT_ACCOUNT',
             nayaxMachineId: 'UAT-NAYAX-TEST',
             machineName: 'Synthetic provider test',
@@ -685,6 +712,51 @@ const run = async () => {
       'Nayax setup defaults to the exceptions-first review view',
       await page.getByRole('button', { name: /Needs review/ }).getAttribute('aria-current') === 'page'
     );
+    recorder.assert(
+      'Needs-review SnapCase inventory remains exposed',
+      await page.getByText('SnapCase setup needed', { exact: true }).isVisible()
+    );
+    await page.getByRole('button', { name: /Published/ }).click();
+    const inventoryCategoryFilter = page.getByLabel('Filter Nayax category');
+    await inventoryCategoryFilter.selectOption('unknown');
+    const valleyInventoryRow = page.getByText('Preit1085-Valley mall', { exact: true })
+      .locator('xpath=ancestor::div[contains(@class,"p-4")][1]');
+    await valleyInventoryRow.getByRole('button', { name: 'Review' }).click();
+    const valleyCategory = page.locator('#inventory-category-55555555-5555-4555-8555-555555555553');
+    const valleyState = page.locator('#inventory-state-55555555-5555-4555-8555-555555555553');
+    const valleyMapping = page.locator('#inventory-link-55555555-5555-4555-8555-555555555553');
+    recorder.assert(
+      'The exact published and mapped Valley Mall product truth is visible on desktop',
+      await inventoryCategoryFilter.locator('option[value="unknown"]').textContent() === 'Product unverified'
+        && await page.getByText(/TGPACI_USA_DB · Nayax ID 224560057 · machine 434334924111783AutoI&IBl/).isVisible()
+        && await valleyState.inputValue() === 'published'
+        && await valleyCategory.inputValue() === 'unknown'
+        && await valleyCategory.locator('option:checked').textContent() === 'Product unverified'
+        && await valleyMapping.inputValue() === valleyMachineId
+        && await valleyMapping.locator('option:checked').textContent() === 'Valley Mall — product type unverified'
+    );
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'machine-refunds-valley-product-unverified-desktop.png'),
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    const unknownInventoryMobileLayout = await page.evaluate(() => ({
+      viewportWidth: window.innerWidth,
+      documentWidth: document.documentElement.scrollWidth,
+    }));
+    recorder.assert(
+      'The exact published and mapped Valley Mall product truth remains readable at 390x844',
+      await page.getByText('Preit1085-Valley mall', { exact: true }).isVisible()
+        && await valleyCategory.locator('option:checked').textContent() === 'Product unverified'
+        && await valleyMapping.locator('option:checked').textContent() === 'Valley Mall — product type unverified'
+        && unknownInventoryMobileLayout.documentWidth <= unknownInventoryMobileLayout.viewportWidth
+    );
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'machine-refunds-valley-product-unverified-mobile.png'),
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await inventoryCategoryFilter.selectOption('all');
     await page.getByRole('main').getByRole('link', { name: 'Machines', exact: true }).click();
     await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10000 });
 

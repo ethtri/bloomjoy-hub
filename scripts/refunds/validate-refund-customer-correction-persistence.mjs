@@ -80,6 +80,14 @@ assert(
   'Gmail persistence must use the atomic RPC and safely replay duplicate ingestion',
 );
 assert(
+  gmailSync.includes('.in("machine_type", ["commercial", "mini", "unknown"])') &&
+    gmailSync.includes('resolvedMachine = await requirePublicEligibilityForUnverifiedMachineFact') &&
+    gmailSync.includes('"service_refund_machine_is_public"') &&
+    gmailSync.indexOf('resolvedMachine = await requirePublicEligibilityForUnverifiedMachineFact') <
+      gmailSync.indexOf('updates.reporting_machine_id = resolvedMachine.machineId'),
+  'Gmail machine correction must admit an exact unknown-product label only after the public eligibility boundary',
+);
+assert(
   factApplication.includes('"retryable_conflict"') &&
     factApplication.includes('"invalid_response"') &&
     factApplicationTests.includes('idempotently replayed') &&

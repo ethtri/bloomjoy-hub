@@ -1144,7 +1144,7 @@ export type RefundManagerSetup = {
 };
 
 export type RefundNayaxInventoryState = 'published' | 'needs_setup' | 'excluded';
-export type RefundNayaxInventoryCategory = 'cotton_candy' | 'snapcase' | null;
+export type RefundNayaxInventoryCategory = 'cotton_candy' | 'snapcase' | 'unknown' | null;
 
 export type RefundNayaxInventoryMachine = {
   id: string;

@@ -1,5 +1,6 @@
 import {
   extractLabeledRefundEmailFacts,
+  requirePublicEligibilityForUnverifiedMachineFact,
   resolveExactRefundMachineFact,
 } from "./refund-email-fact-extraction.ts";
 import { buildRefundCustomerEmail } from "./refund-email.ts";
@@ -293,4 +294,45 @@ Deno.test("machine resolution requires one exact active-label match", () => {
     resolveExactRefundMachineFact("Main Street", candidates) === null,
     "ambiguous location must not select a machine",
   );
+});
+
+Deno.test("unverified machine facts require the public intake eligibility boundary", async () => {
+  const candidate = {
+    machineId: "valley-machine",
+    locationId: "valley-location",
+    timezone: "America/New_York",
+    machineLabel: "Preit1085-Valley mall",
+    publicMachineLabel: "Valley Mall — product type unverified",
+    locationName: "Valley Mall",
+  };
+  let eligibilityChecks = 0;
+  const rejected = await requirePublicEligibilityForUnverifiedMachineFact(
+    candidate,
+    new Map([[candidate.machineId, "unknown"]]),
+    async () => {
+      eligibilityChecks += 1;
+      return false;
+    },
+  );
+  assert(rejected === null, "an unpublished unknown-product machine must not resolve");
+  assert(eligibilityChecks === 1, "unknown-product resolution must check public eligibility once");
+
+  const accepted = await requirePublicEligibilityForUnverifiedMachineFact(
+    candidate,
+    new Map([[candidate.machineId, "unknown"]]),
+    async () => true,
+  );
+  assert(accepted?.machineId === candidate.machineId, "a published unknown-product machine may resolve");
+
+  eligibilityChecks = 0;
+  const ordinary = await requirePublicEligibilityForUnverifiedMachineFact(
+    candidate,
+    new Map([[candidate.machineId, "commercial"]]),
+    async () => {
+      eligibilityChecks += 1;
+      return false;
+    },
+  );
+  assert(ordinary?.machineId === candidate.machineId, "ordinary machine resolution stays unchanged");
+  assert(eligibilityChecks === 0, "ordinary machine resolution does not add a public eligibility call");
 });
