@@ -207,8 +207,8 @@ export const isRefundLifecycleContract = (
         ["refund_confirmed", "customer_notified"].includes(String(contract.stage)) &&
         contract.safeRetryEligible === false &&
         contract.managerNextAction === "review_accounting_date" &&
-        contract.terminal === false &&
-        contract.refreshAfterSeconds === 5 &&
+        contract.terminal === noticeComplete &&
+        contract.refreshAfterSeconds === (noticeComplete ? null : 5) &&
         exactObjectKeys(managerAction!, [
           "action", "owner", "payloadRedacted", "safeRetryEligible",
         ]) &&

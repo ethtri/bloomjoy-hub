@@ -114,6 +114,12 @@ select ok(has_function_privilege('service_role',
 select ok(has_function_privilege('service_role',
   'public.service_ensure_refund_receipt_automatic_completions(integer)','execute'),
   'The bounded service scheduler can consume authority rows');
+select ok(not has_function_privilege('authenticated',
+  'public.service_defer_refund_automatic_completion_delivery(uuid,uuid,text)','execute'),
+  'Authenticated users cannot defer an automatic completion claim');
+select ok(has_function_privilege('service_role',
+  'public.service_defer_refund_automatic_completion_delivery(uuid,uuid,text)','execute'),
+  'The service worker can safely defer its exact automatic completion claim');
 
 select ok(pg_temp.authorize(1) is not null,'A newly recorded independently reviewed receipt gets one authority');
 select ok((select source_kind='nayax_api_terminal'
@@ -237,8 +243,56 @@ select is((select current_contract->'messageState' from receipt_auto_lifecycle),
   'Receipt accounting preserves the existing message state');
 select is((select current_contract#>>'{messageState,state}' from receipt_auto_lifecycle),'pending',
   'Queued automatic completion retains its pending message state');
-update public.refund_case_messages set status='failed',manual_delivery_state='failed'
-  where refund_case_id='ce400000-0000-4000-8000-000000000001';
+update public.refund_case_messages set manual_delivery_state='claimed',
+  manual_delivery_claim_token='ce900000-0000-4000-8000-000000000001',
+  manual_delivery_claimed_at=statement_timestamp(),manual_delivery_attempt_count=1,
+  manual_delivery_provider_attempted_at=statement_timestamp()
+where refund_case_id='ce400000-0000-4000-8000-000000000001';
+insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,
+  first_message_at,latest_message_at,retention_expires_at)
+values('ce700000-0000-4000-8000-000000000001','ce400000-0000-4000-8000-000000000001',repeat('1',64),
+  'receipt-auto-deferred-thread','Synthetic provider-empty completion',now(),now(),now()+interval '30 days');
+insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,refund_case_message_id,operation_key,
+  direction,message_kind,status,sender_email,recipient_email,subject,plain_body,retention_expires_at,received_at)
+select 'ce800000-0000-4000-8000-000000000001','ce700000-0000-4000-8000-000000000001',m.refund_case_id,m.id,
+  'refund-case-message:'||m.id::text,'outbound','message','pending_send','info@bloomjoysweets.com',m.recipient_email,
+  m.subject,m.body,now()+interval '30 days',now()
+from public.refund_case_messages m where m.refund_case_id='ce400000-0000-4000-8000-000000000001';
+set local role service_role;
+select ok(public.service_finish_refund_gmail_outbound(
+    'ce800000-0000-4000-8000-000000000001','failed',null,null,'automatic_contact_disabled'),
+  'A provider-empty Gmail shutdown claim is settled for safe reclaim');
+select is((select count(*)::integer from public.refund_gmail_messages
+    where id='ce800000-0000-4000-8000-000000000001'),0,
+  'Provider-empty Gmail shutdown evidence cannot strand the authorized notice');
+select ok((select status='pending' and manual_delivery_state='queued'
+    and manual_delivery_claim_token is null and manual_delivery_claimed_at is null
+    and manual_delivery_provider_attempted_at is null
+  from public.refund_case_messages
+  where refund_case_id='ce400000-0000-4000-8000-000000000001'),
+  'Gmail shutdown cleanup atomically requeues the exact provider-empty notice');
+select ok((public.service_defer_refund_automatic_completion_delivery(
+    (select id from public.refund_case_messages
+      where refund_case_id='ce400000-0000-4000-8000-000000000001'),
+    'ce900000-0000-4000-8000-000000000001','automatic_contact_disabled')->>'deferred')::boolean
+    and (public.service_defer_refund_automatic_completion_delivery(
+      (select id from public.refund_case_messages
+        where refund_case_id='ce400000-0000-4000-8000-000000000001'),
+      'ce900000-0000-4000-8000-000000000001','automatic_contact_disabled')->>'replayed')::boolean,
+  'A lost shutdown response replays the same safe deferral without stranding the claim');
+select is((select count(*)::integer from public.service_claim_refund_manual_message_deliveries(
+    (select id from public.refund_case_messages
+      where refund_case_id='ce400000-0000-4000-8000-000000000001'),1)),1,
+  'Re-enable can reclaim the same authorized completion notice');
+reset role;
+select ok((select status='pending' and manual_delivery_state='claimed'
+    and manual_delivery_provider_attempted_at is null
+  from public.refund_case_messages
+  where refund_case_id='ce400000-0000-4000-8000-000000000001'),
+  'Deferral clears only the provider-empty attempt marker before reclaim');
+update public.refund_case_messages set status='failed',manual_delivery_state='failed',
+  manual_delivery_claim_token=null,manual_delivery_claimed_at=null
+where refund_case_id='ce400000-0000-4000-8000-000000000001';
 select ok((select public.refund_lifecycle_contract(id)#>>'{messageState,state}'='failed'
     and public.refund_lifecycle_contract(id)->>'terminal'='false'
     and public.refund_lifecycle_contract(id)->>'refreshAfterSeconds'='5'
@@ -246,12 +300,16 @@ select ok((select public.refund_lifecycle_contract(id)#>>'{messageState,state}'=
   'A failed pre-provider notice remains observable and polling');
 
 select pg_temp.authorize(2);
-set local role authenticated;
-create temp table receipt_auto_manual_winner as
-select public.admin_queue_refund_receipt_completion(c.id,r.id,c.official_action_version,gen_random_uuid(),true,
-  public.admin_get_refund_authoritative_receipt_overview(c.id)#>>'{completionNotice,reviewBinding}') payload
+create temp table receipt_auto_manual_source as
+select c.id case_id,r.id receipt_id,c.official_action_version expected_case_version,
+  public.admin_get_refund_authoritative_receipt_overview(c.id)#>>'{completionNotice,reviewBinding}' review_binding
 from public.refund_cases c join public.refund_authoritative_receipts r on r.refund_case_id=c.id
 where c.id='ce400000-0000-4000-8000-000000000002';
+grant select on receipt_auto_manual_source to authenticated;
+set local role authenticated;
+create temp table receipt_auto_manual_winner as
+select public.admin_queue_refund_receipt_completion(case_id,receipt_id,expected_case_version,
+  gen_random_uuid(),true,review_binding) payload from receipt_auto_manual_source;
 reset role;
 set local role service_role;
 select is(pg_temp.ensure(2)->>'replayed','true','A human queue winner is safely adopted as the canonical outcome');
@@ -289,11 +347,17 @@ values('ce800000-0000-4000-8000-000000000005','ce700000-0000-4000-8000-000000000
   'outbound','message','sent','info@bloomjoysweets.com','receipt-auto-customer@example.invalid',
   'Your refund is confirmed','RF-RC-AUTO-5 original 923456785 is fully refunded $9.00.',
   now()-interval '1 hour',now()+interval '30 days',now()-interval '1 hour');
-set local role authenticated;
-select public.admin_adopt_refund_completion_notice(c.id,r.id,'ce800000-0000-4000-8000-000000000005',
-  c.official_action_version,c.public_reference,c.matched_nayax_transaction_id,900,true)
+create temp table receipt_auto_adoption_source as
+select c.id case_id,r.id receipt_id,c.official_action_version expected_case_version,
+  c.public_reference,c.matched_nayax_transaction_id
 from public.refund_cases c join public.refund_authoritative_receipts r on r.refund_case_id=c.id
 where c.id='ce400000-0000-4000-8000-000000000005';
+grant select on receipt_auto_adoption_source to authenticated;
+set local role authenticated;
+select public.admin_adopt_refund_completion_notice(case_id,receipt_id,
+  'ce800000-0000-4000-8000-000000000005',expected_case_version,
+  public_reference,matched_nayax_transaction_id,900,true)
+from receipt_auto_adoption_source;
 reset role;
 set local role service_role;
 select is(pg_temp.ensure(5)->>'status','existing_notice_adopted',
@@ -304,10 +368,22 @@ select is((select count(*)::integer from public.refund_case_messages
   'Adoption outcome creates no canonical outbox duplicate');
 select ok((select public.refund_lifecycle_contract(id)#>>'{messageState,state}'='sent'
     and public.refund_lifecycle_contract(id)#>>'{managerQueue,bucket}'='accounting_review'
-    and public.refund_lifecycle_contract(id)->>'terminal'='false'
-    and public.refund_lifecycle_contract(id)->>'refreshAfterSeconds'='5'
+    and public.refund_lifecycle_contract(id)->>'terminal'='true'
+    and public.refund_lifecycle_contract(id)->'refreshAfterSeconds'='null'::jsonb
   from public.refund_cases where id='ce400000-0000-4000-8000-000000000005'),
-  'An adopted sent notice remains observable while accounting stays open');
+  'A sent notice ends customer polling while accounting remains separately reviewable');
+set local role service_role;
+select public.service_issue_refund_status_capability(
+  'ce400000-0000-4000-8000-000000000005',repeat('5',64),statement_timestamp()+interval '30 days');
+select ok((select status.lifecycle->>'terminal'='true'
+    and status.lifecycle->'refreshAfterSeconds'='null'::jsonb
+    and status.lifecycle#>>'{messageState,state}'='sent'
+    and status.lifecycle::text not like '%accounting%'
+    and status.lifecycle::text not like '%Refund Operations%'
+  from (select public.service_read_refund_status_capability(
+      repeat('5',64),repeat('6',64))->'lifecycle' lifecycle) status),
+  'Customer capability stops polling after sent notice without exposing accounting');
+reset role;
 
 select pg_temp.authorize(6);
 insert into public.refund_external_notice_observations(receipt_id,refund_case_id,sender_email,recipient_email,
@@ -412,6 +488,49 @@ select ok((select item.value#>>'{lifecycle,managerQueue,bucket}'='in_progress'
     jsonb_array_elements(o.payload->'cases') item
   where item.value->>'id'='ce400000-0000-4000-8000-000000000001'),
   'A scoped manager overview/search cannot recover internal accounting details');
+reset role;
+
+-- More than one bounded batch of older paused automatic work cannot starve a
+-- later human-approved message in the shared delivery lane.
+select set_config('request.jwt.claim.sub','ce000000-0000-4000-8000-000000000001',true);
+select set_config('request.jwt.claim.role','authenticated',true);
+select set_config('request.jwt.claims',
+  '{"sub":"ce000000-0000-4000-8000-000000000001","role":"authenticated","session_id":"ce010000-0000-4000-8000-000000000001","is_anonymous":false}',true);
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,issue_summary,
+  incident_at,payment_method,payment_amount_cents,refund_amount_cents,card_last4,status,correlation_status,correlation_source,
+  correlation_confidence,automation_state,matched_nayax_transaction_id,matched_nayax_amount_cents,matched_nayax_currency_code,
+  matched_nayax_machine_auth_time,lifecycle_integrity_status,lifecycle_integrity_code,lifecycle_integrity_detected_at)
+select ('ce400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-RC-PRIORITY-'||n,
+  'ce300000-0000-4000-8000-000000000001','ce200000-0000-4000-8000-000000000001',
+  'receipt-auto-customer@example.invalid','Synthetic receipt priority isolation',now()-interval '4 days','card',900,900,
+  '4242','card_refund_pending','matched','nayax',1,'approved',(923457000+n)::text,900,'USD',now()-interval '4 days',
+  'hold','card_payment_state_without_attempt',now()-interval '2 days' from generate_series(100,125) n;
+select public.admin_record_refund_authoritative_receipt(c.id,null,c.official_action_version,
+  'RC-AUTO-ACCOUNT','RC-AUTO-MACHINE',c.matched_nayax_transaction_id,900,900,'USD',62,
+  'DTM:NAYAX-'||c.matched_nayax_transaction_id,true)
+from public.refund_cases c where c.public_reference like 'RF-RC-PRIORITY-%';
+select pg_temp.authorize(n) from generate_series(100,124) n;
+set local role service_role;
+select pg_temp.ensure(n) from generate_series(100,124) n;
+reset role;
+create temp table receipt_auto_priority_manual_source as
+select c.id case_id,r.id receipt_id,c.official_action_version expected_case_version,
+  public.admin_get_refund_authoritative_receipt_overview(c.id)#>>'{completionNotice,reviewBinding}' review_binding
+from public.refund_cases c join public.refund_authoritative_receipts r on r.refund_case_id=c.id
+where c.id='ce400000-0000-4000-8000-000000000125';
+grant select on receipt_auto_priority_manual_source to authenticated;
+set local role authenticated;
+select public.admin_queue_refund_receipt_completion(case_id,receipt_id,expected_case_version,
+  gen_random_uuid(),true,review_binding) from receipt_auto_priority_manual_source;
+reset role;
+set local role service_role;
+create temp table receipt_auto_priority_claims as
+select * from public.service_claim_refund_manual_message_deliveries(null,25);
+select ok(exists(select 1 from receipt_auto_priority_claims claimed
+    join public.refund_case_messages message on message.id=claimed.refund_case_message_id
+    where message.refund_case_id='ce400000-0000-4000-8000-000000000125'
+      and message.delivery_kind='manual'),
+  'More than one bounded batch of deferred automatic work cannot starve later manual mail');
 reset role;
 
 select * from finish();

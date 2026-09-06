@@ -371,6 +371,10 @@ const runManualMessageOutboxSweep = async (counters: SweepCounters) => {
       addReason(counters, "manual_message_outbox_sent");
       continue;
     }
+    if (result.outcome === "deferred") {
+      addReason(counters, "automatic_message_outbox_deferred");
+      continue;
+    }
     counters.actionsFailed += 1;
     addReason(
       counters,

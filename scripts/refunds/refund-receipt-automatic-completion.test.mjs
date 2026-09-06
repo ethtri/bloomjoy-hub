@@ -27,6 +27,7 @@ test('automatic completion is authority-bound, exact, and least privilege', () =
   assert.match(migration, /revoke all on function public\.refund_create_receipt_completion_automation_authority\(uuid,uuid,text,text,text\)\s+from public,anon,authenticated,service_role/);
   assert.match(migration, /grant execute on function public\.service_ensure_refund_receipt_automatic_completion\(uuid,uuid,uuid\)\s+to service_role/);
   assert.match(migration, /grant execute on function public\.service_mark_refund_manual_message_provider_attempt\(uuid,uuid\)\s+to service_role/);
+  assert.match(migration, /grant execute on function public\.service_defer_refund_automatic_completion_delivery\(uuid,uuid,text\)\s+to service_role/);
   assert.doesNotMatch(migration, /grant execute on function public\.refund_create_receipt_completion_automation_authority/);
   const authorityStart = migration.indexOf(
     'create function public.refund_create_receipt_completion_automation_authority',
@@ -69,7 +70,10 @@ test('receipt accounting separates payment truth from delivery polling and provi
   assert.match(lifecycle, /'settledAt',null,'blocksPaymentCompletion',false,'blocksCustomerNotice',false/);
   assert.match(lifecycle, /'bucket','accounting_review'/);
   assert.match(lifecycle, /'label','Refund confirmed · accounting review','nextAction','review_accounting_date'/);
-  assert.doesNotMatch(lifecycle, /'terminal'|'refreshAfterSeconds'|'stage'|'messageState'/);
+  assert.match(lifecycle, /notice_complete:=coalesce\(base#>>'\{messageState,state\}','none'\) in \('sent','delivered'\)/);
+  assert.match(lifecycle, /'terminal',notice_complete/);
+  assert.match(lifecycle, /'refreshAfterSeconds',case when notice_complete then null else 5 end/);
+  assert.doesNotMatch(lifecycle, /'stage'|'messageState'/);
 });
 
 test('receipt accounting visibility is projected after manager authorization on list and direct reads', () => {
@@ -143,6 +147,12 @@ test('automatic authority remains explicit through queue, claim, and attempt mar
   assert.match(outbox, /delivery_kind,[\s\S]*deliveryKind: message\.delivery_kind/);
   assert.match(outbox, /Deno\.env\.get\("REFUND_AUTOMATION_ENABLED"\)/);
   assert.match(outbox, /refundOutboxAutomaticSendGate\s*=\s*\([\s\S]*automaticRefundCustomerContactEnabled\(\)/);
+  assert.match(outbox, /service_defer_refund_automatic_completion_delivery/);
+  assert.match(outbox, /outcome: "deferred"/);
+  assert.match(migration, /service_finish_refund_gmail_outbound_pre_receipt_defer_v1/);
+  assert.match(migration, /gmail_message\.status='pending_send'[\s\S]*gmail_message\.provider_message_id is null[\s\S]*delete from public\.refund_gmail_messages/);
+  assert.match(migration, /delete from public\.refund_gmail_messages[\s\S]*service_defer_refund_automatic_completion_delivery/);
+  assert.match(migration, /order by case when exists[\s\S]*delivery_kind='manual'[\s\S]*then 0 else 1 end/);
   assert.doesNotMatch(gmailTransport, /automaticOperationStarted/);
   assert.ok(gmailTransport.indexOf('if (!claim.claimed)') <
     gmailTransport.lastIndexOf('automaticRefundProviderSendGate()'));
@@ -193,21 +203,28 @@ test('focused pgTAP covers permissions, replay, races, and unknown accounting', 
     'Service replay returns the same canonical message',
     'Queued automatic completion marks payment work complete',
     'Queued automatic completion keeps unknown-date accounting separate and nonblocking',
-    'Receipt accounting preserves the existing terminal state',
     'Queued automatic completion keeps polling',
     'Authoritative payment leaves the provider hold queue',
     'Unknown-date accounting enters its truthful Refund Operations queue',
     'Receipt accounting preserves the existing message state',
     'A receipt without a completion intent keeps the missing notice observable',
+    'A provider-empty Gmail shutdown claim is settled for safe reclaim',
+    'Provider-empty Gmail shutdown evidence cannot strand the authorized notice',
+    'Gmail shutdown cleanup atomically requeues the exact provider-empty notice',
+    'A lost shutdown response replays the same safe deferral without stranding the claim',
+    'Re-enable can reclaim the same authorized completion notice',
+    'Deferral clears only the provider-empty attempt marker before reclaim',
     'A failed pre-provider notice remains observable and polling',
     'An unknown delivery remains observable and polling',
-    'An adopted sent notice remains observable while accounting stays open',
+    'A sent notice ends customer polling while accounting remains separately reviewable',
+    'Customer capability stops polling after sent notice without exposing accounting',
     'A human queue winner is safely adopted as the canonical outcome',
     'Existing exact SENT-notice adoption wins without another message',
     'A standalone external observation wins without another message',
     'Receipt completion authority never creates a provider attempt',
     'Receipt completion authority never creates dated accounting',
     'Settlement evidence stays unknown',
+    'More than one bounded batch of deferred automatic work cannot starve later manual mail',
   ]) assert.ok(pgTap.includes(marker), marker);
   for (const marker of [
     'Concurrent automatic completion waits for the exact case lock',

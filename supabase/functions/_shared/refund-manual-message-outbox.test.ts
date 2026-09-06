@@ -225,7 +225,7 @@ Deno.test("automatic outbox fresh-send gates do not affect manual messages", asy
   });
 });
 
-Deno.test("fresh automatic shutdown settles without provider mark, claim, or access", async () => {
+Deno.test("fresh automatic shutdown defers the exact claim without provider access", async () => {
   await withAutomaticEnvironment("false", "false", async () => {
     const calls: string[] = [];
     const originalFetch = globalThis.fetch;
@@ -244,9 +244,9 @@ Deno.test("fresh automatic shutdown settles without provider mark, claim, or acc
         },
         rpc: (name: string) => {
           calls.push(`rpc:${name}`);
-          if (name === "service_finish_refund_manual_message_delivery") {
+          if (name === "service_defer_refund_automatic_completion_delivery") {
             return Promise.resolve({
-              data: { finished: true, payloadRedacted: true },
+              data: { deferred: true, payloadRedacted: true },
               error: null,
             });
           }
@@ -260,12 +260,12 @@ Deno.test("fresh automatic shutdown settles without provider mark, claim, or acc
         supabase,
         reference: { messageId, claimToken },
       });
-      assertEquals(result.outcome, "failed");
+      assertEquals(result.outcome, "deferred");
       assertEquals(providerCalls, 0);
       assertEquals(calls, [
         "from:refund_case_messages",
         "from:refund_cases",
-        "rpc:service_finish_refund_manual_message_delivery",
+        "rpc:service_defer_refund_automatic_completion_delivery",
       ]);
     } finally {
       globalThis.fetch = originalFetch;
@@ -340,6 +340,12 @@ Deno.test("mark-only automatic crash cannot send after env shutdown", async () =
                 error: null,
               });
             }
+            if (name === "service_defer_refund_automatic_completion_delivery") {
+              return Promise.resolve({
+                data: { deferred: true, payloadRedacted: true },
+                error: null,
+              });
+            }
             return Promise.resolve({
               data: null,
               error: { code: "unexpected_rpc" },
@@ -350,7 +356,7 @@ Deno.test("mark-only automatic crash cannot send after env shutdown", async () =
           supabase,
           reference: { messageId, claimToken },
         });
-        assertEquals(result.outcome, "failed");
+        assertEquals(result.outcome, "deferred");
         assertEquals(providerCalls, 0);
         assertEquals(calls.includes(
           "rpc:service_claim_refund_gmail_outbound_v3",
@@ -660,6 +666,12 @@ Deno.test("mark-only automatic fallback cannot start transactional provider acce
               error: null,
             });
           }
+          if (name === "service_defer_refund_automatic_completion_delivery") {
+            return Promise.resolve({
+              data: { deferred: true, payloadRedacted: true },
+              error: null,
+            });
+          }
           return Promise.resolve({
             data: null,
             error: { code: "unexpected_rpc" },
@@ -670,7 +682,7 @@ Deno.test("mark-only automatic fallback cannot start transactional provider acce
         supabase,
         reference: { messageId, claimToken },
       });
-      assertEquals(result.outcome, "failed");
+      assertEquals(result.outcome, "deferred");
       assertEquals(providerCalls, 0);
       assertEquals(calls.includes(
         "rpc:service_mark_refund_transactional_delivery_attempt",

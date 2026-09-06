@@ -152,6 +152,25 @@ Deno.test("the lifecycle parser accepts optional receipt accounting separation",
     requireRefundLifecycleContract(receiptLifecycle).accountingState?.blocksCustomerNotice === false,
     "receipt accounting must remain separate from customer notice delivery",
   );
+  const sentReceiptLifecycle = {
+    ...receiptLifecycle,
+    stage: "customer_notified",
+    messageState: { ...receiptLifecycle.messageState, state: "sent" },
+    terminal: true,
+    refreshAfterSeconds: null,
+  };
+  assert(
+    isRefundLifecycleContract(sentReceiptLifecycle),
+    "sent canonical receipt accounting should stop polling and parse",
+  );
+  assert(
+    !isRefundLifecycleContract({ ...sentReceiptLifecycle, terminal: false }),
+    "sent canonical receipt accounting cannot remain nonterminal",
+  );
+  assert(
+    !isRefundLifecycleContract({ ...sentReceiptLifecycle, refreshAfterSeconds: 5 }),
+    "sent canonical receipt accounting cannot keep polling",
+  );
   assert(
     !isRefundLifecycleContract({ ...fixture, paymentWorkComplete: true }),
     "payment completion without accounting state must fail closed",
