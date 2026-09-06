@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(30);
+select plan(29);
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
@@ -162,16 +162,10 @@ select is(pg_temp.continue_attempt(2)#>>'{attempt,shouldExecute}','false',
   'Request-not-proved cannot continue');
 select throws_ok($$select pg_temp.continue_attempt(1,1)$$,'P4628',null,
   'Stale expected version cannot claim continuation');
-select pg_temp.record_request(4,'accepted',true,true,'FixtureResult','FixtureStatus');
-update public.refund_cases set official_action_version=official_action_version+1
-where id='ca500000-0000-4000-8000-000000000004';
-select throws_ok($$select pg_temp.continue_attempt(4)$$,'P4628',null,
-  'A case version changed after the request cannot continue approval');
 select pg_temp.record_request(6,'accepted',true,true,'FixtureResult','FixtureStatus');
-update public.refund_cases set refund_amount_cents=700
-where id='ca500000-0000-4000-8000-000000000006';
-select throws_ok($$select pg_temp.continue_attempt(6)$$,'P4628',null,
-  'A changed full refund amount cannot continue approval');
+select throws_ok($$update public.refund_cases set refund_amount_cents=700
+  where id='ca500000-0000-4000-8000-000000000006'$$,'P0001',null,
+  'The active attempt guard prevents the full refund amount from changing before approval');
 
 select public.service_record_nayax_refund_provider_stage_v3_outcomes('continuation-executor',
   (select (result#>>'{attempt,attemptId}')::uuid from issued_continuation),

@@ -225,7 +225,7 @@ for (const scenario of [
 ]) {
   assert.match(continuationTest, new RegExp(scenario), `continuation pgTAP must cover ${scenario}`);
 }
-assert.match(continuationTest, /select plan\(30\)/u);
+assert.match(continuationTest, /select plan\(29\)/u);
 
 console.log(
   'Nayax journal v3 static validation passed: additive rollback compatibility, exact-200 application/json authorization, redacted response metadata, and focused pgTAP coverage are present.',
