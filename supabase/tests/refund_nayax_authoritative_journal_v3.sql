@@ -280,12 +280,17 @@ select ok(
     'public.service_record_nayax_refund_provider_stage_v3_outcomes(text,uuid,text,text,text,integer,text,boolean,text,text,text,text,boolean,text,text,text,boolean,boolean,boolean,boolean,boolean,text,text,boolean,text,text,boolean)',
     'execute'
   )
-  and not has_function_privilege(
+  and has_function_privilege(
     'service_role',
     'public.service_record_nayax_refund_provider_stage_v3(text,uuid,text,text,text,integer,text,boolean,text,text,text,text,boolean,text,text,text,boolean,boolean,boolean,boolean,boolean,text,text,boolean)',
     'execute'
+  )
+  and not has_function_privilege(
+    'authenticated',
+    'public.service_record_nayax_refund_provider_stage_v3(text,uuid,text,text,text,integer,text,boolean,text,text,text,text,boolean,text,text,text,boolean,boolean,boolean,boolean,boolean,text,text,boolean)',
+    'execute'
   ),
-  'Only service_role can execute the outcome-retaining v3 boundaries'
+  'Service role can use new and rollback-safe v3 writers while browser roles cannot'
 );
 
 select ok(

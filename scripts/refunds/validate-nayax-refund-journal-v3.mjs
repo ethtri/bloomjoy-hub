@@ -227,7 +227,7 @@ for (const scenario of [
 ]) {
   assert.match(continuationTest, new RegExp(scenario), `continuation pgTAP must cover ${scenario}`);
 }
-assert.match(continuationTest, /select plan\(30\)/u);
+assert.match(continuationTest, /select plan\(31\)/u);
 assert.match(
   continuationMigration,
   /grant execute on function public\.service_record_nayax_refund_provider_stage_v3\([\s\S]*\) to service_role;/u,
