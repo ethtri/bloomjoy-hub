@@ -3,7 +3,8 @@ import path from 'node:path';
 
 export const RECEIPT_MIGRATION = '20260902191832_refund_authoritative_reconciliation_receipt.sql';
 export const CORE_DISPATCH_MIGRATION = '20260902182311_refund_all_message_delivery_bookkeeping.sql';
-export const COMPLETION_MIGRATION = '20260903154800_refund_receipt_customer_completion.sql';
+export const PRIOR_COMPLETION_MIGRATION = '20260903154800_refund_receipt_customer_completion.sql';
+export const COMPLETION_MIGRATION = '20260906005234_refund_receipt_automatic_completion_kernel.sql';
 export const OWNER_RESOLUTION_MIGRATION = '20260904182000_refund_owner_nonrefund_adoption.sql';
 const TEST_FILE = 'refund_receipt_wrapper_parity.sql';
 const gmailArgs = 'uuid,uuid,text,text,text,text,text[],text,uuid';
@@ -12,10 +13,12 @@ const definitions = [
   [CORE_DISPATCH_MIGRATION, 'service_claim_refund_gmail_outbound_v3', 'service_claim_refund_gmail_outbound_pre_receipt_v1', gmailArgs, false],
   [COMPLETION_MIGRATION, 'service_mark_refund_transactional_delivery_attempt', 'service_mark_refund_transactional_delivery_attempt', 'uuid', true],
   [CORE_DISPATCH_MIGRATION, 'service_mark_refund_transactional_delivery_attempt', 'service_mark_refund_delivery_pre_receipt_v1', 'uuid', false],
+  [COMPLETION_MIGRATION, 'service_mark_refund_manual_message_provider_attempt', 'service_mark_refund_manual_message_provider_attempt', 'uuid,uuid', true],
 ];
 const guardByRuntimeName = new Map([
   ['service_claim_refund_gmail_outbound_v3', ['  select official_action_version into case_version from public.refund_cases where id=p_refund_case_id for update;', '  perform public.assert_no_active_refund_owner_resolution(p_refund_case_id);']],
   ['service_mark_refund_transactional_delivery_attempt', ['  select official_action_version into case_version from public.refund_cases where id=case_id for update;', '  perform public.assert_no_active_refund_owner_resolution(case_id);']],
+  ['service_mark_refund_manual_message_provider_attempt', ['  select * into case_row from public.refund_cases where id=case_id for update;', '  perform public.assert_no_active_refund_owner_resolution(case_id);']],
 ]);
 
 export function extractReceiptParityBody(source, name) {
@@ -42,7 +45,8 @@ export function applyOwnerResolutionBoundary(body, runtimeName, ownerResolutionS
 export function buildReceiptWrapperParityTest(repoRoot) {
   const migrationsDir = path.join(repoRoot, 'supabase', 'migrations');
   const files = fs.readdirSync(migrationsDir).filter((name) => name.endsWith('.sql')).sort();
-  if (!files.includes(RECEIPT_MIGRATION) || !files.includes(CORE_DISPATCH_MIGRATION) || !files.includes(COMPLETION_MIGRATION) ||
+  if (!files.includes(RECEIPT_MIGRATION) || !files.includes(CORE_DISPATCH_MIGRATION) ||
+    !files.includes(PRIOR_COMPLETION_MIGRATION) || !files.includes(COMPLETION_MIGRATION) ||
     COMPLETION_MIGRATION <= RECEIPT_MIGRATION || RECEIPT_MIGRATION <= CORE_DISPATCH_MIGRATION) throw new Error('Receipt must follow the current core dispatch migration');
   // A later public replacement would silently remove the outer receipt gate on
   // fresh replay even when an out-of-order production installation looked safe.
@@ -50,12 +54,11 @@ export function buildReceiptWrapperParityTest(repoRoot) {
     const definingFiles = files.filter((file) => new RegExp(`^create(?: or replace)? function public\\.${name}\\(`, 'm')
       .test(fs.readFileSync(path.join(migrationsDir, file), 'utf8')));
     if (definingFiles.at(-1) !== COMPLETION_MIGRATION) throw new Error(`Receipt wrapper overwritten later: ${name}`);
-    if (definingFiles.at(-2) !== RECEIPT_MIGRATION || definingFiles.at(-3) !== CORE_DISPATCH_MIGRATION) throw new Error(`Receipt delegate is not the current core: ${name}`);
+    if (definingFiles.at(-2) !== PRIOR_COMPLETION_MIGRATION || definingFiles.at(-3) !== RECEIPT_MIGRATION ||
+      definingFiles.at(-4) !== CORE_DISPATCH_MIGRATION) throw new Error(`Receipt delegate is not the current core: ${name}`);
   }
-  const ownerResolutionSource = fs.readFileSync(path.join(migrationsDir, OWNER_RESOLUTION_MIGRATION), 'utf8').replaceAll('\r\n', '\n');
   const checks = definitions.flatMap(([file, sourceName, runtimeName, args, serviceAllowed]) => {
-    let body = extractReceiptParityBody(fs.readFileSync(path.join(migrationsDir, file), 'utf8'), sourceName);
-    body = applyOwnerResolutionBoundary(body, runtimeName, ownerResolutionSource);
+    const body = extractReceiptParityBody(fs.readFileSync(path.join(migrationsDir, file), 'utf8'), sourceName);
     const signature = `public.${runtimeName}(${args})`;
     return [
       `select is((select prosrc from pg_proc where oid='${signature}'::regprocedure), $receipt_parity$${body}$receipt_parity$, '${runtimeName} has the complete exact current source body');`,

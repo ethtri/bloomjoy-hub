@@ -17,6 +17,7 @@ import {
   RefundGmailError,
   requireRefundGmailEnabled,
   sendRefundGmailReply,
+  sha256Hex,
 } from "../../supabase/functions/_shared/refund-gmail.ts";
 import { requireRefundCustomerManagerCcResolution } from "../../supabase/functions/_shared/refund-gmail-transport.ts";
 import { createAuthenticatedEvidenceFragment } from "./refund-uat-fragment-provenance.mjs";
@@ -28,6 +29,7 @@ const SYNTHETIC_ENV = {
   GMAIL_SUPPORT_MAILBOX: "info@bloomjoysweets.com",
   GMAIL_SUPPORT_SEND_AS_ALIASES: "support@bloomjoysweets.com",
   GMAIL_REFUND_LABEL_ID: "Label_Synthetic",
+  REFUND_AUTOMATION_ENABLED: "true",
 };
 
 const FIRST_CONTACT_FIXTURE = {
@@ -258,16 +260,37 @@ const runKillSwitchAssertions = async () => {
     },
     async () => {
       let deliveryClaimCount = 0;
+      let deliveryFinishCount = 0;
       let providerFetchCount = 0;
       let providerSendCount = 0;
+      const mailboxHash = await sha256Hex(SYNTHETIC_ENV.GMAIL_SUPPORT_MAILBOX);
       const supabase = fakeSupabase({
         link: {
           id: "synthetic-linked-thread",
-          mailbox_hash: "not-read-while-customer-contact-disabled",
+          mailbox_hash: mailboxHash,
         },
         rpc: async (name) => {
           if (name === "service_claim_refund_gmail_outbound_v3") {
             deliveryClaimCount += 1;
+            return {
+              data: {
+                linked: true,
+                claimed: true,
+                transportMessageId:
+                  "79870000-0000-4000-8000-000000000022",
+                providerThreadId: FIRST_CONTACT_FIXTURE.providerThreadId,
+                subject: email.subject,
+                recipientResolutionStatus: "resolved",
+                managerCcEmails: FIRST_CONTACT_FIXTURE.managers,
+                managerRecipientOverlap: false,
+                managerRecipientCount: 2,
+              },
+              error: null,
+            };
+          }
+          if (name === "service_finish_refund_gmail_outbound") {
+            deliveryFinishCount += 1;
+            return { data: true, error: null };
           }
           return { data: null, error: null };
         },
@@ -299,12 +322,14 @@ const runKillSwitchAssertions = async () => {
 
       const disabled = !automaticRefundCustomerContactEnabled();
       assert(disabled);
-      assertEquals(deliveryClaimCount, 0);
+      assertEquals(deliveryClaimCount, 1);
+      assertEquals(deliveryFinishCount, 1);
       assertEquals(providerFetchCount, 0);
       assertEquals(providerSendCount, 0);
       return {
         disabled,
         deliveryClaimCount,
+        deliveryFinishCount,
         providerFetchCount,
         providerSendCount,
       };

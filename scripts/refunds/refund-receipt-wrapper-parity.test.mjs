@@ -3,23 +3,29 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { applyOwnerResolutionBoundary, buildReceiptWrapperParityTest, extractReceiptParityBody, COMPLETION_MIGRATION,
-  CORE_DISPATCH_MIGRATION, OWNER_RESOLUTION_MIGRATION } from './refund-receipt-wrapper-parity.mjs';
+import { buildReceiptWrapperParityTest, extractReceiptParityBody, COMPLETION_MIGRATION,
+  CORE_DISPATCH_MIGRATION } from './refund-receipt-wrapper-parity.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const read = (name) => fs.readFileSync(path.join(root, 'supabase/migrations', name), 'utf8');
 test('source-derived runtime proof includes exact current core delegates and receipt outer wrappers', () => {
   const sql = buildReceiptWrapperParityTest(root);
-  assert(sql.includes('select plan(20)'));
+  assert(sql.includes('select plan(25)'));
   for (const name of ['service_claim_refund_gmail_outbound_v3', 'service_mark_refund_transactional_delivery_attempt']) {
     const core = extractReceiptParityBody(read(CORE_DISPATCH_MIGRATION), name);
-    const receipt = applyOwnerResolutionBoundary(extractReceiptParityBody(read(COMPLETION_MIGRATION), name), name,
-      read(OWNER_RESOLUTION_MIGRATION));
+    const receipt = extractReceiptParityBody(read(COMPLETION_MIGRATION), name);
     assert(sql.includes(`$receipt_parity$${core}$receipt_parity$`));
     assert(sql.includes(`$receipt_parity$${receipt}$receipt_parity$`));
     assert(core.includes('Follow-up reminder requires a non-failed original request'));
     assert(receipt.includes("errcode='P4663'"));
+    assert(receipt.includes('assert_no_active_refund_owner_resolution'));
   }
+  const manualMark = extractReceiptParityBody(
+    read(COMPLETION_MIGRATION),
+    'service_mark_refund_manual_message_provider_attempt',
+  );
+  assert(manualMark.includes('assert_no_active_refund_owner_resolution(case_id)'));
+  assert(manualMark.indexOf('for update;') < manualMark.indexOf('assert_no_active_refund_owner_resolution(case_id)'));
   assert.doesNotMatch(sql, /disable\s+trigger|session_replication_role/iu);
   assert(sql.endsWith('rollback;\n'));
 });

@@ -8,6 +8,10 @@ select extensions.dblink_connect('receipt_auto_race_b','host=db port='||current_
   ' dbname='||current_database()||' user=postgres password=postgres sslmode=disable application_name=receipt_auto_race_b');
 select extensions.dblink_connect('receipt_auto_race_worker','host=db port='||current_setting('port')||
   ' dbname='||current_database()||' user=postgres password=postgres sslmode=disable application_name=receipt_auto_race_worker');
+select extensions.dblink_connect('receipt_auto_xid_producer','host=db port='||current_setting('port')||
+  ' dbname='||current_database()||' user=postgres password=postgres sslmode=disable application_name=receipt_auto_xid_producer');
+select extensions.dblink_connect('receipt_auto_xid_writer','host=db port='||current_setting('port')||
+  ' dbname='||current_database()||' user=postgres password=postgres sslmode=disable application_name=receipt_auto_xid_writer');
 
 begin;
 create schema refund_receipt_auto_race_test;
@@ -34,6 +38,11 @@ values('cd400000-0000-4000-8000-000000000001','RF-RC-AUTO-RACE-1',
   'cd300000-0000-4000-8000-000000000001','cd200000-0000-4000-8000-000000000001',
   'receipt-auto-race-customer@example.invalid','Synthetic receipt automatic completion race',now()-interval '3 days',
   'card',1100,1100,'4242','card_refund_pending','matched','nayax',1,'approved','993456781',1100,'USD',
+  now()-interval '3 days','hold','card_payment_state_without_attempt',now()-interval '1 day'),
+  ('cd400000-0000-4000-8000-000000000002','RF-RC-AUTO-RACE-2',
+  'cd300000-0000-4000-8000-000000000001','cd200000-0000-4000-8000-000000000001',
+  'receipt-auto-race-customer@example.invalid','Synthetic cross-transaction receipt authority',now()-interval '3 days',
+  'card',1200,1200,'4242','card_refund_pending','matched','nayax',1,'approved','993456782',1200,'USD',
   now()-interval '3 days','hold','card_payment_state_without_attempt',now()-interval '1 day');
 insert into public.refund_authoritative_receipts(refund_case_id,reporting_machine_id,account_scope,provider_machine_id,
   original_transaction_id,original_amount_cents,refunded_amount_cents,currency_code,provider_status,
@@ -45,6 +54,7 @@ values('cd400000-0000-4000-8000-000000000001','cd300000-0000-4000-8000-000000000
 select public.refund_create_receipt_completion_automation_authority(
   'cd400000-0000-4000-8000-000000000001',
   (select id from public.refund_authoritative_receipts where refund_case_id='cd400000-0000-4000-8000-000000000001'),
+  'nayax_api_terminal','verified_terminal_refund_v1',
   encode(extensions.digest(convert_to('receipt-auto-race-source','UTF8'),'sha256'),'hex'));
 create function refund_receipt_auto_race_test.ensure() returns jsonb language sql as $$
   select public.service_ensure_refund_receipt_automatic_completion(c.id,r.id,a.id)
@@ -65,9 +75,47 @@ begin
   return false;
 end;
 $$;
+create function refund_receipt_auto_race_test.capture_error(statement text) returns text language plpgsql as $$
+begin execute statement; return null; exception when others then return sqlstate; end;
+$$;
 commit;
 
 select no_plan();
+select extensions.dblink_exec('receipt_auto_xid_producer','begin');
+insert into refund_receipt_auto_race_test.results
+select 'producer_xid',jsonb_build_object('xid',xid)
+from extensions.dblink('receipt_auto_xid_producer','select pg_current_xact_id()::text') as x(xid text);
+select extensions.dblink_exec('receipt_auto_xid_writer',$q$
+  insert into public.refund_authoritative_receipts(refund_case_id,reporting_machine_id,account_scope,
+    provider_machine_id,original_transaction_id,original_amount_cents,refunded_amount_cents,currency_code,
+    provider_status,evidence_reference_digest,recorded_by,attempt_binding_kind,current_provider_observation_reviewed)
+  select c.id,c.reporting_machine_id,'RC-AUTO-RACE-ACCOUNT','RC-AUTO-RACE-MACHINE',
+    c.matched_nayax_transaction_id,1200,1200,'USD',62,
+    encode(extensions.digest(convert_to('receipt-auto-cross-transaction','UTF8'),'sha256'),'hex'),
+    'cd000000-0000-4000-8000-000000000001','no_attempt_integrity_hold',true
+  from public.refund_cases c where c.id='cd400000-0000-4000-8000-000000000002'
+$q$);
+select isnt((select payload->>'xid' from refund_receipt_auto_race_test.results where lane='producer_xid'),
+  (select creation_transaction_id::text from public.refund_authoritative_receipts
+    where refund_case_id='cd400000-0000-4000-8000-000000000002'),
+  'The separately committed receipt records the writer transaction identity');
+select is((select code from extensions.dblink('receipt_auto_xid_producer',$q$
+  select refund_receipt_auto_race_test.capture_error($statement$
+    select public.refund_create_receipt_completion_automation_authority(
+      'cd400000-0000-4000-8000-000000000002',
+      (select id from public.refund_authoritative_receipts
+        where refund_case_id='cd400000-0000-4000-8000-000000000002'),
+      'nayax_api_terminal','verified_terminal_refund_v1',repeat('f',64))
+  $statement$)
+$q$) as attempted(code text)),'P4668',
+  'A producer transaction cannot mint authority from a receipt committed by another transaction');
+select is((select count(*)::integer from public.refund_receipt_completion_automation_authorities
+  where refund_case_id='cd400000-0000-4000-8000-000000000002'),0,
+  'Cross-transaction receipt interleaving creates no completion authority');
+select extensions.dblink_exec('receipt_auto_xid_producer','rollback');
+select extensions.dblink_disconnect('receipt_auto_xid_producer');
+select extensions.dblink_disconnect('receipt_auto_xid_writer');
+
 select extensions.dblink_exec('receipt_auto_race_a','begin');
 select * from extensions.dblink('receipt_auto_race_a',$q$
   select id::text from public.refund_cases
@@ -133,13 +181,14 @@ set constraints all immediate;
 delete from public.refund_receipt_completion_automation_authorities
 where refund_case_id='cd400000-0000-4000-8000-000000000001';
 delete from public.refund_authoritative_receipts
-where refund_case_id='cd400000-0000-4000-8000-000000000001';
+where refund_case_id in ('cd400000-0000-4000-8000-000000000001','cd400000-0000-4000-8000-000000000002');
 alter table public.refund_receipt_completion_automation_authorities
   enable trigger refund_receipt_completion_automation_authorities_immutable;
 alter table public.refund_receipt_completion_intents enable trigger refund_receipt_completion_intents_immutable;
 alter table public.refund_case_messages enable trigger aa_refund_receipt_completion_identity;
 alter table public.refund_authoritative_receipts enable trigger refund_authoritative_receipts_immutable;
-delete from public.refund_cases where id='cd400000-0000-4000-8000-000000000001';
+delete from public.refund_cases
+where id in ('cd400000-0000-4000-8000-000000000001','cd400000-0000-4000-8000-000000000002');
 delete from public.reporting_machines where id='cd300000-0000-4000-8000-000000000001';
 delete from public.reporting_locations where id='cd200000-0000-4000-8000-000000000001';
 delete from public.customer_accounts where id='cd100000-0000-4000-8000-000000000001';

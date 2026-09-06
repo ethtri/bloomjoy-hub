@@ -143,7 +143,7 @@ test('forward owner slice preserves support adopter, lifecycle and complete rece
   assert.match(sql, /email_confirmed_at is not null/); assert.match(sql, /mailbox_digest\|\|'\|'\|\|p_provider_message_id/);
   assert.match(sql, /gmail_message_id is null and gmail_thread_id is null and manager_cc_verified is false/);
   assert.match(sql, /p_original_sent_at>'2026-09-02T19:51:58Z'/);
-  assert.match(buildReceiptWrapperParityTest(process.cwd()), /select plan\(20\)/);
+  assert.match(buildReceiptWrapperParityTest(process.cwd()), /select plan\(25\)/);
 });
 test('actual manager summary records customer-notice evidence without claiming provider verification', () => {
   const manager = load('src/lib/refundManagerState.ts');

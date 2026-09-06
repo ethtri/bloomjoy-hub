@@ -151,6 +151,66 @@ const waitingCustomerFieldSummary = (lifecycle: RefundLifecycleContract) =>
     .map((field) => customerActionFieldLabels[field] ?? field.replaceAll('_', ' '))
     .join(', ');
 
+const receiptAccountingManagerState = (
+  lifecycle: RefundLifecycleContract,
+): RefundManagerState | null => {
+  if (
+    lifecycle.paymentState !== 'confirmed' ||
+    !['refund_confirmed', 'customer_notified'].includes(lifecycle.stage) ||
+    (lifecycle.paymentWorkComplete !== true && lifecycle.reasonCode !== 'settlement_time_unknown')
+  ) return null;
+
+  // Historical receipt projections can predate messageState. Presentation may
+  // show that absence as missing notice evidence; the lifecycle parser remains
+  // strict and continues to reject incomplete live contracts.
+  const noticeState = lifecycle.messageState?.state ?? (
+    lifecycle.stage === 'customer_notified' ? 'sent' : 'none'
+  );
+  if (['pending', 'queued', 'claimed'].includes(noticeState)) {
+    return state(
+      'refund_confirmed',
+      'Refund confirmed · customer notice queued',
+      'Nayax confirms the full refund. The saved customer completion notice is waiting for delivery.',
+      'Keep monitoring the existing notice. Refund Operations owns the unknown accounting date. Do not retry payment or create another message.',
+      'info',
+    );
+  }
+  if (['failed', 'bounced', 'complained', 'deferred', 'delivery_unconfirmed', 'unknown'].includes(noticeState)) {
+    return state(
+      'refund_confirmed',
+      'Refund confirmed · delivery review',
+      'Nayax confirms the full refund, but delivery of the saved customer completion notice is failed or unconfirmed.',
+      'Refund Operations owns the message-delivery and accounting-date review. Do not retry payment or create another message blindly.',
+      'warning',
+    );
+  }
+  if (['sent', 'delivered'].includes(noticeState)) {
+    return state(
+      'refund_confirmed',
+      'Refund confirmed · customer updated',
+      'The existing customer notice is recorded for this claim. The settlement date remains unknown and no dated reporting adjustment has been applied.',
+      'Refund Operations owns the accounting-date review. Do not retry payment or resend the customer notice.',
+      'warning',
+    );
+  }
+  if (noticeState === 'none') {
+    return state(
+      'refund_confirmed',
+      'Refund confirmed · notice not recorded',
+      'Nayax confirms the full refund. No customer completion notice is queued or recorded yet, and the settlement date remains unknown.',
+      'Keep monitoring the canonical completion flow. Refund Operations owns the accounting-date review. Do not retry payment or create a separate message.',
+      'warning',
+    );
+  }
+  return state(
+    'refund_confirmed',
+    'Refund confirmed · delivery review',
+    'Nayax confirms the full refund, but the saved customer completion notice has an unrecognized delivery state.',
+    'Refund Operations owns the message-delivery and accounting-date review. Do not retry payment or create another message blindly.',
+    'warning',
+  );
+};
+
 export const refundReadinessBlockMessage = (blockReason: string | null | undefined) => {
   switch (blockReason) {
     case 'unauthorized':
@@ -225,6 +285,11 @@ export const getRefundManagerState = (
       'Refund Operations must review provider evidence and choose a safe disposition. Do not resend the message or retry a payment blindly.',
       'warning'
     );
+  }
+
+  if (refundCase.lifecycle) {
+    const receiptState = receiptAccountingManagerState(refundCase.lifecycle);
+    if (receiptState) return receiptState;
   }
 
   if (refundCase.lifecycle?.stage === 'waiting_on_customer') {
@@ -415,14 +480,7 @@ export const getRefundManagerState = (
           'No action is needed. The refund will not be tried again while confirmation is pending.',
           'info'
         );
-        case 'refund_confirmed':
-        if (lifecycle.reasonCode === 'settlement_time_unknown') return state(
-          'refund_confirmed',
-          'Refund confirmed · accounting review',
-          'Nayax confirms the full refund. Its settlement date is unknown, so no dated reporting adjustment has been applied.',
-          'Refund Operations owns the accounting-date review. Do not retry payment or resend the customer completion notice.',
-          'warning'
-        );
+      case 'refund_confirmed':
         return state(
           'refund_confirmed',
           'Refund confirmed',
@@ -430,12 +488,7 @@ export const getRefundManagerState = (
           'Bloomjoy is recording the receipt and customer update. The bank may take time to post it.',
           'success'
         );
-        case 'customer_notified':
-          if (lifecycle.reasonCode === 'settlement_time_unknown') return state(
-            'refund_confirmed', 'Refund confirmed · customer updated',
-            'The existing customer notice is recorded for this claim. The settlement date remains unknown and no dated reporting adjustment has been applied.',
-            'Refund Operations owns the accounting-date review. Do not retry payment or resend the customer notice.', 'warning'
-          );
+      case 'customer_notified':
         return state(
           'completed',
           'Completed',

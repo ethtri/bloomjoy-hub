@@ -2,6 +2,9 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
 select no_plan();
+select ok(position('assert_no_active_refund_owner_resolution(case_id)'
+    in pg_get_functiondef('public.service_mark_refund_manual_message_provider_attempt(uuid,uuid)'::regprocedure))>0,
+  'Manual outbox provider mark preserves the owner-resolution stop');
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
@@ -9,6 +12,12 @@ values('00000000-0000-0000-0000-000000000000','ce000000-0000-4000-8000-000000000
   'authenticated','authenticated','receipt-auto-ops@example.invalid','',now(),'{}','{}',now(),now());
 insert into auth.sessions(id,user_id,created_at,updated_at)
 values('ce010000-0000-4000-8000-000000000001','ce000000-0000-4000-8000-000000000001',now(),now());
+insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
+  raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
+values('00000000-0000-0000-0000-000000000000','ce000000-0000-4000-8000-000000000002',
+  'authenticated','authenticated','receipt-auto-manager@example.invalid','',now(),'{}','{}',now(),now());
+insert into auth.sessions(id,user_id,created_at,updated_at)
+values('ce010000-0000-4000-8000-000000000002','ce000000-0000-4000-8000-000000000002',now(),now());
 insert into public.admin_roles(user_id,role,active)
 values('ce000000-0000-4000-8000-000000000001','super_admin',true);
 insert into public.customer_accounts(id,name,account_type)
@@ -22,6 +31,9 @@ values('ce300000-0000-4000-8000-000000000001','ce100000-0000-4000-8000-000000000
 insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
 values('ce300000-0000-4000-8000-000000000001','ce000000-0000-4000-8000-000000000001',
   'receipt-auto-ops@example.invalid','Synthetic receipt automatic completion');
+insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
+values('ce300000-0000-4000-8000-000000000001','ce000000-0000-4000-8000-000000000002',
+  'receipt-auto-manager@example.invalid','Synthetic scoped manager visibility');
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,issue_summary,
   incident_at,payment_method,payment_amount_cents,refund_amount_cents,card_last4,status,correlation_status,correlation_source,
   correlation_confidence,automation_state,matched_nayax_transaction_id,matched_nayax_amount_cents,matched_nayax_currency_code,
@@ -50,9 +62,12 @@ declare case_id uuid:=('ce400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid; 
 begin
   select id into receipt_id from public.refund_authoritative_receipts where refund_case_id=case_id;
   return public.refund_create_receipt_completion_automation_authority(case_id,receipt_id,
+    case when n%2=0 then 'nayax_report_terminal' else 'nayax_api_terminal' end,
+    'verified_terminal_refund_v1',
     encode(extensions.digest(convert_to('receipt-auto-source-'||n,'UTF8'),'sha256'),'hex'));
 end; $$;
-create function pg_temp.ensure(n integer) returns jsonb language plpgsql as $$
+create function pg_temp.ensure(n integer) returns jsonb language plpgsql
+security definer set search_path='' as $$
 declare case_id uuid:=('ce400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid; receipt_id uuid; authority_id uuid;
 begin
   select id into receipt_id from public.refund_authoritative_receipts where refund_case_id=case_id;
@@ -60,7 +75,7 @@ begin
   return public.service_ensure_refund_receipt_automatic_completion(case_id,receipt_id,authority_id);
 end; $$;
 create function pg_temp.ensure_triplet(case_n integer,receipt_n integer,authority_n integer)
-returns jsonb language plpgsql as $$
+returns jsonb language plpgsql security definer set search_path='' as $$
 declare case_id uuid:=('ce400000-0000-4000-8000-'||lpad(case_n::text,12,'0'))::uuid;
   receipt_id uuid; authority_id uuid;
 begin
@@ -78,41 +93,41 @@ select ok(not has_table_privilege('authenticated','public.refund_receipt_complet
 select ok(not has_table_privilege('service_role','public.refund_receipt_completion_automation_authorities','insert'),
   'The service worker cannot mint immutable completion authority');
 select ok(not has_function_privilege('service_role',
-  'public.refund_create_receipt_completion_automation_authority(uuid,uuid,text)','execute'),
+  'public.refund_create_receipt_completion_automation_authority(uuid,uuid,text,text,text)','execute'),
   'The private terminal writer seam is not a service RPC');
 select ok(not has_function_privilege('authenticated',
   'public.service_ensure_refund_receipt_automatic_completion(uuid,uuid,uuid)','execute'),
   'Customer completion coordination is not an authenticated-user RPC');
+select ok(not has_function_privilege('authenticated',
+  'public.service_ensure_refund_receipt_automatic_completions(integer)','execute'),
+  'The bounded authority scheduler is not an authenticated-user RPC');
 select ok(has_function_privilege('service_role',
   'public.service_ensure_refund_receipt_automatic_completion(uuid,uuid,uuid)','execute'),
   'The service worker can consume an existing exact authority');
+select ok(has_function_privilege('service_role',
+  'public.service_ensure_refund_receipt_automatic_completions(integer)','execute'),
+  'The bounded service scheduler can consume authority rows');
 
 select ok(pg_temp.authorize(1) is not null,'A newly recorded independently reviewed receipt gets one authority');
+select ok((select source_kind='nayax_api_terminal'
+    and source_policy='verified_terminal_refund_v1'
+    and source_event_digest=encode(extensions.digest(
+      convert_to('receipt-auto-source-1','UTF8'),'sha256'),'hex')
+  from public.refund_receipt_completion_automation_authorities
+  where refund_case_id='ce400000-0000-4000-8000-000000000001'),
+  'Authority preserves exact terminal source kind, policy, and event digest');
 select is(pg_temp.authorize(1),
   (select id from public.refund_receipt_completion_automation_authorities
     where refund_case_id='ce400000-0000-4000-8000-000000000001'),
   'Exact authority creation is idempotent');
 select is(pg_temp.capture_error($$select public.refund_create_receipt_completion_automation_authority(
   'ce400000-0000-4000-8000-000000000001',(select id from public.refund_authoritative_receipts
-    where refund_case_id='ce400000-0000-4000-8000-000000000001'),repeat('0',64))$$),
+    where refund_case_id='ce400000-0000-4000-8000-000000000001'),
+    'nayax_api_terminal','verified_terminal_refund_v1',repeat('0',64))$$),
   'P4668','Conflicting authority evidence cannot replace the immutable grant');
 select is(pg_temp.capture_error($$update public.refund_receipt_completion_automation_authorities
   set expected_case_version=expected_case_version+1 where refund_case_id='ce400000-0000-4000-8000-000000000001'$$),
   'P4660','Completion authority is immutable');
-
--- A directly staged old receipt proves the same-transaction boundary. No
--- production/history scan or backfill is used by the migration or coordinator.
-insert into public.refund_authoritative_receipts(refund_case_id,reporting_machine_id,account_scope,provider_machine_id,
-  original_transaction_id,original_amount_cents,refunded_amount_cents,currency_code,provider_status,
-  evidence_reference_digest,observed_at,recorded_by,attempt_binding_kind,current_provider_observation_reviewed)
-select c.id,c.reporting_machine_id,'RC-AUTO-ACCOUNT','RC-AUTO-MACHINE',c.matched_nayax_transaction_id,900,900,'USD',62,
-  encode(extensions.digest(convert_to('receipt-auto-old','UTF8'),'sha256'),'hex'),transaction_timestamp()-interval '1 day',
-  'ce000000-0000-4000-8000-000000000001','no_attempt_integrity_hold',true
-from public.refund_cases c where c.id='ce400000-0000-4000-8000-000000000004';
-select is(pg_temp.capture_error($$select public.refund_create_receipt_completion_automation_authority(
-  'ce400000-0000-4000-8000-000000000004',(select id from public.refund_authoritative_receipts
-    where refund_case_id='ce400000-0000-4000-8000-000000000004'),repeat('4',64))$$),
-  'P4668','A later worker cannot grant authority to a historical receipt');
 
 update public.refund_customer_contact_settings set automatic_customer_contact_enabled=false where singleton;
 select pg_temp.authorize(3);
@@ -138,12 +153,26 @@ reset role;
 select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id='ce400000-0000-4000-8000-000000000003'),0,
   'Version drift creates no automatic completion message');
+select ok((select public.refund_lifecycle_contract(id)#>>'{messageState,state}'='none'
+    and public.refund_lifecycle_contract(id)->>'terminal'='false'
+    and public.refund_lifecycle_contract(id)->>'refreshAfterSeconds'='5'
+  from public.refund_cases where id='ce400000-0000-4000-8000-000000000003'),
+  'A receipt without a completion intent keeps the missing notice observable');
+set local role service_role;
+create temp table receipt_auto_batch as
+select public.service_ensure_refund_receipt_automatic_completions(10) payload;
+select is((select payload->>'queued' from receipt_auto_batch),'1',
+  'A bounded authority sweep queues the valid case');
+select is((select payload->>'suppressed' from receipt_auto_batch),'0',
+  'A review-required case does not consume the bounded candidate window');
+reset role;
 
 set local role service_role;
 create temp table receipt_auto_first as select pg_temp.ensure(1) payload;
 select is((select payload->>'status' from receipt_auto_first),'canonical_message',
   'Exact immutable authority creates the canonical completion intent');
-select is((select payload->>'replayed' from receipt_auto_first),'false','First coordination is not a replay');
+select is((select payload->>'replayed' from receipt_auto_first),'true',
+  'Exact coordination replays the scheduler-created message');
 select is(pg_temp.ensure(1)->>'replayed','true','Service replay returns the same canonical message');
 reset role;
 select is((select count(*)::integer from public.refund_receipt_completion_intents
@@ -151,6 +180,9 @@ select is((select count(*)::integer from public.refund_receipt_completion_intent
 select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id='ce400000-0000-4000-8000-000000000001' and template_version='refund_receipt_completion_v1'),1,
   'Replay preserves one existing outbox message');
+select is((select delivery_kind from public.refund_case_messages
+  where refund_case_id='ce400000-0000-4000-8000-000000000001'),
+  'automatic','Authority stays automatic in the shared outbox');
 select ok((select not i.reviewed_no_existing_notice and i.automation_authority_id=a.id
   and i.actor_user_id=a.authorized_actor_user_id
   from public.refund_receipt_completion_intents i
@@ -163,6 +195,48 @@ select ok((select m.subject=(public.refund_receipt_completion_copy(m.refund_case
   from public.refund_case_messages m where m.refund_case_id='ce400000-0000-4000-8000-000000000001'
     and m.template_version='refund_receipt_completion_v1'),
   'Automatic completion reuses the exact canonical copy contract');
+create temp table receipt_auto_lifecycle as
+select public.refund_lifecycle_contract(c.id) current_contract,
+  public.refund_lifecycle_contract_pre_receipt_accounting_v1(c.id) prior_contract
+from public.refund_cases c where c.id='ce400000-0000-4000-8000-000000000001';
+select is((select current_contract->>'paymentWorkComplete' from receipt_auto_lifecycle),'true',
+  'Queued automatic completion marks payment work complete');
+select is((select current_contract->'accountingState' from receipt_auto_lifecycle),jsonb_build_object(
+    'state','pending','owner','Refund Operations','settlementTimePrecision','unknown','settledAt',null,
+    'blocksPaymentCompletion',false,'blocksCustomerNotice',false,'payloadRedacted',true),
+  'Queued automatic completion keeps unknown-date accounting separate and nonblocking');
+select is((select current_contract->'terminal' from receipt_auto_lifecycle),
+  (select prior_contract->'terminal' from receipt_auto_lifecycle),
+  'Receipt accounting preserves the existing terminal state');
+select is((select current_contract->>'terminal' from receipt_auto_lifecycle),'false',
+  'Queued automatic completion remains nonterminal');
+select is((select current_contract->'refreshAfterSeconds' from receipt_auto_lifecycle),
+  (select prior_contract->'refreshAfterSeconds' from receipt_auto_lifecycle),
+  'Receipt accounting preserves the existing refresh interval');
+select is((select current_contract->>'refreshAfterSeconds' from receipt_auto_lifecycle),'5',
+  'Queued automatic completion keeps polling');
+select is((select current_contract->'stage' from receipt_auto_lifecycle),
+  (select prior_contract->'stage' from receipt_auto_lifecycle),
+  'Receipt accounting preserves the existing lifecycle stage');
+select is((select prior_contract#>>'{managerQueue,bucket}' from receipt_auto_lifecycle),'provider_hold',
+  'Authoritative payment leaves the provider hold queue');
+select is((select current_contract->'managerQueue' from receipt_auto_lifecycle),jsonb_build_object(
+    'schemaVersion','refund_manager_queue_v2','bucket','accounting_review',
+    'label','Refund confirmed · accounting review','nextAction','review_accounting_date',
+    'safeRetryEligible',false,'customerActionFields','[]'::jsonb,'payloadRedacted',true),
+  'Unknown-date accounting enters its truthful Refund Operations queue');
+select is((select current_contract->'messageState' from receipt_auto_lifecycle),
+  (select prior_contract->'messageState' from receipt_auto_lifecycle),
+  'Receipt accounting preserves the existing message state');
+select is((select current_contract#>>'{messageState,state}' from receipt_auto_lifecycle),'pending',
+  'Queued automatic completion retains its pending message state');
+update public.refund_case_messages set status='failed',manual_delivery_state='failed'
+  where refund_case_id='ce400000-0000-4000-8000-000000000001';
+select ok((select public.refund_lifecycle_contract(id)#>>'{messageState,state}'='failed'
+    and public.refund_lifecycle_contract(id)->>'terminal'='false'
+    and public.refund_lifecycle_contract(id)->>'refreshAfterSeconds'='5'
+  from public.refund_cases where id='ce400000-0000-4000-8000-000000000001'),
+  'A failed pre-provider notice remains observable and polling');
 
 select pg_temp.authorize(2);
 set local role authenticated;
@@ -179,6 +253,22 @@ select ok((select i.reviewed_no_existing_notice and i.automation_authority_id is
   from public.refund_receipt_completion_intents i
   where i.refund_case_id='ce400000-0000-4000-8000-000000000002'),
   'The existing human-reviewed intent remains truthfully distinct');
+select is((select m.delivery_kind from public.refund_case_messages m
+  where m.refund_case_id='ce400000-0000-4000-8000-000000000002'),
+  'manual','Manager-authorized completion remains manual');
+update public.refund_case_messages
+  set manual_delivery_state='claimed',manual_delivery_claim_token='ce900000-0000-4000-8000-000000000002',
+    manual_delivery_claimed_at=statement_timestamp(),manual_delivery_attempt_count=1
+  where refund_case_id='ce400000-0000-4000-8000-000000000002';
+update public.refund_case_messages
+  set status='failed',manual_delivery_state='delivery_unknown',manual_delivery_claim_token=null,
+    manual_delivery_claimed_at=null,manual_delivery_provider_attempted_at=statement_timestamp()
+  where refund_case_id='ce400000-0000-4000-8000-000000000002';
+select ok((select public.refund_lifecycle_contract(id)#>>'{messageState,state}'='delivery_unconfirmed'
+    and public.refund_lifecycle_contract(id)->>'terminal'='false'
+    and public.refund_lifecycle_contract(id)->>'refreshAfterSeconds'='5'
+  from public.refund_cases where id='ce400000-0000-4000-8000-000000000002'),
+  'An unknown delivery remains observable and polling');
 
 select pg_temp.authorize(5);
 insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,
@@ -205,6 +295,12 @@ reset role;
 select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id='ce400000-0000-4000-8000-000000000005'),0,
   'Adoption outcome creates no canonical outbox duplicate');
+select ok((select public.refund_lifecycle_contract(id)#>>'{messageState,state}'='sent'
+    and public.refund_lifecycle_contract(id)#>>'{managerQueue,bucket}'='accounting_review'
+    and public.refund_lifecycle_contract(id)->>'terminal'='false'
+    and public.refund_lifecycle_contract(id)->>'refreshAfterSeconds'='5'
+  from public.refund_cases where id='ce400000-0000-4000-8000-000000000005'),
+  'An adopted sent notice remains observable while accounting stays open');
 
 select pg_temp.authorize(6);
 insert into public.refund_external_notice_observations(receipt_id,refund_case_id,sender_email,recipient_email,
@@ -236,6 +332,80 @@ select ok((select bool_and(r.settled_at is null and r.settlement_time_precision=
 select ok((select bool_and(c.refund_completed_at is null and c.reporting_adjustment_id is null)
   from public.refund_cases c where c.public_reference like 'RF-RC-AUTO-%'),
   'Message coordination never fabricates payment completion or accounting time');
+
+-- Refund Operations visibility is decided server-side for both list/search and
+-- direct/deep-link reads. The existing case-scope predicate remains authoritative.
+set local role service_role;
+select ok(public.service_get_refund_lifecycle('ce400000-0000-4000-8000-000000000001')
+    ? 'accountingState'
+    and public.service_get_refund_lifecycle('ce400000-0000-4000-8000-000000000001')
+      #>>'{managerQueue,bucket}'='accounting_review',
+  'Service automation retains the full canonical accounting lifecycle');
+reset role;
+set local role authenticated;
+create temp table receipt_super_direct as
+select public.get_refund_lifecycle_for_manager(
+  'ce400000-0000-4000-8000-000000000001') lifecycle;
+create temp table receipt_super_overview as
+select public.admin_get_refund_operations_overview() payload;
+select ok((select lifecycle ? 'accountingState'
+    and lifecycle#>>'{managerQueue,bucket}'='accounting_review'
+  from receipt_super_direct),
+  'The current super admin direct read retains Refund Operations accounting review');
+select ok((select item.value->'lifecycle' ? 'accountingState'
+    and item.value#>>'{lifecycle,managerQueue,bucket}'='accounting_review'
+  from receipt_super_overview o,
+    jsonb_array_elements(o.payload->'cases') item
+  where item.value->>'id'='ce400000-0000-4000-8000-000000000001'),
+  'The current super admin overview/search retains Refund Operations accounting review');
+
+select set_config('request.jwt.claim.sub','ce000000-0000-4000-8000-000000000002',true);
+select set_config('request.jwt.claim.role','authenticated',true);
+select set_config('request.jwt.claims',
+  '{"sub":"ce000000-0000-4000-8000-000000000002","role":"authenticated","session_id":"ce010000-0000-4000-8000-000000000002","is_anonymous":false}',true);
+create temp table receipt_manager_direct as
+select public.get_refund_lifecycle_for_manager(
+  'ce400000-0000-4000-8000-000000000001') lifecycle;
+create temp table receipt_manager_sent_direct as
+select public.get_refund_lifecycle_for_manager(
+  'ce400000-0000-4000-8000-000000000005') lifecycle;
+create temp table receipt_manager_overview as
+select public.admin_get_refund_operations_overview() payload;
+select ok((select lifecycle#>>'{managerQueue,bucket}'='in_progress'
+    and lifecycle#>>'{messageState,state}'='failed'
+    and lifecycle->>'paymentState'='confirmed'
+    and lifecycle->>'terminal'='false'
+    and lifecycle->>'refreshAfterSeconds'='5'
+    and lifecycle->>'safeRetryEligible'='false'
+  from receipt_manager_direct),
+  'A scoped manager deep link preserves confirmed payment, failed notice, and polling without retry');
+select ok((select not (lifecycle ? 'accountingState')
+    and lifecycle::text not like '%accounting_review%'
+    and lifecycle::text not like '%Refund Operations%'
+    and lifecycle::text not like '%Needs Refund Operations%'
+    and lifecycle::text not like '%review_accounting_date%'
+    and lifecycle::text not like '%settlement_time_unknown%'
+  from receipt_manager_direct),
+  'A scoped manager raw lifecycle contains no internal accounting queue, ownership, or action details');
+select ok((select lifecycle#>>'{managerQueue,bucket}'='completed'
+    and lifecycle#>>'{messageState,state}'='sent'
+    and lifecycle->>'paymentState'='confirmed'
+    and lifecycle->>'terminal'='true'
+    and lifecycle->'refreshAfterSeconds'='null'::jsonb
+    and lifecycle->>'safeRetryEligible'='false'
+  from receipt_manager_sent_direct),
+  'A scoped manager sees a sent notice as non-actionable completed payment truth');
+select ok((select item.value#>>'{lifecycle,managerQueue,bucket}'='in_progress'
+    and item.value#>>'{lifecycle,messageState,state}'='failed'
+    and not ((item.value->'lifecycle') ? 'accountingState')
+    and (item.value->'lifecycle')::text not like '%accounting_review%'
+    and (item.value->'lifecycle')::text not like '%Refund Operations%'
+    and (item.value->'lifecycle')::text not like '%Needs Refund Operations%'
+  from receipt_manager_overview o,
+    jsonb_array_elements(o.payload->'cases') item
+  where item.value->>'id'='ce400000-0000-4000-8000-000000000001'),
+  'A scoped manager overview/search cannot recover internal accounting details');
+reset role;
 
 select * from finish();
 rollback;

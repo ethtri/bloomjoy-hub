@@ -3,6 +3,8 @@
 -- outbox. This migration grants no authority to existing receipts and performs
 -- no receipt scan, provider action, accounting mutation, or customer send.
 alter table public.refund_authoritative_receipts
+  add column creation_transaction_id xid8 not null default pg_current_xact_id();
+alter table public.refund_authoritative_receipts
   add constraint refund_authoritative_receipts_id_case_unique
   unique(id,refund_case_id);
 
@@ -12,9 +14,11 @@ create table public.refund_receipt_completion_automation_authorities (
   refund_case_id uuid not null unique references public.refund_cases(id),
   expected_case_version bigint not null check(expected_case_version>0),
   authorized_actor_user_id uuid not null references auth.users(id),
-  source_kind text not null default 'independently_validated_terminal_receipt_v1'
-    check(source_kind='independently_validated_terminal_receipt_v1'),
-  source_identity_digest text not null unique check(source_identity_digest ~ '^[a-f0-9]{64}$'),
+  source_kind text not null
+    check(source_kind in ('nayax_api_terminal','nayax_report_terminal')),
+  source_policy text not null
+    check(source_policy='verified_terminal_refund_v1'),
+  source_event_digest text not null unique check(source_event_digest ~ '^[a-f0-9]{64}$'),
   receipt_observed_at timestamptz not null,
   created_at timestamptz not null default statement_timestamp(),
   unique(id,receipt_id,refund_case_id),
@@ -32,11 +36,12 @@ create trigger refund_receipt_completion_automation_authorities_immutable before
   execute function public.refund_receipt_immutable();
 
 -- This private seam is callable only from a future database-owned terminal
--- evidence writer. Requiring the receipt to have been observed in the current
--- transaction makes a migration or later worker incapable of authorizing the
--- historical receipt population.
+-- evidence writer. Existing receipts receive the migration transaction ID;
+-- after commit, exact transaction identity makes a later worker incapable of
+-- authorizing that historical population without relying on wall-clock time.
 create function public.refund_create_receipt_completion_automation_authority(
-  p_case_id uuid,p_receipt_id uuid,p_source_identity_digest text
+  p_case_id uuid,p_receipt_id uuid,p_source_kind text,p_source_policy text,
+  p_source_event_digest text
 )
 returns uuid language plpgsql security definer set search_path='' as $$
 declare
@@ -50,7 +55,9 @@ begin
   select * into a from public.refund_receipt_completion_automation_authorities
     where receipt_id=r.id;
   if a.id is not null then
-    if a.source_identity_digest is distinct from p_source_identity_digest then
+    if a.source_kind is distinct from p_source_kind
+      or a.source_policy is distinct from p_source_policy
+      or a.source_event_digest is distinct from p_source_event_digest then
       raise exception 'Receipt completion authority replay conflicts with validated evidence' using errcode='P4668';
     end if;
     return a.id;
@@ -65,21 +72,23 @@ begin
     or r.provider_status is distinct from 62 or r.refunded_amount_cents is distinct from r.original_amount_cents
     or r.currency_code is distinct from 'USD' or r.settlement_time_precision is distinct from 'unknown'
     or r.settled_at is not null or r.current_provider_observation_reviewed is distinct from true
-    or r.recorded_by is null or r.observed_at<transaction_timestamp()
-    or p_source_identity_digest is null or p_source_identity_digest !~ '^[a-f0-9]{64}$'
+    or r.recorded_by is null or r.creation_transaction_id is distinct from pg_current_xact_id()
+    or p_source_kind not in ('nayax_api_terminal','nayax_report_terminal')
+    or p_source_policy is distinct from 'verified_terminal_refund_v1'
+    or p_source_event_digest is null or p_source_event_digest !~ '^[a-f0-9]{64}$'
     or lower(btrim(coalesce(c.customer_email,''))) !~ '^[^[:space:]@<>]+@[^[:space:]@<>]+\.[^[:space:]@<>]+$' then
     raise exception 'New independently validated full-refund authority required' using errcode='P4668';
   end if;
   insert into public.refund_receipt_completion_automation_authorities(
     receipt_id,refund_case_id,expected_case_version,authorized_actor_user_id,
-    source_identity_digest,receipt_observed_at
+    source_kind,source_policy,source_event_digest,receipt_observed_at
   ) values(r.id,c.id,c.official_action_version,r.recorded_by,
-    p_source_identity_digest,r.observed_at)
+    p_source_kind,p_source_policy,p_source_event_digest,r.observed_at)
   returning * into a;
   return a.id;
 end;
 $$;
-revoke all on function public.refund_create_receipt_completion_automation_authority(uuid,uuid,text)
+revoke all on function public.refund_create_receipt_completion_automation_authority(uuid,uuid,text,text,text)
   from public,anon,authenticated,service_role;
 
 -- Preserve the existing human-reviewed intent contract while making automatic
@@ -111,9 +120,32 @@ alter table public.refund_receipt_completion_intents
     foreign key(automation_authority_id,receipt_id,refund_case_id)
     references public.refund_receipt_completion_automation_authorities(id,receipt_id,refund_case_id);
 
+-- Keep the existing queue columns and workers. The delivery kind distinguishes
+-- human-reviewed messages from the exact authority-bound automatic completion.
+alter table public.refund_case_messages
+  drop constraint refund_case_messages_manual_delivery_intent_check;
+alter table public.refund_case_messages
+  add constraint refund_case_messages_manual_delivery_intent_check check(
+    (manual_delivery_state is null and manual_delivery_intent_id is null
+      and manual_delivery_expected_case_version is null
+      and manual_delivery_provider_attempted_at is null
+      and manual_delivery_status_link_requested is false
+      and manual_delivery_triage_suggestion_id is null)
+    or (manual_delivery_state is not null and manual_delivery_intent_id is not null
+      and manual_delivery_expected_case_version>0
+      and ((delivery_kind='manual'
+          and (content_source in ('manager_authored','manager_reviewed_gpt')
+            or (content_source='deterministic_template' and message_type='completed'
+              and template_version='refund_receipt_completion_v1')))
+        or (delivery_kind='automatic' and content_source='deterministic_template'
+          and message_type='completed' and template_version='refund_receipt_completion_v1'))));
+
 -- Exact identifiers are required deliberately: this is not a selector or
 -- backfill API. The case is always the first mutable row lock, matching manual
--- queueing, adoption, worker claim, and delivery lock order.
+-- queueing, adoption, worker claim, and delivery lock order. This kernel has no
+-- provider action itself. The bounded scheduler below supplies exact authority
+-- identifiers, and the shared outbox rechecks automatic-contact shutdowns at
+-- each fresh provider-attempt boundary.
 create function public.service_ensure_refund_receipt_automatic_completion(
   p_case_id uuid,p_receipt_id uuid,p_automation_authority_id uuid
 )
@@ -187,7 +219,7 @@ begin
   m.id:=gen_random_uuid(); m.refund_case_id:=c.id; m.message_type:='completed'; m.status:='pending';
   m.recipient_email:=copy->>'recipientEmail'; m.subject:=copy->>'subject'; m.body:=copy->>'body';
   m.template_key:='refund_receipt_completed'; m.template_version:='refund_receipt_completion_v1';
-  m.created_by:=a.authorized_actor_user_id; m.content_source:='deterministic_template'; m.delivery_kind:='manual';
+  m.created_by:=a.authorized_actor_user_id; m.content_source:='deterministic_template'; m.delivery_kind:='automatic';
   m.requested_fields:='{}'::text[]; m.manual_delivery_intent_id:=intent_id; m.manual_delivery_state:='queued';
   m.manual_delivery_expected_case_version:=c.official_action_version; m.manual_delivery_status_link_requested:=false;
   insert into public.refund_receipt_completion_intents(receipt_id,refund_case_id,message_id,intent_id,
@@ -216,5 +248,464 @@ revoke all on function public.service_ensure_refund_receipt_automatic_completion
   from public,anon,authenticated,service_role;
 grant execute on function public.service_ensure_refund_receipt_automatic_completion(uuid,uuid,uuid)
   to service_role;
+
+-- The scheduler is bounded to newly minted authority rows. It never discovers
+-- historical receipts, and every mutable lock starts with the case row.
+create function public.service_ensure_refund_receipt_automatic_completions(
+  p_limit integer default 10
+)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare
+  candidate record;
+  result jsonb;
+  normalized_limit integer:=least(greatest(coalesce(p_limit,10),1),25);
+  queued integer:=0;
+  replayed integer:=0;
+  suppressed integer:=0;
+begin
+  if not exists(select 1 from public.refund_customer_contact_settings settings
+    where settings.singleton and settings.automatic_customer_contact_enabled) then
+    return jsonb_build_object('enabled',false,'queued',0,'replayed',0,'suppressed',0,
+      'reason','automatic_contact_disabled','payloadRedacted',true);
+  end if;
+
+  for candidate in
+    select c.id case_id,a.receipt_id,a.id authority_id
+    from public.refund_cases c
+    join public.refund_receipt_completion_automation_authorities a
+      on a.refund_case_id=c.id
+    where c.case_population='customer' and c.payment_method='card'
+      and c.status='card_refund_pending' and c.refund_completed_at is null
+      and c.reporting_adjustment_id is null
+      and c.official_action_version=a.expected_case_version
+      and lower(btrim(coalesce(c.customer_email,'')))
+        ~ '^[^[:space:]@<>]+@[^[:space:]@<>]+\.[^[:space:]@<>]+$'
+      and not exists(select 1 from public.refund_receipt_completion_intents i
+        where i.automation_authority_id=a.id or i.receipt_id=a.receipt_id)
+      and not exists(select 1 from public.refund_completion_notice_adoptions n
+        where n.receipt_id=a.receipt_id)
+      and not exists(select 1 from public.refund_external_notice_observations n
+        where n.receipt_id=a.receipt_id)
+      and not exists(select 1 from public.refund_case_messages message
+        where message.refund_case_id=c.id
+          and (message.message_type='completed'
+            or message.manual_delivery_state in ('queued','claimed','delivery_unknown')))
+    order by c.id
+    limit normalized_limit
+    for update of c skip locked
+  loop
+    result:=public.service_ensure_refund_receipt_automatic_completion(
+      candidate.case_id,candidate.receipt_id,candidate.authority_id);
+    if result->>'status'='canonical_message' then
+      if result->>'replayed'='true' then replayed:=replayed+1;
+      else queued:=queued+1;
+      end if;
+    else
+      suppressed:=suppressed+1;
+    end if;
+  end loop;
+  return jsonb_build_object('enabled',true,'queued',queued,'replayed',replayed,
+    'suppressed',suppressed,'payloadRedacted',true);
+end;
+$$;
+revoke all on function public.service_ensure_refund_receipt_automatic_completions(integer)
+  from public,anon,authenticated,service_role;
+grant execute on function public.service_ensure_refund_receipt_automatic_completions(integer)
+  to service_role;
+
+-- One exact predicate is shared by the outbox marks and the generic customer
+-- transport authorization. It cannot authorize another automatic template.
+create function public.is_refund_receipt_automatic_completion_message(p_message_id uuid)
+returns boolean language sql stable security definer set search_path='' as $$
+  select exists(
+    select 1
+    from public.refund_case_messages m
+    join public.refund_receipt_completion_intents i
+      on i.message_id=m.id and i.refund_case_id=m.refund_case_id
+    join public.refund_receipt_completion_automation_authorities a
+      on a.id=i.automation_authority_id and a.receipt_id=i.receipt_id
+        and a.refund_case_id=i.refund_case_id
+    where m.id=p_message_id and m.status='pending'
+      and m.delivery_kind='automatic' and m.content_source='deterministic_template'
+      and m.message_type='completed' and m.template_version='refund_receipt_completion_v1'
+      and not i.reviewed_no_existing_notice
+      and public.is_refund_receipt_completion_message(to_jsonb(m)));
+$$;
+revoke all on function public.is_refund_receipt_automatic_completion_message(uuid)
+  from public,anon,authenticated,service_role;
+
+-- Preserve the generic transport contract while allowing only the exact
+-- authority-bound completion through its otherwise-terminal case guard.
+create or replace function public.service_authorize_refund_customer_outbound(
+  p_refund_case_id uuid,p_recipient_email text,p_mailbox_identities text[],p_delivery_kind text
+)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare
+  case_row public.refund_cases%rowtype;
+  settings_row public.refund_customer_contact_settings%rowtype;
+  recipient_resolution jsonb;
+  manager_cc_emails text[]:='{}'::text[];
+  manager_recipient_overlap boolean:=false;
+  manager_recipient_count integer:=0;
+  mailbox_identities text[]:=public.normalize_refund_mailbox_identities(p_mailbox_identities);
+  normalized_recipient text:=lower(btrim(coalesce(p_recipient_email,'')));
+  normalized_delivery_kind text:=lower(btrim(coalesce(p_delivery_kind,'')));
+  authority_bound_completion boolean:=false;
+begin
+  if normalized_delivery_kind not in ('manual','automatic') then
+    raise exception 'Valid refund customer delivery kind required';
+  end if;
+  select * into case_row from public.refund_cases
+    where id=p_refund_case_id for update;
+  if case_row.id is null then
+    return jsonb_build_object('allowed',false,'status','case_not_found');
+  end if;
+  if normalized_recipient<>lower(btrim(case_row.customer_email)) then
+    raise exception 'Customer recipient must match the refund case';
+  end if;
+
+  if normalized_delivery_kind='automatic' then
+    select * into settings_row from public.refund_customer_contact_settings
+      where singleton for share;
+    if not coalesce(settings_row.automatic_customer_contact_enabled,false) then
+      return jsonb_build_object('allowed',false,'status','automatic_contact_disabled');
+    end if;
+    select exists(select 1 from public.refund_case_messages m
+      where m.refund_case_id=case_row.id and m.recipient_email=normalized_recipient
+        and public.is_refund_receipt_automatic_completion_message(m.id))
+      into authority_bound_completion;
+    if (case_row.status in ('approved','denied','completed','closed')
+        or case_row.decision is not null)
+      and not authority_bound_completion then
+      return jsonb_build_object('allowed',false,'status','terminal_case');
+    end if;
+  end if;
+
+  recipient_resolution:=public.service_resolve_refund_customer_manager_cc(
+    p_refund_case_id,normalized_recipient,mailbox_identities);
+  select coalesce(array_agg(value order by value),'{}'::text[])
+    into manager_cc_emails
+    from jsonb_array_elements_text(coalesce(recipient_resolution->'managerCcEmails','[]'::jsonb)) value;
+  manager_recipient_overlap:=coalesce((recipient_resolution->>'managerRecipientOverlap')::boolean,false);
+  manager_recipient_count:=coalesce((recipient_resolution->>'managerRecipientCount')::integer,0);
+  if recipient_resolution->>'status' is distinct from 'resolved'
+    or manager_recipient_count not between 1 and 4
+    or manager_recipient_count<>cardinality(manager_cc_emails)
+      +(case when manager_recipient_overlap then 1 else 0 end) then
+    return jsonb_build_object('allowed',false,'status','manager_cc_required',
+      'recipientResolutionStatus',recipient_resolution->>'status','managerCcCount',0,
+      'managerRecipientOverlap',false,'managerRecipientCount',0);
+  end if;
+  return jsonb_build_object('allowed',true,'status','authorized',
+    'managerCcEmails',to_jsonb(manager_cc_emails),'managerCcCount',cardinality(manager_cc_emails),
+    'managerRecipientOverlap',manager_recipient_overlap,'managerRecipientCount',manager_recipient_count,
+    'recipientResolutionStatus',recipient_resolution->>'status');
+end;
+$$;
+revoke all on function public.service_authorize_refund_customer_outbound(uuid,text,text[],text)
+  from public,anon,authenticated,service_role;
+grant execute on function public.service_authorize_refund_customer_outbound(uuid,text,text[],text)
+  to service_role;
+
+-- The existing outbox mark remains the first provider-attempt boundary. The DB
+-- contact switch is re-read only for a fresh automatic completion; manual work
+-- and sent/unknown reconciliation retain their existing authority.
+create or replace function public.service_mark_refund_manual_message_provider_attempt(
+  p_refund_case_message_id uuid,p_claim_token uuid
+)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare message_row public.refund_case_messages%rowtype;
+  case_row public.refund_cases%rowtype;
+  case_id uuid;
+begin
+  if p_refund_case_message_id is null or p_claim_token is null then
+    raise exception 'Valid refund manual-message provider attempt is required' using errcode='P4660';
+  end if;
+  select refund_case_id into case_id from public.refund_case_messages
+    where id=p_refund_case_message_id;
+  select * into case_row from public.refund_cases where id=case_id for update;
+  perform public.assert_no_active_refund_owner_resolution(case_id);
+  select * into message_row from public.refund_case_messages
+    where id=p_refund_case_message_id for update;
+  if message_row.id is null or message_row.refund_case_id is distinct from case_row.id
+    or message_row.status<>'pending' or message_row.manual_delivery_state<>'claimed'
+    or message_row.manual_delivery_claim_token is distinct from p_claim_token then
+    raise exception 'Refund manual-message delivery claim changed' using errcode='P4659';
+  end if;
+  if case_row.case_population='internal_test'
+    or case_row.official_action_version is distinct from message_row.manual_delivery_expected_case_version then
+    raise exception 'Refund case changed before provider attempt' using errcode='P4609';
+  end if;
+  if message_row.manual_delivery_provider_attempted_at is not null then
+    return jsonb_build_object('marked',true,'replayed',true,'messageId',message_row.id,
+      'payloadRedacted',true);
+  end if;
+  if message_row.delivery_kind='automatic' then
+    if not public.is_refund_receipt_automatic_completion_message(message_row.id) then
+      raise exception 'Exact automatic receipt completion authority required' using errcode='P4668';
+    end if;
+    if not exists(select 1 from public.refund_customer_contact_settings settings
+      where settings.singleton and settings.automatic_customer_contact_enabled) then
+      return jsonb_build_object('marked',false,'status','automatic_contact_disabled',
+        'messageId',message_row.id,'payloadRedacted',true);
+    end if;
+  end if;
+  update public.refund_case_messages
+    set manual_delivery_provider_attempted_at=statement_timestamp()
+    where id=message_row.id;
+  return jsonb_build_object('marked',true,'replayed',false,'messageId',message_row.id,
+    'payloadRedacted',true);
+end;
+$$;
+revoke all on function public.service_mark_refund_manual_message_provider_attempt(uuid,uuid)
+  from public,anon,authenticated,service_role;
+grant execute on function public.service_mark_refund_manual_message_provider_attempt(uuid,uuid)
+  to service_role;
+
+create or replace function public.service_claim_refund_gmail_outbound_v3(
+  p_refund_case_id uuid,p_refund_case_message_id uuid,p_operation_key text,p_sender_email text,
+  p_recipient_email text,p_plain_body text,p_mailbox_identities text[],p_delivery_kind text,
+  p_target_gmail_thread_id uuid default null
+)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare m public.refund_case_messages%rowtype; case_version bigint;
+begin
+  select official_action_version into case_version from public.refund_cases
+    where id=p_refund_case_id for update;
+  perform public.assert_no_active_refund_owner_resolution(p_refund_case_id);
+  if exists(select 1 from public.refund_authoritative_receipts
+    where refund_case_id=p_refund_case_id) then
+    select * into m from public.refund_case_messages
+      where id=p_refund_case_message_id and refund_case_id=p_refund_case_id;
+    if m.id is null or not public.is_refund_receipt_completion_message(to_jsonb(m))
+      or m.manual_delivery_expected_case_version is distinct from case_version then
+      raise exception 'Authoritative receipt forbids customer resend; adopt existing sent evidence' using errcode='P4663';
+    end if;
+    if p_operation_key is distinct from 'refund-case-message:'||m.id::text
+      or p_plain_body is distinct from m.body or p_recipient_email is distinct from m.recipient_email
+      or p_delivery_kind is distinct from m.delivery_kind then
+      raise exception 'Receipt completion transport identity changed' using errcode='P4664';
+    end if;
+  end if;
+  return public.service_claim_refund_gmail_outbound_pre_receipt_v1(
+    p_refund_case_id,p_refund_case_message_id,p_operation_key,p_sender_email,p_recipient_email,
+    p_plain_body,p_mailbox_identities,p_delivery_kind,p_target_gmail_thread_id);
+end;
+$$;
+revoke all on function public.service_claim_refund_gmail_outbound_v3(uuid,uuid,text,text,text,text,text[],text,uuid)
+  from public,anon,authenticated,service_role;
+grant execute on function public.service_claim_refund_gmail_outbound_v3(uuid,uuid,text,text,text,text,text[],text,uuid)
+  to service_role;
+
+create or replace function public.service_mark_refund_transactional_delivery_attempt(
+  p_refund_case_message_id uuid
+)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare case_id uuid; case_version bigint; m public.refund_case_messages%rowtype;
+begin
+  select refund_case_id into case_id from public.refund_case_messages
+    where id=p_refund_case_message_id;
+  select official_action_version into case_version from public.refund_cases
+    where id=case_id for update;
+  perform public.assert_no_active_refund_owner_resolution(case_id);
+  select * into m from public.refund_case_messages where id=p_refund_case_message_id;
+  if exists(select 1 from public.refund_authoritative_receipts where refund_case_id=case_id) then
+    if m.id is null or not public.is_refund_receipt_completion_message(to_jsonb(m))
+      or m.manual_delivery_expected_case_version is distinct from case_version then
+      raise exception 'Authoritative receipt forbids customer resend; adopt existing sent evidence' using errcode='P4663';
+    end if;
+    if m.delivery_kind='automatic' then
+      if not public.is_refund_receipt_automatic_completion_message(m.id) then
+        raise exception 'Exact automatic receipt completion authority required' using errcode='P4668';
+      end if;
+      if not exists(select 1 from public.refund_customer_contact_settings settings
+        where settings.singleton and settings.automatic_customer_contact_enabled) then
+        return jsonb_build_object('marked',false,'status','automatic_contact_disabled',
+          'messageId',m.id,'payloadRedacted',true);
+      end if;
+    end if;
+  end if;
+  return public.service_mark_refund_delivery_pre_receipt_v1(p_refund_case_message_id);
+end;
+$$;
+revoke all on function public.service_mark_refund_transactional_delivery_attempt(uuid)
+  from public,anon,authenticated,service_role;
+grant execute on function public.service_mark_refund_transactional_delivery_attempt(uuid)
+  to service_role;
+
+-- A receipt finishes payment work without inventing a settlement date. Add that
+-- distinction without changing the canonical lifecycle's delivery polling,
+-- terminal state, stage, or message projection. Accounting review is separate
+-- from provider hold because the payment outcome is already authoritative.
+alter function public.refund_lifecycle_contract(uuid)
+  rename to refund_lifecycle_contract_pre_receipt_accounting_v1;
+revoke all on function public.refund_lifecycle_contract_pre_receipt_accounting_v1(uuid)
+  from public,anon,authenticated,service_role;
+create function public.refund_lifecycle_contract(p_refund_case_id uuid)
+returns jsonb language plpgsql stable security definer set search_path='' as $$
+declare base jsonb;
+begin
+  base:=public.refund_lifecycle_contract_pre_receipt_accounting_v1(p_refund_case_id);
+  if not exists(select 1 from public.refund_authoritative_receipts
+    where refund_case_id=p_refund_case_id) then
+    return base;
+  end if;
+  return base||jsonb_build_object(
+    'paymentWorkComplete',true,
+    'accountingState',jsonb_build_object(
+      'state','pending','owner','Refund Operations','settlementTimePrecision','unknown',
+      'settledAt',null,'blocksPaymentCompletion',false,'blocksCustomerNotice',false,
+      'payloadRedacted',true),
+    'managerQueue',jsonb_build_object(
+      'schemaVersion','refund_manager_queue_v2','bucket','accounting_review',
+      'label','Refund confirmed · accounting review','nextAction','review_accounting_date',
+      'safeRetryEligible',false,'customerActionFields','[]'::jsonb,'payloadRedacted',true));
+end;
+$$;
+revoke all on function public.refund_lifecycle_contract(uuid)
+  from public,anon,authenticated,service_role;
+grant execute on function public.refund_lifecycle_contract(uuid) to service_role;
+
+-- Accounting review is an internal Refund Operations concern. Project it only
+-- after the existing manager access checks have succeeded; the service contract
+-- above remains canonical and complete for automation and operations callers.
+create function public.refund_project_receipt_lifecycle_for_manager(
+  p_lifecycle jsonb,
+  p_refund_operations_access boolean
+)
+returns jsonb language plpgsql immutable set search_path='' as $$
+declare
+  notice_state text:=coalesce(p_lifecycle#>>'{messageState,state}','none');
+  notice_complete boolean;
+  projected_bucket text;
+  projected_label text;
+  projected_action text;
+  projected_reason text;
+begin
+  if p_lifecycle is null
+    or coalesce(p_refund_operations_access,false)
+    or not (
+      p_lifecycle ? 'accountingState'
+      or p_lifecycle#>>'{managerQueue,bucket}'='accounting_review'
+    ) then
+    return p_lifecycle;
+  end if;
+
+  notice_complete:=notice_state in ('sent','delivered');
+  projected_bucket:=case when notice_complete then 'completed' else 'in_progress' end;
+  projected_label:=case
+    when notice_complete then 'Refund confirmed · customer notified'
+    when notice_state='pending' then 'Refund confirmed · customer notice queued'
+    when notice_state in ('failed','delivery_unconfirmed')
+      then 'Refund confirmed · customer notice delivery pending'
+    else 'Refund confirmed · customer notice pending'
+  end;
+  projected_action:=case when notice_complete then 'none' else 'wait' end;
+  projected_reason:=case
+    when notice_complete then 'completion_sent'
+    when notice_state='delivery_unconfirmed' then 'completion_delivery_unconfirmed'
+    when notice_state='failed' then 'completion_delivery_failed'
+    else 'customer_notification_pending'
+  end;
+
+  return (p_lifecycle-'accountingState'-'paymentWorkComplete')||jsonb_build_object(
+    'managerVisibility','restricted',
+    'reasonCode',projected_reason,
+    'managerNextAction',projected_action,
+    'managerAction',jsonb_build_object(
+      'action',projected_action,'owner','System','safeRetryEligible',false,
+      'payloadRedacted',true),
+    'managerQueue',jsonb_build_object(
+      'schemaVersion','refund_manager_queue_v2','bucket',projected_bucket,
+      'label',projected_label,'nextAction',projected_action,
+      'safeRetryEligible',false,'customerActionFields','[]'::jsonb,
+      'payloadRedacted',true),
+    'operations',jsonb_build_object(
+      'required',false,'queue','System','owner','System','slaMinutes',60,
+      'ageMinutes',null,'dueAt',null,'slaBreached',false,
+      'safeStage',case when notice_complete then 'customer_notice_complete'
+        else 'customer_notice_pending' end,
+      'failureClass',null,'nextStep',null),
+    'safeRetryEligible',false,
+    'terminal',notice_complete,
+    'refreshAfterSeconds',case when notice_complete then null else 5 end
+  );
+end;
+$$;
+revoke all on function public.refund_project_receipt_lifecycle_for_manager(jsonb,boolean)
+  from public,anon,authenticated,service_role;
+
+create function public.refund_project_receipt_cases_for_manager(
+  p_cases jsonb,
+  p_refund_operations_access boolean
+)
+returns jsonb language sql immutable set search_path='' as $$
+  select coalesce(jsonb_agg(
+    item.value||jsonb_build_object(
+      'lifecycle',public.refund_project_receipt_lifecycle_for_manager(
+        item.value->'lifecycle',p_refund_operations_access)
+    ) order by item.ordinality
+  ),'[]'::jsonb)
+  from jsonb_array_elements(coalesce(p_cases,'[]'::jsonb)) with ordinality item;
+$$;
+revoke all on function public.refund_project_receipt_cases_for_manager(jsonb,boolean)
+  from public,anon,authenticated,service_role;
+
+alter function public.admin_get_refund_operations_overview()
+  rename to admin_get_refund_operations_overview_pre_receipt_visibility_v1;
+revoke all on function public.admin_get_refund_operations_overview_pre_receipt_visibility_v1()
+  from public,anon,authenticated,service_role;
+create function public.admin_get_refund_operations_overview()
+returns jsonb language plpgsql stable security definer set search_path='' as $$
+declare
+  actor_role text:=coalesce(
+    auth.jwt()->>'role',
+    nullif(current_setting('request.jwt.claim.role',true),''),
+    nullif(current_setting('role',true),'none')
+  );
+  has_refund_operations_access boolean;
+  base jsonb;
+begin
+  -- The wrapped function remains the authority for authentication and case scope.
+  base:=public.admin_get_refund_operations_overview_pre_receipt_visibility_v1();
+  has_refund_operations_access:=actor_role='service_role'
+    or (auth.uid() is not null and public.is_super_admin(auth.uid()) is true);
+  return jsonb_set(
+    jsonb_set(base,'{cases}',public.refund_project_receipt_cases_for_manager(
+      base->'cases',has_refund_operations_access),true),
+    '{internalTestCases}',public.refund_project_receipt_cases_for_manager(
+      base->'internalTestCases',has_refund_operations_access),true);
+end;
+$$;
+revoke all on function public.admin_get_refund_operations_overview()
+  from public,anon;
+grant execute on function public.admin_get_refund_operations_overview()
+  to authenticated,service_role;
+
+create or replace function public.get_refund_lifecycle_for_manager(
+  p_refund_case_id uuid
+)
+returns jsonb language plpgsql stable security definer set search_path='' as $$
+declare
+  actor_user_id uuid:=auth.uid();
+  lifecycle jsonb;
+begin
+  if actor_user_id is null
+    or coalesce((auth.jwt()->>'is_anonymous')::boolean,false)
+    or not public.can_manage_refund_case(actor_user_id,p_refund_case_id) then
+    raise exception 'Current refund case access required' using errcode='42501';
+  end if;
+  lifecycle:=public.refund_lifecycle_contract(p_refund_case_id);
+  if lifecycle->>'schemaVersion'<>'refund_lifecycle_v2' then
+    raise exception 'Unsupported refund lifecycle release' using errcode='P4652';
+  end if;
+  return public.refund_project_receipt_lifecycle_for_manager(
+    lifecycle,public.is_super_admin(actor_user_id) is true);
+end;
+$$;
+revoke all on function public.get_refund_lifecycle_for_manager(uuid)
+  from public,anon,service_role;
+grant execute on function public.get_refund_lifecycle_for_manager(uuid)
+  to authenticated;
 
 notify pgrst,'reload schema';

@@ -333,11 +333,68 @@ Deno.test('manager state consumes the canonical lifecycle for automatic progress
 Deno.test('adopted unknown-date receipt keeps accounting internal without implying another customer send', () => {
   const result = getRefundManagerState({ ...baseCase, lifecycle: {
     ...lifecycle('customer_notified', 80, 'review_accounting_date'),
-    reasonCode: 'settlement_time_unknown', terminal: false,
+    reasonCode: 'settlement_time_unknown', paymentState: 'confirmed', terminal: false,
+    messageState: { state: 'sent', messageType: 'completed', lastUpdatedAt: '2026-08-26T20:00:00.000Z', payloadRedacted: true },
   } });
   assertEquals(result.label, 'Refund confirmed · customer updated', 'Adopted notice is visible');
   assertEquals(result.nextStep.includes('Do not retry payment or resend'), true, 'No second payment or send');
   assertEquals(result.explanation.includes('settlement date remains unknown'), true, 'Accounting date remains unknown');
+});
+
+Deno.test('receipt manager state keeps every customer-notice outcome observable without reopening payment', () => {
+  const fixtures = [
+    ['none', 'Refund confirmed · notice not recorded'],
+    ['pending', 'Refund confirmed · customer notice queued'],
+    ['failed', 'Refund confirmed · delivery review'],
+    ['delivery_unconfirmed', 'Refund confirmed · delivery review'],
+    ['sent', 'Refund confirmed · customer updated'],
+    ['delivered', 'Refund confirmed · customer updated'],
+  ] as const;
+  for (const [messageState, label] of fixtures) {
+    const contract = lifecycle(
+      ['sent', 'delivered'].includes(messageState) ? 'customer_notified' : 'refund_confirmed',
+      ['sent', 'delivered'].includes(messageState) ? 80 : 70,
+      'review_accounting_date',
+    );
+    contract.reasonCode = 'settlement_time_unknown';
+    contract.paymentState = 'confirmed';
+    contract.paymentWorkComplete = true;
+    contract.safeRetryEligible = false;
+    contract.managerAction.owner = 'Refund Operations';
+    contract.managerQueue = {
+      schemaVersion: 'refund_manager_queue_v2', bucket: 'accounting_review',
+      label: 'Refund confirmed · accounting review', nextAction: 'review_accounting_date',
+      safeRetryEligible: false, customerActionFields: [], payloadRedacted: true,
+    };
+    contract.messageState = {
+      state: messageState, messageType: 'completed',
+      lastUpdatedAt: '2026-08-26T20:00:00.000Z', payloadRedacted: true,
+    };
+    const result = getRefundManagerState({ ...baseCase, lifecycle: contract });
+    assertEquals(result.label, label, `${messageState} label`);
+    assertEquals(result.nextStep.includes('Refund Operations'), true, `${messageState} operations owner`);
+    assertEquals(result.nextStep.includes('Do not retry payment'), true, `${messageState} payment remains closed`);
+  }
+});
+
+Deno.test('legacy receipt presentation treats an absent message state as missing notice evidence', () => {
+  const contract = lifecycle('refund_confirmed', 70, 'review_accounting_date');
+  contract.reasonCode = 'settlement_time_unknown';
+  contract.paymentState = 'confirmed';
+  contract.paymentWorkComplete = true;
+  const { messageState: _messageState, ...legacyReceipt } = contract;
+  const result = getRefundManagerState({
+    ...baseCase,
+    lifecycle: legacyReceipt as RefundLifecycleContract,
+  });
+  assertEquals(result.label, 'Refund confirmed · notice not recorded', 'missing notice remains explicit');
+  assertEquals(result.nextStep.includes('Do not retry payment'), true, 'payment remains closed');
+
+  const notifiedResult = getRefundManagerState({
+    ...baseCase,
+    lifecycle: { ...legacyReceipt, stage: 'customer_notified', stageRank: 80 } as RefundLifecycleContract,
+  });
+  assertEquals(notifiedResult.label, 'Refund confirmed · customer updated', 'legacy notified stage remains evidence');
 });
 
 Deno.test('canonical waiting-on-customer stage wins over matching facts', () => {
