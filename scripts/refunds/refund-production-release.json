@@ -162,6 +162,7 @@
     "20260906170907_refund_current_fact_correction_fields.sql",
     "20260906190125_refund_valley_mall_product_unknown.sql",
     "20260906190727_refund_correction_production_parity.sql",
+    "20260906191757_refund_one_manager_decision.sql",
     "20260906202500_refund_correction_overview_parity.sql"
   ],
   "migrationFilesSha256": "46f35ec794941275dea5679744206c521b4bb6441efd661d6b4fad145fb692f4",
