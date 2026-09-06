@@ -293,12 +293,14 @@ begin
     or authorization_row.action is distinct from 'nayax_execute'
     or authorization_row.status is distinct from 'consumed'
     or authorization_row.consumed_at is null
-    or case_row.official_action_version is distinct from authorization_row.expected_case_version
+    or authorization_row.expected_case_version is distinct from
+      (execution_context->>'caseVersion')::bigint + 1
+    or case_row.official_action_version is distinct from
+      authorization_row.expected_case_version + 1
     or mapping_row.reporting_machine_id is distinct from case_row.reporting_machine_id
     or mapping_row.manager_user_id is distinct from p_actor_user_id
     or mapping_row.mapping_version is distinct from authorization_row.manager_mapping_version
     or mapping_row.status is distinct from 'active' or mapping_row.revoked_at is not null
-    or not public.can_perform_refund_official_action(p_actor_user_id, case_row.id)
     or case_row.status is distinct from 'card_refund_pending'
     or case_row.decision is distinct from 'approved'
     or case_row.nayax_refund_execution_status is distinct from 'requested'
