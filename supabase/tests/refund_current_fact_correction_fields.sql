@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(12);
+select plan(15);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('cf110000-0000-4000-8000-000000000001','authenticated','authenticated',
@@ -114,23 +114,60 @@ select gen_random_uuid(),'cf150000-0000-4000-8000-000000000001',
   statement_timestamp()+interval '1 hour'
 from correction_claim cross join generate_series(1,2) series(value);
 
+insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
+  actor_user_id,reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,
+  amount_cents,card_last4,currency_code,evidence_summary,expires_at)
+select 'cf160000-0000-4000-8000-000000000003','cf150000-0000-4000-8000-000000000001',
+  generation,'cf110000-0000-4000-8000-000000000001','cf140000-0000-4000-8000-000000000001',
+  'CURRENT-CORRECTION-HARD-EXCLUDED',93,'2026-09-05T21:45:00Z',1060,'9999','USD',
+  pg_temp.current_fact_evidence('cf150000-0000-4000-8000-000000000001','2026-09-05T21:45:00Z') ||
+    jsonb_build_object(
+      'card_last4_comparison','mismatch_negative_unproven_equivalence',
+      'identifier_review_state','blocked',
+      'customer_correction_fields','[]'::jsonb,
+      'hard_exclusions','["duplicate_provider_record"]'::jsonb,
+      'duplicate_provider_record',true,
+      'reason_codes','["machine_exact","amount_exact","duplicate_provider_record"]'::jsonb
+    ),
+  statement_timestamp()+interval '1 hour'
+from correction_claim;
+
 select is(public.refund_nayax_candidate_identifier_evidence_state(
   'cf150000-0000-4000-8000-000000000001','cf140000-0000-4000-8000-000000000001',
   91,'2026-09-05T21:15:00Z',1060,'1003','USD',
   pg_temp.current_fact_evidence('cf150000-0000-4000-8000-000000000001','2026-09-05T21:15:00Z')
 ), 'valid','The production-shaped candidate evidence is current and valid');
 
+select is(public.refund_nayax_candidate_identifier_evidence_state(
+  'cf150000-0000-4000-8000-000000000001','cf140000-0000-4000-8000-000000000001',
+  93,'2026-09-05T21:45:00Z',1060,'9999','USD',
+  (select evidence_summary from public.refund_nayax_lookup_candidates
+    where token='cf160000-0000-4000-8000-000000000003')
+), 'valid','An unrelated different-card duplicate stays a valid hard-excluded candidate');
+
 select is((public.service_commit_refund_nayax_lookup(
   'cf150000-0000-4000-8000-000000000001',(select generation from correction_claim),2,
   'multiple_matches','ambiguous','2026-09-05.v11',statement_timestamp(),
-  'One distinguishing time resolves the grouped purchases',null,2,'manual',
+  'One distinguishing time resolves the grouped purchases',null,3,'manual',
   'cf110000-0000-4000-8000-000000000001'
 )->>'applied'),'true','The correction lookup commits through the generation guard');
 
 select is(public.refund_purchase_correction_request_fields(
   'cf150000-0000-4000-8000-000000000001'),
   array['incident_time']::text[],
-  'Grouped exact-card purchases request only the one distinguishing time');
+  'Grouped exact-card purchases request only the one distinguishing time despite an unrelated hard exclusion');
+
+set local role service_role;
+select throws_ok($$select public.service_select_refund_nayax_candidate_as_actor(
+  'cf110000-0000-4000-8000-000000000001','cf150000-0000-4000-8000-000000000001',
+  (select official_action_version from public.refund_cases where id='cf150000-0000-4000-8000-000000000001'),
+  'cf160000-0000-4000-8000-000000000003','correct_card')$$,
+  'P4604','This Nayax transaction has a safety block and cannot be selected',
+  'The unrelated hard-excluded candidate remains nonselectable');
+reset role;
+select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
+  where refund_case_id='cf150000-0000-4000-8000-000000000001'),0,
+  'Reading the correction scope and rejecting an excluded candidate create no payment attempt');
 
 create function pg_temp.queue_current_fact_scope(p_fields text[])
 returns jsonb language sql as $$

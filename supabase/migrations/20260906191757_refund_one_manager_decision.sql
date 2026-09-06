@@ -317,11 +317,13 @@ declare
   fields text[];
   candidate_fields text[] := '{}'::text[];
   candidate_count integer := 0;
-  grouped_collision_compatible boolean := true;
+  collision_candidate_count integer := 0;
+  grouped_collision_context_compatible boolean := true;
   all_candidates_valid boolean := true;
   any_selection_allowed boolean := false;
   canonical_collision_hold boolean;
   upgrade_collision_hold boolean;
+  ignorable_hard_exclusion boolean;
   candidate_in_scope boolean;
   candidate_evidence_state text;
 begin
@@ -371,6 +373,10 @@ begin
       and candidate_row.evidence_summary -> 'customer_correction_fields' = '["incident_time"]'::jsonb
       and coalesce(candidate_row.evidence_summary -> 'reason_codes','[]'::jsonb)
         ? 'multiple_candidates_need_distinguishing_time'
+      and candidate_in_scope
+      and candidate_row.card_last4 = case_row.card_last4
+      and candidate_row.amount_cents = case_row.payment_amount_cents
+      and candidate_row.currency_code = 'USD'
       and candidate_evidence_state = 'valid';
     upgrade_collision_hold :=
       candidate_row.evidence_summary ->> 'selection_allowed' = 'false'
@@ -413,8 +419,16 @@ begin
             = '["card_last4_source"]'::jsonb
         )
       );
-    grouped_collision_compatible := grouped_collision_compatible
-      and (canonical_collision_hold or upgrade_collision_hold);
+    ignorable_hard_exclusion :=
+      candidate_evidence_state = 'valid'
+      and candidate_row.evidence_summary ->> 'selection_allowed' = 'false'
+      and jsonb_typeof(candidate_row.evidence_summary -> 'hard_exclusions') = 'array'
+      and jsonb_array_length(candidate_row.evidence_summary -> 'hard_exclusions') > 0;
+    if canonical_collision_hold or upgrade_collision_hold then
+      collision_candidate_count := collision_candidate_count + 1;
+    end if;
+    grouped_collision_context_compatible := grouped_collision_context_compatible
+      and (canonical_collision_hold or upgrade_collision_hold or ignorable_hard_exclusion);
     all_candidates_valid := all_candidates_valid and candidate_evidence_state = 'valid';
     any_selection_allowed := any_selection_allowed
       or candidate_row.evidence_summary ->> 'selection_allowed' = 'true';
@@ -425,7 +439,8 @@ begin
     );
   end loop;
 
-  if candidate_count >= 2 and grouped_collision_compatible then
+  if any_selection_allowed then return '{}'::text[]; end if;
+  if collision_candidate_count >= 2 and grouped_collision_context_compatible then
     return array['incident_time']::text[];
   end if;
   -- Invalid current evidence needs an internal refresh. Do not ask the
@@ -433,7 +448,6 @@ begin
   if candidate_count > 0 and not all_candidates_valid then
     return '{}'::text[];
   end if;
-  if any_selection_allowed then return '{}'::text[]; end if;
   if candidate_count > 0 then
     return public.canonical_refund_follow_up_fields(fields || candidate_fields);
   end if;
