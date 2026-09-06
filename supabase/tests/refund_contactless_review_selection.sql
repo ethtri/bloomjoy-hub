@@ -212,7 +212,7 @@ select is((select metadata ->> 'customer_payment_interaction' from public.refund
 select matches((select message from public.refund_case_events
   where refund_case_id='fc150000-0000-4000-8000-000000000001'
     and event_type='nayax_identifier_evidence_selected' order by created_at desc limit 1),
-  'full selected provider amount.*provider identifier scope and purchase timing remain unproved',
+  'full selected provider amount.*Provider identifier scope and purchase timing remain unproved',
   'Manager event copy names the unresolved identifier and timing evidence');
 
 update public.refund_cases set payment_interaction='swipe_card'
