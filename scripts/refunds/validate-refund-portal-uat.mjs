@@ -1760,6 +1760,39 @@ const buildTransactionalDeliveryTruthOverview = ({
   return overview;
 };
 
+const buildGmailUncertaintyPrecedenceOverview = ({ providerRejected = false } = {}) => {
+  const overview = buildMockRefundOverview();
+  const refundCase = overview.cases[0];
+  const lifecycle = buildLifecycleFixture('matching', 10, 'review_customer_contact');
+  lifecycle.paymentState = 'not_requested';
+  overview.cases = [{
+    ...refundCase,
+    publicReference: providerRejected ? 'RF-UAT-GMAIL-REJECTED' : 'RF-UAT-GMAIL-UNCERTAIN',
+    status: 'needs_review',
+    providerHold: false,
+    providerOutcome: providerRejected ? 'rejected' : 'unconfirmed',
+    lifecycle,
+    customerDeliveryException: null,
+    messages: [{
+      id: 'gmail-message-uncertain',
+      messageType: 'confirmation',
+      status: 'failed',
+      recipientEmail: 'gmail-customer@example.test',
+      subject: 'We received your Bloomjoy refund request',
+      body: 'Synthetic Gmail uncertainty evidence.',
+      sentAt: null,
+      errorMessage: 'gmail_send_unconfirmed',
+      createdAt: isoHoursAgo(0.25),
+      deliveryKind: 'manual',
+      deliveryTransport: null,
+      deliveryState: 'unknown',
+      deliveryStateUpdatedAt: null,
+      providerEvidenceAvailable: false,
+    }],
+  }];
+  return overview;
+};
+
 const buildPhysicalCardMismatchRefundOverview = () => {
   const overview = buildPendingNayaxRefundOverview();
   overview.cases[0].cardLast4 = '6768';
@@ -7865,6 +7898,90 @@ const runTransactionalDeliveryTruthChecks = async ({
         functionCalls.length === callSnapshot.functions &&
         rpcCalls.filter((name) => !NAVIGATION_READ_ONLY_RPCS.has(name)).length === callSnapshot.mutations,
       JSON.stringify({ functionCalls, rpcCalls })
+    );
+
+    await closeRefundPortalContext(context);
+  }
+
+  for (const scenario of [
+    {
+      name: 'ordinary Gmail uncertainty without a transactional delivery exception',
+      publicReference: 'RF-UAT-GMAIL-UNCERTAIN',
+      providerRejected: false,
+      expectedAction: 'Resolve uncertain Gmail delivery',
+      unexpectedAction: 'Send a safe customer follow-up',
+    },
+    {
+      name: 'provider rejection with unrelated Gmail uncertainty',
+      publicReference: 'RF-UAT-GMAIL-REJECTED',
+      providerRejected: true,
+      expectedAction: 'Refund was rejected',
+      unexpectedAction: 'Resolve uncertain Gmail delivery',
+    },
+  ]) {
+    const functionCalls = [];
+    const rpcCalls = [];
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    await installMockSupabaseRoutes(context, {
+      refundOverview: () => buildGmailUncertaintyPrecedenceOverview({
+        providerRejected: scenario.providerRejected,
+      }),
+      emailQueueStates: [{
+        caseId: 'case-card-1',
+        intakeSource: 'form',
+        exactCasePath: '/refunds?case=case-card-1',
+        missingInformation: false,
+        possibleDuplicate: false,
+        confirmedDuplicate: false,
+        duplicateOfCaseId: null,
+        aging: false,
+        providerHold: false,
+        providerOutcome: scenario.providerRejected ? 'rejected' : 'unconfirmed',
+        actionBlocked: false,
+        payloadRedacted: true,
+      }],
+      functionCalls,
+      rpcCalls,
+    });
+
+    const page = await context.newPage();
+    await signInRefundUser(page, appUrl);
+    await page.getByRole('heading', { name: /^Refunds$/i }).last()
+      .waitFor({ timeout: 10000 });
+    await page.getByText('Signed in. Redirecting...', { exact: true })
+      .waitFor({ state: 'hidden', timeout: 5000 })
+      .catch(() => undefined);
+    await waitForQueueCount(page, 1);
+    await queueCase(page, scenario.publicReference).click();
+
+    const expectedActionCount = await page.getByText(scenario.expectedAction, { exact: true }).count();
+    const expectedActionVisible = expectedActionCount > 0
+      ? await page.getByText(scenario.expectedAction, { exact: true }).first().isVisible()
+      : false;
+    const unexpectedActionCount = await page.getByText(scenario.unexpectedAction, { exact: true }).count();
+    const deliveryReviewActionCount = await page.getByTestId('refund-review-delivery-record').count();
+    const primaryActionText = await page.getByTestId('refund-primary-action').innerText().catch(() => 'missing');
+    const unexpectedRpcCalls = rpcCalls.filter((name) =>
+      !NAVIGATION_READ_ONLY_RPCS.has(name) && name !== 'admin_get_refund_nayax_resolution_readiness'
+    );
+    recorder.assert(
+      `${scenario.name} preserves the safe primary-action precedence`,
+      expectedActionCount > 0 &&
+        expectedActionVisible &&
+        unexpectedActionCount === 0 &&
+        deliveryReviewActionCount === 0 &&
+        functionCalls.length === 0 &&
+        unexpectedRpcCalls.length === 0,
+      JSON.stringify({
+        expectedActionCount,
+        expectedActionVisible,
+        unexpectedActionCount,
+        deliveryReviewActionCount,
+        primaryActionText,
+        functionCalls,
+        rpcCalls,
+        unexpectedRpcCalls,
+      })
     );
 
     await closeRefundPortalContext(context);

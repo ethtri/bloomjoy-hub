@@ -1829,6 +1829,13 @@ const primaryActionConfig = (
         disabled: true,
       };
     }
+    if (isRefundCustomerDeliveryUncertain(latestMessage.errorMessage)) {
+      return {
+        label: 'Resolve uncertain Gmail delivery',
+        helper: 'First check the original Gmail thread. If no message was sent, record that verification here before sending a controlled follow-up.',
+        mode: 'resolve_delivery_not_found',
+      };
+    }
     if (latestMessage.messageType === 'confirmation') {
       return {
         label: 'Send a safe customer follow-up',
