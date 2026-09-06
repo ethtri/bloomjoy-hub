@@ -324,7 +324,12 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 90, 'Evidence must enumerate all 90 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 92, 'Evidence must enumerate all 92 reviewed screenshots');
+  assert(
+    EXPECTED_SCREENSHOTS.includes('machine-refunds-valley-product-unverified-desktop.png') &&
+      EXPECTED_SCREENSHOTS.includes('machine-refunds-valley-product-unverified-mobile.png'),
+    'Evidence must include the exact published Valley Mall product-unverified state on desktop and mobile'
+  );
   assert(
     EXPECTED_SCREENSHOTS.includes('refund-inbound-case-link-review-desktop.png') &&
       EXPECTED_SCREENSHOTS.includes('refund-inbound-case-link-review-mobile.png'),
@@ -378,8 +383,8 @@ try {
   );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('machine-refunds-')).length,
-    6,
-    'Evidence must include ready, ready-to-activate, setup-needed, manual-portal-only, machine-disabled, and global-pause Admin states'
+    8,
+    'Evidence must include ready, ready-to-activate, setup-needed, Valley Mall product-unverified desktop/mobile, manual-portal-only, machine-disabled, and global-pause Admin states'
   );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-simple-journey-')).length,

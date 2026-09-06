@@ -29,6 +29,7 @@ import { ingestRefundGmailThreadBeforeFirstContact } from "../_shared/refund-gma
 import { ingestNayaxReportMail, isNayaxScheduledReportMessage, nayaxReportFailureCode } from "../_shared/nayax-report-mail.ts";
 import {
   extractLabeledRefundEmailFacts,
+  requirePublicEligibilityForUnverifiedMachineFact,
   type RefundMachineFactCandidate,
   resolveExactRefundMachineFact,
 } from "../_shared/refund-email-fact-extraction.ts";
@@ -1154,12 +1155,18 @@ const applyUnreceiptedCustomerReplyFacts = async ({
     const { data: machines, error: machineError } = await supabase
       .from("reporting_machines")
       .select(
-        "id,machine_label,refund_public_display_label,location_id,reporting_locations(id,name,timezone,status)",
+        "id,machine_label,machine_type,refund_public_display_label,location_id,reporting_locations(id,name,timezone,status)",
       )
       .eq("status", "active")
-      .in("machine_type", ["commercial", "mini"])
+      .in("machine_type", ["commercial", "mini", "unknown"])
       .limit(250);
     if (machineError) throw machineError;
+    const machineTypeById = new Map(
+      (machines ?? []).map((machine) => [
+        String(machine.id),
+        String(machine.machine_type),
+      ]),
+    );
     const candidates = (machines ?? []).flatMap((machine) => {
       const relation = Array.isArray(machine.reporting_locations)
         ? machine.reporting_locations[0]
@@ -1179,6 +1186,18 @@ const applyUnreceiptedCustomerReplyFacts = async ({
     resolvedMachine = resolveExactRefundMachineFact(
       extracted.locationOrMachine,
       candidates,
+    );
+    resolvedMachine = await requirePublicEligibilityForUnverifiedMachineFact(
+      resolvedMachine,
+      machineTypeById,
+      async (machineId) => {
+        const { data: isPublic, error: eligibilityError } = await supabase.rpc(
+          "service_refund_machine_is_public",
+          { p_machine_id: machineId },
+        );
+        if (eligibilityError) throw eligibilityError;
+        return isPublic === true;
+      },
     );
     if (resolvedMachine) {
       if (

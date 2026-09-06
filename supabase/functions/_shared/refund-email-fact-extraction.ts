@@ -39,6 +39,17 @@ export type RefundMachineFactCandidate = {
   locationName: string;
 };
 
+export const requirePublicEligibilityForUnverifiedMachineFact = async (
+  candidate: RefundMachineFactCandidate | null,
+  machineTypeById: ReadonlyMap<string, string>,
+  isPublicMachine: (machineId: string) => Promise<boolean>,
+): Promise<RefundMachineFactCandidate | null> => {
+  if (!candidate || machineTypeById.get(candidate.machineId) !== "unknown") {
+    return candidate;
+  }
+  return await isPublicMachine(candidate.machineId) ? candidate : null;
+};
+
 const labelAliases = new Map([
   ["machine or location", "locationOrMachine"],
   ["purchase date", "incidentDate"],

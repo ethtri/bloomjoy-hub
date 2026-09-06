@@ -181,7 +181,7 @@ for (const retiredPilotGate of [
 }
 assert.match(
   productionRunbook,
-  /exactly 90 reviewed synthetic screenshots/,
+  /exactly 92 reviewed synthetic screenshots/,
   'Production runbook must use the current 90-screenshot evidence inventory'
 );
 assert.doesNotMatch(
@@ -195,7 +195,7 @@ for (const [documentName, document] of [
 ]) {
   assert.match(
     document,
-    /exactly 90 reviewed synthetic screenshots/,
+    /exactly 92 reviewed synthetic screenshots/,
     `${documentName} must use the current 90-screenshot evidence inventory`
   );
   assert.doesNotMatch(

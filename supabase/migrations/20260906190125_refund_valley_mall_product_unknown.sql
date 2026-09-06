@@ -85,8 +85,8 @@ begin
     from public.reporting_machine_refund_managers manager
     where manager.reporting_machine_id = reporting.id
       and manager.status = 'active' and manager.revoked_at is null;
-    if manager_count < 1 or manager_count > 3 then
-      raise exception 'One to three current Machine Managers are required before publishing';
+    if manager_count < 1 or manager_count > 4 then
+      raise exception 'One to four current Machine Managers are required before publishing';
     end if;
     update public.reporting_machines set refund_intake_enabled = true where id = reporting.id;
   elsif p_reporting_machine_id is not null then
@@ -185,8 +185,16 @@ as $$
         where inventory.reporting_machine_id = machine.id
           and inventory.provider_is_active
           and inventory.missing_successful_snapshots < 2
-          and inventory.refund_category in ('snapcase', 'unknown')
-          and inventory.reconciliation_state = 'published'
+          and (
+            (
+              inventory.refund_category = 'snapcase'
+              and inventory.reconciliation_state <> 'excluded'
+            )
+            or (
+              inventory.refund_category = 'unknown'
+              and inventory.reconciliation_state = 'published'
+            )
+          )
       )
     )
     and (

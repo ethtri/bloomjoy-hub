@@ -58,29 +58,92 @@ insert into public.reporting_machines (
     false,
     true,
     'Valley Mall — unrelated sentinel'
+  ),
+  (
+    '11950000-0000-4000-8000-000000000097',
+    '11950000-0000-4000-8000-000000000001',
+    '806bb025-eb06-4c53-b11b-35e782646f51',
+    'SnapCase setup-needed sentinel',
+    'unknown',
+    'active',
+    'TGPACI_USA_DB',
+    '119500097',
+    false,
+    true,
+    'Valley Mall — SnapCase setup needed'
   );
 
 insert into auth.users (
   id, aud, role, email, raw_app_meta_data, raw_user_meta_data
-) values (
-  '11950000-0000-4000-8000-000000000011',
-  'authenticated',
-  'authenticated',
-  'valley-manager@example.test',
-  '{"provider":"email","providers":["email"]}',
-  '{}'
-);
+) values
+  (
+    '11950000-0000-4000-8000-000000000011',
+    'authenticated',
+    'authenticated',
+    'valley-manager@example.test',
+    '{"provider":"email","providers":["email"]}',
+    '{}'
+  ),
+  (
+    '11950000-0000-4000-8000-000000000012',
+    'authenticated',
+    'authenticated',
+    'valley-manager-two@example.test',
+    '{"provider":"email","providers":["email"]}',
+    '{}'
+  ),
+  (
+    '11950000-0000-4000-8000-000000000013',
+    'authenticated',
+    'authenticated',
+    'valley-manager-three@example.test',
+    '{"provider":"email","providers":["email"]}',
+    '{}'
+  ),
+  (
+    '11950000-0000-4000-8000-000000000014',
+    'authenticated',
+    'authenticated',
+    'valley-manager-four@example.test',
+    '{"provider":"email","providers":["email"]}',
+    '{}'
+  );
 
 insert into public.reporting_machine_refund_managers (
   id, reporting_machine_id, manager_user_id, manager_email, status, grant_reason
-) values (
-  '11950000-0000-4000-8000-000000000012',
-  'f77bc8a8-71b3-4300-8a76-c935b8b1972f',
-  '11950000-0000-4000-8000-000000000011',
-  'valley-manager@example.test',
-  'active',
-  'Synthetic manager route preservation fixture'
-);
+) values
+  (
+    '11950000-0000-4000-8000-000000000015',
+    'f77bc8a8-71b3-4300-8a76-c935b8b1972f',
+    '11950000-0000-4000-8000-000000000011',
+    'valley-manager@example.test',
+    'active',
+    'Synthetic manager route preservation fixture'
+  ),
+  (
+    '11950000-0000-4000-8000-000000000016',
+    'f77bc8a8-71b3-4300-8a76-c935b8b1972f',
+    '11950000-0000-4000-8000-000000000012',
+    'valley-manager-two@example.test',
+    'active',
+    'Synthetic four-manager route preservation fixture'
+  ),
+  (
+    '11950000-0000-4000-8000-000000000017',
+    'f77bc8a8-71b3-4300-8a76-c935b8b1972f',
+    '11950000-0000-4000-8000-000000000013',
+    'valley-manager-three@example.test',
+    'active',
+    'Synthetic four-manager route preservation fixture'
+  ),
+  (
+    '11950000-0000-4000-8000-000000000018',
+    'f77bc8a8-71b3-4300-8a76-c935b8b1972f',
+    '11950000-0000-4000-8000-000000000014',
+    'valley-manager-four@example.test',
+    'active',
+    'Synthetic four-manager route preservation fixture'
+  );
 
 insert into public.refund_nayax_machine_inventory (
   id, account_key, nayax_machine_id, machine_name, machine_number,
@@ -126,6 +189,25 @@ insert into public.refund_nayax_machine_inventory (
     'published',
     'ready',
     'Synthetic untouched row'
+  ),
+  (
+    '11950000-0000-4000-8000-000000000096',
+    'TGPACI_USA_DB',
+    '119500097',
+    'SnapCase setup-needed sentinel',
+    'snapcase-sentinel',
+    '30000527',
+    1,
+    true,
+    '2026-08-22T00:00:00Z',
+    '2026-09-06T00:00:00Z',
+    '2026-09-06T00:00:00Z',
+    0,
+    'snapcase',
+    '11950000-0000-4000-8000-000000000097',
+    'needs_setup',
+    'operator_setup_required',
+    'Synthetic SnapCase visibility regression sentinel'
   );
 
 insert into public.refund_cases (
@@ -272,6 +354,31 @@ select results_eq(
     'America/New_York'::text
   ) $$,
   'Public machine intake keeps the exact route without a product assertion'
+);
+
+select ok(
+  exists (
+    select 1
+    from public.public_refund_machine_options() option
+    where option.machine_id = '11950000-0000-4000-8000-000000000097'
+  ),
+  'Active non-excluded needs-setup SnapCase intake remains visible exactly as before'
+);
+
+select ok(
+  position(
+    'manager_count > 4'
+    in pg_get_functiondef(
+      'public.admin_reconcile_refund_nayax_machine(uuid,text,text,uuid,text,text)'::regprocedure
+    )
+  ) > 0
+  and position(
+    'One to four current Machine Managers are required before publishing'
+    in pg_get_functiondef(
+      'public.admin_reconcile_refund_nayax_machine(uuid,text,text,uuid,text,text)'::regprocedure
+    )
+  ) > 0,
+  'The current four-manager publication contract is preserved'
 );
 
 select ok(
