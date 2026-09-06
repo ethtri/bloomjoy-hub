@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(28);
+select plan(29);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('cf110000-0000-4000-8000-000000000001','authenticated','authenticated',
@@ -135,16 +135,6 @@ select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id='cf150000-0000-4000-8000-000000000001'),0,
   'The guard-valid initial lookup creates no customer message');
 
-update public.refund_nayax_lookup_candidates
-set expires_at=statement_timestamp()-interval '1 minute'
-where provider_transaction_id='CURRENT-CORRECTION-TX';
-select is(public.refund_purchase_correction_request_fields(
-  'cf150000-0000-4000-8000-000000000001'), '{}'::text[],
-  'An expired current generation with no usable candidate stays customer-silent');
-update public.refund_nayax_lookup_candidates
-set expires_at=statement_timestamp()+interval '1 hour'
-where provider_transaction_id='CURRENT-CORRECTION-TX';
-
 update public.reporting_machines
 set nayax_account_key='CONTRADICTORY_ACCOUNT'
 where id='cf140000-0000-4000-8000-000000000001';
@@ -179,7 +169,7 @@ select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id='cf150000-0000-4000-8000-000000000001'),0,
   'Expired, invalid, and stale scope inspection creates no outbox message');
 
-create temp table refreshed_claim as
+create temp table empty_claim as
 select (public.service_begin_refund_nayax_lookup(
   'cf150000-0000-4000-8000-000000000001',3,'manual',
   'cf110000-0000-4000-8000-000000000001'
@@ -188,6 +178,22 @@ select (public.service_begin_refund_nayax_lookup(
 select is(public.refund_purchase_correction_request_fields(
   'cf150000-0000-4000-8000-000000000001'), '{}'::text[],
   'An in-progress read-only lookup exposes no customer correction action');
+
+select is((public.service_commit_refund_nayax_lookup(
+  'cf150000-0000-4000-8000-000000000001',(select generation from empty_claim),3,
+  'manual_exception','manual_exception','2026-09-05.v11',statement_timestamp(),
+  'The current generation contains no usable candidate',null,0,'manual',
+  'cf110000-0000-4000-8000-000000000001'
+)->>'applied'),'true','An empty generation commits through the normal lookup guard');
+select is(public.refund_purchase_correction_request_fields(
+  'cf150000-0000-4000-8000-000000000001'), '{}'::text[],
+  'A settled current generation with no candidate remains customer-silent');
+
+create temp table refreshed_claim as
+select (public.service_begin_refund_nayax_lookup(
+  'cf150000-0000-4000-8000-000000000001',3,'manual',
+  'cf110000-0000-4000-8000-000000000001'
+)->>'lookupGeneration')::bigint generation;
 
 insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
   actor_user_id,reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,
