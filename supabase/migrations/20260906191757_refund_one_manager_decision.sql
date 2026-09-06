@@ -34,6 +34,7 @@ declare
   expected_selection_allowed boolean;
   neutral_physical_contactless_mismatch boolean;
   conservative_competing_purchase_hold boolean := false;
+  rough_same_card_candidate_count integer := 0;
   machine_timezone text;
   raw_machine_authorization_at timestamptz;
 begin
@@ -207,6 +208,36 @@ begin
           and (expected_time_delta is null or expected_time_delta <= 60)
         )
       );
+  end if;
+  if expected_selection_allowed
+    and case_row.card_last4 is not null
+    and not (
+      case_row.incident_time_resolution in ('exact','legacy_absolute')
+      and case_row.incident_time_confidence is distinct from 'rough'
+    ) then
+    select count(*)::integer into rough_same_card_candidate_count
+    from public.refund_nayax_lookup_candidates sibling
+    where sibling.refund_case_id = case_row.id
+      and sibling.lookup_generation = case_row.nayax_lookup_generation
+      and sibling.expires_at > statement_timestamp()
+      and sibling.card_last4 = case_row.card_last4
+      and sibling.evidence_summary ->> 'policy_version' = '2026-09-05.v11'
+      and sibling.evidence_summary ->> 'card_last4_comparison' = 'exact_support'
+      and jsonb_typeof(sibling.evidence_summary -> 'hard_exclusions') = 'array'
+      and jsonb_array_length(sibling.evidence_summary -> 'hard_exclusions') = 0
+      and (
+        sibling.evidence_summary ->> 'selection_allowed' = 'true'
+        or (
+          sibling.evidence_summary ->> 'selection_allowed' = 'false'
+          and sibling.evidence_summary ->> 'identifier_review_state' = 'needs_corroboration'
+          and sibling.evidence_summary -> 'customer_correction_fields' = '["incident_time"]'::jsonb
+          and coalesce(sibling.evidence_summary -> 'reason_codes','[]'::jsonb)
+            ? 'multiple_candidates_need_distinguishing_time'
+        )
+      );
+    if rough_same_card_candidate_count > 1 then
+      expected_selection_allowed := false;
+    end if;
   end if;
   conservative_competing_purchase_hold :=
     expected_selection_allowed
