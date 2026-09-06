@@ -142,7 +142,7 @@ assert.equal(
 );
 assert.equal(delayedProviderTapMismatch.candidates[0].customerCorrectionFields.includes("payment_interaction"), false);
 assert.equal(delayedProviderTapMismatch.candidates[0].oneClickEligible, false);
-assert.match(delayedProviderTapMismatch.summary, /exact amount/);
+assert.match(delayedProviderTapMismatch.summary, /amounts are shown for comparison/i);
 assert.match(delayedProviderTapMismatch.summary, /timing is shown separately and may be unproved/i);
 assert.doesNotMatch(delayedProviderTapMismatch.summary, /close timing/i);
 assert.doesNotMatch(delayedProviderTapMismatch.recommendedAction, /amount, time/i);
@@ -156,10 +156,43 @@ const oneCentDifferentTapMismatch = recommend([
   customerRequestReceivedAt: null, customerRequestReceivedSource: null,
   purchaseOccurrenceProof: null });
 assert.equal(oneCentDifferentTapMismatch.candidates[0].amountDeltaCents, 1);
-assert.equal(oneCentDifferentTapMismatch.candidates[0].selectionAllowed, false);
-assert.equal(oneCentDifferentTapMismatch.candidates[0].identifierReviewState, "needs_corroboration");
-assert.ok(oneCentDifferentTapMismatch.candidates[0].customerCorrectionFields.includes("amount"));
+assert.equal(oneCentDifferentTapMismatch.candidates[0].selectionAllowed, true);
+assert.equal(oneCentDifferentTapMismatch.candidates[0].identifierReviewState, "reviewable_uncertainty");
+assert.deepEqual(oneCentDifferentTapMismatch.candidates[0].customerCorrectionFields, []);
 assert.equal(oneCentDifferentTapMismatch.candidates[0].oneClickEligible, false);
+
+const largeAmountDifferenceTapMismatch = recommend([
+  sale({ id: "large-difference-tap-mismatch", at: "2026-07-21T23:15:00.000Z", amount: 25.9,
+    last4: "3760", recognitionMethod: "Contactless" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "tap_card", requestCardLast4Source: "physical_card",
+  incidentTimeSource: null, nearbyAttemptCount: null, incidentTimeConfidence: "exact",
+  customerRequestReceivedAt: null, customerRequestReceivedSource: null,
+  purchaseOccurrenceProof: null });
+assert.equal(largeAmountDifferenceTapMismatch.candidates[0].amountDeltaCents, 1500);
+assert.equal(largeAmountDifferenceTapMismatch.candidates[0].selectionAllowed, true);
+assert.equal(largeAmountDifferenceTapMismatch.candidates[0].identifierReviewState, "reviewable_uncertainty");
+assert.equal(largeAmountDifferenceTapMismatch.candidates[0].oneClickEligible, false);
+assert.match(largeAmountDifferenceTapMismatch.recommendedAction, /full amount/i);
+
+const largeAmountDifferenceExactSuffix = recommend([
+  sale({ id: "large-difference-exact-suffix", at: "2026-07-21T19:15:00.000Z", amount: 25.9,
+    last4: "6768", recognitionMethod: "Swipe" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "swipe_card", requestCardLast4Source: "physical_card" });
+assert.equal(largeAmountDifferenceExactSuffix.candidates[0].selectionAllowed, true);
+assert.equal(largeAmountDifferenceExactSuffix.candidates[0].oneClickEligible, false);
+
+const largeAmountDifferenceCorroboratedMismatch = recommend([
+  sale({ id: "large-difference-corroborated", at: "2026-07-21T19:15:00.000Z", amount: 25.9,
+    last4: "3760", recognitionMethod: "Swipe" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "swipe_card", requestCardLast4Source: "physical_card",
+  incidentTimeSource: "transaction_alert_or_receipt", nearbyAttemptCount: "one",
+  incidentTimeConfidence: "exact" });
+assert.equal(largeAmountDifferenceCorroboratedMismatch.candidates[0].selectionAllowed, true);
+assert.equal(largeAmountDifferenceCorroboratedMismatch.candidates[0].identifierReviewState, "reviewable_uncertainty");
+assert.equal(largeAmountDifferenceCorroboratedMismatch.candidates[0].oneClickEligible, false);
 
 const ambiguousTapMismatches = recommend([
   sale({ id: "great-mall-tap-a", at: "2026-07-21T19:14:00.000Z", amount: 10.9,
@@ -204,9 +237,9 @@ const distantMismatch = recommend([
   sale({ id: "distant-mismatch", at: "2026-07-21T22:01:00.000Z", amount: 10.9, last4: "3760" }),
 ], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
   paymentInteraction: "tap_card", requestCardLast4Source: "physical_card" });
-assert.equal(distantMismatch.candidates[0].selectionAllowed, false);
-assert.equal(distantMismatch.candidates[0].identifierReviewState, "needs_corroboration");
-assert.ok(distantMismatch.candidates[0].customerCorrectionFields.includes("incident_time"));
+assert.equal(distantMismatch.candidates[0].selectionAllowed, true);
+assert.equal(distantMismatch.candidates[0].identifierReviewState, "reviewable_uncertainty");
+assert.deepEqual(distantMismatch.candidates[0].customerCorrectionFields, []);
 
 const duplicateContactlessMismatch = recommend([
   sale({ id: "duplicate-contactless-mismatch", at: "2026-07-21T19:15:00.000Z", amount: 10.9,
@@ -273,7 +306,7 @@ assert.ok(customerTimeRough.reasonCodes.includes("customer_time_rough"));
 const wrongAmount = recommend([sale({ id: "wrong-amount", amount: 10.01 })]);
 assert.equal(wrongAmount.recommendationState, "manual_exception");
 assert.equal(wrongAmount.oneClickEligible, false);
-assert.equal(wrongAmount.candidates[0].selectionAllowed, false);
+assert.equal(wrongAmount.candidates[0].selectionAllowed, true);
 assert.equal(wrongAmount.candidates.length, 1);
 
 const nearAmount = recommend([sale({ id: "near-amount", amount: 9.99 })]);

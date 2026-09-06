@@ -659,9 +659,12 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     commonProviderEvidence &&
     exactCustomerOccurrenceEvidence &&
     mismatchPresent &&
-    amountDeltaCents === 0 &&
     (!Number.isFinite(candidate.timeDeltaMinutes) ||
       candidate.timeDeltaMinutes <= policy.maximumOneClickTimeDeltaMinutes);
+  const neutralPhysicalContactlessMismatch =
+    identifierEvidence.customerCredentialClass === "customer_physical_contactless_pan" &&
+    identifierEvidence.cardLast4Comparison === "mismatch_neutral_unproven_scope" &&
+    identifierEvidence.cardNetworkComparison !== "mismatch_negative_unproven_equivalence";
   const managerSelectionCore =
     hardExclusions.length === 0 &&
     candidate.providerMachineId === request.expectedMachineId &&
@@ -670,28 +673,22 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     request.amountCents > 0 &&
     candidate.amountCents > 0 &&
     amountDeltaCents !== null &&
-    amountDeltaCents <= policy.maximumStrongCardAmountDeltaCents &&
     candidate.siteId !== null &&
     candidate.providerTimeResolution === "exact" &&
     candidate.machineTimeResolution === "exact" &&
     Boolean(candidate.machineAuthorizationTimeRaw) &&
     (candidate.timeDeltaMinutes === null ||
-      candidate.timeDeltaMinutes <= policy.maximumUniqueQrIncidentDeltaMinutes) &&
+      candidate.timeDeltaMinutes <= policy.maximumUniqueQrIncidentDeltaMinutes ||
+      neutralPhysicalContactlessMismatch) &&
     candidate.currencyCode === "USD" &&
     candidate.paymentStatus === "approved" &&
     ["explicit", "last_sales_contract"].includes(candidate.paymentStatusEvidence) &&
     candidate.providerRefundState === "clear" &&
     candidate.requestTimeBoundaryState !== "after_request" &&
     !candidate.duplicateProviderRecord;
-  const neutralPhysicalContactlessMismatch =
-    identifierEvidence.customerCredentialClass === "customer_physical_contactless_pan" &&
-    identifierEvidence.cardLast4Comparison === "mismatch_neutral_unproven_scope" &&
-    identifierEvidence.cardNetworkComparison !== "mismatch_negative_unproven_equivalence";
   const evidenceAwareReviewEligible =
     corroboratedMismatchReviewEligible ||
-    (managerSelectionCore &&
-      neutralPhysicalContactlessMismatch &&
-      amountDeltaCents === 0);
+    (managerSelectionCore && neutralPhysicalContactlessMismatch);
   const identifierReviewState = hardExclusions.length > 0
     ? "blocked_safety"
     : evidenceAwareReviewEligible
@@ -1191,10 +1188,10 @@ export const buildNayaxRecommendation = ({
     },
     manual_exception: {
       summary: confidenceClass === "evidence_aware_review"
-        ? "Nayax found one sale on the matching machine for the exact amount. The card details differ, and Nayax has not proved those fields use the same identifier for this payment interaction. Transaction timing is shown separately and may be unproved."
+        ? "Nayax found one sale on the matching machine. The customer and provider amounts are shown for comparison. The card details differ, and Nayax has not proved those fields use the same identifier for this payment interaction. Transaction timing is shown separately and may be unproved."
         : "Nayax found a possible sale, but one or more details still need a manager to compare them.",
       recommendedAction: confidenceClass === "evidence_aware_review"
-        ? "Review this sale once and confirm it only if the exact amount, machine, and available customer and payment evidence identify the same purchase. One-click refund stays unavailable."
+        ? "Review this sale once and confirm it only if the machine, amount comparison, and available customer and payment evidence identify the same purchase. The refund uses the selected provider transaction's full amount. One-click refund stays unavailable."
         : "Compare the customer details with the possible sale before choosing the next step.",
     },
     no_safe_match: {

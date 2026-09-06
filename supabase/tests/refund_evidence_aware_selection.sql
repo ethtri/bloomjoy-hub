@@ -431,7 +431,7 @@ select ok((select matched_nayax_transaction_id='IDENTIFIER-REVIEW-TX'
   where id='fe150000-0000-4000-8000-000000000001'),
   'Manager selection binds the exact transaction and records explicit manager-confirmed execution eligibility');
 select ok((select count(*)=1 and bool_and((metadata->>'payload_redacted')::boolean)
-  and bool_and(metadata->'corroboration_codes' = '["machine_exact","amount_exact","provider_sale_approved",
+  and bool_and(metadata->'corroboration_codes' = '["machine_exact","provider_sale_approved","amount_exact",
     "customer_physical_contactless_fact","customer_time_from_alert_or_receipt","customer_reports_one_nearby_attempt"]'::jsonb)
   and bool_and(metadata->'uncertainty_codes' =
     '["card_last4_mismatch_reviewable","payment_interaction_conflict_reviewable"]'::jsonb)

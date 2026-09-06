@@ -1,7 +1,7 @@
 -- Correct the neutral physical-contactless review exception without restoring
--- a provider-timestamp veto. Exact amount is mandatory for this exception;
--- unproved occurrence semantics and delayed provider processing remain visible
--- manager-review evidence. Selection events store only facts actually verified.
+-- provider-timestamp or customer-amount vetoes. Amount variance remains visible
+-- manager-review evidence and the selected provider sale supplies the full,
+-- bounded refund amount. Selection events store only facts actually verified.
 
 create or replace function public.refund_nayax_candidate_identifier_evidence_state(
   p_case_id uuid,
@@ -167,6 +167,10 @@ begin
         'customer_request_time_unknown','transaction_occurrence_time_uncertain'
       ]
     ) then return 'invalid'; end if;
+  neutral_physical_contactless_mismatch :=
+    expected_customer_credential = 'customer_physical_contactless_pan'
+    and p_evidence ->> 'card_last4_comparison' = 'mismatch_neutral_unproven_scope'
+    and p_evidence ->> 'card_network_comparison' is distinct from 'mismatch_negative_unproven_equivalence';
   expected_selection_allowed :=
     jsonb_array_length(coalesce(p_evidence -> 'hard_exclusions','[]'::jsonb)) = 0
     and expected_machine_in_scope
@@ -175,13 +179,13 @@ begin
     and case_row.payment_amount_cents > 0
     and p_amount_cents > 0
     and expected_amount_delta is not null
-    and expected_amount_delta <= 300
     and p_site_id is not null
     and p_evidence ->> 'provider_machine_id' is not distinct from machine_row.nayax_machine_id
     and p_evidence ->> 'provider_time_resolution' is not distinct from 'exact'
     and p_evidence ->> 'machine_time_resolution' is not distinct from 'exact'
     and coalesce(p_evidence ->> 'machine_authorization_time_raw','') <> ''
-    and (expected_time_delta is null or expected_time_delta <= 180)
+    and (expected_time_delta is null or expected_time_delta <= 180
+      or neutral_physical_contactless_mismatch)
     and p_currency_code is not distinct from 'USD'
     and p_evidence ->> 'payment_status' is not distinct from 'approved'
     and coalesce(p_evidence ->> 'payment_status_evidence','') in ('explicit','last_sales_contract')
@@ -189,11 +193,6 @@ begin
     and not duplicate_provider_record
     and boundary_state = 'valid'
     and p_evidence ->> 'request_time_boundary' is distinct from 'after_request';
-  neutral_physical_contactless_mismatch :=
-    expected_customer_credential = 'customer_physical_contactless_pan'
-    and p_evidence ->> 'card_last4_comparison' = 'mismatch_neutral_unproven_scope'
-    and p_evidence ->> 'card_network_comparison' is distinct from 'mismatch_negative_unproven_equivalence'
-    and expected_amount_delta = 0;
   if mismatch_present then
     expected_selection_allowed := expected_selection_allowed
       and (
@@ -202,7 +201,6 @@ begin
           case_row.incident_time_confidence in ('exact','within_15_minutes')
           and case_row.incident_time_source is not distinct from 'transaction_alert_or_receipt'
           and case_row.nearby_attempt_count is not distinct from 'one'
-          and expected_amount_delta = 0
           and (expected_time_delta is null or expected_time_delta <= 60)
         )
       );
@@ -218,6 +216,347 @@ $$;
 revoke all on function public.refund_nayax_candidate_identifier_evidence_state(
   uuid,uuid,integer,timestamptz,integer,text,text,jsonb
 ) from public, anon, authenticated;
+
+-- Preserve an existing ordinary approval while rebinding its amount to the uniquely selected
+-- provider transaction. Every existing authority, state, duplicate, expiry, and attempt guard remains.
+
+create or replace function public.service_select_refund_nayax_candidate_as_actor_pre_lookup_generation_v1(
+  p_actor_user_id uuid,
+  p_case_id uuid,
+  p_expected_case_version bigint,
+  p_candidate_token uuid,
+  p_nayax_disagreement_reason text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  refund_case public.refund_cases%rowtype;
+  candidate public.refund_nayax_lookup_candidates%rowtype;
+  candidate_machine_id uuid;
+  normalized_disagreement_reason text := lower(btrim(coalesce(p_nayax_disagreement_reason, '')));
+  candidate_recommended boolean := false;
+  candidate_selection_allowed boolean := false;
+  manual_portal_candidate boolean := false;
+  recommendation_state text;
+  scorer_recommendation_state text;
+  policy_version text;
+  one_click_eligible boolean := false;
+  updated_case public.refund_cases%rowtype;
+  selection_is_replay boolean := false;
+begin
+  if p_actor_user_id is null or p_case_id is null or p_candidate_token is null then
+    raise exception 'Actor, refund case, and Nayax candidate are required'
+      using errcode = 'P4600';
+  end if;
+
+  select case_row.* into refund_case
+  from public.refund_cases case_row
+  where case_row.id = p_case_id
+  for update;
+  if not found then
+    raise exception 'Refund case not found' using errcode = 'P4600';
+  end if;
+
+  if refund_case.reporting_machine_id is null then
+    if not public.can_manage_refund_case(p_actor_user_id, refund_case.id) then
+      raise exception 'Complete active manager authority over the grouped selection is required'
+        using errcode = 'P4603';
+    end if;
+  elsif not public.refund_case_user_has_active_manager_mapping(
+    p_actor_user_id,
+    refund_case.id
+  ) then
+    raise exception 'Active Machine Manager mapping required; admin identities are review-only'
+      using errcode = 'P4603';
+  end if;
+
+  -- Read the actor-bound candidate even when expired so an exact completed
+  -- confirmation can be acknowledged as a replay. Expiry still blocks every
+  -- first-time selection below.
+  select lookup_candidate.* into candidate
+  from public.refund_nayax_lookup_candidates lookup_candidate
+  where lookup_candidate.token = p_candidate_token
+    and lookup_candidate.refund_case_id = refund_case.id
+    and lookup_candidate.actor_user_id = p_actor_user_id
+  for share;
+  if not found then
+    raise exception 'Nayax lookup evidence expired or belongs to another review session'
+      using errcode = 'P4602';
+  end if;
+
+  candidate_machine_id := coalesce(
+    candidate.reporting_machine_id,
+    refund_case.reporting_machine_id
+  );
+
+  selection_is_replay :=
+    candidate_machine_id is not null
+    and refund_case.reporting_machine_id = candidate_machine_id
+    and refund_case.matched_nayax_transaction_id = candidate.provider_transaction_id
+    and refund_case.matched_nayax_site_id is not distinct from candidate.site_id
+    and refund_case.matched_nayax_machine_auth_time =
+      candidate.machine_authorization_time
+    and refund_case.matched_nayax_amount_cents = candidate.amount_cents
+    and refund_case.matched_nayax_card_last4 is not distinct from candidate.card_last4
+    and refund_case.matched_nayax_currency_code = candidate.currency_code
+    and exists (
+      select 1
+      from public.refund_case_events selection_event
+      where selection_event.refund_case_id = refund_case.id
+        and selection_event.event_type = 'nayax_match_selected'
+        and selection_event.actor_user_id = p_actor_user_id
+    );
+
+  if selection_is_replay then
+    return to_jsonb(refund_case) || jsonb_build_object(
+      'selectionApplied', false,
+      'transactionConfirmed', true,
+      'refundReadiness', public.refund_case_nayax_manager_readiness(
+        p_actor_user_id,
+        refund_case.id
+      )
+    );
+  end if;
+
+  if refund_case.official_action_version is distinct from p_expected_case_version then
+    raise exception 'Refund case changed since review; reload before selecting a transaction'
+      using errcode = 'P4601';
+  end if;
+  if refund_case.payment_method <> 'card'
+    or refund_case.status not in ('needs_review','correlated','approved')
+    or (
+      refund_case.decision is not null and (
+        refund_case.decision <> 'approved'
+        or refund_case.matched_nayax_transaction_id is not null
+        or refund_case.duplicate_of_refund_case_id is not null
+        or refund_case.manual_refund_reference is not null
+        or refund_case.refund_amount_cents is null
+        or refund_case.refund_amount_cents <= 0
+        or exists (select 1 from public.refund_authoritative_receipts receipt
+          where receipt.refund_case_id = refund_case.id)
+        or exists (select 1 from public.refund_case_nayax_refund_attempts attempt
+          where attempt.refund_case_id = refund_case.id)
+      )
+    )
+    or refund_case.nayax_refund_execution_status <> 'not_requested'
+    or refund_case.reporting_adjustment_id is not null
+    or refund_case.refund_completed_at is not null then
+    raise exception 'This refund case is not safe for Nayax evidence selection'
+      using errcode = 'P4604';
+  end if;
+  if candidate.expires_at <= statement_timestamp() then
+    raise exception 'Nayax lookup evidence expired or belongs to another review session'
+      using errcode = 'P4602';
+  end if;
+
+  if candidate_machine_id is null then
+    raise exception 'The candidate is missing its exact machine identity'
+      using errcode = 'P4604';
+  end if;
+  if refund_case.reporting_machine_id is not null
+    and candidate_machine_id <> refund_case.reporting_machine_id then
+    raise exception 'The candidate belongs to a different machine'
+      using errcode = 'P4604';
+  end if;
+  if refund_case.reporting_machine_id is null and (
+    refund_case.intake_selection_kind <> 'livermore_pair'
+    or refund_case.intake_selection_key <> public.refund_livermore_selection_key()
+    or refund_case.intake_selection_machine_ids <> public.refund_livermore_selection_machine_ids()
+    or candidate_machine_id <> all(refund_case.intake_selection_machine_ids)
+    or not public.refund_livermore_selection_is_valid()
+  ) then
+    raise exception 'The grouped machine scope changed and requires administrator review'
+      using errcode = 'P4604';
+  end if;
+
+  candidate_selection_allowed := candidate.evidence_summary ->> 'selection_allowed' = 'true';
+  candidate_recommended := candidate.evidence_summary ->> 'is_recommended' = 'true';
+  manual_portal_candidate := coalesce(
+    candidate.evidence_summary ->> 'source' = 'manual_nayax_portal',
+    false
+  );
+  if not candidate_selection_allowed then
+    raise exception 'This Nayax transaction has a safety block and cannot be selected'
+      using errcode = 'P4604';
+  end if;
+  if not candidate_recommended
+    and normalized_disagreement_reason not in (
+      'closer_time', 'correct_amount', 'correct_card',
+      'customer_confirmation', 'provider_data_issue', 'other_review_reason'
+    ) then
+    raise exception 'Choose why this alternate Nayax transaction is the correct one'
+      using errcode = 'P4604';
+  end if;
+  if not public.is_review_safe_nayax_transaction_reference(candidate.provider_transaction_id)
+    or (candidate.site_id is null and not manual_portal_candidate)
+    or (candidate.site_id is not null and candidate.site_id < 0)
+    or candidate.machine_authorization_time is null
+    or candidate.amount_cents is null or candidate.amount_cents <= 0
+    or candidate.currency_code <> 'USD' then
+    raise exception 'This Nayax transaction does not contain safe refundable evidence'
+      using errcode = 'P4604';
+  end if;
+  if manual_portal_candidate and not exists (
+    select 1
+    from public.refund_manual_nayax_evidence evidence
+    join public.reporting_machines machine
+      on machine.id = evidence.reporting_machine_id
+    where evidence.candidate_token = candidate.token
+      and evidence.refund_case_id = refund_case.id
+      and evidence.reporting_machine_id = candidate_machine_id
+      and evidence.actor_user_id = p_actor_user_id
+      and evidence.provider_transaction_id = candidate.provider_transaction_id
+      and evidence.machine_authorization_time = candidate.machine_authorization_time
+      and evidence.amount_cents = candidate.amount_cents
+      and evidence.card_last4 = candidate.card_last4
+      and evidence.selected_at is null
+      and machine.nayax_manual_portal_enabled = true
+      and machine.nayax_manual_account_scope = evidence.account_scope
+      and machine.nayax_refunds_enabled = false
+      and machine.nayax_machine_id is null
+      and machine.nayax_account_key is null
+  ) then
+    raise exception 'Manual Nayax portal evidence changed and must be reviewed again'
+      using errcode = 'P4604';
+  end if;
+  if exists (
+    select 1 from public.refund_cases duplicate_case
+    where duplicate_case.id <> refund_case.id
+      and duplicate_case.matched_nayax_transaction_id = candidate.provider_transaction_id
+  ) then
+    raise exception 'This Nayax transaction is already linked to another refund case'
+      using errcode = '23505';
+  end if;
+
+  scorer_recommendation_state := coalesce(
+    nullif(btrim(candidate.evidence_summary ->> 'recommendation_state'), ''),
+    'manual_exception'
+  );
+  recommendation_state := scorer_recommendation_state;
+  policy_version := nullif(btrim(candidate.evidence_summary ->> 'policy_version'), '');
+  if policy_version is null then
+    raise exception 'This Nayax transaction is missing versioned recommendation evidence'
+      using errcode = 'P4604';
+  end if;
+  -- Automatic one-click evidence remains narrow. A manager's explicit confirmation
+  -- can make a fully validated v11 candidate executable when request ordering is
+  -- unknown; that confirmation is the corroboration action, not timestamp proof.
+  one_click_eligible := not manual_portal_candidate and (
+    (
+      scorer_recommendation_state = 'high_confidence'
+      and candidate_recommended
+      and candidate.evidence_summary ->> 'one_click_eligible' = 'true'
+    ) or (
+      candidate.evidence_summary ->> 'policy_version' = '2026-09-05.v11'
+      and candidate_selection_allowed
+      and candidate.evidence_summary ->> 'one_click_eligible' = 'false'
+      and candidate.evidence_summary ->> 'request_time_boundary' in (
+        'request_time_unknown','occurrence_time_uncertain'
+      )
+    )
+  );
+  if not manual_portal_candidate
+    and candidate.evidence_summary ->> 'policy_version' = '2026-09-05.v11'
+    and candidate_selection_allowed
+    and candidate.evidence_summary ->> 'one_click_eligible' = 'false'
+    and candidate.evidence_summary ->> 'request_time_boundary' in (
+      'request_time_unknown','occurrence_time_uncertain'
+    ) then
+    recommendation_state := 'manager_confirmed';
+  end if;
+
+  update public.refund_cases
+  set
+    reporting_machine_id = candidate_machine_id,
+    status = case when refund_case.decision = 'approved' then 'approved' else 'needs_review' end,
+    decision = refund_case.decision,
+    decision_reason = case when refund_case.decision = 'approved' then refund_case.decision_reason else null end,
+    decided_by = case when refund_case.decision = 'approved' then refund_case.decided_by else null end,
+    decided_at = case when refund_case.decision = 'approved' then refund_case.decided_at else null end,
+    refund_amount_cents = candidate.amount_cents,
+    matched_nayax_transaction_id = candidate.provider_transaction_id,
+    matched_nayax_site_id = candidate.site_id,
+    matched_nayax_machine_auth_time = candidate.machine_authorization_time,
+    matched_nayax_amount_cents = candidate.amount_cents,
+    matched_nayax_card_last4 = candidate.card_last4,
+    matched_nayax_currency_code = candidate.currency_code,
+    correlation_status = 'matched',
+    correlation_source = 'nayax',
+    correlation_confidence = 0,
+    correlation_summary = case
+      when manual_portal_candidate then
+        'Machine Manager confirmed exact transaction evidence entered from the Nayax portal. Manual refund approval is still required.'
+      else 'Machine Manager confirmed the selected Nayax transaction.'
+    end,
+    nayax_recommendation_state = recommendation_state,
+    nayax_recommendation_policy_version = policy_version,
+    nayax_recommendation_evaluated_at = statement_timestamp(),
+    nayax_match_execution_eligible = one_click_eligible
+  where id = refund_case.id
+  returning * into updated_case;
+
+  if manual_portal_candidate then
+    update public.refund_manual_nayax_evidence
+    set selected_at = statement_timestamp()
+    where candidate_token = candidate.token
+      and selected_at is null;
+  end if;
+
+  insert into public.refund_case_events (
+    refund_case_id, actor_user_id, event_type, message, metadata
+  ) values (
+    refund_case.id,
+    p_actor_user_id,
+    'nayax_match_selected',
+    case when manual_portal_candidate then
+      'Machine Manager confirmed the exact Nayax portal transaction. No refund, approval, reporting, or customer email occurred.'
+    when candidate_recommended
+      then 'Machine Manager confirmed the recommended Nayax transaction.'
+      else 'Machine Manager confirmed an alternate Nayax transaction after review.'
+    end,
+    jsonb_build_object(
+      'policy_version', policy_version,
+      'recommendation_state', recommendation_state,
+      'scorer_recommendation_state', scorer_recommendation_state,
+      'confidence_class', coalesce(
+        nullif(btrim(candidate.evidence_summary ->> 'confidence_class'), ''),
+        'ambiguous_manual'
+      ),
+      'reason_codes', coalesce(candidate.evidence_summary -> 'reason_codes', '[]'::jsonb),
+      'selected_recommended', candidate_recommended,
+      'selected_rank', case
+        when coalesce(candidate.evidence_summary ->> 'recommendation_rank', '') ~ '^[0-9]+$'
+          then (candidate.evidence_summary ->> 'recommendation_rank')::integer
+        else null
+      end,
+      'disagreement_reason_code', case when candidate_recommended
+        then null else normalized_disagreement_reason end,
+      'execution_eligible', one_click_eligible,
+      'manual_portal_candidate', manual_portal_candidate,
+      'provider_call_made', false,
+      'customer_message_created', false,
+      'exact_machine_bound_from_grouped_scope', refund_case.reporting_machine_id is null,
+      'payload_redacted', true
+    )
+  );
+
+  return to_jsonb(updated_case) || jsonb_build_object(
+    'selectionApplied', true,
+    'transactionConfirmed', true,
+    'refundReadiness', public.refund_case_nayax_manager_readiness(
+      p_actor_user_id,
+      updated_case.id
+    )
+  );
+end;
+$$;
+
+revoke execute on function public.service_select_refund_nayax_candidate_as_actor_pre_lookup_generation_v1(
+  uuid, uuid, bigint, uuid, text
+) from public, anon, authenticated, service_role;
 
 create or replace function public.service_select_refund_nayax_candidate_as_actor(
   p_actor_user_id uuid,
@@ -235,7 +574,6 @@ declare
   exact_replay boolean;
   evidence_state text;
   result jsonb;
-  selectable_count integer;
   corroboration_codes jsonb := '[]'::jsonb;
   uncertainty_codes jsonb := '[]'::jsonb;
   selection_event_message text;
@@ -293,20 +631,6 @@ begin
         when 'legacy_readonly' then 'Refresh Nayax transactions to use current identifier evidence'
         else 'Invalid Nayax identifier evidence' end using errcode = 'P4626';
     end if;
-    if evidence_state = 'valid'
-      and candidate_row.evidence_summary ->> 'identifier_review_state' = 'reviewable_uncertainty'
-      and candidate_row.evidence_summary ->> 'is_recommended' = 'true' then
-      select count(*) into selectable_count
-      from public.refund_nayax_lookup_candidates c
-      where c.refund_case_id = case_row.id
-        and c.lookup_generation = candidate_row.lookup_generation
-        and c.expires_at > statement_timestamp()
-        and c.evidence_summary ->> 'selection_allowed' = 'true';
-      if selectable_count <> 1 then
-        raise exception 'Multiple Nayax transactions require explicit manager corroboration'
-          using errcode = 'P4626';
-      end if;
-    end if;
   end if;
 
   result := public.service_select_refund_nayax_candidate_as_actor_pre_lookup_generation_v1(
@@ -320,9 +644,10 @@ begin
       -- exact candidate columns before selection. Optional codes are appended
       -- only when their specific fact is present; provider processing time and
       -- unknown occurrence semantics never become purchase-time evidence.
-      corroboration_codes := jsonb_build_array(
-        'machine_exact','amount_exact','provider_sale_approved'
-      );
+      corroboration_codes := jsonb_build_array('machine_exact','provider_sale_approved');
+      if candidate_row.amount_cents = case_row.payment_amount_cents then
+        corroboration_codes := corroboration_codes || jsonb_build_array('amount_exact');
+      end if;
       if candidate_row.evidence_summary ->> 'customer_credential_class'
           = 'customer_physical_contactless_pan'
         and candidate_row.evidence_summary ->> 'card_last4_comparison'
@@ -350,6 +675,9 @@ begin
           then candidate_row.evidence_summary -> 'manual_review_reasons'
         else '[]'::jsonb
       end;
+      if candidate_row.amount_cents is distinct from case_row.payment_amount_cents then
+        uncertainty_codes := uncertainty_codes || jsonb_build_array('customer_amount_variance');
+      end if;
     end if;
     selection_event_message := case
       when candidate_row.evidence_summary ->> 'identifier_review_state' = 'reviewable_uncertainty'
@@ -359,13 +687,13 @@ begin
           = 'mismatch_neutral_unproven_scope'
         and candidate_row.evidence_summary ->> 'transaction_occurrence_comparable'
           is distinct from 'true'
-      then 'Manager selected one exact-amount Nayax transaction; provider identifier scope and purchase timing remain unproved.'
+      then 'Manager selected one reviewable Nayax transaction; the refund uses the full selected provider amount. Provider identifier scope and purchase timing remain unproved.'
       when candidate_row.evidence_summary ->> 'identifier_review_state' = 'reviewable_uncertainty'
         and candidate_row.evidence_summary ->> 'customer_credential_class'
           = 'customer_physical_contactless_pan'
         and candidate_row.evidence_summary ->> 'card_last4_comparison'
           = 'mismatch_neutral_unproven_scope'
-      then 'Manager selected one exact-amount Nayax transaction; provider identifier scope remains unproved.'
+      then 'Manager selected one reviewable Nayax transaction; the refund uses the full selected provider amount. Provider identifier scope remains unproved.'
       else 'Manager selected one Nayax transaction after reviewing the saved match evidence.'
     end;
     insert into public.refund_case_events(refund_case_id,actor_user_id,event_type,message,metadata)
@@ -392,6 +720,9 @@ begin
           candidate_row.evidence_summary ->> 'transaction_occurrence_semantics',
         'provider_processing_time_delta_minutes',
           (candidate_row.evidence_summary ->> 'provider_processing_time_delta_minutes')::integer,
+        'customer_reported_amount_cents',case_row.payment_amount_cents,
+        'selected_provider_amount_cents',candidate_row.amount_cents,
+        'amount_delta_cents',abs(candidate_row.amount_cents - case_row.payment_amount_cents),
         'provider_call_made',false,'customer_message_created',false,'payload_redacted',true
       ));
   end if;
@@ -402,3 +733,50 @@ revoke all on function public.service_select_refund_nayax_candidate_as_actor(uui
   from public, anon, authenticated;
 grant execute on function public.service_select_refund_nayax_candidate_as_actor(uuid,uuid,bigint,uuid,text)
   to service_role;
+
+-- Execution remains bounded to the full amount of the selected provider transaction.
+create or replace function public.refund_nayax_retry_safe_case_is_current(
+  p_case public.refund_cases
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select p_case.payment_method = 'card'
+    and p_case.status = 'card_refund_pending'
+    and p_case.decision = 'approved'
+    and p_case.correlation_status = 'matched'
+    and p_case.correlation_source = 'nayax'
+    and p_case.nayax_recommendation_state in ('high_confidence','manager_confirmed')
+    and p_case.card_wallet_used = false
+    and public.is_review_safe_nayax_transaction_reference(p_case.matched_nayax_transaction_id)
+    and p_case.matched_nayax_site_id is not null
+    and p_case.matched_nayax_machine_auth_time is not null
+    and p_case.matched_nayax_currency_code = 'USD'
+    and p_case.refund_amount_cents is not null
+    and p_case.refund_amount_cents > 0
+    and p_case.refund_amount_cents = p_case.matched_nayax_amount_cents
+    and p_case.reporting_adjustment_id is null
+    and p_case.refund_completed_at is null
+    and not exists (
+      select 1 from public.refund_cases duplicate_case
+      where duplicate_case.id <> p_case.id
+        and duplicate_case.matched_nayax_transaction_id = p_case.matched_nayax_transaction_id
+    )
+    and exists (
+      select 1 from public.reporting_machines machine
+      where machine.id = p_case.reporting_machine_id
+        and machine.status = 'active'
+        and machine.nayax_refunds_enabled = true
+        and machine.nayax_machine_id is not null
+        and btrim(machine.nayax_machine_id) <> ''
+        and (
+          machine.nayax_refund_max_amount_cents is null
+          or p_case.refund_amount_cents <= machine.nayax_refund_max_amount_cents
+        )
+    );
+$$;
+revoke execute on function public.refund_nayax_retry_safe_case_is_current(public.refund_cases)
+  from public, anon, authenticated, service_role;
