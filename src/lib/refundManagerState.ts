@@ -65,7 +65,7 @@ type RefundManagerCaseFacts = {
     canIssueCardRefund: boolean;
     blockReason: string | null;
   } | null;
-  nayaxRecommendationState?: 'high_confidence' | 'ambiguous' | 'no_safe_match' | 'manual_exception' | null;
+  nayaxRecommendationState?: 'high_confidence' | 'manager_confirmed' | 'ambiguous' | 'no_safe_match' | 'manual_exception' | null;
   nayaxLookupSummary?: {
     lookupStatus:
       | 'not_applicable'
@@ -79,7 +79,7 @@ type RefundManagerCaseFacts = {
       | 'lookup_failed'
       | 'lookup_timed_out'
       | 'response_limited';
-    recommendationState?: 'high_confidence' | 'ambiguous' | 'no_safe_match' | 'manual_exception';
+    recommendationState?: 'high_confidence' | 'manager_confirmed' | 'ambiguous' | 'no_safe_match' | 'manual_exception';
   } | null;
   lifecycle?: RefundLifecycleContract | null;
   customerDeliveryException?: {
@@ -125,6 +125,22 @@ export const hasProtectedRefundLifecycle = (refundCase: RefundManagerCaseFacts) 
     ['refund_initiated', 'confirming_with_nayax', 'needs_refund_operations', 'integrity_hold',
       'refund_confirmed', 'customer_notified'].includes(refundCase.lifecycle?.stage ?? '')
   );
+
+/** Exact transaction confirmation may continue after the one refund decision. */
+export const canConfirmRefundCandidate = (refundCase: {
+  persistedStatus: RefundManagerCaseFacts['status'];
+  editorStatus: RefundManagerCaseFacts['status'];
+  decision?: 'approved' | 'denied' | null;
+  canSelectCandidate: boolean;
+}) => {
+  const inManagerReview =
+    refundCase.persistedStatus === 'needs_review' && refundCase.editorStatus === 'needs_review';
+  const approvedUnpaidContinuation =
+    refundCase.decision === 'approved' &&
+    refundCase.persistedStatus === 'approved' &&
+    refundCase.editorStatus === 'approved';
+  return refundCase.canSelectCandidate && (inManagerReview || approvedUnpaidContinuation);
+};
 
 const state = (
   id: RefundManagerStateId,

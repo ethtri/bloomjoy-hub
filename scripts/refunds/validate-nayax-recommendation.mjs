@@ -59,6 +59,16 @@ const recommend = (records, overrides = {}) => {
     customerRequestReceivedAt: defaultRequestReceivedAt,
     customerRequestReceivedSource: "hosted_refund_intake",
     providerContract: "nayax_machine_last_sales_v1",
+    purchaseOccurrenceProof: {
+      semantics: "online_purchase_occurrence",
+      source: "verified_provider_purchase_occurrence_v1",
+      timestampSource: "authorization_gmt",
+      timezoneBasis: "utc",
+      transactionPrecisionMs: 0,
+      transactionClockErrorMs: 0,
+      requestReceiptPrecisionMs: 0,
+      requestReceiptClockErrorMs: 0,
+    },
     ...overrides,
   });
 };
@@ -266,7 +276,7 @@ const unknownRequestBoundary = recommend([sale({ id: "unknown-request" })], {
   customerRequestReceivedAt: null,
   customerRequestReceivedSource: null,
 });
-assert.equal(unknownRequestBoundary.candidates[0].selectionAllowed, false);
+assert.equal(unknownRequestBoundary.candidates[0].selectionAllowed, true);
 assert.equal(unknownRequestBoundary.oneClickEligible, false);
 assert.equal(unknownRequestBoundary.candidates.length, 1);
 assert.ok(unknownRequestBoundary.candidates[0].manualReviewReasons.includes("customer_request_time_unknown"));
@@ -280,9 +290,9 @@ const unknownRequestMismatch = recommend([sale({
   requestCardNetwork: "visa",
 });
 assert.equal(unknownRequestMismatch.candidates.length, 1);
-assert.equal(unknownRequestMismatch.candidates[0].selectionAllowed, false);
+assert.equal(unknownRequestMismatch.candidates[0].selectionAllowed, true);
 assert.equal(unknownRequestMismatch.candidates[0].oneClickEligible, false);
-assert.equal(unknownRequestMismatch.candidates[0].identifierReviewState, "needs_corroboration");
+assert.equal(unknownRequestMismatch.candidates[0].identifierReviewState, "reviewable_uncertainty");
 assert.deepEqual(unknownRequestMismatch.candidates[0].customerCorrectionFields, []);
 assert.ok(unknownRequestMismatch.candidates[0].reasonCodes.includes("customer_request_time_unknown"));
 
@@ -293,7 +303,7 @@ const uncertainOccurrenceBoundary = recommend([sale({
   customerRequestReceivedAt: "2026-07-21T20:00:00.000Z",
   providerClockContext: { source: "unknown", timezone: null },
 });
-assert.equal(uncertainOccurrenceBoundary.candidates[0].selectionAllowed, false);
+assert.equal(uncertainOccurrenceBoundary.candidates[0].selectionAllowed, true);
 assert.equal(uncertainOccurrenceBoundary.oneClickEligible, false);
 assert.equal(uncertainOccurrenceBoundary.candidates.length, 1);
 assert.ok(uncertainOccurrenceBoundary.candidates[0].manualReviewReasons.includes("transaction_occurrence_time_uncertain"));
@@ -307,6 +317,75 @@ const delayedEarlierAuthorization = recommend([sale({
 });
 assert.equal(delayedEarlierAuthorization.candidateCount, 1);
 assert.equal(delayedEarlierAuthorization.excludedAfterRequestCount, 0);
+
+const offlineVendBeforeFormWithLaterAuthorization = recommend([sale({
+  id: "offline-vend-later-sync",
+  at: "2026-07-21T19:05:00.000Z",
+  extra: {
+    OfflinePayment: true,
+    ProviderRecordArrivedAt: "2026-07-21T19:10:00.000Z",
+    SettlementDateTimeGMT: "2026-07-21T19:15:00.000Z",
+  },
+})], {
+  customerRequestReceivedAt: "2026-07-21T19:03:00.000Z",
+  purchaseOccurrenceProof: null,
+});
+assert.equal(offlineVendBeforeFormWithLaterAuthorization.excludedAfterRequestCount, 0);
+assert.equal(offlineVendBeforeFormWithLaterAuthorization.candidateCount, 1);
+assert.equal(offlineVendBeforeFormWithLaterAuthorization.candidates[0].requestTimeBoundaryState, "occurrence_time_uncertain");
+assert.equal(offlineVendBeforeFormWithLaterAuthorization.candidates[0].selectionAllowed, true);
+assert.equal(offlineVendBeforeFormWithLaterAuthorization.candidates[0].oneClickEligible, false);
+assert.equal(offlineVendBeforeFormWithLaterAuthorization.candidates[0].timeDeltaMinutes, null);
+assert.equal(offlineVendBeforeFormWithLaterAuthorization.candidates[0].providerProcessingTimeDeltaMinutes, 5);
+assert.ok(offlineVendBeforeFormWithLaterAuthorization.candidates[0].manualReviewReasons.includes("transaction_occurrence_time_uncertain"));
+
+for (const delayHours of [4, 8]) {
+  const delayedOffline = recommend([sale({
+    id: `offline-delay-${delayHours}h`,
+    at: new Date(Date.parse(incidentAt) + delayHours * 60 * 60 * 1000).toISOString(),
+    extra: { OfflinePayment: true },
+  })], { purchaseOccurrenceProof: null });
+  assert.equal(delayedOffline.candidateCount, 1);
+  assert.equal(delayedOffline.providerWindowRecordCount, 1);
+  assert.equal(delayedOffline.candidates[0].selectionAllowed, true);
+  assert.equal(delayedOffline.candidates[0].oneClickEligible, false);
+  assert.equal(delayedOffline.candidates[0].timeDeltaMinutes, null);
+  assert.equal(delayedOffline.candidates[0].providerProcessingTimeDeltaMinutes, delayHours * 60);
+  assert.deepEqual(delayedOffline.candidates[0].customerCorrectionFields, []);
+}
+
+const nullClockBoundsDoNotProveOccurrence = recommend([sale({ id: "null-proof-bounds" })], {
+  purchaseOccurrenceProof: {
+    semantics: "online_purchase_occurrence",
+    source: "invalid_null_bound_fixture",
+    timestampSource: "authorization_gmt",
+    timezoneBasis: "utc",
+    transactionPrecisionMs: null,
+    transactionClockErrorMs: null,
+    requestReceiptPrecisionMs: null,
+    requestReceiptClockErrorMs: null,
+  },
+});
+assert.equal(nullClockBoundsDoNotProveOccurrence.candidates[0].transactionOccurrenceComparable, false);
+assert.equal(nullClockBoundsDoNotProveOccurrence.candidates[0].requestTimeBoundaryState, "occurrence_time_uncertain");
+assert.equal(nullClockBoundsDoNotProveOccurrence.candidates[0].timeDeltaMinutes, null);
+assert.equal(nullClockBoundsDoNotProveOccurrence.oneClickEligible, false);
+
+const incoherentClockBasisDoesNotProveOccurrence = recommend([sale({ id: "incoherent-proof-clock" })], {
+  purchaseOccurrenceProof: {
+    semantics: "online_purchase_occurrence",
+    source: "verified_provider_purchase_occurrence_v1",
+    timestampSource: "authorization_gmt",
+    timezoneBasis: "verified_machine_timezone",
+    transactionPrecisionMs: 0,
+    transactionClockErrorMs: 0,
+    requestReceiptPrecisionMs: 0,
+    requestReceiptClockErrorMs: 0,
+  },
+});
+assert.equal(incoherentClockBasisDoesNotProveOccurrence.candidates[0].transactionOccurrenceComparable, false);
+assert.equal(incoherentClockBasisDoesNotProveOccurrence.candidates[0].selectionAllowed, true);
+assert.equal(incoherentClockBasisDoesNotProveOccurrence.candidates[0].oneClickEligible, false);
 
 // Customer estimates may omit tax or round the total. The provider amount is retained.
 for (const deltaCents of [-301, -300, -100, -10, 0, 10, 100, 300, 301]) {
@@ -648,6 +727,16 @@ const providerLocalDst = recommend(
       source: "native_machine_configuration",
       observedAt: "2026-09-04T15:44:13.963271Z",
     },
+    purchaseOccurrenceProof: {
+      semantics: "online_purchase_occurrence",
+      source: "verified_provider_purchase_occurrence_v1",
+      timestampSource: "verified_machine_clock",
+      timezoneBasis: "verified_machine_timezone",
+      transactionPrecisionMs: 0,
+      transactionClockErrorMs: 0,
+      requestReceiptPrecisionMs: 0,
+      requestReceiptClockErrorMs: 0,
+    },
   },
 );
 
@@ -679,7 +768,7 @@ assert.equal(separateMachineClock.candidates[0].authorizedAt, incidentAt);
 assert.equal(separateMachineClock.candidates[0].timeDeltaMinutes, 0);
 assert.equal(separateMachineClock.candidates[0].machineAuthorizationTime, "2026-07-21T18:59:58.810Z");
 assert.equal(separateMachineClock.candidates[0].machineAuthorizationTimeRaw, "2026-07-21T11:59:58.810");
-assert.equal(NAYAX_RECOMMENDATION_POLICY.version, "2026-09-05.v10");
+assert.equal(NAYAX_RECOMMENDATION_POLICY.version, "2026-09-05.v11");
 
 for (const raw of ["2026-07-21T12:00:00.1234567", "2026-07-21T12:00:00.1234567-07:00"]) {
   const result = recommend([sale({ id: "fractional-machine-clock", extra: {

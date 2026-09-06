@@ -106,16 +106,19 @@ select is((select count(*)::integer from public.refund_case_messages where refun
 -- Actual current candidate writer and selection wrapper. Existing readiness
 -- supports full refunds, so another amount must not silently replace approval.
 create function pg_temp.prepare_candidate(n integer, original_amount integer) returns uuid language plpgsql as $$
-declare token_id uuid:=gen_random_uuid(); generation bigint;
+declare token_id uuid:=gen_random_uuid(); generation bigint; provider_delta integer;
 begin
   generation := (pg_temp.begin_lookup(n)->>'lookupGeneration')::bigint;
+  select ceil(abs(extract(epoch from
+    (date_trunc('second',now()-interval '2 days')-incident_at)))/60.0)::integer
+  into provider_delta from public.refund_cases where id=pg_temp.case_id(n);
   insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
     provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
   values(token_id,pg_temp.case_id(n),generation,'fa410000-0000-4000-8000-000000000001','fa440000-0000-4000-8000-000000000001',
-    (823456780+n)::text,6,now()-interval '2 days',original_amount,'4242','USD',
+    (823456780+n)::text,6,date_trunc('second',now()-interval '2 days'),original_amount,'4242','USD',
     jsonb_build_object(
       'selection_allowed',true,'is_recommended',true,'one_click_eligible',true,
-      'recommendation_state','high_confidence','policy_version','2026-09-05.v10',
+      'recommendation_state','high_confidence','policy_version','2026-09-05.v11',
       'identifier_policy_version','2026-09-05.identifier.v1','customer_fact_version',1,
       'customer_credential_class','customer_identifier_unknown',
       'provider_identifier_class','last_sales_identifier_unknown',
@@ -124,20 +127,30 @@ begin
       'identifier_review_state','exact_support','customer_correction_fields','[]'::jsonb,
       'hard_exclusions','[]'::jsonb,'reason_codes','[]'::jsonb,
       'lookup_account_scope','APPROVED_LOOKUP_ACCOUNT','lookup_provider_machine_id','APPROVED-LOOKUP-MACHINE',
-      'provider_machine_id','APPROVED-LOOKUP-MACHINE','machine_authorization_time_raw','2026-09-02T10:10:00',
-      'machine_authorization_at',now()-interval '2 days',
+      'provider_machine_id','APPROVED-LOOKUP-MACHINE','machine_authorization_time_raw',
+        to_char(date_trunc('second',now()-interval '2 days') at time zone 'America/New_York','YYYY-MM-DD"T"HH24:MI:SS'),
+      'machine_authorization_at',date_trunc('second',now()-interval '2 days'),
       'machine_authorization_time_source','MachineAuthorizationTime','machine_time_resolution','exact',
       'provider_time_resolution','exact',
-      'provider_time_source','authorization_gmt','authorized_at',now()-interval '2 days',
+      'provider_time_source','authorization_gmt','authorized_at',date_trunc('second',now()-interval '2 days'),
       'customer_request_received_at',now()-interval '1 day',
       'customer_request_received_source','hosted_refund_intake',
       'request_time_boundary','before_or_at_request','transaction_occurrence_comparable',true,
+      'transaction_occurrence_semantics','online_purchase_occurrence',
+      'transaction_occurrence_proof_source','verified_provider_purchase_occurrence_v1',
+      'transaction_occurrence_timestamp_source','authorization_gmt',
+      'transaction_occurrence_timezone_basis','utc',
+      'transaction_occurrence_lower_bound_at',date_trunc('second',now()-interval '2 days'),
+      'transaction_occurrence_upper_bound_at',date_trunc('second',now()-interval '2 days'),
+      'request_receipt_lower_bound_at',now()-interval '1 day',
+      'request_receipt_upper_bound_at',now()-interval '1 day',
       'payment_status','approved','payment_status_evidence','last_sales_contract',
       'provider_refund_state','clear','duplicate_provider_record',false,
-      'amount_delta_cents',abs(original_amount-963),'time_delta_minutes',0
+      'amount_delta_cents',abs(original_amount-963),'time_delta_minutes',provider_delta,
+      'provider_processing_time_delta_minutes',provider_delta
     ),now()+interval '1 hour');
   perform public.service_commit_refund_nayax_lookup(pg_temp.case_id(n),generation,1,'match_found','high_confidence',
-    '2026-09-05.v10',now(),'Synthetic exact candidate',null,1,'manual','fa410000-0000-4000-8000-000000000001');
+    '2026-09-05.v11',now(),'Synthetic exact candidate',null,1,'manual','fa410000-0000-4000-8000-000000000001');
   return token_id;
 end;
 $$;

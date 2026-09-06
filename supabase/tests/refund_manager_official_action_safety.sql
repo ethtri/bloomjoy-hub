@@ -335,7 +335,7 @@ values
     '79600000-0000-4000-8000-000000000009', 'RF-OFFICIAL-CANDIDATE',
     '79300000-0000-4000-8000-000000000001', '79200000-0000-4000-8000-000000000001',
     'candidate-customer@example.test', null, 'Candidate immutability safety fixture',
-    now() - interval '90 minutes', 'card', 440, '4242', 'needs_review', 'needs_nayax', null, 0,
+    date_trunc('second',now() - interval '90 minutes'), 'card', 440, '4242', 'needs_review', 'needs_nayax', null, 0,
     null, null, null, null, null, 450,
     null, null, null, null, null, null, null, null, null, false
   ),
@@ -413,7 +413,7 @@ values (
   '79300000-0000-4000-8000-000000000001',
   'SAFE-TXN-79600009',
   17,
-  now() - interval '90 minutes',
+  date_trunc('second',now() - interval '90 minutes'),
   450,
   '4242',
   'USD',
@@ -422,7 +422,7 @@ values (
     'is_recommended', false,
     'one_click_eligible', false,
     'recommendation_state', 'manual_exception',
-    'policy_version', '2026-09-05.v10',
+    'policy_version', '2026-09-05.v11',
     'identifier_policy_version', '2026-09-05.identifier.v1',
     'customer_fact_version', (
       select deterministic_fact_version from public.refund_cases
@@ -441,23 +441,32 @@ values (
     'lookup_account_scope', 'ACCOUNT_793',
     'lookup_provider_machine_id', 'MACHINE-793',
     'provider_machine_id', 'MACHINE-793',
-    'machine_authorization_time_raw', to_char(now() - interval '90 minutes', 'YYYY-MM-DD"T"HH24:MI:SS'),
-    'machine_authorization_at', now() - interval '90 minutes',
+    'machine_authorization_time_raw', to_char(date_trunc('second',now() - interval '90 minutes') at time zone 'America/Los_Angeles', 'YYYY-MM-DD"T"HH24:MI:SS'),
+    'machine_authorization_at', date_trunc('second',now() - interval '90 minutes'),
     'machine_authorization_time_source', 'MachineAuthorizationTime',
     'machine_time_resolution', 'exact',
     'provider_time_resolution', 'exact',
     'provider_time_source', 'authorization_gmt',
-    'authorized_at', now() - interval '90 minutes',
+    'authorized_at', date_trunc('second',now() - interval '90 minutes'),
     'customer_request_received_at', now() - interval '30 minutes',
     'customer_request_received_source', 'hosted_refund_intake',
-    'request_time_boundary', 'before_or_at_request',
-    'transaction_occurrence_comparable', true,
+    'request_time_boundary', 'occurrence_time_uncertain',
+    'transaction_occurrence_comparable', false,
+    'transaction_occurrence_semantics','unknown',
+    'transaction_occurrence_proof_source','null'::jsonb,
+    'transaction_occurrence_timestamp_source','null'::jsonb,
+    'transaction_occurrence_timezone_basis','null'::jsonb,
+    'transaction_occurrence_lower_bound_at','null'::jsonb,
+    'transaction_occurrence_upper_bound_at','null'::jsonb,
+    'request_receipt_lower_bound_at','null'::jsonb,
+    'request_receipt_upper_bound_at','null'::jsonb,
     'payment_status', 'approved',
     'payment_status_evidence', 'last_sales_contract',
     'provider_refund_state', 'clear',
     'duplicate_provider_record', false,
     'amount_delta_cents', 10,
-    'time_delta_minutes', 0,
+    'time_delta_minutes', null,
+    'provider_processing_time_delta_minutes',0,
     'provider_payload_redacted', true
   ),
   now() + interval '1 hour',
@@ -1780,8 +1789,8 @@ select ok(
       and matched_nayax_currency_code = 'USD'
       and correlation_status = 'matched'
       and correlation_source = 'nayax'
-      and nayax_recommendation_state = 'manual_exception'
-      and nayax_match_execution_eligible = false
+      and nayax_recommendation_state = 'manager_confirmed'
+      and nayax_match_execution_eligible = true
     from public.refund_cases
     where id = '79600000-0000-4000-8000-000000000009'
   )
@@ -1908,11 +1917,11 @@ values
     '79600000-0000-4000-8000-000000000009',
     '79000000-0000-4000-8000-000000000001',
     '79300000-0000-4000-8000-000000000001',
-    'SAFE-TXN-BLOCKED-79600009', 17, now() - interval '80 minutes', 450,
+    'SAFE-TXN-BLOCKED-79600009', 17, date_trunc('second',now() - interval '80 minutes'), 450,
     '4242', 'USD',
     jsonb_build_object(
       'selection_allowed',false,'is_recommended',false,'one_click_eligible',false,
-      'recommendation_state','blocked','policy_version','2026-09-05.v10',
+      'recommendation_state','blocked','policy_version','2026-09-05.v11',
       'identifier_policy_version','2026-09-05.identifier.v1',
       'customer_fact_version',(
         select deterministic_fact_version from public.refund_cases
@@ -1926,17 +1935,21 @@ values
       'hard_exclusions',jsonb_build_array('provider_safety_block'),'reason_codes','[]'::jsonb,
       'lookup_account_scope','ACCOUNT_793','lookup_provider_machine_id','MACHINE-793',
       'provider_machine_id','MACHINE-793',
-      'machine_authorization_time_raw',to_char(now()-interval '80 minutes','YYYY-MM-DD"T"HH24:MI:SS'),
-      'machine_authorization_at',now()-interval '80 minutes',
+      'machine_authorization_time_raw',to_char(date_trunc('second',now()-interval '80 minutes') at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI:SS'),
+      'machine_authorization_at',date_trunc('second',now()-interval '80 minutes'),
       'machine_authorization_time_source','MachineAuthorizationTime','machine_time_resolution','exact',
       'customer_request_received_at',now()-interval '30 minutes',
       'customer_request_received_source','hosted_refund_intake',
-      'request_time_boundary','before_or_at_request','transaction_occurrence_comparable',true,
+      'request_time_boundary','occurrence_time_uncertain','transaction_occurrence_comparable',false,
+      'transaction_occurrence_semantics','unknown','transaction_occurrence_proof_source','null'::jsonb,
+      'transaction_occurrence_timestamp_source','null'::jsonb,'transaction_occurrence_timezone_basis','null'::jsonb,
+      'transaction_occurrence_lower_bound_at','null'::jsonb,'transaction_occurrence_upper_bound_at','null'::jsonb,
+      'request_receipt_lower_bound_at','null'::jsonb,'request_receipt_upper_bound_at','null'::jsonb,
       'provider_time_resolution','exact','provider_time_source','authorization_gmt',
-      'authorized_at',now()-interval '80 minutes',
+      'authorized_at',date_trunc('second',now()-interval '80 minutes'),
       'payment_status','approved','payment_status_evidence','last_sales_contract',
       'provider_refund_state','clear','duplicate_provider_record',false,
-      'amount_delta_cents',10,'time_delta_minutes',10,'provider_payload_redacted',true
+      'amount_delta_cents',10,'time_delta_minutes',null,'provider_processing_time_delta_minutes',10,'provider_payload_redacted',true
     ),
     now() + interval '1 hour'
   ),
@@ -1945,11 +1958,11 @@ values
     '79600000-0000-4000-8000-000000000009',
     '79000000-0000-4000-8000-000000000001',
     '79300000-0000-4000-8000-000000000001',
-    'SAFE-TXN-EXPIRED-79600009', 17, now() - interval '70 minutes', 450,
+    'SAFE-TXN-EXPIRED-79600009', 17, date_trunc('second',now() - interval '70 minutes'), 450,
     '4242', 'USD',
     jsonb_build_object(
       'selection_allowed',true,'is_recommended',true,'one_click_eligible',false,
-      'recommendation_state','high_confidence','policy_version','2026-09-05.v10',
+      'recommendation_state','high_confidence','policy_version','2026-09-05.v11',
       'identifier_policy_version','2026-09-05.identifier.v1',
       'customer_fact_version',(
         select deterministic_fact_version from public.refund_cases
@@ -1963,17 +1976,21 @@ values
       'hard_exclusions','[]'::jsonb,'reason_codes','[]'::jsonb,
       'lookup_account_scope','ACCOUNT_793','lookup_provider_machine_id','MACHINE-793',
       'provider_machine_id','MACHINE-793',
-      'machine_authorization_time_raw',to_char(now()-interval '70 minutes','YYYY-MM-DD"T"HH24:MI:SS'),
-      'machine_authorization_at',now()-interval '70 minutes',
+      'machine_authorization_time_raw',to_char(date_trunc('second',now()-interval '70 minutes') at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI:SS'),
+      'machine_authorization_at',date_trunc('second',now()-interval '70 minutes'),
       'machine_authorization_time_source','MachineAuthorizationTime','machine_time_resolution','exact',
       'customer_request_received_at',now()-interval '30 minutes',
       'customer_request_received_source','hosted_refund_intake',
-      'request_time_boundary','before_or_at_request','transaction_occurrence_comparable',true,
+      'request_time_boundary','occurrence_time_uncertain','transaction_occurrence_comparable',false,
+      'transaction_occurrence_semantics','unknown','transaction_occurrence_proof_source','null'::jsonb,
+      'transaction_occurrence_timestamp_source','null'::jsonb,'transaction_occurrence_timezone_basis','null'::jsonb,
+      'transaction_occurrence_lower_bound_at','null'::jsonb,'transaction_occurrence_upper_bound_at','null'::jsonb,
+      'request_receipt_lower_bound_at','null'::jsonb,'request_receipt_upper_bound_at','null'::jsonb,
       'provider_time_resolution','exact','provider_time_source','authorization_gmt',
-      'authorized_at',now()-interval '70 minutes',
+      'authorized_at',date_trunc('second',now()-interval '70 minutes'),
       'payment_status','approved','payment_status_evidence','last_sales_contract',
       'provider_refund_state','clear','duplicate_provider_record',false,
-      'amount_delta_cents',10,'time_delta_minutes',20,'provider_payload_redacted',true
+      'amount_delta_cents',10,'time_delta_minutes',null,'provider_processing_time_delta_minutes',20,'provider_payload_redacted',true
     ),
     now() - interval '1 minute'
   );

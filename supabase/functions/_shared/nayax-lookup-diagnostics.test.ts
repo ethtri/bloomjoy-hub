@@ -60,7 +60,7 @@ Deno.test("actual persistence sends one existing result through scoped diagnosti
   assertEquals(calls.length, 2, "No automatic retry or fallback commit");
 });
 
-Deno.test("empty and outside-window recent payloads preserve matching outcome and describe coverage honestly", () => {
+Deno.test("empty payload stays empty while unproved delayed records remain visible for review", () => {
   const input = { incidentAt: "2026-08-29T20:10:00Z", expectedMachineId: "1",
     locationTimezone: "America/New_York", requestAmountCents: 963, requestCardLast4: "4242", cardWalletUsed: false, windowHours: 6 };
   const empty = buildNayaxRecommendation({ ...input, payload: [] });
@@ -68,12 +68,15 @@ Deno.test("empty and outside-window recent payloads preserve matching outcome an
     MachineAuthorizationTime: "2026-09-04T10:00:00", AuthorizationDateTimeGMT: "2026-09-04T14:00:00Z" }] });
   assertEquals(empty.providerParseableRecordCount, 0);
   assertEquals(outside.providerParseableRecordCount, 1);
-  for (const recommendation of [empty, outside]) {
-    assertEquals(recommendation.providerWindowRecordCount, 0);
-    assertEquals(recommendation.recommendationState, "no_safe_match");
-    assertEquals(recommendation.candidates.length, 0);
-    assertEquals(recommendation.summary.includes("Historical coverage is unknown"), true);
-  }
+  assertEquals(empty.providerWindowRecordCount, 0);
+  assertEquals(empty.recommendationState, "no_safe_match");
+  assertEquals(empty.candidates.length, 0);
+  assertEquals(empty.summary.includes("Historical coverage is unknown"), true);
+  assertEquals(outside.providerWindowRecordCount, 1);
+  assertEquals(outside.recommendationState, "manual_exception");
+  assertEquals(outside.candidates.length, 1);
+  assertEquals(outside.candidates[0].timeDeltaMinutes, null);
+  assertEquals(outside.candidates[0].selectionAllowed, false);
 });
 
 Deno.test("actual persistence emits bounded v3 clock and request contexts without changing the customer window or retrying", async () => {

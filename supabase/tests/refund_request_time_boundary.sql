@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(18);
+select plan(20);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('fd110000-0000-4000-8000-000000000001','authenticated','authenticated','request-boundary-manager@example.invalid','{}','{}');
@@ -55,12 +55,13 @@ select ok((select customer_request_received_at is null and customer_request_rece
 
 create function pg_temp.boundary_evidence(
   case_id uuid, authorized_at timestamptz, boundary text, comparable boolean, one_click boolean,
-  policy text default '2026-09-05.v10'
+  policy text default '2026-09-05.v11'
 ) returns jsonb language sql stable as $$
   select jsonb_build_object(
-    'selection_allowed',(comparable and boundary = 'before_or_at_request'),
+    'selection_allowed',boundary <> 'after_request',
     'is_recommended',true,'one_click_eligible',one_click,
-    'recommendation_state','high_confidence','policy_version',policy,
+    'recommendation_state',case when comparable then 'high_confidence' else 'manual_exception' end,
+    'policy_version',policy,
     'identifier_policy_version','2026-09-05.identifier.v1',
     'customer_fact_version',c.deterministic_fact_version,
     'customer_credential_class','customer_physical_contact_chip_pan',
@@ -70,15 +71,25 @@ create function pg_temp.boundary_evidence(
     'identifier_review_state','exact_support','customer_correction_fields','[]'::jsonb,
     'hard_exclusions','[]'::jsonb,
     'lookup_account_scope','BOUNDARY_ACCOUNT','lookup_provider_machine_id','BOUNDARY-MACHINE',
-    'provider_machine_id','BOUNDARY-MACHINE','machine_authorization_time_raw','2026-09-05T10:00:00',
+    'provider_machine_id','BOUNDARY-MACHINE','machine_authorization_time_raw',
+      to_char(authorized_at at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI:SS.MS'),
     'machine_authorization_at',authorized_at,
     'machine_authorization_time_source','MachineAuthorizationTime','machine_time_resolution','exact',
-    'provider_time_resolution',case when comparable then 'exact' else 'ambiguous' end,
-    'provider_time_source',case when comparable then 'authorization_gmt' else 'unverified_location_clock' end,
+    'provider_time_resolution','exact','provider_time_source','authorization_gmt',
     'authorized_at',authorized_at,'customer_request_received_at',c.customer_request_received_at,
     'customer_request_received_source',c.customer_request_received_source,
     'request_time_boundary',boundary,'transaction_occurrence_comparable',comparable,
-    'amount_delta_cents',0,'time_delta_minutes',
+    'transaction_occurrence_semantics',case when comparable then 'online_purchase_occurrence' else 'unknown' end,
+    'transaction_occurrence_proof_source',case when comparable then to_jsonb('verified_provider_purchase_occurrence_v1'::text) else 'null'::jsonb end,
+    'transaction_occurrence_timestamp_source',case when comparable then to_jsonb('authorization_gmt'::text) else 'null'::jsonb end,
+    'transaction_occurrence_timezone_basis',case when comparable then to_jsonb('utc'::text) else 'null'::jsonb end,
+    'transaction_occurrence_lower_bound_at',case when comparable then to_jsonb(authorized_at) else 'null'::jsonb end,
+    'transaction_occurrence_upper_bound_at',case when comparable then to_jsonb(authorized_at) else 'null'::jsonb end,
+    'request_receipt_lower_bound_at',case when comparable then to_jsonb(c.customer_request_received_at) else 'null'::jsonb end,
+    'request_receipt_upper_bound_at',case when comparable then to_jsonb(c.customer_request_received_at) else 'null'::jsonb end,
+    'amount_delta_cents',0,'time_delta_minutes',case when comparable then
+      ceil(abs(extract(epoch from (authorized_at-c.incident_at)))/60.0)::integer else null end,
+    'provider_processing_time_delta_minutes',
       ceil(abs(extract(epoch from (authorized_at-c.incident_at)))/60.0)::integer,
     'payment_status','approved','payment_status_evidence','last_sales_contract',
     'provider_refund_state','clear','duplicate_provider_record',false
@@ -93,8 +104,8 @@ insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_ge
  provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
 select 'fd160000-0000-4000-8000-000000000001','fd150000-0000-4000-8000-000000000001',generation,
  'fd110000-0000-4000-8000-000000000001','fd140000-0000-4000-8000-000000000001','SAFE-BOUNDARY-1',7,
- c.customer_request_received_at-interval '1 second',963,'4242','USD',
- pg_temp.boundary_evidence(c.id,c.customer_request_received_at-interval '1 second','before_or_at_request',true,true),
+ date_trunc('milliseconds',c.customer_request_received_at-interval '1 second'),963,'4242','USD',
+ pg_temp.boundary_evidence(c.id,date_trunc('milliseconds',c.customer_request_received_at-interval '1 second'),'before_or_at_request',true,true),
  statement_timestamp()+interval '1 hour'
 from public.refund_cases c cross join lookup_claim
 where c.id='fd150000-0000-4000-8000-000000000001';
@@ -104,8 +115,8 @@ select is((select count(*)::integer from public.refund_nayax_lookup_candidates
 select throws_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
  provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
 select 'fd160000-0000-4000-8000-000000000002',c.id,l.generation,'fd110000-0000-4000-8000-000000000001',
- 'fd140000-0000-4000-8000-000000000001','LATER-BOUNDARY-2',7,c.customer_request_received_at+interval '1 second',963,'4242','USD',
- pg_temp.boundary_evidence(c.id,c.customer_request_received_at+interval '1 second','after_request',true,false),statement_timestamp()+interval '1 hour'
+ 'fd140000-0000-4000-8000-000000000001','LATER-BOUNDARY-2',7,date_trunc('milliseconds',c.customer_request_received_at+interval '1 second'),963,'4242','USD',
+ pg_temp.boundary_evidence(c.id,date_trunc('milliseconds',c.customer_request_received_at+interval '1 second'),'after_request',true,false),statement_timestamp()+interval '1 hour'
 from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4000-8000-000000000001'$$,
  'P4625','Transaction occurred after Bloomjoy received the customer request',
  'Immediately-after provider occurrence is rejected before persistence');
@@ -113,8 +124,8 @@ from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4
 insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
  provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
 select 'fd160000-0000-4000-8000-000000000003',c.id,l.generation,'fd110000-0000-4000-8000-000000000001',
- 'fd140000-0000-4000-8000-000000000001','UNCERTAIN-BOUNDARY-3',7,c.customer_request_received_at-interval '1 minute',963,'4242','USD',
- pg_temp.boundary_evidence(c.id,c.customer_request_received_at-interval '1 minute','occurrence_time_uncertain',false,false),
+ 'fd140000-0000-4000-8000-000000000001','UNCERTAIN-BOUNDARY-3',7,date_trunc('milliseconds',c.customer_request_received_at-interval '1 minute'),963,'4242','USD',
+ pg_temp.boundary_evidence(c.id,date_trunc('milliseconds',c.customer_request_received_at-interval '1 minute'),'occurrence_time_uncertain',false,false),
  statement_timestamp()+interval '1 hour'
 from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4000-8000-000000000001';
 select is((select count(*)::integer from public.refund_nayax_lookup_candidates where token='fd160000-0000-4000-8000-000000000003'),1,
@@ -123,8 +134,8 @@ select is((select count(*)::integer from public.refund_nayax_lookup_candidates w
 select throws_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
  provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
 select 'fd160000-0000-4000-8000-000000000004',c.id,l.generation,'fd110000-0000-4000-8000-000000000001',
- 'fd140000-0000-4000-8000-000000000001','UNSAFE-UNCERTAIN-4',7,c.customer_request_received_at-interval '1 minute',963,'4242','USD',
- pg_temp.boundary_evidence(c.id,c.customer_request_received_at-interval '1 minute','occurrence_time_uncertain',false,true),
+ 'fd140000-0000-4000-8000-000000000001','UNSAFE-UNCERTAIN-4',7,date_trunc('milliseconds',c.customer_request_received_at-interval '1 minute'),963,'4242','USD',
+ pg_temp.boundary_evidence(c.id,date_trunc('milliseconds',c.customer_request_received_at-interval '1 minute'),'occurrence_time_uncertain',false,true),
  statement_timestamp()+interval '1 hour'
 from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4000-8000-000000000001'$$,
  'P4625','Invalid customer request time evidence','Uncertain timing cannot become one-click evidence');
@@ -132,27 +143,38 @@ from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4
 select throws_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
  provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
 select 'fd160000-0000-4000-8000-000000000006',c.id,l.generation,'fd110000-0000-4000-8000-000000000001',
- 'fd140000-0000-4000-8000-000000000001','MISSING-SOURCE-6',7,c.customer_request_received_at-interval '1 minute',963,'4242','USD',
- pg_temp.boundary_evidence(c.id,c.customer_request_received_at-interval '1 minute','before_or_at_request',true,false)
+ 'fd140000-0000-4000-8000-000000000001','MISSING-SOURCE-6',7,date_trunc('milliseconds',c.customer_request_received_at-interval '1 minute'),963,'4242','USD',
+ pg_temp.boundary_evidence(c.id,date_trunc('milliseconds',c.customer_request_received_at-interval '1 minute'),'before_or_at_request',true,false)
    - 'provider_time_source',
  statement_timestamp()+interval '1 hour'
 from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4000-8000-000000000001'$$,
  'P4625','Invalid customer request time evidence',
  'Comparable occurrence evidence must name an established provider time source');
 
-select throws_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
+select lives_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
  provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
 select 'fd160000-0000-4000-8000-000000000007',c.id,l.generation,'fd110000-0000-4000-8000-000000000001',
  'fd140000-0000-4000-8000-000000000001','MANUAL-LATER-7',null,c.customer_request_received_at+interval '1 second',963,'4242','USD',
  '{"source":"manual_nayax_portal","selection_allowed":true,"is_recommended":true,"one_click_eligible":false,"policy_version":"manual-nayax-portal-v1"}',
  statement_timestamp()+interval '1 hour'
 from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4000-8000-000000000001'$$,
+ 'Manual portal time without proved online occurrence semantics remains supporting evidence');
+
+select throws_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
+ provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
+select 'fd160000-0000-4000-8000-000000000008',c.id,l.generation,'fd110000-0000-4000-8000-000000000001',
+ 'fd140000-0000-4000-8000-000000000001','MANUAL-PROVED-LATER-8',7,
+ date_trunc('milliseconds',c.customer_request_received_at+interval '1 second'),963,'4242','USD',
+ pg_temp.boundary_evidence(c.id,date_trunc('milliseconds',c.customer_request_received_at+interval '1 second'),'after_request',true,false)
+   || jsonb_build_object('source','manual_nayax_portal','policy_version','manual-nayax-portal-v1'),
+ statement_timestamp()+interval '1 hour'
+from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4000-8000-000000000001'$$,
  'P4625','Transaction occurred after Bloomjoy received the customer request',
- 'Exact manual portal occurrence after the request is never persisted');
+ 'Manual portal evidence is hard excluded only with coherent proved later occurrence bounds');
 
 select is((public.service_commit_refund_nayax_lookup('fd150000-0000-4000-8000-000000000001',
- (select generation from lookup_claim),1,'match_found','high_confidence','2026-09-05.v10',statement_timestamp(),
- 'Synthetic request-bound candidate',null,2,'manual','fd110000-0000-4000-8000-000000000001')->>'applied'),'true',
+ (select generation from lookup_claim),1,'match_found','high_confidence','2026-09-05.v11',statement_timestamp(),
+ 'Synthetic request-bound candidate',null,3,'manual','fd110000-0000-4000-8000-000000000001')->>'applied'),'true',
  'Current request-bound candidates commit through the existing generation guard');
 
 set local role service_role;
@@ -161,6 +183,26 @@ select is((public.service_select_refund_nayax_candidate_as_actor('fd110000-0000-
  (select official_action_version from public.refund_cases where id='fd150000-0000-4000-8000-000000000001'),
  'fd160000-0000-4000-8000-000000000001',null)->>'selectionApplied'),'true',
  'A proved earlier transaction remains selectable through the normal manager path');
+reset role;
+
+set local session_replication_role=replica;
+insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
+ provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
+select 'fd160000-0000-4000-8000-000000000009',c.id,l.generation,'fd110000-0000-4000-8000-000000000001',
+ 'fd140000-0000-4000-8000-000000000001','HISTORICAL-MANUAL-PROVED-LATER-9',7,
+ date_trunc('milliseconds',c.customer_request_received_at+interval '1 second'),963,'4242','USD',
+ pg_temp.boundary_evidence(c.id,date_trunc('milliseconds',c.customer_request_received_at+interval '1 second'),'after_request',true,false)
+   || jsonb_build_object('source','manual_nayax_portal','policy_version','manual-nayax-portal-v1'),
+ statement_timestamp()+interval '1 hour'
+from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4000-8000-000000000001';
+set local session_replication_role=origin;
+set local role service_role;
+select throws_ok(format($$select public.service_select_refund_nayax_candidate_as_actor(
+ 'fd110000-0000-4000-8000-000000000001','fd150000-0000-4000-8000-000000000001',%s,
+ 'fd160000-0000-4000-8000-000000000009',null)$$,
+ (select official_action_version from public.refund_cases where id='fd150000-0000-4000-8000-000000000001')),
+ 'P4625','Transaction occurred after Bloomjoy received the customer request',
+ 'Selection revalidates proved later manual evidence persisted before the current guard');
 reset role;
 
 select ok((select matched_nayax_transaction_id='SAFE-BOUNDARY-1' and nayax_match_execution_eligible
@@ -223,7 +265,7 @@ create function pg_temp.request_diagnostic() returns jsonb language sql stable a
 $$;
 select is((public.service_commit_refund_nayax_lookup_with_diagnostics(
  'fd150000-0000-4000-8000-000000000003',(select generation from diagnostic_claim),1,'no_match','no_safe_match',
- '2026-09-05.v10',statement_timestamp(),'One later transaction was excluded',null,0,'manual',
+ '2026-09-05.v11',statement_timestamp(),'One later transaction was excluded',null,0,'manual',
  'fd110000-0000-4000-8000-000000000001',pg_temp.request_diagnostic())->>'applied'),'true',
  'Bounded v3 diagnostics commit the exact request anchor and exclusion count');
 select is((select metadata->'diagnostics'->>'excludedAfterRequestCount' from public.refund_case_events

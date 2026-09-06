@@ -1,6 +1,11 @@
 /// <reference lib="deno.ns" />
 
-import { getRefundManagerState, getRefundPaymentStateLabel, hasUnpaidRefundReview } from './refundManagerState.ts';
+import {
+  canConfirmRefundCandidate,
+  getRefundManagerState,
+  getRefundPaymentStateLabel,
+  hasUnpaidRefundReview,
+} from './refundManagerState.ts';
 import type { RefundLifecycleContract, RefundLifecycleStage } from './refundLifecycle.ts';
 
 const assertEquals = (actual: unknown, expected: unknown, message: string) => {
@@ -14,6 +19,18 @@ const baseCase = {
   providerOutcome: 'not_attempted' as const,
   nayaxRecommendationState: 'high_confidence' as const,
 };
+
+Deno.test('approved unpaid cases can confirm one exact candidate without another decision', () => {
+  assertEquals(canConfirmRefundCandidate({
+    persistedStatus: 'approved', editorStatus: 'approved', decision: 'approved', canSelectCandidate: true,
+  }), true, 'approved continuation');
+  assertEquals(canConfirmRefundCandidate({
+    persistedStatus: 'approved', editorStatus: 'approved', decision: 'denied', canSelectCandidate: true,
+  }), false, 'denied decision');
+  assertEquals(canConfirmRefundCandidate({
+    persistedStatus: 'approved', editorStatus: 'approved', decision: 'approved', canSelectCandidate: false,
+  }), false, 'missing current manager authority');
+});
 
 const lifecycle = (
   stage: RefundLifecycleStage,

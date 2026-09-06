@@ -57,6 +57,7 @@ const result = (
     machineAuthorizationTime: "2026-08-15T16:00:00.000Z",
     providerTimeResolution: "exact",
     timeDeltaMinutes: 0,
+    providerProcessingTimeDeltaMinutes: 0,
     qrTimeDeltaMinutes: null,
     amountCents: 750,
     amountDeltaCents: 0,
