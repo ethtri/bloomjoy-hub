@@ -177,6 +177,10 @@ Deno.test("retained correction evidence commits a reviewable lifecycle with exac
     (insertedRows[0].evidence_summary as Record<string, unknown>).customer_correction_fields,
     correctionFields,
   );
+  assertEquals(
+    (insertedRows[0].evidence_summary as Record<string, unknown>).machine_authorization_at,
+    ranked.candidates[0].machineAuthorizationTime,
+  );
 
   const commitCalls: Array<Record<string, unknown>> = [];
   const resultStore = {

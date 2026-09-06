@@ -500,6 +500,7 @@ export const persistNayaxLookupCandidates = async ({
         customer_request_received_source: candidate.customerRequestReceivedSource,
         request_time_boundary: candidate.requestTimeBoundaryState,
         transaction_occurrence_comparable: candidate.transactionOccurrenceComparable,
+        machine_authorization_at: candidate.machineAuthorizationTime,
         machine_authorization_time_raw: candidate.machineAuthorizationTimeRaw,
         machine_authorization_time_source: "MachineAuthorizationTime",
         machine_time_resolution: candidate.machineTimeResolution,

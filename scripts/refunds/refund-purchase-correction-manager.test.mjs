@@ -71,6 +71,51 @@ test('successful editable send clears only customer-draft dirtiness',async()=>{
  assert.equal(internalDraftDirtyUpdates,0,'email success must not clear an unsaved internal note');
 });
 
+test('canonical guided actions stay clean while manager template changes are draft edits',()=>{
+ const updates=[];const draft={subject:'Canonical denial',body:'Canonical denial body'};
+ const base={
+  selectedCase:{id:'case-1'},isCustomerDraftDirty:false,getCustomerMessageDraft:()=>draft,
+  setMessageType:value=>updates.push(['type',value]),setMessageSubject:value=>updates.push(['subject',value]),
+  setMessageBody:value=>updates.push(['body',value]),setIsCustomerDraftDirty:value=>updates.push(['dirty',value]),
+ };
+ load('handleMessageTypeChange',base)('denied');
+ assert.deepEqual(updates,[['type','denied'],['subject',draft.subject],['body',draft.body],['dirty',false]]);
+ updates.length=0;
+ load('handleMessageTypeChange',base)('more_info',true);
+ assert.deepEqual(updates,[['type','more_info'],['subject',draft.subject],['body',draft.body],['dirty',true]]);
+});
+
+test('canonical guided actions preserve a genuinely edited customer draft',()=>{
+ const updates=[];
+ load('handleMessageTypeChange',{
+  selectedCase:{id:'case-1'},isCustomerDraftDirty:true,getCustomerMessageDraft:()=>{throw Error('must preserve edited draft');},
+  setMessageType:value=>updates.push(['type',value]),setMessageSubject:value=>updates.push(['subject',value]),
+  setMessageBody:value=>updates.push(['body',value]),setIsCustomerDraftDirty:value=>updates.push(['dirty',value]),
+ })('denied');
+ assert.deepEqual(updates,[]);
+});
+
+test('denial cancellation restores the exact prior customer-draft dirty state',()=>{
+ const restored=[];const previousEditor={status:'card_refund_pending',decision:'approved'};
+ const denialPreviousStateRef={current:{
+  caseId:'case-1',editor:previousEditor,messageType:'status_update',
+  messageSubject:'Edited subject',messageBody:'Edited body',isCustomerDraftDirty:true,
+ }};
+ load('cancelDenial',{
+  selectedCase:{id:'case-1'},denialPreviousStateRef,denialTriggerRef:{current:null},
+  setEditor:value=>restored.push(['editor',value]),setMessageType:value=>restored.push(['type',value]),
+  setMessageSubject:value=>restored.push(['subject',value]),setMessageBody:value=>restored.push(['body',value]),
+  setIsCustomerDraftDirty:value=>restored.push(['dirty',value]),
+  window:{requestAnimationFrame:callback=>callback()},
+  document:{querySelector:()=>null},
+ })();
+ assert.deepEqual(restored,[
+  ['editor',previousEditor],['type','status_update'],['subject','Edited subject'],
+  ['body','Edited body'],['dirty',true],
+ ]);
+ assert.equal(denialPreviousStateRef.current,null);
+});
+
 test('actual correction action opens preselected fields, rejects empty, stale and unsupported selections before send',async()=>{
  let selection;let sends=0;const errors=[];
  const base={selectedCase:{id:'case-1',customerCorrectionFields:['amount','card_last4']},correctionSelection:null,officialActionVersion:12,customerDeliveryNeedsReconciliation:false,isUsingDemoData:false,pendingRevision:null,setPendingRevision:()=>{},

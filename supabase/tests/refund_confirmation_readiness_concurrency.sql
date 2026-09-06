@@ -82,7 +82,9 @@ insert into public.refund_cases (
   id, public_reference, reporting_machine_id, reporting_location_id,
   customer_email, issue_summary, incident_at, payment_method,
   payment_amount_cents, card_last4, status, correlation_status,
-  correlation_confidence, refund_amount_cents, nayax_match_execution_eligible
+  correlation_confidence, refund_amount_cents, nayax_match_execution_eligible,
+  customer_request_received_at, customer_request_received_source,
+  incident_time_resolution, incident_time_confidence
 )
 values (
   'a0500000-0000-4000-8000-000000000001',
@@ -92,7 +94,8 @@ values (
   'confirmation-race-customer@example.test',
   'Concurrent confirmation fixture',
   now() - interval '30 minutes',
-  'card', 700, '4242', 'needs_review', 'needs_nayax', 0, 700, false
+  'card', 700, '4242', 'needs_review', 'needs_nayax', 0, 700, false,
+  now() - interval '5 minutes', 'hosted_refund_intake', 'exact', 'exact'
 );
 
 insert into public.refund_nayax_lookup_candidates (
@@ -111,11 +114,40 @@ values (
     'selection_allowed', true,
     'is_recommended', false,
     'one_click_eligible', false,
-    'recommendation_state', 'manual_exception',
-    'policy_version', '2026-09-05.v8',
-    'customer_request_received_at', null,
-    'customer_request_received_source', null,
-    'request_time_boundary', 'request_time_unknown',
+    'recommendation_state', 'high_confidence',
+    'policy_version', '2026-09-05.v10',
+    'identifier_policy_version', '2026-09-05.identifier.v1',
+    'customer_fact_version', 1,
+    'customer_credential_class', 'customer_identifier_unknown',
+    'provider_identifier_class', 'last_sales_identifier_unknown',
+    'card_last4_comparison', 'exact_support',
+    'card_network_comparison', 'missing',
+    'payment_interaction_comparison', 'unknown',
+    'same_identifier_equivalence_proven', false,
+    'identifier_review_state', 'exact_support',
+    'customer_correction_fields', '[]'::jsonb,
+    'hard_exclusions', '[]'::jsonb,
+    'reason_codes', '[]'::jsonb,
+    'lookup_account_scope', 'CONFIRMATION_RACE_ACCOUNT',
+    'lookup_provider_machine_id', 'CONFIRMATION-RACE-MACHINE',
+    'provider_machine_id', 'CONFIRMATION-RACE-MACHINE',
+    'machine_authorization_time_raw', to_char(now() - interval '30 minutes', 'YYYY-MM-DD"T"HH24:MI:SS'),
+    'machine_authorization_at', now() - interval '30 minutes',
+    'machine_authorization_time_source', 'MachineAuthorizationTime',
+    'machine_time_resolution', 'exact',
+    'provider_time_resolution', 'exact',
+    'provider_time_source', 'authorization_gmt',
+    'authorized_at', now() - interval '30 minutes',
+    'customer_request_received_at', now() - interval '5 minutes',
+    'customer_request_received_source', 'hosted_refund_intake',
+    'request_time_boundary', 'before_or_at_request',
+    'transaction_occurrence_comparable', true,
+    'payment_status', 'approved',
+    'payment_status_evidence', 'last_sales_contract',
+    'provider_refund_state', 'clear',
+    'duplicate_provider_record', false,
+    'amount_delta_cents', 0,
+    'time_delta_minutes', 0,
     'provider_payload_redacted', true
   ),
   now() + interval '1 hour'

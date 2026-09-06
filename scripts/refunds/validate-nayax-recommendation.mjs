@@ -271,6 +271,21 @@ assert.equal(unknownRequestBoundary.oneClickEligible, false);
 assert.equal(unknownRequestBoundary.candidates.length, 1);
 assert.ok(unknownRequestBoundary.candidates[0].manualReviewReasons.includes("customer_request_time_unknown"));
 
+const unknownRequestMismatch = recommend([sale({
+  id: "unknown-request-mismatch",
+  last4: "9999",
+})], {
+  customerRequestReceivedAt: null,
+  customerRequestReceivedSource: null,
+  requestCardNetwork: "visa",
+});
+assert.equal(unknownRequestMismatch.candidates.length, 1);
+assert.equal(unknownRequestMismatch.candidates[0].selectionAllowed, false);
+assert.equal(unknownRequestMismatch.candidates[0].oneClickEligible, false);
+assert.equal(unknownRequestMismatch.candidates[0].identifierReviewState, "needs_corroboration");
+assert.deepEqual(unknownRequestMismatch.candidates[0].customerCorrectionFields, []);
+assert.ok(unknownRequestMismatch.candidates[0].reasonCodes.includes("customer_request_time_unknown"));
+
 const uncertainOccurrenceBoundary = recommend([sale({
   id: "uncertain-occurrence",
   extra: { AuthorizationDateTimeGMT: undefined, MachineAuthorizationTime: "2026-07-21T12:00:00" },
@@ -664,6 +679,7 @@ assert.equal(separateMachineClock.candidates[0].authorizedAt, incidentAt);
 assert.equal(separateMachineClock.candidates[0].timeDeltaMinutes, 0);
 assert.equal(separateMachineClock.candidates[0].machineAuthorizationTime, "2026-07-21T18:59:58.810Z");
 assert.equal(separateMachineClock.candidates[0].machineAuthorizationTimeRaw, "2026-07-21T11:59:58.810");
+assert.equal(NAYAX_RECOMMENDATION_POLICY.version, "2026-09-05.v10");
 
 for (const raw of ["2026-07-21T12:00:00.1234567", "2026-07-21T12:00:00.1234567-07:00"]) {
   const result = recommend([sale({ id: "fractional-machine-clock", extra: {
