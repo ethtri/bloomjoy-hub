@@ -1,5 +1,15 @@
 # Decisions
 
+## 2026-09-05 - Request time is supporting evidence unless purchase occurrence is proved (`#1165`)
+
+- Provider delivery, report import, settlement, bank posting and Nayax authorization time are separate facts. None may stand in for the customer's purchase occurrence or hard-exclude a candidate merely because it is later than the request receipt.
+- A `transaction_after_customer_request` exclusion requires explicit online purchase-occurrence semantics and bounded transaction/request clock intervals whose non-overlapping bounds prove the purchase interval is wholly later. Missing semantics, offline/deferred operation, batched synchronization, missing bounds or overlapping intervals make ordering unknown.
+- Unknown ordering remains visible and lowers confidence. It never produces automatic one-click evidence. When the exact machine, amount, approved sale, raw API binding and other current safeguards are sufficient, the manager may confirm the transaction once and continue to the ordinary refund decision; provider-only timing uncertainty cannot create an actionless dead end.
+- The exact raw `MachineAuTime` remains the refund API binding. Derived occurrence, authorization, settlement, provider observation/import, report receipt and customer request receipt remain separate versioned evidence.
+
+**Why this choice**
+- Nayax supports offline and batched transaction synchronization, and its authorization, settlement and report timestamps have different semantics. A later provider-side time therefore does not by itself prove that the customer purchased after submitting the form.
+
 ## 2026-09-03 - One same-case customer correction flow (`#1109`–`#1115`)
 
 New actionable purchase-information requests use one secure link to the existing

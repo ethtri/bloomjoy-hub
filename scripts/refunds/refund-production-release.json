@@ -153,7 +153,8 @@
     "20260905210000_refund_bubble_planet_location_mapping.sql",
     "20260905232428_refund_cross_site_review_linkage.sql",
     "20260905233116_refund_v9_correction_scope_parity.sql",
-    "20260906011508_refund_matching_parity_alignment.sql"
+    "20260906011508_refund_matching_parity_alignment.sql",
+    "20260906033000_refund_soft_time_evidence.sql"
   ],
   "migrationFilesSha256": "613a052d3b35c12fdaccf61c1ee3f223bbb66e19d29b191ee9406991337d6c03",
   "migrationVersionSetSha256": "5f0b247bf8b55f7b72fed44135eaa31dea57f438a3efe7d00067b17abe8b2c54",

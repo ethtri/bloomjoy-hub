@@ -246,6 +246,14 @@ export type NayaxProviderCandidate = {
   customerRequestReceivedSource: string | null;
   requestTimeBoundaryState: string;
   transactionOccurrenceComparable: boolean;
+  transactionOccurrenceSemantics: string;
+  transactionOccurrenceProofSource: string | null;
+  transactionOccurrenceTimestampSource: string | null;
+  transactionOccurrenceTimezoneBasis: string | null;
+  transactionOccurrenceLowerBoundAt: string | null;
+  transactionOccurrenceUpperBoundAt: string | null;
+  requestReceiptLowerBoundAt: string | null;
+  requestReceiptUpperBoundAt: string | null;
   timeDeltaMinutes: number;
   qrTimeDeltaMinutes: number | null;
   amountCents: number | null;
@@ -309,7 +317,11 @@ export type NayaxResponseCandidate = Omit<
   "duplicateProviderRecord" |
   "machineAuthorizationTimeRaw" | "machineTimeResolution" | "machineClockContext" |
   "providerTimeSource" | "customerRequestReceivedAt" | "customerRequestReceivedSource" |
-  "requestTimeBoundaryState" | "transactionOccurrenceComparable"
+  "requestTimeBoundaryState" | "transactionOccurrenceComparable" |
+  "transactionOccurrenceSemantics" | "transactionOccurrenceProofSource" |
+  "transactionOccurrenceTimestampSource" | "transactionOccurrenceTimezoneBasis" |
+  "transactionOccurrenceLowerBoundAt" | "transactionOccurrenceUpperBoundAt" |
+  "requestReceiptLowerBoundAt" | "requestReceiptUpperBoundAt"
 > & {
   candidateToken: string;
 };
@@ -500,6 +512,14 @@ export const persistNayaxLookupCandidates = async ({
         customer_request_received_source: candidate.customerRequestReceivedSource,
         request_time_boundary: candidate.requestTimeBoundaryState,
         transaction_occurrence_comparable: candidate.transactionOccurrenceComparable,
+        transaction_occurrence_semantics: candidate.transactionOccurrenceSemantics,
+        transaction_occurrence_proof_source: candidate.transactionOccurrenceProofSource,
+        transaction_occurrence_timestamp_source: candidate.transactionOccurrenceTimestampSource,
+        transaction_occurrence_timezone_basis: candidate.transactionOccurrenceTimezoneBasis,
+        transaction_occurrence_lower_bound_at: candidate.transactionOccurrenceLowerBoundAt,
+        transaction_occurrence_upper_bound_at: candidate.transactionOccurrenceUpperBoundAt,
+        request_receipt_lower_bound_at: candidate.requestReceiptLowerBoundAt,
+        request_receipt_upper_bound_at: candidate.requestReceiptUpperBoundAt,
         machine_authorization_at: candidate.machineAuthorizationTime,
         machine_authorization_time_raw: candidate.machineAuthorizationTimeRaw,
         machine_authorization_time_source: "MachineAuthorizationTime",

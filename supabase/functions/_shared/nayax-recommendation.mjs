@@ -12,7 +12,7 @@ import {
 // API expose advisory words (strong evidence, compare candidates, manual review)
 // instead of presenting these points as a percentage.
 export const NAYAX_RECOMMENDATION_POLICY = Object.freeze({
-  version: "2026-09-05.v10",
+  version: "2026-09-05.v11",
   candidateLimit: 10,
   lookupWindowHours: 6,
   highConfidenceMinimumPoints: 80,
@@ -379,7 +379,7 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     matchFactors.push(factor(
       "request_time",
       "manual",
-      "Nayax transaction time cannot be reliably compared with the customer request receipt; compare the transaction manually",
+      "This Nayax timestamp may reflect online authorization, delayed synchronization, or provider posting. Use it as supporting evidence, not proof that the purchase happened after the request",
     ));
   } else {
     addReason(reasonCodes, "transaction_before_or_at_customer_request");
@@ -632,7 +632,6 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     candidate.siteId !== null &&
     candidate.providerTimeResolution === "exact" &&
     candidate.machineTimeResolution === "exact" &&
-    candidate.requestTimeBoundaryState === "before_or_at_request" &&
     Boolean(candidate.machineAuthorizationTimeRaw) &&
     candidate.currencyCode === "USD" &&
     candidate.paymentStatus === "approved" &&
@@ -696,12 +695,13 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     candidate.paymentStatus === "approved" &&
     ["explicit", "last_sales_contract"].includes(candidate.paymentStatusEvidence) &&
     candidate.providerRefundState === "clear" &&
-    candidate.requestTimeBoundaryState === "before_or_at_request" &&
+    candidate.requestTimeBoundaryState !== "after_request" &&
     !candidate.duplicateProviderRecord;
   const selectionAllowed = managerSelectionCore &&
     (!mismatchPresent || evidenceAwareReviewEligible);
   const strongCardEligible =
     commonProviderEvidence &&
+    candidate.requestTimeBoundaryState === "before_or_at_request" &&
     !mismatchPresent &&
     request.amountCents > 0 &&
     amountDeltaCents !== null &&
@@ -714,6 +714,7 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     rankingPoints >= policy.highConfidenceMinimumPoints;
   const uniqueQrTimeEligible =
     commonProviderEvidence &&
+    candidate.requestTimeBoundaryState === "before_or_at_request" &&
     amountDeltaCents === 0 &&
     request.incidentTimeConfidence !== "within_1_hour" &&
     request.qrClaimEvidenceStatus === "verified" &&
@@ -786,6 +787,16 @@ export const extractNayaxRecords = (payload) => {
  *   qrClaimEvidenceStatus?: "verified" | "missing" | "invalid" | "replayed",
  *   transactionStates?: Map<string, string> | Record<string, string>,
  *   providerContract?: "nayax_machine_last_sales_v1" | "unverified",
+ *   purchaseOccurrenceProof?: {
+ *     semantics: "online_purchase_occurrence",
+ *     source: string,
+ *     timestampSource: "authorization_gmt" | "machine_authorization_offset" | "verified_machine_clock",
+ *     timezoneBasis: "utc" | "embedded_offset" | "verified_machine_timezone",
+ *     transactionPrecisionMs: number,
+ *     transactionClockErrorMs: number,
+ *     requestReceiptPrecisionMs: number,
+ *     requestReceiptClockErrorMs: number,
+ *   } | null,
  *   windowHours?: number,
  *   policy?: typeof NAYAX_RECOMMENDATION_POLICY,
  * }} input
@@ -816,6 +827,7 @@ export const buildNayaxRecommendation = ({
   qrClaimEvidenceStatus,
   transactionStates = {},
   providerContract = "unverified",
+  purchaseOccurrenceProof = null,
   windowHours = NAYAX_RECOMMENDATION_POLICY.lookupWindowHours,
   policy = NAYAX_RECOMMENDATION_POLICY,
 }) => {
@@ -866,6 +878,32 @@ export const buildNayaxRecommendation = ({
   let windowRecordCount = 0;
   let excludedAfterRequestCount = 0;
 
+  const boundedUncertainty = (value) =>
+    Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 24 * 60 * 60 * 1000
+      ? Number(value)
+      : null;
+  const occurrenceProof = purchaseOccurrenceProof?.semantics === "online_purchase_occurrence"
+    && sanitizeText(purchaseOccurrenceProof?.source, 120)
+    && ["authorization_gmt", "machine_authorization_offset", "verified_machine_clock"]
+      .includes(purchaseOccurrenceProof?.timestampSource)
+    && ["utc", "embedded_offset", "verified_machine_timezone"]
+      .includes(purchaseOccurrenceProof?.timezoneBasis)
+    && boundedUncertainty(purchaseOccurrenceProof?.transactionPrecisionMs) !== null
+    && boundedUncertainty(purchaseOccurrenceProof?.transactionClockErrorMs) !== null
+    && boundedUncertainty(purchaseOccurrenceProof?.requestReceiptPrecisionMs) !== null
+    && boundedUncertainty(purchaseOccurrenceProof?.requestReceiptClockErrorMs) !== null
+    ? {
+        semantics: "online_purchase_occurrence",
+        source: sanitizeText(purchaseOccurrenceProof.source, 120),
+        timestampSource: purchaseOccurrenceProof.timestampSource,
+        timezoneBasis: purchaseOccurrenceProof.timezoneBasis,
+        transactionPrecisionMs: boundedUncertainty(purchaseOccurrenceProof.transactionPrecisionMs),
+        transactionClockErrorMs: boundedUncertainty(purchaseOccurrenceProof.transactionClockErrorMs),
+        requestReceiptPrecisionMs: boundedUncertainty(purchaseOccurrenceProof.requestReceiptPrecisionMs),
+        requestReceiptClockErrorMs: boundedUncertainty(purchaseOccurrenceProof.requestReceiptClockErrorMs),
+      }
+    : null;
+
   for (const item of extractNayaxRecords(payload)) {
     const record = typeof item === "object" && item !== null ? item : {};
     const transactionId = sanitizeText(
@@ -890,12 +928,34 @@ export const buildNayaxRecommendation = ({
     if (authorizationDate.getTime() < windowStartMs || authorizationDate.getTime() > windowEndMs) continue;
     windowRecordCount += 1;
 
+    const requestReceivedDate = parseDateValue(request.customerRequestReceivedAt);
+    const comparableProof = occurrenceProof && requestReceivedDate
+      && occurrenceProof.timestampSource === providerTime.source ? occurrenceProof : null;
+    const transactionOccurrenceLowerBoundAt = comparableProof
+      ? new Date(authorizationDate.getTime() - comparableProof.transactionClockErrorMs).toISOString()
+      : null;
+    const transactionOccurrenceUpperBoundAt = comparableProof
+      ? new Date(authorizationDate.getTime() + comparableProof.transactionClockErrorMs + comparableProof.transactionPrecisionMs).toISOString()
+      : null;
+    const requestReceiptLowerBoundAt = comparableProof
+      ? new Date(requestReceivedDate.getTime() - comparableProof.requestReceiptClockErrorMs).toISOString()
+      : null;
+    const requestReceiptUpperBoundAt = comparableProof
+      ? new Date(requestReceivedDate.getTime() + comparableProof.requestReceiptClockErrorMs + comparableProof.requestReceiptPrecisionMs).toISOString()
+      : null;
     const requestTimeBoundary = classifyRefundRequestTimeBoundary({
       customerRequestReceivedAt: request.customerRequestReceivedAt,
       customerRequestReceivedSource: request.customerRequestReceivedSource,
       transactionOccurredAt: authorizationDate.toISOString(),
       transactionOccurrenceSource: providerTime.source,
       transactionTimeResolution: providerTime.resolution,
+      transactionOccurrenceSemantics: comparableProof?.semantics ?? "unknown",
+      transactionOccurrenceTimestampSource: comparableProof?.timestampSource ?? null,
+      transactionOccurrenceTimezoneBasis: comparableProof?.timezoneBasis ?? null,
+      transactionOccurrenceLowerBoundAt,
+      transactionOccurrenceUpperBoundAt,
+      requestReceiptLowerBoundAt,
+      requestReceiptUpperBoundAt,
     });
     if (requestTimeBoundary.transactionAfterRequest) {
       excludedAfterRequestCount += 1;
@@ -934,6 +994,14 @@ export const buildNayaxRecommendation = ({
       customerRequestReceivedSource: request.customerRequestReceivedSource,
       requestTimeBoundaryState: requestTimeBoundary.state,
       transactionOccurrenceComparable: requestTimeBoundary.occurrenceComparable,
+      transactionOccurrenceSemantics: comparableProof?.semantics ?? "unknown",
+      transactionOccurrenceProofSource: comparableProof?.source ?? null,
+      transactionOccurrenceTimestampSource: comparableProof?.timestampSource ?? null,
+      transactionOccurrenceTimezoneBasis: comparableProof?.timezoneBasis ?? null,
+      transactionOccurrenceLowerBoundAt,
+      transactionOccurrenceUpperBoundAt,
+      requestReceiptLowerBoundAt,
+      requestReceiptUpperBoundAt,
       // Round outward so a transaction even one second beyond a safety boundary
       // cannot be admitted by display-oriented minute rounding.
       timeDeltaMinutes: Math.ceil(Math.abs(authorizationDate.getTime() - incidentDate.getTime()) / 60000),

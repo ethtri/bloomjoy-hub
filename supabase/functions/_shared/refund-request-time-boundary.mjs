@@ -8,11 +8,12 @@ const requestSources = new Set([
   "gmail_contact_ingested",
 ]);
 
-const comparableOccurrenceSources = new Set([
-  "authorization_gmt",
-  "machine_authorization_offset",
-  "verified_machine_clock",
-]);
+const ONLINE_PURCHASE_OCCURRENCE_SEMANTICS = "online_purchase_occurrence";
+
+const boundedInstant = (value) => {
+  const parsed = exactInstant(value);
+  return parsed ? parsed.getTime() : null;
+};
 
 export const REFUND_INCIDENT_FUTURE_TOLERANCE_MS = 60_000;
 
@@ -33,6 +34,13 @@ export const classifyRefundRequestTimeBoundary = ({
   transactionOccurredAt,
   transactionOccurrenceSource,
   transactionTimeResolution,
+  transactionOccurrenceSemantics,
+  transactionOccurrenceTimestampSource,
+  transactionOccurrenceTimezoneBasis,
+  transactionOccurrenceLowerBoundAt,
+  transactionOccurrenceUpperBoundAt,
+  requestReceiptLowerBoundAt,
+  requestReceiptUpperBoundAt,
 }) => {
   const requestReceived = exactInstant(customerRequestReceivedAt);
   const requestSource = typeof customerRequestReceivedSource === "string"
@@ -43,21 +51,38 @@ export const classifyRefundRequestTimeBoundary = ({
     ? transactionOccurrenceSource.trim()
     : "";
   const requestKnown = Boolean(requestReceived && requestSources.has(requestSource));
-  const occurrenceComparable = Boolean(
+  const occurrenceLowerBound = boundedInstant(transactionOccurrenceLowerBoundAt);
+  const occurrenceUpperBound = boundedInstant(transactionOccurrenceUpperBoundAt);
+  const requestLowerBound = boundedInstant(requestReceiptLowerBoundAt);
+  const requestUpperBound = boundedInstant(requestReceiptUpperBoundAt);
+  const intervalsValid = Boolean(
     transactionOccurred &&
       transactionTimeResolution === "exact" &&
-      comparableOccurrenceSources.has(occurrenceSource)
+      occurrenceSource &&
+      transactionOccurrenceTimestampSource === occurrenceSource &&
+      ["utc", "embedded_offset", "verified_machine_timezone"].includes(transactionOccurrenceTimezoneBasis) &&
+      transactionOccurrenceSemantics === ONLINE_PURCHASE_OCCURRENCE_SEMANTICS &&
+      occurrenceLowerBound !== null &&
+      occurrenceUpperBound !== null &&
+      requestLowerBound !== null &&
+      requestUpperBound !== null &&
+      occurrenceLowerBound <= transactionOccurred.getTime() &&
+      transactionOccurred.getTime() <= occurrenceUpperBound &&
+      requestLowerBound <= requestReceived?.getTime() &&
+      requestReceived?.getTime() <= requestUpperBound &&
+      occurrenceLowerBound <= occurrenceUpperBound &&
+      requestLowerBound <= requestUpperBound
   );
 
   if (!requestKnown) {
     return {
       state: "request_time_unknown",
       requestKnown: false,
-      occurrenceComparable,
+      occurrenceComparable: false,
       transactionAfterRequest: false,
     };
   }
-  if (!occurrenceComparable) {
+  if (!intervalsValid) {
     return {
       state: "occurrence_time_uncertain",
       requestKnown: true,
@@ -65,7 +90,16 @@ export const classifyRefundRequestTimeBoundary = ({
       transactionAfterRequest: false,
     };
   }
-  const transactionAfterRequest = transactionOccurred.getTime() > requestReceived.getTime();
+  const transactionAfterRequest = occurrenceLowerBound > requestUpperBound;
+  const transactionBeforeOrAtRequest = occurrenceUpperBound <= requestLowerBound;
+  if (!transactionAfterRequest && !transactionBeforeOrAtRequest) {
+    return {
+      state: "occurrence_time_uncertain",
+      requestKnown: true,
+      occurrenceComparable: true,
+      transactionAfterRequest: false,
+    };
+  }
   return {
     state: transactionAfterRequest ? "after_request" : "before_or_at_request",
     requestKnown: true,
