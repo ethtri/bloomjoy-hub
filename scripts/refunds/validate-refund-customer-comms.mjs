@@ -44,6 +44,7 @@ const run = async () => {
     providerDelayEvidenceMigration,
     payoutDestinationMigration,
     payoutDestinationTest,
+    refundMachineLabel,
   ] = await Promise.all([
     readText('supabase/functions/refund-case-admin-update/index.ts'),
     readText('src/pages/admin/Refunds.tsx'),
@@ -71,6 +72,7 @@ const run = async () => {
     readText('supabase/migrations/20260901202359_refund_provider_delay_evidence_1069.sql'),
     readText('supabase/migrations/20260902004500_refund_payout_destination_follow_up.sql'),
     readText('supabase/tests/refund_payout_destination_follow_up.sql'),
+    readText('src/lib/refundMachineLabel.ts'),
   ]);
 
   assert(
@@ -103,12 +105,15 @@ const run = async () => {
     !portalPage.includes('Send customer email')
   );
   assert(
-    'Manager queue does not repeat identical location and machine labels',
+    'Manager queue does not repeat delimiter-bounded location and machine labels',
     includesAll(portalPage, [
       'formatRefundMachineLocation',
-      'locationName.trim().toLocaleLowerCase() === machineLabel.trim().toLocaleLowerCase()',
       'formatRefundMachineLocation(refundCase.locationName, refundCase.machineLabel)',
       'formatRefundMachineLocation(selectedCase.locationName, selectedCase.machineLabel)',
+    ]) && includesAll(refundMachineLabel, [
+      'containsDelimitedLabel',
+      'normalizedMachineKey',
+      'normalizedLocationKey',
     ])
   );
   assert(

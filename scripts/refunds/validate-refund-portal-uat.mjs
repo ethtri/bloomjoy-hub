@@ -1193,6 +1193,8 @@ const buildCashRefundVariantsOverview = () => {
       hasMatchedSalesFact: false,
       customerEmail: 'cash-missing-amount@example.test',
       zellePaymentContact: null,
+      locationName: 'Colorado Mills',
+      machineLabel: 'Colorado Mills — Cotton Candy',
       lifecycle: buildCashRefundLifecycleFixture(false),
     },
     {
@@ -1365,6 +1367,70 @@ const buildGroupedLivermorePendingOverview = () => {
     officialActionVersion: 1,
   }));
   return overview;
+};
+
+const buildManagerClarityRefundOverview = () => {
+  const overview = buildPendingNayaxRefundOverview();
+  const baseCase = overview.cases[0];
+  const baseCandidate = buildMockRefundOverview().cases[0].nayaxLookupCandidates[0];
+  const draftCase = {
+    ...baseCase,
+    id: 'case-card-draft-ambiguous',
+    publicReference: 'RF-UAT-DRAFT-AMBIGUOUS',
+    status: 'draft',
+    correlationStatus: 'multiple_candidates',
+    correlationSummary: 'Two transactions need comparison, and one customer detail is still missing.',
+    cardLast4: null,
+    customerCorrectionFields: ['card_last4'],
+    lifecycle: buildLifecycleFixture('needs_transaction_selection', 20, 'select_transaction'),
+    nayaxLookupSummary: {
+      lookupStatus: 'multiple_matches',
+      recommendationState: 'ambiguous',
+      candidateCount: 2,
+      safeRetryEligible: false,
+      automatic: true,
+      evidenceVersion: 1,
+      lookupGeneration: 1,
+    },
+    nayaxLookupCandidates: [
+      { ...baseCandidate, candidateToken: '41000000-0000-4000-8000-000000000301' },
+      {
+        ...baseCandidate,
+        candidateToken: '41000000-0000-4000-8000-000000000302',
+        authorizedAt: isoHoursAgo(3.2),
+        machineAuthorizationTime: isoHoursAgo(3.2),
+        cardLast4: '1111',
+        isTopRanked: false,
+        isRecommended: false,
+        recommendationRank: 2,
+      },
+    ],
+    messages: [],
+  };
+  const waitingCase = {
+    ...draftCase,
+    id: 'case-card-waiting-ambiguous',
+    publicReference: 'RF-UAT-WAITING-AMBIGUOUS',
+    status: 'waiting_on_customer',
+    customerEmail: 'customer-waiting-ambiguous@example.test',
+    lifecycle: buildLifecycleFixture('waiting_on_customer', 15, 'wait_for_customer_reply'),
+    messages: [{
+      id: 'msg-waiting-ambiguous',
+      messageType: 'more_info',
+      status: 'sent',
+      recipientEmail: 'customer-waiting-ambiguous@example.test',
+      subject: 'One detail needed for RF-UAT-WAITING-AMBIGUOUS',
+      body: 'Please reply with the last four digits used for this purchase.',
+      sentAt: isoHoursAgo(1),
+      errorMessage: null,
+      createdAt: isoHoursAgo(1),
+    }],
+  };
+
+  return {
+    ...overview,
+    cases: [draftCase, waitingCase],
+  };
 };
 
 const buildManagerStepUpRefundOverview = () => {
@@ -1717,6 +1783,8 @@ const installMockSupabaseRoutes = async (
     acknowledgementDispositionHandler = null,
     localeCorrectionHandler = null,
     internalTestClassificationHandler = null,
+    refundOverviewReadStatuses = null,
+    refundOverviewReadLog = [],
   } = {}
 ) => {
   const officialActionVersions = new Map();
@@ -2623,6 +2691,18 @@ const installMockSupabaseRoutes = async (
     }
 
     if (url.includes('/admin_get_refund_operations_overview')) {
+      const overviewReadIndex = refundOverviewReadLog.length;
+      const overviewReadStatus = Array.isArray(refundOverviewReadStatuses) && refundOverviewReadStatuses.length > 0
+        ? refundOverviewReadStatuses[Math.min(overviewReadIndex, refundOverviewReadStatuses.length - 1)]
+        : 200;
+      refundOverviewReadLog.push(overviewReadStatus);
+      if (overviewReadStatus >= 400) {
+        return route.fulfill({
+          ...jsonResponse({ message: 'Synthetic refund overview read failure.' }),
+          status: overviewReadStatus,
+          headers: { [EXPECTED_PORTAL_ERROR_HEADER]: 'refund-overview-read' },
+        });
+      }
       const currentOverview = refundOverview();
       const settledOverview = nayaxSettlementResult
         ? {
@@ -2939,6 +3019,15 @@ const isExpectedPortalUatResponse = (response) => {
 
   if (
     status === 503 &&
+    marker === 'refund-overview-read' &&
+    path === '/rest/v1/rpc/admin_get_refund_operations_overview' &&
+    fixtureOwnedPortalRpcLabels.get(request) === 'admin_get_refund_operations_overview'
+  ) {
+    return true;
+  }
+
+  if (
+    status === 503 &&
     marker === 'nayax-availability' &&
     path === '/functions/v1/nayax-card-refund' &&
     body?.operation === 'availability' &&
@@ -3047,6 +3136,16 @@ const waitForQueueCount = async (page, expectedCount) => {
   const actualText = (await queueCount.innerText()).trim();
   if (actualText !== expectedText) {
     throw new Error(`Expected queue count "${expectedText}" but found "${actualText}".`);
+  }
+};
+
+const waitForRefundOverviewReadCount = async (page, readLog, expectedCount, timeout = 15000) => {
+  const deadline = Date.now() + timeout;
+  while (readLog.length < expectedCount && Date.now() < deadline) {
+    await page.waitForTimeout(50);
+  }
+  if (readLog.length < expectedCount) {
+    throw new Error(`Expected ${expectedCount} refund overview reads but observed ${readLog.length}.`);
   }
 };
 
@@ -4886,8 +4985,27 @@ const runManualExternalCashWorkflowChecks = async ({ browser, appUrl, artifactDi
   recorder.assert(
     'Missing-amount cash case offers one actionable customer-detail path',
     await variantsPage.getByTestId('refund-cash-primary-action').getByText('Ask for missing details').isVisible() &&
-      (await variantsPage.getByText(/Mark \$.* as refunded/).count()) === 0
+      (await variantsPage.getByText(/Mark \$.* as refunded/).count()) === 0 &&
+      (await variantsPage.getByTestId('refund-manager-next-step').innerText()).includes(
+        'Ask only for the purchase details that are missing.'
+      ) &&
+      !(await variantsPage.locator('body').innerText()).includes(
+        'Colorado Mills - Colorado Mills — Cotton Candy'
+      )
   );
+  await variantsPage.setViewportSize({ width: 390, height: 844 });
+  const missingDetailsActionBox = await variantsPage.getByTestId('refund-cash-primary-action').boundingBox();
+  recorder.assert(
+    'Missing-detail action and matching next step remain practical at 390px',
+    await variantsPage.getByTestId('refund-cash-primary-action').isVisible() &&
+      (await variantsPage.getByTestId('refund-manager-next-step').innerText()).includes(
+        'Ask only for the purchase details that are missing.'
+      ) &&
+      Boolean(missingDetailsActionBox && missingDetailsActionBox.height >= 44) &&
+      await variantsPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    JSON.stringify(missingDetailsActionBox)
+  );
+  await variantsPage.setViewportSize({ width: 1440, height: 1000 });
 
   await variantsPage.getByRole('button', { name: /Ready to refund/ }).click();
   await waitForQueueCount(variantsPage, 3);
@@ -5274,6 +5392,193 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
   await closeRefundPortalContext(context);
 };
 
+const runManagerClarityChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
+  const clarityContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await installMockSupabaseRoutes(clarityContext, {
+    refundOverview: buildManagerClarityRefundOverview,
+  });
+  const clarityPage = await clarityContext.newPage();
+  await signInRefundUser(clarityPage, appUrl);
+  await clarityPage.getByRole('button', { name: /^Action needed 1$/ }).click();
+  await waitForQueueCount(clarityPage, 1);
+  await queueCase(clarityPage, 'RF-UAT-DRAFT-AMBIGUOUS').click();
+
+  const draftWorkbench = clarityPage.getByTestId('refund-gmail-draft-workbench');
+  const draftNextStep = draftWorkbench.getByRole('heading', {
+    name: 'Ask for the missing purchase details',
+    exact: true,
+  });
+  const askAction = clarityPage.getByTestId('refund-gmail-ask-for-details');
+  recorder.assert(
+    'Ambiguous draft card case aligns its displayed next step with the enabled Ask action',
+    await draftNextStep.isVisible() &&
+    await askAction.isVisible() &&
+      await askAction.isEnabled() &&
+      (await askAction.innerText()).includes('Reply in Gmail thread') &&
+      await draftWorkbench.getByText('only the last four digits of the card or wallet used for this purchase', {
+        exact: true,
+      }).isVisible()
+  );
+  await clarityPage.screenshot({
+    path: path.join(artifactDir, 'refund-manager-clarity-ask-desktop.png'),
+    fullPage: true,
+  });
+
+  await clarityPage.setViewportSize({ width: 640, height: 900 });
+  await askAction.scrollIntoViewIfNeeded();
+  const askActionBox = await askAction.boundingBox();
+  await clarityPage.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  });
+  let askActionKeyboardReached = false;
+  for (let tabIndex = 0; tabIndex < 60; tabIndex += 1) {
+    await clarityPage.keyboard.press('Tab');
+    askActionKeyboardReached = await askAction.evaluate(
+      (element) => element === document.activeElement
+    );
+    if (askActionKeyboardReached) break;
+  }
+  recorder.assert(
+    'Ask action supports 200 percent equivalent reflow, touch size, and keyboard reachability',
+    Boolean(askActionBox && askActionBox.height >= 44) &&
+      askActionKeyboardReached &&
+      await clarityPage.evaluate(() =>
+        window.innerWidth === 640 &&
+        document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1
+      ),
+    JSON.stringify(askActionBox)
+  );
+  await clarityPage.screenshot({
+    path: path.join(artifactDir, 'refund-manager-clarity-ask-200-percent-reflow.png'),
+    fullPage: true,
+  });
+
+  await clarityPage.setViewportSize({ width: 1440, height: 1000 });
+  await clarityPage.getByRole('button', { name: /^Waiting 1$/ }).click();
+  await waitForQueueCount(clarityPage, 1);
+  await queueCase(clarityPage, 'RF-UAT-WAITING-AMBIGUOUS').click();
+  const waitingStatus = clarityPage.getByTestId('refund-action-status');
+  recorder.assert(
+    'Waiting card case keeps one wait instruction and exposes no second customer request',
+    await waitingStatus.getByText('Waiting for customer reply', { exact: true }).isVisible() &&
+      (await clarityPage.getByRole('button', { name: /Ask for missing/ }).count()) === 0 &&
+      (await clarityPage.getByTestId('refund-save-case').count()) === 0 &&
+      /wait/i.test(await clarityPage.getByTestId('refund-manager-next-step').innerText())
+  );
+  await closeRefundPortalContext(clarityContext);
+
+  const initialFailureContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const initialFailureReads = [];
+  await installMockSupabaseRoutes(initialFailureContext, {
+    refundOverview: buildManagerClarityRefundOverview,
+    refundOverviewReadStatuses: [503],
+    refundOverviewReadLog: initialFailureReads,
+  });
+  const initialFailurePage = await initialFailureContext.newPage();
+  await signInRefundUser(initialFailurePage, appUrl);
+  const initialFailureStatus = initialFailurePage.getByTestId('refund-overview-read-status');
+  await initialFailureStatus.getByText(
+    'The latest refund information could not be loaded. Bloomjoy will keep trying.',
+    { exact: true }
+  ).waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Initial overview failure remains a prominent live status without cached truth',
+    initialFailureReads.length >= 1 &&
+      await initialFailureStatus.isVisible() &&
+      (await initialFailureStatus.getAttribute('role')) === 'status' &&
+      (await initialFailureStatus.getAttribute('aria-live')) === 'polite' &&
+      (await initialFailureStatus.getAttribute('class'))?.includes('destructive') === true
+  );
+  await closeRefundPortalContext(initialFailureContext);
+
+  const pollingContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const pollingReads = [];
+  await installMockSupabaseRoutes(pollingContext, {
+    refundOverview: () => {
+      const overview = buildManagerClarityRefundOverview();
+      return {
+        ...overview,
+        cases: overview.cases.map((refundCase) => ({
+          ...refundCase,
+          lifecycle: {
+            ...refundCase.lifecycle,
+            refreshAfterSeconds: 1,
+          },
+        })),
+      };
+    },
+    refundOverviewReadStatuses: [200, 503, 503, 200, 200],
+    refundOverviewReadLog: pollingReads,
+  });
+  const pollingPage = await pollingContext.newPage();
+  await signInRefundUser(pollingPage, appUrl);
+  await pollingPage.getByRole('button', { name: /^Action needed 1$/ }).click();
+  await waitForQueueCount(pollingPage, 1);
+  await queueCase(pollingPage, 'RF-UAT-DRAFT-AMBIGUOUS').click();
+  const pollingStatus = pollingPage.getByTestId('refund-overview-read-status');
+  await pollingStatus.evaluate((element) => {
+    const announcements = [];
+    let previous = element.textContent ?? '';
+    window.__refundOverviewAnnouncements = announcements;
+    new MutationObserver(() => {
+      const current = element.textContent ?? '';
+      if (current !== previous) {
+        announcements.push(current);
+        previous = current;
+      }
+    }).observe(element, { childList: true, characterData: true, subtree: true });
+  });
+
+  await waitForRefundOverviewReadCount(pollingPage, pollingReads, 2);
+  await pollingPage.waitForTimeout(100);
+  recorder.assert(
+    'First cached polling failure is silent and retains the selected queue action',
+    (await pollingStatus.innerText()).trim() === '' &&
+      await queueCase(pollingPage, 'RF-UAT-DRAFT-AMBIGUOUS').isVisible() &&
+      await pollingPage.getByTestId('refund-gmail-ask-for-details').isEnabled()
+  );
+
+  await waitForRefundOverviewReadCount(pollingPage, pollingReads, 3);
+  await pollingStatus.getByText(
+    'Updates are delayed. Showing the latest saved refund information while Bloomjoy keeps trying.',
+    { exact: true }
+  ).waitFor({ timeout: 3000 });
+  const delayedStatusClass = await pollingStatus.getAttribute('class');
+  recorder.assert(
+    'Second cached polling failure shows a non-destructive live delay while retaining work',
+    await pollingStatus.isVisible() &&
+      (await pollingStatus.getAttribute('role')) === 'status' &&
+      (await pollingStatus.getAttribute('aria-live')) === 'polite' &&
+      (await pollingStatus.getAttribute('aria-atomic')) === 'true' &&
+      delayedStatusClass?.includes('border-amber') === true &&
+      delayedStatusClass?.includes('destructive') === false &&
+      await queueCase(pollingPage, 'RF-UAT-DRAFT-AMBIGUOUS').isVisible() &&
+      await pollingPage.getByTestId('refund-gmail-ask-for-details').isEnabled()
+  );
+  await pollingPage.screenshot({
+    path: path.join(artifactDir, 'refund-manager-clarity-cached-read-delay.png'),
+    fullPage: true,
+  });
+
+  await waitForRefundOverviewReadCount(pollingPage, pollingReads, 4);
+  await pollingStatus.getByText('Refund information is up to date.', { exact: true })
+    .waitFor({ timeout: 3000 });
+  await waitForRefundOverviewReadCount(pollingPage, pollingReads, 5);
+  await pollingPage.waitForTimeout(100);
+  const readAnnouncements = await pollingPage.evaluate(
+    () => window.__refundOverviewAnnouncements ?? []
+  );
+  recorder.assert(
+    'Recovered overview announces one recovery and keeps cached work available',
+    readAnnouncements.filter((message) => message === 'Refund information is up to date.').length === 1 &&
+    readAnnouncements.filter((message) => message.startsWith('Updates are delayed.')).length === 1 &&
+      await queueCase(pollingPage, 'RF-UAT-DRAFT-AMBIGUOUS').isVisible() &&
+      await pollingPage.getByTestId('refund-gmail-ask-for-details').isEnabled(),
+    JSON.stringify({ pollingReads, readAnnouncements })
+  );
+  await closeRefundPortalContext(pollingContext);
+};
+
 const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
   const scenarios = [
     {
@@ -5379,7 +5684,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedStatus: 'Compare details',
       expectedManagerNotice: '2 possible transactions were found.',
       expectedBadge: 'Multiple possible matches',
-      expectedAction: 'Compare the details. Select one only if it is clearly the customer\'s purchase.',
+      expectedAction: 'Compare Customer request with Machine transaction. Select one only when they clearly describe the same purchase.',
       expectedCandidateCount: 2,
       expectedGroupedMachineLabels: true,
     },
@@ -5460,7 +5765,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedStatus: 'Compare details',
       expectedManagerNotice: '4 possible transactions were found.',
       expectedBadge: 'Multiple possible matches',
-      expectedAction: 'Compare the details. Select one only if it is clearly the customer\'s purchase.',
+      expectedAction: 'Compare Customer request with Machine transaction. Select one only when they clearly describe the same purchase.',
       expectedCandidateCount: 4,
       expectedSafetyMatrix: true,
     },
@@ -5579,7 +5884,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedStatus: 'Likely match',
       expectedManagerNotice: 'Transaction results updated.',
       expectedBadge: 'Candidate found',
-      expectedAction: 'Compare the customer, amount, and time.',
+      expectedAction: 'Compare Customer request with Machine transaction.',
       expectedCandidateCount: 1,
     },
     {
@@ -5651,7 +5956,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedStatus: 'Likely match',
       expectedManagerNotice: 'Transaction results updated.',
       expectedBadge: 'Needs comparison',
-      expectedAction: 'Next: Review this transaction once. Select it only if the machine, amount, time, and customer details identify the same purchase.',
+      expectedAction: 'Next: Review Machine transaction once. Select it only if the machine, amount, time, and customer details identify the same purchase.',
       expectedCandidateCount: 1,
       expectedReviewableMismatch: true,
     },
@@ -5894,6 +6199,21 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         (await page.getByTestId('nayax-candidate-option').count()) === scenario.expectedCandidateCount
       );
       if (scenario.name === 'multiple candidates') {
+        const managerNextStep = page.getByTestId('refund-manager-next-step');
+        const transactionComparison = page.getByTestId('nayax-transaction-comparison');
+        const positionNeutralGuidance = [
+          resultCardText,
+          await managerNextStep.innerText(),
+          await transactionComparison.innerText(),
+        ].join('\n');
+        recorder.assert(
+          'Rendered transaction workbench names the target section without spatial directions',
+          await transactionComparison.isVisible() &&
+            /machine transaction/i.test(positionNeutralGuidance) &&
+            /customer request/i.test(await managerNextStep.innerText()) &&
+            /machine transaction/i.test(await managerNextStep.innerText()) &&
+            !/\b(?:above|below)\b/i.test(positionNeutralGuidance)
+        );
         recorder.assert(
           'Ambiguous candidates show every result together in likely order',
           await page.getByTestId('nayax-transaction-comparison').isVisible() &&
@@ -5909,6 +6229,19 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
               (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0
           );
         }
+        await page.setViewportSize({ width: 390, height: 844 });
+        await managerNextStep.scrollIntoViewIfNeeded();
+        recorder.assert(
+          'Position-neutral transaction prompt remains readable on mobile',
+          await managerNextStep.isVisible() &&
+            !/\b(?:above|below)\b/i.test([
+              await page.getByTestId('nayax-result-card').innerText(),
+              await managerNextStep.innerText(),
+              await transactionComparison.innerText(),
+            ].join('\n')) &&
+            await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+        );
+        await page.setViewportSize({ width: 1440, height: 1000 });
         await page.getByTestId('nayax-candidate-option').nth(1).click();
         recorder.assert(
           'Selecting an alternate requires a structured disagreement reason',
@@ -9116,6 +9449,12 @@ const run = async () => {
         artifactDir: args.artifactDir,
         recorder,
       });
+      await runManagerClarityChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
+      });
       await runOfficialActionVersionResetChecks({
         browser,
         appUrl: args.appUrl,
@@ -9238,6 +9577,12 @@ const run = async () => {
       recorder,
     });
     await runRefundOnlyChecks({
+      browser,
+      appUrl: args.appUrl,
+      artifactDir: args.artifactDir,
+      recorder,
+    });
+    await runManagerClarityChecks({
       browser,
       appUrl: args.appUrl,
       artifactDir: args.artifactDir,

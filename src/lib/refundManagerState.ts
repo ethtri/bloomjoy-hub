@@ -31,6 +31,30 @@ export type RefundManagerState = {
   tone: RefundManagerStateTone;
 };
 
+type RefundManagerDisplayAction = {
+  disabled?: boolean;
+  helper?: string;
+  messageType?: string;
+  mode?: string;
+};
+
+/** Keep the displayed instruction aligned with an available customer-detail action. */
+export const getDisplayedRefundManagerNextStep = (
+  managerState: RefundManagerState,
+  primaryAction: RefundManagerDisplayAction | null,
+) => {
+  if (
+    primaryAction?.disabled !== true &&
+    primaryAction?.mode === 'retry_message' &&
+    primaryAction?.messageType === 'more_info' &&
+    primaryAction.helper?.trim()
+  ) {
+    return primaryAction.helper.trim();
+  }
+
+  return managerState.nextStep;
+};
+
 type RefundManagerCaseFacts = {
   status:
     | 'draft'
@@ -414,7 +438,7 @@ export const getRefundManagerState = (
             'match_attention',
             'More than one possible match',
             'Two or more transactions could be this purchase.',
-            'Compare the details. Select one only if it is clearly the customer\'s purchase.',
+            'Compare Customer request with Machine transaction. Select one only when they clearly describe the same purchase.',
             'warning'
           );
         }
@@ -754,7 +778,7 @@ export const getRefundManagerState = (
         'match_attention',
         'More than one possible match',
         'Two or more transactions could be this purchase.',
-        'Compare the details. Select one only if it is clearly the customer\'s purchase.',
+        'Compare Customer request with Machine transaction. Select one only when they clearly describe the same purchase.',
         'warning'
       );
     }

@@ -106,7 +106,7 @@
     "refunds:validate-durable-lifecycle": "deno test --no-lock supabase/functions/_shared/nayax-lookup-bounds.test.ts supabase/functions/_shared/nayax-provider-clock.test.ts supabase/functions/_shared/nayax-lookup-diagnostics.test.ts src/lib/refundLifecycle.test.ts",
     "refunds:validate-lifecycle-v2": "node scripts/refunds/validate-refund-lifecycle-v2.mjs",
     "refunds:validate-automatic-nayax-lookup": "deno test --allow-env=REFUND_NAYAX_CANDIDATE_TTL_HOURS --no-lock supabase/functions/_shared/automatic-nayax-lookup.test.ts supabase/functions/_shared/nayax-grouped-ranking.test.ts supabase/functions/_shared/nayax-account-scope.test.ts && node scripts/refunds/validate-automatic-nayax-lookup.mjs",
-    "refunds:validate-manager-workbench": "node --test scripts/refunds/refund-read-polling.test.mjs && deno test --no-lock src/lib/refundManagerState.test.ts src/lib/refundQueue.test.ts",
+    "refunds:validate-manager-workbench": "node --test scripts/refunds/refund-read-polling.test.mjs && deno test --no-lock src/lib/refundManagerState.test.ts src/lib/refundMachineLabel.test.ts src/lib/refundQueue.test.ts",
     "refunds:validate-selected-nayax-evidence": "node scripts/refunds/validate-refund-selected-nayax-evidence.mjs",
     "refunds:smoke-nayax-mapping": "node scripts/refunds/nayax-mapping-smoke.mjs",
     "refunds:validate-nayax-mapping-smoke": "node scripts/refunds/validate-nayax-mapping-smoke.mjs",

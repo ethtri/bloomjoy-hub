@@ -11,6 +11,9 @@ export const createRefundReadPolling = () => {
       if (healthyInterval === false) return false;
       return Math.min(60_000, healthyInterval * 2 ** failures);
     },
+    consecutiveFailures(): number {
+      return failures;
+    },
   };
 };
 
@@ -31,8 +34,26 @@ export const refundAvailabilityIsTerminal = (
 ) => [...overview.cases, ...(overview.refundOperationsAccess === true ? overview.internalTestCases ?? [] : [])]
   .find((row) => row.id === selectedId)?.lifecycle?.terminal === true;
 
-export const refundOverviewReadMessage = (previous: string, status: 'pending' | 'error' | 'success') => {
-  if (status === 'error') return 'The latest refund information could not be loaded. Bloomjoy will keep trying.';
-  if (status === 'success' && previous) return 'Refund information is up to date.';
+export const REFUND_OVERVIEW_INITIAL_LOAD_ERROR =
+  'The latest refund information could not be loaded. Bloomjoy will keep trying.';
+export const REFUND_OVERVIEW_UPDATE_DELAYED =
+  'Updates are delayed. Showing the latest saved refund information while Bloomjoy keeps trying.';
+export const REFUND_OVERVIEW_RECOVERED = 'Refund information is up to date.';
+
+export const refundOverviewReadMessage = (
+  previous: string,
+  status: 'pending' | 'error' | 'success',
+  context: { hasSnapshot: boolean; consecutiveFailures: number },
+) => {
+  if (status === 'error') {
+    if (!context.hasSnapshot) return REFUND_OVERVIEW_INITIAL_LOAD_ERROR;
+    return context.consecutiveFailures >= 2 ? REFUND_OVERVIEW_UPDATE_DELAYED : '';
+  }
+  if (
+    status === 'success' &&
+    [REFUND_OVERVIEW_INITIAL_LOAD_ERROR, REFUND_OVERVIEW_UPDATE_DELAYED].includes(previous)
+  ) {
+    return REFUND_OVERVIEW_RECOVERED;
+  }
   return previous;
 };

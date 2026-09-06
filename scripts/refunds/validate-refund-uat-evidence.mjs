@@ -324,7 +324,7 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 87, 'Evidence must enumerate all 87 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 90, 'Evidence must enumerate all 90 reviewed screenshots');
   assert(
     EXPECTED_SCREENSHOTS.includes('refund-inbound-case-link-review-desktop.png') &&
       EXPECTED_SCREENSHOTS.includes('refund-inbound-case-link-review-mobile.png'),
@@ -373,8 +373,8 @@ try {
   );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-manager-')).length,
-    6,
-    'Evidence must include confirmed ready/blocked and stale-evidence manager states on desktop and mobile'
+    9,
+    'Evidence must include confirmed ready/blocked, stale-evidence, action-clarity, responsive, and cached-read manager states'
   );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('machine-refunds-')).length,

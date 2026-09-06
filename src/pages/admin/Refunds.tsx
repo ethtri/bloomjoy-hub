@@ -1,5 +1,13 @@
 import { searchRefundCases } from '@/lib/refundCaseSearch';
-import { createRefundReadPolling, refundOverviewPollingInterval, refundAvailabilityIsTerminal, refundOverviewReadMessage } from '@/lib/refundReadPolling';
+import {
+  createRefundReadPolling,
+  REFUND_OVERVIEW_INITIAL_LOAD_ERROR,
+  REFUND_OVERVIEW_UPDATE_DELAYED,
+  refundAvailabilityIsTerminal,
+  refundOverviewPollingInterval,
+  refundOverviewReadMessage,
+} from '@/lib/refundReadPolling';
+import { formatRefundMachineLocation } from '@/lib/refundMachineLabel';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { collectCorrectionResponseNotices, type CorrectionNoticeState } from '@/lib/refundCorrectionContinuity';
 import {
@@ -101,6 +109,7 @@ import {
 } from '@/lib/refundOperations';
 import {
   canConfirmRefundCandidate,
+  getDisplayedRefundManagerNextStep,
   getRefundManagerState,
   hasUnpaidRefundReview,
   hasProtectedRefundLifecycle,
@@ -571,25 +580,6 @@ const formatCurrency = (cents: number | null) => {
     style: 'currency',
     currency: 'USD',
   }).format(cents / 100);
-};
-
-const formatRefundMachineLocation = (locationName: string, machineLabel: string) => {
-  const normalizedLocationName = locationName.trim();
-  const normalizedMachineLabel = machineLabel.trim();
-  const normalizedLocationKey = normalizedLocationName.toLocaleLowerCase();
-
-  if (
-    !normalizedLocationName
-    || normalizedLocationKey === 'unmapped'
-    || normalizedLocationKey === 'unknown'
-    || normalizedLocationKey.startsWith('unmapped ')
-    || normalizedLocationKey.startsWith('unknown ')
-    || locationName.trim().toLocaleLowerCase() === machineLabel.trim().toLocaleLowerCase()
-  ) {
-    return normalizedMachineLabel;
-  }
-
-  return `${normalizedLocationName} - ${normalizedMachineLabel}`;
 };
 
 const isMissingRefundLabel = (value: string | null | undefined) => {
@@ -1331,7 +1321,7 @@ const transactionSearchDescription = (summary: RefundNayaxLookupSummary | null) 
           ? 'The returned recent sales contain no usable transactions in the purchase time window. Historical coverage is unknown.'
           : 'No usable transaction was found. Coverage of the purchase time is not recorded.';
     case 'multiple_matches':
-      return `${summary.candidateCount || 'Several'} possible transactions were found. Compare them below.`;
+      return `${summary.candidateCount || 'Several'} possible transactions were found. Compare the available options in Machine transaction.`;
     case 'not_started':
       return 'Bloomjoy will start the transaction search automatically when the required customer details are available.';
     default:
@@ -1598,13 +1588,13 @@ const nayaxNextActionText = (
       return 'Next: Wait for Bloomjoy to finish checking transactions.';
     case 'match_found':
       return summary.recommendationState === 'high_confidence'
-        ? 'Next: Compare the customer, amount, and time. Select the transaction only if it is clearly correct.'
+        ? 'Next: Compare Customer request with Machine transaction. Select it only when they clearly describe the same purchase.'
         : 'Next: Compare the transaction with the customer details before selecting it.';
     case 'multiple_matches':
       return 'Next: Compare the possible transactions. Select one only if it is clearly the customer\'s purchase.';
     case 'manual_exception':
       return summary.confidenceClass === 'evidence_aware_review'
-        ? 'Next: Review this transaction once. Select it only if the machine, amount, time, and customer details identify the same purchase.'
+        ? 'Next: Review Machine transaction once. Select it only if the machine, amount, time, and customer details identify the same purchase.'
         : 'Next: Compare the possible transactions. Select one only if it is clearly the customer\'s purchase.';
     case 'no_match':
       return 'Next: Keep the case open. Do not choose a transaction unless you can clearly identify it.';
@@ -2075,15 +2065,15 @@ const primaryActionConfig = (
 
     if (matched) {
       return {
-        label: 'Choose a transaction above',
-        helper: 'Select the customer\'s transaction before issuing a refund.',
+        label: 'Choose a transaction',
+        helper: 'Select the customer\'s transaction in Machine transaction before issuing a refund.',
         disabled: true,
       };
     }
 
     return {
-      label: 'Choose a transaction above',
-      helper: 'Compare the customer request with the transaction details, then save the correct transaction.',
+      label: 'Choose a transaction',
+      helper: 'Compare the customer request with Machine transaction, then save the correct transaction.',
       disabled: true,
     };
   }
@@ -2578,10 +2568,11 @@ export default function AdminRefundsPage() {
   const overviewPolling = useMemo(createRefundReadPolling, [selectedId]);
   const availabilityPolling = useMemo(createRefundReadPolling, [selectedId]);
   const {
-    data: liveOverview = { cases: [], machines: [], managerAssignments: [] },
+    data: liveOverviewSnapshot,
     isLoading: liveIsLoading,
     isFetching: liveIsFetching,
     error,
+    errorUpdatedAt: overviewErrorUpdatedAt,
     status: overviewReadStatus,
   } = useQuery({
     queryKey: ['admin-refund-operations-overview'],
@@ -2595,6 +2586,7 @@ export default function AdminRefundsPage() {
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
+  const liveOverview = liveOverviewSnapshot ?? { cases: [], machines: [], managerAssignments: [] };
 
   const availabilityCaseIsTerminal = refundAvailabilityIsTerminal(liveOverview, selectedId);
 
@@ -2647,9 +2639,24 @@ export default function AdminRefundsPage() {
     ]);
   };
   const isUsingDemoData = canUseLocalRefundDemoData();
+  const overviewHasSnapshot = liveOverviewSnapshot !== undefined;
+  const overviewConsecutiveFailures = overviewPolling.consecutiveFailures();
   useEffect(() => {
-    setOverviewReadMessage((previous) => isUsingDemoData ? '' : refundOverviewReadMessage(previous, overviewReadStatus));
-  }, [overviewReadStatus, isUsingDemoData]);
+    setOverviewReadMessage((previous) => isUsingDemoData ? '' : refundOverviewReadMessage(
+      previous,
+      overviewReadStatus,
+      {
+        hasSnapshot: overviewHasSnapshot,
+        consecutiveFailures: overviewConsecutiveFailures,
+      },
+    ));
+  }, [
+    isUsingDemoData,
+    overviewConsecutiveFailures,
+    overviewErrorUpdatedAt,
+    overviewHasSnapshot,
+    overviewReadStatus,
+  ]);
   const pageIsLoading = isUsingDemoData ? false : liveIsLoading;
   const pageIsFetching = isUsingDemoData ? false : liveIsFetching;
   const demoOverview = useMemo(() => buildLocalRefundDemoOverview(), []);
@@ -3932,7 +3939,7 @@ export default function AdminRefundsPage() {
       });
       setNayaxLookupNotice({
         tone: 'success',
-        message: 'Transaction saved for review. Confirm the exact transaction below before approving any refund.',
+        message: 'Transaction saved for review. Confirm it in Machine transaction before approving any refund.',
       });
       toast.success('Nayax transaction saved for confirmation. No refund or email was sent.');
       await refresh();
@@ -4193,7 +4200,7 @@ export default function AdminRefundsPage() {
       } else {
         const foundMessage = result.recommendationState === 'high_confidence'
           ? 'One likely transaction was found. Confirm the customer, amount, and time before continuing.'
-          : `${result.candidates.length} possible transactions were found. Compare the customer, amount, and time before choosing one.`;
+          : `${result.candidates.length} possible transactions were found. Compare Customer request with Machine transaction before choosing one.`;
         setNayaxLookupNotice({
           tone: result.recommendationState === 'high_confidence' ? 'success' : 'warning',
           message: foundMessage,
@@ -5600,7 +5607,7 @@ export default function AdminRefundsPage() {
             id: 'match_attention',
             label: 'Review transaction',
             explanation: 'Bloomjoy found one close transaction. Its card identifier differs, and Nayax has not proved the compared fields are equivalent.',
-            nextStep: 'Review this transaction once. Select it only if the machine, amount, time, and customer details identify the same purchase.',
+            nextStep: 'Review Machine transaction once. Select it only if the machine, amount, time, and customer details identify the same purchase.',
             tone: 'info',
           }
       : !hasSelectedMatch &&
@@ -5610,10 +5617,11 @@ export default function AdminRefundsPage() {
             id: 'match_attention',
             label: 'Review likely transaction',
             explanation: 'Bloomjoy found one transaction that closely matches the customer details.',
-            nextStep: 'Compare the customer, amount, and time. Select the transaction only if it is clearly correct.',
+            nextStep: 'Compare Customer request with Machine transaction. Select it only when they clearly describe the same purchase.',
             tone: 'info',
           }
       : baseManagerState;
+    const displayedManagerNextStep = getDisplayedRefundManagerNextStep(managerState, primaryAction);
     const showDisabledActionStatus =
       (primaryAction?.disabled === true || technicalRefundOperationsAction || paymentActionNeedsOperations) &&
       !selectedCaseIsTerminal &&
@@ -5703,7 +5711,7 @@ export default function AdminRefundsPage() {
                 {managerState.explanation}
               </p>
               <p data-testid="refund-manager-next-step" className="mt-1 max-w-xl text-sm font-medium leading-5 text-foreground">
-                Next: {managerState.nextStep}
+                Next: {displayedManagerNextStep}
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:items-end">
@@ -6703,6 +6711,7 @@ export default function AdminRefundsPage() {
     };
 
     const managerState = getRefundManagerState(selectedCase);
+    const displayedManagerNextStep = getDisplayedRefundManagerNextStep(managerState, primaryAction);
 
     return (
       <div data-testid="refund-cash-workbench" className="space-y-4">
@@ -6721,7 +6730,7 @@ export default function AdminRefundsPage() {
               <p className="mt-2 max-w-xl text-sm leading-5 text-muted-foreground">{managerState.explanation}</p>
               {!isCashCompletion && (
                 <p data-testid="refund-manager-next-step" className="mt-1 max-w-xl text-sm font-medium leading-5 text-foreground">
-                  Next: {managerState.nextStep}
+                  Next: {displayedManagerNextStep}
                 </p>
               )}
               {isCashCompletion && (
@@ -6993,9 +7002,11 @@ export default function AdminRefundsPage() {
           )}
 
           <div data-testid="refund-overview-read-status" role="status" aria-live="polite" aria-atomic="true"
-            className={overviewReadMessage ? overviewReadMessage === refundOverviewReadMessage('', 'error')
+            className={overviewReadMessage ? overviewReadMessage === REFUND_OVERVIEW_INITIAL_LOAD_ERROR
               ? 'mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive'
-              : 'mt-4 text-sm text-muted-foreground' : 'sr-only'}>
+              : overviewReadMessage === REFUND_OVERVIEW_UPDATE_DELAYED
+                ? 'mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950'
+                : 'mt-4 text-sm text-muted-foreground' : 'sr-only'}>
             {overviewReadMessage}
           </div>
 

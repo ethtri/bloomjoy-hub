@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import ts from 'typescript';
 const source=fs.readFileSync(new URL('../../src/lib/refundReadPolling.ts',import.meta.url),'utf8');
 const compiled=ts.transpile(source,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022});
-const {createRefundReadPolling,refundOverviewPollingInterval,refundAvailabilityIsTerminal,refundOverviewReadMessage}=await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+const {createRefundReadPolling,refundOverviewPollingInterval,refundAvailabilityIsTerminal,refundOverviewReadMessage,
+ REFUND_OVERVIEW_INITIAL_LOAD_ERROR,REFUND_OVERVIEW_UPDATE_DELAYED,REFUND_OVERVIEW_RECOVERED}=await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
 // QueryObserver only schedules browser intervals when a window exists at import.
 globalThis.window={};
 const {QueryClient,QueryObserver,focusManager,onlineManager}=await import('@tanstack/query-core');
@@ -56,9 +57,11 @@ test('real QueryObserver backs off across failed polls, preserves cached truth, 
   await flush();assert.deepEqual(at,[1000]);fail=true;
   for(const ms of [5000,10000,20000,40000,60000])await clock.tick(ms);
   assert.deepEqual(at,[1000,6000,16000,36000,76000,136000]);
+  assert.equal(polling.consecutiveFailures(),5);
   assert.deepEqual(observer.getCurrentResult().data,{available:false,case:'a'});
   fail=false;await clock.tick(60000);await clock.tick(5000);
   assert.deepEqual(at.slice(-2),[196000,201000]);
+  assert.equal(polling.consecutiveFailures(),0);
   terminal=true;observer.setOptions(options());await clock.tick(60000);assert.equal(at.length,8);
   await observer.refetch();await flush();assert.equal(at.length,9,'Explicit refresh remains available after terminal');
   terminal=false;observer.setOptions(options());await clock.tick(5000);assert.equal(at.at(-1),266000);
@@ -103,12 +106,24 @@ test('terminal availability includes only the same authorized internal-case scop
  assert.equal(refundAvailabilityIsTerminal({...overview,cases:[{id:'ordinary',lifecycle:{terminal:false}}]},'ordinary'),false);
 });
 
-test('read announcements change only on settled error/recovery, with a silent healthy baseline',()=>{
- assert.equal(refundOverviewReadMessage('', 'success'),'');
- const failed=refundOverviewReadMessage('', 'error');assert.match(failed,/could not be loaded/);
- assert.equal(refundOverviewReadMessage(failed,'error'),failed);
- assert.equal(refundOverviewReadMessage(failed,'pending'),failed);
- const recovered=refundOverviewReadMessage(failed,'success');assert.equal(recovered,'Refund information is up to date.');
- assert.equal(refundOverviewReadMessage(recovered,'success'),recovered);
- assert.equal(refundOverviewReadMessage(recovered,'error'),failed);
+test('read announcements preserve initial failure but suppress one cached polling blip',()=>{
+ const noSnapshot={hasSnapshot:false,consecutiveFailures:1};
+ const firstCachedFailure={hasSnapshot:true,consecutiveFailures:1};
+ const repeatedCachedFailure={hasSnapshot:true,consecutiveFailures:2};
+ assert.equal(refundOverviewReadMessage('', 'success',noSnapshot),'');
+ const failed=refundOverviewReadMessage('', 'error',noSnapshot);
+ assert.equal(failed,REFUND_OVERVIEW_INITIAL_LOAD_ERROR);
+ assert.equal(refundOverviewReadMessage(failed,'pending',noSnapshot),failed);
+ assert.equal(
+   refundOverviewReadMessage(failed,'success',{hasSnapshot:true,consecutiveFailures:0}),
+   REFUND_OVERVIEW_RECOVERED
+ );
+ assert.equal(refundOverviewReadMessage('', 'error',firstCachedFailure),'');
+ const delayed=refundOverviewReadMessage('', 'error',repeatedCachedFailure);
+ assert.equal(delayed,REFUND_OVERVIEW_UPDATE_DELAYED);
+ assert.equal(refundOverviewReadMessage(delayed,'pending',repeatedCachedFailure),delayed);
+ const recovered=refundOverviewReadMessage(delayed,'success',{hasSnapshot:true,consecutiveFailures:0});
+ assert.equal(recovered,REFUND_OVERVIEW_RECOVERED);
+ assert.equal(refundOverviewReadMessage(recovered,'success',{hasSnapshot:true,consecutiveFailures:0}),recovered);
+ assert.equal(refundOverviewReadMessage(recovered,'error',firstCachedFailure),'');
 });
