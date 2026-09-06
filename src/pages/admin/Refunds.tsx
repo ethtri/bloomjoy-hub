@@ -1771,6 +1771,17 @@ const primaryActionConfig = (
     helper: 'Wait for the customer to reply to the existing request. No new request is needed.', disabled: true,
   };
   const canContinueReview = hasUnpaidRefundReview(refundCase) && derivePortalRefundMissingFields(refundCase).length === 0;
+  if (
+    latestMessage?.status === 'failed' &&
+    !canContinueReview &&
+    isRefundCustomerDeliveryUncertain(latestMessage.errorMessage)
+  ) {
+    return {
+      label: 'Resolve uncertain Gmail delivery',
+      helper: 'First check the original Gmail thread. If no message was sent, record that verification here before sending a controlled follow-up.',
+      mode: 'resolve_delivery_not_found',
+    };
+  }
   if (refundCase.customerDeliveryException && !canContinueReview) {
     const stateLabel = transactionalDeliveryLabel(
       refundCase.customerDeliveryException.state
@@ -1806,13 +1817,6 @@ const primaryActionConfig = (
         label: 'Approval email blocked',
         helper: 'No refund has been issued. The customer will be emailed only after the refund succeeds.',
         disabled: true,
-      };
-    }
-    if (isRefundCustomerDeliveryUncertain(latestMessage.errorMessage)) {
-      return {
-        label: 'Resolve uncertain Gmail delivery',
-        helper: 'First check the original Gmail thread. If no message was sent, record that verification here before sending a controlled follow-up.',
-        mode: 'resolve_delivery_not_found',
       };
     }
     if (latestMessage.messageType === 'confirmation') {
@@ -2211,6 +2215,28 @@ const transactionalDeliveryLabel = (state: string | undefined) => ({
   complained: 'Complaint reported',
   unknown: 'Delivery unknown',
 }[state ?? 'unknown'] ?? 'Delivery unknown');
+
+const getRefundDeliveryEvidenceMessageId = (
+  messages: RefundCaseRecord['messages'],
+  exception: RefundCaseRecord['customerDeliveryException']
+) => {
+  if (!exception) return null;
+
+  const occurredAt = Date.parse(exception.occurredAt);
+  if (Number.isNaN(occurredAt)) return null;
+
+  const exactMatches = messages
+    .filter((message) => {
+      const messageOccurredAt = Date.parse(message.deliveryStateUpdatedAt ?? message.createdAt);
+      return message.deliveryTransport === 'resend' &&
+        message.deliveryState === exception.state &&
+        message.messageType === exception.messageType &&
+        messageOccurredAt === occurredAt;
+    })
+    .map((message) => message.id);
+
+  return exactMatches.length === 1 ? exactMatches[0] : null;
+};
 
 const transactionalDeliveryBadgeClass = (state: string | undefined) => {
   if (state === 'delivered') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
@@ -5494,6 +5520,12 @@ export default function AdminRefundsPage() {
     selectedCase && editor && primaryAction?.messageType
       ? getCustomerMessageDraft(selectedCase, primaryAction.messageType, editor)
       : null;
+  const selectedDeliveryEvidenceMessageId = selectedCase
+    ? getRefundDeliveryEvidenceMessageId(
+        selectedCase.messages,
+        selectedCase.customerDeliveryException
+      )
+    : null;
   const availableCustomerMessageOptions = customerMessageOptions.filter((option) => {
     if (selectedCase?.paymentMethod === 'card' && option.value === 'approved') return false;
     if (option.value === 'completed' && selectedCase?.status !== 'completed') return false;
@@ -8683,7 +8715,6 @@ export default function AdminRefundsPage() {
                         <summary
                           ref={customerMessagesSummaryRef}
                           data-testid="refund-customer-messages-summary"
-                          tabIndex={-1}
                           className="flex scroll-mt-20 cursor-pointer list-none items-center gap-2 rounded-sm text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         >
                           <Mail className="h-4 w-4 text-primary" />
@@ -8696,12 +8727,12 @@ export default function AdminRefundsPage() {
                             </p>
                           ) : (
                             selectedCase.messages.map((message) => {
-                              const isSelectedDeliveryEvidence = message.deliveryTransport === 'resend' &&
-                                message.deliveryState === selectedCase.customerDeliveryException?.state;
+                              const isSelectedDeliveryEvidence = message.id === selectedDeliveryEvidenceMessageId;
                               return (
                                 <div
                                   key={message.id}
                                   ref={isSelectedDeliveryEvidence ? customerDeliveryEvidenceRef : undefined}
+                                  data-refund-message-id={message.id}
                                   data-testid={isSelectedDeliveryEvidence ? 'refund-focused-delivery-record' : undefined}
                                   tabIndex={isSelectedDeliveryEvidence ? -1 : undefined}
                                   aria-label={isSelectedDeliveryEvidence
