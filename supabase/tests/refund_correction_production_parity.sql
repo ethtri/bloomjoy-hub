@@ -268,7 +268,9 @@ select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id='cf150000-0000-4000-8000-000000000001'),1,
   'One structured same-case customer message is queued');
 select lives_ok(format(
-  $$select public.service_issue_refund_purchase_correction('%s',repeat('c',64),2)$$,
+  $$select public.service_issue_refund_purchase_correction(
+    '%s',repeat('c',64),(select deterministic_fact_version from public.refund_cases
+      where id='cf150000-0000-4000-8000-000000000001'))$$,
   (select value->>'messageId' from correction_message)
 ), 'The one message receives one secure existing-case correction capability');
 select ok((select count(*)=1
@@ -285,7 +287,10 @@ select is(public.service_get_refund_purchase_correction(repeat('c',64))->>'state
   'The sent same-case link opens the structured correction form');
 select lives_ok($$
   select public.service_submit_refund_purchase_correction(
-    repeat('c',64),2,
+    repeat('c',64),(select correction_fact_version
+      from public.refund_wallet_correction_contexts
+      where refund_case_id='cf150000-0000-4000-8000-000000000001'
+        and token_hash=repeat('c',64)),
     '{
       "incident_time":{"disposition":"cannot_provide"},
       "incident_time_source":{"disposition":"cannot_provide"},
