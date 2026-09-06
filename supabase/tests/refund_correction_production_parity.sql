@@ -40,7 +40,7 @@ values('cf150000-0000-4000-8000-000000000001','RF-CURRENT-FACT',
   'cf140000-0000-4000-8000-000000000001','cf130000-0000-4000-8000-000000000001',
   'current-fact-customer@example.invalid','Production-shaped redundant correction scope',
   '2026-09-05T21:00:00Z','2026-09-05T14:00','America/Los_Angeles','exact','rough',null,
-  'card',1060,1060,'1003','wallet_device_token','wallet_device',null,true,
+  'card',1060,1060,'1003','wallet_device_token',null,null,true,
   'phone_watch_wallet','apple_pay','phone',null,'needs_review','needs_nayax',2,'form','{}',
   '2026-09-05T22:00:00Z','hosted_refund_intake');
 
