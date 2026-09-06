@@ -406,11 +406,11 @@ const installMockSupabaseRoutes = async (context, state) => {
           {
             id: '55555555-5555-4555-8555-555555555552',
             accountKey: 'UAT_ACCOUNT',
-            nayaxMachineId: 'UAT-NAYAX-SNAP',
-            machineName: 'Snapcase UAT',
+            nayaxMachineId: '224560057',
+            machineName: 'Valley Mall — product type unverified',
             machineNumber: '002',
             providerActive: true,
-            category: 'snapcase',
+            category: 'unknown',
             reportingMachineId: null,
             state: 'needs_setup',
             setupReason: 'exact_mapping_required',
@@ -685,6 +685,29 @@ const run = async () => {
       'Nayax setup defaults to the exceptions-first review view',
       await page.getByRole('button', { name: /Needs review/ }).getAttribute('aria-current') === 'page'
     );
+    const inventoryCategoryFilter = page.getByLabel('Filter Nayax category');
+    await inventoryCategoryFilter.selectOption('unknown');
+    recorder.assert(
+      'Unverified product inventory is explicit and filterable on desktop',
+      await inventoryCategoryFilter.locator('option[value="unknown"]').textContent() === 'Product unverified'
+        && await page.getByText('Valley Mall — product type unverified', { exact: true }).isVisible()
+    );
+    await page.setViewportSize({ width: 390, height: 844 });
+    const unknownInventoryMobileLayout = await page.evaluate(() => ({
+      viewportWidth: window.innerWidth,
+      documentWidth: document.documentElement.scrollWidth,
+    }));
+    recorder.assert(
+      'Unverified product inventory remains readable without horizontal overflow at 390x844',
+      await page.getByText('Valley Mall — product type unverified', { exact: true }).isVisible()
+        && unknownInventoryMobileLayout.documentWidth <= unknownInventoryMobileLayout.viewportWidth
+    );
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'machine-inventory-product-unverified-mobile.png'),
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await inventoryCategoryFilter.selectOption('all');
     await page.getByRole('main').getByRole('link', { name: 'Machines', exact: true }).click();
     await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10000 });
 
