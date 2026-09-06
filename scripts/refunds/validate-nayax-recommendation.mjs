@@ -183,6 +183,19 @@ const largeAmountDifferenceExactSuffix = recommend([
 assert.equal(largeAmountDifferenceExactSuffix.candidates[0].selectionAllowed, true);
 assert.equal(largeAmountDifferenceExactSuffix.candidates[0].oneClickEligible, false);
 
+const distantExactSuffixBeforeRequest = recommend([
+  sale({ id: "distant-exact-suffix-before-request", at: "2026-07-21T23:00:00.000Z", amount: 10.9,
+    last4: "6768", recognitionMethod: "Swipe" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "swipe_card", requestCardLast4Source: "physical_card",
+  customerRequestReceivedAt: "2026-07-22T00:00:00.000Z",
+  customerRequestReceivedSource: "hosted_refund_intake",
+  purchaseOccurrenceProof: "verified_provider_purchase_occurrence_v1" });
+assert.equal(distantExactSuffixBeforeRequest.candidates[0].timeDeltaMinutes, 240);
+assert.equal(distantExactSuffixBeforeRequest.candidates[0].requestTimeBoundaryState, "before_or_at_request");
+assert.equal(distantExactSuffixBeforeRequest.candidates[0].selectionAllowed, true);
+assert.equal(distantExactSuffixBeforeRequest.candidates[0].oneClickEligible, false);
+
 const largeAmountDifferenceCorroboratedMismatch = recommend([
   sale({ id: "large-difference-corroborated", at: "2026-07-21T19:15:00.000Z", amount: 25.9,
     last4: "3760", recognitionMethod: "Swipe" }),

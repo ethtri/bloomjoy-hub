@@ -677,9 +677,6 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     candidate.providerTimeResolution === "exact" &&
     candidate.machineTimeResolution === "exact" &&
     Boolean(candidate.machineAuthorizationTimeRaw) &&
-    (candidate.timeDeltaMinutes === null ||
-      candidate.timeDeltaMinutes <= policy.maximumUniqueQrIncidentDeltaMinutes ||
-      neutralPhysicalContactlessMismatch) &&
     candidate.currencyCode === "USD" &&
     candidate.paymentStatus === "approved" &&
     ["explicit", "last_sales_contract"].includes(candidate.paymentStatusEvidence) &&

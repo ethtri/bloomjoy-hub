@@ -184,8 +184,6 @@ begin
     and p_evidence ->> 'provider_time_resolution' is not distinct from 'exact'
     and p_evidence ->> 'machine_time_resolution' is not distinct from 'exact'
     and coalesce(p_evidence ->> 'machine_authorization_time_raw','') <> ''
-    and (expected_time_delta is null or expected_time_delta <= 180
-      or neutral_physical_contactless_mismatch)
     and p_currency_code is not distinct from 'USD'
     and p_evidence ->> 'payment_status' is not distinct from 'approved'
     and coalesce(p_evidence ->> 'payment_status_evidence','') in ('explicit','last_sales_contract')
