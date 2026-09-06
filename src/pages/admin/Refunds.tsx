@@ -2462,6 +2462,7 @@ export default function AdminRefundsPage() {
     messageType: RefundCustomerPortalMessageType;
     messageSubject: string;
     messageBody: string;
+    isCustomerDraftDirty: boolean;
   } | null>(null);
   const cashCompletionInFlightRef = useRef(false);
   const evidenceSelectionInFlightRef = useRef(false);
@@ -5641,6 +5642,7 @@ export default function AdminRefundsPage() {
         messageType,
         messageSubject,
         messageBody,
+        isCustomerDraftDirty,
       };
       setEditor((current) => current ? editorForDenial(current) : current);
       handleMessageTypeChange('denied');
@@ -5657,6 +5659,7 @@ export default function AdminRefundsPage() {
         setMessageType(previousState.messageType);
         setMessageSubject(previousState.messageSubject);
         setMessageBody(previousState.messageBody);
+        setIsCustomerDraftDirty(previousState.isCustomerDraftDirty);
       } else {
         const restoredEditor = toEditorState(selectedCase);
         const restoredMessageType: RefundCustomerPortalMessageType = selectedCase.status === 'draft'
@@ -5667,6 +5670,7 @@ export default function AdminRefundsPage() {
         setMessageType(restoredMessageType);
         setMessageSubject(restoredMessage.subject);
         setMessageBody(restoredMessage.body);
+        setIsCustomerDraftDirty(false);
       }
       window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
         const trigger = denialTriggerRef.current?.isConnected

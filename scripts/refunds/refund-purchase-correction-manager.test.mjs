@@ -84,6 +84,27 @@ test('canonical guided actions preserve a genuinely edited customer draft',()=>{
  assert.deepEqual(updates,[]);
 });
 
+test('denial cancellation restores the exact prior customer-draft dirty state',()=>{
+ const restored=[];const previousEditor={status:'card_refund_pending',decision:'approved'};
+ const denialPreviousStateRef={current:{
+  caseId:'case-1',editor:previousEditor,messageType:'status_update',
+  messageSubject:'Edited subject',messageBody:'Edited body',isCustomerDraftDirty:true,
+ }};
+ load('cancelDenial',{
+  selectedCase:{id:'case-1'},denialPreviousStateRef,denialTriggerRef:{current:null},
+  setEditor:value=>restored.push(['editor',value]),setMessageType:value=>restored.push(['type',value]),
+  setMessageSubject:value=>restored.push(['subject',value]),setMessageBody:value=>restored.push(['body',value]),
+  setIsCustomerDraftDirty:value=>restored.push(['dirty',value]),
+  window:{requestAnimationFrame:callback=>callback()},
+  document:{querySelector:()=>null},
+ })();
+ assert.deepEqual(restored,[
+  ['editor',previousEditor],['type','status_update'],['subject','Edited subject'],
+  ['body','Edited body'],['dirty',true],
+ ]);
+ assert.equal(denialPreviousStateRef.current,null);
+});
+
 test('actual correction action opens preselected fields, rejects empty, stale and unsupported selections before send',async()=>{
  let selection;let sends=0;const errors=[];
  const base={selectedCase:{id:'case-1',customerCorrectionFields:['amount','card_last4']},correctionSelection:null,officialActionVersion:12,customerDeliveryNeedsReconciliation:false,isUsingDemoData:false,pendingRevision:null,setPendingRevision:()=>{},
