@@ -165,7 +165,8 @@
     "20260906202500_refund_correction_overview_parity.sql",
     "20260906202952_refund_attempt_continuation_outcomes.sql",
     "20260906222000_refund_attempt_continuation_readiness.sql",
-    "20260906225234_refund_attempt_handoff_continuation.sql"
+    "20260906225234_refund_attempt_handoff_continuation.sql",
+    "20260906230000_refund_one_manager_decision.sql"
   ],
   "migrationFilesSha256": "5e5d08f5f9f080592ff3f0c5722cbed5a0de758876413d39748cc5b764df1416",
   "migrationVersionSetSha256": "1b3cd2bac3155e162d48701aea74a5b76c1ce8cdc4d87e14bfd4e77ead064964",
