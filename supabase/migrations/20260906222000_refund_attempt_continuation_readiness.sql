@@ -25,10 +25,10 @@ begin
   join public.refund_nayax_execution_contexts execution
     on execution.attempt_id = attempt.id
     and execution.refund_case_id = refund_case.id
-  join public.refund_case_official_action_authorizations authorization
-    on authorization.id = attempt.official_action_authorization_id
+  join public.refund_case_official_action_authorizations action_authorization
+    on action_authorization.id = attempt.official_action_authorization_id
   join public.reporting_machine_refund_managers manager_mapping
-    on manager_mapping.id = authorization.manager_mapping_id
+    on manager_mapping.id = action_authorization.manager_mapping_id
   where refund_case.id = p_refund_case_id
     and p_user_id is not null
     and refund_case.duplicate_of_refund_case_id is null
@@ -83,18 +83,18 @@ begin
     and attempt.provider_claim_consumed_at is null
     and attempt.provider_claim_expires_at is not null
     and attempt.provider_claim_expires_at <= statement_timestamp()
-    and authorization.refund_case_id = refund_case.id
-    and authorization.actor_user_id = p_user_id
-    and authorization.action = 'nayax_execute'
-    and authorization.status = 'consumed'
-    and authorization.consumed_at is not null
-    and authorization.expected_case_version =
+    and action_authorization.refund_case_id = refund_case.id
+    and action_authorization.actor_user_id = p_user_id
+    and action_authorization.action = 'nayax_execute'
+    and action_authorization.status = 'consumed'
+    and action_authorization.consumed_at is not null
+    and action_authorization.expected_case_version =
       (execution.context ->> 'caseVersion')::bigint + 1
     and refund_case.official_action_version =
-      authorization.expected_case_version + 1
+      action_authorization.expected_case_version + 1
     and manager_mapping.reporting_machine_id = refund_case.reporting_machine_id
     and manager_mapping.manager_user_id = p_user_id
-    and manager_mapping.mapping_version = authorization.manager_mapping_version
+    and manager_mapping.mapping_version = action_authorization.manager_mapping_version
     and manager_mapping.status = 'active'
     and manager_mapping.revoked_at is null
     and refund_case.nayax_refund_attempt_generation =
