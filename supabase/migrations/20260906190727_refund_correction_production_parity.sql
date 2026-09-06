@@ -48,6 +48,12 @@ begin
     return public.canonical_refund_follow_up_fields(fields);
   end if;
 
+  -- This source question is redundant from current case facts regardless of
+  -- lookup lifecycle. Remove it before every fallback so a completed Not-sure
+  -- response cannot reopen the same customer-contact loop after the submit
+  -- path invalidates its prior recommendation and candidates.
+  fields := array_remove(fields, 'card_last4_source');
+
   -- An internal lookup refresh never becomes a customer question. Returning an
   -- empty scope also makes the message-enqueue guard reject the action.
   if case_row.nayax_lookup_status = 'checking' then
@@ -104,7 +110,6 @@ begin
   -- customer-provided suffix is a wallet device token. Ask only unresolved
   -- current case facts that can distinguish nearby purchases; never infer or
   -- persist a card source from this read.
-  fields := array_remove(fields, 'card_last4_source');
   select coalesce(array_agg(value), '{}') into reasons
   from jsonb_array_elements_text(
     coalesce(evidence -> 'reason_codes', '[]'::jsonb)

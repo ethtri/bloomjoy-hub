@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(29);
+select plan(31);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('cf110000-0000-4000-8000-000000000001','authenticated','authenticated',
@@ -184,7 +184,7 @@ select is((public.service_commit_refund_nayax_lookup(
   'manual_exception','manual_exception','2026-09-05.v11',statement_timestamp(),
   'The current generation contains no usable candidate',null,0,'manual',
   'cf110000-0000-4000-8000-000000000001'
-)->>'applied'),'true','An empty generation commits through the normal lookup guard');
+)->>'applied'),'true','A zero-candidate generation commits through the normal lookup guard');
 select is(public.refund_purchase_correction_request_fields(
   'cf150000-0000-4000-8000-000000000001'), '{}'::text[],
   'A settled current generation with no candidate remains customer-silent');
@@ -296,6 +296,14 @@ select lives_ok($$
 $$, 'Choosing Not sure for every requested field completes the correction once');
 select is(public.service_get_refund_purchase_correction(repeat('c',64))->>'state','received',
   'The completed Not-sure response is retained on the existing case');
+select is(public.refund_purchase_correction_request_fields(
+  'cf150000-0000-4000-8000-000000000001'), '{}'::text[],
+  'Submitting Not sure clears the resolved lookup without reopening the redundant source question');
+select throws_like(
+  $$select pg_temp.queue_current_fact_scope(
+    array['incident_time','incident_time_source','card_network','nearby_attempt_count'])$$,
+  '%Valid refund manual-message intent%',
+  'The completed response rejects a second correction enqueue before capability issuance');
 select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id='cf150000-0000-4000-8000-000000000001'),1,
   'Correction completion creates no second customer message');
