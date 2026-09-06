@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(12);
+select plan(19);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('fb110000-0000-4000-8000-000000000001','authenticated','authenticated',
@@ -58,24 +58,28 @@ create function pg_temp.soft_time_evidence(
     'manual_review_reasons','["transaction_occurrence_time_uncertain"]'::jsonb,
     'reason_codes','["machine_exact","amount_exact","transaction_occurrence_time_uncertain"]'::jsonb,
     'match_factors','[]'::jsonb,'match_reason','Exact machine and amount; provider timing is supporting evidence',
-    'recommendation_rank',1,'lookup_account_scope','SOFT_TIME_ACCOUNT',
+    'recommendation_rank',1,'is_top_ranked',true,'lookup_account_scope','SOFT_TIME_ACCOUNT',
     'lookup_provider_machine_id','SOFT-TIME-MACHINE','provider_machine_id','SOFT-TIME-MACHINE',
-    'machine_authorization_time_raw','2026-09-05T18:05:00.1234567',
-    'machine_authorization_at','2026-09-05T18:05:00Z',
+    'machine_authorization_time_raw','2026-09-05T11:05:00.1234567',
+    'machine_authorization_at','2026-09-05T18:05:00.123Z',
     'machine_authorization_time_source','MachineAuthorizationTime','machine_time_resolution','exact',
     'provider_time_resolution','exact','provider_time_source','authorization_gmt',
     'authorized_at',authorized_at,'customer_request_received_at',c.customer_request_received_at,
     'customer_request_received_source',c.customer_request_received_source,
-    'request_time_boundary',boundary,'transaction_occurrence_comparable',comparable,
+    'request_time_boundary',boundary,'transaction_occurrence_comparable',comparable
+  ) || jsonb_build_object(
     'transaction_occurrence_semantics',case when comparable then 'online_purchase_occurrence' else 'unknown' end,
-    'transaction_occurrence_proof_source',case when comparable then to_jsonb('synthetic_online_event'::text) else 'null'::jsonb end,
+    'transaction_occurrence_proof_source',case when comparable then to_jsonb('verified_provider_purchase_occurrence_v1'::text) else 'null'::jsonb end,
     'transaction_occurrence_timestamp_source',case when comparable then to_jsonb('authorization_gmt'::text) else 'null'::jsonb end,
     'transaction_occurrence_timezone_basis',case when comparable then to_jsonb('utc'::text) else 'null'::jsonb end,
     'transaction_occurrence_lower_bound_at',coalesce(to_jsonb(occurrence_lower),'null'::jsonb),
     'transaction_occurrence_upper_bound_at',coalesce(to_jsonb(occurrence_upper),'null'::jsonb),
     'request_receipt_lower_bound_at',coalesce(to_jsonb(request_lower),'null'::jsonb),
     'request_receipt_upper_bound_at',coalesce(to_jsonb(request_upper),'null'::jsonb),
-    'amount_delta_cents',0,'time_delta_minutes',
+    'amount_delta_cents',0,
+    'time_delta_minutes',case when comparable then
+      ceil(abs(extract(epoch from (authorized_at-c.incident_at)))/60.0)::integer else null end,
+    'provider_processing_time_delta_minutes',
       ceil(abs(extract(epoch from (authorized_at-c.incident_at)))/60.0)::integer,
     'payment_status','approved','payment_status_evidence','last_sales_contract',
     'provider_refund_state','clear','duplicate_provider_record',false,
@@ -93,7 +97,7 @@ insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_ge
   currency_code,evidence_summary,expires_at)
 select 'fb160000-0000-4000-8000-000000000001','fb150000-0000-4000-8000-000000000001',generation,
   'fb110000-0000-4000-8000-000000000001','fb140000-0000-4000-8000-000000000001',
-  'OFFLINE-LATER-AUTH',14,'2026-09-05T18:05:00Z',1090,'6768','USD',
+  'OFFLINE-LATER-AUTH',14,'2026-09-05T18:05:00.123Z',1090,'6768','USD',
   pg_temp.soft_time_evidence('occurrence_time_uncertain','2026-09-05T18:05:00Z'),
   statement_timestamp()+interval '1 hour' from lookup_claim;
 select is((select count(*)::integer from public.refund_nayax_lookup_candidates
@@ -105,6 +109,42 @@ select is((select evidence_summary->>'one_click_eligible' from public.refund_nay
 select is((select evidence_summary->>'transaction_occurrence_semantics' from public.refund_nayax_lookup_candidates
   where token='fb160000-0000-4000-8000-000000000001'),'unknown',
   'Authorization GMT is retained separately and does not invent purchase-occurrence semantics');
+select ok((select evidence_summary->'time_delta_minutes' = 'null'::jsonb
+    and evidence_summary->>'provider_processing_time_delta_minutes'='5'
+  from public.refund_nayax_lookup_candidates
+  where token='fb160000-0000-4000-8000-000000000001'),
+  'Unknown occurrence has no purchase-time delta while provider processing delta remains explicit');
+
+select ok(not has_function_privilege('service_role',
+  'public.service_select_refund_nayax_candidate_as_actor_pre_lookup_generation_v1(uuid,uuid,bigint,uuid,text)',
+  'execute'),
+  'Service role cannot bypass the validated current-generation selection wrapper');
+
+select is(public.refund_nayax_candidate_identifier_evidence_state(
+  'fb150000-0000-4000-8000-000000000001','fb140000-0000-4000-8000-000000000001',14,
+  '2026-09-05T18:05:00.123Z',1090,'6768','USD',
+  jsonb_set(pg_temp.soft_time_evidence('occurrence_time_uncertain','2026-09-05T18:05:00Z'),
+    '{machine_authorization_time_raw}',to_jsonb('2026-09-05T11:05:00.999'::text))
+), 'invalid',
+  'Raw MachineAuTime must normalize to the exact selected candidate timestamp');
+
+select is(public.refund_nayax_request_boundary_evidence_state(
+  '2026-09-05T18:03:00Z','hosted_refund_intake',
+  jsonb_set(pg_temp.soft_time_evidence('before_or_at_request','2026-09-05T18:00:00Z',true,
+    '2026-09-05T17:59:59.900Z','2026-09-05T18:00:00.100Z',
+    '2026-09-05T18:02:59.900Z','2026-09-05T18:03:00.100Z'),
+    '{transaction_occurrence_timezone_basis}',to_jsonb('verified_machine_timezone'::text))
+), 'invalid',
+  'A purchase proof cannot alias an authorization GMT timestamp to a machine timezone');
+
+select is(public.refund_nayax_request_boundary_evidence_state(
+  '2026-09-05T18:03:00Z','hosted_refund_intake',
+  jsonb_set(pg_temp.soft_time_evidence('before_or_at_request','2026-09-05T18:00:00Z',true,
+    '2026-09-05T17:59:59.900Z','2026-09-05T18:00:00.100Z',
+    '2026-09-05T18:02:59.900Z','2026-09-05T18:03:00.100Z'),
+    '{transaction_occurrence_lower_bound_at}',to_jsonb('-infinity'::text))
+), 'invalid',
+  'Non-finite occurrence intervals cannot authorize transaction filtering');
 
 select throws_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
   actor_user_id,reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,amount_cents,
@@ -148,6 +188,14 @@ select is((public.service_commit_refund_nayax_lookup('fb150000-0000-4000-8000-00
   'Provider timing is supporting evidence',null,2,'manual','fb110000-0000-4000-8000-000000000001')->>'applied'),
   'true','Current v11 candidates commit through the existing generation guard');
 
+select is(public.refund_purchase_correction_request_fields(
+  'fb150000-0000-4000-8000-000000000001'),'{}'::text[],
+  'Explicit empty v11 correction scope creates no unnecessary customer question');
+
+update public.refund_cases set status='approved',decision='approved',decision_reason='customer_owed',
+  decided_by='fb110000-0000-4000-8000-000000000001',decided_at=statement_timestamp()
+where id='fb150000-0000-4000-8000-000000000001';
+
 set local role service_role;
 select is((public.service_select_refund_nayax_candidate_as_actor(
   'fb110000-0000-4000-8000-000000000001','fb150000-0000-4000-8000-000000000001',
@@ -156,10 +204,14 @@ select is((public.service_select_refund_nayax_candidate_as_actor(
   'true','Manager can confirm the otherwise corroborated offline candidate');
 reset role;
 select ok((select matched_nayax_transaction_id='OFFLINE-LATER-AUTH'
-    and matched_nayax_machine_auth_time='2026-09-05T18:05:00Z'
-    and nayax_match_execution_eligible
+    and matched_nayax_machine_auth_time='2026-09-05T18:05:00.123Z'
+    and nayax_match_execution_eligible and nayax_recommendation_state='manager_confirmed'
+    and status='approved' and decision='approved'
   from public.refund_cases where id='fb150000-0000-4000-8000-000000000001'),
-  'Manager corroboration binds the exact raw API transaction and exposes the normal decision path');
+  'Manager confirmation preserves approval and binds the exact raw API transaction');
+select is((select decision_reason from public.refund_cases
+  where id='fb150000-0000-4000-8000-000000000001'),'customer_owed',
+  'Transaction confirmation never clears or replaces the existing refund decision');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
   where refund_case_id='fb150000-0000-4000-8000-000000000001'),0,
   'Transaction confirmation creates no provider or payment attempt');

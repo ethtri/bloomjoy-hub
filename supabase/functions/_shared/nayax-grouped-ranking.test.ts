@@ -35,6 +35,7 @@ const candidate = (
   requestReceiptLowerBoundAt: "2026-08-23T10:05:00.000Z",
   requestReceiptUpperBoundAt: "2026-08-23T10:05:00.000Z",
   timeDeltaMinutes: 2,
+  providerProcessingTimeDeltaMinutes: 2,
   qrTimeDeltaMinutes: null,
   amountCents: 550,
   amountDeltaCents: 0,

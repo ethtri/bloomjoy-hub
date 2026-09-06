@@ -357,6 +357,7 @@ export type RefundNayaxLookupSummary = {
 
 export type NayaxRecommendationState =
   | 'high_confidence'
+  | 'manager_confirmed'
   | 'ambiguous'
   | 'no_safe_match'
   | 'manual_exception';
@@ -1375,7 +1376,8 @@ export type NayaxLookupCandidate = {
     occurredAt: string;
   }>;
   amountDeltaCents?: number | null;
-  timeDeltaMinutes?: number;
+  timeDeltaMinutes?: number | null;
+  providerProcessingTimeDeltaMinutes?: number;
   qrTimeDeltaMinutes?: number | null;
   recommendationRank?: number;
   isTopRanked?: boolean;

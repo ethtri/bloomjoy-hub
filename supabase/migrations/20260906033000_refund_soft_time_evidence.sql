@@ -6,6 +6,35 @@
 -- selection validator. Historical evidence remains immutable and readable, but
 -- only v11 evidence may create a new exact transaction binding.
 
+alter table public.refund_cases
+  drop constraint if exists refund_cases_nayax_recommendation_state_check,
+  add constraint refund_cases_nayax_recommendation_state_check
+    check (
+      nayax_recommendation_state is null
+      or nayax_recommendation_state in (
+        'high_confidence', 'manager_confirmed', 'ambiguous',
+        'no_safe_match', 'manual_exception'
+      )
+    ),
+  drop constraint if exists refund_cases_nayax_execution_eligibility_check,
+  add constraint refund_cases_nayax_execution_eligibility_check
+    check (
+      nayax_match_execution_eligible = false
+      or (
+        nayax_recommendation_state in ('high_confidence', 'manager_confirmed')
+        and correlation_status = 'matched'
+        and correlation_source = 'nayax'
+        and matched_nayax_transaction_id is not null
+        and card_wallet_used = false
+        and nayax_recommendation_policy_version is not null
+      )
+    );
+
+comment on column public.refund_cases.nayax_recommendation_state is
+  'Versioned matcher state. manager_confirmed records explicit manager corroboration without relabeling uncertain timing as automatic high confidence.';
+comment on column public.refund_cases.nayax_match_execution_eligible is
+  'Fail-closed flag set after a manager confirms either a unique high-confidence recommendation or a validated manager-review candidate.';
+
 create or replace function public.refund_nayax_request_boundary_evidence_state(
   p_request_received_at timestamptz,
   p_request_received_source text,
@@ -42,6 +71,7 @@ begin
       and p_evidence ->> 'one_click_eligible' = 'false' then return 'valid'; end if;
     return 'invalid';
   end if;
+  if not isfinite(p_request_received_at) then return 'invalid'; end if;
   if p_request_received_source not in ('hosted_refund_intake', 'gmail_contact_ingested')
     or jsonb_typeof(p_evidence -> 'customer_request_received_at') is distinct from 'string'
     or jsonb_typeof(p_evidence -> 'customer_request_received_source') is distinct from 'string'
@@ -71,12 +101,18 @@ begin
     return 'invalid';
   end if;
   if p_evidence ->> 'transaction_occurrence_semantics' is distinct from 'online_purchase_occurrence'
-    or coalesce(p_evidence ->> 'transaction_occurrence_proof_source','') = ''
+    or p_evidence ->> 'transaction_occurrence_proof_source' is distinct from
+      'verified_provider_purchase_occurrence_v1'
     or p_evidence ->> 'transaction_occurrence_timestamp_source' is distinct from
       p_evidence ->> 'provider_time_source'
-    or coalesce(p_evidence ->> 'transaction_occurrence_timezone_basis','') not in (
-      'utc','embedded_offset','verified_machine_timezone'
-    )
+    or case p_evidence ->> 'transaction_occurrence_timestamp_source'
+      when 'authorization_gmt' then p_evidence ->> 'transaction_occurrence_timezone_basis' is distinct from 'utc'
+      when 'machine_authorization_offset' then
+        p_evidence ->> 'transaction_occurrence_timezone_basis' is distinct from 'embedded_offset'
+      when 'verified_machine_clock' then
+        p_evidence ->> 'transaction_occurrence_timezone_basis' is distinct from 'verified_machine_timezone'
+      else true
+    end
     or p_evidence ->> 'provider_time_resolution' is distinct from 'exact'
     or jsonb_typeof(p_evidence -> 'authorized_at') is distinct from 'string'
     or jsonb_typeof(p_evidence -> 'transaction_occurrence_lower_bound_at') is distinct from 'string'
@@ -92,9 +128,16 @@ begin
     request_lower := (p_evidence ->> 'request_receipt_lower_bound_at')::timestamptz;
     request_upper := (p_evidence ->> 'request_receipt_upper_bound_at')::timestamptz;
   exception when invalid_datetime_format or datetime_field_overflow then return 'invalid'; end;
-  if occurrence_lower > authorized_at or authorized_at > occurrence_upper
+  if not isfinite(authorized_at) or not isfinite(occurrence_lower) or not isfinite(occurrence_upper)
+    or not isfinite(request_lower) or not isfinite(request_upper)
+    or occurrence_lower > authorized_at or authorized_at > occurrence_upper
     or request_lower > p_request_received_at or p_request_received_at > request_upper
-    or occurrence_lower > occurrence_upper or request_lower > request_upper then return 'invalid'; end if;
+    or occurrence_lower > occurrence_upper or request_lower > request_upper
+    or authorized_at - occurrence_lower > interval '24 hours'
+    or occurrence_upper - authorized_at > interval '48 hours'
+    or p_request_received_at - request_lower > interval '24 hours'
+    or request_upper - p_request_received_at > interval '48 hours'
+    then return 'invalid'; end if;
   if occurrence_lower > request_upper then
     return case when p_evidence ->> 'request_time_boundary' = 'after_request'
       then 'after_request' else 'invalid' end;
@@ -235,6 +278,33 @@ revoke all on function public.refund_nayax_identifier_evidence_state(bigint,json
   from public, anon, authenticated;
 
 
+create or replace function public.refund_nayax_machine_authorization_raw_at(
+  p_raw text,
+  p_machine_timezone text
+)
+returns timestamptz language plpgsql immutable set search_path = '' as $$
+declare
+  parts text[];
+  normalized text;
+  milliseconds text;
+begin
+  if p_raw is null or length(p_raw) > 80 then return null; end if;
+  parts := regexp_match(btrim(p_raw),
+    '^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})?$','i');
+  if parts is null then return null; end if;
+  milliseconds := left(rpad(coalesce(parts[3], ''), 3, '0'), 3);
+  normalized := parts[1] || 'T' || parts[2] || '.' || milliseconds || coalesce(parts[4], '');
+  if parts[4] is not null then return normalized::timestamptz; end if;
+  if nullif(btrim(p_machine_timezone), '') is null then return null; end if;
+  return normalized::timestamp at time zone p_machine_timezone;
+exception when invalid_datetime_format or datetime_field_overflow or invalid_parameter_value then
+  return null;
+end;
+$$;
+revoke all on function public.refund_nayax_machine_authorization_raw_at(text,text)
+  from public, anon, authenticated, service_role;
+
+
 create or replace function public.refund_nayax_candidate_identifier_evidence_state(
   p_case_id uuid,
   p_reporting_machine_id uuid,
@@ -254,8 +324,10 @@ declare
   evidence_machine_authorization_at timestamptz;
   expected_amount_delta integer;
   expected_time_delta integer;
+  expected_provider_processing_time_delta integer;
   evidence_amount_delta integer;
   evidence_time_delta integer;
+  evidence_provider_processing_time_delta integer;
   boundary_state text;
   selection_allowed boolean;
   duplicate_provider_record boolean;
@@ -263,6 +335,8 @@ declare
   mismatch_present boolean;
   expected_machine_in_scope boolean;
   expected_selection_allowed boolean;
+  machine_timezone text;
+  raw_machine_authorization_at timestamptz;
 begin
   select c.* into case_row from public.refund_cases c where c.id = p_case_id;
   if not found then return 'invalid'; end if;
@@ -279,15 +353,32 @@ begin
   if evidence_state <> 'valid' then return evidence_state; end if;
   select m.* into machine_row from public.reporting_machines m where m.id = p_reporting_machine_id;
   if not found then return 'invalid'; end if;
+  select case
+      when inventory.provider_clock_source = 'native_machine_configuration'
+        and inventory.provider_clock_daylight_saving is true
+        and inventory.provider_clock_timezone is not null
+      then inventory.provider_clock_timezone
+      else location.timezone
+    end
+  into machine_timezone
+  from public.reporting_locations location
+  left join public.refund_nayax_machine_inventory inventory
+    on inventory.reporting_machine_id = machine_row.id
+    and inventory.account_key = machine_row.nayax_account_key
+    and inventory.nayax_machine_id = machine_row.nayax_machine_id
+  where location.id = machine_row.location_id;
 
   begin
     evidence_authorized_at := (p_evidence ->> 'authorized_at')::timestamptz;
     evidence_machine_authorization_at := (p_evidence ->> 'machine_authorization_at')::timestamptz;
+    raw_machine_authorization_at := public.refund_nayax_machine_authorization_raw_at(
+      p_evidence ->> 'machine_authorization_time_raw', machine_timezone
+    );
     selection_allowed := (p_evidence ->> 'selection_allowed')::boolean;
     duplicate_provider_record := (p_evidence ->> 'duplicate_provider_record')::boolean;
     expected_amount_delta := case when p_amount_cents is not null and case_row.payment_amount_cents is not null
       then abs(p_amount_cents - case_row.payment_amount_cents) else null end;
-    expected_time_delta := ceil(abs(extract(epoch from
+    expected_provider_processing_time_delta := ceil(abs(extract(epoch from
       (evidence_authorized_at - case_row.incident_at))) / 60.0)::integer;
     expected_customer_credential := case
       when case_row.payment_interaction = 'phone_watch_wallet'
@@ -313,9 +404,12 @@ begin
     evidence_amount_delta := (p_evidence ->> 'amount_delta_cents')::integer;
     if evidence_amount_delta is distinct from expected_amount_delta then return 'invalid'; end if;
   end if;
-  if coalesce(p_evidence ->> 'time_delta_minutes', '') !~ '^\d+$' then return 'invalid'; end if;
-  evidence_time_delta := (p_evidence ->> 'time_delta_minutes')::integer;
-  if evidence_time_delta is distinct from expected_time_delta then return 'invalid'; end if;
+  if coalesce(p_evidence ->> 'provider_processing_time_delta_minutes', '') !~ '^\d+$'
+    then return 'invalid'; end if;
+  evidence_provider_processing_time_delta :=
+    (p_evidence ->> 'provider_processing_time_delta_minutes')::integer;
+  if evidence_provider_processing_time_delta is distinct from expected_provider_processing_time_delta
+    then return 'invalid'; end if;
   if case_row.card_last4 is null or p_card_last4 is null then
     if p_evidence ->> 'card_last4_comparison' is distinct from 'missing' then return 'invalid'; end if;
   elsif case_row.card_last4 = p_card_last4 then
@@ -332,13 +426,23 @@ begin
       regexp_replace(upper(btrim(machine_row.nayax_account_key)), '[^A-Z0-9_]', '_', 'g')
     or p_evidence ->> 'lookup_provider_machine_id' is distinct from machine_row.nayax_machine_id
     or p_evidence ->> 'customer_credential_class' is distinct from expected_customer_credential
+    or p_evidence ->> 'machine_authorization_time_source' is distinct from 'MachineAuthorizationTime'
     or jsonb_typeof(p_evidence -> 'machine_authorization_at') is distinct from 'string'
     or evidence_machine_authorization_at is distinct from p_machine_authorization_time
+    or raw_machine_authorization_at is distinct from p_machine_authorization_time
     or duplicate_provider_record is null then return 'invalid'; end if;
 
   boundary_state := public.refund_nayax_request_boundary_evidence_state(
     case_row.customer_request_received_at,case_row.customer_request_received_source,p_evidence
   );
+  if p_evidence ->> 'transaction_occurrence_comparable' = 'true' then
+    expected_time_delta := expected_provider_processing_time_delta;
+    if coalesce(p_evidence ->> 'time_delta_minutes', '') !~ '^\d+$' then return 'invalid'; end if;
+    evidence_time_delta := (p_evidence ->> 'time_delta_minutes')::integer;
+    if evidence_time_delta is distinct from expected_time_delta then return 'invalid'; end if;
+  elsif p_evidence -> 'time_delta_minutes' is distinct from 'null'::jsonb then
+    return 'invalid';
+  end if;
   mismatch_present := p_evidence ->> 'card_last4_comparison' like 'mismatch_%'
     or p_evidence ->> 'card_network_comparison' like 'mismatch_%';
   expected_machine_in_scope :=
@@ -378,7 +482,7 @@ begin
     and p_evidence ->> 'provider_time_resolution' is not distinct from 'exact'
     and p_evidence ->> 'machine_time_resolution' is not distinct from 'exact'
     and coalesce(p_evidence ->> 'machine_authorization_time_raw','') <> ''
-    and expected_time_delta <= 180
+    and (expected_time_delta is null or expected_time_delta <= 180)
     and p_currency_code is not distinct from 'USD'
     and p_evidence ->> 'payment_status' is not distinct from 'approved'
     and coalesce(p_evidence ->> 'payment_status_evidence','') in ('explicit','last_sales_contract')
@@ -392,7 +496,7 @@ begin
       and case_row.incident_time_source is not distinct from 'transaction_alert_or_receipt'
       and case_row.nearby_attempt_count is not distinct from 'one'
       and expected_amount_delta = 0
-      and expected_time_delta <= 60;
+      and (expected_time_delta is null or expected_time_delta <= 60);
   end if;
   if selection_allowed is distinct from expected_selection_allowed then return 'invalid'; end if;
 
@@ -512,6 +616,7 @@ declare
   candidate_selection_allowed boolean := false;
   manual_portal_candidate boolean := false;
   recommendation_state text;
+  scorer_recommendation_state text;
   policy_version text;
   one_click_eligible boolean := false;
   updated_case public.refund_cases%rowtype;
@@ -596,8 +701,22 @@ begin
       using errcode = 'P4601';
   end if;
   if refund_case.payment_method <> 'card'
-    or refund_case.status <> 'needs_review'
-    or refund_case.decision is not null
+    or refund_case.status not in ('needs_review','correlated','approved')
+    or (
+      refund_case.decision is not null and (
+        refund_case.decision <> 'approved'
+        or refund_case.matched_nayax_transaction_id is not null
+        or refund_case.duplicate_of_refund_case_id is not null
+        or refund_case.manual_refund_reference is not null
+        or refund_case.refund_amount_cents is null
+        or refund_case.refund_amount_cents <= 0
+        or refund_case.refund_amount_cents is distinct from candidate.amount_cents
+        or exists (select 1 from public.refund_authoritative_receipts receipt
+          where receipt.refund_case_id = refund_case.id)
+        or exists (select 1 from public.refund_case_nayax_refund_attempts attempt
+          where attempt.refund_case_id = refund_case.id)
+      )
+    )
     or refund_case.nayax_refund_execution_status <> 'not_requested'
     or refund_case.reporting_adjustment_id is not null
     or refund_case.refund_completed_at is not null
@@ -689,10 +808,11 @@ begin
       using errcode = '23505';
   end if;
 
-  recommendation_state := coalesce(
+  scorer_recommendation_state := coalesce(
     nullif(btrim(candidate.evidence_summary ->> 'recommendation_state'), ''),
     'manual_exception'
   );
+  recommendation_state := scorer_recommendation_state;
   policy_version := nullif(btrim(candidate.evidence_summary ->> 'policy_version'), '');
   if policy_version is null then
     raise exception 'This Nayax transaction is missing versioned recommendation evidence'
@@ -703,7 +823,7 @@ begin
   -- unknown; that confirmation is the corroboration action, not timestamp proof.
   one_click_eligible := not manual_portal_candidate and (
     (
-      recommendation_state = 'high_confidence'
+      scorer_recommendation_state = 'high_confidence'
       and candidate_recommended
       and candidate.evidence_summary ->> 'one_click_eligible' = 'true'
     ) or (
@@ -715,16 +835,26 @@ begin
       )
     )
   );
+  if not manual_portal_candidate
+    and candidate.evidence_summary ->> 'policy_version' = '2026-09-05.v11'
+    and candidate_selection_allowed
+    and candidate.evidence_summary ->> 'one_click_eligible' = 'false'
+    and candidate.evidence_summary ->> 'request_time_boundary' in (
+      'request_time_unknown','occurrence_time_uncertain'
+    ) then
+    recommendation_state := 'manager_confirmed';
+  end if;
 
   update public.refund_cases
   set
     reporting_machine_id = candidate_machine_id,
-    status = 'needs_review',
-    decision = null,
-    decision_reason = null,
-    decided_by = null,
-    decided_at = null,
-    refund_amount_cents = candidate.amount_cents,
+    status = case when refund_case.decision = 'approved' then 'approved' else 'needs_review' end,
+    decision = refund_case.decision,
+    decision_reason = case when refund_case.decision = 'approved' then refund_case.decision_reason else null end,
+    decided_by = case when refund_case.decision = 'approved' then refund_case.decided_by else null end,
+    decided_at = case when refund_case.decision = 'approved' then refund_case.decided_at else null end,
+    refund_amount_cents = case when refund_case.decision = 'approved'
+      then refund_case.refund_amount_cents else candidate.amount_cents end,
     matched_nayax_transaction_id = candidate.provider_transaction_id,
     matched_nayax_site_id = candidate.site_id,
     matched_nayax_machine_auth_time = candidate.machine_authorization_time,
@@ -768,6 +898,7 @@ begin
     jsonb_build_object(
       'policy_version', policy_version,
       'recommendation_state', recommendation_state,
+      'scorer_recommendation_state', scorer_recommendation_state,
       'confidence_class', coalesce(
         nullif(btrim(candidate.evidence_summary ->> 'confidence_class'), ''),
         'ambiguous_manual'
@@ -803,10 +934,7 @@ $$;
 
 revoke execute on function public.service_select_refund_nayax_candidate_as_actor_pre_lookup_generation_v1(
   uuid, uuid, bigint, uuid, text
-) from public, anon, authenticated;
-grant execute on function public.service_select_refund_nayax_candidate_as_actor_pre_lookup_generation_v1(
-  uuid, uuid, bigint, uuid, text
-) to service_role;
+) from public, anon, authenticated, service_role;
 
 create or replace function public.service_select_refund_nayax_candidate_as_actor(
   p_actor_user_id uuid,
@@ -918,3 +1046,103 @@ revoke all on function public.service_select_refund_nayax_candidate_as_actor(uui
   from public, anon, authenticated;
 grant execute on function public.service_select_refund_nayax_candidate_as_actor(uuid,uuid,bigint,uuid,text)
   to service_role;
+
+
+-- Use explicit current evidence for same-case correction scope, including an intentional empty set.
+create or replace function public.refund_purchase_correction_request_fields(p_case_id uuid)
+returns text[] language plpgsql stable security definer set search_path='' as $$
+declare
+  c public.refund_cases;
+  selected_candidate public.refund_nayax_lookup_candidates%rowtype;
+  fields text[];
+  evidence jsonb;
+  reasons text[];
+  exclusions text[];
+  current_fields text[];
+  candidate_count integer:=0;
+  evidence_state text;
+begin
+  select * into c from public.refund_cases where id=p_case_id;
+  if c.id is null or not public.refund_purchase_correction_eligible(c) then return '{}'::text[]; end if;
+  fields:=case when c.decision='approved' then array['zelle_payment_contact']::text[] else public.refund_missing_follow_up_fields(c.id) end;
+  if c.decision is null then
+    if c.intake_selection_key is not null then fields:=array_remove(fields,'location_or_machine'); end if;
+    if c.payment_method='card' and c.card_wallet_used then
+      if c.card_last4 is null or c.card_last4_provenance is distinct from 'wallet_device_token' then fields:=array_append(fields,'card_last4'); end if;
+      if c.card_last4_source is null or c.card_last4_source='unknown' then fields:=array_append(fields,'card_last4_source'); end if;
+      if c.payment_interaction is distinct from 'phone_watch_wallet' then fields:=array_append(fields,'payment_interaction'); end if;
+      if c.wallet_provider is null or c.wallet_provider='unsure' then fields:=array_append(fields,'wallet_provider'); end if;
+      if c.wallet_device_kind is null or c.wallet_device_kind='unknown' then fields:=array_append(fields,'wallet_device_kind'); end if;
+    end if;
+    if c.nayax_recommendation_state in ('manual_exception','no_safe_match')
+      and c.nayax_lookup_status in ('manual_exception','no_match')
+      and c.nayax_recommendation_evaluated_at>=c.deterministic_facts_updated_at then
+      select count(*) into candidate_count from public.refund_nayax_lookup_candidates candidate
+        where candidate.refund_case_id=c.id and candidate.lookup_generation=c.nayax_lookup_generation
+          and candidate.expires_at>statement_timestamp();
+      select candidate.* into selected_candidate from public.refund_nayax_lookup_candidates candidate
+        where candidate.refund_case_id=c.id and candidate.lookup_generation=c.nayax_lookup_generation
+          and candidate.expires_at>statement_timestamp()
+        order by (candidate.evidence_summary->>'is_top_ranked'='true') desc nulls last,candidate.created_at desc limit 1;
+      evidence:=selected_candidate.evidence_summary;
+
+      if evidence->>'policy_version' = '2026-09-05.v11' then
+        if evidence->>'is_top_ranked'='true' then
+          evidence_state:=public.refund_nayax_candidate_identifier_evidence_state(
+            selected_candidate.refund_case_id,selected_candidate.reporting_machine_id,
+            selected_candidate.site_id,selected_candidate.machine_authorization_time,
+            selected_candidate.amount_cents,selected_candidate.card_last4,
+            selected_candidate.currency_code,evidence);
+          if evidence_state='valid' and evidence->>'identifier_review_state'='needs_corroboration' then
+            select coalesce(array_agg(value),'{}') into current_fields
+              from jsonb_array_elements_text(coalesce(evidence->'customer_correction_fields','[]'));
+            fields:=fields||current_fields;
+          end if;
+        end if;
+      else
+        select coalesce(array_agg(value),'{}') into reasons from jsonb_array_elements_text(
+          coalesce(evidence->'reason_codes','[]')||coalesce(evidence->'manual_review_reasons','[]')||coalesce(evidence->'hard_exclusions','[]'));
+        select coalesce(array_agg(value),'{}') into exclusions from jsonb_array_elements_text(coalesce(evidence->'hard_exclusions','[]'));
+        if not reasons && array['already_refunded','currency_not_usd','duplicate_provider_record','duplicate_transaction','missing_amount_evidence',
+          'missing_canonical_machine_mapping','missing_currency_evidence','missing_provider_card_last4','missing_provider_machine_id',
+          'missing_provider_site_id','payment_not_approved','provider_machine_mismatch','provider_status_unconfirmed']::text[]
+          and array_remove(exclusions,'card_last4_mismatch')='{}'::text[] then
+          if 'card_last4_mismatch'=any(reasons) then
+            fields:=array_append(fields,'card_last4');
+            if c.payment_interaction is null or c.payment_interaction in ('unsure','insert_or_swipe') then fields:=array_append(fields,'payment_interaction'); end if;
+            if c.card_last4_source is null or c.card_last4_source='unknown' then fields:=array_append(fields,'card_last4_source'); end if;
+            if c.card_network is null or c.card_network='other_unknown' then fields:=array_append(fields,'card_network'); end if;
+            if c.payment_interaction='phone_watch_wallet' then
+              if c.wallet_provider is null or c.wallet_provider='unsure' then fields:=array_append(fields,'wallet_provider'); end if;
+              if c.wallet_device_kind is null or c.wallet_device_kind='unknown' then fields:=array_append(fields,'wallet_device_kind'); end if;
+            end if;
+          end if;
+          if reasons && array['amount_mismatch','amount_uncertain']::text[] then fields:=array_append(fields,'amount'); end if;
+          if reasons && array['incident_time_too_far','customer_time_rough']::text[] then
+            fields:=array_append(fields,'incident_time');
+            if c.incident_time_source is null or c.incident_time_source='unknown' then fields:=array_append(fields,'incident_time_source'); end if;
+          end if;
+          if candidate_count>1 and (reasons && array['card_last4_mismatch','amount_mismatch','amount_uncertain','incident_time_too_far','customer_time_rough']::text[])
+            then fields:=array_append(fields,'nearby_attempt_count'); end if;
+        end if;
+      end if;
+    end if;
+  end if;
+  fields:=array(select unnest(fields) except select answer.key
+    from public.refund_wallet_correction_contexts r cross join lateral jsonb_each(r.correction_response) answer
+    where r.refund_case_id=c.id and r.status='submitted' and r.correction_kind='purchase'
+      and public.refund_purchase_correction_values(c)->>answer.key is not distinct from coalesce(answer.value->>'value',r.correction_snapshot->>answer.key)
+      and (answer.key not in ('card_last4','card_last4_source','wallet_provider','wallet_device_kind','card_network') or (
+        public.refund_purchase_correction_values(c)->>'payment_method' is not distinct from r.correction_snapshot->>'payment_method'
+        and public.refund_purchase_correction_values(c)->>'payment_interaction' is not distinct from r.correction_snapshot->>'payment_interaction')));
+  return public.canonical_refund_follow_up_fields(fields);
+end;
+$$;
+
+revoke all on function public.refund_purchase_correction_request_fields(uuid)
+  from public, anon, authenticated;
+grant execute on function public.refund_purchase_correction_request_fields(uuid)
+  to service_role;
+
+comment on function public.refund_purchase_correction_request_fields(uuid) is
+  'Returns one canonical same-case correction scope. Valid current Nayax evidence supplies only its explicit customer correction fields; manager-owned and provider-only gaps add no customer work. Known legacy evidence retains the prior compatibility path.';

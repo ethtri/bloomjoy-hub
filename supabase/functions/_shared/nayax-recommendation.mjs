@@ -260,6 +260,7 @@ const transactionStateFor = (transactionStates, transactionId) => {
 const factor = (key, outcome, label) => ({ key, outcome, label });
 
 const timePointsFor = (deltaMinutes, weights) => {
+  if (!Number.isFinite(deltaMinutes)) return 0;
   if (deltaMinutes <= 15) return weights.timeWithin15Minutes;
   if (deltaMinutes <= 60) return weights.timeWithin60Minutes;
   if (deltaMinutes <= 180) return weights.timeWithin3Hours;
@@ -267,6 +268,9 @@ const timePointsFor = (deltaMinutes, weights) => {
 };
 
 const timeLabelFor = (deltaMinutes) => {
+  if (!Number.isFinite(deltaMinutes)) {
+    return "Customer-reported purchase time cannot be compared with this provider processing timestamp";
+  }
   if (deltaMinutes === 0) return "Transaction time matches the customer-reported time";
   if (deltaMinutes === 1) return "Transaction is 1 minute from the customer-reported time";
   return `Transaction is ${deltaMinutes} minutes from the customer-reported time`;
@@ -442,7 +446,10 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
   }
 
   rankingPoints += timePointsFor(candidate.timeDeltaMinutes, weights);
-  if (candidate.timeDeltaMinutes <= policy.maximumOneClickTimeDeltaMinutes) {
+  if (!Number.isFinite(candidate.timeDeltaMinutes)) {
+    addReason(manualReviewReasons, "transaction_occurrence_time_uncertain");
+    addReason(reasonCodes, "transaction_occurrence_time_uncertain");
+  } else if (candidate.timeDeltaMinutes <= policy.maximumOneClickTimeDeltaMinutes) {
     addReason(reasonCodes, "incident_time_within_60m");
   } else if (candidate.timeDeltaMinutes <= policy.maximumUniqueQrIncidentDeltaMinutes) {
     addReason(reasonCodes, "incident_time_within_3h");
@@ -452,7 +459,8 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
   }
   matchFactors.push(factor(
     "incident_time",
-    candidate.timeDeltaMinutes <= policy.maximumOneClickTimeDeltaMinutes ? "match" : "partial",
+    Number.isFinite(candidate.timeDeltaMinutes) &&
+      candidate.timeDeltaMinutes <= policy.maximumOneClickTimeDeltaMinutes ? "match" : "manual",
     timeLabelFor(candidate.timeDeltaMinutes),
   ));
 
@@ -619,7 +627,8 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     matchFactors.push(factor("refund_state", "blocked", "This transaction is already linked to another refund case"));
   }
 
-  if (candidate.timeDeltaMinutes > policy.maximumOneClickTimeDeltaMinutes) {
+  if (Number.isFinite(candidate.timeDeltaMinutes) &&
+    candidate.timeDeltaMinutes > policy.maximumOneClickTimeDeltaMinutes) {
     matchFactors.push(factor("one_click_window", "outside", "Transaction is outside the one-click time range"));
   }
 
@@ -651,7 +660,8 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     exactCustomerOccurrenceEvidence &&
     mismatchPresent &&
     amountDeltaCents === 0 &&
-    candidate.timeDeltaMinutes <= policy.maximumOneClickTimeDeltaMinutes;
+    (!Number.isFinite(candidate.timeDeltaMinutes) ||
+      candidate.timeDeltaMinutes <= policy.maximumOneClickTimeDeltaMinutes);
   const identifierReviewState = hardExclusions.length > 0
     ? "blocked_safety"
     : evidenceAwareReviewEligible
@@ -664,7 +674,8 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
   const customerCorrectionFields = identifierReviewState === "needs_corroboration"
     ? [
         amountDeltaCents !== 0 && "amount",
-        (candidate.timeDeltaMinutes > policy.maximumOneClickTimeDeltaMinutes ||
+        (Number.isFinite(candidate.timeDeltaMinutes) &&
+          candidate.timeDeltaMinutes > policy.maximumOneClickTimeDeltaMinutes ||
           request.incidentTimeResolution !== "exact" ||
           !["exact", "within_15_minutes"].includes(request.incidentTimeConfidence) ||
           request.nearbyAttemptCount === "multiple") && "incident_time",
@@ -690,7 +701,8 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     candidate.providerTimeResolution === "exact" &&
     candidate.machineTimeResolution === "exact" &&
     Boolean(candidate.machineAuthorizationTimeRaw) &&
-    candidate.timeDeltaMinutes <= policy.maximumUniqueQrIncidentDeltaMinutes &&
+    (candidate.timeDeltaMinutes === null ||
+      candidate.timeDeltaMinutes <= policy.maximumUniqueQrIncidentDeltaMinutes) &&
     candidate.currencyCode === "USD" &&
     candidate.paymentStatus === "approved" &&
     ["explicit", "last_sales_contract"].includes(candidate.paymentStatusEvidence) &&
@@ -710,6 +722,7 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     Boolean(request.cardLast4Provenance) &&
     Boolean(candidate.cardLast4) &&
     request.cardLast4 === candidate.cardLast4 &&
+    candidate.timeDeltaMinutes !== null &&
     candidate.timeDeltaMinutes <= policy.maximumOneClickTimeDeltaMinutes &&
     rankingPoints >= policy.highConfidenceMinimumPoints;
   const uniqueQrTimeEligible =
@@ -721,6 +734,7 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     candidate.qrTimeDeltaMinutes !== null &&
     candidate.qrTimeDeltaMinutes >= 0 &&
     candidate.qrTimeDeltaMinutes <= policy.maximumUniqueQrLagMinutes &&
+    candidate.timeDeltaMinutes !== null &&
     candidate.timeDeltaMinutes <= policy.maximumUniqueQrIncidentDeltaMinutes &&
     !hardExclusions.includes("card_last4_mismatch");
 
@@ -789,7 +803,7 @@ export const extractNayaxRecords = (payload) => {
  *   providerContract?: "nayax_machine_last_sales_v1" | "unverified",
  *   purchaseOccurrenceProof?: {
  *     semantics: "online_purchase_occurrence",
- *     source: string,
+ *     source: "verified_provider_purchase_occurrence_v1",
  *     timestampSource: "authorization_gmt" | "machine_authorization_offset" | "verified_machine_clock",
  *     timezoneBasis: "utc" | "embedded_offset" | "verified_machine_timezone",
  *     transactionPrecisionMs: number,
@@ -879,22 +893,25 @@ export const buildNayaxRecommendation = ({
   let excludedAfterRequestCount = 0;
 
   const boundedUncertainty = (value) =>
-    Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 24 * 60 * 60 * 1000
-      ? Number(value)
-      : null;
+    typeof value === "number" && Number.isFinite(value) &&
+      value >= 0 && value <= 24 * 60 * 60 * 1000 ? value : null;
+  const purchaseOccurrenceClockBasis = {
+    authorization_gmt: "utc",
+    machine_authorization_offset: "embedded_offset",
+    verified_machine_clock: "verified_machine_timezone",
+  };
   const occurrenceProof = purchaseOccurrenceProof?.semantics === "online_purchase_occurrence"
-    && sanitizeText(purchaseOccurrenceProof?.source, 120)
-    && ["authorization_gmt", "machine_authorization_offset", "verified_machine_clock"]
-      .includes(purchaseOccurrenceProof?.timestampSource)
-    && ["utc", "embedded_offset", "verified_machine_timezone"]
-      .includes(purchaseOccurrenceProof?.timezoneBasis)
+    && purchaseOccurrenceProof?.source === "verified_provider_purchase_occurrence_v1"
+    && Object.hasOwn(purchaseOccurrenceClockBasis, purchaseOccurrenceProof?.timestampSource)
+    && purchaseOccurrenceProof?.timezoneBasis ===
+      purchaseOccurrenceClockBasis[purchaseOccurrenceProof.timestampSource]
     && boundedUncertainty(purchaseOccurrenceProof?.transactionPrecisionMs) !== null
     && boundedUncertainty(purchaseOccurrenceProof?.transactionClockErrorMs) !== null
     && boundedUncertainty(purchaseOccurrenceProof?.requestReceiptPrecisionMs) !== null
     && boundedUncertainty(purchaseOccurrenceProof?.requestReceiptClockErrorMs) !== null
     ? {
         semantics: "online_purchase_occurrence",
-        source: sanitizeText(purchaseOccurrenceProof.source, 120),
+        source: purchaseOccurrenceProof.source,
         timestampSource: purchaseOccurrenceProof.timestampSource,
         timezoneBasis: purchaseOccurrenceProof.timezoneBasis,
         transactionPrecisionMs: boundedUncertainty(purchaseOccurrenceProof.transactionPrecisionMs),
@@ -925,12 +942,15 @@ export const buildNayaxRecommendation = ({
     const authorizationDate = providerTime?.date ?? null;
     if (!transactionId || !authorizationDate || !providerTime) continue;
     parseableRecordCount += 1;
-    if (authorizationDate.getTime() < windowStartMs || authorizationDate.getTime() > windowEndMs) continue;
-    windowRecordCount += 1;
-
     const requestReceivedDate = parseDateValue(request.customerRequestReceivedAt);
     const comparableProof = occurrenceProof && requestReceivedDate
       && occurrenceProof.timestampSource === providerTime.source ? occurrenceProof : null;
+    // A provider authorization, sync, or posting timestamp is not the customer
+    // purchase occurrence. Apply the customer-time lookup window only when the
+    // explicit occurrence contract proves those clocks are comparable.
+    if (comparableProof &&
+      (authorizationDate.getTime() < windowStartMs || authorizationDate.getTime() > windowEndMs)) continue;
+    windowRecordCount += 1;
     const transactionOccurrenceLowerBoundAt = comparableProof
       ? new Date(authorizationDate.getTime() - comparableProof.transactionClockErrorMs).toISOString()
       : null;
@@ -1004,7 +1024,11 @@ export const buildNayaxRecommendation = ({
       requestReceiptUpperBoundAt,
       // Round outward so a transaction even one second beyond a safety boundary
       // cannot be admitted by display-oriented minute rounding.
-      timeDeltaMinutes: Math.ceil(Math.abs(authorizationDate.getTime() - incidentDate.getTime()) / 60000),
+      timeDeltaMinutes: comparableProof
+        ? Math.ceil(Math.abs(authorizationDate.getTime() - incidentDate.getTime()) / 60000)
+        : null,
+      providerProcessingTimeDeltaMinutes:
+        Math.ceil(Math.abs(authorizationDate.getTime() - incidentDate.getTime()) / 60000),
       qrTimeDeltaMinutes: qrClaimOpenedDate
         ? (() => {
             const delta = (qrClaimOpenedDate.getTime() - authorizationDate.getTime()) / 60000;
@@ -1049,7 +1073,9 @@ export const buildNayaxRecommendation = ({
       right.rankingPoints - left.rankingPoints ||
       (left.amountDeltaCents ?? Number.POSITIVE_INFINITY) -
         (right.amountDeltaCents ?? Number.POSITIVE_INFINITY) ||
-      left.timeDeltaMinutes - right.timeDeltaMinutes ||
+      (left.timeDeltaMinutes ?? Number.POSITIVE_INFINITY) -
+        (right.timeDeltaMinutes ?? Number.POSITIVE_INFINITY) ||
+      left.providerProcessingTimeDeltaMinutes - right.providerProcessingTimeDeltaMinutes ||
       left.authorizedAt.localeCompare(right.authorizedAt) ||
       left.transactionId.localeCompare(right.transactionId))
     .map((candidate, index) => ({ ...candidate, recommendationRank: index + 1, isTopRanked: index === 0 }));
@@ -1204,6 +1230,7 @@ export const toPublicNayaxCandidate = (candidate, candidateToken) => ({
   amountCents: candidate.amountCents,
   amountDeltaCents: candidate.amountDeltaCents,
   timeDeltaMinutes: candidate.timeDeltaMinutes,
+  providerProcessingTimeDeltaMinutes: candidate.providerProcessingTimeDeltaMinutes,
   qrTimeDeltaMinutes: candidate.qrTimeDeltaMinutes,
   currencyCode: candidate.currencyCode,
   cardLast4: candidate.cardLast4,

@@ -65,7 +65,7 @@ type RefundManagerCaseFacts = {
     canIssueCardRefund: boolean;
     blockReason: string | null;
   } | null;
-  nayaxRecommendationState?: 'high_confidence' | 'ambiguous' | 'no_safe_match' | 'manual_exception' | null;
+  nayaxRecommendationState?: 'high_confidence' | 'manager_confirmed' | 'ambiguous' | 'no_safe_match' | 'manual_exception' | null;
   nayaxLookupSummary?: {
     lookupStatus:
       | 'not_applicable'
@@ -79,7 +79,7 @@ type RefundManagerCaseFacts = {
       | 'lookup_failed'
       | 'lookup_timed_out'
       | 'response_limited';
-    recommendationState?: 'high_confidence' | 'ambiguous' | 'no_safe_match' | 'manual_exception';
+    recommendationState?: 'high_confidence' | 'manager_confirmed' | 'ambiguous' | 'no_safe_match' | 'manual_exception';
   } | null;
   lifecycle?: RefundLifecycleContract | null;
   customerDeliveryException?: {

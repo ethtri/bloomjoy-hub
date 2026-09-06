@@ -30,7 +30,8 @@ Deno.test("verified Pacific machine clock is distinct from physical Eastern purc
   assert.equal(candidate.machineAuthorizationTimeRaw, raw);
   assert.equal(candidate.machineAuthorizationTime, "2026-08-29T20:10:00.123Z");
   assert.equal(candidate.machineClockContext.timezone, "America/Los_Angeles");
-  assert.equal(candidate.timeDeltaMinutes, 0);
+  assert.equal(candidate.timeDeltaMinutes, null);
+  assert.equal(candidate.providerProcessingTimeDeltaMinutes, 0);
   const publicCandidate = toPublicNayaxCandidate(candidate, "synthetic-token");
   assert.equal("machineClockContext" in publicCandidate, false);
   assert.equal("machineAuthorizationTimeRaw" in publicCandidate, false);

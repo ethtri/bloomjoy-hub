@@ -61,7 +61,7 @@ const recommend = (records, overrides = {}) => {
     providerContract: "nayax_machine_last_sales_v1",
     purchaseOccurrenceProof: {
       semantics: "online_purchase_occurrence",
-      source: "synthetic_verified_online_purchase",
+      source: "verified_provider_purchase_occurrence_v1",
       timestampSource: "authorization_gmt",
       timezoneBasis: "utc",
       transactionPrecisionMs: 0,
@@ -335,7 +335,57 @@ assert.equal(offlineVendBeforeFormWithLaterAuthorization.candidateCount, 1);
 assert.equal(offlineVendBeforeFormWithLaterAuthorization.candidates[0].requestTimeBoundaryState, "occurrence_time_uncertain");
 assert.equal(offlineVendBeforeFormWithLaterAuthorization.candidates[0].selectionAllowed, true);
 assert.equal(offlineVendBeforeFormWithLaterAuthorization.candidates[0].oneClickEligible, false);
+assert.equal(offlineVendBeforeFormWithLaterAuthorization.candidates[0].timeDeltaMinutes, null);
+assert.equal(offlineVendBeforeFormWithLaterAuthorization.candidates[0].providerProcessingTimeDeltaMinutes, 5);
 assert.ok(offlineVendBeforeFormWithLaterAuthorization.candidates[0].manualReviewReasons.includes("transaction_occurrence_time_uncertain"));
+
+for (const delayHours of [4, 8]) {
+  const delayedOffline = recommend([sale({
+    id: `offline-delay-${delayHours}h`,
+    at: new Date(Date.parse(incidentAt) + delayHours * 60 * 60 * 1000).toISOString(),
+    extra: { OfflinePayment: true },
+  })], { purchaseOccurrenceProof: null });
+  assert.equal(delayedOffline.candidateCount, 1);
+  assert.equal(delayedOffline.providerWindowRecordCount, 1);
+  assert.equal(delayedOffline.candidates[0].selectionAllowed, true);
+  assert.equal(delayedOffline.candidates[0].oneClickEligible, false);
+  assert.equal(delayedOffline.candidates[0].timeDeltaMinutes, null);
+  assert.equal(delayedOffline.candidates[0].providerProcessingTimeDeltaMinutes, delayHours * 60);
+  assert.deepEqual(delayedOffline.candidates[0].customerCorrectionFields, []);
+}
+
+const nullClockBoundsDoNotProveOccurrence = recommend([sale({ id: "null-proof-bounds" })], {
+  purchaseOccurrenceProof: {
+    semantics: "online_purchase_occurrence",
+    source: "invalid_null_bound_fixture",
+    timestampSource: "authorization_gmt",
+    timezoneBasis: "utc",
+    transactionPrecisionMs: null,
+    transactionClockErrorMs: null,
+    requestReceiptPrecisionMs: null,
+    requestReceiptClockErrorMs: null,
+  },
+});
+assert.equal(nullClockBoundsDoNotProveOccurrence.candidates[0].transactionOccurrenceComparable, false);
+assert.equal(nullClockBoundsDoNotProveOccurrence.candidates[0].requestTimeBoundaryState, "occurrence_time_uncertain");
+assert.equal(nullClockBoundsDoNotProveOccurrence.candidates[0].timeDeltaMinutes, null);
+assert.equal(nullClockBoundsDoNotProveOccurrence.oneClickEligible, false);
+
+const incoherentClockBasisDoesNotProveOccurrence = recommend([sale({ id: "incoherent-proof-clock" })], {
+  purchaseOccurrenceProof: {
+    semantics: "online_purchase_occurrence",
+    source: "verified_provider_purchase_occurrence_v1",
+    timestampSource: "authorization_gmt",
+    timezoneBasis: "verified_machine_timezone",
+    transactionPrecisionMs: 0,
+    transactionClockErrorMs: 0,
+    requestReceiptPrecisionMs: 0,
+    requestReceiptClockErrorMs: 0,
+  },
+});
+assert.equal(incoherentClockBasisDoesNotProveOccurrence.candidates[0].transactionOccurrenceComparable, false);
+assert.equal(incoherentClockBasisDoesNotProveOccurrence.candidates[0].selectionAllowed, true);
+assert.equal(incoherentClockBasisDoesNotProveOccurrence.candidates[0].oneClickEligible, false);
 
 // Customer estimates may omit tax or round the total. The provider amount is retained.
 for (const deltaCents of [-301, -300, -100, -10, 0, 10, 100, 300, 301]) {
@@ -679,7 +729,7 @@ const providerLocalDst = recommend(
     },
     purchaseOccurrenceProof: {
       semantics: "online_purchase_occurrence",
-      source: "synthetic_verified_online_purchase",
+      source: "verified_provider_purchase_occurrence_v1",
       timestampSource: "verified_machine_clock",
       timezoneBasis: "verified_machine_timezone",
       transactionPrecisionMs: 0,
