@@ -324,16 +324,13 @@ update public.refund_cases
 set card_last4_provenance='wallet_device_token'
 where id='cf150000-0000-4000-8000-000000000001';
 
-update public.refund_cases
-set payment_interaction='unsure',wallet_device_kind=null
-where id='cf150000-0000-4000-8000-000000000001';
-select is(public.refund_purchase_correction_request_fields(
-  'cf150000-0000-4000-8000-000000000001'),
-  array['payment_interaction','card_last4_source','wallet_device_kind']::text[],
-  'Wallet-token suffix provenance alone cannot repair an unresolved interaction');
-update public.refund_cases
-set payment_interaction='phone_watch_wallet',wallet_device_kind='phone'
-where id='cf150000-0000-4000-8000-000000000001';
+select throws_ok(
+  $$update public.refund_cases
+    set payment_interaction='unsure',wallet_device_kind=null
+    where id='cf150000-0000-4000-8000-000000000001'$$,
+  '23514',
+  null,
+  'Wallet-token suffix provenance cannot be stored with an unresolved non-wallet interaction');
 
 update public.refund_cases
 set card_last4_source='physical_card'
