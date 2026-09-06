@@ -158,7 +158,8 @@
     "20260906033000_refund_soft_time_evidence.sql",
     "20260906052127_refund_linked_form_thread_binding.sql",
     "20260906073000_refund_contactless_review_selection.sql",
-    "20260906160618_refund_contactless_review_evidence_truth.sql"
+    "20260906160618_refund_contactless_review_evidence_truth.sql",
+    "20260906170907_refund_current_fact_correction_fields.sql"
   ],
   "migrationFilesSha256": "8a97d7981ee36be3e292a69434d06802cf50d42b8d222b1b34ec7f533b2eab88",
   "migrationVersionSetSha256": "d9b8e8af36af10c5e7db2684774616b87b5f925a713cbbc76306b10178b89e6a",
