@@ -106,9 +106,12 @@ select is((select count(*)::integer from public.refund_case_messages where refun
 -- Actual current candidate writer and selection wrapper. Existing readiness
 -- supports full refunds, so another amount must not silently replace approval.
 create function pg_temp.prepare_candidate(n integer, original_amount integer) returns uuid language plpgsql as $$
-declare token_id uuid:=gen_random_uuid(); generation bigint;
+declare token_id uuid:=gen_random_uuid(); generation bigint; provider_delta integer;
 begin
   generation := (pg_temp.begin_lookup(n)->>'lookupGeneration')::bigint;
+  select ceil(abs(extract(epoch from
+    (date_trunc('second',now()-interval '2 days')-incident_at)))/60.0)::integer
+  into provider_delta from public.refund_cases where id=pg_temp.case_id(n);
   insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
     provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
   values(token_id,pg_temp.case_id(n),generation,'fa410000-0000-4000-8000-000000000001','fa440000-0000-4000-8000-000000000001',
@@ -143,8 +146,8 @@ begin
       'request_receipt_upper_bound_at',now()-interval '1 day',
       'payment_status','approved','payment_status_evidence','last_sales_contract',
       'provider_refund_state','clear','duplicate_provider_record',false,
-      'amount_delta_cents',abs(original_amount-963),'time_delta_minutes',0,
-      'provider_processing_time_delta_minutes',1
+      'amount_delta_cents',abs(original_amount-963),'time_delta_minutes',provider_delta,
+      'provider_processing_time_delta_minutes',provider_delta
     ),now()+interval '1 hour');
   perform public.service_commit_refund_nayax_lookup(pg_temp.case_id(n),generation,1,'match_found','high_confidence',
     '2026-09-05.v11',now(),'Synthetic exact candidate',null,1,'manual','fa410000-0000-4000-8000-000000000001');

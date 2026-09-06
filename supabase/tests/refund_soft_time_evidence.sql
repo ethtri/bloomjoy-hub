@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(24);
+select plan(25);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('fb110000-0000-4000-8000-000000000001','authenticated','authenticated',
@@ -205,7 +205,18 @@ select is(public.refund_purchase_correction_request_fields(
   'Stored current-fact v10 evidence preserves an explicit empty correction scope');
 set local session_replication_role=replica;
 update public.refund_nayax_lookup_candidates
-set evidence_summary=jsonb_set(evidence_summary,'{policy_version}',to_jsonb('2026-09-05.v11'::text))
+set evidence_summary=jsonb_set(evidence_summary,'{customer_fact_version}',to_jsonb(3))
+where refund_case_id='fb150000-0000-4000-8000-000000000001';
+set local session_replication_role=origin;
+select is(public.refund_purchase_correction_request_fields(
+  'fb150000-0000-4000-8000-000000000001'),'{}'::text[],
+  'Stale recognized v10 evidence requests an internal refresh without guessed customer fields');
+set local session_replication_role=replica;
+update public.refund_nayax_lookup_candidates
+set evidence_summary=jsonb_set(
+  jsonb_set(evidence_summary,'{policy_version}',to_jsonb('2026-09-05.v11'::text)),
+  '{customer_fact_version}',to_jsonb(4)
+)
 where refund_case_id='fb150000-0000-4000-8000-000000000001';
 set local session_replication_role=origin;
 

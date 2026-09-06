@@ -153,14 +153,22 @@ declare next_token uuid:=gen_random_uuid();
 begin
  insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
   provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
- select next_token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
-  provider_transaction_id,site_id,machine_authorization_time+interval '1 minute',amount_cents,card_last4,currency_code,
-  jsonb_set(
-    jsonb_set(evidence_summary,'{machine_authorization_time_raw}','"2026-08-29T13:11:00"'),
-    '{machine_authorization_at}',
-    to_jsonb(machine_authorization_time+interval '1 minute')
+ select next_token,candidate.refund_case_id,lookup_generation,actor_user_id,candidate.reporting_machine_id,
+  provider_transaction_id,site_id,machine_authorization_time+interval '1 minute',amount_cents,candidate.card_last4,currency_code,
+  evidence_summary || jsonb_build_object(
+    'machine_authorization_time_raw','2026-08-29T13:11:00',
+    'machine_authorization_at',machine_authorization_time+interval '1 minute',
+    'authorized_at',machine_authorization_time+interval '1 minute',
+    'transaction_occurrence_lower_bound_at',machine_authorization_time+interval '1 minute',
+    'transaction_occurrence_upper_bound_at',machine_authorization_time+interval '1 minute',
+    'time_delta_minutes',ceil(abs(extract(epoch from
+      ((machine_authorization_time+interval '1 minute')-case_row.incident_at)))/60.0)::integer,
+    'provider_processing_time_delta_minutes',ceil(abs(extract(epoch from
+      ((machine_authorization_time+interval '1 minute')-case_row.incident_at)))/60.0)::integer
   ),expires_at
- from public.refund_nayax_lookup_candidates where token=old_token;
+ from public.refund_nayax_lookup_candidates candidate
+ join public.refund_cases case_row on case_row.id=candidate.refund_case_id
+ where token=old_token;
  return next_token;
 end;
 $$;
@@ -173,8 +181,8 @@ select throws_ok($$select pg_temp.prepare_candidate(7,0,(select evidence_summary
  'P4624','Provider clock changed during lookup; refresh current evidence','Actual candidate insert rejects a clock changed during the provider read');
 set local role service_role;
 select is(pg_temp.select_candidate(6)->>'selectionApplied','false','Exact already-selected replay stays read-only after later clock configuration changes');
-select throws_ok($$select pg_temp.select_candidate(7)$$,'P4624','Provider clock changed after lookup; refresh current evidence','Unselected stale-clock candidate cannot be selected');
-select throws_ok($$select pg_temp.select_candidate(8)$$,'P4624','Provider clock changed after lookup; refresh current evidence','Same original ID with changed evidence is not a freshness-bypassing replay');
+select throws_ok($$select pg_temp.select_candidate(7)$$,'P4626','Invalid Nayax identifier evidence','Unselected stale-clock candidate cannot be selected');
+select throws_ok($$select pg_temp.select_candidate(8)$$,'P4626','Invalid Nayax identifier evidence','Same original ID with changed evidence is not a freshness-bypassing replay');
 reset role;
 select ok(not exists(select 1 from before_stale_selection b join public.refund_cases c using(id) where b.snapshot is distinct from to_jsonb(c)),
  'Rejected new and same-ID selections leave every current case field unchanged');

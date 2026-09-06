@@ -151,19 +151,18 @@ from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4
  'P4625','Invalid customer request time evidence',
  'Comparable occurrence evidence must name an established provider time source');
 
-select throws_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
+select lives_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
  provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
 select 'fd160000-0000-4000-8000-000000000007',c.id,l.generation,'fd110000-0000-4000-8000-000000000001',
  'fd140000-0000-4000-8000-000000000001','MANUAL-LATER-7',null,c.customer_request_received_at+interval '1 second',963,'4242','USD',
  '{"source":"manual_nayax_portal","selection_allowed":true,"is_recommended":true,"one_click_eligible":false,"policy_version":"manual-nayax-portal-v1"}',
  statement_timestamp()+interval '1 hour'
 from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4000-8000-000000000001'$$,
- 'P4625','Transaction occurred after Bloomjoy received the customer request',
- 'Exact manual portal occurrence after the request is never persisted');
+ 'Manual portal time without proved online occurrence semantics remains supporting evidence');
 
 select is((public.service_commit_refund_nayax_lookup('fd150000-0000-4000-8000-000000000001',
  (select generation from lookup_claim),1,'match_found','high_confidence','2026-09-05.v11',statement_timestamp(),
- 'Synthetic request-bound candidate',null,2,'manual','fd110000-0000-4000-8000-000000000001')->>'applied'),'true',
+ 'Synthetic request-bound candidate',null,3,'manual','fd110000-0000-4000-8000-000000000001')->>'applied'),'true',
  'Current request-bound candidates commit through the existing generation guard');
 
 set local role service_role;

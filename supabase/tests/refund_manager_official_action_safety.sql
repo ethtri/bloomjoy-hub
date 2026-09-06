@@ -1789,8 +1789,8 @@ select ok(
       and matched_nayax_currency_code = 'USD'
       and correlation_status = 'matched'
       and correlation_source = 'nayax'
-      and nayax_recommendation_state = 'manual_exception'
-      and nayax_match_execution_eligible = false
+      and nayax_recommendation_state = 'manager_confirmed'
+      and nayax_match_execution_eligible = true
     from public.refund_cases
     where id = '79600000-0000-4000-8000-000000000009'
   )

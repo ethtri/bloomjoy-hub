@@ -1119,15 +1119,19 @@ begin
             fields:=fields||current_fields;
           end if;
         end if;
-      elsif evidence->>'policy_version' in ('2026-09-05.v9','2026-09-05.v10')
-        and evidence->>'is_top_ranked'='true'
-        and evidence ? 'customer_correction_fields'
-        and jsonb_typeof(evidence->'customer_correction_fields')='array'
-        and coalesce(evidence->>'customer_fact_version','') ~ '^[1-9][0-9]*$'
-        and (evidence->>'customer_fact_version')::bigint=c.deterministic_fact_version then
-        select coalesce(array_agg(value),'{}') into current_fields
-          from jsonb_array_elements_text(evidence->'customer_correction_fields');
-        fields:=fields||current_fields;
+      elsif evidence->>'policy_version' in ('2026-09-05.v9','2026-09-05.v10') then
+        -- Recognized structured evidence never falls back to guessed legacy
+        -- customer questions. Current coherent facts supply their exact scope;
+        -- stale or malformed facts require an internal refresh only.
+        if evidence->>'is_top_ranked'='true'
+          and evidence ? 'customer_correction_fields'
+          and jsonb_typeof(evidence->'customer_correction_fields')='array'
+          and coalesce(evidence->>'customer_fact_version','') ~ '^[1-9][0-9]*$'
+          and (evidence->>'customer_fact_version')::bigint=c.deterministic_fact_version then
+          select coalesce(array_agg(value),'{}') into current_fields
+            from jsonb_array_elements_text(evidence->'customer_correction_fields');
+          fields:=fields||current_fields;
+        end if;
       else
         select coalesce(array_agg(value),'{}') into reasons from jsonb_array_elements_text(
           coalesce(evidence->'reason_codes','[]')||coalesce(evidence->'manual_review_reasons','[]')||coalesce(evidence->'hard_exclusions','[]'));
