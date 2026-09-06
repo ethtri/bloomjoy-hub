@@ -65,7 +65,7 @@ create function pg_temp.identifier_evidence(
     'selection_allowed',true,'is_recommended',recommended,'one_click_eligible',false,
     'recommendation_state',case when recommended then 'manual_exception' else 'ambiguous' end,
     'confidence_class',case when recommended then 'evidence_aware_review' else 'ambiguous_manual' end,
-    'policy_version','2026-09-05.v11','identifier_policy_version','2026-09-05.identifier.v1',
+    'policy_version','2026-09-05.v11','identifier_policy_version','2026-09-05.identifier.v2',
     'customer_fact_version',c.deterministic_fact_version,
     'customer_credential_class','customer_physical_contactless_pan',
     'provider_identifier_class','last_sales_contactless_identifier_unverified',

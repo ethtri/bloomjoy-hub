@@ -655,39 +655,13 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     request.incidentTimeSource === "transaction_alert_or_receipt" &&
     ["exact", "within_15_minutes"].includes(request.incidentTimeConfidence) &&
     request.nearbyAttemptCount === "one";
-  const evidenceAwareReviewEligible =
+  const corroboratedMismatchReviewEligible =
     commonProviderEvidence &&
     exactCustomerOccurrenceEvidence &&
     mismatchPresent &&
     amountDeltaCents === 0 &&
     (!Number.isFinite(candidate.timeDeltaMinutes) ||
       candidate.timeDeltaMinutes <= policy.maximumOneClickTimeDeltaMinutes);
-  const identifierReviewState = hardExclusions.length > 0
-    ? "blocked_safety"
-    : evidenceAwareReviewEligible
-    ? "reviewable_uncertainty"
-    : mismatchPresent
-    ? "needs_corroboration"
-    : identifierEvidence.cardLast4Comparison === "exact_support"
-    ? "exact_support"
-    : "no_identifier_conflict";
-  const customerCorrectionFields = identifierReviewState === "needs_corroboration"
-    ? [
-        amountDeltaCents !== 0 && "amount",
-        (Number.isFinite(candidate.timeDeltaMinutes) &&
-          candidate.timeDeltaMinutes > policy.maximumOneClickTimeDeltaMinutes ||
-          request.incidentTimeResolution !== "exact" ||
-          !["exact", "within_15_minutes"].includes(request.incidentTimeConfidence) ||
-          request.nearbyAttemptCount === "multiple") && "incident_time",
-        (!request.paymentInteraction || ["unsure", "insert_or_swipe"].includes(request.paymentInteraction)) && "payment_interaction",
-        (!request.cardLast4Source || request.cardLast4Source === "unknown") && "card_last4_source",
-        (!request.cardNetwork || request.cardNetwork === "other_unknown") && "card_network",
-        request.paymentInteraction === "phone_watch_wallet" &&
-          (!request.walletDeviceKind || request.walletDeviceKind === "unknown") && "wallet_device_kind",
-        request.incidentTimeSource !== "transaction_alert_or_receipt" && "incident_time_source",
-        request.nearbyAttemptCount !== "one" && "nearby_attempt_count",
-      ].filter(Boolean)
-    : [];
   const managerSelectionCore =
     hardExclusions.length === 0 &&
     candidate.providerMachineId === request.expectedMachineId &&
@@ -709,6 +683,42 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     candidate.providerRefundState === "clear" &&
     candidate.requestTimeBoundaryState !== "after_request" &&
     !candidate.duplicateProviderRecord;
+  const neutralPhysicalContactlessMismatch =
+    identifierEvidence.customerCredentialClass === "customer_physical_contactless_pan" &&
+    identifierEvidence.cardLast4Comparison === "mismatch_neutral_unproven_scope" &&
+    identifierEvidence.cardNetworkComparison !== "mismatch_negative_unproven_equivalence";
+  const evidenceAwareReviewEligible =
+    corroboratedMismatchReviewEligible ||
+    (managerSelectionCore && neutralPhysicalContactlessMismatch);
+  const identifierReviewState = hardExclusions.length > 0
+    ? "blocked_safety"
+    : evidenceAwareReviewEligible
+    ? "reviewable_uncertainty"
+    : mismatchPresent
+    ? "needs_corroboration"
+    : identifierEvidence.cardLast4Comparison === "exact_support"
+    ? "exact_support"
+    : "no_identifier_conflict";
+  const cardLast4SourceKnown =
+    ["physical_card", "wallet_device", "bank_record"].includes(request.cardLast4Source) ||
+    ["physical_card", "wallet_device_token"].includes(request.cardLast4Provenance);
+  const customerCorrectionFields = identifierReviewState === "needs_corroboration"
+    ? [
+        amountDeltaCents !== 0 && "amount",
+        (Number.isFinite(candidate.timeDeltaMinutes) &&
+          candidate.timeDeltaMinutes > policy.maximumOneClickTimeDeltaMinutes ||
+          request.incidentTimeResolution !== "exact" ||
+          !["exact", "within_15_minutes"].includes(request.incidentTimeConfidence) ||
+          request.nearbyAttemptCount === "multiple") && "incident_time",
+        (!request.paymentInteraction || ["unsure", "insert_or_swipe"].includes(request.paymentInteraction)) && "payment_interaction",
+        !cardLast4SourceKnown && "card_last4_source",
+        (!request.cardNetwork || request.cardNetwork === "other_unknown") && "card_network",
+        request.paymentInteraction === "phone_watch_wallet" &&
+          (!request.walletDeviceKind || request.walletDeviceKind === "unknown") && "wallet_device_kind",
+        request.incidentTimeSource !== "transaction_alert_or_receipt" && "incident_time_source",
+        request.nearbyAttemptCount !== "one" && "nearby_attempt_count",
+      ].filter(Boolean)
+    : [];
   const selectionAllowed = managerSelectionCore &&
     (!mismatchPresent || evidenceAwareReviewEligible);
   const strongCardEligible =

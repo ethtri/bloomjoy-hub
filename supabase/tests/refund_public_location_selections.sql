@@ -309,7 +309,7 @@ values (
     'confidence_class', 'ambiguous_manual',
     'one_click_eligible', false,
     'policy_version', '2026-09-05.v11',
-    'identifier_policy_version', '2026-09-05.identifier.v1',
+    'identifier_policy_version', '2026-09-05.identifier.v2',
     'customer_fact_version', (
       select deterministic_fact_version from public.refund_cases
       where id = '92150000-0000-4000-8000-000000000001'

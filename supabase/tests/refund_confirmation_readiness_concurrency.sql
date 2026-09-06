@@ -116,7 +116,7 @@ values (
     'one_click_eligible', false,
     'recommendation_state', 'manual_exception',
     'policy_version', '2026-09-05.v11',
-    'identifier_policy_version', '2026-09-05.identifier.v1',
+    'identifier_policy_version', '2026-09-05.identifier.v2',
     'customer_fact_version', 1,
     'customer_credential_class', 'customer_identifier_unknown',
     'provider_identifier_class', 'last_sales_identifier_unknown',

@@ -62,7 +62,7 @@ create function pg_temp.boundary_evidence(
     'is_recommended',true,'one_click_eligible',one_click,
     'recommendation_state',case when comparable then 'high_confidence' else 'manual_exception' end,
     'policy_version',policy,
-    'identifier_policy_version','2026-09-05.identifier.v1',
+    'identifier_policy_version','2026-09-05.identifier.v2',
     'customer_fact_version',c.deterministic_fact_version,
     'customer_credential_class','customer_physical_contact_chip_pan',
     'provider_identifier_class','last_sales_chip_identifier_unverified',
