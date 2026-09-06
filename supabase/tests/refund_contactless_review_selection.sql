@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(14);
+select plan(26);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('fc110000-0000-4000-8000-000000000001','authenticated','authenticated',
@@ -42,7 +42,9 @@ create function pg_temp.contactless_evidence(
   duplicate_record boolean default false,
   hard_exclusions jsonb default '[]'::jsonb,
   correction_fields jsonb default '[]'::jsonb,
-  provider_machine_id text default 'CONTACTLESS-REVIEW-MACHINE'
+  provider_machine_id text default 'CONTACTLESS-REVIEW-MACHINE',
+  amount_delta integer default 0,
+  provider_amount integer default 1090
 ) returns jsonb language sql stable as $$
   select jsonb_build_object(
     'selection_allowed',selection_allowed,'is_recommended',true,'one_click_eligible',false,
@@ -72,10 +74,10 @@ create function pg_temp.contactless_evidence(
     'transaction_occurrence_proof_source',null,'transaction_occurrence_timestamp_source',null,
     'transaction_occurrence_timezone_basis',null,'transaction_occurrence_lower_bound_at',null,
     'transaction_occurrence_upper_bound_at',null,'request_receipt_lower_bound_at',null,
-    'request_receipt_upper_bound_at',null,'amount_delta_cents',0,'time_delta_minutes',null,
+    'request_receipt_upper_bound_at',null,'amount_delta_cents',amount_delta,'time_delta_minutes',null,
     'provider_processing_time_delta_minutes',15,'payment_status','approved',
     'payment_status_evidence','last_sales_contract','provider_refund_state','clear',
-    'duplicate_provider_record',duplicate_record,'card_last4','3760','currency_code','USD','amount_cents',1090
+    'duplicate_provider_record',duplicate_record,'card_last4','3760','currency_code','USD','amount_cents',provider_amount
   ) from public.refund_cases c where c.id='fc150000-0000-4000-8000-000000000001';
 $$;
 
@@ -97,44 +99,127 @@ select is(public.refund_nayax_identifier_evidence_state(2,
   jsonb_set(pg_temp.contactless_evidence(),'{one_click_eligible}','true'::jsonb)
 ), 'invalid','A suffix difference can never become one-click evidence');
 
+select is(public.refund_nayax_candidate_identifier_evidence_state(
+  'fc150000-0000-4000-8000-000000000001','fc140000-0000-4000-8000-000000000001',101,
+  '2026-08-22T20:15:00Z',1091,'3760','USD',
+  jsonb_set(pg_temp.contactless_evidence(),'{amount_delta_cents}','1'::jsonb)
+), 'valid','A one-cent customer amount difference remains contextual manager-review evidence');
+
+select is(public.refund_nayax_candidate_identifier_evidence_state(
+  'fc150000-0000-4000-8000-000000000001','fc140000-0000-4000-8000-000000000001',101,
+  '2026-08-22T20:15:00Z',2590,'3760','USD',
+  pg_temp.contactless_evidence(amount_delta => 1500, provider_amount => 2590)
+), 'valid','A difference above the old three-dollar threshold remains contextual for the neutral contactless review');
+
+select is(public.refund_nayax_candidate_identifier_evidence_state(
+  'fc150000-0000-4000-8000-000000000001','fc140000-0000-4000-8000-000000000001',101,
+  '2026-08-22T20:15:00Z',1090,'3760','USD',
+  jsonb_set(pg_temp.contactless_evidence(),'{payment_interaction_comparison}',
+    '"conflict_unverified_provider_semantics"'::jsonb)
+), 'valid','An unverified provider interaction label does not override the settled customer tap fact');
+
+select is(public.refund_nayax_candidate_identifier_evidence_state(
+  'fc150000-0000-4000-8000-000000000001','fc140000-0000-4000-8000-000000000001',101,
+  '2026-08-22T20:15:00Z',1090,'3760','USD',
+  jsonb_set(jsonb_set(pg_temp.contactless_evidence(),'{authorized_at}',
+    '"2026-08-22T23:30:00Z"'::jsonb),'{provider_processing_time_delta_minutes}','210'::jsonb)
+), 'valid','A delayed provider authorization timestamp is not treated as proved purchase occurrence time');
+
 create temp table lookup_claim as
 select (public.service_begin_refund_nayax_lookup('fc150000-0000-4000-8000-000000000001',2,'manual',
   'fc110000-0000-4000-8000-000000000001')->>'lookupGeneration')::bigint generation;
+
+update public.refund_cases set decision='approved',status='approved',
+  decision_reason='Ordinary manager approval',decided_by='fc110000-0000-4000-8000-000000000001',
+  decided_at=statement_timestamp()
+where id='fc150000-0000-4000-8000-000000000001';
 
 select lives_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
   actor_user_id,reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,amount_cents,
   card_last4,currency_code,evidence_summary,expires_at)
 select 'fc160000-0000-4000-8000-000000000001','fc150000-0000-4000-8000-000000000001',generation,
   'fc110000-0000-4000-8000-000000000001','fc140000-0000-4000-8000-000000000001',
-  'CONTACTLESS-REVIEW-SALE',101,'2026-08-22T20:15:00Z',1090,'3760','USD',
-  pg_temp.contactless_evidence(),statement_timestamp()+interval '1 hour' from lookup_claim$$,
+  'CONTACTLESS-REVIEW-SALE',101,'2026-08-22T20:15:00Z',2590,'3760','USD',
+  jsonb_set(pg_temp.contactless_evidence(amount_delta => 1500, provider_amount => 2590),'{is_recommended}','false'::jsonb),
+  statement_timestamp()+interval '1 hour' from lookup_claim$$,
   'Current contactless review evidence persists through the authoritative trigger');
+
+select lives_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
+  actor_user_id,reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,amount_cents,
+  card_last4,currency_code,evidence_summary,expires_at)
+select 'fc160000-0000-4000-8000-000000000002','fc150000-0000-4000-8000-000000000001',generation,
+  'fc110000-0000-4000-8000-000000000001','fc140000-0000-4000-8000-000000000001',
+  'CONTACTLESS-REVIEW-SALE-2',101,'2026-08-22T20:15:00Z',2590,'3760','USD',
+  jsonb_set(pg_temp.contactless_evidence(amount_delta => 1500, provider_amount => 2590),'{is_recommended}','false'::jsonb),
+  statement_timestamp()+interval '1 hour' from lookup_claim$$,
+  'A second reviewable transaction persists but prevents unique binding');
 
 select is((public.service_commit_refund_nayax_lookup('fc150000-0000-4000-8000-000000000001',
   (select generation from lookup_claim),2,'manual_exception','manual_exception','2026-09-05.v11',
-  statement_timestamp(),'One contactless transaction needs manager review',null,1,'manual',
+  statement_timestamp(),'Two contactless transactions need manager review',null,2,'manual',
   'fc110000-0000-4000-8000-000000000001')->>'applied'),'true',
   'Contactless review result commits through the generation guard');
+
+set local role service_role;
+select throws_ok($$select public.service_select_refund_nayax_candidate_as_actor(
+  'fc110000-0000-4000-8000-000000000001','fc150000-0000-4000-8000-000000000001',
+  (select official_action_version from public.refund_cases where id='fc150000-0000-4000-8000-000000000001'),
+  'fc160000-0000-4000-8000-000000000001',null)$$,
+  'P4604','Choose why this alternate Nayax transaction is the correct one',
+  'Two close reviewable transactions cannot bind without an explicit manager reason');
+reset role;
 
 set local role service_role;
 select is((public.service_select_refund_nayax_candidate_as_actor(
   'fc110000-0000-4000-8000-000000000001','fc150000-0000-4000-8000-000000000001',
   (select official_action_version from public.refund_cases where id='fc150000-0000-4000-8000-000000000001'),
   'fc160000-0000-4000-8000-000000000001','customer_confirmation')->>'selectionApplied'),
-  'true','Manager can bind the exact neutral contactless transaction once');
+  'true','Manager can explicitly bind one of two close reviewable transactions with a reason');
 reset role;
 
 select ok((select matched_nayax_transaction_id='CONTACTLESS-REVIEW-SALE'
     and matched_nayax_machine_auth_time='2026-08-22T20:15:00Z'
+    and decision='approved'
+    and refund_amount_cents=2590
+    and matched_nayax_amount_cents=2590
     and nayax_recommendation_state='manager_confirmed'
   from public.refund_cases where id='fc150000-0000-4000-8000-000000000001'),
-  'Manager review binds the exact provider transaction without claiming identifier equivalence');
+  'Selection preserves ordinary approval and binds its full amount to the unique provider transaction');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
   where refund_case_id='fc150000-0000-4000-8000-000000000001'),0,
   'Manual transaction selection creates no payment attempt');
 select is((select count(*)::integer from public.refund_authoritative_receipts
   where refund_case_id='fc150000-0000-4000-8000-000000000001'),0,
   'Manual transaction selection creates no refund receipt');
+select is((select metadata -> 'corroboration_codes' from public.refund_case_events
+  where refund_case_id='fc150000-0000-4000-8000-000000000001'
+    and event_type='nayax_identifier_evidence_selected' order by created_at desc limit 1),
+  '["machine_exact","provider_sale_approved","customer_physical_contactless_fact"]'::jsonb,
+  'Selection event records only corroboration that the candidate actually established');
+select is((select metadata ->> 'amount_delta_cents' from public.refund_case_events
+  where refund_case_id='fc150000-0000-4000-8000-000000000001'
+    and event_type='nayax_identifier_evidence_selected' order by created_at desc limit 1),
+  '1500','Selection event records the exact customer/provider amount difference');
+select ok((select (metadata ->> 'one_click_eligible')::boolean = false
+    and (metadata ->> 'execution_eligible_after_manager_selection')::boolean = true
+  from public.refund_case_events
+  where refund_case_id='fc150000-0000-4000-8000-000000000001'
+    and event_type='nayax_identifier_evidence_selected' order by created_at desc limit 1),
+  'Contactless event distinguishes one-click ineligibility from manager-selected execution eligibility');
+select is((select metadata -> 'uncertainty_codes' from public.refund_case_events
+  where refund_case_id='fc150000-0000-4000-8000-000000000001'
+    and event_type='nayax_identifier_evidence_selected' order by created_at desc limit 1),
+  '["customer_request_time_unknown","transaction_occurrence_time_uncertain","card_last4_mismatch_reviewable","customer_amount_variance"]'::jsonb,
+  'Selection event preserves the actual unknown timing and identifier uncertainty');
+select is((select metadata ->> 'customer_payment_interaction' from public.refund_case_events
+  where refund_case_id='fc150000-0000-4000-8000-000000000001'
+    and event_type='nayax_identifier_evidence_selected' order by created_at desc limit 1),
+  'tap_card','Selection event preserves the settled customer tap fact');
+select matches((select message from public.refund_case_events
+  where refund_case_id='fc150000-0000-4000-8000-000000000001'
+    and event_type='nayax_identifier_evidence_selected' order by created_at desc limit 1),
+  'full selected provider amount.*Provider identifier scope and purchase timing remain unproved',
+  'Manager event copy names the unresolved identifier and timing evidence');
 
 update public.refund_cases set payment_interaction='swipe_card'
 where id='fc150000-0000-4000-8000-000000000001';
