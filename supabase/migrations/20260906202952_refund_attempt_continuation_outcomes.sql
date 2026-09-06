@@ -287,13 +287,13 @@ begin
   select * into strict machine_row
   from public.reporting_machines where id = case_row.reporting_machine_id for share;
 
-  if case_row.official_action_version is distinct from p_expected_case_version
-    or (execution_context->>'caseVersion')::bigint is distinct from p_expected_case_version
+  if (execution_context->>'caseVersion')::bigint is distinct from p_expected_case_version
     or authorization_row.refund_case_id is distinct from case_row.id
     or authorization_row.actor_user_id is distinct from p_actor_user_id
     or authorization_row.action is distinct from 'nayax_execute'
     or authorization_row.status is distinct from 'consumed'
     or authorization_row.consumed_at is null
+    or case_row.official_action_version is distinct from authorization_row.expected_case_version
     or mapping_row.reporting_machine_id is distinct from case_row.reporting_machine_id
     or mapping_row.manager_user_id is distinct from p_actor_user_id
     or mapping_row.mapping_version is distinct from authorization_row.manager_mapping_version
