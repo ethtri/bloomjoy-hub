@@ -714,7 +714,7 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     ["physical_card", "wallet_device", "bank_record"].includes(request.cardLast4Source) ||
     ["physical_card", "wallet_device_token"].includes(request.cardLast4Provenance);
   const customerCorrectionFields = softTimeNeedsDistinguishingEvidence
-    ? [request.cardLast4 ? "incident_time" : "card_last4"]
+    ? ["incident_time"]
     : identifierReviewState === "needs_corroboration"
     ? [
         amountDeltaCents !== 0 && "amount",

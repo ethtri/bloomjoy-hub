@@ -351,7 +351,7 @@ assert.equal(roughCompetingPurchases.recommendationState, "ambiguous");
 assert.equal(roughCompetingPurchases.candidates.every((candidate) => candidate.selectionAllowed === false), true);
 assert.deepEqual(
   roughCompetingPurchases.candidates.map((candidate) => candidate.customerCorrectionFields),
-  [["card_last4"], ["card_last4"]],
+  [["incident_time"], ["incident_time"]],
 );
 assert.equal(roughCompetingPurchases.candidates.some((candidate) => candidate.isRecommended), false);
 

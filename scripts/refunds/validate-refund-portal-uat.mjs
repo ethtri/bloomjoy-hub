@@ -1886,6 +1886,7 @@ const installMockSupabaseRoutes = async (
   const officialActionVersions = new Map();
   const confirmedCaseIds = new Set();
   const confirmedSelections = new Map();
+  const approvedPendingExecutionCaseIds = new Set();
   const lookupResponsesByCaseId = new Map();
   const staleEvidenceCaseIds = new Set();
   let nayaxSettlementResult = null;
@@ -2080,6 +2081,9 @@ const installMockSupabaseRoutes = async (
           : {}),
         ...(confirmedCaseIds.has(refundCase.id)
           ? {
+              ...(approvedPendingExecutionCaseIds.has(refundCase.id)
+                ? { status: 'card_refund_pending', decision: 'approved', providerOutcome: 'not_attempted' }
+                : {}),
               correlationStatus: 'matched',
               correlationSource: 'nayax',
               hasMatchedNayaxTransaction: true,
@@ -2272,6 +2276,7 @@ const installMockSupabaseRoutes = async (
               refundAmountCents: refundCase?.refundAmountCents ?? refundCase?.paymentAmountCents ?? null,
               machineLimitCents: 1200,
               caseVersion: officialActionVersions.get(caseId) ?? refundCase?.officialActionVersion ?? 1,
+              approvalPendingExecution: approvedPendingExecutionCaseIds.has(caseId),
             }
           : currentNayaxCardRefundAvailability;
         return route.fulfill({
@@ -2309,6 +2314,7 @@ const installMockSupabaseRoutes = async (
         killSwitchActive: true,
         message: 'Card refund execution is disabled for this pilot environment.',
       };
+      approvedPendingExecutionCaseIds.delete(requestBody?.caseId);
       if (responseBody.providerAttempted === true || responseBody.replayed === true || responseBody.executed === true) {
         nayaxSettlementResult = responseBody;
         nayaxSettlementCaseId = requestBody?.caseId ?? null;
@@ -2419,6 +2425,13 @@ const installMockSupabaseRoutes = async (
           matchedNayaxCardLast4: requestBody.matchedNayaxCardLast4,
           matchedNayaxCurrencyCode: requestBody.matchedNayaxCurrencyCode,
         });
+        if (
+          requestBody?.status === 'card_refund_pending' &&
+          requestBody?.decision === 'approved' &&
+          requestBody?.customerMessageType == null
+        ) {
+          approvedPendingExecutionCaseIds.add(caseId);
+        }
       }
       const submittedVersion = Number(requestBody?.expectedOfficialActionVersion ?? 1);
       const nextOfficialActionVersion = Math.max(
@@ -2448,6 +2461,7 @@ const installMockSupabaseRoutes = async (
                 refundAmountCents: 700,
                 machineLimitCents: 1200,
                 caseVersion: nextOfficialActionVersion,
+                approvalPendingExecution: approvedPendingExecutionCaseIds.has(caseId),
               },
             }
           : {}),
@@ -6247,7 +6261,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       functionCalls,
       functionBodies,
       nayaxLookupResponse: scenario.response,
-      adminUpdateDelayMs: scenario.simpleJourney ? 500 : 0,
+      adminUpdateDelayMs: scenario.simpleJourney || scenario.name === 'unique QR wallet recommendation' ? 500 : 0,
       nayaxCardRefundAvailabilityResponse: scenario.simpleJourney
         ? {
             available: false,
@@ -6267,7 +6281,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
             }
         : null,
       nayaxCardRefundStatus: scenario.simpleJourney || scenario.name === 'unique QR wallet recommendation' ? 200 : 409,
-      nayaxCardRefundDelayMs: scenario.simpleJourney ? 500 : 0,
+      nayaxCardRefundDelayMs: scenario.simpleJourney || scenario.name === 'unique QR wallet recommendation' ? 500 : 0,
       nayaxCardRefundResponse: scenario.simpleJourney || scenario.name === 'unique QR wallet recommendation'
         ? {
             executed: true,
@@ -6599,9 +6613,9 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
           .filter((entry) => entry.functionName === 'refund-case-admin-update')
           .at(-1)?.body ?? {};
         recorder.assert(
-          'The combined action binds the transaction without creating a second approval event',
-            evidenceSaveBody.status === 'needs_review' &&
-            evidenceSaveBody.decision === null &&
+          'The combined action durably binds the exact transaction and ordinary approval before provider execution',
+            evidenceSaveBody.status === 'card_refund_pending' &&
+            evidenceSaveBody.decision === 'approved' &&
             evidenceSaveBody.matchedNayaxCandidateToken === scenario.response.candidates[0].candidateToken &&
             evidenceSaveBody.refundAmountCents === scenario.response.candidates[0].amountCents &&
             evidenceSaveBody.customerMessageType == null,
@@ -6651,47 +6665,32 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       simpleJourneyState.machineActivated = true;
       await reloadRefundPortalPage(page);
       await page.getByRole('heading', { name: simpleJourneyFixture.case.publicReference }).waitFor({ timeout: 10000 });
-      await page.waitForFunction(() => {
-        const action = document.querySelector('[data-testid="refund-run-nayax-refund"]');
-        const managerState = document.querySelector('[data-testid="refund-manager-state"]');
-        return action instanceof HTMLButtonElement && !action.disabled &&
-          managerState?.textContent?.trim() === 'Ready to refund';
-      }, undefined, { timeout: 10000 });
+      await page.getByTestId('refund-action-receipt').waitFor({ state: 'visible', timeout: 10000 });
       recorder.assert(
-        'Reviewed machine activation survives reload and exposes exactly one refund action',
-        (await page.getByRole('button', { name: /^Refund \$7\.00$/i }).count()) === 1 &&
-          !(await page.getByTestId('refund-run-nayax-refund').isDisabled()) &&
-          (await page.getByTestId('refund-manager-state').innerText()) === 'Ready to refund' &&
-          (await page.getByTestId('refund-primary-action').innerText()).includes('Transaction confirmed') &&
-          (await page.getByTestId('refund-primary-action').innerText()).includes('Payment: Not issued') &&
-          functionCalls.filter((name) => name === 'refund-case-admin-update').length === 1
+        'Reload resumes the still-current approved refund without another manager confirmation',
+        (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0 &&
+          !(await page.getByTestId('refund-confirmation-dialog').isVisible()) &&
+          functionCalls.filter((name) => name === 'refund-case-admin-update').length === 1 &&
+          functionCalls.filter((name) => name === 'nayax-card-refund').length === 1 &&
+          await page.getByTestId('refund-action-receipt').getByText('Refund completed', { exact: true }).isVisible()
       );
       await page.screenshot({
-        path: path.join(artifactDir, 'refund-simple-journey-ready-desktop.png'),
+        path: path.join(artifactDir, 'refund-simple-journey-resumed-desktop.png'),
         fullPage: false,
       });
       await page.setViewportSize({ width: 390, height: 844 });
       recorder.assert(
-        'Reloaded simple refund action remains usable without mobile overflow',
-        await page.getByTestId('refund-run-nayax-refund').isVisible() &&
+        'Reloaded automatic continuation remains clear without mobile overflow',
+        await page.getByTestId('refund-action-receipt').isVisible() &&
           await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
       );
       await page.screenshot({
-        path: path.join(artifactDir, 'refund-simple-journey-ready-mobile.png'),
+        path: path.join(artifactDir, 'refund-simple-journey-resumed-mobile.png'),
         fullPage: false,
       });
       await page.setViewportSize({ width: 1440, height: 1000 });
-
-      await page.getByTestId('refund-run-nayax-refund').click();
-      const confirmRefund = page.getByTestId('refund-confirm-nayax-refund');
-      await confirmRefund.click();
-      recorder.assert(
-        'Refund confirmation disables immediately so a rapid second click cannot submit again',
-        await confirmRefund.isDisabled()
-      );
-      await page.getByTestId('refund-action-receipt').waitFor({ state: 'visible', timeout: 10000 });
         recorder.assert(
-          'Rapid repeated refund confirmation creates one provider request and one settled browser path',
+          'The retained approval creates one provider request and one settled browser path',
         functionCalls.filter((name) => name === 'nayax-card-refund').length === 1 &&
           functionCalls.filter((name) => name === 'refund-case-admin-update').length === 1 &&
           !functionCalls.includes('refund-case-message-send') &&
@@ -6710,8 +6709,9 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       });
     } else if (scenario.name === 'unique QR wallet recommendation') {
       await page.getByTestId('refund-action-receipt').waitFor({ state: 'visible', timeout: 10000 });
+      await page.waitForTimeout(250);
       recorder.assert(
-        'One manager confirmation binds and completes the selected wallet transaction through the normal API path',
+        'One deferred in-flight manager confirmation completes through the normal API path without a resume duplicate',
         await page.getByTestId('refund-action-receipt').getByText('Refund completed', { exact: true }).isVisible() &&
           functionCalls.filter((name) => name === 'refund-case-admin-update').length === 1 &&
           functionCalls.filter((name) => name === 'nayax-card-refund').length === 1 &&

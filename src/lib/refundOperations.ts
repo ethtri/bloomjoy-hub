@@ -388,6 +388,7 @@ export type RefundReadiness = {
   refundAmountCents: number | null;
   machineLimitCents: number | null;
   caseVersion: number | null;
+  approvalPendingExecution?: boolean;
 };
 
 export type RefundCustomerLocale = 'en' | 'es';
@@ -1530,6 +1531,7 @@ export type NayaxCardRefundAvailabilityResponse = {
   refundAmountCents?: number | null;
   machineLimitCents?: number | null;
   caseVersion?: number | null;
+  approvalPendingExecution?: boolean;
   payloadRedacted: true;
 };
 

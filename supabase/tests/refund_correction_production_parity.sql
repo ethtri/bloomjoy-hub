@@ -355,8 +355,8 @@ select is(public.refund_purchase_correction_request_fields(
 select throws_like(
   $$select pg_temp.queue_current_fact_scope(
     array['incident_time'])$$,
-  '%Valid refund manual-message intent%',
-  'The completed response rejects a second correction enqueue before capability issuance');
+  '%A customer message is already queued for this case%',
+  'The existing same-case message prevents a duplicate correction enqueue');
 select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id='cf150000-0000-4000-8000-000000000001'),1,
   'Correction completion creates no second customer message');
