@@ -182,11 +182,11 @@ for (const retiredPilotGate of [
 assert.match(
   productionRunbook,
   /exactly 92 reviewed synthetic screenshots/,
-  'Production runbook must use the current 90-screenshot evidence inventory'
+  'Production runbook must use the current 92-screenshot evidence inventory'
 );
 assert.doesNotMatch(
   productionRunbook,
-  /exactly (?:44|83|85|86) reviewed synthetic screenshots/,
+  /exactly (?:44|83|85|86|90) reviewed synthetic screenshots/,
   'Production runbook must not retain a retired screenshot evidence count'
 );
 for (const [documentName, document] of [
@@ -196,11 +196,11 @@ for (const [documentName, document] of [
   assert.match(
     document,
     /exactly 92 reviewed synthetic screenshots/,
-    `${documentName} must use the current 90-screenshot evidence inventory`
+    `${documentName} must use the current 92-screenshot evidence inventory`
   );
   assert.doesNotMatch(
     document,
-    /exactly (?:44|83|85|86) reviewed synthetic screenshots/,
+    /exactly (?:44|83|85|86|90) reviewed synthetic screenshots/,
     `${documentName} must not retain a retired screenshot evidence count`
   );
 }

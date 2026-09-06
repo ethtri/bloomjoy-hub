@@ -393,8 +393,8 @@ const installMockSupabaseRoutes = async (context, state) => {
           status: 'completed',
           completedAt: now.toISOString(),
           errorCode: null,
-          activeCount: 3,
-          previousActiveCount: 3,
+          activeCount: 4,
+          previousActiveCount: 4,
           largeDrop: false,
         },
         machines: [
