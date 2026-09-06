@@ -564,11 +564,14 @@ export function classifyNayaxRefundResponse({
     )
     : undefined;
   const semanticPairMatched = Boolean(pattern);
-  const businessResult = schemaMatched
-    ? retainSanitizedBusinessOutcomeValue(record.Result)
+  // Persist only exact pairs already reviewed into the active server contract.
+  // Unknown provider text remains represented by categorical/schema metadata and
+  // the keyed classification digest; it never becomes stored diagnostic text.
+  const businessResult = pattern
+    ? retainSanitizedBusinessOutcomeValue(pattern.result)
     : null;
-  const businessStatus = schemaMatched
-    ? retainSanitizedBusinessOutcomeValue(record.Status)
+  const businessStatus = pattern
+    ? retainSanitizedBusinessOutcomeValue(pattern.status)
     : null;
   const businessPairRetained = businessResult !== null && businessStatus !== null;
   const contractMatched = safeFailureType === null &&

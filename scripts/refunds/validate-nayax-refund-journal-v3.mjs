@@ -195,7 +195,7 @@ for (const marker of [
   'refund_nayax_attempt_approval_continuations',
   'service_record_nayax_refund_provider_stage_v3_outcomes',
   'service_reserve_nayax_refund_approval_continuation_v1',
-  'nayax-business-outcome-v1',
+  'nayax-business-outcome-v2',
   'same-attempt-approval-continuation-v1',
 ]) {
   assert.match(continuationMigration, new RegExp(marker), `continuation migration must publish ${marker}`);
@@ -222,10 +222,17 @@ for (const scenario of [
   'Stale expected version',
   'Revoked manager authority',
   'Settlement-after-effect recovery',
+  'Old Edge plus new database',
+  'alphabetic names and secrets',
 ]) {
   assert.match(continuationTest, new RegExp(scenario), `continuation pgTAP must cover ${scenario}`);
 }
-assert.match(continuationTest, /select plan\(29\)/u);
+assert.match(continuationTest, /select plan\(30\)/u);
+assert.match(
+  continuationMigration,
+  /grant execute on function public\.service_record_nayax_refund_provider_stage_v3\([\s\S]*\) to service_role;/u,
+  'rolling deploys must preserve the prior Edge journal-v3 recorder grant',
+);
 
 console.log(
   'Nayax journal v3 static validation passed: additive rollback compatibility, exact-200 application/json authorization, redacted response metadata, and focused pgTAP coverage are present.',

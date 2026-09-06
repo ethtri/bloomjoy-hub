@@ -134,7 +134,7 @@ const providerJournalCompatible = async (
     capability.approvalPolicyVersion === NAYAX_REFUND_APPROVAL_POLICY_VERSION &&
     capability.responseEnvelopeVersion ===
       NAYAX_REFUND_RESPONSE_ENVELOPE_VERSION &&
-    capability.businessOutcomeRecordVersion === "nayax-business-outcome-v1" &&
+    capability.businessOutcomeRecordVersion === "nayax-business-outcome-v2" &&
     capability.approvalContinuationVersion ===
       "same-attempt-approval-continuation-v1" &&
     supported.includes(providerContractVersion) &&
@@ -1349,7 +1349,7 @@ serve(async (req) => {
           decision.responseEnvelopeVersion !==
             NAYAX_REFUND_RESPONSE_ENVELOPE_VERSION ||
           decision.businessOutcomeRecordVersion !==
-            "nayax-business-outcome-v1" ||
+            "nayax-business-outcome-v2" ||
           decision.payloadRedacted !== true
         ) {
           throw new Error("provider_journal_version_mismatch");
@@ -1395,11 +1395,14 @@ serve(async (req) => {
               p_journal_contract_version: NAYAX_REFUND_JOURNAL_CONTRACT_VERSION,
             },
           );
-          if (error || !data || typeof data !== "object") {
-            throw new Error("Unable to reserve this Nayax refund safely.");
-          }
-          let reservation = data as NayaxAttemptReservation;
-          if (!reservation.attempt?.shouldExecute) {
+          // A reloaded interrupted attempt can fail the ordinary reservation's
+          // fresh-action eligibility check. Asking the continuation boundary is
+          // safe: it can only return the same proved attempt and never creates a
+          // request. Every other reservation error remains fail-closed there.
+          let reservation = !error && data && typeof data === "object"
+            ? data as NayaxAttemptReservation
+            : null;
+          if (!reservation?.attempt?.shouldExecute) {
             const { data: continuationData, error: continuationError } =
               await supabase.rpc(
                 "service_reserve_nayax_refund_approval_continuation_v1",
@@ -1420,9 +1423,9 @@ serve(async (req) => {
               continuationError || !continuationData ||
               typeof continuationData !== "object"
             ) {
-              throw new Error(
-                "Unable to reserve this Nayax approval continuation safely.",
-              );
+              throw new Error(error
+                ? "Unable to reserve this Nayax refund safely."
+                : "Unable to reserve this Nayax approval continuation safely.");
             }
             reservation = continuationData as NayaxAttemptReservation;
           }

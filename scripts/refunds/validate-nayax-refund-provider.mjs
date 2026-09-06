@@ -425,6 +425,23 @@ equal(
   false,
   'Unmatched provider text is never classified as a contract match.',
 );
+const alphabeticSecretClassification = classifyNayaxRefundResponse({
+  stage: 'request',
+  httpStatus: 200,
+  payload: { Result: 'Alice', Status: 'TopSecret' },
+  patterns: contract.requestResponses,
+});
+check(
+  alphabeticSecretClassification.businessPairRetained === false &&
+    alphabeticSecretClassification.businessResult === null &&
+    alphabeticSecretClassification.businessStatus === null,
+  'Unreviewed alphabetic names and secrets are not retained.',
+);
+check(
+  !JSON.stringify(alphabeticSecretClassification).includes('Alice') &&
+    !JSON.stringify(alphabeticSecretClassification).includes('TopSecret'),
+  'Unreviewed alphabetic text cannot enter a stage result or log payload.',
+);
 equal(
   classifyNayaxRefundResponse({
     stage: 'request',

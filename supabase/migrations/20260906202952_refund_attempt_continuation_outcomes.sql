@@ -55,7 +55,10 @@ begin
     or journal_row.stage is distinct from new.stage
     or journal_row.event is distinct from 'result'
     or journal_row.journal_contract_version is distinct from 'nayax-provider-journal-v3'
-    or (new.business_pair_retained and journal_row.schema_matched is distinct from true) then
+    or (new.business_pair_retained and (
+      journal_row.schema_matched is distinct from true
+      or journal_row.semantic_pair_matched is distinct from true
+    )) then
     raise exception 'Business outcome must bind one current journal-v3 result'
       using errcode = 'P4628';
   end if;
@@ -94,13 +97,15 @@ create trigger refund_nayax_attempt_approval_continuation_immutable
 before update or delete on public.refund_nayax_attempt_approval_continuations
 for each row execute function public.guard_refund_nayax_provider_stage_immutable();
 
--- The prior v3 recorder stays available to database-owner tests and rollback,
--- but service_role must use the outcome-retaining wrapper below.
-revoke execute on function public.service_record_nayax_refund_provider_stage_v3(
+-- Preserve the prior v3 service grant for rolling deploys and rollback. The
+-- previously deployed Edge accepts the additive capability fields below and
+-- must be able to finish journaling after transport. It cannot reserve the new
+-- continuation because that RPC is absent from its runtime.
+grant execute on function public.service_record_nayax_refund_provider_stage_v3(
   text, uuid, text, text, text, integer, text, boolean, text, text, text, text,
   boolean, text, text, text, boolean, boolean, boolean, boolean, boolean,
   text, text, boolean
-) from service_role;
+) to service_role;
 
 create function public.service_record_nayax_refund_provider_stage_v3_outcomes(
   p_executor_assertion text,
@@ -168,7 +173,10 @@ begin
     or (not p_business_pair_retained and (
       p_business_result is not null or p_business_status is not null
     ))
-    or (p_business_pair_retained and p_schema_matched is distinct from true)
+    or (p_business_pair_retained and (
+      p_schema_matched is distinct from true
+      or p_semantic_pair_matched is distinct from true
+    ))
   ) then
     raise exception 'Invalid sanitized Nayax business outcome'
       using errcode = 'P4628';
@@ -202,7 +210,7 @@ begin
     );
   end if;
   return result || jsonb_build_object(
-    'businessOutcomeRecordVersion', 'nayax-business-outcome-v1',
+    'businessOutcomeRecordVersion', 'nayax-business-outcome-v2',
     'businessPairRetained', coalesce(p_business_pair_retained, false)
   );
 end;
@@ -287,7 +295,7 @@ begin
   select * into strict machine_row
   from public.reporting_machines where id = case_row.reporting_machine_id for share;
 
-  if (execution_context->>'caseVersion')::bigint is distinct from p_expected_case_version
+  if case_row.official_action_version is distinct from p_expected_case_version
     or authorization_row.refund_case_id is distinct from case_row.id
     or authorization_row.actor_user_id is distinct from p_actor_user_id
     or authorization_row.action is distinct from 'nayax_execute'
@@ -436,7 +444,7 @@ begin
     'journalContractVersion', 'nayax-provider-journal-v3',
     'approvalPolicyVersion', 'db-authoritative-exact-200-json-v1',
     'responseEnvelopeVersion', 'nayax-response-envelope-v1',
-    'businessOutcomeRecordVersion', 'nayax-business-outcome-v1',
+    'businessOutcomeRecordVersion', 'nayax-business-outcome-v2',
     'approvalContinuationVersion', 'same-attempt-approval-continuation-v1',
     'supportedProviderContractVersions', jsonb_build_array(
       'nayax-production-account-contract-v2'
@@ -448,7 +456,7 @@ end;
 $$;
 
 comment on table public.refund_nayax_provider_business_outcomes is
-  'Service-only immutable bounded Result/Status diagnostics. No response body, customer/card identifier, or manager/browser read grant is retained.';
+  'Service-only immutable reviewed-contract Result/Status diagnostics. Unknown text, response bodies, customer/card identifiers, and manager/browser reads are not retained.';
 comment on table public.refund_nayax_attempt_approval_continuations is
   'One immutable same-attempt continuation reservation after exact request acceptance and original provider-claim expiry.';
 comment on function public.service_reserve_nayax_refund_approval_continuation_v1(

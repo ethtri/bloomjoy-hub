@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(29);
+select plan(30);
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
@@ -85,12 +85,15 @@ begin
     'request','result',200,outcome_name,contract_match,null,repeat(p_n::text,64),
     'nayax-production-account-contract-v2','nayax-provider-journal-v3',
     true,'application_json','json_object','1_256',true,true,true,true,true,'string','string',
-    semantic_match,business_result,business_status,true);
+    semantic_match,
+    case when semantic_match then business_result else null end,
+    case when semantic_match then business_status else null end,
+    semantic_match);
   update public.refund_case_nayax_refund_attempts
   set provider_claim_expires_at=statement_timestamp()-interval '1 second' where id=aid;
 end $$;
 
-create function pg_temp.continue_attempt(p_n integer,version_offset integer default 0)
+create function pg_temp.continue_attempt(p_n integer,version_offset integer default 2)
 returns jsonb language sql as $$
   select public.service_reserve_nayax_refund_approval_continuation_v1('continuation-executor',
     'ca000000-0000-4000-8000-000000000001',
@@ -119,20 +122,33 @@ select ok(has_function_privilege('service_role',
   and has_function_privilege('service_role',
   'public.service_reserve_nayax_refund_approval_continuation_v1(text,uuid,uuid,bigint,text,integer,text,text,text)','execute'),
   'Only assertion-protected service boundaries expose writes');
-select ok(not has_function_privilege('service_role',
-  'public.service_record_nayax_refund_provider_stage_v3(text,uuid,text,text,text,integer,text,boolean,text,text,text,text,boolean,text,text,text,boolean,boolean,boolean,boolean,boolean,text,text,boolean)','execute')
-  and not has_function_privilege('authenticated',
+select ok(not has_function_privilege('authenticated',
   'public.service_reserve_nayax_refund_approval_continuation_v1(text,uuid,uuid,bigint,text,integer,text,text,text)','execute'),
-  'The non-retaining writer and browser continuation are denied');
+  'Browser roles cannot reserve an approval continuation');
+select ok(has_function_privilege('service_role',
+  'public.service_record_nayax_refund_provider_stage_v3(text,uuid,text,text,text,integer,text,boolean,text,text,text,text,boolean,text,text,text,boolean,boolean,boolean,boolean,boolean,text,text,boolean)','execute'),
+  'The prior journal-v3 recorder remains available to the previously deployed Edge');
 select ok(
   public.service_get_nayax_refund_provider_journal_capability_v3('continuation-executor')
-    @> '{"businessOutcomeRecordVersion":"nayax-business-outcome-v1","approvalContinuationVersion":"same-attempt-approval-continuation-v1"}'::jsonb,
+    @> '{"businessOutcomeRecordVersion":"nayax-business-outcome-v2","approvalContinuationVersion":"same-attempt-approval-continuation-v1"}'::jsonb,
   'Capability pins the private outcome record and same-attempt continuation contracts');
+
+grant select on continuation_reservations to service_role;
+set local role service_role;
+select lives_ok($$select public.service_record_nayax_refund_provider_stage_v3(
+  'continuation-executor',
+  (select (result#>>'{attempt,attemptId}')::uuid from continuation_reservations where n=2),
+  (select result->>'providerClaimToken' from continuation_reservations where n=2),
+  'request','started',null,null,null,null,repeat('2',64),
+  'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  null,null,null,null,null,null,null,null,null,null,null,null)$$,
+  'Old Edge plus new database can journal after preflight without a post-transport permission failure');
+reset role;
 
 select pg_temp.record_request(1,'accepted',true,true,'True','Pending Approval');
 create temp table issued_continuation as select pg_temp.continue_attempt(1) result;
 select is((select result#>>'{attempt,shouldExecute}' from issued_continuation),'true',
-  'Crash after proved request acceptance receives one same-attempt approval continuation');
+  'Crash after proved request acceptance reloads current version and receives one same-attempt approval continuation');
 select is((select result#>>'{attempt,executionPlan}' from issued_continuation),'approval_continuation',
   'Continuation explicitly selects the approval-only current-contract plan');
 select isnt((select result->>'providerClaimToken' from issued_continuation),
@@ -155,13 +171,14 @@ select is(pg_temp.continue_attempt(3)#>>'{attempt,shouldExecute}','false',
   'Unknown or ambiguous request pair remains inspect-only');
 select is((select business_result||'|'||business_status from public.refund_nayax_provider_business_outcomes b
   join continuation_reservations r on (r.result#>>'{attempt,attemptId}')::uuid=b.nayax_refund_attempt_id
-  where r.n=3 and b.stage='request'),'True|Unexpected','Safe unknown pair is retained without guessing its outcome');
+  where r.n=3 and b.stage='request'),null,'Unknown alphabetic provider text is represented without retaining the pair');
 
 update public.refund_case_nayax_refund_attempts set provider_claim_expires_at=now()-interval '1 second'
 where id=(select (result#>>'{attempt,attemptId}')::uuid from continuation_reservations where n=2);
 select is(pg_temp.continue_attempt(2)#>>'{attempt,shouldExecute}','false',
   'Request-not-proved cannot continue');
-select throws_ok($$select pg_temp.continue_attempt(1,1)$$,'P4628',null,
+select pg_temp.record_request(4,'accepted',true,true,'True','Pending Approval');
+select throws_ok($$select pg_temp.continue_attempt(4,0)$$,'P4628',null,
   'Stale expected version cannot claim continuation');
 select pg_temp.record_request(6,'accepted',true,true,'FixtureResult','FixtureStatus');
 select throws_ok($$update public.refund_cases set refund_amount_cents=700
@@ -218,10 +235,10 @@ select throws_ok($$update public.refund_nayax_provider_business_outcomes set bus
   'P0001',null,'Business outcomes are immutable');
 select throws_ok($$insert into public.refund_nayax_provider_business_outcomes(
   provider_stage_journal_id,nayax_refund_attempt_id,stage,business_result,business_status,business_pair_retained)
-  select j.id,j.nayax_refund_attempt_id,j.stage,'owner@example.test','customer-4242',true
+  select j.id,j.nayax_refund_attempt_id,j.stage,'Alice','TopSecret',true
   from public.refund_nayax_provider_stage_journal j
-  where j.event='result' and j.schema_matched is true limit 1$$,'23514',null,
-  'Email and even last-four-like identifiers cannot enter the diagnostic record');
+  where j.event='result' and j.semantic_pair_matched is false limit 1$$,'P4628',null,
+  'Unreviewed alphabetic names and secrets cannot enter the diagnostic record');
 
 select * from finish();
 rollback;
