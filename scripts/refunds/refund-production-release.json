@@ -151,7 +151,8 @@
     "20260905190312_refund_request_time_boundary.sql",
     "20260905192819_refund_evidence_aware_selection.sql",
     "20260905210000_refund_bubble_planet_location_mapping.sql",
-    "20260905232428_refund_cross_site_review_linkage.sql"
+    "20260905232428_refund_cross_site_review_linkage.sql",
+    "20260905233116_refund_v9_correction_scope_parity.sql"
   ],
   "migrationFilesSha256": "f3d56f0d4a0aaa69c4b958711c3995d3810ae170ffea91e330c495f3cfb029f8",
   "migrationVersionSetSha256": "766677e54ac1cd2068d852c69dc57587955e0634235ccbdd0f4df824602431c8",
