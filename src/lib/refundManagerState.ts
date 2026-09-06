@@ -126,6 +126,22 @@ export const hasProtectedRefundLifecycle = (refundCase: RefundManagerCaseFacts) 
       'refund_confirmed', 'customer_notified'].includes(refundCase.lifecycle?.stage ?? '')
   );
 
+/** Exact transaction confirmation may continue after the one refund decision. */
+export const canConfirmRefundCandidate = (refundCase: {
+  persistedStatus: RefundManagerCaseFacts['status'];
+  editorStatus: RefundManagerCaseFacts['status'];
+  decision?: 'approved' | 'denied' | null;
+  canSelectCandidate: boolean;
+}) => {
+  const inManagerReview =
+    refundCase.persistedStatus === 'needs_review' && refundCase.editorStatus === 'needs_review';
+  const approvedUnpaidContinuation =
+    refundCase.decision === 'approved' &&
+    refundCase.persistedStatus === 'approved' &&
+    refundCase.editorStatus === 'approved';
+  return refundCase.canSelectCandidate && (inManagerReview || approvedUnpaidContinuation);
+};
+
 const state = (
   id: RefundManagerStateId,
   label: string,

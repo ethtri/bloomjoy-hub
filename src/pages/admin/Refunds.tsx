@@ -100,6 +100,7 @@ import {
   type UpdateRefundCaseResponse,
 } from '@/lib/refundOperations';
 import {
+  canConfirmRefundCandidate,
   getRefundManagerState,
   hasUnpaidRefundReview,
   hasProtectedRefundLifecycle,
@@ -4996,10 +4997,13 @@ export default function AdminRefundsPage() {
       ? candidateUnavailableReason(unavailableCandidates[0], selectedCase)
       : 'Provider evidence or purchase details do not meet the selection safeguards.';
     const waitingOnCustomer = isWaitingCase(selectedCase, refundOperationsAccess);
-    const caseAllowsCandidateSelection =
-      selectedCase.status === 'needs_review' &&
-      editor.status === 'needs_review' &&
-      (selectedCase.canSelectNayaxCandidate ?? selectedCase.canPerformOfficialAction) !== false;
+    const caseAllowsCandidateSelection = canConfirmRefundCandidate({
+      persistedStatus: selectedCase.status,
+      editorStatus: editor.status,
+      decision: selectedCase.decision,
+      canSelectCandidate:
+        (selectedCase.canSelectNayaxCandidate ?? selectedCase.canPerformOfficialAction) !== false,
+    });
     const selectedCandidate = selectedNayaxCandidate(editor, effectiveCandidates);
     const hasLookupResult = !selectedCase.legacyStateReviewRequired && Boolean(
       selectedCase.hasMatchedNayaxTransaction ||

@@ -104,8 +104,8 @@ insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_ge
  provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
 select 'fd160000-0000-4000-8000-000000000001','fd150000-0000-4000-8000-000000000001',generation,
  'fd110000-0000-4000-8000-000000000001','fd140000-0000-4000-8000-000000000001','SAFE-BOUNDARY-1',7,
- c.customer_request_received_at-interval '1 second',963,'4242','USD',
- pg_temp.boundary_evidence(c.id,c.customer_request_received_at-interval '1 second','before_or_at_request',true,true),
+ date_trunc('milliseconds',c.customer_request_received_at-interval '1 second'),963,'4242','USD',
+ pg_temp.boundary_evidence(c.id,date_trunc('milliseconds',c.customer_request_received_at-interval '1 second'),'before_or_at_request',true,true),
  statement_timestamp()+interval '1 hour'
 from public.refund_cases c cross join lookup_claim
 where c.id='fd150000-0000-4000-8000-000000000001';
@@ -115,8 +115,8 @@ select is((select count(*)::integer from public.refund_nayax_lookup_candidates
 select throws_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
  provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
 select 'fd160000-0000-4000-8000-000000000002',c.id,l.generation,'fd110000-0000-4000-8000-000000000001',
- 'fd140000-0000-4000-8000-000000000001','LATER-BOUNDARY-2',7,c.customer_request_received_at+interval '1 second',963,'4242','USD',
- pg_temp.boundary_evidence(c.id,c.customer_request_received_at+interval '1 second','after_request',true,false),statement_timestamp()+interval '1 hour'
+ 'fd140000-0000-4000-8000-000000000001','LATER-BOUNDARY-2',7,date_trunc('milliseconds',c.customer_request_received_at+interval '1 second'),963,'4242','USD',
+ pg_temp.boundary_evidence(c.id,date_trunc('milliseconds',c.customer_request_received_at+interval '1 second'),'after_request',true,false),statement_timestamp()+interval '1 hour'
 from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4000-8000-000000000001'$$,
  'P4625','Transaction occurred after Bloomjoy received the customer request',
  'Immediately-after provider occurrence is rejected before persistence');
@@ -124,8 +124,8 @@ from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4
 insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
  provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
 select 'fd160000-0000-4000-8000-000000000003',c.id,l.generation,'fd110000-0000-4000-8000-000000000001',
- 'fd140000-0000-4000-8000-000000000001','UNCERTAIN-BOUNDARY-3',7,c.customer_request_received_at-interval '1 minute',963,'4242','USD',
- pg_temp.boundary_evidence(c.id,c.customer_request_received_at-interval '1 minute','occurrence_time_uncertain',false,false),
+ 'fd140000-0000-4000-8000-000000000001','UNCERTAIN-BOUNDARY-3',7,date_trunc('milliseconds',c.customer_request_received_at-interval '1 minute'),963,'4242','USD',
+ pg_temp.boundary_evidence(c.id,date_trunc('milliseconds',c.customer_request_received_at-interval '1 minute'),'occurrence_time_uncertain',false,false),
  statement_timestamp()+interval '1 hour'
 from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4000-8000-000000000001';
 select is((select count(*)::integer from public.refund_nayax_lookup_candidates where token='fd160000-0000-4000-8000-000000000003'),1,
@@ -134,8 +134,8 @@ select is((select count(*)::integer from public.refund_nayax_lookup_candidates w
 select throws_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
  provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
 select 'fd160000-0000-4000-8000-000000000004',c.id,l.generation,'fd110000-0000-4000-8000-000000000001',
- 'fd140000-0000-4000-8000-000000000001','UNSAFE-UNCERTAIN-4',7,c.customer_request_received_at-interval '1 minute',963,'4242','USD',
- pg_temp.boundary_evidence(c.id,c.customer_request_received_at-interval '1 minute','occurrence_time_uncertain',false,true),
+ 'fd140000-0000-4000-8000-000000000001','UNSAFE-UNCERTAIN-4',7,date_trunc('milliseconds',c.customer_request_received_at-interval '1 minute'),963,'4242','USD',
+ pg_temp.boundary_evidence(c.id,date_trunc('milliseconds',c.customer_request_received_at-interval '1 minute'),'occurrence_time_uncertain',false,true),
  statement_timestamp()+interval '1 hour'
 from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4000-8000-000000000001'$$,
  'P4625','Invalid customer request time evidence','Uncertain timing cannot become one-click evidence');
@@ -143,8 +143,8 @@ from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4
 select throws_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
  provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
 select 'fd160000-0000-4000-8000-000000000006',c.id,l.generation,'fd110000-0000-4000-8000-000000000001',
- 'fd140000-0000-4000-8000-000000000001','MISSING-SOURCE-6',7,c.customer_request_received_at-interval '1 minute',963,'4242','USD',
- pg_temp.boundary_evidence(c.id,c.customer_request_received_at-interval '1 minute','before_or_at_request',true,false)
+ 'fd140000-0000-4000-8000-000000000001','MISSING-SOURCE-6',7,date_trunc('milliseconds',c.customer_request_received_at-interval '1 minute'),963,'4242','USD',
+ pg_temp.boundary_evidence(c.id,date_trunc('milliseconds',c.customer_request_received_at-interval '1 minute'),'before_or_at_request',true,false)
    - 'provider_time_source',
  statement_timestamp()+interval '1 hour'
 from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4000-8000-000000000001'$$,

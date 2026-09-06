@@ -169,7 +169,10 @@ select is(public.refund_nayax_candidate_identifier_evidence_state(
   '2026-09-05T18:14:58.810Z',1090,'6768','USD',
   pg_temp.exact_identifier_evidence(
     'fe150000-0000-4000-8000-000000000001','2026-09-05T18:15:00Z',0,true
-  ) || jsonb_build_object('machine_authorization_at','2026-09-05T18:14:58.810Z')),
+  ) || jsonb_build_object(
+    'machine_authorization_at','2026-09-05T18:14:58.810Z',
+    'machine_authorization_time_raw','2026-09-05T11:14:58.810'
+  )),
   'valid','Occurrence time drives distance while the distinct machine clock remains the exact API binding');
 select is(public.refund_nayax_candidate_identifier_evidence_state(
   'fe150000-0000-4000-8000-000000000001','fe140000-0000-4000-8000-000000000001',7,
@@ -182,7 +185,7 @@ select is(public.refund_nayax_candidate_identifier_evidence_state(
   'fe150000-0000-4000-8000-000000000003','fe140000-0000-4000-8000-000000000001',7,
   '2026-09-05T18:15:00Z',1090,'6768','USD',
   pg_temp.exact_identifier_evidence(
-    'fe150000-0000-4000-8000-000000000003','2026-09-05T18:15:00Z',0,false
+    'fe150000-0000-4000-8000-000000000003','2026-09-05T18:15:00Z',0,true
   ) || jsonb_build_object(
     'customer_request_received_at',null,'customer_request_received_source',null,
     'request_time_boundary','request_time_unknown','reason_codes','["customer_request_time_unknown"]'::jsonb
@@ -416,9 +419,10 @@ select lives_ok(format($$select public.service_select_refund_nayax_candidate_as_
   'An unchanged exact replay preserves the binding without granting legacy evidence new selection authority');
 reset role;
 select ok((select matched_nayax_transaction_id='IDENTIFIER-REVIEW-TX'
-  and nayax_match_execution_eligible=false from public.refund_cases
+  and nayax_match_execution_eligible=true
+  and nayax_recommendation_state='manager_confirmed' from public.refund_cases
   where id='fe150000-0000-4000-8000-000000000001'),
-  'Manager selection binds the exact transaction and cannot enable one-click execution');
+  'Manager selection binds the exact transaction and records explicit manager-confirmed execution eligibility');
 select ok((select count(*)=1 and bool_and((metadata->>'payload_redacted')::boolean)
   and bool_and(metadata->'corroboration_codes' @> '["machine_exact","amount_exact","approved_sale",
     "occurrence_time_within_60m","customer_time_from_alert_or_receipt","customer_reports_one_nearby_attempt"]'::jsonb)

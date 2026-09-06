@@ -156,7 +156,7 @@ values (
     'duplicate_provider_record', false,
     'amount_delta_cents', 0,
     'time_delta_minutes', null,
-    'provider_processing_time_delta_minutes', 0,
+    'provider_processing_time_delta_minutes', 1,
     'provider_payload_redacted', true
   ),
   now() + interval '1 hour'

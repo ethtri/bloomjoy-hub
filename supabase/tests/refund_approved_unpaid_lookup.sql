@@ -144,7 +144,7 @@ begin
       'payment_status','approved','payment_status_evidence','last_sales_contract',
       'provider_refund_state','clear','duplicate_provider_record',false,
       'amount_delta_cents',abs(original_amount-963),'time_delta_minutes',0,
-      'provider_processing_time_delta_minutes',0
+      'provider_processing_time_delta_minutes',1
     ),now()+interval '1 hour');
   perform public.service_commit_refund_nayax_lookup(pg_temp.case_id(n),generation,1,'match_found','high_confidence',
     '2026-09-05.v11',now(),'Synthetic exact candidate',null,1,'manual','fa410000-0000-4000-8000-000000000001');

@@ -357,7 +357,7 @@ values (
     'duplicate_provider_record', false,
     'amount_delta_cents', 0,
     'time_delta_minutes', null,
-    'provider_processing_time_delta_minutes', 0
+    'provider_processing_time_delta_minutes', 1
   ),
   now() + interval '1 hour'
 );

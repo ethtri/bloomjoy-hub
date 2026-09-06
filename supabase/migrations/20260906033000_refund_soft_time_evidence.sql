@@ -25,7 +25,10 @@ alter table public.refund_cases
         and correlation_status = 'matched'
         and correlation_source = 'nayax'
         and matched_nayax_transaction_id is not null
-        and card_wallet_used = false
+        and (
+          nayax_recommendation_state = 'manager_confirmed'
+          or card_wallet_used = false
+        )
         and nayax_recommendation_policy_version is not null
       )
     );
@@ -293,6 +296,9 @@ declare
   parts text[];
   normalized text;
   milliseconds text;
+  local_timestamp timestamp;
+  resolved_at timestamptz;
+  earlier_fold_at timestamptz;
 begin
   if p_raw is null or length(p_raw) > 80 then return null; end if;
   parts := regexp_match(btrim(p_raw),
@@ -302,7 +308,16 @@ begin
   normalized := parts[1] || 'T' || parts[2] || '.' || milliseconds || coalesce(parts[4], '');
   if parts[4] is not null then return normalized::timestamptz; end if;
   if nullif(btrim(p_machine_timezone), '') is null then return null; end if;
-  return normalized::timestamp at time zone p_machine_timezone;
+  local_timestamp := normalized::timestamp;
+  resolved_at := local_timestamp at time zone p_machine_timezone;
+  -- PostgreSQL chooses the later instant during an autumn clock fold while
+  -- the shared scorer deliberately chooses the first occurrence. Preserve
+  -- the scorer's first-fold rule for exact raw MachineAuTime binding.
+  earlier_fold_at := resolved_at - interval '1 hour';
+  if earlier_fold_at at time zone p_machine_timezone = local_timestamp then
+    return earlier_fold_at;
+  end if;
+  return resolved_at;
 exception when invalid_datetime_format or datetime_field_overflow or invalid_parameter_value then
   return null;
 end;
@@ -646,7 +661,7 @@ begin
       raise exception 'Complete active manager authority over the grouped selection is required'
         using errcode = 'P4603';
     end if;
-  elsif not public.can_perform_refund_official_action(
+  elsif not public.refund_case_user_has_active_manager_mapping(
     p_actor_user_id,
     refund_case.id
   ) then
@@ -725,8 +740,7 @@ begin
     )
     or refund_case.nayax_refund_execution_status <> 'not_requested'
     or refund_case.reporting_adjustment_id is not null
-    or refund_case.refund_completed_at is not null
-    or public.refund_case_has_unresolved_reconciliation(refund_case.id) then
+    or refund_case.refund_completed_at is not null then
     raise exception 'This refund case is not safe for Nayax evidence selection'
       using errcode = 'P4604';
   end if;
@@ -1105,6 +1119,15 @@ begin
             fields:=fields||current_fields;
           end if;
         end if;
+      elsif evidence->>'policy_version' in ('2026-09-05.v9','2026-09-05.v10')
+        and evidence->>'is_top_ranked'='true'
+        and evidence ? 'customer_correction_fields'
+        and jsonb_typeof(evidence->'customer_correction_fields')='array'
+        and coalesce(evidence->>'customer_fact_version','') ~ '^[1-9][0-9]*$'
+        and (evidence->>'customer_fact_version')::bigint=c.deterministic_fact_version then
+        select coalesce(array_agg(value),'{}') into current_fields
+          from jsonb_array_elements_text(evidence->'customer_correction_fields');
+        fields:=fields||current_fields;
       else
         select coalesce(array_agg(value),'{}') into reasons from jsonb_array_elements_text(
           coalesce(evidence->'reason_codes','[]')||coalesce(evidence->'manual_review_reasons','[]')||coalesce(evidence->'hard_exclusions','[]'));
@@ -1144,6 +1167,56 @@ begin
   return public.canonical_refund_follow_up_fields(fields);
 end;
 $$;
+
+-- Retry-safe support recovery remains bound to all existing payment, amount,
+-- machine, duplicate, and provider-state checks. Integrate only the new
+-- manager-confirmed recommendation state.
+create or replace function public.refund_nayax_retry_safe_case_is_current(
+  p_case public.refund_cases
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select p_case.payment_method = 'card'
+    and p_case.status = 'card_refund_pending'
+    and p_case.decision = 'approved'
+    and p_case.correlation_status = 'matched'
+    and p_case.correlation_source = 'nayax'
+    and p_case.nayax_recommendation_state in ('high_confidence','manager_confirmed')
+    and p_case.card_wallet_used = false
+    and public.is_review_safe_nayax_transaction_reference(p_case.matched_nayax_transaction_id)
+    and p_case.matched_nayax_site_id is not null
+    and p_case.matched_nayax_machine_auth_time is not null
+    and p_case.matched_nayax_currency_code = 'USD'
+    and p_case.refund_amount_cents is not null
+    and p_case.refund_amount_cents > 0
+    and p_case.refund_amount_cents = p_case.payment_amount_cents
+    and p_case.refund_amount_cents = p_case.matched_nayax_amount_cents
+    and p_case.reporting_adjustment_id is null
+    and p_case.refund_completed_at is null
+    and not exists (
+      select 1 from public.refund_cases duplicate_case
+      where duplicate_case.id <> p_case.id
+        and duplicate_case.matched_nayax_transaction_id = p_case.matched_nayax_transaction_id
+    )
+    and exists (
+      select 1 from public.reporting_machines machine
+      where machine.id = p_case.reporting_machine_id
+        and machine.status = 'active'
+        and machine.nayax_refunds_enabled = true
+        and machine.nayax_machine_id is not null
+        and btrim(machine.nayax_machine_id) <> ''
+        and (
+          machine.nayax_refund_max_amount_cents is null
+          or p_case.refund_amount_cents <= machine.nayax_refund_max_amount_cents
+        )
+    );
+$$;
+revoke execute on function public.refund_nayax_retry_safe_case_is_current(public.refund_cases)
+  from public, anon, authenticated, service_role;
 
 revoke all on function public.refund_purchase_correction_request_fields(uuid)
   from public, anon, authenticated;

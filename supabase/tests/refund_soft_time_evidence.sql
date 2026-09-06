@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(19);
+select plan(24);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('fb110000-0000-4000-8000-000000000001','authenticated','authenticated',
@@ -176,7 +176,7 @@ select lives_ok($$insert into public.refund_nayax_lookup_candidates(token,refund
   card_last4,currency_code,evidence_summary,expires_at)
 select 'fb160000-0000-4000-8000-000000000004','fb150000-0000-4000-8000-000000000001',generation,
   'fb110000-0000-4000-8000-000000000001','fb140000-0000-4000-8000-000000000001',
-  'ONLINE-OVERLAP',14,'2026-09-05T18:05:00Z',1090,'6768','USD',
+  'ONLINE-OVERLAP',14,'2026-09-05T18:05:00.123Z',1090,'6768','USD',
   pg_temp.soft_time_evidence('occurrence_time_uncertain','2026-09-05T18:03:00Z',true,
     '2026-09-05T18:02:59.900Z','2026-09-05T18:03:00.100Z',
     '2026-09-05T18:02:59.900Z','2026-09-05T18:03:00.100Z'),
@@ -191,6 +191,23 @@ select is((public.service_commit_refund_nayax_lookup('fb150000-0000-4000-8000-00
 select is(public.refund_purchase_correction_request_fields(
   'fb150000-0000-4000-8000-000000000001'),'{}'::text[],
   'Explicit empty v11 correction scope creates no unnecessary customer question');
+
+set local session_replication_role=replica;
+update public.refund_nayax_lookup_candidates
+set evidence_summary=jsonb_set(evidence_summary,'{policy_version}',to_jsonb('2026-09-05.v10'::text))
+where refund_case_id='fb150000-0000-4000-8000-000000000001';
+set local session_replication_role=origin;
+update public.refund_cases set nayax_recommendation_state='manual_exception',
+  nayax_lookup_status='manual_exception'
+where id='fb150000-0000-4000-8000-000000000001';
+select is(public.refund_purchase_correction_request_fields(
+  'fb150000-0000-4000-8000-000000000001'),'{}'::text[],
+  'Stored current-fact v10 evidence preserves an explicit empty correction scope');
+set local session_replication_role=replica;
+update public.refund_nayax_lookup_candidates
+set evidence_summary=jsonb_set(evidence_summary,'{policy_version}',to_jsonb('2026-09-05.v11'::text))
+where refund_case_id='fb150000-0000-4000-8000-000000000001';
+set local session_replication_role=origin;
 
 update public.refund_cases set status='approved',decision='approved',decision_reason='customer_owed',
   decided_by='fb110000-0000-4000-8000-000000000001',decided_at=statement_timestamp()
@@ -222,6 +239,24 @@ select ok((select count(*)=1 and bool_and((metadata->>'execution_eligible')::boo
   from public.refund_case_events where refund_case_id='fb150000-0000-4000-8000-000000000001'
     and event_type='nayax_match_selected'),
   'Durable selection evidence records the manager-corroborated execution state');
+
+select is(public.refund_nayax_machine_authorization_raw_at(
+  '2026-11-01T01:30:00','America/Los_Angeles'),
+  '2026-11-01T08:30:00Z'::timestamptz,
+  'Raw local MachineAuTime uses the scorer first-fold instant during DST fallback');
+
+select lives_ok($$update public.refund_cases set card_wallet_used=true
+  where id='fb150000-0000-4000-8000-000000000001'$$,
+  'Manager-confirmed exact transaction binding supports wallet-token cases');
+select ok((select card_wallet_used and nayax_match_execution_eligible
+  from public.refund_cases where id='fb150000-0000-4000-8000-000000000001'),
+  'Wallet manager confirmation remains execution eligible without becoming automatic evidence');
+
+update public.refund_cases set card_wallet_used=false,status='card_refund_pending'
+where id='fb150000-0000-4000-8000-000000000001';
+select ok((select public.refund_nayax_retry_safe_case_is_current(c)
+  from public.refund_cases c where id='fb150000-0000-4000-8000-000000000001'),
+  'Retry-safe recovery recognizes manager-confirmed evidence while retaining every payment guard');
 
 select * from finish();
 rollback;
