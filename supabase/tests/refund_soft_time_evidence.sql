@@ -340,7 +340,7 @@ select public.service_submit_refund_purchase_correction(
   (select correction_fact_version from public.refund_wallet_correction_contexts
     where token_hash=repeat('d',64)),
   '{
-    "incident_time":{"disposition":"changed","value":"11:05","confidence":"exact"},
+    "incident_time":{"disposition":"changed","value":"11:02","confidence":"exact"},
     "incident_time_source":{"disposition":"changed","value":"transaction_alert_or_receipt"}
   }'::jsonb
 ) value;

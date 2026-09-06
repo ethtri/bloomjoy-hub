@@ -202,7 +202,8 @@ set local session_replication_role=replica;
 insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
   actor_user_id,reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,
   amount_cents,card_last4,currency_code,evidence_summary,expires_at)
-select gen_random_uuid(),'cf150000-0000-4000-8000-000000000001',claim.generation,
+select ('cf160000-0000-4000-8000-' || lpad((100+series.value)::text,12,'0'))::uuid,
+  'cf150000-0000-4000-8000-000000000001',claim.generation,
   'cf110000-0000-4000-8000-000000000001','cf140000-0000-4000-8000-000000000001',
   'CURRENT-CORRECTION-REFRESHED-' || series.value,90+series.value,
   '2026-09-05T21:15:00Z'::timestamptz+(series.value-1)*interval '1 minute',
@@ -230,16 +231,12 @@ select is((public.service_commit_refund_nayax_lookup(
 )->>'applied'),'true','The refreshed current generation commits through the generation guard');
 
 set local role service_role;
-select throws_ok(format(
+select throws_ok(
   $$select public.service_select_refund_nayax_candidate_as_actor(
     'cf110000-0000-4000-8000-000000000001','cf150000-0000-4000-8000-000000000001',
     (select official_action_version from public.refund_cases where id='cf150000-0000-4000-8000-000000000001'),
-    '%s','correct_card')$$,
-  (select token from public.refund_nayax_lookup_candidates
-    where refund_case_id='cf150000-0000-4000-8000-000000000001'
-      and lookup_generation=(select generation from refreshed_claim)
-    order by machine_authorization_time,token limit 1)
-), 'P4626','Invalid Nayax identifier evidence',
+    'cf160000-0000-4000-8000-000000000101','correct_card')$$,
+  'P4626','Invalid Nayax identifier evidence',
   'Correction-only upgrade compatibility never makes a stored row selectable');
 reset role;
 
