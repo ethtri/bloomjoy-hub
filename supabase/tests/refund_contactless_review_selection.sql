@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(13);
+select plan(14);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('fc110000-0000-4000-8000-000000000001','authenticated','authenticated',
@@ -58,7 +58,8 @@ create function pg_temp.contactless_evidence(
     'same_identifier_equivalence_proven',false,'identifier_review_state',review_state,
     'customer_correction_fields',correction_fields,'hard_exclusions',hard_exclusions,
     'manual_review_reasons','["customer_request_time_unknown","transaction_occurrence_time_uncertain","card_last4_mismatch_reviewable"]'::jsonb,
-    'reason_codes','["machine_exact","amount_exact","customer_request_time_unknown","transaction_occurrence_time_uncertain","card_last4_mismatch_neutral_unproven_scope"]'::jsonb,
+    'reason_codes','["machine_exact","amount_exact","customer_request_time_unknown","transaction_occurrence_time_uncertain","card_last4_mismatch_neutral_unproven_scope"]'::jsonb
+  ) || jsonb_build_object(
     'match_factors','[]'::jsonb,'match_reason','Exact machine and amount; contactless identifier needs manager review',
     'recommendation_rank',1,'is_top_ranked',true,'lookup_account_scope','CONTACTLESS_REVIEW_ACCOUNT',
     'lookup_provider_machine_id','CONTACTLESS-REVIEW-MACHINE','provider_machine_id',provider_machine_id,
@@ -87,6 +88,10 @@ select is(public.refund_nayax_candidate_identifier_evidence_state(
   'fc150000-0000-4000-8000-000000000001','fc140000-0000-4000-8000-000000000001',101,
   '2026-08-22T20:15:00Z',1090,'3760','USD',pg_temp.contactless_evidence(false)
 ), 'invalid','Server rejects scorer disagreement that disables an otherwise valid contactless review');
+
+select is(public.refund_nayax_identifier_evidence_state(2,
+  jsonb_set(pg_temp.contactless_evidence(),'{identifier_policy_version}','"2026-09-05.identifier.v1"'::jsonb)
+), 'refresh','Immutable v1 evidence remains readable but requires a fresh v2 lookup before selection');
 
 select is(public.refund_nayax_identifier_evidence_state(2,
   jsonb_set(pg_temp.contactless_evidence(),'{one_click_eligible}','true'::jsonb)
