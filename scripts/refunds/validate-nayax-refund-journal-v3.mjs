@@ -233,7 +233,7 @@ for (const scenario of [
   'Revoked manager authority',
   'current mapped manager',
   'original approver',
-  'Changed-case rejection',
+  'Stale-version rejection',
   'Settlement-after-effect recovery',
   'Old Edge plus new database',
   'alphabetic names and secrets',

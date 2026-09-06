@@ -213,14 +213,11 @@ where id=(select (result#>>'{attempt,attemptId}')::uuid from continuation_reserv
 select is(pg_temp.continue_attempt(2)#>>'{attempt,shouldExecute}','false',
   'Request-not-proved cannot continue');
 select pg_temp.record_request(4,'accepted',true,true,'True','Pending Approval');
-update public.refund_cases
-set official_action_version=official_action_version+1
-where id='ca500000-0000-4000-8000-000000000004';
-select throws_ok($$select pg_temp.continue_attempt(4)$$,'P4628',null,
-  'Stale expected version after a case change cannot claim continuation');
+select throws_ok($$select pg_temp.continue_attempt(4,0)$$,'P4628',null,
+  'Stale expected version cannot claim continuation');
 select is((select count(*) from public.refund_nayax_attempt_approval_continuations c
   join continuation_reservations r on (r.result#>>'{attempt,attemptId}')::uuid=c.nayax_refund_attempt_id where r.n=4),
-  0::bigint,'Changed-case rejection creates no continuation claim');
+  0::bigint,'Stale-version rejection creates no continuation claim');
 select pg_temp.record_request(6,'accepted',true,true,'FixtureResult','FixtureStatus');
 select throws_ok($$update public.refund_cases set refund_amount_cents=700
   where id='ca500000-0000-4000-8000-000000000006'$$,'P0001',null,
