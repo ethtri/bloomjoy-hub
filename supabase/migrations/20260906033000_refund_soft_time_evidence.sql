@@ -105,14 +105,20 @@ begin
       'verified_provider_purchase_occurrence_v1'
     or p_evidence ->> 'transaction_occurrence_timestamp_source' is distinct from
       p_evidence ->> 'provider_time_source'
-    or case p_evidence ->> 'transaction_occurrence_timestamp_source'
-      when 'authorization_gmt' then p_evidence ->> 'transaction_occurrence_timezone_basis' is distinct from 'utc'
-      when 'machine_authorization_offset' then
-        p_evidence ->> 'transaction_occurrence_timezone_basis' is distinct from 'embedded_offset'
-      when 'verified_machine_clock' then
-        p_evidence ->> 'transaction_occurrence_timezone_basis' is distinct from 'verified_machine_timezone'
-      else true
-    end
+    or not (
+      (
+        p_evidence ->> 'transaction_occurrence_timestamp_source' is not distinct from 'authorization_gmt'
+        and p_evidence ->> 'transaction_occurrence_timezone_basis' is not distinct from 'utc'
+      )
+      or (
+        p_evidence ->> 'transaction_occurrence_timestamp_source' is not distinct from 'machine_authorization_offset'
+        and p_evidence ->> 'transaction_occurrence_timezone_basis' is not distinct from 'embedded_offset'
+      )
+      or (
+        p_evidence ->> 'transaction_occurrence_timestamp_source' is not distinct from 'verified_machine_clock'
+        and p_evidence ->> 'transaction_occurrence_timezone_basis' is not distinct from 'verified_machine_timezone'
+      )
+    )
     or p_evidence ->> 'provider_time_resolution' is distinct from 'exact'
     or jsonb_typeof(p_evidence -> 'authorized_at') is distinct from 'string'
     or jsonb_typeof(p_evidence -> 'transaction_occurrence_lower_bound_at') is distinct from 'string'
