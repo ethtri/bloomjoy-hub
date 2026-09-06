@@ -1772,6 +1772,7 @@ const primaryActionConfig = (
   };
   const canContinueReview = hasUnpaidRefundReview(refundCase) && derivePortalRefundMissingFields(refundCase).length === 0;
   if (
+    refundCase.customerDeliveryException &&
     latestMessage?.status === 'failed' &&
     !canContinueReview &&
     isRefundCustomerDeliveryUncertain(latestMessage.errorMessage)

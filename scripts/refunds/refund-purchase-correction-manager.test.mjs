@@ -60,6 +60,28 @@ test('exact Gmail uncertainty action remains available beside an independent tra
  assert.equal(result.mode,'resolve_delivery_not_found',JSON.stringify(result));
  assert.equal(result.label,'Resolve uncertain Gmail delivery');
 });
+test('provider rejection remains primary when uncertain Gmail has no transactional delivery exception',()=>{
+ const action=load('primaryActionConfig',{
+  ...dependencies,
+  isRefundCustomerDeliveryUncertain:error=>error==='gmail_send_unconfirmed',
+  getLatestCustomerMessage:refundCase=>refundCase.messages[0],
+  derivePortalRefundMissingFields:()=>['incident_time'],
+ });
+ const refundCase={
+  status:'needs_review',paymentMethod:'card',providerOutcome:'rejected',providerHold:false,
+  lifecycle:{
+   stage:'matching',terminal:false,paymentState:'not_requested',
+   operations:{required:false,safeStage:'not_needed',failureClass:null},
+   managerQueue:{bucket:'needs_action'},
+  },
+  messages:[{status:'failed',messageType:'status_update',errorMessage:'gmail_send_unconfirmed'}],
+ };
+ const editor={status:'needs_review',decision:null,matchedNayaxCandidateToken:''};
+ const result=action(refundCase,editor,[],null);
+ assert.equal(result.mode,undefined,JSON.stringify(result));
+ assert.equal(result.disabled,true,JSON.stringify(result));
+ assert.equal(result.label,'Refund was rejected');
+});
 test('delivery-record review opens and focuses existing evidence without dispatching work',()=>{
  let focused=0;let scrolled=0;let scheduled=0;
  const details={open:false};
