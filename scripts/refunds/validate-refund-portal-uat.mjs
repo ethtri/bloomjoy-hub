@@ -1380,6 +1380,52 @@ const buildManagerStepUpRefundOverview = () => {
   return overview;
 };
 
+const buildManagerDraftNavigationOverview = () => {
+  const overview = buildManagerStepUpRefundOverview();
+  const readyCase = overview.cases[0];
+  overview.cases = [
+    readyCase,
+    {
+      ...readyCase,
+      id: 'case-card-alternate',
+      publicReference: 'RF-UAT-ALT-CARD',
+      customerEmail: 'customer-card-alt@example.test',
+      issueSummary: 'Alternate card case for clean decision navigation.',
+    },
+    {
+      ...readyCase,
+      id: 'case-card-correction',
+      publicReference: 'RF-UAT-CORRECTION',
+      customerEmail: 'customer-correction@example.test',
+      status: 'needs_review',
+      decision: null,
+      decisionReason: null,
+      decidedAt: null,
+      refundAmountCents: null,
+      correlationStatus: 'no_match',
+      correlationConfidence: 0,
+      correlationSummary: 'The customer amount needs confirmation.',
+      hasMatchedNayaxTransaction: false,
+      selectedNayaxTransaction: null,
+      nayaxLookupCandidates: [],
+      nayaxMatchExecutionEligible: false,
+      refundReadiness: {
+        transactionConfirmed: false,
+        canIssueCardRefund: false,
+        blockReason: 'customer_information_required',
+      },
+      lifecycle: buildLifecycleFixture(
+        'matching',
+        10,
+        'review_customer_contact'
+      ),
+      customerCorrectionFields: ['amount'],
+      issueSummary: 'Customer needs to confirm the amount paid.',
+    },
+  ];
+  return overview;
+};
+
 const buildNayaxResolutionRefundOverview = () => {
   const overview = buildMockRefundOverview();
   overview.refundOperationsAccess = true;
@@ -6422,7 +6468,7 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
     const functionBodies = [];
     const rpcCalls = [];
     await installMockSupabaseRoutes(context, {
-      refundOverview: buildManagerStepUpRefundOverview,
+      refundOverview: buildManagerDraftNavigationOverview,
       functionCalls,
       functionBodies,
       rpcCalls,
@@ -6433,7 +6479,7 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
     const page = await context.newPage();
     await signInRefundUser(page, appUrl);
     await page.getByRole('button', { name: /^Ready to refund \d+$/ }).click();
-    await waitForQueueCount(page, 1);
+    await waitForQueueCount(page, 2);
     await queueCase(page, 'RF-UAT-CARD').click();
 
     recorder.assert(
@@ -6464,7 +6510,70 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
       await page.getByTestId('refund-deny-instead').isVisible()
     );
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await page.getByTestId('refund-deny-instead').click();
+    const denyInstead = page.getByTestId('refund-deny-instead');
+    await denyInstead.focus();
+    const functionCallCountBeforeDenialDraft = functionCalls.length;
+    const mutatingRpcCountBeforeDenialDraft = rpcCalls.filter(
+      (name) => !NAVIGATION_READ_ONLY_RPCS.has(name)
+    ).length;
+    await page.keyboard.press('Enter');
+    const denialReason = page.getByTestId('refund-card-denial-reason');
+    await denialReason.waitFor({ timeout: 10000 });
+    await page.waitForFunction(() =>
+      document.activeElement?.getAttribute('data-testid') === 'refund-card-denial-reason'
+    );
+    recorder.assert(
+      `${scenario.name} denial moves keyboard focus to the required reason without acting`,
+      await denialReason.evaluate((element) => element === document.activeElement) &&
+        functionCalls.length === functionCallCountBeforeDenialDraft &&
+        rpcCalls.filter((name) => !NAVIGATION_READ_ONLY_RPCS.has(name)).length ===
+          mutatingRpcCountBeforeDenialDraft
+    );
+    await page.setViewportSize({ width: 390, height: 844 });
+    const denialDraftMetrics = await page.evaluate(() => {
+      const reason = document.querySelector('[data-testid="refund-card-denial-reason"]');
+      const cancel = document.querySelector('[data-testid="refund-cancel-denial"]');
+      return {
+        viewportWidth: window.innerWidth,
+        documentWidth: document.documentElement.scrollWidth,
+        reasonHeight: reason instanceof HTMLElement ? reason.getBoundingClientRect().height : 0,
+        reasonScrollWidth: reason instanceof HTMLElement ? reason.scrollWidth : 0,
+        reasonClientWidth: reason instanceof HTMLElement ? reason.clientWidth : 0,
+        cancelHeight: cancel instanceof HTMLElement ? cancel.getBoundingClientRect().height : 0,
+        cancelScrollWidth: cancel instanceof HTMLElement ? cancel.scrollWidth : 0,
+        cancelClientWidth: cancel instanceof HTMLElement ? cancel.clientWidth : 0,
+      };
+    });
+    recorder.assert(
+      `${scenario.name} denial reason and cancel action remain practical at 390px`,
+      denialDraftMetrics.documentWidth <= denialDraftMetrics.viewportWidth &&
+        denialDraftMetrics.reasonHeight >= 44 &&
+        denialDraftMetrics.reasonScrollWidth <= denialDraftMetrics.reasonClientWidth &&
+        denialDraftMetrics.cancelHeight >= 44 &&
+        denialDraftMetrics.cancelScrollWidth <= denialDraftMetrics.cancelClientWidth,
+      JSON.stringify(denialDraftMetrics)
+    );
+    await page.keyboard.press('Tab');
+    const cancelDenial = page.getByTestId('refund-cancel-denial');
+    recorder.assert(
+      `${scenario.name} denial cancel is next in the keyboard path`,
+      await cancelDenial.evaluate((element) => element === document.activeElement)
+    );
+    await page.keyboard.press('Enter');
+    await denialReason.waitFor({ state: 'detached', timeout: 10000 });
+    await page.waitForFunction(() =>
+      document.activeElement?.getAttribute('data-testid') === 'refund-deny-instead'
+    );
+    recorder.assert(
+      `${scenario.name} cancellation restores the saved decision and trigger without side effects`,
+      await denyInstead.evaluate((element) => element === document.activeElement) &&
+        await page.getByTestId('refund-run-nayax-refund').isVisible() &&
+        functionCalls.length === functionCallCountBeforeDenialDraft &&
+        rpcCalls.filter((name) => !NAVIGATION_READ_ONLY_RPCS.has(name)).length ===
+          mutatingRpcCountBeforeDenialDraft
+    );
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await denyInstead.click();
     await page.getByTestId('refund-card-denial-reason').selectOption({ index: 1 });
     recorder.assert(
       `${scenario.name} sees a separate explicit deny action`,
@@ -6491,6 +6600,43 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
         denialCalls[0].body?.matchedNayaxCandidateToken == null &&
         providerCalls.length === 0,
       JSON.stringify({ denialCalls, providerCalls })
+    );
+
+    await queueCase(page, 'RF-UAT-ALT-CARD').click();
+    await page.getByRole('heading', { name: 'RF-UAT-ALT-CARD', exact: true }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      `${scenario.name} clean canonical denial allows warning-free navigation`,
+      (await page.getByTestId('refund-unsaved-text-dialog').count()) === 0
+    );
+
+    await page.getByRole('button', { name: /^Action needed \d+$/ }).click();
+    await queueCase(page, 'RF-UAT-CORRECTION').click();
+    await page.getByRole('heading', { name: 'RF-UAT-CORRECTION', exact: true }).waitFor({ timeout: 10000 });
+    await page.getByTestId('refund-save-case').click();
+    await page.getByRole('heading', { name: 'Request customer correction', exact: true }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      `${scenario.name} receives one focused correction choice before sending`,
+      await page.getByText('Amount charged (USD)', { exact: true }).isVisible() &&
+        await page.getByRole('button', { name: 'Send correction request', exact: true }).isEnabled()
+    );
+    await page.getByRole('button', { name: 'Send correction request', exact: true }).click();
+    await page.getByRole('heading', { name: 'Request customer correction', exact: true })
+      .waitFor({ state: 'hidden', timeout: 10000 });
+    await page.getByRole('button', { name: /^Ready to refund \d+$/ }).click();
+    await queueCase(page, 'RF-UAT-ALT-CARD').click();
+    await page.getByRole('heading', { name: 'RF-UAT-ALT-CARD', exact: true }).waitFor({ timeout: 10000 });
+    const correctionCalls = functionBodies.filter((entry) =>
+      entry.functionName === 'refund-case-message-send' &&
+      entry.body?.caseId === 'case-card-correction'
+    );
+    recorder.assert(
+      `${scenario.name} clean canonical correction sends once and allows warning-free navigation`,
+      correctionCalls.length === 1 &&
+        correctionCalls[0].body?.messageType === 'more_info' &&
+        correctionCalls[0].body?.subject == null &&
+        correctionCalls[0].body?.body == null &&
+        (await page.getByTestId('refund-unsaved-text-dialog').count()) === 0,
+      JSON.stringify(correctionCalls)
     );
 
     await page.screenshot({

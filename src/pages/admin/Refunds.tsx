@@ -2454,6 +2454,16 @@ const getPrimaryActionIssues = (
 export default function AdminRefundsPage() {
   const queryClient = useQueryClient();
   const detailPanelRef = useRef<HTMLDivElement>(null);
+  const denialReasonRef = useRef<HTMLSelectElement>(null);
+  const denialTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const denialPreviousStateRef = useRef<{
+    caseId: string;
+    editor: EditorState;
+    messageType: RefundCustomerPortalMessageType;
+    messageSubject: string;
+    messageBody: string;
+    isCustomerDraftDirty: boolean;
+  } | null>(null);
   const cashCompletionInFlightRef = useRef(false);
   const evidenceSelectionInFlightRef = useRef(false);
   const nayaxRefundInFlightRef = useRef(false);
@@ -4290,14 +4300,18 @@ export default function AdminRefundsPage() {
     }
   };
 
-  const handleMessageTypeChange = (nextMessageType: RefundCustomerPortalMessageType) => {
+  const handleMessageTypeChange = (
+    nextMessageType: RefundCustomerPortalMessageType,
+    managerEditedTemplate = false
+  ) => {
+    if (isCustomerDraftDirty && !managerEditedTemplate) return;
     setMessageType(nextMessageType);
     if (!selectedCase) return;
 
     const draft = getCustomerMessageDraft(selectedCase, nextMessageType);
     setMessageSubject(draft.subject);
     setMessageBody(draft.body);
-    setIsCustomerDraftDirty(true);
+    setIsCustomerDraftDirty(managerEditedTemplate);
   };
 
   const handleRejectTriageSuggestion = async () => {
@@ -5620,9 +5634,50 @@ export default function AdminRefundsPage() {
       handleMessageTypeChange('more_info');
     };
 
-    const chooseDenial = () => {
+    const chooseDenial = (trigger: HTMLButtonElement) => {
+      denialTriggerRef.current = trigger;
+      denialPreviousStateRef.current = {
+        caseId: selectedCase.id,
+        editor: { ...editor },
+        messageType,
+        messageSubject,
+        messageBody,
+        isCustomerDraftDirty,
+      };
       setEditor((current) => current ? editorForDenial(current) : current);
       handleMessageTypeChange('denied');
+      window.requestAnimationFrame(() => denialReasonRef.current?.focus());
+    };
+
+    const cancelDenial = () => {
+      const previousState = denialPreviousStateRef.current?.caseId === selectedCase.id
+        ? denialPreviousStateRef.current
+        : null;
+      denialPreviousStateRef.current = null;
+      if (previousState) {
+        setEditor(previousState.editor);
+        setMessageType(previousState.messageType);
+        setMessageSubject(previousState.messageSubject);
+        setMessageBody(previousState.messageBody);
+        setIsCustomerDraftDirty(previousState.isCustomerDraftDirty);
+      } else {
+        const restoredEditor = toEditorState(selectedCase);
+        const restoredMessageType: RefundCustomerPortalMessageType = selectedCase.status === 'draft'
+          ? 'more_info'
+          : 'status_update';
+        const restoredMessage = getCustomerMessageDraft(selectedCase, restoredMessageType, restoredEditor);
+        setEditor(restoredEditor);
+        setMessageType(restoredMessageType);
+        setMessageSubject(restoredMessage.subject);
+        setMessageBody(restoredMessage.body);
+        setIsCustomerDraftDirty(false);
+      }
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+        const trigger = denialTriggerRef.current?.isConnected
+          ? denialTriggerRef.current
+          : document.querySelector<HTMLButtonElement>('[data-testid="refund-deny-instead"]');
+        trigger?.focus();
+      }));
     };
 
     return (
@@ -6081,6 +6136,7 @@ export default function AdminRefundsPage() {
             <div className="border-b border-border pb-4">
               <Label htmlFor="card-denial-reason">Customer-facing denial reason</Label>
               <select
+                ref={denialReasonRef}
                 data-testid="refund-card-denial-reason"
                 id="card-denial-reason"
                 value={editor.decisionReason}
@@ -6098,6 +6154,16 @@ export default function AdminRefundsPage() {
                 ))}
               </select>
               <InfoHint>The customer receives the selected warm, approved explanation.</InfoHint>
+              <Button
+                type="button"
+                data-testid="refund-cancel-denial"
+                variant="outline"
+                className="mt-3 min-h-11"
+                disabled={isSaving || isSendingCustomerMessage}
+                onClick={cancelDenial}
+              >
+                Cancel denial
+              </Button>
             </div>
           )}
 
@@ -6453,7 +6519,7 @@ export default function AdminRefundsPage() {
                     size="sm"
                     variant="outline"
                     disabled={isUsingDemoData || selectedCaseIsReviewOnly}
-                    onClick={chooseDenial}
+                    onClick={(event) => chooseDenial(event.currentTarget)}
                   >
                     {selectedCase.decision === 'approved' ? 'Change to denial' : 'Deny request'}
                   </Button>
@@ -8139,7 +8205,10 @@ export default function AdminRefundsPage() {
                             value={messageType}
                             disabled={isUsingDemoData}
                             onChange={(event) =>
-                              handleMessageTypeChange(event.target.value as RefundCustomerPortalMessageType)
+                              handleMessageTypeChange(
+                                event.target.value as RefundCustomerPortalMessageType,
+                                true
+                              )
                             }
                             className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                           >
