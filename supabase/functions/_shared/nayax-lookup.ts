@@ -600,24 +600,34 @@ export const rankGroupedNayaxCandidates = (groups: Array<{
       candidate.reasonCodes.includes("multiple_candidates_need_distinguishing_time")
     )
   );
-  const selectableLast4Counts = new Map<string, number>();
+  const competingPurchaseCounts = new Map<string, number>();
   for (const candidate of collisionRelevantCandidates) {
     if (!candidate.cardLast4) continue;
-    selectableLast4Counts.set(
+    const competingPurchaseKey = [
       candidate.cardLast4,
-      (selectableLast4Counts.get(candidate.cardLast4) ?? 0) + 1,
+      candidate.amountCents,
+      candidate.currencyCode,
+    ].join(":");
+    competingPurchaseCounts.set(
+      competingPurchaseKey,
+      (competingPurchaseCounts.get(competingPurchaseKey) ?? 0) + 1,
     );
   }
-  const collidingLast4s = new Set(
-    [...selectableLast4Counts.entries()]
+  const competingPurchaseKeys = new Set(
+    [...competingPurchaseCounts.entries()]
       .filter(([, count]) => count > 1)
-      .map(([cardLast4]) => cardLast4),
+      .map(([key]) => key),
   );
   const conservativeCompetingPurchaseHold =
-    !customerTimeSupportsManagerSelection && collidingLast4s.size > 0;
+    !customerTimeSupportsManagerSelection && competingPurchaseKeys.size > 0;
   if (conservativeCompetingPurchaseHold) {
-    combinedCandidates = combinedCandidates.map((candidate) =>
-      candidate.selectionAllowed && candidate.cardLast4 && collidingLast4s.has(candidate.cardLast4)
+    combinedCandidates = combinedCandidates.map((candidate) => {
+      const competingPurchaseKey = [
+        candidate.cardLast4,
+        candidate.amountCents,
+        candidate.currencyCode,
+      ].join(":");
+      return candidate.selectionAllowed && candidate.cardLast4 && competingPurchaseKeys.has(competingPurchaseKey)
       ? {
           ...candidate,
           evidenceAwareReviewEligible: false,
@@ -637,7 +647,8 @@ export const rankGroupedNayaxCandidates = (groups: Array<{
             ]),
           ],
         }
-      : candidate);
+      : candidate;
+    });
   }
   const selectableCandidates = combinedCandidates.filter((candidate) => candidate.selectionAllowed);
   const uniqueCandidate = selectableCandidates.length === 1 ? selectableCandidates[0] : null;

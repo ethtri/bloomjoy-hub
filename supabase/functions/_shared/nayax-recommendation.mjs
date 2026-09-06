@@ -1107,8 +1107,19 @@ export const buildNayaxRecommendation = ({
     ["exact", "legacy_absolute"].includes(request.incidentTimeResolution) &&
     request.incidentTimeConfidence !== "rough";
   const selectableWithoutPreciseTime = candidates.filter((candidate) => candidate.selectionAllowed);
-  if (!customerTimeSupportsManagerSelection && selectableWithoutPreciseTime.length > 1) {
-    candidates = candidates.map((candidate) => candidate.selectionAllowed
+  const competingPurchaseCounts = new Map();
+  for (const candidate of selectableWithoutPreciseTime) {
+    if (!candidate.cardLast4) continue;
+    const key = [candidate.cardLast4, candidate.amountCents, candidate.currencyCode].join(":");
+    competingPurchaseCounts.set(key, (competingPurchaseCounts.get(key) ?? 0) + 1);
+  }
+  const competingPurchaseKeys = new Set(
+    [...competingPurchaseCounts.entries()].filter(([, count]) => count > 1).map(([key]) => key),
+  );
+  if (!customerTimeSupportsManagerSelection && competingPurchaseKeys.size > 0) {
+    candidates = candidates.map((candidate) => {
+      const key = [candidate.cardLast4, candidate.amountCents, candidate.currencyCode].join(":");
+      return candidate.selectionAllowed && candidate.cardLast4 && competingPurchaseKeys.has(key)
       ? {
           ...candidate,
           evidenceAwareReviewEligible: false,
@@ -1128,7 +1139,8 @@ export const buildNayaxRecommendation = ({
             ]),
           ],
         }
-      : candidate);
+      : candidate;
+    });
   }
 
   const topOverall = candidates[0] ?? null;

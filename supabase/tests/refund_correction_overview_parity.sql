@@ -124,6 +124,9 @@ select (public.service_begin_refund_nayax_lookup(
   'd9100000-0000-4000-8000-000000000001'
 )->>'lookupGeneration')::bigint generation;
 
+-- Model grouped v11 rows persisted before the stricter selection validator.
+-- The compatibility path may expose one correction field but never selection.
+set local session_replication_role=replica;
 insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
   actor_user_id,reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,
   amount_cents,card_last4,currency_code,evidence_summary,expires_at)
@@ -138,10 +141,11 @@ select gen_random_uuid(),'d9140000-0000-4000-8000-000000000001',claim.generation
   statement_timestamp()+interval '1 hour'
 from overview_claim claim
 cross join generate_series(1,10) series(value);
+set local session_replication_role=origin;
 
 select is((public.service_commit_refund_nayax_lookup(
   'd9140000-0000-4000-8000-000000000001',(select generation from overview_claim),2,
-  'manual_exception','manual_exception','2026-09-05.v11',statement_timestamp(),
+  'multiple_matches','ambiguous','2026-09-05.v11',statement_timestamp(),
   'Ten current candidates need structured customer facts',null,10,'manual',
   'd9100000-0000-4000-8000-000000000001'
 )->>'applied'),'true','The current production-shaped lookup commits normally');
@@ -155,8 +159,8 @@ reset role;
 
 select is(public.refund_purchase_correction_request_fields(
   'd9140000-0000-4000-8000-000000000001'),
-  array['incident_time','incident_time_source','card_network','nearby_attempt_count']::text[],
-  'The current helper derives the useful production correction scope');
+  array['incident_time']::text[],
+  'The current helper derives the one useful distinguishing fact');
 
 create temp table case_rows_before as
 select id,to_jsonb(c) value from public.refund_cases c

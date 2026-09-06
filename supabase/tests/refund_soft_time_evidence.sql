@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(33);
+select plan(37);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('fb110000-0000-4000-8000-000000000001','authenticated','authenticated',
@@ -23,14 +23,14 @@ insert into public.refund_nayax_machine_inventory(account_key,nayax_machine_id,r
 values('SOFT_TIME_ACCOUNT','SOFT-TIME-MACHINE','fb140000-0000-4000-8000-000000000001');
 
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,
-  issue_summary,incident_at,incident_timezone,incident_time_resolution,incident_time_confidence,
+  issue_summary,incident_at,incident_local_datetime,incident_timezone,incident_time_resolution,incident_time_confidence,
   incident_time_source,nearby_attempt_count,payment_method,payment_amount_cents,refund_amount_cents,
   card_last4,card_last4_provenance,card_last4_source,payment_interaction,status,correlation_status,
   deterministic_fact_version,intake_source,intake_meta,customer_request_received_at,
   customer_request_received_source)
 values('fb150000-0000-4000-8000-000000000001','RF-SOFT-TIME','fb140000-0000-4000-8000-000000000001',
   'fb130000-0000-4000-8000-000000000001','soft-time-customer@example.invalid','Offline vend before form',
-  '2026-09-05T18:00:00Z','America/Los_Angeles','exact','rough',
+  '2026-09-05T18:00:00Z','2026-09-05T11:00','America/Los_Angeles','exact','rough',
   'transaction_alert_or_receipt','one','card',1090,1090,'6768','physical_card','physical_card','tap_card',
   'needs_review','needs_nayax',4,'form','{"source":"hosted_refund_intake"}',
   '2026-09-05T18:03:00Z','hosted_refund_intake');
@@ -275,14 +275,100 @@ where id='fb150000-0000-4000-8000-000000000001';
 select is(public.refund_purchase_correction_request_fields(
   'fb150000-0000-4000-8000-000000000001'),array['incident_time']::text[],
   'Competing same-card purchases use the existing same-case correction path for one distinguishing time fact');
+
+-- Model the exact pre-migration grouped shapes already persisted in production.
+-- Compatibility is correction-only: these rows remain invalid for selection.
 set local session_replication_role=replica;
 update public.refund_nayax_lookup_candidates
-set evidence_summary=pg_temp.soft_time_evidence(
-  'occurrence_time_uncertain',case token
-    when 'fb160000-0000-4000-8000-000000000004' then '2026-09-05T18:03:00Z'::timestamptz
-    else '2026-09-05T18:05:00Z'::timestamptz end)
+set evidence_summary=evidence_summary || case token
+  when 'fb160000-0000-4000-8000-000000000001' then jsonb_build_object(
+    'identifier_review_state','exact_support',
+    'customer_correction_fields','[]'::jsonb
+  )
+  else jsonb_build_object(
+    'identifier_review_state','needs_corroboration',
+    'customer_correction_fields','["card_last4_source"]'::jsonb
+  )
+end
 where refund_case_id='fb150000-0000-4000-8000-000000000001';
 set local session_replication_role=origin;
+select is(public.refund_nayax_candidate_identifier_evidence_state(
+  'fb150000-0000-4000-8000-000000000001','fb140000-0000-4000-8000-000000000001',14,
+  '2026-09-05T18:05:00.123Z',1090,'6768','USD',
+  (select evidence_summary from public.refund_nayax_lookup_candidates
+    where token='fb160000-0000-4000-8000-000000000001')
+), 'invalid','Persisted pre-migration grouped evidence never becomes selectable');
+set local role service_role;
+select throws_ok($$select public.service_select_refund_nayax_candidate_as_actor(
+  'fb110000-0000-4000-8000-000000000001','fb150000-0000-4000-8000-000000000001',
+  (select official_action_version from public.refund_cases where id='fb150000-0000-4000-8000-000000000001'),
+  'fb160000-0000-4000-8000-000000000001','correct_card')$$,
+  'P4626','Invalid Nayax identifier evidence',
+  'Selection stays fail-closed for correction-only upgrade compatibility');
+reset role;
+select is(public.refund_purchase_correction_request_fields(
+  'fb150000-0000-4000-8000-000000000001'),array['incident_time']::text[],
+  'Persisted grouped evidence asks only the one distinguishing time question');
+
+-- Apply the customer's answer through the same versioned same-case correction
+-- capability used in production. That consumes the old generation before the
+-- fresh lookup is created.
+create temp table soft_time_correction_message as
+select public.service_enqueue_refund_manual_message_intent(
+  'fb150000-0000-4000-8000-000000000001',
+  (select official_action_version from public.refund_cases
+    where id='fb150000-0000-4000-8000-000000000001'),
+  gen_random_uuid(),'fb110000-0000-4000-8000-000000000001','more_info',
+  'soft-time-customer@example.invalid','Please confirm the purchase time',
+  '[Secure refund correction link included at delivery]',
+  'refund_more_info_editable_v1','manager_authored','missing_information',
+  array['incident_time']::text[],null,false,null
+) value;
+create temp table soft_time_correction_capability as
+select public.service_issue_refund_purchase_correction(
+  (select (value->>'messageId')::uuid from soft_time_correction_message),
+  repeat('d',64),
+  (select deterministic_fact_version from public.refund_cases
+    where id='fb150000-0000-4000-8000-000000000001')
+) value;
+update public.refund_case_messages
+set status='sent',sent_at=statement_timestamp()
+where id=(select (value->>'messageId')::uuid from soft_time_correction_message);
+create temp table soft_time_correction_submission as
+select public.service_submit_refund_purchase_correction(
+  repeat('d',64),
+  (select correction_fact_version from public.refund_wallet_correction_contexts
+    where token_hash=repeat('d',64)),
+  '{
+    "incident_time":{"disposition":"changed","value":"11:05","confidence":"exact"},
+    "incident_time_source":{"disposition":"changed","value":"transaction_alert_or_receipt"}
+  }'::jsonb
+) value;
+
+create temp table corrected_lookup_claim as
+select (public.service_begin_refund_nayax_lookup(
+  'fb150000-0000-4000-8000-000000000001',
+  (select deterministic_fact_version from public.refund_cases
+    where id='fb150000-0000-4000-8000-000000000001'),'manual',
+  'fb110000-0000-4000-8000-000000000001')->>'lookupGeneration')::bigint generation;
+
+insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,
+  reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,amount_cents,card_last4,
+  currency_code,evidence_summary,expires_at)
+select 'fb160000-0000-4000-8000-000000000005','fb150000-0000-4000-8000-000000000001',generation,
+  'fb110000-0000-4000-8000-000000000001','fb140000-0000-4000-8000-000000000001',
+  'OFFLINE-LATER-AUTH',14,'2026-09-05T18:05:00.123Z',1090,'6768','USD',
+  pg_temp.soft_time_evidence('occurrence_time_uncertain','2026-09-05T18:05:00Z'),
+  statement_timestamp()+interval '1 hour' from corrected_lookup_claim;
+
+select is((public.service_commit_refund_nayax_lookup('fb150000-0000-4000-8000-000000000001',
+  (select generation from corrected_lookup_claim),
+  (select deterministic_fact_version from public.refund_cases
+    where id='fb150000-0000-4000-8000-000000000001'),
+  'manual_exception','manual_exception',
+  '2026-09-05.v11',statement_timestamp(),'Corrected incident time identifies one purchase',null,1,
+  'manual','fb110000-0000-4000-8000-000000000001')->>'applied'),'true',
+  'Accepted correction produces a fresh fact-bound lookup generation');
 
 update public.refund_cases set status='approved',decision='approved',decision_reason='customer_owed',
   decided_by='fb110000-0000-4000-8000-000000000001',decided_at=statement_timestamp()
@@ -292,8 +378,8 @@ set local role service_role;
 select is((public.service_select_refund_nayax_candidate_as_actor(
   'fb110000-0000-4000-8000-000000000001','fb150000-0000-4000-8000-000000000001',
   (select official_action_version from public.refund_cases where id='fb150000-0000-4000-8000-000000000001'),
-  'fb160000-0000-4000-8000-000000000001','customer_confirmation')->>'selectionApplied'),
-  'true','Manager can confirm the otherwise corroborated offline candidate');
+  'fb160000-0000-4000-8000-000000000005','customer_confirmation')->>'selectionApplied'),
+  'true','Manager can select the corrected fresh-generation purchase');
 reset role;
 select ok((select matched_nayax_transaction_id='OFFLINE-LATER-AUTH'
     and matched_nayax_machine_auth_time='2026-09-05T18:05:00.123Z'
@@ -308,8 +394,8 @@ select is((select count(*)::integer from public.refund_case_nayax_refund_attempt
   where refund_case_id='fb150000-0000-4000-8000-000000000001'),0,
   'Transaction confirmation creates no provider or payment attempt');
 select is((select count(*)::integer from public.refund_case_messages
-  where refund_case_id='fb150000-0000-4000-8000-000000000001'),0,
-  'Transaction confirmation sends no customer communication');
+  where refund_case_id='fb150000-0000-4000-8000-000000000001'),1,
+  'Transaction confirmation adds no message beyond the one structured correction');
 select ok((select count(*)=1 and bool_and((metadata->>'execution_eligible')::boolean)
   from public.refund_case_events where refund_case_id='fb150000-0000-4000-8000-000000000001'
     and event_type='nayax_match_selected'),

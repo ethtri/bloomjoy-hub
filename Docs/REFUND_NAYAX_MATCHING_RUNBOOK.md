@@ -40,7 +40,7 @@ Internal ranking points order otherwise-safe candidates. Never show the point to
 
 ## Safety rules
 
-The scorer hard-blocks selection for a different provider machine, non-USD currency, a declined/failed/voided sale, a transaction already linked to another case, or existing refund evidence. Negative provider status always overrides positive words in the same status (for example, `not approved` and `successful reversal` are blocked). Missing provider machine identity cannot earn mapped-machine evidence. A non-wallet card-last-four mismatch is not eligible.
+The scorer hard-blocks selection for a different provider machine, non-USD currency, a declined/failed/voided sale, a transaction already linked to another case, or existing refund evidence. Negative provider status always overrides positive words in the same status (for example, `not approved` and `successful reversal` are blocked). Missing provider machine identity cannot earn mapped-machine evidence. A suffix mismatch is negative only when the recorded interaction and identifier provenance establish that the customer and provider values should be equivalent; unproved contactless differences remain contextual evidence.
 
 Contactless and wallet last four is supporting evidence, not an identity key. A correlating last four can support `strong_card`. When wallet or contactless evidence does not correlate, the manager may select an otherwise-safe transaction only when the combined evidence identifies one purchase and there is no plausible competing sale. The selected transaction then uses the normal guarded refund path; wallet classification alone does not route it to a separate portal workflow.
 
