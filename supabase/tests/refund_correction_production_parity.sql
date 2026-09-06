@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(31);
+select plan(35);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('cf110000-0000-4000-8000-000000000001','authenticated','authenticated',
@@ -50,10 +50,11 @@ create function pg_temp.current_fact_evidence(
   identifier_policy_version text,
   correction_fields jsonb,
   is_top boolean,
-  candidate_rank integer
+  candidate_rank integer,
+  selectable boolean
 ) returns jsonb language sql stable as $$
   select jsonb_build_object(
-    'selection_allowed',false,'is_recommended',false,'one_click_eligible',false,
+    'selection_allowed',selectable,'is_recommended',selectable,'one_click_eligible',false,
     'recommendation_state','ambiguous','confidence_class','ambiguous_manual',
     'policy_version','2026-09-05.v11','identifier_policy_version',identifier_policy_version,
     'customer_fact_version',c.deterministic_fact_version,
@@ -113,7 +114,7 @@ select 'cf160000-0000-4000-8000-000000000001','cf150000-0000-4000-8000-000000000
   generation,'cf110000-0000-4000-8000-000000000001','cf140000-0000-4000-8000-000000000001',
   'CURRENT-CORRECTION-TX',91,'2026-09-05T21:15:00Z',1060,'1003','USD',
   pg_temp.current_fact_evidence('cf150000-0000-4000-8000-000000000001','2026-09-05T21:15:00Z',
-    '2026-09-05.identifier.v2','[]',true,1),
+    '2026-09-05.identifier.v2','[]',true,1,true),
   statement_timestamp()+interval '1 hour'
 from correction_claim;
 
@@ -121,7 +122,7 @@ select is(public.refund_nayax_candidate_identifier_evidence_state(
   'cf150000-0000-4000-8000-000000000001','cf140000-0000-4000-8000-000000000001',
   91,'2026-09-05T21:15:00Z',1060,'1003','USD',
   pg_temp.current_fact_evidence('cf150000-0000-4000-8000-000000000001','2026-09-05T21:15:00Z',
-    '2026-09-05.identifier.v2','[]',true,1)
+    '2026-09-05.identifier.v2','[]',true,1,true)
 ), 'valid','The first production-shaped candidate satisfies the insert guard');
 
 select is((public.service_commit_refund_nayax_lookup(
@@ -195,34 +196,49 @@ select (public.service_begin_refund_nayax_lookup(
   'cf110000-0000-4000-8000-000000000001'
 )->>'lookupGeneration')::bigint generation;
 
+-- These rows model the pre-migration grouped evidence already persisted for
+-- RF-FEF53787. They are intentionally invalid for selection after this change.
+set local session_replication_role=replica;
 insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
   actor_user_id,reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,
   amount_cents,card_last4,currency_code,evidence_summary,expires_at)
-select gen_random_uuid(),'cf150000-0000-4000-8000-000000000001',claim.generation,
+select ('cf160000-0000-4000-8000-' || lpad((100+series.value)::text,12,'0'))::uuid,
+  'cf150000-0000-4000-8000-000000000001',claim.generation,
   'cf110000-0000-4000-8000-000000000001','cf140000-0000-4000-8000-000000000001',
   'CURRENT-CORRECTION-REFRESHED-' || series.value,90+series.value,
   '2026-09-05T21:15:00Z'::timestamptz+(series.value-1)*interval '1 minute',
   1060,'1003','USD',
   pg_temp.current_fact_evidence('cf150000-0000-4000-8000-000000000001',
     '2026-09-05T21:15:00Z'::timestamptz+(series.value-1)*interval '1 minute',
-    '2026-09-05.identifier.v2','[]',series.value=1,series.value),
+    '2026-09-05.identifier.v2','[]',series.value=1,series.value,false),
   statement_timestamp()+interval '1 hour'
 from refreshed_claim claim
 cross join generate_series(1,10) series(value);
+set local session_replication_role=origin;
 
 select is(public.refund_nayax_candidate_identifier_evidence_state(
   'cf150000-0000-4000-8000-000000000001','cf140000-0000-4000-8000-000000000001',
   91,'2026-09-05T21:15:00Z',1060,'1003','USD',
   pg_temp.current_fact_evidence('cf150000-0000-4000-8000-000000000001','2026-09-05T21:15:00Z',
-    '2026-09-05.identifier.v2','[]',true,1)
-), 'valid','The refreshed top candidate evidence is current and valid');
+    '2026-09-05.identifier.v2','[]',true,1,false)
+), 'invalid','Pre-migration grouped evidence remains invalid for selection');
 
 select is((public.service_commit_refund_nayax_lookup(
   'cf150000-0000-4000-8000-000000000001',(select generation from refreshed_claim),3,
-  'manual_exception','manual_exception','2026-09-05.v11',statement_timestamp(),
+  'multiple_matches','ambiguous','2026-09-05.v11',statement_timestamp(),
   'Ten current candidates need structured customer facts',null,10,'manual',
   'cf110000-0000-4000-8000-000000000001'
 )->>'applied'),'true','The refreshed current generation commits through the generation guard');
+
+set local role service_role;
+select throws_ok(
+  $$select public.service_select_refund_nayax_candidate_as_actor(
+    'cf110000-0000-4000-8000-000000000001','cf150000-0000-4000-8000-000000000001',
+    (select official_action_version from public.refund_cases where id='cf150000-0000-4000-8000-000000000001'),
+    'cf160000-0000-4000-8000-000000000101','correct_card')$$,
+  'P4626','Invalid Nayax identifier evidence',
+  'Correction-only upgrade compatibility never makes a stored row selectable');
+reset role;
 
 select is(public.refund_purchase_correction_request_fields_pre_production_parity(
   'cf150000-0000-4000-8000-000000000001'),
@@ -231,12 +247,47 @@ select is(public.refund_purchase_correction_request_fields_pre_production_parity
 
 select is(public.refund_purchase_correction_request_fields(
   'cf150000-0000-4000-8000-000000000001'),
-  array['incident_time','incident_time_source','card_network','nearby_attempt_count']::text[],
-  'Useful unresolved purchase facts replace the already-established wallet-token source');
+  array['incident_time']::text[],
+  'The grouped production case asks only the one distinguishing time');
+
+update public.reporting_machines
+set nayax_account_key='CONTRADICTORY_ACCOUNT'
+where id='cf140000-0000-4000-8000-000000000001';
+select is(public.refund_purchase_correction_request_fields(
+  'cf150000-0000-4000-8000-000000000001'), '{}'::text[],
+  'Upgrade compatibility stays silent when the stored account scope contradicts the machine');
+update public.reporting_machines
+set nayax_account_key='CURRENT_CORRECTION_ACCOUNT'
+where id='cf140000-0000-4000-8000-000000000001';
+
+set local session_replication_role=replica;
+update public.refund_nayax_lookup_candidates
+set evidence_summary=jsonb_set(
+  evidence_summary,'{lookup_provider_machine_id}',to_jsonb('CONTRADICTORY-MACHINE'::text))
+where refund_case_id='cf150000-0000-4000-8000-000000000001'
+  and lookup_generation=(select generation from refreshed_claim)
+  and token=(select token from public.refund_nayax_lookup_candidates
+    where refund_case_id='cf150000-0000-4000-8000-000000000001'
+      and lookup_generation=(select generation from refreshed_claim)
+    order by machine_authorization_time,token limit 1);
+set local session_replication_role=origin;
+select is(public.refund_purchase_correction_request_fields(
+  'cf150000-0000-4000-8000-000000000001'), '{}'::text[],
+  'Upgrade compatibility stays silent when any stored provider machine scope contradicts the machine');
+set local session_replication_role=replica;
+update public.refund_nayax_lookup_candidates
+set evidence_summary=jsonb_set(
+  evidence_summary,'{lookup_provider_machine_id}',to_jsonb('CURRENT-CORRECTION-MACHINE'::text))
+where refund_case_id='cf150000-0000-4000-8000-000000000001'
+  and lookup_generation=(select generation from refreshed_claim);
+set local session_replication_role=origin;
 
 select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id='cf150000-0000-4000-8000-000000000001'),0,
   'Reading the repaired correction scope creates no customer message');
+select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
+  where refund_case_id='cf150000-0000-4000-8000-000000000001'),0,
+  'Correction-only compatibility creates no payment attempt');
 
 create function pg_temp.queue_current_fact_scope(p_fields text[])
 returns jsonb language sql as $$
@@ -262,7 +313,7 @@ select is((select count(*)::integer from public.refund_case_messages
 
 create temp table correction_message as
 select pg_temp.queue_current_fact_scope(
-  array['incident_time','incident_time_source','card_network','nearby_attempt_count']
+  array['incident_time']
 ) value;
 select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id='cf150000-0000-4000-8000-000000000001'),1,
@@ -275,7 +326,7 @@ select lives_ok(format(
 ), 'The one message receives one secure existing-case correction capability');
 select ok((select count(*)=1
     and bool_and(correction_requested_fields =
-      array['incident_time','incident_time_source','card_network','nearby_attempt_count']::text[])
+      array['incident_time']::text[])
   from public.refund_wallet_correction_contexts
   where refund_case_id='cf150000-0000-4000-8000-000000000001'),
   'The secure capability contains only the current useful fields');
@@ -292,10 +343,7 @@ select lives_ok($$
       where refund_case_id='cf150000-0000-4000-8000-000000000001'
         and token_hash=repeat('c',64)),
     '{
-      "incident_time":{"disposition":"cannot_provide"},
-      "incident_time_source":{"disposition":"cannot_provide"},
-      "card_network":{"disposition":"cannot_provide"},
-      "nearby_attempt_count":{"disposition":"cannot_provide"}
+      "incident_time":{"disposition":"cannot_provide"}
     }'::jsonb
   )
 $$, 'Choosing Not sure for every requested field completes the correction once');
@@ -306,9 +354,9 @@ select is(public.refund_purchase_correction_request_fields(
   'Submitting Not sure clears the resolved lookup without reopening the redundant source question');
 select throws_like(
   $$select pg_temp.queue_current_fact_scope(
-    array['incident_time','incident_time_source','card_network','nearby_attempt_count'])$$,
-  '%Valid refund manual-message intent%',
-  'The completed response rejects a second correction enqueue before capability issuance');
+    array['incident_time'])$$,
+  '%A customer message is already queued for this case%',
+  'The existing same-case message prevents a duplicate correction enqueue');
 select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id='cf150000-0000-4000-8000-000000000001'),1,
   'Correction completion creates no second customer message');

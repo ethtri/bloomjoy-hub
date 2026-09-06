@@ -323,7 +323,71 @@ const customerTimeRough = recommend([sale({ id: "time-rough" })], {
 });
 assert.equal(customerTimeRough.recommendationState, "manual_exception");
 assert.equal(customerTimeRough.oneClickEligible, false);
+assert.equal(customerTimeRough.candidates[0].selectionAllowed, true);
+assert.equal(customerTimeRough.candidates[0].isRecommended, true);
 assert.ok(customerTimeRough.reasonCodes.includes("customer_time_rough"));
+
+const independentlyIdentifiedUncertainTime = recommend([sale({ id: "uncertain-time-exact-card" })], {
+  incidentTimeConfidence: "rough",
+  incidentTimeResolution: "ambiguous",
+});
+assert.equal(independentlyIdentifiedUncertainTime.recommendationState, "manual_exception");
+assert.equal(independentlyIdentifiedUncertainTime.oneClickEligible, false);
+assert.equal(independentlyIdentifiedUncertainTime.candidates[0].selectionAllowed, true);
+assert.equal(independentlyIdentifiedUncertainTime.candidates[0].isRecommended, true);
+assert.equal(independentlyIdentifiedUncertainTime.candidates[0].cardLast4Comparison, "exact_support");
+
+const roughCompetingPurchases = recommend([
+  sale({ id: "rough-collision-a", at: "2026-07-21T18:55:00.000Z" }),
+  sale({ id: "rough-collision-b", at: "2026-07-21T19:05:00.000Z" }),
+], {
+  incidentTimeConfidence: "rough",
+  incidentTimeResolution: "ambiguous",
+  requestCardLast4: null,
+  requestCardLast4Provenance: null,
+  requestCardLast4Source: null,
+});
+assert.equal(roughCompetingPurchases.recommendationState, "ambiguous");
+assert.equal(roughCompetingPurchases.candidates.every((candidate) => candidate.selectionAllowed === false), true);
+assert.deepEqual(
+  roughCompetingPurchases.candidates.map((candidate) => candidate.customerCorrectionFields),
+  [["incident_time"], ["incident_time"]],
+);
+assert.equal(roughCompetingPurchases.candidates.some((candidate) => candidate.isRecommended), false);
+
+const roughSameCardCompetingPurchases = recommend([
+  sale({ id: "rough-same-card-collision-a", at: "2026-07-21T18:55:00.000Z" }),
+  sale({ id: "rough-same-card-collision-b", at: "2026-07-21T19:05:00.000Z" }),
+], {
+  incidentTimeConfidence: "rough",
+  incidentTimeResolution: "ambiguous",
+});
+assert.equal(roughSameCardCompetingPurchases.recommendationState, "ambiguous");
+assert.equal(
+  roughSameCardCompetingPurchases.candidates.every((candidate) => candidate.selectionAllowed === false),
+  true,
+);
+assert.deepEqual(
+  roughSameCardCompetingPurchases.candidates.map((candidate) => candidate.customerCorrectionFields),
+  [["incident_time"], ["incident_time"]],
+);
+assert.equal(roughSameCardCompetingPurchases.candidates.some((candidate) => candidate.isRecommended), false);
+
+const roughSameCardDistinctAmounts = recommend([
+  sale({ id: "rough-same-card-amount-a", at: "2026-07-21T18:55:00.000Z" }),
+  sale({ id: "rough-same-card-amount-b", at: "2026-07-21T19:05:00.000Z", amount: 9.99 }),
+], {
+  incidentTimeConfidence: "rough",
+  incidentTimeResolution: "ambiguous",
+});
+assert.equal(roughSameCardDistinctAmounts.recommendationState, "ambiguous");
+assert.deepEqual(
+  roughSameCardDistinctAmounts.candidates.map((candidate) => candidate.selectionAllowed),
+  [true, true],
+);
+assert.equal(roughSameCardDistinctAmounts.candidates.every((candidate) =>
+  !candidate.reasonCodes.includes("multiple_candidates_need_distinguishing_time")
+), true);
 
 const wrongAmount = recommend([sale({ id: "wrong-amount", amount: 10.01 })]);
 assert.equal(wrongAmount.recommendationState, "manual_exception");
@@ -544,6 +608,7 @@ const walletMismatch = recommend(
 );
 assert.equal(walletMismatch.recommendationState, "manual_exception");
 assert.equal(walletMismatch.oneClickEligible, false);
+assert.equal(walletMismatch.candidates[0].selectionAllowed, true);
 
 const exactWallet = recommend(
   [sale({ id: "exact-wallet", recognitionMethod: "Apple Pay" })],
@@ -552,6 +617,11 @@ const exactWallet = recommend(
 assert.equal(exactWallet.recommendationState, "high_confidence");
 assert.equal(exactWallet.confidenceClass, "strong_card");
 assert.equal(exactWallet.oneClickEligible, false);
+assert.equal(exactWallet.candidates[0].selectionAllowed, true);
+assert.match(
+  exactWallet.recommendedAction,
+  /normal guarded refund action becomes available after manager selection/i,
+);
 
 const uniqueQrWallet = recommend(
   [sale({
@@ -571,6 +641,10 @@ assert.equal(uniqueQrWallet.confidenceClass, "unique_qr_time");
 assert.equal(uniqueQrWallet.oneClickEligible, false);
 assert.equal(uniqueQrWallet.candidates[0].qrTimeDeltaMinutes, 5);
 assert.ok(uniqueQrWallet.reasonCodes.includes("unique_qr_time_candidate"));
+assert.match(
+  uniqueQrWallet.recommendedAction,
+  /normal guarded refund action becomes available after manager selection/i,
+);
 
 const uniqueQrContactlessCard = recommend(
   [sale({

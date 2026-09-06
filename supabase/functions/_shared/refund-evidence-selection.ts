@@ -16,10 +16,18 @@ export const validateRefundEvidenceSelectionRequest = ({
 }: RefundEvidenceSelectionRequest): string | null => {
   if (!hasNayaxCandidate) return null;
 
+  const isCombinedSelectionApproval =
+    requestedStatus === "card_refund_pending" &&
+    requestedDecision === "approved" &&
+    requestedMessageType === null;
+
   if (
-    requestedStatus !== "needs_review" ||
-    requestedDecision !== null ||
-    requestedMessageType !== null
+    !isCombinedSelectionApproval &&
+    (
+      requestedStatus !== "needs_review" ||
+      requestedDecision !== null ||
+      requestedMessageType !== null
+    )
   ) {
     return evidenceSelectionError;
   }
@@ -29,6 +37,7 @@ export const validateRefundEvidenceSelectionRequest = ({
 
 export type CardPreExecutionRequest = {
   isCardCase: boolean;
+  hasNayaxCandidate: boolean;
   requestedStatus: string | null;
   requestedDecision: string | null;
   requestedMessageType: string | null;
@@ -36,11 +45,19 @@ export type CardPreExecutionRequest = {
 
 export const validateCardPreExecutionRequest = ({
   isCardCase,
+  hasNayaxCandidate,
   requestedStatus,
   requestedDecision,
   requestedMessageType,
 }: CardPreExecutionRequest): string | null => {
   if (!isCardCase) return null;
+
+  const isCombinedSelectionApproval =
+    hasNayaxCandidate &&
+    requestedStatus === "card_refund_pending" &&
+    requestedDecision === "approved" &&
+    requestedMessageType === null;
+  if (isCombinedSelectionApproval) return null;
 
   const impliesPreExecutionApproval =
     requestedStatus === "approved" ||

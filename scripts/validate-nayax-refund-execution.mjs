@@ -19,6 +19,7 @@ const files = {
   pendingApprovalRecoveryMigration: 'supabase/migrations/20260820041101_refund_nayax_pending_approval_recovery.sql',
   dailyReadinessUsageMigration: 'supabase/migrations/20260824224813_refund_nayax_daily_readiness_usage.sql',
   productionSimplificationMigration: 'supabase/migrations/20260830202234_refund_production_simplification.sql',
+  oneManagerDecisionMigration: 'supabase/migrations/20260906234104_refund_one_manager_decision.sql',
   providerOrchestration: 'supabase/functions/_shared/nayax-refund-orchestration.ts',
   providerGates: 'supabase/functions/_shared/nayax-refund-gates.ts',
   providerGatesTest: 'supabase/functions/_shared/nayax-refund-gates.test.ts',
@@ -70,6 +71,7 @@ const providerCapsMigration = read(files.providerCapsMigration);
 const pendingApprovalRecoveryMigration = read(files.pendingApprovalRecoveryMigration);
 const dailyReadinessUsageMigration = read(files.dailyReadinessUsageMigration);
 const productionSimplificationMigration = read(files.productionSimplificationMigration);
+const oneManagerDecisionMigration = read(files.oneManagerDecisionMigration);
 const executionContextMigration = read('supabase/migrations/20260903134847_refund_selected_nayax_execution_context.sql');
 const providerOrchestration = read(files.providerOrchestration);
 const providerGates = read(files.providerGates);
@@ -558,6 +560,36 @@ assert(
   'Nayax execution must require an audited manager selection and the exact selected provider amount without treating wallet digits, confidence, or the reported amount as execution gates.'
 );
 assert(
+  oneManagerDecisionMigration.includes('create or replace function public.refund_nayax_candidate_identifier_evidence_state') &&
+    oneManagerDecisionMigration.includes("or p_evidence ->> 'card_last4_comparison' is not distinct from 'exact_support'") &&
+    oneManagerDecisionMigration.includes("case_row.incident_time_confidence in ('exact','within_15_minutes')") &&
+    oneManagerDecisionMigration.includes('rough_same_card_candidate_count') &&
+    oneManagerDecisionMigration.includes('sibling.lookup_generation = case_row.nayax_lookup_generation') &&
+    nayaxLookupShared.includes('competingPurchaseKeys') &&
+    nayaxLookupShared.includes('candidate.amountCents') &&
+    nayaxLookupShared.includes('candidate.currencyCode') &&
+    nayaxLookupShared.includes('multiple_candidates_need_distinguishing_time') &&
+    oneManagerDecisionMigration.includes('create or replace function public.refund_nayax_retry_safe_case_is_current') &&
+    oneManagerDecisionMigration.includes('create function public.service_apply_refund_nayax_selection_approval') &&
+    oneManagerDecisionMigration.includes("'nayax_refund_execution_authorized'") &&
+    oneManagerDecisionMigration.includes("'deterministic_fact_version', case_row.deterministic_fact_version") &&
+    oneManagerDecisionMigration.includes("(marker.metadata ->> 'deterministic_fact_version')::bigint = case_row.deterministic_fact_version") &&
+    oneManagerDecisionMigration.includes('refund_nayax_current_manager_approval_pending') &&
+    oneManagerDecisionMigration.includes("then 'nayax_refund_execution_continued'") &&
+    oneManagerDecisionMigration.includes("'business_approval_reused', public.refund_nayax_current_manager_approval_pending") &&
+    oneManagerDecisionMigration.includes('then coalesce(refund_case.decided_by, p_actor_user_id)') &&
+    oneManagerDecisionMigration.includes('then refund_case.decided_at') &&
+    oneManagerDecisionMigration.includes('Saved Nayax approval changed before execution; reload for review') &&
+    oneManagerDecisionMigration.includes("(marker.metadata ->> 'attempt_generation')::integer = refund_case.nayax_refund_attempt_generation") &&
+    oneManagerDecisionMigration.includes("marker.metadata ->> 'transaction_id' is not distinct from refund_case.matched_nayax_transaction_id") &&
+    oneManagerDecisionMigration.includes("'approvalPendingExecution'") &&
+    oneManagerDecisionMigration.includes("position('refund_purchase_correction_request_fields' in overview_definition)") &&
+    !oneManagerDecisionMigration.includes('p_case.card_wallet_used = false') &&
+    oneManagerDecisionMigration.includes('p_case.refund_amount_cents = p_case.matched_nayax_amount_cents') &&
+    oneManagerDecisionMigration.includes('duplicate_case.matched_nayax_transaction_id = p_case.matched_nayax_transaction_id'),
+  'Rough time and wallet classification may not categorically block a manager-selected exact transaction; grouped same-card collisions, mismatch corroboration, full selected amount, and duplicate controls remain required.'
+);
+assert(
   refundAdminUpdate.includes('selection_allowed') &&
     refundAdminUpdate.includes('nayaxDisagreementReason') &&
     refundAdminUpdate.includes('nayax_match_execution_eligible: false'),
@@ -565,16 +597,25 @@ assert(
 );
 assert(
   refundAdminUpdate.includes('validateRefundEvidenceSelectionRequest') &&
-    refundAdminUpdate.includes('validateCardPreExecutionRequest'),
-  'The refund admin endpoint must enforce evidence-only Nayax selection and reject premature card approvals server-side.'
+    refundAdminUpdate.includes('validateCardPreExecutionRequest') &&
+    refundAdminUpdate.includes('service_apply_refund_nayax_selection_approval'),
+  'The refund admin endpoint must permit only the exact combined selection approval while rejecting other premature card approvals.'
 );
 assert(
-  refundOperationsUi.includes("label: 'Confirm this transaction'") &&
-    refundOperationsUi.includes("This does not issue a refund or email the customer") &&
-    refundOperationsUi.includes("targetStatus: 'needs_review'") &&
-    refundOperationsUi.includes("mode: 'nayax_evidence_selection'") &&
+  refundOperationsUi.includes('label: `Refund ${formatCurrency(selectedCandidate.amountCents)}`') &&
+    refundOperationsUi.includes('Confirm this exact transaction and refund its full provider amount in one decision.') &&
+    refundOperationsUi.includes("mode: 'nayax_refund_execution'") &&
+    refundOperationsUi.includes('quietTransactionConfirmation: true') &&
+    refundOperationsUi.includes("status: 'card_refund_pending'") &&
+    refundOperationsUi.includes("decision: 'approved'") &&
+    refundOperationsUi.includes('approvalResult.officialActionVersion') &&
+    refundOperationsUi.includes('approvalPendingExecution') &&
+    refundOperationsUi.includes('isRunningNayaxRefund ||') &&
+    refundOperationsUi.includes('nayaxApprovedExecutionAttemptedRef.current.add(') &&
+    refundOperationsUi.includes('Continuing the refund you already approved') &&
+    !refundOperationsUi.includes("mode: 'nayax_evidence_selection'") &&
     !refundOperationsUi.includes("label: 'Confirm this card sale'"),
-  'The manager UI must present transaction selection as evidence review, never as refund approval.'
+  'The manager UI must durably fold exact transaction binding into one ordinary refund decision and resume only its still-current approval.'
 );
 assert(
   refundOperationsUi.includes('candidateOption(') &&
@@ -584,9 +625,11 @@ assert(
     refundOperationsUi.includes('type="radio"') &&
     refundOperationsUi.includes('candidateUnavailableReason') &&
     refundOperationsUi.includes('caseAllowsCandidateSelection') &&
+    refundOperationsUi.includes('candidate.selectionAllowed === false') &&
+    refundOperationsUi.includes('if (!caseAllowsCandidateSelection || candidate.selectionAllowed === false) return;') &&
     refundOperationsUi.includes('refundAmount:') &&
     refundOperationsUi.includes('(candidate.amountCents / 100).toFixed(2)') &&
-    refundOperationsUi.includes('const refundAmountCents = selectedCase.matchedNayaxAmountCents') &&
+    refundOperationsUi.includes('const refundAmountCents = candidateBeingSelected?.amountCents ?? selectedCase.matchedNayaxAmountCents') &&
     refundOperationsUi.includes('The full selected Nayax transaction amount is set automatically') &&
     refundOperationsUi.includes("refundCase.reviewedNayaxPortalFallbackKind === 'ordinary_exact_match'") &&
     !refundOperationsUi.includes("refundReadiness?.blockReason === 'provider_remaining_value_unverified'") &&

@@ -572,8 +572,11 @@ export const rankGroupedNayaxCandidates = (groups: Array<{
   reportingMachineId: string;
   machineDisplayLabel: string;
   candidates: NayaxProviderCandidate[];
-}>) => {
-  const combinedCandidates = groups.flatMap((group) =>
+}>, customerTime: {
+  incidentTimeResolution: string | null;
+  incidentTimeConfidence: string | null;
+}) => {
+  let combinedCandidates = groups.flatMap((group) =>
     group.candidates.map((candidate) => ({
       ...candidate,
       reportingMachineId: group.reportingMachineId,
@@ -586,9 +589,72 @@ export const rankGroupedNayaxCandidates = (groups: Array<{
     left.providerProcessingTimeDeltaMinutes - right.providerProcessingTimeDeltaMinutes ||
     left.transactionId.localeCompare(right.transactionId)
   );
+  const customerTimeSupportsManagerSelection =
+    ["exact", "legacy_absolute"].includes(customerTime.incidentTimeResolution ?? "") &&
+    customerTime.incidentTimeConfidence !== "rough";
+  const collisionRelevantCandidates = combinedCandidates.filter((candidate) =>
+    candidate.selectionAllowed || (
+      candidate.identifierReviewState === "needs_corroboration" &&
+      candidate.customerCorrectionFields.length === 1 &&
+      candidate.customerCorrectionFields[0] === "incident_time" &&
+      candidate.reasonCodes.includes("multiple_candidates_need_distinguishing_time")
+    )
+  );
+  const competingPurchaseCounts = new Map<string, number>();
+  for (const candidate of collisionRelevantCandidates) {
+    if (!candidate.cardLast4) continue;
+    const competingPurchaseKey = [
+      candidate.cardLast4,
+      candidate.amountCents,
+      candidate.currencyCode,
+    ].join(":");
+    competingPurchaseCounts.set(
+      competingPurchaseKey,
+      (competingPurchaseCounts.get(competingPurchaseKey) ?? 0) + 1,
+    );
+  }
+  const competingPurchaseKeys = new Set(
+    [...competingPurchaseCounts.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([key]) => key),
+  );
+  const conservativeCompetingPurchaseHold =
+    !customerTimeSupportsManagerSelection && competingPurchaseKeys.size > 0;
+  if (conservativeCompetingPurchaseHold) {
+    combinedCandidates = combinedCandidates.map((candidate) => {
+      const competingPurchaseKey = [
+        candidate.cardLast4,
+        candidate.amountCents,
+        candidate.currencyCode,
+      ].join(":");
+      return candidate.selectionAllowed && candidate.cardLast4 && competingPurchaseKeys.has(competingPurchaseKey)
+      ? {
+          ...candidate,
+          evidenceAwareReviewEligible: false,
+          selectionAllowed: false,
+          identifierReviewState: "needs_corroboration",
+          customerCorrectionFields: ["incident_time"],
+          manualReviewReasons: [
+            ...new Set([
+              ...candidate.manualReviewReasons,
+              "multiple_candidates_need_distinguishing_time",
+            ]),
+          ],
+          reasonCodes: [
+            ...new Set([
+              ...candidate.reasonCodes,
+              "multiple_candidates_need_distinguishing_time",
+            ]),
+          ],
+        }
+      : candidate;
+    });
+  }
   const selectableCandidates = combinedCandidates.filter((candidate) => candidate.selectionAllowed);
   const uniqueCandidate = selectableCandidates.length === 1 ? selectableCandidates[0] : null;
-  const recommendationState: NayaxRecommendationState = uniqueCandidate
+  const recommendationState: NayaxRecommendationState = conservativeCompetingPurchaseHold
+    ? "ambiguous"
+    : uniqueCandidate
     ? uniqueCandidate.recommendationState === "high_confidence"
       ? "high_confidence"
       : "manual_exception"
@@ -907,7 +973,10 @@ const lookupGroupedLivermoreCandidates = async ({
     reportingMachineId: result.input.reportingMachineId,
     machineDisplayLabel: result.input.machineDisplayLabel,
     candidates: result.recommendation.candidates,
-  })));
+  })), {
+    incidentTimeResolution: refundCase.incident_time_resolution,
+    incidentTimeConfidence: refundCase.incident_time_confidence,
+  });
 
   const { data: currentCase, error: currentCaseError } = await supabase
     .from("refund_cases")
