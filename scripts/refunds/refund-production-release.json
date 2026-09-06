@@ -159,7 +159,8 @@
     "20260906052127_refund_linked_form_thread_binding.sql",
     "20260906073000_refund_contactless_review_selection.sql",
     "20260906160618_refund_contactless_review_evidence_truth.sql",
-    "20260906170907_refund_current_fact_correction_fields.sql"
+    "20260906170907_refund_current_fact_correction_fields.sql",
+    "20260906190727_refund_correction_production_parity.sql"
   ],
   "migrationFilesSha256": "ffb9cda438fcbf260a2f1c62295df8107fc949d2ad07773f6863d993d63eebd4",
   "migrationVersionSetSha256": "2c248ee6a368d4253a7965cc62a5c67247d903aa24b3cf4682dcbfd01813120b",
