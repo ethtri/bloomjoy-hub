@@ -1380,6 +1380,52 @@ const buildManagerStepUpRefundOverview = () => {
   return overview;
 };
 
+const buildManagerDraftNavigationOverview = () => {
+  const overview = buildManagerStepUpRefundOverview();
+  const readyCase = overview.cases[0];
+  overview.cases = [
+    readyCase,
+    {
+      ...readyCase,
+      id: 'case-card-alternate',
+      publicReference: 'RF-UAT-ALT-CARD',
+      customerEmail: 'customer-card-alt@example.test',
+      issueSummary: 'Alternate card case for clean decision navigation.',
+    },
+    {
+      ...readyCase,
+      id: 'case-card-correction',
+      publicReference: 'RF-UAT-CORRECTION',
+      customerEmail: 'customer-correction@example.test',
+      status: 'needs_review',
+      decision: null,
+      decisionReason: null,
+      decidedAt: null,
+      refundAmountCents: null,
+      correlationStatus: 'no_match',
+      correlationConfidence: 0,
+      correlationSummary: 'The customer amount needs confirmation.',
+      hasMatchedNayaxTransaction: false,
+      selectedNayaxTransaction: null,
+      nayaxLookupCandidates: [],
+      nayaxMatchExecutionEligible: false,
+      refundReadiness: {
+        transactionConfirmed: false,
+        canIssueCardRefund: false,
+        blockReason: 'customer_information_required',
+      },
+      lifecycle: buildLifecycleFixture(
+        'matching',
+        10,
+        'review_customer_contact'
+      ),
+      customerCorrectionFields: ['amount'],
+      issueSummary: 'Customer needs to confirm the amount paid.',
+    },
+  ];
+  return overview;
+};
+
 const buildNayaxResolutionRefundOverview = () => {
   const overview = buildMockRefundOverview();
   overview.refundOperationsAccess = true;
@@ -6422,7 +6468,7 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
     const functionBodies = [];
     const rpcCalls = [];
     await installMockSupabaseRoutes(context, {
-      refundOverview: buildManagerStepUpRefundOverview,
+      refundOverview: buildManagerDraftNavigationOverview,
       functionCalls,
       functionBodies,
       rpcCalls,
@@ -6433,7 +6479,7 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
     const page = await context.newPage();
     await signInRefundUser(page, appUrl);
     await page.getByRole('button', { name: /^Ready to refund \d+$/ }).click();
-    await waitForQueueCount(page, 1);
+    await waitForQueueCount(page, 2);
     await queueCase(page, 'RF-UAT-CARD').click();
 
     recorder.assert(
@@ -6554,6 +6600,43 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
         denialCalls[0].body?.matchedNayaxCandidateToken == null &&
         providerCalls.length === 0,
       JSON.stringify({ denialCalls, providerCalls })
+    );
+
+    await queueCase(page, 'RF-UAT-ALT-CARD').click();
+    await page.getByRole('heading', { name: 'RF-UAT-ALT-CARD', exact: true }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      `${scenario.name} clean canonical denial allows warning-free navigation`,
+      (await page.getByTestId('refund-unsaved-text-dialog').count()) === 0
+    );
+
+    await page.getByRole('button', { name: /^Action needed \d+$/ }).click();
+    await queueCase(page, 'RF-UAT-CORRECTION').click();
+    await page.getByRole('heading', { name: 'RF-UAT-CORRECTION', exact: true }).waitFor({ timeout: 10000 });
+    await page.getByTestId('refund-save-case').click();
+    await page.getByRole('heading', { name: 'Request customer correction', exact: true }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      `${scenario.name} receives one focused correction choice before sending`,
+      await page.getByText('Amount charged (USD)', { exact: true }).isVisible() &&
+        await page.getByRole('button', { name: 'Send correction request', exact: true }).isEnabled()
+    );
+    await page.getByRole('button', { name: 'Send correction request', exact: true }).click();
+    await page.getByRole('heading', { name: 'Request customer correction', exact: true })
+      .waitFor({ state: 'hidden', timeout: 10000 });
+    await page.getByRole('button', { name: /^Ready to refund \d+$/ }).click();
+    await queueCase(page, 'RF-UAT-ALT-CARD').click();
+    await page.getByRole('heading', { name: 'RF-UAT-ALT-CARD', exact: true }).waitFor({ timeout: 10000 });
+    const correctionCalls = functionBodies.filter((entry) =>
+      entry.functionName === 'refund-case-message-send' &&
+      entry.body?.caseId === 'case-card-correction'
+    );
+    recorder.assert(
+      `${scenario.name} clean canonical correction sends once and allows warning-free navigation`,
+      correctionCalls.length === 1 &&
+        correctionCalls[0].body?.messageType === 'more_info' &&
+        correctionCalls[0].body?.subject == null &&
+        correctionCalls[0].body?.body == null &&
+        (await page.getByTestId('refund-unsaved-text-dialog').count()) === 0,
+      JSON.stringify(correctionCalls)
     );
 
     await page.screenshot({

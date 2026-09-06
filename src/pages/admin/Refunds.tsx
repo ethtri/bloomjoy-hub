@@ -4299,14 +4299,18 @@ export default function AdminRefundsPage() {
     }
   };
 
-  const handleMessageTypeChange = (nextMessageType: RefundCustomerPortalMessageType) => {
+  const handleMessageTypeChange = (
+    nextMessageType: RefundCustomerPortalMessageType,
+    managerEditedTemplate = false
+  ) => {
+    if (isCustomerDraftDirty && !managerEditedTemplate) return;
     setMessageType(nextMessageType);
     if (!selectedCase) return;
 
     const draft = getCustomerMessageDraft(selectedCase, nextMessageType);
     setMessageSubject(draft.subject);
     setMessageBody(draft.body);
-    setIsCustomerDraftDirty(true);
+    setIsCustomerDraftDirty(managerEditedTemplate);
   };
 
   const handleRejectTriageSuggestion = async () => {
@@ -8197,7 +8201,10 @@ export default function AdminRefundsPage() {
                             value={messageType}
                             disabled={isUsingDemoData}
                             onChange={(event) =>
-                              handleMessageTypeChange(event.target.value as RefundCustomerPortalMessageType)
+                              handleMessageTypeChange(
+                                event.target.value as RefundCustomerPortalMessageType,
+                                true
+                              )
                             }
                             className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                           >
