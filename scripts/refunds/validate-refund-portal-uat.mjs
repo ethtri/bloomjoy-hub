@@ -6464,7 +6464,67 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
       await page.getByTestId('refund-deny-instead').isVisible()
     );
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await page.getByTestId('refund-deny-instead').click();
+    const denyInstead = page.getByTestId('refund-deny-instead');
+    await denyInstead.focus();
+    const functionCallCountBeforeDenialDraft = functionCalls.length;
+    const mutatingRpcCountBeforeDenialDraft = rpcCalls.filter(
+      (name) => !NAVIGATION_READ_ONLY_RPCS.has(name)
+    ).length;
+    await page.keyboard.press('Enter');
+    const denialReason = page.getByTestId('refund-card-denial-reason');
+    await denialReason.waitFor({ timeout: 10000 });
+    recorder.assert(
+      `${scenario.name} denial moves keyboard focus to the required reason without acting`,
+      await denialReason.evaluate((element) => element === document.activeElement) &&
+        functionCalls.length === functionCallCountBeforeDenialDraft &&
+        rpcCalls.filter((name) => !NAVIGATION_READ_ONLY_RPCS.has(name)).length ===
+          mutatingRpcCountBeforeDenialDraft
+    );
+    await page.setViewportSize({ width: 390, height: 844 });
+    const denialDraftMetrics = await page.evaluate(() => {
+      const reason = document.querySelector('[data-testid="refund-card-denial-reason"]');
+      const cancel = document.querySelector('[data-testid="refund-cancel-denial"]');
+      return {
+        viewportWidth: window.innerWidth,
+        documentWidth: document.documentElement.scrollWidth,
+        reasonHeight: reason instanceof HTMLElement ? reason.getBoundingClientRect().height : 0,
+        reasonScrollWidth: reason instanceof HTMLElement ? reason.scrollWidth : 0,
+        reasonClientWidth: reason instanceof HTMLElement ? reason.clientWidth : 0,
+        cancelHeight: cancel instanceof HTMLElement ? cancel.getBoundingClientRect().height : 0,
+        cancelScrollWidth: cancel instanceof HTMLElement ? cancel.scrollWidth : 0,
+        cancelClientWidth: cancel instanceof HTMLElement ? cancel.clientWidth : 0,
+      };
+    });
+    recorder.assert(
+      `${scenario.name} denial reason and cancel action remain practical at 390px`,
+      denialDraftMetrics.documentWidth <= denialDraftMetrics.viewportWidth &&
+        denialDraftMetrics.reasonHeight >= 44 &&
+        denialDraftMetrics.reasonScrollWidth <= denialDraftMetrics.reasonClientWidth &&
+        denialDraftMetrics.cancelHeight >= 44 &&
+        denialDraftMetrics.cancelScrollWidth <= denialDraftMetrics.cancelClientWidth,
+      JSON.stringify(denialDraftMetrics)
+    );
+    await page.keyboard.press('Tab');
+    const cancelDenial = page.getByTestId('refund-cancel-denial');
+    recorder.assert(
+      `${scenario.name} denial cancel is next in the keyboard path`,
+      await cancelDenial.evaluate((element) => element === document.activeElement)
+    );
+    await page.keyboard.press('Enter');
+    await denialReason.waitFor({ state: 'detached', timeout: 10000 });
+    await page.waitForFunction(() =>
+      document.activeElement?.getAttribute('data-testid') === 'refund-deny-instead'
+    );
+    recorder.assert(
+      `${scenario.name} cancellation restores the saved decision and trigger without side effects`,
+      await denyInstead.evaluate((element) => element === document.activeElement) &&
+        await page.getByTestId('refund-run-nayax-refund').isVisible() &&
+        functionCalls.length === functionCallCountBeforeDenialDraft &&
+        rpcCalls.filter((name) => !NAVIGATION_READ_ONLY_RPCS.has(name)).length ===
+          mutatingRpcCountBeforeDenialDraft
+    );
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await denyInstead.click();
     await page.getByTestId('refund-card-denial-reason').selectOption({ index: 1 });
     recorder.assert(
       `${scenario.name} sees a separate explicit deny action`,

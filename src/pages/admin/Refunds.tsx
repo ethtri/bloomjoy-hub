@@ -2454,6 +2454,8 @@ const getPrimaryActionIssues = (
 export default function AdminRefundsPage() {
   const queryClient = useQueryClient();
   const detailPanelRef = useRef<HTMLDivElement>(null);
+  const denialReasonRef = useRef<HTMLSelectElement>(null);
+  const denialTriggerRef = useRef<HTMLButtonElement | null>(null);
   const cashCompletionInFlightRef = useRef(false);
   const evidenceSelectionInFlightRef = useRef(false);
   const nayaxRefundInFlightRef = useRef(false);
@@ -5620,9 +5622,22 @@ export default function AdminRefundsPage() {
       handleMessageTypeChange('more_info');
     };
 
-    const chooseDenial = () => {
+    const chooseDenial = (trigger: HTMLButtonElement) => {
+      denialTriggerRef.current = trigger;
       setEditor((current) => current ? editorForDenial(current) : current);
       handleMessageTypeChange('denied');
+      window.requestAnimationFrame(() => denialReasonRef.current?.focus());
+    };
+
+    const cancelDenial = () => {
+      setEditor(toEditorState(selectedCase));
+      handleMessageTypeChange(selectedCase.status === 'draft' ? 'more_info' : 'status_update');
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+        const trigger = denialTriggerRef.current?.isConnected
+          ? denialTriggerRef.current
+          : document.querySelector<HTMLButtonElement>('[data-testid="refund-deny-instead"]');
+        trigger?.focus();
+      }));
     };
 
     return (
@@ -6081,6 +6096,7 @@ export default function AdminRefundsPage() {
             <div className="border-b border-border pb-4">
               <Label htmlFor="card-denial-reason">Customer-facing denial reason</Label>
               <select
+                ref={denialReasonRef}
                 data-testid="refund-card-denial-reason"
                 id="card-denial-reason"
                 value={editor.decisionReason}
@@ -6098,6 +6114,16 @@ export default function AdminRefundsPage() {
                 ))}
               </select>
               <InfoHint>The customer receives the selected warm, approved explanation.</InfoHint>
+              <Button
+                type="button"
+                data-testid="refund-cancel-denial"
+                variant="outline"
+                className="mt-3 min-h-11"
+                disabled={isSaving || isSendingCustomerMessage}
+                onClick={cancelDenial}
+              >
+                Cancel denial
+              </Button>
             </div>
           )}
 
@@ -6453,7 +6479,7 @@ export default function AdminRefundsPage() {
                     size="sm"
                     variant="outline"
                     disabled={isUsingDemoData || selectedCaseIsReviewOnly}
-                    onClick={chooseDenial}
+                    onClick={(event) => chooseDenial(event.currentTarget)}
                   >
                     {selectedCase.decision === 'approved' ? 'Change to denial' : 'Deny request'}
                   </Button>
