@@ -565,7 +565,9 @@ assert(
     oneManagerDecisionMigration.includes("case_row.incident_time_confidence in ('exact','within_15_minutes')") &&
     oneManagerDecisionMigration.includes('rough_same_card_candidate_count') &&
     oneManagerDecisionMigration.includes('sibling.lookup_generation = case_row.nayax_lookup_generation') &&
-    nayaxLookupShared.includes('collidingLast4s') &&
+    nayaxLookupShared.includes('competingPurchaseKeys') &&
+    nayaxLookupShared.includes('candidate.amountCents') &&
+    nayaxLookupShared.includes('candidate.currencyCode') &&
     nayaxLookupShared.includes('multiple_candidates_need_distinguishing_time') &&
     oneManagerDecisionMigration.includes('create or replace function public.refund_nayax_retry_safe_case_is_current') &&
     !oneManagerDecisionMigration.includes('p_case.card_wallet_used = false') &&
