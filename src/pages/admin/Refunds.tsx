@@ -2518,6 +2518,13 @@ export default function AdminRefundsPage() {
   const [messageType, setMessageType] = useState<RefundCustomerPortalMessageType>('status_update');
   const [messageSubject, setMessageSubject] = useState('');
   const [messageBody, setMessageBody] = useState('');
+  const [isCustomerDraftDirty, setIsCustomerDraftDirty] = useState(false);
+  const [isInternalNoteDirty, setIsInternalNoteDirty] = useState(false);
+  const [pendingCaseSelectionId, setPendingCaseSelectionId] = useState<string | null>(null);
+  const hasUnsavedCaseText = isCustomerDraftDirty || isInternalNoteDirty;
+  const caseSelectionSafetyRef = useRef({ hasUnsavedCaseText: false, actionInFlight: false });
+  const caseSelectionRequestRef = useRef<(refundCase: RefundCaseRecord) => void>(() => {});
+  const pendingCaseSelectionTriggerRef = useRef<HTMLElement | null>(null);
   const manualMessageIntentRef = useRef<{ fingerprint: string; id: string } | null>(null);
   const [appliedTriageSuggestionId, setAppliedTriageSuggestionId] = useState<string | null>(null);
   const [isTriageRejectOpen, setIsTriageRejectOpen] = useState(false);
@@ -2529,6 +2536,26 @@ export default function AdminRefundsPage() {
   const [isRecoveringGmailContact, setIsRecoveringGmailContact] = useState(false);
   const [isResolvingReconciliation, setIsResolvingReconciliation] = useState(false);
   const [isResolvingInboundLink, setIsResolvingInboundLink] = useState(false);
+  caseSelectionSafetyRef.current = {
+    hasUnsavedCaseText,
+    actionInFlight:
+      isSaving ||
+      isSendingCustomerMessage ||
+      isRunningNayaxRefund ||
+      isSavingManualNayaxEvidence ||
+      isApprovingManualNayaxRefund ||
+      isCashCompletionSubmitting ||
+      isDisposingAcknowledgementException ||
+      isCorrectingCustomerLocale ||
+      isClassifyingInternalTest ||
+      isPreparingNayaxResolution ||
+      isStartingNayaxEvidenceOnly ||
+      isResolvingGmailDelivery ||
+      isRejectingTriage ||
+      isRecoveringGmailContact ||
+      isResolvingReconciliation ||
+      isResolvingInboundLink,
+  };
   const forceDemoData = isLocalUatDemoForced();
   const showLegacyCashWorkbench =
     import.meta.env.DEV &&
@@ -2623,7 +2650,10 @@ export default function AdminRefundsPage() {
     const first = notices[0];
     toast.info(notices.length === 1 ? `${first.publicReference}: customer response ready for review.` : `${notices.length} customer responses are ready for review.`, {
       id:'refund-correction-responses',
-      action:{label:'Review response',onClick:() => setSelectedId(first.id)},
+      action:{label:'Review response',onClick:() => {
+        const responseCase = overview.cases.find((refundCase) => refundCase.id === first.id);
+        if (responseCase) caseSelectionRequestRef.current(responseCase);
+      }},
     });
   }, [overview.cases,pageIsLoading,error,isUsingDemoData]);
   const refundOperationsAccess = overview.refundOperationsAccess === true;
@@ -2716,7 +2746,21 @@ export default function AdminRefundsPage() {
     setIsCashConfirmationOpen(false);
     setMessageSubject('');
     setMessageBody('');
+    setIsCustomerDraftDirty(false);
+    setIsInternalNoteDirty(false);
+    setPendingCaseSelectionId(null);
   }, [overview.cases, internalTestCases, selectedId]);
+
+  useEffect(() => {
+    if (!hasUnsavedCaseText || typeof window === 'undefined') return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedCaseText]);
 
   useLayoutEffect(() => {
     if (!selectedId || typeof window === 'undefined' || !window.matchMedia('(max-width: 1023px)').matches) {
@@ -3043,7 +3087,8 @@ export default function AdminRefundsPage() {
       suggestion.route !== 'draft_reply' ||
       !suggestion.draftSubject ||
       !suggestion.draftBody ||
-      suggestion.contentDeleted
+      suggestion.contentDeleted ||
+      isCustomerDraftDirty
     ) {
       return;
     }
@@ -3052,7 +3097,7 @@ export default function AdminRefundsPage() {
     setMessageSubject(suggestion.draftSubject);
     setMessageBody(suggestion.draftBody);
     setAppliedTriageSuggestionId(suggestion.id);
-  }, [appliedTriageSuggestionId, gmailContext?.triageSuggestion]);
+  }, [appliedTriageSuggestionId, gmailContext?.triageSuggestion, isCustomerDraftDirty]);
 
   const handleRecoverGmailCustomerContact = async () => {
     if (!selectedCase || !gmailRecoveryVerified || isRecoveringGmailContact) return;
@@ -3233,6 +3278,7 @@ export default function AdminRefundsPage() {
     } else {
       toast.success('Refund case updated.');
     }
+    if (result.updateApplied !== false) setIsInternalNoteDirty(false);
     await refresh();
     return {
       customerMessage: result.customerMessage ?? null,
@@ -3240,7 +3286,8 @@ export default function AdminRefundsPage() {
     };
   };
 
-  const handleSelectCase = (refundCase: RefundCaseRecord) => {
+  function selectCase(refundCase: RefundCaseRecord) {
+    pendingCaseSelectionTriggerRef.current = null;
     lookupRequestSequenceRef.current += 1;
     setSelectedId(refundCase.id);
     setSelectionRevision((current) => current + 1);
@@ -3273,6 +3320,9 @@ export default function AdminRefundsPage() {
     setMessageType(initialMessageType);
     setMessageSubject(draft.subject);
     setMessageBody(draft.body);
+    setIsCustomerDraftDirty(false);
+    setIsInternalNoteDirty(false);
+    setPendingCaseSelectionId(null);
     setAppliedTriageSuggestionId(null);
     setIsTriageRejectOpen(false);
     setTriageRejectReason('wrong_missing_fields');
@@ -3280,7 +3330,24 @@ export default function AdminRefundsPage() {
     setIsGmailRecoveryOpen(false);
     setGmailRecoveryVerified(false);
 
-  };
+  }
+
+  function handleSelectCase(refundCase: RefundCaseRecord) {
+    if (refundCase.id === selectedId) return;
+    if (caseSelectionSafetyRef.current.actionInFlight) {
+      toast.info('Wait for the current case action to finish before switching cases.');
+      return;
+    }
+    if (caseSelectionSafetyRef.current.hasUnsavedCaseText) {
+      pendingCaseSelectionTriggerRef.current = document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+      setPendingCaseSelectionId(refundCase.id);
+      return;
+    }
+    selectCase(refundCase);
+  }
+  caseSelectionRequestRef.current = handleSelectCase;
 
   const handleResolveInboundLink = async () => {
     const review = selectedCase?.inboundLinkReview;
@@ -4230,6 +4297,7 @@ export default function AdminRefundsPage() {
     const draft = getCustomerMessageDraft(selectedCase, nextMessageType);
     setMessageSubject(draft.subject);
     setMessageBody(draft.body);
+    setIsCustomerDraftDirty(true);
   };
 
   const handleRejectTriageSuggestion = async () => {
@@ -4369,7 +4437,10 @@ export default function AdminRefundsPage() {
                     data-testid="refund-gpt-draft-subject"
                     value={messageSubject}
                     maxLength={180}
-                    onChange={(event) => setMessageSubject(event.target.value)}
+                    onChange={(event) => {
+                      setMessageSubject(event.target.value);
+                      setIsCustomerDraftDirty(true);
+                    }}
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -4380,7 +4451,10 @@ export default function AdminRefundsPage() {
                     value={messageBody}
                     maxLength={4000}
                     rows={8}
-                    onChange={(event) => setMessageBody(event.target.value)}
+                    onChange={(event) => {
+                      setMessageBody(event.target.value);
+                      setIsCustomerDraftDirty(true);
+                    }}
                   />
                   <p className="text-xs leading-5 text-muted-foreground">
                     This is only a writing suggestion. Your click sends the reviewed text; it cannot approve or issue a refund.
@@ -4662,6 +4736,7 @@ export default function AdminRefundsPage() {
       manualMessageIntentRef.current = null;
       setPendingRevision(null);
       setCorrectionSelection(null);
+      if (!usesDefaultLocalizedTemplate) setIsCustomerDraftDirty(false);
       toast.success(
         sentMessage.transport === 'gmail_thread'
           ? 'Reply sent in the Gmail thread.'
@@ -8081,9 +8156,13 @@ export default function AdminRefundsPage() {
                         <div>
                           <Label>Subject</Label>
                           <Input
+                            data-testid="refund-customer-message-subject"
                             value={messageSubject}
                             disabled={isUsingDemoData}
-                            onChange={(event) => setMessageSubject(event.target.value)}
+                            onChange={(event) => {
+                              setMessageSubject(event.target.value);
+                              setIsCustomerDraftDirty(true);
+                            }}
                             className="mt-2"
                           />
                         </div>
@@ -8091,9 +8170,13 @@ export default function AdminRefundsPage() {
                       <div>
                         <Label>Message body</Label>
                         <Textarea
+                          data-testid="refund-customer-message-body"
                           value={messageBody}
                           disabled={isUsingDemoData}
-                          onChange={(event) => setMessageBody(event.target.value)}
+                          onChange={(event) => {
+                            setMessageBody(event.target.value);
+                            setIsCustomerDraftDirty(true);
+                          }}
                           rows={6}
                           className="mt-2"
                         />
@@ -8135,13 +8218,15 @@ export default function AdminRefundsPage() {
                       </summary>
                       <div className="mt-3">
                         <Textarea
+                          data-testid="refund-internal-note"
                           value={editor.internalNote}
                           disabled={isUsingDemoData}
-                          onChange={(event) =>
+                          onChange={(event) => {
                             setEditor((current) =>
                               current ? { ...current, internalNote: event.target.value } : current
-                            )
-                          }
+                            );
+                            setIsInternalNoteDirty(true);
+                          }}
                           rows={3}
                           placeholder="Camera review, customer follow-up, or refund note"
                         />
@@ -8550,6 +8635,57 @@ export default function AdminRefundsPage() {
           </div>
         </div>
       </section>
+
+      <AlertDialog
+        open={Boolean(pendingCaseSelectionId)}
+        onOpenChange={(open) => {
+          if (!open) setPendingCaseSelectionId(null);
+        }}
+      >
+        <AlertDialogContent
+          data-testid="refund-unsaved-text-dialog"
+          className="w-[calc(100%_-_2rem)] max-w-lg rounded-lg"
+          onCloseAutoFocus={(event) => {
+            const trigger = pendingCaseSelectionTriggerRef.current;
+            pendingCaseSelectionTriggerRef.current = null;
+            if (!trigger?.isConnected) return;
+            event.preventDefault();
+            trigger.focus();
+          }}
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard unsent text?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your edits for {selectedCase?.publicReference ?? 'this refund case'} have not been sent or saved.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              data-testid="refund-unsaved-text-stay"
+              className="min-h-[44px]"
+              onClick={() => setPendingCaseSelectionId(null)}
+            >
+              Stay here
+            </AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="refund-unsaved-text-discard"
+              className="min-h-[44px] bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                const nextCase = [...overview.cases, ...internalTestCases]
+                  .find((refundCase) => refundCase.id === pendingCaseSelectionId);
+                if (nextCase) {
+                  selectCase(nextCase);
+                } else {
+                  setPendingCaseSelectionId(null);
+                  toast.error('That refund case is no longer available. Your current edits were kept.');
+                }
+              }}
+            >
+              Discard and switch
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={isInternalTestConfirmationOpen}
