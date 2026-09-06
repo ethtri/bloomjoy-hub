@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(27);
+select plan(28);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('cf110000-0000-4000-8000-000000000001','authenticated','authenticated',
@@ -113,7 +113,7 @@ select 'cf160000-0000-4000-8000-000000000001','cf150000-0000-4000-8000-000000000
   generation,'cf110000-0000-4000-8000-000000000001','cf140000-0000-4000-8000-000000000001',
   'CURRENT-CORRECTION-TX',91,'2026-09-05T21:15:00Z',1060,'1003','USD',
   pg_temp.current_fact_evidence('cf150000-0000-4000-8000-000000000001','2026-09-05T21:15:00Z',
-    '2026-09-05.identifier.v1','["card_last4_source"]',true,1),
+    '2026-09-05.identifier.v2','[]',true,1),
   statement_timestamp()+interval '1 hour'
 from correction_claim;
 
@@ -121,8 +121,8 @@ select is(public.refund_nayax_candidate_identifier_evidence_state(
   'cf150000-0000-4000-8000-000000000001','cf140000-0000-4000-8000-000000000001',
   91,'2026-09-05T21:15:00Z',1060,'1003','USD',
   pg_temp.current_fact_evidence('cf150000-0000-4000-8000-000000000001','2026-09-05T21:15:00Z',
-    '2026-09-05.identifier.v1','["card_last4_source"]',true,1)
-), 'refresh','The production-shaped exact-support candidate requires an internal evidence refresh');
+    '2026-09-05.identifier.v2','[]',true,1)
+), 'valid','The first production-shaped candidate satisfies the insert guard');
 
 select is((public.service_commit_refund_nayax_lookup(
   'cf150000-0000-4000-8000-000000000001',(select generation from correction_claim),2,
@@ -131,12 +131,9 @@ select is((public.service_commit_refund_nayax_lookup(
   'cf110000-0000-4000-8000-000000000001'
 )->>'applied'),'true','The correction lookup commits through the generation guard');
 
-select is(public.refund_purchase_correction_request_fields(
-  'cf150000-0000-4000-8000-000000000001'), '{}'::text[],
-  'Refresh-only evidence stays customer-silent instead of offering stale scope');
 select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id='cf150000-0000-4000-8000-000000000001'),0,
-  'Refresh-only correction inspection creates no customer message');
+  'The guard-valid initial lookup creates no customer message');
 
 update public.refund_nayax_lookup_candidates
 set expires_at=statement_timestamp()-interval '1 minute'
@@ -145,33 +142,46 @@ select is(public.refund_purchase_correction_request_fields(
   'cf150000-0000-4000-8000-000000000001'), '{}'::text[],
   'An expired current generation with no usable candidate stays customer-silent');
 update public.refund_nayax_lookup_candidates
-set expires_at=statement_timestamp()+interval '1 hour',
-  evidence_summary=jsonb_set(jsonb_set(evidence_summary,
-    '{identifier_policy_version}','"2026-09-05.identifier.v2"'),
-    '{card_last4_comparison}','"missing"')
+set expires_at=statement_timestamp()+interval '1 hour'
 where provider_transaction_id='CURRENT-CORRECTION-TX';
+
+update public.reporting_machines
+set nayax_account_key='CONTRADICTORY_ACCOUNT'
+where id='cf140000-0000-4000-8000-000000000001';
 select is((select public.refund_nayax_candidate_identifier_evidence_state(
     candidate.refund_case_id,candidate.reporting_machine_id,candidate.site_id,
     candidate.machine_authorization_time,candidate.amount_cents,candidate.card_last4,
     candidate.currency_code,candidate.evidence_summary)
   from public.refund_nayax_lookup_candidates candidate
   where candidate.provider_transaction_id='CURRENT-CORRECTION-TX'), 'invalid',
-  'Contradictory exact-support evidence is invalid');
+  'A permitted machine-configuration contradiction makes current candidate evidence invalid');
 select is(public.refund_purchase_correction_request_fields(
   'cf150000-0000-4000-8000-000000000001'), '{}'::text[],
   'Invalid current-generation evidence stays customer-silent');
+update public.reporting_machines
+set nayax_account_key='CURRENT_CORRECTION_ACCOUNT'
+where id='cf140000-0000-4000-8000-000000000001';
+
+update public.refund_cases
+set nearby_attempt_count='unknown'
+where id='cf150000-0000-4000-8000-000000000001';
+select is((select public.refund_nayax_candidate_identifier_evidence_state(
+    candidate.refund_case_id,candidate.reporting_machine_id,candidate.site_id,
+    candidate.machine_authorization_time,candidate.amount_cents,candidate.card_last4,
+    candidate.currency_code,candidate.evidence_summary)
+  from public.refund_nayax_lookup_candidates candidate
+  where candidate.provider_transaction_id='CURRENT-CORRECTION-TX'), 'stale',
+  'A normal current-fact change makes the retained candidate stale without bypassing its insert guard');
+select is(public.refund_purchase_correction_request_fields(
+  'cf150000-0000-4000-8000-000000000001'), '{}'::text[],
+  'Stale current-generation evidence stays customer-silent until a normal refresh');
 select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id='cf150000-0000-4000-8000-000000000001'),0,
-  'Expired and invalid scope inspection creates no outbox message');
-update public.refund_nayax_lookup_candidates
-set evidence_summary=pg_temp.current_fact_evidence(
-  'cf150000-0000-4000-8000-000000000001','2026-09-05T21:15:00Z',
-  '2026-09-05.identifier.v1','["card_last4_source"]',true,1)
-where provider_transaction_id='CURRENT-CORRECTION-TX';
+  'Expired, invalid, and stale scope inspection creates no outbox message');
 
 create temp table refreshed_claim as
 select (public.service_begin_refund_nayax_lookup(
-  'cf150000-0000-4000-8000-000000000001',2,'manual',
+  'cf150000-0000-4000-8000-000000000001',3,'manual',
   'cf110000-0000-4000-8000-000000000001'
 )->>'lookupGeneration')::bigint generation;
 
@@ -202,7 +212,7 @@ select is(public.refund_nayax_candidate_identifier_evidence_state(
 ), 'valid','The refreshed top candidate evidence is current and valid');
 
 select is((public.service_commit_refund_nayax_lookup(
-  'cf150000-0000-4000-8000-000000000001',(select generation from refreshed_claim),2,
+  'cf150000-0000-4000-8000-000000000001',(select generation from refreshed_claim),3,
   'manual_exception','manual_exception','2026-09-05.v11',statement_timestamp(),
   'Ten current candidates need structured customer facts',null,10,'manual',
   'cf110000-0000-4000-8000-000000000001'
@@ -217,44 +227,6 @@ select is(public.refund_purchase_correction_request_fields(
   'cf150000-0000-4000-8000-000000000001'),
   array['incident_time','incident_time_source','card_network','nearby_attempt_count']::text[],
   'Useful unresolved purchase facts replace the already-established wallet-token source');
-
-update public.refund_cases
-set card_last4_provenance='physical_card'
-where id='cf150000-0000-4000-8000-000000000001';
-select is(public.refund_purchase_correction_request_fields(
-  'cf150000-0000-4000-8000-000000000001'),
-  array['card_last4','card_last4_source']::text[],
-  'Phone/watch interaction alone cannot repair a suffix with physical-card provenance');
-update public.refund_cases
-set card_last4_provenance='wallet_device_token'
-where id='cf150000-0000-4000-8000-000000000001';
-
-update public.refund_cases
-set payment_interaction='unsure',wallet_device_kind=null
-where id='cf150000-0000-4000-8000-000000000001';
-select is(public.refund_purchase_correction_request_fields(
-  'cf150000-0000-4000-8000-000000000001'),
-  array['payment_interaction','card_last4_source','wallet_device_kind']::text[],
-  'Wallet-token suffix provenance alone cannot repair an unresolved interaction');
-update public.refund_cases
-set payment_interaction='phone_watch_wallet',wallet_device_kind='phone'
-where id='cf150000-0000-4000-8000-000000000001';
-
-update public.refund_cases
-set card_last4_source='physical_card'
-where id='cf150000-0000-4000-8000-000000000001';
-select is(public.refund_purchase_correction_request_fields(
-  'cf150000-0000-4000-8000-000000000001'), '{}'::text[],
-  'An explicit contradictory physical-card source is not silently replaced');
-update public.refund_cases
-set card_last4_source='bank_record'
-where id='cf150000-0000-4000-8000-000000000001';
-select is(public.refund_purchase_correction_request_fields(
-  'cf150000-0000-4000-8000-000000000001'), '{}'::text[],
-  'An explicit contradictory bank-record source is not silently replaced');
-update public.refund_cases
-set card_last4_source=null
-where id='cf150000-0000-4000-8000-000000000001';
 
 select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id='cf150000-0000-4000-8000-000000000001'),0,
@@ -321,6 +293,41 @@ select is(public.service_get_refund_purchase_correction(repeat('c',64))->>'state
 select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id='cf150000-0000-4000-8000-000000000001'),1,
   'Correction completion creates no second customer message');
+
+update public.refund_cases
+set card_last4_provenance='physical_card'
+where id='cf150000-0000-4000-8000-000000000001';
+select is(public.refund_purchase_correction_request_fields(
+  'cf150000-0000-4000-8000-000000000001'),
+  array['card_last4','card_last4_source']::text[],
+  'Phone/watch interaction alone cannot repair a suffix with physical-card provenance');
+update public.refund_cases
+set card_last4_provenance='wallet_device_token'
+where id='cf150000-0000-4000-8000-000000000001';
+
+update public.refund_cases
+set payment_interaction='unsure',wallet_device_kind=null
+where id='cf150000-0000-4000-8000-000000000001';
+select is(public.refund_purchase_correction_request_fields(
+  'cf150000-0000-4000-8000-000000000001'),
+  array['payment_interaction','card_last4_source','wallet_device_kind']::text[],
+  'Wallet-token suffix provenance alone cannot repair an unresolved interaction');
+update public.refund_cases
+set payment_interaction='phone_watch_wallet',wallet_device_kind='phone'
+where id='cf150000-0000-4000-8000-000000000001';
+
+update public.refund_cases
+set card_last4_source='physical_card'
+where id='cf150000-0000-4000-8000-000000000001';
+select is(public.refund_purchase_correction_request_fields(
+  'cf150000-0000-4000-8000-000000000001'), '{}'::text[],
+  'An explicit contradictory physical-card source is not silently replaced');
+update public.refund_cases
+set card_last4_source='bank_record'
+where id='cf150000-0000-4000-8000-000000000001';
+select is(public.refund_purchase_correction_request_fields(
+  'cf150000-0000-4000-8000-000000000001'), '{}'::text[],
+  'An explicit contradictory bank-record source is not silently replaced');
 
 select * from finish();
 rollback;
