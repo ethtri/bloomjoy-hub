@@ -155,7 +155,8 @@
     "20260905233116_refund_v9_correction_scope_parity.sql",
     "20260906005234_refund_receipt_automatic_completion_kernel.sql",
     "20260906011508_refund_matching_parity_alignment.sql",
-    "20260906033000_refund_soft_time_evidence.sql"
+    "20260906033000_refund_soft_time_evidence.sql",
+    "20260906052127_refund_linked_form_thread_binding.sql"
   ],
   "migrationFilesSha256": "e4c79eee25ac4e81e32bfe9bb0054bb3d5cd0caa430423bd5ef067adc4eb737f",
   "migrationVersionSetSha256": "c92bab7fe9c18bce60508f365308c9eaafd08ed8e7402546b3217953c5e54dc0",
