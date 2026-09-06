@@ -15,6 +15,7 @@ export type RefundReadinessBlockReason =
 
 export type RefundReadiness = {
   transactionConfirmed: boolean;
+  approvalContinuationReady: boolean;
   canIssueCardRefund: boolean;
   blockReason: RefundReadinessBlockReason | null;
   refundAmountCents: number | null;
@@ -57,6 +58,7 @@ export const parseDatabaseRefundReadiness = (
 
   return {
     transactionConfirmed,
+    approvalContinuationReady: row.approvalContinuationReady === true,
     canIssueCardRefund: row.canIssueCardRefund === true && blockReason === null,
     blockReason,
     refundAmountCents: optionalInteger(row.refundAmountCents),

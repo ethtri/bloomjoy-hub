@@ -17,12 +17,32 @@ const productionSimplificationUrl = new URL(
   '../../supabase/migrations/20260830202234_refund_production_simplification.sql',
   import.meta.url,
 );
+const continuationMigrationUrl = new URL(
+  '../../supabase/migrations/20260906202952_refund_attempt_continuation_outcomes.sql',
+  import.meta.url,
+);
+const continuationReadinessMigrationUrl = new URL(
+  '../../supabase/migrations/20260906222000_refund_attempt_continuation_readiness.sql',
+  import.meta.url,
+);
+const continuationHandoffMigrationUrl = new URL(
+  '../../supabase/migrations/20260906225234_refund_attempt_handoff_continuation.sql',
+  import.meta.url,
+);
+const continuationTestUrl = new URL(
+  '../../supabase/tests/refund_attempt_continuation_outcomes.sql',
+  import.meta.url,
+);
 
-const [migration, test, legacyRecoveryTest, productionSimplification] = await Promise.all([
+const [migration, test, legacyRecoveryTest, productionSimplification, continuationMigration, continuationReadinessMigration, continuationHandoffMigration, continuationTest] = await Promise.all([
   readFile(migrationUrl, 'utf8'),
   readFile(testUrl, 'utf8'),
   readFile(legacyRecoveryTestUrl, 'utf8'),
   readFile(productionSimplificationUrl, 'utf8'),
+  readFile(continuationMigrationUrl, 'utf8'),
+  readFile(continuationReadinessMigrationUrl, 'utf8'),
+  readFile(continuationHandoffMigrationUrl, 'utf8'),
+  readFile(continuationTestUrl, 'utf8'),
 ]);
 
 const exactMarkers = [
@@ -179,6 +199,78 @@ for (const scenario of [
 assert.match(test, /select plan\(30\)/u);
 assert.match(test, /select \* from finish\(\)/u);
 assert.match(test, /rollback;/u);
+
+for (const marker of [
+  'refund_nayax_provider_business_outcomes',
+  'refund_nayax_attempt_approval_continuations',
+  'service_record_nayax_refund_provider_stage_v3_outcomes',
+  'service_reserve_nayax_refund_approval_continuation_v1',
+  'nayax-business-outcome-v2',
+  'same-attempt-approval-continuation-v1',
+]) {
+  assert.match(continuationMigration, new RegExp(marker), `continuation migration must publish ${marker}`);
+  assert.match(continuationTest, new RegExp(marker), `continuation pgTAP must verify ${marker}`);
+}
+assert.match(continuationMigration, /enable row level security/iu);
+assert.match(
+  continuationMigration,
+  /revoke all on table public\.refund_nayax_provider_business_outcomes\s+from public, anon, authenticated, service_role;/u,
+);
+assert.match(
+  continuationMigration,
+  /request_result\.outcome = 'accepted'[\s\S]*request_result\.approval_authorized is true/u,
+);
+assert.match(continuationMigration, /attempt_row\.provider_claim_expires_at > statement_timestamp\(\)/u);
+assert.match(continuationMigration, /approval_stage\.stage = 'approve'/u);
+assert.match(continuationMigration, /current_context->>'machineAuthorizationTime' is distinct from execution_context->>'machineAuthorizationTime'/u);
+assert.doesNotMatch(continuationMigration, /refund-request|\/payment\//u);
+for (const scenario of [
+  'Crash after proved request acceptance',
+  'Duplicate click or concurrent worker',
+  'Unknown or ambiguous request pair',
+  'Request-not-proved',
+  'Stale expected version',
+  'Revoked manager authority',
+  'current mapped manager',
+  'original approver',
+  'Stale-version rejection',
+  'Settlement-after-effect recovery',
+  'Old Edge plus new database',
+  'alphabetic names and secrets',
+]) {
+  assert.match(continuationTest, new RegExp(scenario), `continuation pgTAP must cover ${scenario}`);
+}
+assert.match(continuationTest, /select plan\(44\)/u);
+assert.match(
+  continuationHandoffMigration,
+  /attempt\.actor_user_id = action_authorization\.actor_user_id[\s\S]*public\.can_perform_refund_official_action\(p_user_id, refund_case\.id\)/u,
+  'readiness must preserve original attribution and require current executor authority',
+);
+assert.match(
+  continuationHandoffMigration,
+  /attempt_row\.id, case_row\.id, p_actor_user_id, authorization_row\.id/u,
+  'continuation insert must audit the current executor without replacing the original authorization',
+);
+assert.doesNotMatch(
+  continuationHandoffMigration,
+  /attempt_row\.actor_user_id is distinct from p_actor_user_id|authorization_row\.actor_user_id is distinct from p_actor_user_id/u,
+  'handoff continuation must not require the original approver to remain the executor',
+);
+assert.match(
+  continuationReadinessMigration,
+  /'approvalContinuationReady', approval_continuation_ready/u,
+  'service readiness must expose the evidence-bound continuation bit',
+);
+assert.match(
+  continuationReadinessMigration,
+  /attempt\.provider_claim_expires_at <= statement_timestamp\(\)/u,
+  'manager readiness must not race the original worker claim',
+);
+assert.match(
+  continuationMigration,
+  /grant execute on function public\.service_record_nayax_refund_provider_stage_v3\([\s\S]*\) to service_role;/u,
+  'rolling deploys must preserve the prior Edge journal-v3 recorder grant',
+);
 
 console.log(
   'Nayax journal v3 static validation passed: additive rollback compatibility, exact-200 application/json authorization, redacted response metadata, and focused pgTAP coverage are present.',

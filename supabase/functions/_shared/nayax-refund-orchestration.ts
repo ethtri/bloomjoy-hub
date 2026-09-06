@@ -40,6 +40,7 @@ export type NayaxAttemptSnapshot = {
   reconciliationRequired: boolean;
   reportingAdjustmentPresent: boolean;
   caseFinalizationCommitted: boolean;
+  executionPlan?: "request_and_approve" | "approval_continuation";
 };
 
 export type NayaxAttemptReservation = {
@@ -47,6 +48,31 @@ export type NayaxAttemptReservation = {
   attempt: NayaxAttemptSnapshot;
   providerClaimToken: string | null;
 };
+
+export const shouldRequestNayaxApprovalContinuation = (
+  ordinaryReservation: NayaxAttemptReservation | null,
+) =>
+  ordinaryReservation === null ||
+  (
+    ordinaryReservation.attempt.shouldExecute === false &&
+    ordinaryReservation.attempt.status === "in_progress" &&
+    new Set<NayaxProviderOutcomeKind | null>([null, "unknown"]).has(
+      ordinaryReservation.attempt.providerOutcome,
+    ) &&
+    ordinaryReservation.attempt.reportingAdjustmentPresent === false &&
+    ordinaryReservation.attempt.caseFinalizationCommitted === false
+  );
+
+export const selectNayaxReservationAfterContinuation = ({
+  ordinaryReservation,
+  continuationReservation,
+}: {
+  ordinaryReservation: NayaxAttemptReservation | null;
+  continuationReservation: NayaxAttemptReservation | null;
+}) =>
+  continuationReservation?.attempt.shouldExecute === true
+    ? continuationReservation
+    : ordinaryReservation ?? continuationReservation;
 
 export type NayaxAttemptSettlement = {
   attempt: NayaxAttemptSnapshot;
@@ -67,7 +93,10 @@ export type NayaxCompletionDelivery = {
 
 export type NayaxProviderAdapter = {
   mode: "disabled" | "synthetic" | "live";
-  execute: (request: NayaxExecutionRequest) => Promise<NayaxProviderOutcome>;
+  execute: (
+    request: NayaxExecutionRequest,
+    executionPlan?: "request_and_approve" | "approval_continuation",
+  ) => Promise<NayaxProviderOutcome>;
 };
 
 export type NayaxRefundOrchestrationDependencies = {
@@ -327,7 +356,10 @@ export const orchestrateNayaxRefund = async ({
 
   let providerOutcome: NayaxProviderOutcome;
   try {
-    providerOutcome = await dependencies.provider.execute(request);
+    providerOutcome = await dependencies.provider.execute(
+      request,
+      attempt.executionPlan ?? "request_and_approve",
+    );
   } catch (error) {
     providerOutcome = {
       kind: "unknown",

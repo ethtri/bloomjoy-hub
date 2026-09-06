@@ -103,6 +103,7 @@ Deno.test("unknown database values fail closed without leaking internals", () =>
     }),
     {
       transactionConfirmed: true,
+      approvalContinuationReady: false,
       canIssueCardRefund: false,
       blockReason: "provider_unavailable",
       refundAmountCents: 700,
