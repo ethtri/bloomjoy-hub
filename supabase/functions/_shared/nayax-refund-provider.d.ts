@@ -53,6 +53,9 @@ export type NayaxControlledPilotStageResult = Readonly<{
   schemaMatched: boolean;
   semanticPairMatched: boolean;
   contractMatched: boolean;
+  businessResult?: string | null;
+  businessStatus?: string | null;
+  businessPairRetained?: boolean;
   failureType?: "timeout" | "network" | "response_read";
   payloadRedacted: true;
 }>;
@@ -71,6 +74,7 @@ export type NayaxProviderStageDecision = Readonly<{
   responseEnvelopeVersion?: string;
   journalContractVersion?: string;
   providerContractVersion?: string;
+  businessOutcomeRecordVersion?: string;
   payloadRedacted?: true;
 }>;
 
@@ -136,6 +140,21 @@ export function executeNayaxRefundApprovalOnly(input: {
   executed: boolean;
 }>;
 
+export function executeNayaxRefundApprovalContinuation(input: {
+  contract: NayaxRefundProviderContract;
+  approveToken: string;
+  transactionId: string | number;
+  siteId: number;
+  machineAuthorizationTime: string;
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+  onStageEvent?: (event: NayaxControlledPilotStageEvent) => Promise<void>;
+}): Promise<{
+  request: null;
+  approve: NayaxControlledPilotStageResult;
+  executed: boolean;
+}>;
+
 export function buildRedactedNayaxStageDigest(input: {
   journalSecret: string;
   attemptId: string;
@@ -183,7 +202,7 @@ export function createNayaxRefundProviderAdapter(input: {
     idempotencyKey: string;
     amountCents: number;
     currencyCode: "USD";
-  }): Promise<{
+  }, executionPlan?: "request_and_approve" | "approval_continuation"): Promise<{
     kind: "success" | "rejected" | "timeout" | "unknown";
     providerReference?: string | null;
     providerStatus?: string | null;

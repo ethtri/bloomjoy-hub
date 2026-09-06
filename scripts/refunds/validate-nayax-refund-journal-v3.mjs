@@ -17,12 +17,22 @@ const productionSimplificationUrl = new URL(
   '../../supabase/migrations/20260830202234_refund_production_simplification.sql',
   import.meta.url,
 );
+const continuationMigrationUrl = new URL(
+  '../../supabase/migrations/20260906202952_refund_attempt_continuation_outcomes.sql',
+  import.meta.url,
+);
+const continuationTestUrl = new URL(
+  '../../supabase/tests/refund_attempt_continuation_outcomes.sql',
+  import.meta.url,
+);
 
-const [migration, test, legacyRecoveryTest, productionSimplification] = await Promise.all([
+const [migration, test, legacyRecoveryTest, productionSimplification, continuationMigration, continuationTest] = await Promise.all([
   readFile(migrationUrl, 'utf8'),
   readFile(testUrl, 'utf8'),
   readFile(legacyRecoveryTestUrl, 'utf8'),
   readFile(productionSimplificationUrl, 'utf8'),
+  readFile(continuationMigrationUrl, 'utf8'),
+  readFile(continuationTestUrl, 'utf8'),
 ]);
 
 const exactMarkers = [
@@ -179,6 +189,43 @@ for (const scenario of [
 assert.match(test, /select plan\(30\)/u);
 assert.match(test, /select \* from finish\(\)/u);
 assert.match(test, /rollback;/u);
+
+for (const marker of [
+  'refund_nayax_provider_business_outcomes',
+  'refund_nayax_attempt_approval_continuations',
+  'service_record_nayax_refund_provider_stage_v3_outcomes',
+  'service_reserve_nayax_refund_approval_continuation_v1',
+  'nayax-business-outcome-v1',
+  'same-attempt-approval-continuation-v1',
+]) {
+  assert.match(continuationMigration, new RegExp(marker), `continuation migration must publish ${marker}`);
+  assert.match(continuationTest, new RegExp(marker), `continuation pgTAP must verify ${marker}`);
+}
+assert.match(continuationMigration, /enable row level security/iu);
+assert.match(
+  continuationMigration,
+  /revoke all on table public\.refund_nayax_provider_business_outcomes\s+from public, anon, authenticated, service_role;/u,
+);
+assert.match(
+  continuationMigration,
+  /request_result\.outcome = 'accepted'[\s\S]*request_result\.approval_authorized is true/u,
+);
+assert.match(continuationMigration, /attempt_row\.provider_claim_expires_at > statement_timestamp\(\)/u);
+assert.match(continuationMigration, /approval_stage\.stage = 'approve'/u);
+assert.match(continuationMigration, /current_context->>'machineAuthorizationTime' is distinct from execution_context->>'machineAuthorizationTime'/u);
+assert.doesNotMatch(continuationMigration, /refund-request|\/payment\//u);
+for (const scenario of [
+  'Crash after proved request acceptance',
+  'Duplicate click or concurrent worker',
+  'Unknown or ambiguous request pair',
+  'Request-not-proved',
+  'Stale expected version',
+  'Revoked manager authority',
+  'Settlement-after-effect recovery',
+]) {
+  assert.match(continuationTest, new RegExp(scenario), `continuation pgTAP must cover ${scenario}`);
+}
+assert.match(continuationTest, /select plan\(30\)/u);
 
 console.log(
   'Nayax journal v3 static validation passed: additive rollback compatibility, exact-200 application/json authorization, redacted response metadata, and focused pgTAP coverage are present.',

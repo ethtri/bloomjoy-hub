@@ -11,6 +11,7 @@ import {
   buildNayaxRefundRequestBody,
   classifyNayaxRefundResponse,
   createNayaxRefundProviderAdapter as createNayaxRefundProviderAdapterRaw,
+  executeNayaxRefundApprovalContinuation,
   executeNayaxRefundApprovalOnly,
   executeNayaxRefundProvider as executeNayaxRefundProviderRaw,
   freezeNayaxRefundEvidence,
@@ -395,23 +396,28 @@ deepEqual(
     schemaMatched: true,
     semanticPairMatched: true,
     contractMatched: true,
+    businessResult: 'True',
+    businessStatus: 'Pending Approval',
+    businessPairRetained: true,
     payloadRedacted: true,
   },
-  'An exact HTTP 200 application/json object and exact pair is accepted without retaining values.',
+  'An exact HTTP 200 application/json object retains only the bounded business pair.',
 );
 const redactedClassification = classifyNayaxRefundResponse({
   stage: 'request',
   httpStatus: 200,
-  payload: { Result: 'owner@example.test', Status: '4111111111111111' },
+  payload: { Result: 'owner@example.test', Status: 'customer-4242' },
   patterns: contract.requestResponses,
 });
 check(
-  !('result' in redactedClassification) && !('status' in redactedClassification),
-  'Classified responses never retain provider Result or Status values.',
+  redactedClassification.businessResult === null &&
+    redactedClassification.businessStatus === null &&
+    redactedClassification.businessPairRetained === false,
+  'Identifier-like Result or Status values are never retained.',
 );
 check(
   !JSON.stringify(redactedClassification).includes('owner@example.test') &&
-    !JSON.stringify(redactedClassification).includes('4111111111111111'),
+    !JSON.stringify(redactedClassification).includes('customer-4242'),
   'Unmatched provider text cannot enter a stage result or log payload.',
 );
 equal(
@@ -519,6 +525,33 @@ deepEqual(
   'Durable stage callbacks bracket each provider POST in exact order.',
 );
 
+const continuationCalls = [];
+const continuationStages = [];
+const continuationResult = await executeNayaxRefundApprovalContinuation({
+  contract,
+  approveToken: 'synthetic-approve-token',
+  transactionId: '123456789',
+  siteId: 42,
+  machineAuthorizationTime: '2026-07-22T17:30:00Z',
+  fetchImpl: async (url, options) => {
+    continuationCalls.push({ url, options });
+    return response({ Result: 'True', Status: 'Approved' });
+  },
+  onStageEvent: async (stage) => continuationStages.push(stage),
+});
+check(continuationResult.executed, 'Current-contract continuation accepts the exact configured approval success pair.');
+equal(continuationCalls.length, 1, 'Continuation makes exactly one provider call.');
+check(
+  continuationCalls[0].url.endsWith('/payment/refund-approve') &&
+    !continuationCalls[0].url.includes('refund-request'),
+  'Continuation cannot create a second request.',
+);
+deepEqual(
+  continuationStages.map(({ stage, event }) => `${stage}_${event}`),
+  ['approve_started', 'approve_result'],
+  'Continuation brackets only the approval call in the current journal.',
+);
+
 let noDatabaseDecisionCalls = 0;
 const noDatabaseDecisionResult = await executeNayaxRefundProviderRaw({
   contract,
@@ -595,7 +628,7 @@ const stageDigest = await buildRedactedNayaxStageDigest({
     result: classifyNayaxRefundResponse({
       stage: 'request',
       httpStatus: 200,
-      payload: { Result: 'owner@example.test', Status: '4111111111111111' },
+      payload: { Result: 'owner@example.test', Status: 'customer-4242' },
       patterns: contract.requestResponses,
     }),
   },
@@ -613,7 +646,7 @@ const digestWithIgnoredRawValues = await buildRedactedNayaxStageDigest({
       ...classifyNayaxRefundResponse({
         stage: 'request',
         httpStatus: 200,
-        payload: { Result: 'owner@example.test', Status: '4111111111111111' },
+        payload: { Result: 'owner@example.test', Status: 'customer-4242' },
         patterns: contract.requestResponses,
       }),
       result: 'raw-value-that-must-not-be-bound',
@@ -637,7 +670,7 @@ const digestWithChangedSchemaEvidence = await buildRedactedNayaxStageDigest({
       ...classifyNayaxRefundResponse({
         stage: 'request',
         httpStatus: 200,
-        payload: { Result: 'owner@example.test', Status: '4111111111111111' },
+        payload: { Result: 'owner@example.test', Status: 'customer-4242' },
         patterns: contract.requestResponses,
       }),
       schemaMatched: false,
@@ -1000,6 +1033,25 @@ equal(adapterSuccess.kind, 'success', 'The adapter maps exact two-step success i
 check(/^nayax-evidence-[a-f0-9]{64}$/u.test(adapterSuccess.providerReference), 'Success returns only an internal redacted correlation digest.');
 check(!adapterSuccess.providerReference.includes('123456789'), 'The provider transaction ID is never represented as a provider refund receipt.');
 equal(adapterCalls.length, 2, 'One adapter execution makes at most one request and one approval.');
+
+const continuationAdapterCalls = [];
+const continuationAdapter = createNayaxRefundProviderAdapter({
+  contract: baseContract,
+  requestToken: 'dedicated-request-write-token',
+  approveToken: 'dedicated-approve-write-token',
+  evidence: { ...frozenEvidence, transactionId: '123456789' },
+  fetchImpl: async (url) => {
+    continuationAdapterCalls.push(url);
+    return response({ Result: 'True', Status: 'Approved' });
+  },
+});
+const continuationAdapterOutcome = await continuationAdapter.execute(
+  orchestrationRequest,
+  'approval_continuation',
+);
+equal(continuationAdapterOutcome.kind, 'success', 'Adapter maps same-attempt approval continuation through the current contract.');
+equal(continuationAdapterCalls.length, 1, 'Continuation adapter performs only one approval POST.');
+check(!continuationAdapterCalls[0].includes('refund-request'), 'Continuation adapter never reaches the request endpoint.');
 
 throws(
   () => createNayaxRefundProviderAdapter({

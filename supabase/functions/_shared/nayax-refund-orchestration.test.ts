@@ -41,9 +41,9 @@ const makeHarness = (provider: NayaxProviderAdapter) => {
 
   const wrappedProvider: NayaxProviderAdapter = {
     mode: provider.mode,
-    execute: async (input) => {
+    execute: async (input, executionPlan) => {
       providerAttempts += 1;
-      return await provider.execute(input);
+      return await provider.execute(input, executionPlan);
     },
   };
 
@@ -278,6 +278,42 @@ Deno.test("authenticated manager-session authorization can drive the same bounde
 
   assert(result.executed && result.status === "succeeded", "manager session must be accepted");
   assert(harness.state().providerAttempts === 1, "manager session must still produce exactly one provider attempt");
+});
+
+Deno.test("evidence-bound replay can execute one approval continuation without selecting a request plan", async () => {
+  let observedPlan = "";
+  const harness = makeHarness({
+    mode: "synthetic",
+    execute: (_input, executionPlan) => {
+      observedPlan = executionPlan ?? "";
+      return Promise.resolve({ kind: "success" });
+    },
+  });
+  const reserve = harness.dependencies.reserveAndConsumeAttempt;
+  harness.dependencies.reserveAndConsumeAttempt = async (input) => {
+    const reservation = await reserve(input);
+    return {
+      ...reservation,
+      attempt: {
+        ...reservation.attempt,
+        executionPlan: "approval_continuation",
+      },
+    };
+  };
+
+  const result = await orchestrateNayaxRefund({
+    request,
+    dependencies: harness.dependencies,
+  });
+  assert(result.executed, "continuation success must use normal settlement");
+  assert(
+    observedPlan === "approval_continuation",
+    "the database-issued continuation plan must reach the provider adapter",
+  );
+  assert(
+    harness.state().providerAttempts === 1,
+    "one continuation reservation permits at most one provider operation",
+  );
 });
 
 Deno.test("committed success stays successful when customer delivery throws", async () => {

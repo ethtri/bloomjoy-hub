@@ -40,6 +40,7 @@ export type NayaxAttemptSnapshot = {
   reconciliationRequired: boolean;
   reportingAdjustmentPresent: boolean;
   caseFinalizationCommitted: boolean;
+  executionPlan?: "request_and_approve" | "approval_continuation";
 };
 
 export type NayaxAttemptReservation = {
@@ -67,7 +68,10 @@ export type NayaxCompletionDelivery = {
 
 export type NayaxProviderAdapter = {
   mode: "disabled" | "synthetic" | "live";
-  execute: (request: NayaxExecutionRequest) => Promise<NayaxProviderOutcome>;
+  execute: (
+    request: NayaxExecutionRequest,
+    executionPlan?: "request_and_approve" | "approval_continuation",
+  ) => Promise<NayaxProviderOutcome>;
 };
 
 export type NayaxRefundOrchestrationDependencies = {
@@ -327,7 +331,10 @@ export const orchestrateNayaxRefund = async ({
 
   let providerOutcome: NayaxProviderOutcome;
   try {
-    providerOutcome = await dependencies.provider.execute(request);
+    providerOutcome = await dependencies.provider.execute(
+      request,
+      attempt.executionPlan ?? "request_and_approve",
+    );
   } catch (error) {
     providerOutcome = {
       kind: "unknown",

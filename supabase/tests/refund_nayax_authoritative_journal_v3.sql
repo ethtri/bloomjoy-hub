@@ -267,7 +267,7 @@ select ok(
 select ok(
   has_function_privilege(
     'service_role',
-    'public.service_record_nayax_refund_provider_stage_v3(text,uuid,text,text,text,integer,text,boolean,text,text,text,text,boolean,text,text,text,boolean,boolean,boolean,boolean,boolean,text,text,boolean)',
+    'public.service_record_nayax_refund_provider_stage_v3_outcomes(text,uuid,text,text,text,integer,text,boolean,text,text,text,text,boolean,text,text,text,boolean,boolean,boolean,boolean,boolean,text,text,boolean,text,text,boolean)',
     'execute'
   )
   and has_function_privilege(
@@ -277,10 +277,15 @@ select ok(
   )
   and not has_function_privilege(
     'authenticated',
+    'public.service_record_nayax_refund_provider_stage_v3_outcomes(text,uuid,text,text,text,integer,text,boolean,text,text,text,text,boolean,text,text,text,boolean,boolean,boolean,boolean,boolean,text,text,boolean,text,text,boolean)',
+    'execute'
+  )
+  and not has_function_privilege(
+    'service_role',
     'public.service_record_nayax_refund_provider_stage_v3(text,uuid,text,text,text,integer,text,boolean,text,text,text,text,boolean,text,text,text,boolean,boolean,boolean,boolean,boolean,text,text,boolean)',
     'execute'
   ),
-  'Only service_role can execute the assertion-protected v3 boundaries'
+  'Only service_role can execute the outcome-retaining v3 boundaries'
 );
 
 select ok(
