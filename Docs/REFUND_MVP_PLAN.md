@@ -2,6 +2,48 @@
 
 Product direction confirmed September 5, 2026. [Issue #628](https://github.com/ethtri/bloomjoy-hub/issues/628) is the delivery checklist; linked issues own current progress. This document defines the experience and implementation boundaries, not another backlog.
 
+## Execution reset and customer remediation
+
+Owner direction, September 6–7, 2026: one primary lead owns implementation,
+integration, remediation and delivery. Preserve the existing code, PRs, unfinished
+edits and useful verification. The former independent goals and recurring agent
+monitors are stopped. Use at most two bounded subagents for useful independent
+work or focused review, with one integration owner and no duplicate goal loops.
+
+| Step | Outcome to deliver |
+| --- | --- |
+| **1. Restore service** | Resolve the demonstrated service failure and verify location loading, request submission/confirmation and manager reads. |
+| **1.5. Customer remediation — [#1205](https://github.com/ethtri/bloomjoy-hub/issues/1205)** | Account for every affected refund inquiry and proactively provide the verified working form or correct same-case route. |
+| **2. Finish the existing flow** | Finish the preserved #1202 customer/manager fix and release compatible backend/UI changes; one purchase selection and one ordinary refund decision. |
+| **3. Complete a real API refund** | One legitimate approved purchase receives its full provider refund, independent confirmation and one accurate notice through #990. |
+| **4. Finish automatic confirmation** | Validate real terminal evidence and connect it to the existing completion kernel through #973/#971. |
+| **5. Close remaining acceptance** | Complete every required issue and necessary follow-up, including remediation, channel/mapping work and the shared observation; link evidence and mark Done. |
+
+Step 1.5 is required customer recovery work, not optional channel cleanup. Ethan
+explicitly authorized reaching out with the working form; no additional batch or
+per-message approval is needed for that outreach. Review all refund inquiries over
+Labor Day weekend (September 4–7, 2026) and through verified recovery, plus earlier
+unresolved or demonstrably affected inquiries. Read original support conversations
+and available channels as well as Hub records: failed forms and interrupted sync
+may have left no case. Include customers who never reported a broken link.
+
+Prepare the inquiry list during recovery and start outreach promptly when the
+actual production form works through submission/confirmation on desktop/mobile.
+Verify private linked routes through the supported path. Reply in the existing
+conversation with a brief apology, the working link and an easy next step; preserve
+known facts and an existing case instead of asking for a second request. Reuse an
+equivalent recovery reply already sent and inspect uncertain delivery before retry.
+Use existing message/case references for private tracking, and record only
+aggregate coverage and unresolved exceptions in GitHub. Customer silence does not
+require repeated reminders or prevent closing successfully delivered outreach.
+
+Remediation outreach does not wait for #1202, first API proof, automatic reporting,
+SMS cutover, whole-backlog closure or the observation. Its preparation and useful
+engineering can proceed independently. This communication authority does not grant
+refund approval, payment promises, account changes or new platforms. The normal
+transaction protections and specifically sourced decision/routing boundaries
+remain; they are not blanket prohibitions on factual customer recovery.
+
 ## The experience to finish
 
 A customer submits one short request. Bloomjoy finds likely purchases. A manager reviews one clear comparison and authorizes a full refund. Bloomjoy submits and approves it through Nayax, confirms the outcome, and sends one accurate update. The customer never needs a Bloomjoy account or another form to fix the original request.
@@ -86,7 +128,7 @@ Retain exact machine/account/purchase identity, full provider amount and currenc
 
 No partial-refund editor, automatic refund approval without a manager, new cash/Zelle integration, new reporting platform, SQS/SFTP migration, GPT decision engine, quotas, arbitrary dollar ceilings, pilot cohorts, routine OTP ceremonies, or new mandatory approval layers. Keep existing explicit machine/manager exclusions. Cash and alternative reimbursements remain owner-handled offline under [the current #990 decision](https://github.com/ethtri/bloomjoy-hub/issues/990#issuecomment-5543556110); do not rewrite them as original-card refunds or build further payout features for this MVP.
 
-Do not remove existing safeguards or rebuild historical accounting/mail merely for cleanup. Optional PAR research, extra payment modes, QR rollout, sender-domain migration and retired-code removal are not MVP dependencies. No new vendor/customer correspondence authority is granted by a plan or issue.
+Do not remove existing safeguards or rebuild historical accounting/mail merely for cleanup. Optional PAR research, extra payment modes, QR rollout, sender-domain migration and retired-code removal are not MVP dependencies. A plan or issue does not create correspondence authority; #1205 records Ethan's explicit authorization for step 1.5 customer-remediation outreach. Other correspondence retains its existing authority.
 
 ## Verification and the completion boundary
 
@@ -100,5 +142,6 @@ The combined acceptance is small:
 4. A validated terminal report/API signal automatically finishes a new refund, not only corroborates an existing receipt. Duplicate/delayed reports are harmless. If no usable terminal signal exists, label automation **partial** and keep #973/#971's automatic-confirmation acceptance open; portal fallback is operational continuity, not proof of full automation.
 5. A confirmed refund can finish the customer/manager journey while unknown accounting metadata remains separate internal work.
 6. The first viewport communicates the manager's next action; target under a minute for ordinary review and under two minutes for correction without recruited cohorts or a new sign-off process.
+7. Step 1.5 / #1205 accounts for every affected refund inquiry, delivers the working form or correct same-case route without duplicate contacts/requests, and resolves or explicitly disposes of delivery/access exceptions with truthful evidence.
 
 One release may satisfy several issues. Record evidence once and link it. A merged PR proves code delivery; browser tests prove the exercised behavior; a native report proves only its observed fields; a live API outcome proves the attributable operation. Close superseded tracking as superseded, never as unproved product success. Use the normal #427 observation without adding an activation gate or restarting it for ordinary, safely handled exceptions.
