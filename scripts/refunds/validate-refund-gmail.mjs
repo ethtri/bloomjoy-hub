@@ -52,6 +52,7 @@ const [
   packageJson,
   envExample,
   qaChecklist,
+  canonicalThreadMigration,
 ] =
   await Promise.all([
     read('supabase/migrations/202607210006_refund_gmail_thread_linkage.sql'),
@@ -96,6 +97,7 @@ const [
     read('package.json'),
     read('.env.example'),
     read('Docs/QA_SMOKE_TEST_CHECKLIST.md'),
+    read('supabase/migrations/20260907221500_refund_gmail_canonical_threading.sql'),
   ]);
 
 const requiredTables = [
@@ -546,16 +548,35 @@ assert(
 );
 assert(
   gmailHelper.includes('findRefundGmailReplyByMessageHeader') &&
-    gmailHelper.includes('rfc822msgid:'),
-  'Uncertain sends must reconcile through the deterministic Gmail Message-ID',
+    gmailHelper.includes('refundGmailThreadMetadataPath(providerThreadId)') &&
+    gmailHelper.includes('REFUND_GMAIL_OPERATION_HEADER') &&
+    gmailHelper.includes('message.labelIds?.includes("SENT")') &&
+    gmailHelper.includes('normalizedMailboxIdentities.has(from)'),
+  'Uncertain sends must reconcile one authentic SENT operation marker inside the known Gmail thread',
 );
 assert(
   gmailHelper.includes('inspectRefundGmailReplyByMessageHeader') &&
-    gmailHelper.includes('if (response.nextPageToken) return { status: "ambiguous" as const }') &&
-    gmailHelper.includes('if (messages.length === 0)') &&
-    gmailHelper.includes('return { status: "no_match" as const }') &&
+    gmailHelper.includes('REFUND_GMAIL_RECONCILIATION_MESSAGE_LIMIT') &&
+    gmailHelper.includes('messages.length > REFUND_GMAIL_RECONCILIATION_MESSAGE_LIMIT') &&
     gmailHelper.includes('return { status: "ambiguous" as const }'),
-  'Only a complete zero-result Gmail search may be classified as no-match; pagination or non-exact results stay ambiguous',
+  'Known-thread reconciliation must stay bounded and missing or non-exact evidence must remain ambiguous',
+);
+assert(
+  gmailHelper.includes('refundGmailMessageMetadataPath(response.id)') &&
+    gmailHelper.includes('providerMessageHeader: string | null') &&
+    gmailHelper.includes('metadataReadStatus: "canonical" | "unavailable"') &&
+    gmailHelper.includes('must never downgrade or retry'),
+  'Provider-confirmed sends must retain their id when canonical metadata readback is unavailable',
+);
+assert(
+  canonicalThreadMigration.includes('is_refund_gmail_canonical_message_header') &&
+    canonicalThreadMigration.includes('normalized_provider_message_id is null') &&
+    canonicalThreadMigration.includes('normalized_provider_message_header is not null') &&
+    canonicalThreadMigration.includes('provider_message_header is not distinct from normalized_provider_message_header') &&
+    canonicalThreadMigration.match(/set reconciliation_no_match_version = 0/g)?.length === 3 &&
+    canonicalThreadMigration.match(/revoke execute on function public\.service_finish_refund_gmail_.*_no_match/g)?.length === 3 &&
+    canonicalThreadMigration.includes("set search_path = ''"),
+  'Database completion must require the provider id, accept only canonical non-null headers, preserve null metadata and exact idempotency, and invalidate legacy no-match receipts',
 );
 assert(
   gmailHelper.includes('parseRefundGmailSuccessResponse') &&
@@ -824,12 +845,6 @@ const outboundReconciliationSync = syncFunction.slice(
   syncFunction.indexOf('const reconcileOutstandingOutbound'),
   syncFunction.indexOf('const processFirstContact'),
 );
-const firstContactNoMatchBranch = firstContactReconciliationSync.indexOf(
-  'if (providerResult.status === "no_match")',
-);
-const firstContactNoMatchReceipt = firstContactReconciliationSync.indexOf(
-  'service_finish_refund_gmail_first_contact_no_match',
-);
 const firstContactAmbiguousBranch = firstContactReconciliationSync.indexOf(
   'if (providerResult.status === "ambiguous")',
 );
@@ -838,18 +853,15 @@ const firstContactProviderCatch = firstContactReconciliationSync.indexOf(
   firstContactAmbiguousBranch,
 );
 assert(
-  syncFunction.includes('attempt_version?: number') &&
+    syncFunction.includes('attempt_version?: number') &&
     firstContactReconciliationSync.includes('const attemptVersion = Number(row.attempt_version)') &&
     firstContactReconciliationSync.includes('Number.isInteger(attemptVersion)') &&
-    firstContactNoMatchBranch >= 0 &&
-    firstContactNoMatchBranch < firstContactNoMatchReceipt &&
-    firstContactNoMatchReceipt < firstContactAmbiguousBranch &&
     firstContactReconciliationSync.includes('p_attempt_version: attemptVersion') &&
     firstContactAmbiguousBranch < firstContactProviderCatch &&
-    !firstContactReconciliationSync.slice(firstContactProviderCatch).includes(
+    !firstContactReconciliationSync.includes(
       'service_finish_refund_gmail_first_contact_no_match',
     ),
-  'First-contact sync may mint a versioned receipt only in the explicit no-match branch, never for ambiguity or provider errors',
+  'First-contact sync must leave missing-marker and ambiguous evidence in manual reconciliation',
 );
 assert(
   formOnlyTest.includes('Customer contact creates zero refund cases') &&
@@ -873,12 +885,6 @@ assert(
       syncFunction.indexOf('while (customerThreadsScanned < maxThreads)'),
   'Gmail sync must reconcile generic manager replies before scanning for new customer work',
 );
-const outboundNoMatchBranch = outboundReconciliationSync.indexOf(
-  'if (providerResult.status === "no_match")',
-);
-const outboundNoMatchReceipt = outboundReconciliationSync.indexOf(
-  'service_finish_refund_gmail_outbound_reconciliation_no_match',
-);
 const outboundAmbiguousBranch = outboundReconciliationSync.indexOf(
   'if (providerResult.status === "ambiguous")',
 );
@@ -887,18 +893,15 @@ const outboundProviderCatch = outboundReconciliationSync.indexOf(
   outboundAmbiguousBranch,
 );
 assert(
-  syncFunction.includes('attempt_version?: number') &&
+    syncFunction.includes('attempt_version?: number') &&
     outboundReconciliationSync.includes('const attemptVersion = Number(row.attempt_version)') &&
     outboundReconciliationSync.includes('Number.isInteger(attemptVersion)') &&
-    outboundNoMatchBranch >= 0 &&
-    outboundNoMatchBranch < outboundNoMatchReceipt &&
-    outboundNoMatchReceipt < outboundAmbiguousBranch &&
     outboundReconciliationSync.includes('p_attempt_version: attemptVersion') &&
     outboundAmbiguousBranch < outboundProviderCatch &&
-    !outboundReconciliationSync.slice(outboundProviderCatch).includes(
+    !outboundReconciliationSync.includes(
       'service_finish_refund_gmail_outbound_reconciliation_no_match',
     ),
-  'Manager-reply sync may mint a versioned receipt only for an explicit no-match, never ambiguity or provider errors',
+  'Manager-reply sync must leave missing-marker and ambiguous evidence in manual reconciliation',
 );
 assert(
   syncFunction.includes('outboundReconciled') &&

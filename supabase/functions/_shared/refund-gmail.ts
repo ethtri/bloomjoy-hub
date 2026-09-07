@@ -15,6 +15,8 @@ export const REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE =
   "Gmail delivery could not be confirmed. Check the original thread before retrying.";
 export const REFUND_GMAIL_DISABLED_CODE = "gmail_integration_disabled";
 export const REFUND_GMAIL_DISABLED_MESSAGE = "Gmail delivery is disabled.";
+export const REFUND_GMAIL_OPERATION_HEADER = "X-Bloomjoy-Refund-Operation";
+const REFUND_GMAIL_RECONCILIATION_MESSAGE_LIMIT = 100;
 
 export type RefundGmailConfig = {
   clientId: string;
@@ -783,7 +785,7 @@ const encodeHeader = (value: string) =>
 const wrapBase64 = (value: string) =>
   value.match(/.{1,76}/g)?.join("\r\n") ?? "";
 
-export const refundGmailOperationMessageHeader = (operationKey: string) => {
+const refundGmailSafeOperation = (operationKey: string) => {
   const safeOperation = operationKey.replace(/[^a-zA-Z0-9._-]/g, "").slice(
     0,
     80,
@@ -794,7 +796,27 @@ export const refundGmailOperationMessageHeader = (operationKey: string) => {
       "Gmail operation key is invalid.",
     );
   }
-  return `<refund-${safeOperation}@bloomjoyusa.com>`;
+  return safeOperation;
+};
+
+// Kept for compatibility with historical delivery records. Gmail may rewrite
+// this pre-send value, so new delivery evidence must use the canonical header
+// returned by messages.get instead.
+export const refundGmailOperationMessageHeader = (operationKey: string) =>
+  `<refund-${refundGmailSafeOperation(operationKey)}@bloomjoyusa.com>`;
+
+export const refundGmailOperationMarker = (operationKey: string) => {
+  const exactOperation = operationKey.trim();
+  if (
+    exactOperation.length < 8 || exactOperation.length > 255 ||
+    /[\r\n]/.test(exactOperation)
+  ) {
+    throw new RefundGmailError(
+      "invalid_operation_key",
+      "Gmail operation key is invalid.",
+    );
+  }
+  return `v1.${bytesToBase64Url(new TextEncoder().encode(exactOperation))}`;
 };
 
 export const buildRefundGmailReplyMime = ({
@@ -824,13 +846,13 @@ export const buildRefundGmailReplyMime = ({
 }) => {
   const effectiveDeliveryKind = automatic ? "automatic" : deliveryKind;
   const boundary = `bloomjoy_refund_${crypto.randomUUID().replaceAll("-", "")}`;
-  const messageHeader = refundGmailOperationMessageHeader(operationKey);
+  const operationMarker = refundGmailOperationMarker(operationKey);
   const headers = [
     `From: ${sanitizeHeader(formatRefundCustomerSender(from), 320)}`,
     `To: ${sanitizeHeader(to, 320)}`,
     `Subject: ${encodeHeader(sanitizeHeader(subject, 998))}`,
     `Date: ${new Date().toUTCString()}`,
-    `Message-ID: ${messageHeader}`,
+    `${REFUND_GMAIL_OPERATION_HEADER}: ${operationMarker}`,
     "MIME-Version: 1.0",
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
   ];
@@ -873,7 +895,7 @@ export const buildRefundGmailReplyMime = ({
     raw: bytesToBase64Url(
       new TextEncoder().encode([...headers, "", ...parts].join("\r\n")),
     ),
-    messageHeader,
+    operationMarker,
   };
 };
 
@@ -1000,9 +1022,32 @@ export const sendRefundGmailReply = async ({
       true,
     );
   }
+  let providerMessageHeader: string | null = null;
+  let metadataReadStatus: "canonical" | "unavailable" = "unavailable";
+  try {
+    const metadata = await gmailRequest<GmailMessage>(
+      config,
+      refundGmailMessageMetadataPath(response.id),
+    );
+    const canonical = selectCanonicalRefundGmailMessageHeader({
+      message: metadata,
+      providerMessageId: response.id,
+      providerThreadId,
+      operationMarker: mime.operationMarker,
+    });
+    if (canonical) {
+      providerMessageHeader = canonical;
+      metadataReadStatus = "canonical";
+    }
+  } catch {
+    // Gmail already confirmed the POST with an exact message and thread id.
+    // Metadata readback is additive evidence and must never downgrade or retry
+    // a provider-confirmed send.
+  }
   return {
     providerMessageId: response.id,
-    providerMessageHeader: mime.messageHeader,
+    providerMessageHeader,
+    metadataReadStatus,
     ccCount: normalizedCc.length,
   };
 };
@@ -1033,61 +1078,114 @@ export const inspectRefundGmailReplyByMessageHeader = async ({
   providerThreadId: string;
   operationKey: string;
 }) => {
-  const messageHeader = refundGmailOperationMessageHeader(operationKey);
-  const path = refundGmailMessageIdSearchPath(messageHeader);
-  const response = await gmailRequest<{
-    messages?: Array<{ id?: string; threadId?: string }>;
-    nextPageToken?: string;
-  }>(config, path);
-  if (response.nextPageToken) return { status: "ambiguous" as const };
+  const operationMarker = refundGmailOperationMarker(operationKey);
+  const response = await gmailRequest<GmailThread>(
+    config,
+    refundGmailThreadMetadataPath(providerThreadId),
+  );
   return classifyRefundGmailReplyEvidence(
     response.messages ?? [],
     providerThreadId,
-    messageHeader,
+    operationMarker,
+    config.mailboxIdentities,
   );
 };
 
-export const refundGmailMessageIdSearchPath = (messageHeader: string) => {
-  const params = new URLSearchParams({
-    q: `rfc822msgid:${messageHeader}`,
-    maxResults: "5",
-    includeSpamTrash: "true",
-  });
-  return `/messages?${params.toString()}`;
+const refundGmailMetadataParams = () => {
+  const params = new URLSearchParams({ format: "metadata" });
+  for (const header of [
+    "Message-ID",
+    REFUND_GMAIL_OPERATION_HEADER,
+    "From",
+  ]) {
+    params.append("metadataHeaders", header);
+  }
+  return params;
+};
+
+export const refundGmailMessageMetadataPath = (messageId: string) =>
+  `/messages/${encodeURIComponent(messageId)}?${refundGmailMetadataParams()}`;
+
+export const refundGmailThreadMetadataPath = (threadId: string) =>
+  `/threads/${encodeURIComponent(threadId)}?${refundGmailMetadataParams()}`;
+
+export const isCanonicalRefundGmailMessageHeader = (value: string) =>
+  value.length <= 998 && /^<[^<>\s@]+@[^<>\s@]+>$/.test(value);
+
+export const selectCanonicalRefundGmailMessageHeader = ({
+  message,
+  providerMessageId,
+  providerThreadId,
+  operationMarker,
+}: {
+  message: GmailMessage;
+  providerMessageId: string;
+  providerThreadId: string;
+  operationMarker: string;
+}) => {
+  if (
+    message.id !== providerMessageId ||
+    message.threadId !== providerThreadId ||
+    getGmailHeader(message.payload?.headers, REFUND_GMAIL_OPERATION_HEADER) !==
+      operationMarker
+  ) return null;
+  const canonical = getGmailHeader(message.payload?.headers, "Message-ID");
+  return isCanonicalRefundGmailMessageHeader(canonical) ? canonical : null;
 };
 
 export const selectRefundGmailReplyEvidence = (
-  messages: Array<{ id?: string; threadId?: string }>,
+  messages: GmailMessage[],
   providerThreadId: string,
-  messageHeader: string,
+  operationMarker: string,
+  mailboxIdentities: string[],
 ) => {
   const result = classifyRefundGmailReplyEvidence(
     messages,
     providerThreadId,
-    messageHeader,
+    operationMarker,
+    mailboxIdentities,
   );
   return result.status === "match" ? result.evidence : null;
 };
 
 export const classifyRefundGmailReplyEvidence = (
-  messages: Array<{ id?: string; threadId?: string }>,
+  messages: GmailMessage[],
   providerThreadId: string,
-  messageHeader: string,
+  operationMarker: string,
+  mailboxIdentities: string[],
 ) => {
-  if (messages.length === 0) {
-    return { status: "no_match" as const };
+  if (messages.length > REFUND_GMAIL_RECONCILIATION_MESSAGE_LIMIT) {
+    return { status: "ambiguous" as const };
   }
-  if (
-    messages.length === 1 && messages[0].id &&
-    messages[0].threadId === providerThreadId
-  ) {
+  const normalizedMailboxIdentities = new Set(
+    mailboxIdentities.map((value) => value.trim().toLowerCase()),
+  );
+  const matches = messages.filter((message) => {
+    const headers = message.payload?.headers;
+    const from = parseEmailAddress(getGmailHeader(headers, "From")).email;
+    return message.id && message.threadId === providerThreadId &&
+      message.labelIds?.includes("SENT") &&
+      normalizedMailboxIdentities.has(from) &&
+      getGmailHeader(headers, REFUND_GMAIL_OPERATION_HEADER) === operationMarker;
+  });
+  if (matches.length === 1 && matches[0].id) {
+    const canonical = getGmailHeader(
+      matches[0].payload?.headers,
+      "Message-ID",
+    );
+    if (!isCanonicalRefundGmailMessageHeader(canonical)) {
+      return { status: "ambiguous" as const };
+    }
     return {
       status: "match" as const,
       evidence: {
-        providerMessageId: messages[0].id,
-        providerMessageHeader: messageHeader,
+        providerMessageId: matches[0].id,
+        providerMessageHeader: canonical,
       },
     };
   }
+  // A missing marker cannot prove that an older Gmail send did not happen:
+  // historical messages did not include this header and Gmail rewrote their
+  // deterministic Message-ID. Keep them in manual reconciliation.
   return { status: "ambiguous" as const };
 };
