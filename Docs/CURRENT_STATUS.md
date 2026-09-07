@@ -6,6 +6,8 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 
 ## Live Work
 
+- **Refund intake recovery (`#628`, `#1205`):** actual controlled desktop cash and mobile card submissions persisted, displayed confirmation, and reached the authenticated manager queue. Location loading is below one second and the temporary database role timeouts are restored to their original values. Email recovery outreach is sent; text-channel recovery and the manager/API production acceptance remain tracked in their existing issues.
+
 - **Refund correction link recovery (`#1204`):** customer correction inspection
   and submission now stop after a 10-second client bound and preserve the existing
   token-safe retry or reply-by-email recovery path. A tokenless direct visit to

@@ -14,7 +14,7 @@ export default function RefundThankYouPage() {
   } | null;
   const reference = navigationState?.reference?.trim() || searchParams.get('ref')?.trim() || '';
   const statusToken = navigationState?.statusToken ?? null;
-  const paymentMethod = navigationState?.paymentMethod === 'cash' ? 'cash' : 'card';
+  const paymentMethod = navigationState?.paymentMethod;
   const hasStatusLink = typeof statusToken === 'string' && /^[A-Za-z0-9_-]{43}$/.test(statusToken);
   const isDemo = searchParams.get('demo') === 'on';
 
@@ -64,11 +64,13 @@ export default function RefundThankYouPage() {
                     A manager will review the cash purchase details before deciding what happens
                     next.
                   </p>
-                ) : (
+                ) : paymentMethod === 'card' ? (
                   <p>
                     We will review the card payment against the machine's payment records before a
                     manager makes a separate refund decision.
                   </p>
+                ) : (
+                  <p>A manager will review the purchase details before deciding what happens next.</p>
                 )}
               </div>
             </div>
