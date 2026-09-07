@@ -2,6 +2,7 @@ import {
   buildNayaxRecommendation,
   extractNayaxRecords,
   NAYAX_RECOMMENDATION_POLICY,
+  purchaseOccurrenceIntervalsSupportStructuredTimeCorrection,
   toPublicNayaxCandidate,
 } from "./nayax-recommendation.mjs";
 import { buildNayaxMachineContext } from "./nayax-machine-context.mjs";
@@ -595,12 +596,13 @@ export const rankGroupedNayaxCandidates = (groups: Array<{
   const collisionRelevantCandidates = combinedCandidates.filter((candidate) =>
     candidate.selectionAllowed || (
       candidate.identifierReviewState === "needs_corroboration" &&
-      candidate.customerCorrectionFields.length === 1 &&
-      candidate.customerCorrectionFields[0] === "incident_time" &&
-      candidate.reasonCodes.includes("multiple_candidates_need_distinguishing_time")
+      (
+        candidate.reasonCodes.includes("multiple_candidates_need_distinguishing_time") ||
+        candidate.reasonCodes.includes("multiple_candidates_need_manager_review")
+      )
     )
   );
-  const competingPurchaseCounts = new Map<string, number>();
+  const competingPurchaseCandidates = new Map<string, NayaxProviderCandidate[]>();
   for (const candidate of collisionRelevantCandidates) {
     if (!candidate.cardLast4) continue;
     const competingPurchaseKey = [
@@ -608,15 +610,24 @@ export const rankGroupedNayaxCandidates = (groups: Array<{
       candidate.amountCents,
       candidate.currencyCode,
     ].join(":");
-    competingPurchaseCounts.set(
-      competingPurchaseKey,
-      (competingPurchaseCounts.get(competingPurchaseKey) ?? 0) + 1,
-    );
+    const samePurchaseKeyCandidates = competingPurchaseCandidates.get(competingPurchaseKey) ?? [];
+    samePurchaseKeyCandidates.push(candidate);
+    competingPurchaseCandidates.set(competingPurchaseKey, samePurchaseKeyCandidates);
   }
   const competingPurchaseKeys = new Set(
-    [...competingPurchaseCounts.entries()]
-      .filter(([, count]) => count > 1)
+    [...competingPurchaseCandidates.entries()]
+      .filter(([, sameKey]) => sameKey.length > 1)
       .map(([key]) => key),
+  );
+  const correctionFieldsByCompetingPurchaseKey = new Map(
+    [...competingPurchaseCandidates.entries()]
+      .filter(([, sameKey]) => sameKey.length > 1)
+      .map(([key, sameKey]) => [
+        key,
+        purchaseOccurrenceIntervalsSupportStructuredTimeCorrection(sameKey)
+          ? ["incident_time", "incident_time_source"]
+          : [],
+      ]),
   );
   const conservativeCompetingPurchaseHold =
     !customerTimeSupportsManagerSelection && competingPurchaseKeys.size > 0;
@@ -627,23 +638,27 @@ export const rankGroupedNayaxCandidates = (groups: Array<{
         candidate.amountCents,
         candidate.currencyCode,
       ].join(":");
+      const correctionFields = correctionFieldsByCompetingPurchaseKey.get(competingPurchaseKey) ?? [];
+      const collisionReason = correctionFields.length > 0
+        ? "multiple_candidates_need_distinguishing_time"
+        : "multiple_candidates_need_manager_review";
       return candidate.selectionAllowed && candidate.cardLast4 && competingPurchaseKeys.has(competingPurchaseKey)
       ? {
           ...candidate,
           evidenceAwareReviewEligible: false,
           selectionAllowed: false,
           identifierReviewState: "needs_corroboration",
-          customerCorrectionFields: ["incident_time"],
+          customerCorrectionFields: correctionFields,
           manualReviewReasons: [
             ...new Set([
               ...candidate.manualReviewReasons,
-              "multiple_candidates_need_distinguishing_time",
+              collisionReason,
             ]),
           ],
           reasonCodes: [
             ...new Set([
               ...candidate.reasonCodes,
-              "multiple_candidates_need_distinguishing_time",
+              collisionReason,
             ]),
           ],
         }

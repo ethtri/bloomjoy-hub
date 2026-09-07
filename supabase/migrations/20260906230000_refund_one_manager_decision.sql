@@ -1,3 +1,40 @@
+-- Only a proved purchase-occurrence interval may make another structured time
+-- answer useful. Provider authorization, posting, report and server timestamps
+-- remain manager context when their occurrence semantics are unknown.
+create or replace function public.refund_nayax_purchase_occurrence_minute_range_v1(
+  p_evidence jsonb
+)
+returns int8range
+language plpgsql
+immutable
+set search_path = ''
+as $$
+declare
+  lower_at timestamptz;
+  upper_at timestamptz;
+  lower_minute bigint;
+  upper_minute bigint;
+begin
+  if p_evidence ->> 'transaction_occurrence_comparable' is distinct from 'true'
+    or p_evidence ->> 'transaction_occurrence_semantics' is distinct from 'online_purchase_occurrence'
+    or p_evidence ->> 'transaction_occurrence_proof_source' is distinct from 'verified_provider_purchase_occurrence_v1'
+    or coalesce(p_evidence ->> 'transaction_occurrence_timestamp_source','') = ''
+    or coalesce(p_evidence ->> 'transaction_occurrence_timezone_basis','') = '' then
+    return null;
+  end if;
+  lower_at := (p_evidence ->> 'transaction_occurrence_lower_bound_at')::timestamptz;
+  upper_at := (p_evidence ->> 'transaction_occurrence_upper_bound_at')::timestamptz;
+  if lower_at is null or upper_at is null or lower_at > upper_at then return null; end if;
+  lower_minute := floor(extract(epoch from lower_at) / 60)::bigint;
+  upper_minute := floor(extract(epoch from upper_at) / 60)::bigint;
+  return int8range(lower_minute, upper_minute, '[]');
+exception when invalid_datetime_format or datetime_field_overflow or numeric_value_out_of_range then
+  return null;
+end;
+$$;
+revoke all on function public.refund_nayax_purchase_occurrence_minute_range_v1(jsonb)
+  from public, anon, authenticated, service_role;
+
 -- A customer's honest rough-time answer is review context, not a categorical
 -- veto after the combined current evidence identifies an exact provider sale.
 -- Wallet classification likewise does not change the provider transaction
@@ -167,7 +204,8 @@ begin
         and coalesce(p_evidence -> 'reason_codes', '[]'::jsonb) ? 'provider_status_unconfirmed'
       )
       or coalesce(p_evidence -> 'reason_codes', '[]'::jsonb) ?| array[
-        'customer_request_time_unknown','transaction_occurrence_time_uncertain'
+        'customer_request_time_unknown','transaction_occurrence_time_uncertain',
+        'multiple_candidates_need_manager_review'
       ]
     ) then return 'invalid'; end if;
   neutral_physical_contactless_mismatch :=
@@ -247,9 +285,19 @@ begin
         or (
           sibling.evidence_summary ->> 'selection_allowed' = 'false'
           and sibling.evidence_summary ->> 'identifier_review_state' = 'needs_corroboration'
-          and sibling.evidence_summary -> 'customer_correction_fields' = '["incident_time"]'::jsonb
-          and coalesce(sibling.evidence_summary -> 'reason_codes','[]'::jsonb)
-            ? 'multiple_candidates_need_distinguishing_time'
+          and (
+            (
+              sibling.evidence_summary -> 'customer_correction_fields' = '[]'::jsonb
+              and coalesce(sibling.evidence_summary -> 'reason_codes','[]'::jsonb)
+                ? 'multiple_candidates_need_manager_review'
+            )
+            or (
+              sibling.evidence_summary -> 'customer_correction_fields' =
+                '["incident_time","incident_time_source"]'::jsonb
+              and coalesce(sibling.evidence_summary -> 'reason_codes','[]'::jsonb)
+                ? 'multiple_candidates_need_distinguishing_time'
+            )
+          )
         )
       );
     if rough_same_card_candidate_count > 1 then
@@ -279,9 +327,20 @@ begin
     )
     and p_evidence ->> 'card_last4_comparison' is not distinct from 'exact_support'
     and p_evidence ->> 'identifier_review_state' is not distinct from 'needs_corroboration'
-    and p_evidence -> 'customer_correction_fields' = '["incident_time"]'::jsonb
-    and coalesce(p_evidence -> 'reason_codes','[]'::jsonb)
-      ? 'multiple_candidates_need_distinguishing_time';
+    and (
+      (
+        p_evidence -> 'customer_correction_fields' = '[]'::jsonb
+        and coalesce(p_evidence -> 'reason_codes','[]'::jsonb)
+          ? 'multiple_candidates_need_manager_review'
+      )
+      or (
+        p_evidence -> 'customer_correction_fields' =
+          '["incident_time","incident_time_source"]'::jsonb
+        and coalesce(p_evidence -> 'reason_codes','[]'::jsonb)
+          ? 'multiple_candidates_need_distinguishing_time'
+        and public.refund_nayax_purchase_occurrence_minute_range_v1(p_evidence) is not null
+      )
+    );
   if selection_allowed is distinct from expected_selection_allowed
     and not conservative_competing_purchase_hold then return 'invalid'; end if;
 
@@ -297,8 +356,8 @@ revoke all on function public.refund_nayax_candidate_identifier_evidence_state(
 
 
 -- When every current candidate in a genuine collision is conservatively held,
--- expose the scorer's one distinguishing question through the existing
--- versioned same-case correction path.
+-- expose only facts that can separate the purchases through the existing
+-- versioned same-case correction path; otherwise keep the next step manager-owned.
 alter function public.refund_purchase_correction_request_fields(uuid)
   rename to refund_purchase_correction_request_fields_pre_one_manager_decision_v1;
 revoke all on function public.refund_purchase_correction_request_fields_pre_one_manager_decision_v1(uuid)
@@ -323,9 +382,15 @@ declare
   any_selection_allowed boolean := false;
   canonical_collision_hold boolean;
   upgrade_collision_hold boolean;
+  time_distinguishing_hold boolean;
   ignorable_hard_exclusion boolean;
   candidate_in_scope boolean;
   candidate_evidence_state text;
+  occurrence_minute_range int8range;
+  existing_occurrence_minute_range int8range;
+  occurrence_minute_ranges int8range[] := '{}'::int8range[];
+  time_distinguishing_candidate_count integer := 0;
+  occurrence_ranges_separated boolean := true;
 begin
   fields := public.refund_purchase_correction_request_fields_pre_one_manager_decision_v1(p_case_id);
   select * into case_row from public.refund_cases where id = p_case_id;
@@ -370,14 +435,32 @@ begin
     canonical_collision_hold :=
       candidate_row.evidence_summary ->> 'selection_allowed' = 'false'
       and candidate_row.evidence_summary ->> 'identifier_review_state' = 'needs_corroboration'
-      and candidate_row.evidence_summary -> 'customer_correction_fields' = '["incident_time"]'::jsonb
-      and coalesce(candidate_row.evidence_summary -> 'reason_codes','[]'::jsonb)
-        ? 'multiple_candidates_need_distinguishing_time'
+      and (
+        (
+          candidate_row.evidence_summary -> 'customer_correction_fields' = '[]'::jsonb
+          and coalesce(candidate_row.evidence_summary -> 'reason_codes','[]'::jsonb)
+            ? 'multiple_candidates_need_manager_review'
+        )
+        or (
+          candidate_row.evidence_summary -> 'customer_correction_fields' =
+            '["incident_time","incident_time_source"]'::jsonb
+          and coalesce(candidate_row.evidence_summary -> 'reason_codes','[]'::jsonb)
+            ? 'multiple_candidates_need_distinguishing_time'
+        )
+      )
       and candidate_in_scope
       and candidate_row.card_last4 = case_row.card_last4
       and candidate_row.amount_cents = case_row.payment_amount_cents
       and candidate_row.currency_code = 'USD'
       and candidate_evidence_state = 'valid';
+    occurrence_minute_range := public.refund_nayax_purchase_occurrence_minute_range_v1(
+      candidate_row.evidence_summary
+    );
+    time_distinguishing_hold :=
+      canonical_collision_hold
+      and candidate_row.evidence_summary -> 'customer_correction_fields' =
+        '["incident_time","incident_time_source"]'::jsonb
+      and occurrence_minute_range is not null;
     upgrade_collision_hold :=
       candidate_row.evidence_summary ->> 'selection_allowed' = 'false'
       and case_row.nayax_recommendation_state = 'ambiguous'
@@ -426,6 +509,19 @@ begin
       and jsonb_array_length(candidate_row.evidence_summary -> 'hard_exclusions') > 0;
     if canonical_collision_hold or upgrade_collision_hold then
       collision_candidate_count := collision_candidate_count + 1;
+      if time_distinguishing_hold then
+        time_distinguishing_candidate_count := time_distinguishing_candidate_count + 1;
+        foreach existing_occurrence_minute_range in array occurrence_minute_ranges loop
+          if existing_occurrence_minute_range && occurrence_minute_range then
+            occurrence_ranges_separated := false;
+          end if;
+        end loop;
+        occurrence_minute_ranges := array_append(
+          occurrence_minute_ranges, occurrence_minute_range
+        );
+      else
+        occurrence_ranges_separated := false;
+      end if;
     end if;
     grouped_collision_context_compatible := grouped_collision_context_compatible
       and (canonical_collision_hold or upgrade_collision_hold or ignorable_hard_exclusion);
@@ -441,7 +537,11 @@ begin
 
   if any_selection_allowed then return '{}'::text[]; end if;
   if collision_candidate_count >= 2 and grouped_collision_context_compatible then
-    return array['incident_time']::text[];
+    if time_distinguishing_candidate_count = collision_candidate_count
+      and occurrence_ranges_separated then
+      return array['incident_time','incident_time_source']::text[];
+    end if;
+    return '{}'::text[];
   end if;
   -- Invalid current evidence needs an internal refresh. Do not ask the
   -- customer speculative questions or make old rows selectable.

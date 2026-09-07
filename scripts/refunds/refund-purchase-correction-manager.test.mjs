@@ -66,7 +66,7 @@ test('selected candidate exposes one ordinary refund decision and direct API tak
   'manual_nayax_approval',
  );
 });
-test('server-blocked competing candidates expose one same-case correction action',()=>{
+test('proved separated competing purchases expose one structured same-case correction action',()=>{
  const action=load('primaryActionConfig',{
   ...dependencies,
   derivePortalRefundMissingFields:refundCase=>refundCase.customerCorrectionFields??[],
@@ -74,7 +74,7 @@ test('server-blocked competing candidates expose one same-case correction action
  });
  const refundCase={
   status:'needs_review',paymentMethod:'card',correlationStatus:'multiple_candidates',
-  customerCorrectionFields:['incident_time'],
+  customerCorrectionFields:['incident_time','incident_time_source'],
  };
  const editor={status:'needs_review',decision:null,matchedNayaxCandidateToken:''};
  const candidates=[
@@ -85,7 +85,28 @@ test('server-blocked competing candidates expose one same-case correction action
  assert.equal(result.label,'Ask for missing details');
  assert.equal(result.helper,'Send one same-case correction request for the detail that can distinguish these transactions.');
  assert.equal(result.messageType,'more_info');
- assert.equal(result.mode,'retry_message');
+  assert.equal(result.mode,'retry_message');
+});
+test('unknown provider-time collision stays manager-owned after the customer cannot distinguish it',()=>{
+ const action=load('primaryActionConfig',{
+  ...dependencies,
+  derivePortalRefundMissingFields:refundCase=>refundCase.customerCorrectionFields??[],
+  isWaitingCase:()=>false,
+ });
+ const refundCase={
+  status:'needs_review',paymentMethod:'card',correlationStatus:'multiple_candidates',
+  customerCorrectionFields:[],customerCorrection:{state:'answered',isActive:false,isUsable:false},
+ };
+ const editor={status:'needs_review',decision:null,matchedNayaxCandidateToken:''};
+ const candidates=[
+  {candidateToken:'candidate-1',selectionAllowed:false,reasonCodes:['multiple_candidates_need_manager_review']},
+  {candidateToken:'candidate-2',selectionAllowed:false,reasonCodes:['multiple_candidates_need_manager_review']},
+ ];
+ const result=action(refundCase,editor,candidates,null);
+ assert.equal(result.label,'Review transaction evidence');
+ assert.equal(result.mode,'review_transaction_evidence');
+ assert.match(result.helper,/do not ask the customer .* again/i);
+ assert.equal(result.messageType,undefined);
 });
 test('exact Gmail uncertainty action remains available beside an independent transactional delivery exception',()=>{
  const action=load('primaryActionConfig',{

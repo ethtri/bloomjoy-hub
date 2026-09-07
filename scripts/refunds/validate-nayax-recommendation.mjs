@@ -356,11 +356,12 @@ assert.deepEqual(
 assert.equal(roughCompetingPurchases.candidates.some((candidate) => candidate.isRecommended), false);
 
 const roughSameCardCompetingPurchases = recommend([
-  sale({ id: "rough-same-card-collision-a", at: "2026-07-21T18:55:00.000Z" }),
-  sale({ id: "rough-same-card-collision-b", at: "2026-07-21T19:05:00.000Z" }),
+  sale({ id: "rough-same-card-collision-a", at: "2026-07-21T19:00:00.000Z" }),
+  sale({ id: "rough-same-card-collision-b", at: "2026-07-21T19:01:00.000Z" }),
 ], {
   incidentTimeConfidence: "rough",
   incidentTimeResolution: "ambiguous",
+  purchaseOccurrenceProof: null,
 });
 assert.equal(roughSameCardCompetingPurchases.recommendationState, "ambiguous");
 assert.equal(
@@ -369,9 +370,38 @@ assert.equal(
 );
 assert.deepEqual(
   roughSameCardCompetingPurchases.candidates.map((candidate) => candidate.customerCorrectionFields),
-  [["incident_time"], ["incident_time"]],
+  [[], []],
 );
 assert.equal(roughSameCardCompetingPurchases.candidates.some((candidate) => candidate.isRecommended), false);
+assert.equal(roughSameCardCompetingPurchases.candidates.every((candidate) =>
+  candidate.reasonCodes.includes("multiple_candidates_need_manager_review")
+), true);
+
+const provedSeparatedPurchases = [
+  sale({ id: "proved-separated-a", at: "2026-07-21T13:00:00.000Z" }),
+  sale({ id: "proved-separated-b", at: "2026-07-21T23:00:00.000Z" }),
+];
+const provedSeparatedRoughPurchases = recommend(provedSeparatedPurchases, {
+  incidentTimeConfidence: "rough",
+  incidentTimeResolution: "ambiguous",
+});
+assert.equal(provedSeparatedRoughPurchases.recommendationState, "ambiguous");
+assert.deepEqual(
+  provedSeparatedRoughPurchases.candidates.map((candidate) => candidate.customerCorrectionFields),
+  [["incident_time", "incident_time_source"], ["incident_time", "incident_time_source"]],
+);
+const provedSeparatedAfterCorrection = recommend(provedSeparatedPurchases, {
+  incidentAt: "2026-07-21T13:00:00.000Z",
+  incidentTimeConfidence: "exact",
+  incidentTimeResolution: "exact",
+  incidentTimeSource: "transaction_alert_or_receipt",
+});
+assert.equal(provedSeparatedAfterCorrection.candidates.length, 1);
+assert.equal(provedSeparatedAfterCorrection.providerParseableRecordCount, 2);
+assert.equal(provedSeparatedAfterCorrection.providerWindowRecordCount, 1);
+assert.equal(provedSeparatedAfterCorrection.candidates[0].transactionId, "proved-separated-a");
+assert.equal(provedSeparatedAfterCorrection.candidates[0].selectionAllowed, true);
+assert.equal(provedSeparatedAfterCorrection.recommendationState, "high_confidence");
 
 const roughSameCardDistinctAmounts = recommend([
   sale({ id: "rough-same-card-amount-a", at: "2026-07-21T18:55:00.000Z" }),

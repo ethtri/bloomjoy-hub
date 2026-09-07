@@ -38,6 +38,31 @@ export const NAYAX_RECOMMENDATION_POLICY = Object.freeze({
   }),
 });
 
+const purchaseOccurrenceMinuteRange = (candidate) => {
+  if (
+    candidate?.transactionOccurrenceComparable !== true ||
+    candidate?.transactionOccurrenceSemantics !== "online_purchase_occurrence" ||
+    candidate?.transactionOccurrenceProofSource !== "verified_provider_purchase_occurrence_v1" ||
+    !candidate?.transactionOccurrenceTimestampSource ||
+    !candidate?.transactionOccurrenceTimezoneBasis
+  ) return null;
+  const lowerMs = Date.parse(candidate.transactionOccurrenceLowerBoundAt ?? "");
+  const upperMs = Date.parse(candidate.transactionOccurrenceUpperBoundAt ?? "");
+  if (!Number.isFinite(lowerMs) || !Number.isFinite(upperMs) || lowerMs > upperMs) return null;
+  return {
+    lowerMinute: Math.floor(lowerMs / 60_000),
+    upperMinute: Math.floor(upperMs / 60_000),
+  };
+};
+
+export const purchaseOccurrenceIntervalsSupportStructuredTimeCorrection = (candidates) => {
+  if (!Array.isArray(candidates) || candidates.length < 2) return false;
+  const ranges = candidates.map(purchaseOccurrenceMinuteRange);
+  if (ranges.some((range) => range === null)) return false;
+  ranges.sort((left, right) => left.lowerMinute - right.lowerMinute || left.upperMinute - right.upperMinute);
+  return ranges.every((range, index) => index === 0 || ranges[index - 1].upperMinute < range.lowerMinute);
+};
+
 const sanitizeText = (value, maxLength = 300) =>
   typeof value === "string" || typeof value === "number" || typeof value === "boolean"
     ? String(value).trim().slice(0, maxLength)
@@ -1107,35 +1132,53 @@ export const buildNayaxRecommendation = ({
     ["exact", "legacy_absolute"].includes(request.incidentTimeResolution) &&
     request.incidentTimeConfidence !== "rough";
   const selectableWithoutPreciseTime = candidates.filter((candidate) => candidate.selectionAllowed);
-  const competingPurchaseCounts = new Map();
+  const competingPurchaseCandidates = new Map();
   for (const candidate of selectableWithoutPreciseTime) {
     if (!candidate.cardLast4) continue;
     const key = [candidate.cardLast4, candidate.amountCents, candidate.currencyCode].join(":");
-    competingPurchaseCounts.set(key, (competingPurchaseCounts.get(key) ?? 0) + 1);
+    const samePurchaseKeyCandidates = competingPurchaseCandidates.get(key) ?? [];
+    samePurchaseKeyCandidates.push(candidate);
+    competingPurchaseCandidates.set(key, samePurchaseKeyCandidates);
   }
   const competingPurchaseKeys = new Set(
-    [...competingPurchaseCounts.entries()].filter(([, count]) => count > 1).map(([key]) => key),
+    [...competingPurchaseCandidates.entries()].filter(([, sameKey]) => sameKey.length > 1).map(([key]) => key),
   );
-  if (!customerTimeSupportsManagerSelection && competingPurchaseKeys.size > 0) {
+  const correctionFieldsByCompetingPurchaseKey = new Map(
+    [...competingPurchaseCandidates.entries()]
+      .filter(([, sameKey]) => sameKey.length > 1)
+      .map(([key, sameKey]) => [
+        key,
+        purchaseOccurrenceIntervalsSupportStructuredTimeCorrection(sameKey)
+          ? ["incident_time", "incident_time_source"]
+          : [],
+      ]),
+  );
+  const conservativeCompetingPurchaseHold =
+    !customerTimeSupportsManagerSelection && competingPurchaseKeys.size > 0;
+  if (conservativeCompetingPurchaseHold) {
     candidates = candidates.map((candidate) => {
       const key = [candidate.cardLast4, candidate.amountCents, candidate.currencyCode].join(":");
+      const correctionFields = correctionFieldsByCompetingPurchaseKey.get(key) ?? [];
+      const collisionReason = correctionFields.length > 0
+        ? "multiple_candidates_need_distinguishing_time"
+        : "multiple_candidates_need_manager_review";
       return candidate.selectionAllowed && candidate.cardLast4 && competingPurchaseKeys.has(key)
       ? {
           ...candidate,
           evidenceAwareReviewEligible: false,
           selectionAllowed: false,
           identifierReviewState: "needs_corroboration",
-          customerCorrectionFields: ["incident_time"],
+          customerCorrectionFields: correctionFields,
           manualReviewReasons: [
             ...new Set([
               ...candidate.manualReviewReasons,
-              "multiple_candidates_need_distinguishing_time",
+              collisionReason,
             ]),
           ],
           reasonCodes: [
             ...new Set([
               ...candidate.reasonCodes,
-              "multiple_candidates_need_distinguishing_time",
+              collisionReason,
             ]),
           ],
         }
@@ -1148,10 +1191,10 @@ export const buildNayaxRecommendation = ({
   const qrTimeCandidates = candidates.filter((candidate) => candidate.uniqueQrTimeEligible);
   const evidenceAwareCandidates = candidates.filter((candidate) => candidate.evidenceAwareReviewEligible);
   const managerSelectableCandidates = candidates.filter((candidate) => candidate.selectionAllowed);
-  const candidatesNeedingOneDistinguishingFact = candidates.filter((candidate) =>
+  const candidatesNeedingDistinguishingCustomerFacts = candidates.filter((candidate) =>
     candidate.hardExclusions.length === 0 &&
     candidate.selectionAllowed === false &&
-    candidate.customerCorrectionFields.length === 1
+    candidate.customerCorrectionFields.length > 0
   );
   let recommendationState = "no_safe_match";
   let confidenceClass = "ambiguous_manual";
@@ -1192,7 +1235,12 @@ export const buildNayaxRecommendation = ({
   } else if (managerSelectableCandidates.length > 1) {
     recommendationState = "ambiguous";
     resultReasonCodes = ["multiple_manager_selectable_candidates", "plausible_runner_up"];
-  } else if (candidatesNeedingOneDistinguishingFact.length > 1) {
+  } else if (conservativeCompetingPurchaseHold) {
+    recommendationState = "ambiguous";
+    resultReasonCodes = candidatesNeedingDistinguishingCustomerFacts.length > 1
+      ? ["multiple_candidates_need_distinguishing_fact", "plausible_runner_up"]
+      : ["multiple_candidates_need_manager_review", "plausible_runner_up"];
+  } else if (candidatesNeedingDistinguishingCustomerFacts.length > 1) {
     recommendationState = "ambiguous";
     resultReasonCodes = ["multiple_candidates_need_distinguishing_fact", "plausible_runner_up"];
   } else if (candidates.length > 0) {

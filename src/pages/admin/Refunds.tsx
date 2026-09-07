@@ -400,7 +400,7 @@ type PrimaryActionConfig = {
   targetStatus?: RefundCaseStatus;
   targetDecision?: RefundDecision;
   messageType?: RefundCustomerPortalMessageType;
-  mode?: 'case_update' | 'retry_message' | 'nayax_refund_execution' | 'manual_nayax_approval' | 'resolve_delivery_not_found';
+  mode?: 'case_update' | 'retry_message' | 'nayax_refund_execution' | 'manual_nayax_approval' | 'resolve_delivery_not_found' | 'review_transaction_evidence';
   disabled?: boolean;
 };
 
@@ -2009,6 +2009,22 @@ const primaryActionConfig = (
       label: 'Waiting on customer',
       helper: 'The customer has already been asked for more detail. Keep the case open until they reply.',
       disabled: true,
+    };
+  }
+
+  if (
+    refundCase.paymentMethod === 'card' &&
+    candidates.length > 1 &&
+    candidates.every((candidate) => candidate.selectionAllowed === false) &&
+    candidates.some((candidate) =>
+      candidate.reasonCodes?.includes('multiple_candidates_need_manager_review')
+    ) &&
+    missingFields.length === 0
+  ) {
+    return {
+      label: 'Review transaction evidence',
+      helper: 'These purchases cannot be separated by the available provider times. Refund Operations owns the next review; do not ask the customer for the same detail again.',
+      mode: 'review_transaction_evidence',
     };
   }
 
@@ -4197,6 +4213,12 @@ export default function AdminRefundsPage() {
       setIsGmailResolutionOpen(true);
       return;
     }
+    if (primaryAction.mode === 'review_transaction_evidence') {
+      const evidence = document.getElementById('refund-machine-transaction');
+      evidence?.focus({ preventScroll: true });
+      evidence?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
     if (primaryAction.mode === 'retry_message') {
       await handleSendCustomerMessage(primaryAction.messageType);
       return;
@@ -6057,7 +6079,7 @@ export default function AdminRefundsPage() {
               <p className="mt-3 line-clamp-3 text-sm leading-6 text-muted-foreground">{selectedCase.issueSummary}</p>
             </article>
 
-            <article data-testid="nayax-result-card" data-refund-section="match-summary" className="bg-muted/20 p-4">
+            <article id="refund-machine-transaction" tabIndex={-1} data-testid="nayax-result-card" data-refund-section="match-summary" className="bg-muted/20 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">

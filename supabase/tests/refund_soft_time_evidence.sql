@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(80);
+select plan(83);
 
 create function pg_temp.set_auth_claims(p_user_id uuid)
 returns void language plpgsql as $$
@@ -287,9 +287,11 @@ update public.refund_nayax_lookup_candidates
 set evidence_summary=evidence_summary || jsonb_build_object(
   'selection_allowed',false,
   'identifier_review_state','needs_corroboration',
-  'customer_correction_fields',jsonb_build_array('incident_time'),
+  'customer_correction_fields','[]'::jsonb,
   'reason_codes',(evidence_summary->'reason_codes') ||
-    jsonb_build_array('multiple_candidates_need_distinguishing_time')
+    jsonb_build_array('multiple_candidates_need_manager_review'),
+  'manual_review_reasons',(evidence_summary->'manual_review_reasons') ||
+    jsonb_build_array('multiple_candidates_need_manager_review')
 )
 where refund_case_id='fb150000-0000-4000-8000-000000000001';
 set local session_replication_role=origin;
@@ -299,21 +301,21 @@ select is(public.refund_nayax_candidate_identifier_evidence_state(
   (select evidence_summary from public.refund_nayax_lookup_candidates
     where token='fb160000-0000-4000-8000-000000000001')
 ), 'valid',
-  'Server accepts the scorer conservative hold for competing same-card purchases with rough time');
+  'Server accepts a manager-owned hold when provider occurrence timing is unproved');
 set local role service_role;
 select throws_ok($$select public.service_select_refund_nayax_candidate_as_actor(
   'fb110000-0000-4000-8000-000000000001','fb150000-0000-4000-8000-000000000001',
   (select official_action_version from public.refund_cases where id='fb150000-0000-4000-8000-000000000001'),
   'fb160000-0000-4000-8000-000000000001','correct_card')$$,
   'P4604','This Nayax transaction has a safety block and cannot be selected',
-  'Server rejects a manager selection when competing same-card purchases still need distinguishing time');
+  'Server rejects selection while same-card purchases still require manager evidence review');
 reset role;
 update public.refund_cases set nayax_recommendation_state='ambiguous',
   nayax_lookup_status='multiple_matches'
 where id='fb150000-0000-4000-8000-000000000001';
 select is(public.refund_purchase_correction_request_fields(
-  'fb150000-0000-4000-8000-000000000001'),array['incident_time']::text[],
-  'Competing same-card purchases use the existing same-case correction path for one distinguishing time fact');
+  'fb150000-0000-4000-8000-000000000001'),'{}'::text[],
+  'Unproved provider times create no repeated customer time question');
 
 -- Model the exact pre-migration grouped shapes already persisted in production.
 -- Compatibility is correction-only: these rows remain invalid for selection.
@@ -346,8 +348,62 @@ select throws_ok($$select public.service_select_refund_nayax_candidate_as_actor(
   'Selection stays fail-closed for correction-only upgrade compatibility');
 reset role;
 select is(public.refund_purchase_correction_request_fields(
-  'fb150000-0000-4000-8000-000000000001'),array['incident_time']::text[],
-  'Persisted grouped evidence asks only the one distinguishing time question');
+  'fb150000-0000-4000-8000-000000000001'),'{}'::text[],
+  'Persisted grouped evidence does not invent a useful customer question');
+
+-- When both original purchases carry proved occurrence intervals that do not
+-- overlap at the correction form's minute precision, an exact customer time
+-- can distinguish them. Keep both competitors in the fixture.
+set local session_replication_role=replica;
+update public.refund_cases
+set customer_request_received_at='2026-09-05T19:00:00Z'
+where id='fb150000-0000-4000-8000-000000000001';
+update public.refund_nayax_lookup_candidates candidate
+set evidence_summary=pg_temp.soft_time_evidence(
+    'before_or_at_request',
+    case candidate.token
+      when 'fb160000-0000-4000-8000-000000000001' then '2026-09-05T18:05:00Z'::timestamptz
+      else '2026-09-05T17:00:00Z'::timestamptz
+    end,
+    true,
+    case candidate.token
+      when 'fb160000-0000-4000-8000-000000000001' then '2026-09-05T18:05:00Z'::timestamptz
+      else '2026-09-05T17:00:00Z'::timestamptz
+    end,
+    case candidate.token
+      when 'fb160000-0000-4000-8000-000000000001' then '2026-09-05T18:05:00Z'::timestamptz
+      else '2026-09-05T17:00:00Z'::timestamptz
+    end,
+    '2026-09-05T19:00:00Z','2026-09-05T19:00:00Z'
+  ) || jsonb_build_object(
+    'selection_allowed',false,
+    'identifier_review_state','needs_corroboration',
+    'customer_correction_fields','["incident_time","incident_time_source"]'::jsonb,
+    'reason_codes',jsonb_build_array(
+      'machine_exact','amount_exact','multiple_candidates_need_distinguishing_time'
+    ),
+    'manual_review_reasons',jsonb_build_array('multiple_candidates_need_distinguishing_time')
+  )
+where candidate.refund_case_id='fb150000-0000-4000-8000-000000000001';
+set local session_replication_role=origin;
+select is(public.refund_nayax_candidate_identifier_evidence_state(
+  'fb150000-0000-4000-8000-000000000001','fb140000-0000-4000-8000-000000000001',14,
+  '2026-09-05T18:05:00.123Z',1090,'6768','USD',
+  (select evidence_summary from public.refund_nayax_lookup_candidates
+    where token='fb160000-0000-4000-8000-000000000001')
+), 'valid','Server accepts the proved separated collision contract');
+set local role service_role;
+select throws_ok($$select public.service_select_refund_nayax_candidate_as_actor(
+  'fb110000-0000-4000-8000-000000000001','fb150000-0000-4000-8000-000000000001',
+  (select official_action_version from public.refund_cases where id='fb150000-0000-4000-8000-000000000001'),
+  'fb160000-0000-4000-8000-000000000001','correct_card')$$,
+  'P4604','This Nayax transaction has a safety block and cannot be selected',
+  'Selection remains blocked until the customer supplies the distinguishing time');
+reset role;
+select is(public.refund_purchase_correction_request_fields(
+  'fb150000-0000-4000-8000-000000000001'),
+  array['incident_time','incident_time_source']::text[],
+  'Two proved non-overlapping purchase intervals request the usable time and its source');
 
 -- Apply the customer's answer through the same versioned same-case correction
 -- capability used in production. That consumes the old generation before the
@@ -361,7 +417,7 @@ select public.service_enqueue_refund_manual_message_intent(
   'soft-time-customer@example.invalid','Please confirm the purchase time',
   '[Secure refund correction link included at delivery]',
   'refund_more_info_editable_v1','manager_authored','missing_information',
-  array['incident_time']::text[],null,false,null
+  array['incident_time','incident_time_source']::text[],null,false,null
 ) value;
 create temp table soft_time_correction_capability as
 select public.service_issue_refund_purchase_correction(
@@ -379,7 +435,7 @@ select public.service_submit_refund_purchase_correction(
   (select correction_fact_version from public.refund_wallet_correction_contexts
     where token_hash=repeat('d',64)),
   '{
-    "incident_time":{"disposition":"changed","value":"11:02","confidence":"exact"},
+    "incident_time":{"disposition":"changed","value":"11:05","confidence":"exact"},
     "incident_time_source":{"disposition":"changed","value":"transaction_alert_or_receipt"}
   }'::jsonb
 ) value;

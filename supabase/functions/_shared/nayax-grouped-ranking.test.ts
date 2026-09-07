@@ -27,7 +27,7 @@ const candidate = (
   requestTimeBoundaryState: "before_or_at_request",
   transactionOccurrenceComparable: true,
   transactionOccurrenceSemantics: "online_purchase_occurrence",
-  transactionOccurrenceProofSource: "synthetic_grouped_fixture",
+  transactionOccurrenceProofSource: "verified_provider_purchase_occurrence_v1",
   transactionOccurrenceTimestampSource: "authorization_gmt",
   transactionOccurrenceTimezoneBasis: "utc",
   transactionOccurrenceLowerBoundAt: "2026-08-23T10:00:00.000Z",
@@ -127,10 +127,28 @@ Deno.test("cross-machine ambiguity never attempts or guesses both machines", () 
   assertEquals(result.oneClickEligible, false);
 });
 
-Deno.test("rough-time same-card collision across grouped machines requires incident time", () => {
+Deno.test("one-minute unknown-occurrence collision stays with the manager without a time-only customer loop", () => {
   const result = rankGroupedNayaxCandidates([
-    { reportingMachineId: "machine-a", machineDisplayLabel: "Cotton candy machine A", candidates: [candidate("txn-a")] },
-    { reportingMachineId: "machine-b", machineDisplayLabel: "Cotton candy machine B", candidates: [candidate("txn-b")] },
+    { reportingMachineId: "machine-a", machineDisplayLabel: "Cotton candy machine A", candidates: [candidate("txn-a", {
+      authorizedAt: "2026-08-23T10:00:00.000Z",
+      transactionOccurrenceComparable: false,
+      transactionOccurrenceSemantics: "unknown",
+      transactionOccurrenceProofSource: null,
+      transactionOccurrenceTimestampSource: null,
+      transactionOccurrenceTimezoneBasis: null,
+      transactionOccurrenceLowerBoundAt: null,
+      transactionOccurrenceUpperBoundAt: null,
+    })] },
+    { reportingMachineId: "machine-b", machineDisplayLabel: "Cotton candy machine B", candidates: [candidate("txn-b", {
+      authorizedAt: "2026-08-23T10:01:00.000Z",
+      transactionOccurrenceComparable: false,
+      transactionOccurrenceSemantics: "unknown",
+      transactionOccurrenceProofSource: null,
+      transactionOccurrenceTimestampSource: null,
+      transactionOccurrenceTimezoneBasis: null,
+      transactionOccurrenceLowerBoundAt: null,
+      transactionOccurrenceUpperBoundAt: null,
+    })] },
   ], {
     incidentTimeResolution: "time_window",
     incidentTimeConfidence: "rough",
@@ -144,11 +162,56 @@ Deno.test("rough-time same-card collision across grouped machines requires incid
     "needs_corroboration",
   ]);
   assertEquals(result.candidates.map((item) => item.customerCorrectionFields), [
-    ["incident_time"],
-    ["incident_time"],
+    [],
+    [],
+  ]);
+  assertEquals(result.candidates.every((item) =>
+    item.reasonCodes.includes("multiple_candidates_need_manager_review")
+  ), true);
+});
+
+Deno.test("proved occurrence intervals separated by form precision request time with its source", () => {
+  const result = rankGroupedNayaxCandidates([
+    { reportingMachineId: "machine-a", machineDisplayLabel: "Cotton candy machine A", candidates: [candidate("txn-a")] },
+    { reportingMachineId: "machine-b", machineDisplayLabel: "Cotton candy machine B", candidates: [candidate("txn-b", {
+      authorizedAt: "2026-08-23T10:02:00.000Z",
+      transactionOccurrenceLowerBoundAt: "2026-08-23T10:02:00.000Z",
+      transactionOccurrenceUpperBoundAt: "2026-08-23T10:02:00.000Z",
+    })] },
+  ], {
+    incidentTimeResolution: "time_window",
+    incidentTimeConfidence: "rough",
+  });
+  assertEquals(result.selectableCandidates, []);
+  assertEquals(result.candidates.map((item) => item.customerCorrectionFields), [
+    ["incident_time", "incident_time_source"],
+    ["incident_time", "incident_time_source"],
   ]);
   assertEquals(result.candidates.every((item) =>
     item.reasonCodes.includes("multiple_candidates_need_distinguishing_time")
+  ), true);
+});
+
+Deno.test("proved occurrences within the same form minute stay manager-owned", () => {
+  const result = rankGroupedNayaxCandidates([
+    { reportingMachineId: "machine-a", machineDisplayLabel: "Cotton candy machine A", candidates: [candidate("txn-a", {
+      authorizedAt: "2026-08-23T10:00:10.000Z",
+      transactionOccurrenceLowerBoundAt: "2026-08-23T10:00:10.000Z",
+      transactionOccurrenceUpperBoundAt: "2026-08-23T10:00:10.000Z",
+    })] },
+    { reportingMachineId: "machine-b", machineDisplayLabel: "Cotton candy machine B", candidates: [candidate("txn-b", {
+      authorizedAt: "2026-08-23T10:00:50.000Z",
+      transactionOccurrenceLowerBoundAt: "2026-08-23T10:00:50.000Z",
+      transactionOccurrenceUpperBoundAt: "2026-08-23T10:00:50.000Z",
+    })] },
+  ], {
+    incidentTimeResolution: "time_window",
+    incidentTimeConfidence: "rough",
+  });
+  assertEquals(result.selectableCandidates, []);
+  assertEquals(result.candidates.map((item) => item.customerCorrectionFields), [[], []]);
+  assertEquals(result.candidates.every((item) =>
+    item.reasonCodes.includes("multiple_candidates_need_manager_review")
   ), true);
 });
 
@@ -182,14 +245,21 @@ Deno.test("rough-time same-card purchases with distinct amounts remain manager-r
   ), true);
 });
 
-Deno.test("a grouped selectable sale joins an existing same-card rough-time hold", () => {
+Deno.test("a grouped selectable sale joins an existing same-card manager-owned hold", () => {
   const held = (transactionId: string) => candidate(transactionId, {
     selectionAllowed: false,
     oneClickEligible: false,
     identifierReviewState: "needs_corroboration",
-    customerCorrectionFields: ["incident_time"],
-    reasonCodes: ["multiple_candidates_need_distinguishing_time"],
-    manualReviewReasons: ["multiple_candidates_need_distinguishing_time"],
+    customerCorrectionFields: [],
+    reasonCodes: ["multiple_candidates_need_manager_review"],
+    manualReviewReasons: ["multiple_candidates_need_manager_review"],
+    transactionOccurrenceComparable: false,
+    transactionOccurrenceSemantics: "unknown",
+    transactionOccurrenceProofSource: null,
+    transactionOccurrenceTimestampSource: null,
+    transactionOccurrenceTimezoneBasis: null,
+    transactionOccurrenceLowerBoundAt: null,
+    transactionOccurrenceUpperBoundAt: null,
   });
   const result = rankGroupedNayaxCandidates([
     {
@@ -209,8 +279,9 @@ Deno.test("a grouped selectable sale joins an existing same-card rough-time hold
   assertEquals(result.recommendationState, "ambiguous");
   assertEquals(result.selectableCandidates, []);
   assertEquals(result.candidates.map((item) => item.selectionAllowed), [false, false, false]);
+  assertEquals(result.candidates.every((item) => item.customerCorrectionFields.length === 0), true);
   assertEquals(result.candidates.every((item) =>
-    item.customerCorrectionFields.length === 1 && item.customerCorrectionFields[0] === "incident_time"
+    item.reasonCodes.includes("multiple_candidates_need_manager_review")
   ), true);
 });
 
