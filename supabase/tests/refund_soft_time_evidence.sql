@@ -521,44 +521,40 @@ update public.refund_case_official_action_authorizations
 set actor_user_id='fb110000-0000-4000-8000-000000000001'
 where id=(select authorization_id from pg_temp.soft_time_approval_receipt);
 
-update public.refund_cases set nayax_refund_execution_status='requested'
-where id='fb150000-0000-4000-8000-000000000001';
-select is(public.refund_case_lifecycle_integrity_code(
-  'fb150000-0000-4000-8000-000000000001'),'card_payment_state_without_attempt',
+select throws_ok($test$do $block$
+declare integrity_code text;
+begin
+  update public.refund_cases set nayax_refund_execution_status='requested'
+  where id='fb150000-0000-4000-8000-000000000001';
+  integrity_code := public.refund_case_lifecycle_integrity_code(
+    'fb150000-0000-4000-8000-000000000001');
+  if integrity_code is distinct from 'card_payment_state_without_attempt' then
+    raise exception 'Unexpected requested-state integrity code: %',integrity_code;
+  end if;
+  raise exception 'Requested provider state requires a durable attempt';
+end;
+$block$;$test$,'P0001','Requested provider state requires a durable attempt',
   'A requested provider state still requires a durable attempt');
-update public.refund_cases set nayax_refund_execution_status='not_requested'
-where id='fb150000-0000-4000-8000-000000000001';
-update public.refund_case_events set metadata=jsonb_set(metadata,'{case_version}',to_jsonb(
-  (select official_action_version::text from public.refund_cases
-    where id='fb150000-0000-4000-8000-000000000001')))
-where event_type='nayax_refund_execution_authorized'
-  and metadata->>'authorization_id'=(select authorization_id::text from pg_temp.soft_time_approval_receipt);
 
-update public.refund_cases set status='completed'
-where id='fb150000-0000-4000-8000-000000000001';
-select is(public.refund_case_lifecycle_integrity_code(
-  'fb150000-0000-4000-8000-000000000001'),'card_payment_state_without_attempt',
-  'A completed card state still requires a durable attempt');
-update public.refund_cases set status='card_refund_pending'
-where id='fb150000-0000-4000-8000-000000000001';
-update public.refund_case_events set metadata=jsonb_set(metadata,'{case_version}',to_jsonb(
-  (select official_action_version::text from public.refund_cases
-    where id='fb150000-0000-4000-8000-000000000001')))
-where event_type='nayax_refund_execution_authorized'
-  and metadata->>'authorization_id'=(select authorization_id::text from pg_temp.soft_time_approval_receipt);
+select throws_ok($$update public.refund_cases set status='completed'
+  where id='fb150000-0000-4000-8000-000000000001'$$,
+  'P0001','Card completion requires token-bound confirmed provider settlement',
+  'A completed card state without an attempt is rejected by the stricter settlement guard');
 
-update public.refund_cases set nayax_refund_execution_status='ambiguous'
-where id='fb150000-0000-4000-8000-000000000001';
-select is(public.refund_case_lifecycle_integrity_code(
-  'fb150000-0000-4000-8000-000000000001'),'card_payment_state_without_attempt',
+select throws_ok($test$do $block$
+declare integrity_code text;
+begin
+  update public.refund_cases set nayax_refund_execution_status='ambiguous'
+  where id='fb150000-0000-4000-8000-000000000001';
+  integrity_code := public.refund_case_lifecycle_integrity_code(
+    'fb150000-0000-4000-8000-000000000001');
+  if integrity_code is distinct from 'card_payment_state_without_attempt' then
+    raise exception 'Unexpected unknown-state integrity code: %',integrity_code;
+  end if;
+  raise exception 'Unknown provider state requires a durable attempt';
+end;
+$block$;$test$,'P0001','Unknown provider state requires a durable attempt',
   'An unknown provider outcome still requires a durable attempt');
-update public.refund_cases set nayax_refund_execution_status='not_requested'
-where id='fb150000-0000-4000-8000-000000000001';
-update public.refund_case_events set metadata=jsonb_set(metadata,'{case_version}',to_jsonb(
-  (select official_action_version::text from public.refund_cases
-    where id='fb150000-0000-4000-8000-000000000001')))
-where event_type='nayax_refund_execution_authorized'
-  and metadata->>'authorization_id'=(select authorization_id::text from pg_temp.soft_time_approval_receipt);
 select ok((select matched_nayax_transaction_id='OFFLINE-LATER-AUTH'
     and matched_nayax_machine_auth_time='2026-09-05T18:05:00.123Z'
     and nayax_match_execution_eligible and nayax_recommendation_state='manager_confirmed'
