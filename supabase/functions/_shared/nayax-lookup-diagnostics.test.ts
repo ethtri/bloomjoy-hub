@@ -30,7 +30,7 @@ Deno.test("existing response counts distinguish no local-window rows from provid
   assertEquals(JSON.stringify(diagnostic).includes("@"), false);
   assertEquals(diagnostic.machineTimezoneSource, "configured_location_not_verified_provider_clock");
   assertEquals(diagnostic.schemaVersion, "nayax_lookup_diagnostics_v3");
-  assertEquals(diagnostic.customerRequestReceivedAt, "2026-08-29T20:20:00.000Z");
+  assertEquals(diagnostic.customerRequestReceivedAt, "2026-08-29T20:20:00Z");
   assertEquals(diagnostic.customerRequestReceivedSource, "hosted_refund_intake");
   assertEquals(diagnostic.excludedAfterRequestCount, 0);
   assertEquals(diagnostic.uncertainRequestTimeCandidateCount, 0);
@@ -43,6 +43,14 @@ Deno.test("existing response counts distinguish no local-window rows from provid
     assertEquals(buildNayaxLookupDiagnostics({ ...result,
       refundCase: { ...result.refundCase!, incidentTimeConfidence: confidence } })?.incidentTimeConfidence, confidence);
   }
+});
+
+Deno.test("request receipt diagnostics preserve PostgreSQL microseconds for the exact immutable anchor", () => {
+  const receivedAt = "2026-09-06T06:42:04.036755+00:00";
+  const diagnostic = buildNayaxLookupDiagnostics({ ...result, refundCase: {
+    ...result.refundCase!, customerRequestReceivedAt: receivedAt,
+  } });
+  assertEquals(diagnostic?.customerRequestReceivedAt, receivedAt);
 });
 
 Deno.test("actual persistence sends one existing result through scoped diagnostic wrapper; stale result is not success", async () => {

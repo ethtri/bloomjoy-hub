@@ -34,14 +34,14 @@ export const buildNayaxLookupDiagnostics = (result: NayaxLookupResult) => {
     machineTimezoneSource: "configured_location_not_verified_provider_clock",
     providerPayloadRedacted: true,
   }, result.providerClockContexts);
-  const requestReceivedAt = Date.parse(result.refundCase?.customerRequestReceivedAt ?? "");
+  const requestReceivedAt = textValue(result.refundCase?.customerRequestReceivedAt);
+  const hasValidRequestReceivedAt = Number.isFinite(Date.parse(requestReceivedAt));
   return {
     ...providerClockDiagnostic,
     schemaVersion: "nayax_lookup_diagnostics_v3",
     providerClockContexts: providerClockDiagnostic.providerClockContexts ?? [],
-    customerRequestReceivedAt: Number.isFinite(requestReceivedAt)
-      ? new Date(requestReceivedAt).toISOString()
-      : null,
+    // Preserve PostgreSQL microseconds for the database's exact immutable-anchor comparison.
+    customerRequestReceivedAt: hasValidRequestReceivedAt ? requestReceivedAt : null,
     customerRequestReceivedSource: textValue(result.refundCase?.customerRequestReceivedSource) || null,
     excludedAfterRequestCount: count(result.excludedAfterRequestCount),
     uncertainRequestTimeCandidateCount: count(result.uncertainRequestTimeCandidateCount),
@@ -115,7 +115,10 @@ export const persistNayaxLookupResult = async ({
 
 export const classifyNayaxLookupFailure = (error: unknown) => {
   const name = error instanceof Error ? error.name : typeof error;
-  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  const errorRecord = typeof error === "object" && error !== null
+    ? error as Record<string, unknown> : null;
+  const code = textValue(errorRecord?.code);
+  const message = textValue(error instanceof Error ? error.message : errorRecord?.message).toLowerCase();
   if (name === "NayaxLookupTimeoutError" || name === "TimeoutError") {
     return { failureClass: "timeout", safeRetryEligible: true } as const;
   }
@@ -126,6 +129,9 @@ export const classifyNayaxLookupFailure = (error: unknown) => {
     return { failureClass: "malformed_response", safeRetryEligible: true } as const;
   }
   if (name === "NayaxLookupEvidenceChangedError" || message.includes("evidence changed")) {
+    return { failureClass: "evidence_changed", safeRetryEligible: false } as const;
+  }
+  if (code === "P4625") {
     return { failureClass: "evidence_changed", safeRetryEligible: false } as const;
   }
   if (name === "NayaxLookupRequestError") {
