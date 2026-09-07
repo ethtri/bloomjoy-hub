@@ -8,6 +8,9 @@ const read = (relativePath) =>
   fs.readFileSync(path.join(rootDir, relativePath), 'utf8');
 
 const migration = read('supabase/migrations/202608040001_refund_manager_aging_reminders.sql');
+const timezoneFastPathMigration = read(
+  'supabase/migrations/20260907234016_refund_manager_read_timezone_fastpath.sql',
+);
 const databaseTest = read('supabase/tests/refund_manager_aging_safety.sql');
 const sweep = read('supabase/functions/refund-case-automation-sweep/index.ts');
 const agingTemplate = read('supabase/functions/_shared/refund-manager-aging.ts');
@@ -94,9 +97,18 @@ check(
   migration.includes('service_refund_business_days_elapsed') &&
     migration.includes('pg_timezone_names') &&
     migration.includes('extract(isodow from candidate_date) between 1 and 5') &&
+    (timezoneFastPathMigration.match(/if p_timezone <> 'America\/Los_Angeles' then/g) ?? []).length === 2 &&
+    (timezoneFastPathMigration.match(/from pg_catalog\.pg_timezone_names timezone_name/g) ?? []).length === 2 &&
+    !timezoneFastPathMigration.includes("or not exists") &&
+    timezoneFastPathMigration.includes('from public.refund_authoritative_receipts receipt') &&
     agingTemplate.includes('refundBusinessDaysElapsed') &&
     databaseTest.includes('Business-day aging skips Saturday and Sunday') &&
-    databaseTest.includes('matching local time')
+    databaseTest.includes('matching local time') &&
+    databaseTest.includes('Pacific fast path preserves a matching local time across the spring DST boundary') &&
+    databaseTest.includes('nondefault catalog-validated timezone preserves DST business-day behavior') &&
+    databaseTest.includes('previously accepted nonstandard timezone alias remains supported') &&
+    databaseTest.includes('invalid timezone retains the existing rejection') &&
+    databaseTest.includes('authoritative receipt suppresses an otherwise-due manager aging notice')
 );
 
 check(

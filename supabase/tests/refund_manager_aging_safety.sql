@@ -264,6 +264,87 @@ select is(
   'Business-day aging skips Saturday and Sunday'
 );
 
+select is(
+  public.service_refund_business_days_elapsed(
+    '2026-03-06 18:00:00+00',
+    '2026-03-09 17:00:00+00',
+    'America/Los_Angeles'
+  ),
+  1,
+  'The Pacific fast path preserves a matching local time across the spring DST boundary'
+);
+
+select is(
+  public.service_refund_business_days_elapsed(
+    '2026-03-06 18:00:00+00',
+    '2026-03-09 17:00:00+00',
+    'America/New_York'
+  ),
+  1,
+  'A nondefault catalog-validated timezone preserves DST business-day behavior'
+);
+
+select is(
+  public.service_refund_business_days_elapsed(
+    '2026-08-07 17:00:00+00',
+    '2026-08-11 17:00:00+00',
+    'US/Pacific'
+  ),
+  2,
+  'A previously accepted nonstandard timezone alias remains supported'
+);
+
+select is(
+  public.service_refund_business_days_elapsed(
+    '2026-08-03 17:00:00+00',
+    '2026-08-05 17:00:00+00'
+  ),
+  public.service_refund_business_days_elapsed(
+    '2026-08-03 17:00:00+00',
+    '2026-08-05 17:00:00+00',
+    'America/Los_Angeles'
+  ),
+  'The omitted timezone retains the established Pacific default'
+);
+
+select is(
+  pg_temp.capture_error($test$
+    select public.service_refund_business_days_elapsed(
+      '2026-08-03 17:00:00+00',
+      '2026-08-05 17:00:00+00',
+      'Not/A_Timezone'
+    )
+  $test$),
+  'A supported automation timezone is required',
+  'An invalid timezone retains the existing rejection'
+);
+
+select is(
+  pg_temp.capture_error($test$
+    select *
+    from public.service_list_due_refund_manager_aging_notices(
+      '2026-08-05 17:00:00+00',
+      'Not/A_Timezone',
+      2,
+      5,
+      'refund_manager_aging_v1',
+      100
+    )
+  $test$),
+  'A supported automation timezone is required',
+  'The due-notice helper retains invalid timezone rejection'
+);
+
+select is(
+  public.service_refund_business_days_elapsed(
+    '2026-08-05 17:00:00+00',
+    '2026-08-03 17:00:00+00',
+    'Not/A_Timezone'
+  ),
+  0,
+  'A reversed interval still returns zero before timezone validation'
+);
+
 update public.refund_manager_attention_states
 set attention_started_at = '2026-08-03 17:00:00+00'
 where refund_case_id = '91500000-0000-4000-8000-000000000001';
@@ -1096,6 +1177,58 @@ set
 from public.refund_cases refund_case
 where refund_case.id = attention.refund_case_id
   and refund_case.public_reference like 'RF-AGING-BULK-%';
+
+-- The current production selector excludes a case as soon as its exact
+-- authoritative receipt exists, even if its attention clock is otherwise due.
+update public.refund_manager_attention_states
+set reminder_resolved_at = null, escalation_resolved_at = null
+where refund_case_id = md5('refund-aging-bulk-100')::uuid;
+
+insert into public.refund_authoritative_receipts (
+  refund_case_id,
+  reporting_machine_id,
+  account_scope,
+  provider_machine_id,
+  original_transaction_id,
+  original_amount_cents,
+  refunded_amount_cents,
+  currency_code,
+  provider_status,
+  evidence_reference_digest,
+  recorded_by,
+  attempt_binding_kind,
+  current_provider_observation_reviewed
+) values (
+  md5('refund-aging-bulk-100')::uuid,
+  '91300000-0000-4000-8000-000000000001',
+  'AGING-RECEIPT-ACCOUNT',
+  'AGING-RECEIPT-MACHINE',
+  'AGING-RECEIPT-ORIGINAL-100',
+  100,
+  100,
+  'USD',
+  62,
+  repeat('a', 63) || '1',
+  '91000000-0000-4000-8000-000000000001',
+  'no_attempt_integrity_hold',
+  true
+);
+
+select ok(
+  not exists (
+    select 1
+    from public.service_list_due_refund_manager_aging_notices(
+      '2026-08-10 17:00:00+00',
+      'America/Los_Angeles',
+      2,
+      5,
+      'refund_manager_aging_v1',
+      500
+    ) due
+    where due.refund_case_id = md5('refund-aging-bulk-100')::uuid
+  ),
+  'An authoritative receipt suppresses an otherwise-due manager aging notice'
+);
 
 select is(
   (

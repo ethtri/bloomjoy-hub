@@ -170,7 +170,8 @@
     "20260907010000_refund_nayax_restricted_response_scalars.sql",
     "20260907213000_refund_receipt_trigger_privilege_boundary.sql",
     "20260907215325_refund_one_manager_pending_integrity.sql",
-    "20260907221500_refund_gmail_canonical_threading.sql"
+    "20260907221500_refund_gmail_canonical_threading.sql",
+    "20260907234016_refund_manager_read_timezone_fastpath.sql"
   ],
   "migrationFilesSha256": "5907205e795b5bba8f8a3ec7854846385bf35a84e98327b102f40cfb3fa24874",
   "migrationVersionSetSha256": "b260f6a5a2e98ffbdd24cd5b5072918ae96c1cbfe6b2186a21251de349c9a8e3",
