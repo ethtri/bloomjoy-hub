@@ -8,7 +8,9 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 
 - **Refund correction link recovery (`#1204`):** customer correction inspection
   and submission now stop after a 10-second client bound and preserve the existing
-  token-safe retry or reply-by-email recovery path. Focused automated coverage
+  token-safe retry or reply-by-email recovery path. A tokenless direct visit to
+  `/refunds/correct` enters the public `/refunds/request` form; emailed correction
+  capabilities still reopen their exact existing request. Focused automated coverage
   includes success, timeout, explicit retry, and unavailable-link handling; the
   synthetic desktop/mobile browser check passes with zero live writes.
 

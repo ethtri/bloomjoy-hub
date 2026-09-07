@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useLocation } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { CheckCircle2, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -135,6 +135,10 @@ export default function RefundCorrectionPage() {
     } finally { setSaving(false); }
   };
 
+  if (!token && !demo) {
+    return <Navigate to={`/refunds/request${location.search}`} replace />;
+  }
+
   return <main className="min-h-screen bg-background px-4 py-8 text-foreground sm:py-12" lang={es ? 'es' : 'en'}>
     <div className="mx-auto max-w-xl">
       <p className="mb-8 font-display text-2xl font-bold">Bloomjoy</p>
@@ -155,7 +159,7 @@ export default function RefundCorrectionPage() {
           <p className="mt-4 leading-7">Check your connection and try again. You can also reply to your Bloomjoy email for help with this same request.</p>
           <p className="mt-4 leading-7" lang="es">No pudimos abrir su solicitud. Revise su conexión e inténtelo de nuevo, o responda al correo de Bloomjoy para recibir ayuda con esta misma solicitud.</p>
           <Button className="mt-6 min-h-12 whitespace-normal" onClick={() => void query.refetch()}>Try again / Intentar de nuevo</Button>
-        </section> : unavailable || !context || context.state !== 'ready' || (!token && !demo) ? <section>
+        </section> : unavailable || !context || context.state !== 'ready' ? <section>
           <h1 className="text-2xl font-semibold">This link is no longer available.</h1>
           <p className="mt-4 leading-7">Reply to your Bloomjoy refund email for help with your existing request. You do not need to start again.</p>
           <p className="mt-4 leading-7" lang="es">Este enlace ya no está disponible. Responda al correo de reembolso de Bloomjoy para obtener ayuda con su solicitud. No necesita comenzar de nuevo.</p>
