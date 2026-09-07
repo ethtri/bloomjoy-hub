@@ -33,8 +33,16 @@ const continuationTestUrl = new URL(
   '../../supabase/tests/refund_attempt_continuation_outcomes.sql',
   import.meta.url,
 );
+const restrictedScalarMigrationUrl = new URL(
+  '../../supabase/migrations/20260907010000_refund_nayax_restricted_response_scalars.sql',
+  import.meta.url,
+);
+const nayaxCardRefundUrl = new URL(
+  '../../supabase/functions/nayax-card-refund/index.ts',
+  import.meta.url,
+);
 
-const [migration, test, legacyRecoveryTest, productionSimplification, continuationMigration, continuationReadinessMigration, continuationHandoffMigration, continuationTest] = await Promise.all([
+const [migration, test, legacyRecoveryTest, productionSimplification, continuationMigration, continuationReadinessMigration, continuationHandoffMigration, continuationTest, restrictedScalarMigration, nayaxCardRefund] = await Promise.all([
   readFile(migrationUrl, 'utf8'),
   readFile(testUrl, 'utf8'),
   readFile(legacyRecoveryTestUrl, 'utf8'),
@@ -43,6 +51,8 @@ const [migration, test, legacyRecoveryTest, productionSimplification, continuati
   readFile(continuationReadinessMigrationUrl, 'utf8'),
   readFile(continuationHandoffMigrationUrl, 'utf8'),
   readFile(continuationTestUrl, 'utf8'),
+  readFile(restrictedScalarMigrationUrl, 'utf8'),
+  readFile(nayaxCardRefundUrl, 'utf8'),
 ]);
 
 const exactMarkers = [
@@ -240,7 +250,7 @@ for (const scenario of [
 ]) {
   assert.match(continuationTest, new RegExp(scenario), `continuation pgTAP must cover ${scenario}`);
 }
-assert.match(continuationTest, /select plan\(44\)/u);
+assert.match(continuationTest, /select plan\(49\)/u);
 assert.match(
   continuationHandoffMigration,
   /attempt\.actor_user_id = action_authorization\.actor_user_id[\s\S]*public\.can_perform_refund_official_action\(p_user_id, refund_case\.id\)/u,
@@ -270,6 +280,40 @@ assert.match(
   continuationMigration,
   /grant execute on function public\.service_record_nayax_refund_provider_stage_v3\([\s\S]*\) to service_role;/u,
   'rolling deploys must preserve the prior Edge journal-v3 recorder grant',
+);
+
+for (const marker of [
+  'observed_result_scalar',
+  'observed_status_scalar',
+  'observed_scalar_pair_retained',
+  'service_record_nayax_refund_provider_stage_v3_diagnostics',
+  'nayax-restricted-response-scalars-v1',
+]) {
+  assert.match(restrictedScalarMigration, new RegExp(marker), `restricted scalar migration must publish ${marker}`);
+  assert.match(nayaxCardRefund, new RegExp(marker.replaceAll('_', '.*'), 'i'), `normal executor must use ${marker}`);
+}
+assert.match(continuationTest, /service_record_nayax_refund_provider_stage_v3_diagnostics/u);
+assert.match(continuationTest, /Unknown request scalars are captured without changing their unknown outcome/u);
+assert.match(continuationTest, /Browser roles cannot write restricted provider response scalars/u);
+assert.match(
+  restrictedScalarMigration,
+  /alter table public\.refund_nayax_provider_business_outcomes/u,
+  'restricted capture must extend the existing owner-only business outcome journal',
+);
+assert.doesNotMatch(
+  restrictedScalarMigration,
+  /create table/u,
+  'restricted capture must not create a parallel audit store',
+);
+assert.match(
+  restrictedScalarMigration,
+  /revoke execute on function public\.service_record_nayax_refund_provider_stage_v3_diagnostics\([\s\S]*from public, anon, authenticated, service_role;/u,
+  'the diagnostic writer must revoke all broad execution before its service grant',
+);
+assert.match(
+  restrictedScalarMigration,
+  /Scalar evidence never changes outcome classification or approval authority/u,
+  'the restricted scalar record must remain evidence-only',
 );
 
 console.log(

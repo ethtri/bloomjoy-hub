@@ -399,6 +399,9 @@ deepEqual(
     businessResult: 'True',
     businessStatus: 'Pending Approval',
     businessPairRetained: true,
+    observedResultScalar: 'True',
+    observedStatusScalar: 'Pending Approval',
+    observedScalarPairRetained: true,
     payloadRedacted: true,
   },
   'An exact HTTP 200 application/json object retains only the bounded business pair.',
@@ -412,7 +415,8 @@ const redactedClassification = classifyNayaxRefundResponse({
 check(
   redactedClassification.businessResult === null &&
     redactedClassification.businessStatus === null &&
-    redactedClassification.businessPairRetained === false,
+    redactedClassification.businessPairRetained === false &&
+    redactedClassification.observedScalarPairRetained === false,
   'Identifier-like Result or Status values are never retained.',
 );
 check(
@@ -434,7 +438,8 @@ const alphabeticSecretClassification = classifyNayaxRefundResponse({
 check(
   alphabeticSecretClassification.businessPairRetained === false &&
     alphabeticSecretClassification.businessResult === null &&
-    alphabeticSecretClassification.businessStatus === null,
+    alphabeticSecretClassification.businessStatus === null &&
+    alphabeticSecretClassification.observedScalarPairRetained === false,
   'Unreviewed alphabetic names and secrets are not retained.',
 );
 check(
@@ -462,6 +467,35 @@ equal(
   'unknown',
   'An unfamiliar provider response is never treated as success.',
 );
+const restrictedUnknownPair = classifyNayaxRefundResponse({
+  stage: 'request',
+  httpStatus: 200,
+  payload: { Result: 'Unrecognized', Status: 'Queued Review', ignored: 'discard-me' },
+  patterns: contract.requestResponses,
+});
+equal(restrictedUnknownPair.outcome, 'unknown', 'Restricted evidence never classifies an unknown pair.');
+equal(restrictedUnknownPair.contractMatched, false, 'Restricted evidence never creates a contract match.');
+equal(restrictedUnknownPair.businessPairRetained, false, 'Unknown pairs do not become business outcomes.');
+equal(restrictedUnknownPair.observedResultScalar, 'Unrecognized', 'The exact safe Result scalar is retained.');
+equal(restrictedUnknownPair.observedStatusScalar, 'Queued Review', 'The exact safe Status scalar is retained.');
+equal(restrictedUnknownPair.observedScalarPairRetained, true, 'Safe unknown scalars are available only to restricted journaling.');
+check(!JSON.stringify(restrictedUnknownPair).includes('discard-me'), 'The surrounding response payload is never retained.');
+const scalarBoundary = (result, status = 'Review') => classifyNayaxRefundResponse({
+  stage: 'request', httpStatus: 200, payload: { Result: result, Status: status }, patterns: [],
+});
+equal(scalarBoundary('x'.repeat(31)).observedScalarPairRetained, true, 'A 31-character scalar remains available for restricted review.');
+for (const [value, label] of [
+  ['x'.repeat(32), '32-character credential-shaped scalar'],
+  ['x'.repeat(47), '47-character credential-shaped scalar'],
+  ['4111 1111 1111 1111', 'spaced card-length digit scalar'],
+  ['4111-1111-1111-1111', 'hyphenated card-length digit scalar'],
+]) {
+  const classified = scalarBoundary(value);
+  equal(classified.observedScalarPairRetained, false, `${label} is omitted explicitly.`);
+  equal(classified.observedResultScalar, null, `${label} never enters the stage event.`);
+}
+equal(scalarBoundary(999_999_999).observedScalarPairRetained, true, 'Nine-digit numeric codes are retained exactly.');
+equal(scalarBoundary(1_000_000_000).observedScalarPairRetained, false, 'Ten-digit numeric values fail closed consistently.');
 equal(
   classifyNayaxRefundResponse({
     stage: 'approve',

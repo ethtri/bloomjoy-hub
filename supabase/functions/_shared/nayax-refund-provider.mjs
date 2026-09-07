@@ -187,6 +187,33 @@ const retainSanitizedBusinessOutcomeValue = (value) => {
   return value;
 };
 
+// Restricted diagnostics retain only the two provider-owned Result/Status
+// scalars. They never retain the surrounding response object. Obvious
+// customer identifiers, URLs, card-length digit runs and credential-shaped
+// strings fail closed instead of entering the audit record.
+const retainRestrictedResponseScalar = (value) => {
+  if (value === null) return null;
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) && Math.abs(value) <= 999_999_999
+      ? String(value)
+      : undefined;
+  }
+  if (
+    typeof value !== "string" ||
+    value.length > 80 ||
+    /[\u0000-\u001f\u007f]/u.test(value) ||
+    /@|https?:\/\//iu.test(value) ||
+    /(?:bearer|password|secret|token)/iu.test(value) ||
+    /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/iu.test(value) ||
+    /(?:\d[ -]?){12,}/u.test(value) ||
+    /[A-Za-z0-9_-]{32,}/u.test(value)
+  ) {
+    return undefined;
+  }
+  return value;
+};
+
 export function parseNayaxRefundProviderContract(rawValue) {
   let parsed;
   try {
@@ -564,9 +591,9 @@ export function classifyNayaxRefundResponse({
     )
     : undefined;
   const semanticPairMatched = Boolean(pattern);
-  // Persist only exact pairs already reviewed into the active server contract.
-  // Unknown provider text remains represented by categorical/schema metadata and
-  // the keyed classification digest; it never becomes stored diagnostic text.
+  // Business outcomes remain limited to exact pairs already reviewed into the
+  // active contract. A separate restricted scalar pair supports evidence review
+  // without changing semantic classification or approval authority.
   const businessResult = pattern
     ? retainSanitizedBusinessOutcomeValue(pattern.result)
     : null;
@@ -574,6 +601,16 @@ export function classifyNayaxRefundResponse({
     ? retainSanitizedBusinessOutcomeValue(pattern.status)
     : null;
   const businessPairRetained = businessResult !== null && businessStatus !== null;
+  const observedResultScalar = resultKeyPresent &&
+      new Set(["string", "number", "boolean", "null"]).has(resultValueType)
+    ? retainRestrictedResponseScalar(record.Result)
+    : undefined;
+  const observedStatusScalar = statusKeyPresent &&
+      new Set(["string", "number", "boolean", "null"]).has(statusValueType)
+    ? retainRestrictedResponseScalar(record.Status)
+    : undefined;
+  const observedScalarPairRetained =
+    observedResultScalar !== undefined && observedStatusScalar !== undefined;
   const contractMatched = safeFailureType === null &&
     httpAccepted &&
     safeMediaTypeClass === "application_json" &&
@@ -605,6 +642,17 @@ export function classifyNayaxRefundResponse({
         businessResult: businessPairRetained ? businessResult : null,
         businessStatus: businessPairRetained ? businessStatus : null,
         businessPairRetained,
+      }
+      : {}),
+    ...(resultKeyPresent && statusKeyPresent
+      ? {
+        observedResultScalar: observedScalarPairRetained
+          ? observedResultScalar
+          : null,
+        observedStatusScalar: observedScalarPairRetained
+          ? observedStatusScalar
+          : null,
+        observedScalarPairRetained,
       }
       : {}),
     ...(safeFailureType ? { failureType: safeFailureType } : {}),
