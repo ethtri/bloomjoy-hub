@@ -2056,7 +2056,7 @@ serve(async (req) => {
       customerLocale,
     });
 
-    const { data: messageRow } = await supabase
+    const { data: messageRow, error: messageInsertError } = await supabase
       .from("refund_case_messages")
       .insert({
         refund_case_id: refundCase.id,
@@ -2071,6 +2071,39 @@ serve(async (req) => {
       })
       .select("id")
       .single();
+
+    if (messageInsertError || !messageRow?.id) {
+      const errorCode = typeof messageInsertError?.code === "string"
+        ? messageInsertError.code
+        : "database_error";
+      console.error(
+        "refund-case-intake customer acknowledgement persistence failed",
+        { errorCode },
+      );
+      const { error: failureEventError } = await supabase
+        .from("refund_case_events")
+        .insert({
+          refund_case_id: refundCase.id,
+          event_type: "customer_message_failed",
+          message:
+            "The refund request was recorded, but its customer acknowledgement could not be prepared. Customer contact needs review.",
+          metadata: {
+            message_type: "confirmation",
+            error_code: errorCode,
+            payload_redacted: true,
+          },
+        });
+      if (failureEventError) {
+        console.error(
+          "refund-case-intake acknowledgement failure event unavailable",
+          {
+            errorCode: typeof failureEventError.code === "string"
+              ? failureEventError.code
+              : "database_error",
+          },
+        );
+      }
+    }
 
     if (!(await automaticCustomerContactAllowed())) {
       if (messageRow?.id) {

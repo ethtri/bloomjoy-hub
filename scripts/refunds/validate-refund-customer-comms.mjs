@@ -45,6 +45,8 @@ const run = async () => {
     payoutDestinationMigration,
     payoutDestinationTest,
     refundMachineLabel,
+    receiptTriggerPrivilegeMigration,
+    receiptTriggerPrivilegeTest,
   ] = await Promise.all([
     readText('supabase/functions/refund-case-admin-update/index.ts'),
     readText('src/pages/admin/Refunds.tsx'),
@@ -73,7 +75,42 @@ const run = async () => {
     readText('supabase/migrations/20260902004500_refund_payout_destination_follow_up.sql'),
     readText('supabase/tests/refund_payout_destination_follow_up.sql'),
     readText('src/lib/refundMachineLabel.ts'),
+    readText('supabase/migrations/20260907213000_refund_receipt_trigger_privilege_boundary.sql'),
+    readText('supabase/tests/refund_receipt_trigger_privilege_boundary.sql'),
   ]);
+
+  assert(
+    'Intake acknowledgements avoid the private receipt predicate without weakening its mutation boundary',
+    includesAll(receiptTriggerPrivilegeMigration, [
+      'guard_refund_receipt_completion_identity()',
+      "if current_user not in ('anon', 'authenticated', 'service_role') then",
+      "set search_path = ''",
+      'from public, anon, authenticated, service_role',
+    ]) && !includesAll(receiptTriggerPrivilegeMigration, [
+      'guard_refund_receipt_completion_identity()',
+      'security definer',
+    ]) && !receiptTriggerPrivilegeMigration.includes(
+      'grant execute on function public.is_refund_receipt_automatic_completion_message'
+    ) && includesAll(receiptTriggerPrivilegeTest, [
+      'set local role service_role',
+      "'confirmation'",
+      'status_capability_id',
+      'The service role still cannot create a receipt completion directly',
+      'A service-role intake acknowledgement survives the private receipt trigger',
+    ])
+  );
+  assert(
+    'Intake acknowledgement persistence failures are redacted and manager-visible',
+    includesAll(intake, [
+      'messageInsertError',
+      'customer acknowledgement persistence failed',
+      'event_type: "customer_message_failed"',
+      'message_type: "confirmation"',
+      'payload_redacted: true',
+    ]) && !intake.includes(
+      'console.error("refund-case-intake customer acknowledgement persistence failed", messageInsertError)'
+    )
+  );
 
   assert(
     'Primary admin update accepts an explicit customer message type',

@@ -7,6 +7,7 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 ## Live Work
 
 - **Refund intake recovery (`#628`, `#1205`):** actual controlled desktop cash and mobile card submissions persisted, displayed confirmation, and reached the authenticated manager queue. Location loading is below one second and the temporary database role timeouts are restored to their original values. Email recovery outreach is sent; text-channel recovery and the manager/API production acceptance remain tracked in their existing issues.
+- **Refund intake acknowledgement repair (`#1205`):** production evidence found that the receipt-completion trigger called a private predicate from an unprivileged service-role path after the September 6 schema update, so twelve later refund cases persisted while their acknowledgement rows were rejected and the Edge function discarded the database error. The repair skips that private call for unprivileged transitions without weakening the caller-rights completion guard, and records a redacted manager-visible failure event if acknowledgement persistence ever fails again. Acceptance requires a service-role hosted-intake fixture to persist exactly one pending `confirmation` row with its status-capability audit link while the private predicate remains unavailable for direct service calls.
 
 - **Refund correction link recovery (`#1204`):** customer correction inspection
   and submission now stop after a 10-second client bound and preserve the existing
