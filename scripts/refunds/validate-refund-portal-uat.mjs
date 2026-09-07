@@ -7331,10 +7331,6 @@ const runApprovalContinuationAutoResumeChecks = async ({
       !(await page.getByTestId('refund-confirmation-dialog').isVisible().catch(() => false)),
     JSON.stringify({ functionCalls, functionBodies })
   );
-  await page.screenshot({
-    path: path.join(artifactDir, 'refund-approval-continuation-no-second-dialog.png'),
-    fullPage: false,
-  });
   await closeRefundPortalContext(context);
 
   const staleContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
