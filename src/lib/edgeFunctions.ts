@@ -31,6 +31,7 @@ type InvokeEdgeFunctionOptions = {
   requireUserAuth?: boolean;
   includeUserAuth?: boolean;
   authErrorMessage?: string;
+  signal?: AbortSignal;
 };
 
 const getAuthenticatedAccessToken = async (throwOnSessionError: boolean) => {
@@ -78,6 +79,7 @@ export const invokeEdgeFunction = async <T extends EdgeFunctionResponse>(
     method: 'POST',
     headers,
     body: JSON.stringify(body),
+    signal: options.signal,
   });
 
   let data: T | null = null;

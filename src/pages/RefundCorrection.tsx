@@ -4,14 +4,21 @@ import { useLocation } from 'react-router-dom';
 import { CheckCircle2, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { invokeEdgeFunction, isEdgeFunctionError } from '@/lib/edgeFunctions';
+import { invokeEdgeFunction, isEdgeFunctionError, type EdgeFunctionResponse } from '@/lib/edgeFunctions';
 import { isLocalUatDemoForced } from '@/lib/refundOperations';
+import { withRequestTimeout } from '@/lib/requestTimeout';
 import { refundCorrectionReason } from '../../supabase/functions/_shared/refund-correction-copy';
 import { correctionChoices, correctionFields, correctionLabels, correctionRefreshInterval, isCorrectionToken, requiredCorrectionFields, updateCorrectionAnswer, validateCorrectionAnswers,
   type CorrectionAnswer, type CorrectionAnswers, type CorrectionContext, type CorrectionField,
 } from '../../supabase/functions/_shared/refund-correction';
 
 const tokenKey = 'bloomjoy-refund-correction-v1';
+export const refundCorrectionRequestTimeoutMs = 10_000;
+const invokeRefundCorrection = <T extends EdgeFunctionResponse>(body: unknown) =>
+  withRequestTimeout(
+    (signal) => invokeEdgeFunction<T>('refund-case-intake', body, { includeUserAuth: false, signal }),
+    refundCorrectionRequestTimeoutMs,
+  );
 const initialToken = () => {
   const fragment = window.location.hash;
   const token = fragment ? new URLSearchParams(fragment.slice(1)).get('token') ?? '' : sessionStorage.getItem(tokenKey) ?? '';
@@ -61,7 +68,7 @@ export default function RefundCorrectionPage() {
     refetchInterval: (current) => correctionRefreshInterval(current.state.data, received, inspection.consecutiveFailures),
     queryFn: async () => {
       try {
-        const response = await invokeEdgeFunction<{ correction: CorrectionContext }>('refund-case-intake', { action: 'inspectPurchaseCorrection', token }, { includeUserAuth: false });
+        const response = await invokeRefundCorrection<{ correction: CorrectionContext }>({ action: 'inspectPurchaseCorrection', token });
         inspection.consecutiveFailures = 0;
         return response.correction;
       } catch (failure) {
@@ -119,7 +126,7 @@ export default function RefundCorrectionPage() {
     setSaving(true);
     try {
       const result = demo ? { correction: { state: 'received' as const, nextAction: 'review' as const } }
-        : await invokeEdgeFunction<{ correction: CorrectionContext }>('refund-case-intake', { action: 'submitPurchaseCorrection', token, version: context.version, answers: validated }, { includeUserAuth: false });
+        : await invokeRefundCorrection<{ correction: CorrectionContext }>({ action: 'submitPurchaseCorrection', token, version: context.version, answers: validated });
       if (result?.correction?.state !== 'received') throw new Error('Response not confirmed');
       setReceived({ publicReference: context.publicReference, locale: context.locale, ...result.correction });
     } catch (failure) {

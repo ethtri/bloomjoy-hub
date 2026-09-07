@@ -81,6 +81,14 @@ have been searched. Mark Waiting on customer only after the precise request was
 sent. Read the full reply, persist its source, verify the changed fact appears to
 managers, rerun matching once for the new fact version and stop obsolete reminders.
 
+If the secure correction form is temporarily unavailable, keep the existing case
+and conversation. Accept the customer's requested details in a reply to that same
+refund email, acknowledge receipt without promising approval or payment, and apply
+the verified reply through the supported same-case workflow. Do not ask the
+customer to start another request or send sensitive payment data. After service is
+verified, send a replacement link only when more information is still needed;
+inspect uncertain delivery before sending again.
+
 ## 3. Choose the next action from evidence
 
 | Current evidence | Next action |
