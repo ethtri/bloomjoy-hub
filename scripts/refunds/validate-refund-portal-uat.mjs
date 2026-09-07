@@ -90,6 +90,7 @@ const parseArgs = (argv) => {
     demoOnly: false,
     managerQueueOnly: false,
     approvalContinuationOnly: false,
+    selectionCompatibilityOnly: false,
     deliveryTruthOnly: false,
     inboundLinkOnly: false,
   };
@@ -162,6 +163,11 @@ const parseArgs = (argv) => {
       continue;
     }
 
+    if (arg === '--selection-compatibility-only') {
+      args.selectionCompatibilityOnly = true;
+      continue;
+    }
+
     if (arg === '--delivery-truth-only') {
       args.deliveryTruthOnly = true;
       continue;
@@ -221,7 +227,7 @@ const parseArgs = (argv) => {
   args.appUrl = args.appUrl.replace(/\/+$/, '');
   args.artifactDir = path.resolve(process.cwd(), args.artifactDir);
   args.fragmentDir = path.resolve(process.cwd(), args.fragmentDir);
-  if (!args.managerStepUpOnly && !args.demoOnly && !args.managerQueueOnly && !args.approvalContinuationOnly && !args.deliveryTruthOnly && !args.inboundLinkOnly && !args.dualRoleOnly && !args.providerOutcomesOnly &&
+  if (!args.managerStepUpOnly && !args.demoOnly && !args.managerQueueOnly && !args.approvalContinuationOnly && !args.selectionCompatibilityOnly && !args.deliveryTruthOnly && !args.inboundLinkOnly && !args.dualRoleOnly && !args.providerOutcomesOnly &&
     !args.ownerTotpOnly && !args.legacyStateOnly && !args.nayaxResolutionOnly &&
     !args.nayaxLookupOnly && !args.duplicateOnly) {
     requireEvidenceRunToken(args.runToken);
@@ -1860,6 +1866,7 @@ const installMockSupabaseRoutes = async (
     nayaxCardRefundResponse = null,
     nayaxCardRefundAvailabilityResponse = null,
     nayaxCardRefundAvailabilityResolver = null,
+    nayaxCardRefundAvailabilityIncludesSelectionApprovalCapability = true,
     nayaxCardRefundAvailabilityAfterExecutionResponse = null,
     nayaxCardRefundAvailabilityStatus = 200,
     nayaxCardRefundAvailabilityVersionOverride = null,
@@ -2316,7 +2323,9 @@ const installMockSupabaseRoutes = async (
               machineLimitCents: 1200,
               caseVersion: nayaxCardRefundAvailabilityVersionOverride ??
                 officialActionVersions.get(caseId) ?? refundCase?.officialActionVersion ?? 1,
-              approvalPendingExecution: approvedPendingExecutionCaseIds.has(caseId),
+              ...(nayaxCardRefundAvailabilityIncludesSelectionApprovalCapability
+                ? { approvalPendingExecution: approvedPendingExecutionCaseIds.has(caseId) }
+                : {}),
             }
           : currentNayaxCardRefundAvailability;
         return route.fulfill({
@@ -5753,6 +5762,67 @@ const runManagerClarityChecks = async ({ browser, appUrl, artifactDir, recorder 
     JSON.stringify({ pollingReads, readAnnouncements })
   );
   await closeRefundPortalContext(pollingContext);
+};
+
+const runNayaxSelectionCompatibilityChecks = async ({ browser, appUrl, recorder }) => {
+  for (const scenario of [
+    { name: 'old backend without combined-selection capability', capabilityAvailable: false },
+    { name: 'new backend with combined-selection capability', capabilityAvailable: true },
+  ]) {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    const functionCalls = [];
+    await installMockSupabaseRoutes(context, {
+      refundOverview: buildPendingNayaxRefundOverview,
+      functionCalls,
+      nayaxCardRefundAvailabilityResponse: {
+        available: true,
+        status: 'available',
+        blockReason: null,
+        payloadRedacted: true,
+      },
+      nayaxCardRefundAvailabilityIncludesSelectionApprovalCapability:
+        scenario.capabilityAvailable,
+    });
+
+    const page = await context.newPage();
+    await signInRefundUser(page, appUrl);
+    const pendingRow = queueCase(page, 'RF-UAT-PENDING')
+      .filter({ hasNotText: 'RF-UAT-PENDING-ALT' });
+    await pendingRow.waitFor({ state: 'visible', timeout: 10000 });
+    await pendingRow.click();
+    const candidate = page.getByTestId('nayax-candidate-option').first();
+    await candidate.waitFor({ state: 'visible', timeout: 10000 });
+    await candidate.click();
+
+    const refundAction = page.getByRole('button', { name: /^Refund \$7\.00$/i });
+    const primaryActionPanel = page.getByTestId('refund-primary-action');
+    const unavailableAction = page.getByTestId('refund-action-status');
+    await primaryActionPanel.waitFor({ state: 'visible', timeout: 10000 });
+    if (scenario.capabilityAvailable) {
+      await refundAction.waitFor({ state: 'visible', timeout: 10000 });
+      recorder.assert(
+        'New backend capability exposes the ordinary combined refund decision',
+        await refundAction.isEnabled() && (await unavailableAction.count()) === 0
+      );
+    } else {
+      await page.waitForTimeout(250);
+      const primaryActionText = await primaryActionPanel.innerText();
+      recorder.assert(
+        'Old backend shape keeps the combined refund decision unavailable',
+        (await unavailableAction.count()) === 1 &&
+          primaryActionText.includes('Refund temporarily unavailable') &&
+          (await refundAction.count()) === 0,
+        primaryActionText
+      );
+    }
+    recorder.assert(
+      `${scenario.name} selection check performs no approval or provider action`,
+      !functionCalls.includes('refund-case-admin-update') &&
+        !functionCalls.includes('nayax-card-refund'),
+      JSON.stringify(functionCalls)
+    );
+    await closeRefundPortalContext(context);
+  }
 };
 
 const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
@@ -10034,7 +10104,7 @@ const run = async () => {
   if (!args.managerStepUpOnly && !args.dualRoleOnly && !args.ownerTotpOnly &&
     !args.legacyStateOnly && !args.nayaxResolutionOnly && !args.nayaxLookupOnly &&
     !args.gmailDraftOnly && !args.duplicateOnly && !args.managerQueueOnly &&
-    !args.approvalContinuationOnly &&
+    !args.approvalContinuationOnly && !args.selectionCompatibilityOnly &&
     !args.inboundLinkOnly) {
     await mkdir(args.fragmentDir, { recursive: true });
   }
@@ -10064,6 +10134,12 @@ const run = async () => {
         browser,
         appUrl: args.appUrl,
         artifactDir: args.artifactDir,
+        recorder,
+      });
+    } else if (args.selectionCompatibilityOnly) {
+      await runNayaxSelectionCompatibilityChecks({
+        browser,
+        appUrl: args.appUrl,
         recorder,
       });
     } else if (args.approvalContinuationOnly) {
@@ -10337,6 +10413,17 @@ const run = async () => {
     networkFailures.length === 0,
     [...networkFailures, ...fixtureOwnedPortalFailureDiagnostics].slice(0, 5).join(' | ')
   );
+
+  if (args.selectionCompatibilityOnly) {
+    const focusedFailures = recorder.failed();
+    if (focusedFailures.length > 0) {
+      console.error(`\nRefund selection-compatibility UAT failed: ${focusedFailures.length} check(s).`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log('\nRefund selection-compatibility UAT passed.');
+    return;
+  }
 
   if (args.inboundLinkOnly) {
     const focusedFailures = recorder.failed();

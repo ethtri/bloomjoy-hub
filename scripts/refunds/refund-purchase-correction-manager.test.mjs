@@ -47,7 +47,12 @@ test('selected candidate exposes one ordinary refund decision and direct API tak
  const candidate={candidateToken:'candidate-1',amountCents:1090};
  const pendingCase={status:'needs_review',paymentMethod:'card',correlationStatus:'needs_nayax'};
  const pendingEditor={status:'needs_review',decision:null,matchedNayaxCandidateToken:'candidate-1'};
- const combined=action(pendingCase,pendingEditor,[candidate],null);
+ const oldBackend=action(pendingCase,pendingEditor,[candidate],{});
+ assert.equal(oldBackend.label,'Refund temporarily unavailable');
+ assert.equal(oldBackend.disabled,true);
+ assert.equal(oldBackend.mode,undefined);
+
+ const combined=action(pendingCase,pendingEditor,[candidate],{approvalPendingExecution:false});
  assert.equal(combined.label,'Refund $10.90');
  assert.equal(combined.mode,'nayax_refund_execution');
  assert.equal(combined.targetDecision,'approved');

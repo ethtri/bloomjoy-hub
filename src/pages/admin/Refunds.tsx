@@ -2073,6 +2073,15 @@ const primaryActionConfig = (
 
     const hasUnsavedCandidate = Boolean(editor.matchedNayaxCandidateToken.trim());
     if (hasUnsavedCandidate && selectedCandidate) {
+      if (typeof refundReadiness?.approvalPendingExecution !== 'boolean') {
+        return {
+          label: refundReadiness ? 'Refund temporarily unavailable' : 'Checking refund availability',
+          helper: refundReadiness
+            ? refundReadinessBlockMessage(null)
+            : 'Checking that the guarded refund service is ready for this transaction.',
+          disabled: true,
+        };
+      }
       return {
         label: `Refund ${formatCurrency(selectedCandidate.amountCents)}`,
         helper: 'Confirm this exact transaction and refund its full provider amount in one decision. The customer is emailed only after the refund succeeds.',
@@ -2997,7 +3006,10 @@ export default function AdminRefundsPage() {
         refundAmountCents: nayaxCardRefundAvailability.refundAmountCents ?? null,
         machineLimitCents: nayaxCardRefundAvailability.machineLimitCents ?? null,
         caseVersion: nayaxCardRefundAvailability.caseVersion ?? null,
-        approvalPendingExecution: nayaxCardRefundAvailability.approvalPendingExecution === true,
+        approvalPendingExecution:
+          typeof nayaxCardRefundAvailability.approvalPendingExecution === 'boolean'
+            ? nayaxCardRefundAvailability.approvalPendingExecution
+            : undefined,
       };
     }
     return {
@@ -3009,7 +3021,10 @@ export default function AdminRefundsPage() {
       refundAmountCents: nayaxCardRefundAvailability.refundAmountCents ?? null,
       machineLimitCents: nayaxCardRefundAvailability.machineLimitCents ?? null,
       caseVersion: nayaxCardRefundAvailability.caseVersion ?? null,
-      approvalPendingExecution: nayaxCardRefundAvailability.approvalPendingExecution === true,
+      approvalPendingExecution:
+        typeof nayaxCardRefundAvailability.approvalPendingExecution === 'boolean'
+          ? nayaxCardRefundAvailability.approvalPendingExecution
+          : undefined,
     };
   }, [
     forceDemoData,
@@ -5790,6 +5805,9 @@ export default function AdminRefundsPage() {
     const hasUnsavedTransactionChoice =
       !selectedCase.hasMatchedNayaxTransaction &&
       Boolean(editor.matchedNayaxCandidateToken.trim());
+    const selectedCandidateRefundUnavailable =
+      hasUnsavedTransactionChoice &&
+      typeof selectedRefundReadiness?.approvalPendingExecution !== 'boolean';
     const managerState: RefundManagerState = hasConfirmedRefundReceipt(selectedCase) ||
       (hasProtectedRefundLifecycle(selectedCase) && !selectedCaseApprovalContinuationReady) ||
       (selectedCase.customerDeliveryException && !hasUnpaidRefundReview(selectedCase))
@@ -5800,6 +5818,14 @@ export default function AdminRefundsPage() {
           label: 'Needs Refund Operations',
           explanation: 'Bloomjoy did not send a refund. A permissioned specialist owns this case now.',
           nextStep: 'Refund Operations will review the authorization state. Do not try the refund again.',
+          tone: 'warning',
+        }
+      : selectedCandidateRefundUnavailable
+      ? {
+          id: 'refund_unavailable',
+          label: primaryAction?.label ?? 'Checking refund availability',
+          explanation: 'Bloomjoy has the selected transaction but cannot confirm that the guarded refund service is ready yet.',
+          nextStep: primaryAction?.helper ?? refundReadinessBlockMessage(null),
           tone: 'warning',
         }
       : hasUnsavedTransactionChoice
