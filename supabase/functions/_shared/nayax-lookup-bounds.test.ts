@@ -94,3 +94,20 @@ Deno.test("provider request failures only allow safe retry for transient respons
     "transient provider failures may allow a read-only retry",
   );
 });
+
+Deno.test("plain PostgREST receipt-anchor rejection is evidence change, not provider transport", () => {
+  const receiptMismatch = classifyNayaxLookupFailure({
+    code: "P4625", message: "Lookup request receipt does not match the case",
+  });
+  const unrelatedTransport = classifyNayaxLookupFailure({
+    code: "PGRST000", message: "Database connection unavailable",
+  });
+  assert(
+    receiptMismatch.failureClass === "evidence_changed" && !receiptMismatch.safeRetryEligible,
+    "immutable receipt mismatch must stop without consuming a provider retry",
+  );
+  assert(
+    unrelatedTransport.failureClass === "transport_error" && unrelatedTransport.safeRetryEligible,
+    "unrelated transport failures retain the existing retry policy",
+  );
+});

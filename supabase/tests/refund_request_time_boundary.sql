@@ -44,7 +44,7 @@ values('fd150000-0000-4000-8000-000000000003','RF-BOUNDARY-3','fd140000-0000-400
  'fd130000-0000-4000-8000-000000000001','diagnostic-customer@example.invalid','Diagnostic request boundary',
  '2026-09-05T11:00:00Z','America/Los_Angeles','exact','exact','card',963,963,'4242',
  'physical_card','physical_card','insert_card','needs_review','needs_nayax',1,
- 'form','{}','2026-09-05T12:00:00Z','hosted_refund_intake');
+ 'form','{}','2026-09-05T12:00:00.036755Z','hosted_refund_intake');
 
 select ok((select customer_request_received_at is not null and customer_request_received_source='hosted_refund_intake'
  from public.refund_cases where id='fd150000-0000-4000-8000-000000000001'),
@@ -259,7 +259,7 @@ create function pg_temp.request_diagnostic() returns jsonb language sql stable a
   'machineTimezoneSource','per_machine_provider_clock_contexts','providerPayloadRedacted',true,
   'providerClockContexts',jsonb_build_array(jsonb_build_object(
     'reportingMachineId','fd140000-0000-4000-8000-000000000001','timezone',null,'source','unknown','observedAt',null)),
-  'customerRequestReceivedAt','2026-09-05T12:00:00Z','customerRequestReceivedSource','hosted_refund_intake',
+  'customerRequestReceivedAt','2026-09-05T12:00:00.036755Z','customerRequestReceivedSource','hosted_refund_intake',
   'excludedAfterRequestCount',1,'uncertainRequestTimeCandidateCount',0
  );
 $$;
