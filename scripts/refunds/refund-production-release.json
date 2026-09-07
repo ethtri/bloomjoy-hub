@@ -168,7 +168,9 @@
     "20260906225234_refund_attempt_handoff_continuation.sql",
     "20260906230000_refund_one_manager_decision.sql",
     "20260907010000_refund_nayax_restricted_response_scalars.sql",
-    "20260907213000_refund_receipt_trigger_privilege_boundary.sql"
+    "20260907213000_refund_receipt_trigger_privilege_boundary.sql",
+    "20260907215325_refund_one_manager_pending_integrity.sql",
+    "20260907221500_refund_gmail_canonical_threading.sql"
   ],
   "migrationFilesSha256": "62686c0be6147a2d92b90bdf4683dfeb4b18c0cbef5832568b57e6808a7303be",
   "migrationVersionSetSha256": "670decdf98704b95b5b428183c86d697e3f82032bfc1e72f53c602362f8843b7",
