@@ -41,14 +41,14 @@ revoke all on function public.refund_nayax_purchase_occurrence_minute_range_v1(j
 do $migration$
 declare
   source text;
-  needle text := E'      ''location_or_machine'', ''incident_date'', ''incident_time'',\n      ''payment_method'', ''amount'', ''card_last4'', ''zelle_payment_contact''';
-  replacement text := E'      ''location_or_machine'', ''incident_date'', ''incident_time'', ''incident_time_source'',\n      ''payment_method'', ''amount'', ''card_last4'', ''zelle_payment_contact''';
+  needle text := '''incident_time'',';
+  replacement text := '''incident_time'', ''incident_time_source'',';
 begin
   select pg_get_functiondef(
     'public.service_enqueue_refund_manual_message_intent_pre_payout_recovery(uuid,bigint,uuid,uuid,text,text,text,text,text,text,text,text[],uuid,boolean,uuid)'::regprocedure
   ) into source;
   source := replace(source, E'\r\n', E'\n');
-  if position(needle in source) = 0 then
+  if (length(source) - length(replace(source, needle, ''))) / length(needle) <> 1 then
     raise exception 'Refund manual-message requested-field allowlist changed';
   end if;
   execute replace(source, needle, replacement);
