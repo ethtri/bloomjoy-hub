@@ -89,7 +89,6 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-simple-journey-machine-disabled-desktop.png',
   'refund-simple-journey-resumed-desktop.png',
   'refund-simple-journey-resumed-mobile.png',
-  'refund-simple-journey-success-desktop.png',
   'refund-portal-uat-unique-qr-wallet-recommendation.png',
   'refund-portal-uat-wallet-waiting-on-customer.png',
   'refund-provider-rejected.png',

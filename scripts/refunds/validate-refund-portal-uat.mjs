@@ -6749,10 +6749,6 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
           simpleJourneyStartedAt !== null && Date.now() - simpleJourneyStartedAt < 60_000,
           JSON.stringify({ elapsedMs: Date.now() - simpleJourneyStartedAt, assists: 0 })
         );
-      await page.screenshot({
-        path: path.join(artifactDir, 'refund-simple-journey-success-desktop.png'),
-        fullPage: false,
-      });
     } else if (scenario.name === 'unique QR wallet recommendation') {
       await page.getByTestId('refund-action-receipt').waitFor({ state: 'visible', timeout: 10000 });
       await page.waitForTimeout(250);

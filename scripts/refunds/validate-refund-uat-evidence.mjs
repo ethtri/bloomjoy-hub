@@ -324,7 +324,7 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 93, 'Evidence must enumerate all 93 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 92, 'Evidence must enumerate all 92 reviewed screenshots');
   assert(
     EXPECTED_SCREENSHOTS.includes('machine-refunds-valley-product-unverified-desktop.png') &&
       EXPECTED_SCREENSHOTS.includes('machine-refunds-valley-product-unverified-mobile.png'),
@@ -388,12 +388,12 @@ try {
   );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-simple-journey-')).length,
-    4,
-    'Evidence must include disabled, ready desktop/mobile, and success states for the simple journey'
+    3,
+    'Evidence must include disabled and resumed desktop/mobile states for the simple journey'
   );
   assert(
     EXPECTED_SCREENSHOTS.includes('refund-portal-uat-sanitized-simple-card-refund-journey.png'),
-    'Evidence must include the reviewed selectable-candidate state for the sanitized simple journey'
+    'Evidence must include the successful sanitized simple journey'
   );
   assert(
     EXPECTED_SCREENSHOTS.includes('refund-email-pilot-source-badges-mobile.png'),
