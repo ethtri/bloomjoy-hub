@@ -7303,12 +7303,15 @@ const runApprovalContinuationAutoResumeChecks = async ({
       JSON.stringify({ functionCalls, functionBodies })
     );
   }
+  const continuationRequestBody = continuationRequestResult.request.postDataJSON();
   recorder.assert(
     'Reloaded accepted request resumes at Nayax approval without a second manager dialog or click',
-    functionCalls.filter((name) => name === 'nayax-card-refund').length === 1 &&
+    continuationRequestBody?.caseId === 'case-approval-continuation' &&
+      continuationRequestBody?.expectedOfficialActionVersion === 7 &&
+      continuationRequestBody?.operation !== 'availability' &&
       !(await page.getByTestId('refund-confirmation-dialog').isVisible().catch(() => false)) &&
       await page.evaluate(() => window.__refundConfirmationEverOpened === false),
-    JSON.stringify({ functionCalls, functionBodies })
+    JSON.stringify({ continuationRequestBody, functionCalls, functionBodies })
   );
   await page.getByTestId('refund-action-receipt').getByText('Refund completed', { exact: true })
     .waitFor({ timeout: 10000 });
