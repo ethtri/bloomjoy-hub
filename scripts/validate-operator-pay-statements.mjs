@@ -131,9 +131,9 @@ if (!packageJson.includes('operator-payouts:validate-statements')) {
 
 const smoke = readText(files.smoke);
 for (const snippet of [
-  'Technician Pay Stubs',
-  'Technicians see only the latest published Pay Stub',
-  'Automatic publication does not require a manager approval action',
+  'Technician Pay Statements',
+  'Technicians see only latest issued pay statements',
+  'Managers can preview pay statements before issuance',
 ]) {
   if (!smoke.includes(snippet)) {
     fail(`Smoke checklist missing ${snippet}`);
@@ -141,8 +141,8 @@ for (const snippet of [
 }
 
 const status = readText(files.status);
-if (!status.includes('owner-provided July 2026 manual Pay Stubs')) {
-  fail('CURRENT_STATUS missing the canonical Pay Stub reference and publication boundary.');
+if (!status.includes('Operator pay statements slice `#449`')) {
+  fail('CURRENT_STATUS missing #449 operator pay statements update.');
 }
 
 console.log(

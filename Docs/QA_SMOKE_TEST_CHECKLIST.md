@@ -606,7 +606,7 @@ Historical controlled-pilot regression evidence remains the **ten-function/51-mi
 - [ ] Worker and manager timekeeping pages have no horizontal page overflow at `390x844` across loading, load-error, setup/no-access, empty, mutation-failure, weekly-calendar, manager-edit, and populated-report states, and remain usable at desktop width.
 - [ ] Multi-profile and machine controls have associated visible labels; repeated Edit and Delete controls announce the Technician, machine, date, and time context.
 
-### Technician Pay Report
+### Technician Pay Report (legacy validator: Admin Technician Pay Review)
 - [ ] Admin or scoped Technician Pay manager can open `/admin/payouts`; users without Technician Pay admin access see the existing admin access-required state.
 - [ ] The monthly report groups actual time, paid shifts, applicable per-shift rate, shift earnings, commissionable sales, applicable commission rate, commission, other earnings/credits, and statement total by Technician.
 - [ ] The report's machine breakdown shows actual time, independently rounded shifts, commissionable sales, and commission contribution without exposing out-of-scope machines or another Technician's compensation.
@@ -617,7 +617,7 @@ Historical controlled-pilot regression evidence remains the **ten-function/51-mi
 - [ ] Missing required rates, unresolved machine scope, stale required sales data, and other calculation blockers appear as manager exception work and prevent a knowingly incomplete Pay Stub from publishing.
 - [ ] Reporting and pay-stub publication do not execute payment, require proof of payment, or claim direct-deposit/tax-provider behavior.
 
-### Technician Pay Stubs
+### Technician Pay Stubs (legacy validator: Technician Pay Statements)
 - [ ] At the start of the fifth day after month-end, the system idempotently generates and publishes one Pay Stub for each payable Technician whose locked monthly report has complete required inputs; safe retries do not duplicate a current statement or adjustment.
 - [ ] Automatic publication does not require a manager approval action or proof that payment occurred.
 - [ ] An authorized manager can regenerate an affected Pay Stub after correcting time, machine scope, sales, an applicable rate, or another earnings/credit item; regeneration preserves immutable prior versions and publishes the latest version as revised.
@@ -626,6 +626,7 @@ Historical controlled-pilot regression evidence remains the **ten-function/51-mi
 - [ ] The polished Pay Stub follows the owner-provided July 2026 reference hierarchy and clearly shows payer/contractor identity, period, Statement Date, actual time, paid shifts, shift rate and earnings, Commissionable Sales, commission rate and earnings, applicable Bonus/Supply Credit/Expense Reimbursement lines, machine detail, current and year-to-date totals, and revision context.
 - [ ] The Pay Stub uses explicit Paid Shifts and Commissionable Sales labels instead of the manual sheet's mixed `Hours / Sales` heading; calculations, dates, currency, quantity labels, spelling, optional zero rows, and rounding are consistent.
 - [ ] A payment method, if shown, is informational profile data; the MVP does not show a Payment Date or otherwise assert payment. Contractor profiles receive the independent-contractor/no-withholding notice, while notice selection remains profile-driven rather than globally hard-coded.
+- [ ] During migration, the superseded implementation retains its guarded visibility contract: Managers can preview pay statements before issuance, and Technicians see only latest issued pay statements. This compatibility check does not add an approval requirement or make the legacy labels user-facing.
 - [ ] Direct artifact requests for drafts, missing stubs, superseded versions without manager authority, or another Technician's stub fail with an access error.
 - [ ] Desktop portal top bar shows one profile/session menu instead of separate Account and Sign Out buttons
 - [ ] Profile/session menu shows the signed-in email, an Account Settings link when the user can access `/portal/account`, and Sign Out
