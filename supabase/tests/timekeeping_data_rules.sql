@@ -328,12 +328,15 @@ select is(
   1,
   'manager correction retains immutable before and after evidence'
 );
+
+reset role;
 select is(
   (select meta->>'reason_required' from public.admin_audit_log where entity_id = '98000000-0000-0000-0000-000000000001' and action = 'operator_time_entry.manager_corrected' order by created_at desc limit 1),
   'false',
   'manager correction audit confirms no edit reason is required'
 );
 
+set local role authenticated;
 select set_config('request.jwt.claim.sub', '91000000-0000-0000-0000-000000000004', true);
 select is(
   pg_temp.capture_error($$

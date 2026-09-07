@@ -1122,9 +1122,51 @@ language plpgsql
 security definer
 set search_path = ''
 as $$
+declare
+  actor_user_id uuid;
+  profile_row public.operator_payout_profiles;
+  machine_row public.reporting_machines;
 begin
+  actor_user_id := auth.uid();
+
+  if actor_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+
   if p_end_time <= p_start_time then
     raise exception 'End time must be after start time';
+  end if;
+
+  select * into profile_row
+  from public.operator_payout_profiles profile
+  where profile.id = p_operator_profile_id
+    and profile.user_id = actor_user_id
+    and profile.status = 'active';
+
+  if profile_row.id is null then
+    raise exception 'Operator payout profile not found';
+  end if;
+
+  select * into machine_row
+  from public.reporting_machines machine
+  where machine.id = p_reporting_machine_id
+    and machine.account_id = profile_row.account_id;
+
+  if machine_row.id is null then
+    raise exception 'Assigned machine not found';
+  end if;
+
+  if not exists (
+    select 1
+    from public.operator_machine_assignments assignment
+    where assignment.operator_profile_id = profile_row.id
+      and assignment.reporting_machine_id = p_reporting_machine_id
+      and assignment.status = 'active'
+      and assignment.revoked_at is null
+      and p_work_date between assignment.effective_start_date
+        and coalesce(assignment.effective_end_date, 'infinity'::date)
+  ) then
+    raise exception 'Operator is not assigned to this machine for the work date';
   end if;
 
   return public.save_operator_time_entry(
@@ -1153,15 +1195,34 @@ security definer
 set search_path = ''
 as $$
 declare
+  actor_user_id uuid;
   profile_id uuid;
 begin
+  actor_user_id := auth.uid();
+
+  if actor_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+
   if p_end_time <= p_start_time then
     raise exception 'End time must be after start time';
   end if;
 
   select entry.operator_profile_id into profile_id
   from public.time_entries entry
+  join public.operator_payout_profiles profile
+    on profile.id = entry.operator_profile_id
   where entry.id = p_time_entry_id;
+
+  if profile_id is null or not exists (
+    select 1
+    from public.operator_payout_profiles profile
+    where profile.id = profile_id
+      and profile.user_id = actor_user_id
+      and profile.status = 'active'
+  ) then
+    raise exception 'Operator timekeeping access required';
+  end if;
 
   return public.save_operator_time_entry(
     p_time_entry_id,
@@ -1207,7 +1268,7 @@ begin
     and profile.status = 'active';
 
   if before_row.id is null or profile_row.id is null then
-    raise exception 'Technician timekeeping access required';
+    raise exception 'Operator timekeeping access required';
   end if;
 
   if before_row.status in ('included_in_payout', 'paid', 'voided')
