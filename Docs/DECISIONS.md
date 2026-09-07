@@ -1,5 +1,41 @@
 # Decisions
 
+## 2026-09-07 - Timekeeping uses per-machine shift units, transparent commission, and automatic contractor pay stubs
+
+Bloomjoy will replace the Google Form, manual Google Sheets compilation, and manually exported PDF workflow with lightweight Timekeeping, a manager pay report, and contractor Pay Stub self-service. The detailed MVP requirements are in [TIMEKEEPING_PAY_STUB_REQUIREMENTS.md](TIMEKEEPING_PAY_STUB_REQUIREMENTS.md). This decision supersedes the per-entry manager-approval workflow in `#587` and the earlier default lock/review behavior in the 2026-05-20 Operator Pay decision.
+
+**Canonical behavior**
+- A **shift** is a one-hour pay unit, not an entire work session. Each machine-specific time entry rounds up independently: 1-60 worked minutes equals one shift, 61-120 minutes equals two shifts, and so on. For example, three separate 20-minute machine entries equal three shifts.
+- Technicians enter actual start and end times after the work is completed, against one assigned machine per entry. Timekeeping does not add live clock-in/clock-out behavior.
+- The technician experience is organized as a simple weekly calendar for adding and reviewing machine-specific entries. Exact duplicate entries and overlapping time for the same technician are not allowed.
+- Every active Technician may open Timekeeping. A Technician may submit time only for machines in their effective assignment scope.
+- Machine Managers do not approve, reject, or return individual entries. They see submitted actual time and calculated shifts for their machine scope and may correct an entry when they find an error.
+- Manager corrections do not require a written reason and remain available after the technician lock date. The system still retains before/after audit history for manager edits.
+- Pay periods are calendar months. Technician editing for a completed month closes at 11:59 p.m. in Bloomjoy's operating timezone (`America/Los_Angeles`) on the fourth calendar day after month-end. For example, December time is technician-editable through January 4 at 11:59 p.m. and locked at the start of January 5. Manager correction remains available after that cutoff.
+- Pay is calculated as shift count multiplied by the Technician's applicable per-shift rate. Rates belong to the Technician and are effective-dated so raises do not rewrite prior-period compensation. Unless a later decision says otherwise, the work date determines which rate applies.
+- Commission is calculated from the Technician's applicable percentage and the commissionable sales across the machines in that Technician's effective scope. The sales basis, percentage, machine contribution, and resulting commission remain separately visible so the calculation is understandable.
+- The manager's primary monthly report shows actual submitted time, calculated shifts, shift earnings, commissionable sales, commission, adjustments, and statement total by Technician, with a machine breakdown where applicable. Managers use this report to correct inputs and regenerate a statement; they do not need a separate pay-stub library.
+- Optional Technician-visible earnings or credits support the categories shown in the current manual statements: bonus, supply credit, and expense reimbursement. These are manager-maintained compensation inputs, not Technician-entered time.
+- After the technician lock cutoff, the system automatically generates and publishes one Pay Stub for each payable Technician for the completed month. A missing required rate or unresolved source-data error creates manager-visible exception work rather than publishing a misleading statement. Publication is otherwise routine and requires neither approval nor proof that payment occurred.
+- The Pay Stub follows the owner-provided one-page reference hierarchy and shows payer and contractor identity, period beginning and ending, statement date, actual worked time, paid shifts, shift rate and earnings, commissionable sales, commission rate and earnings, applicable bonus/credit/reimbursement lines, current totals, year-to-date totals, and the contractor notice. It uses **Statement Date**, not **Payment Date**, until Bloomjoy records actual payment evidence.
+- An authorized manager may regenerate a Pay Stub after correcting time, sales, rates, or adjustments. Regeneration preserves immutable prior versions, publishes the latest version to the Technician, and refreshes affected year-to-date totals on later statements.
+- Technicians may view and download their own historical published Pay Stubs online. The user-facing artifact is **Pay Stub**; superseded versions remain manager-auditable but are not presented as the current Technician copy.
+- The initial Pay Stub population is entirely independent contractors. Worker classification remains a profile attribute rather than a global hard-coded assumption, and the 1099/no-withholding notice is rendered for contractor profiles.
+- Payment execution, direct deposit, withholding, payroll tax calculation, tax filing, W-2s, and 1099 generation remain separate until Bloomjoy makes an explicit provider and compliance decision.
+
+**Working assumptions pending implementation**
+- The existing assigned-machine authorization, audited time-entry, revenue-snapshot, compensation-rule, adjustment, versioned-statement, and private-storage foundations remain in place; the next iteration simplifies workflow rather than rewriting those boundaries.
+- Actual worked time, calculated shift units, commissionable sales, rates, and resulting earnings remain separately visible so Technicians and managers can reproduce the calculation.
+- Commissionable sales use Bloomjoy's authoritative reporting facts and effective machine scope for the pay period, not a number manually entered by the Technician. The exact sales measure must be labeled consistently in the manager report and Pay Stub.
+- Pay-stub regeneration is a deliberate manager action after a correction; routine first publication is automatic.
+
+**Why this choice**
+- Per-machine shift units match Bloomjoy's compensation practice while exact start/end times preserve understandable source records.
+- Removing individual approvals keeps routine timekeeping simple without preventing managers from correcting mistakes.
+- A technician-only cutoff produces stable monthly statements while preserving a practical correction path for managers.
+- Showing both paid shifts and machine sales preserves the trust currently created by the manual sheet because a contractor can see the inputs behind regular earnings and commission.
+- Automatic, versioned Pay Stubs remove repetitive monthly administration and give Technicians durable self-service history without claiming to execute payroll, prove payment, or create tax forms.
+
 ## 2026-09-05 - Request time is supporting evidence unless purchase occurrence is proved (`#1165`)
 
 - Provider delivery, report import, settlement, bank posting and Nayax authorization time are separate facts. None may stand in for the customer's purchase occurrence or hard-exclude a candidate merely because it is later than the request receipt.
@@ -742,6 +778,8 @@ Bloomjoy will connect one designated support mailbox to Refund Operations as a n
 
 ## 2026-07-16 - Timekeeping V1 is shift entry and machine-manager review (`#587`)
 Bloomjoy will replace the contractor Google Sheets/AppSheet workflow with a lightweight Hub timekeeping flow before expanding into payment execution.
+
+This entry is retained as implementation history. The 2026-09-07 Timekeeping decision supersedes its per-entry approval/correction queue and lock/review behavior.
 
 **Canonical behavior**
 - V1 uses after-the-fact completed-shift entry; it does not add a live clock-in/clock-out mode.
