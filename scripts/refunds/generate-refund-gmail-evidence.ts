@@ -14,6 +14,7 @@ import {
   REFUND_GMAIL_DISABLED_MESSAGE,
   type RefundGmailConfig,
   refundGmailEnabled,
+  refundGmailOperationMarker,
   RefundGmailError,
   requireRefundGmailEnabled,
   sendRefundGmailReply,
@@ -21,6 +22,7 @@ import {
 } from "../../supabase/functions/_shared/refund-gmail.ts";
 import { requireRefundCustomerManagerCcResolution } from "../../supabase/functions/_shared/refund-gmail-transport.ts";
 import { createAuthenticatedEvidenceFragment } from "./refund-uat-fragment-provenance.mjs";
+import { validateMachineReadableEvidence } from "./refund-uat-evidence.mjs";
 
 const SYNTHETIC_ENV = {
   GMAIL_SUPPORT_CLIENT_ID: "synthetic-client-id",
@@ -545,6 +547,37 @@ const runFirstContactMimeAssertions = async () => {
               { status: 200, headers: { "Content-Type": "application/json" } },
             );
           }
+          const metadataMatch = url.match(/\/messages\/(synthetic-(?:first-contact|case-specific)-provider-send)\?/);
+          if (metadataMatch) {
+            const firstContact = metadataMatch[1] ===
+              "synthetic-first-contact-provider-send";
+            return new Response(
+              JSON.stringify({
+                id: metadataMatch[1],
+                threadId: FIRST_CONTACT_FIXTURE.providerThreadId,
+                labelIds: ["SENT"],
+                payload: {
+                  headers: [
+                    {
+                      name: "Message-ID",
+                      value: firstContact
+                        ? "<canonical-first-contact@gmail.com>"
+                        : "<canonical-case-specific@gmail.com>",
+                    },
+                    {
+                      name: "X-Bloomjoy-Refund-Operation",
+                      value: refundGmailOperationMarker(
+                        firstContact
+                          ? FIRST_CONTACT_FIXTURE.operationKey
+                          : "refund-case-message:synthetic-missing-info",
+                      ),
+                    },
+                  ],
+                },
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            );
+          }
           throw new Error("Unexpected synthetic provider URL");
         },
         async () => {
@@ -707,7 +740,7 @@ const runFirstContactMimeAssertions = async () => {
       assert(automaticHeadersPresent);
       assert(caseSpecificAutomaticHeadersAbsent);
       assertEquals(internalLinkCount, 0);
-      assertEquals(providerFetchCount, 3);
+      assertEquals(providerFetchCount, 5);
       assertEquals(providerSendCount, 2);
       assertEquals(firstContactProviderSendCount, 1);
       assertEquals(caseSpecificProviderSendCount, 1);
@@ -878,9 +911,11 @@ export const runRefundGmailEvidenceHarness = async () => {
   const mimeRoleAssertions = await runFirstContactMimeAssertions();
   assertEvidenceIsSanitized(killSwitchAssertions);
   assertEvidenceIsSanitized(mimeRoleAssertions);
+  const mimeRoleEvidence = { ...mimeRoleAssertions, passed: true };
+  validateMachineReadableEvidence("refund-gmail-mime-roles.json", mimeRoleEvidence);
   return {
     killSwitchEvidence: { ...killSwitchAssertions, passed: true },
-    mimeRoleEvidence: { ...mimeRoleAssertions, passed: true },
+    mimeRoleEvidence,
   };
 };
 

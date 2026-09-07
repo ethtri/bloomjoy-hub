@@ -156,7 +156,7 @@ const machineFixtures = {
     automaticHeadersPresent: true,
     caseSpecificAutomaticHeadersAbsent: true,
     internalLinkCount: 0,
-    providerFetchCount: 3,
+    providerFetchCount: 5,
     providerSendCount: 2,
     caseSpecificOutboundCount: 1,
     firstContactOperationCount: 1,

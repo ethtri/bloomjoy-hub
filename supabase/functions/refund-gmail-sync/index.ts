@@ -549,17 +549,6 @@ const reconcileOutstandingFirstContacts = async ({
         providerThreadId,
         operationKey,
       });
-      if (providerResult.status === "no_match") {
-        const recorded = await rpc<boolean>(
-          "service_finish_refund_gmail_first_contact_no_match",
-          {
-            p_operation_id: operationId,
-            p_attempt_version: attemptVersion,
-          },
-        );
-        if (!recorded) counters.firstContactFailed += 1;
-        continue;
-      }
       if (providerResult.status === "ambiguous") {
         counters.firstContactFailed += 1;
         continue;
@@ -625,17 +614,6 @@ const reconcileOutstandingContactResponses = async ({
         providerThreadId,
         operationKey,
       });
-      if (providerResult.status === "no_match") {
-        const recorded = await rpc<boolean>(
-          "service_finish_refund_gmail_contact_response_no_match",
-          {
-            p_operation_id: operationId,
-            p_attempt_version: attemptVersion,
-          },
-        );
-        if (!recorded) counters.firstContactFailed += 1;
-        continue;
-      }
       if (providerResult.status === "ambiguous") {
         counters.firstContactFailed += 1;
         continue;
@@ -702,17 +680,6 @@ const reconcileOutstandingOutbound = async ({
         providerThreadId,
         operationKey,
       });
-      if (providerResult.status === "no_match") {
-        const recorded = await rpc<boolean>(
-          "service_finish_refund_gmail_outbound_reconciliation_no_match",
-          {
-            p_transport_message_id: transportMessageId,
-            p_attempt_version: attemptVersion,
-          },
-        );
-        if (!recorded) counters.outboundReconciliationFailed += 1;
-        continue;
-      }
       if (providerResult.status === "ambiguous") {
         counters.outboundReconciliationFailed += 1;
         continue;

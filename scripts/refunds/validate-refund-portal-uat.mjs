@@ -5821,8 +5821,45 @@ const runNayaxSelectionCompatibilityChecks = async ({ browser, appUrl, recorder 
         !functionCalls.includes('nayax-card-refund'),
       JSON.stringify(functionCalls)
     );
+    recorder.assert(
+      `${scenario.name} unsaved selection is not presented as broken persisted evidence`,
+      (await page.getByTestId('selected-nayax-transaction-evidence-missing').count()) === 0
+    );
     await closeRefundPortalContext(context);
   }
+
+  const missingEvidenceContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await installMockSupabaseRoutes(missingEvidenceContext, {
+    refundOverview: () => {
+      const overview = buildPendingNayaxRefundOverview();
+      overview.cases = [{
+        ...overview.cases[0],
+        correlationStatus: 'matched',
+        correlationSource: 'nayax',
+        hasMatchedNayaxTransaction: true,
+        matchedNayaxAmountCents: 700,
+        matchedNayaxCardLast4: '0000',
+        matchedNayaxCurrencyCode: 'USD',
+        selectedNayaxTransaction: null,
+      }];
+      return overview;
+    },
+  });
+  const missingEvidencePage = await missingEvidenceContext.newPage();
+  await signInRefundUser(missingEvidencePage, appUrl);
+  await queueCase(missingEvidencePage, 'RF-UAT-PENDING').click();
+  const missingEvidenceWarning = missingEvidencePage.getByTestId(
+    'selected-nayax-transaction-evidence-missing'
+  );
+  recorder.assert(
+    'Persisted selection without transaction evidence keeps the internal repair warning',
+    await missingEvidenceWarning.getByText(
+      'The selected transaction evidence needs an internal Refund Operations repair. Do not ask the customer to repeat purchase details.',
+      { exact: true }
+    ).isVisible() &&
+      (await missingEvidencePage.getByTestId('selected-nayax-transaction-evidence').count()) === 0
+  );
+  await closeRefundPortalContext(missingEvidenceContext);
 };
 
 const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
@@ -6688,6 +6725,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
           'Selecting the exact transaction presents one ordinary refund decision',
             await page.getByRole('button', { name: /^Refund \$/i }).isVisible() &&
             (await page.getByTestId('refund-run-nayax-refund').count()) === 1 &&
+            (await page.getByTestId('selected-nayax-transaction-evidence-missing').count()) === 0 &&
             !functionCalls.includes('refund-case-message-send')
         );
 
@@ -6837,10 +6875,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       const candidateRefundAction = page.getByRole('button', { name: /^Refund \$/i });
       unresolvedCompetingSelectionGuarded = unresolvedCompetingSelection &&
         (await candidateRefundAction.count()) === 0 &&
-        await page.getByTestId('selected-nayax-transaction-evidence-missing').getByText(
-          'The selected transaction evidence needs an internal Refund Operations repair. Do not ask the customer to repeat purchase details.',
-          { exact: true }
-        ).isVisible();
+        (await page.getByTestId('selected-nayax-transaction-evidence-missing').count()) === 0;
       recorder.assert(
         `Nayax ${scenario.name} does not expose an enabled refund action`,
         unresolvedCompetingSelection
