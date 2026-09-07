@@ -15,7 +15,9 @@
 
 - Same-case correction recovery (#1111): on localhost with a synthetic backend,
   run `playwright-cli run-code --filename scripts/refunds/refund-correction-recovery-browser.mjs`
-  after opening `http://127.0.0.1:8095/refunds/correct`. Verify 390px/1440px loading
+  after opening `http://127.0.0.1:8095/refunds/correct`. Verify a tokenless direct
+  visit enters the public `/refunds/request` form without a correction inspection,
+  while a valid correction capability keeps the same-case flow. Verify 390px/1440px loading
   ends in a retryable error within 10 seconds when inspection never responds,
   validation focus, network retry without lost answers, stale/unavailable links,
   already-saved response, automatic read-only recheck-to-review progress (within

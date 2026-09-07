@@ -12,6 +12,9 @@ async (page) => {
   const check=(value,message)=>{if(!value)throw new Error(message);};
   await page.route('http://127.0.0.1:54321/**',async route=>{
     const request=route.request();
+    if(request.url().includes('/rest/v1/rpc/')) {
+      return route.fulfill({status:200,contentType:'application/json',body:'[]'});
+    }
     if(!request.url().endsWith('/functions/v1/refund-case-intake')) throw new Error('Unexpected backend request');
     const body=request.postDataJSON();
     if(body.action==='inspectPurchaseCorrection') {
@@ -33,6 +36,14 @@ async (page) => {
   const open=async()=>{
     sequence++; await page.goto(`${base}/refunds/correct#token=${`${runId}${sequence}`.padEnd(43,'a')}`);
   };
+  await page.goto(base);
+  await page.evaluate(()=>sessionStorage.removeItem('bloomjoy-refund-correction-v1'));
+  await page.goto(`${base}/refunds/correct`);
+  await page.waitForURL(`${base}/refunds/request`);
+  await page.getByRole('heading',{name:'Request a refund'}).waitFor();
+  check(await page.locator('form').count()===1,'Tokenless correction entry serves the public refund form');
+  check(inspectCount===0,'Tokenless correction entry makes no correction inspection request');
+  evidence.push({directEntry:'/refunds/request',form:true,correctionInspections:0});
   for(const width of [390,1440]) {
     await page.setViewportSize({width,height:900});
     context=JSON.parse(JSON.stringify(ready)); inspectFailure=false; inspectHang=false; submitUnavailable=false; submitFailure=false;
