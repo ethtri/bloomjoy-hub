@@ -167,7 +167,8 @@
     "20260906222000_refund_attempt_continuation_readiness.sql",
     "20260906225234_refund_attempt_handoff_continuation.sql",
     "20260906230000_refund_one_manager_decision.sql",
-    "20260907010000_refund_nayax_restricted_response_scalars.sql"
+    "20260907010000_refund_nayax_restricted_response_scalars.sql",
+    "20260907213000_refund_receipt_trigger_privilege_boundary.sql"
   ],
   "migrationFilesSha256": "7b499eadc95929cd09fbc35bfc3995a9fd676421feb4dac387de132b4b606acb",
   "migrationVersionSetSha256": "c486a7afde1840f3949f6517ad8aba7f3eb229e0923e04e7fab0ee3f46995c89",
