@@ -79,11 +79,11 @@ select throws_ok(
 );
 
 select is(
-  (public.service_issue_refund_status_capability(
+  (set_config('test.refund_ack_status_result', public.service_issue_refund_status_capability(
     'ac400000-0000-4000-8000-000000000001',
     repeat('c', 64),
     statement_timestamp() + interval '30 days'
-  ) ->> 'issued')::boolean,
+  )::text, true)::jsonb ->> 'issued')::boolean,
   true,
   'The intake service can issue the case status capability'
 );
@@ -101,8 +101,7 @@ select lives_ok(
       'We received your refund request',
       '[Secure refund status link included at delivery]',
       'refund_confirmation_v1',
-      (select id from public.refund_case_status_capabilities
-       where token_digest = repeat('c', 64)),
+      (current_setting('test.refund_ack_status_result')::jsonb ->> 'capabilityId')::uuid,
       true
     )
   $$,
