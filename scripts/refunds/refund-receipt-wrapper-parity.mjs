@@ -4,7 +4,7 @@ import path from 'node:path';
 export const RECEIPT_MIGRATION = '20260902191832_refund_authoritative_reconciliation_receipt.sql';
 export const CORE_DISPATCH_MIGRATION = '20260902182311_refund_all_message_delivery_bookkeeping.sql';
 export const PRIOR_COMPLETION_MIGRATION = '20260903154800_refund_receipt_customer_completion.sql';
-export const COMPLETION_MIGRATION = '20260906005234_refund_receipt_automatic_completion_kernel.sql';
+export const COMPLETION_MIGRATION = '20260906052200_refund_receipt_automatic_completion_kernel.sql';
 export const OWNER_RESOLUTION_MIGRATION = '20260904182000_refund_owner_nonrefund_adoption.sql';
 const TEST_FILE = 'refund_receipt_wrapper_parity.sql';
 const gmailArgs = 'uuid,uuid,text,text,text,text,text[],text,uuid';

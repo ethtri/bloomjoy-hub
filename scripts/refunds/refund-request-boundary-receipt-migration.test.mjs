@@ -6,7 +6,7 @@ import test from 'node:test';
 import { prepareRefundRequestBoundaryReceiptRegression } from '../validate-supabase-migrations.mjs';
 
 const migration = fs.readFileSync(
-  new URL('../../supabase/migrations/20260905190312_refund_request_time_boundary.sql', import.meta.url),
+  new URL('../../supabase/migrations/20260905194545_refund_request_time_boundary.sql', import.meta.url),
   'utf8',
 );
 

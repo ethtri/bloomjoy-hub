@@ -3,11 +3,11 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8').replaceAll('\r\n', '\n');
-const migration = read('supabase/migrations/20260906005234_refund_receipt_automatic_completion_kernel.sql');
+const migration = read('supabase/migrations/20260906052200_refund_receipt_automatic_completion_kernel.sql');
 const pgTap = read('supabase/tests/refund_receipt_automatic_completion.sql');
 const concurrency = read('supabase/tests/refund_receipt_automatic_completion_concurrency.sql');
 const reportBinding = read('supabase/migrations/20260904172349_nayax_report_original_refund_site_binding.sql');
-const crossSite = read('supabase/migrations/20260905232428_refund_cross_site_review_linkage.sql');
+const crossSite = read('supabase/migrations/20260906001057_refund_cross_site_review_linkage.sql');
 const sweep = read('supabase/functions/refund-case-automation-sweep/index.ts');
 const outbox = read('supabase/functions/_shared/refund-manual-message-outbox.ts');
 const gmailTransport = read('supabase/functions/_shared/refund-gmail-transport.ts');
