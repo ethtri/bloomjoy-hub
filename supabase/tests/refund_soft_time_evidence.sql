@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(78);
+select plan(80);
 
 create function pg_temp.set_auth_claims(p_user_id uuid)
 returns void language plpgsql as $$
@@ -56,6 +56,23 @@ values('fb150000-0000-4000-8000-000000000001','RF-SOFT-TIME','fb140000-0000-4000
   'transaction_alert_or_receipt','one','card',1090,1090,'6768','physical_card','physical_card','tap_card',
   'needs_review','needs_nayax',4,'form','{"source":"hosted_refund_intake"}',
   '2026-09-05T18:03:00Z','hosted_refund_intake');
+
+set local role service_role;
+select throws_ok($$insert into public.refund_case_events(
+  refund_case_id,event_type,message,metadata
+) values(
+  'fb150000-0000-4000-8000-000000000001','nayax_refund_execution_authorized',
+  'Synthetic unauthorized approval marker','{"payload_redacted":true}'::jsonb
+)$$,'P0001',null,
+  'A generic service-role caller cannot synthesize a durable execution authorization marker');
+select throws_ok($$insert into public.refund_case_events(
+  refund_case_id,event_type,message,metadata
+) values(
+  'fb150000-0000-4000-8000-000000000001','nayax_refund_execution_continued',
+  'Synthetic unauthorized continuation marker','{"payload_redacted":true}'::jsonb
+)$$,'P0001',null,
+  'A generic service-role caller cannot synthesize an approval-continuation audit event');
+reset role;
 
 create function pg_temp.soft_time_evidence(
   boundary text,

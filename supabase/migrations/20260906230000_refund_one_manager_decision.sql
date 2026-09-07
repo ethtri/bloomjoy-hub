@@ -1197,3 +1197,53 @@ begin
   execute overview_definition;
 end;
 $$;
+
+-- The durable approval and execution-continuation events are official audit
+-- records. Keep them wrapper-owned under the same trigger boundary as every
+-- other official action so a generic service-role caller cannot synthesize
+-- authorization evidence.
+create or replace function public.enforce_refund_official_event_boundary()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  old_is_reserved boolean := false;
+  new_is_reserved boolean := false;
+begin
+  if tg_op <> 'INSERT' then
+    old_is_reserved := old.event_type in (
+      'admin_update',
+      'cash_payout_confirmed',
+      'nayax_match_selected',
+      'official_action_committed',
+      'nayax_official_action_revalidated',
+      'nayax_official_action_finalized',
+      'nayax_refund_execution_authorized',
+      'nayax_refund_execution_continued'
+    );
+  end if;
+
+  if tg_op <> 'DELETE' then
+    new_is_reserved := new.event_type in (
+      'admin_update',
+      'cash_payout_confirmed',
+      'nayax_match_selected',
+      'official_action_committed',
+      'nayax_official_action_revalidated',
+      'nayax_official_action_finalized',
+      'nayax_refund_execution_authorized',
+      'nayax_refund_execution_continued'
+    );
+  end if;
+
+  if current_user in ('anon', 'authenticated', 'service_role')
+    and (old_is_reserved or new_is_reserved) then
+    raise exception 'Official refund audit events are wrapper-owned and append-only';
+  end if;
+
+  return case when tg_op = 'DELETE' then old else new end;
+end;
+$$;
+revoke execute on function public.enforce_refund_official_event_boundary()
+  from public,anon,authenticated,service_role;

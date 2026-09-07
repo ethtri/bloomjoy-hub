@@ -584,6 +584,9 @@ assert(
     oneManagerDecisionMigration.includes("marker.metadata ->> 'transaction_id' is not distinct from refund_case.matched_nayax_transaction_id") &&
     oneManagerDecisionMigration.includes("'approvalPendingExecution'") &&
     oneManagerDecisionMigration.includes('refund_nayax_durable_preapproval_started_attempt_v1') &&
+    oneManagerDecisionMigration.includes('create or replace function public.enforce_refund_official_event_boundary()') &&
+    oneManagerDecisionMigration.includes("'nayax_refund_execution_authorized',") &&
+    oneManagerDecisionMigration.includes("'nayax_refund_execution_continued'") &&
     oneManagerDecisionMigration.includes('approval_authorization.expected_case_version <') &&
     oneManagerDecisionMigration.includes('execution_authorization.expected_case_version =') &&
     (oneManagerDecisionMigration.match(/invalid_datetime_format/g) ?? []).length >= 3 &&
