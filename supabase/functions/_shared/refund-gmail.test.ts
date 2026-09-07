@@ -4,6 +4,7 @@ import {
   type GmailMessage,
   inspectRefundGmailParticipantSignals,
   parseEmailAddressList,
+  refundGmailOperationMarker,
   type RefundGmailConfig,
   RefundGmailError,
   sendRefundGmailReply,
@@ -892,6 +893,69 @@ Deno.test("automatic Gmail replies suppress responder loops without changing man
   );
 });
 
+Deno.test("Gmail canonical Message-IDs form a three-message reply chain", () => {
+  const firstCanonical = "<first.canonical@gmail.com>";
+  const secondMarker = refundGmailOperationMarker(
+    "refund-contact-first-response:synthetic-chain",
+  );
+  const second = buildRefundGmailReplyMime({
+    from: "info@bloomjoysweets.com",
+    to: "customer@example.test",
+    deliveryKind: "automatic",
+    subject: "Refund request received",
+    text: "We received your request.",
+    html: "<p>We received your request.</p>",
+    operationKey: "refund-contact-first-response:synthetic-chain",
+    inReplyTo: firstCanonical,
+    references: firstCanonical,
+  });
+  const secondDecoded = decodeBase64Url(second.raw);
+  assertIncludes(secondDecoded, `In-Reply-To: ${firstCanonical}`, "second parent");
+  assertIncludes(secondDecoded, `References: ${firstCanonical}`, "second refs");
+  assertIncludes(
+    secondDecoded,
+    `X-Bloomjoy-Refund-Operation: ${secondMarker}`,
+    "separate operation marker",
+  );
+  assertNotIncludes(secondDecoded, "Message-ID: <refund-", "stale message id");
+
+  const secondCanonical = "<second.canonical@gmail.com>";
+  const third = buildRefundGmailReplyMime({
+    from: "info@bloomjoysweets.com",
+    to: "customer@example.test",
+    subject: "Refund request received",
+    text: "Here is the next update.",
+    html: "<p>Here is the next update.</p>",
+    operationKey: "refund-case-message:synthetic-chain",
+    inReplyTo: secondCanonical,
+    references: `${firstCanonical} ${secondCanonical}`,
+  });
+  const thirdDecoded = decodeBase64Url(third.raw);
+  assertIncludes(thirdDecoded, `In-Reply-To: ${secondCanonical}`, "third parent");
+  assertIncludes(
+    thirdDecoded,
+    `References: ${firstCanonical} ${secondCanonical}`,
+    "three-message references",
+  );
+});
+
+Deno.test("Gmail operation markers preserve the exact idempotency operation", () => {
+  const withSeparator = refundGmailOperationMarker(
+    "refund-case-message:synthetic-operation",
+  );
+  assertEquals(
+    withSeparator,
+    refundGmailOperationMarker("refund-case-message:synthetic-operation"),
+    "stable operation marker",
+  );
+  if (
+    withSeparator ===
+      refundGmailOperationMarker("refund-case-messagesynthetic-operation")
+  ) {
+    throw new Error("operation marker collapsed two exact operations");
+  }
+});
+
 Deno.test("Gmail send pins the provider thread and preserves the resolved CC set", async () => {
   const originalFetch = globalThis.fetch;
   const originalEnabled = Deno.env.get("REFUND_GMAIL_ENABLED");
@@ -907,6 +971,25 @@ Deno.test("Gmail send pins the provider thread and preserves the resolved CC set
           headers: { "Content-Type": "application/json" },
         },
       );
+    }
+    if (url.includes("/messages/sent-message?")) {
+      return new Response(JSON.stringify({
+        id: "sent-message",
+        threadId: "original-thread",
+        labelIds: ["SENT"],
+        payload: {
+          headers: [
+            { name: "Message-ID", value: "<canonical-sent@gmail.com>" },
+            {
+              name: "X-Bloomjoy-Refund-Operation",
+              value: refundGmailOperationMarker("refund-case-message:synthetic-send"),
+            },
+          ],
+        },
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     }
     const requestBody = (init as { body?: BodyInit } | undefined)?.body;
     sentPayload = JSON.parse(String(requestBody ?? "{}")) as {
@@ -956,6 +1039,12 @@ Deno.test("Gmail send pins the provider thread and preserves the resolved CC set
       "provider thread ID",
     );
     assertEquals(result.ccCount, 1, "sent CC count");
+    assertEquals(
+      result.providerMessageHeader,
+      "<canonical-sent@gmail.com>",
+      "canonical provider Message-ID",
+    );
+    assertEquals(result.metadataReadStatus, "canonical", "metadata status");
     const decoded = decodeBase64Url(String(sentPayload?.raw ?? ""));
     assertIncludes(
       decoded,
@@ -968,6 +1057,64 @@ Deno.test("Gmail send pins the provider thread and preserves the resolved CC set
       "Auto-Submitted: auto-generated",
       "sent automatic-response header",
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalEnabled === undefined) Deno.env.delete("REFUND_GMAIL_ENABLED");
+    else Deno.env.set("REFUND_GMAIL_ENABLED", originalEnabled);
+  }
+});
+
+Deno.test("metadata read failure preserves a provider-confirmed Gmail send", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalEnabled = Deno.env.get("REFUND_GMAIL_ENABLED");
+  Deno.env.set("REFUND_GMAIL_ENABLED", "true");
+  let sendCount = 0;
+  let metadataCount = 0;
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.includes("oauth2.googleapis.com/token")) {
+      return new Response(
+        JSON.stringify({ access_token: "synthetic-token", expires_in: 3600 }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    if (url.includes("/messages/send")) {
+      sendCount += 1;
+      return new Response(
+        JSON.stringify({ id: "confirmed-message", threadId: "known-thread" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    metadataCount += 1;
+    return new Response("unavailable", { status: 503 });
+  };
+
+  const config: RefundGmailConfig = {
+    clientId: "synthetic-client",
+    clientSecret: "synthetic-secret",
+    refreshToken: "synthetic-refresh",
+    mailbox: "info@bloomjoysweets.com",
+    mailboxIdentities: ["info@bloomjoysweets.com"],
+    labelId: "synthetic-label",
+    startAt: new Date("2026-09-07T00:00:00Z"),
+  };
+  try {
+    const result = await sendRefundGmailReply({
+      config,
+      providerThreadId: "known-thread",
+      operationKey: "refund-case-message:metadata-failure",
+      recipientEmail: "customer@example.test",
+      ccEmails: ["manager@example.test"],
+      managerRecipientCount: 1,
+      subject: "Refund update",
+      text: "We received your request.",
+      html: "<p>We received your request.</p>",
+    });
+    assertEquals(result.providerMessageId, "confirmed-message", "provider id");
+    assertEquals(result.providerMessageHeader, null, "no fabricated canonical id");
+    assertEquals(result.metadataReadStatus, "unavailable", "metadata status");
+    assertEquals(sendCount, 1, "send attempts");
+    assertEquals(metadataCount, 1, "bounded metadata reads");
   } finally {
     globalThis.fetch = originalFetch;
     if (originalEnabled === undefined) Deno.env.delete("REFUND_GMAIL_ENABLED");

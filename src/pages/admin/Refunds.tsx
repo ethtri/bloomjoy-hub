@@ -5754,7 +5754,10 @@ export default function AdminRefundsPage() {
     const hasSelectedMatch = selectedCase.legacyStateReviewRequired
       ? false
       : hasSelectedCardEvidence(selectedCase, editor);
-    const selectedTransactionEvidence = hasSelectedMatch
+    const hasPersistedSelectedMatch = selectedCase.legacyStateReviewRequired
+      ? false
+      : selectedCase.hasMatchedNayaxTransaction;
+    const selectedTransactionEvidence = hasPersistedSelectedMatch
       ? selectedCase.selectedNayaxTransaction ?? null
       : null;
     const hasSelectableCandidate = effectiveCandidates.some(
@@ -6269,7 +6272,7 @@ export default function AdminRefundsPage() {
                     </p>
                   </div>
                 </section>
-              ) : hasSelectedMatch ? (
+              ) : hasPersistedSelectedMatch ? (
                 <div
                   data-testid="selected-nayax-transaction-evidence-missing"
                   className="mt-3 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm leading-6 text-orange-950"

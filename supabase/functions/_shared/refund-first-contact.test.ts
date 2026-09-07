@@ -18,7 +18,8 @@ import {
   isRefundGmailMailboxIdentity,
   parseRefundGmailSuccessResponse,
   RefundGmailError,
-  refundGmailMessageIdSearchPath,
+  refundGmailOperationMarker,
+  refundGmailThreadMetadataPath,
   selectRefundGmailReplyEvidence,
 } from "./refund-gmail.ts";
 import { ingestRefundGmailThreadBeforeFirstContact } from "./refund-gmail-orchestration.ts";
@@ -272,53 +273,107 @@ Deno.test("invalid Gmail POST success JSON is delivery-uncertain", async () => {
   assertEquals(caught.deliveryUncertain, true);
 });
 
-Deno.test("Gmail reconciliation searches the deterministic Message-ID", () => {
-  const header = "<refund-refund-first-contact.synthetic@bloomjoyusa.com>";
-  const path = refundGmailMessageIdSearchPath(header);
+Deno.test("Gmail reconciliation reads bounded metadata from the known thread", () => {
+  const path = refundGmailThreadMetadataPath("thread-original");
   const params = new URL(`https://gmail.googleapis.test${path}`).searchParams;
-  assertEquals(params.get("q"), `rfc822msgid:${header}`);
-  assertEquals(params.get("maxResults"), "5");
-  assertEquals(params.get("includeSpamTrash"), "true");
+  assertEquals(path.startsWith("/threads/thread-original?"), true);
+  assertEquals(params.get("format"), "metadata");
+  assertEquals(params.getAll("metadataHeaders"), [
+    "Message-ID",
+    "X-Bloomjoy-Refund-Operation",
+    "From",
+  ]);
 });
 
-Deno.test("Gmail reconciliation requires exactly one message in the original thread", () => {
-  const header = "<refund-synthetic@bloomjoyusa.com>";
+Deno.test("Gmail reconciliation requires one authentic sent marker in the original thread", () => {
+  const operationMarker = refundGmailOperationMarker("refund-synthetic");
+  const mailboxIdentities = ["info@bloomjoysweets.com"];
+  const exactMessage = {
+    id: "exact-message",
+    threadId: "thread-original",
+    labelIds: ["SENT"],
+    payload: {
+      headers: [
+        { name: "Message-ID", value: "<canonical@gmail.com>" },
+        { name: "X-Bloomjoy-Refund-Operation", value: operationMarker },
+        { name: "From", value: "Bloomjoy Refunds <info@bloomjoysweets.com>" },
+      ],
+    },
+  };
   const exact = selectRefundGmailReplyEvidence(
-    [{ id: "exact-message", threadId: "thread-original" }],
+    [exactMessage],
     "thread-original",
-    header,
+    operationMarker,
+    mailboxIdentities,
   );
   assertEquals(exact, {
     providerMessageId: "exact-message",
-    providerMessageHeader: header,
+    providerMessageHeader: "<canonical@gmail.com>",
   });
   assertEquals(
-    selectRefundGmailReplyEvidence([], "thread-original", header),
+    selectRefundGmailReplyEvidence(
+      [],
+      "thread-original",
+      operationMarker,
+      mailboxIdentities,
+    ),
     null,
   );
   assertEquals(
-    classifyRefundGmailReplyEvidence([], "thread-original", header),
-    { status: "no_match" },
-  );
-  assertEquals(
     classifyRefundGmailReplyEvidence(
-      [
-        { id: "wrong-thread", threadId: "thread-other" },
-        { id: "exact-message", threadId: "thread-original" },
-      ],
+      [],
       "thread-original",
-      header,
+      operationMarker,
+      mailboxIdentities,
     ),
     { status: "ambiguous" },
   );
   assertEquals(
-    selectRefundGmailReplyEvidence(
+    classifyRefundGmailReplyEvidence(
       [
-        { id: "duplicate-one", threadId: "thread-original" },
-        { id: "duplicate-two", threadId: "thread-original" },
+        { ...exactMessage, id: "wrong-thread", threadId: "thread-other" },
+        exactMessage,
       ],
       "thread-original",
-      header,
+      operationMarker,
+      mailboxIdentities,
+    ),
+    {
+      status: "match",
+      evidence: {
+        providerMessageId: "exact-message",
+        providerMessageHeader: "<canonical@gmail.com>",
+      },
+    },
+  );
+  assertEquals(
+    selectRefundGmailReplyEvidence(
+      [
+        { ...exactMessage, id: "duplicate-one" },
+        { ...exactMessage, id: "duplicate-two" },
+      ],
+      "thread-original",
+      operationMarker,
+      mailboxIdentities,
+    ),
+    null,
+  );
+  assertEquals(
+    selectRefundGmailReplyEvidence(
+      [{
+        ...exactMessage,
+        labelIds: ["INBOX"],
+        payload: {
+          headers: exactMessage.payload.headers.map((header) =>
+            header.name === "From"
+              ? { ...header, value: "customer@example.test" }
+              : header
+          ),
+        },
+      }],
+      "thread-original",
+      operationMarker,
+      mailboxIdentities,
     ),
     null,
   );

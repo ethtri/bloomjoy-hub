@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(117);
+select plan(108);
 
 insert into auth.users (
   instance_id,
@@ -183,12 +183,12 @@ select ok(
   'Browser clients cannot mint first-contact no-match receipts'
 );
 select ok(
-  has_function_privilege(
+  not has_function_privilege(
     'service_role',
     'public.service_finish_refund_gmail_first_contact_no_match(uuid,integer)',
     'execute'
   ),
-  'The Gmail service can record a versioned first-contact no-match result'
+  'The Gmail service cannot mint first-contact no-match receipts'
 );
 select ok(
   not has_function_privilege(
@@ -199,13 +199,32 @@ select ok(
   'Browser clients cannot mint manager-reply no-match receipts'
 );
 select ok(
-  has_function_privilege(
+  not has_function_privilege(
     'service_role',
     'public.service_finish_refund_gmail_outbound_reconciliation_no_match(uuid,integer)',
     'execute'
   ),
-  'The Gmail service can record a versioned manager-reply no-match result'
+  'The Gmail service cannot mint manager-reply no-match receipts'
 );
+
+set local role service_role;
+select throws_ok(
+  $$select public.service_finish_refund_gmail_first_contact_no_match(
+    '00000000-0000-4000-8000-000000000001'::uuid, 1
+  )$$,
+  '42501',
+  'permission denied for function service_finish_refund_gmail_first_contact_no_match',
+  'The first-contact no-match RPC rejects the service role at execution time'
+);
+select throws_ok(
+  $$select public.service_finish_refund_gmail_outbound_reconciliation_no_match(
+    '00000000-0000-4000-8000-000000000001'::uuid, 1
+  )$$,
+  '42501',
+  'permission denied for function service_finish_refund_gmail_outbound_reconciliation_no_match',
+  'The manager-reply no-match RPC rejects the service role at execution time'
+);
+reset role;
 select ok(
   has_function_privilege(
     'authenticated',
@@ -502,12 +521,6 @@ select public.service_claim_refund_gmail_first_contact(
   'Synthetic deterministic first-contact body without an internal link.'
 ) as result;
 
-create temporary table active_provider_header as
-select '<refund-' || left(
-  regexp_replace((select result ->> 'operationKey' from active_claim), '[^a-zA-Z0-9._-]', '', 'g'),
-  80
-) || '@bloomjoyusa.com>' as value;
-
 select is(
   (select (result ->> 'claimed')::boolean from active_claim),
   true,
@@ -585,23 +598,37 @@ select is(
   false,
   'A concurrent or repeated active claim is suppressed'
 );
-select is(
-  public.service_finish_refund_gmail_first_contact(
-    (select (result ->> 'operationId')::uuid from active_claim),
-    'sent',
-    'first-contact-provider-message-active',
-    (select value from active_provider_header),
-    null
-  ),
-  true,
-  'Confirmed Gmail delivery finalizes the acknowledgement once'
+select throws_ok(
+  $malformed_first_contact_header$
+    select public.service_finish_refund_gmail_first_contact(
+      (select (result ->> 'operationId')::uuid from active_claim),
+      'sent',
+      'first-contact-provider-message-active',
+      'not-a-canonical-message-id',
+      null
+    )
+  $malformed_first_contact_header$,
+  'P0001',
+  'Confirmed first-contact provider evidence required',
+  'A malformed canonical header cannot finalize first-contact delivery'
 );
 select is(
   public.service_finish_refund_gmail_first_contact(
     (select (result ->> 'operationId')::uuid from active_claim),
     'sent',
     'first-contact-provider-message-active',
-    (select value from active_provider_header),
+    null,
+    null
+  ),
+  true,
+  'Confirmed Gmail delivery finalizes the acknowledgement when metadata readback is unavailable'
+);
+select is(
+  public.service_finish_refund_gmail_first_contact(
+    (select (result ->> 'operationId')::uuid from active_claim),
+    'sent',
+    'first-contact-provider-message-active',
+    null,
     null
   ),
   true,
@@ -611,13 +638,15 @@ select ok(
   (
     select operation.status = 'sent'
       and transport.status = 'sent'
+      and transport.provider_message_id = 'first-contact-provider-message-active'
+      and transport.provider_message_header is null
       and case_message.status = 'sent'
     from public.refund_gmail_first_contact_operations operation
     join public.refund_gmail_messages transport on transport.id = operation.transport_message_id
     join public.refund_case_messages case_message on case_message.id = operation.refund_case_message_id
     where operation.id = (select (result ->> 'operationId')::uuid from active_claim)
   ),
-  'Operation, transport, and customer message agree on confirmed success'
+  'First-contact success retains the provider id and nullable canonical header across every ledger'
 );
 select is(
   (
@@ -965,23 +994,6 @@ reset role;
 select set_config('request.jwt.claim.sub', '', true);
 select set_config('request.jwt.claim.role', '', true);
 
-select is(
-  public.service_finish_refund_gmail_first_contact_no_match(
-    (select operation_id from second_reconciliation_batch),
-    (select attempt_version from second_reconciliation_batch)
-  ),
-  true,
-  'The service can mint a first-contact no-match receipt for the exact current attempt version'
-);
-select is(
-  public.service_finish_refund_gmail_first_contact_no_match(
-    (select operation_id from second_reconciliation_batch),
-    (select attempt_version from second_reconciliation_batch)
-  ),
-  true,
-  'Replaying the same first-contact no-match receipt is idempotent'
-);
-
 update public.refund_gmail_first_contact_operations
 set reconciliation_checked_at = now() - interval '5 minutes'
 where id = (select (result ->> 'operationId')::uuid from uncertain_claim);
@@ -1001,15 +1013,6 @@ select is(
   ),
   'A newer first-contact claim advances the version and makes the prior receipt stale'
 );
-select is(
-  public.service_finish_refund_gmail_first_contact_no_match(
-    (select operation_id from third_reconciliation_batch),
-    1
-  ),
-  false,
-  'A stale first-contact attempt version cannot mint a new no-match receipt'
-);
-
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '79000000-0000-4000-8000-000000000001', true);
 select set_config('request.jwt.claim.role', 'authenticated', true);
@@ -1022,7 +1025,7 @@ select throws_ok(
   $stale_no_match_receipt$,
   'P0001',
   'A completed latest-version Gmail no-match check is required before human resolution',
-  'A newer automatic claim invalidates an older human-resolution receipt'
+  'A newer automatic claim still cannot create authorization for negative delivery'
 );
 
 reset role;
@@ -1030,32 +1033,13 @@ select set_config('request.jwt.claim.sub', '', true);
 select set_config('request.jwt.claim.role', '', true);
 
 select is(
-  public.service_finish_refund_gmail_first_contact_no_match(
-    (select operation_id from third_reconciliation_batch),
-    (select attempt_version from third_reconciliation_batch)
-  ),
-  true,
-  'The exact latest first-contact no-match version restores human-resolution eligibility'
-);
-select is(
-  public.service_finish_refund_gmail_first_contact_no_match(
-    (select operation_id from third_reconciliation_batch),
-    (select attempt_version from third_reconciliation_batch)
-  ),
-  true,
-  'The latest first-contact no-match receipt remains idempotent'
-);
-select is(
   public.service_count_refund_gmail_first_contact_reconciliation(),
   2,
   'Claiming reconciliation work does not hide unresolved delivery from health'
 );
 
 create temporary table stale_provider_header as
-select '<refund-' || left(
-  regexp_replace((select result ->> 'operationKey' from stale_claim), '[^a-zA-Z0-9._-]', '', 'g'),
-  80
-) || '@bloomjoyusa.com>' as value;
+select '<gmail-first-contact-stale@googlemail.com>'::text as value;
 
 select is(
   public.service_finish_refund_gmail_first_contact(
@@ -1087,15 +1071,18 @@ select is(
     (select attempt_version from first_contact_lease_recovery_batch)
   ),
   true,
-  'Deterministic Gmail Message-ID evidence reconciles an uncertain operation to sent'
+  'Canonical Gmail Message-ID evidence reconciles an uncertain operation to sent'
 );
 select is(
   (
-    select status from public.refund_gmail_first_contact_operations
-    where id = (select (result ->> 'operationId')::uuid from stale_claim)
+    select operation.status = 'sent'
+      and transport.provider_message_header = (select value from stale_provider_header)
+    from public.refund_gmail_first_contact_operations operation
+    join public.refund_gmail_messages transport on transport.id = operation.transport_message_id
+    where operation.id = (select (result ->> 'operationId')::uuid from stale_claim)
   ),
-  'sent',
-  'Reconciled operation, transport, and case message return to confirmed sent state'
+  true,
+  'Reconciled first-contact delivery persists the canonical Gmail header'
 );
 select is(
   public.service_count_refund_gmail_first_contact_reconciliation(),
@@ -1166,10 +1153,7 @@ select is(
 );
 
 create temporary table generic_pending_provider_header as
-select '<refund-' || left(
-  regexp_replace(message.operation_key, '[^a-zA-Z0-9._-]', '', 'g'),
-  80
-) || '@bloomjoyusa.com>' as value
+select '<gmail-manager-reply-pending@googlemail.com>'::text as value
 from public.refund_gmail_messages message
 where message.id = (select (result ->> 'transportMessageId')::uuid from generic_pending_claim);
 
@@ -1266,23 +1250,6 @@ select is(
   ),
   'Generic reconciliation claims only delivery-unknown work and leaves the fresh live send alone'
 );
-select is(
-  public.service_finish_refund_gmail_outbound_reconciliation_no_match(
-    (select transport_message_id from generic_fresh_reconciliation_batch),
-    (select attempt_version from generic_fresh_reconciliation_batch)
-  ),
-  true,
-  'The service can mint a manager-reply no-match receipt for the exact current attempt version'
-);
-select is(
-  public.service_finish_refund_gmail_outbound_reconciliation_no_match(
-    (select transport_message_id from generic_fresh_reconciliation_batch),
-    (select attempt_version from generic_fresh_reconciliation_batch)
-  ),
-  true,
-  'Replaying the same manager-reply no-match receipt is idempotent'
-);
-
 update public.refund_gmail_messages
 set reconciliation_checked_at = now() - interval '5 minutes'
 where id = (select (result ->> 'transportMessageId')::uuid from generic_unknown_claim);
@@ -1403,40 +1370,13 @@ select is(
   'An expired manager-reply reconciliation lease can be reclaimed with a newer fenced version'
 );
 select is(
-  public.service_finish_refund_gmail_outbound_reconciliation_no_match(
-    (select transport_message_id from generic_second_reconciliation_batch),
-    1
-  ),
-  false,
-  'A stale manager-reply attempt version cannot mint another no-match receipt'
-);
-select is(
-  public.service_finish_refund_gmail_outbound_reconciliation_no_match(
-    (select transport_message_id from generic_second_reconciliation_batch),
-    (select attempt_version from generic_second_reconciliation_batch)
-  ),
-  true,
-  'The exact latest manager-reply version replaces the stale no-match receipt'
-);
-select is(
-  public.service_finish_refund_gmail_outbound_reconciliation_no_match(
-    (select transport_message_id from generic_second_reconciliation_batch),
-    (select attempt_version from generic_second_reconciliation_batch)
-  ),
-  true,
-  'The latest manager-reply no-match receipt remains idempotent'
-);
-select is(
   public.service_count_refund_gmail_outbound_reconciliation(),
   2,
   'Rotating generic reconciliation does not hide unresolved replies from health'
 );
 
 create temporary table generic_unknown_provider_header as
-select '<refund-' || left(
-  regexp_replace(message.operation_key, '[^a-zA-Z0-9._-]', '', 'g'),
-  80
-) || '@bloomjoyusa.com>' as value
+select '<gmail-manager-reply-unknown@googlemail.com>'::text as value
 from public.refund_gmail_messages message
 where message.id = (select (result ->> 'transportMessageId')::uuid from generic_unknown_claim);
 
@@ -1445,13 +1385,13 @@ select throws_ok(
     select public.service_finish_refund_gmail_outbound_reconciliation(
       (select (result ->> 'transportMessageId')::uuid from generic_unknown_claim),
       'manager-reply-provider-unknown',
-      '<wrong-message-id@example.test>',
+      'not-a-canonical-message-id',
       (select attempt_version from generic_second_reconciliation_batch)
     )
   $generic_invalid_provider_evidence$,
   'P0001',
-  'Confirmed Gmail outbound provider evidence required',
-  'A generic uncertain reply cannot become sent with mismatched Message-ID evidence'
+  'Confirmed Gmail outbound canonical provider evidence required',
+  'A generic uncertain reply cannot become sent with malformed Message-ID evidence'
 );
 select is(
   public.service_finish_refund_gmail_outbound_reconciliation(
@@ -1461,7 +1401,7 @@ select is(
     (select attempt_version from generic_second_reconciliation_batch)
   ),
   true,
-  'Exact deterministic Message-ID evidence reconciles a delivery-unknown manager reply'
+  'Exact canonical Message-ID evidence reconciles a delivery-unknown manager reply'
 );
 select ok(
   (
@@ -1509,12 +1449,12 @@ select is(
     (select attempt_version from generic_lease_recovery_batch)
   ),
   true,
-  'Exact deterministic evidence also resolves a stale pending reply after it becomes unknown'
+  'Exact canonical evidence also resolves a stale pending reply after it becomes unknown'
 );
 select is(
   public.service_count_refund_gmail_outbound_reconciliation(),
   0,
-  'Generic delivery health clears after every manager reply has deterministic evidence'
+  'Generic delivery health clears after every manager reply has canonical evidence'
 );
 
 set local role authenticated;
@@ -1550,14 +1490,15 @@ select throws_ok(
   'A delivery-unknown Gmail reply is required',
   'Human negative resolution cannot override a reply with confirmed positive evidence'
 );
-select is(
-  (
-    public.admin_resolve_refund_gmail_delivery_not_found(
+select throws_ok(
+  $no_match_receipt_remains_required$
+    select public.admin_resolve_refund_gmail_delivery_not_found(
       (select (result ->> 'refundCaseMessageId')::uuid from uncertain_claim)
-    ) ->> 'resolved'
-  )::boolean,
-  true,
-  'An authorized manager can verify non-delivery after automatic reconciliation checked once'
+    )
+  $no_match_receipt_remains_required$,
+  'P0001',
+  'A completed latest-version Gmail no-match check is required before human resolution',
+  'Historical or revoked no-match state cannot authorize a resend'
 );
 
 reset role;
@@ -1566,20 +1507,20 @@ select set_config('request.jwt.claim.role', '', true);
 
 select ok(
   (
-    select operation.status = 'failed'
-      and operation.error_code = 'human_verified_not_delivered'
-      and transport.status = 'failed'
+    select operation.status = 'delivery_unknown'
+      and operation.reconciliation_no_match_version = 0
+      and transport.status = 'delivery_unknown'
       and case_message.status = 'failed'
-      and case_message.error_message = 'A manager verified that no Gmail message was delivered. A controlled follow-up is now allowed.'
+      and case_message.error_message = 'Gmail delivery could not be confirmed. Reconcile the original thread before retrying.'
     from public.refund_gmail_first_contact_operations operation
     join public.refund_gmail_messages transport on transport.id = operation.transport_message_id
     join public.refund_case_messages case_message on case_message.id = operation.refund_case_message_id
     where operation.id = (select (result ->> 'operationId')::uuid from uncertain_claim)
   ),
-  'Human verification atomically fails the uncertain transport and first-contact ledger with a safe code'
+  'Revoked no-match completion leaves uncertain delivery fenced with no authorization receipt'
 );
 select ok(
-  exists (
+  not exists (
     select 1
     from public.refund_case_events event
     where event.refund_case_id = (
@@ -1592,65 +1533,12 @@ select ok(
       and event.metadata ->> 'payload_redacted' = 'true'
       and event.metadata ->> 'resolution' = 'verified_not_delivered'
   ),
-  'The negative-delivery audit records the authorized actor and only redacted resolution metadata'
+  'A rejected historical no-match resolution writes no misleading authorization event'
 );
 select is(
   public.service_count_refund_gmail_first_contact_reconciliation(),
-  0,
-  'A verified negative result clears first-contact reconciliation health without claiming delivery'
-);
-
-insert into public.refund_case_messages (
-  id,
-  refund_case_id,
-  message_type,
-  status,
-  recipient_email,
-  subject,
-  body
-)
-select
-  '79100000-0000-4000-8000-000000000003',
-  source_message.refund_case_id,
-  'status_update',
-  'pending',
-  'uncertain-customer@example.test',
-  'Synthetic controlled follow-up',
-  'Thank you for your patience while we continue reviewing your request.'
-from public.refund_gmail_messages source_message
-where source_message.id = (
-  select (result ->> 'messageId')::uuid from uncertain_source
-);
-
-create temporary table controlled_follow_up_claim as
-select public.service_claim_refund_gmail_outbound(
-  source_message.refund_case_id,
-  '79100000-0000-4000-8000-000000000003',
-  'refund-case-message:79100000-0000-4000-8000-000000000003',
-  'support@example.test',
-  'uncertain-customer@example.test',
-  'Thank you for your patience while we continue reviewing your request.'
-) as result
-from public.refund_gmail_messages source_message
-where source_message.id = (
-  select (result ->> 'messageId')::uuid from uncertain_source
-);
-
-select is(
-  (select (result ->> 'claimed')::boolean from controlled_follow_up_claim),
-  true,
-  'Verified non-delivery permits one later controlled outbound in the original thread'
-);
-select is(
-  public.service_finish_refund_gmail_outbound(
-    (select (result ->> 'transportMessageId')::uuid from controlled_follow_up_claim),
-    'sent',
-    'controlled-follow-up-provider-message',
-    '<controlled-follow-up-provider-message@example.test>',
-    null
-  ),
-  true,
-  'The controlled follow-up can complete through the normal provider-confirmed path'
+  1,
+  'Unresolved delivery remains visible in first-contact reconciliation health'
 );
 
 create temporary table system_ingest as

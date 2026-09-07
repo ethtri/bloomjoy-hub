@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(42);
+select plan(43);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -359,18 +359,27 @@ select is(
     (select (result ->> 'transportMessageId')::uuid from outbound_claim),
     'sent',
     'gmail-outbound-message-1',
-    '<refund-outbound-1@example.test>',
+    '<gmail-outbound-1@googlemail.com>',
     null
   ),
   true,
   'A claimed Gmail reply can be marked sent once'
 );
 select is(
+  (
+    select provider_message_header
+    from public.refund_gmail_messages
+    where id = (select (result ->> 'transportMessageId')::uuid from outbound_claim)
+  ),
+  '<gmail-outbound-1@googlemail.com>',
+  'A confirmed manager reply persists its canonical Gmail Message-ID'
+);
+select is(
   public.service_finish_refund_gmail_outbound(
     (select (result ->> 'transportMessageId')::uuid from outbound_claim),
     'sent',
     'gmail-outbound-message-1',
-    '<refund-outbound-1@example.test>',
+    '<gmail-outbound-1@googlemail.com>',
     null
   ),
   false,

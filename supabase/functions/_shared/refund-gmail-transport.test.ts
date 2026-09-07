@@ -769,10 +769,11 @@ Deno.test("enabled linked delivery preserves exact thread, customer To, two mana
       let oauthCalls = 0;
       let gmailCalls = 0;
       let providerRequest: Record<string, unknown> = {};
+      let finishArgs: Record<string, unknown> = {};
       const mailboxHash = await sha256Hex(SYNTHETIC_ENV.GMAIL_SUPPORT_MAILBOX);
       const supabase = fakeSupabase({
         link: { id: "synthetic-link", mailbox_hash: mailboxHash },
-        rpc: async (name) => {
+        rpc: async (name, args) => {
           rpcCalls.push(name);
           if (name === "service_claim_refund_gmail_outbound_v3") {
             return {
@@ -795,6 +796,7 @@ Deno.test("enabled linked delivery preserves exact thread, customer To, two mana
             };
           }
           if (name === "service_finish_refund_gmail_outbound") {
+            finishArgs = args;
             return { data: true, error: null };
           }
           throw new Error(`unexpected synthetic RPC: ${name}`);
@@ -883,6 +885,12 @@ Deno.test("enabled linked delivery preserves exact thread, customer To, two mana
       );
       assert(oauthCalls <= 1);
       assertEquals(gmailCalls, 1);
+      assertEquals(
+        finishArgs.p_provider_message_id,
+        "synthetic-provider-message",
+      );
+      assertEquals(finishArgs.p_provider_message_header, null);
+      assertEquals(finishArgs.p_status, "sent");
     },
   );
 });

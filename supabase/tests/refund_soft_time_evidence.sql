@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(83);
+select plan(91);
 
 create function pg_temp.set_auth_claims(p_user_id uuid)
 returns void language plpgsql as $$
@@ -484,6 +484,77 @@ select lives_ok($$select public.service_apply_refund_nayax_selection_approval(
   'fb160000-0000-4000-8000-000000000005','customer_confirmation')$$,
   'One ordinary approval atomically selects the corrected purchase without a provider call');
 reset role;
+set constraints all immediate;
+select pass('The standalone selection-approval transaction is valid before any provider attempt exists');
+set constraints all deferred;
+select ok(public.refund_nayax_durable_selection_approval_pending(
+  'fb150000-0000-4000-8000-000000000001'),
+  'The exact consumed one-manager approval is the only allowed pending state without an attempt');
+select ok(not has_function_privilege('authenticated',
+  'public.refund_nayax_durable_selection_approval_pending(uuid)','execute'),
+  'The lifecycle-only approval predicate is not exposed to authenticated clients');
+
+insert into public.refund_case_events(id,refund_case_id,actor_user_id,event_type,message,metadata,created_at)
+values('fb180000-0000-4000-8000-000000000001','fb150000-0000-4000-8000-000000000001',
+  'fb110000-0000-4000-8000-000000000001','nayax_refund_execution_authorized',
+  'Forged newer approval marker regression',jsonb_build_object(
+    'schema_version','nayax-selection-approval-v1','case_version',
+    (select official_action_version from public.refund_cases
+      where id='fb150000-0000-4000-8000-000000000001'),
+    'deterministic_fact_version',4,'attempt_generation',0,'transaction_id','OFFLINE-LATER-AUTH',
+    'site_id',14,'machine_authorization_time','2026-09-05T18:05:00.123Z',
+    'amount_cents',1090,'card_last4','6768','currency_code','USD',
+    'authorization_id','fb170000-0000-4000-8000-000000000097','payload_redacted',true),
+  statement_timestamp()+interval '1 second');
+select is(public.refund_case_lifecycle_integrity_code(
+  'fb150000-0000-4000-8000-000000000001'),'card_payment_state_without_attempt',
+  'A forged latest marker without its consumed authorization cannot excuse the missing attempt');
+delete from public.refund_case_events where id='fb180000-0000-4000-8000-000000000001';
+
+update public.refund_case_official_action_authorizations
+set actor_user_id='fb110000-0000-4000-8000-000000000002'
+where id=(select authorization_id from pg_temp.soft_time_approval_receipt);
+select is(public.refund_case_lifecycle_integrity_code(
+  'fb150000-0000-4000-8000-000000000001'),'card_payment_state_without_attempt',
+  'A consumed approval that does not match the marker actor cannot excuse the missing attempt');
+update public.refund_case_official_action_authorizations
+set actor_user_id='fb110000-0000-4000-8000-000000000001'
+where id=(select authorization_id from pg_temp.soft_time_approval_receipt);
+
+select throws_ok($test$do $block$
+declare integrity_code text;
+begin
+  update public.refund_cases set nayax_refund_execution_status='requested'
+  where id='fb150000-0000-4000-8000-000000000001';
+  integrity_code := public.refund_case_lifecycle_integrity_code(
+    'fb150000-0000-4000-8000-000000000001');
+  if integrity_code is distinct from 'card_payment_state_without_attempt' then
+    raise exception 'Unexpected requested-state integrity code: %',integrity_code;
+  end if;
+  raise exception 'Requested provider state requires a durable attempt';
+end;
+$block$;$test$,'P0001','Requested provider state requires a durable attempt',
+  'A requested provider state still requires a durable attempt');
+
+select throws_ok($$update public.refund_cases set status='completed'
+  where id='fb150000-0000-4000-8000-000000000001'$$,
+  'P0001','Card completion requires token-bound confirmed provider settlement',
+  'A completed card state without an attempt is rejected by the stricter settlement guard');
+
+select throws_ok($test$do $block$
+declare integrity_code text;
+begin
+  update public.refund_cases set nayax_refund_execution_status='ambiguous'
+  where id='fb150000-0000-4000-8000-000000000001';
+  integrity_code := public.refund_case_lifecycle_integrity_code(
+    'fb150000-0000-4000-8000-000000000001');
+  if integrity_code is distinct from 'card_payment_state_without_attempt' then
+    raise exception 'Unexpected unknown-state integrity code: %',integrity_code;
+  end if;
+  raise exception 'Unknown provider state requires a durable attempt';
+end;
+$block$;$test$,'P0001','Unknown provider state requires a durable attempt',
+  'An unknown provider outcome still requires a durable attempt');
 select ok((select matched_nayax_transaction_id='OFFLINE-LATER-AUTH'
     and matched_nayax_machine_auth_time='2026-09-05T18:05:00.123Z'
     and nayax_match_execution_eligible and nayax_recommendation_state='manager_confirmed'
