@@ -6417,6 +6417,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
     const page = await context.newPage();
     const simpleJourneyStartedAt = scenario.simpleJourney ? Date.now() : null;
     await signInRefundUser(page, appUrl);
+    let unresolvedCompetingSelectionGuarded = false;
     if (scenario.simpleJourney) {
       await navigateRefundPortalPage(
         page,
@@ -6834,10 +6835,16 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       const unresolvedCompetingSelection = scenario.name === 'multiple candidates';
       const reviewableExactSelection = scenario.expectedReviewableMismatch === true;
       const candidateRefundAction = page.getByRole('button', { name: /^Refund \$/i });
+      unresolvedCompetingSelectionGuarded = unresolvedCompetingSelection &&
+        (await candidateRefundAction.count()) === 0 &&
+        await page.getByTestId('selected-nayax-transaction-evidence-missing').getByText(
+          'The selected transaction evidence needs an internal Refund Operations repair. Do not ask the customer to repeat purchase details.',
+          { exact: true }
+        ).isVisible();
       recorder.assert(
         `Nayax ${scenario.name} does not expose an enabled refund action`,
         unresolvedCompetingSelection
-          ? (await candidateRefundAction.count()) === 1 && await candidateRefundAction.isDisabled()
+          ? unresolvedCompetingSelectionGuarded
           : reviewableExactSelection
             ? (await candidateRefundAction.count()) === 1 && await candidateRefundAction.isEnabled()
           : (await candidateRefundAction.count()) === 0
@@ -6854,7 +6861,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
           : scenario.expectedCandidateCount
             ? (await page.getByTestId('nayax-candidate-option').count()) === scenario.expectedCandidateCount &&
               (scenario.name === 'multiple candidates'
-                ? await page.getByRole('button', { name: /^Refund \$/i }).isDisabled() &&
+                ? unresolvedCompetingSelectionGuarded &&
                   await page.getByLabel('Why is this the right transaction?').isVisible()
                 : scenario.expectedReviewableMismatch
                   ? await page.getByRole('button', { name: /^Refund \$/i }).isEnabled()
