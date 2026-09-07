@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  AlertTriangle,
-  ArrowLeft,
+  AlertCircle,
   CalendarDays,
-  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   Download,
   Edit3,
@@ -12,14 +12,23 @@ import {
   Loader2,
   Plus,
   RefreshCw,
-  Save,
   Trash2,
 } from 'lucide-react';
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Select,
   SelectContent,
@@ -31,15 +40,13 @@ import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
 import { cn } from '@/lib/utils';
 import {
+  calculateOperatorPaidShifts,
   downloadOperatorPayStatementHtml,
   fetchMyOperatorPayStatementContext,
   fetchMyOperatorTimekeepingContext,
   fetchPayStatementArtifact,
   formatOperatorPayStatementLabel,
-  paidMinutesToHours,
-  roundOperatorPaidMinutes,
-  submitOperatorTimeEntry,
-  updateOperatorTimeEntry,
+  saveCompletedOperatorTimeEntry,
   voidOperatorTimeEntry,
   type OperatorAssignedMachine,
   type OperatorPayStatementSummary,
@@ -47,1030 +54,1084 @@ import {
   type OperatorTimekeepingContext,
   type OperatorTimekeepingProfileContext,
 } from '@/lib/operatorPayouts';
+import {
+  addPlainDateDays,
+  combineDateAndTimeInTimekeepingZone,
+  describeTimekeepingError,
+  getActualDurationMinutes,
+  getTodayInTimekeepingZone,
+  getWeekDates,
+  getWeekMonthAnchors,
+  getWeekStart,
+  isCompletedTimeInFuture,
+  timeDraftMatchesEntry,
+  timeDraftOverlapsEntry,
+  TIMEKEEPING_TIME_ZONE,
+} from '@/lib/timekeepingUi';
 
 type TimeEntryForm = {
   workDate: string;
   machineId: string;
   startTime: string;
   endTime: string;
-  notes: string;
 };
 
-const todayInputValue = () => {
-  const date = new Date();
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
+type FormErrors = Partial<Record<keyof TimeEntryForm | 'form', string>>;
 
-  return `${year}-${month}-${day}`;
-};
+const getContextQueryKey = (monthAnchor: string) =>
+  ['operator-timekeeping', monthAnchor] as const;
+const getPayStubsQueryKey = ['operator-pay-statements'] as const;
+const editablePeriodStatuses = new Set(['open', 'grace_period', 'reopened']);
 
-const defaultForm = (): TimeEntryForm => ({
-  workDate: todayInputValue(),
-  machineId: '',
-  startTime: '',
-  endTime: '',
-  notes: '',
-});
+const isDateValue = (value: string | null): value is string =>
+  Boolean(value && /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(value));
 
-const isValidMonthValue = (value: string | null): value is string =>
+const isMonthValue = (value: string | null): value is string =>
   Boolean(value && /^\d{4}-(0[1-9]|1[0-2])$/.test(value));
 
-const formatDate = (value: string | null | undefined) => {
-  if (!value) return 'Not set';
+const formatPlainDate = (
+  value: string,
+  options: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
+) =>
+  new Intl.DateTimeFormat(undefined, { ...options, timeZone: 'UTC' }).format(
+    new Date(`${value}T12:00:00.000Z`)
+  );
 
-  const dateValue = value.includes('T') ? new Date(value) : new Date(`${value}T00:00:00`);
+const formatTime = (value: string) => {
+  const [hour, minute] = value.split(':').map(Number);
+  return new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'UTC',
+  }).format(new Date(Date.UTC(2000, 0, 1, hour, minute)));
+};
 
-  return dateValue.toLocaleDateString(undefined, {
+const formatDuration = (minutes: number) => {
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  if (!hours) return `${remainder} min`;
+  if (!remainder) return `${hours} hr${hours === 1 ? '' : 's'}`;
+  return `${hours} hr ${remainder} min`;
+};
+
+const formatCurrency = (cents: number) =>
+  new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(cents / 100);
+
+const formatCutoff = (cutoffAt: string) =>
+  new Intl.DateTimeFormat(undefined, {
     month: 'short',
     day: 'numeric',
-    year: 'numeric',
-  });
-};
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: TIMEKEEPING_TIME_ZONE,
+  }).format(new Date(new Date(cutoffAt).getTime() - 60_000));
 
-const formatMonth = (value: string) =>
-  new Date(`${value}-01T00:00:00`).toLocaleDateString(undefined, {
-    month: 'long',
-    year: 'numeric',
-  });
-
-const formatMinutes = (minutes: number) => {
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-
-  if (hours === 0) return `${remainingMinutes} min`;
-  if (remainingMinutes === 0) return `${hours} hr${hours === 1 ? '' : 's'}`;
-  return `${hours} hr ${remainingMinutes} min`;
-};
-
-const formatPaidHours = (minutes: number) =>
-  `${paidMinutesToHours(minutes).toLocaleString(undefined, {
-    maximumFractionDigits: 2,
-  })} rounded hr${minutes === 60 ? '' : 's'}`;
-
-const formatCurrency = (cents: number | null | undefined) =>
-  new Intl.NumberFormat(undefined, {
-    style: 'currency',
-    currency: 'USD',
-  }).format((cents ?? 0) / 100);
-
-const timeToMinutes = (value: string) => {
-  const [hour, minute] = value.split(':').map(Number);
-  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
-
-  return hour * 60 + minute;
-};
-
-const calculateRawDuration = (startTime: string, endTime: string) => {
-  const start = timeToMinutes(startTime);
-  const end = timeToMinutes(endTime);
-
-  if (start === null || end === null || end <= start) return 0;
-
-  return end - start;
-};
-
-const isDateInsideRange = (date: string, startDate: string, endDate: string) =>
-  date >= startDate && date <= endDate;
-
-const machineIsEffectiveOnDate = (machine: OperatorAssignedMachine, workDate: string) =>
+const machineIsEffective = (machine: OperatorAssignedMachine, workDate: string) =>
   machine.effectiveStartDate <= workDate &&
   (!machine.effectiveEndDate || machine.effectiveEndDate >= workDate);
 
-const entriesOverlap = (candidate: TimeEntryForm, entry: OperatorTimeEntry) => {
-  if (candidate.workDate !== entry.workDate) return false;
+const machineLabel = (machine: Pick<OperatorAssignedMachine, 'machineLabel' | 'locationName'>) =>
+  `${machine.machineLabel} · ${machine.locationName}`;
 
-  const candidateStart = timeToMinutes(candidate.startTime);
-  const candidateEnd = timeToMinutes(candidate.endTime);
-  const entryStart = timeToMinutes(entry.startTime);
-  const entryEnd = timeToMinutes(entry.endTime);
+const entryLabel = (entry: OperatorTimeEntry) =>
+  `${formatPlainDate(entry.workDate, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  })}, ${formatTime(entry.startTime)} to ${formatTime(entry.endTime)}, ${entry.machineLabel}`;
 
-  if (
-    candidateStart === null ||
-    candidateEnd === null ||
-    entryStart === null ||
-    entryEnd === null
-  ) {
-    return false;
-  }
+const mergeProfiles = (contexts: OperatorTimekeepingContext[]) => {
+  const profileMap = new Map<string, OperatorTimekeepingProfileContext>();
 
-  return candidateStart < entryEnd && entryStart < candidateEnd;
+  contexts.forEach((context) => {
+    context.profiles.forEach((profile) => {
+      const existing = profileMap.get(profile.id);
+      if (!existing) {
+        profileMap.set(profile.id, {
+          ...profile,
+          assignedMachines: [...profile.assignedMachines],
+          currentEntries: [...profile.currentEntries],
+          recentEntries: [],
+        });
+        return;
+      }
+
+      const assignments = new Map(
+        [...existing.assignedMachines, ...profile.assignedMachines].map((machine) => [
+          machine.assignmentId,
+          machine,
+        ])
+      );
+      const entries = new Map(
+        [...existing.currentEntries, ...profile.currentEntries].map((entry) => [entry.id, entry])
+      );
+      existing.assignedMachines = [...assignments.values()];
+      existing.currentEntries = [...entries.values()];
+    });
+  });
+
+  return [...profileMap.values()];
 };
 
-const entryMatchesExactly = (candidate: TimeEntryForm, entry: OperatorTimeEntry) =>
-  candidate.workDate === entry.workDate &&
-  candidate.machineId === entry.machineId &&
-  candidate.startTime === entry.startTime &&
-  candidate.endTime === entry.endTime;
-
-const getStatusLabel = (status: string) =>
-  status
-    .split('_')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-
-const getEntryReviewLabel = (entry: OperatorTimeEntry) => {
-  if (entry.status === 'draft') return 'Draft';
-  if (entry.status === 'paid') return 'Paid';
-  if (entry.status === 'included_in_payout') return 'Included in pay';
-  if (entry.status === 'locked') return 'Locked';
-  if (entry.managerReviewStatus === 'approved') return 'Approved';
-  if (entry.managerReviewStatus === 'needs_correction') return 'Correction requested';
-  return 'Waiting for review';
-};
-
-const getEntryReviewClassName = (entry: OperatorTimeEntry) => {
-  if (entry.status !== 'submitted') return 'border-border bg-muted/60 text-foreground';
-  if (entry.managerReviewStatus === 'approved') {
-    return 'border-sage/40 bg-sage/10 text-foreground';
-  }
-  if (entry.managerReviewStatus === 'needs_correction') {
-    return 'border-amber/40 bg-amber/10 text-foreground';
-  }
-  return 'border-primary/20 bg-primary/10 text-primary';
-};
-
-const getMachineLabel = (entry: OperatorTimeEntry) =>
-  `${entry.machineLabel} - ${entry.locationName}`;
-
-const getContextQueryKey = (workDate: string) => ['operator-timekeeping', workDate] as const;
-const getPayStatementsQueryKey = ['operator-pay-statements'] as const;
-const emptyProfiles: OperatorTimekeepingProfileContext[] = [];
-const timeActionClassName =
-  'min-h-11 transition-[transform,box-shadow,background-color,border-color,color] duration-150 ease-out active:scale-[0.96]';
-const timeSmallActionClassName =
-  'min-h-10 transition-[transform,box-shadow,background-color,border-color,color] duration-150 ease-out active:scale-[0.96]';
-const timeInsetPanelClassName =
-  'rounded-lg bg-muted/30 p-3 shadow-[inset_0_0_0_1px_hsl(var(--border))]';
+const defaultForm = (workDate: string): TimeEntryForm => ({
+  workDate,
+  machineId: '',
+  startTime: '',
+  endTime: '',
+});
 
 export default function PortalTimePage() {
-  const queryClient = useQueryClient();
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { entryId } = useParams<{ entryId?: string }>();
-  const isTimeEntryScreen = location.pathname === '/portal/time/new' || Boolean(entryId);
-  const requestedMonth = new URLSearchParams(location.search).get('month');
+  const search = new URLSearchParams(location.search);
+  const today = getTodayInTimekeepingZone();
+  const requestedDate = search.get('date');
+  const requestedWeek = search.get('week');
+  const requestedMonth = search.get('month');
+  const initialDate = isDateValue(requestedDate)
+    ? requestedDate
+    : isDateValue(requestedWeek)
+      ? requestedWeek
+      : isMonthValue(requestedMonth)
+        ? `${requestedMonth}-01`
+        : today;
+  const isFormRoute = location.pathname === '/portal/time/new' || Boolean(entryId);
+  const [weekStart, setWeekStart] = useState(() => getWeekStart(initialDate));
+  const [selectedDate, setSelectedDate] = useState(initialDate);
   const [selectedProfileId, setSelectedProfileId] = useState('');
-  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
-  const [downloadingStatementId, setDownloadingStatementId] = useState<string | null>(null);
-  const [form, setForm] = useState<TimeEntryForm>(() => {
-    const initialForm = defaultForm();
-
-    return entryId && isValidMonthValue(requestedMonth)
-      ? { ...initialForm, workDate: `${requestedMonth}-01` }
-      : initialForm;
-  });
-  const [viewMonth, setViewMonth] = useState(() =>
-    isValidMonthValue(requestedMonth)
-      ? requestedMonth
-      : todayInputValue().slice(0, 7)
-  );
-  const contextMonth = isTimeEntryScreen
-    ? (form.workDate || todayInputValue()).slice(0, 7)
-    : viewMonth;
-  const contextWorkDate = `${contextMonth}-01`;
-
-  const {
-    data: context,
-    isLoading,
-    isFetching,
-    error,
-    refetch: refetchTimekeeping,
-  } = useQuery({
-    queryKey: getContextQueryKey(contextWorkDate),
-    queryFn: () => fetchMyOperatorTimekeepingContext(contextWorkDate),
-    staleTime: 1000 * 20,
-    retry: false,
-  });
-
-  const {
-    data: statementContext,
-    isFetching: isFetchingStatements,
-    error: statementError,
-  } = useQuery({
-    queryKey: getPayStatementsQueryKey,
-    queryFn: fetchMyOperatorPayStatementContext,
-    staleTime: 1000 * 30,
-  });
-
-  const profiles = context?.profiles ?? emptyProfiles;
+  const [form, setForm] = useState<TimeEntryForm>(() => defaultForm(initialDate));
+  const [formErrors, setFormErrors] = useState<FormErrors>({});
+  const [initializedEntryId, setInitializedEntryId] = useState<string | null>(null);
+  const [deleteEntry, setDeleteEntry] = useState<OperatorTimeEntry | null>(null);
+  const [deleteError, setDeleteError] = useState<{ id: string; message: string } | null>(null);
+  const [downloadingPayStubId, setDownloadingPayStubId] = useState<string | null>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
-    if (!selectedProfileId && profiles.length > 0) {
-      setSelectedProfileId(
-        profiles.find((profile) => profile.assignedMachines.length > 0)?.id ?? profiles[0].id
-      );
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (isFormRoute || !isDateValue(requestedWeek)) return;
+    const nextWeekStart = getWeekStart(requestedWeek);
+    if (nextWeekStart !== weekStart) setWeekStart(nextWeekStart);
+    if (isDateValue(requestedDate) && requestedDate !== selectedDate) {
+      setSelectedDate(requestedDate);
     }
+  }, [isFormRoute, requestedDate, requestedWeek, selectedDate, weekStart]);
+
+  const weekDates = useMemo(() => getWeekDates(weekStart), [weekStart]);
+  const baseMonthAnchors = useMemo(() => getWeekMonthAnchors(weekStart), [weekStart]);
+  const queryMonthAnchors = useMemo(() => {
+    const anchors = [...baseMonthAnchors];
+    if (entryId && isMonthValue(requestedMonth)) anchors.push(`${requestedMonth}-01`);
+    if (entryId && isDateValue(requestedDate)) anchors.push(`${requestedDate.slice(0, 7)}-01`);
+    return [...new Set(anchors)];
+  }, [baseMonthAnchors, entryId, requestedDate, requestedMonth]);
+
+  const contextQueries = useQueries({
+    queries: queryMonthAnchors.map((monthAnchor) => ({
+      queryKey: getContextQueryKey(monthAnchor),
+      queryFn: () => fetchMyOperatorTimekeepingContext(monthAnchor),
+      staleTime: 20_000,
+      retry: false,
+    })),
+  });
+
+  const contexts = contextQueries
+    .map((query) => query.data)
+    .filter((context): context is OperatorTimekeepingContext => Boolean(context));
+  const profiles = useMemo(() => mergeProfiles(contexts), [contexts]);
+  const isLoading = contextQueries.some((query) => query.isLoading);
+  const isRefreshing = contextQueries.some((query) => query.isFetching);
+  const loadError = contextQueries.find((query) => query.error)?.error;
+
+  useEffect(() => {
+    if (!profiles.length) return;
+    if (profiles.some((profile) => profile.id === selectedProfileId)) return;
+    setSelectedProfileId(
+      profiles.find((profile) => profile.assignedMachines.length > 0)?.id ?? profiles[0].id
+    );
   }, [profiles, selectedProfileId]);
 
-  const selectedProfile = useMemo(
-    () =>
-      profiles.find((profile) => profile.id === selectedProfileId) ??
-      profiles.find((profile) => profile.assignedMachines.length > 0) ??
-      profiles[0],
-    [profiles, selectedProfileId]
-  );
-  const routeEntry = useMemo(() => {
-    if (!entryId) return null;
-
-    return (
-      profiles
-        .flatMap((profile) => [...profile.currentEntries, ...profile.recentEntries])
-        .find((entry) => entry.id === entryId) ?? null
-    );
-  }, [entryId, profiles]);
-  const selectedStatementProfile = useMemo(
-    () =>
-      selectedProfile
-        ? statementContext?.profiles.find((profile) => profile.id === selectedProfile.id)
-        : statementContext?.profiles[0],
-    [selectedProfile, statementContext?.profiles]
-  );
-  const issuedStatements = selectedStatementProfile?.statements ?? [];
-  const periodSummary = useMemo(() => {
-    const entries = selectedProfile?.currentEntries ?? [];
-
-    return {
-      rawMinutes: entries.reduce((total, entry) => total + entry.rawDurationMinutes, 0),
-      roundedMinutes: entries.reduce((total, entry) => total + entry.roundedPaidMinutes, 0),
-      submitted: entries.filter((entry) => entry.status === 'submitted').length,
-      waiting: entries.filter(
-        (entry) => entry.status === 'submitted' && entry.managerReviewStatus === 'pending'
-      ).length,
-      approved: entries.filter(
-        (entry) => entry.status === 'submitted' && entry.managerReviewStatus === 'approved'
-      ).length,
-      needsCorrection: entries.filter(
-        (entry) =>
-          entry.status === 'submitted' && entry.managerReviewStatus === 'needs_correction'
-      ).length,
-    };
-  }, [selectedProfile]);
+  const selectedProfile =
+    profiles.find((profile) => profile.id === selectedProfileId) ?? profiles[0] ?? null;
+  const routeEntry = entryId
+    ? profiles.flatMap((profile) => profile.currentEntries).find((entry) => entry.id === entryId) ??
+      null
+    : null;
 
   useEffect(() => {
-    if (routeEntry && routeEntry.operatorProfileId !== selectedProfileId) {
-      setSelectedProfileId(routeEntry.operatorProfileId);
-    }
-  }, [routeEntry, selectedProfileId]);
-
-  useEffect(() => {
-    if (!isTimeEntryScreen) return;
-
-    if (!entryId) {
-      setEditingEntryId(null);
-      setForm(() => {
-        const nextForm = defaultForm();
-
-        return isValidMonthValue(requestedMonth)
-          ? { ...nextForm, workDate: `${requestedMonth}-01` }
-          : nextForm;
-      });
-      return;
-    }
-
-    if (!routeEntry) return;
-
-    setEditingEntryId(routeEntry.id);
+    if (!entryId || !routeEntry || initializedEntryId === entryId) return;
+    setSelectedProfileId(routeEntry.operatorProfileId);
+    setSelectedDate(routeEntry.workDate);
+    setWeekStart(getWeekStart(routeEntry.workDate));
     setForm({
       workDate: routeEntry.workDate,
       machineId: routeEntry.machineId,
       startTime: routeEntry.startTime,
       endTime: routeEntry.endTime,
-      notes: routeEntry.notes ?? '',
     });
-  }, [entryId, isTimeEntryScreen, requestedMonth, routeEntry]);
+    setInitializedEntryId(entryId);
+  }, [entryId, initializedEntryId, routeEntry]);
+
+  const effectiveMachines = useMemo(
+    () =>
+      selectedProfile?.assignedMachines.filter((machine) =>
+        machineIsEffective(machine, form.workDate)
+      ) ?? [],
+    [form.workDate, selectedProfile]
+  );
 
   useEffect(() => {
-    if (!isTimeEntryScreen && editingEntryId) {
-      setEditingEntryId(null);
-    }
-  }, [editingEntryId, isTimeEntryScreen]);
-
-  const effectiveMachines = useMemo(() => {
-    if (!selectedProfile) return [];
-
-    return selectedProfile.assignedMachines.filter((machine) =>
-      machineIsEffectiveOnDate(machine, form.workDate)
-    );
-  }, [form.workDate, selectedProfile]);
-
-  useEffect(() => {
-    if (!selectedProfile) return;
-
+    if (!isFormRoute || !selectedProfile) return;
     setForm((current) => {
-      if (
-        current.machineId &&
-        selectedProfile.assignedMachines.some((machine) => machine.machineId === current.machineId)
-      ) {
+      if (effectiveMachines.some((machine) => machine.machineId === current.machineId)) {
         return current;
       }
-
-      return {
-        ...current,
-        machineId: effectiveMachines[0]?.machineId ?? '',
-      };
+      return { ...current, machineId: effectiveMachines[0]?.machineId ?? '' };
     });
-  }, [effectiveMachines, selectedProfile]);
+  }, [effectiveMachines, isFormRoute, selectedProfile]);
 
-  const rawDurationMinutes = calculateRawDuration(form.startTime, form.endTime);
-  const roundedPaidMinutes = selectedProfile
-    ? roundOperatorPaidMinutes(rawDurationMinutes, selectedProfile.policy.roundingRule)
-    : 0;
-  const editableEntries = selectedProfile?.currentEntries ?? [];
-  const entryBeingEdited = editingEntryId
-    ? editableEntries.find((entry) => entry.id === editingEntryId) ?? null
-    : null;
-  const isPeriodEditable =
-    selectedProfile?.currentPeriod.status === 'open' ||
-    selectedProfile?.currentPeriod.status === 'grace_period' ||
-    selectedProfile?.currentPeriod.status === 'reopened';
-  const isWorkDateInCurrentPeriod = selectedProfile
-    ? isDateInsideRange(
-        form.workDate,
-        selectedProfile.currentPeriod.periodStartDate,
-        selectedProfile.currentPeriod.periodEndDate
-      )
+  const contextForFormDate = contexts.find(
+    (context) => context.workDate.slice(0, 7) === form.workDate.slice(0, 7)
+  );
+  const profileForFormDate = contextForFormDate?.profiles.find(
+    (profile) => profile.id === selectedProfile?.id
+  );
+  const periodCanEdit = profileForFormDate
+    ? editablePeriodStatuses.has(profileForFormDate.currentPeriod.status)
     : false;
-  const selectedMachine = effectiveMachines.find((machine) => machine.machineId === form.machineId);
-  const overlappingEntries = editableEntries.filter(
-    (entry) => entry.id !== editingEntryId && entriesOverlap(form, entry)
+  const entries = useMemo(
+    () =>
+      (selectedProfile?.currentEntries ?? [])
+        .filter((entry) => entry.workDate >= weekDates[0] && entry.workDate <= weekDates[6])
+        .sort(
+          (left, right) =>
+            left.workDate.localeCompare(right.workDate) || left.startTime.localeCompare(right.startTime)
+        ),
+    [selectedProfile, weekDates]
   );
-  const exactDuplicate = editableEntries.find(
-    (entry) => entry.id !== editingEntryId && entryMatchesExactly(form, entry)
+  const selectedDayEntries = entries.filter((entry) => entry.workDate === selectedDate);
+  const totalActualMinutes = entries.reduce(
+    (total, entry) => total + entry.actualDurationMinutes,
+    0
   );
-  const longShiftWarning = rawDurationMinutes >= 10 * 60;
-  const hasBlockingValidation =
-    !selectedProfile ||
-    !form.machineId ||
-    !form.workDate ||
-    !form.startTime ||
-    !form.endTime ||
-    rawDurationMinutes <= 0 ||
-    !selectedMachine ||
-    !isWorkDateInCurrentPeriod ||
-    !isPeriodEditable ||
-    Boolean(exactDuplicate);
+  const totalPaidShifts = entries.reduce((total, entry) => total + entry.paidShifts, 0);
+  const durationMinutes = getActualDurationMinutes(form.startTime, form.endTime);
+  const previewPaidShifts = calculateOperatorPaidShifts(durationMinutes);
+  const comparableEntries = selectedProfile?.currentEntries ?? [];
+  const duplicateEntry =
+    form.startTime && form.endTime
+      ? comparableEntries.find(
+          (entry) => entry.id !== entryId && timeDraftMatchesEntry(form, entry)
+        )
+      : null;
+  const overlappingEntry =
+    form.startTime && form.endTime && durationMinutes > 0
+      ? comparableEntries.find(
+          (entry) => entry.id !== entryId && timeDraftOverlapsEntry(form, entry)
+        )
+      : null;
+  const currentWeekStart = getWeekStart(today);
+  const selectedDateIsFuture = selectedDate > today;
+  const selectedDayHasAssignment =
+    selectedProfile?.assignedMachines.some((machine) => machineIsEffective(machine, selectedDate)) ??
+    false;
+
+  const payStubsQuery = useQuery({
+    queryKey: getPayStubsQueryKey,
+    queryFn: fetchMyOperatorPayStatementContext,
+    staleTime: 30_000,
+    enabled: !isFormRoute && profiles.length > 0,
+  });
+  const payStubProfile = payStubsQuery.data?.profiles.find(
+    (profile) => profile.id === selectedProfile?.id
+  );
+
+  const invalidateVisibleMonths = async () => {
+    await Promise.all(
+      baseMonthAnchors.map((monthAnchor) =>
+        queryClient.invalidateQueries({ queryKey: getContextQueryKey(monthAnchor) })
+      )
+    );
+  };
 
   const saveMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedProfile) {
-        throw new Error('No Technician pay profile is selected.');
-      }
-
-      if (editingEntryId) {
-        return updateOperatorTimeEntry({
-          timeEntryId: editingEntryId,
-          operatorProfileId: selectedProfile.id,
-          machineId: form.machineId,
-          workDate: form.workDate,
-          startTime: form.startTime,
-          endTime: form.endTime,
-          notes: form.notes,
-          status: 'submitted',
-        });
-      }
-
-      return submitOperatorTimeEntry({
+    mutationFn: () => {
+      if (!selectedProfile) throw new Error('Technician timekeeping access required.');
+      return saveCompletedOperatorTimeEntry({
+        timeEntryId: entryId ?? null,
         operatorProfileId: selectedProfile.id,
         machineId: form.machineId,
-        workDate: form.workDate,
-        startTime: form.startTime,
-        endTime: form.endTime,
-        notes: form.notes,
-        status: 'submitted',
+        actualStartAt: combineDateAndTimeInTimekeepingZone(form.workDate, form.startTime),
+        actualEndAt: combineDateAndTimeInTimekeepingZone(form.workDate, form.endTime),
+        notes: routeEntry?.notes ?? null,
       });
     },
-    onSuccess: (nextContext) => {
-      const nextMonth = nextContext.workDate.slice(0, 7);
-      queryClient.setQueryData<OperatorTimekeepingContext>(
-        getContextQueryKey(`${nextMonth}-01`),
-        nextContext
+    onSuccess: async ({ context, timeEntry }) => {
+      const monthAnchor = `${context.workDate.slice(0, 7)}-01`;
+      queryClient.setQueryData(getContextQueryKey(monthAnchor), context);
+      await invalidateVisibleMonths();
+      const nextWeek = getWeekStart(timeEntry.workDate);
+      toast.success(
+        `Saved ${formatDuration(timeEntry.actualDurationMinutes)} as ${timeEntry.paidShifts} paid ${
+          timeEntry.paidShifts === 1 ? 'shift' : 'shifts'
+        }.`
       );
-      setViewMonth(nextMonth);
-      setEditingEntryId(null);
-      setForm({
-        ...defaultForm(),
-        machineId: nextContext.profiles[0]?.assignedMachines[0]?.machineId ?? '',
-      });
-      toast.success('Time entry saved.');
-      navigate(`/portal/time?month=${nextMonth}`);
+      navigate(`/portal/time?week=${nextWeek}&date=${timeEntry.workDate}`);
     },
-    onError: (mutationError: Error) => {
-      toast.error(mutationError.message || 'Unable to save time entry.');
+    onError: async (error) => {
+      const message = describeTimekeepingError(error);
+      setFormErrors((current) => ({ ...current, form: message }));
+      if (/closed|cutoff|locked|assigned|assignment/i.test(String(error))) {
+        await invalidateVisibleMonths();
+      }
     },
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (timeEntryId: string) =>
+    mutationFn: (entry: OperatorTimeEntry) =>
       voidOperatorTimeEntry({
-        timeEntryId,
-        reason: 'Technician deleted unlocked shift from Portal Time',
+        timeEntryId: entry.id,
+        reason: 'Technician deleted an unlocked time entry from Portal Time',
       }),
-    onSuccess: (nextContext) => {
-      const nextMonth = nextContext.workDate.slice(0, 7);
-      queryClient.setQueryData<OperatorTimekeepingContext>(
-        getContextQueryKey(`${nextMonth}-01`),
-        nextContext
-      );
-      setEditingEntryId(null);
+    onSuccess: async (context) => {
+      queryClient.setQueryData(getContextQueryKey(`${context.workDate.slice(0, 7)}-01`), context);
+      setDeleteEntry(null);
+      setDeleteError(null);
+      await invalidateVisibleMonths();
       toast.success('Time entry deleted.');
+      requestAnimationFrame(() => headingRef.current?.focus());
     },
-    onError: (mutationError: Error) => {
-      toast.error(mutationError.message || 'Unable to delete time entry.');
+    onError: async (error, entry) => {
+      const message = describeTimekeepingError(error);
+      setDeleteError({ id: entry.id, message });
+      setDeleteEntry(null);
+      requestAnimationFrame(() => deleteTriggerRef.current?.focus());
+      if (/closed|cutoff|locked/i.test(String(error))) await invalidateVisibleMonths();
     },
   });
 
-  const refresh = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['operator-timekeeping'] }),
-      queryClient.invalidateQueries({ queryKey: getPayStatementsQueryKey }),
-    ]);
+  const setWeek = (nextWeekStart: string) => {
+    const nextSelectedDate = nextWeekStart === currentWeekStart ? today : nextWeekStart;
+    setWeekStart(nextWeekStart);
+    setSelectedDate(nextSelectedDate);
+    navigate(`/portal/time?week=${nextWeekStart}&date=${nextSelectedDate}`);
   };
 
-  const retryTimekeeping = async () => {
-    await refetchTimekeeping();
-  };
+  const openAddTime = (date = selectedDate) =>
+    navigate(`/portal/time/new?date=${date}&week=${weekStart}`);
 
-  const downloadStatement = async (statement: OperatorPayStatementSummary) => {
-    setDownloadingStatementId(statement.id);
-    try {
-      const artifact = await fetchPayStatementArtifact(statement.id);
-      downloadOperatorPayStatementHtml(artifact);
-      toast.success('Pay statement downloaded.');
-    } catch (downloadError) {
-      toast.error(
-        downloadError instanceof Error ? downloadError.message : 'Unable to download pay statement.'
-      );
-    } finally {
-      setDownloadingStatementId(null);
+  const openEditTime = (entry: OperatorTimeEntry) =>
+    navigate(
+      `/portal/time/${entry.id}/edit?date=${entry.workDate}&week=${weekStart}&month=${entry.workDate.slice(0, 7)}`
+    );
+
+  const validateAndSave = () => {
+    const errors: FormErrors = {};
+    if (!form.workDate) errors.workDate = 'Choose the day you worked.';
+    if (!form.machineId) errors.machineId = 'Choose the machine you worked on.';
+    if (!form.startTime) errors.startTime = 'Enter the start time.';
+    if (!form.endTime) errors.endTime = 'Enter the end time.';
+    if (form.startTime && form.endTime && durationMinutes <= 0) {
+      errors.endTime = 'End time must be later than start time.';
     }
-  };
-
-  const startEditing = (entry: OperatorTimeEntry) => {
-    navigate(`/portal/time/${entry.id}/edit?month=${entry.workDate.slice(0, 7)}`);
-  };
-
-  const cancelEditing = () => {
-    setEditingEntryId(null);
-    setForm({
-      ...defaultForm(),
-      machineId: effectiveMachines[0]?.machineId ?? '',
-    });
-    navigate(`/portal/time?month=${form.workDate.slice(0, 7)}`);
-  };
-
-  const confirmDelete = (entry: OperatorTimeEntry) => {
-    if (entry.lockedAt || !['draft', 'submitted'].includes(entry.status)) {
-      toast.error('Locked time entries cannot be deleted.');
-      return;
+    if (form.workDate && form.endTime && isCompletedTimeInFuture(form.workDate, form.endTime)) {
+      errors.endTime = 'Enter time only after the work has ended.';
+    }
+    if (!effectiveMachines.some((machine) => machine.machineId === form.machineId)) {
+      errors.machineId = 'That machine was not assigned to you on this date.';
+    }
+    if (duplicateEntry) {
+      errors.form = 'This exact time is already recorded. Edit the existing entry instead.';
+    } else if (overlappingEntry) {
+      errors.form = `This time overlaps your ${formatTime(overlappingEntry.startTime)} to ${formatTime(
+        overlappingEntry.endTime
+      )} entry on ${overlappingEntry.machineLabel}. Times may touch, but they cannot overlap.`;
+    }
+    if (!periodCanEdit || (routeEntry && !routeEntry.technicianEditable)) {
+      errors.form =
+        'Technician editing has closed for this month. Your manager can still correct the entry.';
     }
 
-    const shiftSummary = `${formatDate(entry.workDate)} / ${entry.startTime} to ${
-      entry.endTime
-    } / ${getMachineLabel(entry)}`;
-
-    if (
-      window.confirm(
-        `Delete this submitted time entry?\n\n${shiftSummary}\n\nIt will be removed from this pay period.`
-      )
-    ) {
-      deleteMutation.mutate(entry.id);
-    }
-  };
-
-  const saveTime = () => {
-    if (exactDuplicate) {
-      toast.error('This matches an existing shift. Review the existing entry instead.');
-      return;
-    }
-
-    const warnings = [
-      overlappingEntries.length > 0
-        ? `This shift overlaps ${overlappingEntries.length} existing entr${
-            overlappingEntries.length === 1 ? 'y' : 'ies'
-          }.`
-        : null,
-      longShiftWarning ? 'This shift is 10+ hours.' : null,
-    ].filter(Boolean) as string[];
-
-    if (warnings.length > 0) {
-      const shiftSummary = `${formatDate(form.workDate)} / ${form.startTime} to ${
-        form.endTime
-      } / ${selectedMachine ? `${selectedMachine.machineLabel} - ${selectedMachine.locationName}` : 'Selected machine'}`;
-
-      if (
-        !window.confirm(
-          `${warnings.join('\n')}\n\n${shiftSummary}\n\nSave this time entry anyway?`
-        )
-      ) {
-        return;
-      }
-    }
-
+    setFormErrors(errors);
+    if (Object.keys(errors).length) return;
     saveMutation.mutate();
   };
+
+  const downloadPayStub = async (payStub: OperatorPayStatementSummary) => {
+    setDownloadingPayStubId(payStub.id);
+    try {
+      const artifact = await fetchPayStatementArtifact(payStub.id);
+      downloadOperatorPayStatementHtml(artifact);
+      toast.success('Pay Stub downloaded.');
+    } catch (error) {
+      toast.error(describeTimekeepingError(error));
+    } finally {
+      setDownloadingPayStubId(null);
+    }
+  };
+
+  const retryLoad = () => Promise.all(contextQueries.map((query) => query.refetch()));
+
+  if (isLoading) {
+    return (
+      <PortalLayout>
+        <section className="portal-section" aria-label="Loading Timekeeping">
+          <div className="container-page space-y-5">
+            <Skeleton className="h-44 rounded-[28px]" />
+            <Skeleton className="h-24 rounded-xl" />
+            <Skeleton className="h-72 rounded-xl" />
+          </div>
+        </section>
+      </PortalLayout>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <PortalLayout>
+        <section className="portal-section">
+          <div className="container-page">
+            <PortalPageIntro
+              title="Time"
+              description="We could not load your time right now. Your existing entries have not changed."
+              actions={
+                <Button type="button" onClick={retryLoad} className="min-h-11">
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Try again
+                </Button>
+              }
+            />
+          </div>
+        </section>
+      </PortalLayout>
+    );
+  }
+
+  if (!profiles.length) {
+    return (
+      <PortalLayout>
+        <section className="portal-section">
+          <div className="container-page">
+            <PortalPageIntro
+              title="Time"
+              description="Your account does not have an active Technician profile yet. Ask your manager to check your Technician access."
+              badges={[{ label: 'Setup needed', tone: 'warning' }]}
+            />
+          </div>
+        </section>
+      </PortalLayout>
+    );
+  }
+
+  if (isFormRoute) {
+    const editingEntryMissing = Boolean(entryId && !routeEntry && !isLoading);
+    const selectedMachine = effectiveMachines.find((machine) => machine.machineId === form.machineId);
+    const formLocked = !periodCanEdit || Boolean(routeEntry && !routeEntry.technicianEditable);
+
+    return (
+      <PortalLayout>
+        <section className="portal-section">
+          <div className="container-page space-y-5">
+            <PortalPageIntro
+              eyebrow="Timekeeping"
+              title={entryId ? 'Edit time' : 'Add time'}
+              description="Record one completed block of work for one machine. Each entry rounds up to a whole paid shift."
+              actions={
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => navigate(`/portal/time?week=${weekStart}&date=${form.workDate}`)}
+                  className="min-h-11"
+                >
+                  <ChevronLeft className="mr-2 h-4 w-4" />
+                  Back to week
+                </Button>
+              }
+            />
+
+            {editingEntryMissing ? (
+              <div className="rounded-xl border border-border bg-card p-6 shadow-sm" role="alert">
+                <h2 className="text-lg font-semibold text-foreground">Time entry not found</h2>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  It may have been deleted or moved. Return to the week to see your current entries.
+                </p>
+                <Button
+                  type="button"
+                  className="mt-5 min-h-11"
+                  onClick={() => navigate(`/portal/time?week=${weekStart}&date=${selectedDate}`)}
+                >
+                  View this week
+                </Button>
+              </div>
+            ) : (
+              <div className="mx-auto max-w-2xl overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+                <div className="border-b border-border px-4 py-5 sm:px-6">
+                  <h2 className="text-lg font-semibold text-foreground">Work details</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Times use Bloomjoy's Pacific operating timezone.
+                  </p>
+                </div>
+
+                <form
+                  className="space-y-5 p-4 sm:p-6"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    validateAndSave();
+                  }}
+                  noValidate
+                >
+                  {profiles.length > 1 && (
+                    <div className="space-y-2">
+                      <label htmlFor="technician-profile" className="text-sm font-medium text-foreground">
+                        Technician account
+                      </label>
+                      <Select value={selectedProfile?.id ?? ''} onValueChange={setSelectedProfileId}>
+                        <SelectTrigger id="technician-profile" className="min-h-11">
+                          <SelectValue placeholder="Choose an account" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {profiles.map((profile) => (
+                            <SelectItem key={profile.id} value={profile.id}>
+                              {profile.displayName} · {profile.accountName}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <label htmlFor="work-date" className="text-sm font-medium text-foreground">
+                      Work date
+                    </label>
+                    <Input
+                      id="work-date"
+                      type="date"
+                      value={form.workDate}
+                      min={weekDates[0]}
+                      max={weekDates[6] < today ? weekDates[6] : today}
+                      aria-invalid={Boolean(formErrors.workDate)}
+                      aria-describedby={formErrors.workDate ? 'work-date-error' : undefined}
+                      onChange={(event) => {
+                        setForm((current) => ({ ...current, workDate: event.target.value }));
+                        setFormErrors({});
+                      }}
+                      className="min-h-11"
+                    />
+                    {formErrors.workDate && (
+                      <p id="work-date-error" className="text-sm text-destructive">
+                        {formErrors.workDate}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="work-machine" className="text-sm font-medium text-foreground">
+                      Machine
+                    </label>
+                    <Select
+                      value={form.machineId}
+                      onValueChange={(machineId) => {
+                        setForm((current) => ({ ...current, machineId }));
+                        setFormErrors({});
+                      }}
+                      disabled={!effectiveMachines.length}
+                    >
+                      <SelectTrigger
+                        id="work-machine"
+                        className="min-h-11"
+                        aria-invalid={Boolean(formErrors.machineId)}
+                        aria-describedby={formErrors.machineId ? 'work-machine-error' : undefined}
+                      >
+                        <SelectValue placeholder="Choose a machine" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {effectiveMachines.map((machine) => (
+                          <SelectItem key={machine.assignmentId} value={machine.machineId}>
+                            {machineLabel(machine)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {!effectiveMachines.length && (
+                      <p className="text-sm text-muted-foreground">
+                        No machine assignment is active for this date. Choose another day or ask your manager to check the assignment.
+                      </p>
+                    )}
+                    {formErrors.machineId && (
+                      <p id="work-machine-error" className="text-sm text-destructive">
+                        {formErrors.machineId}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <label htmlFor="start-time" className="text-sm font-medium text-foreground">
+                        Start time
+                      </label>
+                      <Input
+                        id="start-time"
+                        type="time"
+                        value={form.startTime}
+                        aria-invalid={Boolean(formErrors.startTime)}
+                        aria-describedby={formErrors.startTime ? 'start-time-error' : undefined}
+                        onChange={(event) => {
+                          setForm((current) => ({ ...current, startTime: event.target.value }));
+                          setFormErrors({});
+                        }}
+                        className="min-h-11"
+                      />
+                      {formErrors.startTime && (
+                        <p id="start-time-error" className="text-sm text-destructive">
+                          {formErrors.startTime}
+                        </p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <label htmlFor="end-time" className="text-sm font-medium text-foreground">
+                        End time
+                      </label>
+                      <Input
+                        id="end-time"
+                        type="time"
+                        value={form.endTime}
+                        aria-invalid={Boolean(formErrors.endTime)}
+                        aria-describedby={formErrors.endTime ? 'end-time-error' : undefined}
+                        onChange={(event) => {
+                          setForm((current) => ({ ...current, endTime: event.target.value }));
+                          setFormErrors({});
+                        }}
+                        className="min-h-11"
+                      />
+                      {formErrors.endTime && (
+                        <p id="end-time-error" className="text-sm text-destructive">
+                          {formErrors.endTime}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div
+                    className={cn(
+                      'rounded-xl border px-4 py-4',
+                      durationMinutes > 0
+                        ? 'border-primary/20 bg-primary/5'
+                        : 'border-border bg-muted/30'
+                    )}
+                    aria-live="polite"
+                  >
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Pay preview
+                    </p>
+                    {durationMinutes > 0 ? (
+                      <p className="mt-1 text-base font-semibold text-foreground">
+                        {formatDuration(durationMinutes)} actual{' '}
+                        <span className="text-muted-foreground">→</span>{' '}
+                        {previewPaidShifts} paid {previewPaidShifts === 1 ? 'shift' : 'shifts'}
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Add a start and end time to see the result.
+                      </p>
+                    )}
+                    {selectedMachine && durationMinutes > 0 && (
+                      <p className="mt-1 text-sm text-muted-foreground">{machineLabel(selectedMachine)}</p>
+                    )}
+                  </div>
+
+                  {formLocked && !formErrors.form && (
+                    <div className="flex gap-3 rounded-xl border border-amber/30 bg-amber/10 p-4 text-sm text-foreground">
+                      <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber" />
+                      <p>
+                        Technician editing is closed for this month. Your manager can still correct an error.
+                      </p>
+                    </div>
+                  )}
+
+                  {formErrors.form && (
+                    <div
+                      id="time-form-error"
+                      className="flex gap-3 rounded-xl border border-destructive/25 bg-destructive/5 p-4 text-sm text-destructive"
+                      role="alert"
+                    >
+                      <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+                      <p>{formErrors.form}</p>
+                    </div>
+                  )}
+
+                  <div className="flex flex-col-reverse gap-3 border-t border-border pt-5 sm:flex-row sm:justify-end">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="min-h-11"
+                      onClick={() => navigate(`/portal/time?week=${weekStart}&date=${form.workDate}`)}
+                      disabled={saveMutation.isPending}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="submit"
+                      className="min-h-11"
+                      disabled={saveMutation.isPending || formLocked || !effectiveMachines.length}
+                      aria-describedby={formErrors.form ? 'time-form-error' : undefined}
+                    >
+                      {saveMutation.isPending ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />
+                      ) : (
+                        <Clock3 className="mr-2 h-4 w-4" />
+                      )}
+                      {saveMutation.isPending ? 'Saving…' : 'Save time'}
+                    </Button>
+                  </div>
+                </form>
+              </div>
+            )}
+          </div>
+        </section>
+      </PortalLayout>
+    );
+  }
 
   return (
     <PortalLayout>
       <section className="portal-section">
-        <div className="container-page">
+        <div className="container-page space-y-5">
           <PortalPageIntro
-            title={isTimeEntryScreen ? (editingEntryId ? 'Edit Time' : 'Add Time') : 'Time'}
-            description={
-              isTimeEntryScreen
-                ? 'Enter one completed shift. You can correct it until the period locks.'
-                : 'Enter completed shifts, follow manager review, and access issued statements.'
-            }
+            eyebrow="Technician"
+            title="Time"
+            description="Record completed work by machine. Each entry rounds up independently to a whole paid shift."
             badges={[
               {
-                label: selectedProfile
-                  ? `${getStatusLabel(selectedProfile.currentPeriod.status)} period`
-                  : 'Timekeeping',
-                tone: selectedProfile?.currentPeriod.status === 'locked' ? 'warning' : 'default',
-              },
-              {
-                label: isFetching ? 'Refreshing' : 'Whole-hour rounding',
+                label: `${formatDuration(totalActualMinutes)} actual · ${totalPaidShifts} paid ${
+                  totalPaidShifts === 1 ? 'shift' : 'shifts'
+                }`,
                 tone: 'muted',
+                icon: Clock3,
               },
             ]}
             actions={
-              isTimeEntryScreen ? (
-                <Button asChild variant="outline" className={timeActionClassName}>
-                  <Link to={`/portal/time?month=${contextMonth}`}>
-                    <ArrowLeft className="mr-2 h-4 w-4" />
-                    Time home
-                  </Link>
-                </Button>
-              ) : (
-                <Button
-                  variant="outline"
-                  onClick={refresh}
-                  disabled={isFetching}
-                  className={timeActionClassName}
-                >
-                  {isFetching ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                  )}
-                  Refresh
-                </Button>
-              )
+              <Button
+                type="button"
+                onClick={() => openAddTime()}
+                disabled={selectedDateIsFuture || !selectedDayHasAssignment}
+                className="min-h-11"
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Add time
+              </Button>
             }
           />
 
-          {isLoading ? (
-            <div className="mt-6 card-elevated px-5 py-10 text-center text-sm text-muted-foreground">
-              <Loader2 className="mx-auto mb-3 h-5 w-5 animate-spin" />
-              Loading timekeeping...
+          {profiles.length > 1 && (
+            <div className="max-w-md space-y-2">
+              <label htmlFor="week-profile" className="text-sm font-medium text-foreground">
+                Technician account
+              </label>
+              <Select value={selectedProfile?.id ?? ''} onValueChange={setSelectedProfileId}>
+                <SelectTrigger id="week-profile" className="min-h-11 bg-card">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {profiles.map((profile) => (
+                    <SelectItem key={profile.id} value={profile.id}>
+                      {profile.displayName} · {profile.accountName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-          ) : error ? (
-            <div className="mt-6 card-elevated px-5 py-8">
-              <AlertTriangle className="h-6 w-6 text-destructive" />
-              <h2 className="mt-4 text-xl font-semibold text-foreground">
-                Timekeeping is unavailable
-              </h2>
-              <p className="mt-2 max-w-2xl text-pretty text-sm leading-6 text-muted-foreground">
-                Your shifts could not be loaded. Try again before entering or changing time.
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                className={cn('mt-5', timeActionClassName)}
-                onClick={() => void retryTimekeeping()}
-                disabled={isFetching}
-              >
-                {isFetching ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                )}
-                Try again
-              </Button>
-            </div>
-          ) : !selectedProfile || selectedProfile.assignedMachines.length === 0 ? (
-            <div className="mt-6 card-elevated px-5 py-10">
-              <div className="mx-auto max-w-xl text-center">
-                <Clock3 className="mx-auto h-10 w-10 text-muted-foreground" />
-                <h2 className="mt-4 text-xl font-semibold text-foreground">
-                  Timekeeping setup needed
-                </h2>
-                <p className="mt-2 text-pretty text-sm text-muted-foreground">
-                  {selectedProfile
-                    ? 'Ask a Bloomjoy admin or Machine Manager to assign at least one machine before entering shifts.'
-                    : 'Ask a Bloomjoy admin or Machine Manager to add your Technician pay profile and assigned machines before entering shifts.'}
+          )}
+
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+            <div className="flex flex-col gap-3 border-b border-border px-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Week of
                 </p>
-                <div className="mt-5 flex flex-col justify-center gap-3 sm:flex-row">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => void retryTimekeeping()}
-                    disabled={isFetching}
-                    className={timeActionClassName}
-                  >
-                    {isFetching ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <RefreshCw className="mr-2 h-4 w-4" />
-                    )}
-                    Check setup again
-                  </Button>
-                  <Button asChild variant="ghost" className={timeActionClassName}>
-                    <Link to="/portal">Back to dashboard</Link>
-                  </Button>
-                </div>
+                <h2
+                  ref={headingRef}
+                  tabIndex={-1}
+                  className="mt-1 text-lg font-semibold text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  {formatPlainDate(weekDates[0], { month: 'long', day: 'numeric' })} to{' '}
+                  {formatPlainDate(weekDates[6], {
+                    month: 'long',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })}
+                </h2>
+              </div>
+              <div className="grid grid-cols-[44px_1fr_44px] gap-2 sm:flex">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="min-h-11 min-w-11"
+                  aria-label="Previous week"
+                  onClick={() => setWeek(addPlainDateDays(weekStart, -7))}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-h-11"
+                  onClick={() => setWeek(currentWeekStart)}
+                  disabled={weekStart === currentWeekStart}
+                >
+                  This week
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="min-h-11 min-w-11"
+                  aria-label="Next week"
+                  onClick={() => setWeek(addPlainDateDays(weekStart, 7))}
+                  disabled={weekStart >= currentWeekStart}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
               </div>
             </div>
-          ) : (
-            <>
-              {isTimeEntryScreen ? (
-                <div className="mx-auto mt-6 max-w-3xl">
-                  {entryId && !routeEntry ? (
-                    <div className="card-elevated p-5 text-sm text-muted-foreground">
-                      This time entry is not available for editing.
-                    </div>
-                  ) : (
-                    <div className="card-elevated p-4 sm:p-5">
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <h2 className="text-balance text-lg font-semibold text-foreground">
-                            {editingEntryId ? 'Edit completed shift' : 'Add completed shift'}
-                          </h2>
-                          <p className="mt-1 text-pretty text-sm text-muted-foreground">
-                            Use the actual start and end time. Bloomjoy rounds each saved shift up to
-                            the next full hour.
-                          </p>
-                        </div>
-                        {profiles.length > 1 && (
-                          <div className="w-full sm:w-56">
-                            <label
-                              htmlFor="operator-profile-select"
-                              className="mb-1 block text-sm font-medium text-foreground"
-                            >
-                              Technician pay profile
-                            </label>
-                            <Select
-                              value={selectedProfile.id}
-                              onValueChange={(value) => {
-                                setSelectedProfileId(value);
-                                setEditingEntryId(null);
-                              }}
-                            >
-                              <SelectTrigger id="operator-profile-select">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {profiles.map((profile) => (
-                                  <SelectItem key={profile.id} value={profile.id}>
-                                    {profile.accountName}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        )}
-                      </div>
 
-                      {entryBeingEdited?.managerReviewStatus === 'needs_correction' &&
-                        entryBeingEdited.managerReviewReason && (
-                          <div
-                            role="note"
-                            aria-labelledby="edit-time-correction-heading"
-                            className="mt-5 rounded-xl border border-amber/40 bg-amber/10 px-3 py-3 text-sm leading-6 text-foreground"
-                          >
-                            <p id="edit-time-correction-heading" className="font-semibold">
-                              Your manager requested a correction
-                            </p>
-                            <p className="mt-1 text-pretty">
-                              {entryBeingEdited.managerReviewReason}
-                            </p>
-                          </div>
-                        )}
-
-                      <PeriodDetails profile={selectedProfile} />
-
-                      <div className="mt-5 grid gap-4">
-                        <div>
-                          <label htmlFor="work-date" className="mb-1 block text-sm font-medium">
-                            Work date
-                          </label>
-                          <Input
-                            id="work-date"
-                            type="date"
-                            value={form.workDate}
-                            max={todayInputValue()}
-                            onChange={(event) =>
-                              setForm((current) => ({ ...current, workDate: event.target.value }))
-                            }
-                          />
-                        </div>
-
-                        <div>
-                          <label htmlFor="machine-id" className="mb-1 block text-sm font-medium">
-                            Machine
-                          </label>
-                          <Select
-                            value={form.machineId}
-                            onValueChange={(value) =>
-                              setForm((current) => ({ ...current, machineId: value }))
-                            }
-                            disabled={effectiveMachines.length === 0}
-                          >
-                            <SelectTrigger id="machine-id">
-                              <SelectValue placeholder="Select an assigned machine" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {effectiveMachines.map((machine) => (
-                                <SelectItem key={machine.machineId} value={machine.machineId}>
-                                  {machine.machineLabel} - {machine.locationName}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className="grid gap-4 sm:grid-cols-2">
-                          <div>
-                            <label htmlFor="start-time" className="mb-1 block text-sm font-medium">
-                              Start time
-                            </label>
-                            <Input
-                              id="start-time"
-                              type="time"
-                              value={form.startTime}
-                              onChange={(event) =>
-                                setForm((current) => ({
-                                  ...current,
-                                  startTime: event.target.value,
-                                }))
-                              }
-                            />
-                          </div>
-                          <div>
-                            <label htmlFor="end-time" className="mb-1 block text-sm font-medium">
-                              End time
-                            </label>
-                            <Input
-                              id="end-time"
-                              type="time"
-                              value={form.endTime}
-                              onChange={(event) =>
-                                setForm((current) => ({ ...current, endTime: event.target.value }))
-                              }
-                            />
-                          </div>
-                        </div>
-
-                        <div>
-                          <label htmlFor="time-notes" className="mb-1 block text-sm font-medium">
-                            Notes{' '}
-                            <span className="font-normal text-muted-foreground">(optional)</span>
-                          </label>
-                          <Textarea
-                            id="time-notes"
-                            value={form.notes}
-                            rows={2}
-                            placeholder="Add context only if it helps"
-                            onChange={(event) =>
-                              setForm((current) => ({ ...current, notes: event.target.value }))
-                            }
-                          />
-                        </div>
-                      </div>
-
-                      <div className={cn('mt-5 grid gap-3 sm:grid-cols-2', timeInsetPanelClassName)}>
-                        <Metric
-                          label="Actual time"
-                          value={
-                            rawDurationMinutes ? formatMinutes(rawDurationMinutes) : 'Set times'
-                          }
-                        />
-                        <Metric
-                          label="Rounded time"
-                          value={
-                            roundedPaidMinutes ? formatPaidHours(roundedPaidMinutes) : 'Set times'
-                          }
-                        />
-                      </div>
-
-                      <ValidationPanel
-                        hasInvalidTimes={Boolean(
-                          form.startTime && form.endTime && rawDurationMinutes <= 0
-                        )}
-                        isWorkDateInCurrentPeriod={isWorkDateInCurrentPeriod}
-                        hasSelectedMachine={Boolean(selectedMachine)}
-                        isPeriodEditable={isPeriodEditable}
-                        overlappingEntries={overlappingEntries}
-                        exactDuplicate={exactDuplicate}
-                        longShiftWarning={longShiftWarning}
-                      />
-
-                      <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={cancelEditing}
-                          className={timeActionClassName}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          type="button"
-                          onClick={saveTime}
-                          disabled={hasBlockingValidation || saveMutation.isPending}
-                          className={timeActionClassName}
-                        >
-                          {saveMutation.isPending ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          ) : editingEntryId ? (
-                            <Save className="mr-2 h-4 w-4" />
-                          ) : (
-                            <Plus className="mr-2 h-4 w-4" />
-                          )}
-                          {editingEntryId ? 'Save changes' : 'Submit shift'}
-                        </Button>
-                      </div>
-
-                      {saveMutation.isError && (
-                        <div
-                          role="alert"
-                          className="mt-4 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-3 text-sm text-foreground"
-                        >
-                          <p className="font-semibold">Shift was not saved</p>
-                          <p className="mt-1 text-pretty text-muted-foreground">
-                            Your entries are still here. Check your connection and try again.
-                          </p>
-                        </div>
+            <div
+              className="grid grid-cols-7 gap-0.5 border-b border-border bg-muted/30 p-2 sm:gap-2 sm:p-3"
+              aria-label="Choose a day"
+            >
+              {weekDates.map((date) => {
+                const dayEntries = entries.filter((entry) => entry.workDate === date);
+                const isSelected = date === selectedDate;
+                const isToday = date === today;
+                return (
+                  <button
+                    key={date}
+                    type="button"
+                    onClick={() => {
+                      setSelectedDate(date);
+                      navigate(`/portal/time?week=${weekStart}&date=${date}`, { replace: true });
+                    }}
+                    aria-pressed={isSelected}
+                    aria-label={`${formatPlainDate(date, {
+                      weekday: 'long',
+                      month: 'long',
+                      day: 'numeric',
+                    })}, ${dayEntries.length} ${dayEntries.length === 1 ? 'entry' : 'entries'}${
+                      isToday ? ', today' : ''
+                    }`}
+                    className={cn(
+                      'min-h-14 min-w-0 rounded-lg px-0.5 py-2 text-center outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 motion-reduce:duration-0 motion-reduce:transition-none sm:min-h-16 sm:px-2',
+                      isSelected
+                        ? 'bg-primary text-primary-foreground shadow-sm'
+                        : 'bg-card text-foreground hover:bg-accent',
+                      date > today && !isSelected && 'text-muted-foreground'
+                    )}
+                  >
+                    <span className="block text-[11px] font-semibold uppercase tracking-wide sm:text-xs">
+                      {formatPlainDate(date, { weekday: 'short' })}
+                    </span>
+                    <span className="mt-0.5 block text-base font-semibold tabular-nums">
+                      {formatPlainDate(date, { day: 'numeric' })}
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        'mx-auto mt-1 block h-1 w-1 rounded-full',
+                        dayEntries.length
+                          ? isSelected
+                            ? 'bg-primary-foreground'
+                            : 'bg-primary'
+                          : 'bg-transparent'
                       )}
+                    />
+                  </button>
+                );
+              })}
+            </div>
 
-                      {hasBlockingValidation && !saveMutation.isPending && (
-                        <p className="mt-3 text-xs text-muted-foreground">
-                          Enter a date, assigned machine, start time, and end time to submit the
-                          shift.
-                        </p>
-                      )}
+            <div className="px-3 py-5 sm:px-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Selected day
+                  </p>
+                  <h3 className="mt-1 text-lg font-semibold text-foreground">
+                    {formatPlainDate(selectedDate, {
+                      weekday: 'long',
+                      month: 'long',
+                      day: 'numeric',
+                    })}
+                  </h3>
+                </div>
+                <Button
+                  type="button"
+                  onClick={() => openAddTime(selectedDate)}
+                  disabled={selectedDateIsFuture || !selectedDayHasAssignment}
+                  className="min-h-11 w-full sm:w-auto"
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add time
+                </Button>
+              </div>
 
-                      {entryBeingEdited && (
-                        <p className="mt-3 text-xs text-muted-foreground">
-                          Editing {formatDate(entryBeingEdited.workDate)} shift at{' '}
-                          {getMachineLabel(entryBeingEdited)}.
-                        </p>
-                      )}
-                    </div>
-                  )}
+              {!selectedDayHasAssignment ? (
+                <div className="mt-4 rounded-xl border border-border bg-muted/30 p-5">
+                  <p className="font-medium text-foreground">No machine assignment for this day</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Choose another day or ask your manager to check when your machine assignment starts.
+                  </p>
+                </div>
+              ) : selectedDateIsFuture ? (
+                <div className="mt-4 rounded-xl border border-border bg-muted/30 p-5">
+                  <p className="font-medium text-foreground">This workday has not finished yet</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Return after the work is completed to record your time.
+                  </p>
+                </div>
+              ) : selectedDayEntries.length === 0 ? (
+                <div className="mt-4 rounded-xl border border-dashed border-border bg-muted/20 px-5 py-8 text-center">
+                  <CalendarDays className="mx-auto h-6 w-6 text-muted-foreground" />
+                  <p className="mt-3 font-medium text-foreground">No time recorded for this day</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Add each machine separately so its paid shift is easy to understand.
+                  </p>
+                  <Button type="button" className="mt-5 min-h-11" onClick={() => openAddTime()}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add time
+                  </Button>
                 </div>
               ) : (
-                <div className="mt-6 space-y-6">
-                  <div className="rounded-[24px] border border-border bg-background p-4 shadow-[var(--shadow-sm)] sm:p-5">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <h2 className="font-display text-xl font-semibold text-foreground">
-                          Record completed work
-                        </h2>
-                        <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-                          Add each shift after you finish. Your Machine Manager will review submitted
-                          time here.
-                        </p>
-                      </div>
-                      <Button asChild size="lg" className={timeActionClassName}>
-                        <Link to={`/portal/time/new?month=${viewMonth}`}>
-                          <Plus className="mr-2 h-4 w-4" />
-                          Add completed shift
-                        </Link>
-                      </Button>
-                    </div>
-
-                    {periodSummary.needsCorrection > 0 && (
-                      <a
-                        href="#this-period"
-                        className="mt-5 flex items-start gap-3 rounded-xl border border-amber/25 bg-amber/10 px-3 py-3 text-sm text-foreground transition-colors hover:bg-amber/20"
-                      >
-                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber" />
-                        <span>
-                          <strong className="font-semibold">
-                            {periodSummary.needsCorrection}{' '}
-                            {periodSummary.needsCorrection === 1 ? 'shift needs' : 'shifts need'} a
-                            correction.
-                          </strong>{' '}
-                          Open the shift below to see your manager&apos;s note.
-                        </span>
-                      </a>
-                    )}
-
-                    <div className="mt-5 border-t border-border pt-5">
-                      <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <div>
-                            <label htmlFor="time-month" className="mb-1.5 block text-sm font-medium">
-                              Month
-                            </label>
-                            <div className="relative">
-                              <CalendarDays className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
-                              <Input
-                                id="time-month"
-                                type="month"
-                                value={viewMonth}
-                                max={todayInputValue().slice(0, 7)}
-                                onChange={(event) =>
-                                  setViewMonth(event.target.value || todayInputValue().slice(0, 7))
-                                }
-                                className="min-h-11 pl-9 sm:w-52"
-                              />
-                            </div>
+                <div className="mt-4 divide-y divide-border rounded-xl border border-border">
+                  {selectedDayEntries.map((entry) => {
+                    const entryPeriod = contexts
+                      .find((context) => context.workDate.slice(0, 7) === entry.workDate.slice(0, 7))
+                      ?.profiles.find((profile) => profile.id === entry.operatorProfileId)
+                      ?.currentPeriod;
+                    const canEdit =
+                      entry.technicianEditable &&
+                      Boolean(entryPeriod && editablePeriodStatuses.has(entryPeriod.status));
+                    return (
+                      <article key={entry.id} className="p-4 sm:p-5">
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <h4 className="break-words font-semibold text-foreground">
+                              {entry.machineLabel}
+                            </h4>
+                            <p className="mt-0.5 break-words text-sm text-muted-foreground">
+                              {entry.locationName}
+                            </p>
+                            <p className="mt-3 text-base font-medium tabular-nums text-foreground">
+                              {formatTime(entry.startTime)} to {formatTime(entry.endTime)}
+                            </p>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              {formatDuration(entry.actualDurationMinutes)} actual ·{' '}
+                              <span className="font-semibold text-foreground">
+                                {entry.paidShifts} paid {entry.paidShifts === 1 ? 'shift' : 'shifts'}
+                              </span>
+                            </p>
+                            {!canEdit && (
+                              <p className="mt-2 text-sm text-muted-foreground">
+                                Editing closed after {formatCutoff(entry.technicianCutoffAt)} PT. Your manager can correct an error.
+                              </p>
+                            )}
+                            {deleteError?.id === entry.id && (
+                              <p className="mt-3 text-sm text-destructive" role="alert">
+                                {deleteError.message}
+                              </p>
+                            )}
                           </div>
-                          {profiles.length > 1 && (
-                            <div>
-                              <label
-                                htmlFor="work-profile-select"
-                                className="mb-1.5 block text-sm font-medium"
+                          {canEdit && (
+                            <div className="flex gap-2 sm:shrink-0">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="min-h-11 flex-1 sm:flex-none"
+                                aria-label={`Edit ${entryLabel(entry)}`}
+                                onClick={() => openEditTime(entry)}
                               >
-                                Work profile
-                              </label>
-                              <Select value={selectedProfile.id} onValueChange={setSelectedProfileId}>
-                                <SelectTrigger
-                                  id="work-profile-select"
-                                  className="min-h-11 sm:w-64"
-                                >
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {profiles.map((profile) => (
-                                    <SelectItem key={profile.id} value={profile.id}>
-                                      {profile.accountName}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                                <Edit3 className="mr-2 h-4 w-4" />
+                                Edit
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="min-h-11 flex-1 text-destructive hover:text-destructive sm:flex-none"
+                                aria-label={`Delete ${entryLabel(entry)}`}
+                                onClick={(event) => {
+                                  deleteTriggerRef.current = event.currentTarget;
+                                  setDeleteError(null);
+                                  setDeleteEntry(entry);
+                                }}
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Delete
+                              </Button>
                             </div>
                           )}
                         </div>
-
-                        <div className="flex flex-wrap gap-x-6 gap-y-3 text-sm text-muted-foreground">
-                          <span>
-                            <strong className="block text-base font-semibold tabular-nums text-foreground">
-                              {formatMinutes(periodSummary.rawMinutes)}
-                            </strong>
-                            actual time
-                          </span>
-                          <span>
-                            <strong className="block text-base font-semibold tabular-nums text-foreground">
-                              {formatPaidHours(periodSummary.roundedMinutes)}
-                            </strong>
-                            rounded time
-                          </span>
-                          <span>
-                            <strong className="block text-base font-semibold tabular-nums text-foreground">
-                              {periodSummary.submitted}
-                            </strong>
-                            submitted shifts
-                          </span>
-                          <span>
-                            <strong className="block text-base font-semibold tabular-nums text-foreground">
-                              {periodSummary.waiting}
-                            </strong>
-                            waiting
-                          </span>
-                          <span>
-                            <strong className="block text-base font-semibold tabular-nums text-foreground">
-                              {periodSummary.approved}
-                            </strong>
-                            approved
-                          </span>
-                        </div>
-                      </div>
-                      <p className="mt-4 text-sm leading-6 text-muted-foreground">
-                        Due {formatDate(selectedProfile.currentPeriod.submissionDueDate)}. Each shift
-                        is rounded up to the next full hour.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div id="this-period">
-                    <TimeEntriesPanel
-                      title={`${formatMonth(viewMonth)} shifts`}
-                      description={`${formatDate(
-                        selectedProfile.currentPeriod.periodStartDate
-                      )} to ${formatDate(selectedProfile.currentPeriod.periodEndDate)}`}
-                      entries={selectedProfile.currentEntries}
-                      emptyMessage="No shifts entered for this month yet. Add a completed shift to get started."
-                      onEdit={startEditing}
-                      onDelete={confirmDelete}
-                      isDeleting={deleteMutation.isPending}
-                    />
-                  </div>
-
-                  <div id="pay-statements">
-                    <PayStatementsPanel
-                      statements={issuedStatements}
-                      isRefreshing={isFetchingStatements}
-                      error={statementError}
-                      downloadingStatementId={downloadingStatementId}
-                      onDownload={downloadStatement}
-                    />
-                  </div>
+                      </article>
+                    );
+                  })}
                 </div>
               )}
-            </>
+            </div>
+          </div>
+
+          <PayStubsPanel
+            payStubs={payStubProfile?.statements ?? []}
+            isLoading={payStubsQuery.isLoading}
+            error={payStubsQuery.error}
+            downloadingId={downloadingPayStubId}
+            onDownload={downloadPayStub}
+          />
+
+          <AlertDialog
+            open={Boolean(deleteEntry)}
+            onOpenChange={(open) => {
+              if (open) return;
+              setDeleteEntry(null);
+              requestAnimationFrame(() => deleteTriggerRef.current?.focus());
+            }}
+          >
+            <AlertDialogContent className="max-w-md">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete this time entry?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {deleteEntry
+                    ? `${entryLabel(deleteEntry)}. This removes it from your weekly record.`
+                    : 'This removes the time from your weekly record.'}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel className="min-h-11">Keep entry</AlertDialogCancel>
+                <AlertDialogAction
+                  className="min-h-11 bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  disabled={deleteMutation.isPending}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    if (deleteEntry) deleteMutation.mutate(deleteEntry);
+                  }}
+                >
+                  {deleteMutation.isPending && (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />
+                  )}
+                  Delete time
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          {isRefreshing && (
+            <p className="sr-only" aria-live="polite">
+              Refreshing time entries.
+            </p>
           )}
         </div>
       </section>
@@ -1078,309 +1139,85 @@ export default function PortalTimePage() {
   );
 }
 
-function PayStatementsPanel({
-  statements,
-  isRefreshing,
+function PayStubsPanel({
+  payStubs,
+  isLoading,
   error,
-  downloadingStatementId,
+  downloadingId,
   onDownload,
 }: {
-  statements: OperatorPayStatementSummary[];
-  isRefreshing: boolean;
+  payStubs: OperatorPayStatementSummary[];
+  isLoading: boolean;
   error: unknown;
-  downloadingStatementId: string | null;
-  onDownload: (statement: OperatorPayStatementSummary) => void;
+  downloadingId: string | null;
+  onDownload: (payStub: OperatorPayStatementSummary) => void;
 }) {
   return (
-    <div className="card-elevated overflow-hidden">
-      <div className="border-b border-border px-4 py-4 sm:px-5">
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5 rounded-md bg-primary/10 p-2 text-primary">
+    <details id="pay-stubs" className="group overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 px-4 py-4 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5 [&::-webkit-details-marker]:hidden">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="rounded-lg bg-muted p-2 text-muted-foreground">
             <FileText className="h-5 w-5" />
-          </div>
-          <div>
-            <h2 className="text-balance text-lg font-semibold text-foreground">Pay Statements</h2>
-            <p className="mt-1 text-pretty text-sm text-muted-foreground">
-              Download issued pay statements here when they become available.
-            </p>
-          </div>
+          </span>
+          <span>
+            <span className="block font-semibold text-foreground">Pay Stubs</span>
+            <span className="block text-sm text-muted-foreground">View and download published history</span>
+          </span>
         </div>
-      </div>
+        <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground transition-transform duration-150 group-open:rotate-90 motion-reduce:transition-none" />
+      </summary>
 
-      {error ? (
-        <div className="px-4 py-6 text-sm text-destructive">
-          Unable to load pay statements. Refresh and try again.
-        </div>
-      ) : statements.length === 0 ? (
-        <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-          {isRefreshing ? 'Loading pay statements...' : 'No pay statements yet.'}
-        </div>
-      ) : (
-        <div className="divide-y divide-border">
-          {statements.map((statement) => (
-            <article key={statement.id} className="px-4 py-4 sm:px-5">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="border-t border-border">
+        {error ? (
+          <p className="p-5 text-sm text-destructive" role="alert">
+            Pay Stubs could not be loaded right now. Your time entries are still available above.
+          </p>
+        ) : isLoading ? (
+          <div className="space-y-3 p-5" aria-label="Loading Pay Stubs">
+            <Skeleton className="h-5 w-40" />
+            <Skeleton className="h-11 w-full" />
+          </div>
+        ) : payStubs.length === 0 ? (
+          <p className="p-5 text-sm text-muted-foreground">
+            No Pay Stubs have been published yet. They will appear here when available.
+          </p>
+        ) : (
+          <div className="divide-y divide-border">
+            {payStubs.map((payStub) => (
+              <article key={payStub.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
                 <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="break-words text-balance font-semibold text-foreground">
-                      {formatOperatorPayStatementLabel(statement.statementLabel)}
-                    </h3>
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
-                      v{statement.version}
-                    </span>
-                    {statement.revisionCount > 0 && (
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
-                        Revised
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-1 text-sm tabular-nums text-muted-foreground">
-                    {statement.statementNumber}
+                  <p className="font-semibold text-foreground">
+                    {formatOperatorPayStatementLabel(payStub.statementLabel)}
                   </p>
-                  <div className="mt-3 grid gap-2 text-sm tabular-nums text-muted-foreground sm:grid-cols-2">
-                    <span>
-                      {formatDate(statement.periodStartDate)} to{' '}
-                      {formatDate(statement.periodEndDate)}
-                    </span>
-                    <span>Issued {formatDate(statement.issuedAt)}</span>
-                    <span>Target pay date {formatDate(statement.targetPayoutDate)}</span>
-                    <span className="font-semibold tabular-nums text-foreground">
-                      {formatCurrency(statement.totalPayoutCents)}
-                    </span>
-                  </div>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {formatPlainDate(payStub.periodStartDate, { month: 'short', day: 'numeric' })} to{' '}
+                    {formatPlainDate(payStub.periodEndDate, {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}{' '}
+                    · {formatCurrency(payStub.totalPayoutCents)}
+                  </p>
                 </div>
-
                 <Button
                   type="button"
                   variant="outline"
-                  size="sm"
-                  onClick={() => onDownload(statement)}
-                  disabled={downloadingStatementId === statement.id}
-                  className={timeSmallActionClassName}
+                  className="min-h-11 w-full sm:w-auto"
+                  disabled={downloadingId === payStub.id}
+                  onClick={() => onDownload(payStub)}
                 >
-                  {downloadingStatementId === statement.id ? (
-                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                  {downloadingId === payStub.id ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />
                   ) : (
-                    <Download className="mr-1.5 h-4 w-4" />
+                    <Download className="mr-2 h-4 w-4" />
                   )}
-                  Download pay statement
+                  Download Pay Stub
                 </Button>
-              </div>
-            </article>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function PeriodDetails({ profile }: { profile: OperatorTimekeepingProfileContext }) {
-  const period = profile.currentPeriod;
-
-  return (
-    <div className={cn('mt-4 grid gap-3 sm:grid-cols-3', timeInsetPanelClassName)}>
-      <Metric
-        label="Period"
-        value={`${formatDate(period.periodStartDate)} to ${formatDate(period.periodEndDate)}`}
-      />
-      <Metric label="Time due" value={formatDate(period.submissionDueDate)} />
-      <Metric label="Rounding" value="Each shift up to the next full hour" />
-    </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0">
-      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-1 break-words text-sm font-semibold tabular-nums text-foreground">
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function ValidationPanel({
-  hasInvalidTimes,
-  isWorkDateInCurrentPeriod,
-  hasSelectedMachine,
-  isPeriodEditable,
-  overlappingEntries,
-  exactDuplicate,
-  longShiftWarning,
-}: {
-  hasInvalidTimes: boolean;
-  isWorkDateInCurrentPeriod: boolean;
-  hasSelectedMachine: boolean;
-  isPeriodEditable: boolean;
-  overlappingEntries: OperatorTimeEntry[];
-  exactDuplicate: OperatorTimeEntry | undefined;
-  longShiftWarning: boolean;
-}) {
-  const messages = [
-    hasInvalidTimes ? 'End time must be after start time.' : null,
-    !isWorkDateInCurrentPeriod ? 'Work date must stay inside the current pay period.' : null,
-    !hasSelectedMachine ? 'Select an assigned machine that is active for this work date.' : null,
-    !isPeriodEditable ? 'This pay period is locked for Technician edits.' : null,
-    exactDuplicate ? 'This looks like a duplicate of an existing shift.' : null,
-    overlappingEntries.length > 0
-      ? `This shift overlaps ${overlappingEntries.length} existing entr${
-          overlappingEntries.length === 1 ? 'y' : 'ies'
-        }.`
-      : null,
-    longShiftWarning ? 'This shift is 10+ hours. Confirm the times before saving.' : null,
-  ].filter(Boolean) as string[];
-
-  if (messages.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="mt-4 rounded-lg bg-amber-50 px-3 py-3 text-sm text-amber-950 shadow-[inset_0_0_0_1px_hsl(43_96%_56%/0.45)]">
-      <div className="flex gap-2">
-        <AlertTriangle className="mt-0.5 h-4 w-4 flex-none" />
-        <div className="space-y-1 text-pretty">
-          {messages.map((message) => (
-            <p key={message}>{message}</p>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TimeEntriesPanel({
-  title,
-  description,
-  entries,
-  emptyMessage,
-  onEdit,
-  onDelete,
-  isDeleting,
-  compact = false,
-  allowActions = true,
-  readOnlyMessage,
-}: {
-  title: string;
-  description: string;
-  entries: OperatorTimeEntry[];
-  emptyMessage: string;
-  onEdit: (entry: OperatorTimeEntry) => void;
-  onDelete: (entry: OperatorTimeEntry) => void;
-  isDeleting: boolean;
-  compact?: boolean;
-  allowActions?: boolean;
-  readOnlyMessage?: string;
-}) {
-  return (
-    <div className="card-elevated overflow-hidden">
-      <div className="border-b border-border px-4 py-4 sm:px-5">
-        <h2 className="text-balance text-lg font-semibold text-foreground">{title}</h2>
-        <p className="mt-1 text-pretty text-sm text-muted-foreground">{description}</p>
-      </div>
-
-      {entries.length === 0 ? (
-        <div className="px-4 py-8 text-center text-sm text-muted-foreground">{emptyMessage}</div>
-      ) : (
-        <div className="divide-y divide-border">
-          {entries.map((entry) => {
-            const locked = Boolean(entry.lockedAt) || !['draft', 'submitted'].includes(entry.status);
-
-            return (
-              <article key={entry.id} className="px-4 py-4 sm:px-5">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="break-words text-balance font-semibold text-foreground">
-                        {entry.machineLabel}
-                      </h3>
-                      <span
-                        data-time-status-badge={getEntryReviewLabel(entry)}
-                        className={cn(
-                          'rounded-full border px-2.5 py-1 text-xs font-semibold',
-                          getEntryReviewClassName(entry)
-                        )}
-                      >
-                        {getEntryReviewLabel(entry)}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-pretty text-sm text-muted-foreground">
-                      {entry.locationName}
-                    </p>
-                    <div className="mt-3 grid gap-2 text-sm tabular-nums text-muted-foreground sm:grid-cols-2">
-                      <span>{formatDate(entry.workDate)}</span>
-                      <span>
-                        {entry.startTime} to {entry.endTime}
-                      </span>
-                      <span>Raw: {formatMinutes(entry.rawDurationMinutes)}</span>
-                      <span>Paid: {formatPaidHours(entry.roundedPaidMinutes)}</span>
-                    </div>
-                    {!compact && entry.notes && (
-                      <p className="mt-3 rounded-lg bg-muted/50 px-3 py-2 text-pretty text-sm text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border))]">
-                        {entry.notes}
-                      </p>
-                    )}
-                    {!compact &&
-                      entry.managerReviewStatus === 'needs_correction' &&
-                      entry.managerReviewReason && (
-                        <div className="mt-3 rounded-xl border border-amber/25 bg-amber/10 px-3 py-3 text-sm leading-6 text-foreground">
-                          <p className="font-semibold">Your manager requested a correction</p>
-                          <p className="mt-1 text-pretty">{entry.managerReviewReason}</p>
-                        </div>
-                      )}
-                    {!compact &&
-                      entry.managerReviewStatus === 'approved' &&
-                      entry.status === 'submitted' && (
-                        <p className="mt-3 text-xs text-muted-foreground">
-                          Editing this shift will send it back for manager review.
-                        </p>
-                      )}
-                  </div>
-
-                  {allowActions ? (
-                    <div className="flex flex-wrap gap-2 lg:justify-end">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => onEdit(entry)}
-                        disabled={locked}
-                        aria-label={`Edit shift on ${formatDate(entry.workDate)}, ${entry.startTime} to ${entry.endTime}, ${getMachineLabel(entry)}`}
-                        className={timeSmallActionClassName}
-                      >
-                        <Edit3 className="mr-1.5 h-4 w-4" />
-                        Edit
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onDelete(entry)}
-                        disabled={locked || isDeleting}
-                        aria-label={`Delete shift on ${formatDate(entry.workDate)}, ${entry.startTime} to ${entry.endTime}, ${getMachineLabel(entry)}`}
-                        className={timeSmallActionClassName}
-                      >
-                        {isDeleting ? (
-                          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="mr-1.5 h-4 w-4" />
-                        )}
-                        Delete
-                      </Button>
-                    </div>
-                  ) : (
-                    readOnlyMessage && (
-                      <p className="text-pretty text-sm text-muted-foreground lg:max-w-56 lg:text-right">
-                        {readOnlyMessage}
-                      </p>
-                    )
-                  )}
-                </div>
               </article>
-            );
-          })}
-        </div>
-      )}
-    </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </details>
   );
 }

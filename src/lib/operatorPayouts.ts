@@ -647,6 +647,11 @@ export type SaveCompletedOperatorTimeEntryInput = {
   notes?: string | null;
 };
 
+export type SaveCompletedOperatorTimeEntryResult = {
+  timeEntry: OperatorTimeEntry;
+  context: OperatorTimekeepingContext;
+};
+
 export type CorrectOperatorTimeEntryInput = {
   timeEntryId: string;
   machineId: string;
@@ -1001,7 +1006,7 @@ export const voidOperatorTimeEntry = async ({
 
 export const saveCompletedOperatorTimeEntry = async (
   input: SaveCompletedOperatorTimeEntryInput
-): Promise<OperatorTimekeepingContext> => {
+): Promise<SaveCompletedOperatorTimeEntryResult> => {
   const { data, error } = await supabaseClient.rpc('save_operator_time_entry', {
     p_time_entry_id: input.timeEntryId ?? null,
     p_operator_profile_id: input.operatorProfileId,
@@ -1015,12 +1020,15 @@ export const saveCompletedOperatorTimeEntry = async (
     throw new Error(error?.message || 'Unable to save completed Technician time.');
   }
 
-  const payload = data as { context?: OperatorTimekeepingContext };
-  if (!payload.context) {
+  const payload = data as Partial<SaveCompletedOperatorTimeEntryResult>;
+  if (!payload.context || !payload.timeEntry) {
     throw new Error('Time entry saved, but the updated calendar was not returned.');
   }
 
-  return payload.context;
+  return {
+    timeEntry: payload.timeEntry,
+    context: payload.context,
+  };
 };
 
 export const correctOperatorTimeEntry = async (

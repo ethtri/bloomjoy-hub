@@ -140,7 +140,7 @@
     "refunds:machine-readiness-audit": "node scripts/refunds/refund-machine-readiness-audit.mjs",
     "refunds:validate-machine-readiness-audit": "node scripts/refunds/validate-refund-machine-readiness-audit.mjs",
     "operator-payouts:validate-foundation": "node scripts/validate-operator-payout-foundation.mjs",
-    "operator-payouts:validate-timekeeping": "node scripts/validate-operator-timekeeping.mjs",
+    "operator-payouts:validate-timekeeping": "deno test --no-lock src/lib/timekeepingUi.test.ts && node scripts/validate-operator-timekeeping.mjs",
     "operator-payouts:validate-data-rules": "node scripts/validate-timekeeping-data-rules.mjs",
     "operator-payouts:validate-timekeeping-uat": "node scripts/validate-operator-timekeeping-uat.mjs",
     "operator-payouts:validate-revenue-snapshots": "node scripts/validate-operator-revenue-snapshots.mjs",
