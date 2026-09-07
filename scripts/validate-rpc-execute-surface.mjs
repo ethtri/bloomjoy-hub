@@ -110,6 +110,11 @@ const serviceRoleOnlyFunctions = [
     migrationName: '202605200004_operator_payout_calculation_engine.sql',
   },
   {
+    signature: 'public.operator_compensation_rate_at(uuid, uuid, uuid, date, text)',
+    name: 'operator_compensation_rate_at',
+    migrationName: '20260907215403_align_timekeeping_data_rules.sql',
+  },
+  {
     signature: 'public.operator_can_finalize_payout_run(uuid, uuid)',
     name: 'operator_can_finalize_payout_run',
     migrationName: '202605200005_operator_payout_review_workflow.sql',
