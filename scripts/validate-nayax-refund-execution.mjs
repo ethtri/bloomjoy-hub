@@ -590,6 +590,7 @@ assert(
     oneManagerDecisionMigration.includes('approval_authorization.expected_case_version <') &&
     oneManagerDecisionMigration.includes('execution_authorization.expected_case_version =') &&
     (oneManagerDecisionMigration.match(/invalid_datetime_format/g) ?? []).length >= 3 &&
+    !oneManagerDecisionMigration.includes('select authorization.*') &&
     oneManagerDecisionMigration.includes("marker.metadata ->> 'deterministic_fact_version'") &&
     oneManagerDecisionMigration.includes('p_user_id, refund_case.id, attempt.id') &&
     oneManagerDecisionMigration.includes('p_actor_user_id, case_row.id, attempt_row.id') &&

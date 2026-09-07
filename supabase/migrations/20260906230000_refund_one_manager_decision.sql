@@ -801,9 +801,9 @@ begin
     and refund_case_id = case_row.id;
   if not found then return false; end if;
 
-  select authorization.* into execution_authorization
-  from public.refund_case_official_action_authorizations authorization
-  where authorization.id = attempt_row.official_action_authorization_id;
+  select action_authorization.* into execution_authorization
+  from public.refund_case_official_action_authorizations action_authorization
+  where action_authorization.id = attempt_row.official_action_authorization_id;
   if not found then return false; end if;
 
   -- Only the latest saved business approval can support recovery. A superseded
@@ -820,9 +820,9 @@ begin
     return false;
   end if;
 
-  select authorization.* into approval_authorization
-  from public.refund_case_official_action_authorizations authorization
-  where authorization.id::text = marker.metadata ->> 'authorization_id';
+  select action_authorization.* into approval_authorization
+  from public.refund_case_official_action_authorizations action_authorization
+  where action_authorization.id::text = marker.metadata ->> 'authorization_id';
   if not found then return false; end if;
 
   begin
