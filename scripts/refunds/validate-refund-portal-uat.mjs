@@ -5952,7 +5952,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         lookupStatus: 'multiple_matches',
         recommendationState: 'ambiguous',
         confidenceClass: 'ambiguous_manual',
-        reasonCodes: ['multiple_candidates_need_distinguishing_fact', 'plausible_runner_up'],
+        reasonCodes: ['multiple_candidates_need_manager_review', 'plausible_runner_up'],
         policyVersion: '2026-09-05.v11',
         oneClickEligible: false,
         lastCheckedAt: now.toISOString(),
@@ -5961,8 +5961,8 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         providerWindowRecordCount: 2,
         candidateCount: 2,
         windowHours: 6,
-        summary: 'Two sales have the same machine, amount, and card ending; the customer time is rough.',
-        recommendedAction: 'Ask for one more precise purchase-time answer on this same case.',
+        summary: 'Two sales have the same machine, amount, and card ending; provider occurrence timing cannot separate them.',
+        recommendedAction: 'Refund Operations reviews the existing transaction evidence without asking the customer for the same detail again.',
         candidates: [
           {
             candidateToken: '41000000-0000-4000-8000-000000000215',
@@ -5972,11 +5972,11 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
             recognitionMethod: 'contactless', paymentStatus: 'approved',
             recommendationRank: 1, isTopRanked: true, isRecommended: false,
             recommendationState: 'ambiguous', confidenceClass: 'ambiguous_manual',
-            reasonCodes: ['multiple_candidates_need_distinguishing_time'], oneClickEligible: false,
+            reasonCodes: ['multiple_candidates_need_manager_review'], oneClickEligible: false,
             selectionAllowed: false, matchStrength: 'manual_review', policyVersion: '2026-09-05.v11',
             identifierReviewState: 'needs_corroboration',
-            customerCorrectionFields: ['incident_time'],
-            matchReason: 'Exact machine, amount, and card ending; customer time must distinguish this sale.',
+            customerCorrectionFields: [],
+            matchReason: 'Exact machine, amount, and card ending; available provider times cannot distinguish this sale.',
           },
           {
             candidateToken: '41000000-0000-4000-8000-000000000216',
@@ -5986,11 +5986,11 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
             recognitionMethod: 'contactless', paymentStatus: 'approved',
             recommendationRank: 2, isTopRanked: false, isRecommended: false,
             recommendationState: 'ambiguous', confidenceClass: 'ambiguous_manual',
-            reasonCodes: ['multiple_candidates_need_distinguishing_time'], oneClickEligible: false,
+            reasonCodes: ['multiple_candidates_need_manager_review'], oneClickEligible: false,
             selectionAllowed: false, matchStrength: 'manual_review', policyVersion: '2026-09-05.v11',
             identifierReviewState: 'needs_corroboration',
-            customerCorrectionFields: ['incident_time'],
-            matchReason: 'Exact machine, amount, and card ending; customer time must distinguish this sale.',
+            customerCorrectionFields: [],
+            matchReason: 'Exact machine, amount, and card ending; available provider times cannot distinguish this sale.',
           },
         ],
       },
@@ -5998,9 +5998,9 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedStatus: 'No selectable transaction',
       expectedManagerNotice: '2 possible transactions were found.',
       expectedBadge: 'Multiple possible matches',
-      expectedAction: 'Ask for missing details',
+      expectedAction: 'Review transaction evidence',
       expectedCandidateCount: 2,
-      expectedDistinguishingTime: true,
+      expectedManagerEvidenceReview: true,
     },
     {
       name: 'sanitized simple card refund journey',
@@ -6529,21 +6529,27 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
             )
         );
       }
-      if (scenario.expectedDistinguishingTime) {
+      if (scenario.expectedManagerEvidenceReview) {
         const unavailableDetails = page.getByTestId('nayax-unavailable-candidates');
         await unavailableDetails.locator('summary').click();
         const candidateOptions = unavailableDetails.getByTestId('nayax-candidate-option');
         recorder.assert(
-          'Same-card competing purchases with rough time require one distinguishing time fact and cannot be selected',
+          'Same-card purchases with unproved occurrence timing stay manager-owned without another customer question',
           await page.getByTestId('nayax-candidate-availability').getByText('0 transactions available to select', { exact: true }).isVisible() &&
             (await candidateOptions.count()) === 2 &&
             await candidateOptions.locator('input[type="radio"]').evaluateAll(
               (inputs) => inputs.every((input) => input.disabled)
             ) &&
-            (await page.getByText(/More customer context is needed on this same case before a manager can select it\./).count()) >= 2 &&
             (await page.getByLabel('Why is this the right transaction?').count()) === 0 &&
             (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0 &&
-            await page.getByRole('button', { name: 'Ask for missing details', exact: true }).isVisible()
+            (await page.getByRole('button', { name: 'Ask for missing details', exact: true }).count()) === 0 &&
+            await page.getByRole('button', { name: 'Review transaction evidence', exact: true }).isEnabled()
+        );
+        await page.getByRole('button', { name: 'Review transaction evidence', exact: true }).click();
+        recorder.assert(
+          'Manager evidence review focuses the existing machine transaction without dispatching customer work',
+          await page.evaluate(() => document.activeElement?.id === 'refund-machine-transaction') &&
+            !functionCalls.includes('refund-case-message-send')
         );
       }
       if (scenario.expectedReviewableMismatch) {
@@ -6579,7 +6585,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
             await page.getByText(/selection stays paused until the customer replies/i).isVisible()
         );
       }
-      if (scenario.expectedNoSelectableTransactions || scenario.expectedDistinguishingTime || scenario.expectedSelectionPaused) {
+      if (scenario.expectedNoSelectableTransactions || scenario.expectedManagerEvidenceReview || scenario.expectedSelectionPaused) {
         await page.setViewportSize({ width: 390, height: 844 });
         await page.getByTestId('nayax-candidate-availability').scrollIntoViewIfNeeded();
         recorder.assert(
