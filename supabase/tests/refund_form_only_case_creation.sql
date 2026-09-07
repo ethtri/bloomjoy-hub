@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(35);
+select plan(43);
 
 insert into public.customer_accounts (id, name, account_type)
 values (
@@ -92,6 +92,26 @@ select ok(
   ),
   'The independently gated retention service can purge private pre-form contacts'
 );
+
+select ok(
+  not has_function_privilege(
+    'service_role',
+    'public.service_finish_refund_gmail_contact_response_no_match(uuid,integer)',
+    'execute'
+  ),
+  'The Gmail service cannot mint pre-form contact no-match receipts'
+);
+
+set local role service_role;
+select throws_ok(
+  $$select public.service_finish_refund_gmail_contact_response_no_match(
+    '00000000-0000-4000-8000-000000000001'::uuid, 1
+  )$$,
+  '42501',
+  'permission denied for function service_finish_refund_gmail_contact_response_no_match',
+  'The pre-form contact no-match RPC rejects the service role at execution time'
+);
+reset role;
 
 create temporary table staged_contact as
 select public.service_ingest_refund_gmail_contact_v1(
@@ -205,21 +225,98 @@ select is(
   'Preparing and sending the form response still creates zero cases'
 );
 
+select throws_ok(
+  $malformed_contact_response_header$
+    select public.service_finish_refund_gmail_contact_first_response(
+      (select (result ->> 'operationId')::uuid from contact_claim),
+      'sent',
+      'form-only-provider-send-one',
+      'not-a-canonical-message-id',
+      null
+    )
+  $malformed_contact_response_header$,
+  'P0001',
+  'Confirmed contact provider evidence required',
+  'A malformed canonical header cannot finalize a pre-form contact response'
+);
+
 select ok(
   public.service_finish_refund_gmail_contact_first_response(
     (select (result ->> 'operationId')::uuid from contact_claim),
     'sent',
     'form-only-provider-send-one',
-    (
-      select '<refund-' || left(
-        regexp_replace(result ->> 'operationKey', '[^a-zA-Z0-9._-]', '', 'g'),
-        80
-      ) || '@bloomjoyusa.com>'
-      from contact_claim
-    ),
+    null,
     null
   ),
-  'Provider-confirmed first response is recorded exactly once'
+  'Provider-confirmed first response is recorded when metadata readback is unavailable'
+);
+
+select ok(
+  (
+    select message.status = 'sent'
+      and message.provider_message_id = 'form-only-provider-send-one'
+      and message.provider_message_header is null
+    from public.refund_gmail_intake_contact_messages message
+    where message.id = (select (result ->> 'transportMessageId')::uuid from contact_claim)
+  ),
+  'Pre-form contact success retains the provider id with a nullable canonical header'
+);
+
+create temporary table canonical_contact as
+select public.service_ingest_refund_gmail_contact_v1(
+  repeat('9', 64),
+  'form-only-thread-canonical',
+  'form-only-message-canonical',
+  '<form-only-message-canonical@example.test>',
+  null,
+  'inbound',
+  false,
+  'form-only-canonical@example.test',
+  'Canonical Contact',
+  'info@bloomjoysweets.com',
+  'Canonical response test',
+  'Please send the canonical response fixture.',
+  false,
+  '2026-08-21 17:01:01+00'::timestamptz,
+  null,
+  '[]'::jsonb,
+  '{}'::text[],
+  array['info@bloomjoysweets.com', 'support@bloomjoysweets.com'],
+  'direct_human',
+  false,
+  false,
+  '{}'::text[]
+) as result;
+
+create temporary table canonical_contact_claim as
+select public.service_claim_refund_gmail_contact_first_response(
+  (select (result ->> 'messageId')::uuid from canonical_contact),
+  'active',
+  '2026-08-21 17:00:00+00'::timestamptz,
+  'refund_first_contact_v1',
+  'info@bloomjoysweets.com',
+  'Synthetic canonical response body.'
+) as result;
+
+select ok(
+  public.service_finish_refund_gmail_contact_first_response(
+    (select (result ->> 'operationId')::uuid from canonical_contact_claim),
+    'sent',
+    'form-only-provider-send-canonical',
+    '<gmail-contact-response@googlemail.com>',
+    null
+  ),
+  'A canonical Gmail Message-ID finalizes a pre-form contact response'
+);
+
+select is(
+  (
+    select message.provider_message_header
+    from public.refund_gmail_intake_contact_messages message
+    where message.id = (select (result ->> 'transportMessageId')::uuid from canonical_contact_claim)
+  ),
+  '<gmail-contact-response@googlemail.com>',
+  'The pre-form contact transport persists the canonical Gmail header'
 );
 
 create temporary table linked_form_case as
@@ -372,15 +469,41 @@ select is(
   'The confirmation claim stays on the originating customer conversation'
 );
 
+select throws_ok(
+  $malformed_linked_confirmation_header$
+    select public.service_finish_refund_gmail_outbound(
+      (select (result ->> 'transportMessageId')::uuid from linked_form_confirmation_claim),
+      'sent',
+      'form-only-confirmation-provider-send',
+      'not-a-canonical-message-id',
+      null
+    )
+  $malformed_linked_confirmation_header$,
+  'P0001',
+  'Confirmed Gmail outbound provider evidence required',
+  'A malformed canonical header cannot finalize a linked-form confirmation'
+);
+
 select ok(
   public.service_finish_refund_gmail_outbound(
     (select (result ->> 'transportMessageId')::uuid from linked_form_confirmation_claim),
     'sent',
     'form-only-confirmation-provider-send',
-    '<form-only-confirmation-provider-send@example.test>',
+    null,
     null
   ),
-  'The provider-confirmed linked-form confirmation is recorded once'
+  'The provider-confirmed linked-form confirmation accepts unavailable metadata readback'
+);
+
+select ok(
+  (
+    select message.status = 'sent'
+      and message.provider_message_id = 'form-only-confirmation-provider-send'
+      and message.provider_message_header is null
+    from public.refund_gmail_messages message
+    where message.id = (select (result ->> 'transportMessageId')::uuid from linked_form_confirmation_claim)
+  ),
+  'Linked-form confirmation success retains the provider id with a nullable canonical header'
 );
 
 select is(
