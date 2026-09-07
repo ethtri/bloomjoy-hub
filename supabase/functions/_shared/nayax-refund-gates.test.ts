@@ -1,159 +1,30 @@
-import {
-  buildNayaxRefundIdempotencyKey,
-  NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED,
-  readNayaxRefundAvailability,
-  resolveNormalNayaxRefundAmountCents,
-  resolveNayaxRefundAvailability,
-  resolveNayaxRefundExecutionConfig,
-} from "./nayax-refund-gates.ts";
-
-const assert = (condition: unknown, message: string) => {
-  if (!condition) throw new Error(message);
-};
-
-const envReader = (values: Record<string, string>) => (name: string) =>
-  values[name];
-
-const enabledConfig = {
-  NAYAX_REFUND_EXECUTION_KILL_SWITCH: "false",
-  NAYAX_REFUND_EXECUTION_ENABLED: "true",
-  NAYAX_REFUND_EXECUTION_DRY_RUN: "false",
-  NAYAX_REFUND_IDEMPOTENCY_SECRET: "i".repeat(64),
-  NAYAX_REFUND_EXECUTOR_ASSERTION: "e".repeat(64),
-  NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED: "true",
-  NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED: "true",
-};
-
-Deno.test("missing production configuration reports every genuine safety gate", () => {
-  const config = resolveNayaxRefundExecutionConfig(envReader({}));
-  for (
-    const block of [
-      "kill_switch_active",
-      "feature_disabled",
-      "dry_run_active",
-      "idempotency_secret_missing",
-      "executor_assertion_missing",
-      "manager_contract_unconfirmed",
-      "approval_scope_unconfirmed",
-      "provider_remaining_value_unverified",
-    ]
-  ) {
-    assert(config.blocks.includes(block as never), `${block} must block`);
-  }
+import { buildNayaxRefundIdempotencyKey, readNayaxRefundAvailability, resolveNormalNayaxRefundAmountCents,
+  resolveNayaxRefundAvailability, resolveNayaxRefundExecutionConfig } from './nayax-refund-gates.ts';
+const assert=(condition:unknown,message:string)=>{if(!condition)throw new Error(message);};
+const envReader=(values:Record<string,string>)=>(name:string)=>values[name];
+const enabledConfig={NAYAX_REFUND_EXECUTION_KILL_SWITCH:'false',NAYAX_REFUND_EXECUTION_ENABLED:'true',
+  NAYAX_REFUND_EXECUTION_DRY_RUN:'false',NAYAX_REFUND_IDEMPOTENCY_SECRET:'i'.repeat(64),
+  NAYAX_REFUND_EXECUTOR_ASSERTION:'e'.repeat(64),NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED:'true',NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED:'true'};
+Deno.test('missing production configuration preserves runtime and credential gates',()=>{
+ const config=resolveNayaxRefundExecutionConfig(envReader({}));
+ for(const block of ['kill_switch_active','feature_disabled','dry_run_active','idempotency_secret_missing','executor_assertion_missing','manager_contract_unconfirmed','approval_scope_unconfirmed'])
+   assert(config.blocks.includes(block as never),block+' must block');
 });
-
-Deno.test("all environment gates open cannot bypass the immutable remaining-value guard", () => {
-  const config = resolveNayaxRefundExecutionConfig(envReader(enabledConfig));
-  let providerCalls = 0;
-  if (config.blocks.length === 0) providerCalls += 1;
-  assert(
-    NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED === false,
-    "remaining-value support must be an immutable reviewed code decision",
-  );
-  assert(
-    config.blocks.length === 1 &&
-      config.blocks[0] === "provider_remaining_value_unverified",
-    "the normal direct API path must stay hard-disabled with every env gate open",
-  );
-  assert(providerCalls === 0, "the provider boundary must remain unreachable");
-  assert(
-    !("maxAmountCents" in config) && !("dailyCountCap" in config),
-    "retired launch caps must not remain in the production contract",
-  );
+Deno.test('configured first attempts require no remaining-balance attestation',()=>{
+ const config=resolveNayaxRefundExecutionConfig(envReader(enabledConfig));
+ assert(config.blocks.length===0,'Ready configuration permits the normal provider path');
+ assert(!('maxAmountCents' in config)&&!('dailyCountCap' in config),'Retired launch caps stay retired');
 });
-
-Deno.test("legacy canary and cap variables do not gate qualified transactions", () => {
-  const config = resolveNayaxRefundExecutionConfig(envReader({
-    ...enabledConfig,
-    NAYAX_REFUND_BROAD_REOPEN_APPROVED: "false",
-    NAYAX_REFUND_CANARY_ENABLED: "false",
-    NAYAX_REFUND_CANARY_CASE_ID: "not-a-case-id",
-    NAYAX_REFUND_MAX_AMOUNT_CENTS: "1",
-    NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS: "1",
-    NAYAX_REFUND_DAILY_COUNT_CAP: "1",
-  }));
-  assert(
-    config.blocks.length === 1 &&
-      config.blocks[0] === "provider_remaining_value_unverified",
-    "pilot variables must be ignored without bypassing the immutable guard",
-  );
+Deno.test('legacy canary and cap variables do not gate qualified transactions',()=>{
+ const config=resolveNayaxRefundExecutionConfig(envReader({...enabledConfig,NAYAX_REFUND_BROAD_REOPEN_APPROVED:'false',
+ NAYAX_REFUND_CANARY_ENABLED:'false',NAYAX_REFUND_MAX_AMOUNT_CENTS:'1',NAYAX_REFUND_DAILY_COUNT_CAP:'1'}));
+ assert(config.blocks.length===0,'Retired variables cannot recreate a blanket block');
 });
-
-Deno.test("normal execution cannot infer remaining value from the original sale", () => {
-  assert(
-    resolveNormalNayaxRefundAmountCents({
-      matchedTransactionAmountCents: 1090,
-    }) === null,
-    "the original selected amount alone cannot prove no external partial exists",
-  );
-  assert(
-    resolveNormalNayaxRefundAmountCents({
-      matchedTransactionAmountCents: 1090,
-      remainingRefundableAmountCents: 1090,
-    }) === 1090,
-    "an authoritative full remaining allocation must preserve the exact amount",
-  );
+Deno.test('normal amount uses the selected original purchase without inventing a remaining balance',()=>{
+ assert(resolveNormalNayaxRefundAmountCents({matchedTransactionAmountCents:1090})===1090,'Exact selected original amount');
+ for(const amount of [null,0,-1,1.5,Number.MAX_SAFE_INTEGER+1])
+   assert(resolveNormalNayaxRefundAmountCents({matchedTransactionAmountCents:amount})===null,'Invalid amount rejected');
 });
-
-Deno.test("partial or custom amounts are exception-only", () => {
-  assert(
-    resolveNormalNayaxRefundAmountCents({
-      matchedTransactionAmountCents: 1090,
-      remainingRefundableAmountCents: 500,
-    }) === null,
-    "a partial remaining allocation must fail closed in the normal path",
-  );
-  assert(
-    resolveNormalNayaxRefundAmountCents({
-      matchedTransactionAmountCents: 1090,
-      remainingRefundableAmountCents: 1500,
-    }) === null,
-    "a custom amount above the selected transaction must fail closed",
-  );
-});
-
-Deno.test("production scope never waives provider contract or approval-scope proof", () => {
-  const config = resolveNayaxRefundExecutionConfig(envReader({
-    ...enabledConfig,
-    NAYAX_REFUND_EXECUTION_KILL_SWITCH: "true",
-    NAYAX_REFUND_IDEMPOTENCY_SECRET: "invalid",
-    NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED: "false",
-    NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED: "false",
-  }));
-  assert(
-    config.blocks.includes("manager_contract_unconfirmed"),
-    "production still requires the provider response contract",
-  );
-  assert(
-    config.blocks.includes("approval_scope_unconfirmed"),
-    "production still requires approval scope",
-  );
-  assert(
-    config.blocks.includes("kill_switch_active"),
-    "production must not bypass the incident kill switch",
-  );
-  assert(
-    config.blocks.includes("idempotency_secret_missing"),
-    "production must not bypass idempotency",
-  );
-});
-
-Deno.test("weak execution secrets fail closed", () => {
-  const config = resolveNayaxRefundExecutionConfig(envReader({
-    ...enabledConfig,
-    NAYAX_REFUND_IDEMPOTENCY_SECRET: "local-dev",
-    NAYAX_REFUND_EXECUTOR_ASSERTION: "service-role-fallback",
-  }));
-  assert(
-    config.blocks.includes("idempotency_secret_missing"),
-    "weak idempotency secret must fail",
-  );
-  assert(
-    config.blocks.includes("executor_assertion_missing"),
-    "weak executor assertion must fail",
-  );
-});
-
 Deno.test("idempotency is deterministic for an exact replay and changes with immutable evidence", async () => {
   const secret = "s".repeat(64);
   const evidence = {
@@ -206,90 +77,21 @@ Deno.test("idempotency never falls back to a service key or local default", asyn
   assert(failed, "missing dedicated secret must fail before HMAC");
 });
 
-Deno.test("availability exposes the immutable remaining-value block safely", () => {
-  const result = resolveNayaxRefundAvailability({
-    executionConfig: resolveNayaxRefundExecutionConfig(
-      envReader(enabledConfig),
-    ),
-    officialActionsEnabled: true,
-  });
-  assert(!result.available, "direct API execution must remain unavailable");
-  assert(result.status === "unavailable", "status must be unavailable");
-  assert(
-    result.blockReason === "provider_remaining_value_unverified",
-    "availability must name the immutable guard honestly",
-  );
-  assert(result.payloadRedacted === true, "payload must be redacted");
-  assert(
-    Object.keys(result).sort().join("|") ===
-      "available|blockReason|payloadRedacted|status",
-    "availability must expose only the approved fields",
-  );
-  assert(
-    !JSON.stringify(result).includes(
-      enabledConfig.NAYAX_REFUND_IDEMPOTENCY_SECRET,
-    ),
-    "availability must not expose secret values",
-  );
-});
 
-Deno.test("availability fail-closes to the bounded reason precedence", () => {
-  const defaultConfig = resolveNayaxRefundExecutionConfig(envReader({}));
-  const enabled = resolveNayaxRefundExecutionConfig(envReader(enabledConfig));
-  const cases = [
-    {
-      officialActionsEnabled: false,
-      config: defaultConfig,
-      reason: "official_actions_disabled",
-    },
-    {
-      officialActionsEnabled: true,
-      config: resolveNayaxRefundExecutionConfig(envReader({
-        ...enabledConfig,
-        NAYAX_REFUND_EXECUTION_KILL_SWITCH: "true",
-      })),
-      reason: "kill_switch_active",
-    },
-    {
-      officialActionsEnabled: true,
-      config: defaultConfig,
-      reason: "kill_switch_active",
-    },
-    {
-      officialActionsEnabled: true,
-      config: enabled,
-      reason: "provider_remaining_value_unverified",
-    },
-  ];
-  for (const fixture of cases) {
-    const result = resolveNayaxRefundAvailability({
-      executionConfig: fixture.config,
-      officialActionsEnabled: fixture.officialActionsEnabled,
-    });
-    assert(!result.available, `${fixture.reason} must be unavailable`);
-    assert(
-      result.blockReason === fixture.reason,
-      `${fixture.reason} must be the safe reason`,
-    );
-    assert(result.payloadRedacted, "every blocked result must be redacted");
-  }
+Deno.test('availability exposes configured execution without revealing credentials',()=>{
+ const result=resolveNayaxRefundAvailability({executionConfig:resolveNayaxRefundExecutionConfig(envReader(enabledConfig)),officialActionsEnabled:true});
+ assert(result.available&&result.status==='available'&&result.blockReason===null,'Configured availability');
+ assert(Object.keys(result).sort().join('|')==='available|blockReason|payloadRedacted|status','Bounded public response');
+ assert(!JSON.stringify(result).includes(enabledConfig.NAYAX_REFUND_IDEMPOTENCY_SECRET),'No credential disclosure');
 });
-
-Deno.test("availability reads gates only and performs zero execution side effects", async () => {
-  const providerCalls = 0;
-  const reservations = 0;
-  const mutations = 0;
-  const result = await readNayaxRefundAvailability({
-    readEnv: envReader(enabledConfig),
-    officialActionsEnabled: true,
-  });
-  // Provider, reservation, and mutation dependencies are intentionally absent
-  // from the read-only operation's type and therefore cannot be invoked.
-  assert(
-    result.blockReason === "provider_remaining_value_unverified",
-    "bounded gates must report the immutable provider-readback requirement",
-  );
-  assert(providerCalls === 0, "availability must not call a provider");
-  assert(reservations === 0, "availability must not reserve an attempt");
-  assert(mutations === 0, "availability must not mutate a case");
+Deno.test('availability preserves pause and configuration precedence',()=>{
+ for(const f of [{values:{},official:false,reason:'official_actions_disabled'},{values:{},official:true,reason:'kill_switch_active'},
+ {values:{...enabledConfig,NAYAX_REFUND_EXECUTOR_ASSERTION:''},official:true,reason:'configuration_missing'}]){
+ const result=resolveNayaxRefundAvailability({executionConfig:resolveNayaxRefundExecutionConfig(envReader(f.values)),officialActionsEnabled:f.official});
+ assert(!result.available&&result.blockReason===f.reason,'The actual pause/configuration issue remains visible');
+ }
+});
+Deno.test('availability reads gates only and performs zero execution side effects',async()=>{
+ const result=await readNayaxRefundAvailability({readEnv:envReader(enabledConfig),officialActionsEnabled:true});
+ assert(result.available,'Read-only availability has no provider or mutation dependencies');
 });

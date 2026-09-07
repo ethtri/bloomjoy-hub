@@ -5,8 +5,7 @@ export type NayaxRefundConfigBlock =
   | "idempotency_secret_missing"
   | "executor_assertion_missing"
   | "manager_contract_unconfirmed"
-  | "approval_scope_unconfirmed"
-  | "provider_remaining_value_unverified";
+  | "approval_scope_unconfirmed";
 
 export type NayaxRefundExecutionConfig = {
   blocks: NayaxRefundConfigBlock[];
@@ -22,7 +21,6 @@ export type NayaxRefundExecutionConfig = {
 export type NayaxRefundAvailabilityBlockReason =
   | "official_actions_disabled"
   | "kill_switch_active"
-  | "provider_remaining_value_unverified"
   | "configuration_missing";
 
 export type NayaxRefundAvailability = {
@@ -32,12 +30,9 @@ export type NayaxRefundAvailability = {
   payloadRedacted: true;
 };
 
-// The ordinary official-action boundary remains part of the reviewed contract,
-// but direct provider execution is hard-disabled until #990 can supply and
-// atomically verify authoritative remaining-refundable value for the selected
-// transaction. This is intentionally not configurable through the environment.
+// Nayax enforces the original transaction total. Local authority, original
+// identity, amount, duplicate, claim and outcome checks remain mandatory.
 export const NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED = true;
-export const NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED = false;
 
 export type NayaxRefundIdempotencyEvidence = {
   caseId: string;
@@ -51,24 +46,13 @@ export type NayaxRefundIdempotencyEvidence = {
 
 export const resolveNormalNayaxRefundAmountCents = ({
   matchedTransactionAmountCents,
-  remainingRefundableAmountCents,
 }: {
   matchedTransactionAmountCents: number | null;
-  remainingRefundableAmountCents?: number | null;
 }) => {
   if (
     !Number.isSafeInteger(matchedTransactionAmountCents) ||
     Number(matchedTransactionAmountCents) <= 0
   ) {
-    return null;
-  }
-  if (
-    !Number.isSafeInteger(remainingRefundableAmountCents) ||
-    Number(remainingRefundableAmountCents) <= 0 ||
-    remainingRefundableAmountCents !== matchedTransactionAmountCents
-  ) {
-    // The normal manager action is full-transaction only. A provider-reported
-    // partial remainder needs a separately reviewed exception workflow.
     return null;
   }
   return Number(matchedTransactionAmountCents);
@@ -120,9 +104,6 @@ export const resolveNayaxRefundExecutionConfig = (
     executorAssertion === null ? "executor_assertion_missing" : null,
     managerContractConfirmed ? null : "manager_contract_unconfirmed",
     approvalScopeConfirmed ? null : "approval_scope_unconfirmed",
-    NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED
-      ? null
-      : "provider_remaining_value_unverified",
   ].filter((block): block is NayaxRefundConfigBlock => block !== null);
 
   return {
@@ -149,10 +130,6 @@ export const resolveNayaxRefundAvailability = ({
     blockReason = "official_actions_disabled";
   } else if (executionConfig.blocks.includes("kill_switch_active")) {
     blockReason = "kill_switch_active";
-  } else if (
-    executionConfig.blocks.includes("provider_remaining_value_unverified")
-  ) {
-    blockReason = "provider_remaining_value_unverified";
   } else if (executionConfig.blocks.length > 0) {
     blockReason = "configuration_missing";
   }

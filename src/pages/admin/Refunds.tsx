@@ -1,7 +1,19 @@
+import { searchRefundCases } from '@/lib/refundCaseSearch';
+import {
+  createRefundReadPolling,
+  REFUND_OVERVIEW_INITIAL_LOAD_ERROR,
+  REFUND_OVERVIEW_UPDATE_DELAYED,
+  refundAvailabilityIsTerminal,
+  refundOverviewPollingInterval,
+  refundOverviewReadMessage,
+} from '@/lib/refundReadPolling';
+import { formatRefundMachineLocation } from '@/lib/refundMachineLabel';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { collectCorrectionResponseNotices, type CorrectionNoticeState } from '@/lib/refundCorrectionContinuity';
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
   Clock3,
   Copy,
   ExternalLink,
@@ -16,8 +28,14 @@ import {
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { isEdgeFunctionError } from '@/lib/edgeFunctions';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { RefundLifecycleProgress } from '@/components/refunds/RefundLifecycleProgress';
+import { RefundReportFreshnessAdvisory } from '@/components/refunds/RefundReportFreshnessAdvisory';
+import { RefundAuthoritativeReceiptPanel } from '@/components/refunds/RefundAuthoritativeReceiptPanel';
+import { RefundExternalRecoveryPanel } from '@/components/refunds/RefundExternalRecoveryPanel';
+import { RefundOwnerNonrefundResolution } from '@/components/refunds/RefundOwnerNonrefundResolution';
+import { hasConfirmedRefundReceipt } from '@/lib/refundAuthoritativeReceipt';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,6 +49,9 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { refundCorrectionCopy } from '../../../supabase/functions/_shared/refund-correction-copy';
+import { correctionLabels } from '../../../supabase/functions/_shared/refund-correction';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -59,6 +80,7 @@ import {
   rejectRefundGptTriage,
   resolveRefundNayaxOutcome,
   resolveRefundGmailDeliveryNotFound,
+  resolveRefundGmailCaseLinkReview,
   resolveRefundCaseReconciliation,
   sendRefundCaseMessage,
   updateRefundCaseAdmin,
@@ -86,14 +108,30 @@ import {
   type UpdateRefundCaseResponse,
 } from '@/lib/refundOperations';
 import {
+  canConfirmRefundCandidate,
+  getDisplayedRefundManagerNextStep,
   getRefundManagerState,
+  hasUnpaidRefundReview,
+  hasProtectedRefundLifecycle,
   isDefinitiveNoRefundRetryReady,
   refundReadinessBlockMessage,
   type RefundManagerState,
   type RefundManagerStateTone,
 } from '@/lib/refundManagerState';
-import { getRefundManagerQueueBucket } from '@/lib/refundQueue';
+import {
+  findRefundDeepLinkedCase,
+  getRefundManagerQueueBucket,
+  getRefundQueueFilterForCase,
+  type RefundQueueFilter as QueueFilter,
+} from '@/lib/refundQueue';
 import { cn } from '@/lib/utils';
+
+const refundSearchViewLabel = (refundCase: RefundCaseRecord) => ({
+  needs_action: 'Action needed', ready_to_pay: 'Ready to refund', in_progress: 'In progress',
+  waiting_on_customer: 'Waiting', provider_hold: 'Needs Refund Operations',
+  accounting_review: 'Needs Refund Operations',
+  integrity_hold: 'Needs Refund Operations', completed: 'Done', internal_archive: 'Internal/test archive',
+})[getRefundManagerQueueBucket(refundCase)];
 
 const statusDecisionMap: Partial<Record<RefundCaseStatus, Exclude<RefundDecision, null>>> = {
   approved: 'approved',
@@ -335,20 +373,6 @@ type NayaxLookupNotice = {
   message: string;
 };
 
-type QueueFilter =
-  | 'needs_action'
-  | 'in_progress'
-  | 'missing_information'
-  | 'possible_duplicate'
-  | 'aging'
-  | 'provider_hold'
-  | 'waiting_on_customer'
-  | 'ready_to_pay'
-  | 'blocked'
-  | 'completed'
-  | 'internal_test'
-  | 'all';
-
 type CustomerMessageResult = {
   type: string;
   status: string;
@@ -357,6 +381,8 @@ type CustomerMessageResult = {
 type CaseSaveSuccess = {
   customerMessage: CustomerMessageResult;
   updateApplied: boolean;
+  officialActionVersion: number;
+  refundReadiness: RefundReadiness | null;
 };
 
 type CaseSaveResult = CaseSaveSuccess | 'step_up_pending' | null;
@@ -374,7 +400,7 @@ type PrimaryActionConfig = {
   targetStatus?: RefundCaseStatus;
   targetDecision?: RefundDecision;
   messageType?: RefundCustomerPortalMessageType;
-  mode?: 'case_update' | 'retry_message' | 'nayax_evidence_selection' | 'nayax_refund_execution' | 'manual_nayax_approval' | 'resolve_delivery_not_found';
+  mode?: 'case_update' | 'retry_message' | 'nayax_refund_execution' | 'manual_nayax_approval' | 'resolve_delivery_not_found' | 'review_transaction_evidence';
   disabled?: boolean;
 };
 
@@ -558,31 +584,15 @@ const formatCurrency = (cents: number | null) => {
   }).format(cents / 100);
 };
 
-const formatRefundMachineLocation = (locationName: string, machineLabel: string) => {
-  const normalizedLocationName = locationName.trim();
-  const normalizedMachineLabel = machineLabel.trim();
-  const normalizedLocationKey = normalizedLocationName.toLocaleLowerCase();
-
-  if (
-    !normalizedLocationName
-    || normalizedLocationKey === 'unmapped'
-    || normalizedLocationKey === 'unknown'
-    || normalizedLocationKey.startsWith('unmapped ')
-    || normalizedLocationKey.startsWith('unknown ')
-    || locationName.trim().toLocaleLowerCase() === machineLabel.trim().toLocaleLowerCase()
-  ) {
-    return normalizedMachineLabel;
-  }
-
-  return `${normalizedLocationName} - ${normalizedMachineLabel}`;
-};
-
 const isMissingRefundLabel = (value: string | null | undefined) => {
   const normalized = value?.trim().toLowerCase() ?? '';
   return !normalized || normalized.startsWith('unknown') || normalized.startsWith('unmapped');
 };
 
 const derivePortalRefundMissingFields = (refundCase: RefundCaseRecord): RefundMissingField[] => {
+  if (refundCase.customerCorrectionFields) {
+    return refundCase.customerCorrection?.isActive === true ? [] : refundCase.customerCorrectionFields;
+  }
   const missing: RefundMissingField[] = [];
   if (isMissingRefundLabel(refundCase.machineLabel) && isMissingRefundLabel(refundCase.locationName)) {
     missing.push('location_or_machine');
@@ -609,22 +619,78 @@ const derivePortalRefundMissingFields = (refundCase: RefundCaseRecord): RefundMi
   ) {
     missing.push('card_last4');
   }
+  if (
+    refundCase.paymentMethod === 'cash' &&
+    !refundCase.zellePaymentContact?.trim() &&
+    (
+      refundCase.decision === 'approved' ||
+      refundCase.lifecycle?.managerAction.action === 'request_payout_destination'
+    )
+  ) {
+    missing.push('zelle_payment_contact');
+  }
   return missing;
 };
 
 const missingFieldCustomerLabel: Record<RefundMissingField, string> = {
+  payment_interaction: 'how the card or wallet was used',
+  wallet_provider: 'the mobile wallet used',
+  card_network: 'the card type',
   location_or_machine: 'the machine or Bloomjoy location',
   incident_date: 'the purchase date',
   incident_time: 'the approximate purchase time, including AM or PM',
   payment_method: 'whether payment was by card, Apple Pay, Google Pay, or cash',
   amount: 'the exact amount charged',
-  card_last4: 'only the last four digits shown on the card charge (not wallet or device-card digits)',
+  card_last4: 'only the last four digits of the card or wallet used for this purchase',
+  card_last4_source: 'where the customer found the last four digits',
+  wallet_device_kind: 'whether the customer used a phone or watch',
+  incident_time_source: 'how the customer found the purchase time',
+  nearby_attempt_count: 'how many nearby attempts or charges the customer remembers',
+  zelle_payment_contact: 'the Zelle email address or phone number for this reimbursement',
+};
+
+const missingFieldReplyLine: Record<RefundMissingField, string> = {
+  payment_interaction: 'How you paid:',
+  wallet_provider: 'Mobile wallet:',
+  card_network: 'Card type:',
+  location_or_machine: 'Machine or location:',
+  incident_date: 'Purchase date (YYYY-MM-DD):',
+  incident_time: 'Approximate purchase time (include AM or PM):',
+  payment_method: 'Payment method:',
+  amount: 'Amount:',
+  card_last4: 'Card last four:',
+  card_last4_source: 'Last-four source (physical card, wallet/device, bank record or alert, or not sure):',
+  wallet_device_kind: 'Wallet device (phone, watch, or not sure):',
+  incident_time_source: 'Time source (alert or receipt, memory, or not sure):',
+  nearby_attempt_count: 'Nearby attempts or charges (one, more than one, or not sure):',
+  zelle_payment_contact: 'Zelle email or phone number:',
 };
 
 const sanitizePortalMissingFields = (fields: string[]): RefundMissingField[] =>
   Object.keys(missingFieldCustomerLabel).filter(
     (field): field is RefundMissingField => fields.includes(field),
   );
+
+const CustomerCorrectionSummary = ({ refundCase, onReview }: { refundCase: RefundCaseRecord; onReview?: (trigger: HTMLButtonElement) => void }) => {
+  const correction = refundCase.customerCorrection;
+  if (!correction) return null;
+  return <section id={`refund-correction-${refundCase.id}`} tabIndex={-1} className="border-b border-border p-4" aria-label="Customer correction">
+    <h3 className="font-semibold">{correction.state === 'submitted' ? 'Customer response received' : correction.isActive ? 'Customer correction requested' : 'Customer correction needs review'}</h3>
+    <p className="mt-2 text-sm text-muted-foreground">{correction.state === 'submitted'
+      ? 'Continue reviewing this request. The customer does not need to answer these details again.'
+      : correction.isActive ? correction.isUsable ? 'The secure link was sent. Bloomjoy is waiting for this response.' : 'Sending is still being confirmed. Keep the existing request.'
+      : 'Review the existing response or delivery record before requesting anything else.'}</p>
+    {correction.answers && <dl className="mt-3 space-y-2 text-sm">{Object.entries(correction.answers).map(([field,answer]) => <div key={field}>
+      <dt className="font-medium">{missingFieldCustomerLabel[field as RefundMissingField] ?? statusLabel(field)}</dt>
+      <dd className="text-muted-foreground">{answer.disposition === 'cannot_provide' ? 'Customer is unsure or cannot provide this.'
+        : answer.disposition === 'confirmed' ? `Confirmed: ${correction.previousValues[field] ?? 'previous detail'}`
+        : field === 'location_or_machine' ? 'Customer selected a different public location; the case now uses that selection.'
+        : `Changed from ${correction.previousValues[field] ?? 'not provided'} to ${answer.value ?? ''}`}</dd>
+    </div>)}</dl>}
+    {correction.state === 'submitted' && <p className="mt-3 text-sm">{correction.recheckState === 'completed' ? 'The purchase check completed. Review its result below.' : correction.nextAction === 'recheck' ? 'Bloomjoy is checking the updated purchase details.' : 'Bloomjoy owns the next review.'}</p>}
+    {correction.state === 'pending' && onReview && <Button className="mt-3" variant="outline" onClick={(event) => onReview(event.currentTarget)}>Review current request</Button>}
+  </section>;
+};
 
 const formatMessageAmount = (refundCase: RefundCaseRecord) =>
   formatCurrency(refundCase.refundAmountCents ?? refundCase.paymentAmountCents);
@@ -680,6 +746,9 @@ const nayaxLookupNoticeClass = (tone: NayaxLookupNotice['tone']) =>
 const getRefundReferenceLabel = (_refundCase: RefundCaseRecord) => 'External refund confirmation/reference';
 
 const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxLookupCandidate[]) => {
+  if (hasConfirmedRefundReceipt(refundCase)) {
+    return 'Refund confirmed. Refund Operations must resolve the accounting date internally. Do not retry payment or send another customer notice.';
+  }
   if (refundCase.status === 'draft') {
     return 'Review the Gmail message, then ask for the missing location, purchase time, payment method, and transaction details.';
   }
@@ -824,13 +893,21 @@ const getCustomerContactAgeLabel = (refundCase: RefundCaseRecord) => {
   return `Last contact ${formatAge(latest.sentAt ?? latest.createdAt)} ago`;
 };
 
-const hasCardRefundAuthority = (refundCase: RefundCaseRecord) =>
-  (
-    refundCase.canPerformOfficialAction === true ||
-    refundCase.officialActionBlockReason === 'manager_verification_required'
-  ) &&
+const hasCardRefundAuthority = (
+  refundCase: RefundCaseRecord,
+  refundReadiness: RefundReadiness | null | undefined = refundCase.refundReadiness
+) =>
   Number(refundCase.officialActionVersion ?? 0) > 0 &&
-  refundCase.reconciliationActionBlocked !== true;
+  (
+    refundReadiness?.approvalContinuationReady === true ||
+    (
+      (
+        refundCase.canPerformOfficialAction === true ||
+        refundCase.officialActionBlockReason === 'manager_verification_required'
+      ) &&
+      refundCase.reconciliationActionBlocked !== true
+    )
+  );
 
 const canonicalQueueBucket = (refundCase: RefundCaseRecord) =>
   getRefundManagerQueueBucket(refundCase);
@@ -862,7 +939,7 @@ const isRefundInProgressCase = (refundCase: RefundCaseRecord) => {
 };
 
 const isRefundOperationsCase = (refundCase: RefundCaseRecord) => {
-  if (refundCase.lifecycle) return canonicalQueueBucket(refundCase) === 'provider_hold';
+  if (refundCase.lifecycle) return ['accounting_review', 'provider_hold', 'integrity_hold'].includes(canonicalQueueBucket(refundCase));
   return refundCase.paymentMethod === 'card' &&
     refundCase.lifecycle?.stage === 'needs_refund_operations';
 };
@@ -915,10 +992,7 @@ const caseUrgencyRank = (refundCase: RefundCaseRecord) => {
   return 6;
 };
 
-const getOperationalSignals = (
-  refundCase: RefundCaseRecord,
-  cardRefundAvailabilityConfirmed = false
-) => {
+const getOperationalSignals = (refundCase: RefundCaseRecord) => {
   const signals: Array<{ label: string; className: string }> = [];
   const definitiveNoRefundRetryReady = isDefinitiveNoRefundRetryReady(refundCase);
   if (refundCase.possibleDuplicate) {
@@ -973,14 +1047,6 @@ const getOperationalSignals = (
   }
   if (isWaitingCase(refundCase, false)) {
     signals.push({ label: 'Waiting on customer', className: 'border-orange-200 bg-orange-50 text-orange-900' });
-  }
-  if (
-    refundCase.paymentMethod === 'card' &&
-    ['approved', 'card_refund_pending'].includes(refundCase.status) &&
-    refundCase.nayaxMatchExecutionEligible === true &&
-    !cardRefundAvailabilityConfirmed
-  ) {
-    signals.push({ label: 'Card refunds unavailable', className: 'border-orange-200 bg-orange-50 text-orange-900' });
   }
   if (isReadyToPayCase(refundCase)) {
     signals.push({ label: 'Ready to refund', className: 'border-sky-200 bg-sky-50 text-sky-700' });
@@ -1044,9 +1110,10 @@ const cardNetworkComparisonLabel = (
   if (!customerNetwork || customerNetwork === 'other_unknown') return 'Customer was not sure';
   if (!nayaxNetwork) return 'Nayax card type unavailable';
   if (customerNetwork === nayaxNetwork) return 'Same card type';
-  return refundCase.paymentInteraction === 'phone_watch_wallet' || refundCase.cardWalletUsed
-    ? 'Different; wallet evidence is supportive only'
-    : 'Different; transaction cannot be selected';
+  if (candidate.cardNetworkComparison === 'mismatch_negative_unproven_equivalence') {
+    return 'Different; this weighs against the match, but Nayax has not proved the fields are equivalent';
+  }
+  return 'Different; wallet, contactless, or source differences may explain it';
 };
 
 const paymentInteractionLabel = (refundCase: RefundCaseRecord) => {
@@ -1061,6 +1128,10 @@ const paymentInteractionLabel = (refundCase: RefundCaseRecord) => {
       return 'Tapped a physical card';
     case 'insert_or_swipe':
       return 'Inserted or swiped a physical card';
+    case 'insert_card':
+      return 'Inserted a physical card';
+    case 'swipe_card':
+      return 'Swiped a physical card';
     case 'cash':
       return 'Cash';
     default:
@@ -1091,6 +1162,30 @@ const cardLast4ProvenanceLabel = (refundCase: RefundCaseRecord) => {
       return 'digit source not yet confirmed';
   }
 };
+
+const cardLast4SourceLabel = (refundCase: RefundCaseRecord) => {
+  const source = refundCase.cardLast4Source ?? (
+    refundCase.cardLast4Provenance === 'physical_card'
+      ? 'physical_card'
+      : refundCase.cardLast4Provenance === 'wallet_device_token'
+      ? 'wallet_device'
+      : null
+  );
+  return ({
+    physical_card: 'physical card', wallet_device: 'wallet or device',
+    bank_record: 'bank record or alert', unknown: 'source not sure',
+  }[source ?? ''] ?? 'source not provided');
+};
+
+const incidentTimeSourceLabel = (refundCase: RefundCaseRecord) => ({
+  transaction_alert_or_receipt: 'time from alert or receipt', memory: 'time from memory',
+  unknown: 'time source not sure',
+}[refundCase.incidentTimeSource ?? ''] ?? 'time source not provided');
+
+const nearbyAttemptCountLabel = (refundCase: RefundCaseRecord) => ({
+  one: 'one nearby attempt or charge', multiple: 'more than one nearby attempt or charge',
+  unknown: 'nearby attempts not sure',
+}[refundCase.nearbyAttemptCount ?? ''] ?? 'nearby attempts not provided');
 
 const incidentTimeConfidenceLabel = (refundCase: RefundCaseRecord) => {
   switch (refundCase.incidentTimeConfidence) {
@@ -1139,9 +1234,9 @@ const matchFactorDisplayLabel = (
     case 'card':
       if (!refundCase.cardLast4 || !candidate.cardLast4) return factor.label;
       if (refundCase.cardLast4 === candidate.cardLast4) return 'Card ending matches';
-      return refundCase.paymentInteraction === 'phone_watch_wallet' || refundCase.cardWalletUsed
-        ? 'Card ending differs; phone or watch wallets may use a different device number'
-        : 'Card ending does not match';
+      return candidate.cardLast4Comparison === 'mismatch_negative_unproven_equivalence'
+        ? 'Card ending differs and weighs against this match; Nayax has not proved the fields are equivalent'
+        : 'Card ending differs; wallet, contactless, or source differences may explain it';
     case 'card_network':
       return cardNetworkComparisonLabel(refundCase, candidate);
     case 'incident_time':
@@ -1163,11 +1258,7 @@ const candidateUnavailableReason = (
   refundCase: RefundCaseRecord
 ) => {
   const exclusions = new Set(candidate.hardExclusions ?? []);
-  if (exclusions.has('card_last4_mismatch')) {
-    return refundCase.paymentInteraction === 'phone_watch_wallet' || refundCase.cardWalletUsed
-      ? 'The card ending needs customer confirmation.'
-      : 'The card ending does not match the physical card reported by the customer.';
-  }
+  const reasonCodes = new Set(candidate.reasonCodes ?? []);
   if (exclusions.has('duplicate_transaction')) {
     return 'This transaction is already linked to another refund case.';
   }
@@ -1182,6 +1273,17 @@ const candidateUnavailableReason = (
   }
   if (exclusions.has('payment_not_approved')) {
     return 'Nayax does not show this as an approved sale.';
+  }
+  if (reasonCodes.has('missing_provider_site_id')) {
+    return 'Nayax did not return the provider site needed to bind this transaction.';
+  }
+  if (reasonCodes.has('provider_status_unconfirmed')) {
+    return 'Nayax has not confirmed this as an approved sale.';
+  }
+  if (candidate.identifierReviewState === 'needs_corroboration') {
+    return candidate.customerCorrectionFields?.length
+      ? 'More customer context is needed on this same case before a manager can select it.'
+      : 'The machine, amount, or time evidence is not strong enough to select this sale.';
   }
 
   const blockingFactor = candidate.matchFactors?.find((factor) =>
@@ -1211,6 +1313,7 @@ const nayaxDecisionHeading = (
   if (summary?.recommendationState === 'no_safe_match' || summary?.lookupStatus === 'no_match') {
     return 'No clear transaction was found';
   }
+  if (candidate?.identifierReviewState === 'reviewable_uncertainty') return 'One transaction needs manager review';
   if (candidate?.isRecommended) return 'One likely transaction was found';
   if (candidate) return 'A possible transaction needs comparison';
   return 'Waiting for transaction search';
@@ -1233,9 +1336,11 @@ const transactionSearchDescription = (summary: RefundNayaxLookupSummary | null) 
     case 'no_match':
       return summary.providerWindowRecordCount && summary.providerWindowRecordCount > 0
         ? `${summary.providerWindowRecordCount} transaction${summary.providerWindowRecordCount === 1 ? ' was' : 's were'} checked, but none matched enough customer details.`
-        : 'No transaction matched enough customer details.';
+        : summary.providerWindowRecordCount === 0
+          ? 'The returned recent sales contain no usable transactions in the purchase time window. Historical coverage is unknown.'
+          : 'No usable transaction was found. Coverage of the purchase time is not recorded.';
     case 'multiple_matches':
-      return `${summary.candidateCount || 'Several'} possible transactions were found. Compare them below.`;
+      return `${summary.candidateCount || 'Several'} possible transactions were found. Compare the available options in Machine transaction.`;
     case 'not_started':
       return 'Bloomjoy will start the transaction search automatically when the required customer details are available.';
     default:
@@ -1459,7 +1564,11 @@ const nayaxResultTitle = (
   editor: EditorState
 ) => {
   if (hasSelectedCardEvidence(refundCase, editor)) return 'Card transaction found';
-  if (summary.lookupStatus === 'match_found' || summary.lookupStatus === 'multiple_matches') {
+  if (
+    summary.lookupStatus === 'match_found' ||
+    summary.lookupStatus === 'multiple_matches' ||
+    summary.lookupStatus === 'manual_exception'
+  ) {
     return 'Review possible transaction';
   }
   if (summary.lookupStatus === 'no_match') return 'No matching transaction';
@@ -1498,11 +1607,14 @@ const nayaxNextActionText = (
       return 'Next: Wait for Bloomjoy to finish checking transactions.';
     case 'match_found':
       return summary.recommendationState === 'high_confidence'
-        ? 'Next: Compare the customer, amount, and time. Select the transaction only if it is clearly correct.'
+        ? 'Next: Compare Customer request with Machine transaction. Select it only when they clearly describe the same purchase.'
         : 'Next: Compare the transaction with the customer details before selecting it.';
     case 'multiple_matches':
-    case 'manual_exception':
       return 'Next: Compare the possible transactions. Select one only if it is clearly the customer\'s purchase.';
+    case 'manual_exception':
+      return summary.confidenceClass === 'evidence_aware_review'
+        ? "Next: Review Machine transaction once. Select it only if the machine, amount comparison, and available customer and payment evidence identify the same purchase. The refund uses the selected provider transaction's full amount."
+        : 'Next: Compare the possible transactions. Select one only if it is clearly the customer\'s purchase.';
     case 'no_match':
       return 'Next: Keep the case open. Do not choose a transaction unless you can clearly identify it.';
     case 'setup_needed':
@@ -1646,6 +1758,13 @@ const primaryActionConfig = (
   candidates: NayaxLookupCandidate[],
   refundReadiness: RefundReadiness | null
 ): PrimaryActionConfig => {
+  if (hasConfirmedRefundReceipt(refundCase)) {
+    return {
+      label: 'Refund confirmed · accounting review',
+      helper: 'Payment is confirmed. The settlement date remains unknown. Review the saved receipt and customer notification below; do not retry payment.',
+      disabled: true,
+    };
+  }
   const latestMessage = getLatestCustomerMessage(refundCase);
   const definitiveNoRefundRetryReady = isDefinitiveNoRefundRetryReady(refundCase);
   if (refundCase.legacyStateReviewRequired) {
@@ -1655,10 +1774,44 @@ const primaryActionConfig = (
       disabled: true,
     };
   }
-  if (refundCase.providerHold) {
+  if (refundCase.providerHold && refundReadiness?.approvalContinuationReady !== true) {
     return {
       label: 'Refund status not confirmed',
       helper: 'The refund result is unclear. Do not try again until payment support confirms what happened.',
+      disabled: true,
+    };
+  }
+  if (
+    hasProtectedRefundLifecycle(refundCase) &&
+    refundReadiness?.approvalContinuationReady !== true
+  ) {
+    const current = getRefundManagerState(refundCase);
+    return { label: current.label, helper: current.nextStep, disabled: true };
+  }
+  if (refundCase.lifecycle?.stage === 'waiting_on_customer') return {
+    label: 'Waiting for customer reply',
+    helper: 'Wait for the customer to reply to the existing request. No new request is needed.', disabled: true,
+  };
+  const canContinueReview = hasUnpaidRefundReview(refundCase) && derivePortalRefundMissingFields(refundCase).length === 0;
+  if (
+    refundCase.customerDeliveryException &&
+    latestMessage?.status === 'failed' &&
+    !canContinueReview &&
+    isRefundCustomerDeliveryUncertain(latestMessage.errorMessage)
+  ) {
+    return {
+      label: 'Resolve uncertain Gmail delivery',
+      helper: 'First check the original Gmail thread. If no message was sent, record that verification here before sending a controlled follow-up.',
+      mode: 'resolve_delivery_not_found',
+    };
+  }
+  if (refundCase.customerDeliveryException && !canContinueReview) {
+    const stateLabel = transactionalDeliveryLabel(
+      refundCase.customerDeliveryException.state
+    );
+    return {
+      label: 'Delivery needs review',
+      helper: `${stateLabel}. Refund Operations must review provider evidence. Delivery evidence does not establish a refund result; do not resend the message or retry a payment blindly.`,
       disabled: true,
     };
   }
@@ -1673,7 +1826,7 @@ const primaryActionConfig = (
       disabled: true,
     };
   }
-  if (latestMessage?.status === 'skipped') {
+  if (latestMessage?.status === 'skipped' && !canContinueReview) {
     return {
       label: 'Send a safe customer acknowledgement',
       helper: 'The automated message was skipped, so the customer has not been notified. Review and send one status update before treating this case as contacted.',
@@ -1681,7 +1834,7 @@ const primaryActionConfig = (
       mode: 'retry_message',
     };
   }
-  if (latestMessage?.status === 'failed') {
+  if (latestMessage?.status === 'failed' && !canContinueReview) {
     if (refundCase.paymentMethod === 'card' && latestMessage.messageType === 'approved') {
       return {
         label: 'Approval email blocked',
@@ -1771,17 +1924,22 @@ const primaryActionConfig = (
     };
   }
 
+  if (refundCase.customerCorrection?.isActive === true) return {
+    label: refundCase.customerCorrection.isUsable === true ? 'Waiting for customer response' : 'Customer request is being sent',
+    helper: 'Bloomjoy will continue this same request when the customer responds. No new request is needed.', disabled: true,
+  };
+  const staleCorrection = ['pending','revoked'].includes(refundCase.customerCorrection?.state ?? '') && !refundCase.customerCorrection?.isActive;
   const matched = hasTransactionMatch(refundCase, editor);
   const noMatch = refundCase.correlationStatus === 'no_match' || (!matched && candidates.length === 0);
   const missingFields = derivePortalRefundMissingFields(refundCase);
-  const waitingOnCustomer = isWaitingCase(refundCase, false);
+  const waitingOnCustomer = !staleCorrection && isWaitingCase(refundCase, false);
   const customerAlreadyAsked =
     waitingOnCustomer &&
     latestMessage &&
     ['more_info', 'no_safe_match'].includes(latestMessage.messageType) &&
     ['sent', 'pending'].includes(latestMessage.status);
 
-  if (refundCase.lifecycle?.managerQueue.bucket === 'waiting_on_customer') {
+  if (!staleCorrection && refundCase.lifecycle?.managerQueue.bucket === 'waiting_on_customer') {
     return {
       label: 'Waiting for customer reply',
       helper: 'Wait for the customer to reply to the existing email before taking another case action.',
@@ -1795,10 +1953,8 @@ const primaryActionConfig = (
         return {
           label: 'Ask for missing details',
           helper: 'Ask only for the purchase details that are missing.',
-          targetStatus: 'waiting_on_customer',
-          targetDecision: null,
           messageType: 'more_info',
-          mode: 'case_update',
+          mode: 'retry_message',
         };
       }
 
@@ -1806,6 +1962,15 @@ const primaryActionConfig = (
         label: 'Payment amount required',
         helper: 'Confirm the customer payment amount before marking this case refunded.',
         disabled: true,
+      };
+    }
+
+    if (missingFields.includes('zelle_payment_contact')) {
+      return {
+        label: 'Request payout destination',
+        helper: 'Ask only for the Zelle email address or phone number in the existing customer thread.',
+        messageType: 'more_info',
+        mode: 'retry_message',
       };
     }
 
@@ -1847,6 +2012,36 @@ const primaryActionConfig = (
     };
   }
 
+  if (
+    refundCase.paymentMethod === 'card' &&
+    candidates.length > 1 &&
+    candidates.every((candidate) => candidate.selectionAllowed === false) &&
+    candidates.some((candidate) =>
+      candidate.reasonCodes?.includes('multiple_candidates_need_manager_review')
+    ) &&
+    missingFields.length === 0
+  ) {
+    return {
+      label: 'Review transaction evidence',
+      helper: 'These purchases cannot be separated by the available provider times. Refund Operations owns the next review; do not ask the customer for the same detail again.',
+      mode: 'review_transaction_evidence',
+    };
+  }
+
+  if (
+    refundCase.paymentMethod === 'card' &&
+    candidates.length > 0 &&
+    candidates.every((candidate) => candidate.selectionAllowed === false) &&
+    missingFields.length > 0
+  ) {
+    return {
+      label: 'Ask for missing details',
+      helper: 'Send one same-case correction request for the detail that can distinguish these transactions.',
+      messageType: 'more_info',
+      mode: 'retry_message',
+    };
+  }
+
   if (waitingOnCustomer || noMatch) {
     const canAskForExactMissingFields = missingFields.length > 0;
     if (!canAskForExactMissingFields) {
@@ -1859,10 +2054,8 @@ const primaryActionConfig = (
     return {
       label: 'Ask for missing details',
       helper: 'Ask only for the purchase details that are missing.',
-      targetStatus: 'waiting_on_customer',
-      targetDecision: null,
       messageType: 'more_info',
-      mode: 'case_update',
+      mode: 'retry_message',
     };
   }
 
@@ -1880,12 +2073,22 @@ const primaryActionConfig = (
 
     const hasUnsavedCandidate = Boolean(editor.matchedNayaxCandidateToken.trim());
     if (hasUnsavedCandidate && selectedCandidate) {
+      if (typeof refundReadiness?.approvalPendingExecution !== 'boolean') {
+        return {
+          label: refundReadiness ? 'Refund temporarily unavailable' : 'Checking refund availability',
+          helper: refundReadiness
+            ? refundReadinessBlockMessage(null)
+            : 'Checking that the guarded refund service is ready for this transaction.',
+          disabled: true,
+        };
+      }
       return {
-        label: 'Confirm this transaction',
-        helper: 'Confirm this is the customer\'s transaction. This does not issue a refund or email the customer.',
-        targetStatus: 'needs_review',
-        targetDecision: null,
-        mode: 'nayax_evidence_selection',
+        label: `Refund ${formatCurrency(selectedCandidate.amountCents)}`,
+        helper: 'Confirm this exact transaction and refund its full provider amount in one decision. The customer is emailed only after the refund succeeds.',
+        targetStatus: 'completed',
+        targetDecision: 'approved',
+        messageType: 'completed',
+        mode: 'nayax_refund_execution',
       };
     }
 
@@ -1897,10 +2100,28 @@ const primaryActionConfig = (
           refundCase.reviewedNayaxPortalFallbackKind === 'legacy_manual_evidence' ||
           (
             refundCase.reviewedNayaxPortalFallbackKind === 'ordinary_exact_match' &&
-            refundReadiness?.blockReason === 'provider_remaining_value_unverified'
+            refundReadiness != null &&
+            !['unauthorized', 'duplicate_transaction', 'reconciliation_hold', 'globally_paused', 'kill_switch', 'kill_switch_active'].includes(refundReadiness.blockReason ?? '')
           )
         );
-      if (reviewedPortalFallbackAvailable && refundReadiness?.canIssueCardRefund !== true) {
+      if (!refundReadiness) {
+        return {
+          label: 'Checking refund availability',
+          helper: 'Transaction confirmed. Payment: Not issued.',
+          disabled: true,
+        };
+      }
+      if (refundReadiness.canIssueCardRefund) {
+        return {
+          label: `Refund ${formatCurrency(refundReadiness.refundAmountCents ?? refundCase.refundAmountCents ?? refundCase.paymentAmountCents)}`,
+          helper: 'This issues the card refund. The customer is emailed only after it succeeds.',
+          targetStatus: 'completed',
+          targetDecision: 'approved',
+          messageType: 'completed',
+          mode: 'nayax_refund_execution',
+        };
+      }
+      if (reviewedPortalFallbackAvailable) {
         return {
           label: 'Approve refund for Nayax portal',
           helper: 'Approve this exact refund, then finish it in Nayax and record the confirmation. This step sends no money or customer email.',
@@ -1909,48 +2130,24 @@ const primaryActionConfig = (
           mode: 'manual_nayax_approval',
         };
       }
-      if (!refundReadiness) {
-        return {
-          label: 'Checking refund availability',
-          helper: 'Transaction confirmed. Payment: Not issued.',
-          disabled: true,
-        };
-      }
-      if (!refundReadiness.canIssueCardRefund) {
-        if (refundReadiness.blockReason === 'provider_remaining_value_unverified') {
-          return {
-            label: 'Refund Operations review required',
-            helper: 'Direct card refunds are unavailable until Nayax remaining refundable value can be verified. Refund Operations can use the reviewed Nayax portal fallback; no money or customer email is sent from this screen.',
-            disabled: true,
-          };
-        }
-        return {
-          label: 'Refund temporarily unavailable',
-          helper: refundReadinessBlockMessage(refundReadiness.blockReason),
-          disabled: true,
-        };
-      }
       return {
-        label: `Refund ${formatCurrency(refundReadiness.refundAmountCents ?? refundCase.refundAmountCents ?? refundCase.paymentAmountCents)}`,
-        helper: 'This issues the card refund. The customer is emailed only after it succeeds.',
-        targetStatus: 'completed',
-        targetDecision: 'approved',
-        messageType: 'completed',
-        mode: 'nayax_refund_execution',
+        label: 'Refund temporarily unavailable',
+        helper: refundReadinessBlockMessage(refundReadiness.blockReason),
+        disabled: true,
       };
     }
 
     if (matched) {
       return {
-        label: 'Choose a transaction above',
-        helper: 'Select the customer\'s transaction before issuing a refund.',
+        label: 'Choose a transaction',
+        helper: 'Select the customer\'s transaction in Machine transaction before issuing a refund.',
         disabled: true,
       };
     }
 
     return {
-      label: 'Choose a transaction above',
-      helper: 'Compare the customer request with the transaction details, then save the correct transaction.',
+      label: 'Choose a transaction',
+      helper: 'Compare the customer request with Machine transaction, then save the correct transaction.',
       disabled: true,
     };
   }
@@ -1989,14 +2186,26 @@ const getCustomerMessageDraft = (
   const amount = typeof editedRefundAmountCents === 'number' ? formatCurrency(editedRefundAmountCents) : formatMessageAmount(refundCase);
   const missingFields = derivePortalRefundMissingFields(refundCase);
   const missingFieldList = missingFields.map((field) => `- ${missingFieldCustomerLabel[field]}`);
+  const missingFieldReplyLines = missingFields.map((field) => missingFieldReplyLine[field]);
   switch (messageType) {
     case 'more_info':
+      if (refundCase.customerCorrectionFields?.length) {
+        const preview = refundCorrectionCopy(refundCase.customerCorrectionFields, refundCase.publicReference, refundCase.customerLocale?.locale === 'es');
+        return { subject: preview.subject, body: [...preview.paragraphs, 'A secure update button and reply-for-help instructions are included.'].join('\n\n') };
+      }
       return {
         subject: `A quick detail check for your Bloomjoy refund request ${refundCase.publicReference}`,
         body: [
           'Thank you again for reaching out. We are sorry this needs another step, and we want to make sure we review the right transaction.',
           missingFieldList.length > 0
-            ? ['Please reply with only the missing details below:', '', ...missingFieldList].join('\n')
+            ? [
+                'Please reply with only the missing details below:',
+                '',
+                ...missingFieldList,
+                '',
+                'Copy the requested line into your reply and fill in only the blank:',
+                ...missingFieldReplyLines,
+              ].join('\n')
             : 'No specific missing detail is available to request. Please return to manager review before contacting the customer.',
           'Please do not send a full card number, security code, expiration date, PIN, password, wallet digits, or payment-screen screenshot. Once we receive the requested details, we will continue the review and keep ownership of the next step.',
         ].join('\n\n'),
@@ -2055,6 +2264,57 @@ const messageStatusBadgeClass = (status: string) => {
   if (status === 'failed') return 'border-destructive/30 bg-destructive/10 text-destructive';
   if (status === 'skipped') return 'border-destructive/30 bg-destructive/10 text-destructive';
   return 'border-orange-200 bg-orange-50 text-orange-800';
+};
+
+const isNeedsActionCase = (refundCase: RefundCaseRecord) => {
+  if (refundCase.lifecycle) return canonicalQueueBucket(refundCase) === 'needs_action';
+  return openStatuses.has(refundCase.status) &&
+    !isReadyToPayCase(refundCase) &&
+    !isRefundInProgressCase(refundCase) &&
+    !isRefundOperationsCase(refundCase) &&
+    !isWaitingCase(refundCase, false) &&
+    !isDoneCase(refundCase);
+};
+
+const transactionalDeliveryLabel = (state: string | undefined) => ({
+  accepted: 'Accepted by provider',
+  delivered: 'Delivered',
+  deferred: 'Delivery delayed',
+  failed: 'Delivery failed',
+  bounced: 'Bounced',
+  complained: 'Complaint reported',
+  unknown: 'Delivery unknown',
+}[state ?? 'unknown'] ?? 'Delivery unknown');
+
+const getRefundDeliveryEvidenceMessageId = (
+  messages: RefundCaseRecord['messages'],
+  exception: RefundCaseRecord['customerDeliveryException']
+) => {
+  if (!exception) return null;
+
+  const occurredAt = Date.parse(exception.occurredAt);
+  if (Number.isNaN(occurredAt)) return null;
+
+  const exactMatches = messages
+    .filter((message) => {
+      const messageOccurredAt = Date.parse(message.deliveryStateUpdatedAt ?? message.createdAt);
+      return message.deliveryTransport === 'resend' &&
+        message.deliveryState === exception.state &&
+        message.messageType === exception.messageType &&
+        messageOccurredAt === occurredAt;
+    })
+    .map((message) => message.id);
+
+  return exactMatches.length === 1 ? exactMatches[0] : null;
+};
+
+const transactionalDeliveryBadgeClass = (state: string | undefined) => {
+  if (state === 'delivered') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  if (state === 'accepted') return 'border-sky-200 bg-sky-50 text-sky-800';
+  if (state === 'deferred' || state === 'unknown') {
+    return 'border-orange-200 bg-orange-50 text-orange-800';
+  }
+  return 'border-destructive/30 bg-destructive/10 text-destructive';
 };
 
 const nayaxExecutionBlockLabel = (block: string) => {
@@ -2257,12 +2517,48 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
   return issues;
 };
 
+const hasUnchangedSavedApproval = (refundCase: RefundCaseRecord, editor: EditorState): boolean =>
+  refundCase.paymentMethod === 'card' && refundCase.status === 'needs_review' &&
+  refundCase.decision === 'approved' && editor.status === refundCase.status &&
+  editor.decision === refundCase.decision && !editor.clearNayaxMatch &&
+  editor.decisionReason.trim() === (refundCase.decisionReason ?? '').trim() &&
+  typeof refundCase.refundAmountCents === 'number' && refundCase.refundAmountCents > 0 &&
+  centsFromCurrency(editor.refundAmount) === refundCase.refundAmountCents;
+
+const getPrimaryActionIssues = (
+  refundCase: RefundCaseRecord,
+  editor: EditorState,
+  action: PrimaryActionConfig | null
+): string[] => {
+  if (hasConfirmedRefundReceipt(refundCase) || action?.mode === 'retry_message') return [];
+  const issues = getCaseSaveIssues(refundCase, editor);
+  if (action?.disabled === true && !action.mode && hasUnchangedSavedApproval(refundCase, editor)) {
+    // A read-only next step does not propose saving another approval.
+    return issues.filter((issue) => issue !== `${statusLabel(editor.status)} is a review/follow-up status and cannot carry a final decision.`);
+  }
+  return issues;
+};
+
 export default function AdminRefundsPage() {
   const queryClient = useQueryClient();
   const detailPanelRef = useRef<HTMLDivElement>(null);
+  const customerMessagesDetailsRef = useRef<HTMLDetailsElement>(null);
+  const customerMessagesSummaryRef = useRef<HTMLElement>(null);
+  const customerDeliveryEvidenceRef = useRef<HTMLDivElement>(null);
+  const denialReasonRef = useRef<HTMLSelectElement>(null);
+  const denialTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const denialPreviousStateRef = useRef<{
+    caseId: string;
+    editor: EditorState;
+    messageType: RefundCustomerPortalMessageType;
+    messageSubject: string;
+    messageBody: string;
+    isCustomerDraftDirty: boolean;
+  } | null>(null);
   const cashCompletionInFlightRef = useRef(false);
-  const evidenceSelectionInFlightRef = useRef(false);
   const nayaxRefundInFlightRef = useRef(false);
+  const nayaxApprovedExecutionRequestRef = useRef<() => void>(() => {});
+  const nayaxApprovedExecutionAttemptedRef = useRef(new Set<string>());
   const lookupRequestSequenceRef = useRef(0);
   const autoLookupAttemptedRef = useRef(new Set<string>());
   const handledCaseQueryRef = useRef<string | null>(null);
@@ -2281,7 +2577,6 @@ export default function AdminRefundsPage() {
   const [manualNayaxEvidence, setManualNayaxEvidence] = useState<ManualNayaxEvidenceState>(
     emptyManualNayaxEvidence
   );
-  const [isEvidenceConfirmationOpen, setIsEvidenceConfirmationOpen] = useState(false);
   const [isRefundConfirmationOpen, setIsRefundConfirmationOpen] = useState(false);
   const [isCashConfirmationOpen, setIsCashConfirmationOpen] = useState(false);
   const [isGmailResolutionOpen, setIsGmailResolutionOpen] = useState(false);
@@ -2292,6 +2587,10 @@ export default function AdminRefundsPage() {
     () => new Set()
   );
   const [isSendingCustomerMessage, setIsSendingCustomerMessage] = useState(false);
+  const [correctionSelection, setCorrectionSelection] = useState<{ caseId: string; version: number; fields: RefundMissingField[]; requestId?: string; editing?: boolean } | null>(null);
+  const correctionNoticeState = useRef<CorrectionNoticeState>({initialized:false,seen:new Set()});
+  const correctionDialogTriggerRef = useRef<{caseId:string; element:HTMLElement|null}|null>(null);
+  const [pendingRevisions, setPendingRevisions] = useState<Record<string,{caseId:string;expectedCaseVersion:number;messageIntentId:string;currentCorrectionRequestId:string;messageType:'more_info';missingFields:RefundMissingField[]}>>({});
   const [isDisposingAcknowledgementException, setIsDisposingAcknowledgementException] =
     useState(false);
   const [customerLocaleDraft, setCustomerLocaleDraft] = useState<RefundCustomerLocale | ''>('');
@@ -2302,6 +2601,7 @@ export default function AdminRefundsPage() {
   const [isInternalTestConfirmationOpen, setIsInternalTestConfirmationOpen] = useState(false);
   const [isClassifyingInternalTest, setIsClassifyingInternalTest] = useState(false);
   const [nayaxCandidates, setNayaxCandidates] = useState<NayaxLookupCandidate[]>([]);
+  const [receiptCorrectionReviewActive, setReceiptCorrectionReviewActive] = useState(false);
   const [nayaxLookupNotice, setNayaxLookupNotice] = useState<NayaxLookupNotice | null>(null);
   const [nayaxExecutionNotice, setNayaxExecutionNotice] = useState<NayaxLookupNotice | null>(null);
   const [nayaxResolutionResult, setNayaxResolutionResult] =
@@ -2319,6 +2619,14 @@ export default function AdminRefundsPage() {
   const [messageType, setMessageType] = useState<RefundCustomerPortalMessageType>('status_update');
   const [messageSubject, setMessageSubject] = useState('');
   const [messageBody, setMessageBody] = useState('');
+  const [isCustomerDraftDirty, setIsCustomerDraftDirty] = useState(false);
+  const [isInternalNoteDirty, setIsInternalNoteDirty] = useState(false);
+  const [pendingCaseSelectionId, setPendingCaseSelectionId] = useState<string | null>(null);
+  const hasUnsavedCaseText = isCustomerDraftDirty || isInternalNoteDirty;
+  const caseSelectionSafetyRef = useRef({ hasUnsavedCaseText: false, actionInFlight: false });
+  const caseSelectionRequestRef = useRef<(refundCase: RefundCaseRecord) => void>(() => {});
+  const pendingCaseSelectionTriggerRef = useRef<HTMLElement | null>(null);
+  const manualMessageIntentRef = useRef<{ fingerprint: string; id: string } | null>(null);
   const [appliedTriageSuggestionId, setAppliedTriageSuggestionId] = useState<string | null>(null);
   const [isTriageRejectOpen, setIsTriageRejectOpen] = useState(false);
   const [isRejectingTriage, setIsRejectingTriage] = useState(false);
@@ -2328,37 +2636,58 @@ export default function AdminRefundsPage() {
   const [gmailRecoveryVerified, setGmailRecoveryVerified] = useState(false);
   const [isRecoveringGmailContact, setIsRecoveringGmailContact] = useState(false);
   const [isResolvingReconciliation, setIsResolvingReconciliation] = useState(false);
+  const [isResolvingInboundLink, setIsResolvingInboundLink] = useState(false);
+  caseSelectionSafetyRef.current = {
+    hasUnsavedCaseText,
+    actionInFlight:
+      isSaving ||
+      isSendingCustomerMessage ||
+      isRunningNayaxRefund ||
+      isSavingManualNayaxEvidence ||
+      isApprovingManualNayaxRefund ||
+      isCashCompletionSubmitting ||
+      isDisposingAcknowledgementException ||
+      isCorrectingCustomerLocale ||
+      isClassifyingInternalTest ||
+      isPreparingNayaxResolution ||
+      isStartingNayaxEvidenceOnly ||
+      isResolvingGmailDelivery ||
+      isRejectingTriage ||
+      isRecoveringGmailContact ||
+      isResolvingReconciliation ||
+      isResolvingInboundLink,
+  };
   const forceDemoData = isLocalUatDemoForced();
   const showLegacyCashWorkbench =
     import.meta.env.DEV &&
     typeof window !== 'undefined' &&
     new URLSearchParams(window.location.search).get('legacy-cash') === 'on';
 
+  const [overviewReadMessage, setOverviewReadMessage] = useState('');
+  const overviewPolling = useMemo(createRefundReadPolling, [selectedId]);
+  const availabilityPolling = useMemo(createRefundReadPolling, [selectedId]);
   const {
-    data: liveOverview = { cases: [], machines: [], managerAssignments: [] },
+    data: liveOverviewSnapshot,
     isLoading: liveIsLoading,
     isFetching: liveIsFetching,
     error,
+    errorUpdatedAt: overviewErrorUpdatedAt,
+    status: overviewReadStatus,
   } = useQuery({
     queryKey: ['admin-refund-operations-overview'],
-    queryFn: fetchRefundOperationsOverview,
+    queryFn: () => overviewPolling.read(fetchRefundOperationsOverview),
+    retry: false,
     enabled: !forceDemoData,
     staleTime: 1000 * 30,
-    refetchInterval: (query) => {
-      const data = query.state.data as RefundOperationsOverview | undefined;
-      const activeRefreshIntervals = (data?.cases ?? [])
-        .map((refundCase) => refundCase.lifecycle)
-        .filter((lifecycle): lifecycle is NonNullable<typeof lifecycle> =>
-          Boolean(lifecycle && !lifecycle.terminal && lifecycle.refreshAfterSeconds)
-        )
-        .map((lifecycle) =>
-          Math.min(15_000, Math.max(1_000, (lifecycle.refreshAfterSeconds ?? 5) * 1_000))
-        );
-      return activeRefreshIntervals.length > 0 ? Math.min(...activeRefreshIntervals) : false;
-    },
+    refetchInterval: (query) => overviewPolling.interval(refundOverviewPollingInterval(
+      (query.state.data as RefundOperationsOverview | undefined)?.cases,
+    )),
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
+  const liveOverview = liveOverviewSnapshot ?? { cases: [], machines: [], managerAssignments: [] };
+
+  const availabilityCaseIsTerminal = refundAvailabilityIsTerminal(liveOverview, selectedId);
 
   const {
     data: nayaxCardRefundAvailability,
@@ -2367,13 +2696,14 @@ export default function AdminRefundsPage() {
     error: nayaxCardRefundAvailabilityError,
   } = useQuery({
     queryKey: ['nayax-card-refund-availability', selectedId],
-    queryFn: () => fetchNayaxCardRefundAvailability(selectedId),
+    queryFn: () => availabilityPolling.read(() => fetchNayaxCardRefundAvailability(selectedId)),
     enabled: !forceDemoData && Boolean(selectedId),
     staleTime: 1000 * 30,
     retry: false,
-    refetchInterval: selectedId ? 5_000 : false,
+    refetchInterval: () => availabilityPolling.interval(selectedId && !availabilityCaseIsTerminal ? 5_000 : false),
     refetchIntervalInBackground: false,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: !availabilityCaseIsTerminal,
+    refetchOnReconnect: !availabilityCaseIsTerminal,
   });
   const { data: gmailHealth } = useQuery({
     queryKey: ['refund-gmail-health'],
@@ -2397,16 +2727,6 @@ export default function AdminRefundsPage() {
     gmailHealth?.status === 'paused' ||
     gmailHealth?.status === 'revoked';
   const gmailRecoveryActive = gmailHealth?.status === 'recovering';
-  const cardRefundAvailabilityConfirmed =
-    !forceDemoData &&
-    nayaxCardRefundAvailability?.available === true &&
-    nayaxCardRefundAvailability.status === 'available' &&
-    nayaxCardRefundAvailability.blockReason === null &&
-    nayaxCardRefundAvailability.payloadRedacted === true &&
-    !nayaxCardRefundAvailabilityIsLoading &&
-    !nayaxCardRefundAvailabilityIsFetching &&
-    !nayaxCardRefundAvailabilityError;
-
   const refresh = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] }),
@@ -2418,10 +2738,42 @@ export default function AdminRefundsPage() {
     ]);
   };
   const isUsingDemoData = canUseLocalRefundDemoData();
+  const overviewHasSnapshot = liveOverviewSnapshot !== undefined;
+  const overviewConsecutiveFailures = overviewPolling.consecutiveFailures();
+  useEffect(() => {
+    setOverviewReadMessage((previous) => isUsingDemoData ? '' : refundOverviewReadMessage(
+      previous,
+      overviewReadStatus,
+      {
+        hasSnapshot: overviewHasSnapshot,
+        consecutiveFailures: overviewConsecutiveFailures,
+      },
+    ));
+  }, [
+    isUsingDemoData,
+    overviewConsecutiveFailures,
+    overviewErrorUpdatedAt,
+    overviewHasSnapshot,
+    overviewReadStatus,
+  ]);
   const pageIsLoading = isUsingDemoData ? false : liveIsLoading;
   const pageIsFetching = isUsingDemoData ? false : liveIsFetching;
   const demoOverview = useMemo(() => buildLocalRefundDemoOverview(), []);
   const overview = isUsingDemoData ? demoOverview : liveOverview;
+  useEffect(() => {
+    if (pageIsLoading || error || isUsingDemoData) return;
+    const notices = collectCorrectionResponseNotices(correctionNoticeState.current,
+      overview.cases.filter((item) => !hasConfirmedRefundReceipt(item)));
+    if (!notices.length) return;
+    const first = notices[0];
+    toast.info(notices.length === 1 ? `${first.publicReference}: customer response ready for review.` : `${notices.length} customer responses are ready for review.`, {
+      id:'refund-correction-responses',
+      action:{label:'Review response',onClick:() => {
+        const responseCase = overview.cases.find((refundCase) => refundCase.id === first.id);
+        if (responseCase) caseSelectionRequestRef.current(responseCase);
+      }},
+    });
+  }, [overview.cases,pageIsLoading,error,isUsingDemoData]);
   const refundOperationsAccess = overview.refundOperationsAccess === true;
   const internalTestCases = useMemo(
     () => refundOperationsAccess ? overview.internalTestCases ?? [] : [],
@@ -2429,52 +2781,35 @@ export default function AdminRefundsPage() {
   );
 
   const filteredCases = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase();
-    const sourceCases = statusFilter === 'internal_test' ? internalTestCases : overview.cases;
+    return searchRefundCases({
+      customerCases: overview.cases, internalCases: internalTestCases,
+      canViewInternal: refundOperationsAccess, internalView: statusFilter === 'internal_test',
+      query: search, matchesCurrentView: (refundCase) => {
+        const readyToRefund = isReadyToPayCase(refundCase);
+        const inProgress = isRefundInProgressCase(refundCase);
+        const needsRefundOperations = isRefundOperationsCase(refundCase);
+        const waiting = isWaitingCase(refundCase, refundOperationsAccess);
+        const done = isDoneCase(refundCase);
+        if (
+          statusFilter !== 'internal_test' &&
+          statusFilter === 'needs_action' &&
+          !isNeedsActionCase(refundCase)
+        ) return false;
+        if (statusFilter === 'missing_information' && !refundCase.missingInformation) return false;
+        if (statusFilter === 'possible_duplicate' && !refundCase.possibleDuplicate && !refundCase.confirmedDuplicate) return false;
+        if (statusFilter === 'aging' && !refundCase.aging) return false;
+        if (statusFilter === 'provider_hold' && (!refundOperationsAccess || !needsRefundOperations)) return false;
+        if (statusFilter === 'waiting_on_customer' && !waiting) return false;
+        if (
+          statusFilter === 'ready_to_pay' &&
+          !readyToRefund
+        ) return false;
+        if (statusFilter === 'in_progress' && !inProgress) return false;
+        if (statusFilter === 'blocked' && !isBlockedCase(refundCase)) return false;
+        if (statusFilter === 'completed' && !done) return false;
 
-    return sourceCases.filter((refundCase) => {
-      const readyToRefund = isReadyToPayCase(refundCase);
-      const inProgress = isRefundInProgressCase(refundCase);
-      const needsRefundOperations = isRefundOperationsCase(refundCase);
-      const waiting = isWaitingCase(refundCase, refundOperationsAccess);
-      const done = isDoneCase(refundCase);
-      if (
-        statusFilter !== 'internal_test' &&
-        statusFilter === 'needs_action' &&
-        (
-          !openStatuses.has(refundCase.status) ||
-          readyToRefund ||
-          inProgress ||
-          needsRefundOperations ||
-          waiting ||
-          done
-        )
-      ) return false;
-      if (statusFilter === 'missing_information' && !refundCase.missingInformation) return false;
-      if (statusFilter === 'possible_duplicate' && !refundCase.possibleDuplicate && !refundCase.confirmedDuplicate) return false;
-      if (statusFilter === 'aging' && !refundCase.aging) return false;
-      if (statusFilter === 'provider_hold' && (!refundOperationsAccess || !needsRefundOperations)) return false;
-      if (statusFilter === 'waiting_on_customer' && !waiting) return false;
-      if (
-        statusFilter === 'ready_to_pay' &&
-        !readyToRefund
-      ) return false;
-      if (statusFilter === 'in_progress' && !inProgress) return false;
-      if (statusFilter === 'blocked' && !isBlockedCase(refundCase)) return false;
-      if (statusFilter === 'completed' && !done) return false;
-
-      if (!normalizedSearch) return true;
-      return [
-        refundCase.publicReference,
-        refundCase.customerEmail,
-        refundCase.customerName ?? '',
-        refundCase.machineLabel,
-        refundCase.locationName,
-        refundCase.issueSummary,
-      ]
-        .join(' ')
-        .toLowerCase()
-        .includes(normalizedSearch);
+        return true;
+      },
     }).sort((left, right) => {
       const rankDelta = caseUrgencyRank(left) - caseUrgencyRank(right);
       if (rankDelta !== 0) return rankDelta;
@@ -2489,14 +2824,7 @@ export default function AdminRefundsPage() {
   ]);
 
   const primaryQueueCounts = useMemo(() => ({
-    needs_action: overview.cases.filter((refundCase) =>
-      openStatuses.has(refundCase.status) &&
-      !isReadyToPayCase(refundCase) &&
-      !isRefundInProgressCase(refundCase) &&
-      !isRefundOperationsCase(refundCase) &&
-      !isWaitingCase(refundCase, refundOperationsAccess) &&
-      !isDoneCase(refundCase)
-    ).length,
+    needs_action: overview.cases.filter(isNeedsActionCase).length,
     ready_to_pay: overview.cases.filter(isReadyToPayCase).length,
     in_progress: overview.cases.filter(isRefundInProgressCase).length,
     waiting_on_customer: overview.cases.filter((refundCase) =>
@@ -2510,15 +2838,19 @@ export default function AdminRefundsPage() {
   }), [internalTestCases, overview.cases, refundOperationsAccess]);
 
   const hasAnyCases = overview.cases.length + internalTestCases.length > 0;
-  const emptyQueueTitle = hasAnyCases ? 'No refund cases match this filter.' : 'No refund cases are assigned here yet.';
-  const emptyQueueDescription = hasAnyCases
+  const isSearching = search.trim().length > 0;
+  const searchScope = statusFilter === 'internal_test' ? 'the internal/test archive' : 'all your customer case views';
+  const emptyQueueTitle = isSearching ? 'No matching cases.' : hasAnyCases ? 'No refund cases match this filter.' : 'No refund cases are assigned here yet.';
+  const emptyQueueDescription = isSearching
+    ? `No results in ${searchScope}. Check the reference or try a customer, machine, or location.`
+    : hasAnyCases
     ? 'Try another status filter or search term.'
     : 'New assigned refund requests will appear here.';
 
   useEffect(() => {
     if (!selectedId) return;
 
-    const selectedCaseStillExists = filteredCases.some((refundCase) => refundCase.id === selectedId);
+    const selectedCaseStillExists = [...overview.cases, ...internalTestCases].some((refundCase) => refundCase.id === selectedId);
     if (selectedCaseStillExists) return;
 
     setSelectedId(null);
@@ -2527,12 +2859,25 @@ export default function AdminRefundsPage() {
     setNayaxCandidates([]);
     setNayaxLookupNotice(null);
     setNayaxLookupSummary(null);
-    setIsEvidenceConfirmationOpen(false);
     setIsRefundConfirmationOpen(false);
     setIsCashConfirmationOpen(false);
     setMessageSubject('');
     setMessageBody('');
-  }, [filteredCases, selectedId]);
+    setIsCustomerDraftDirty(false);
+    setIsInternalNoteDirty(false);
+    setPendingCaseSelectionId(null);
+  }, [overview.cases, internalTestCases, selectedId]);
+
+  useEffect(() => {
+    if (!hasUnsavedCaseText || typeof window === 'undefined') return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedCaseText]);
 
   useLayoutEffect(() => {
     if (!selectedId || typeof window === 'undefined' || !window.matchMedia('(max-width: 1023px)').matches) {
@@ -2574,6 +2919,28 @@ export default function AdminRefundsPage() {
 
   const selectedCase = [...overview.cases, ...internalTestCases]
     .find((refundCase) => refundCase.id === selectedId) ?? null;
+  const pendingRevision = selectedCase ? pendingRevisions[selectedCase.id] ?? null : null;
+  const setPendingRevision = (value: typeof pendingRevision) => {
+    const caseId = value?.caseId ?? selectedCase?.id;
+    if (!caseId) return;
+    setPendingRevisions((current) => {
+      const next={...current};
+      if(value) next[caseId]=value; else delete next[caseId];
+      return next;
+    });
+  };
+  const currentCorrectionFields = selectedCase?.customerCorrectionFields;
+  const currentCorrectionCaseId = selectedCase?.id;
+  const currentCorrectionRequestId = selectedCase?.customerCorrection?.requestId;
+  useEffect(() => {
+    setCorrectionSelection((current) => {
+      if (!current || current.caseId !== currentCorrectionCaseId || !currentCorrectionFields) return null;
+      if (current.requestId && current.requestId !== currentCorrectionRequestId) return null;
+      const fields = current.requestId && !current.editing ? current.fields : current.fields.filter((field) => currentCorrectionFields.includes(field));
+      if (current.version === officialActionVersion && fields.length === current.fields.length) return current;
+      return { ...current, version: officialActionVersion, fields };
+    });
+  }, [currentCorrectionCaseId, currentCorrectionFields, currentCorrectionRequestId, officialActionVersion]);
   const selectedCaseIsInternalTest = selectedCase?.internalTest?.classification ===
     'internal_test_no_customer_refund';
   const selectedAcknowledgementException = selectedCase?.acknowledgementDeliveryException ?? null;
@@ -2627,34 +2994,37 @@ export default function AdminRefundsPage() {
       nayaxCardRefundAvailability.payloadRedacted !== true ||
       !['available', 'unavailable'].includes(nayaxCardRefundAvailability.status)
     ) {
-      return selectedCase.hasMatchedNayaxTransaction
-        ? {
-            transactionConfirmed: true,
-            canIssueCardRefund: false,
-            blockReason: 'provider_unavailable',
-            refundAmountCents: selectedCase.refundAmountCents ?? selectedCase.paymentAmountCents,
-            machineLimitCents: null,
-            caseVersion: selectedCase.officialActionVersion ?? null,
-          }
-        : null;
+      return null;
     }
     if (nayaxCardRefundAvailability.transactionConfirmed !== true) {
       return {
         transactionConfirmed: false,
+        approvalContinuationReady:
+          nayaxCardRefundAvailability.approvalContinuationReady === true,
         canIssueCardRefund: false,
         blockReason: nayaxCardRefundAvailability.blockReason,
         refundAmountCents: nayaxCardRefundAvailability.refundAmountCents ?? null,
         machineLimitCents: nayaxCardRefundAvailability.machineLimitCents ?? null,
         caseVersion: nayaxCardRefundAvailability.caseVersion ?? null,
+        approvalPendingExecution:
+          typeof nayaxCardRefundAvailability.approvalPendingExecution === 'boolean'
+            ? nayaxCardRefundAvailability.approvalPendingExecution
+            : undefined,
       };
     }
     return {
       transactionConfirmed: true,
+      approvalContinuationReady:
+        nayaxCardRefundAvailability.approvalContinuationReady === true,
       canIssueCardRefund: nayaxCardRefundAvailability.canIssueCardRefund === true,
       blockReason: nayaxCardRefundAvailability.blockReason,
       refundAmountCents: nayaxCardRefundAvailability.refundAmountCents ?? null,
       machineLimitCents: nayaxCardRefundAvailability.machineLimitCents ?? null,
       caseVersion: nayaxCardRefundAvailability.caseVersion ?? null,
+      approvalPendingExecution:
+        typeof nayaxCardRefundAvailability.approvalPendingExecution === 'boolean'
+          ? nayaxCardRefundAvailability.approvalPendingExecution
+          : undefined,
     };
   }, [
     forceDemoData,
@@ -2715,16 +3085,22 @@ export default function AdminRefundsPage() {
   const selectedCaseOfficialActionBlockReason = selectedCase?.officialActionBlockReason ??
     (selectedCase?.canPerformOfficialAction !== true ? 'manager_mapping_required' : null);
   const selectedCaseIsTerminal = selectedCase ? doneStatuses.has(selectedCase.status) : false;
+  const selectedCaseApprovalContinuationReady =
+    selectedRefundReadiness?.approvalContinuationReady === true;
   const selectedCaseIsReviewOnly = selectedCaseIsTerminal ||
-    selectedCase?.reconciliationActionBlocked === true ||
+    (selectedCase?.reconciliationActionBlocked === true &&
+      !selectedCaseApprovalContinuationReady) ||
     (selectedCase?.canPerformOfficialAction !== true &&
-      selectedCaseOfficialActionBlockReason !== 'manager_verification_required');
+      selectedCaseOfficialActionBlockReason !== 'manager_verification_required' &&
+      !selectedCaseApprovalContinuationReady);
   const selectedCaseOfficialActionBlockMessage = selectedCase?.legacyStateReviewRequired === true
     ? 'Run a fresh transaction check before approving, declining, completing, issuing a refund, or contacting the customer.'
     : selectedCase?.reconciliationActionBlocked === true
     ? 'Resolve the possible duplicate review before approving, declining, completing, or issuing this refund.'
     : selectedCaseOfficialActionBlockReason === 'manager_verification_required'
     ? 'Your manager session needs to be refreshed before you can take this action.'
+    : selectedCaseOfficialActionBlockReason === 'inbound_link_review_required'
+    ? 'Link the verified support conversation to one primary case before taking an official action.'
     : selectedCaseOfficialActionBlockReason === 'official_actions_disabled'
       ? 'Refund actions are temporarily unavailable.'
       : selectedCaseOfficialActionBlockReason === 'exact_machine_required'
@@ -2844,7 +3220,8 @@ export default function AdminRefundsPage() {
       suggestion.route !== 'draft_reply' ||
       !suggestion.draftSubject ||
       !suggestion.draftBody ||
-      suggestion.contentDeleted
+      suggestion.contentDeleted ||
+      isCustomerDraftDirty
     ) {
       return;
     }
@@ -2853,7 +3230,7 @@ export default function AdminRefundsPage() {
     setMessageSubject(suggestion.draftSubject);
     setMessageBody(suggestion.draftBody);
     setAppliedTriageSuggestionId(suggestion.id);
-  }, [appliedTriageSuggestionId, gmailContext?.triageSuggestion]);
+  }, [appliedTriageSuggestionId, gmailContext?.triageSuggestion, isCustomerDraftDirty]);
 
   const handleRecoverGmailCustomerContact = async () => {
     if (!selectedCase || !gmailRecoveryVerified || isRecoveringGmailContact) return;
@@ -2894,7 +3271,7 @@ export default function AdminRefundsPage() {
           selectedCase,
           editor,
           nayaxCandidates,
-          hasCardRefundAuthority(selectedCase) ? selectedRefundReadiness : {
+          hasCardRefundAuthority(selectedCase, selectedRefundReadiness) ? selectedRefundReadiness : {
             transactionConfirmed: selectedCase.hasMatchedNayaxTransaction,
             canIssueCardRefund: false,
             blockReason: 'unauthorized',
@@ -2913,11 +3290,9 @@ export default function AdminRefundsPage() {
   );
   const primaryActionIssues = useMemo(
     () =>
-      primaryAction?.mode === 'retry_message'
-        ? []
-        : selectedCase && primaryActionEditor
-          ? getCaseSaveIssues(selectedCase, primaryActionEditor)
-          : [],
+      selectedCase && primaryActionEditor
+        ? getPrimaryActionIssues(selectedCase, primaryActionEditor, primaryAction)
+        : [],
     [primaryAction, primaryActionEditor, selectedCase]
   );
   const selectedNayaxSummary = useMemo(
@@ -2943,7 +3318,7 @@ export default function AdminRefundsPage() {
     }
     if (refundCase.id !== selectedCase?.id || refundCase.hasMatchedNayaxTransaction || !editor) return null;
     if (editor.matchedNayaxCandidateToken.trim()) {
-      return { label: 'Confirm transaction', tone: 'info' };
+      return { label: 'Ready to refund', tone: 'info' };
     }
     if (nayaxCandidates.length > 0 && selectedNayaxSummary?.recommendationState === 'high_confidence') {
       return { label: 'Review likely transaction', tone: 'info' };
@@ -2958,7 +3333,8 @@ export default function AdminRefundsPage() {
   };
 
   const applyCaseUpdateResponse = async (
-    result: UpdateRefundCaseResponse
+    result: UpdateRefundCaseResponse,
+    options: { quietTransactionConfirmation?: boolean } = {}
   ): Promise<CaseSaveSuccess> => {
     const nextOfficialActionVersion = Number(result.refundCase?.officialActionVersion ?? 0);
     setOfficialActionVersion(nextOfficialActionVersion > 0 ? nextOfficialActionVersion : 0);
@@ -3016,19 +3392,20 @@ export default function AdminRefundsPage() {
         // A confirmed transaction can change queues. Keep the selected detail
         // attached to the server-owned queue instead of deriving readiness
         // from this mutation response or clearing it under the old filter.
-        setStatusFilter(canonicalQueueBucket(authoritativeCase));
+        setStatusFilter(getRefundQueueFilterForCase(authoritativeCase, refundOperationsAccess));
         setEditor(toEditorState(authoritativeCase));
       } else {
         setEditor(toEditorState(confirmedCase));
       }
       setNayaxCandidates([]);
-      setIsEvidenceConfirmationOpen(false);
-      setNayaxLookupNotice({
-        tone: 'success',
-        title: 'Transaction confirmed',
-        message: 'Payment: Not issued.',
-      });
-      toast.success('Transaction confirmed. No refund has been issued.');
+      if (!options.quietTransactionConfirmation) {
+        setNayaxLookupNotice({
+          tone: 'success',
+          title: 'Transaction confirmed',
+          message: 'Payment: Not issued.',
+        });
+        toast.success('Transaction confirmed. No refund has been issued.');
+      }
     } else if (result.customerMessage?.status === 'failed') {
       toast.error('Case updated, but the customer email failed. Retry before treating the customer as contacted.');
     } else if (result.customerMessage?.status === 'sent') {
@@ -3036,14 +3413,18 @@ export default function AdminRefundsPage() {
     } else {
       toast.success('Refund case updated.');
     }
+    if (result.updateApplied !== false) setIsInternalNoteDirty(false);
     await refresh();
     return {
       customerMessage: result.customerMessage ?? null,
       updateApplied: result.updateApplied !== false,
+      officialActionVersion: nextOfficialActionVersion,
+      refundReadiness: result.refundReadiness ?? null,
     };
   };
 
-  const handleSelectCase = (refundCase: RefundCaseRecord) => {
+  function selectCase(refundCase: RefundCaseRecord) {
+    pendingCaseSelectionTriggerRef.current = null;
     lookupRequestSequenceRef.current += 1;
     setSelectedId(refundCase.id);
     setSelectionRevision((current) => current + 1);
@@ -3064,7 +3445,6 @@ export default function AdminRefundsPage() {
         : '',
       cardLast4: refundCase.cardLast4 ?? '',
     });
-    setIsEvidenceConfirmationOpen(false);
     setIsRefundConfirmationOpen(false);
     setIsCashConfirmationOpen(false);
     setRefundActionReceipt(null);
@@ -3076,6 +3456,9 @@ export default function AdminRefundsPage() {
     setMessageType(initialMessageType);
     setMessageSubject(draft.subject);
     setMessageBody(draft.body);
+    setIsCustomerDraftDirty(false);
+    setIsInternalNoteDirty(false);
+    setPendingCaseSelectionId(null);
     setAppliedTriageSuggestionId(null);
     setIsTriageRejectOpen(false);
     setTriageRejectReason('wrong_missing_fields');
@@ -3083,11 +3466,60 @@ export default function AdminRefundsPage() {
     setIsGmailRecoveryOpen(false);
     setGmailRecoveryVerified(false);
 
+  }
+
+  function handleSelectCase(refundCase: RefundCaseRecord) {
+    if (refundCase.id === selectedId) return;
+    if (caseSelectionSafetyRef.current.actionInFlight) {
+      toast.info('Wait for the current case action to finish before switching cases.');
+      return;
+    }
+    if (caseSelectionSafetyRef.current.hasUnsavedCaseText) {
+      pendingCaseSelectionTriggerRef.current = document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+      setPendingCaseSelectionId(refundCase.id);
+      return;
+    }
+    selectCase(refundCase);
+  }
+  caseSelectionRequestRef.current = handleSelectCase;
+
+  const handleResolveInboundLink = async () => {
+    const review = selectedCase?.inboundLinkReview;
+    if (!selectedCase || !review || review.status !== 'pending' || isResolvingInboundLink) return;
+    setIsResolvingInboundLink(true);
+    try {
+      const result = await resolveRefundGmailCaseLinkReview({
+        reviewId: review.reviewId,
+        expectedVersion: review.version,
+        primaryRefundCaseId: selectedCase.id,
+      });
+      if (
+        result.customerMessageSent !== false || result.caseCreated !== false ||
+        result.providerCallMade !== false || result.paymentActionTaken !== false
+      ) {
+        throw new Error('Inbound email linking returned an unsafe side-effect receipt.');
+      }
+      toast.success(
+        result.replayed
+          ? 'This support conversation was already linked.'
+          : 'Support conversation linked. No customer message or refund was sent.'
+      );
+      await refresh();
+    } catch (linkError) {
+      toast.error(linkError instanceof Error
+        ? linkError.message
+        : 'Unable to link the support conversation.');
+    } finally {
+      setIsResolvingInboundLink(false);
+    }
   };
 
   const handleSaveCase = async (
     editorOverride?: EditorState,
-    customerMessageType?: RefundCustomerPortalMessageType | null
+    customerMessageType?: RefundCustomerPortalMessageType | null,
+    options: { quietTransactionConfirmation?: boolean } = {}
   ): Promise<CaseSaveResult> => {
     if (!selectedCase || !editor) return null;
     const nextEditor = editorOverride ?? editor;
@@ -3160,13 +3592,14 @@ export default function AdminRefundsPage() {
           : [],
       } as const;
       const result = await updateRefundCaseAdmin(updateInput);
-      return await applyCaseUpdateResponse(result);
+      const applied = await applyCaseUpdateResponse(result, options);
+      return applied;
     } catch (saveError) {
       if (
         isRefundCaseUpdateError(saveError) &&
         saveError.data?.errorCode === 'stale_review_evidence'
       ) {
-        setIsEvidenceConfirmationOpen(false);
+        setIsRefundConfirmationOpen(false);
         setEditor((current) => current
           ? {
               ...current,
@@ -3349,7 +3782,8 @@ export default function AdminRefundsPage() {
       return;
     }
 
-    const refundAmountCents = selectedCase.matchedNayaxAmountCents;
+    const candidateBeingSelected = selectedNayaxCandidate(editor, nayaxCandidates);
+    const refundAmountCents = candidateBeingSelected?.amountCents ?? selectedCase.matchedNayaxAmountCents;
     if (typeof refundAmountCents !== 'number' || refundAmountCents <= 0) {
       setNayaxExecutionNotice({
         tone: 'warning',
@@ -3377,11 +3811,71 @@ export default function AdminRefundsPage() {
     setIsRunningNayaxRefund(true);
     setNayaxExecutionNotice(null);
     setRefundActionReceipt(null);
-    const executionInput = {
-      caseId: selectedCase.id,
-      expectedOfficialActionVersion: officialActionVersion,
-    };
     try {
+      let executionVersion = officialActionVersion;
+      if (candidateBeingSelected) {
+        const selectionEditor: EditorState = {
+          ...editor,
+          status: 'card_refund_pending',
+          decision: 'approved',
+        };
+        const approvalResult = await handleSaveCase(
+          selectionEditor,
+          null,
+          { quietTransactionConfirmation: true }
+        );
+        if (!approvalResult || approvalResult === 'step_up_pending') return;
+        if (
+          approvalResult.updateApplied !== true ||
+          approvalResult.officialActionVersion <= 0
+        ) {
+          setIsRefundConfirmationOpen(false);
+          setNayaxExecutionNotice({
+            tone: 'warning',
+            message: 'Bloomjoy could not retain this refund approval. Reload the current case before continuing.',
+          });
+          return;
+        }
+        executionVersion = approvalResult.officialActionVersion;
+        let approvedReadiness: Awaited<ReturnType<typeof fetchNayaxCardRefundAvailability>>;
+        try {
+          approvedReadiness = await fetchNayaxCardRefundAvailability(selectedCase.id);
+        } catch {
+          setIsRefundConfirmationOpen(false);
+          setNayaxExecutionNotice({
+            tone: 'info',
+            message: 'Your refund approval was saved. Bloomjoy will continue the guarded refund when availability can be checked again.',
+          });
+          await refresh();
+          return;
+        }
+        queryClient.setQueryData(
+          ['nayax-card-refund-availability', selectedCase.id],
+          approvedReadiness
+        );
+        if (
+          approvedReadiness.transactionConfirmed !== true ||
+          approvedReadiness.canIssueCardRefund !== true ||
+          approvedReadiness.caseVersion !== executionVersion
+        ) {
+          setIsRefundConfirmationOpen(false);
+          setNayaxExecutionNotice({
+            tone: 'info',
+            message: approvedReadiness.blockReason
+              ? `Your refund approval was saved. ${refundReadinessBlockMessage(approvedReadiness.blockReason)}`
+              : 'Your refund approval was saved. Bloomjoy will continue the guarded refund when it becomes available.',
+          });
+          await refresh();
+          return;
+        }
+      }
+      const executionInput = {
+        caseId: selectedCase.id,
+        expectedOfficialActionVersion: executionVersion,
+      };
+      nayaxApprovedExecutionAttemptedRef.current.add(
+        `${selectedCase.id}:${executionVersion}`
+      );
       const result = await executeNayaxCardRefund(executionInput);
       await applyNayaxExecutionResult(result);
     } catch (executionError) {
@@ -3421,6 +3915,55 @@ export default function AdminRefundsPage() {
       setIsRunningNayaxRefund(false);
     }
   };
+  nayaxApprovedExecutionRequestRef.current = () => {
+    void handleRunNayaxRefund();
+  };
+
+  useEffect(() => {
+    const approvalPendingExecution =
+      selectedRefundReadiness?.approvalPendingExecution === true;
+    const approvalContinuationReady =
+      selectedRefundReadiness?.approvalContinuationReady === true;
+    const approvalAutoResumeReady =
+      approvalPendingExecution || approvalContinuationReady;
+    if (
+      isUsingDemoData ||
+      isRunningNayaxRefund ||
+      nayaxRefundInFlightRef.current ||
+      !selectedCase ||
+      !editor ||
+      selectedCaseIsReviewOnly ||
+      selectedCase.paymentMethod !== 'card' ||
+      selectedCase.status !== 'card_refund_pending' ||
+      selectedCase.decision !== 'approved' ||
+      (selectedCase.providerHold && !approvalContinuationReady) ||
+      (selectedCase.canPerformOfficialAction !== true && !approvalContinuationReady) ||
+      hasConfirmedRefundReceipt(selectedCase) ||
+      !approvalAutoResumeReady ||
+      selectedRefundReadiness.canIssueCardRefund !== true ||
+      selectedRefundReadiness.caseVersion !== officialActionVersion ||
+      officialActionVersion <= 0
+    ) return;
+
+    const resumeKey = `${selectedCase.id}:${officialActionVersion}`;
+    if (nayaxApprovedExecutionAttemptedRef.current.has(resumeKey)) return;
+    setIsRefundConfirmationOpen(false);
+    setNayaxExecutionNotice({
+      tone: 'info',
+      message: approvalContinuationReady
+        ? 'Continuing the refund you already approved at Nayax’s approval step. No additional manager decision or refund request is needed.'
+        : 'Continuing the refund you already approved. No additional manager decision is needed.',
+    });
+    queueMicrotask(() => nayaxApprovedExecutionRequestRef.current());
+  }, [
+    editor,
+    isUsingDemoData,
+    isRunningNayaxRefund,
+    officialActionVersion,
+    selectedCase,
+    selectedCaseIsReviewOnly,
+    selectedRefundReadiness,
+  ]);
 
   const handlePrepareNayaxResolution = async () => {
     if (
@@ -3625,7 +4168,7 @@ export default function AdminRefundsPage() {
       });
       setNayaxLookupNotice({
         tone: 'success',
-        message: 'Transaction saved for review. Confirm the exact transaction below before approving any refund.',
+        message: 'Transaction saved for review. Confirm it in Machine transaction before approving any refund.',
       });
       toast.success('Nayax transaction saved for confirmation. No refund or email was sent.');
       await refresh();
@@ -3685,12 +4228,14 @@ export default function AdminRefundsPage() {
       setIsGmailResolutionOpen(true);
       return;
     }
-    if (primaryAction.mode === 'retry_message') {
-      await handleSendCustomerMessage(primaryAction.messageType);
+    if (primaryAction.mode === 'review_transaction_evidence') {
+      const evidence = document.getElementById('refund-machine-transaction');
+      evidence?.focus({ preventScroll: true });
+      evidence?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
-    if (primaryAction.mode === 'nayax_evidence_selection') {
-      setIsEvidenceConfirmationOpen(true);
+    if (primaryAction.mode === 'retry_message') {
+      await handleSendCustomerMessage(primaryAction.messageType);
       return;
     }
     if (primaryAction.mode === 'manual_nayax_approval') {
@@ -3711,21 +4256,21 @@ export default function AdminRefundsPage() {
     await handleSaveCase(primaryActionEditor, primaryAction.messageType ?? null);
   };
 
-  const handleConfirmEvidenceSelection = async () => {
-    if (
-      evidenceSelectionInFlightRef.current ||
-      !primaryActionEditor
-    ) return;
+  const handleReviewDeliveryRecord = () => {
+    const details = customerMessagesDetailsRef.current;
+    const summary = customerMessagesSummaryRef.current;
+    if (!details || !summary) return;
 
-    evidenceSelectionInFlightRef.current = true;
-    try {
-      setEditor(primaryActionEditor);
-      const saveResult = await handleSaveCase(primaryActionEditor, null);
-      if (saveResult) setIsEvidenceConfirmationOpen(false);
-    } finally {
-      evidenceSelectionInFlightRef.current = false;
-    }
+    details.open = true;
+    window.requestAnimationFrame(() => {
+      const focusTarget = customerDeliveryEvidenceRef.current ?? summary;
+      focusTarget.focus({ preventScroll: true });
+      window.requestAnimationFrame(() => {
+        focusTarget.scrollIntoView({ behavior: 'auto', block: 'center' });
+      });
+    });
   };
+
 
   const handleConfirmCashCompletion = async () => {
     if (
@@ -3830,6 +4375,8 @@ export default function AdminRefundsPage() {
         lastCheckedAt: result.lastCheckedAt ?? new Date().toISOString(),
         windowHours: result.windowHours ?? 6,
         providerWindowRecordCount: result.providerWindowRecordCount ?? null,
+        excludedAfterRequestCount: result.excludedAfterRequestCount ?? 0,
+        uncertainRequestTimeCandidateCount: result.uncertainRequestTimeCandidateCount ?? 0,
         candidateCount: result.candidateCount ?? result.candidates?.length ?? 0,
         summary: result.summary || result.message || 'Transaction search finished.',
         recommendedAction:
@@ -3867,14 +4414,13 @@ export default function AdminRefundsPage() {
           toast.info('Transaction search is not connected for this machine.');
         }
       } else if (result.recommendationState === 'no_safe_match' || !result.candidates.length) {
-        const providerRecordCount = result.providerRecordCount ?? 0;
         const providerWindowRecordCount = result.providerWindowRecordCount ?? 0;
         const noMatchMessage =
-          providerWindowRecordCount > 0
+          (result.excludedAfterRequestCount ?? 0) > 0
+            ? nextSummary.summary
+            : providerWindowRecordCount > 0
             ? `${providerWindowRecordCount} transactions were checked, but none matched the customer details closely enough. Keep the case open and do not choose a transaction unless it is clear.`
-            : providerRecordCount > 0
-              ? `${providerRecordCount} recent transactions were checked, but none were close enough to the reported time. Keep the case open and do not choose a transaction unless it is clear.`
-              : 'No matching transaction was found. Keep the case open and do not choose one unless it is clear.';
+            : `${transactionSearchDescription(nextSummary)} Keep the case open for Refund Operations review.`;
         setNayaxLookupNotice({
           tone: 'info',
           message: noMatchMessage,
@@ -3885,7 +4431,7 @@ export default function AdminRefundsPage() {
       } else {
         const foundMessage = result.recommendationState === 'high_confidence'
           ? 'One likely transaction was found. Confirm the customer, amount, and time before continuing.'
-          : `${result.candidates.length} possible transactions were found. Compare the customer, amount, and time before choosing one.`;
+          : `${result.candidates.length} possible transactions were found. Compare Customer request with Machine transaction before choosing one.`;
         setNayaxLookupNotice({
           tone: result.recommendationState === 'high_confidence' ? 'success' : 'warning',
           message: foundMessage,
@@ -3962,31 +4508,24 @@ export default function AdminRefundsPage() {
   ]);
 
   useEffect(() => {
-    if (overview.cases.length === 0) return;
+    if (overview.cases.length === 0 && internalTestCases.length === 0) return;
     if (typeof window === 'undefined') return;
 
     const caseIdFromUrl = new URLSearchParams(window.location.search).get('case');
     if (!caseIdFromUrl || handledCaseQueryRef.current === caseIdFromUrl) return;
 
-    const caseFromUrl = overview.cases.find((refundCase) => refundCase.id === caseIdFromUrl);
+    const caseFromUrl = findRefundDeepLinkedCase(caseIdFromUrl, overview.cases, internalTestCases);
     if (!caseFromUrl) return;
     handledCaseQueryRef.current = caseIdFromUrl;
 
     if (!filteredCases.some((refundCase) => refundCase.id === caseFromUrl.id)) {
-      setStatusFilter(
-        caseFromUrl.lifecycle?.managerQueue.bucket ??
-          (doneStatuses.has(caseFromUrl.status)
-            ? 'completed'
-            : caseFromUrl.status === 'waiting_on_customer'
-              ? 'waiting_on_customer'
-              : 'needs_action')
-      );
+      setStatusFilter(getRefundQueueFilterForCase(caseFromUrl, refundOperationsAccess));
       setSearch('');
     }
     handleSelectCase(caseFromUrl);
     // The selector intentionally runs once per loaded overview/query-string case.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [overview.cases]);
+  }, [overview.cases, internalTestCases]);
 
   const handleOpenAttachment = async (attachmentId: string) => {
     const attachment = selectedCase?.attachments.find((item) => item.id === attachmentId);
@@ -4001,13 +4540,18 @@ export default function AdminRefundsPage() {
     }
   };
 
-  const handleMessageTypeChange = (nextMessageType: RefundCustomerPortalMessageType) => {
+  const handleMessageTypeChange = (
+    nextMessageType: RefundCustomerPortalMessageType,
+    managerEditedTemplate = false
+  ) => {
+    if (isCustomerDraftDirty && !managerEditedTemplate) return;
     setMessageType(nextMessageType);
     if (!selectedCase) return;
 
     const draft = getCustomerMessageDraft(selectedCase, nextMessageType);
     setMessageSubject(draft.subject);
     setMessageBody(draft.body);
+    setIsCustomerDraftDirty(managerEditedTemplate);
   };
 
   const handleRejectTriageSuggestion = async () => {
@@ -4147,7 +4691,10 @@ export default function AdminRefundsPage() {
                     data-testid="refund-gpt-draft-subject"
                     value={messageSubject}
                     maxLength={180}
-                    onChange={(event) => setMessageSubject(event.target.value)}
+                    onChange={(event) => {
+                      setMessageSubject(event.target.value);
+                      setIsCustomerDraftDirty(true);
+                    }}
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -4158,7 +4705,10 @@ export default function AdminRefundsPage() {
                     value={messageBody}
                     maxLength={4000}
                     rows={8}
-                    onChange={(event) => setMessageBody(event.target.value)}
+                    onChange={(event) => {
+                      setMessageBody(event.target.value);
+                      setIsCustomerDraftDirty(true);
+                    }}
                   />
                   <p className="text-xs leading-5 text-muted-foreground">
                     This is only a writing suggestion. Your click sends the reviewed text; it cannot approve or issue a refund.
@@ -4301,8 +4851,48 @@ export default function AdminRefundsPage() {
     );
   };
 
-  const handleSendCustomerMessage = async (messageTypeOverride?: RefundCustomerPortalMessageType | null) => {
+  const handleCorrectionDialogCloseAutoFocus = (event: Event) => {
+    const opener=correctionDialogTriggerRef.current;
+    if (!opener || opener.caseId !== selectedCase?.id) return;
+    const target=opener.element?.isConnected && !opener.element.matches(':disabled')
+      ? opener.element : document.getElementById(`refund-correction-${opener.caseId}`);
+    if (target) { event.preventDefault(); target.focus(); }
+  };
+
+  const handleInspectRevisionDelivery = async () => {
+    if (!pendingRevision || pendingRevision.caseId !== selectedCase?.id || isUsingDemoData) return;
+    setIsSendingCustomerMessage(true);
+    try {
+      await sendRefundCaseMessage({...pendingRevision,inspectRevisionOnly:true});
+      setPendingRevision(null);
+      manualMessageIntentRef.current=null;
+      setCorrectionSelection(null);
+      toast.success('The existing revision was sent. No additional email was created.');
+      await refresh();
+      document.getElementById(`refund-correction-${pendingRevision.caseId}`)?.focus();
+    } catch (inspectionError) {
+      if (isEdgeFunctionError(inspectionError) && ['revision_intent_not_found','revision_intent_proven_unsent'].includes(String(inspectionError.data?.errorCode))) {
+        setPendingRevision(null);
+        manualMessageIntentRef.current=null;
+        setCorrectionSelection(null);
+        await refresh();
+        document.getElementById(`refund-correction-${pendingRevision.caseId}`)?.focus();
+      }
+      toast.error(inspectionError instanceof Error ? inspectionError.message : 'The existing revision delivery still needs review.');
+    } finally { setIsSendingCustomerMessage(false); }
+  };
+
+  const revisionDeliveryReview = pendingRevision?.caseId === selectedCase?.id && <div role="status" className="border-b border-border p-4 text-sm">
+    <p>The revision result has not been confirmed. Check its existing delivery before sending another request.</p>
+    <Button variant="outline" className="mt-3" disabled={isSendingCustomerMessage} onClick={() => void handleInspectRevisionDelivery()}>Check revision delivery</Button>
+  </div>;
+
+  const handleSendCustomerMessage = async (messageTypeOverride?: RefundCustomerPortalMessageType | null, selectedCorrectionFields?: RefundMissingField[]) => {
     if (!selectedCase) return;
+    if (pendingRevision?.caseId === selectedCase.id) {
+      toast.error('Check the existing revision delivery before sending another request.');
+      return;
+    }
     if (customerDeliveryNeedsReconciliation) {
       toast.error('Gmail delivery is uncertain. Check the original Gmail thread before sending anything else.');
       return;
@@ -4313,44 +4903,107 @@ export default function AdminRefundsPage() {
     }
 
     const nextMessageType = messageTypeOverride ?? messageType;
+    if (nextMessageType === 'more_info' && selectedCase.customerCorrectionFields) {
+      const revising = correctionSelection?.requestId === selectedCase.customerCorrection?.requestId && correctionSelection?.editing === true;
+      if ((selectedCase.customerCorrection?.isActive && !revising) || (revising && !selectedCase.customerCorrection?.canRevise) || !selectedCase.customerCorrectionFields.length) {
+        toast.error('This request is already active or needs internal review. Refresh the case for its next action.');
+        return;
+      }
+      if (!selectedCorrectionFields) {
+        correctionDialogTriggerRef.current = {caseId:selectedCase.id,element:document.activeElement instanceof HTMLElement ? document.activeElement : null};
+        setCorrectionSelection({ caseId: selectedCase.id, version: officialActionVersion, fields: [...selectedCase.customerCorrectionFields] });
+        return;
+      }
+      if (!correctionSelection || correctionSelection.caseId !== selectedCase.id || correctionSelection.version !== officialActionVersion ||
+          !selectedCorrectionFields.length || selectedCorrectionFields.some((field) => !selectedCase.customerCorrectionFields!.includes(field))) {
+        toast.error('The available details changed. Reopen the correction request and choose at least one current detail.');
+        return;
+      }
+    }
     const triageSuggestion = gmailContext?.triageSuggestion;
     const usesReviewedTriageDraft =
       nextMessageType === 'more_info' &&
+      !selectedCase.customerCorrectionFields &&
       triageSuggestion?.status === 'ready_for_review' &&
       triageSuggestion.route === 'draft_reply' &&
       triageSuggestion.contentDeleted !== true;
+    const usesDefaultLocalizedTemplate = Boolean(
+      messageTypeOverride && !usesReviewedTriageDraft
+    );
     const draft = messageTypeOverride && !usesReviewedTriageDraft
       ? getCustomerMessageDraft(selectedCase, messageTypeOverride)
       : null;
     const subject = draft?.subject ?? messageSubject;
     const body = draft?.body ?? messageBody;
 
-    if (!body.trim()) {
+    if (!usesDefaultLocalizedTemplate && !body.trim()) {
       toast.error('Customer message body is required.');
       return;
+    }
+    if (officialActionVersion <= 0) {
+      toast.error('Refresh the case before queueing this customer message.');
+      return;
+    }
+
+    const missingFields = nextMessageType === 'more_info'
+      ? selectedCase.customerCorrectionFields
+        ? selectedCorrectionFields!
+        : usesReviewedTriageDraft
+        ? sanitizePortalMissingFields(triageSuggestion?.missingFields ?? [])
+        : derivePortalRefundMissingFields(selectedCase)
+      : [];
+    const messageFingerprint = JSON.stringify({
+      caseId: selectedCase.id,
+      expectedCaseVersion: officialActionVersion,
+      messageType: nextMessageType,
+      subject: usesDefaultLocalizedTemplate ? null : subject.trim(),
+      body: usesDefaultLocalizedTemplate ? null : body.trim(),
+      triageSuggestionId: usesReviewedTriageDraft ? triageSuggestion?.id ?? null : null,
+      missingFields,
+      currentCorrectionRequestId: correctionSelection?.editing ? correctionSelection.requestId : undefined,
+    });
+    if (manualMessageIntentRef.current?.fingerprint !== messageFingerprint) {
+      manualMessageIntentRef.current = {
+        fingerprint: messageFingerprint,
+        id: crypto.randomUUID(),
+      };
     }
 
     setIsSendingCustomerMessage(true);
     try {
+      if (correctionSelection?.editing && correctionSelection.requestId) setPendingRevision({
+        caseId:selectedCase.id,expectedCaseVersion:officialActionVersion,messageIntentId:manualMessageIntentRef.current.id,
+        currentCorrectionRequestId:correctionSelection.requestId,messageType:'more_info',missingFields:[...missingFields],
+      });
       const sentMessage = await sendRefundCaseMessage({
         caseId: selectedCase.id,
+        expectedCaseVersion: officialActionVersion,
+        messageIntentId: manualMessageIntentRef.current.id,
+        currentCorrectionRequestId: correctionSelection?.editing ? correctionSelection.requestId : undefined,
         messageType: nextMessageType,
-        subject: subject.trim(),
-        body: body.trim(),
+        ...(usesDefaultLocalizedTemplate
+          ? {}
+          : { subject: subject.trim(), body: body.trim() }),
         triageSuggestionId: usesReviewedTriageDraft ? triageSuggestion?.id : undefined,
-        missingFields: nextMessageType === 'more_info'
-          ? usesReviewedTriageDraft
-            ? sanitizePortalMissingFields(triageSuggestion?.missingFields ?? [])
-            : derivePortalRefundMissingFields(selectedCase)
-          : [],
+        missingFields,
       });
+      manualMessageIntentRef.current = null;
+      setPendingRevision(null);
+      setCorrectionSelection(null);
+      if (!usesDefaultLocalizedTemplate) setIsCustomerDraftDirty(false);
       toast.success(
         sentMessage.transport === 'gmail_thread'
           ? 'Reply sent in the Gmail thread.'
-          : 'Customer email sent from Bloomjoy.'
+          : 'Email accepted by the provider. Delivery tracking is pending.'
       );
       await refresh();
     } catch (sendError) {
+      if (
+        isEdgeFunctionError(sendError) &&
+        sendError.data?.errorCode === 'customer_email_delivery_failed'
+      ) {
+        manualMessageIntentRef.current = null;
+      }
       const message = sendError instanceof Error ? sendError.message : 'Unable to send customer email.';
       toast.error(message);
     } finally {
@@ -4572,14 +5225,24 @@ export default function AdminRefundsPage() {
       : hasSelectedCardEvidence(selectedCase, editor);
     const recommendedCandidate = effectiveCandidates.find((candidate) => candidate.isRecommended === true) ?? null;
     const leadCandidate = recommendedCandidate ?? effectiveCandidates[0] ?? null;
-    const selectableCandidateCount = effectiveCandidates.filter(
+    const selectableCandidates = effectiveCandidates.filter(
       (candidate) => candidate.selectionAllowed !== false
-    ).length;
+    );
+    const unavailableCandidates = effectiveCandidates.filter(
+      (candidate) => candidate.selectionAllowed === false
+    );
+    const selectableCandidateCount = selectableCandidates.length;
+    const unavailableCandidateSummary = unavailableCandidates.length === 1
+      ? candidateUnavailableReason(unavailableCandidates[0], selectedCase)
+      : 'Provider evidence or purchase details do not meet the selection safeguards.';
     const waitingOnCustomer = isWaitingCase(selectedCase, refundOperationsAccess);
-    const caseAllowsCandidateSelection =
-      selectedCase.status === 'needs_review' &&
-      editor.status === 'needs_review' &&
-      (selectedCase.canSelectNayaxCandidate ?? selectedCase.canPerformOfficialAction) !== false;
+    const caseAllowsCandidateSelection = canConfirmRefundCandidate({
+      persistedStatus: selectedCase.status,
+      editorStatus: editor.status,
+      decision: selectedCase.decision,
+      canSelectCandidate:
+        (selectedCase.canSelectNayaxCandidate ?? selectedCase.canPerformOfficialAction) !== false,
+    });
     const selectedCandidate = selectedNayaxCandidate(editor, effectiveCandidates);
     const hasLookupResult = !selectedCase.legacyStateReviewRequired && Boolean(
       selectedCase.hasMatchedNayaxTransaction ||
@@ -4622,7 +5285,7 @@ export default function AdminRefundsPage() {
     ) => {
       const selectionDisabled =
         isUsingDemoData || !caseAllowsCandidateSelection || candidate.selectionAllowed === false;
-      const visibleFactors = ['amount', 'card', 'incident_time']
+      const visibleFactors = ['amount', 'card', 'incident_time', 'request_time']
         .map((key) => candidate.matchFactors?.find((factor) => factor.key === key))
         .filter((factor): factor is NonNullable<typeof factor> => Boolean(factor));
       const selectionMessage = candidate.selectionAllowed === false
@@ -4665,7 +5328,7 @@ export default function AdminRefundsPage() {
               <span>{label}</span>
               {candidate.isRecommended && (
                 <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] text-sky-950">
-                  Recommended
+                  {candidate.identifierReviewState === 'reviewable_uncertainty' ? 'Review this' : 'Recommended'}
                 </span>
               )}
               {candidate.selectionAllowed === false && (
@@ -4848,6 +5511,16 @@ export default function AdminRefundsPage() {
             )}
           </div>
         )}
+        {!nayaxLookupNotice &&
+          !selectedCase.hasMatchedNayaxTransaction &&
+          selectedNayaxSummary?.summary &&
+          (effectiveCandidates.length === 0 ||
+            (selectedNayaxSummary.excludedAfterRequestCount ?? 0) > 0 ||
+            (selectedNayaxSummary.uncertainRequestTimeCandidateCount ?? 0) > 0) && (
+          <div data-testid="nayax-request-time-explanation" className={nayaxLookupNoticeClass('info')}>
+            {selectedNayaxSummary.summary}
+          </div>
+        )}
         {showVisibleLookupRetry && !nayaxLookupNotice && (
           <div data-testid="nayax-lookup-retry" className={nayaxLookupNoticeClass('warning')}>
             <p>
@@ -4883,6 +5556,8 @@ export default function AdminRefundsPage() {
                   ? '0 transactions available to select'
                   : waitingOnCustomer
                     ? `${selectableCandidateCount} possible transaction${selectableCandidateCount === 1 ? '' : 's'} found`
+                    : selectableCandidateCount === 1 && leadCandidate?.identifierReviewState === 'reviewable_uncertainty'
+                      ? '1 transaction available to select'
                     : `${selectableCandidateCount} transaction${selectableCandidateCount === 1 ? '' : 's'} available to compare`}
               </p>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
@@ -4890,19 +5565,49 @@ export default function AdminRefundsPage() {
                   ? `The closest result cannot be selected. ${candidateUnavailableReason(leadCandidate, selectedCase)}`
                   : waitingOnCustomer
                     ? 'These are the current search results. Selection stays paused until the customer replies and the assistant runs the search again.'
-                    : 'Choose one only when the customer, amount, time, and payment details clearly agree.'}
+                    : "Choose one only when the machine, amount comparison, and available customer and payment evidence identify the same purchase. The refund uses the selected provider transaction's full amount."}
               </p>
             </div>
-            <div
-              data-testid="nayax-transaction-comparison"
-              role="radiogroup"
-              aria-label="Customer and transaction comparison"
-              className="space-y-2"
-            >
-              {effectiveCandidates.map((candidate, index) =>
-                candidateOption(candidate, `Transaction ${index + 1}`)
-              )}
-            </div>
+            {selectableCandidates.length > 0 && (
+              <div
+                data-testid="nayax-transaction-comparison"
+                role="radiogroup"
+                aria-label="Customer and transaction comparison"
+                className="space-y-2"
+              >
+                {selectableCandidates.map((candidate, index) =>
+                  candidateOption(candidate, `Transaction ${index + 1}`)
+                )}
+              </div>
+            )}
+            {unavailableCandidates.length > 0 && (
+              <details
+                data-testid="nayax-unavailable-candidates"
+                className="group mt-3 rounded-lg border border-border bg-muted/15"
+              >
+                <summary className="flex min-h-11 cursor-pointer list-none flex-col justify-center gap-1 rounded-lg px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:flex-row sm:items-center sm:justify-between">
+                  <span className="text-sm font-semibold text-foreground">
+                    {unavailableCandidates.length} unavailable transaction{unavailableCandidates.length === 1 ? '' : 's'}
+                  </span>
+                  <span className="flex items-center gap-2 text-xs leading-5 text-muted-foreground sm:max-w-[65%] sm:text-right">
+                    <span>{unavailableCandidateSummary}</span>
+                    <ChevronDown
+                      className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180"
+                      aria-hidden="true"
+                    />
+                  </span>
+                </summary>
+                <div
+                  role="group"
+                  aria-label="Unavailable transactions and reasons"
+                  className="space-y-2 border-t border-border p-3"
+                >
+                  {unavailableCandidates.map((candidate, index) =>
+                    candidateOption(candidate, `Unavailable transaction ${index + 1}`)
+                  )}
+                </div>
+              </details>
+            )}
             {needsDisagreementReason && (
               <div className="mt-3 space-y-1.5">
                 <Label htmlFor="nayax-disagreement-reason">Why is this the right transaction?</Label>
@@ -5002,6 +5707,12 @@ export default function AdminRefundsPage() {
     selectedCase && editor && primaryAction?.messageType
       ? getCustomerMessageDraft(selectedCase, primaryAction.messageType, editor)
       : null;
+  const selectedDeliveryEvidenceMessageId = selectedCase
+    ? getRefundDeliveryEvidenceMessageId(
+        selectedCase.messages,
+        selectedCase.customerDeliveryException
+      )
+    : null;
   const availableCustomerMessageOptions = customerMessageOptions.filter((option) => {
     if (selectedCase?.paymentMethod === 'card' && option.value === 'approved') return false;
     if (option.value === 'completed' && selectedCase?.status !== 'completed') return false;
@@ -5027,9 +5738,16 @@ export default function AdminRefundsPage() {
 
     const effectiveCandidates = selectedCase.legacyStateReviewRequired ? [] : nayaxCandidates;
     const activeCandidate = activeNayaxCandidate(selectedCase, editor, effectiveCandidates);
+    const selectableComparisonCandidate =
+      effectiveCandidates.find(
+        (candidate) => candidate.isRecommended === true && candidate.selectionAllowed !== false
+      ) ??
+      effectiveCandidates.find((candidate) => candidate.selectionAllowed !== false) ??
+      null;
     const comparisonCandidate = selectedCase.legacyStateReviewRequired
       ? null
       : activeCandidate ??
+        selectableComparisonCandidate ??
         effectiveCandidates.find((candidate) => candidate.isRecommended === true) ??
         effectiveCandidates[0] ??
         null;
@@ -5058,7 +5776,7 @@ export default function AdminRefundsPage() {
       (selectedCase.legacyStateReviewRequired ? null : editor.matchedNayaxMachineAuthTime) ||
       selectedCase.incidentAt;
     const actionLabel = `Refund ${formatCurrency(cardAmountCents)}`;
-    const paymentActionNeedsOperations = refundOperationsBlockedCaseIds.has(selectedCase.id);
+    const paymentActionNeedsOperations = !hasConfirmedRefundReceipt(selectedCase) && refundOperationsBlockedCaseIds.has(selectedCase.id);
     const hasReadyRefund =
       primaryAction?.mode === 'nayax_refund_execution' &&
       primaryAction.disabled !== true &&
@@ -5087,7 +5805,14 @@ export default function AdminRefundsPage() {
     const hasUnsavedTransactionChoice =
       !selectedCase.hasMatchedNayaxTransaction &&
       Boolean(editor.matchedNayaxCandidateToken.trim());
-    const managerState: RefundManagerState = paymentActionNeedsOperations
+    const selectedCandidateRefundUnavailable =
+      hasUnsavedTransactionChoice &&
+      typeof selectedRefundReadiness?.approvalPendingExecution !== 'boolean';
+    const managerState: RefundManagerState = hasConfirmedRefundReceipt(selectedCase) ||
+      (hasProtectedRefundLifecycle(selectedCase) && !selectedCaseApprovalContinuationReady) ||
+      (selectedCase.customerDeliveryException && !hasUnpaidRefundReview(selectedCase))
+      ? baseManagerState
+      : paymentActionNeedsOperations
       ? {
           id: 'needs_refund_operations',
           label: 'Needs Refund Operations',
@@ -5095,14 +5820,45 @@ export default function AdminRefundsPage() {
           nextStep: 'Refund Operations will review the authorization state. Do not try the refund again.',
           tone: 'warning',
         }
+      : selectedCandidateRefundUnavailable
+      ? {
+          id: 'refund_unavailable',
+          label: primaryAction?.label ?? 'Checking refund availability',
+          explanation: 'Bloomjoy has the selected transaction but cannot confirm that the guarded refund service is ready yet.',
+          nextStep: primaryAction?.helper ?? refundReadinessBlockMessage(null),
+          tone: 'warning',
+        }
       : hasUnsavedTransactionChoice
       ? {
           id: 'match_attention',
           label: 'Confirm transaction',
           explanation: 'You selected a possible transaction for this customer.',
-          nextStep: 'Select Confirm this transaction. No refund will be issued yet.',
+          nextStep: `Review the selected sale and confirm ${formatCurrency(cardAmountCents)} once to issue the refund.`,
           tone: 'info',
         }
+      : !hasSelectedMatch &&
+          !waitingOnCustomer &&
+          selectedCase.lifecycle?.stage === 'needs_transaction_selection' &&
+          effectiveCandidates.length > 0 &&
+          !hasSelectableCandidate
+        ? {
+            id: 'match_attention',
+            label: 'Internal review needed',
+            explanation: 'None of the returned transactions is safe to select.',
+            nextStep: 'Review the existing case details and transaction conflicts internally.',
+            tone: 'warning',
+          }
+      : !hasSelectedMatch &&
+          effectiveCandidates.some((candidate) =>
+            candidate.isRecommended && candidate.identifierReviewState === 'reviewable_uncertainty'
+          )
+        ? {
+            id: 'match_attention',
+            label: 'Review transaction',
+            explanation: 'Bloomjoy found one transaction on the matching machine. The customer and provider amounts are shown for comparison. Its card identifier differs, and Nayax has not proved the compared fields are equivalent. Timing is shown separately and may be unproved.',
+            nextStep: "Review Machine transaction once. Select it only if the machine, amount comparison, and available customer and payment evidence identify the same purchase. The refund uses the selected provider transaction's full amount.",
+            tone: 'info',
+          }
       : !hasSelectedMatch &&
           effectiveCandidates.length > 0 &&
           selectedNayaxSummary?.recommendationState === 'high_confidence'
@@ -5110,10 +5866,11 @@ export default function AdminRefundsPage() {
             id: 'match_attention',
             label: 'Review likely transaction',
             explanation: 'Bloomjoy found one transaction that closely matches the customer details.',
-            nextStep: 'Compare the customer, amount, and time. Select the transaction only if it is clearly correct.',
+            nextStep: 'Compare Customer request with Machine transaction. Select it only when they clearly describe the same purchase.',
             tone: 'info',
           }
       : baseManagerState;
+    const displayedManagerNextStep = getDisplayedRefundManagerNextStep(managerState, primaryAction);
     const showDisabledActionStatus =
       (primaryAction?.disabled === true || technicalRefundOperationsAction || paymentActionNeedsOperations) &&
       !selectedCaseIsTerminal &&
@@ -5133,23 +5890,56 @@ export default function AdminRefundsPage() {
     const canAskForCustomerDetails = derivePortalRefundMissingFields(selectedCase).length > 0;
 
     const chooseCustomerFollowUp = () => {
-      if (!canAskForCustomerDetails) return;
-      setEditor((current) =>
-        current
-          ? {
-              ...current,
-              status: 'waiting_on_customer',
-              decision: null,
-              decisionReason: '',
-            }
-          : current
-      );
+      if (!canAskForCustomerDetails || isSendingCustomerMessage) return;
+      if (selectedCase.customerCorrectionFields) { void handleSendCustomerMessage('more_info'); return; }
+      setEditor((current) => current ? { ...current, status: 'waiting_on_customer', decision: null, decisionReason: '' } : current);
       handleMessageTypeChange('more_info');
     };
 
-    const chooseDenial = () => {
+    const chooseDenial = (trigger: HTMLButtonElement) => {
+      denialTriggerRef.current = trigger;
+      denialPreviousStateRef.current = {
+        caseId: selectedCase.id,
+        editor: { ...editor },
+        messageType,
+        messageSubject,
+        messageBody,
+        isCustomerDraftDirty,
+      };
       setEditor((current) => current ? editorForDenial(current) : current);
       handleMessageTypeChange('denied');
+      window.requestAnimationFrame(() => denialReasonRef.current?.focus());
+    };
+
+    const cancelDenial = () => {
+      const previousState = denialPreviousStateRef.current?.caseId === selectedCase.id
+        ? denialPreviousStateRef.current
+        : null;
+      denialPreviousStateRef.current = null;
+      if (previousState) {
+        setEditor(previousState.editor);
+        setMessageType(previousState.messageType);
+        setMessageSubject(previousState.messageSubject);
+        setMessageBody(previousState.messageBody);
+        setIsCustomerDraftDirty(previousState.isCustomerDraftDirty);
+      } else {
+        const restoredEditor = toEditorState(selectedCase);
+        const restoredMessageType: RefundCustomerPortalMessageType = selectedCase.status === 'draft'
+          ? 'more_info'
+          : 'status_update';
+        const restoredMessage = getCustomerMessageDraft(selectedCase, restoredMessageType, restoredEditor);
+        setEditor(restoredEditor);
+        setMessageType(restoredMessageType);
+        setMessageSubject(restoredMessage.subject);
+        setMessageBody(restoredMessage.body);
+        setIsCustomerDraftDirty(false);
+      }
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+        const trigger = denialTriggerRef.current?.isConnected
+          ? denialTriggerRef.current
+          : document.querySelector<HTMLButtonElement>('[data-testid="refund-deny-instead"]');
+        trigger?.focus();
+      }));
     };
 
     return (
@@ -5170,7 +5960,7 @@ export default function AdminRefundsPage() {
                 {managerState.explanation}
               </p>
               <p data-testid="refund-manager-next-step" className="mt-1 max-w-xl text-sm font-medium leading-5 text-foreground">
-                Next: {managerState.nextStep}
+                Next: {displayedManagerNextStep}
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:items-end">
@@ -5198,6 +5988,11 @@ export default function AdminRefundsPage() {
                     if (hasReadyRefund) {
                       setNayaxExecutionNotice(null);
                       setRefundActionReceipt(null);
+                      if (selectedCaseApprovalContinuationReady) {
+                        setIsRefundConfirmationOpen(false);
+                        void handleRunNayaxRefund();
+                        return;
+                      }
                       setIsRefundConfirmationOpen(true);
                       return;
                     }
@@ -5216,12 +6011,27 @@ export default function AdminRefundsPage() {
             </div>
           </div>
 
+          {hasUnchangedSavedApproval(selectedCase, editor) && hasUnpaidRefundReview(selectedCase) && (
+            <div data-testid="refund-existing-approval" className="border-b border-border px-4 py-3 text-sm text-muted-foreground">
+              <p>Existing approval: {formatCurrency(selectedCase.refundAmountCents)}</p>
+              {selectedCase.decisionReason?.trim() && <p className="mt-1">Recorded reason: {selectedCase.decisionReason}</p>}
+            </div>
+          )}
+
           {selectedCase.lifecycle && (
             <div className="border-b border-border px-4 py-4">
               <RefundLifecycleProgress lifecycle={selectedCase.lifecycle} />
             </div>
           )}
 
+          {!selectedCase.customerDeliveryException && ['failed', 'skipped'].includes(getLatestCustomerMessage(selectedCase)?.status ?? '') && (
+            <div data-testid="refund-secondary-delivery-review" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+              <p className="font-semibold">Customer message needs review</p>
+              <p className="mt-1">The latest customer message was not sent. Refund Operations owns delivery review. Do not resend it blindly. The refund status and next step are shown above.</p>
+            </div>
+          )}
+          <CustomerCorrectionSummary refundCase={selectedCase} onReview={(trigger) => { correctionDialogTriggerRef.current={caseId:selectedCase.id,element:trigger}; setCorrectionSelection({caseId:selectedCase.id,version:officialActionVersion,fields:[...(selectedCase.customerCorrection?.requestedFields ?? [])],requestId:selectedCase.customerCorrection?.requestId,editing:false}); }} />
+          {revisionDeliveryReview}
           <div className="grid gap-px bg-border lg:grid-cols-2">
             <article data-testid="refund-request-summary" className="bg-card p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Customer request</p>
@@ -5262,6 +6072,20 @@ export default function AdminRefundsPage() {
                 <Badge className="border-border bg-muted text-foreground">
                   {paymentInteractionLabel(selectedCase)}
                 </Badge>
+                <Badge className="border-border bg-muted text-foreground">
+                  Last four from {cardLast4SourceLabel(selectedCase)}
+                </Badge>
+                {selectedCase.walletDeviceKind && (
+                  <Badge className="border-border bg-muted text-foreground">
+                    Wallet device {selectedCase.walletDeviceKind}
+                  </Badge>
+                )}
+                <Badge className="border-border bg-muted text-foreground">
+                  {incidentTimeSourceLabel(selectedCase)}
+                </Badge>
+                <Badge className="border-border bg-muted text-foreground">
+                  {nearbyAttemptCountLabel(selectedCase)}
+                </Badge>
               </div>
               {selectedCase.customerFactEvidence && (
                 <p
@@ -5281,7 +6105,7 @@ export default function AdminRefundsPage() {
               <p className="mt-3 line-clamp-3 text-sm leading-6 text-muted-foreground">{selectedCase.issueSummary}</p>
             </article>
 
-            <article data-testid="nayax-result-card" data-refund-section="match-summary" className="bg-muted/20 p-4">
+            <article id="refund-machine-transaction" tabIndex={-1} data-testid="nayax-result-card" data-refund-section="match-summary" className="bg-muted/20 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -5524,6 +6348,8 @@ export default function AdminRefundsPage() {
                       <p className="text-xs font-semibold text-foreground">
                         {comparisonCandidate.selectionAllowed === false
                           ? 'Why this transaction cannot be selected'
+                          : comparisonCandidate.identifierReviewState === 'reviewable_uncertainty'
+                            ? 'What supports this match and what is uncertain'
                           : waitingOnCustomer
                             ? 'What matches and what still needs confirmation'
                             : 'Why this looks like a match'}
@@ -5577,6 +6403,7 @@ export default function AdminRefundsPage() {
             <div className="border-b border-border pb-4">
               <Label htmlFor="card-denial-reason">Customer-facing denial reason</Label>
               <select
+                ref={denialReasonRef}
                 data-testid="refund-card-denial-reason"
                 id="card-denial-reason"
                 value={editor.decisionReason}
@@ -5594,6 +6421,16 @@ export default function AdminRefundsPage() {
                 ))}
               </select>
               <InfoHint>The customer receives the selected warm, approved explanation.</InfoHint>
+              <Button
+                type="button"
+                data-testid="refund-cancel-denial"
+                variant="outline"
+                className="mt-3 min-h-11"
+                disabled={isSaving || isSendingCustomerMessage}
+                onClick={cancelDenial}
+              >
+                Cancel denial
+              </Button>
             </div>
           )}
 
@@ -5610,12 +6447,34 @@ export default function AdminRefundsPage() {
             <div className={nayaxLookupNoticeClass(nayaxExecutionNotice.tone)}>{nayaxExecutionNotice.message}</div>
           )}
 
-          {selectedCase.legacyStateReviewRequired ||
+          {refundOperationsAccess && !forceDemoData && selectedCase.paymentMethod === 'card' && !selectedCase.decision && (
+            <RefundOwnerNonrefundResolution key={`owner-nonrefund-${selectedCase.id}`} caseId={selectedCase.id}
+              onSaved={() => void queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] })} />
+          )}
+
+          {refundOperationsAccess && selectedCase.paymentMethod === 'card' && selectedCase.hasMatchedNayaxTransaction && (
+            <RefundAuthoritativeReceiptPanel key={selectedCase.id} caseId={selectedCase.id} demo={forceDemoData}
+              machineContext={{ machineLabel: selectedCase.machineLabel, locationName: selectedCase.locationName,
+                expectedCaseVersion: selectedCase.officialActionVersion }}
+              machineCorrection={selectedCase.machineCorrection} onCorrectionReviewChange={setReceiptCorrectionReviewActive} />
+          )}
+
+          {refundOperationsAccess && !forceDemoData && selectedCase.paymentMethod === 'card' && !selectedCase.hasMatchedNayaxTransaction && (
+            <RefundExternalRecoveryPanel key={selectedCase.id} caseId={selectedCase.id} onReviewChange={setReceiptCorrectionReviewActive} />
+          )}
+
+          {hasConfirmedRefundReceipt(selectedCase) ? (
+            <p data-testid="refund-receipt-accounting-only" className="mt-4 border-t border-border pt-4 text-sm text-muted-foreground">
+              Payment is confirmed. Accounting-date review is internal work. Review customer communication in the saved receipt section; no new payment is available here.
+            </p>
+          ) : receiptCorrectionReviewActive ? (
+            <p className="mt-4 border-t border-border pt-4 text-sm text-muted-foreground">Machine correction review only. No payment or customer message is available in this review.</p>
+          ) : (selectedCase.legacyStateReviewRequired ||
           selectedCase.providerHold ||
           (selectedCase.providerOutcome === 'rejected' &&
             !isDefinitiveNoRefundRetryReady(selectedCase)) ||
           nayaxResolutionReadiness?.canStartEvidenceOnlyReconciliation === true ||
-          nayaxResolutionReadiness?.evidenceOnlyAttempt === true ? (
+          nayaxResolutionReadiness?.evidenceOnlyAttempt === true) ? (
             <>
               <div
                 data-testid={selectedCase.legacyStateReviewRequired
@@ -5917,7 +6776,7 @@ export default function AdminRefundsPage() {
               <div className="mt-3 flex flex-wrap gap-2 sm:justify-end">
                 {canAskForCustomerDetails && primaryAction?.messageType !== 'more_info' && (
                   <Button type="button" size="sm" variant="outline" disabled={isUsingDemoData} onClick={chooseCustomerFollowUp}>
-                    Ask customer for details
+                    Request customer correction
                   </Button>
                 )}
                 {primaryAction?.label !== 'Deny request' && (
@@ -5927,9 +6786,9 @@ export default function AdminRefundsPage() {
                     size="sm"
                     variant="outline"
                     disabled={isUsingDemoData || selectedCaseIsReviewOnly}
-                    onClick={chooseDenial}
+                    onClick={(event) => chooseDenial(event.currentTarget)}
                   >
-                    Deny request
+                    {selectedCase.decision === 'approved' ? 'Change to denial' : 'Deny request'}
                   </Button>
                 )}
               </div>
@@ -5960,38 +6819,6 @@ export default function AdminRefundsPage() {
             </div>
           </details>
         )}
-
-        <AlertDialog
-          open={isEvidenceConfirmationOpen}
-          onOpenChange={(open) => {
-            if (!isSaving) setIsEvidenceConfirmationOpen(open);
-          }}
-        >
-          <AlertDialogContent data-testid="refund-evidence-confirmation-dialog" className="max-w-lg">
-            <AlertDialogHeader>
-              <AlertDialogTitle>Confirm this transaction?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This records your selection for review. It does not issue a refund, approve the request, or email the customer.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={isSaving}>Go back</AlertDialogCancel>
-              <Button
-                data-testid="refund-confirm-evidence-selection"
-                type="button"
-                onClick={() => void handleConfirmEvidenceSelection()}
-                disabled={isSaving}
-              >
-                {isSaving ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="mr-2 h-4 w-4" />
-                )}
-                Confirm transaction
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
 
         <AlertDialog
           open={isRefundConfirmationOpen}
@@ -6090,18 +6917,9 @@ export default function AdminRefundsPage() {
     const canAskForCustomerDetails = derivePortalRefundMissingFields(selectedCase).length > 0;
 
     const chooseCustomerFollowUp = () => {
-      if (!canAskForCustomerDetails) return;
-      setEditor((current) =>
-        current
-          ? {
-              ...current,
-              status: 'waiting_on_customer',
-              decision: null,
-              decisionReason: '',
-              cashPaymentConfirmed: false,
-            }
-          : current
-      );
+      if (!canAskForCustomerDetails || isSendingCustomerMessage) return;
+      if (selectedCase.customerCorrectionFields) { void handleSendCustomerMessage('more_info'); return; }
+      setEditor((current) => current ? { ...current, status: 'waiting_on_customer', decision: null, decisionReason: '' } : current);
       handleMessageTypeChange('more_info');
     };
 
@@ -6115,6 +6933,7 @@ export default function AdminRefundsPage() {
     };
 
     const managerState = getRefundManagerState(selectedCase);
+    const displayedManagerNextStep = getDisplayedRefundManagerNextStep(managerState, primaryAction);
 
     return (
       <div data-testid="refund-cash-workbench" className="space-y-4">
@@ -6133,7 +6952,7 @@ export default function AdminRefundsPage() {
               <p className="mt-2 max-w-xl text-sm leading-5 text-muted-foreground">{managerState.explanation}</p>
               {!isCashCompletion && (
                 <p data-testid="refund-manager-next-step" className="mt-1 max-w-xl text-sm font-medium leading-5 text-foreground">
-                  Next: {managerState.nextStep}
+                  Next: {displayedManagerNextStep}
                 </p>
               )}
               {isCashCompletion && (
@@ -6168,6 +6987,8 @@ export default function AdminRefundsPage() {
             </div>
           </div>
 
+          <CustomerCorrectionSummary refundCase={selectedCase} onReview={(trigger) => { correctionDialogTriggerRef.current={caseId:selectedCase.id,element:trigger}; setCorrectionSelection({caseId:selectedCase.id,version:officialActionVersion,fields:[...(selectedCase.customerCorrection?.requestedFields ?? [])],requestId:selectedCase.customerCorrection?.requestId,editing:false}); }} />
+          {revisionDeliveryReview}
           <div className="grid border-t border-border lg:grid-cols-2 lg:divide-x lg:divide-border">
             <article data-testid="refund-cash-request-summary" className="p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Customer request</p>
@@ -6285,7 +7106,7 @@ export default function AdminRefundsPage() {
               <div className="mt-3 flex flex-wrap gap-2">
                 {canAskForCustomerDetails && primaryAction?.messageType !== 'more_info' && (
                   <Button type="button" variant="outline" size="sm" onClick={chooseCustomerFollowUp} disabled={isUsingDemoData}>
-                    Ask customer for details
+                    Request customer correction
                   </Button>
                 )}
                 {primaryAction?.targetDecision !== 'denied' && (
@@ -6382,9 +7203,9 @@ export default function AdminRefundsPage() {
                 <span
                   data-testid="refund-payment-health"
                   className="text-sm font-medium text-amber-800"
-                  title={`Card refunds are paused for affected Nayax accounts. ${nayaxReliabilityHealth.ownerLabel} owns reconciliation within ${nayaxReliabilityHealth.escalationSlaMinutes} minutes.`}
+                  title={`Some card refunds need reconciliation. ${nayaxReliabilityHealth.ownerLabel} owns follow-up; other eligible refunds remain available.`}
                 >
-                  Card refunds need attention
+                  Some card refunds need attention
                 </span>
               )}
               <Button variant="outline" onClick={() => void refresh()} disabled={pageIsFetching || isUsingDemoData}>
@@ -6398,11 +7219,18 @@ export default function AdminRefundsPage() {
             </div>
           </div>
 
-          {error && !isUsingDemoData && (
-            <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-              Failed to load refund operations.
-            </div>
+          {refundOperationsAccess && !isUsingDemoData && (
+            <RefundReportFreshnessAdvisory freshness={gmailHealth?.reportFreshness} />
           )}
+
+          <div data-testid="refund-overview-read-status" role="status" aria-live="polite" aria-atomic="true"
+            className={overviewReadMessage ? overviewReadMessage === REFUND_OVERVIEW_INITIAL_LOAD_ERROR
+              ? 'mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive'
+              : overviewReadMessage === REFUND_OVERVIEW_UPDATE_DELAYED
+                ? 'mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950'
+                : 'mt-4 text-sm text-muted-foreground' : 'sr-only'}>
+            {overviewReadMessage}
+          </div>
 
           {isUsingDemoData && (
             <div className="mt-4 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
@@ -6472,25 +7300,32 @@ export default function AdminRefundsPage() {
           </div>
 
           <div className="mt-4">
-            <div className="relative">
+            <Label htmlFor="refund-case-search">Search {searchScope}</Label>
+            <div className="relative mt-2">
               <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
                 id="refund-case-search"
                 aria-label="Search refund cases"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search cases"
+                placeholder="Reference, customer, machine, or location"
+                aria-describedby="refund-search-scope"
                 className="pl-9"
               />
             </div>
+          </div>
+
+          <div id="refund-search-scope" className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+            <p>{isSearching ? `Searching ${searchScope}, regardless of status.` : 'Search across statuses. Clear the search to return to your selected queue.'}</p>
+            {isSearching && <Button type="button" variant="outline" className="min-h-11" onClick={() => { setSearch(''); document.getElementById('refund-case-search')?.focus(); }}>Clear search</Button>}
           </div>
 
           <div className="mt-6 grid min-w-0 gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
             <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
               <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 py-3">
                 <div>
-                  <h2 className="text-sm font-semibold text-foreground">Queue</h2>
-                  <p data-testid="refund-queue-count" className="mt-1 text-xs text-muted-foreground">
+                  <h2 className="text-sm font-semibold text-foreground">{isSearching ? 'Search results' : 'Queue'}</h2>
+                  <p data-testid="refund-queue-count" role="status" aria-live="polite" aria-atomic="true" className="mt-1 text-xs text-muted-foreground">
                     {filteredCases.length} {filteredCases.length === 1 ? 'case' : 'cases'}
                   </p>
                 </div>
@@ -6553,7 +7388,8 @@ export default function AdminRefundsPage() {
                       <div className="mt-2 text-xs text-muted-foreground">
                         {formatRefundMachineLocation(refundCase.locationName, refundCase.machineLabel)}
                       </div>
-                      <div className="mt-3 flex items-center justify-between gap-3 text-xs">
+                      {isSearching && <p className="mt-2 text-xs text-muted-foreground">Current view: {refundSearchViewLabel(refundCase)}</p>}
+                    <div className="mt-3 flex items-center justify-between gap-3 text-xs">
                         <span className="font-medium text-foreground">
                           {formatCurrency(refundCase.refundAmountCents ?? refundCase.paymentAmountCents)}
                         </span>
@@ -6611,6 +7447,7 @@ export default function AdminRefundsPage() {
                         {managerTaskLabel(refundCase)}
                       </Badge>
                     </div>
+                    {isSearching && <p className="mt-2 text-xs text-muted-foreground">Current view: {refundSearchViewLabel(refundCase)}</p>}
                     <div className="mt-3 flex items-center justify-between gap-3 text-xs">
                       <span className="font-medium text-foreground">
                         {formatCurrency(refundCase.refundAmountCents ?? refundCase.paymentAmountCents)}
@@ -6655,6 +7492,83 @@ export default function AdminRefundsPage() {
                       </p>
                     </div>
 
+                    {selectedCase.inboundLinkReview?.status === 'pending' && (
+                      <section
+                        data-testid="refund-inbound-link-review"
+                        className="rounded-xl border border-orange-300 bg-orange-50 p-4 text-orange-950"
+                        role="status"
+                      >
+                        <div className="flex items-start gap-3">
+                          <Mail className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold">Link an existing customer email</p>
+                            <p className="mt-1 text-sm leading-6">
+                              A verified support email matches {selectedCase.inboundLinkReview.candidateCount}{' '}
+                              recent open {selectedCase.inboundLinkReview.candidateCount === 1 ? 'case' : 'cases'}.
+                              Bloomjoy has not sent another form request. Choose the primary case; every other candidate remains associated as related work.
+                            </p>
+                            <p className="mt-2 text-xs leading-5 text-orange-900">
+                              Received {formatDate(selectedCase.inboundLinkReview.receivedAt)}. Linking creates no case, customer message, provider call, or refund.
+                            </p>
+                            <div className="mt-3 space-y-2">
+                              {selectedCase.inboundLinkReview.candidates.map((candidate) => {
+                                const matchedContext = [
+                                  candidate.evidence.amount === true ? 'amount' : null,
+                                  candidate.evidence.paymentMethod === true ? 'payment method' : null,
+                                  candidate.evidence.incidentDate === true ? 'purchase date' : null,
+                                  candidate.evidence.locationOrMachine === true ? 'location or machine' : null,
+                                ].filter(Boolean);
+                                const isCurrent = candidate.caseId === selectedCase.id;
+                                return (
+                                  <div
+                                    key={candidate.caseId}
+                                    className="rounded-lg border border-orange-200 bg-white p-3"
+                                  >
+                                    <div className="flex flex-wrap items-start justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <p className="font-semibold text-foreground">{candidate.publicReference}</p>
+                                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                                          {formatRefundMachineLocation(candidate.locationName, candidate.machineLabel)} ·{' '}
+                                          {formatCurrency(candidate.paymentAmountCents)} · {formatDate(candidate.incidentAt)}
+                                        </p>
+                                        <p className="mt-1 text-xs leading-5 text-orange-900">
+                                          Exact sender email
+                                          {matchedContext.length > 0 ? `; matching ${matchedContext.join(', ')}` : ''}.
+                                        </p>
+                                      </div>
+                                      {isCurrent ? (
+                                        <Badge className="border-orange-300 bg-orange-100 text-orange-950">
+                                          Selected
+                                        </Badge>
+                                      ) : (
+                                        <Button asChild type="button" size="sm" variant="outline">
+                                          <a href={`/refunds?case=${candidate.caseId}`}>Review as primary</a>
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <Button
+                              type="button"
+                              data-testid="refund-resolve-inbound-link"
+                              className="mt-4 h-auto max-w-full whitespace-normal py-2 text-left leading-5"
+                              onClick={() => void handleResolveInboundLink()}
+                              disabled={isUsingDemoData || isResolvingInboundLink}
+                            >
+                              {isResolvingInboundLink ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+                              ) : (
+                                <ShieldCheck className="mr-2 h-4 w-4" aria-hidden="true" />
+                              )}
+                              Link to {selectedCase.publicReference} as primary; keep the others related
+                            </Button>
+                          </div>
+                        </div>
+                      </section>
+                    )}
+
                     {selectedCaseIsInternalTest && selectedCase.internalTest && (
                       <section
                         data-testid="refund-internal-test-archive-summary"
@@ -6674,129 +7588,6 @@ export default function AdminRefundsPage() {
                         </div>
                       </section>
                     )}
-
-                    {refundOperationsAccess && !selectedCaseIsInternalTest && (
-                      <section
-                        data-testid="refund-internal-test-disposition"
-                        className="rounded-xl border border-border bg-muted/20 p-4"
-                      >
-                        <div className="space-y-3">
-                          <div>
-                            <p className="text-sm font-semibold text-foreground">Internal or test submission</p>
-                            <p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">
-                              Use only for employee, technician, setup, provider, or synthetic test records. This is not a denial and sends no customer message.
-                            </p>
-                          </div>
-                          <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,320px)_auto] sm:items-end">
-                            <div className="min-w-0 space-y-1.5">
-                              <Label htmlFor="refund-internal-test-reason">Required reason</Label>
-                              <select
-                                id="refund-internal-test-reason"
-                                data-testid="refund-internal-test-reason"
-                                value={internalTestReason}
-                                onChange={(event) => setInternalTestReason(
-                                  event.target.value as RefundInternalTestReason | ''
-                                )}
-                                className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                              >
-                                <option value="">Select reason</option>
-                                {internalTestReasonOptions.map((option) => (
-                                  <option key={option.value} value={option.value}>{option.label}</option>
-                                ))}
-                              </select>
-                            </div>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              data-testid="refund-open-internal-test-confirmation"
-                              className="h-10 w-full sm:w-auto"
-                              onClick={() => setIsInternalTestConfirmationOpen(true)}
-                              disabled={
-                                isUsingDemoData ||
-                                isClassifyingInternalTest ||
-                                officialActionVersion <= 0 ||
-                                !internalTestReason
-                              }
-                            >
-                              Move to Internal/test archive
-                            </Button>
-                          </div>
-                        </div>
-                      </section>
-                    )}
-
-                    {!selectedCaseIsInternalTest && <section
-                      data-testid="refund-customer-locale"
-                      className="rounded-xl border border-border bg-muted/20 p-4"
-                    >
-                      <div className="space-y-4">
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-foreground">Customer message language</p>
-                          <p data-testid="refund-customer-locale-current" className="mt-1 text-sm text-muted-foreground">
-                            {selectedCustomerLocale?.locale
-                              ? selectedCustomerLocale.label
-                              : 'Not set — English fallback'}
-                            {' · '}
-                            {selectedCustomerLocale?.sourceLabel ?? 'Needs manager review'}
-                          </p>
-                          <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">
-                            This setting applies only to future approved refund templates. Existing message history is unchanged. Spanish uses the approved Spanish + English template.
-                          </p>
-                        </div>
-                        <div className="grid w-full min-w-0 gap-3 sm:grid-cols-2">
-                          <div className="min-w-0 space-y-1.5">
-                            <Label htmlFor="refund-customer-locale-select">Language</Label>
-                            <select
-                              id="refund-customer-locale-select"
-                              data-testid="refund-customer-locale-select"
-                              value={customerLocaleDraft}
-                              onChange={(event) => setCustomerLocaleDraft(event.target.value as RefundCustomerLocale | '')}
-                              className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            >
-                              <option value="">Select language</option>
-                              <option value="en">English</option>
-                              <option value="es">Spanish + English</option>
-                            </select>
-                          </div>
-                          <div className="min-w-0 space-y-1.5">
-                            <Label htmlFor="refund-customer-locale-reason">Reviewed reason</Label>
-                            <select
-                              id="refund-customer-locale-reason"
-                              data-testid="refund-customer-locale-reason"
-                              value={customerLocaleReason}
-                              onChange={(event) => setCustomerLocaleReason(
-                                event.target.value as RefundCustomerLocaleCorrectionReason | ''
-                              )}
-                              className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            >
-                              <option value="">Select reason</option>
-                              <option value="reviewed_customer_request_language">Reviewed customer request language</option>
-                              <option value="customer_confirmed_language">Customer confirmed language</option>
-                            </select>
-                          </div>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            data-testid="refund-save-customer-locale"
-                            className="h-10 w-full sm:col-span-2 sm:w-auto sm:justify-self-start"
-                            onClick={() => void handleCorrectCustomerLocale()}
-                            disabled={
-                              isUsingDemoData ||
-                              isCorrectingCustomerLocale ||
-                              officialActionVersion <= 0 ||
-                              !selectedCustomerLocale ||
-                              !customerLocaleDraft ||
-                              !customerLocaleReason
-                            }
-                          >
-                            {isCorrectingCustomerLocale && (
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
-                            )}
-                            Save language
-                          </Button>
-                        </div>
-                      </div>
-                    </section>}
 
                     {!selectedCaseIsInternalTest && selectedCaseIsReviewOnly && !selectedCaseIsTerminal && !selectedCase.providerHold && (
                       <div
@@ -6941,10 +7732,42 @@ export default function AdminRefundsPage() {
                       </div>
                     )}
 
+                    {!selectedCaseIsInternalTest && selectedCase.customerDeliveryException && (
+                      <section
+                        data-testid="refund-secondary-delivery-review"
+                        className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950"
+                      >
+                        <p className="font-semibold">Customer message needs review</p>
+                        <p className="mt-1 leading-6">
+                          Saved delivery outcome: {transactionalDeliveryLabel(selectedCase.customerDeliveryException.state)}.{' '}
+                          {selectedCase.lifecycle?.paymentState === 'confirmed'
+                            ? 'Payment remains confirmed.'
+                            : 'This delivery record does not change the refund or payment state.'}{' '}
+                          Refund Operations owns delivery review. Do not resend it blindly.
+                        </p>
+                        <Button
+                          data-testid="refund-review-delivery-record"
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="mt-3 h-auto min-h-11 w-full whitespace-normal border-amber-400 bg-white py-2 text-center leading-5 text-amber-950 hover:bg-amber-100 sm:w-auto"
+                          aria-label={`Review delivery record: ${transactionalDeliveryLabel(selectedCase.customerDeliveryException.state)}`}
+                          onClick={handleReviewDeliveryRecord}
+                        >
+                          <Mail className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
+                          Review delivery record
+                        </Button>
+                      </section>
+                    )}
+
                     {!selectedCaseIsInternalTest && (selectedCaseIsTerminal ? (
                       <section data-testid="refund-terminal-history" className="border-t border-border pt-4">
-                        <p className="font-medium text-foreground">{primaryAction?.label}</p>
-                        <p className="mt-1 text-sm text-muted-foreground">{primaryAction?.helper}</p>
+                        <p data-testid="refund-terminal-primary-action" className="font-medium text-foreground">
+                          {primaryAction?.label}
+                        </p>
+                        <p data-testid="refund-terminal-primary-helper" className="mt-1 text-sm text-muted-foreground">
+                          {primaryAction?.helper}
+                        </p>
                         {selectedCase.decisionReason && (
                           <div className="mt-4">
                             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -7077,9 +7900,9 @@ export default function AdminRefundsPage() {
                           <p className="mt-1 font-medium text-foreground">{formatAge(selectedCase.createdAt)} old</p>
                         </div>
                       </div>
-                      {getOperationalSignals(selectedCase, cardRefundAvailabilityConfirmed).length > 0 && (
+                      {getOperationalSignals(selectedCase).length > 0 && (
                         <div className="mt-3 flex flex-wrap gap-1.5">
-                          {getOperationalSignals(selectedCase, cardRefundAvailabilityConfirmed).map((signal) => (
+                          {getOperationalSignals(selectedCase).map((signal) => (
                             <Badge key={signal.label} className={cn('rounded-md', signal.className)}>
                               {signal.label}
                             </Badge>
@@ -7648,7 +8471,10 @@ export default function AdminRefundsPage() {
                             value={messageType}
                             disabled={isUsingDemoData}
                             onChange={(event) =>
-                              handleMessageTypeChange(event.target.value as RefundCustomerPortalMessageType)
+                              handleMessageTypeChange(
+                                event.target.value as RefundCustomerPortalMessageType,
+                                true
+                              )
                             }
                             className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                           >
@@ -7665,9 +8491,13 @@ export default function AdminRefundsPage() {
                         <div>
                           <Label>Subject</Label>
                           <Input
+                            data-testid="refund-customer-message-subject"
                             value={messageSubject}
                             disabled={isUsingDemoData}
-                            onChange={(event) => setMessageSubject(event.target.value)}
+                            onChange={(event) => {
+                              setMessageSubject(event.target.value);
+                              setIsCustomerDraftDirty(true);
+                            }}
                             className="mt-2"
                           />
                         </div>
@@ -7675,9 +8505,13 @@ export default function AdminRefundsPage() {
                       <div>
                         <Label>Message body</Label>
                         <Textarea
+                          data-testid="refund-customer-message-body"
                           value={messageBody}
                           disabled={isUsingDemoData}
-                          onChange={(event) => setMessageBody(event.target.value)}
+                          onChange={(event) => {
+                            setMessageBody(event.target.value);
+                            setIsCustomerDraftDirty(true);
+                          }}
                           rows={6}
                           className="mt-2"
                         />
@@ -7719,13 +8553,15 @@ export default function AdminRefundsPage() {
                       </summary>
                       <div className="mt-3">
                         <Textarea
+                          data-testid="refund-internal-note"
                           value={editor.internalNote}
                           disabled={isUsingDemoData}
-                          onChange={(event) =>
+                          onChange={(event) => {
                             setEditor((current) =>
                               current ? { ...current, internalNote: event.target.value } : current
-                            )
-                          }
+                            );
+                            setIsInternalNoteDirty(true);
+                          }}
                           rows={3}
                           placeholder="Camera review, customer follow-up, or refund note"
                         />
@@ -7759,6 +8595,148 @@ export default function AdminRefundsPage() {
 
                     </div>
                     </div>
+                    )}
+
+                    {!selectedCaseIsInternalTest && (
+                      <details
+                        data-testid="refund-case-administration"
+                        className="group rounded-xl border border-border bg-muted/10"
+                      >
+                        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-4 py-3 text-sm font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+                          <span>Case administration</span>
+                          <span className="flex items-center gap-2 text-xs font-normal text-muted-foreground">
+                            <span>Language{refundOperationsAccess ? ' and internal/test tools' : ''}</span>
+                            <ChevronDown
+                              className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180"
+                              aria-hidden="true"
+                            />
+                          </span>
+                        </summary>
+                        <div className="space-y-3 border-t border-border p-3 sm:p-4">
+                          {refundOperationsAccess && (
+                            <section
+                              data-testid="refund-internal-test-disposition"
+                              className="rounded-xl border border-border bg-muted/20 p-4"
+                            >
+                              <div className="space-y-3">
+                                <div>
+                                  <p className="text-sm font-semibold text-foreground">Internal or test submission</p>
+                                  <p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">
+                                    Use only for employee, technician, setup, provider, or synthetic test records. This is not a denial and sends no customer message.
+                                  </p>
+                                </div>
+                                <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,320px)_auto] sm:items-end">
+                                  <div className="min-w-0 space-y-1.5">
+                                    <Label htmlFor="refund-internal-test-reason">Required reason</Label>
+                                    <select
+                                      id="refund-internal-test-reason"
+                                      data-testid="refund-internal-test-reason"
+                                      value={internalTestReason}
+                                      onChange={(event) => setInternalTestReason(
+                                        event.target.value as RefundInternalTestReason | ''
+                                      )}
+                                      className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    >
+                                      <option value="">Select reason</option>
+                                      {internalTestReasonOptions.map((option) => (
+                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    data-testid="refund-open-internal-test-confirmation"
+                                    className="h-10 w-full sm:w-auto"
+                                    onClick={() => setIsInternalTestConfirmationOpen(true)}
+                                    disabled={
+                                      isUsingDemoData ||
+                                      isClassifyingInternalTest ||
+                                      officialActionVersion <= 0 ||
+                                      !internalTestReason
+                                    }
+                                  >
+                                    Move to Internal/test archive
+                                  </Button>
+                                </div>
+                              </div>
+                            </section>
+                          )}
+
+                          <section
+                            data-testid="refund-customer-locale"
+                            className="rounded-xl border border-border bg-muted/20 p-4"
+                          >
+                            <div className="space-y-4">
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-foreground">Customer message language</p>
+                                <p data-testid="refund-customer-locale-current" className="mt-1 text-sm text-muted-foreground">
+                                  {selectedCustomerLocale?.locale
+                                    ? selectedCustomerLocale.label
+                                    : 'Not set — English fallback'}
+                                  {' · '}
+                                  {selectedCustomerLocale?.sourceLabel ?? 'Needs manager review'}
+                                </p>
+                                <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">
+                                  This setting applies only to future approved refund templates. Existing message history is unchanged. Spanish uses the approved Spanish + English template.
+                                </p>
+                              </div>
+                              <div className="grid w-full min-w-0 gap-3 sm:grid-cols-2">
+                                <div className="min-w-0 space-y-1.5">
+                                  <Label htmlFor="refund-customer-locale-select">Language</Label>
+                                  <select
+                                    id="refund-customer-locale-select"
+                                    data-testid="refund-customer-locale-select"
+                                    value={customerLocaleDraft}
+                                    onChange={(event) => setCustomerLocaleDraft(event.target.value as RefundCustomerLocale | '')}
+                                    className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  >
+                                    <option value="">Select language</option>
+                                    <option value="en">English</option>
+                                    <option value="es">Spanish + English</option>
+                                  </select>
+                                </div>
+                                <div className="min-w-0 space-y-1.5">
+                                  <Label htmlFor="refund-customer-locale-reason">Reviewed reason</Label>
+                                  <select
+                                    id="refund-customer-locale-reason"
+                                    data-testid="refund-customer-locale-reason"
+                                    value={customerLocaleReason}
+                                    onChange={(event) => setCustomerLocaleReason(
+                                      event.target.value as RefundCustomerLocaleCorrectionReason | ''
+                                    )}
+                                    className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  >
+                                    <option value="">Select reason</option>
+                                    <option value="reviewed_customer_request_language">Reviewed customer request language</option>
+                                    <option value="customer_confirmed_language">Customer confirmed language</option>
+                                  </select>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  data-testid="refund-save-customer-locale"
+                                  className="h-10 w-full sm:col-span-2 sm:w-auto sm:justify-self-start"
+                                  onClick={() => void handleCorrectCustomerLocale()}
+                                  disabled={
+                                    isUsingDemoData ||
+                                    isCorrectingCustomerLocale ||
+                                    officialActionVersion <= 0 ||
+                                    !selectedCustomerLocale ||
+                                    !customerLocaleDraft ||
+                                    !customerLocaleReason
+                                  }
+                                >
+                                  {isCorrectingCustomerLocale && (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+                                  )}
+                                  Save language
+                                </Button>
+                              </div>
+                            </div>
+                          </section>
+                        </div>
+                      </details>
                     )}
 
                     <div className="space-y-3 rounded-lg border border-border bg-background p-4">
@@ -7900,8 +8878,17 @@ export default function AdminRefundsPage() {
                         </div>
                       </details>
 
-                      <details className="rounded-lg border border-border bg-background p-3">
-                        <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium text-foreground">
+                      <details
+                        key={selectedCase.id}
+                        ref={customerMessagesDetailsRef}
+                        data-testid="refund-customer-messages"
+                        className="rounded-lg border border-border bg-background p-3"
+                      >
+                        <summary
+                          ref={customerMessagesSummaryRef}
+                          data-testid="refund-customer-messages-summary"
+                          className="flex scroll-mt-20 cursor-pointer list-none items-center gap-2 rounded-sm text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        >
                           <Mail className="h-4 w-4 text-primary" />
                           Customer messages ({selectedCase.messages.length})
                         </summary>
@@ -7911,8 +8898,23 @@ export default function AdminRefundsPage() {
                               No customer email records have been logged.
                             </p>
                           ) : (
-                            selectedCase.messages.map((message) => (
-                              <div key={message.id} className="rounded-md border border-border/80 p-2">
+                            selectedCase.messages.map((message) => {
+                              const isSelectedDeliveryEvidence = message.id === selectedDeliveryEvidenceMessageId;
+                              return (
+                                <div
+                                  key={message.id}
+                                  ref={isSelectedDeliveryEvidence ? customerDeliveryEvidenceRef : undefined}
+                                  data-refund-message-id={message.id}
+                                  data-testid={isSelectedDeliveryEvidence ? 'refund-focused-delivery-record' : undefined}
+                                  tabIndex={isSelectedDeliveryEvidence ? -1 : undefined}
+                                  aria-label={isSelectedDeliveryEvidence
+                                    ? `Saved delivery record: ${transactionalDeliveryLabel(message.deliveryState)}`
+                                    : undefined}
+                                  className={cn(
+                                    'rounded-md border border-border/80 p-2',
+                                    isSelectedDeliveryEvidence && 'scroll-mt-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
+                                  )}
+                                >
                                 <div className="flex flex-wrap items-center gap-2">
                                   <Badge variant="outline" className="capitalize">
                                     {statusLabel(message.messageType)}
@@ -7920,6 +8922,15 @@ export default function AdminRefundsPage() {
                                   <Badge className={cn('capitalize', messageStatusBadgeClass(message.status))}>
                                     {message.status}
                                   </Badge>
+                                  {message.deliveryTransport === 'resend' && (
+                                    <Badge
+                                      data-testid={`refund-message-delivery-${message.id}`}
+                                      variant="outline"
+                                      className={transactionalDeliveryBadgeClass(message.deliveryState)}
+                                    >
+                                      {transactionalDeliveryLabel(message.deliveryState)}
+                                    </Badge>
+                                  )}
                                   {message.deliveryKind && (
                                     <Badge variant="secondary" className="capitalize">
                                       {message.deliveryKind === 'automatic' ? 'Automatic' : 'Manager sent'}
@@ -7951,17 +8962,26 @@ export default function AdminRefundsPage() {
                                 </p>
                                 <p className="mt-1 break-words text-xs text-muted-foreground">
                                   To {message.recipientEmail} /{' '}
-                                  {message.sentAt
-                                    ? `sent ${formatDate(message.sentAt)}`
-                                    : `created ${formatDate(message.createdAt)}`}
+                                  {message.deliveryTransport === 'resend'
+                                    ? `${transactionalDeliveryLabel(message.deliveryState).toLowerCase()} ${
+                                        formatDate(message.deliveryStateUpdatedAt ?? message.sentAt ?? message.createdAt)
+                                      }`
+                                    : message.sentAt
+                                      ? `sent ${formatDate(message.sentAt)}`
+                                      : `created ${formatDate(message.createdAt)}`}
                                 </p>
-                                {message.errorMessage && (
+                                {message.errorMessage &&
+                                  !(
+                                    message.deliveryTransport === 'resend' &&
+                                    message.errorMessage.startsWith('transactional_delivery_')
+                                  ) && (
                                   <p className="mt-1 break-words text-xs text-destructive">
                                     {message.errorMessage}
                                   </p>
                                 )}
-                              </div>
-                            ))
+                                </div>
+                              );
+                            })
                           )}
                         </div>
                       </details>
@@ -7977,30 +8997,98 @@ export default function AdminRefundsPage() {
       </section>
 
       <AlertDialog
+        open={Boolean(pendingCaseSelectionId)}
+        onOpenChange={(open) => {
+          if (!open) setPendingCaseSelectionId(null);
+        }}
+      >
+        <AlertDialogContent
+          data-testid="refund-unsaved-text-dialog"
+          className="w-[calc(100%_-_2rem)] max-w-lg rounded-lg"
+          onCloseAutoFocus={(event) => {
+            const trigger = pendingCaseSelectionTriggerRef.current;
+            pendingCaseSelectionTriggerRef.current = null;
+            if (!trigger?.isConnected) return;
+            event.preventDefault();
+            trigger.focus();
+          }}
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard unsent text?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your edits for {selectedCase?.publicReference ?? 'this refund case'} have not been sent or saved.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              data-testid="refund-unsaved-text-stay"
+              className="min-h-[44px]"
+              onClick={() => setPendingCaseSelectionId(null)}
+            >
+              Stay here
+            </AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="refund-unsaved-text-discard"
+              className="min-h-[44px] bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                const nextCase = [...overview.cases, ...internalTestCases]
+                  .find((refundCase) => refundCase.id === pendingCaseSelectionId);
+                if (nextCase) {
+                  selectCase(nextCase);
+                } else {
+                  setPendingCaseSelectionId(null);
+                  toast.error('That refund case is no longer available. Your current edits were kept.');
+                }
+              }}
+            >
+              Discard and switch
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
         open={isInternalTestConfirmationOpen}
         onOpenChange={(open) => {
           if (!isClassifyingInternalTest) setIsInternalTestConfirmationOpen(open);
         }}
       >
-        <AlertDialogContent data-testid="refund-internal-test-confirmation-dialog" className="max-w-lg">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Move this record to the Internal/test archive?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This one-way audited disposition is not a customer denial. It sends no message and issues no refund. Customer messages, refunds, reporting adjustments, reminders, and customer SLA escalation will be suppressed.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm text-slate-950">
-            <p className="font-medium">
-              Reason: {internalTestReasonOptions.find((option) => option.value === internalTestReason)?.label ?? 'Not selected'}
-            </p>
-            <p className="mt-1 leading-6">
-              Existing evidence and message history remain in the archive. Cases with unresolved or completed payment effects cannot use this disposition.
-            </p>
+        <AlertDialogContent
+          data-testid="refund-internal-test-confirmation-dialog"
+          className="flex max-h-[calc(100dvh_-_2rem)] w-[calc(100%_-_2rem)] max-w-lg flex-col overflow-hidden break-words rounded-lg"
+        >
+          <div
+            data-testid="refund-internal-test-details"
+            role="region"
+            aria-label="Internal/test disposition details"
+            tabIndex={0}
+            className="min-h-0 space-y-4 overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          >
+            <AlertDialogHeader>
+              <AlertDialogTitle>Move this record to the Internal/test archive?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This one-way audited disposition is not a customer denial. It sends no message and issues no refund. Customer messages, refunds, reporting adjustments, reminders, and customer SLA escalation will be suppressed.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm text-slate-950">
+              <p className="font-medium">
+                Reason: {internalTestReasonOptions.find((option) => option.value === internalTestReason)?.label ?? 'Not selected'}
+              </p>
+              <p className="mt-1 leading-6">
+                Existing evidence and message history remain in the archive. Cases with unresolved or completed payment effects cannot use this disposition.
+              </p>
+            </div>
           </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isClassifyingInternalTest}>Keep in customer workflow</AlertDialogCancel>
+          <AlertDialogFooter className="shrink-0 gap-2 sm:flex-col-reverse sm:space-x-0">
+            <AlertDialogCancel
+              className="mt-0 h-auto min-h-11 w-full whitespace-normal py-2"
+              disabled={isClassifyingInternalTest}
+            >
+              Keep in customer workflow
+            </AlertDialogCancel>
             <AlertDialogAction
               data-testid="refund-confirm-internal-test-classification"
+              className="h-auto min-h-11 w-full whitespace-normal py-2"
               disabled={!internalTestReason || isClassifyingInternalTest}
               onClick={(event) => {
                 event.preventDefault();
@@ -8091,6 +9179,38 @@ export default function AdminRefundsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <Dialog open={Boolean(correctionSelection)} onOpenChange={(open) => { if (!open && !isSendingCustomerMessage) setCorrectionSelection(null); }}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg" onCloseAutoFocus={handleCorrectionDialogCloseAutoFocus}>
+          <DialogHeader>
+            <DialogTitle>{correctionSelection?.requestId ? correctionSelection.editing ? 'Revise customer request' : 'Current customer request' : 'Request customer correction'}</DialogTitle>
+            <DialogDescription>{correctionSelection?.requestId ? correctionSelection.editing ? 'This sends one additional email and replaces the old secure link. Choose a different set of details only when the request needs correcting.' : 'Review the details already requested. The existing link stays active unless you explicitly revise and send.' : 'Select the details that need checking. Bloomjoy will send one secure link for this existing request.'}</DialogDescription>
+          </DialogHeader>
+          <fieldset className="space-y-1">
+            <legend className="mb-2 text-sm font-medium">Details to check</legend>
+            {(correctionSelection?.requestId && !correctionSelection.editing ? selectedCase?.customerCorrection?.requestedFields ?? [] : selectedCase?.customerCorrectionFields ?? []).map((field) => <label key={field} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 hover:bg-muted">
+              <Checkbox checked={correctionSelection?.fields.includes(field) ?? false} disabled={isSendingCustomerMessage || Boolean(correctionSelection?.requestId && !correctionSelection.editing)}
+                onCheckedChange={(checked) => setCorrectionSelection((current) => current ? { ...current, fields: checked ? [...current.fields.filter((item) => item !== field), field] : current.fields.filter((item) => item !== field) } : current)} />
+              <span className="text-sm">{correctionLabels[field][0]}</span>
+            </label>)}
+          </fieldset>
+          {correctionSelection && selectedCase && correctionSelection.fields.length > 0 && <details className="rounded-md border p-3 text-sm">
+            <summary className="cursor-pointer font-medium">Preview customer email</summary>
+            <div className="mt-3 space-y-3 leading-6">
+              <p className="font-medium">{refundCorrectionCopy(correctionSelection.fields, selectedCase.publicReference, selectedCase.customerLocale?.locale === 'es').subject}</p>
+              {refundCorrectionCopy(correctionSelection.fields, selectedCase.publicReference, selectedCase.customerLocale?.locale === 'es').paragraphs.map((paragraph, index) => <p key={index}>{paragraph}</p>)}
+              <p className="text-muted-foreground">A secure update button and reply-for-help instructions are included.</p>
+            </div>
+          </details>}
+          {correctionSelection && (correctionSelection.caseId !== selectedCase?.id || correctionSelection.version !== officialActionVersion) && <p role="alert" className="text-sm text-destructive">This case changed. Close and reopen this request to review the current details.</p>}
+          {!correctionSelection?.fields.length && <p role="status" className="text-sm text-muted-foreground">Choose at least one detail to send a correction request.</p>}
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={isSendingCustomerMessage} onClick={() => setCorrectionSelection(null)}>Cancel</Button>
+            {correctionSelection?.requestId && !correctionSelection.editing ? <Button disabled={!selectedCase?.customerCorrection?.canRevise} onClick={() => setCorrectionSelection((current) => current ? {...current,editing:true,fields:current.fields.filter((field) => selectedCase?.customerCorrectionFields?.includes(field))} : current)}>Revise details</Button> : <Button type="button" disabled={isSendingCustomerMessage || !correctionSelection?.fields.length || correctionSelection.caseId !== selectedCase?.id || correctionSelection.version !== officialActionVersion || Boolean(correctionSelection.requestId && (!selectedCase?.customerCorrection?.canRevise || correctionSelection.requestId !== selectedCase.customerCorrection.requestId || [...correctionSelection.fields].sort().join('|') === [...selectedCase.customerCorrection.requestedFields].sort().join('|')))}
+              onClick={() => void handleSendCustomerMessage('more_info', correctionSelection?.fields)}>{isSendingCustomerMessage ? 'Sending…' : correctionSelection?.requestId ? 'Revise and send' : 'Send correction request'}</Button>}
+          </DialogFooter>
+          {correctionSelection?.requestId && !selectedCase?.customerCorrection?.canRevise && <p role="status" className="text-sm text-muted-foreground">{selectedCase?.customerCorrection?.revisionReason ?? 'This request cannot be revised now.'}</p>}
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }

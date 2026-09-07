@@ -1,5 +1,6 @@
 import { buildRefundCustomerEmail } from "../../supabase/functions/_shared/refund-email.ts";
 import { buildRefundFirstContactEmail } from "../../supabase/functions/_shared/refund-first-contact.ts";
+import { buildNayaxCustomerCorrectionEmail } from "../../supabase/functions/_shared/refund-nayax-customer-correction.ts";
 
 const outputDirectory = "output/playwright/refund-email-samples";
 await Deno.mkdir(outputDirectory, { recursive: true });
@@ -41,6 +42,18 @@ const samples = {
     paymentMethod: "card",
     refundAmountCents: 700,
     cardLast4: "4242",
+  }),
+  "targeted-card-correction": buildNayaxCustomerCorrectionEmail({
+    messageType: "no_safe_match",
+    followUpReason: "no_safe_match",
+    publicReference: "RF-PREVIEW4",
+    customerName: "Jamie",
+    customerEmail: "customer@example.test",
+    machineLabel: "Cotton Candy",
+    locationName: "Example venue",
+    paymentMethod: "card",
+    refundAmountCents: 1090,
+    missingFields: ["card_last4"],
   }),
 };
 

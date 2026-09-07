@@ -11,6 +11,7 @@ import {
   buildNayaxRefundRequestBody,
   classifyNayaxRefundResponse,
   createNayaxRefundProviderAdapter as createNayaxRefundProviderAdapterRaw,
+  executeNayaxRefundApprovalContinuation,
   executeNayaxRefundApprovalOnly,
   executeNayaxRefundProvider as executeNayaxRefundProviderRaw,
   freezeNayaxRefundEvidence,
@@ -213,6 +214,7 @@ for (const [mutate, pattern, message] of [
   [(value) => ({ ...value, writeCredentialMode: 'guess' }), /writeCredentialMode/, 'Write credential ownership must be explicit.'],
   [(value) => ({ ...value, reconciliationMode: 'guess' }), /reconciliationMode/, 'Reconciliation ownership must be explicit.'],
   [(value) => ({ ...value, requestAdvanceMode: 'http_2xx' }), /unsupported field/, 'HTTP-only request advancement cannot be configured.'],
+  [(value) => ({ ...value, responseLearningMode: 'approve_unknown' }), /inspect_unknown/, 'Learning mode cannot authorize unfamiliar responses.'],
   [(value) => ({ ...value, writeCredentialMode: 'same_token_explicit' }), /explicit contract confirmation/, 'Shared write credentials require a written contract assertion.'],
   [(value) => ({ ...value, baseUrl: 'http://qa-lynx.nayax.com/operational/v1' }), /approved HTTPS host/, 'HTTP is rejected.'],
   [(value) => ({ ...value, baseUrl: 'https://example.com/operational/v1' }), /approved HTTPS host/, 'Unapproved hosts are rejected.'],
@@ -249,6 +251,41 @@ throws(
   /not valid JSON/,
   'Malformed JSON fails closed.',
 );
+
+// Learning keeps business outcome rules explicit; HTTP or familiar-looking
+// words cannot fill a missing response rule. All credentials/data here are synthetic.
+const learningContract = parseNayaxRefundProviderContract({ ...baseContract,
+  responseLearningMode: 'inspect_unknown', requestResponses: [], approveResponses: [] });
+equal(parseNayaxRefundProviderContract(learningContract).responseLearningMode, 'inspect_unknown', 'Explicit learning mode survives adapter reparsing.');
+for (const httpStatus of [200, 500]) {
+  const calls = [];
+  const events = [];
+  const learningResult = await executeNayaxRefundProvider({ contract: learningContract,
+    requestToken: 'synthetic-request-token', approveToken: 'synthetic-approve-token', amountCents: 800,
+    transactionId: '723456781', siteId: 6, machineAuthorizationTime: '2026-08-26T13:17:08.123',
+    fetchImpl: async (url) => { calls.push(url); return new Response(JSON.stringify({ Result: 'True', Status: 'Pending Approval' }),
+      { status: httpStatus, headers: { 'content-type': 'application/json' } }); },
+    onStageEvent: async (event) => { events.push(event); },
+  });
+  equal(calls.length, 1, `Unlearned HTTP ${httpStatus} permits one request and no approval/retry.`);
+  equal(learningResult.request.outcome, 'unknown', 'Missing response rule stays unknown.');
+  equal(learningResult.approve, null, 'Unknown request never proceeds to approval.');
+  equal(learningResult.executed, false, 'Unknown response cannot report completion.');
+  deepEqual(events.map(({ stage, event }) => `${stage}:${event}`), ['request:started', 'request:result'], 'Unknown request retains its journal evidence.');
+}
+const partiallyLearned = parseNayaxRefundProviderContract({ ...learningContract,
+  requestResponses: [{ result: 'True', status: 'Pending Approval', outcome: 'accepted' }] });
+const learnedCalls = [];
+const unknownApproval = await executeNayaxRefundProvider({ contract: partiallyLearned,
+  requestToken: 'synthetic-request-token', approveToken: 'synthetic-approve-token', amountCents: 800,
+  transactionId: '723456781', siteId: 6, machineAuthorizationTime: '2026-08-26T13:17:08.123',
+  fetchImpl: async (url, options) => { learnedCalls.push({ url, body: JSON.parse(options.body) });
+    return new Response(JSON.stringify({ Result: 'True', Status: 'Pending Approval' }), { status: 200, headers: { 'content-type': 'application/json' } }); },
+});
+equal(learnedCalls.length, 2, 'An exact learned request result permits only its single journal-authorized approval.');
+equal(unknownApproval.approve.outcome, 'unknown', 'An unlearned approval result remains held.');
+equal(unknownApproval.executed, false, 'Unknown approval cannot claim completion.');
+equal(learnedCalls[0].body.MachineAuTime, learnedCalls[1].body.MachineAuTime, 'Learning cannot change the approved transaction time.');
 
 const majorBody = buildNayaxRefundRequestBody({
   contract,
@@ -301,7 +338,7 @@ for (const invalid of [
   { transactionId: 'ABC', siteId: 42, machineAuthorizationTime: '2026-07-22T17:30:00Z' },
   { transactionId: '123', siteId: 0, machineAuthorizationTime: '2026-07-22T17:30:00Z' },
   { transactionId: '123', siteId: 2_147_483_648, machineAuthorizationTime: '2026-07-22T17:30:00Z' },
-  { transactionId: '123', siteId: 42, machineAuthorizationTime: '2026-07-22T17:30:00' },
+  { transactionId: '123', siteId: 42, machineAuthorizationTime: '2026-02-30T17:30:00' },
 ]) {
   throws(
     () => buildNayaxRefundApprovalBody(invalid),
@@ -359,29 +396,56 @@ deepEqual(
     schemaMatched: true,
     semanticPairMatched: true,
     contractMatched: true,
+    businessResult: 'True',
+    businessStatus: 'Pending Approval',
+    businessPairRetained: true,
+    observedResultScalar: 'True',
+    observedStatusScalar: 'Pending Approval',
+    observedScalarPairRetained: true,
     payloadRedacted: true,
   },
-  'An exact HTTP 200 application/json object and exact pair is accepted without retaining values.',
+  'An exact HTTP 200 application/json object retains only the bounded business pair.',
 );
 const redactedClassification = classifyNayaxRefundResponse({
   stage: 'request',
   httpStatus: 200,
-  payload: { Result: 'owner@example.test', Status: '4111111111111111' },
+  payload: { Result: 'owner@example.test', Status: 'customer-4242' },
   patterns: contract.requestResponses,
 });
 check(
-  !('result' in redactedClassification) && !('status' in redactedClassification),
-  'Classified responses never retain provider Result or Status values.',
+  redactedClassification.businessResult === null &&
+    redactedClassification.businessStatus === null &&
+    redactedClassification.businessPairRetained === false &&
+    redactedClassification.observedScalarPairRetained === false,
+  'Identifier-like Result or Status values are never retained.',
 );
 check(
   !JSON.stringify(redactedClassification).includes('owner@example.test') &&
-    !JSON.stringify(redactedClassification).includes('4111111111111111'),
+    !JSON.stringify(redactedClassification).includes('customer-4242'),
   'Unmatched provider text cannot enter a stage result or log payload.',
 );
 equal(
   redactedClassification.contractMatched,
   false,
   'Unmatched provider text is never classified as a contract match.',
+);
+const alphabeticSecretClassification = classifyNayaxRefundResponse({
+  stage: 'request',
+  httpStatus: 200,
+  payload: { Result: 'Alice', Status: 'TopSecret' },
+  patterns: contract.requestResponses,
+});
+check(
+  alphabeticSecretClassification.businessPairRetained === false &&
+    alphabeticSecretClassification.businessResult === null &&
+    alphabeticSecretClassification.businessStatus === null &&
+    alphabeticSecretClassification.observedScalarPairRetained === false,
+  'Unreviewed alphabetic names and secrets are not retained.',
+);
+check(
+  !JSON.stringify(alphabeticSecretClassification).includes('Alice') &&
+    !JSON.stringify(alphabeticSecretClassification).includes('TopSecret'),
+  'Unreviewed alphabetic text cannot enter a stage result or log payload.',
 );
 equal(
   classifyNayaxRefundResponse({
@@ -403,6 +467,35 @@ equal(
   'unknown',
   'An unfamiliar provider response is never treated as success.',
 );
+const restrictedUnknownPair = classifyNayaxRefundResponse({
+  stage: 'request',
+  httpStatus: 200,
+  payload: { Result: 'Unrecognized', Status: 'Queued Review', ignored: 'discard-me' },
+  patterns: contract.requestResponses,
+});
+equal(restrictedUnknownPair.outcome, 'unknown', 'Restricted evidence never classifies an unknown pair.');
+equal(restrictedUnknownPair.contractMatched, false, 'Restricted evidence never creates a contract match.');
+equal(restrictedUnknownPair.businessPairRetained, false, 'Unknown pairs do not become business outcomes.');
+equal(restrictedUnknownPair.observedResultScalar, 'Unrecognized', 'The exact safe Result scalar is retained.');
+equal(restrictedUnknownPair.observedStatusScalar, 'Queued Review', 'The exact safe Status scalar is retained.');
+equal(restrictedUnknownPair.observedScalarPairRetained, true, 'Safe unknown scalars are available only to restricted journaling.');
+check(!JSON.stringify(restrictedUnknownPair).includes('discard-me'), 'The surrounding response payload is never retained.');
+const scalarBoundary = (result, status = 'Review') => classifyNayaxRefundResponse({
+  stage: 'request', httpStatus: 200, payload: { Result: result, Status: status }, patterns: [],
+});
+equal(scalarBoundary('x'.repeat(31)).observedScalarPairRetained, true, 'A 31-character scalar remains available for restricted review.');
+for (const [value, label] of [
+  ['x'.repeat(32), '32-character credential-shaped scalar'],
+  ['x'.repeat(47), '47-character credential-shaped scalar'],
+  ['4111 1111 1111 1111', 'spaced card-length digit scalar'],
+  ['4111-1111-1111-1111', 'hyphenated card-length digit scalar'],
+]) {
+  const classified = scalarBoundary(value);
+  equal(classified.observedScalarPairRetained, false, `${label} is omitted explicitly.`);
+  equal(classified.observedResultScalar, null, `${label} never enters the stage event.`);
+}
+equal(scalarBoundary(999_999_999).observedScalarPairRetained, true, 'Nine-digit numeric codes are retained exactly.');
+equal(scalarBoundary(1_000_000_000).observedScalarPairRetained, false, 'Ten-digit numeric values fail closed consistently.');
 equal(
   classifyNayaxRefundResponse({
     stage: 'approve',
@@ -483,6 +576,33 @@ deepEqual(
   'Durable stage callbacks bracket each provider POST in exact order.',
 );
 
+const continuationCalls = [];
+const continuationStages = [];
+const continuationResult = await executeNayaxRefundApprovalContinuation({
+  contract,
+  approveToken: 'synthetic-approve-token',
+  transactionId: '123456789',
+  siteId: 42,
+  machineAuthorizationTime: '2026-07-22T17:30:00Z',
+  fetchImpl: async (url, options) => {
+    continuationCalls.push({ url, options });
+    return response({ Result: 'True', Status: 'Approved' });
+  },
+  onStageEvent: async (stage) => continuationStages.push(stage),
+});
+check(continuationResult.executed, 'Current-contract continuation accepts the exact configured approval success pair.');
+equal(continuationCalls.length, 1, 'Continuation makes exactly one provider call.');
+check(
+  continuationCalls[0].url.endsWith('/payment/refund-approve') &&
+    !continuationCalls[0].url.includes('refund-request'),
+  'Continuation cannot create a second request.',
+);
+deepEqual(
+  continuationStages.map(({ stage, event }) => `${stage}_${event}`),
+  ['approve_started', 'approve_result'],
+  'Continuation brackets only the approval call in the current journal.',
+);
+
 let noDatabaseDecisionCalls = 0;
 const noDatabaseDecisionResult = await executeNayaxRefundProviderRaw({
   contract,
@@ -559,7 +679,7 @@ const stageDigest = await buildRedactedNayaxStageDigest({
     result: classifyNayaxRefundResponse({
       stage: 'request',
       httpStatus: 200,
-      payload: { Result: 'owner@example.test', Status: '4111111111111111' },
+      payload: { Result: 'owner@example.test', Status: 'customer-4242' },
       patterns: contract.requestResponses,
     }),
   },
@@ -577,7 +697,7 @@ const digestWithIgnoredRawValues = await buildRedactedNayaxStageDigest({
       ...classifyNayaxRefundResponse({
         stage: 'request',
         httpStatus: 200,
-        payload: { Result: 'owner@example.test', Status: '4111111111111111' },
+        payload: { Result: 'owner@example.test', Status: 'customer-4242' },
         patterns: contract.requestResponses,
       }),
       result: 'raw-value-that-must-not-be-bound',
@@ -601,7 +721,7 @@ const digestWithChangedSchemaEvidence = await buildRedactedNayaxStageDigest({
       ...classifyNayaxRefundResponse({
         stage: 'request',
         httpStatus: 200,
-        payload: { Result: 'owner@example.test', Status: '4111111111111111' },
+        payload: { Result: 'owner@example.test', Status: 'customer-4242' },
         patterns: contract.requestResponses,
       }),
       schemaMatched: false,
@@ -965,6 +1085,25 @@ check(/^nayax-evidence-[a-f0-9]{64}$/u.test(adapterSuccess.providerReference), '
 check(!adapterSuccess.providerReference.includes('123456789'), 'The provider transaction ID is never represented as a provider refund receipt.');
 equal(adapterCalls.length, 2, 'One adapter execution makes at most one request and one approval.');
 
+const continuationAdapterCalls = [];
+const continuationAdapter = createNayaxRefundProviderAdapter({
+  contract: baseContract,
+  requestToken: 'dedicated-request-write-token',
+  approveToken: 'dedicated-approve-write-token',
+  evidence: { ...frozenEvidence, transactionId: '123456789' },
+  fetchImpl: async (url) => {
+    continuationAdapterCalls.push(url);
+    return response({ Result: 'True', Status: 'Approved' });
+  },
+});
+const continuationAdapterOutcome = await continuationAdapter.execute(
+  orchestrationRequest,
+  'approval_continuation',
+);
+equal(continuationAdapterOutcome.kind, 'success', 'Adapter maps same-attempt approval continuation through the current contract.');
+equal(continuationAdapterCalls.length, 1, 'Continuation adapter performs only one approval POST.');
+check(!continuationAdapterCalls[0].includes('refund-request'), 'Continuation adapter never reaches the request endpoint.');
+
 throws(
   () => createNayaxRefundProviderAdapter({
     contract: baseContract,
@@ -1163,15 +1302,16 @@ check(
     handler.includes('db-authoritative-exact-200-json-v1') &&
     handler.includes('nayax-response-envelope-v1') &&
     handler.includes('approvalAuthorized: decision.approvalAuthorized === true') &&
-    handler.includes('productionScope: "direct_api_hard_disabled_remaining_value_unverified"') &&
-    handler.includes('NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED') &&
-    gates.includes('NAYAX_REFUND_EXTERNAL_PARTIAL_GUARD_SUPPORTED = false') &&
-    gates.includes('provider_remaining_value_unverified') &&
+    handler.includes('productionScope: "manager_approved_original_transaction"') &&
+    !gates.includes('remainingValueVerified') &&
+    handler.includes('service_get_refund_nayax_execution_context') &&
+    handler.includes('p_execution_context_hash: refundCase.executionContext!.contextHash') &&
+    !gates.includes('provider_remaining_value_unverified') &&
     !gates.includes('NAYAX_REFUND_BROAD_REOPEN_APPROVED') &&
     !gates.includes('NAYAX_REFUND_CANARY_CASE_ID') &&
     !handler.includes('resolveNayaxRefundCaseExecutionConfig') &&
     !handler.includes('provider: disabledNayaxProviderAdapter'),
-  'The reviewed provider contract remains intact but direct execution is immutably blocked until authoritative remaining-value preflight exists.',
+  'The reviewed provider contract binds the automatic exact selected purchase at the existing reservation boundary.',
 );
 check(
   authoritativeJournalMigration.includes('service_record_nayax_refund_provider_stage_v2') &&
@@ -1190,14 +1330,14 @@ check(
 check(
   refundOperations.includes("supabaseClient.rpc('get_refund_nayax_reliability_health')") &&
     refundsUi.includes('refund-payment-health') &&
-    refundsUi.includes('Card refunds need attention') &&
-    refundsUi.includes('escalationSlaMinutes'),
-  'Managers receive a privacy-safe card-refund reliability alert with an explicit owner SLA.',
+    refundsUi.includes('Some card refunds need attention') &&
+    refundsUi.includes('${nayaxReliabilityHealth.ownerLabel} owns follow-up; other eligible refunds remain available.'),
+  'Managers receive a privacy-safe reconciliation alert with a follow-up owner and no pause on other eligible refunds.',
 );
 check(
   handler.includes('NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_SUPPORTED = false') &&
     handler.includes('pending_approval_recovery_retired') &&
-    handler.includes('...caseExecutionConfig.blocks') &&
+    handler.includes('...executionConfig.blocks') &&
     handler.includes('NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}') &&
     handler.includes('NAYAX_REFUND_PRODUCTION_BASE_URL') &&
     handler.includes('provider_contract_host_invalid') &&

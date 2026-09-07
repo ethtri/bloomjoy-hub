@@ -1,8 +1,11 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
+import { Webhook } from "npm:svix@2.2.0";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
+import { correctionLinkRequested, getCurrentRefundCorrectionFields, refundCorrectionLinksEnabled, STORED_CORRECTION_LINK_MARKER } from "../_shared/refund-correction-delivery.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
+import { drainRefundManualMessageOutbox } from "../_shared/refund-manual-message-outbox.ts";
 import {
   getRefundGmailMailboxIdentities,
   REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE,
@@ -12,7 +15,6 @@ import {
   buildBrandedRefundHtmlFromStoredText,
   buildEditableRefundCustomerEmail,
   buildRefundCustomerEmail,
-  redactRefundStatusLinksForStorage,
   sendRefundTransactionalEmail,
   type RefundCustomerMessageType,
   sanitizeRefundMessageType,
@@ -32,7 +34,13 @@ import {
   assertOpenNayaxCompletionMessageLane,
   RefundNayaxCompletionMessageLaneBlockedError,
 } from "../_shared/nayax-resolution-message-lane.ts";
-import { tryIssueRefundStatusCapability } from "../_shared/refund-status-capability.ts";
+import { refundStatusLinksEnabled } from "../_shared/refund-status-capability.ts";
+import {
+  bindRefundTransactionalDelivery,
+  markRefundTransactionalDeliveryAttempt,
+  parseRefundTransactionalDeliveryWebhook,
+  sha256Hex,
+} from "../_shared/refund-transactional-delivery.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -65,9 +73,11 @@ type OneOrMany<T> = T | T[] | null | undefined;
 
 type RefundCaseRow = {
   id: string;
+  official_action_version: number;
   case_population: string;
   public_reference: string;
   status: string;
+  decision: string | null;
   decision_reason: string | null;
   customer_email: string;
   customer_name: string | null;
@@ -76,6 +86,7 @@ type RefundCaseRow = {
   refund_amount_cents: number | null;
   card_wallet_used: boolean;
   card_last4: string | null;
+  zelle_payment_contact: string | null;
   reporting_machine_id: string | null;
   reporting_location_id: string | null;
   incident_at: string | null;
@@ -110,9 +121,11 @@ const allowedPortalMessageTypes = new Set<RefundCustomerMessageType>([
 
 const selectCaseQuery = `
   id,
+  official_action_version,
   case_population,
   public_reference,
   status,
+  decision,
   decision_reason,
   customer_email,
   customer_name,
@@ -121,6 +134,7 @@ const selectCaseQuery = `
   refund_amount_cents,
   card_wallet_used,
   card_last4,
+  zelle_payment_contact,
   reporting_machine_id,
   reporting_location_id,
   incident_at,
@@ -150,41 +164,79 @@ const sameMissingFields = (
   left.length === right.length &&
   left.every((field, index) => field === right[index]);
 
-const syncAutomationFields = async (
-  refundCaseId: string,
-  messageType: RefundCustomerMessageType,
-) => {
-  if (!supabase) return;
+const handleTransactionalDeliveryWebhook = async (req: Request) => {
+  if (!supabase) {
+    return jsonResponse({ error: "Delivery tracking is unavailable." }, 503);
+  }
+  const secret = (Deno.env.get("RESEND_REFUND_WEBHOOK_SECRET") ?? "").trim();
+  const eventId = (req.headers.get("svix-id") ?? "").trim();
+  const timestamp = (req.headers.get("svix-timestamp") ?? "").trim();
+  const signature = (req.headers.get("svix-signature") ?? "").trim();
+  if (!secret || !eventId || !timestamp || !signature) {
+    return jsonResponse({ error: "Invalid delivery webhook." }, 401);
+  }
+  const rawBody = await req.text();
+  if (!rawBody || rawBody.length > 65_536) {
+    return jsonResponse({ error: "Invalid delivery webhook." }, 400);
+  }
 
-  const nextAutomationState = {
-    more_info: "more_info_needed",
-    no_safe_match: "more_info_needed",
-    information_received: "under_review",
-    reminder: "more_info_needed",
-    approved: "approved",
-    denied: "denied",
-    appeal_received: "appeal_received",
-    completed: "completed",
-    confirmation: "submitted",
-    status_update: "under_review",
-    wallet_correction: "more_info_needed",
-    wallet_correction_reminder: "more_info_needed",
-  }[messageType];
+  try {
+    new Webhook(secret).verify(rawBody, {
+      "svix-id": eventId,
+      "svix-timestamp": timestamp,
+      "svix-signature": signature,
+    });
+  } catch {
+    return jsonResponse({ error: "Invalid delivery webhook." }, 401);
+  }
 
-  await supabase
-    .from("refund_cases")
-    .update({
-      automation_state: nextAutomationState,
-      customer_last_contacted_at: new Date().toISOString(),
-      last_customer_message_type: messageType,
-      automation_follow_up_due_at: null,
-    })
-    .eq("id", refundCaseId);
+  let event;
+  try {
+    // Svix 2.2 verifies the raw bytes and returns undefined, not parsed JSON.
+    event = parseRefundTransactionalDeliveryWebhook(JSON.parse(rawBody));
+  } catch {
+    return jsonResponse({ error: "Invalid delivery webhook evidence." }, 400);
+  }
+  if (!event) {
+    return jsonResponse({ accepted: true, tracked: false, payloadRedacted: true });
+  }
+
+  const { data, error } = await supabase.rpc(
+    "service_record_refund_transactional_delivery_event",
+    {
+      p_event_key_digest: await sha256Hex(eventId),
+      p_provider_message_id: event.providerMessageId,
+      p_delivery_state: event.state,
+      p_event_at: event.eventAt,
+    },
+  );
+  const result = data && typeof data === "object"
+    ? data as Record<string, unknown>
+    : null;
+  if (error || result?.payloadRedacted !== true) {
+    console.error("refund delivery webhook record failed", {
+      errorType: error?.name ?? "database_error",
+      payloadRedacted: true,
+    });
+    return jsonResponse({ error: "Unable to record delivery state." }, 500);
+  }
+  return jsonResponse({
+    accepted: true,
+    tracked: true,
+    duplicate: result.duplicate === true,
+    matched: result.matched === true,
+    applied: result.applied === true,
+    payloadRedacted: true,
+  });
 };
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
+  }
+
+  if (req.method === "POST" && req.headers.has("svix-id")) {
+    return await handleTransactionalDeliveryWebhook(req);
   }
 
   try {
@@ -323,7 +375,11 @@ serve(async (req) => {
 
         const customerCompletion = await deliverNayaxCompletionOnce({
           deliver: async () => {
-            await sendRefundTransactionalEmail({
+            await markRefundTransactionalDeliveryAttempt({
+              supabase,
+              refundCaseMessageId: nayaxCompletionRecoveryMessageId,
+            });
+            const receipt = await sendRefundTransactionalEmail({
               to: [recipientEmail],
               cc: managerCcEmails,
               subject,
@@ -332,6 +388,13 @@ serve(async (req) => {
                 headline: "Your refund is on its way",
                 text: messageBody,
               }),
+              idempotencyKey:
+                `refund-message-${nayaxCompletionRecoveryMessageId}`,
+            });
+            await bindRefundTransactionalDelivery({
+              supabase,
+              refundCaseMessageId: nayaxCompletionRecoveryMessageId,
+              receipt,
             });
             return true;
           },
@@ -525,11 +588,73 @@ serve(async (req) => {
         error: "Choose an approved customer message template.",
       }, 400);
     }
+    const messageIntentId = sanitizeText(body?.messageIntentId, 80);
+    const currentCorrectionRequestId = sanitizeText(body?.currentCorrectionRequestId, 80);
+    if (body?.inspectRevisionOnly !== undefined && (body.inspectRevisionOnly !== true || !currentCorrectionRequestId)) {
+      return jsonResponse({error:"Choose an existing revision to inspect."},400);
+    }
+    if (body?.currentCorrectionRequestId !== undefined && (!isUuid(currentCorrectionRequestId) || messageType !== "more_info")) {
+      return jsonResponse({ error: "Choose the current correction request to revise." }, 400);
+    }
+    const expectedCaseVersion = body?.expectedCaseVersion;
+    if (
+      !isUuid(messageIntentId) || !Number.isSafeInteger(expectedCaseVersion) ||
+      expectedCaseVersion < 1
+    ) {
+      return jsonResponse({
+        error: "Refresh the case before queueing this customer message.",
+      }, 409);
+    }
 
     const triageSuggestionId = sanitizeText(body?.triageSuggestionId, 80);
     const suppliedMissingFields = sanitizeRefundMissingFields(
       body?.missingFields,
     );
+    // Exact revision retries inspect the existing immutable intent before current
+    // facts/template changes. They never construct a replacement request again.
+    if (currentCorrectionRequestId) {
+      if (!Array.isArray(body?.missingFields) || !suppliedMissingFields.length ||
+        suppliedMissingFields.length !== body.missingFields.length || body?.subject !== undefined ||
+        body?.body !== undefined || body?.triageSuggestionId !== undefined) {
+        return jsonResponse({error:"Revision requests use the approved message and selected details."},400);
+      }
+      const {data: previous, error: previousError} = await supabase.from("refund_case_messages")
+        .select("id,recipient_email,subject,body,status,manual_delivery_state,delivery_transport,sent_at,provider_message_id,manual_delivery_provider_attempted_at")
+        .eq("manual_delivery_intent_id",messageIntentId).maybeSingle();
+      if (previousError) throw previousError;
+      if (previous) {
+        const {data: replay, error: replayError} = await supabase.rpc("service_revise_refund_purchase_correction",{
+          p_refund_case_id:caseId,p_expected_case_version:expectedCaseVersion,p_intent_id:messageIntentId,
+          p_actor_user_id:user.id,p_current_request_id:currentCorrectionRequestId,
+          p_recipient_email:previous.recipient_email,p_subject:previous.subject,p_body:previous.body,
+          p_requested_fields:suppliedMissingFields,
+        });
+        if (replayError || replay?.replayed !== true || replay.messageId !== previous.id) {
+          return jsonResponse({error:"This revision intent is already bound. Refresh before sending."},409);
+        }
+        if (previous.status === "sent" && previous.manual_delivery_state === "sent") return jsonResponse({message:{
+          id:previous.id,type:"more_info",status:"sent",subject:previous.subject,transport:previous.delivery_transport,
+        }});
+        if (body?.inspectRevisionOnly === true && previous.status === "failed" && previous.manual_delivery_state === "failed" &&
+          previous.sent_at == null && previous.provider_message_id == null && previous.manual_delivery_provider_attempted_at == null && previous.delivery_transport == null) {
+          const {data: providerEvidence,error: providerEvidenceError} = await supabase.from("refund_gmail_messages")
+            .select("id").eq("refund_case_message_id",previous.id).limit(1);
+          if (providerEvidenceError) throw providerEvidenceError;
+          if (Array.isArray(providerEvidence) && providerEvidence.length === 0) return jsonResponse({
+            error:"The revision failed before delivery was attempted. Review the current request before sending again.",
+            errorCode:"revision_intent_proven_unsent",
+          },409);
+        }
+        const results = body?.inspectRevisionOnly !== true && ["queued","claimed"].includes(previous.manual_delivery_state)
+          ? await drainRefundManualMessageOutbox({supabase,messageId:previous.id,limit:1}) : [];
+        if (results[0]?.outcome === "sent") return jsonResponse({message:{
+          id:previous.id,type:"more_info",status:"sent",subject:previous.subject,transport:results[0].transport,
+        }});
+        return jsonResponse({error:"The existing revision delivery needs review; no new request was created.",
+          errorCode:previous.manual_delivery_state === "delivery_unknown" ? "customer_email_delivery_unknown" : "customer_email_delivery_pending"},409);
+      }
+      if (body?.inspectRevisionOnly === true) return jsonResponse({error:"No existing revision delivery was found. Review the current request before sending.",errorCode:"revision_intent_not_found"},409);
+    }
     let triageSuggestion: RefundGptTriageRow | null = null;
     if (triageSuggestionId) {
       if (!isUuid(triageSuggestionId) || messageType !== "more_info") {
@@ -592,31 +717,46 @@ serve(async (req) => {
       paymentAmountCents: refundCase.payment_amount_cents,
       cardLast4: refundCase.card_last4,
       cardWalletUsed: refundCase.card_wallet_used,
+      zellePaymentContact: refundCase.zelle_payment_contact,
+      cashPayoutDestinationRequired:
+        refundCase.payment_method === "cash" &&
+        refundCase.decision === "approved",
     });
     const reviewedMissingFields = triageSuggestion
       ? sanitizeRefundMissingFields(triageSuggestion.missing_fields)
       : suppliedMissingFields;
     let missingFields: RefundMissingField[] = [];
+    const correctionEnabled = messageType === "more_info" && await refundCorrectionLinksEnabled(supabase);
+    if (currentCorrectionRequestId && !correctionEnabled) return jsonResponse({ error: "Correction revisions are not enabled." }, 409);
     if (messageType === "more_info") {
-      if (derived.requiresSecureWalletCorrection) {
+      const currentFields = correctionEnabled ? await getCurrentRefundCorrectionFields(supabase, caseId) : derived.missingFields;
+      if (derived.requiresSecureWalletCorrection && !correctionEnabled) {
         return jsonResponse({
           error:
             "Use the secure mobile-wallet correction link instead of requesting wallet information by email.",
         }, 409);
       }
-      if (derived.missingFields.length === 0) {
+      if (currentFields.length === 0) {
         return jsonResponse({
           error:
             "This case has no structured purchase detail to request. Return it to manager review.",
         }, 409);
       }
-      if (!sameMissingFields(reviewedMissingFields, derived.missingFields)) {
+      const validSelection = correctionEnabled
+        ? Array.isArray(body?.missingFields) && suppliedMissingFields.length > 0 &&
+          body.missingFields.length === suppliedMissingFields.length &&
+          suppliedMissingFields.every((field) => currentFields.includes(field))
+        : sameMissingFields(reviewedMissingFields, currentFields);
+      if (!validSelection) {
         return jsonResponse({
           error:
             "The case facts changed. Refresh before asking for the exact missing purchase details.",
         }, 409);
       }
-      missingFields = derived.missingFields;
+      if (correctionEnabled && (triageSuggestionId || body?.subject !== undefined || body?.body !== undefined)) {
+        return jsonResponse({ error: "Correction requests use the approved message for the selected details." }, 400);
+      }
+      missingFields = correctionEnabled ? suppliedMissingFields : currentFields;
     }
 
     const customerMessageError = validateRefundCustomerMessageRequest({
@@ -649,6 +789,7 @@ serve(async (req) => {
       missingFields,
       cardWalletUsed: refundCase.card_wallet_used,
       statusUrl: null,
+      correctionUrl: correctionLinkRequested(messageType, missingFields, correctionEnabled) ? STORED_CORRECTION_LINK_MARKER : null,
       customerLocale: refundCustomerLocaleFromIntakeMeta(refundCase.intake_meta),
     };
     const defaultEmailWithoutStatus = buildRefundCustomerEmail(templateInputWithoutStatus);
@@ -688,214 +829,106 @@ serve(async (req) => {
         !requestedBody,
     });
 
-    const statusCapability = await tryIssueRefundStatusCapability({
+    const { data: enqueued, error: enqueueError } = await supabase.rpc(
+      currentCorrectionRequestId ? "service_revise_refund_purchase_correction" : "service_enqueue_refund_manual_message_intent",
+      currentCorrectionRequestId ? {
+        p_refund_case_id: refundCase.id,
+        p_expected_case_version: expectedCaseVersion,
+        p_intent_id: messageIntentId,
+        p_actor_user_id: user.id,
+        p_current_request_id: currentCorrectionRequestId,
+        p_recipient_email: refundCase.customer_email,
+        p_subject: emailWithoutStatus.subject,
+        p_body: emailWithoutStatus.text,
+        p_requested_fields: missingFields,
+      } : {
+        p_refund_case_id: refundCase.id,
+        p_expected_case_version: expectedCaseVersion,
+        p_intent_id: messageIntentId,
+        p_actor_user_id: user.id,
+        p_message_type: messageType,
+        p_recipient_email: refundCase.customer_email,
+        p_subject: emailWithoutStatus.subject,
+        p_body: emailWithoutStatus.text,
+        p_template_key: `refund_${messageType}_editable_v1`,
+        p_content_source: triageSuggestion ? "manager_reviewed_gpt" : "manager_authored",
+        p_reason_code: messageType === "more_info" ? "missing_information" : null,
+        p_requested_fields: messageType === "more_info" ? missingFields : [],
+        p_synthetic_proof_authorization_id: syntheticProof.authorizationId,
+        p_status_link_requested: !templateInputWithoutStatus.correctionUrl && refundStatusLinksEnabled(),
+        p_triage_suggestion_id: triageSuggestion?.id ?? null,
+      },
+    );
+    const queued = enqueued && typeof enqueued === "object"
+      ? enqueued as Record<string, unknown>
+      : null;
+    if (
+      enqueueError || queued?.enqueued !== true ||
+      typeof queued.messageId !== "string" || !isUuid(queued.messageId) ||
+      queued.payloadRedacted !== true
+    ) {
+      const payoutContactExhausted = enqueueError?.code === "P4662";
+      const conflict = ["P4609", "P4656", "P4657", "P4662"].includes(
+        enqueueError?.code ?? "",
+      );
+      return jsonResponse({
+        error: payoutContactExhausted
+          ? "This payout-destination contact cycle is complete. Refund Operations must review the case before any new customer request."
+          : conflict
+          ? "The case or queued message changed. Refresh before sending."
+          : "Unable to queue customer email.",
+      }, conflict ? 409 : 500);
+    }
+
+    const deliveryResults = await drainRefundManualMessageOutbox({
       supabase,
-      refundCaseId: refundCase.id,
+      messageId: queued.messageId,
+      limit: 1,
     });
-    const templateInput = {
-      ...templateInputWithoutStatus,
-      statusUrl: statusCapability?.url ?? null,
-    };
-    const defaultEmail = buildRefundCustomerEmail(templateInput);
-    const email = requestedBody || requestedSubject
-      ? buildEditableRefundCustomerEmail({
-        input: templateInput,
-        subject: requestedSubject || defaultEmail.subject,
-        body: requestedBody || defaultEmail.text,
-      })
-      : defaultEmail;
-
-    const { data: messageRow, error: messageError } = await supabase
-      .from("refund_case_messages")
-      .insert({
-        refund_case_id: refundCase.id,
-        message_type: messageType,
-        status: "pending",
-        recipient_email: refundCase.customer_email,
-        subject: email.subject,
-        body: redactRefundStatusLinksForStorage(email.text),
-        template_key: `refund_${messageType}_editable_v1`,
-        created_by: user.id,
-        content_source: triageSuggestion
-          ? "manager_reviewed_gpt"
-          : "manager_authored",
-        delivery_kind: "manual",
-        reason_code: messageType === "more_info" ? "missing_information" : null,
-        template_version: null,
-        requested_fields: messageType === "more_info" ? missingFields : [],
-        synthetic_gmail_proof_authorization_id: syntheticProof.authorizationId,
-        status_capability_id: statusCapability?.capabilityId ?? null,
-        status_link_included: Boolean(statusCapability),
-      })
-      .select("id")
-      .single();
-
-    if (messageError) throw messageError;
-
-    try {
-      const deliveryCase = await getRefundCase(refundCase.id);
-      if (deliveryCase?.case_population === "internal_test") {
-        await supabase
-          .from("refund_case_messages")
-          .update({
-            status: "skipped",
-            error_message: "internal_test_customer_contact_suppressed",
-          })
-          .eq("id", messageRow.id)
-          .eq("status", "pending");
-        return jsonResponse({
-          error:
-            "Customer messages are suppressed for this Internal/test archive record.",
-          errorCode: "internal_test_customer_contact_suppressed",
-        }, 409);
-      }
-
-      const gmailDelivery = await dispatchRefundCaseGmailReply({
-        supabase,
-        refundCaseId: refundCase.id,
-        refundCaseMessageId: messageRow.id,
-        recipientEmail: refundCase.customer_email,
-        email,
-        deliveryKind: "manual",
-        gmailThreadId: syntheticProof.gmailThreadId,
-        syntheticProofAuthorizationId: syntheticProof.authorizationId,
-      });
-      if (!gmailDelivery.usedGmail) {
-        await sendRefundTransactionalEmail({
-          to: [refundCase.customer_email],
-          cc: gmailDelivery.managerCcEmails,
-          subject: email.subject,
-          text: email.text,
-          html: email.html,
-        });
-      }
-
-      await supabase
-        .from("refund_case_messages")
-        .update({
-          status: "sent",
-          sent_at: new Date().toISOString(),
-          subject: gmailDelivery.usedGmail
-            ? gmailDelivery.subject
-            : email.subject,
-        })
-        .eq("id", messageRow.id);
-
-      await syncAutomationFields(refundCase.id, messageType);
-
-      let triageReviewStatus: "not_applicable" | "recorded" | "record_failed" =
-        "not_applicable";
-      if (triageSuggestion) {
-        const { error: triageReviewError } = await supabase.rpc(
-          "service_record_refund_gpt_triage_delivery",
-          {
-            p_triage_id: triageSuggestion.id,
-            p_refund_case_id: refundCase.id,
-            p_reviewer_user_id: user.id,
-            p_sent_message_id: messageRow.id,
-            p_subject: email.subject,
-            p_body: redactRefundStatusLinksForStorage(email.text),
-          },
-        );
-        if (triageReviewError) {
-          triageReviewStatus = "record_failed";
-          console.error(
-            "refund-case-message-send triage review record failed",
-            {
-              errorType: triageReviewError.name ?? "database_error",
-              triageReview: true,
-              payloadRedacted: true,
-            },
-          );
-        } else {
-          triageReviewStatus = "recorded";
-        }
-      }
-
-      await supabase.from("refund_case_events").insert({
-        refund_case_id: refundCase.id,
-        actor_user_id: user.id,
-        event_type: "customer_message_sent",
-        message: gmailDelivery.usedGmail
-          ? `Manager sent ${
-            messageType.replaceAll("_", " ")
-          } reply in the linked Gmail thread.`
-          : `Manager sent ${
-            messageType.replaceAll("_", " ")
-          } email from the portal.`,
-        metadata: {
-          message_type: messageType,
-          message_id: messageRow.id,
-          transport: gmailDelivery.usedGmail
-            ? "gmail_thread"
-            : "transactional_email",
-          manager_cc_count: gmailDelivery.managerCcCount,
-          recipient_resolution_status: gmailDelivery.recipientResolutionStatus,
-          triage_review_status: triageReviewStatus,
-          payload_redacted: true,
-        },
-      });
-
+    const delivery = deliveryResults[0] ?? null;
+    if (delivery?.outcome === "sent") {
       return jsonResponse({
         message: {
-          id: messageRow.id,
+          id: queued.messageId,
           type: messageType,
           status: "sent",
-          subject: email.subject,
-          transport: gmailDelivery.usedGmail
-            ? "gmail_thread"
-            : "transactional_email",
-          triageReviewStatus,
+          subject: emailWithoutStatus.subject,
+          transport: delivery.transport,
+          triageReviewStatus: delivery.triageReviewStatus,
         },
       });
-    } catch (emailError) {
-      const safeErrorCode = emailError instanceof RefundGmailError
-        ? emailError.code
-        : "customer_email_delivery_failed";
-      const deliveryUncertain = emailError instanceof RefundGmailError &&
-        emailError.deliveryUncertain;
-      console.error("refund-case-message-send customer email failed", {
-        errorType: emailError instanceof Error
-          ? emailError.name
-          : typeof emailError,
-        messageType,
-        errorCode: safeErrorCode,
-      });
-
-      await supabase
-        .from("refund_case_messages")
-        .update({
-          status: "failed",
-          error_message: deliveryUncertain
-            ? REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE
-            : safeErrorCode,
-        })
-        .eq("id", messageRow.id);
-
-      await supabase.from("refund_case_events").insert({
-        refund_case_id: refundCase.id,
-        actor_user_id: user.id,
-        event_type: "customer_message_failed",
-        message: "Portal customer email could not be sent.",
-        metadata: {
-          message_type: messageType,
-          message_id: messageRow.id,
-          error_code: safeErrorCode,
-          payload_redacted: true,
-        },
-      });
-
-      return jsonResponse({
-        error: deliveryUncertain
-          ? REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE
-          : safeErrorCode === "gmail_automatic_contact_paused"
-          ? "Automatic email is paused after a delivery failure. Review the Gmail thread and customer address before sending."
-          : safeErrorCode === "manager_cc_required"
-          ? "Customer email is paused until the case has at least one current active mapped Machine Manager to copy."
-          : "Unable to send customer email.",
-        errorCode: safeErrorCode,
-      }, 502);
     }
+
+    if (queued.outboxState === "sent" && queued.messageStatus === "sent") {
+      const { data: replayedMessage, error: replayedMessageError } = await supabase
+        .from("refund_case_messages")
+        .select("delivery_transport")
+        .eq("id", queued.messageId)
+        .single();
+      if (replayedMessageError) throw replayedMessageError;
+      return jsonResponse({
+        message: {
+          id: queued.messageId,
+          type: messageType,
+          status: "sent",
+          subject: emailWithoutStatus.subject,
+          transport: replayedMessage.delivery_transport === "resend"
+            ? "transactional_email"
+            : "gmail_thread",
+          triageReviewStatus: triageSuggestion ? "recorded" : "not_applicable",
+        },
+        replayed: true,
+      });
+    }
+
+    return jsonResponse({
+      error: delivery?.outcome === "delivery_unknown"
+        ? REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE
+        : "Unable to send customer email.",
+      errorCode: delivery?.outcome === "delivery_unknown"
+        ? "gmail_delivery_reconciliation_required"
+        : "customer_email_delivery_failed",
+    }, 502);
   } catch (error) {
     if (error instanceof RefundNayaxCompletionMessageLaneBlockedError) {
       return jsonResponse({

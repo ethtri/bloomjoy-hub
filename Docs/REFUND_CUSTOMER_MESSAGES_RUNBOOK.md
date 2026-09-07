@@ -7,7 +7,7 @@ This runbook defines the customer communication boundary for Refund Operations v
 - Customer contact alone does not create an operational refund case. The first reply directs the customer to the Bloomjoy hosted form.
 - Form submission creates the case. If the form was opened from the private email link, it completes that one draft context rather than creating a second case.
 - Form submission creates the case exactly once; subsequent customer replies update the same case.
-- The email assistant may collect only explicit missing purchase facts and rerun the existing read-only transaction match. It cannot choose a transaction, decide a refund, or issue a payment.
+- The email assistant may collect only an explicit missing or disputed purchase fact and rerun the existing read-only transaction match. A Nayax mismatch asks for only the one conflicting fact (last four, amount, or time); it never asks the customer to reconfirm fields already present and agreed by the case evidence. It cannot choose a transaction, decide a refund, or issue a payment.
 - A manager confirms the transaction first. Approval or denial is a separate manager decision. Confirmed payment success is separate again and is the only event that permits success copy.
 
 ## Customer message matrix
@@ -49,6 +49,26 @@ The monitored customer-reply route is always `info@bloomjoysweets.com`.
 | Appeal receipt | Original Gmail thread for a verified reply; transactional only for an already-direct case | Reopens the same case; monitored Reply-To; mapped managers CC'd | No new case, approval, or payment; uncertain receipt remains blocked |
 | Manual portal message | Gmail thread when linked; otherwise verified transactional sender | Same case/thread; monitored Reply-To; mapped managers CC'd | Manager-reviewed, exactly once; Gmail uncertainty never falls through |
 | Manager notice | Internal notice transport and internal recipients only | No customer Reply-To/thread; customer is never a recipient | Separate internal exception lane; cannot substitute for customer delivery |
+
+## Direct transactional delivery truth
+
+For Website cases that use the verified transactional sender, the application must mark the exact message before provider access and send with `refund-message-<message-id>` as its provider idempotency key. A successful API response is **Accepted by provider**, not **Delivered**. Bind the returned provider message ID to the same message before recording the application send result.
+
+Configure Resend to POST signed delivery events to the existing `refund-case-message-send` endpoint using the private server-side `RESEND_REFUND_WEBHOOK_SECRET`. The endpoint verifies the raw body and Svix headers, hashes the provider event ID for replay protection, and persists only normalized delivery metadata. Never log or store the webhook payload, recipient, subject, message body, or private provider identifier in manager-visible data.
+
+Provider states are monotonic for safety: accepted, delayed, delivered, failed, bounced, then complained. Duplicate delivery events are no-ops. A lower-ranked or later-arriving event cannot erase a stronger failure state. An event that arrives before API evidence is bound stays private and applies atomically when the exact message is later bound.
+
+If acceptance remains unconfirmed after 15 minutes, or the provider reports delayed, failed, bounced, or complained, the case moves to **Action needed** with **Delivery needs review**. Refund Operations reviews the provider evidence and chooses a safe disposition; do not blindly resend the message, switch transports, retry a payment, or alter a confirmed refund. A delivery webhook must never invoke customer messaging, Nayax, reporting adjustment, or payment code.
+
+## Manager portal message outbox
+
+The portal sends a manager-authored customer message through the same customer-message ledger; there is no separate founder-mail or off-ledger path. The browser supplies one intent ID and the case version it reviewed. The database atomically records the exact recipient, subject, body, message class, specific requested fields, reviewed suggestion provenance, and redacted queue event before any provider call.
+
+The request then asks the bounded worker to claim that exact message. A scheduled sweep also drains already-queued manager messages even when automatic customer contact is off or outside its policy window, because the manager already approved the exact content. Each claim uses the same message ID and provider idempotency identity. An interrupted claim may be recovered after ten minutes, with no more than three claims; exhaustion becomes Refund Operations review and never changes message identity or switches transport blindly.
+
+Only a successfully settled send records customer contact or advances customer lifecycle. `more_info_needed` additionally requires at least one named deterministic customer-correctable field. A changed case version, changed customer address, or Internal/test classification cancels the queued message before provider access. Known failure and unknown delivery remain manager-owned evidence; neither can send another message, call Nayax, create a payment attempt, or change a reporting adjustment.
+
+For an actual message-delivery incident, set `REFUND_MANUAL_MESSAGE_OUTBOX_ENABLED=false`. This stops new worker claims while retaining queued and claimed evidence for reconciliation. Do not delete message rows, clear claims by hand, or redeploy an older direct-send path.
 
 ## Reply-based denial appeal
 

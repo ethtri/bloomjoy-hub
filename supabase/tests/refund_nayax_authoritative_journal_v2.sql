@@ -125,7 +125,7 @@ select ok(
 select ok(
   has_function_privilege('service_role',
     'public.service_record_nayax_refund_provider_stage_v2(text,uuid,text,text,text,integer,text,boolean,text,text,text,text)', 'execute')
-  and has_function_privilege('service_role',
+  and not has_function_privilege('service_role',
     'public.service_reserve_nayax_refund_manager_action_v2(text,uuid,uuid,bigint,text,integer,integer,integer,text,text,text)', 'execute')
   and not has_function_privilege('authenticated',
     'public.service_record_nayax_refund_provider_stage_v2(text,uuid,text,text,text,integer,text,boolean,text,text,text,text)', 'execute'),

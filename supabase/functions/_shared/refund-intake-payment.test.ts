@@ -29,6 +29,15 @@ Deno.test("valid card intake preserves the Nayax evidence path", () => {
   });
 });
 
+Deno.test("physical insert and swipe stay distinct", () => {
+  for (const interaction of ["insert_card", "swipe_card"] as const) {
+    const result = validateRefundIntakePayment({
+      ...cardInput, paymentInteraction: interaction, submittedPaymentInteraction: interaction,
+    });
+    assertEquals(result.ok && result.paymentInteraction, interaction);
+  }
+});
+
 Deno.test("cash intake needs no payout contact and strips stale card data", () => {
   assertEquals(validateRefundIntakePayment({
     ...cardInput,

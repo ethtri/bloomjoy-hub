@@ -2,6 +2,9 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
+import { correctionLinkRequested, getCurrentRefundCorrectionFields, issueRefundCorrectionForMessage, refundCorrectionLinksEnabled, STORED_CORRECTION_LINK_MARKER } from "../_shared/refund-correction-delivery.ts";
+import { handleAuthoritativeReceipt, isAuthoritativeReceiptMode } from "../_shared/refund-authoritative-receipt.ts";
+import { handleOwnerNonrefundAdoption, isOwnerNonrefundAdoptionMode } from "../_shared/refund-owner-nonrefund-adoption.ts";
 import {
   buildRefundCustomerEmail,
   redactRefundStatusLinksForStorage,
@@ -16,6 +19,10 @@ import {
 } from "../_shared/refund-deterministic-follow-up.ts";
 import { resolveRefundPublicLabels } from "../_shared/refund-location.ts";
 import { refundCustomerLocaleFromIntakeMeta } from "../_shared/refund-language.ts";
+import {
+  bindRefundTransactionalDelivery,
+  markRefundTransactionalDeliveryAttempt,
+} from "../_shared/refund-transactional-delivery.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import {
   REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE,
@@ -109,6 +116,7 @@ type RefundCaseRow = {
   payment_amount_cents: number | null;
   card_wallet_used: boolean;
   card_last4: string | null;
+  zelle_payment_contact: string | null;
   reporting_machine_id: string;
   reporting_location_id: string;
   incident_at: string | null;
@@ -116,6 +124,7 @@ type RefundCaseRow = {
   intake_meta: Record<string, unknown> | null;
   nayax_refund_execution_status: string;
   official_action_version: number;
+  deterministic_fact_version: number;
   updated_at: string;
   reporting_machines?: {
     machine_label: string | null;
@@ -158,6 +167,7 @@ const selectCaseQuery = `
   payment_amount_cents,
   card_wallet_used,
   card_last4,
+  zelle_payment_contact,
   reporting_machine_id,
   reporting_location_id,
   incident_at,
@@ -165,6 +175,7 @@ const selectCaseQuery = `
   intake_meta,
   nayax_refund_execution_status,
   official_action_version,
+  deterministic_fact_version,
   updated_at,
   reporting_machines(
     machine_label,
@@ -464,6 +475,7 @@ const logCustomerMessage = async ({
   errorMessage,
   missingFields,
   statusCapability,
+  correctionEnabled = false,
 }: {
   refundCase: RefundCaseRow;
   messageType: RefundCustomerMessageType;
@@ -471,6 +483,7 @@ const logCustomerMessage = async ({
   errorMessage?: string | null;
   missingFields: RefundMissingField[];
   statusCapability?: RefundStatusCapability | null;
+  correctionEnabled?: boolean;
 }) => {
   if (!supabase) return null;
 
@@ -494,6 +507,7 @@ const logCustomerMessage = async ({
     decisionReason: refundCase.decision_reason,
     missingFields,
     cardWalletUsed: refundCase.card_wallet_used,
+    correctionUrl: correctionLinkRequested(messageType, missingFields, correctionEnabled) ? STORED_CORRECTION_LINK_MARKER : null,
     statusUrl: statusCapability?.url ?? null,
     customerLocale: refundCustomerLocaleFromIntakeMeta(refundCase.intake_meta),
   });
@@ -558,7 +572,8 @@ const sendAndLogCustomerMessage = async (
     return { type: messageType, status: "skipped" };
   }
 
-  const statusCapability = await tryIssueRefundStatusCapability({
+  const correctionEnabled = messageType === "more_info" && await refundCorrectionLinksEnabled(supabase);
+  const statusCapability = correctionLinkRequested(messageType, missingFields, correctionEnabled) ? null : await tryIssueRefundStatusCapability({
     supabase,
     refundCaseId: refundCase.id,
   });
@@ -569,6 +584,7 @@ const sendAndLogCustomerMessage = async (
     status: "pending",
     missingFields,
     statusCapability,
+    correctionEnabled,
   });
 
   try {
@@ -585,6 +601,9 @@ const sendAndLogCustomerMessage = async (
       decisionReason: refundCase.decision_reason,
       missingFields,
       cardWalletUsed: refundCase.card_wallet_used,
+      correctionUrl: correctionLinkRequested(messageType, missingFields, correctionEnabled) ? await issueRefundCorrectionForMessage({
+        supabase, messageId: messageId ?? '', factVersion: refundCase.deterministic_fact_version,
+      }) : null,
       statusUrl: statusCapability?.url ?? null,
       customerLocale: refundCustomerLocaleFromIntakeMeta(refundCase.intake_meta),
     };
@@ -604,11 +623,21 @@ const sendAndLogCustomerMessage = async (
       deliveryKind: "manual",
     });
     if (!gmailDelivery.usedGmail) {
-      await sendRefundCustomerEmail({
+      await markRefundTransactionalDeliveryAttempt({
+        supabase,
+        refundCaseMessageId: messageId,
+      });
+      const sentEmail = await sendRefundCustomerEmail({
         ...emailInput,
         managerCcEmails: gmailDelivery.managerCcEmails,
         managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
         managerRecipientCount: gmailDelivery.managerRecipientCount,
+        idempotencyKey: `refund-message-${messageId}`,
+      });
+      await bindRefundTransactionalDelivery({
+        supabase,
+        refundCaseMessageId: messageId,
+        receipt: sentEmail.delivery,
       });
     }
 
@@ -753,6 +782,30 @@ serve(async (req) => {
     }
 
     const body = await req.json();
+    if (isOwnerNonrefundAdoptionMode(body?.mode)) {
+      const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+      if (!supabaseUrl || !anonKey || user.is_anonymous) {
+        return jsonResponse({ errorCode: "owner_resolution_unavailable", error: "Current Refund Operations access is required." }, 403);
+      }
+      const authenticatedClient = createClient(supabaseUrl, anonKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+        global: { headers: { Authorization: `Bearer ${accessToken}` } },
+      });
+      const result = await handleOwnerNonrefundAdoption(body, (name, args) => authenticatedClient.rpc(name, args));
+      return jsonResponse(result.body, result.status);
+    }
+    if (isAuthoritativeReceiptMode(body?.mode)) {
+      const receiptAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+      if (!supabaseUrl || !receiptAnonKey || user.is_anonymous) {
+        return jsonResponse({ errorCode: "receipt_unavailable", error: "Current Refund Operations access is required." }, 403);
+      }
+      const receiptClient = createClient(supabaseUrl, receiptAnonKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+        global: { headers: { Authorization: `Bearer ${accessToken}` } },
+      });
+      const receipt = await handleAuthoritativeReceipt(body, (name, args) => receiptClient.rpc(name, args));
+      return jsonResponse(receipt.body, receipt.status);
+    }
     const caseId = sanitizeText(body?.caseId, 80);
     if (!isUuid(caseId)) {
       return jsonResponse({ error: "Refund case is required." }, 400);
@@ -920,6 +973,7 @@ serve(async (req) => {
 
     const cardPreExecutionError = validateCardPreExecutionRequest({
       isCardCase: beforeRow.payment_method === "card",
+      hasNayaxCandidate: Boolean(nayaxCandidate),
       requestedStatus,
       requestedDecision,
       requestedMessageType,
@@ -979,28 +1033,34 @@ serve(async (req) => {
         paymentAmountCents: beforeRow.payment_amount_cents,
         cardLast4: beforeRow.card_last4,
         cardWalletUsed: beforeRow.card_wallet_used,
+        zellePaymentContact: beforeRow.zelle_payment_contact,
+        cashPayoutDestinationRequired:
+          beforeRow.payment_method === "cash" &&
+          beforeRow.decision === "approved",
       });
-      if (derived.requiresSecureWalletCorrection) {
+      const correctionEnabled = await refundCorrectionLinksEnabled(supabase);
+      const currentFields = correctionEnabled ? await getCurrentRefundCorrectionFields(supabase, caseId) : derived.missingFields;
+      if (derived.requiresSecureWalletCorrection && !correctionEnabled) {
         return jsonResponse({
           error:
             "Use the secure mobile-wallet correction link instead of requesting wallet information by email.",
         }, 409);
       }
-      if (derived.missingFields.length === 0) {
+      if (currentFields.length === 0) {
         return jsonResponse({
           error:
             "This case has no structured purchase detail to request. Return it to manager review.",
         }, 409);
       }
       if (
-        !sameMissingFields(suppliedCustomerMissingFields, derived.missingFields)
+        !sameMissingFields(suppliedCustomerMissingFields, currentFields)
       ) {
         return jsonResponse({
           error:
             "The case facts changed. Refresh before asking for the exact missing purchase details.",
         }, 409);
       }
-      customerMissingFields = derived.missingFields;
+      customerMissingFields = currentFields;
     }
 
     const isCashCompletion = officialAction === "cash_complete";
@@ -1097,6 +1157,13 @@ serve(async (req) => {
         requestedDecision === null &&
         requestedMessageType === null,
     );
+    const isNayaxSelectionApproval = Boolean(
+      nayaxCandidate &&
+        officialAction === "approve" &&
+        requestedStatus === "card_refund_pending" &&
+        requestedDecision === "approved" &&
+        requestedMessageType === null,
+    );
 
     const updateRpc = isCashCompletion && officialAuthorization
       ? await supabase.rpc("service_complete_cash_refund_official", {
@@ -1108,6 +1175,17 @@ serve(async (req) => {
         p_decision_reason: decisionReason,
         p_internal_note: internalNote,
         p_assigned_manager_email: assignedManagerEmail,
+      })
+      : isNayaxSelectionApproval && officialAuthorization
+      ? await supabase.rpc("service_apply_refund_nayax_selection_approval", {
+        p_authorization_id: officialAuthorization.authorizationId,
+        p_case_id: caseId,
+        p_assigned_manager_email: assignedManagerEmail,
+        p_decision_reason: decisionReason,
+        p_internal_note: internalNote,
+        p_refund_amount_cents: officialRefundAmountCents,
+        p_matched_nayax_candidate_token: officialNayaxCandidateToken,
+        p_nayax_disagreement_reason: officialNayaxDisagreementReason,
       })
       : officialAction && officialAuthorization
       ? await supabase.rpc("service_apply_refund_official_case_update", {

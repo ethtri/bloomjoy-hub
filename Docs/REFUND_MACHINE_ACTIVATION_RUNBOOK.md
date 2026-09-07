@@ -4,7 +4,7 @@ This runbook governs the owner-reviewed activation introduced by issue `#948`. I
 
 ## What the screen means
 
-- **Ready to refund:** customer intake, transaction matching, exact active Nayax inventory, current Machine Manager routing, the machine payment gate, and global direct API availability are all ready. This state cannot appear while the remaining-value guard is active.
+- **Ready to refund:** customer intake, transaction matching, exact active Nayax inventory, current Machine Manager routing, the machine payment gate, and global direct API availability are all ready.
 - **Ready to activate:** every machine prerequisite is ready, but the machine capability is intentionally off. The screen shows the approved reason; activation does not override global direct API availability.
 - **Setup needed:** one machine prerequisite is missing. Fix the exact reason shown before activation.
 - **Paused:** the global runtime pause applies to all machines. This is not a machine mapping failure.
@@ -24,7 +24,7 @@ Customer intake is independent from transaction matching and payment activation.
 1. Open Admin → Machines and inspect examples of **Ready to activate**, **Setup needed**, **Manual portal only**, **Direct API blocked**, and an approved machine-disabled reason on desktop and mobile. **Ready to refund** may appear only when global direct availability is truly open.
 2. Confirm **Customer requests**, **Transaction lookup**, **Machine Managers**, **Card-refund capability**, **Direct API**, and **Refund amount** remain separate and agree with the reviewed machine record.
 3. Confirm the global pause appears as **Paused for all machines** and does not erase the underlying machine status.
-4. For one qualified non-production fixture, choose **Activate card-refund capability**, confirm once, and verify the machine capability is `Enabled`. When `provider_remaining_value_unverified` is active, also verify **Manual portal only**, the direct API block, and the reviewed Nayax portal guidance; activation must not claim direct readiness.
+4. For one qualified non-production fixture, choose **Activate card-refund capability**, confirm once, and verify the machine capability is `Enabled`. With the runtime gates open and exact account/machine/manager configuration, verify **Ready to refund**; otherwise verify the truthful configuration, pause, or portal status.
 5. Confirm the Admin audit log contains one activation event and that repeating the same request creates no second event.
 
 ## Reviewed production activation
@@ -36,7 +36,7 @@ Run the aggregate-only baseline and post-activation audit in `Docs/REFUND_SIMPLE
 - Use the single-machine action or **Activate qualified machine capabilities** for the reviewed qualified set.
 - Bulk activation never overrides `owner_pause`, `provider_support`, `machine_maintenance`, or `commercial_exception`.
 - A newly repaired mapping should appear as **Ready to activate** until this reviewed step occurs.
-- Do not change runtime secrets, the global kill switch, the immutable remaining-value guard, or provider contracts from the machine screen.
+- Do not change runtime secrets, the global kill switch, or provider contracts from the machine screen.
 
 ## Rollback
 

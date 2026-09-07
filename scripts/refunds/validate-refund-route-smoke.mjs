@@ -14,6 +14,7 @@ const projectRef = 'a'.repeat(20);
 assert.deepEqual(refundRouteSmokeExcludedFunctionSlugs, [
   'refund-manager-action-step-up',
   'refund-manager-totp-enrollment',
+  'refund-nayax-outcome-resolve',
 ]);
 assert.deepEqual(
   [
@@ -21,7 +22,7 @@ assert.deepEqual(
     ...refundRouteSmokeExcludedFunctionSlugs,
   ],
   requiredFunctionSlugs,
-  'Eight safe OPTIONS probes plus two explicit pending manager endpoints must account for the full 10-function manifest',
+  'Eight safe OPTIONS probes plus three explicitly unprobed endpoints must account for the full eleven-function manifest without implying route verification',
 );
 assert.equal(
   resolveRefundRouteSmokeBaseUrl({ projectRef, confirmProjectRef: projectRef, baseUrl: '' }),
@@ -62,7 +63,7 @@ const success = await runRefundRouteSmoke({
   fetchImpl: successfulFetch,
   timeoutMs: 2_500,
 });
-assert.equal(success.length, 8, 'Every approved Refund Operations function must be probed.');
+assert.equal(success.length, 8, 'Only the eight established routes are covered by this smoke.');
 assert.equal(requests.length, 8);
 for (const request of requests) {
   assert.equal(request.options.method, 'OPTIONS', 'Production route smoke must be non-mutating.');

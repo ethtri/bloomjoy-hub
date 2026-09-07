@@ -1,11 +1,126 @@
 import {
   extractLabeledRefundEmailFacts,
+  requirePublicEligibilityForUnverifiedMachineFact,
   resolveExactRefundMachineFact,
 } from "./refund-email-fact-extraction.ts";
+import { buildRefundCustomerEmail } from "./refund-email.ts";
+import type { RefundMissingField } from "./refund-deterministic-follow-up.ts";
 
 const assert = (condition: unknown, message: string) => {
   if (!condition) throw new Error(message);
 };
+
+// Take the actual copyable line from the real renderer, not a parallel fixture
+// label dictionary. This test has no send/provider/database capability.
+const spanishReply = (field: RefundMissingField, value: string) => {
+  const email = buildRefundCustomerEmail({
+    messageType: "more_info",
+    customerLocale: "es",
+    customerEmail: "synthetic@example.test",
+    publicReference: "RF-SPANISH-UAT",
+    paymentMethod: field === "zelle_payment_contact" ? "cash" : "card",
+    missingFields: [field],
+  });
+  const spanish = email.text.split("Información en español")[1];
+  const label = spanish?.split("\n").map((line) => line.trim()).find((line) =>
+    line.endsWith(":") && !line.startsWith("Copie esta línea")
+  );
+  if (!label) throw new Error(`Missing real Spanish reply line for ${field}`);
+  assert(email.html.includes(label), "HTML and text must contain the same reply label");
+  return `${label} ${value}`;
+};
+
+Deno.test("all canonical Spanish email reply labels round-trip through the actual parser", () => {
+  const examples: Array<[RefundMissingField, string, string, unknown]> = [
+    ["location_or_machine", "Synthetic Lobby", "locationOrMachine", "Synthetic Lobby"],
+    ["incident_date", "2026-08-30", "incidentDate", "2026-08-30"],
+    ["incident_time", "1:42 p. m.", "incidentTime", "13:42"],
+    ["payment_method", "efectivo", "paymentMethod", "cash"],
+    ["payment_interaction", "acerqué la tarjeta", "paymentInteraction", "tap_card"],
+    ["wallet_provider", "Apple Pay", "walletProvider", "apple_pay"],
+    ["amount", "7,25", "amountCents", 725],
+    ["card_last4", "4242", "cardLast4", "4242"],
+    ["card_network", "Visa", "cardNetwork", "visa"],
+    ["zelle_payment_contact", "synthetic@example.test", "zellePaymentContact", "synthetic@example.test"],
+  ];
+  for (const [field, value, property, expected] of examples) {
+    const reply = spanishReply(field, value) + (field === "card_last4"
+      ? `\n${spanishReply("payment_interaction", "acerqué la tarjeta")}` : "");
+    const facts = extractLabeledRefundEmailFacts(reply);
+    assert(Reflect.get(facts, property) === expected, `${field} must round-trip`);
+    assert(facts.manualReviewReason === null, `${field} must be unambiguous`);
+  }
+});
+
+Deno.test("Spanish replies preserve deterministic values and physical-card provenance", () => {
+  for (const [value, expected] of [
+    ["tarjeta", "card"], ["tarjeta física", "card"], ["tarjeta de crédito", "card"],
+    ["tarjeta de débito", "card"], ["Apple Pay", "card"], ["Google Pay", "card"],
+    ["efectivo", "cash"],
+  ]) {
+    assert(extractLabeledRefundEmailFacts(spanishReply("payment_method", value)).paymentMethod === expected,
+      `Explicit payment answer ${value}`);
+  }
+  const wallet = extractLabeledRefundEmailFacts([
+    spanishReply("payment_interaction", "billetera del teléfono o reloj"),
+    spanishReply("wallet_provider", "Google Pay"),
+    spanishReply("card_last4", "4242"),
+  ].join("\n"));
+  assert(wallet.cardWalletUsed === true, "wallet use remains explicit");
+  assert(wallet.cardLast4 === null, "emailed wallet digits never become physical card evidence");
+  assert(wallet.cardLast4Provenance === "wallet_device_token", "wallet provenance is retained");
+  const unsupported = extractLabeledRefundEmailFacts(spanishReply("payment_method", "creo que pagué con algo"));
+  assert(unsupported.manualReviewReason === "ambiguous_customer_facts", "prose is not a payment enum");
+  assert(extractLabeledRefundEmailFacts(spanishReply("card_network", "no sé")).cardNetwork === "other_unknown",
+    "Explicit uncertainty is not a guessed network");
+});
+
+Deno.test("Spanish decimal commas are exact and ambiguous formats fail closed", () => {
+  for (const [value, expected] of [["7,25", 725], ["7,5", 750], ["$7.25", 725], ["7", 700]] as const) {
+    assert(extractLabeledRefundEmailFacts(spanishReply("amount", value)).amountCents === expected,
+      `Exact decimal amount ${value}`);
+  }
+  for (const value of ["7,000", "1.234,56", "1,234.56", "7,2,5", "gratis"]) {
+    const facts = extractLabeledRefundEmailFacts(spanishReply("amount", value));
+    assert(facts.amountCents === null && facts.ambiguousFields.includes("amount"),
+      `Never guess an ambiguous Spanish amount ${value}`);
+  }
+  assert(extractLabeledRefundEmailFacts("Amount: $1,234.56").amountCents === 123456,
+    "Existing well-formed English grouping remains supported");
+  assert(extractLabeledRefundEmailFacts("Amount: 7,25").amountCents === null,
+    "Malformed English grouping is not multiplied by one hundred");
+});
+
+Deno.test("Spanish quote boundaries and bilingual conflicts cannot replace the current reply", () => {
+  for (const boundary of [
+    "El dom, 30 ago 2026, Bloomjoy escribió:", "escribió:", "De: Bloomjoy",
+    "-----Mensaje original-----", "On Sun, Bloomjoy wrote:",
+  ]) {
+    const facts = extractLabeledRefundEmailFacts([
+      spanishReply("card_network", "Visa"), boundary, "Tipo de tarjeta: Mastercard",
+    ].join("\n"));
+    assert(facts.cardNetwork === "visa" && facts.manualReviewReason === null,
+      `Quoted facts stop at ${boundary}`);
+  }
+  const conflict = extractLabeledRefundEmailFacts("Card type: Visa\nTipo de tarjeta: Mastercard");
+  assert(conflict.manualReviewReason === "ambiguous_customer_facts" && conflict.ambiguousFields.includes("cardNetwork"),
+    "Contradictory English/Spanish values share one conflict boundary");
+  const repeated = extractLabeledRefundEmailFacts("Card type: Visa\nTipo de tarjeta: Visa");
+  assert(repeated.cardNetwork === "visa" && repeated.manualReviewReason === null, "Exact bilingual replay is safe");
+  assert(extractLabeledRefundEmailFacts("> Tipo de tarjeta: Mastercard\nTipo de tarjeta: Visa").cardNetwork === "visa",
+    "Quoted-line prefix cannot become current facts");
+  for (const [field, value] of [["incident_date", "30/08/2026"], ["incident_time", "13:30 p. m."]] as const) {
+    assert(extractLabeledRefundEmailFacts(spanishReply(field, value)).manualReviewReason === "ambiguous_customer_facts",
+      "Noncanonical date/time is reviewed, not guessed");
+  }
+});
+
+Deno.test("Spanish sensitive or escalated replies remain manager-owned", () => {
+  for (const signal of ["contraseña", "código de seguridad", "abogado", "contracargo", "lesión"]) {
+    const facts = extractLabeledRefundEmailFacts(`Tipo de tarjeta: Visa\n${signal}`);
+    assert(facts.manualReviewReason === "sensitive_or_escalated_content", "Do not automate an escalated reply");
+  }
+});
 
 Deno.test("extracts only explicit labeled routine refund facts", () => {
   const result = extractLabeledRefundEmailFacts([
@@ -53,6 +168,34 @@ Deno.test("ignores prose, invalid values, and quoted earlier messages", () => {
   assert(
     result.cardLast4 === null,
     "non-masked card data must not be accepted",
+  );
+});
+
+Deno.test("extracts only a labeled valid payout destination", () => {
+  const english = extractLabeledRefundEmailFacts(
+    "Zelle email or phone number: payout.customer@example.com",
+  );
+  assert(
+    english.zellePaymentContact === "payout.customer@example.com",
+    "labeled Zelle email should be accepted",
+  );
+  assert(english.ambiguousFields.length === 0, "valid destination is unambiguous");
+
+  const spanish = extractLabeledRefundEmailFacts(
+    "Correo electrónico o número de teléfono de Zelle: +1 (415) 555-0123",
+  );
+  assert(
+    spanish.zellePaymentContact === "+1 (415) 555-0123",
+    "Spanish labeled phone should be accepted",
+  );
+
+  const invalid = extractLabeledRefundEmailFacts(
+    "Zelle email or phone number: send it to my usual account",
+  );
+  assert(invalid.zellePaymentContact === null, "free-form destination must be rejected");
+  assert(
+    invalid.manualReviewReason === "ambiguous_customer_facts",
+    "invalid payout contact must route to manager review",
   );
 });
 
@@ -151,4 +294,45 @@ Deno.test("machine resolution requires one exact active-label match", () => {
     resolveExactRefundMachineFact("Main Street", candidates) === null,
     "ambiguous location must not select a machine",
   );
+});
+
+Deno.test("unverified machine facts require the public intake eligibility boundary", async () => {
+  const candidate = {
+    machineId: "valley-machine",
+    locationId: "valley-location",
+    timezone: "America/New_York",
+    machineLabel: "Preit1085-Valley mall",
+    publicMachineLabel: "Valley Mall — product type unverified",
+    locationName: "Valley Mall",
+  };
+  let eligibilityChecks = 0;
+  const rejected = await requirePublicEligibilityForUnverifiedMachineFact(
+    candidate,
+    new Map([[candidate.machineId, "unknown"]]),
+    async () => {
+      eligibilityChecks += 1;
+      return false;
+    },
+  );
+  assert(rejected === null, "an unpublished unknown-product machine must not resolve");
+  assert(eligibilityChecks === 1, "unknown-product resolution must check public eligibility once");
+
+  const accepted = await requirePublicEligibilityForUnverifiedMachineFact(
+    candidate,
+    new Map([[candidate.machineId, "unknown"]]),
+    async () => true,
+  );
+  assert(accepted?.machineId === candidate.machineId, "a published unknown-product machine may resolve");
+
+  eligibilityChecks = 0;
+  const ordinary = await requirePublicEligibilityForUnverifiedMachineFact(
+    candidate,
+    new Map([[candidate.machineId, "commercial"]]),
+    async () => {
+      eligibilityChecks += 1;
+      return false;
+    },
+  );
+  assert(ordinary?.machineId === candidate.machineId, "ordinary machine resolution stays unchanged");
+  assert(eligibilityChecks === 0, "ordinary machine resolution does not add a public eligibility call");
 });

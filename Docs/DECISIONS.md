@@ -1,8 +1,8 @@
 # Decisions
 
-## 2026-09-01 - Timekeeping uses per-machine shift units, manager correction, and automatic pay stubs
+## 2026-09-07 - Timekeeping uses per-machine shift units, transparent commission, and automatic contractor pay stubs
 
-Bloomjoy will keep Timekeeping lightweight while preserving a path to a simple shift-based payroll workflow. This decision supersedes the per-entry manager-approval workflow in `#587` and the earlier default lock/review behavior in the 2026-05-20 Operator Pay decision.
+Bloomjoy will replace the Google Form, manual Google Sheets compilation, and manually exported PDF workflow with lightweight Timekeeping, a manager pay report, and contractor Pay Stub self-service. The detailed MVP requirements are in [TIMEKEEPING_PAY_STUB_REQUIREMENTS.md](TIMEKEEPING_PAY_STUB_REQUIREMENTS.md). This decision supersedes the per-entry manager-approval workflow in `#587` and the earlier default lock/review behavior in the 2026-05-20 Operator Pay decision.
 
 **Canonical behavior**
 - A **shift** is a one-hour pay unit, not an entire work session. Each machine-specific time entry rounds up independently: 1-60 worked minutes equals one shift, 61-120 minutes equals two shifts, and so on. For example, three separate 20-minute machine entries equal three shifts.
@@ -13,23 +13,135 @@ Bloomjoy will keep Timekeeping lightweight while preserving a path to a simple s
 - Manager corrections do not require a written reason and remain available after the technician lock date. The system still retains before/after audit history for manager edits.
 - Pay periods are calendar months. Technician editing for a completed month closes at 11:59 p.m. in Bloomjoy's operating timezone (`America/Los_Angeles`) on the fourth calendar day after month-end. For example, December time is technician-editable through January 4 at 11:59 p.m. and locked at the start of January 5. Manager correction remains available after that cutoff.
 - Pay is calculated as shift count multiplied by the Technician's applicable per-shift rate. Rates belong to the Technician and are effective-dated so raises do not rewrite prior-period compensation. Unless a later decision says otherwise, the work date determines which rate applies.
-- The manager's primary monthly report shows actual submitted time and shift count by Technician, with a machine breakdown where applicable. Managers do not need a separate pay-stub library.
-- After the technician lock cutoff, the system automatically generates and publishes a pay stub for the completed month. Publication is routine and does not assert or require proof that payment occurred.
-- An authorized manager may regenerate a pay stub after correcting time or rates. Regeneration preserves version history and publishes the latest version to the Technician.
-- Technicians may access their historical published pay stubs online. The artifact is user-facing as **Pay Stub**; its final visual layout and detailed field specification remain pending the owner's reference example.
+- Commission is calculated from the Technician's applicable percentage and the commissionable sales across the machines in that Technician's effective scope. The sales basis, percentage, machine contribution, and resulting commission remain separately visible so the calculation is understandable.
+- The manager's primary monthly report shows actual submitted time, calculated shifts, shift earnings, commissionable sales, commission, adjustments, and statement total by Technician, with a machine breakdown where applicable. Managers use this report to correct inputs and regenerate a statement; they do not need a separate pay-stub library.
+- Optional Technician-visible earnings or credits support the categories shown in the current manual statements: bonus, supply credit, and expense reimbursement. These are manager-maintained compensation inputs, not Technician-entered time.
+- After the technician lock cutoff, the system automatically generates and publishes one Pay Stub for each payable Technician for the completed month. A missing required rate or unresolved source-data error creates manager-visible exception work rather than publishing a misleading statement. Publication is otherwise routine and requires neither approval nor proof that payment occurred.
+- The Pay Stub follows the owner-provided one-page reference hierarchy and shows payer and contractor identity, period beginning and ending, statement date, actual worked time, paid shifts, shift rate and earnings, commissionable sales, commission rate and earnings, applicable bonus/credit/reimbursement lines, current totals, year-to-date totals, and the contractor notice. It uses **Statement Date**, not **Payment Date**, until Bloomjoy records actual payment evidence.
+- An authorized manager may regenerate a Pay Stub after correcting time, sales, rates, or adjustments. Regeneration preserves immutable prior versions, publishes the latest version to the Technician, and refreshes affected year-to-date totals on later statements.
+- Technicians may view and download their own historical published Pay Stubs online. The user-facing artifact is **Pay Stub**; superseded versions remain manager-auditable but are not presented as the current Technician copy.
+- The initial Pay Stub population is entirely independent contractors. Worker classification remains a profile attribute rather than a global hard-coded assumption, and the 1099/no-withholding notice is rendered for contractor profiles.
 - Payment execution, direct deposit, withholding, payroll tax calculation, tax filing, W-2s, and 1099 generation remain separate until Bloomjoy makes an explicit provider and compliance decision.
 
 **Working assumptions pending implementation**
-- The existing assigned-machine authorization and audited time-entry foundations remain in place; the next iteration simplifies workflow rather than rewriting the data boundary.
-- Actual worked time and calculated shift units remain separately visible so Technicians and managers can understand the rounding result.
+- The existing assigned-machine authorization, audited time-entry, revenue-snapshot, compensation-rule, adjustment, versioned-statement, and private-storage foundations remain in place; the next iteration simplifies workflow rather than rewriting those boundaries.
+- Actual worked time, calculated shift units, commissionable sales, rates, and resulting earnings remain separately visible so Technicians and managers can reproduce the calculation.
+- Commissionable sales use Bloomjoy's authoritative reporting facts and effective machine scope for the pay period, not a number manually entered by the Technician. The exact sales measure must be labeled consistently in the manager report and Pay Stub.
 - Pay-stub regeneration is a deliberate manager action after a correction; routine first publication is automatic.
 
 **Why this choice**
 - Per-machine shift units match Bloomjoy's compensation practice while exact start/end times preserve understandable source records.
 - Removing individual approvals keeps routine timekeeping simple without preventing managers from correcting mistakes.
 - A technician-only cutoff produces stable monthly statements while preserving a practical correction path for managers.
-- Automatic, versioned pay stubs remove repetitive monthly administration and give Technicians durable self-service history without claiming to execute payroll or create tax forms.
+- Showing both paid shifts and machine sales preserves the trust currently created by the manual sheet because a contractor can see the inputs behind regular earnings and commission.
+- Automatic, versioned Pay Stubs remove repetitive monthly administration and give Technicians durable self-service history without claiming to execute payroll, prove payment, or create tax forms.
 
+## 2026-09-05 - Request time is supporting evidence unless purchase occurrence is proved (`#1165`)
+
+- Provider delivery, report import, settlement, bank posting and Nayax authorization time are separate facts. None may stand in for the customer's purchase occurrence or hard-exclude a candidate merely because it is later than the request receipt.
+- A `transaction_after_customer_request` exclusion requires explicit online purchase-occurrence semantics and bounded transaction/request clock intervals whose non-overlapping bounds prove the purchase interval is wholly later. Missing semantics, offline/deferred operation, batched synchronization, missing bounds or overlapping intervals make ordering unknown.
+- Unknown ordering remains visible and lowers confidence. It never produces automatic one-click evidence. When the exact machine, amount, approved sale, raw API binding and other current safeguards are sufficient, the manager may confirm the transaction once and continue to the ordinary refund decision; provider-only timing uncertainty cannot create an actionless dead end.
+- The exact raw `MachineAuTime` remains the refund API binding. Derived occurrence, authorization, settlement, provider observation/import, report receipt and customer request receipt remain separate versioned evidence.
+
+**Why this choice**
+- Nayax supports offline and batched transaction synchronization, and its authorization, settlement and report timestamps have different semantics. A later provider-side time therefore does not by itself prove that the customer purchased after submitting the form.
+
+## 2026-09-03 - One same-case customer correction flow (`#1109`–`#1115`)
+
+New actionable purchase-information requests use one secure link to the existing
+refund case when `refund_customer_contact_settings.correction_links_enabled` is
+enabled. This supersedes copy-and-reply labels as the primary response path for
+new requests. Existing structured replies and already-sent wallet links remain
+supported; rollout never bulk-sends replacement requests or makes a customer
+repeat a successful response.
+
+The existing follow-up, capability, message and case-fact ledgers own the flow.
+Only current missing or conflicting customer-correctable facts are requested.
+Customers may change, confirm or explicitly decline to guess a detail. A saved
+response ends customer waiting and permits at most one eligible changed-fact
+recheck; internal mapping, provider and delivery problems remain internal work.
+Neither a correction nor report observation approves or confirms a refund.
+
+The form and save/recheck path deploy before link issuance is enabled. The
+server-only correction secret and the single database switch control issuance;
+existing contact, delivery, recipient and manager authority still apply.
+Disabling new issuance preserves already-delivered valid links, saved responses
+and legacy reply handling. Live acceptance and measured results remain tracked
+in #1115/#427; deployed controls alone do not prove reduced customer effort.
+
+## 2026-09-03 - Production refund learning and approval continuity (`#628`, `#990`, `#1088`)
+
+The deployed API is the preferred path for legitimate, owed, normally approved
+customer refunds. The owner accepts bounded transaction-value risk. Exact original
+purchase/full provider amount, active manager authority, duplicate prevention,
+one live attempt and immutable request/approval evidence remain required. There
+is no separate remaining-balance proof, cohort, arbitrary value/count limit,
+complete-vendor-contract, report-delivery or testing-approval prerequisite.
+
+One exact purchase/amount/purpose decision covers request, approval, verification
+and supported outcome-based fallback across unchanged stages and agent handoffs.
+An accepted pending request continues as the same request. A definite rejection
+or authoritative no-refund result permits evidenced correction/fallback; an
+unknown result requires exact inspection before another payment, while unrelated
+eligible refunds continue. New authority is needed only if scope changes or the
+ordinary approval is absent. Explicit exclusions, including #1095, remain.
+
+Use existing receipt and message ledgers for independent confirmation and one
+accurate completion. Unknown accounting dates remain internal follow-up. The
+historical Eastridge refund is confirmed but its API attribution is unproved.
+The first native scheduled file arrived; hourly recurrence remains unproved.
+The operating entry point is
+`Docs/REFUND_AGENT_OPERATIONS.md`; older rollout holds are superseded by current
+issue decisions and verified release evidence, not silently reapplied.
+
+## 2026-09-03 - API attempts and independent refund confirmation (`#990`, `#971`)
+
+- The September 3 owner decision on #990 rejects a blanket remaining-refundable-value prerequisite. Nayax enforces the original transaction total. A mapped manager may attempt the full selected original amount without a portal attestation, a balance form, or five-minute evidence expiry. Exact purchase identity, manager authority, local duplicates/idempotency, immutable request/approval history and unknown-outcome reconciliation remain mandatory.
+- The existing manager confirmation remains the payment authority. The server automatically reads exact selected candidate evidence and saves its identity with the attempt before dispatch. Both provider requests preserve the raw machine authorization time and precision; a GMT sale timestamp is not substituted. Candidate cleanup cannot erase the attempt context. Ordinary portal fallback requires original-bound definitive rejection or an audited no-refund release; uncertain requests cannot authorize another payment.
+- A reviewed response contract may explicitly select `responseLearningMode: inspect_unknown` with only independently evidenced response pairs, including none. This supersedes the requirement to provide examples of every success/duplicate/already-refunded pair before one legitimate request. It does not waive identity, credential-scope, runtime, amount, manager, journal or concurrency checks. Unmatched responses remain unknown and cannot authorize API approval or a new request. Exact current provider inspection determines the next action; the retired approval-only recovery route remains retired.
+- Independent full-refund evidence for an original-bound API attempt uses the same receipt writer as portal outcomes, after its active provider claim has ended. It cannot create a second attempt, fabricate a settlement date, or send a customer message. Receipt-based accounting and existing-notice rules remain unchanged. Scheduled report data is admitted only after its actual delivery, fields, original linkage and status semantics have been validated.
+- After a full-refund receipt, Refund Operations may review existing sent correspondence and approve one fixed, date-free customer completion through the existing message outbox. A private immutable receipt/message binding and preview digest preserve the exact approved content. Existing-notice adoption and a new completion are mutually exclusive. Unknown or sent delivery cannot create another message or requeue payment; provider acceptance remains distinct from delivery. The payment history and unknown accounting date stay unchanged.
+
+Production execution remains held until configuration and operational acceptance are verified. This decision implements the September 2 API-first operating direction; it supplies no new payment or messaging authority.
+
+## 2026-09-03 - Correct current refund routing while preserving the original report (`#1117`)
+
+- The verified Simon South Hill provider identity is a SnapCase machine. Its category/public choice and exclusion of the conflicting unverified Snapcase 03 route change atomically; provider IDs, manager assignments, historical cases and sales remain intact. The excluded route requires physical-location verification before republication.
+- A current, verified Refund Operations user with authority over both machines may reconcile an already-issued full refund on a previously unmatched case. One authenticated transaction records the exact current provider observation, corrected case binding and existing operator-mailbox SENT notice. Original intake selection and customer facts remain immutable. It creates no payment attempt, authorization, dated accounting adjustment or email.
+- The notice records the actual sender, recipient, CC, mailbox-specific provider identity, original sent time and reviewed content fingerprint. Current manager CC coverage is checked. This is explicitly operator-observed evidence, separate from support-mailbox ingestion and delivery confirmation; the historical owner-notice cutoff is unchanged.
+- Deploy the API receipt migration from #1116 before the external-recovery migration. Once a recovery commits, receipt guards and original-fact guards reject stale matching work and any further payment or resend. Rollback leaves recorded receipts intact and withdraws the new form rather than undoing a real refund.
+
+## 2026-09-03 - Strong card matches allow estimated purchase totals and times (`#1118`)
+
+- One sale on the verified machine is high confidence when the physical-card last four match, the resolved purchase time is within 60 minutes, and the provider total differs from the reported total by at most $3. Both boundaries are inclusive; a customer choosing “within an hour” does not disqualify this evidence. Small price differences may reflect tax or rounding.
+- Uniqueness is checked across every sale returned within the lookup window before the display limit is applied. Multiple eligible sales remain ambiguous. Existing provider-identity, account, currency, approval, duplicate/refund, card-network, wallet-provenance and timezone checks continue to apply. The separate QR-only path keeps its exact-amount rule.
+- The original customer report remains unchanged. Selection and any separately approved refund use the provider's full sale amount. Re-ranking is advisory: it does not select a transaction, authorize money, or send a message. Internal routing errors and accepted estimates must not ask the customer to repeat settled facts.
+
+## 2026-09-02 - Localized refund reply instructions are a parser contract (`#891`, `#923`)
+
+- Every copyable Spanish field label emitted by the customer email must be recognized by the deterministic reply extractor; translation alone does not complete the customer workflow. Supported payment answers use a fixed translation dictionary, not free-form inference.
+- Spanish `Monto` accepts an unambiguous one- or two-digit decimal comma or the existing decimal point. Ambiguous grouping, mixed separators, invalid dates/times, and conflicting bilingual fields require manager review. A comma must never be removed in a way that multiplies a customer-reported amount.
+- English and Spanish quoted-message boundaries are excluded. Physical-card/wallet provenance, atomic same-case fact application, one version-keyed lookup, and authoritative selected-transaction execution values remain unchanged. This contract grants no customer-contact or payment authority.
+
+## 2026-09-01 - Manager-authored refund email uses one durable outbox (`#917`)
+
+- The manager portal commits the exact case version, recipient, subject, body, message class, requested fields, locale-derived copy, reviewed-triage provenance, and one client intent ID in the customer-message ledger before any Gmail or transactional-provider access. The same transaction records a redacted queued event.
+- One unresolved manager message may exist per case. Exact request replay returns the original message; an intent ID cannot be rebound to changed content. Workers claim with row locks and `SKIP LOCKED`, use `refund-message-<message-id>` as the stable provider identity, and recover an abandoned claim no more than three times without creating a second message.
+- A stale case version or Internal/test classification cancels the queued intent before provider access. A known failure or unknown result remains manager-owned delivery evidence. Only successful settlement records customer contact and may set `more_info_needed`; that message must contain at least one deterministic customer-correctable requested field.
+- The worker runs independently of automatic-contact and staffed-window gates because the manager already approved the exact content. `REFUND_MANUAL_MESSAGE_OUTBOX_ENABLED=false` is an incident-only delivery stop; it leaves queued evidence intact and grants no payment, decision, provider-write, or reporting authority.
+
+**Why this choice**
+- A single request that both inserted and sent could stop between those steps, leaving no safe way to know whether the provider had accepted the message. A durable intent plus stable identity makes retry and reconciliation explicit without weakening customer lifecycle or refund safeguards.
+
+## 2026-08-31 - Transactional acceptance is not customer delivery (`#917`)
+
+- Every direct Website-case email is marked in the message ledger before provider access and uses one stable per-message idempotency key. A successful Resend API response records its exact provider message ID as **Accepted by provider**; it is never labeled delivered from API acceptance alone.
+- Signed webhooks write only an event-key digest, provider message ID, normalized delivery state, event time, and internal match metadata. At-least-once replay is deduplicated, out-of-order events can only advance the safety rank, and webhook handling cannot send or retry a message, create a payment attempt, or call Nayax.
+- Managers see provider acceptance, delivered, delayed, bounced, complained, or unknown—not the private provider ID. Stale acceptance and actionable delivery failures route the case to Refund Operations in **Action needed** with an explicit no-resend/no-payment-replay next action. Payment outcome remains authoritative and independent; a bounced completion receipt cannot reopen or replay a successful refund.
+- Gmail-thread delivery keeps its existing provider-thread ledger and uncertain-delivery recovery. Direct-email webhooks do not create a Gmail fallback or a second conversation. Internal/test records cannot start or bind direct transactional delivery.
+
+**Why this choice**
+- Provider acceptance proves only that the API accepted a request. Persisting later provider evidence without replay authority makes the queue truthful while preserving exactly-once customer messaging and transaction-scoped payment safety.
 ## 2026-08-31 - Nayax lookup recovery is exact-account and internally owned (`#890`, `#992`)
 
 - Every transaction lookup uses the reporting machine's explicit Nayax account scope. A non-default account may resolve only its exact server-side credential; missing scope or access never falls back to the default account and never cross-searches a sibling machine or location.
@@ -110,7 +222,7 @@ This decision changes scheduler truth and internal read authority only. It does 
 - A customer may receive refunds for multiple legitimate purchases. One exact Nayax transaction may support only one Bloomjoy refund case.
 - The normal refund amount may be only the exact full remaining allocation for the selected Nayax transaction. Bloomjoy does not enforce arbitrary per-refund, machine, daily amount, or daily count launch caps, and the browser cannot supply or edit the direct execution amount.
 - A confirmed rejection or authoritative proof that no refund occurred permits a fresh manager-confirmed attempt generation. Unknown or pending outcomes pause only that transaction; unrelated customers and transactions continue.
-- Direct API availability and execution are immutably blocked as `provider_remaining_value_unverified`, before reservation or provider orchestration, until #990/#751 provide authoritative cumulative-refunded and remaining-refundable ingestion plus an atomic pre-request recheck. Read-only matching remains available. Refund Operations may approve the provider-free reviewed Nayax portal fallback for either legacy manual evidence or an ordinary exact matched card/wallet transaction only under that exact hard-guard reason; kill-switch, reconciliation, duplicate, and authority failures do not expose the ordinary fallback. Approval creates no provider call, report, or customer message. Completion requires evidence that Nayax refunded the full selected amount, while a smaller or partial result remains on hold.
+- Superseded September 3 by the owner decision at the top of this file: a qualified first API attempt does not require separate remaining-balance proof. Read-only matching remains available; known prior partial refunds, uncertain attempts, duplicates, stale evidence, and authority failures remain closed. A provider-free portal fallback is available only after an original-bound genuine rejection or audited no-refund release. Completion still requires evidence that Nayax refunded the full selected amount, while a smaller or partial result remains on hold.
 - Any later direct production path keeps one explicit money confirmation, mapped-manager authorization, exact transaction evidence, row locking, idempotency, one live attempt, immutable provider journaling, confirmed-success-only customer/reporting completion, server-only credentials, and a systemic-incident kill switch.
 - Customer amount, card type, and last four are matching clues. Bloomjoy searches Nayax itself before asking a customer for more work; manager-confirmed exact portal evidence is authoritative.
 
@@ -184,20 +296,20 @@ This supersedes the 2026-07-21 choice of GitHub Actions as the primary refund-au
 
 ## 2026-08-28 - Separate Nayax refund capability from Bloomjoy automatic proof (`#877`, `#961`, `#990`)
 
-The historical Tulsa production evidence proves that Nayax's Lynx API path can produce a real refund. Agents must not describe the current blocker as “the API cannot refund” or use the absence of a direct end-to-end Bloomjoy success to erase that provider success.
+**Evidence corrected September 3, 2026:** the historical Eastridge refund is confirmed, but its attribution to Bloomjoy's API calls is unproved. The original request and both approval logs report provider failures. Those responses do not prove zero side effects, and the later refund does not establish its initiating operation or actor. The owner's September 2 API-first operating decision in `#990` remains unchanged.
 
 **Canonical interpretation**
-- At least one legitimate Tulsa `$7` refund began through Bloomjoy's Nayax API path and was later authoritatively confirmed by Nayax/DTM as a real provider refund. Bloomjoy reconciled the case, reporting adjustment, and customer completion exactly once without a second refund request.
-- That success proves provider write capability. It does not prove that Bloomjoy correctly classified both immediate write responses, automatically established final provider state, and finalized the entire ordinary path without DTM or Support.
+- Bloomjoy attempted the historical Eastridge `$10.90` refund through its API path. Nayax later confirmed the refund, and Bloomjoy reconciled the case, reporting adjustment, and customer completion without another refund request.
+- The final outcome does not substantiate the earlier claim of successful API execution. Preserve both the provider-reported failures and the later confirmed refund without rewriting historical attempts or declaring the API unavailable.
 - Production still has zero direct request -> approval -> automatic-finalization proofs under an account-confirmed response contract. The next fresh eligible refund remains that proof.
 - HTTP transport status and business outcome are separate. The later provider-owned `$8` log proves that Nayax can carry a business rejection over HTTP `200`; no unfamiliar `2xx` may authorize approval.
 - The current request/approval body structurally matches Nayax's published fields. Do not call a payload, role, token scope, or amount-unit defect the root cause unless Nayax ties it to the exact provider log.
-- Historical Tulsa and `$8` attempts are evidence only. They must not be replayed, approved, or used as the fresh direct proof.
+- Historical Eastridge, Tulsa and `$8` attempts are evidence only. They must not be replayed, approved, or used as the fresh direct proof.
 
 The durable root cause analysis, evidence timeline, code audit, open hypotheses, and exit evidence are in `Docs/NAYAX_REFUND_PRODUCTION_RCA.md`.
 
 **Why this choice**
-- It preserves the positive production fact the owner identified: the API has refunded a real customer.
+- It preserves the confirmed customer refund while correcting the unsupported attribution to API execution.
 - It also preserves the safety fact: Bloomjoy cannot yet interpret every immediate provider response or automatically confirm every final result.
 - Keeping those claims separate prevents both overreaction (“the API is broken”) and unsafe overconfidence (“one provider refund proved the full automatic integration”).
 
@@ -1472,3 +1584,79 @@ Queue placement is part of the server-owned refund lifecycle, not a browser infe
 - It removes the live contradiction where detail, queue placement, and counts could disagree or change merely because a manager opened the case.
 - It keeps stale lookup recovery read-only and preserves the separate no-blind-payment-retry boundary.
 - It gives managers and customers one truthful state vocabulary without exposing provider or reconciliation details.
+
+## 2026-09-01 - Gmail intake resolves existing cases before asking for another form (`#889`)
+
+A verified support email from a customer with a recent open Website case is existing-case work, not a reason to restart intake.
+
+**Canonical choices**
+- Evidence is considered in this order: an existing provider thread, an explicit same-sender case reference, then exact normalized sender identity across recent open customer cases with bounded deterministic contextual match flags. Internal/test and terminal cases are excluded.
+- One recent open case is linked atomically before any generic form response can be claimed. The message continues in the existing case/thread and creates no pre-form contact, new case, customer message, provider call, or payment action.
+- Multiple plausible cases create one versioned manager-owned linking task. The contact enters a non-sendable `link_review` state, every candidate's official action fails closed, and replay cannot claim a form response or create a duplicate task.
+- Resolution selects one primary case and retains every other candidate as a related immutable association. A current manager must have access to every candidate; Refund Operations may resolve portfolio-spanning work. The retained conversation moves only to the primary case so one customer message is never copied into multiple case threads.
+- Candidate projection is redacted: public case reference, safe machine/location, incident time, amount, and boolean match signals only. Sender addresses and message content remain in the existing protected case/message surfaces.
+- Resolution is versioned and replay-safe and returns explicit negative side-effect evidence. It does not infer purchase-specific facts across related cases or authorize a refund. Managers continue from the submitted form facts and linked conversation without asking the customer to repeat information Bloomjoy already possesses.
+
+**Why this choice**
+- It removes the production failure where a customer who had already submitted two forms received another form request.
+- It uses exact identity and existing records conservatively: an unambiguous case can proceed automatically, while multiple plausible purchases remain human-owned without another customer chore.
+- It preserves form-only case creation, provider/payment isolation, exact-transaction protection, and immutable replay evidence.
+
+## 2026-09-02 - Refund lifecycle v2 is the cross-surface release contract (`#628`, `#991`, `#992`)
+
+Payment attempts, case state, manager work, customer status, delivery state, location/machine evidence, and Internal/test disposition must project one versioned story. A consumer may not reconstruct status from legacy fields when the canonical release is absent.
+
+**Canonical choices**
+- `refund_lifecycle_v2` and nested `refund_manager_queue_v2` supersede the v1 browser contracts. Every case carries a monotonic lifecycle revision, explicit reason/actor/customer action/manager action/payment/message state, and one redacted location-evidence projection.
+- The customer-reported selection remains distinct from normalized location, exact machine, timezone, provider-account scope, mapping source/version, and confidence. Customer capabilities omit this manager-only provenance.
+- Customer card cases in pending/completed or active execution states require at least one durable attempt. Existing impossible rows are quarantined with a named integrity hold; reconciliation makes no provider call, payment retry, or customer message. New split writes fail at deferred commit, while a case and attempt may transition atomically.
+- `closed` means unable to complete, never denied. Cash uses a named payout stage. Failed/uncertain delivery remains separate from confirmed payment. Internal/test is a distinct terminal archive suppressed from customer status and active work.
+- Release order is database, then functions, then UI. Manager/customer parsers reject unknown or missing versions, the release inventory includes the exact migration, and aggregate health advertises the same lifecycle version and release order.
+- The manager-authored transactional outbox is a required adjacent integration owned separately; #628 cannot close until that ledger and this lifecycle release are combined and proven on the same deployment.
+
+**Why this choice**
+- It prevents a locally plausible screen from contradicting payment, message, evidence, or test-population truth.
+- Deferred integrity checks preserve one-transaction server workflows while blocking observable case-only payment transitions.
+- Explicit version and release order turn deployment skew into a safe failure instead of a partially working portal.
+
+## 2026-09-02 - Approved cash reimbursement requires one protected payout destination (`#628`, `#891`)
+
+The earlier one-action cash-completion decision assumed the payout destination had already been arranged outside Bloomjoy Hub. Production evidence showed that this assumption creates a dead end: a manager can be told to reimburse a customer without a recorded destination, while the message ledger cannot truthfully represent the one detail the customer must supply.
+
+**Canonical choices**
+- Cash intake still collects no payout handle and makes no payment promise. After a cash reimbursement is approved, a missing destination becomes one protected follow-up field: `zelle_payment_contact`.
+- The mapped manager requests only the Zelle email address or phone number in the existing customer thread. The request is committed to the durable outbox before provider access, uses the persisted customer locale, and cannot be mixed with purchase, card, time, location, or Nayax questions.
+- A still-unanswered request may receive one deterministic reminder for that same field. After the final response window, or immediately when either automatic-contact gate is off or the customer thread is paused at reminder time, the customer action clears and the case returns to named Refund Operations review. The kill switch and thread hold suppress delivery but never preserve an indefinite Waiting state. A second request cannot silently reuse an exhausted ledger; it stops before provider access with an explicit Refund Operations disposition.
+- A verified labeled reply updates the same case once, records which message request it satisfied, clears the stale customer action, and makes the manager lifecycle payout-ready. Raw payout values never enter event metadata, lifecycle payloads, or customer-message evidence.
+- No payout may be marked complete until the protected destination is present and the manager has actually sent the external reimbursement. Bloomjoy Hub still does not initiate or verify Zelle, choose an external channel, or expose the destination in completion copy.
+- Reply replay, delivery uncertainty, concurrent processing, and stale case versions create no duplicate message, fact application, payment attempt, reporting adjustment, or completion.
+
+**Why this choice**
+- It makes the customer request, message ledger, secure status, manager queue, and same-case reply one truthful contract.
+- It asks the customer for the single fact Bloomjoy cannot retrieve internally and prevents a false purchase-detail reminder after transaction review is already complete.
+- It preserves the external manual-payment boundary while removing the unsafe assumption that a usable destination exists off-system.
+
+This supersedes only the older assumption that the payout destination always exists outside Hub before completion. It does not make Hub a Zelle provider or authorize automatic payment.
+
+## 2026-09-02 - Historical owner-mailbox completion notices are private operator observations
+
+A current verified owner may record an already-SENT message from their own mailbox at or before the fixed cutoff `2026-09-02T19:51:58Z`, only against an existing exact full-refund receipt. This bounded historical exception records an operator observation, not provider-confirmed delivery, support-thread ownership, manager CC, or a new sender permission.
+
+The operator reviews the exact case reference and full amount in the notice against the selected receipt. The server binds the receipt's original transaction, account, machine and currency without claiming those identifiers appeared in the email. Another claim in the thread does not inherit completion. Current authenticated identity, live session, Super Admin authority, active machine mapping and case version are rechecked, including on replay.
+
+Checked evidence carries an opaque current-user/session/verified-email review binding, never a raw token or authority grant. A changed sign-in cannot inherit another owner's attestation even when the redacted case overview is otherwise identical.
+
+Private immutable evidence and the existing canonical notice-adoption row are committed together. Both source kinds share the mailbox/provider-message identity namespace and one adoption per receipt/case. Support Gmail ingestion and its `info@` sender guard remain unchanged; no historical owner message is copied into that mailbox. Exact replay is harmless; conflicting evidence fails. Public status contains no mailbox identity, message/thread ID or private evidence reference. Nothing sends, retries payment, changes historical messages/attempts, invents a settlement time or creates accounting entries.
+
+## 2026-09-05 - Finish the full-refund MVP with one manager decision
+
+The customer requests help once; Bloomjoy identifies the purchase; one currently mapped manager authorizes its full original amount; the backend requests and approves through Nayax, confirms the outcome and sends one accurate completion update. Reuse lifecycle v2, existing attempts, receipts, reports and outboxes. [REFUND_MVP_PLAN.md](./REFUND_MVP_PLAN.md) defines the delivery contract; #628 owns progress.
+
+- Keep exact account/machine/purchase binding, provider amount/currency, current authority, transaction uniqueness, version checks, one durable attempt, idempotency and unknown-outcome reconciliation as system controls. No arbitrary caps, quotas, pilot cohort, separate balance attestation or repeated business approval. Selection and the final monetary confirmation stay together; provider request and approval use the same authorization.
+- Customer card/time/amount facts are evidence with provenance. A suffix mismatch has the meaning established for that payment instrument and provider field, not a universal identity rule. #1161/#1162 own the evidence-based policy; this decision does not make ambiguous candidates automatically eligible or bypass the deployed validator. Optional PAR and exhaustive payment-mode research are not global dependencies.
+- Known full-refund evidence must finish the payment task and automatically enqueue/adopt one standard completion notice under existing contact authority. Email delivery and unknown accounting dates stay separate internal tasks; neither reopens payment nor asks the customer to prove something already confirmed. Preserve unknown settlement time. #971 implements this target; existing historical records and notices are not bulk rewritten or resent.
+- Report delivery is not final-outcome evidence. Current blank-status negative rows remain nonterminal. Validated machine-readable terminal evidence may enter the existing receipt path; exact portal confirmation is the internal fallback. Full automatic confirmation remains explicitly incomplete until a supported signal is demonstrated and integrated.
+- Put the manager decision ahead of case administration and technical detail. Retain the six server-owned queue buckets and a truthful confirmed-payment state while accounting or mail needs follow-up. Customers use the same secure request/correction/status flow and receive one useful correction, not a repeating questionnaire.
+- Cash and alternative reimbursements stay owner-handled offline. Partial-refund UI, new payment/reporting platforms, GPT decision automation and optional tooling are outside this MVP. Existing exact machine/manager exclusions remain effective.
+
+These choices supersede earlier refund pilot, mandatory TOTP/approval ceremonies, QA-before-any-production-write instructions, and accounting-date prerequisites for an already confirmed customer refund. They do not grant new communication, credential or deployment authority, change current runtime by themselves, or remove transaction-specific safeguards. One combined release/operating result can satisfy several issues; duplicate tracking is closed as superseded without claiming unproved production success.

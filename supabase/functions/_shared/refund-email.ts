@@ -23,6 +23,8 @@ import {
   sanitizeRefundCustomerLocale,
   type RefundCustomerLocale,
 } from "./refund-language.ts";
+import { refundCorrectionCopy } from "./refund-correction-copy.ts";
+import { requireRefundCorrectionUrl, STORED_CORRECTION_LINK_MARKER } from "./refund-correction-delivery.ts";
 
 export {
   REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
@@ -65,6 +67,8 @@ export type RefundCustomerEmailInput = {
   managerRecipientOverlap?: boolean;
   managerRecipientCount?: number;
   statusUrl?: string | null;
+  correctionUrl?: string | null;
+  idempotencyKey?: string | null;
 };
 
 const refundMissingFieldRequest: Record<RefundMissingField, string> = {
@@ -73,11 +77,17 @@ const refundMissingFieldRequest: Record<RefundMissingField, string> = {
   incident_time: "the approximate purchase time, including AM or PM",
   payment_method: "whether you paid by card, Apple Pay, Google Pay, or cash",
   payment_interaction: "how you used the card or wallet",
+  card_last4_source: "where you found the last four digits",
   wallet_provider: "the wallet provider, if you used a phone or watch wallet",
+  wallet_device_kind: "whether you used a phone or watch",
+  incident_time_source: "whether the time came from an alert or receipt, memory, or is unknown",
+  nearby_attempt_count: "whether there was one nearby attempt or charge, more than one, or you are not sure",
   amount: "the exact amount charged",
   card_last4:
     "only the last four digits shown on the card charge (do not email wallet or device-card digits)",
   card_network: "the card type shown on the card or inside the wallet",
+  zelle_payment_contact:
+    "the email address or phone number connected to Zelle for this reimbursement",
 };
 
 const refundMissingFieldReplyLine: Record<RefundMissingField, string> = {
@@ -86,10 +96,50 @@ const refundMissingFieldReplyLine: Record<RefundMissingField, string> = {
   incident_time: "Approximate purchase time (include AM or PM):",
   payment_method: "Payment method (card, Apple Pay, Google Pay, or cash):",
   payment_interaction: "Payment interaction (tap card, insert or swipe, phone or watch wallet, or not sure):",
+  card_last4_source: "Last-four source (physical card, wallet/device, bank record or alert, or not sure):",
   wallet_provider: "Wallet provider (Apple Pay, Google Wallet, other, or not sure):",
+  wallet_device_kind: "Wallet device (phone, watch, or not sure):",
+  incident_time_source: "Time source (alert or receipt, memory, or not sure):",
+  nearby_attempt_count: "Nearby attempts or charges (one, more than one, or not sure):",
   amount: "Amount (for example, $7.25):",
   card_last4: "Card last four:",
   card_network: "Card type (Visa, Mastercard, Discover, American Express, or not sure):",
+  zelle_payment_contact: "Zelle email or phone number:",
+};
+
+const refundMissingFieldRequestSpanish: Record<RefundMissingField, string> = {
+  location_or_machine: "la máquina o ubicación de Bloomjoy",
+  incident_date: "la fecha de compra",
+  incident_time: "la hora aproximada de compra, incluyendo a. m. o p. m.",
+  payment_method: "si pagó con tarjeta, Apple Pay, Google Pay o efectivo",
+  payment_interaction: "cómo usó la tarjeta o billetera digital",
+  card_last4_source: "dónde encontró los últimos cuatro dígitos",
+  wallet_provider: "la billetera digital que usó",
+  wallet_device_kind: "si usó un teléfono o un reloj",
+  incident_time_source: "si la hora provino de una alerta o recibo, de memoria, o no está seguro",
+  nearby_attempt_count: "si hubo un intento o cargo cercano, más de uno, o no está seguro",
+  amount: "el monto exacto cobrado",
+  card_last4: "solamente los últimos cuatro dígitos de la tarjeta física",
+  card_network: "el tipo de tarjeta",
+  zelle_payment_contact:
+    "el correo electrónico o número de teléfono conectado a Zelle para este reembolso",
+};
+
+const refundMissingFieldReplyLineSpanish: Record<RefundMissingField, string> = {
+  location_or_machine: "Máquina o ubicación:",
+  incident_date: "Fecha de compra (AAAA-MM-DD):",
+  incident_time: "Hora aproximada de compra (incluya a. m. o p. m.):",
+  payment_method: "Método de pago:",
+  payment_interaction: "Cómo usó la tarjeta o billetera digital:",
+  card_last4_source: "Fuente de los últimos cuatro dígitos:",
+  wallet_provider: "Billetera digital:",
+  wallet_device_kind: "Dispositivo de la billetera (teléfono, reloj o no sé):",
+  incident_time_source: "Fuente de la hora (alerta o recibo, memoria o no sé):",
+  nearby_attempt_count: "Intentos o cargos cercanos (uno, más de uno o no sé):",
+  amount: "Monto:",
+  card_last4: "Últimos cuatro dígitos de la tarjeta:",
+  card_network: "Tipo de tarjeta:",
+  zelle_payment_contact: "Correo electrónico o número de teléfono de Zelle:",
 };
 
 export const describeRefundMissingFields = (value: unknown) =>
@@ -223,9 +273,11 @@ const sanitizeRefundStatusUrl = (value: unknown) => {
 };
 
 const storedStatusUrlPattern = /https?:\/\/(?:(?:app|www)\.bloomjoyusa\.com|localhost(?::\d+)?|127\.0\.0\.1(?::\d+)?)\/refunds\/status#token=[A-Za-z0-9_-]{43}/gu;
+const storedCorrectionUrlPattern = /https?:\/\/(?:(?:app|www)\.bloomjoyusa\.com|localhost(?::\d+)?|127\.0\.0\.1(?::\d+)?)\/refunds\/correct#token=[A-Za-z0-9_-]{43}/gu;
 
 export const redactRefundStatusLinksForStorage = (value: string) =>
-  value.replace(storedStatusUrlPattern, "[Secure refund status link included at delivery]");
+  value.replace(storedStatusUrlPattern, "[Secure refund status link included at delivery]")
+    .replace(storedCorrectionUrlPattern, STORED_CORRECTION_LINK_MARKER);
 
 export const buildRefundStoredTextWithStatus = ({
   headline,
@@ -489,14 +541,27 @@ const getBodyParagraphs = ({
 const getSpanishBodyParagraphs = ({
   messageType,
   paymentMethod,
+  missingFields,
   statusUpdateReason,
 }: RefundCustomerEmailInput) => {
   const isCash = paymentMethod === "cash";
+  const requestedFields = sanitizeRefundMissingFields(missingFields);
+  const requestedDetails = requestedFields
+    .map((field) => refundMissingFieldRequestSpanish[field])
+    .join("; ");
+  const replyLines = requestedFields
+    .map((field) => refundMissingFieldReplyLineSpanish[field])
+    .join("\n");
   switch (messageType) {
     case "more_info":
     case "reminder":
       return [
-        "Necesitamos un dato más para continuar la revisión. Responda en esta misma conversación solamente con la información solicitada arriba.",
+        requestedDetails
+          ? `Responda en esta misma conversación solamente con ${requestedDetails}.`
+          : "Necesitamos un dato más para continuar la revisión.",
+        replyLines
+          ? `Copie esta línea en su respuesta y complete solamente el espacio solicitado:\n${replyLines}`
+          : "Responda solamente con la información solicitada.",
         "Por su seguridad, no envíe el número completo de su tarjeta, código de seguridad, fecha de vencimiento, PIN, contraseña ni capturas de pantalla.",
       ];
     case "no_safe_match":
@@ -569,7 +634,32 @@ export const sanitizeRefundCustomerSafeDenialReason = (value: unknown) => {
   return /[.!?]$/u.test(normalized) ? normalized : `${normalized}.`;
 };
 
+export const buildRefundPurchaseCorrectionEmail = (input: RefundCustomerEmailInput) => {
+  const fields = sanitizeRefundMissingFields(input.missingFields);
+  if (!fields.length || !input.correctionUrl) throw new Error("A correction request needs specific fields and a scoped link.");
+  const link = input.correctionUrl === STORED_CORRECTION_LINK_MARKER
+    ? null : requireRefundCorrectionUrl(input.correctionUrl);
+  const spanish = sanitizeRefundCustomerLocale(input.customerLocale) === "es";
+  const reference = sanitizeText(input.publicReference, 80);
+  const { subject, paragraphs } = refundCorrectionCopy(fields, reference, spanish);
+  const label = spanish ? "Actualizar su solicitud / Update your refund request" : "Update your refund request";
+  const replyLine = spanish
+    ? "Puede responder a este correo si necesita ayuda. / You can reply to this email if you need help."
+    : "You can reply to this email if you need help.";
+  const safetyLine = spanish
+    ? "No envíe números completos de tarjetas, códigos de seguridad ni contraseñas. / Never send full card numbers, security codes or passwords."
+    : "Never send full card numbers, security codes or passwords.";
+  const greeting = input.customerName ? `${spanish ? 'Hola' : 'Hi'} ${sanitizeText(input.customerName, 160)},` : spanish ? "Hola," : "Hi there,";
+  return {
+    subject,
+    text: [greeting, ...paragraphs, `Reference: ${reference}`, label, link ?? STORED_CORRECTION_LINK_MARKER, replyLine, safetyLine, "Warmly,\nThe Bloomjoy Sweets Team"].join("\n\n"),
+    html: renderBloomjoyRefundEmail({ preheader: subject, headline: spanish ? "Actualice su solicitud" : "Update your refund request", greeting, paragraphs,
+      details: [{ label: "Reference", value: reference }], primaryLink: link ? { label, url: link } : null, replyLine, safetyLine }),
+  };
+};
+
 export const buildRefundCustomerEmail = (input: RefundCustomerEmailInput) => {
+  if (input.correctionUrl) return buildRefundPurchaseCorrectionEmail(input);
   const publicReference = sanitizeText(input.publicReference, 80);
   const customerName = sanitizeText(input.customerName, 160);
   const { machineLabel, locationName } = resolveRefundPublicLabels({
@@ -665,6 +755,8 @@ export const buildEditableRefundCustomerEmail = ({
       : `${safeSubjectBase} - ${publicReference}`;
   const sanitizedBody = sanitizeText(body, 4000);
   const statusUrl = sanitizeRefundStatusUrl(input.statusUrl);
+  const correctionUrl = input.correctionUrl === STORED_CORRECTION_LINK_MARKER
+    ? null : input.correctionUrl ? requireRefundCorrectionUrl(input.correctionUrl) : null;
   const paragraphs = sanitizedBody
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
@@ -686,7 +778,8 @@ export const buildEditableRefundCustomerEmail = ({
     ...paragraphs.flatMap((paragraph) => [paragraph, ""]),
     ...details,
     "",
-    ...(statusUrl ? ["Check refund status:", statusUrl, ""] : []),
+    ...(input.correctionUrl ? ["Update your refund request:", correctionUrl ?? STORED_CORRECTION_LINK_MARKER, ""]
+      : statusUrl ? ["Check refund status:", statusUrl, ""] : []),
     "Please reply to this email if anything looks off. Replies go to our Bloomjoy support inbox.",
     "",
     "Warmly,",
@@ -704,7 +797,8 @@ export const buildEditableRefundCustomerEmail = ({
     greeting,
     paragraphs,
     details: brandDetails,
-    primaryLink: statusUrl ? { label: "Check refund status", url: statusUrl } : null,
+    primaryLink: correctionUrl ? { label: "Update your refund request", url: correctionUrl }
+      : !input.correctionUrl && statusUrl ? { label: "Check refund status", url: statusUrl } : null,
     replyLine:
       "Please reply to this email if anything looks off. Replies go to our Bloomjoy support inbox.",
   });
@@ -722,15 +816,16 @@ export const sendRefundCustomerEmail = async (
     input.managerRecipientOverlap,
     input.managerRecipientCount,
   );
-  await sendRefundTransactionalEmail({
+  const delivery = await sendRefundTransactionalEmail({
     to: [input.customerEmail],
     cc: managerCcEmails,
     subject: email.subject,
     text: email.text,
     html: email.html,
+    idempotencyKey: input.idempotencyKey,
   });
 
-  return email;
+  return { ...email, delivery };
 };
 
 export const buildBrandedRefundHtmlFromStoredText =
@@ -747,6 +842,7 @@ export type RefundWalletCorrectionEmailInput = {
   managerCcEmails?: string[];
   managerRecipientOverlap?: boolean;
   managerRecipientCount?: number;
+  idempotencyKey?: string | null;
 };
 
 export const buildRefundWalletCorrectionEmail = (
@@ -822,13 +918,14 @@ export const sendRefundWalletCorrectionEmail = async (
     input.managerRecipientOverlap,
     input.managerRecipientCount,
   );
-  await sendRefundTransactionalEmail({
+  const delivery = await sendRefundTransactionalEmail({
     to: [input.customerEmail],
     cc: managerCcEmails,
     subject: email.subject,
     text: email.text,
     html: email.html,
+    idempotencyKey: input.idempotencyKey,
   });
 
-  return email;
+  return { ...email, delivery };
 };

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
   buildNayaxRecommendation,
+  NAYAX_RECOMMENDATION_POLICY,
   toPublicNayaxCandidate,
 } from "../../supabase/functions/_shared/nayax-recommendation.mjs";
 import { resolveLocalDateTimeInZone } from "../../supabase/functions/_shared/timezone-resolution.mjs";
@@ -26,6 +27,7 @@ const sale = ({
   MachineID: machineId,
   SiteID: siteId,
   AuthorizationDateTimeGMT: at,
+  MachineAuthorizationTime: at,
   AuthorizationValue: amount,
   CurrencyCode: currency,
   CardNumber: last4 ? `************${last4}` : "",
@@ -35,23 +37,45 @@ const sale = ({
   ...extra,
 });
 
-const recommend = (records, overrides = {}) =>
-  buildNayaxRecommendation({
+const recommend = (records, overrides = {}) => {
+  const effectiveIncidentAt = overrides.incidentAt ?? incidentAt;
+  const defaultRequestReceivedAt = new Date(Date.parse(effectiveIncidentAt) + 24 * 60 * 60 * 1000).toISOString();
+  return buildNayaxRecommendation({
     payload: records,
-    incidentAt,
+    incidentAt: effectiveIncidentAt,
     incidentTimeResolution: "exact",
     expectedMachineId,
     locationTimezone: "America/Los_Angeles",
     requestAmountCents: 700,
     requestCardLast4: "4242",
+    requestCardLast4Provenance: "physical_card",
+    requestCardLast4Source: "physical_card",
+    paymentInteraction: "insert_card",
+    incidentTimeSource: "transaction_alert_or_receipt",
+    nearbyAttemptCount: "one",
+    incidentTimeConfidence: "within_15_minutes",
+    customerFactVersion: 4,
     cardWalletUsed: false,
+    customerRequestReceivedAt: defaultRequestReceivedAt,
+    customerRequestReceivedSource: "hosted_refund_intake",
     providerContract: "nayax_machine_last_sales_v1",
+    purchaseOccurrenceProof: {
+      semantics: "online_purchase_occurrence",
+      source: "verified_provider_purchase_occurrence_v1",
+      timestampSource: "authorization_gmt",
+      timezoneBasis: "utc",
+      transactionPrecisionMs: 0,
+      transactionClockErrorMs: 0,
+      requestReceiptPrecisionMs: 0,
+      requestReceiptClockErrorMs: 0,
+    },
     ...overrides,
   });
+};
 
 const exact = recommend([
   sale({ id: "exact" }),
-  sale({ id: "exact-distractor", at: "2026-07-21T19:02:00.000Z", amount: 8.5 }),
+  sale({ id: "exact-distractor", at: "2026-07-21T19:02:00.000Z", amount: 8.5, last4: "9999" }),
 ]);
 assert.equal(exact.recommendationState, "high_confidence");
 assert.equal(exact.confidenceClass, "strong_card");
@@ -74,26 +98,194 @@ const physicalNetworkMismatch = recommend(
   [sale({ id: "physical-network-mismatch", cardBrand: "Visa" })],
   { requestCardNetwork: "american_express" },
 );
-assert.ok(physicalNetworkMismatch.candidates[0].reasonCodes.includes("physical_card_network_mismatch"));
-assert.equal(physicalNetworkMismatch.candidates[0].selectionAllowed, false);
+assert.ok(physicalNetworkMismatch.candidates[0].reasonCodes.includes("card_network_mismatch"));
+assert.equal(physicalNetworkMismatch.recommendationState, "manual_exception");
+assert.equal(physicalNetworkMismatch.confidenceClass, "evidence_aware_review");
+assert.equal(physicalNetworkMismatch.candidates[0].selectionAllowed, true);
+assert.equal(physicalNetworkMismatch.candidates[0].oneClickEligible, false);
+assert.equal(physicalNetworkMismatch.candidates[0].hardExclusions.length, 0);
+
+const productionShapedTapMismatch = recommend([
+  sale({ id: "great-mall-tap-mismatch", at: "2026-07-21T19:15:00.000Z", amount: 10.9,
+    last4: "3760", recognitionMethod: "Contactless" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "tap_card", requestCardLast4Source: null,
+  incidentTimeSource: null, nearbyAttemptCount: null, incidentTimeConfidence: "exact",
+  customerRequestReceivedAt: null, customerRequestReceivedSource: null,
+  purchaseOccurrenceProof: null });
+assert.equal(productionShapedTapMismatch.recommendationState, "manual_exception");
+assert.equal(productionShapedTapMismatch.confidenceClass, "evidence_aware_review");
+assert.equal(productionShapedTapMismatch.candidates[0].selectionAllowed, true);
+assert.equal(productionShapedTapMismatch.candidates[0].isRecommended, true);
+assert.equal(productionShapedTapMismatch.candidates[0].oneClickEligible, false);
+assert.equal(productionShapedTapMismatch.candidates[0].identifierReviewState, "reviewable_uncertainty");
+assert.equal(productionShapedTapMismatch.candidates[0].cardLast4Comparison, "mismatch_neutral_unproven_scope");
+assert.equal(productionShapedTapMismatch.candidates[0].sameIdentifierEquivalenceProven, false);
+assert.equal(productionShapedTapMismatch.candidates[0].customerCorrectionFields.includes("card_last4_source"), false);
+assert.deepEqual(productionShapedTapMismatch.candidates[0].hardExclusions, []);
+
+const delayedProviderTapMismatch = recommend([
+  sale({ id: "delayed-provider-tap-mismatch", at: "2026-07-21T22:15:00.000Z", amount: 10.9,
+    last4: "3760", recognitionMethod: "Swipe" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "tap_card", requestCardLast4Source: "physical_card",
+  incidentTimeSource: null, nearbyAttemptCount: null, incidentTimeConfidence: "exact",
+  customerRequestReceivedAt: null, customerRequestReceivedSource: null,
+  purchaseOccurrenceProof: null });
+assert.equal(delayedProviderTapMismatch.candidates[0].timeDeltaMinutes, null);
+assert.equal(delayedProviderTapMismatch.candidates[0].providerProcessingTimeDeltaMinutes, 195);
+assert.equal(delayedProviderTapMismatch.candidates[0].selectionAllowed, true);
+assert.equal(delayedProviderTapMismatch.candidates[0].identifierReviewState, "reviewable_uncertainty");
 assert.equal(
-  physicalNetworkMismatch.candidates[0].hardExclusions.includes("card_network_mismatch"),
-  true,
-  "a physical card-network mismatch must keep an otherwise exact candidate unselectable",
+  delayedProviderTapMismatch.candidates[0].paymentInteractionComparison,
+  "conflict_unverified_provider_semantics",
 );
+assert.equal(delayedProviderTapMismatch.candidates[0].customerCorrectionFields.includes("payment_interaction"), false);
+assert.equal(delayedProviderTapMismatch.candidates[0].oneClickEligible, false);
+assert.match(delayedProviderTapMismatch.summary, /amounts are shown for comparison/i);
+assert.match(delayedProviderTapMismatch.summary, /timing is shown separately and may be unproved/i);
+assert.doesNotMatch(delayedProviderTapMismatch.summary, /close timing/i);
+assert.doesNotMatch(delayedProviderTapMismatch.recommendedAction, /amount, time/i);
+
+const oneCentDifferentTapMismatch = recommend([
+  sale({ id: "one-cent-different-tap-mismatch", at: "2026-07-21T19:15:00.000Z", amount: 10.91,
+    last4: "3760", recognitionMethod: "Contactless" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "tap_card", requestCardLast4Source: "physical_card",
+  incidentTimeSource: null, nearbyAttemptCount: null, incidentTimeConfidence: "exact",
+  customerRequestReceivedAt: null, customerRequestReceivedSource: null,
+  purchaseOccurrenceProof: null });
+assert.equal(oneCentDifferentTapMismatch.candidates[0].amountDeltaCents, 1);
+assert.equal(oneCentDifferentTapMismatch.candidates[0].selectionAllowed, true);
+assert.equal(oneCentDifferentTapMismatch.candidates[0].identifierReviewState, "reviewable_uncertainty");
+assert.deepEqual(oneCentDifferentTapMismatch.candidates[0].customerCorrectionFields, []);
+assert.equal(oneCentDifferentTapMismatch.candidates[0].oneClickEligible, false);
+
+const largeAmountDifferenceTapMismatch = recommend([
+  sale({ id: "large-difference-tap-mismatch", at: "2026-07-21T23:15:00.000Z", amount: 25.9,
+    last4: "3760", recognitionMethod: "Contactless" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "tap_card", requestCardLast4Source: "physical_card",
+  incidentTimeSource: null, nearbyAttemptCount: null, incidentTimeConfidence: "exact",
+  customerRequestReceivedAt: null, customerRequestReceivedSource: null,
+  purchaseOccurrenceProof: null });
+assert.equal(largeAmountDifferenceTapMismatch.candidates[0].amountDeltaCents, 1500);
+assert.equal(largeAmountDifferenceTapMismatch.candidates[0].selectionAllowed, true);
+assert.equal(largeAmountDifferenceTapMismatch.candidates[0].identifierReviewState, "reviewable_uncertainty");
+assert.equal(largeAmountDifferenceTapMismatch.candidates[0].oneClickEligible, false);
+assert.match(largeAmountDifferenceTapMismatch.recommendedAction, /full amount/i);
+
+const largeAmountDifferenceExactSuffix = recommend([
+  sale({ id: "large-difference-exact-suffix", at: "2026-07-21T19:15:00.000Z", amount: 25.9,
+    last4: "6768", recognitionMethod: "Swipe" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "swipe_card", requestCardLast4Source: "physical_card" });
+assert.equal(largeAmountDifferenceExactSuffix.candidates[0].selectionAllowed, true);
+assert.equal(largeAmountDifferenceExactSuffix.candidates[0].oneClickEligible, false);
+
+const distantExactSuffixBeforeRequest = recommend([
+  sale({ id: "distant-exact-suffix-before-request", at: "2026-07-21T23:00:00.000Z", amount: 10.9,
+    last4: "6768", recognitionMethod: "Swipe" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "swipe_card", requestCardLast4Source: "physical_card",
+  customerRequestReceivedAt: "2026-07-22T00:00:00.000Z",
+  customerRequestReceivedSource: "hosted_refund_intake",
+  purchaseOccurrenceProof: {
+    semantics: "online_purchase_occurrence",
+    source: "verified_provider_purchase_occurrence_v1",
+    timestampSource: "authorization_gmt",
+    timezoneBasis: "utc",
+    transactionPrecisionMs: 0,
+    transactionClockErrorMs: 0,
+    requestReceiptPrecisionMs: 0,
+    requestReceiptClockErrorMs: 0,
+  } });
+assert.equal(distantExactSuffixBeforeRequest.candidates[0].timeDeltaMinutes, 240);
+assert.equal(distantExactSuffixBeforeRequest.candidates[0].requestTimeBoundaryState, "before_or_at_request");
+assert.equal(distantExactSuffixBeforeRequest.candidates[0].selectionAllowed, true);
+assert.equal(distantExactSuffixBeforeRequest.candidates[0].oneClickEligible, false);
+
+const largeAmountDifferenceCorroboratedMismatch = recommend([
+  sale({ id: "large-difference-corroborated", at: "2026-07-21T19:15:00.000Z", amount: 25.9,
+    last4: "3760", recognitionMethod: "Swipe" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "swipe_card", requestCardLast4Source: "physical_card",
+  incidentTimeSource: "transaction_alert_or_receipt", nearbyAttemptCount: "one",
+  incidentTimeConfidence: "exact" });
+assert.equal(largeAmountDifferenceCorroboratedMismatch.candidates[0].selectionAllowed, true);
+assert.equal(largeAmountDifferenceCorroboratedMismatch.candidates[0].identifierReviewState, "reviewable_uncertainty");
+assert.equal(largeAmountDifferenceCorroboratedMismatch.candidates[0].oneClickEligible, false);
+
+const ambiguousTapMismatches = recommend([
+  sale({ id: "great-mall-tap-a", at: "2026-07-21T19:14:00.000Z", amount: 10.9,
+    last4: "3760", recognitionMethod: "Contactless" }),
+  sale({ id: "great-mall-tap-b", at: "2026-07-21T19:16:00.000Z", amount: 10.9,
+    last4: "4488", recognitionMethod: "Contactless" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "tap_card", requestCardLast4Source: "physical_card", nearbyAttemptCount: "one" });
+assert.equal(ambiguousTapMismatches.recommendationState, "ambiguous");
+assert.equal(ambiguousTapMismatches.candidates.every((candidate) => candidate.selectionAllowed), true);
+assert.equal(ambiguousTapMismatches.candidates.some((candidate) => candidate.isRecommended), false);
+assert.equal(ambiguousTapMismatches.oneClickEligible, false);
+
+const sameInterfaceMismatchWithoutCorroboration = recommend([
+  sale({ id: "same-interface-mismatch", at: "2026-07-21T19:15:00.000Z", amount: 10.9,
+    last4: "3760", recognitionMethod: "Swipe" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "swipe_card", requestCardLast4Source: null,
+  incidentTimeSource: null, nearbyAttemptCount: null, incidentTimeConfidence: "exact" });
+assert.equal(sameInterfaceMismatchWithoutCorroboration.recommendationState, "manual_exception");
+assert.equal(sameInterfaceMismatchWithoutCorroboration.candidates[0].selectionAllowed, false);
+assert.equal(sameInterfaceMismatchWithoutCorroboration.candidates[0].identifierReviewState, "needs_corroboration");
+assert.equal(sameInterfaceMismatchWithoutCorroboration.candidates[0].cardLast4Comparison, "mismatch_negative_unproven_equivalence");
+assert.equal(sameInterfaceMismatchWithoutCorroboration.candidates[0].customerCorrectionFields.includes("card_last4_source"), false);
+assert.ok(sameInterfaceMismatchWithoutCorroboration.candidates[0].customerCorrectionFields.includes("incident_time_source"));
+assert.ok(sameInterfaceMismatchWithoutCorroboration.candidates[0].customerCorrectionFields.includes("nearby_attempt_count"));
+
+const rememberedMultipleAttempts = recommend([
+  sale({ id: "remembered-multiple-attempts", at: "2026-07-21T19:15:00.000Z", amount: 10.9,
+    last4: "3760", recognitionMethod: "Chip" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "insert_card", requestCardLast4Source: "physical_card",
+  incidentTimeSource: "memory", nearbyAttemptCount: "multiple", incidentTimeConfidence: "within_1_hour" });
+assert.equal(rememberedMultipleAttempts.recommendationState, "manual_exception");
+assert.equal(rememberedMultipleAttempts.candidates[0].selectionAllowed, false);
+assert.equal(rememberedMultipleAttempts.candidates[0].identifierReviewState, "needs_corroboration");
+assert.ok(rememberedMultipleAttempts.candidates[0].customerCorrectionFields.includes("incident_time"));
+assert.ok(rememberedMultipleAttempts.candidates[0].customerCorrectionFields.includes("incident_time_source"));
+assert.ok(rememberedMultipleAttempts.candidates[0].customerCorrectionFields.includes("nearby_attempt_count"));
+
+const distantMismatch = recommend([
+  sale({ id: "distant-mismatch", at: "2026-07-21T22:01:00.000Z", amount: 10.9, last4: "3760" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "tap_card", requestCardLast4Source: "physical_card" });
+assert.equal(distantMismatch.candidates[0].selectionAllowed, true);
+assert.equal(distantMismatch.candidates[0].identifierReviewState, "reviewable_uncertainty");
+assert.deepEqual(distantMismatch.candidates[0].customerCorrectionFields, []);
+
+const duplicateContactlessMismatch = recommend([
+  sale({ id: "duplicate-contactless-mismatch", at: "2026-07-21T19:15:00.000Z", amount: 10.9,
+    last4: "3760", recognitionMethod: "Contactless" }),
+], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
+  paymentInteraction: "tap_card", requestCardLast4Source: null,
+  incidentTimeSource: null, nearbyAttemptCount: null, incidentTimeConfidence: "exact",
+  transactionStates: { "duplicate-contactless-mismatch": "duplicate" } });
+assert.equal(duplicateContactlessMismatch.candidates[0].selectionAllowed, false);
+assert.equal(duplicateContactlessMismatch.candidates[0].identifierReviewState, "blocked_safety");
+assert.ok(duplicateContactlessMismatch.candidates[0].hardExclusions.includes("duplicate_transaction"));
 
 const walletNetworkMismatch = recommend(
   [sale({ id: "wallet-network-mismatch", cardBrand: "Amex", recognitionMethod: "Apple Pay" })],
   { requestCardNetwork: "visa", cardWalletUsed: true },
 );
-assert.ok(walletNetworkMismatch.candidates[0].reasonCodes.includes("wallet_card_network_mismatch"));
+assert.ok(walletNetworkMismatch.candidates[0].reasonCodes.includes("card_network_mismatch"));
 assert.equal(walletNetworkMismatch.candidates[0].oneClickEligible, false);
 
 const walletDifferentAmount = recommend(
   [sale({ id: "wallet-different-amount", amount: 9, cardBrand: "Discover", recognitionMethod: "Apple Pay" })],
   { requestCardNetwork: "discover", cardWalletUsed: true },
 );
-assert.equal(walletDifferentAmount.recommendationState, "manual_exception");
+assert.equal(walletDifferentAmount.recommendationState, "high_confidence");
 assert.equal(walletDifferentAmount.candidates[0].oneClickEligible, false);
 
 const networkOnlyBaseline = recommend(
@@ -122,8 +314,8 @@ assert.ok(customerTimeWithin15Minutes.reasonCodes.includes("customer_time_within
 const customerTimeWithinHour = recommend([sale({ id: "time-within-hour" })], {
   incidentTimeConfidence: "within_1_hour",
 });
-assert.equal(customerTimeWithinHour.recommendationState, "manual_exception");
-assert.equal(customerTimeWithinHour.oneClickEligible, false);
+assert.equal(customerTimeWithinHour.recommendationState, "high_confidence");
+assert.equal(customerTimeWithinHour.oneClickEligible, true);
 assert.ok(customerTimeWithinHour.reasonCodes.includes("customer_time_within_1_hour"));
 
 const customerTimeRough = recommend([sale({ id: "time-rough" })], {
@@ -131,11 +323,111 @@ const customerTimeRough = recommend([sale({ id: "time-rough" })], {
 });
 assert.equal(customerTimeRough.recommendationState, "manual_exception");
 assert.equal(customerTimeRough.oneClickEligible, false);
+assert.equal(customerTimeRough.candidates[0].selectionAllowed, true);
+assert.equal(customerTimeRough.candidates[0].isRecommended, true);
 assert.ok(customerTimeRough.reasonCodes.includes("customer_time_rough"));
 
-const wrongAmount = recommend([sale({ id: "wrong-amount", amount: 9.5 })]);
+const independentlyIdentifiedUncertainTime = recommend([sale({ id: "uncertain-time-exact-card" })], {
+  incidentTimeConfidence: "rough",
+  incidentTimeResolution: "ambiguous",
+});
+assert.equal(independentlyIdentifiedUncertainTime.recommendationState, "manual_exception");
+assert.equal(independentlyIdentifiedUncertainTime.oneClickEligible, false);
+assert.equal(independentlyIdentifiedUncertainTime.candidates[0].selectionAllowed, true);
+assert.equal(independentlyIdentifiedUncertainTime.candidates[0].isRecommended, true);
+assert.equal(independentlyIdentifiedUncertainTime.candidates[0].cardLast4Comparison, "exact_support");
+
+const roughCompetingPurchases = recommend([
+  sale({ id: "rough-collision-a", at: "2026-07-21T18:55:00.000Z" }),
+  sale({ id: "rough-collision-b", at: "2026-07-21T19:05:00.000Z" }),
+], {
+  incidentTimeConfidence: "rough",
+  incidentTimeResolution: "ambiguous",
+  requestCardLast4: null,
+  requestCardLast4Provenance: null,
+  requestCardLast4Source: null,
+});
+assert.equal(roughCompetingPurchases.recommendationState, "ambiguous");
+assert.equal(roughCompetingPurchases.candidates.every((candidate) => candidate.selectionAllowed === false), true);
+assert.deepEqual(
+  roughCompetingPurchases.candidates.map((candidate) => candidate.customerCorrectionFields),
+  [["incident_time"], ["incident_time"]],
+);
+assert.equal(roughCompetingPurchases.candidates.some((candidate) => candidate.isRecommended), false);
+
+const roughSameCardCompetingPurchases = recommend([
+  sale({ id: "rough-same-card-collision-a", at: "2026-07-21T19:00:00.000Z" }),
+  sale({ id: "rough-same-card-collision-b", at: "2026-07-21T19:01:00.000Z" }),
+], {
+  incidentTimeConfidence: "rough",
+  incidentTimeResolution: "ambiguous",
+  purchaseOccurrenceProof: null,
+});
+assert.equal(roughSameCardCompetingPurchases.recommendationState, "ambiguous");
+assert.equal(
+  roughSameCardCompetingPurchases.candidates.every((candidate) => candidate.selectionAllowed === false),
+  true,
+);
+assert.deepEqual(
+  roughSameCardCompetingPurchases.candidates.map((candidate) => candidate.customerCorrectionFields),
+  [[], []],
+);
+assert.equal(roughSameCardCompetingPurchases.candidates.some((candidate) => candidate.isRecommended), false);
+assert.equal(roughSameCardCompetingPurchases.candidates.every((candidate) =>
+  candidate.reasonCodes.includes("multiple_candidates_need_manager_review")
+), true);
+
+const provedSeparatedPurchases = [
+  sale({ id: "proved-separated-a", at: "2026-07-21T13:00:00.000Z" }),
+  sale({ id: "proved-separated-b", at: "2026-07-21T23:00:00.000Z" }),
+];
+const provedSeparatedRoughPurchases = recommend(provedSeparatedPurchases, {
+  incidentTimeConfidence: "rough",
+  incidentTimeResolution: "ambiguous",
+});
+assert.equal(provedSeparatedRoughPurchases.recommendationState, "ambiguous");
+assert.deepEqual(
+  provedSeparatedRoughPurchases.candidates.map((candidate) => candidate.customerCorrectionFields),
+  [["incident_time", "incident_time_source"], ["incident_time", "incident_time_source"]],
+);
+const provedSeparatedAfterCorrection = recommend(provedSeparatedPurchases, {
+  incidentAt: "2026-07-21T13:00:00.000Z",
+  incidentTimeConfidence: "exact",
+  incidentTimeResolution: "exact",
+  incidentTimeSource: "transaction_alert_or_receipt",
+});
+assert.equal(provedSeparatedAfterCorrection.candidates.length, 1);
+assert.equal(provedSeparatedAfterCorrection.providerParseableRecordCount, 2);
+assert.equal(provedSeparatedAfterCorrection.providerWindowRecordCount, 1);
+assert.equal(provedSeparatedAfterCorrection.candidates[0].transactionId, "proved-separated-a");
+assert.equal(provedSeparatedAfterCorrection.candidates[0].selectionAllowed, true);
+assert.equal(provedSeparatedAfterCorrection.recommendationState, "high_confidence");
+
+const roughSameCardDistinctAmounts = recommend([
+  sale({ id: "rough-same-card-amount-a", at: "2026-07-21T18:55:00.000Z" }),
+  sale({ id: "rough-same-card-amount-b", at: "2026-07-21T19:05:00.000Z", amount: 9.99 }),
+], {
+  incidentTimeConfidence: "rough",
+  incidentTimeResolution: "ambiguous",
+});
+assert.equal(roughSameCardDistinctAmounts.recommendationState, "ambiguous");
+assert.deepEqual(
+  roughSameCardDistinctAmounts.candidates.map((candidate) => candidate.selectionAllowed),
+  [true, true],
+);
+assert.equal(roughSameCardDistinctAmounts.candidates.every((candidate) =>
+  !candidate.reasonCodes.includes("multiple_candidates_need_distinguishing_time")
+), true);
+
+const wrongAmount = recommend([sale({ id: "wrong-amount", amount: 10.01 })]);
 assert.equal(wrongAmount.recommendationState, "manual_exception");
 assert.equal(wrongAmount.oneClickEligible, false);
+assert.equal(wrongAmount.candidates[0].selectionAllowed, true);
+assert.equal(wrongAmount.candidates.length, 1);
+
+const nearAmount = recommend([sale({ id: "near-amount", amount: 9.99 })]);
+assert.equal(nearAmount.candidates[0].amountDeltaCents, 299);
+assert.equal(nearAmount.candidates[0].selectionAllowed, true);
 
 const wrongMachine = recommend([sale({ id: "wrong-machine", machineId: "machine-999" })]);
 assert.equal(wrongMachine.recommendationState, "manual_exception");
@@ -149,12 +441,204 @@ assert.equal(collision.recommendationState, "ambiguous");
 assert.equal(collision.candidates.some((candidate) => candidate.oneClickEligible), false);
 assert.equal(collision.candidates.some((candidate) => candidate.isRecommended), false);
 
+const requestBoundary = recommend([
+  sale({ id: "before-request", at: "2026-07-21T19:00:00.000Z" }),
+  sale({ id: "after-request", at: "2026-07-21T19:05:00.000Z" }),
+], {
+  customerRequestReceivedAt: "2026-07-21T19:03:00.000Z",
+});
+assert.equal(requestBoundary.recommendationState, "high_confidence");
+assert.deepEqual(requestBoundary.consideredTransactionIds, ["before-request"]);
+assert.equal(requestBoundary.excludedAfterRequestCount, 1);
+assert.ok(requestBoundary.reasonCodes.includes("transaction_after_customer_request"));
+
+for (const records of [
+  [
+    sale({ id: "request-boundary-duplicate", at: "2026-07-21T19:05:00.000Z" }),
+    sale({ id: "request-boundary-duplicate", at: "2026-07-21T19:00:00.000Z" }),
+  ],
+  [
+    sale({ id: "request-boundary-duplicate", at: "2026-07-21T19:00:00.000Z" }),
+    sale({ id: "request-boundary-duplicate", at: "2026-07-21T19:05:00.000Z" }),
+  ],
+]) {
+  const result = recommend(records, {
+    customerRequestReceivedAt: "2026-07-21T19:03:00.000Z",
+  });
+  assert.equal(result.candidateCount, 1);
+  assert.equal(result.excludedAfterRequestCount, 1);
+  assert.equal(result.candidates[0].duplicateProviderRecord, false);
+  assert.equal(result.candidates[0].oneClickEligible, true);
+}
+
+const equalRequestBoundary = recommend([sale({ id: "equal-request" })], {
+  customerRequestReceivedAt: incidentAt,
+});
+assert.equal(equalRequestBoundary.candidates[0].requestTimeBoundaryState, "before_or_at_request");
+
+const unknownRequestBoundary = recommend([sale({ id: "unknown-request" })], {
+  customerRequestReceivedAt: null,
+  customerRequestReceivedSource: null,
+});
+assert.equal(unknownRequestBoundary.candidates[0].selectionAllowed, true);
+assert.equal(unknownRequestBoundary.oneClickEligible, false);
+assert.equal(unknownRequestBoundary.candidates.length, 1);
+assert.ok(unknownRequestBoundary.candidates[0].manualReviewReasons.includes("customer_request_time_unknown"));
+
+const unknownRequestMismatch = recommend([sale({
+  id: "unknown-request-mismatch",
+  last4: "9999",
+})], {
+  customerRequestReceivedAt: null,
+  customerRequestReceivedSource: null,
+  requestCardNetwork: "visa",
+});
+assert.equal(unknownRequestMismatch.candidates.length, 1);
+assert.equal(unknownRequestMismatch.candidates[0].selectionAllowed, true);
+assert.equal(unknownRequestMismatch.candidates[0].oneClickEligible, false);
+assert.equal(unknownRequestMismatch.candidates[0].identifierReviewState, "reviewable_uncertainty");
+assert.deepEqual(unknownRequestMismatch.candidates[0].customerCorrectionFields, []);
+assert.ok(unknownRequestMismatch.candidates[0].reasonCodes.includes("customer_request_time_unknown"));
+
+const uncertainOccurrenceBoundary = recommend([sale({
+  id: "uncertain-occurrence",
+  extra: { AuthorizationDateTimeGMT: undefined, MachineAuthorizationTime: "2026-07-21T12:00:00" },
+})], {
+  customerRequestReceivedAt: "2026-07-21T20:00:00.000Z",
+  providerClockContext: { source: "unknown", timezone: null },
+});
+assert.equal(uncertainOccurrenceBoundary.candidates[0].selectionAllowed, true);
+assert.equal(uncertainOccurrenceBoundary.oneClickEligible, false);
+assert.equal(uncertainOccurrenceBoundary.candidates.length, 1);
+assert.ok(uncertainOccurrenceBoundary.candidates[0].manualReviewReasons.includes("transaction_occurrence_time_uncertain"));
+
+const delayedEarlierAuthorization = recommend([sale({
+  id: "delayed-earlier-authorization",
+  at: "2026-07-21T18:59:59.000Z",
+  extra: { ProviderRecordArrivedAt: "2026-07-23T12:00:00.000Z" },
+})], {
+  customerRequestReceivedAt: "2026-07-21T19:00:00.000Z",
+});
+assert.equal(delayedEarlierAuthorization.candidateCount, 1);
+assert.equal(delayedEarlierAuthorization.excludedAfterRequestCount, 0);
+
+const offlineVendBeforeFormWithLaterAuthorization = recommend([sale({
+  id: "offline-vend-later-sync",
+  at: "2026-07-21T19:05:00.000Z",
+  extra: {
+    OfflinePayment: true,
+    ProviderRecordArrivedAt: "2026-07-21T19:10:00.000Z",
+    SettlementDateTimeGMT: "2026-07-21T19:15:00.000Z",
+  },
+})], {
+  customerRequestReceivedAt: "2026-07-21T19:03:00.000Z",
+  purchaseOccurrenceProof: null,
+});
+assert.equal(offlineVendBeforeFormWithLaterAuthorization.excludedAfterRequestCount, 0);
+assert.equal(offlineVendBeforeFormWithLaterAuthorization.candidateCount, 1);
+assert.equal(offlineVendBeforeFormWithLaterAuthorization.candidates[0].requestTimeBoundaryState, "occurrence_time_uncertain");
+assert.equal(offlineVendBeforeFormWithLaterAuthorization.candidates[0].selectionAllowed, true);
+assert.equal(offlineVendBeforeFormWithLaterAuthorization.candidates[0].oneClickEligible, false);
+assert.equal(offlineVendBeforeFormWithLaterAuthorization.candidates[0].timeDeltaMinutes, null);
+assert.equal(offlineVendBeforeFormWithLaterAuthorization.candidates[0].providerProcessingTimeDeltaMinutes, 5);
+assert.ok(offlineVendBeforeFormWithLaterAuthorization.candidates[0].manualReviewReasons.includes("transaction_occurrence_time_uncertain"));
+
+for (const delayHours of [4, 8]) {
+  const delayedOffline = recommend([sale({
+    id: `offline-delay-${delayHours}h`,
+    at: new Date(Date.parse(incidentAt) + delayHours * 60 * 60 * 1000).toISOString(),
+    extra: { OfflinePayment: true },
+  })], { purchaseOccurrenceProof: null });
+  assert.equal(delayedOffline.candidateCount, 1);
+  assert.equal(delayedOffline.providerWindowRecordCount, 1);
+  assert.equal(delayedOffline.candidates[0].selectionAllowed, true);
+  assert.equal(delayedOffline.candidates[0].oneClickEligible, false);
+  assert.equal(delayedOffline.candidates[0].timeDeltaMinutes, null);
+  assert.equal(delayedOffline.candidates[0].providerProcessingTimeDeltaMinutes, delayHours * 60);
+  assert.deepEqual(delayedOffline.candidates[0].customerCorrectionFields, []);
+}
+
+const nullClockBoundsDoNotProveOccurrence = recommend([sale({ id: "null-proof-bounds" })], {
+  purchaseOccurrenceProof: {
+    semantics: "online_purchase_occurrence",
+    source: "invalid_null_bound_fixture",
+    timestampSource: "authorization_gmt",
+    timezoneBasis: "utc",
+    transactionPrecisionMs: null,
+    transactionClockErrorMs: null,
+    requestReceiptPrecisionMs: null,
+    requestReceiptClockErrorMs: null,
+  },
+});
+assert.equal(nullClockBoundsDoNotProveOccurrence.candidates[0].transactionOccurrenceComparable, false);
+assert.equal(nullClockBoundsDoNotProveOccurrence.candidates[0].requestTimeBoundaryState, "occurrence_time_uncertain");
+assert.equal(nullClockBoundsDoNotProveOccurrence.candidates[0].timeDeltaMinutes, null);
+assert.equal(nullClockBoundsDoNotProveOccurrence.oneClickEligible, false);
+
+const incoherentClockBasisDoesNotProveOccurrence = recommend([sale({ id: "incoherent-proof-clock" })], {
+  purchaseOccurrenceProof: {
+    semantics: "online_purchase_occurrence",
+    source: "verified_provider_purchase_occurrence_v1",
+    timestampSource: "authorization_gmt",
+    timezoneBasis: "verified_machine_timezone",
+    transactionPrecisionMs: 0,
+    transactionClockErrorMs: 0,
+    requestReceiptPrecisionMs: 0,
+    requestReceiptClockErrorMs: 0,
+  },
+});
+assert.equal(incoherentClockBasisDoesNotProveOccurrence.candidates[0].transactionOccurrenceComparable, false);
+assert.equal(incoherentClockBasisDoesNotProveOccurrence.candidates[0].selectionAllowed, true);
+assert.equal(incoherentClockBasisDoesNotProveOccurrence.candidates[0].oneClickEligible, false);
+
+// Customer estimates may omit tax or round the total. The provider amount is retained.
+for (const deltaCents of [-301, -300, -100, -10, 0, 10, 100, 300, 301]) {
+  for (const deltaMinutes of [-61, -60, -25, 25, 60, 61]) {
+    const amount = (700 + deltaCents) / 100;
+    const at = new Date(Date.parse(incidentAt) + deltaMinutes * 60_000).toISOString();
+    const result = recommend([sale({ id: "estimated-total", amount, at })], {
+      incidentTimeConfidence: "within_1_hour",
+    });
+    const eligible = Math.abs(deltaCents) <= 300 && Math.abs(deltaMinutes) <= 60;
+    assert.equal(result.recommendationState, eligible ? "high_confidence" : "manual_exception");
+    assert.equal(result.oneClickEligible, eligible);
+    assert.equal(result.candidates[0].amountCents, 700 + deltaCents);
+    assert.equal(result.candidates[0].amountDeltaCents, Math.abs(deltaCents));
+    if (eligible && deltaCents !== 0) {
+      assert.ok(result.reasonCodes.includes("amount_within_tolerance"));
+      assert.ok(!result.candidates[0].manualReviewReasons.includes("amount_uncertain"));
+      assert.match(result.candidates[0].matchReason, /may reflect tax or rounding/);
+    }
+  }
+}
+
+const similarPurchases = [
+  sale({ id: "same-card-exact" }),
+  sale({ id: "same-card-near", at: "2026-07-21T19:25:00.000Z", amount: 7.1 }),
+];
+for (const candidateLimit of [1, 10]) {
+  const result = recommend(similarPurchases, {
+    policy: { ...NAYAX_RECOMMENDATION_POLICY, candidateLimit },
+  });
+  assert.equal(result.recommendationState, "ambiguous", "display limits cannot hide a competing purchase");
+  assert.equal(result.oneClickEligible, false);
+  assert.equal(result.candidates.some((candidate) => candidate.isRecommended), false);
+}
+
+const midnightEstimate = recommend([sale({
+  id: "midnight-estimate", at: "2026-07-22T06:50:00Z", amount: 7.1,
+  extra: { MachineAuthorizationTime: "2026-07-21T23:50:00" },
+})], { incidentAt: "2026-07-22T07:15:00Z", incidentTimeConfidence: "within_1_hour" });
+assert.equal(midnightEstimate.recommendationState, "high_confidence");
+assert.equal(midnightEstimate.candidates[0].timeDeltaMinutes, 25);
+
 const walletMismatch = recommend(
   [sale({ id: "wallet", last4: "9999", recognitionMethod: "Apple Pay" })],
   { cardWalletUsed: true },
 );
 assert.equal(walletMismatch.recommendationState, "manual_exception");
 assert.equal(walletMismatch.oneClickEligible, false);
+assert.equal(walletMismatch.candidates[0].selectionAllowed, true);
 
 const exactWallet = recommend(
   [sale({ id: "exact-wallet", recognitionMethod: "Apple Pay" })],
@@ -163,6 +647,11 @@ const exactWallet = recommend(
 assert.equal(exactWallet.recommendationState, "high_confidence");
 assert.equal(exactWallet.confidenceClass, "strong_card");
 assert.equal(exactWallet.oneClickEligible, false);
+assert.equal(exactWallet.candidates[0].selectionAllowed, true);
+assert.match(
+  exactWallet.recommendedAction,
+  /normal guarded refund action becomes available after manager selection/i,
+);
 
 const uniqueQrWallet = recommend(
   [sale({
@@ -182,6 +671,10 @@ assert.equal(uniqueQrWallet.confidenceClass, "unique_qr_time");
 assert.equal(uniqueQrWallet.oneClickEligible, false);
 assert.equal(uniqueQrWallet.candidates[0].qrTimeDeltaMinutes, 5);
 assert.ok(uniqueQrWallet.reasonCodes.includes("unique_qr_time_candidate"));
+assert.match(
+  uniqueQrWallet.recommendedAction,
+  /normal guarded refund action becomes available after manager selection/i,
+);
 
 const uniqueQrContactlessCard = recommend(
   [sale({
@@ -199,7 +692,7 @@ const uniqueQrContactlessCard = recommend(
 assert.equal(uniqueQrContactlessCard.recommendationState, "high_confidence");
 assert.equal(uniqueQrContactlessCard.confidenceClass, "unique_qr_time");
 assert.equal(uniqueQrContactlessCard.oneClickEligible, false);
-assert.ok(uniqueQrContactlessCard.reasonCodes.includes("tokenized_last4_noncorrelating"));
+assert.ok(uniqueQrContactlessCard.reasonCodes.includes("card_last4_mismatch"));
 
 const uniqueQrWithoutLast4 = recommend(
   [sale({ id: "unique-qr-no-last4", at: "2026-07-21T19:04:00.000Z", last4: "" })],
@@ -333,6 +826,8 @@ assert.ok(documentedLastSalesStatus.candidates[0].reasonCodes.includes("provider
 const unverifiedMissingStatus = recommend([documentedLastSale], { providerContract: "unverified" });
 assert.equal(unverifiedMissingStatus.recommendationState, "manual_exception");
 assert.equal(unverifiedMissingStatus.oneClickEligible, false);
+assert.equal(unverifiedMissingStatus.candidates[0].selectionAllowed, false);
+assert.equal(unverifiedMissingStatus.candidates.length, 1);
 
 const declinedCamelStatus = { ...documentedLastSale, paymentStatus: "Declined" };
 const declinedCamelResult = recommend([declinedCamelStatus]);
@@ -356,6 +851,8 @@ assert.equal(contradictoryStatusResult.candidates[0].selectionAllowed, false);
 const missingProviderSite = recommend([sale({ id: "missing-site", siteId: null })]);
 assert.equal(missingProviderSite.recommendationState, "manual_exception");
 assert.equal(missingProviderSite.oneClickEligible, false);
+assert.equal(missingProviderSite.candidates[0].selectionAllowed, false);
+assert.equal(missingProviderSite.candidates.length, 1);
 
 const duplicateProviderRecord = recommend([
   sale({ id: "provider-duplicate" }),
@@ -438,9 +935,113 @@ const providerLocalDst = recommend(
       },
     }),
   ],
+  {
+    providerClockContext: {
+      timezone: "America/Los_Angeles",
+      source: "native_machine_configuration",
+      observedAt: "2026-09-04T15:44:13.963271Z",
+    },
+    purchaseOccurrenceProof: {
+      semantics: "online_purchase_occurrence",
+      source: "verified_provider_purchase_occurrence_v1",
+      timestampSource: "verified_machine_clock",
+      timezoneBasis: "verified_machine_timezone",
+      transactionPrecisionMs: 0,
+      transactionClockErrorMs: 0,
+      requestReceiptPrecisionMs: 0,
+      requestReceiptClockErrorMs: 0,
+    },
+  },
 );
+
+const unknownLast4SourceMismatch = recommend(
+  [sale({ id: "unknown-source-mismatch", last4: "9999", cardBrand: "MasterCard" })],
+  { requestCardLast4Provenance: null, requestCardLast4Source: null, requestCardNetwork: "visa" },
+);
+assert.equal(unknownLast4SourceMismatch.candidates[0].selectionAllowed, true);
+assert.equal(unknownLast4SourceMismatch.oneClickEligible, false);
+assert.ok(unknownLast4SourceMismatch.candidates[0].manualReviewReasons.includes("customer_card_last4_source_unknown"));
+
+const unknownLast4SourceExact = recommend([sale({ id: "unknown-source-exact" })], {
+  requestCardLast4Provenance: null,
+  requestCardLast4Source: null,
+});
+assert.equal(unknownLast4SourceExact.recommendationState, "manual_exception");
+assert.equal(unknownLast4SourceExact.candidates[0].selectionAllowed, true);
+assert.equal(unknownLast4SourceExact.oneClickEligible, false);
+assert.ok(unknownLast4SourceExact.candidates[0].manualReviewReasons.includes("customer_card_last4_source_unknown"));
 assert.equal(providerLocalDst.recommendationState, "high_confidence");
 assert.equal(providerLocalDst.candidates[0].authorizedAt, incidentAt);
+
+// Synthetic source values deliberately have different machine/GMT seconds.
+const separateMachineClock = recommend([sale({
+  id: "separate-machine-clock",
+  extra: { MachineAuthorizationTime: "2026-07-21T11:59:58.810" },
+})]);
+assert.equal(separateMachineClock.candidates[0].authorizedAt, incidentAt);
+assert.equal(separateMachineClock.candidates[0].timeDeltaMinutes, 0);
+assert.equal(separateMachineClock.candidates[0].machineAuthorizationTime, "2026-07-21T18:59:58.810Z");
+assert.equal(separateMachineClock.candidates[0].machineAuthorizationTimeRaw, "2026-07-21T11:59:58.810");
+assert.equal(NAYAX_RECOMMENDATION_POLICY.version, "2026-09-05.v11");
+
+for (const raw of ["2026-07-21T12:00:00.1234567", "2026-07-21T12:00:00.1234567-07:00"]) {
+  const result = recommend([sale({ id: "fractional-machine-clock", extra: {
+    AuthorizationDateTimeGMT: undefined, MachineAuthorizationTime: raw,
+  } })]);
+  assert.equal(result.candidates[0].authorizedAt, "2026-07-21T19:00:00.123Z");
+  assert.equal(result.candidates[0].machineAuthorizationTime, "2026-07-21T19:00:00.123Z");
+  assert.equal(result.candidates[0].machineAuthorizationTimeRaw, raw);
+  assert.equal(result.candidates[0].machineTimeResolution, "exact");
+}
+
+for (const raw of [undefined, null, 123, "", "2026-02-30T12:00:00Z", "2026-07-21T25:00:00", "bad identity", "x".repeat(81)]) {
+  const result = recommend([sale({ id: "missing-machine-clock", extra: { MachineAuthorizationTime: raw } })]);
+  assert.equal(result.candidateCount, 0, "GMT cannot supply a missing/malformed machine identity");
+  assert.equal(result.providerWindowRecordCount, 1, "the readable GMT record is still counted");
+  assert.equal(result.oneClickEligible, false);
+}
+
+for (const raw of [undefined, "invalid machine clock"]) {
+  const valid = sale({ id: "mixed-source-duplicate" });
+  const invalid = sale({ id: "mixed-source-duplicate", extra: { MachineAuthorizationTime: raw } });
+  for (const records of [[valid, invalid], [invalid, valid]]) {
+    const result = recommend(records);
+    assert.equal(result.candidateCount, 1);
+    assert.equal(result.candidates[0].duplicateProviderRecord, true);
+    assert.ok(result.candidates[0].manualReviewReasons.includes("duplicate_provider_record"));
+    assert.equal(result.oneClickEligible, false);
+  }
+}
+
+const invalidMachineZone = recommend([sale({ id: "invalid-machine-zone", extra: {
+  MachineAuthorizationTime: "2026-07-21T12:00:00.810",
+} })], { locationTimezone: "not/a-zone" });
+assert.equal(invalidMachineZone.candidateCount, 0);
+const nonexistentMachineClock = recommend([sale({
+  id: "nonexistent-machine-clock", at: "2026-03-08T10:30:00Z",
+  extra: { MachineAuthorizationTime: "2026-03-08T02:30:00.810" },
+})], { incidentAt: "2026-03-08T10:30:00Z" });
+assert.equal(nonexistentMachineClock.candidateCount, 0);
+
+const ambiguousMachineClock = recommend([sale({
+  id: "ambiguous-machine-clock", at: "2026-11-01T08:30:00Z",
+  extra: { MachineAuthorizationTime: "2026-11-01T01:30:00.810" },
+})], { incidentAt: "2026-11-01T08:30:00Z" });
+assert.equal(ambiguousMachineClock.candidateCount, 1);
+assert.equal(ambiguousMachineClock.candidates[0].machineTimeResolution, "ambiguous");
+assert.equal(ambiguousMachineClock.candidates[0].machineAuthorizationTimeRaw, "2026-11-01T01:30:00.810");
+assert.equal(ambiguousMachineClock.oneClickEligible, false, "an exact GMT field cannot resolve a machine DST fold");
+
+const recommendationUrl = new URL("../../supabase/functions/_shared/nayax-recommendation.mjs", import.meta.url).href;
+const clockInput = {
+  payload: [sale({ id: "host-independent-clock", extra: { MachineAuthorizationTime: "2026-07-21T11:59:58.810" } })],
+  incidentAt, expectedMachineId, locationTimezone: "America/Los_Angeles", requestAmountCents: 700,
+  requestCardLast4: "4242", cardWalletUsed: false, providerContract: "nayax_machine_last_sales_v1",
+};
+const machineClockFromHost = (hostTimezone) => execFileSync(process.execPath, ["--input-type=module", "--eval",
+  `import { buildNayaxRecommendation } from ${JSON.stringify(recommendationUrl)}; console.log(JSON.stringify(buildNayaxRecommendation(${JSON.stringify(clockInput)})));`,
+], { env: { ...process.env, TZ: hostTimezone }, encoding: "utf8" }).trim();
+assert.equal(machineClockFromHost("Pacific/Honolulu"), machineClockFromHost("Europe/London"));
 
 const ambiguousIncident = recommend([sale({ id: "ambiguous-incident" })], {
   incidentTimeResolution: "ambiguous",
@@ -449,12 +1050,36 @@ assert.equal(ambiguousIncident.recommendationState, "manual_exception");
 assert.equal(ambiguousIncident.oneClickEligible, false);
 
 const publicCandidate = toPublicNayaxCandidate(exact.candidates[0], "opaque-token");
+for (const missing of [null, undefined, "", false, 0]) {
+  const result = recommend([sale({ id: "small-sale", amount: 2.5 })], { requestAmountCents: missing });
+  assert.equal(result.oneClickEligible, false, "absent or zero reported amount is not a matching estimate");
+  assert.notEqual(result.recommendationState, "high_confidence");
+}
+assert.equal(recommend([sale({ id: "zero-sale", amount: 0 })], { requestAmountCents: 300 }).oneClickEligible, false);
+
+const blockedRows = Array.from({ length: 10 }, (_, i) => sale({ id: `blocked-${i}` }));
+const blockedStates = Object.fromEntries(blockedRows.map((row) => [row.TransactionID, "already_refunded"]));
+const hiddenRows = [...blockedRows, sale({ id: "hidden-original", amount: 7.1, at: "2026-07-21T19:25:00Z" })];
+const preliminary = recommend(hiddenRows);
+assert.equal(preliminary.candidates.length, 10);
+assert.equal(preliminary.consideredTransactionIds.length, 11, "private state lookup must include originals outside the display limit");
+const checkedStates = Object.fromEntries(preliminary.consideredTransactionIds.map((id) => [id, "already_refunded"]));
+assert.equal(recommend(hiddenRows, { transactionStates: checkedStates }).oneClickEligible, false,
+  "second-pass ranking cannot expose an unchecked refunded original");
+const visibleAlternatives = recommend([...hiddenRows, sale({ id: "second-alternative", amount: 7.2, at: "2026-07-21T19:26:00Z" })], {
+  transactionStates: blockedStates,
+});
+assert.equal(visibleAlternatives.recommendationState, "ambiguous");
+assert.equal(visibleAlternatives.candidates.filter((row) => row.matchStrength === "compare").length, 2,
+  "blocked higher-scoring rows cannot hide the transactions managers need to compare");
 const publicJson = JSON.stringify(publicCandidate);
 assert.equal("transactionId" in publicCandidate, false, "raw transaction ID must not reach the browser");
 assert.equal(publicJson.includes("rankingPoints"), false, "internal points must not look like probability");
 assert.equal(publicJson.includes("providerMachineId"), false);
+assert.equal("machineAuthorizationTimeRaw" in publicCandidate, false, "raw provider identity stays private");
+assert.equal("machineTimeResolution" in publicCandidate, false);
 assert.equal(publicCandidate.matchStrength, "strong");
 assert.equal(publicCandidate.confidenceClass, "strong_card");
 assert.equal(publicCandidate.candidateToken, "opaque-token");
 
-console.log("Nayax deterministic recommendation fixtures passed (38 safety scenarios).");
+console.log("Nayax recommendation fixtures passed: amount/time boundaries, full-window ambiguity and refund checks, missing amounts, machine identity, DST and privacy.");

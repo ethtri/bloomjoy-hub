@@ -1,6 +1,12 @@
 /// <reference lib="deno.ns" />
 
-import { getRefundManagerState, getRefundPaymentStateLabel } from './refundManagerState.ts';
+import {
+  canConfirmRefundCandidate,
+  getDisplayedRefundManagerNextStep,
+  getRefundManagerState,
+  getRefundPaymentStateLabel,
+  hasUnpaidRefundReview,
+} from './refundManagerState.ts';
 import type { RefundLifecycleContract, RefundLifecycleStage } from './refundLifecycle.ts';
 
 const assertEquals = (actual: unknown, expected: unknown, message: string) => {
@@ -15,15 +21,101 @@ const baseCase = {
   nayaxRecommendationState: 'high_confidence' as const,
 };
 
+Deno.test('displayed manager next step follows an available ask-for-details action', () => {
+  const managerState = getRefundManagerState({
+    ...baseCase,
+    status: 'draft',
+    correlationStatus: 'multiple_candidates',
+    nayaxLookupSummary: {
+      lookupStatus: 'multiple_matches',
+      recommendationState: 'ambiguous',
+    },
+    lifecycle: lifecycle('needs_transaction_selection', 20, 'select_transaction'),
+  });
+  const askAction = {
+    label: 'Ask for missing purchase details',
+    helper: 'Send one friendly reply in the original Gmail thread.',
+    messageType: 'more_info',
+    mode: 'retry_message',
+  };
+
+  assertEquals(managerState.nextStep.includes('Select one'), true, 'canonical lifecycle instruction');
+  assertEquals(
+    getDisplayedRefundManagerNextStep(managerState, askAction),
+    askAction.helper,
+    'displayed customer action instruction',
+  );
+  assertEquals(
+    getDisplayedRefundManagerNextStep(managerState, { ...askAction, disabled: true }),
+    managerState.nextStep,
+    'disabled action cannot replace lifecycle instruction',
+  );
+  assertEquals(
+    getDisplayedRefundManagerNextStep(managerState, { ...askAction, messageType: 'status_update' }),
+    managerState.nextStep,
+    'unrelated message action cannot replace lifecycle instruction',
+  );
+});
+
+Deno.test('approved unpaid cases can confirm one exact candidate without another decision', () => {
+  assertEquals(canConfirmRefundCandidate({
+    persistedStatus: 'approved', editorStatus: 'approved', decision: 'approved', canSelectCandidate: true,
+  }), true, 'approved continuation');
+  assertEquals(canConfirmRefundCandidate({
+    persistedStatus: 'approved', editorStatus: 'approved', decision: 'denied', canSelectCandidate: true,
+  }), false, 'denied decision');
+  assertEquals(canConfirmRefundCandidate({
+    persistedStatus: 'approved', editorStatus: 'approved', decision: 'approved', canSelectCandidate: false,
+  }), false, 'missing current manager authority');
+});
+
 const lifecycle = (
   stage: RefundLifecycleStage,
   stageRank: number,
   managerNextAction = 'wait'
 ): RefundLifecycleContract => ({
-  schemaVersion: 'refund_lifecycle_v1',
+  schemaVersion: 'refund_lifecycle_v2',
+  version: 1,
   stage,
   stageRank,
+  reasonCode: `test_${stage}`,
+  actor: 'system',
+  customerAction: {
+    action: stage === 'waiting_on_customer' ? 'reply_in_existing_thread' : 'none',
+    required: stage === 'waiting_on_customer',
+    requestedFields: stage === 'waiting_on_customer' ? ['incident_time'] : [],
+    payloadRedacted: true,
+  },
+  managerAction: {
+    action: managerNextAction,
+    owner: stage === 'needs_refund_operations' ? 'Refund Operations' : 'Machine Manager',
+    safeRetryEligible: false,
+    payloadRedacted: true,
+  },
+  paymentState: stage === 'needs_refund_operations' ? 'outcome_unknown' : 'not_requested',
+  messageState: {
+    state: 'none',
+    messageType: null,
+    lastUpdatedAt: null,
+    payloadRedacted: true,
+  },
+  classification: 'customer',
   evidenceState: 'synthetic',
+  locationEvidence: {
+    customerReported: {
+      selectionKey: 'test-selection', selectionKind: 'exact_machine',
+      machineIds: ['b3000000-0000-4000-8000-000000000001'], preserved: true,
+      payloadRedacted: true,
+    },
+    normalized: {
+      locationId: 'b2000000-0000-4000-8000-000000000001',
+      machineId: 'b3000000-0000-4000-8000-000000000001',
+      timezone: 'America/Los_Angeles', providerAccountKey: 'TEST',
+      mappingSource: 'nayax', mappingVersion: 1, confidence: 1,
+      authoritative: true, payloadRedacted: true,
+    },
+    payloadRedacted: true,
+  },
   lastUpdatedAt: '2026-08-26T20:00:00.000Z',
   publicCopyKey: `refund_${stage}`,
   managerNextAction,
@@ -31,7 +123,7 @@ const lifecycle = (
   refreshAfterSeconds:
     stage === 'customer_notified' || stage === 'denied' ? null : 5,
   managerQueue: {
-    schemaVersion: 'refund_manager_queue_v1',
+    schemaVersion: 'refund_manager_queue_v2',
     bucket: stage === 'waiting_on_customer'
       ? 'waiting_on_customer'
       : stage === 'needs_refund_operations'
@@ -71,9 +163,114 @@ const lifecycle = (
   payloadRedacted: true,
 });
 
+Deno.test('v2-only payout, integrity, closure, and internal/test states stay explicit', () => {
+  const fixtures = [
+    ['awaiting_payout', 'awaiting_payout', 'Ready to reimburse'],
+    ['integrity_hold', 'integrity_hold', 'Lifecycle evidence needs review'],
+    ['unable_to_complete', 'closed', 'Unable to complete'],
+    ['internal_test_archived', 'internal_test_archived', 'Internal/test archived'],
+  ] as const;
+  for (const [stage, expectedId, expectedLabel] of fixtures) {
+    const contract = lifecycle(
+      stage,
+      stage === 'internal_test_archived' ? 100 : 60,
+      stage === 'awaiting_payout' ? 'mark_external_refund' : 'none',
+    );
+    if (stage === 'integrity_hold') {
+      contract.managerAction.action = 'reconcile_lifecycle_integrity';
+      contract.managerAction.owner = 'Refund Operations';
+      contract.managerQueue.bucket = 'integrity_hold';
+    }
+    if (stage === 'internal_test_archived') {
+      contract.classification = 'internal_test';
+      contract.managerQueue.bucket = 'internal_archive';
+    }
+    const result = getRefundManagerState({ ...baseCase, lifecycle: contract });
+    assertEquals(result.id, expectedId, `${stage} id`);
+    assertEquals(result.label, expectedLabel, `${stage} label`);
+  }
+});
+
 Deno.test('manager state presents the normal card case as ready for review', () => {
   assertEquals(getRefundManagerState(baseCase).label, 'Ready for review', 'ready label');
   assertEquals(getRefundPaymentStateLabel(baseCase), 'Not issued', 'separate payment label');
+});
+
+Deno.test('manager state surfaces a direct-email bounce without changing payment truth', () => {
+  const result = getRefundManagerState({
+    ...baseCase,
+    providerOutcome: 'succeeded',
+    customerDeliveryException: {
+      state: 'bounced',
+      messageType: 'completed',
+      recoveryOwner: 'refund_operations',
+      nextAction: 'review_delivery_no_resend',
+      customerMessageReplayAllowed: false,
+      paymentReplayAllowed: false,
+    },
+  });
+  assertEquals(result.label, 'Delivery needs review', 'delivery exception label');
+  assertEquals(
+    result.explanation,
+    'The customer address bounced. The refund and payment state have not been changed.',
+    'payment truth remains separate'
+  );
+});
+
+Deno.test('confirmed receipt stays explicit alongside historical and current message exceptions', () => {
+  for (const messageType of ['status_update', 'completed']) {
+    for (const deliveryState of ['unknown', 'deferred', 'failed', 'bounced', 'complained'] as const) {
+      const confirmed = lifecycle('refund_confirmed', 70, 'review_accounting_date');
+      confirmed.paymentState = 'confirmed';
+      confirmed.reasonCode = 'settlement_time_unknown';
+      const result = getRefundManagerState({
+        ...baseCase,
+        status: 'card_refund_pending',
+        providerOutcome: 'unconfirmed',
+        lifecycle: confirmed,
+        customerDeliveryException: {
+          state: deliveryState, messageType, recoveryOwner: 'refund_operations',
+          nextAction: 'review_delivery_no_resend', customerMessageReplayAllowed: false,
+          paymentReplayAllowed: false,
+        },
+      });
+      assertEquals(result.label, 'Refund confirmed · delivery review', `${messageType}/${deliveryState} label`);
+      assertEquals(result.explanation.startsWith('The payment provider confirmed the full refund.'), true, 'Payment evidence stays first');
+      assertEquals(result.nextStep.includes('message-delivery and accounting-date review'), true, 'Both internal reviews remain visible');
+      assertEquals(result.nextStep.includes('Do not retry payment or resend'), true, 'No new financial or message action');
+      assertEquals(result.tone, 'warning', 'Delivery exception is not hidden');
+    }
+  }
+});
+
+Deno.test('a completion delivery failure after customer notification retains confirmed payment', () => {
+  const notified = lifecycle('customer_notified', 80);
+  notified.paymentState = 'confirmed';
+  const result = getRefundManagerState({ ...baseCase, lifecycle: notified,
+    customerDeliveryException: { state: 'bounced', messageType: 'completed',
+      recoveryOwner: 'refund_operations', nextAction: 'review_delivery_no_resend',
+      customerMessageReplayAllowed: false, paymentReplayAllowed: false } });
+  assertEquals(result.label, 'Refund confirmed · delivery review', 'Confirmed payment remains explicit');
+  assertEquals(result.explanation.includes('The customer address bounced.'), true, 'Current completion failure remains explicit');
+  assertEquals(result.nextStep.includes('accounting-date'), false, 'No invented accounting exception');
+});
+
+Deno.test('an active money action remains more urgent than an earlier delivery exception', () => {
+  const result = getRefundManagerState(
+    {
+      ...baseCase,
+      customerDeliveryException: {
+        state: 'unknown',
+        messageType: 'status_update',
+        recoveryOwner: 'refund_operations',
+        nextAction: 'review_delivery_no_resend',
+        customerMessageReplayAllowed: false,
+        paymentReplayAllowed: false,
+      },
+    },
+    { isRefunding: true }
+  );
+  assertEquals(result.id, 'refunding', 'active refund state');
 });
 
 Deno.test('manager state distinguishes missing facts and automatic lookup', () => {
@@ -185,6 +382,73 @@ Deno.test('manager state consumes the canonical lifecycle for automatic progress
     });
     assertEquals(result.label, label, `${stage} label`);
   }
+});
+
+Deno.test('adopted unknown-date receipt keeps accounting internal without implying another customer send', () => {
+  const result = getRefundManagerState({ ...baseCase, lifecycle: {
+    ...lifecycle('customer_notified', 80, 'review_accounting_date'),
+    reasonCode: 'settlement_time_unknown', paymentState: 'confirmed', terminal: false,
+    messageState: { state: 'sent', messageType: 'completed', lastUpdatedAt: '2026-08-26T20:00:00.000Z', payloadRedacted: true },
+  } });
+  assertEquals(result.label, 'Refund confirmed · customer updated', 'Adopted notice is visible');
+  assertEquals(result.nextStep.includes('Do not retry payment or resend'), true, 'No second payment or send');
+  assertEquals(result.explanation.includes('settlement date remains unknown'), true, 'Accounting date remains unknown');
+});
+
+Deno.test('receipt manager state keeps every customer-notice outcome observable without reopening payment', () => {
+  const fixtures = [
+    ['none', 'Refund confirmed · notice not recorded'],
+    ['pending', 'Refund confirmed · customer notice queued'],
+    ['failed', 'Refund confirmed · delivery review'],
+    ['delivery_unconfirmed', 'Refund confirmed · delivery review'],
+    ['sent', 'Refund confirmed · customer updated'],
+    ['delivered', 'Refund confirmed · customer updated'],
+  ] as const;
+  for (const [messageState, label] of fixtures) {
+    const contract = lifecycle(
+      ['sent', 'delivered'].includes(messageState) ? 'customer_notified' : 'refund_confirmed',
+      ['sent', 'delivered'].includes(messageState) ? 80 : 70,
+      'review_accounting_date',
+    );
+    contract.reasonCode = 'settlement_time_unknown';
+    contract.paymentState = 'confirmed';
+    contract.paymentWorkComplete = true;
+    contract.safeRetryEligible = false;
+    contract.managerAction.owner = 'Refund Operations';
+    contract.managerQueue = {
+      schemaVersion: 'refund_manager_queue_v2', bucket: 'accounting_review',
+      label: 'Refund confirmed · accounting review', nextAction: 'review_accounting_date',
+      safeRetryEligible: false, customerActionFields: [], payloadRedacted: true,
+    };
+    contract.messageState = {
+      state: messageState, messageType: 'completed',
+      lastUpdatedAt: '2026-08-26T20:00:00.000Z', payloadRedacted: true,
+    };
+    const result = getRefundManagerState({ ...baseCase, lifecycle: contract });
+    assertEquals(result.label, label, `${messageState} label`);
+    assertEquals(result.nextStep.includes('Refund Operations'), true, `${messageState} operations owner`);
+    assertEquals(result.nextStep.includes('Do not retry payment'), true, `${messageState} payment remains closed`);
+  }
+});
+
+Deno.test('legacy receipt presentation treats an absent message state as missing notice evidence', () => {
+  const contract = lifecycle('refund_confirmed', 70, 'review_accounting_date');
+  contract.reasonCode = 'settlement_time_unknown';
+  contract.paymentState = 'confirmed';
+  contract.paymentWorkComplete = true;
+  const { messageState: _messageState, ...legacyReceipt } = contract;
+  const result = getRefundManagerState({
+    ...baseCase,
+    lifecycle: legacyReceipt as RefundLifecycleContract,
+  });
+  assertEquals(result.label, 'Refund confirmed · notice not recorded', 'missing notice remains explicit');
+  assertEquals(result.nextStep.includes('Do not retry payment'), true, 'payment remains closed');
+
+  const notifiedResult = getRefundManagerState({
+    ...baseCase,
+    lifecycle: { ...legacyReceipt, stage: 'customer_notified', stageRank: 80 } as RefundLifecycleContract,
+  });
+  assertEquals(notifiedResult.label, 'Refund confirmed · customer updated', 'legacy notified stage remains evidence');
 });
 
 Deno.test('canonical waiting-on-customer stage wins over matching facts', () => {
@@ -355,7 +619,7 @@ Deno.test('canonical selection lifecycle preserves ambiguous comparison guidance
   assertEquals(result.label, 'More than one possible match', 'ambiguous label');
   assertEquals(
     result.nextStep,
-    'Compare the details. Select one only if it is clearly the customer\'s purchase.',
+    'Compare Customer request with Machine transaction. Select one only when they clearly describe the same purchase.',
     'ambiguous next step'
   );
 });
@@ -434,7 +698,7 @@ Deno.test('confirmed transaction shows the exact safe reason when refunding is u
   );
 });
 
-Deno.test('remaining-value guard directs managers to the reviewed portal fallback', () => {
+Deno.test('retired remaining-value reason asks for a current availability refresh', () => {
   const result = getRefundManagerState({
     ...baseCase,
     hasMatchedNayaxTransaction: true,
@@ -448,16 +712,31 @@ Deno.test('remaining-value guard directs managers to the reviewed portal fallbac
   assertEquals(result.id, 'refund_unavailable', 'guarded confirmed state');
   assertEquals(
     result.nextStep,
-    'Direct card refunds are unavailable until Nayax remaining refundable value can be verified. Use the reviewed Nayax portal fallback.',
+    'Refresh the case to load the current refund availability.',
     'manual portal fallback guidance'
   );
 });
 
-Deno.test('cash cases with an amount are ready to mark refunded without a transaction match', () => {
+Deno.test('cash cases require both an amount and payout destination', () => {
+  const missingDestination = getRefundManagerState({
+    ...baseCase,
+    paymentMethod: 'cash',
+    paymentAmountCents: 800,
+    correlationStatus: 'no_match',
+    nayaxRecommendationState: null,
+  });
+  assertEquals(missingDestination.id, 'needs_information', 'cash destination gate');
+  assertEquals(
+    missingDestination.label,
+    'Needs payout destination',
+    'cash destination label'
+  );
+
   const result = getRefundManagerState({
     ...baseCase,
     paymentMethod: 'cash',
     paymentAmountCents: 800,
+    zellePaymentContact: 'cash-customer@example.test',
     correlationStatus: 'no_match',
     nayaxRecommendationState: null,
   });
@@ -482,4 +761,38 @@ Deno.test('cash cases without an amount route to customer follow-up', () => {
 
   assertEquals(result.id, 'needs_information', 'missing cash amount state');
   assertEquals(result.label, 'Needs payment amount', 'missing cash amount label');
+});
+
+
+Deno.test('historical delivery failures do not replace current unpaid matching, selection or refund readiness', () => {
+  for (const deliveryState of ['unknown','deferred','failed','bounced','complained'] as const) {
+    for (const stage of ['matching','needs_transaction_selection','transaction_confirmed','waiting_on_customer'] as const) {
+      const contract=lifecycle(stage,20);
+      const current={...baseCase,lifecycle:contract};
+      const result=getRefundManagerState({...current,customerDeliveryException:{state:deliveryState,messageType:'confirmation',recoveryOwner:'refund_operations',nextAction:'review_delivery_no_resend',customerMessageReplayAllowed:false,paymentReplayAllowed:false}});
+      assertEquals(result.label,getRefundManagerState(current).label,`${deliveryState}/${stage}`);
+      assertEquals(result.nextStep,getRefundManagerState(current).nextStep,`${deliveryState}/${stage} next step`);
+    }
+  }
+});
+Deno.test('canonical pending and uncertain payment truth stays ahead of unrelated delivery review',()=>{
+ for(const stage of ['refund_initiated','confirming_with_nayax','needs_refund_operations','integrity_hold','denied'] as const){
+  const current={...baseCase,lifecycle:lifecycle(stage,60)};
+  const result=getRefundManagerState({...current,customerDeliveryException:{state:'bounced',messageType:'status_update',recoveryOwner:'refund_operations',nextAction:'review_delivery_no_resend',customerMessageReplayAllowed:false,paymentReplayAllowed:false}});
+  assertEquals(result.id,getRefundManagerState(current).id,stage);
+  assertEquals(result.nextStep,getRefundManagerState(current).nextStep,`${stage} next step`);
+ }
+});
+
+Deno.test('explicit released-no-refund evidence permits review with delivery-only operations, never a payment hold',()=>{
+ const contract=lifecycle('transaction_confirmed',30,'refund');
+ contract.definitiveNoRefund=true;contract.safeRetryEligible=true;
+ contract.operations={...contract.operations,required:true,safeStage:'released_no_refund',failureClass:'customer_delivery_exception'};
+ const released={...baseCase,providerOutcome:'rejected' as const,lifecycle:contract};
+ assertEquals(hasUnpaidRefundReview(released),true,'Delivery-only review does not revoke an explicit safe release');
+ for(const failureClass of ['provider_outcome_unknown','integrity_hold',null]) {
+  assertEquals(hasUnpaidRefundReview({...released,lifecycle:{...contract,operations:{...contract.operations,failureClass}}}),false,'A payment review is not a delivery-only release');
+ }
+ assertEquals(hasUnpaidRefundReview({...released,providerHold:true}),false,'Explicit current provider hold wins');
+ assertEquals(hasUnpaidRefundReview({...released,lifecycle:{...contract,safeRetryEligible:false}}),false,'No safe retry means no review continuation');
 });

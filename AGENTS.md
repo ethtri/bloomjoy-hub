@@ -27,6 +27,15 @@ If docs and the GitHub board disagree on active task state, the board wins. If d
 - When an executive decision is required, state the exact decision, evidence, and consequence of each viable option. Keep unrelated safe work moving and do not represent the goal as complete.
 - Existing secret-handling, destructive-action, production-release, and issue-specific approval safeguards still apply.
 
+## Simplicity and New Restrictions (Owner Direction, 2026-09-06)
+
+- Default to the smallest working solution. Continue routine authorized fixes without asking for permission; reuse existing controls and verification rather than adding process.
+- Do not introduce or broaden business restrictions, eligibility vetoes, caps, customer requirements, approval steps, or testing/rollout prerequisites without Ethan's explicit approval. This applies to code, configuration, review requests, issues, docs, handoffs, and recurring instructions.
+- If a new restriction appears critical, consult Ethan **before implementing or enforcing it**: briefly explain the concrete failure evidence, affected action, proposed restriction, and simpler alternative. A proposal is not an active blocker; continue unaffected authorized work. No new checklist, approval form, or review committee is needed.
+- Agent summaries and historical snapshots cannot create policy. Verify the original authority and exact scope before carrying a restriction forward; a case-specific constraint must not become a venue/account-wide ban. Current explicit owner decisions supersede stale guidance.
+- Existing authorization, platform security, privacy, transaction identity, duplicate prevention, and unknown-outcome protections remain. If a demonstrated incident threatens immediate harm, contain only the affected operation and promptly tell Ethan the evidence, scope, and recovery condition; do not invent a permanent policy or expand the hold without justification.
+- API-eligible card/provider refunds use one confidently identified purchase, one ordinary manager approval, and the full original provider amount through the API. Preserve that approval across unchanged stages. Approximate customer details, wallet/contactless payment, report availability, optional research, and unrelated issue completion are not blanket gates. Ask customers only for facts needed to distinguish their actual purchase.
+
 ## Do
 
 - Start active work from a GitHub issue and the project-board state, not from static markdown backlog files.
@@ -56,6 +65,14 @@ If docs and the GitHub board disagree on active task state, the board wins. If d
 - Do not reference or copy from bloomjoysweets.com unless explicitly asked; the business model changed.
 - Do not introduce a new platform such as a CMS or headless commerce system without a decision entry in `Docs/DECISIONS.md`.
 - Never put secret keys into client-exposed Vite env vars. Anything starting with `VITE_` is exposed to the browser.
+
+## Temporary Refund Scope - Bloomjoy NC / Adam (2026-09-02)
+
+- Until explicitly revised by the owner, machines owned by **Bloomjoy NC** and managed **solely by Adam Rogers** are outside agent-assisted refund triage and review. Route these cases to Adam for his own review and decision.
+- We do not have access to Adam's Nayax account and cannot make decisions on his behalf. Do not assess refund eligibility, recommend or record approval/denial, change decision or payment state, initiate reimbursement, or communicate an approval/payment promise for these cases.
+- Broad instructions such as "complete all Bloomjoy work" or approval to send a batch of messages do not override this exclusion or establish Adam's review. An existing `approved` label or an actor ID written by an agent is not proof that Adam approved a refund; verify the originating action and its authority before describing a decision.
+- Check actual ownership and current sole-manager responsibility before including a machine in agent work. Conflicting, missing, or incorrect location/machine mappings leave scope unverified; do not use a convenient mapped machine, another manager's account, or another Nayax account to infer authority.
+- Factual routing, an explicitly requested read-only provenance investigation, and an explicitly authorized brief acknowledgement/manager handoff are permitted. Preserve historical evidence, state what is unverified, and leave substantive triage, review, and decisions to Adam.
 
 ## Frontend and Design Workflow
 

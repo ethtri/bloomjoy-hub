@@ -6,24 +6,62 @@ import type {
   RefundManagerQueueBucket,
 } from "./refundLifecycle.ts";
 import { getRefundManagerState } from "./refundManagerState.ts";
-import { getRefundManagerQueueBucket } from "./refundQueue.ts";
+import { findRefundDeepLinkedCase, getRefundManagerQueueBucket, getRefundQueueFilterForCase } from "./refundQueue.ts";
 
 const lifecycle = (
   stage: RefundLifecycleContract["stage"],
   bucket: RefundManagerQueueBucket,
   nextAction: string,
 ): RefundLifecycleContract => ({
-  schemaVersion: "refund_lifecycle_v1",
+  schemaVersion: "refund_lifecycle_v2",
+  version: 1,
   stage,
   stageRank: stage === "waiting_on_customer" ? 15 : 30,
+  reasonCode: `test_${stage}`,
+  actor: "system",
+  customerAction: {
+    action: stage === "waiting_on_customer" ? "reply_in_existing_thread" : "none",
+    required: stage === "waiting_on_customer",
+    requestedFields: stage === "waiting_on_customer" ? ["incident_time"] : [],
+    payloadRedacted: true,
+  },
+  managerAction: {
+    action: nextAction,
+    owner: bucket === "provider_hold" ? "Refund Operations" : "Machine Manager",
+    safeRetryEligible: false,
+    payloadRedacted: true,
+  },
+  paymentState: bucket === "provider_hold" ? "outcome_unknown" : "not_requested",
+  messageState: {
+    state: "none",
+    messageType: null,
+    lastUpdatedAt: null,
+    payloadRedacted: true,
+  },
+  classification: "customer",
   evidenceState: stage,
+  locationEvidence: {
+    customerReported: {
+      selectionKey: "test-selection", selectionKind: "exact_machine",
+      machineIds: ["d3000000-0000-4000-8000-000000000001"], preserved: true,
+      payloadRedacted: true,
+    },
+    normalized: {
+      locationId: "d2000000-0000-4000-8000-000000000001",
+      machineId: "d3000000-0000-4000-8000-000000000001",
+      timezone: "America/Los_Angeles", providerAccountKey: "TEST",
+      mappingSource: "nayax", mappingVersion: 1, confidence: 1,
+      authoritative: true, payloadRedacted: true,
+    },
+    payloadRedacted: true,
+  },
   lastUpdatedAt: "2026-08-30T18:00:00.000Z",
   publicCopyKey: `refund_${stage}`,
   managerNextAction: nextAction,
   terminal: bucket === "completed",
   refreshAfterSeconds: bucket === "completed" ? null : 5,
   managerQueue: {
-    schemaVersion: "refund_manager_queue_v1",
+    schemaVersion: "refund_manager_queue_v2",
     bucket,
     label: bucket,
     nextAction,
@@ -59,6 +97,22 @@ const cardCase = (contract: RefundLifecycleContract) => ({
   paymentMethod: "card" as const,
   correlationStatus: "needs_nayax" as const,
   lifecycle: contract,
+});
+
+Deno.test('v2 exception buckets map to visible filters without exposing archive deep links', () => {
+  const integrity = { id: 'integrity-case', ...cardCase(lifecycle('integrity_hold', 'integrity_hold', 'refund_operations')) };
+  const accounting = { id: 'accounting-case', ...cardCase(lifecycle('refund_confirmed', 'accounting_review', 'review_accounting_date')) };
+  const archived = { id: 'archived-case', ...cardCase(lifecycle('internal_test_archived', 'internal_archive', 'none')) };
+  assertEquals(getRefundQueueFilterForCase(integrity, true), 'provider_hold');
+  assertEquals(getRefundQueueFilterForCase(integrity, false), 'all');
+  assertEquals(getRefundManagerQueueBucket(accounting), 'accounting_review');
+  assertEquals(getRefundQueueFilterForCase(accounting, true), 'provider_hold');
+  assertEquals(getRefundQueueFilterForCase(accounting, false), 'all');
+  assertEquals(getRefundQueueFilterForCase(archived, true), 'internal_test');
+  assertEquals(findRefundDeepLinkedCase('integrity-case', [integrity], []), integrity);
+  assertEquals(findRefundDeepLinkedCase('archived-case', [integrity], [archived]), archived);
+  assertEquals(findRefundDeepLinkedCase('archived-case', [integrity], []), undefined);
+  assertEquals(findRefundDeepLinkedCase('missing-case', [integrity], [archived]), undefined);
 });
 
 Deno.test(
@@ -193,8 +247,18 @@ Deno.test("cash and pre-case Gmail fallbacks are deterministic", () => {
       status: "needs_review",
       paymentMethod: "cash",
       paymentAmountCents: 800,
+      zellePaymentContact: "cash-customer@example.test",
     }),
     "ready_to_pay",
+  );
+  assertEquals(
+    getRefundManagerQueueBucket({
+      status: "needs_review",
+      paymentMethod: "cash",
+      paymentAmountCents: 800,
+      zellePaymentContact: null,
+    }),
+    "needs_action",
   );
   assertEquals(
     getRefundManagerQueueBucket({
@@ -248,3 +312,41 @@ Deno.test(
     }
   },
 );
+
+
+// Search uses the same authorized population, independently of the selected queue.
+import { searchRefundCases } from "./refundCaseSearch.ts";
+const searchCase = (id: string, bucket: string) => ({
+  id, bucket, publicReference: `RF-${id}`, customerEmail: `${id}@example.test`,
+  customerName: `Customer ${id}`, machineLabel: 'Synthetic machine',
+  locationName: 'Test location', issueSummary: 'Synthetic purchase',
+});
+const searchCases = [searchCase('ACTION', 'needs_action'), searchCase('WAIT', 'waiting'), searchCase('DONE', 'completed')];
+const searchOptions = {
+  customerCases: searchCases, internalCases: [searchCase('INTERNAL', 'internal_archive')],
+  canViewInternal: false, internalView: false,
+  matchesCurrentView: (item: typeof searchCases[number]) => item.bucket === 'needs_action',
+};
+Deno.test('cross-view search finds exact Waiting/Done references without changing cases or queue', () => {
+  const before = JSON.stringify(searchCases);
+  for (const id of ['WAIT', 'DONE']) assertEquals(searchRefundCases({ ...searchOptions, query: `  rf-${id.toLowerCase()}  ` }).map(c => c.id), [id]);
+  assertEquals(searchRefundCases({ ...searchOptions, query: '' }).map(c => c.id), ['ACTION']);
+  assertEquals(searchRefundCases({ ...searchOptions, query: '   ' }).map(c => c.id), ['ACTION']);
+  assertEquals(JSON.stringify(searchCases), before);
+});
+Deno.test('customer, machine, location and no-result searches use the authorized population', () => {
+  assertEquals(searchRefundCases({ ...searchOptions, query: 'wait@example.test' }).map(c => c.id), ['WAIT']);
+  assertEquals(searchRefundCases({ ...searchOptions, query: 'Customer Done' }).map(c => c.id), ['DONE']);
+  for (const query of ['Synthetic machine', 'TEST LOCATION']) assertEquals(searchRefundCases({ ...searchOptions, query }).length, 3);
+  assertEquals(searchRefundCases({ ...searchOptions, query: 'unknown' }), []);
+});
+Deno.test('archive requires both explicit scope and current operations access; ordinary results never include it', () => {
+  assertEquals(searchRefundCases({ ...searchOptions, query: 'INTERNAL' }), []);
+  assertEquals(searchRefundCases({ ...searchOptions, canViewInternal: true, query: 'INTERNAL' }), []);
+  assertEquals(searchRefundCases({ ...searchOptions, internalView: true, query: 'INTERNAL' }), []);
+  assertEquals(searchRefundCases({ ...searchOptions, canViewInternal: true, internalView: true, query: 'INTERNAL' }).map(c => c.id), ['INTERNAL']);
+});
+Deno.test('access removal immediately removes prior matches; search has no cached population', () => {
+  assertEquals(searchRefundCases({ ...searchOptions, customerCases: [], query: 'RF-WAIT' }), []);
+  assertEquals(searchRefundCases({ ...searchOptions, canViewInternal: false, internalView: true, query: '' }), []);
+});

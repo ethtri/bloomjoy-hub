@@ -15,11 +15,13 @@ export type RefundReadinessBlockReason =
 
 export type RefundReadiness = {
   transactionConfirmed: boolean;
+  approvalContinuationReady: boolean;
   canIssueCardRefund: boolean;
   blockReason: RefundReadinessBlockReason | null;
   refundAmountCents: number | null;
   machineLimitCents: number | null;
   caseVersion: number | null;
+  approvalPendingExecution?: boolean;
 };
 
 const knownBlockReasons = new Set<RefundReadinessBlockReason>([
@@ -57,11 +59,13 @@ export const parseDatabaseRefundReadiness = (
 
   return {
     transactionConfirmed,
+    approvalContinuationReady: row.approvalContinuationReady === true,
     canIssueCardRefund: row.canIssueCardRefund === true && blockReason === null,
     blockReason,
     refundAmountCents: optionalInteger(row.refundAmountCents),
     machineLimitCents: optionalInteger(row.machineLimitCents),
     caseVersion: optionalInteger(row.caseVersion),
+    approvalPendingExecution: row.approvalPendingExecution === true,
   };
 };
 
@@ -86,10 +90,6 @@ export const mergeRuntimeRefundReadiness = ({
     executionConfig.blocks.includes("dry_run_active")
   ) {
     blockReason = "globally_paused";
-  } else if (
-    executionConfig.blocks.includes("provider_remaining_value_unverified")
-  ) {
-    blockReason = "provider_remaining_value_unverified";
   } else if (executionConfig.blocks.length > 0 || !providerCredentialAvailable) {
     blockReason = "provider_unavailable";
   }

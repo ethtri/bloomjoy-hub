@@ -144,8 +144,8 @@ select is(
   public.refund_lifecycle_contract(
     'd4000000-0000-4000-8000-000000000003'
   ) #>> '{managerQueue,bucket}',
-  'ready_to_pay',
-  'A cash case with an amount is canonically ready to mark refunded'
+  'needs_action',
+  'A cash case without a payout destination cannot be marked refunded'
 );
 select is(
   public.service_get_refund_lifecycle(
@@ -184,8 +184,8 @@ select is(
     ) item
     where item ->> 'id' = 'd4000000-0000-4000-8000-000000000003'
   ),
-  'ready_to_pay',
-  'The manager overview emits the same ready bucket consumed by counts and rows'
+  'needs_action',
+  'The manager overview preserves the payout-destination action gate'
 );
 
 reset role;
@@ -230,13 +230,18 @@ security definer
 set search_path = ''
 as $$
   select jsonb_build_object(
-    'schemaVersion', 'refund_lifecycle_v1',
+    'schemaVersion', 'refund_lifecycle_v2',
+    'version', 1,
     'stage', 'transaction_confirmed',
     'stageRank', 30,
     'evidenceState', 'transaction_confirmed',
     'lastUpdatedAt', statement_timestamp(),
     'publicCopyKey', 'refund_transaction_confirmed',
-    'managerNextAction', 'refund',
+    'managerNextAction', case p_refund_case_id
+      when 'd4000000-0000-4000-8000-000000000010'::uuid
+        then 'resolve_manager_access'
+      else 'refresh_case'
+    end,
     'terminal', false,
     'refreshAfterSeconds', 5,
     'lookup', jsonb_build_object(
@@ -256,6 +261,19 @@ as $$
       'safeStage', 'not_needed',
       'failureClass', null,
       'nextStep', null
+    ),
+    'managerQueue', jsonb_build_object(
+      'schemaVersion', 'refund_manager_queue_v2',
+      'bucket', 'needs_action',
+      'label', 'Action needed',
+      'nextAction', case p_refund_case_id
+        when 'd4000000-0000-4000-8000-000000000010'::uuid
+          then 'resolve_manager_access'
+        else 'refresh_case'
+      end,
+      'safeRetryEligible', false,
+      'customerActionFields', '[]'::jsonb,
+      'payloadRedacted', true
     ),
     'payloadRedacted', true
   )

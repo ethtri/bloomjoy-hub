@@ -20,6 +20,17 @@ type RefundEmailPayload = {
 
 const EMAIL_PATTERN = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
 const CUSTOMER_MANAGER_CC_ALLOWED_STATUS = "resolved";
+const automaticRefundProviderSendGate = () => {
+  if (
+    Deno.env.get("REFUND_AUTOMATION_ENABLED")?.trim().toLowerCase() !== "true"
+  ) {
+    return "refund_automation_disabled" as const;
+  }
+  if (!automaticRefundCustomerContactEnabled()) {
+    return "automatic_contact_disabled" as const;
+  }
+  return null;
+};
 
 const parseManagerCc = (
   value: unknown,
@@ -123,15 +134,6 @@ export const dispatchRefundCaseGmailReply = async ({
   gmailThreadId?: string | null;
   syntheticProofAuthorizationId?: string | null;
 }) => {
-  if (
-    deliveryKind === "automatic" &&
-    !automaticRefundCustomerContactEnabled()
-  ) {
-    throw new RefundGmailError(
-      "automatic_contact_disabled",
-      "Automatic customer contact is disabled.",
-    );
-  }
   if (/\/refunds\?case=/i.test(`${email.text}\n${email.html}`)) {
     throw new RefundGmailError(
       "internal_case_link_blocked",
@@ -378,6 +380,38 @@ export const dispatchRefundCaseGmailReply = async ({
         ? "gmail_reply_already_sent"
         : "gmail_reply_already_claimed",
       "This Gmail reply has already been processed.",
+    );
+  }
+
+  const automaticSendGate = deliveryKind === "automatic"
+    ? automaticRefundProviderSendGate()
+    : null;
+  if (automaticSendGate) {
+    const transportMessageId = typeof claim.transportMessageId === "string"
+      ? claim.transportMessageId
+      : "";
+    if (transportMessageId) {
+      const { data: finished, error: finishError } = await supabase.rpc(
+        "service_finish_refund_gmail_outbound",
+        {
+        p_transport_message_id: transportMessageId,
+        p_status: "failed",
+        p_provider_message_id: null,
+        p_provider_message_header: null,
+        p_error_code: automaticSendGate,
+        },
+      );
+      if (finishError || finished !== true) {
+        throw new RefundGmailError(
+          "gmail_shutdown_claim_settlement_failed",
+          "Automatic delivery stopped, but its provider claim could not be settled.",
+          true,
+        );
+      }
+    }
+    throw new RefundGmailError(
+      automaticSendGate,
+      "Automatic customer contact is disabled.",
     );
   }
 

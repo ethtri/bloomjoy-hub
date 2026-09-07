@@ -9,6 +9,9 @@ const refundsSource = await readFile(
   new URL('../../src/pages/admin/Refunds.tsx', import.meta.url),
   'utf8'
 );
+const pollingSource = await readFile(
+  new URL('../../src/lib/refundReadPolling.ts', import.meta.url), 'utf8'
+);
 const queueSource = await readFile(
   new URL('../../src/lib/refundQueue.ts', import.meta.url),
   'utf8'
@@ -43,7 +46,9 @@ assert.deepEqual(overviewFixtureBuilders, [
   'buildNavigationOnlyPendingOverview',
   'buildSimpleCardRefundJourneyOverview',
   'buildGroupedLivermorePendingOverview',
+  'buildManagerClarityRefundOverview',
   'buildManagerStepUpRefundOverview',
+  'buildManagerDraftNavigationOverview',
   'buildNayaxResolutionRefundOverview',
   'buildNayaxEvidenceOnlyRefundOverview',
   'buildInterruptedNayaxCompletionOverview',
@@ -51,11 +56,14 @@ assert.deepEqual(overviewFixtureBuilders, [
   'buildOfficialActionVersionResetOverview',
   'buildWalletMismatchRefundOverview',
   'buildWalletMismatchWaitingRefundOverview',
+  'buildTransactionalDeliveryTruthOverview',
+  'buildGmailUncertaintyPrecedenceOverview',
   'buildPhysicalCardMismatchRefundOverview',
+  'buildApprovalContinuationOverview',
 ]);
 assert.match(
   portalSource,
-  /const buildLifecycleFixture = [\s\S]*?managerQueue: \{[\s\S]*?schemaVersion: 'refund_manager_queue_v1'/
+  /const buildLifecycleFixture = [\s\S]*?schemaVersion: 'refund_lifecycle_v2'[\s\S]*?version: 1[\s\S]*?locationEvidence: \{[\s\S]*?managerQueue: \{[\s\S]*?schemaVersion: 'refund_manager_queue_v2'/
 );
 assert.match(
   portalSource,
@@ -67,7 +75,11 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /const buildPendingNayaxRefundOverview = [\s\S]*?managerQueueContractVersion: 'refund_manager_queue_v1'[\s\S]*?lifecycle: buildLifecycleFixture\('matching', 10, 'wait'\)/
+  /const buildPendingNayaxRefundOverview = [\s\S]*?managerQueueContractVersion: 'refund_manager_queue_v2'[\s\S]*?lifecycle: buildLifecycleFixture\('matching', 10, 'wait'\)/
+);
+assert.match(
+  portalSource,
+  /const buildManagerClarityRefundOverview = [\s\S]*?status: 'draft'[\s\S]*?lifecycle: buildLifecycleFixture\('needs_transaction_selection', 20, 'select_transaction'\)[\s\S]*?status: 'waiting_on_customer'[\s\S]*?lifecycle: buildLifecycleFixture\('waiting_on_customer', 15, 'wait_for_customer_reply'\)/
 );
 assert.match(
   portalSource,
@@ -75,7 +87,7 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /const buildCashRefundReviewOverview = [\s\S]*?managerQueueContractVersion: 'refund_manager_queue_v1'[\s\S]*?lifecycle: buildCashRefundLifecycleFixture\(\)/
+  /const buildCashRefundReviewOverview = [\s\S]*?managerQueueContractVersion: 'refund_manager_queue_v2'[\s\S]*?lifecycle: buildCashRefundLifecycleFixture\(\)/
 );
 assert.match(
   portalSource,
@@ -182,10 +194,9 @@ assert.match(
   queueSource,
   /if \(refundCase\.lifecycle\) return refundCase\.lifecycle\.managerQueue\.bucket;/
 );
-assert.match(
-  refundsSource,
-  /const activeRefreshIntervals = \(data\?\.cases \?\? \[\]\)[\s\S]*?Math\.min\(15_000[\s\S]*?Math\.min\(\.\.\.activeRefreshIntervals\)/
-);
+assert.match(refundsSource, /overviewPolling\.interval\(refundOverviewPollingInterval\(/);
+assert.match(pollingSource, /!lifecycle\.terminal && lifecycle\.refreshAfterSeconds/);
+assert.match(pollingSource, /Math\.min\(15_000[\s\S]*?Math\.min\(\.\.\.active\)/);
 assert.match(
   refundsSource,
   /ready_to_pay: overview\.cases\.filter\(isReadyToPayCase\)\.length[\s\S]*?waiting_on_customer: overview\.cases\.filter/
@@ -204,11 +215,15 @@ assert.doesNotMatch(
 );
 assert.match(
   refundsSource,
-  /const selectedCaseStillExists = filteredCases\.some\([\s\S]*?setSelectedId\(null\)/
+  /const selectedCaseStillExists = \[\.\.\.overview\.cases, \.\.\.internalTestCases\]\.some\([\s\S]*?setSelectedId\(null\)/
 );
 assert.match(
   refundsSource,
-  /setStatusFilter\('all'\);[\s\S]*?invalidateQueries\(\{ queryKey: \['admin-refund-operations-overview'\] \}\)[\s\S]*?setStatusFilter\(canonicalQueueBucket\(authoritativeCase\)\)/
+  /setStatusFilter\('all'\);[\s\S]*?invalidateQueries\(\{ queryKey: \['admin-refund-operations-overview'\] \}\)[\s\S]*?setStatusFilter\(getRefundQueueFilterForCase\(authoritativeCase, refundOperationsAccess\)\)/
+);
+assert.match(
+  refundsSource,
+  /findRefundDeepLinkedCase\(caseIdFromUrl, overview\.cases, internalTestCases\)/
 );
 
 console.log(

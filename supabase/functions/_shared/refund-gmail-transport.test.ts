@@ -22,6 +22,7 @@ const SYNTHETIC_ENV = {
   GMAIL_SUPPORT_MAILBOX: "mailbox@example.test",
   GMAIL_SUPPORT_SEND_AS_ALIASES: "support@example.test",
   GMAIL_REFUND_LABEL_ID: "Label_Synthetic",
+  REFUND_AUTOMATION_ENABLED: "true",
   REFUND_AUTOMATIC_CUSTOMER_CONTACT_ENABLED: "true",
 };
 
@@ -114,6 +115,28 @@ const email = {
     "<p>Thank you for contacting Bloomjoy. We are reviewing your request.</p>",
 };
 
+Deno.test("correction delivery sends no raw write capability into the actual Gmail claim ledger", async () => {
+  await withEnvironment({ ...SYNTHETIC_ENV, REFUND_GMAIL_ENABLED: "true" }, async () => {
+    const token = "x".repeat(43);
+    let claimed = false;
+    const mailboxHash = await sha256Hex(SYNTHETIC_ENV.GMAIL_SUPPORT_MAILBOX);
+    const supabase = fakeSupabase({ link: { id: "synthetic-thread", mailbox_hash: mailboxHash }, rpc: async (name, args) => {
+      assertEquals(name, "service_claim_refund_gmail_outbound_v3"); claimed = true;
+      assertStringIncludes(String(args.p_plain_body), "[Secure refund correction link included at delivery]");
+      assert(!JSON.stringify(args).includes(token));
+      return { data: { claimed: false, status: "automatic_contact_disabled" }, error: null };
+    } });
+    await withFetch(async () => { throw new Error("Synthetic claim must not send email"); }, async () => {
+      try {
+        await dispatchRefundCaseGmailReply({ supabase: supabase as never, refundCaseId: "79850000-0000-4000-8000-000000000041",
+          refundCaseMessageId: "79860000-0000-4000-8000-000000000041", recipientEmail: "customer@example.test",
+          email: { ...email, text: `Update your request: https://app.bloomjoyusa.com/refunds/correct#token=${token}` }, deliveryKind: "automatic", gmailThreadId: "synthetic-thread" });
+      } catch (error) { assert(error instanceof RefundGmailError); }
+    });
+    assert(claimed);
+  });
+});
+
 const gmailConfig: RefundGmailConfig = {
   clientId: SYNTHETIC_ENV.GMAIL_SUPPORT_CLIENT_ID,
   clientSecret: SYNTHETIC_ENV.GMAIL_SUPPORT_CLIENT_SECRET,
@@ -134,6 +157,54 @@ const decodeRawMime = (raw: string) => {
     Uint8Array.from(atob(padded), (character) => character.charCodeAt(0)),
   );
 };
+
+Deno.test("bounced original request RPC rejection stops actual Gmail transport before OAuth or provider access", async () => {
+  await withEnvironment(
+    { ...SYNTHETIC_ENV, REFUND_GMAIL_ENABLED: "true" },
+    async () => {
+      let claimCalls = 0;
+      let providerCalls = 0;
+      const mailboxHash = await sha256Hex(SYNTHETIC_ENV.GMAIL_SUPPORT_MAILBOX);
+      const supabase = {
+        from: () => new FakeLinkQuery({ id: "synthetic-thread", mailbox_hash: mailboxHash }),
+        rpc: async (name: string) => {
+          if (name === "service_verify_refund_synthetic_gmail_proof_transport") {
+            return { data: { required: false, allowed: true, status: "not_required" }, error: null };
+          }
+          assertEquals(name, "service_claim_refund_gmail_outbound_v3");
+          claimCalls += 1;
+          return { data: null, error: {
+            code: "23514",
+            message: "Follow-up reminder requires a non-failed original request",
+          } };
+        },
+      };
+      await withFetch(async () => {
+        providerCalls += 1;
+        throw new Error("Bounced original must never reach OAuth or Gmail");
+      }, async () => {
+        let caught: unknown;
+        try {
+          await dispatchRefundCaseGmailReply({
+            supabase: supabase as never,
+            refundCaseId: "79850000-0000-4000-8000-000000000041",
+            refundCaseMessageId: "79860000-0000-4000-8000-000000000041",
+            recipientEmail: "reminder-customer@example.test",
+            email,
+            deliveryKind: "automatic",
+            gmailThreadId: "synthetic-thread",
+          });
+        } catch (error) {
+          caught = error;
+        }
+        assert(caught instanceof RefundGmailError);
+        assertEquals(caught.code, "gmail_send_claim_failed");
+      });
+      assertEquals(claimCalls, 1);
+      assertEquals(providerCalls, 0);
+    },
+  );
+});
 
 Deno.test("Gmail kill switch blocks linked delivery before claim, OAuth, or provider access", async () => {
   await withEnvironment(
@@ -276,7 +347,7 @@ Deno.test("disabled Gmail leaves the non-Gmail customer-delivery route available
   );
 });
 
-Deno.test("automatic-contact shutdown remains independent and stops before Gmail claim", async () => {
+Deno.test("automatic-contact shutdown settles a new Gmail claim before provider access", async () => {
   await withEnvironment(
     {
       ...SYNTHETIC_ENV,
@@ -285,12 +356,33 @@ Deno.test("automatic-contact shutdown remains independent and stops before Gmail
     },
     async () => {
       let claimCalls = 0;
+      let finishCalls = 0;
       let fetchCalls = 0;
+      const mailboxHash = await sha256Hex(SYNTHETIC_ENV.GMAIL_SUPPORT_MAILBOX);
       const supabase = fakeSupabase({
-        link: { id: "synthetic-link", mailbox_hash: "not-read-while-paused" },
+        link: { id: "synthetic-link", mailbox_hash: mailboxHash },
         rpc: async (name) => {
           if (name === "service_claim_refund_gmail_outbound_v3") {
             claimCalls += 1;
+            return {
+              data: {
+                linked: true,
+                claimed: true,
+                transportMessageId:
+                  "79870000-0000-4000-8000-000000000004",
+                providerThreadId: "synthetic-provider-thread",
+                subject: email.subject,
+                recipientResolutionStatus: "resolved",
+                managerCcEmails: ["manager@example.test"],
+                managerRecipientOverlap: false,
+                managerRecipientCount: 1,
+              },
+              error: null,
+            };
+          }
+          if (name === "service_finish_refund_gmail_outbound") {
+            finishCalls += 1;
+            return { data: true, error: null };
           }
           return { data: null, error: null };
         },
@@ -321,7 +413,76 @@ Deno.test("automatic-contact shutdown remains independent and stops before Gmail
         },
       );
 
-      assertEquals(claimCalls, 0);
+      assertEquals(claimCalls, 1);
+      assertEquals(finishCalls, 1);
+      assertEquals(fetchCalls, 0);
+    },
+  );
+});
+
+Deno.test("automatic shutdown claim settlement failure throws before provider access", async () => {
+  await withEnvironment(
+    {
+      ...SYNTHETIC_ENV,
+      REFUND_GMAIL_ENABLED: "true",
+      REFUND_AUTOMATIC_CUSTOMER_CONTACT_ENABLED: "false",
+    },
+    async () => {
+      let fetchCalls = 0;
+      const mailboxHash = await sha256Hex(SYNTHETIC_ENV.GMAIL_SUPPORT_MAILBOX);
+      const supabase = fakeSupabase({
+        link: { id: "synthetic-link", mailbox_hash: mailboxHash },
+        rpc: async (name) => {
+          if (name === "service_claim_refund_gmail_outbound_v3") {
+            return {
+              data: {
+                linked: true,
+                claimed: true,
+                transportMessageId:
+                  "79870000-0000-4000-8000-000000000005",
+                providerThreadId: "synthetic-provider-thread",
+                subject: email.subject,
+                recipientResolutionStatus: "resolved",
+                managerCcEmails: ["manager@example.test"],
+                managerRecipientOverlap: false,
+                managerRecipientCount: 1,
+              },
+              error: null,
+            };
+          }
+          if (name === "service_finish_refund_gmail_outbound") {
+            return {
+              data: false,
+              error: null,
+            };
+          }
+          return { data: null, error: null };
+        },
+      });
+      await withFetch(
+        async () => {
+          fetchCalls += 1;
+          throw new Error("shutdown settlement failure reached provider");
+        },
+        async () => {
+          let caught: unknown = null;
+          try {
+            await dispatchRefundCaseGmailReply({
+              supabase: supabase as never,
+              refundCaseId: "79850000-0000-4000-8000-000000000005",
+              refundCaseMessageId: "79860000-0000-4000-8000-000000000005",
+              recipientEmail: "first-contact-customer@example.test",
+              email,
+              deliveryKind: "automatic",
+              gmailThreadId: "synthetic-link",
+            });
+          } catch (error) {
+            caught = error;
+          }
+          assert(caught instanceof RefundGmailError);
+          assertEquals(caught.code, "gmail_shutdown_claim_settlement_failed");
+        },
+      );
       assertEquals(fetchCalls, 0);
     },
   );

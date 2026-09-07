@@ -1656,21 +1656,15 @@ function MachinePortfolioRow({
   const refundIsReady = row.refundReadinessState === 'ready_to_refund' && globalRefunds.available;
   const refundIsDirectBlocked =
     row.refundReadinessState === 'ready_to_refund' && !globalRefunds.available && !globalRefunds.paused;
-  const providerRemainingValueUnverified =
-    globalRefunds.blockReason === 'provider_remaining_value_unverified';
   const refundLabel = globalRefunds.paused
     ? 'Paused globally'
     : refundIsReady
       ? 'Ready'
-      : refundIsDirectBlocked && providerRemainingValueUnverified
-        ? 'Manual portal only'
-        : refundIsDirectBlocked
+      : refundIsDirectBlocked
           ? 'Direct API blocked'
       : refundReadinessLabel(row.refundReadinessState);
   const refundDetail = refundIsDirectBlocked
-    ? providerRemainingValueUnverified
-      ? 'Direct API blocked until Nayax remaining value is verified'
-      : 'Direct API is unavailable'
+    ? 'Direct API is unavailable'
     : row.refundBlockReason
       ? refundReasonLabel(row.refundBlockReason)
       : null;
@@ -1813,7 +1807,7 @@ function RefundNayaxInventoryPanel({
     focusedInventoryId ? 'all' : 'attention'
   );
   const [inventorySearch, setInventorySearch] = useState('');
-  const [inventoryCategory, setInventoryCategory] = useState<'all' | 'cotton_candy' | 'snapcase' | 'unclassified'>('all');
+  const [inventoryCategory, setInventoryCategory] = useState<'all' | 'cotton_candy' | 'snapcase' | 'unknown' | 'unclassified'>('all');
   const [inventoryMapping, setInventoryMapping] = useState<'all' | 'linked' | 'unlinked'>('all');
   const activeMachines = inventory?.machines.filter((machine) => machine.providerActive) ?? [];
   const normalizedSearch = inventorySearch.trim().toLowerCase();
@@ -1929,6 +1923,7 @@ function RefundNayaxInventoryPanel({
                 <option value="all">All categories</option>
                 <option value="cotton_candy">Cotton candy</option>
                 <option value="snapcase">Snapcase</option>
+                <option value="unknown">Product unverified</option>
                 <option value="unclassified">Unclassified</option>
               </select>
               <select aria-label="Filter exact mapping" value={inventoryMapping} onChange={(event) => setInventoryMapping(event.target.value as typeof inventoryMapping)} className="h-11 rounded-md border border-input bg-background px-3 text-sm">
@@ -2094,6 +2089,7 @@ function RefundNayaxInventoryRow({
               <option value="">Not classified</option>
               <option value="cotton_candy">Cotton candy</option>
               <option value="snapcase">Snapcase</option>
+              <option value="unknown">Product unverified</option>
             </select>
           </div>
         </div>
@@ -2924,22 +2920,16 @@ function MachineDialog({
     }
   };
   const machineReadinessState = refundManagerSetup?.readinessState ?? 'setup_needed';
-  const providerRemainingValueUnverified =
-    globalRefunds.blockReason === 'provider_remaining_value_unverified';
   const overallReadinessLabel = globalRefunds.paused
     ? 'Paused'
-    : providerRemainingValueUnverified && machineReadinessState === 'ready_to_refund'
-      ? 'Manual portal only'
-      : !globalRefunds.available && machineReadinessState === 'ready_to_refund'
+    : !globalRefunds.available && machineReadinessState === 'ready_to_refund'
         ? 'Direct API blocked'
       : refundReadinessLabel(machineReadinessState);
   const directApiStatus = globalRefunds.available
     ? 'Available'
     : globalRefunds.paused
       ? 'Paused'
-      : providerRemainingValueUnverified
-        ? 'Blocked · remaining value unverified'
-        : 'Unavailable';
+      : 'Unavailable';
   const cardRefundStatus = refundManagerSetup?.nayaxRefundsEnabled
     ? 'Enabled'
     : `Off — ${refundReasonLabel(
@@ -3176,9 +3166,7 @@ function MachineDialog({
             )}
             {!globalRefunds.available && !globalRefunds.paused && (
               <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-                {providerRemainingValueUnverified
-                  ? 'Direct API blocked until Nayax remaining refundable value can be verified. Customer requests and transaction lookup remain available; use the reviewed Nayax portal for money movement.'
-                  : 'Direct card refunds are unavailable. This machine\'s customer-intake, lookup, and capability settings are shown separately below.'}
+                Direct card refunds are unavailable. This machine's customer-intake, lookup, and capability settings are shown separately below.
               </div>
             )}
             <dl className="mt-5 divide-y divide-border rounded-md border border-border text-sm">
@@ -3571,9 +3559,7 @@ function MachineDialog({
             )}
             {!globalRefunds.available && !globalRefunds.paused && (
               <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-                {providerRemainingValueUnverified
-                  ? 'Direct API blocked until Nayax remaining refundable value can be verified. Customer requests and transaction lookup remain available; use the reviewed Nayax portal for money movement.'
-                  : 'Direct card refunds are unavailable. This machine\'s customer-intake, lookup, and capability settings are shown separately below.'}
+                Direct card refunds are unavailable. This machine's customer-intake, lookup, and capability settings are shown separately below.
               </div>
             )}
             <dl className="mt-4 divide-y divide-border overflow-hidden rounded-md border border-border bg-background text-sm">

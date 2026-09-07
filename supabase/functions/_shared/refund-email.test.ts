@@ -92,6 +92,25 @@ Deno.test("missing-field normalization is allowlisted, ordered, and deduplicated
   );
 });
 
+Deno.test("cash payout request asks for one protected destination in English and Spanish", () => {
+  const email = buildRefundCustomerEmail({
+    messageType: "more_info",
+    publicReference: "RF-PAYOUT1",
+    customerEmail: "customer@example.com",
+    paymentMethod: "cash",
+    customerLocale: "es",
+    missingFields: ["zelle_payment_contact"],
+  });
+  assertIncludes(email.text, "Zelle email or phone number:", "English reply line");
+  assertIncludes(
+    email.text,
+    "Correo electrónico o número de teléfono de Zelle:",
+    "Spanish reply line",
+  );
+  assertNotIncludes(email.text, "Approximate purchase time", "no purchase-time request");
+  assertNotIncludes(email.text, "Card last four", "no card request");
+});
+
 Deno.test("missing-information templates fail closed without an exact field list", () => {
   let failed = false;
   try {

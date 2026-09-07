@@ -1,9 +1,11 @@
--- Aggregate-only, read-only mapped Machine Manager UAT account audit.
+-- Aggregate-only, read-only mapped Machine Manager production-access audit.
 --
 -- This file is a template. manager-uat-readiness.mjs replaces the single
--- pilot-machine marker with validated UUID literals (or an empty SELECT) before
+-- legacy pilot-machine marker with validated UUID literals (or an empty SELECT) before
 -- sending the query to the linked Supabase project. The result intentionally
 -- contains counts only: no names, emails, user IDs, machine IDs, or case data.
+-- Live-enabled published inventory controls readiness. Disabled shadow inventory
+-- is retained only as an explicitly labelled historical diagnostic.
 
 with
 pilot_machines(machine_id) as (
@@ -97,7 +99,7 @@ current_operator_profiles as (
   from public.operator_payout_profiles profile
   where profile.status = 'active'
 ),
-shadow_ready_machines as (
+legacy_shadow_disabled_machines as (
   select distinct machine.id
   from public.reporting_machines machine
   join public.reporting_locations location on location.id = machine.location_id
@@ -110,6 +112,24 @@ shadow_ready_machines as (
     and location.status = 'active'
     and nullif(trim(machine.nayax_machine_id), '') is not null
     and coalesce(machine.nayax_refunds_enabled, false) = false
+    and inventory.provider_is_active
+    and inventory.missing_successful_snapshots < 2
+    and inventory.reconciliation_state = 'published'
+    and inventory.refund_category in ('cotton_candy', 'snapcase')
+),
+live_enabled_machines as (
+  select distinct machine.id
+  from public.reporting_machines machine
+  join public.reporting_locations location on location.id = machine.location_id
+  join public.refund_nayax_machine_inventory inventory
+    on inventory.reporting_machine_id = machine.id
+   and inventory.account_key = upper(coalesce(machine.nayax_account_key, 'TGPACI_USA_DB'))
+   and inventory.nayax_machine_id = trim(machine.nayax_machine_id)
+  where machine.status = 'active'
+    and machine.refund_intake_enabled = true
+    and location.status = 'active'
+    and nullif(trim(machine.nayax_machine_id), '') is not null
+    and coalesce(machine.nayax_refunds_enabled, false) = true
     and inventory.provider_is_active
     and inventory.missing_successful_snapshots < 2
     and inventory.reconciliation_state = 'published'
@@ -176,9 +196,15 @@ identity_access as (
     (
       select count(distinct assignment.reporting_machine_id)::integer
       from active_manager_assignments assignment
-      join shadow_ready_machines machine on machine.id = assignment.reporting_machine_id
+      join legacy_shadow_disabled_machines machine on machine.id = assignment.reporting_machine_id
       where assignment.manager_user_id = identity.manager_user_id
     ) as shadow_ready_assignment_count,
+    (
+      select count(distinct assignment.reporting_machine_id)::integer
+      from active_manager_assignments assignment
+      join live_enabled_machines machine on machine.id = assignment.reporting_machine_id
+      where assignment.manager_user_id = identity.manager_user_id
+    ) as live_enabled_assignment_count,
     (
       select count(distinct assignment.reporting_machine_id)::integer
       from active_manager_assignments assignment
@@ -196,9 +222,16 @@ identity_access as (
       select count(distinct assignment.reporting_machine_id)::integer
       from active_manager_assignments assignment
       join pilot_machines pilot on pilot.machine_id = assignment.reporting_machine_id
-      join shadow_ready_machines machine on machine.id = assignment.reporting_machine_id
+      join legacy_shadow_disabled_machines machine on machine.id = assignment.reporting_machine_id
       where assignment.manager_user_id = identity.manager_user_id
-    ) as shadow_ready_pilot_assignment_count
+    ) as shadow_ready_pilot_assignment_count,
+    (
+      select count(distinct assignment.reporting_machine_id)::integer
+      from active_manager_assignments assignment
+      join pilot_machines pilot on pilot.machine_id = assignment.reporting_machine_id
+      join live_enabled_machines machine on machine.id = assignment.reporting_machine_id
+      where assignment.manager_user_id = identity.manager_user_id
+    ) as live_enabled_pilot_assignment_count
   from manager_identities identity
 ),
 assessed_identities as (
@@ -224,6 +257,8 @@ pilot_summary as (
 select
   true as read_only,
   (select selected_pilot_machine_count from pilot_summary) as selected_pilot_machine_count,
+  (select count(*)::integer from live_enabled_machines) as live_enabled_machine_count,
+  (select count(*)::integer from legacy_shadow_disabled_machines) as legacy_shadow_disabled_machine_count,
   (select count(*)::integer from active_manager_assignments) as active_manager_assignment_count,
   count(*)::integer as active_manager_identity_count,
   count(*) filter (where identity.is_manager_only)::integer as manager_only_identity_count,
@@ -234,6 +269,13 @@ select
   count(*) filter (
     where identity.shadow_ready_assignment_count > 0
   )::integer as mapped_with_shadow_ready_assignment_count,
+  count(*) filter (
+    where identity.is_manager_only
+      and identity.live_enabled_assignment_count > 0
+  )::integer as manager_only_with_live_enabled_assignment_count,
+  count(*) filter (
+    where identity.live_enabled_assignment_count > 0
+  )::integer as mapped_with_live_enabled_assignment_count,
   case
     when (select selected_pilot_machine_count from pilot_summary) = 0 then null
     else count(*) filter (
@@ -242,6 +284,14 @@ select
         and identity.shadow_ready_pilot_assignment_count = identity.pilot_assignment_count
     )::integer
   end as exact_pilot_eligible_identity_count,
+  case
+    when (select selected_pilot_machine_count from pilot_summary) = 0 then null
+    else count(*) filter (
+      where identity.pilot_assignment_count =
+          (select selected_pilot_machine_count from pilot_summary)
+        and identity.live_enabled_pilot_assignment_count = identity.pilot_assignment_count
+    )::integer
+  end as exact_selected_live_enabled_identity_count,
   count(*) filter (where identity.has_super_admin)::integer as super_admin_overlap_count,
   count(*) filter (where identity.has_scoped_admin)::integer as scoped_admin_overlap_count,
   count(*) filter (where identity.has_corporate_partner)::integer as corporate_partner_overlap_count,

@@ -1,3 +1,5 @@
+import { parseNayaxMachineAuthorizationTime } from './nayax-machine-authorization-time.mjs';
+
 export const NAYAX_REFUND_PRODUCTION_BASE_URL =
   "https://lynx.nayax.com/operational/v1";
 
@@ -146,10 +148,10 @@ const parsePattern = (pattern, stage, index) => {
   return Object.freeze({ result, status, outcome });
 };
 
-const parsePatterns = (patterns, stage) => {
-  if (!Array.isArray(patterns) || patterns.length === 0 || patterns.length > 30) {
+const parsePatterns = (patterns, stage, allowIncomplete = false) => {
+  if (!Array.isArray(patterns) || (!allowIncomplete && patterns.length === 0) || patterns.length > 30) {
     throw new Error(
-      `Nayax refund contract ${stage}Responses must contain 1 to 30 patterns.`,
+      `Nayax refund contract ${stage}Responses must contain ${allowIncomplete ? '0' : '1'} to 30 patterns.`,
     );
   }
 
@@ -167,6 +169,49 @@ const parsePatterns = (patterns, stage) => {
     signatures.add(signature);
   }
   return Object.freeze(parsed);
+};
+
+const retainSanitizedBusinessOutcomeValue = (value) => {
+  if (
+    typeof value !== "string" ||
+    value.length < 1 ||
+    value.length > 80 ||
+    value !== value.trim() ||
+    /[\u0000-\u001f\u007f]/u.test(value) ||
+    /@|https?:\/\//iu.test(value) ||
+    /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/iu.test(value) ||
+    /\d/u.test(value)
+  ) {
+    return null;
+  }
+  return value;
+};
+
+// Restricted diagnostics retain only the two provider-owned Result/Status
+// scalars. They never retain the surrounding response object. Obvious
+// customer identifiers, URLs, card-length digit runs and credential-shaped
+// strings fail closed instead of entering the audit record.
+const retainRestrictedResponseScalar = (value) => {
+  if (value === null) return null;
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) && Math.abs(value) <= 999_999_999
+      ? String(value)
+      : undefined;
+  }
+  if (
+    typeof value !== "string" ||
+    value.length > 80 ||
+    /[\u0000-\u001f\u007f]/u.test(value) ||
+    /@|https?:\/\//iu.test(value) ||
+    /(?:bearer|password|secret|token)/iu.test(value) ||
+    /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/iu.test(value) ||
+    /(?:\d[ -]?){12,}/u.test(value) ||
+    /[A-Za-z0-9_-]{32,}/u.test(value)
+  ) {
+    return undefined;
+  }
+  return value;
 };
 
 export function parseNayaxRefundProviderContract(rawValue) {
@@ -191,6 +236,7 @@ export function parseNayaxRefundProviderContract(rawValue) {
       "writeCredentialMode",
       "sameWriteTokenContractConfirmed",
       "reconciliationMode",
+      "responseLearningMode",
       "requestResponses",
       "approveResponses",
     ]),
@@ -268,14 +314,23 @@ export function parseNayaxRefundProviderContract(rawValue) {
     );
   }
 
-  const requestResponses = parsePatterns(contract.requestResponses, "request");
-  const approveResponses = parsePatterns(contract.approveResponses, "approve");
-  if (!requestResponses.some((pattern) => pattern.outcome === "accepted")) {
+  // A reviewed operating contract may contain only independently evidenced
+  // response rules. Missing rules always mean unknown; they never authorize an
+  // approval. This avoids requiring invented success/duplicate strings merely
+  // to make the first legitimate, manager-authorized request.
+  const learningMode = contract.responseLearningMode;
+  if (learningMode !== undefined && learningMode !== "inspect_unknown") {
+    throw new Error("Nayax responseLearningMode must be inspect_unknown when supplied.");
+  }
+  const allowIncomplete = learningMode === "inspect_unknown";
+  const requestResponses = parsePatterns(contract.requestResponses, "request", allowIncomplete);
+  const approveResponses = parsePatterns(contract.approveResponses, "approve", allowIncomplete);
+  if (!allowIncomplete && !requestResponses.some((pattern) => pattern.outcome === "accepted")) {
     throw new Error(
       "Nayax refund provider contract needs an accepted request response.",
     );
   }
-  if (!approveResponses.some((pattern) => pattern.outcome === "succeeded")) {
+  if (!allowIncomplete && !approveResponses.some((pattern) => pattern.outcome === "succeeded")) {
     throw new Error(
       "Nayax refund provider contract needs a succeeded approval response.",
     );
@@ -284,12 +339,12 @@ export function parseNayaxRefundProviderContract(rawValue) {
     ["request", requestResponses],
     ["approve", approveResponses],
   ]) {
-    if (!patterns.some((pattern) => pattern.outcome === "duplicate")) {
+    if (!allowIncomplete && !patterns.some((pattern) => pattern.outcome === "duplicate")) {
       throw new Error(
         `Nayax refund provider contract needs an exact duplicate ${stage} response.`,
       );
     }
-    if (!patterns.some((pattern) => pattern.outcome === "already_refunded")) {
+    if (!allowIncomplete && !patterns.some((pattern) => pattern.outcome === "already_refunded")) {
       throw new Error(
         `Nayax refund provider contract needs an exact already-refunded ${stage} response.`,
       );
@@ -307,6 +362,7 @@ export function parseNayaxRefundProviderContract(rawValue) {
     writeCredentialMode,
     sameWriteTokenContractConfirmed,
     reconciliationMode,
+    ...(allowIncomplete ? { responseLearningMode: "inspect_unknown" } : {}),
     requestResponses,
     approveResponses,
   });
@@ -329,15 +385,7 @@ const parseProviderInteger = (value, label, maximum) => {
 };
 
 const parseMachineAuthorizationTime = (value) => {
-  const normalized = text(value, 80);
-  if (
-    !normalized ||
-    !/(?:Z|[+-]\d{2}:\d{2})$/i.test(normalized) ||
-    !Number.isFinite(Date.parse(normalized))
-  ) {
-    throw new Error("Nayax MachineAuTime must be a timezone-qualified date-time.");
-  }
-  return normalized;
+  return parseNayaxMachineAuthorizationTime(value);
 };
 
 const providerAmount = (amountCents, amountUnit) => {
@@ -543,6 +591,26 @@ export function classifyNayaxRefundResponse({
     )
     : undefined;
   const semanticPairMatched = Boolean(pattern);
+  // Business outcomes remain limited to exact pairs already reviewed into the
+  // active contract. A separate restricted scalar pair supports evidence review
+  // without changing semantic classification or approval authority.
+  const businessResult = pattern
+    ? retainSanitizedBusinessOutcomeValue(pattern.result)
+    : null;
+  const businessStatus = pattern
+    ? retainSanitizedBusinessOutcomeValue(pattern.status)
+    : null;
+  const businessPairRetained = businessResult !== null && businessStatus !== null;
+  const observedResultScalar = resultKeyPresent &&
+      new Set(["string", "number", "boolean", "null"]).has(resultValueType)
+    ? retainRestrictedResponseScalar(record.Result)
+    : undefined;
+  const observedStatusScalar = statusKeyPresent &&
+      new Set(["string", "number", "boolean", "null"]).has(statusValueType)
+    ? retainRestrictedResponseScalar(record.Status)
+    : undefined;
+  const observedScalarPairRetained =
+    observedResultScalar !== undefined && observedStatusScalar !== undefined;
   const contractMatched = safeFailureType === null &&
     httpAccepted &&
     safeMediaTypeClass === "application_json" &&
@@ -569,6 +637,24 @@ export function classifyNayaxRefundResponse({
     schemaMatched,
     semanticPairMatched,
     contractMatched,
+    ...(schemaMatched
+      ? {
+        businessResult: businessPairRetained ? businessResult : null,
+        businessStatus: businessPairRetained ? businessStatus : null,
+        businessPairRetained,
+      }
+      : {}),
+    ...(resultKeyPresent && statusKeyPresent
+      ? {
+        observedResultScalar: observedScalarPairRetained
+          ? observedResultScalar
+          : null,
+        observedStatusScalar: observedScalarPairRetained
+          ? observedStatusScalar
+          : null,
+        observedScalarPairRetained,
+      }
+      : {}),
     ...(safeFailureType ? { failureType: safeFailureType } : {}),
     payloadRedacted: true,
   });
@@ -833,6 +919,53 @@ export async function executeNayaxRefundProvider({
   });
 }
 
+// Current journal-v3 continuation only. The database must first prove that the
+// same immutable attempt recorded an accepted request and issue a one-use
+// continuation claim. This intentionally does not use the retired legacy
+// approval-only contract/runtime.
+export async function executeNayaxRefundApprovalContinuation({
+  contract,
+  approveToken,
+  transactionId,
+  siteId,
+  machineAuthorizationTime,
+  fetchImpl = fetch,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  onStageEvent = async (_stageEvent) => {},
+}) {
+  if (
+    contract?.schemaVersion !== 2 ||
+    !Array.isArray(contract?.requestResponses) ||
+    !Array.isArray(contract?.approveResponses)
+  ) {
+    throw new Error("Current Nayax provider contract is required for continuation.");
+  }
+  const approveBody = buildNayaxRefundApprovalBody({
+    transactionId,
+    siteId,
+    machineAuthorizationTime,
+  });
+  await onStageEvent(Object.freeze({ stage: "approve", event: "started" }));
+  const approve = await postNayaxRefundStep({
+    stage: "approve",
+    contract,
+    token: approveToken,
+    body: approveBody,
+    fetchImpl,
+    timeoutMs,
+  });
+  await onStageEvent(Object.freeze({
+    stage: "approve",
+    event: "result",
+    result: approve,
+  }));
+  return Object.freeze({
+    request: null,
+    approve,
+    executed: approve.outcome === "succeeded",
+  });
+}
+
 export function parseNayaxRefundApprovalContract(rawValue) {
   let parsed;
   try {
@@ -1046,6 +1179,13 @@ export const buildRedactedNayaxStageDigest = async ({
     semanticPairMatched: typeof result.semanticPairMatched === "boolean"
       ? result.semanticPairMatched
       : null,
+    businessResult: result.businessPairRetained === true
+      ? text(result.businessResult, 80)
+      : null,
+    businessStatus: result.businessPairRetained === true
+      ? text(result.businessStatus, 80)
+      : null,
+    businessPairRetained: result.businessPairRetained === true,
     contractMatched: typeof result.contractMatched === "boolean"
       ? result.contractMatched
       : null,
@@ -1156,7 +1296,7 @@ export function createNayaxRefundProviderAdapter({
   return Object.freeze({
     mode: "live",
     contractVersion: contract.contractVersion,
-    execute: async (request) => {
+    execute: async (request, executionPlan = "request_and_approve") => {
       const input = assertPlainObject(request, "Nayax orchestration request");
       if (
         input.caseId !== evidence.caseId ||
@@ -1169,18 +1309,32 @@ export function createNayaxRefundProviderAdapter({
         );
       }
 
-      const result = await executeNayaxRefundProvider({
-        contract,
-        requestToken,
-        approveToken,
-        amountCents: evidence.amountCents,
-        transactionId: evidence.transactionId,
-        siteId: evidence.siteId,
-        machineAuthorizationTime: evidence.machineAuthorizationTime,
-        fetchImpl,
-        timeoutMs: boundedTimeoutMs,
-        onStageEvent,
-      });
+      if (!new Set(["request_and_approve", "approval_continuation"]).has(executionPlan)) {
+        throw new Error("Unsupported Nayax provider execution plan.");
+      }
+      const result = executionPlan === "approval_continuation"
+        ? await executeNayaxRefundApprovalContinuation({
+          contract,
+          approveToken,
+          transactionId: evidence.transactionId,
+          siteId: evidence.siteId,
+          machineAuthorizationTime: evidence.machineAuthorizationTime,
+          fetchImpl,
+          timeoutMs: boundedTimeoutMs,
+          onStageEvent,
+        })
+        : await executeNayaxRefundProvider({
+          contract,
+          requestToken,
+          approveToken,
+          amountCents: evidence.amountCents,
+          transactionId: evidence.transactionId,
+          siteId: evidence.siteId,
+          machineAuthorizationTime: evidence.machineAuthorizationTime,
+          fetchImpl,
+          timeoutMs: boundedTimeoutMs,
+          onStageEvent,
+        });
       return Object.freeze(await mapNayaxRefundExecutionOutcome(
         result,
         contract.contractVersion,

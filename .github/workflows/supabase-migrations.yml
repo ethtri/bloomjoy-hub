@@ -6,6 +6,8 @@ on:
       - 'supabase/migrations/**'
       - 'supabase/tests/**'
       - 'scripts/validate-supabase-migrations.mjs'
+      - 'scripts/refunds/refund-populated-delivery-upgrade*.mjs'
+      - 'scripts/refunds/fixtures/refund-*.sql'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/supabase-migrations.yml'
@@ -17,7 +19,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v6

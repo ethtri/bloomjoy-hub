@@ -12,6 +12,9 @@ export type RefundManagerStateId =
   | 'refunding'
   | 'refund_confirmed'
   | 'needs_refund_operations'
+  | 'awaiting_payout'
+  | 'integrity_hold'
+  | 'internal_test_archived'
   | 'completed'
   | 'refund_rejected'
   | 'check_nayax_result'
@@ -26,6 +29,30 @@ export type RefundManagerState = {
   explanation: string;
   nextStep: string;
   tone: RefundManagerStateTone;
+};
+
+type RefundManagerDisplayAction = {
+  disabled?: boolean;
+  helper?: string;
+  messageType?: string;
+  mode?: string;
+};
+
+/** Keep the displayed instruction aligned with an available customer-detail action. */
+export const getDisplayedRefundManagerNextStep = (
+  managerState: RefundManagerState,
+  primaryAction: RefundManagerDisplayAction | null,
+) => {
+  if (
+    primaryAction?.disabled !== true &&
+    primaryAction?.mode === 'retry_message' &&
+    primaryAction?.messageType === 'more_info' &&
+    primaryAction.helper?.trim()
+  ) {
+    return primaryAction.helper.trim();
+  }
+
+  return managerState.nextStep;
 };
 
 type RefundManagerCaseFacts = {
@@ -43,6 +70,7 @@ type RefundManagerCaseFacts = {
     | 'closed';
   paymentMethod: 'card' | 'cash' | 'unknown';
   paymentAmountCents?: number | null;
+  zellePaymentContact?: string | null;
   correlationStatus:
     | 'not_started'
     | 'matched'
@@ -61,7 +89,7 @@ type RefundManagerCaseFacts = {
     canIssueCardRefund: boolean;
     blockReason: string | null;
   } | null;
-  nayaxRecommendationState?: 'high_confidence' | 'ambiguous' | 'no_safe_match' | 'manual_exception' | null;
+  nayaxRecommendationState?: 'high_confidence' | 'manager_confirmed' | 'ambiguous' | 'no_safe_match' | 'manual_exception' | null;
   nayaxLookupSummary?: {
     lookupStatus:
       | 'not_applicable'
@@ -75,9 +103,17 @@ type RefundManagerCaseFacts = {
       | 'lookup_failed'
       | 'lookup_timed_out'
       | 'response_limited';
-    recommendationState?: 'high_confidence' | 'ambiguous' | 'no_safe_match' | 'manual_exception';
+    recommendationState?: 'high_confidence' | 'manager_confirmed' | 'ambiguous' | 'no_safe_match' | 'manual_exception';
   } | null;
   lifecycle?: RefundLifecycleContract | null;
+  customerDeliveryException?: {
+    state: 'unknown' | 'deferred' | 'failed' | 'bounced' | 'complained';
+    messageType: string;
+    recoveryOwner: 'refund_operations';
+    nextAction: 'review_delivery_no_resend';
+    customerMessageReplayAllowed: false;
+    paymentReplayAllowed: false;
+  } | null;
 };
 
 export const isDefinitiveNoRefundRetryReady = (
@@ -92,8 +128,43 @@ export const isDefinitiveNoRefundRetryReady = (
   refundCase.lifecycle?.stage === 'transaction_confirmed' &&
   refundCase.lifecycle.definitiveNoRefund === true &&
   refundCase.lifecycle.safeRetryEligible === true &&
-  refundCase.lifecycle.operations.required === false &&
+  (refundCase.lifecycle.operations.required === false ||
+    refundCase.lifecycle.operations.failureClass === 'customer_delivery_exception') &&
   refundCase.lifecycle.operations.safeStage === 'released_no_refund';
+
+/** Known unpaid review can continue independently of a historical customer notice. */
+export const hasUnpaidRefundReview = (refundCase: RefundManagerCaseFacts) =>
+  refundCase.paymentMethod === 'card' &&
+  refundCase.providerHold !== true &&
+  !['unconfirmed', 'succeeded'].includes(refundCase.providerOutcome ?? '') &&
+  (refundCase.providerOutcome !== 'rejected' || isDefinitiveNoRefundRetryReady(refundCase)) &&
+  ['not_requested', 'not_issued'].includes(refundCase.lifecycle?.paymentState ?? '') &&
+  ['matching', 'needs_transaction_selection', 'transaction_confirmed'].includes(refundCase.lifecycle?.stage ?? '') &&
+  refundCase.lifecycle?.terminal === false;
+
+/** Existing payment/terminal truth must never be replaced by an email task. */
+export const hasProtectedRefundLifecycle = (refundCase: RefundManagerCaseFacts) =>
+  refundCase.paymentMethod === 'card' && Boolean(refundCase.lifecycle) && (
+    refundCase.lifecycle?.terminal === true ||
+    ['refund_initiated', 'confirming_with_nayax', 'needs_refund_operations', 'integrity_hold',
+      'refund_confirmed', 'customer_notified'].includes(refundCase.lifecycle?.stage ?? '')
+  );
+
+/** Exact transaction confirmation may continue after the one refund decision. */
+export const canConfirmRefundCandidate = (refundCase: {
+  persistedStatus: RefundManagerCaseFacts['status'];
+  editorStatus: RefundManagerCaseFacts['status'];
+  decision?: 'approved' | 'denied' | null;
+  canSelectCandidate: boolean;
+}) => {
+  const inManagerReview =
+    refundCase.persistedStatus === 'needs_review' && refundCase.editorStatus === 'needs_review';
+  const approvedUnpaidContinuation =
+    refundCase.decision === 'approved' &&
+    refundCase.persistedStatus === 'approved' &&
+    refundCase.editorStatus === 'approved';
+  return refundCase.canSelectCandidate && (inManagerReview || approvedUnpaidContinuation);
+};
 
 const state = (
   id: RefundManagerStateId,
@@ -120,6 +191,66 @@ const waitingCustomerFieldSummary = (lifecycle: RefundLifecycleContract) =>
     .map((field) => customerActionFieldLabels[field] ?? field.replaceAll('_', ' '))
     .join(', ');
 
+const receiptAccountingManagerState = (
+  lifecycle: RefundLifecycleContract,
+): RefundManagerState | null => {
+  if (
+    lifecycle.paymentState !== 'confirmed' ||
+    !['refund_confirmed', 'customer_notified'].includes(lifecycle.stage) ||
+    (lifecycle.paymentWorkComplete !== true && lifecycle.reasonCode !== 'settlement_time_unknown')
+  ) return null;
+
+  // Historical receipt projections can predate messageState. Presentation may
+  // show that absence as missing notice evidence; the lifecycle parser remains
+  // strict and continues to reject incomplete live contracts.
+  const noticeState = lifecycle.messageState?.state ?? (
+    lifecycle.stage === 'customer_notified' ? 'sent' : 'none'
+  );
+  if (['pending', 'queued', 'claimed'].includes(noticeState)) {
+    return state(
+      'refund_confirmed',
+      'Refund confirmed · customer notice queued',
+      'Nayax confirms the full refund. The saved customer completion notice is waiting for delivery.',
+      'Keep monitoring the existing notice. Refund Operations owns the unknown accounting date. Do not retry payment or create another message.',
+      'info',
+    );
+  }
+  if (['failed', 'bounced', 'complained', 'deferred', 'delivery_unconfirmed', 'unknown'].includes(noticeState)) {
+    return state(
+      'refund_confirmed',
+      'Refund confirmed · delivery review',
+      'Nayax confirms the full refund, but delivery of the saved customer completion notice is failed or unconfirmed.',
+      'Refund Operations owns the message-delivery and accounting-date review. Do not retry payment or create another message blindly.',
+      'warning',
+    );
+  }
+  if (['sent', 'delivered'].includes(noticeState)) {
+    return state(
+      'refund_confirmed',
+      'Refund confirmed · customer updated',
+      'The existing customer notice is recorded for this claim. The settlement date remains unknown and no dated reporting adjustment has been applied.',
+      'Refund Operations owns the accounting-date review. Do not retry payment or resend the customer notice.',
+      'warning',
+    );
+  }
+  if (noticeState === 'none') {
+    return state(
+      'refund_confirmed',
+      'Refund confirmed · notice not recorded',
+      'Nayax confirms the full refund. No customer completion notice is queued or recorded yet, and the settlement date remains unknown.',
+      'Keep monitoring the canonical completion flow. Refund Operations owns the accounting-date review. Do not retry payment or create a separate message.',
+      'warning',
+    );
+  }
+  return state(
+    'refund_confirmed',
+    'Refund confirmed · delivery review',
+    'Nayax confirms the full refund, but the saved customer completion notice has an unrecognized delivery state.',
+    'Refund Operations owns the message-delivery and accounting-date review. Do not retry payment or create another message blindly.',
+    'warning',
+  );
+};
+
 export const refundReadinessBlockMessage = (blockReason: string | null | undefined) => {
   switch (blockReason) {
     case 'unauthorized':
@@ -137,7 +268,7 @@ export const refundReadinessBlockMessage = (blockReason: string | null | undefin
     case 'globally_paused':
       return 'Card refunds are temporarily paused. Operations needs to resume the service.';
     case 'provider_remaining_value_unverified':
-      return 'Direct card refunds are unavailable until Nayax remaining refundable value can be verified. Use the reviewed Nayax portal fallback.';
+      return 'Refresh the case to load the current refund availability.';
     case 'provider_unavailable':
       return 'The payment connection is temporarily unavailable. Try again later or contact Operations.';
     case 'transaction_not_confirmed':
@@ -161,6 +292,44 @@ export const getRefundManagerState = (
       'Wait for confirmation. Do not try the refund again.',
       'info'
     );
+  }
+
+  if (refundCase.customerDeliveryException && (
+    refundCase.paymentMethod !== 'card' || !refundCase.lifecycle ||
+    (refundCase.lifecycle.paymentState === 'confirmed' && ['refund_confirmed', 'customer_notified'].includes(refundCase.lifecycle.stage))
+  )) {
+    const deliveryLabel = {
+      unknown: 'Delivery is unconfirmed',
+      deferred: 'The provider delayed delivery',
+      failed: 'The provider could not deliver the message',
+      bounced: 'The customer address bounced',
+      complained: 'The provider recorded a complaint',
+    }[refundCase.customerDeliveryException.state];
+    if (refundCase.lifecycle?.paymentState === 'confirmed' &&
+        ['refund_confirmed', 'customer_notified'].includes(refundCase.lifecycle.stage)) {
+      const accountingReview = refundCase.lifecycle.reasonCode === 'settlement_time_unknown';
+      return state(
+        'refund_confirmed',
+        'Refund confirmed · delivery review',
+        `The payment provider confirmed the full refund. ${deliveryLabel}.`,
+        accountingReview
+          ? 'Refund Operations owns the message-delivery and accounting-date review. Do not retry payment or resend the message blindly.'
+          : 'Refund Operations owns the message-delivery review. Do not retry payment or resend the message blindly.',
+        'warning'
+      );
+    }
+    return state(
+      'needs_refund_operations',
+      'Delivery needs review',
+      `${deliveryLabel}. The refund and payment state have not been changed.`,
+      'Refund Operations must review provider evidence and choose a safe disposition. Do not resend the message or retry a payment blindly.',
+      'warning'
+    );
+  }
+
+  if (refundCase.lifecycle) {
+    const receiptState = receiptAccountingManagerState(refundCase.lifecycle);
+    if (receiptState) return receiptState;
   }
 
   if (refundCase.lifecycle?.stage === 'waiting_on_customer') {
@@ -269,7 +438,7 @@ export const getRefundManagerState = (
             'match_attention',
             'More than one possible match',
             'Two or more transactions could be this purchase.',
-            'Compare the details. Select one only if it is clearly the customer\'s purchase.',
+            'Compare Customer request with Machine transaction. Select one only when they clearly describe the same purchase.',
             'warning'
           );
         }
@@ -317,6 +486,24 @@ export const getRefundManagerState = (
             : 'Bloomjoy is checking current refund availability.',
           refundCase.refundReadiness?.blockReason ? 'warning' : 'info'
         );
+      case 'awaiting_payout':
+        return lifecycle.managerAction.action === 'mark_external_refund'
+          ? state(
+              'awaiting_payout',
+              'Ready to reimburse',
+              'The reimbursement destination and amount are recorded. Payment: Not issued.',
+              'Send the exact reimbursement outside Bloomjoy Hub, then record the payment proof once.',
+              'success'
+            )
+          : state(
+              'awaiting_payout',
+              'Payout details needed',
+              'The reimbursement cannot be sent until the missing payout destination is recorded.',
+              lifecycle.managerAction.action === 'request_payout_destination'
+                ? 'Request only the payout destination in the existing customer thread.'
+                : 'Resolve manager access before taking a payment action.',
+              'warning'
+            );
       case 'refund_initiated':
         return state(
           'refunding',
@@ -358,6 +545,30 @@ export const getRefundManagerState = (
             ? 'Use the Refund Operations panel below to record authoritative evidence. Never retry the payment.'
             : 'Refund Operations owns the next step. No action is needed, and the payment will not be tried again.',
           'warning'
+        );
+      case 'integrity_hold':
+        return state(
+          'integrity_hold',
+          'Lifecycle evidence needs review',
+          'The case payment state does not have the durable attempt evidence required to prove what happened.',
+          'Refund Operations must reconcile the existing evidence. Do not retry payment or contact the customer from a separate thread.',
+          'danger'
+        );
+      case 'unable_to_complete':
+        return state(
+          'closed',
+          'Unable to complete',
+          'The case ended without a recorded refund or denial.',
+          'Review the history only if new evidence arrives; do not describe this as denied.',
+          'neutral'
+        );
+      case 'internal_test_archived':
+        return state(
+          'internal_test_archived',
+          'Internal/test archived',
+          'This record is excluded from customer contact, refund counts, and active manager work.',
+          'No customer or payment action is allowed.',
+          'neutral'
         );
       case 'denied':
         return state(
@@ -436,6 +647,16 @@ export const getRefundManagerState = (
         'Needs payment amount',
         'The customer payment amount is missing.',
         'Ask the customer for the amount paid before recording an external refund.',
+        'warning'
+      );
+    }
+
+    if (!refundCase.zellePaymentContact?.trim()) {
+      return state(
+        'needs_information',
+        'Needs payout destination',
+        'The customer payout destination is missing.',
+        'Request only the payout destination in the existing customer thread.',
         'warning'
       );
     }
@@ -557,7 +778,7 @@ export const getRefundManagerState = (
         'match_attention',
         'More than one possible match',
         'Two or more transactions could be this purchase.',
-        'Compare the details. Select one only if it is clearly the customer\'s purchase.',
+        'Compare Customer request with Machine transaction. Select one only when they clearly describe the same purchase.',
         'warning'
       );
     }
@@ -610,6 +831,8 @@ export const getRefundPaymentStateLabel = (
     if (refundCase.lifecycle.stage === 'needs_refund_operations') {
       return 'Being confirmed';
     }
+    if (refundCase.lifecycle.stage === 'integrity_hold') return 'Evidence required';
+    if (refundCase.lifecycle.stage === 'internal_test_archived') return 'Suppressed';
     return 'Not issued';
   }
   if (refundCase.status === 'completed' || refundCase.providerOutcome === 'succeeded') return 'Refunded';

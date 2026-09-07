@@ -9,6 +9,24 @@ create or replace function public.refund_official_actions_enabled()
 returns boolean language sql immutable set search_path = public
 as $$ select false; $$;
 
+-- Test-owner delegate exercises retained historical internals without reopening
+-- the retired production endpoint. Current service entry is tested separately.
+create function pg_temp.historical_pilot_consume(uuid,uuid,uuid,bigint,integer,text,text,text,text,text,uuid)
+returns jsonb language sql security definer set search_path='' as $$
+  select public.admin_consume_refund_nayax_controlled_pilot_intent($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11);
+$$;
+revoke all on function pg_temp.historical_pilot_consume(uuid,uuid,uuid,bigint,integer,text,text,text,text,text,uuid) from public,anon,authenticated,service_role;
+grant execute on function pg_temp.historical_pilot_consume(uuid,uuid,uuid,bigint,integer,text,text,text,text,text,uuid) to authenticated;
+
+-- Test-owner delegate exercises retained historical internals without reopening
+-- the retired production endpoint. Current service entry is tested separately.
+create function pg_temp.historical_pilot_reserve(text,uuid,text,text,uuid,uuid,text,integer,text,uuid)
+returns jsonb language sql security definer set search_path='' as $$
+  select public.service_reserve_and_consume_nayax_controlled_pilot_attempt($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);
+$$;
+revoke all on function pg_temp.historical_pilot_reserve(text,uuid,text,text,uuid,uuid,text,integer,text,uuid) from public,anon,authenticated,service_role;
+grant execute on function pg_temp.historical_pilot_reserve(text,uuid,text,text,uuid,uuid,text,integer,text,uuid) to service_role;
+
 select plan(55);
 
 select is(
@@ -203,13 +221,13 @@ select ok(
 select ok(
   not has_function_privilege('service_role',
     'public.owner_authorize_refund_nayax_controlled_pilot(uuid,uuid,uuid,bigint,integer,text,text,text,text,text,text,text,text,text,text,text)', 'execute')
-  and has_function_privilege('authenticated',
+  and not has_function_privilege('authenticated',
     'public.admin_consume_refund_nayax_controlled_pilot_intent(uuid,uuid,uuid,bigint,integer,text,text,text,text,text,uuid)', 'execute')
   and has_function_privilege('service_role',
     'public.service_record_nayax_controlled_pilot_stage(text,uuid,uuid,uuid,text,text,integer,text,text,text,boolean,text)', 'execute')
   and has_function_privilege('service_role',
     'public.service_validate_nayax_controlled_pilot_postarm(text,uuid,uuid,integer,text,text)', 'execute'),
-  'Only the fixed owner, authenticated TOTP, and service boundaries are executable'
+  'Retired pilot consumption is private; historical journal boundaries remain available'
 );
 
 select is(public.refund_official_actions_enabled(), false,
@@ -385,7 +403,7 @@ $sql$, 'P0001', 'Controlled Nayax pilot authorization was already closed or used
 set local role authenticated;
 select pg_temp.set_auth_claims('43000000-0000-4000-8000-000000000002', 'aal2');
 select throws_ok(format($sql$
-  select public.admin_consume_refund_nayax_controlled_pilot_intent(
+  select pg_temp.historical_pilot_consume(
     '43000000-0000-4000-8000-000000000010', %L,
     '43600000-0000-4000-8000-000000000001', 1, 700, repeat('f',64),
     'controlled-pilot-executor', repeat('2',64), repeat('3',64),
@@ -422,7 +440,7 @@ where id = (select (result ->> 'intentId')::uuid
 set local role authenticated;
 select pg_temp.set_auth_claims('43000000-0000-4000-8000-000000000001', 'aal2');
 select throws_ok(format($sql$
-  select public.admin_consume_refund_nayax_controlled_pilot_intent(
+  select pg_temp.historical_pilot_consume(
     '43000000-0000-4000-8000-000000000010', %L,
     '43600000-0000-4000-8000-000000000001', 1, 700, repeat('f',64),
     'controlled-pilot-executor', repeat('9',64), repeat('3',64),
@@ -454,7 +472,7 @@ select ok((
 set local role authenticated;
 select pg_temp.set_auth_claims('43000000-0000-4000-8000-000000000001', 'aal2');
 select throws_ok(format($sql$
-  select public.admin_consume_refund_nayax_controlled_pilot_intent(
+  select pg_temp.historical_pilot_consume(
     '43000000-0000-4000-8000-000000000010', %L,
     '43600000-0000-4000-8000-000000000001', 1, 700, repeat('f',64),
     'controlled-pilot-executor', repeat('2',64), repeat('9',64),
@@ -473,7 +491,7 @@ where id = '43600000-0000-4000-8000-000000000001';
 set local role authenticated;
 select pg_temp.set_auth_claims('43000000-0000-4000-8000-000000000001', 'aal2');
 select throws_ok(format($sql$
-  select public.admin_consume_refund_nayax_controlled_pilot_intent(
+  select pg_temp.historical_pilot_consume(
     '43000000-0000-4000-8000-000000000010', %L,
     '43600000-0000-4000-8000-000000000001', 1, 700, repeat('f',64),
     'controlled-pilot-executor', repeat('2',64), repeat('3',64),
@@ -499,7 +517,7 @@ where id = '43000000-0000-4000-8000-000000000001';
 set local role authenticated;
 select pg_temp.set_auth_claims('43000000-0000-4000-8000-000000000001', 'aal2');
 select throws_ok(format($sql$
-  select public.admin_consume_refund_nayax_controlled_pilot_intent(
+  select pg_temp.historical_pilot_consume(
     '43000000-0000-4000-8000-000000000010', %L,
     '43600000-0000-4000-8000-000000000001', 1, 700, repeat('f',64),
     'controlled-pilot-executor', repeat('2',64), repeat('3',64),
@@ -523,7 +541,7 @@ set local role authenticated;
 select pg_temp.set_auth_claims('43000000-0000-4000-8000-000000000001', 'aal2');
 select lives_ok(format($sql$
   insert into pg_temp.controlled_pilot_results (result_key, result)
-  select 'step-up', public.admin_consume_refund_nayax_controlled_pilot_intent(
+  select 'step-up', pg_temp.historical_pilot_consume(
     '43000000-0000-4000-8000-000000000010', %L,
     '43600000-0000-4000-8000-000000000001',
     1, 700, repeat('f',64), 'controlled-pilot-executor', repeat('2',64),
@@ -601,7 +619,7 @@ select ok((
 rollback to savepoint controlled_pilot_hard_crash;
 
 select throws_ok(format($sql$
-  select public.service_reserve_and_consume_nayax_controlled_pilot_attempt(
+  select pg_temp.historical_pilot_reserve(
     'controlled-pilot-executor', '43000000-0000-4000-8000-000000000010',
     repeat('2',64), repeat('3',64), %L,
     '43600000-0000-4000-8000-000000000001',

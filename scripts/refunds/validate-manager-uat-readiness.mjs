@@ -54,12 +54,17 @@ assert.throws(() => parseArgs(['--unknown']), /Unknown or incomplete argument/);
 const aggregateRow = {
   read_only: true,
   selected_pilot_machine_count: 0,
+  live_enabled_machine_count: 33,
+  legacy_shadow_disabled_machine_count: 2,
   active_manager_assignment_count: 12,
   active_manager_identity_count: 4,
   manager_only_identity_count: 1,
   manager_only_with_shadow_ready_assignment_count: 1,
   mapped_with_shadow_ready_assignment_count: 3,
+  manager_only_with_live_enabled_assignment_count: 1,
+  mapped_with_live_enabled_assignment_count: 4,
   exact_pilot_eligible_identity_count: null,
+  exact_selected_live_enabled_identity_count: null,
   super_admin_overlap_count: 0,
   scoped_admin_overlap_count: 1,
   corporate_partner_overlap_count: 1,
@@ -74,7 +79,7 @@ const aggregateRow = {
 assert.equal(validateAggregateRow(aggregateRow), aggregateRow);
 assert.deepEqual(determineReadiness(aggregateRow), {
   ready: true,
-  label: 'READY: CURRENT MAPPED MANAGER EXISTS',
+  label: 'READY: CURRENT MAPPED MANAGER EXISTS FOR LIVE-ENABLED INVENTORY',
 });
 
 assert.deepEqual(
@@ -82,25 +87,36 @@ assert.deepEqual(
     ...aggregateRow,
     selected_pilot_machine_count: 1,
     exact_pilot_eligible_identity_count: 1,
+    exact_selected_live_enabled_identity_count: 1,
   }),
   {
     ready: true,
-    label: 'READY: CURRENT MAPPED MANAGER EXISTS FOR SELECTED MACHINE SCOPE',
+    label: 'READY: CURRENT MAPPED MANAGER EXISTS FOR LIVE-ENABLED SELECTED MACHINE SCOPE',
   }
 );
 assert.equal(
   determineReadiness({
     ...aggregateRow,
     selected_pilot_machine_count: 1,
-    exact_pilot_eligible_identity_count: 0,
+    exact_pilot_eligible_identity_count: 1,
+    exact_selected_live_enabled_identity_count: 0,
   }).ready,
   false
 );
 assert.equal(
   determineReadiness({
     ...aggregateRow,
-    manager_only_with_shadow_ready_assignment_count: 0,
-    mapped_with_shadow_ready_assignment_count: 0,
+    live_enabled_machine_count: 0,
+  }).ready,
+  false
+);
+assert.equal(
+  determineReadiness({
+    ...aggregateRow,
+    manager_only_with_shadow_ready_assignment_count: 1,
+    mapped_with_shadow_ready_assignment_count: 3,
+    manager_only_with_live_enabled_assignment_count: 0,
+    mapped_with_live_enabled_assignment_count: 0,
   }).ready,
   false
 );
@@ -132,6 +148,8 @@ assert.match(template, /^\s*--[\s\S]*\bwith\b/i);
 assert.match(template, /refund_nayax_machine_inventory/);
 assert.match(template, /inventory\.reconciliation_state = 'published'/);
 assert.match(template, /inventory\.refund_category in \('cotton_candy', 'snapcase'\)/);
+assert.match(template, /coalesce\(machine\.nayax_refunds_enabled, false\) = true/);
+assert.match(template, /coalesce\(machine\.nayax_refunds_enabled, false\) = false/);
 assert.doesNotMatch(template, /machine\.machine_type in \('commercial', 'mini'\)/);
 assert.doesNotMatch(
   template,
@@ -142,5 +160,5 @@ assert.doesNotMatch(template, /select\s+[^;]*(manager_email|manager_user_id|repo
 console.log('Mapped-manager refund readiness validator passed.');
 console.log('- exact project confirmation and optional UUID-only machine scope');
 console.log('- aggregate result allowlist and no local output');
-console.log('- exact mapped-manager and published inventory readiness checks without cohort ceremony');
+console.log('- live-enabled mapped-manager readiness separated from legacy shadow-only diagnostics');
 console.log('- reviewed SELECT-only SQL template');

@@ -22,6 +22,7 @@ export type RefundEmailFactExtraction = {
     | "american_express"
     | "other_unknown"
     | null;
+  zellePaymentContact: string | null;
   ambiguousFields: string[];
   manualReviewReason:
     | "sensitive_or_escalated_content"
@@ -38,6 +39,17 @@ export type RefundMachineFactCandidate = {
   locationName: string;
 };
 
+export const requirePublicEligibilityForUnverifiedMachineFact = async (
+  candidate: RefundMachineFactCandidate | null,
+  machineTypeById: ReadonlyMap<string, string>,
+  isPublicMachine: (machineId: string) => Promise<boolean>,
+): Promise<RefundMachineFactCandidate | null> => {
+  if (!candidate || machineTypeById.get(candidate.machineId) !== "unknown") {
+    return candidate;
+  }
+  return await isPublicMachine(candidate.machineId) ? candidate : null;
+};
+
 const labelAliases = new Map([
   ["machine or location", "locationOrMachine"],
   ["purchase date", "incidentDate"],
@@ -49,18 +61,57 @@ const labelAliases = new Map([
   ["card last four", "cardLast4"],
   ["card last four source", "cardLast4Provenance"],
   ["card type", "cardNetwork"],
+  // Exact reply labels emitted by the canonical Spanish email renderer.
+  ["máquina o ubicación", "locationOrMachine"],
+  ["fecha de compra", "incidentDate"],
+  ["hora aproximada de compra", "incidentTime"],
+  ["método de pago", "paymentMethod"],
+  ["cómo usó la tarjeta o billetera digital", "paymentInteraction"],
+  ["billetera digital", "walletProvider"],
+  ["monto", "amount"],
+  ["últimos cuatro dígitos de la tarjeta", "cardLast4"],
+  ["tipo de tarjeta", "cardNetwork"],
+  ["zelle email or phone number", "zellePaymentContact"],
+  ["correo electrónico o número de teléfono de zelle", "zellePaymentContact"],
 ]);
 
 const manualReviewPattern =
   /\b(attorney|lawyer|lawsuit|legal action|regulator|chargeback|charge back|bank dispute|injury|injured|hospital|fire|burned|burnt|electric shock|unsafe|medical|threat|threaten|kill|hurt you|password|security code|cvv|pin)\b/i;
+const spanishManualReviewPattern =
+  /(?:^|[^\p{L}])(?:abogado|abogada|demanda|contracargo|lesión|descarga eléctrica|contraseña|código de seguridad)(?=$|[^\p{L}])/iu;
 
 const clean = (value: string, maxLength = 160) =>
-  value.replace(/\s+/g, " ").trim().slice(0, maxLength);
+  value.normalize("NFC").replace(/\s+/g, " ").trim().slice(0, maxLength);
+
+// Fixed translations of supported answers only; never infer facts from prose.
+const spanishAnswers = new Map([
+  ["efectivo", "cash"],
+  ["tarjeta", "card"],
+  ["tarjeta de crédito", "credit card"],
+  ["tarjeta de débito", "debit card"],
+  ["tarjeta física", "physical card"],
+  ["billetera digital", "mobile wallet"],
+  ["billetera del teléfono o reloj", "mobile wallet"],
+  ["acerqué la tarjeta", "tap card"],
+  ["inserté la tarjeta", "inserted card"],
+  ["deslicé la tarjeta", "swiped card"],
+  ["inserté o deslicé la tarjeta", "insert or swipe"],
+  ["otra billetera", "other wallet"],
+  ["otro", "other"],
+  ["otra", "other"],
+  ["no sé", "not sure"],
+  ["no estoy seguro", "not sure"],
+  ["no estoy segura", "not sure"],
+]);
+const normalizedAnswer = (value: string) => {
+  const normalized = clean(value, 80).toLowerCase();
+  return spanishAnswers.get(normalized) ?? normalized;
+};
 
 const currentReplyOnly = (body: string) => {
-  const lines = body.replace(/\r\n?/g, "\n").split("\n");
+  const lines = body.normalize("NFC").replace(/\r\n?/g, "\n").split("\n");
   const boundary = lines.findIndex((line) =>
-    /^\s*(on .+wrote:|from:|-----original message-----)/i.test(line)
+    /^\s*(on .+wrote:|from:|el .+escribi[oó]:|escribi[oó]:|de:|-----\s*(?:original message|mensaje original)\s*-----)/iu.test(line)
   );
   return lines.slice(0, boundary >= 0 ? boundary : lines.length).join("\n");
 };
@@ -76,7 +127,7 @@ const validDate = (value: string) => {
 };
 
 const normalizedTime = (value: string) => {
-  const match = value.trim().match(/^(\d{1,2}):(\d{2})(?:\s*([ap])\.?m\.?)?$/i);
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})(?:\s*([ap])\.?\s*m\.?)?$/i);
   if (!match) return null;
   let hour = Number(match[1]);
   const minute = Number(match[2]);
@@ -90,7 +141,7 @@ const normalizedTime = (value: string) => {
 };
 
 const paymentFacts = (value: string) => {
-  const normalized = clean(value, 80).toLowerCase();
+  const normalized = normalizedAnswer(value);
   if (["cash"].includes(normalized)) {
     return {
       paymentMethod: "cash" as const,
@@ -129,7 +180,7 @@ const paymentFacts = (value: string) => {
       walletProvider: null,
     };
   }
-  if (["insert card", "inserted card", "swipe card", "swiped card"].includes(normalized)) {
+  if (["insert card", "inserted card", "swipe card", "swiped card", "insert or swipe"].includes(normalized)) {
     return {
       paymentMethod: "card" as const,
       cardWalletUsed: false,
@@ -154,7 +205,7 @@ const paymentFacts = (value: string) => {
 };
 
 const paymentInteraction = (value: string) => {
-  const normalized = clean(value, 80).toLowerCase();
+  const normalized = normalizedAnswer(value);
   if (["phone or watch wallet", "phone/watch wallet", "mobile wallet", "wallet"].includes(normalized)) {
     return "phone_watch_wallet" as const;
   }
@@ -170,7 +221,7 @@ const paymentInteraction = (value: string) => {
 };
 
 const walletProvider = (value: string) => {
-  const normalized = clean(value, 80).toLowerCase();
+  const normalized = normalizedAnswer(value);
   if (["apple pay", "applepay"].includes(normalized)) return "apple_pay" as const;
   if (["google pay", "google wallet", "googlepay"].includes(normalized)) {
     return "google_wallet" as const;
@@ -181,7 +232,7 @@ const walletProvider = (value: string) => {
 };
 
 const cardNetwork = (value: string) => {
-  const normalized = clean(value, 80).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const normalized = normalizedAnswer(value).replace(/[^a-z0-9]+/g, " ").trim();
   if (normalized === "visa") return "visa" as const;
   if (["mastercard", "master card", "mc"].includes(normalized)) return "mastercard" as const;
   if (normalized === "discover") return "discover" as const;
@@ -193,7 +244,7 @@ const cardNetwork = (value: string) => {
 };
 
 const cardLast4Provenance = (value: string) => {
-  const normalized = clean(value, 80).toLowerCase();
+  const normalized = normalizedAnswer(value);
   if (["physical card", "printed physical card", "card"].includes(normalized)) {
     return "physical_card" as const;
   }
@@ -203,8 +254,15 @@ const cardLast4Provenance = (value: string) => {
   return null;
 };
 
-const amountCents = (value: string) => {
-  const normalized = value.trim().replace(/^\$/, "").replaceAll(",", "");
+const amountCents = (value: string, spanishLabel: boolean) => {
+  let normalized = value.trim().replace(/^\$/, "");
+  if (spanishLabel && /^\d{1,4},\d{1,2}$/.test(normalized)) {
+    normalized = normalized.replace(",", ".");
+  } else if (!spanishLabel && /^[1-9]\d{0,2}(?:,\d{3})+(?:\.\d{1,2})?$/.test(normalized)) {
+    normalized = normalized.replaceAll(",", "");
+  }
+  // Mixed separators and ambiguous Spanish three-digit comma fractions fail
+  // closed. Never turn a decimal comma into a hundredfold matching amount.
   if (!/^\d{1,4}(?:\.\d{1,2})?$/.test(normalized)) return null;
   const [whole, fraction = ""] = normalized.split(".");
   const cents = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
@@ -213,20 +271,31 @@ const amountCents = (value: string) => {
     : null;
 };
 
+const zellePaymentContact = (value: string) => {
+  const normalized = clean(value, 320);
+  if (/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/u.test(normalized)) {
+    return normalized.toLowerCase();
+  }
+  const compactPhone = normalized.replace(/[\s().-]/gu, "");
+  if (/^\+?[0-9]{10,15}$/u.test(compactPhone)) return normalized;
+  return null;
+};
+
 export const extractLabeledRefundEmailFacts = (
   body: string,
 ): RefundEmailFactExtraction => {
   const reply = currentReplyOnly(body).slice(0, 10_000);
   const values = new Map<string, string>();
   const ambiguousFields = new Set<string>();
+  let spanishAmountLabel = false;
   for (const line of reply.split("\n")) {
     const match = line.match(/^\s*([^:]{2,120})\s*:\s*(.*?)\s*$/);
     if (!match) continue;
-    const key = labelAliases.get(
-      clean(match[1], 120).toLowerCase().replace(/\s*\([^)]*\)\s*$/, ""),
-    );
+    const label = clean(match[1], 120).toLowerCase().replace(/\s*\([^)]*\)\s*$/, "");
+    const key = labelAliases.get(label);
     const value = clean(match[2]);
     if (!key || !value) continue;
+    if (label === "monto") spanishAmountLabel = true;
     const previous = values.get(key);
     if (previous && previous.toLowerCase() !== value.toLowerCase()) {
       ambiguousFields.add(key);
@@ -239,12 +308,24 @@ export const extractLabeledRefundEmailFacts = (
   const explicitWalletProvider = walletProvider(values.get("walletProvider") ?? "");
   const explicitNetwork = cardNetwork(values.get("cardNetwork") ?? "");
   const explicitProvenance = cardLast4Provenance(values.get("cardLast4Provenance") ?? "");
+  const explicitZellePaymentContact = zellePaymentContact(
+    values.get("zellePaymentContact") ?? "",
+  );
+  const explicitAmount = amountCents(values.get("amount") ?? "", spanishAmountLabel);
+  const explicitDate = validDate(values.get("incidentDate") ?? "");
+  const explicitTime = normalizedTime(values.get("incidentTime") ?? "");
+  if (values.has("amount") && explicitAmount === null) ambiguousFields.add("amount");
+  if (values.has("incidentDate") && explicitDate === null) ambiguousFields.add("incidentDate");
+  if (values.has("incidentTime") && explicitTime === null) ambiguousFields.add("incidentTime");
   if (values.has("paymentMethod") && payment.paymentMethod === null) ambiguousFields.add("paymentMethod");
   if (values.has("paymentInteraction") && explicitInteraction === null) ambiguousFields.add("paymentInteraction");
   if (values.has("walletProvider") && explicitWalletProvider === null) ambiguousFields.add("walletProvider");
   if (values.has("cardNetwork") && explicitNetwork === null) ambiguousFields.add("cardNetwork");
   if (values.has("cardLast4Provenance") && explicitProvenance === null) {
     ambiguousFields.add("cardLast4Provenance");
+  }
+  if (values.has("zellePaymentContact") && explicitZellePaymentContact === null) {
+    ambiguousFields.add("zellePaymentContact");
   }
 
   let resolvedInteraction = explicitInteraction ?? payment.paymentInteraction;
@@ -298,20 +379,21 @@ export const extractLabeledRefundEmailFacts = (
   const ambiguousFieldList = [...ambiguousFields].sort();
   return {
     locationOrMachine: clean(values.get("locationOrMachine") ?? "") || null,
-    incidentDate: validDate(values.get("incidentDate") ?? ""),
-    incidentTime: normalizedTime(values.get("incidentTime") ?? ""),
+    incidentDate: explicitDate,
+    incidentTime: explicitTime,
     paymentMethod: payment.paymentMethod,
     cardWalletUsed: resolvedWalletUsed,
     paymentInteraction: resolvedInteraction,
     walletProvider: resolvedWalletProvider,
-    amountCents: amountCents(values.get("amount") ?? ""),
+    amountCents: explicitAmount,
     cardLast4: resolvedWalletUsed !== true && resolvedProvenance === "physical_card" && /^\d{4}$/.test(last4)
       ? last4
       : null,
     cardLast4Provenance: resolvedProvenance,
     cardNetwork: explicitNetwork,
+    zellePaymentContact: explicitZellePaymentContact,
     ambiguousFields: ambiguousFieldList,
-    manualReviewReason: manualReviewPattern.test(reply)
+    manualReviewReason: manualReviewPattern.test(reply) || spanishManualReviewPattern.test(reply)
       ? "sensitive_or_escalated_content"
       : ambiguousFieldList.length > 0
       ? "ambiguous_customer_facts"

@@ -33,8 +33,8 @@ Deno.test("missing fields are exact, ordered, and never request wallet digits by
       "location_or_machine",
       "incident_date",
       "incident_time",
-      "amount",
       "card_last4",
+      "amount",
     ]),
     "only absent required fields should be requested",
   );
@@ -76,6 +76,22 @@ Deno.test("missing fields are exact, ordered, and never request wallet digits by
   assert(
     !locationOnly.missingFields.includes("location_or_machine"),
     "a known machine or a known Bloomjoy location must satisfy the customer-facing location fact",
+  );
+
+  const payout = deriveRefundMissingFields({
+    reportingMachineId: "machine",
+    reportingLocationId: "location",
+    incidentAt: "2026-08-03T12:00:00Z",
+    incidentTimeResolution: "exact",
+    paymentMethod: "cash",
+    paymentAmountCents: 725,
+    zellePaymentContact: null,
+    cashPayoutDestinationRequired: true,
+  });
+  assert(
+    JSON.stringify(payout.missingFields) ===
+      JSON.stringify(["zelle_payment_contact"]),
+    "an approved cash reimbursement must request only its missing payout destination",
   );
 });
 

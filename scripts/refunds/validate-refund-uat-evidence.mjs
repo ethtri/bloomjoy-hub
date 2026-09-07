@@ -190,7 +190,8 @@ const machineFixtures = {
       },
       customerContact: {
         disabled: true,
-        deliveryClaimCount: 0,
+        deliveryClaimCount: 1,
+        deliveryFinishCount: 1,
         providerFetchCount: 0,
         providerSendCount: 0,
       },
@@ -248,7 +249,8 @@ const rawFragmentFixtures = {
       },
       customerContact: {
         disabled: true,
-        deliveryClaimCount: 0,
+        deliveryClaimCount: 1,
+        deliveryFinishCount: 1,
         providerFetchCount: 0,
         providerSendCount: 0,
       },
@@ -322,7 +324,22 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 79, 'Evidence must enumerate all 79 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 92, 'Evidence must enumerate all 92 reviewed screenshots');
+  assert(
+    EXPECTED_SCREENSHOTS.includes('machine-refunds-valley-product-unverified-desktop.png') &&
+      EXPECTED_SCREENSHOTS.includes('machine-refunds-valley-product-unverified-mobile.png'),
+    'Evidence must include the exact published Valley Mall product-unverified state on desktop and mobile'
+  );
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-inbound-case-link-review-desktop.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-inbound-case-link-review-mobile.png'),
+    'Evidence must include reviewed desktop and mobile inbound existing-case link states'
+  );
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-transactional-delivery-desktop.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-transactional-delivery-mobile.png'),
+    'Evidence must include reviewed desktop and mobile transactional-delivery truth states'
+  );
   assert(
     EXPECTED_SCREENSHOTS.includes('refund-nayax-account-scope-mobile.png'),
     'Evidence must include the mobile internal Nayax account-scope recovery state'
@@ -350,28 +367,33 @@ try {
     'Evidence must include the reviewed selected Nayax transaction identity on desktop and mobile'
   );
   assert(
+    EXPECTED_SCREENSHOTS.includes('refund-case-availability-error-desktop.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-case-availability-error-mobile.png'),
+    'Evidence must include the reviewed case-specific availability state on desktop and mobile'
+  );
+  assert(
     EXPECTED_SCREENSHOTS.includes('refund-direct-intake-cash-desktop.png') &&
       EXPECTED_SCREENSHOTS.includes('refund-qr-intake-cash-mobile.png'),
     'Evidence must include reviewed desktop and mobile cash-intake states'
   );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-manager-')).length,
-    6,
-    'Evidence must include confirmed ready/blocked and stale-evidence manager states on desktop and mobile'
+    9,
+    'Evidence must include confirmed ready/blocked, stale-evidence, action-clarity, responsive, and cached-read manager states'
   );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('machine-refunds-')).length,
-    6,
-    'Evidence must include ready, ready-to-activate, setup-needed, manual-portal-only, machine-disabled, and global-pause Admin states'
+    8,
+    'Evidence must include ready, ready-to-activate, setup-needed, Valley Mall product-unverified desktop/mobile, manual-portal-only, machine-disabled, and global-pause Admin states'
   );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-simple-journey-')).length,
-    4,
-    'Evidence must include disabled, ready desktop/mobile, and success states for the simple journey'
+    3,
+    'Evidence must include disabled and resumed desktop/mobile states for the simple journey'
   );
   assert(
     EXPECTED_SCREENSHOTS.includes('refund-portal-uat-sanitized-simple-card-refund-journey.png'),
-    'Evidence must include the reviewed selectable-candidate state for the sanitized simple journey'
+    'Evidence must include the successful sanitized simple journey'
   );
   assert(
     EXPECTED_SCREENSHOTS.includes('refund-email-pilot-source-badges-mobile.png'),

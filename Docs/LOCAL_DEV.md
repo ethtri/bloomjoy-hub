@@ -32,6 +32,29 @@
 3) Run `npm run dev`
 4) Follow `Docs/QA_SMOKE_TEST_CHECKLIST.md`
 
+### Same-case refund corrections
+
+Use a disposable database and synthetic email transport. The correction form is
+`/refunds/correct#token=<issued-token>`; the token belongs in the fragment, never
+in a query string, screenshot, log, or committed fixture. Configure a random
+server-only `REFUND_CORRECTION_TOKEN_SECRET` of at least 43 characters. The one
+rollout switch is `refund_customer_contact_settings.correction_links_enabled`,
+which defaults to false. Existing automatic-contact and delivery controls still
+apply. Keep production activation under the existing release and sending authority.
+
+The messaging migration follows the purchase-correction migration. With the
+switch enabled in the disposable database, request current missing/conflicting
+details from `/admin/refunds`. Verify the stored message contains a placeholder,
+the actual synthetic delivery contains one correction link, and only the sent
+message permits the link to open. Inspect/submit remains deployed when the switch
+is disabled so already-delivered links can finish. Rotating the secret does not
+change stored token hashes or invalidate delivered links, but an unfinished
+same-message retry must retain its original secret to reconstruct the same token.
+
+Run `npm run refunds:validate-purchase-correction` and
+`node --test scripts/refunds/refund-reminder-dispatch-guard.test.mjs`, then run the
+database migration suite for actual scope, delivery, replay, and stale-write checks.
+
 ## Supabase setup (training library + memberships)
 1) Apply migration: `supabase/migrations/20260122_training_and_membership.sql`
    - Orders sync migration: `supabase/migrations/20260202_orders.sql`
@@ -299,7 +322,7 @@ Steps:
    - Never pass the token on the command line, print it, or store it in an output file.
    - `npm run refunds:validate-portal-uat -- --app-url http://127.0.0.1:8081 --artifact-dir output/refund-uat-evidence --fragment-dir output/refund-uat-fragments`
    - The integrated candidate command uses synthetic mocked Auth/RPC responses, writes screenshots separately from authenticated JSON fragments, and does not touch Supabase data. It writes the portal fragment and invokes the dependency-injected local provider-outcome producer once into the same fragment directory; do not run that producer a second time against the same directory. Neither path can call the production HTTP handler or Nayax.
-   - Run `npm run refunds:validate-nayax-provider-orchestration` and `npm run refunds:validate-nayax-execution` alongside the evidence workflow. The former proves the local state machine; the latter proves the production HTTP boundary remains statically hard-off.
+   - Run `npm run refunds:validate-nayax-provider-orchestration` and `npm run refunds:validate-nayax-execution` alongside the evidence workflow. These synthetic checks cover orchestration and execution safeguards without issuing a production refund. Use #990's attributable real-customer outcomes to verify the enabled production integration.
    - The cash journeys prove matched and unmatched one-action completion, missing-amount recovery, legacy-pending compatibility, one confirmation, double-click suppression, omission of client-authored payout fields, zero Nayax calls, channel-neutral receipt/email copy, and desktop/mobile layout.
    - After every producer and finalizer for that evidence run finishes, remove the token from the current shell:
 
@@ -313,7 +336,7 @@ Steps:
 Three validation modes:
 - `DEMO DATA - visual review only`: append `?demo=on` on localhost/127.0.0.1 for synthetic, browser-only visual review. Demo mode must not be used as evidence that saves, Nayax lookup, access scope, or reporting write-through work.
 - Seeded functional UAT: use the local Supabase helper above. This is the path for save/write-through and real state-transition testing.
-- Post-production shadow mode: use an owner-approved currently mapped Machine Manager identity with the Google Form/AppSheet fallback still active. Separate admin access is context only; it neither grants nor revokes payment authority. Keep official actions and the production provider adapter hard-off; agents capture sanitized pass/fail evidence and exceptions before any executive proof review.
+- Production verification: use the current mapped-manager scope and deployed behavior under `Docs/REFUND_AGENT_OPERATIONS.md` and #628/#990. Ordinary approval for the exact purchase and amount carries through unchanged request, approval, inspection, supported fallback and handoffs. Preserve normal enabled execution; synthetic validation is separate from real approved operations and cannot prove a customer received a refund.
 
 Admin > Machines Machine Manager UAT:
 - For visual review without remote data, open `/admin/machines?demo=on`; use the listed `example.test` demo users only. Demo assignments save in the browser and do not write to Supabase.

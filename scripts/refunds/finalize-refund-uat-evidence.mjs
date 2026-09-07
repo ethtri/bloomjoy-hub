@@ -106,11 +106,13 @@ export function validateGmailKillFragment(payload) {
   assertExactKeys(payload.switches.customerContact, [
     'disabled',
     'deliveryClaimCount',
+    'deliveryFinishCount',
     'providerFetchCount',
     'providerSendCount',
   ], 'Customer-contact kill switch');
   assertLiteral(payload.switches.customerContact.disabled, true, 'Customer-contact disabled flag');
-  assertLiteral(payload.switches.customerContact.deliveryClaimCount, 0, 'Customer-contact delivery-claim count');
+  assertLiteral(payload.switches.customerContact.deliveryClaimCount, 1, 'Customer-contact delivery-claim count');
+  assertLiteral(payload.switches.customerContact.deliveryFinishCount, 1, 'Customer-contact delivery-finish count');
   assertLiteral(payload.switches.customerContact.providerFetchCount, 0, 'Customer-contact provider-fetch count');
   assertLiteral(payload.switches.customerContact.providerSendCount, 0, 'Customer-contact provider-send count');
   assertSanitized('refund-gmail-kill-fragment.json', payload);

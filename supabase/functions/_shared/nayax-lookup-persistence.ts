@@ -1,10 +1,52 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import type { NayaxLookupResult } from "./nayax-lookup.ts";
+import { withNayaxProviderClockDiagnostics } from "./nayax-provider-clock.mjs";
 
 export type LookupTrigger = "automatic" | "manual" | "wallet_correction" | "scheduled";
 
 const textValue = (value: unknown) =>
   typeof value === "string" ? value.trim() : "";
+
+// Counts describe the returned recent-sales response, never historical coverage.
+// No provider row, card detail, credential or customer text enters this record.
+export const buildNayaxLookupDiagnostics = (result: NayaxLookupResult) => {
+  const incident = Date.parse(result.refundCase?.incidentAt ?? "");
+  const windowHours = result.windowHours;
+  if (!Number.isFinite(incident) || !Number.isFinite(windowHours) || windowHours < 1 || windowHours > 24) {
+    return null;
+  }
+  const count = (value: unknown) => Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : null;
+  const providerClockDiagnostic = withNayaxProviderClockDiagnostics({
+    schemaVersion: "nayax_lookup_diagnostics_v1",
+    endpoint: "machine_last_sales",
+    historicalCoverage: "unknown",
+    providerRecordCount: count(result.providerRecordCount),
+    providerParseableRecordCount: count(result.providerParseableRecordCount),
+    providerWindowRecordCount: count(result.providerWindowRecordCount),
+    windowHours,
+    incidentAt: new Date(incident).toISOString(),
+    windowStart: new Date(incident - windowHours * 3600000).toISOString(),
+    windowEnd: new Date(incident + windowHours * 3600000).toISOString(),
+    incidentTimeResolution: result.refundCase?.incidentTimeResolution ?? "unknown",
+    incidentTimeConfidence: result.refundCase?.incidentTimeConfidence ?? "unknown",
+    locationTimezone: result.refundCase?.locationTimezone || null,
+    providerTimePolicy: "authorization_gmt_else_mapped_machine_clock",
+    machineTimezoneSource: "configured_location_not_verified_provider_clock",
+    providerPayloadRedacted: true,
+  }, result.providerClockContexts);
+  const requestReceivedAt = Date.parse(result.refundCase?.customerRequestReceivedAt ?? "");
+  return {
+    ...providerClockDiagnostic,
+    schemaVersion: "nayax_lookup_diagnostics_v3",
+    providerClockContexts: providerClockDiagnostic.providerClockContexts ?? [],
+    customerRequestReceivedAt: Number.isFinite(requestReceivedAt)
+      ? new Date(requestReceivedAt).toISOString()
+      : null,
+    customerRequestReceivedSource: textValue(result.refundCase?.customerRequestReceivedSource) || null,
+    excludedAfterRequestCount: count(result.excludedAfterRequestCount),
+    uncertainRequestTimeCandidateCount: count(result.uncertainRequestTimeCandidateCount),
+  };
+};
 
 export const beginNayaxLookup = async ({
   supabase,
@@ -50,7 +92,7 @@ export const persistNayaxLookupResult = async ({
   expectedFactVersion: number;
   lookupGeneration: number;
 }) => {
-  const { data, error } = await supabase.rpc("service_commit_refund_nayax_lookup", {
+  const { data, error } = await supabase.rpc("service_commit_refund_nayax_lookup_with_diagnostics", {
     p_refund_case_id: caseId,
     p_lookup_generation: lookupGeneration,
     p_expected_fact_version: expectedFactVersion,
@@ -63,6 +105,7 @@ export const persistNayaxLookupResult = async ({
     p_candidate_count: result.candidateCount,
     p_trigger_source: trigger,
     p_actor_user_id: actorUserId,
+    p_diagnostics: buildNayaxLookupDiagnostics(result),
   });
   if (error) throw error;
   if (data?.applied !== true) {

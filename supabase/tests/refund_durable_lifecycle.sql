@@ -211,7 +211,7 @@ select is(
   public.refund_lifecycle_contract(
     'b4000000-0000-4000-8000-000000000001'
   ) ->> 'schemaVersion',
-  'refund_lifecycle_v1',
+  'refund_lifecycle_v2',
   'The lifecycle contract is explicitly versioned'
 );
 select is(
@@ -268,7 +268,7 @@ select is(
   public.get_refund_lifecycle_for_manager(
     'b4000000-0000-4000-8000-000000000001'
   ) ->> 'schemaVersion',
-  'refund_lifecycle_v1',
+  'refund_lifecycle_v2',
   'The current exact-machine manager can read the redacted lifecycle'
 );
 
@@ -515,7 +515,7 @@ select is(
 select is(
   (public.refund_nayax_reliability_health_snapshot(null)
     ->> 'lifecycleContractVersion'),
-  'refund_lifecycle_v1',
+  'refund_lifecycle_v2',
   'Aggregate reliability health reports the lifecycle contract version'
 );
 select ok(

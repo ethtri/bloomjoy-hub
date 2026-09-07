@@ -437,10 +437,11 @@ await assert.rejects(
   'Missing server credentials must stop before any provider call.',
 );
 
-const [migrationSource, runnerMigrationSource, messageFunctionSource, runnerFunctionSource, managerUiSource, workflowSource, preflightSource] = await Promise.all([
+const [migrationSource, runnerMigrationSource, messageFunctionSource, manualMessageOutboxSource, runnerFunctionSource, managerUiSource, workflowSource, preflightSource] = await Promise.all([
   readFile(new URL('../../supabase/migrations/202607210007_refund_gpt_triage_foundation.sql', import.meta.url), 'utf8'),
   readFile(new URL('../../supabase/migrations/202607220001_refund_gpt_triage_runner.sql', import.meta.url), 'utf8'),
   readFile(new URL('../../supabase/functions/refund-case-message-send/index.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../../supabase/functions/_shared/refund-manual-message-outbox.ts', import.meta.url), 'utf8'),
   readFile(new URL('../../supabase/functions/refund-gpt-triage/index.ts', import.meta.url), 'utf8'),
   readFile(new URL('../../src/pages/admin/Refunds.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../../.github/workflows/refund-gpt-triage.yml', import.meta.url), 'utf8'),
@@ -511,8 +512,15 @@ assert.match(messageFunctionSource, /triageSuggestion\.route !== "draft_reply"/i
 assert.match(messageFunctionSource, /policy_flags \?\? \[\]\)\.length > 0/i, 'Customer send must reject policy-flagged suggestions.');
 assert.match(messageFunctionSource, /validateRefundGptReviewedDraft/i, 'Manager edits must pass server-side triage safety validation.');
 assert.ok(
-  messageFunctionSource.indexOf('dispatchRefundCaseGmailReply') <
-    messageFunctionSource.indexOf('service_record_refund_gpt_triage_delivery'),
+  manualMessageOutboxSource.indexOf('dispatchRefundCaseGmailReply') <
+    manualMessageOutboxSource.lastIndexOf(
+      'await finishClaim',
+      manualMessageOutboxSource.indexOf('recordReviewedTriageDelivery({'),
+    ) &&
+    manualMessageOutboxSource.lastIndexOf(
+      'await finishClaim',
+      manualMessageOutboxSource.indexOf('recordReviewedTriageDelivery({'),
+    ) < manualMessageOutboxSource.indexOf('recordReviewedTriageDelivery({'),
   'Human approval is recorded only after customer delivery is attempted.'
 );
 assert.match(managerUiSource, /Human review required/i, 'Manager UI must label every suggestion as human reviewed.');

@@ -82,7 +82,9 @@ insert into public.refund_cases (
   id, public_reference, reporting_machine_id, reporting_location_id,
   customer_email, issue_summary, incident_at, payment_method,
   payment_amount_cents, card_last4, status, correlation_status,
-  correlation_confidence, refund_amount_cents, nayax_match_execution_eligible
+  correlation_confidence, refund_amount_cents, nayax_match_execution_eligible,
+  customer_request_received_at, customer_request_received_source,
+  incident_time_resolution, incident_time_confidence
 )
 values (
   'a0500000-0000-4000-8000-000000000001',
@@ -92,7 +94,8 @@ values (
   'confirmation-race-customer@example.test',
   'Concurrent confirmation fixture',
   now() - interval '30 minutes',
-  'card', 700, '4242', 'needs_review', 'needs_nayax', 0, 700, false
+  'card', 700, '4242', 'needs_review', 'needs_nayax', 0, 700, false,
+  now() - interval '5 minutes', 'hosted_refund_intake', 'exact', 'exact'
 );
 
 insert into public.refund_nayax_lookup_candidates (
@@ -105,14 +108,55 @@ values (
   'a0500000-0000-4000-8000-000000000001',
   'a0000000-0000-4000-8000-000000000001',
   'a0300000-0000-4000-8000-000000000001',
-  'SAFE-CONCURRENT-CONFIRM-001', 17, now() - interval '30 minutes',
+  'SAFE-CONCURRENT-CONFIRM-001', 17, date_trunc('second', now() - interval '30 minutes'),
   700, '4242', 'USD',
   jsonb_build_object(
     'selection_allowed', true,
     'is_recommended', false,
     'one_click_eligible', false,
     'recommendation_state', 'manual_exception',
-    'policy_version', 'confirmation-race.v1',
+    'policy_version', '2026-09-05.v11',
+    'identifier_policy_version', '2026-09-05.identifier.v2',
+    'customer_fact_version', 1,
+    'customer_credential_class', 'customer_identifier_unknown',
+    'provider_identifier_class', 'last_sales_identifier_unknown',
+    'card_last4_comparison', 'exact_support',
+    'card_network_comparison', 'missing',
+    'payment_interaction_comparison', 'unknown',
+    'same_identifier_equivalence_proven', false,
+    'identifier_review_state', 'exact_support',
+    'customer_correction_fields', '[]'::jsonb,
+    'hard_exclusions', '[]'::jsonb,
+    'reason_codes', '[]'::jsonb,
+    'lookup_account_scope', 'CONFIRMATION_RACE_ACCOUNT',
+    'lookup_provider_machine_id', 'CONFIRMATION-RACE-MACHINE',
+    'provider_machine_id', 'CONFIRMATION-RACE-MACHINE',
+    'machine_authorization_time_raw', to_char(date_trunc('second',now() - interval '30 minutes') at time zone 'America/Los_Angeles', 'YYYY-MM-DD"T"HH24:MI:SS'),
+    'machine_authorization_at', date_trunc('second',now() - interval '30 minutes'),
+    'machine_authorization_time_source', 'MachineAuthorizationTime',
+    'machine_time_resolution', 'exact',
+    'provider_time_resolution', 'exact',
+    'provider_time_source', 'authorization_gmt',
+    'authorized_at', date_trunc('second',now() - interval '30 minutes'),
+    'customer_request_received_at', now() - interval '5 minutes',
+    'customer_request_received_source', 'hosted_refund_intake',
+    'request_time_boundary', 'occurrence_time_uncertain',
+    'transaction_occurrence_comparable', false,
+    'transaction_occurrence_semantics','unknown',
+    'transaction_occurrence_proof_source','null'::jsonb,
+    'transaction_occurrence_timestamp_source','null'::jsonb,
+    'transaction_occurrence_timezone_basis','null'::jsonb,
+    'transaction_occurrence_lower_bound_at','null'::jsonb,
+    'transaction_occurrence_upper_bound_at','null'::jsonb,
+    'request_receipt_lower_bound_at','null'::jsonb,
+    'request_receipt_upper_bound_at','null'::jsonb,
+    'payment_status', 'approved',
+    'payment_status_evidence', 'last_sales_contract',
+    'provider_refund_state', 'clear',
+    'duplicate_provider_record', false,
+    'amount_delta_cents', 0,
+    'time_delta_minutes', null,
+    'provider_processing_time_delta_minutes', 1,
     'provider_payload_redacted', true
   ),
   now() + interval '1 hour'

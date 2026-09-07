@@ -28,6 +28,7 @@ const run = async () => {
     automationSweep,
     intake,
     messageSend,
+    manualMessageOutbox,
     gmailSync,
     statusRecoveryMigration,
     waitingLifecycleMigration,
@@ -41,6 +42,9 @@ const run = async () => {
     nayaxCardRefund,
     schedulerIncidentMigration,
     providerDelayEvidenceMigration,
+    payoutDestinationMigration,
+    payoutDestinationTest,
+    refundMachineLabel,
   ] = await Promise.all([
     readText('supabase/functions/refund-case-admin-update/index.ts'),
     readText('src/pages/admin/Refunds.tsx'),
@@ -52,6 +56,7 @@ const run = async () => {
     readText('supabase/functions/refund-case-automation-sweep/index.ts'),
     readText('supabase/functions/refund-case-intake/index.ts'),
     readText('supabase/functions/refund-case-message-send/index.ts'),
+    readText('supabase/functions/_shared/refund-manual-message-outbox.ts'),
     readText('supabase/functions/refund-gmail-sync/index.ts'),
     readText('supabase/migrations/20260830183702_refund_customer_status_recovery.sql'),
     readText('supabase/migrations/20260831232759_refund_waiting_lifecycle_truth.sql'),
@@ -63,8 +68,11 @@ const run = async () => {
     readText('supabase/migrations/20260901033000_refund_internal_test_disposition.sql'),
     readText('supabase/tests/refund_internal_test_disposition.sql'),
     readText('supabase/functions/nayax-card-refund/index.ts'),
-    readText('supabase/migrations/20260901172459_refund_scheduler_incident_1069.sql'),
-    readText('supabase/migrations/20260901185049_refund_provider_delay_evidence_1069.sql'),
+    readText('supabase/migrations/20260901180116_refund_scheduler_incident_1069.sql'),
+    readText('supabase/migrations/20260901202359_refund_provider_delay_evidence_1069.sql'),
+    readText('supabase/migrations/20260902004500_refund_payout_destination_follow_up.sql'),
+    readText('supabase/tests/refund_payout_destination_follow_up.sql'),
+    readText('src/lib/refundMachineLabel.ts'),
   ]);
 
   assert(
@@ -88,20 +96,60 @@ const run = async () => {
     ])
   );
   assert(
-    'Portal primary case actions send the matching customer message type',
-    includesAll(portalPage, ['handleSaveCase(primaryActionEditor, primaryAction.messageType', 'customerMessageType'])
+    'Delivery exceptions expose one read-only path to the saved same-case evidence',
+    includesAll(portalPage, [
+      'handleReviewDeliveryRecord',
+      'refund-review-delivery-record',
+      'Review delivery record',
+      'Saved delivery outcome:',
+      'Payment remains confirmed.',
+      'customerMessagesDetailsRef',
+      'customerMessagesSummaryRef',
+      'customerDeliveryEvidenceRef',
+      'getRefundDeliveryEvidenceMessageId',
+      'message.messageType === exception.messageType',
+      'messageOccurredAt === occurredAt',
+      'exactMatches.length === 1',
+      'data-refund-message-id',
+      'refund-focused-delivery-record',
+      'details.open = true',
+      'focusTarget.focus({ preventScroll: true })',
+      'key={selectedCase.id}',
+    ]) && !/data-testid="refund-customer-messages-summary"[\s\S]{0,160}tabIndex=/.test(portalPage) && includesAll(portalUat, [
+      "'unknown'",
+      "'deferred'",
+      "'failed'",
+      "'bounced'",
+      "'complained'",
+      'delivery-message-competing',
+      'Competing same-state evidence must not receive focus.',
+      'Ordinary-case Customer messages stays in the shared-shell Tab order and Enter opens it',
+      'Exact Gmail uncertainty resolution remains available alongside delivery-record review',
+      'exact delivery tuple matches fail closed to the Customer messages summary',
+      '[aria-label^="Saved delivery record:"]',
+      'refund-review-delivery-record',
+      'performs no message, refund, lookup, selection, payment, or mutation call',
+    ])
+  );
+  assert(
+    'Portal primary customer requests use the durable message outbox',
+    includesAll(portalPage, ["mode: 'retry_message'", 'handleSendCustomerMessage(primaryAction.messageType)']) &&
+      includesAll(messageSend, ['service_enqueue_refund_manual_message_intent', 'drainRefundManualMessageOutbox'])
   );
   assert(
     'Normal path no longer has a standalone Send customer email button',
     !portalPage.includes('Send customer email')
   );
   assert(
-    'Manager queue does not repeat identical location and machine labels',
+    'Manager queue does not repeat delimiter-bounded location and machine labels',
     includesAll(portalPage, [
       'formatRefundMachineLocation',
-      'locationName.trim().toLocaleLowerCase() === machineLabel.trim().toLocaleLowerCase()',
       'formatRefundMachineLocation(refundCase.locationName, refundCase.machineLabel)',
       'formatRefundMachineLocation(selectedCase.locationName, selectedCase.machineLabel)',
+    ]) && includesAll(refundMachineLabel, [
+      'containsDelimitedLabel',
+      'normalizedMachineKey',
+      'normalizedLocationKey',
     ])
   );
   assert(
@@ -136,6 +184,31 @@ const run = async () => {
         'sanitizeRefundMissingFields',
         'requiresSecureWalletCorrection',
       ])
+  );
+  assert(
+    'Approved cash payout requests and replies share one protected field contract',
+    includesAll(portalPage, [
+      "missing.push('zelle_payment_contact')",
+      "label: 'Request payout destination'",
+      "mode: 'retry_message'",
+    ]) && includesAll(refundEmail, [
+      'zelle_payment_contact',
+      'Zelle email or phone number:',
+      'Correo electrónico o número de teléfono de Zelle:',
+    ]) && includesAll(payoutDestinationMigration, [
+      'requested_fields_satisfied_by_gmail_message_id',
+      'payout_destination_request_not_active',
+      'refund_payout_destination_follow_ups',
+      'service_claim_due_refund_payout_destination_follow_ups',
+      "'reminder_sent', 'satisfied', 'manual_review'",
+      "array['zelle_payment_contact']::text[]",
+      'payload_redacted',
+    ]) && includesAll(payoutDestinationTest, [
+      'verified customer message on another thread cannot satisfy the request',
+      'An unanswered reminder exits Waiting and returns the case to manager review',
+      'cannot remain a stale customer action',
+      'create no provider or payment attempt',
+    ])
   );
   assert(
     'Hosted intake no longer sends the old generic photo or wallet-digit request',
@@ -212,6 +285,10 @@ const run = async () => {
       'event_type: "automatic_customer_contact_limit_reached"',
       'status: "needs_review"',
       'automatic_customer_contact_stopped: true',
+    ]) && includesAll(automationSweep, [
+      'runPayoutDestinationReminderSweep',
+      'payout_destination_contact_exhausted',
+      'service_claim_due_refund_payout_destination_follow_ups',
     ])
   );
   assert(
@@ -371,8 +448,12 @@ const run = async () => {
     ]) &&
       includesAll(messageSend, [
         'manager_reviewed_gpt',
-        'delivery_kind: "manual"',
         'validateRefundGptReviewedDraft',
+        'service_enqueue_refund_manual_message_intent',
+      ]) &&
+      includesAll(manualMessageOutbox, [
+        'deliveryKind: "manual"',
+        'service_record_refund_gpt_triage_delivery',
       ])
   );
   assert(

@@ -7,16 +7,22 @@ Parent: `#628`
 
 The primary card form asks for machine/location, email, purchase date and approximate time, amount, the last four digits shown for the payment (plus a wallet flag when applicable), and one issue category. Name, phone, time confidence, card interaction/network, and narrative are optional and collapsed by default. Omitting optional detail never approves, matches, or refunds a transaction; exact matching and the same-case correction loop remain authoritative.
 
-The customer tracker consumes only `refund_lifecycle_v1` and maps it to:
+The customer tracker consumes only the allowlisted customer subset of `refund_lifecycle_v2` and maps it to:
 
 | Canonical stage | Customer status | Next expectation |
 | --- | --- | --- |
 | `matching` | Request received | Bloomjoy compares the request with machine records. |
+| `waiting_on_customer` | We need one detail | Reply in the existing Bloomjoy conversation with only the named detail. |
 | `needs_transaction_selection`, `transaction_confirmed` | Reviewing your purchase | A manager reviews the matching purchase. |
+| `awaiting_payout` | Preparing your reimbursement | Bloomjoy is confirming the reimbursement destination or recording the external payment. |
 | `refund_initiated` | Refund initiated | Bloomjoy confirms the result; the customer does not resubmit. |
 | `confirming_with_nayax`, `needs_refund_operations` | Confirming the refund | Bloomjoy owns the next check and will not ask the customer to troubleshoot Nayax. |
+| `integrity_hold` | Confirming the refund | Bloomjoy is reconciling its own records; no customer or payment retry is requested. |
 | `refund_confirmed`, `customer_notified` | Refund confirmed | “Nayax has approved your refund. Your bank may take up to 4 business days to show it on your account.” |
 | `denied` | Review complete | The customer replies in the same conversation for another review. |
+| `unable_to_complete` | We could not complete the refund | The record ended without being represented as a denial. |
+
+Internal/test records are never returned by the customer capability reader. Manager actions, location provenance, provider-account scope, operations fields, and delivery-provider identifiers are also excluded.
 
 Active state uses the contract's five-second refresh interval, never exceeds 15 seconds, pauses while hidden, backs off on transport errors, resumes after reconnect/focus, deduplicates by capability, and stops at terminal state.
 

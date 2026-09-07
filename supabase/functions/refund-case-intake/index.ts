@@ -13,8 +13,13 @@ import { RefundGmailError } from "../_shared/refund-gmail.ts";
 import {
   RefundEmailContextUnavailableError,
   requireLinkedRefundEmailCase,
+  requireLinkedRefundEmailThreadId,
 } from "../_shared/refund-email-context.ts";
 import { sendRefundManagerActionNotice } from "../_shared/refund-manager-notification.ts";
+import {
+  bindRefundTransactionalDelivery,
+  markRefundTransactionalDeliveryAttempt,
+} from "../_shared/refund-transactional-delivery.ts";
 import {
   lookupNayaxCandidatesForRefundCase,
   type NayaxLookupResult,
@@ -49,7 +54,9 @@ import {
   isRefundWalletCorrectionToken,
 } from "../_shared/refund-wallet-correction.ts";
 import { runAutomaticNayaxLookupIfReady } from "../_shared/automatic-nayax-lookup.ts";
+import { handlePurchaseCorrection } from "../_shared/refund-purchase-correction-handler.ts";
 import { validateRefundIntakePayment } from "../_shared/refund-intake-payment.ts";
+import { incidentTimeIsMateriallyFuture } from "../_shared/refund-request-time-boundary.mjs";
 import {
   hashRefundStatusValue,
   issueRefundStatusCapability,
@@ -119,6 +126,7 @@ type SubmittedRefundCase = {
   public_reference: string;
   status: string;
   correlation_status: string;
+  gmail_thread_id?: string;
 };
 
 type VerifiedRefundQrClaim = {
@@ -1261,6 +1269,14 @@ serve(async (req) => {
     if (action === "inspectWalletCorrection") {
       return await inspectWalletCorrection(req, body);
     }
+    if (action === "inspectPurchaseCorrection" || action === "submitPurchaseCorrection") {
+      if (!(await checkWalletCorrectionRateLimit(req))) {
+        return new Response(JSON.stringify({ errorCode: "correction_rate_limited" }), {
+          status: 429, headers: { ...refundStatusResponseHeaders },
+        });
+      }
+      return await handlePurchaseCorrection(body, supabase);
+    }
     if (action === "submitWalletCorrection") {
       return await submitWalletCorrection(req, body);
     }
@@ -1268,6 +1284,7 @@ serve(async (req) => {
       return await readCustomerRefundStatus(req, body);
     }
 
+    const customerRequestReceivedAt = new Date().toISOString();
     const sourcePage = sanitizePublicIntakeSourcePage("/refunds/request");
     const requestedMachineId = sanitizeText(body?.machineId, 80);
     const requestedSelectionKey = sanitizeText(body?.selectionKey, 80).toLowerCase();
@@ -1292,12 +1309,18 @@ serve(async (req) => {
     const paymentMethod = sanitizeText(body?.paymentMethod, 40).toLowerCase();
     const amountCents = centsFromAmount(body?.paymentAmount);
     const cardLast4 = sanitizeText(body?.cardLast4, 4);
+    const submittedCardLast4Source = sanitizeText(body?.cardLast4Source, 40).toLowerCase();
+    const cardLast4Source = ["physical_card", "wallet_device", "bank_record", "unknown"].includes(submittedCardLast4Source)
+      ? submittedCardLast4Source
+      : null;
     const submittedCardNetwork = sanitizeText(body?.cardNetwork, 80);
     const cardNetwork = normalizeCardNetwork(submittedCardNetwork);
     const submittedPaymentInteraction = sanitizeText(body?.paymentInteraction, 40).toLowerCase();
     const paymentInteraction = [
       "phone_watch_wallet",
       "tap_card",
+      "insert_card",
+      "swipe_card",
       "insert_or_swipe",
       "cash",
       "unsure",
@@ -1320,6 +1343,10 @@ serve(async (req) => {
     ].includes(submittedWalletProvider)
       ? submittedWalletProvider
       : null;
+    const submittedWalletDeviceKind = sanitizeText(body?.walletDeviceKind, 40).toLowerCase();
+    const walletDeviceKind = paymentInteraction === "phone_watch_wallet" && ["phone", "watch", "unknown"].includes(submittedWalletDeviceKind)
+      ? submittedWalletDeviceKind
+      : null;
     const submittedTimeConfidence = sanitizeText(body?.incidentTimeConfidence, 40).toLowerCase();
     const incidentTimeConfidence = [
       "exact",
@@ -1329,6 +1356,10 @@ serve(async (req) => {
     ].includes(submittedTimeConfidence)
       ? submittedTimeConfidence
       : "rough";
+    const submittedIncidentTimeSource = sanitizeText(body?.incidentTimeSource, 40).toLowerCase();
+    const incidentTimeSource = ["transaction_alert_or_receipt", "memory", "unknown"].includes(submittedIncidentTimeSource)
+      ? submittedIncidentTimeSource
+      : null;
     const submittedIssueCategory = sanitizeText(body?.issueCategory, 60).toLowerCase();
     const issueCategory = [
       "charged_no_product",
@@ -1430,6 +1461,22 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Please choose how closely you remember the purchase time." }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (body?.cardLast4Source !== undefined && !cardLast4Source) {
+      return new Response(JSON.stringify({ error: "Please choose where you found the last four digits." }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (body?.walletDeviceKind !== undefined && !walletDeviceKind) {
+      return new Response(JSON.stringify({ error: "Please choose whether you used a phone or watch." }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (body?.incidentTimeSource !== undefined && !incidentTimeSource) {
+      return new Response(JSON.stringify({ error: "Please choose how you found the purchase time." }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -1635,6 +1682,17 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    if (incidentTimeIsMateriallyFuture({
+      incidentAt: incidentAt.toISOString(),
+      customerRequestReceivedAt,
+    })) {
+      return new Response(JSON.stringify({
+        error: "The purchase time cannot be after this refund request. Check the date, time, and location, then try again.",
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     let status = "submitted";
     let correlationStatus = "not_started";
@@ -1713,7 +1771,10 @@ serve(async (req) => {
         amountCents ?? "amount-not-provided",
         paymentMethod === "card" ? cardLast4 : "no-card-last4",
         paymentInteraction,
+        cardLast4Source ?? "source-not-provided",
+        walletDeviceKind ?? "device-not-provided",
         incidentTimeConfidence,
+        incidentTimeSource ?? "time-source-not-provided",
         issueCategory,
         productDescription,
         issueSummary,
@@ -1730,8 +1791,11 @@ serve(async (req) => {
       qr_claim_expires_at: verifiedQrClaim?.expiresAt ?? null,
       incident_time_resolution: incidentResolution.resolution,
       incident_time_confidence: incidentTimeConfidence,
+      incident_time_source: incidentTimeSource,
       payment_interaction: paymentValidation.paymentInteraction,
+      card_last4_source: cardLast4Source,
       wallet_provider_supplied: Boolean(paymentValidation.walletProvider),
+      wallet_device_kind: walletDeviceKind,
       card_network: paymentValidation.cardNetwork,
       issue_category: issueCategory,
       product_description_supplied: Boolean(productDescription),
@@ -1758,9 +1822,16 @@ serve(async (req) => {
       payment_method: paymentValidation.paymentMethod,
       payment_amount_cents: paymentValidation.amountCents,
       card_last4: paymentValidation.cardLast4,
+      card_last4_source: paymentValidation.paymentMethod === "card" ? cardLast4Source : null,
       card_last4_provenance: paymentValidation.paymentMethod === "card" &&
           paymentValidation.cardLast4
-        ? paymentValidation.cardWalletUsed
+        ? cardLast4Source === "physical_card"
+          ? "physical_card"
+          : cardLast4Source === "wallet_device" && paymentValidation.cardWalletUsed
+          ? "wallet_device_token"
+          : cardLast4Source
+          ? null
+          : paymentValidation.cardWalletUsed
           ? "wallet_device_token"
           : "physical_card"
         : null,
@@ -1768,7 +1839,10 @@ serve(async (req) => {
       card_wallet_used: paymentValidation.cardWalletUsed,
       payment_interaction: paymentValidation.paymentInteraction,
       wallet_provider: paymentValidation.walletProvider,
+      wallet_device_kind: paymentValidation.paymentMethod === "card" ? walletDeviceKind : null,
       incident_time_confidence: incidentTimeConfidence,
+      incident_time_source: incidentTimeSource,
+      nearby_attempt_count: null,
       issue_category: issueCategory,
       product_description: productDescription || null,
       status,
@@ -1780,12 +1854,15 @@ serve(async (req) => {
       cash_match_evaluated_fact_version: paymentValidation.paymentMethod === "cash" ? 1 : null,
       refund_amount_cents: paymentValidation.amountCents,
       refund_qr_claim_context_id: verifiedQrClaim?.id ?? null,
+      customer_request_received_at: customerRequestReceivedAt,
+      customer_request_received_source: "hosted_refund_intake",
       intake_meta: intakeMeta,
       server_dedupe_key: serverDedupeKey,
       server_dedupe_window_started_at: serverDedupeWindowStartedAt.toISOString(),
     };
 
     let refundCase: SubmittedRefundCase | null = null;
+    let linkedGmailThreadId: string | null = null;
     if (emailContextToken) {
       const { data: linkedRefundCase, error: linkError } = await supabase.rpc(
         "service_create_refund_case_from_gmail_contact_form",
@@ -1809,11 +1886,15 @@ serve(async (req) => {
             paymentMethod: insertValues.payment_method,
             paymentAmountCents: insertValues.payment_amount_cents,
             cardLast4: insertValues.card_last4,
+            cardLast4Source: insertValues.card_last4_source,
             cardNetwork: insertValues.card_network,
             cardWalletUsed: insertValues.card_wallet_used,
             paymentInteraction: insertValues.payment_interaction,
             walletProvider: insertValues.wallet_provider,
+            walletDeviceKind: insertValues.wallet_device_kind,
             incidentTimeConfidence: insertValues.incident_time_confidence,
+            incidentTimeSource: insertValues.incident_time_source,
+            nearbyAttemptCount: insertValues.nearby_attempt_count,
             issueCategory: insertValues.issue_category,
             productDescription: insertValues.product_description,
             status: insertValues.status,
@@ -1832,10 +1913,16 @@ serve(async (req) => {
       if (linkError) {
         throw new RefundEmailContextUnavailableError();
       }
-      refundCase = requireLinkedRefundEmailCase(
+      const linkedCase = requireLinkedRefundEmailCase(
         emailContextToken,
         linkedRefundCase as SubmittedRefundCase | null,
       );
+      if (!linkedCase) throw new RefundEmailContextUnavailableError();
+      linkedGmailThreadId = requireLinkedRefundEmailThreadId(
+        emailContextToken,
+        linkedCase,
+      );
+      refundCase = linkedCase;
     }
 
     if (!refundCase) {
@@ -2058,6 +2145,7 @@ serve(async (req) => {
         recipientEmail: customerEmail,
         email,
         deliveryKind: "automatic",
+        gmailThreadId: linkedGmailThreadId,
       });
       if (!gmailDelivery.usedGmail) {
         if (!(await automaticCustomerContactAllowed())) {
@@ -2066,12 +2154,22 @@ serve(async (req) => {
             "Automatic customer contact was disabled before provider delivery.",
           );
         }
-        await sendRefundTransactionalEmail({
+        await markRefundTransactionalDeliveryAttempt({
+          supabase,
+          refundCaseMessageId: messageRow.id,
+        });
+        const receipt = await sendRefundTransactionalEmail({
           to: [customerEmail],
           cc: gmailDelivery.managerCcEmails,
           subject: email.subject,
           text: email.text,
           html: email.html,
+          idempotencyKey: `refund-message-${messageRow.id}`,
+        });
+        await bindRefundTransactionalDelivery({
+          supabase,
+          refundCaseMessageId: messageRow.id,
+          receipt,
         });
       }
 

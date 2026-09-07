@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -20,14 +21,17 @@ import {
   compareLocalState,
   compareProductionState,
   discoverRefundMigrationFiles,
+  isRefundReleaseProtectedPath,
   manifestPath,
   normalizeProductionEntrypointIdentity,
   parseFunctionDeploymentConfig,
   prepareManifestForLocalRefresh,
   repoRoot,
   requiredFunctionSlugs,
+  historicalFunctionSlugs,
   sanitizeProductionMetadata,
   validateManifestShape,
+  validateApprovedRestoreSource,
   validateHistoricalPreMigrationCompatibilityEntries,
   validatePreMigrationCompatibilitySource,
   validateReleaseManifestGitAnchorState,
@@ -35,6 +39,14 @@ import {
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const productionRunbook = fs.readFileSync(path.join(repositoryRoot, 'Docs', 'PRODUCTION_RUNBOOK.md'), 'utf8');
+const qaSmokeChecklist = fs.readFileSync(
+  path.join(repositoryRoot, 'Docs', 'QA_SMOKE_TEST_CHECKLIST.md'),
+  'utf8'
+);
+const refundEmailAssistantRunbook = fs.readFileSync(
+  path.join(repositoryRoot, 'Docs', 'REFUND_EMAIL_ASSISTANT_RUNBOOK.md'),
+  'utf8'
+);
 const cutoverPacket = fs.readFileSync(
   path.join(repositoryRoot, 'Docs', 'REFUND_PRODUCTION_CUTOVER_PACKET.md'),
   'utf8'
@@ -61,23 +73,26 @@ assert(
       'paired provider-free resolution-window/closure sequence'
     ) &&
     productionRunbook.includes(
-      'Deploy only the ten functions listed in the release manifest from the exact immutable, reviewed canonical-main commit'
+      'Deploy only the eleven functions listed in the release manifest from the exact immutable, reviewed canonical-main commit'
     ) &&
-    productionRunbook.includes('production Gmail OAuth/mailbox connection is now configured and proved under `#634`') &&
+    productionRunbook.includes('production Gmail OAuth/mailbox connection, scheduled intake, and approved automatic customer contact are now live') &&
+    productionRunbook.includes('Preserve normal refund operation during compatible deployments') &&
+    productionRunbook.includes('preserve the enabled production state') &&
+    !productionRunbook.includes('Official refund actions remain hard-off during deployment') &&
     productionRunbook.includes('production adapter exists but cannot reserve or call Nayax') &&
-    productionRunbook.includes('Issue `#409` tracks the remaining staffed shadow and production-label/legacy-responder no-overlap cutover') &&
+    productionRunbook.includes('Closed issue `#409` records historical shadow and cutover work') &&
     !productionRunbook.includes('For the unmerged candidate') &&
     !productionRunbook.includes('The later `#767` outcome-resolution migration and function deployment') &&
     !productionRunbook.includes('Do not configure Gmail OAuth/mailbox secrets before') &&
     !productionRunbook.includes('candidate handler') &&
     !productionRunbook.includes('unmerged `#409` integration candidate') &&
     !productionRunbook.includes('The candidate requires its own reviewed final manifest/evidence'),
-  'The runbook must bind the immutable canonical 10/51 bridge and current default-off release'
+  'The runbook must preserve the immutable historical bridge and current live release authority'
 );
 
 const refundDeployStart = productionRunbook.indexOf('Before deploying Refund Operations functions');
 const refundDeployEnd = productionRunbook.indexOf(
-  'After deploying the ten manifest-tracked Refund Operations functions',
+  'After deploying the eleven manifest-tracked Refund Operations functions',
   refundDeployStart
 );
 assert(
@@ -101,7 +116,7 @@ for (const slug of requiredFunctionSlugs) {
   );
 }
 
-for (const requiredFailClosedControl of [
+for (const requiredIsolatedDefault of [
   'NAYAX_REFUND_EXECUTION_ENABLED=false',
   'NAYAX_REFUND_EXECUTION_DRY_RUN=true',
   'NAYAX_REFUND_EXECUTION_KILL_SWITCH=true',
@@ -109,12 +124,22 @@ for (const requiredFailClosedControl of [
   'REFUND_GMAIL_ENABLED=false',
   'REFUND_GPT_TRIAGE_ENABLED=false',
   'OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false',
-  'Keep the runtime Nayax execution gates off during deployment',
 ]) {
   assert(
-    productionRunbook.includes(requiredFailClosedControl),
-    `Release runbook is missing fail-closed control: ${requiredFailClosedControl}`
+    productionRunbook.includes(requiredIsolatedDefault),
+    `Release runbook is missing isolated setup default: ${requiredIsolatedDefault}`
   );
+}
+
+for (const currentReleaseControl of [
+  'Initial isolated setup only',
+  'Preserve the current runtime Nayax execution, dry-run, and kill-switch settings during compatible deployments',
+  'A temporary execution pause must address a demonstrated release-specific incompatibility or incident, with its reason and restoration recorded',
+  'Reuse valid unchanged evidence',
+  'deploy and independently verify its backward-compatible replacement first',
+]) {
+  assert(productionRunbook.includes(currentReleaseControl),
+    `Release runbook is missing current operating control: ${currentReleaseControl}`);
 }
 
 assert.match(cutoverPacket, /all 90 required refund\/Nayax migrations/);
@@ -156,14 +181,29 @@ for (const retiredPilotGate of [
 }
 assert.match(
   productionRunbook,
-  /exactly 76 reviewed synthetic screenshots/,
-  'Production runbook must use the current 76-screenshot evidence inventory'
+  /exactly 92 reviewed synthetic screenshots/,
+  'Production runbook must use the current 92-screenshot evidence inventory'
 );
 assert.doesNotMatch(
   productionRunbook,
-  /exactly 44 reviewed synthetic screenshots/,
-  'Production runbook must not retain the retired 44-screenshot evidence count'
+  /exactly (?:44|83|85|86|90) reviewed synthetic screenshots/,
+  'Production runbook must not retain a retired screenshot evidence count'
 );
+for (const [documentName, document] of [
+  ['QA smoke checklist', qaSmokeChecklist],
+  ['refund email assistant runbook', refundEmailAssistantRunbook],
+]) {
+  assert.match(
+    document,
+    /exactly 92 reviewed synthetic screenshots/,
+    `${documentName} must use the current 92-screenshot evidence inventory`
+  );
+  assert.doesNotMatch(
+    document,
+    /exactly (?:44|83|85|86|90) reviewed synthetic screenshots/,
+    `${documentName} must not retain a retired screenshot evidence count`
+  );
+}
 const smokeOrder = cutoverPacket.indexOf('## Exact postdeployment readiness order');
 const routeSmoke = cutoverPacket.indexOf('refunds:smoke-routes', smokeOrder);
 const captureManifest = cutoverPacket.indexOf(
@@ -193,12 +233,6 @@ assert.doesNotMatch(
 
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-release-test-'));
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');
-const reviewedManagerSourceSha256 = {
-  'refund-manager-action-step-up':
-    'f02e601678638646bf407612fd88311d868f24b2d1533bc8e83046df68ba04b6',
-  'refund-manager-totp-enrollment':
-    'f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511',
-};
 const canonicalPreDeploymentManagerSourceSha256 = {
   'refund-manager-action-step-up':
     'b4bfb6a6b89ef93b2ed1d8ac3c286dfa079fb198afca27418a4ceb030d7ebd4d',
@@ -207,14 +241,45 @@ const canonicalPreDeploymentManagerSourceSha256 = {
 };
 
 try {
-  assert.equal(requiredFunctionSlugs.length, 10, 'Refund release inventory must cover exactly ten functions');
+  assert.equal(requiredFunctionSlugs.length, 11, 'Current refund release inventory must cover exactly eleven functions');
+  assert.equal(historicalFunctionSlugs.length, 10, 'Historical inventory must remain exactly ten functions');
+  assert.equal(requiredFunctionSlugs.at(-1), 'refund-nayax-outcome-resolve');
   assert.deepEqual(
-    requiredFunctionSlugs.slice(-2),
+    historicalFunctionSlugs.slice(-2),
     ['refund-manager-action-step-up', 'refund-manager-totp-enrollment'],
     'Manager step-up and TOTP enrollment must be in the release inventory'
   );
   const repositoryManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   validateManifestShape(repositoryManifest);
+  const priorInventoryManifest = JSON.parse(execFileSync('git', [
+    'show', '2e0316b7e074f5ff133d40cc1e9faa0724ba059e:scripts/refunds/refund-production-release.json',
+  ], { cwd: repoRoot, encoding: 'utf8', windowsHide: true }));
+  for (const key of ['preDeploymentCapturedAt', 'preDeploymentProduction', 'approvedRestoreSource', 'preMigrationCompatibility']) {
+    assert.deepEqual(repositoryManifest[key], priorInventoryManifest[key], `${key} must preserve immutable historical ten/51 evidence`);
+  }
+  const oldInventoryManifest = structuredClone(repositoryManifest);
+  oldInventoryManifest.functions.pop();
+  assert.throws(() => validateManifestShape(oldInventoryManifest), /function order or allowlist/);
+  const oldRestoreOnlyManifest = structuredClone(repositoryManifest);
+  delete oldRestoreOnlyManifest.additionalFunctionBaselines;
+  assert.throws(() => validateManifestShape(oldRestoreOnlyManifest), /additionalFunctionBaselines function allowlist/);
+  for (const [property, value] of [
+    ['status', 'MISSING'], ['verifyJwt', true], ['importMap', true],
+    ['entrypointIdentity', canonicalFunctionEntrypointIdentity('refund-case-intake')],
+    ['restoreSourceGitCommit', 'not-a-commit'],
+  ]) {
+    const badBaseline = structuredClone(repositoryManifest);
+    badBaseline.additionalFunctionBaselines[0][property] = value;
+    assert.throws(() => validateManifestShape(badBaseline), /Additional baseline/);
+  }
+  const invalidAdditionalRestore = structuredClone(repositoryManifest);
+  invalidAdditionalRestore.additionalFunctionBaselines[0].sourceSha256 = 'e'.repeat(64);
+  assert.throws(() => validateApprovedRestoreSource(repoRoot, invalidAdditionalRestore), /Additional baseline restore source does not match/);
+  assert.match(
+    fs.readFileSync(path.join(repoRoot, '.github/workflows/refund-production-drift.yml'), 'utf8'),
+    /supabase\/functions\/refund-nayax-outcome-resolve\/\*\*/,
+    'Resolver-only edits must trigger the production source guard'
+  );
   const missingEntrypointManifest = structuredClone(repositoryManifest);
   delete missingEntrypointManifest.functions[0].production.entrypointIdentity;
   assert.throws(
@@ -228,17 +293,79 @@ try {
     'Integrated release source commit must be a full immutable Git SHA'
   );
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
-  assert.equal(
-    repositoryMigrations.length,
-    110,
-    'Refund release inventory must cover exactly 110 discovered refund/Nayax migrations'
+  assert(repositoryMigrations.includes('20260903190000_refund_scoped_customer_corrections.sql') &&
+    repositoryMigrations.indexOf('20260903190000_refund_scoped_customer_corrections.sql') <
+      repositoryMigrations.indexOf('20260903200000_refund_correction_message_delivery.sql'),
+  'Scoped correction foundation must precede correction message delivery');
+  assert(repositoryMigrations.includes('20260903213000_nayax_scheduled_report_observations.sql') &&
+    repositoryMigrations.indexOf('20260903200000_refund_correction_message_delivery.sql') <
+      repositoryMigrations.indexOf('20260903213000_nayax_scheduled_report_observations.sql'),
+    'Native scheduled observations follow the integrated correction delivery migration');
+  assert(
+    repositoryMigrations.includes('20260902195401_refund_historical_owner_notice.sql') &&
+      repositoryMigrations.indexOf('20260902192844_refund_legacy_machine_correction.sql') <
+      repositoryMigrations.indexOf('20260902195401_refund_historical_owner_notice.sql'),
+    'Historical owner observation extends the already-installed canonical receipt and correction contract'
   );
   assert(
-    repositoryMigrations.includes('20260901185049_refund_provider_delay_evidence_1069.sql'),
+    repositoryMigrations.includes('20260902200508_refund_gmail_receipt_processing.sql') &&
+      repositoryMigrations.indexOf('20260902195401_refund_historical_owner_notice.sql') <
+      repositoryMigrations.indexOf('20260902200508_refund_gmail_receipt_processing.sql'),
+    'Receipt-aware Gmail fact processing follows the canonical owner-notice contract'
+  );
+  assert(
+    repositoryMigrations.includes('20260902192844_refund_legacy_machine_correction.sql'),
+    'The bounded legacy machine correction must be in the release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260902191832_refund_authoritative_reconciliation_receipt.sql'),
+    'The exact-original authoritative receipt contract must be in the release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260902195754_refund_receipt_automation_eligibility.sql'),
+    'Receipt-aware scheduler eligibility must be in the release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260902182311_refund_all_message_delivery_bookkeeping.sql'),
+    'The complete historical message delivery bookkeeping repair must be in the release inventory'
+  );
+  assert(
+    repositoryMigrations.indexOf('20260902182311_refund_all_message_delivery_bookkeeping.sql') <
+      repositoryMigrations.indexOf('20260902191832_refund_authoritative_reconciliation_receipt.sql') &&
+    repositoryMigrations.indexOf('20260902191832_refund_authoritative_reconciliation_receipt.sql') <
+      repositoryMigrations.indexOf('20260902192844_refund_legacy_machine_correction.sql'),
+    'Fresh replay must install current core delegates, then receipt guards, then machine correction'
+  );
+  assert(
+    repositoryMigrations.includes('20260902174648_refund_sent_status_delivery_metadata.sql'),
+    'The populated-upgrade status delivery metadata repair must be in the release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260902000417_refund_lifecycle_v2_integrity.sql'),
+    'The integrated lifecycle v2 integrity and release-skew boundary must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260902002716_refund_manual_message_outbox.sql'),
+    'The durable manager-message outbox migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260902004500_refund_payout_destination_follow_up.sql'),
+    'The protected payout-destination follow-up migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260902160946_refund_gmail_reply_recovery.sql'),
+    'The exact-message customer correction replay recovery must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260901080000_refund_gmail_existing_case_linking.sql'),
+    'The existing-case inbound linking migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260901202359_refund_provider_delay_evidence_1069.sql'),
     'The provider-delay evidence repair must be in the discovered release inventory'
   );
   assert(
-    repositoryMigrations.includes('20260901172459_refund_scheduler_incident_1069.sql'),
+    repositoryMigrations.includes('20260901180116_refund_scheduler_incident_1069.sql'),
     'The refund scheduler incident repair must be in the discovered release inventory'
   );
   assert(
@@ -260,6 +387,14 @@ try {
   assert(
     repositoryMigrations.includes('20260901060000_refund_nayax_scope_recovery.sql'),
     'The bounded Nayax account-scope recovery migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260901070000_refund_transactional_delivery_truth.sql'),
+    'The transactional delivery truth migration must be in the discovered release inventory'
+  );
+  assert(
+    repositoryMigrations.includes('20260901080000_refund_gmail_existing_case_linking.sql'),
+    'The existing-case-first Gmail linking migration must be in the discovered release inventory'
   );
   assert(
     repositoryMigrations.includes('20260830182855_refund_manager_queue_truth.sql'),
@@ -457,8 +592,8 @@ try {
   );
   assert.equal(
     repositoryManifest.functions.length,
-    10,
-    'Repository release manifest must contain exactly ten functions'
+    11,
+    'Repository release manifest must contain exactly eleven functions'
   );
   const repositoryLocalState = buildLocalReleaseState(repoRoot, repositoryManifest);
   assert.deepEqual(
@@ -555,8 +690,8 @@ try {
     assert(localStateEntry, `${managerSlug} must be present in the local release state`);
     assert.equal(
       localStateEntry.sourceSha256,
-      reviewedManagerSourceSha256[managerSlug],
-      `${managerSlug} local source must match its independently reviewed digest`
+      localEntry.sourceSha256,
+      `${managerSlug} local source must match the reviewed current manifest digest`
     );
     const baselineEntry = repositoryManifest.preDeploymentProduction.find(
       (entry) => entry.slug === managerSlug
@@ -565,11 +700,6 @@ try {
       (entry) => entry.slug === managerSlug
     );
     assert.equal(localEntry.verifyJwt, false, `${managerSlug} must keep verify_jwt disabled`);
-    assert.equal(
-      localEntry.sourceSha256,
-      reviewedManagerSourceSha256[managerSlug],
-      `${managerSlug} manifest source must match its independently reviewed digest`
-    );
     assert(
       baselineEntry &&
         baselineEntry.status === 'ACTIVE' &&
@@ -643,7 +773,8 @@ try {
     ...calculateFunctionSource(fixtureRoot, slug),
     production: null,
   }));
-  const previousFunctions = localFunctions.map(({ slug, sourceSha256 }) => ({ slug, sourceSha256 }));
+  const previousFunctions = localFunctions.filter(({ slug }) => historicalFunctionSlugs.includes(slug))
+    .map(({ slug, sourceSha256 }) => ({ slug, sourceSha256 }));
   const shapeManifest = {
     schemaVersion: 3,
     environment: 'production',
@@ -655,7 +786,8 @@ try {
     migrationVersionSetSha256: calculateMigrationVersionSetDigest(migrationFiles),
     functions: localFunctions,
     preDeploymentCapturedAt: '2026-01-01T00:00:00.000Z',
-    preDeploymentProduction: requiredFunctionSlugs.map((slug) => ({ slug, status: 'MISSING' })),
+    preDeploymentProduction: historicalFunctionSlugs.map((slug) => ({ slug, status: 'MISSING' })),
+    additionalFunctionBaselines: structuredClone(repositoryManifest.additionalFunctionBaselines),
     approvedRestoreSource: {
       releaseId: 'fixture-restore',
       sourceGitCommit: 'b'.repeat(40),
@@ -682,8 +814,45 @@ try {
       anchorGitCommit: 'c'.repeat(40),
       changedPaths: [fixtureManifestPath],
     },
-    'A final release anchor must be exactly one manifest-only commit after its source'
+    'A final release anchor must include one manifest commit after its source'
   );
+  assert.deepEqual(
+    validateReleaseManifestGitAnchorState({
+      ...validAnchorState,
+      changedPaths: [fixtureManifestPath, 'AGENTS.md', 'Docs/LOCAL_DEV.md'],
+    }),
+    {
+      sourceGitCommit: 'a'.repeat(40),
+      anchorGitCommit: 'c'.repeat(40),
+      changedPaths: [fixtureManifestPath, 'AGENTS.md', 'Docs/LOCAL_DEV.md'],
+    },
+    'Release-neutral agent and local-development docs must not require a new refund manifest anchor'
+  );
+  for (const protectedPath of [
+    'src/pages/Home.tsx',
+    'supabase/functions/refund-case-intake/index.ts',
+    'supabase/migrations/202601010001_refund_fixture.sql',
+    'scripts/refunds/refund-uat-evidence.mjs',
+    '.github/workflows/refund-uat-evidence.yml',
+    'package.json',
+    'lib/new-shared-dependency.ts',
+    'scripts/renamed-provider-helper.mjs',
+    '.github/workflows/unrelated-name.yml',
+    'public/refund-config.json',
+  ]) {
+    assert.equal(
+      isRefundReleaseProtectedPath(protectedPath),
+      true,
+      `${protectedPath} must remain inside the protected refund release boundary`
+    );
+  }
+  for (const neutralPath of ['AGENTS.md', 'Docs/LOCAL_DEV.md', 'README.md', 'Docs/PRODUCTION_RUNBOOK.md', 'Docs/REFUND_AGENT_OPERATIONS.md']) {
+    assert.equal(
+      isRefundReleaseProtectedPath(neutralPath),
+      false,
+      `${neutralPath} must remain release-neutral`
+    );
+  }
   assert.throws(
     () => validateReleaseManifestGitAnchorState({
       ...validAnchorState,
@@ -730,7 +899,7 @@ try {
       headGitCommit: shapeManifest.sourceGitCommit,
       changedPaths: [],
     }),
-    /Only the refund production release manifest may differ/,
+    /must anchor sourceGitCommit/,
     'The source commit cannot also serve as its own manifest anchor'
   );
   assert.throws(
@@ -738,7 +907,7 @@ try {
       ...validAnchorState,
       changedPaths: ['supabase/functions/refund-case-intake/index.ts'],
     }),
-    /Only the refund production release manifest may differ/,
+    /must anchor sourceGitCommit/,
     'A wrong-path-only anchor must fail closed'
   );
   assert.throws(
@@ -746,15 +915,15 @@ try {
       ...validAnchorState,
       changedPaths: [fixtureManifestPath, 'supabase/functions/refund-case-intake/index.ts'],
     }),
-    /Only the refund production release manifest may differ/,
-    'Any source change between the approved source and manifest anchor must fail closed'
+    /Protected refund release paths changed after sourceGitCommit/,
+    'Any protected source change after the approved source must fail closed'
   );
   assert.throws(
     () => validateReleaseManifestGitAnchorState({
       ...validAnchorState,
       changedPaths: [],
     }),
-    /Only the refund production release manifest may differ/,
+    /must anchor sourceGitCommit/,
     'A source commit without a separate manifest-only anchor must fail closed'
   );
   const refreshLocalStateManifest = prepareManifestForLocalRefresh(shapeManifest, {
@@ -973,6 +1142,23 @@ try {
     slug: entry.slug,
     sourceSha256: entry.sourceSha256,
   }));
+  const withoutResolver = (entries) => entries.filter((entry) => entry.slug !== 'refund-nayax-outcome-resolve');
+  assert.match(compareProductionState(manifest, withoutResolver(sanitized)).join('\n'), /refund-nayax-outcome-resolve: missing/);
+  assert.match(compareCaptureState(manifest, withoutResolver(sanitized), withoutResolver(productionSources)).join('\n'), /refund-nayax-outcome-resolve: missing/);
+  assert.throws(
+    () => buildProductionCaptureReceipt(manifest, withoutResolver(sanitized), withoutResolver(productionSources), '2026-09-02T00:00:00.000Z'),
+    /refund-nayax-outcome-resolve: missing/,
+    'A ten-function capture must never produce a successful current release receipt'
+  );
+  assert.match(compareCaptureState(manifest, sanitized, withoutResolver(productionSources)).join('\n'), /refund-nayax-outcome-resolve: downloaded production source/);
+  for (const patch of [
+    { status: 'MISSING' }, { version: 0 }, { verifyJwt: true }, { importMap: true },
+    { ezbrSha256: 'e'.repeat(64) },
+    { entrypointIdentity: canonicalFunctionEntrypointIdentity('refund-case-intake') },
+  ]) {
+    const changedResolver = sanitized.map((entry) => entry.slug === 'refund-nayax-outcome-resolve' ? { ...entry, ...patch } : entry);
+    assert.match(compareProductionState(manifest, changedResolver).join('\n'), /refund-nayax-outcome-resolve:/);
+  }
   const compatibilityManifest = structuredClone(manifest);
   compatibilityManifest.functions[0].sourceSha256 = 'd'.repeat(64);
   assert.deepEqual(

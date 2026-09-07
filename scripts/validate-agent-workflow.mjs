@@ -109,12 +109,14 @@ if (exists("scripts/agent-context.mjs")) {
 if (exists("Docs/NAYAX_REFUND_PRODUCTION_RCA.md")) {
   const nayaxRefundRca = read("Docs/NAYAX_REFUND_PRODUCTION_RCA.md");
   assert(
-    /Nayax's Lynx refund API can issue real refunds/i.test(nayaxRefundRca),
-    "Nayax refund RCA must preserve the proved provider refund capability.",
+    /refund is confirmed; its attribution to Bloomjoy's API calls is unproved/i.test(nayaxRefundRca) &&
+      /provider-reported failures/i.test(nayaxRefundRca) &&
+      /do not establish that the calls had no side effects/i.test(nayaxRefundRca),
+    "Nayax refund RCA must preserve the confirmed refund, unproved API attribution, and uncertainty about failure side effects.",
   );
   assert(
     /direct, fully automatic request -> approval -> finalization/i.test(nayaxRefundRca),
-    "Nayax refund RCA must distinguish provider capability from direct end-to-end automation proof.",
+    "Nayax refund RCA must distinguish a confirmed refund from direct end-to-end automation proof.",
   );
   assert(
     /business rejection[^\n]*HTTP `200`/i.test(nayaxRefundRca),

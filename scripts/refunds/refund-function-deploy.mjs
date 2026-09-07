@@ -148,7 +148,7 @@ export const runCanonicalRefundDeployment = (options, { runner = defaultRunner, 
   );
 
   requireSuccess(
-    runner(process.execPath, [path.join(root, 'scripts', 'refunds', 'refund-release.mjs'), '--local'], { cwd: root }),
+    runner(process.execPath, [path.join(root, 'scripts', 'refunds', 'refund-release.mjs'), '--local', '--fetch-reviewed-source'], { cwd: root }),
     'Refund release source alignment failed.'
   );
   runAuthGate(runner, root, options.projectRef, 'predeploy');
@@ -177,6 +177,21 @@ export const runCanonicalRefundDeployment = (options, { runner = defaultRunner, 
   }
   if (deploymentError) throw deploymentError;
   if (postdeployError) throw postdeployError;
+
+  // A complete release is not successful until every deployed transitive source matches.
+  // The capture is read-only in production and writes only a local ignored receipt.
+  if (options.all) {
+    requireSuccess(
+      runner(process.execPath, [
+        path.join(root, 'scripts', 'refunds', 'refund-release.mjs'),
+        '--capture-production',
+        '--project-ref', options.projectRef,
+        '--confirm-project-ref', options.projectRef,
+        '--output', `output/refund-production-postdeploy-${head}.json`,
+      ], { cwd: root }),
+      'Postdeploy refund source verification failed; release is not accepted.'
+    );
+  }
 
   return { executed: true, plan };
 };
