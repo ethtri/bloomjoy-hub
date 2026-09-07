@@ -132,8 +132,8 @@ const assertDocs = () => {
     }
   }
 
-  if (!status.includes('Timekeeping V1 is a distinct worker-entry')) {
-    fail('Docs/CURRENT_STATUS.md missing the durable Timekeeping V1 boundary.');
+  if (!status.includes('Timekeeping and Pay Stub MVP requirements')) {
+    fail('Docs/CURRENT_STATUS.md missing the canonical Timekeeping and Pay Stub requirements boundary.');
   }
 };
 

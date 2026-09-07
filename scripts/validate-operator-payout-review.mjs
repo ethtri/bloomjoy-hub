@@ -166,13 +166,13 @@ if (!packageJson.includes('operator-payouts:validate-review')) {
 }
 
 const smoke = readText(files.smoke);
-if (!smoke.includes('Admin Technician Pay Review')) {
-  fail('Smoke checklist missing Admin Technician Pay Review coverage.');
+if (!smoke.includes('Technician Pay Report')) {
+  fail('Smoke checklist missing Technician Pay Report coverage.');
 }
 
 const status = readText(files.status);
-if (!status.includes('Operator Pay calculation, finalization')) {
-  fail('CURRENT_STATUS missing the separation between Timekeeping V1 and pay-run review.');
+if (!status.includes('Effective-dated shift and commission rules')) {
+  fail('CURRENT_STATUS missing the canonical manager pay-report boundary.');
 }
 
 const actionOrder = ['draft', 'review', 'finalized', 'reopened', 'voided'];
