@@ -166,7 +166,11 @@ export function prepareCorrectionMigrationWindowsRegression(tempSupabaseDir) {
   // Apply the actual migration with Windows checkout bytes in every disposable
   // validation, including Linux CI. Do not let general LF normalization mask a
   // dollar-quoted source-match failure seen by the production Windows deploy.
-  for (const name of ['20260903200000_refund_correction_message_delivery.sql', '20260904182000_refund_owner_nonrefund_adoption.sql']) {
+  for (const name of [
+    '20260903200000_refund_correction_message_delivery.sql',
+    '20260904182000_refund_owner_nonrefund_adoption.sql',
+    '20260906230000_refund_one_manager_decision.sql',
+  ]) {
     const migrationPath = path.join(tempSupabaseDir, 'migrations', name);
     const source = fs.readFileSync(migrationPath, 'utf8');
     fs.writeFileSync(migrationPath, source.replaceAll('\r\n', '\n').replaceAll('\n', '\r\n'), 'utf8');

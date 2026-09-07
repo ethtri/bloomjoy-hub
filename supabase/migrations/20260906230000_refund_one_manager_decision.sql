@@ -1185,6 +1185,12 @@ declare
         p_actor_user_id, refund_case.id
       ),$replacement$;
 begin
+  decision_actor_anchor := replace(decision_actor_anchor, E'\r\n', E'\n');
+  decision_actor_replacement := replace(decision_actor_replacement, E'\r\n', E'\n');
+  version_anchor := replace(version_anchor, E'\r\n', E'\n');
+  version_replacement := replace(version_replacement, E'\r\n', E'\n');
+  approval_event_anchor := replace(approval_event_anchor, E'\r\n', E'\n');
+  approval_event_replacement := replace(approval_event_replacement, E'\r\n', E'\n');
   function_definition := replace(pg_catalog.pg_get_functiondef(
     'public.service_reserve_nayax_refund_manager_action(text,uuid,uuid,bigint,text,integer,integer,integer,text)'::regprocedure
   ), E'\r\n', E'\n');
@@ -1253,6 +1259,10 @@ declare
     or case_row.official_action_version is distinct from
       authorization_row.expected_case_version + 1$replacement$;
 begin
+  readiness_anchor := replace(readiness_anchor, E'\r\n', E'\n');
+  readiness_replacement := replace(readiness_replacement, E'\r\n', E'\n');
+  reservation_anchor := replace(reservation_anchor, E'\r\n', E'\n');
+  reservation_replacement := replace(reservation_replacement, E'\r\n', E'\n');
   function_definition := replace(pg_catalog.pg_get_functiondef(
     'public.refund_nayax_approval_continuation_ready_v1(uuid,uuid)'::regprocedure
   ), E'\r\n', E'\n');
@@ -1290,6 +1300,8 @@ declare
     )
   );$replacement$;
 begin
+  anchor := replace(anchor, E'\r\n', E'\n');
+  replacement := replace(replacement, E'\r\n', E'\n');
   function_definition := replace(pg_catalog.pg_get_functiondef(
     'public.refund_case_nayax_manager_readiness(uuid,uuid)'::regprocedure
   ), E'\r\n', E'\n');
