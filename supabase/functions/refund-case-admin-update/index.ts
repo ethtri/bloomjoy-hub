@@ -973,6 +973,7 @@ serve(async (req) => {
 
     const cardPreExecutionError = validateCardPreExecutionRequest({
       isCardCase: beforeRow.payment_method === "card",
+      hasNayaxCandidate: Boolean(nayaxCandidate),
       requestedStatus,
       requestedDecision,
       requestedMessageType,
@@ -1156,6 +1157,13 @@ serve(async (req) => {
         requestedDecision === null &&
         requestedMessageType === null,
     );
+    const isNayaxSelectionApproval = Boolean(
+      nayaxCandidate &&
+        officialAction === "approve" &&
+        requestedStatus === "card_refund_pending" &&
+        requestedDecision === "approved" &&
+        requestedMessageType === null,
+    );
 
     const updateRpc = isCashCompletion && officialAuthorization
       ? await supabase.rpc("service_complete_cash_refund_official", {
@@ -1167,6 +1175,17 @@ serve(async (req) => {
         p_decision_reason: decisionReason,
         p_internal_note: internalNote,
         p_assigned_manager_email: assignedManagerEmail,
+      })
+      : isNayaxSelectionApproval && officialAuthorization
+      ? await supabase.rpc("service_apply_refund_nayax_selection_approval", {
+        p_authorization_id: officialAuthorization.authorizationId,
+        p_case_id: caseId,
+        p_assigned_manager_email: assignedManagerEmail,
+        p_decision_reason: decisionReason,
+        p_internal_note: internalNote,
+        p_refund_amount_cents: officialRefundAmountCents,
+        p_matched_nayax_candidate_token: officialNayaxCandidateToken,
+        p_nayax_disagreement_reason: officialNayaxDisagreementReason,
       })
       : officialAction && officialAuthorization
       ? await supabase.rpc("service_apply_refund_official_case_update", {

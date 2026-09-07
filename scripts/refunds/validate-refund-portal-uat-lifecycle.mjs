@@ -59,6 +59,7 @@ assert.deepEqual(overviewFixtureBuilders, [
   'buildTransactionalDeliveryTruthOverview',
   'buildGmailUncertaintyPrecedenceOverview',
   'buildPhysicalCardMismatchRefundOverview',
+  'buildApprovalContinuationOverview',
 ]);
 assert.match(
   portalSource,

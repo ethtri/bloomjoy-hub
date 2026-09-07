@@ -17,6 +17,28 @@ Deno.test("Nayax evidence selection stays in review without customer communicati
   );
 });
 
+Deno.test("one manager confirmation may persist exact selection approval without communication", () => {
+  assertEquals(
+    validateRefundEvidenceSelectionRequest({
+      hasNayaxCandidate: true,
+      requestedStatus: "card_refund_pending",
+      requestedDecision: "approved",
+      requestedMessageType: null,
+    }),
+    null,
+  );
+  assertEquals(
+    validateCardPreExecutionRequest({
+      isCardCase: true,
+      hasNayaxCandidate: true,
+      requestedStatus: "card_refund_pending",
+      requestedDecision: "approved",
+      requestedMessageType: null,
+    }),
+    null,
+  );
+});
+
 for (const unsafeRequest of [
   { requestedStatus: "card_refund_pending", requestedDecision: null, requestedMessageType: null },
   { requestedStatus: "needs_review", requestedDecision: "approved", requestedMessageType: null },
@@ -38,6 +60,7 @@ Deno.test("card review cannot create a pre-execution approval without selecting 
   assertEquals(
     validateCardPreExecutionRequest({
       isCardCase: true,
+      hasNayaxCandidate: false,
       requestedStatus: "card_refund_pending",
       requestedDecision: "approved",
       requestedMessageType: "approved",
@@ -50,6 +73,7 @@ Deno.test("confirmed provider completion remains a separate supported transition
   assertEquals(
     validateCardPreExecutionRequest({
       isCardCase: true,
+      hasNayaxCandidate: false,
       requestedStatus: "completed",
       requestedDecision: "approved",
       requestedMessageType: "completed",
@@ -62,6 +86,7 @@ Deno.test("cash approval workflow is unaffected", () => {
   assertEquals(
     validateCardPreExecutionRequest({
       isCardCase: false,
+      hasNayaxCandidate: false,
       requestedStatus: "cash_zelle_pending",
       requestedDecision: "approved",
       requestedMessageType: "approved",
