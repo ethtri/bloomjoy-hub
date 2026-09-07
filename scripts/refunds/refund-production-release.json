@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "69ede87220215ee6acbdd5b5075e466f4f29c83a",
+  "sourceGitCommit": "e27b26e6ad41a49c864938b1c68b065950e00af8",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -237,7 +237,7 @@
     {
       "slug": "refund-case-intake",
       "verifyJwt": false,
-      "sourceSha256": "49afdc60d62bcccdeab07fcf9e7b64b0bd01e3b032846aca3dbea19e1d547adb",
+      "sourceSha256": "39f9e922620615c3405f689eebe49592c1cc1749b144b0b95d946218a8dfe0ab",
       "production": {
         "version": 122,
         "ezbrSha256": "682ed941b62fec77ce48788235f4640df671ba2b57dac5018e419d35d414c549",
@@ -248,7 +248,7 @@
     {
       "slug": "nayax-transaction-lookup",
       "verifyJwt": false,
-      "sourceSha256": "e0cd28dbc3d888938ab89e281f46c5855dd1cf41d6616192479df251430aa6ef",
+      "sourceSha256": "e9622a5743e711246d9f4a0c634a66d743af5fcf1855742ccdf8d49cf41a5e7f",
       "production": {
         "version": 112,
         "ezbrSha256": "b3f8b05868c406a3fad3e9247a8efea1f5ea6e8381d8f7a75c301cd574b71a8b",
@@ -281,7 +281,7 @@
     {
       "slug": "refund-case-automation-sweep",
       "verifyJwt": false,
-      "sourceSha256": "8a1bfead4f0372bb7fe97a0daf710fdefe85f14f2cc57e3c910b9f818918f284",
+      "sourceSha256": "faa12b40352427cc6c5fa6a87dc17b08bc924e19b5651e2bcafe1162693ae2b9",
       "production": {
         "version": 125,
         "ezbrSha256": "147dbf1ffcb70d6b3485549fcfbc2ace5b0a00e69197fa27f428737b5a34d2de",
@@ -292,7 +292,7 @@
     {
       "slug": "refund-gmail-sync",
       "verifyJwt": false,
-      "sourceSha256": "c9ef956bd813b24c812c44bc84bbfc17e71d0a19aff11d3497a7889c49c40dc0",
+      "sourceSha256": "d8784005138a09f3b1d6c80189b0787c0c89358111b0febb7229db7c028774f2",
       "production": {
         "version": 119,
         "ezbrSha256": "f38036d9189c4c43486f2231ad05facf2350527a45f4231373d15cc1007a4142",
