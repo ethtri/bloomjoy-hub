@@ -141,6 +141,7 @@
     "refunds:validate-machine-readiness-audit": "node scripts/refunds/validate-refund-machine-readiness-audit.mjs",
     "operator-payouts:validate-foundation": "node scripts/validate-operator-payout-foundation.mjs",
     "operator-payouts:validate-timekeeping": "node scripts/validate-operator-timekeeping.mjs",
+    "operator-payouts:validate-data-rules": "node scripts/validate-timekeeping-data-rules.mjs",
     "operator-payouts:validate-timekeeping-uat": "node scripts/validate-operator-timekeeping-uat.mjs",
     "operator-payouts:validate-revenue-snapshots": "node scripts/validate-operator-revenue-snapshots.mjs",
     "operator-payouts:validate-calculation": "node scripts/validate-operator-payout-calculation.mjs",

@@ -276,13 +276,19 @@ export type OperatorTimeEntry = {
   workDate: string;
   startTime: string;
   endTime: string;
+  actualStartAt: string;
+  actualEndAt: string;
+  actualDurationMinutes: number;
   rawDurationMinutes: number;
+  paidShifts: number;
   roundedPaidMinutes: number;
   notes: string | null;
   status: TimeEntryStatus;
   managerReviewStatus: TimeEntryManagerReviewStatus;
   managerReviewReason: string | null;
   managerReviewedAt: string | null;
+  technicianCutoffAt: string;
+  technicianEditable: boolean;
   lockedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -601,6 +607,23 @@ export type SetOperatorMachineAssignmentsResult = {
   assignments: unknown[];
 };
 
+export type UpsertEffectiveOperatorMachineAssignmentInput = {
+  assignmentId?: string | null;
+  operatorProfileId: string;
+  machineId: string;
+  effectiveStartDate: string;
+  effectiveEndDate?: string | null;
+};
+
+export type EffectiveOperatorMachineAssignment = {
+  id: string;
+  operatorProfileId: string;
+  machineId: string;
+  effectiveStartDate: string;
+  effectiveEndDate: string | null;
+  status: 'active';
+};
+
 export type SaveOperatorTimeEntryInput = {
   operatorProfileId: string;
   machineId: string;
@@ -613,6 +636,24 @@ export type SaveOperatorTimeEntryInput = {
 
 export type UpdateOperatorTimeEntryInput = SaveOperatorTimeEntryInput & {
   timeEntryId: string;
+};
+
+export type SaveCompletedOperatorTimeEntryInput = {
+  timeEntryId?: string | null;
+  operatorProfileId: string;
+  machineId: string;
+  actualStartAt: string;
+  actualEndAt: string;
+  notes?: string | null;
+};
+
+export type CorrectOperatorTimeEntryInput = {
+  timeEntryId: string;
+  machineId: string;
+  actualStartAt: string;
+  actualEndAt: string;
+  notes?: string | null;
+  void?: boolean;
 };
 
 export type ReviewOperatorTimeEntryInput = {
@@ -669,6 +710,68 @@ export type UpsertOperatorCompensationRuleInput = {
   reason: string;
 };
 
+export type OperatorCompensationRateType = 'shift' | 'commission';
+
+export type OperatorCompensationRate = {
+  id: string;
+  accountId: string;
+  operatorProfileId: string;
+  machineId: string | null;
+  rateType: OperatorCompensationRateType;
+  rateValue: number;
+  shiftRateCents: number | null;
+  commissionBasisPoints: number | null;
+  effectiveStartDate: string;
+  effectiveEndDate: string | null;
+  status: OperatorCompensationRuleStatus;
+  notes: string | null;
+};
+
+export type UpsertOperatorCompensationRateInput = {
+  rateId?: string | null;
+  accountId: string;
+  operatorProfileId: string;
+  machineId?: string | null;
+  rateType: OperatorCompensationRateType;
+  rateValue: number;
+  effectiveStartDate: string;
+  effectiveEndDate?: string | null;
+  status?: OperatorCompensationRuleStatus;
+  notes?: string | null;
+};
+
+export type OperatorRecurringCompensationItemType =
+  | 'bonus'
+  | 'supply_credit'
+  | 'expense_reimbursement';
+
+export type UpsertOperatorRecurringItemInput = {
+  itemId?: string | null;
+  accountId: string;
+  operatorProfileId: string;
+  itemType: OperatorRecurringCompensationItemType;
+  description: string;
+  amountCents: number;
+  effectiveStartDate: string;
+  effectiveEndDate?: string | null;
+  status?: OperatorCompensationRuleStatus;
+};
+
+export type UpsertOperatorYtdOpeningBalanceInput = {
+  accountId: string;
+  operatorProfileId: string;
+  calendarYear: number;
+  balanceThroughDate: string;
+  actualMinutes?: number;
+  paidShiftCount?: number;
+  commissionableSalesCents?: number;
+  shiftEarningsCents?: number;
+  commissionEarningsCents?: number;
+  bonusCents?: number;
+  supplyCreditCents?: number;
+  expenseReimbursementCents?: number;
+};
+
 export type CalculatePayoutRunInput = {
   payoutPeriodId: string;
   regenerate?: boolean;
@@ -710,6 +813,11 @@ export const roundOperatorPaidMinutes = (
   if (roundingRule === 'round_nearest_30_minutes') return Math.round(minutes / 30) * 30;
 
   return minutes;
+};
+
+export const calculateOperatorPaidShifts = (actualDurationMinutes: number) => {
+  const minutes = Math.max(0, Math.ceil(actualDurationMinutes));
+  return minutes === 0 ? 0 : Math.ceil(minutes / 60);
 };
 
 export const paidMinutesToHours = (minutes: number) => Math.max(0, minutes) / 60;
@@ -891,6 +999,54 @@ export const voidOperatorTimeEntry = async ({
   return payload.context;
 };
 
+export const saveCompletedOperatorTimeEntry = async (
+  input: SaveCompletedOperatorTimeEntryInput
+): Promise<OperatorTimekeepingContext> => {
+  const { data, error } = await supabaseClient.rpc('save_operator_time_entry', {
+    p_time_entry_id: input.timeEntryId ?? null,
+    p_operator_profile_id: input.operatorProfileId,
+    p_reporting_machine_id: input.machineId,
+    p_actual_start_at: input.actualStartAt,
+    p_actual_end_at: input.actualEndAt,
+    p_notes: input.notes ?? null,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to save completed Technician time.');
+  }
+
+  const payload = data as { context?: OperatorTimekeepingContext };
+  if (!payload.context) {
+    throw new Error('Time entry saved, but the updated calendar was not returned.');
+  }
+
+  return payload.context;
+};
+
+export const correctOperatorTimeEntry = async (
+  input: CorrectOperatorTimeEntryInput
+): Promise<OperatorTimeReviewContext> => {
+  const { data, error } = await supabaseClient.rpc('manager_correct_operator_time_entry', {
+    p_time_entry_id: input.timeEntryId,
+    p_reporting_machine_id: input.machineId,
+    p_actual_start_at: input.actualStartAt,
+    p_actual_end_at: input.actualEndAt,
+    p_notes: input.notes ?? null,
+    p_void: input.void ?? false,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to correct Technician time.');
+  }
+
+  const payload = data as { context?: OperatorTimeReviewContext };
+  if (!payload.context) {
+    throw new Error('Time entry corrected, but the updated manager report was not returned.');
+  }
+
+  return payload.context;
+};
+
 export const fetchPayoutRevenueSnapshotContext = async (
   payoutPeriodId: string
 ): Promise<PayoutRevenueSnapshotContext> => {
@@ -1035,6 +1191,99 @@ export const upsertOperatorCompensationRuleAdmin = async ({
   }
 
   return data as OperatorCompensationRule;
+};
+
+export const upsertOperatorCompensationRateAdmin = async ({
+  rateId = null,
+  accountId,
+  operatorProfileId,
+  machineId = null,
+  rateType,
+  rateValue,
+  effectiveStartDate,
+  effectiveEndDate = null,
+  status = 'active',
+  notes = null,
+}: UpsertOperatorCompensationRateInput): Promise<OperatorCompensationRate> => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_upsert_operator_compensation_rate',
+    {
+      p_rule_id: rateId,
+      p_account_id: accountId,
+      p_operator_profile_id: operatorProfileId,
+      p_reporting_machine_id: machineId,
+      p_rate_type: rateType,
+      p_rate_value: rateValue,
+      p_effective_start_date: effectiveStartDate,
+      p_effective_end_date: effectiveEndDate,
+      p_status: status,
+      p_notes: notes,
+    }
+  );
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to save Technician compensation rate.');
+  }
+
+  return data as OperatorCompensationRate;
+};
+
+export const upsertOperatorRecurringItemAdmin = async ({
+  itemId = null,
+  accountId,
+  operatorProfileId,
+  itemType,
+  description,
+  amountCents,
+  effectiveStartDate,
+  effectiveEndDate = null,
+  status = 'active',
+}: UpsertOperatorRecurringItemInput): Promise<Record<string, unknown>> => {
+  const { data, error } = await supabaseClient.rpc('admin_upsert_operator_recurring_item', {
+    p_item_id: itemId,
+    p_account_id: accountId,
+    p_operator_profile_id: operatorProfileId,
+    p_item_type: itemType,
+    p_description: description,
+    p_amount_cents: amountCents,
+    p_effective_start_date: effectiveStartDate,
+    p_effective_end_date: effectiveEndDate,
+    p_status: status,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to save recurring compensation item.');
+  }
+
+  return data as Record<string, unknown>;
+};
+
+export const upsertOperatorYtdOpeningBalanceAdmin = async (
+  input: UpsertOperatorYtdOpeningBalanceInput
+): Promise<Record<string, unknown>> => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_upsert_operator_ytd_opening_balance',
+    {
+      p_account_id: input.accountId,
+      p_operator_profile_id: input.operatorProfileId,
+      p_calendar_year: input.calendarYear,
+      p_balance_through_date: input.balanceThroughDate,
+      p_actual_minutes: input.actualMinutes ?? 0,
+      p_paid_shift_count: input.paidShiftCount ?? 0,
+      p_commissionable_sales_cents: input.commissionableSalesCents ?? 0,
+      p_shift_earnings_cents: input.shiftEarningsCents ?? 0,
+      p_commission_earnings_cents: input.commissionEarningsCents ?? 0,
+      p_bonus_cents: input.bonusCents ?? 0,
+      p_supply_credit_cents: input.supplyCreditCents ?? 0,
+      p_expense_reimbursement_cents: input.expenseReimbursementCents ?? 0,
+    }
+  );
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to save opening year-to-date balance.');
+  }
+
+  return data as Record<string, unknown>;
 };
 
 export const calculatePayoutRunAdmin = async ({
@@ -1235,6 +1484,31 @@ export const setOperatorMachineAssignmentsAdmin = async ({
   }
 
   return data as SetOperatorMachineAssignmentsResult;
+};
+
+export const upsertEffectiveOperatorMachineAssignmentAdmin = async ({
+  assignmentId = null,
+  operatorProfileId,
+  machineId,
+  effectiveStartDate,
+  effectiveEndDate = null,
+}: UpsertEffectiveOperatorMachineAssignmentInput): Promise<EffectiveOperatorMachineAssignment> => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_upsert_operator_machine_assignment',
+    {
+      p_assignment_id: assignmentId,
+      p_operator_profile_id: operatorProfileId,
+      p_reporting_machine_id: machineId,
+      p_effective_start_date: effectiveStartDate,
+      p_effective_end_date: effectiveEndDate,
+    }
+  );
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to save effective machine assignment.');
+  }
+
+  return data as EffectiveOperatorMachineAssignment;
 };
 
 const escapeHtml = (value: unknown) =>
