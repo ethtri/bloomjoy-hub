@@ -123,7 +123,7 @@ select 'cf160000-0000-4000-8000-000000000003','cf150000-0000-4000-8000-000000000
   pg_temp.current_fact_evidence('cf150000-0000-4000-8000-000000000001','2026-09-05T21:45:00Z') ||
     jsonb_build_object(
       'card_last4_comparison','mismatch_negative_unproven_equivalence',
-      'identifier_review_state','blocked',
+      'identifier_review_state','blocked_safety',
       'customer_correction_fields','[]'::jsonb,
       'hard_exclusions','["duplicate_provider_record"]'::jsonb,
       'duplicate_provider_record',true,
