@@ -56,6 +56,9 @@ export type NayaxControlledPilotStageResult = Readonly<{
   businessResult?: string | null;
   businessStatus?: string | null;
   businessPairRetained?: boolean;
+  observedResultScalar?: string | null;
+  observedStatusScalar?: string | null;
+  observedScalarPairRetained?: boolean;
   failureType?: "timeout" | "network" | "response_read";
   payloadRedacted: true;
 }>;

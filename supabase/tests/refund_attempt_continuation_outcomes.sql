@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(44);
+select plan(49);
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
@@ -81,18 +81,19 @@ declare r jsonb; aid uuid; claim text;
 begin
   select result into r from continuation_reservations where continuation_reservations.n=p_n;
   aid:=(r#>>'{attempt,attemptId}')::uuid; claim:=r->>'providerClaimToken';
-  perform public.service_record_nayax_refund_provider_stage_v3_outcomes('continuation-executor',aid,claim,
+  perform public.service_record_nayax_refund_provider_stage_v3_diagnostics('continuation-executor',aid,claim,
     'request','started',null,null,null,null,repeat(p_n::text,64),
     'nayax-production-account-contract-v2','nayax-provider-journal-v3',
-    null,null,null,null,null,null,null,null,null,null,null,null,null,null,false);
-  perform public.service_record_nayax_refund_provider_stage_v3_outcomes('continuation-executor',aid,claim,
+    null,null,null,null,null,null,null,null,null,null,null,null,null,null,false,
+    null,null,false);
+  perform public.service_record_nayax_refund_provider_stage_v3_diagnostics('continuation-executor',aid,claim,
     'request','result',200,outcome_name,contract_match,null,repeat(p_n::text,64),
     'nayax-production-account-contract-v2','nayax-provider-journal-v3',
     true,'application_json','json_object','1_256',true,true,true,true,true,'string','string',
     semantic_match,
     case when semantic_match then business_result else null end,
     case when semantic_match then business_status else null end,
-    semantic_match);
+    semantic_match,business_result,business_status,true);
   update public.refund_case_nayax_refund_attempts
   set provider_claim_expires_at=statement_timestamp()-interval '1 second' where id=aid;
 end $$;
@@ -125,11 +126,25 @@ select ok(exists(select 1 from pg_constraint
 select ok(has_function_privilege('service_role',
   'public.service_record_nayax_refund_provider_stage_v3_outcomes(text,uuid,text,text,text,integer,text,boolean,text,text,text,text,boolean,text,text,text,boolean,boolean,boolean,boolean,boolean,text,text,boolean,text,text,boolean)','execute')
   and has_function_privilege('service_role',
+  'public.service_record_nayax_refund_provider_stage_v3_diagnostics(text,uuid,text,text,text,integer,text,boolean,text,text,text,text,boolean,text,text,text,boolean,boolean,boolean,boolean,boolean,text,text,boolean,text,text,boolean,text,text,boolean)','execute')
+  and has_function_privilege('service_role',
   'public.service_reserve_nayax_refund_approval_continuation_v1(text,uuid,uuid,bigint,text,integer,text,text,text)','execute'),
   'Only assertion-protected service boundaries expose writes');
 select ok(not has_function_privilege('authenticated',
   'public.service_reserve_nayax_refund_approval_continuation_v1(text,uuid,uuid,bigint,text,integer,text,text,text)','execute'),
   'Browser roles cannot reserve an approval continuation');
+select ok(not has_function_privilege('authenticated',
+  'public.service_record_nayax_refund_provider_stage_v3_diagnostics(text,uuid,text,text,text,integer,text,boolean,text,text,text,text,boolean,text,text,text,boolean,boolean,boolean,boolean,boolean,text,text,boolean,text,text,boolean,text,text,boolean)','execute'),
+  'Browser roles cannot write restricted provider response scalars');
+select ok(
+  public.refund_nayax_restricted_scalar_is_safe(repeat('x',31),'string')
+  and not public.refund_nayax_restricted_scalar_is_safe(repeat('x',32),'string')
+  and not public.refund_nayax_restricted_scalar_is_safe(repeat('x',47),'string')
+  and not public.refund_nayax_restricted_scalar_is_safe('4111 1111 1111 1111','string')
+  and public.refund_nayax_restricted_scalar_is_safe('999999999','number')
+  and not public.refund_nayax_restricted_scalar_is_safe('1000000000','number')
+  and not public.refund_nayax_restricted_scalar_is_safe(null,'boolean'),
+  'Database scalar safety matches adapter boundaries and rejects null misuse');
 select ok(not has_function_privilege('authenticated',
   'public.refund_nayax_approval_continuation_ready_v1(uuid,uuid)','execute')
   and not has_function_privilege('service_role',
@@ -187,6 +202,9 @@ select is((select count(*) from public.refund_nayax_provider_stage_journal j
 select is((select business_result||'|'||business_status from public.refund_nayax_provider_business_outcomes b
   join continuation_reservations r on (r.result#>>'{attempt,attemptId}')::uuid=b.nayax_refund_attempt_id
   where r.n=1 and b.stage='request'),'True|Pending Approval','Exact bounded request business pair is retained');
+select is((select observed_result_scalar||'|'||observed_status_scalar from public.refund_nayax_provider_business_outcomes b
+  join continuation_reservations r on (r.result#>>'{attempt,attemptId}')::uuid=b.nayax_refund_attempt_id
+  where r.n=1 and b.stage='request'),'True|Pending Approval','Restricted request scalars are retained separately');
 select is(pg_temp.continue_attempt(1)#>>'{attempt,shouldExecute}','false',
   'Duplicate click or concurrent worker cannot obtain a second continuation claim');
 select is((select count(*) from public.refund_nayax_attempt_approval_continuations c
@@ -203,6 +221,10 @@ select is(pg_temp.continue_attempt(3)#>>'{attempt,shouldExecute}','false',
 select is((select business_result||'|'||business_status from public.refund_nayax_provider_business_outcomes b
   join continuation_reservations r on (r.result#>>'{attempt,attemptId}')::uuid=b.nayax_refund_attempt_id
   where r.n=3 and b.stage='request'),null,'Unknown alphabetic provider text is represented without retaining the pair');
+select is((select observed_result_scalar||'|'||observed_status_scalar from public.refund_nayax_provider_business_outcomes b
+  join continuation_reservations r on (r.result#>>'{attempt,attemptId}')::uuid=b.nayax_refund_attempt_id
+  where r.n=3 and b.stage='request'),'True|Unexpected',
+  'Unknown request scalars are captured without changing their unknown outcome');
 select is(public.refund_case_nayax_manager_readiness(
   'ca000000-0000-4000-8000-000000000001',
   'ca500000-0000-4000-8000-000000000003')#>>'{approvalContinuationReady}',
@@ -223,20 +245,24 @@ select throws_ok($$update public.refund_cases set refund_amount_cents=700
   where id='ca500000-0000-4000-8000-000000000006'$$,'P0001',null,
   'The active attempt guard prevents the full refund amount from changing before approval');
 
-select public.service_record_nayax_refund_provider_stage_v3_outcomes('continuation-executor',
+select public.service_record_nayax_refund_provider_stage_v3_diagnostics('continuation-executor',
   (select (result#>>'{attempt,attemptId}')::uuid from issued_continuation),
   (select result->>'providerClaimToken' from issued_continuation),'approve','started',null,null,null,null,
   repeat('a',64),'nayax-production-account-contract-v2','nayax-provider-journal-v3',
-  null,null,null,null,null,null,null,null,null,null,null,null,null,null,false);
-select public.service_record_nayax_refund_provider_stage_v3_outcomes('continuation-executor',
+  null,null,null,null,null,null,null,null,null,null,null,null,null,null,false,
+  null,null,false);
+select public.service_record_nayax_refund_provider_stage_v3_diagnostics('continuation-executor',
   (select (result#>>'{attempt,attemptId}')::uuid from issued_continuation),
   (select result->>'providerClaimToken' from issued_continuation),'approve','result',200,'succeeded',true,null,
   repeat('b',64),'nayax-production-account-contract-v2','nayax-provider-journal-v3',
   true,'application_json','json_object','1_256',true,true,true,true,true,'string','string',true,
-  'True','Approved',true);
+  'True','Approved',true,'True','Approved',true);
 select is((select business_result||'|'||business_status from public.refund_nayax_provider_business_outcomes b
   join continuation_reservations r on (r.result#>>'{attempt,attemptId}')::uuid=b.nayax_refund_attempt_id
   where r.n=1 and b.stage='approve'),'True|Approved','Exact bounded approval business pair is retained');
+select is((select observed_result_scalar||'|'||observed_status_scalar from public.refund_nayax_provider_business_outcomes b
+  join continuation_reservations r on (r.result#>>'{attempt,attemptId}')::uuid=b.nayax_refund_attempt_id
+  where r.n=1 and b.stage='approve'),'True|Approved','Restricted approval scalars are retained separately');
 select is(pg_temp.continue_attempt(1)#>>'{attempt,shouldExecute}','false',
   'An approval journal result cannot be approved again');
 select throws_ok($$select public.service_settle_nayax_refund_attempt('continuation-executor',

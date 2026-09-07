@@ -2,6 +2,7 @@ import {
   buildNayaxRecommendation,
   extractNayaxRecords,
   NAYAX_RECOMMENDATION_POLICY,
+  purchaseOccurrenceIntervalsSupportStructuredTimeCorrection,
   toPublicNayaxCandidate,
 } from "./nayax-recommendation.mjs";
 import { buildNayaxMachineContext } from "./nayax-machine-context.mjs";
@@ -572,8 +573,11 @@ export const rankGroupedNayaxCandidates = (groups: Array<{
   reportingMachineId: string;
   machineDisplayLabel: string;
   candidates: NayaxProviderCandidate[];
-}>) => {
-  const combinedCandidates = groups.flatMap((group) =>
+}>, customerTime: {
+  incidentTimeResolution: string | null;
+  incidentTimeConfidence: string | null;
+}) => {
+  let combinedCandidates = groups.flatMap((group) =>
     group.candidates.map((candidate) => ({
       ...candidate,
       reportingMachineId: group.reportingMachineId,
@@ -586,9 +590,86 @@ export const rankGroupedNayaxCandidates = (groups: Array<{
     left.providerProcessingTimeDeltaMinutes - right.providerProcessingTimeDeltaMinutes ||
     left.transactionId.localeCompare(right.transactionId)
   );
+  const customerTimeSupportsManagerSelection =
+    ["exact", "legacy_absolute"].includes(customerTime.incidentTimeResolution ?? "") &&
+    customerTime.incidentTimeConfidence !== "rough";
+  const collisionRelevantCandidates = combinedCandidates.filter((candidate) =>
+    candidate.selectionAllowed || (
+      candidate.identifierReviewState === "needs_corroboration" &&
+      (
+        candidate.reasonCodes.includes("multiple_candidates_need_distinguishing_time") ||
+        candidate.reasonCodes.includes("multiple_candidates_need_manager_review")
+      )
+    )
+  );
+  const competingPurchaseCandidates = new Map<string, NayaxProviderCandidate[]>();
+  for (const candidate of collisionRelevantCandidates) {
+    if (!candidate.cardLast4) continue;
+    const competingPurchaseKey = [
+      candidate.cardLast4,
+      candidate.amountCents,
+      candidate.currencyCode,
+    ].join(":");
+    const samePurchaseKeyCandidates = competingPurchaseCandidates.get(competingPurchaseKey) ?? [];
+    samePurchaseKeyCandidates.push(candidate);
+    competingPurchaseCandidates.set(competingPurchaseKey, samePurchaseKeyCandidates);
+  }
+  const competingPurchaseKeys = new Set(
+    [...competingPurchaseCandidates.entries()]
+      .filter(([, sameKey]) => sameKey.length > 1)
+      .map(([key]) => key),
+  );
+  const correctionFieldsByCompetingPurchaseKey = new Map(
+    [...competingPurchaseCandidates.entries()]
+      .filter(([, sameKey]) => sameKey.length > 1)
+      .map(([key, sameKey]) => [
+        key,
+        purchaseOccurrenceIntervalsSupportStructuredTimeCorrection(sameKey)
+          ? ["incident_time", "incident_time_source"]
+          : [],
+      ]),
+  );
+  const conservativeCompetingPurchaseHold =
+    !customerTimeSupportsManagerSelection && competingPurchaseKeys.size > 0;
+  if (conservativeCompetingPurchaseHold) {
+    combinedCandidates = combinedCandidates.map((candidate) => {
+      const competingPurchaseKey = [
+        candidate.cardLast4,
+        candidate.amountCents,
+        candidate.currencyCode,
+      ].join(":");
+      const correctionFields = correctionFieldsByCompetingPurchaseKey.get(competingPurchaseKey) ?? [];
+      const collisionReason = correctionFields.length > 0
+        ? "multiple_candidates_need_distinguishing_time"
+        : "multiple_candidates_need_manager_review";
+      return candidate.selectionAllowed && candidate.cardLast4 && competingPurchaseKeys.has(competingPurchaseKey)
+      ? {
+          ...candidate,
+          evidenceAwareReviewEligible: false,
+          selectionAllowed: false,
+          identifierReviewState: "needs_corroboration",
+          customerCorrectionFields: correctionFields,
+          manualReviewReasons: [
+            ...new Set([
+              ...candidate.manualReviewReasons,
+              collisionReason,
+            ]),
+          ],
+          reasonCodes: [
+            ...new Set([
+              ...candidate.reasonCodes,
+              collisionReason,
+            ]),
+          ],
+        }
+      : candidate;
+    });
+  }
   const selectableCandidates = combinedCandidates.filter((candidate) => candidate.selectionAllowed);
   const uniqueCandidate = selectableCandidates.length === 1 ? selectableCandidates[0] : null;
-  const recommendationState: NayaxRecommendationState = uniqueCandidate
+  const recommendationState: NayaxRecommendationState = conservativeCompetingPurchaseHold
+    ? "ambiguous"
+    : uniqueCandidate
     ? uniqueCandidate.recommendationState === "high_confidence"
       ? "high_confidence"
       : "manual_exception"
@@ -907,7 +988,10 @@ const lookupGroupedLivermoreCandidates = async ({
     reportingMachineId: result.input.reportingMachineId,
     machineDisplayLabel: result.input.machineDisplayLabel,
     candidates: result.recommendation.candidates,
-  })));
+  })), {
+    incidentTimeResolution: refundCase.incident_time_resolution,
+    incidentTimeConfidence: refundCase.incident_time_confidence,
+  });
 
   const { data: currentCase, error: currentCaseError } = await supabase
     .from("refund_cases")

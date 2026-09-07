@@ -381,6 +381,8 @@ type CustomerMessageResult = {
 type CaseSaveSuccess = {
   customerMessage: CustomerMessageResult;
   updateApplied: boolean;
+  officialActionVersion: number;
+  refundReadiness: RefundReadiness | null;
 };
 
 type CaseSaveResult = CaseSaveSuccess | 'step_up_pending' | null;
@@ -398,7 +400,7 @@ type PrimaryActionConfig = {
   targetStatus?: RefundCaseStatus;
   targetDecision?: RefundDecision;
   messageType?: RefundCustomerPortalMessageType;
-  mode?: 'case_update' | 'retry_message' | 'nayax_evidence_selection' | 'nayax_refund_execution' | 'manual_nayax_approval' | 'resolve_delivery_not_found';
+  mode?: 'case_update' | 'retry_message' | 'nayax_refund_execution' | 'manual_nayax_approval' | 'resolve_delivery_not_found' | 'review_transaction_evidence';
   disabled?: boolean;
 };
 
@@ -2010,6 +2012,36 @@ const primaryActionConfig = (
     };
   }
 
+  if (
+    refundCase.paymentMethod === 'card' &&
+    candidates.length > 1 &&
+    candidates.every((candidate) => candidate.selectionAllowed === false) &&
+    candidates.some((candidate) =>
+      candidate.reasonCodes?.includes('multiple_candidates_need_manager_review')
+    ) &&
+    missingFields.length === 0
+  ) {
+    return {
+      label: 'Review transaction evidence',
+      helper: 'These purchases cannot be separated by the available provider times. Refund Operations owns the next review; do not ask the customer for the same detail again.',
+      mode: 'review_transaction_evidence',
+    };
+  }
+
+  if (
+    refundCase.paymentMethod === 'card' &&
+    candidates.length > 0 &&
+    candidates.every((candidate) => candidate.selectionAllowed === false) &&
+    missingFields.length > 0
+  ) {
+    return {
+      label: 'Ask for missing details',
+      helper: 'Send one same-case correction request for the detail that can distinguish these transactions.',
+      messageType: 'more_info',
+      mode: 'retry_message',
+    };
+  }
+
   if (waitingOnCustomer || noMatch) {
     const canAskForExactMissingFields = missingFields.length > 0;
     if (!canAskForExactMissingFields) {
@@ -2041,12 +2073,22 @@ const primaryActionConfig = (
 
     const hasUnsavedCandidate = Boolean(editor.matchedNayaxCandidateToken.trim());
     if (hasUnsavedCandidate && selectedCandidate) {
+      if (typeof refundReadiness?.approvalPendingExecution !== 'boolean') {
+        return {
+          label: refundReadiness ? 'Refund temporarily unavailable' : 'Checking refund availability',
+          helper: refundReadiness
+            ? refundReadinessBlockMessage(null)
+            : 'Checking that the guarded refund service is ready for this transaction.',
+          disabled: true,
+        };
+      }
       return {
-        label: 'Confirm this transaction',
-        helper: 'Confirm this is the customer\'s transaction. This does not issue a refund or email the customer.',
-        targetStatus: 'needs_review',
-        targetDecision: null,
-        mode: 'nayax_evidence_selection',
+        label: `Refund ${formatCurrency(selectedCandidate.amountCents)}`,
+        helper: 'Confirm this exact transaction and refund its full provider amount in one decision. The customer is emailed only after the refund succeeds.',
+        targetStatus: 'completed',
+        targetDecision: 'approved',
+        messageType: 'completed',
+        mode: 'nayax_refund_execution',
       };
     }
 
@@ -2062,6 +2104,23 @@ const primaryActionConfig = (
             !['unauthorized', 'duplicate_transaction', 'reconciliation_hold', 'globally_paused', 'kill_switch', 'kill_switch_active'].includes(refundReadiness.blockReason ?? '')
           )
         );
+      if (!refundReadiness) {
+        return {
+          label: 'Checking refund availability',
+          helper: 'Transaction confirmed. Payment: Not issued.',
+          disabled: true,
+        };
+      }
+      if (refundReadiness.canIssueCardRefund) {
+        return {
+          label: `Refund ${formatCurrency(refundReadiness.refundAmountCents ?? refundCase.refundAmountCents ?? refundCase.paymentAmountCents)}`,
+          helper: 'This issues the card refund. The customer is emailed only after it succeeds.',
+          targetStatus: 'completed',
+          targetDecision: 'approved',
+          messageType: 'completed',
+          mode: 'nayax_refund_execution',
+        };
+      }
       if (reviewedPortalFallbackAvailable) {
         return {
           label: 'Approve refund for Nayax portal',
@@ -2071,27 +2130,10 @@ const primaryActionConfig = (
           mode: 'manual_nayax_approval',
         };
       }
-      if (!refundReadiness) {
-        return {
-          label: 'Checking refund availability',
-          helper: 'Transaction confirmed. Payment: Not issued.',
-          disabled: true,
-        };
-      }
-      if (!refundReadiness.canIssueCardRefund) {
-        return {
-          label: 'Refund temporarily unavailable',
-          helper: refundReadinessBlockMessage(refundReadiness.blockReason),
-          disabled: true,
-        };
-      }
       return {
-        label: `Refund ${formatCurrency(refundReadiness.refundAmountCents ?? refundCase.refundAmountCents ?? refundCase.paymentAmountCents)}`,
-        helper: 'This issues the card refund. The customer is emailed only after it succeeds.',
-        targetStatus: 'completed',
-        targetDecision: 'approved',
-        messageType: 'completed',
-        mode: 'nayax_refund_execution',
+        label: 'Refund temporarily unavailable',
+        helper: refundReadinessBlockMessage(refundReadiness.blockReason),
+        disabled: true,
       };
     }
 
@@ -2514,8 +2556,9 @@ export default function AdminRefundsPage() {
     isCustomerDraftDirty: boolean;
   } | null>(null);
   const cashCompletionInFlightRef = useRef(false);
-  const evidenceSelectionInFlightRef = useRef(false);
   const nayaxRefundInFlightRef = useRef(false);
+  const nayaxApprovedExecutionRequestRef = useRef<() => void>(() => {});
+  const nayaxApprovedExecutionAttemptedRef = useRef(new Set<string>());
   const lookupRequestSequenceRef = useRef(0);
   const autoLookupAttemptedRef = useRef(new Set<string>());
   const handledCaseQueryRef = useRef<string | null>(null);
@@ -2534,7 +2577,6 @@ export default function AdminRefundsPage() {
   const [manualNayaxEvidence, setManualNayaxEvidence] = useState<ManualNayaxEvidenceState>(
     emptyManualNayaxEvidence
   );
-  const [isEvidenceConfirmationOpen, setIsEvidenceConfirmationOpen] = useState(false);
   const [isRefundConfirmationOpen, setIsRefundConfirmationOpen] = useState(false);
   const [isCashConfirmationOpen, setIsCashConfirmationOpen] = useState(false);
   const [isGmailResolutionOpen, setIsGmailResolutionOpen] = useState(false);
@@ -2817,7 +2859,6 @@ export default function AdminRefundsPage() {
     setNayaxCandidates([]);
     setNayaxLookupNotice(null);
     setNayaxLookupSummary(null);
-    setIsEvidenceConfirmationOpen(false);
     setIsRefundConfirmationOpen(false);
     setIsCashConfirmationOpen(false);
     setMessageSubject('');
@@ -2965,6 +3006,10 @@ export default function AdminRefundsPage() {
         refundAmountCents: nayaxCardRefundAvailability.refundAmountCents ?? null,
         machineLimitCents: nayaxCardRefundAvailability.machineLimitCents ?? null,
         caseVersion: nayaxCardRefundAvailability.caseVersion ?? null,
+        approvalPendingExecution:
+          typeof nayaxCardRefundAvailability.approvalPendingExecution === 'boolean'
+            ? nayaxCardRefundAvailability.approvalPendingExecution
+            : undefined,
       };
     }
     return {
@@ -2976,6 +3021,10 @@ export default function AdminRefundsPage() {
       refundAmountCents: nayaxCardRefundAvailability.refundAmountCents ?? null,
       machineLimitCents: nayaxCardRefundAvailability.machineLimitCents ?? null,
       caseVersion: nayaxCardRefundAvailability.caseVersion ?? null,
+      approvalPendingExecution:
+        typeof nayaxCardRefundAvailability.approvalPendingExecution === 'boolean'
+          ? nayaxCardRefundAvailability.approvalPendingExecution
+          : undefined,
     };
   }, [
     forceDemoData,
@@ -3269,7 +3318,7 @@ export default function AdminRefundsPage() {
     }
     if (refundCase.id !== selectedCase?.id || refundCase.hasMatchedNayaxTransaction || !editor) return null;
     if (editor.matchedNayaxCandidateToken.trim()) {
-      return { label: 'Confirm transaction', tone: 'info' };
+      return { label: 'Ready to refund', tone: 'info' };
     }
     if (nayaxCandidates.length > 0 && selectedNayaxSummary?.recommendationState === 'high_confidence') {
       return { label: 'Review likely transaction', tone: 'info' };
@@ -3284,7 +3333,8 @@ export default function AdminRefundsPage() {
   };
 
   const applyCaseUpdateResponse = async (
-    result: UpdateRefundCaseResponse
+    result: UpdateRefundCaseResponse,
+    options: { quietTransactionConfirmation?: boolean } = {}
   ): Promise<CaseSaveSuccess> => {
     const nextOfficialActionVersion = Number(result.refundCase?.officialActionVersion ?? 0);
     setOfficialActionVersion(nextOfficialActionVersion > 0 ? nextOfficialActionVersion : 0);
@@ -3348,13 +3398,14 @@ export default function AdminRefundsPage() {
         setEditor(toEditorState(confirmedCase));
       }
       setNayaxCandidates([]);
-      setIsEvidenceConfirmationOpen(false);
-      setNayaxLookupNotice({
-        tone: 'success',
-        title: 'Transaction confirmed',
-        message: 'Payment: Not issued.',
-      });
-      toast.success('Transaction confirmed. No refund has been issued.');
+      if (!options.quietTransactionConfirmation) {
+        setNayaxLookupNotice({
+          tone: 'success',
+          title: 'Transaction confirmed',
+          message: 'Payment: Not issued.',
+        });
+        toast.success('Transaction confirmed. No refund has been issued.');
+      }
     } else if (result.customerMessage?.status === 'failed') {
       toast.error('Case updated, but the customer email failed. Retry before treating the customer as contacted.');
     } else if (result.customerMessage?.status === 'sent') {
@@ -3367,6 +3418,8 @@ export default function AdminRefundsPage() {
     return {
       customerMessage: result.customerMessage ?? null,
       updateApplied: result.updateApplied !== false,
+      officialActionVersion: nextOfficialActionVersion,
+      refundReadiness: result.refundReadiness ?? null,
     };
   };
 
@@ -3392,7 +3445,6 @@ export default function AdminRefundsPage() {
         : '',
       cardLast4: refundCase.cardLast4 ?? '',
     });
-    setIsEvidenceConfirmationOpen(false);
     setIsRefundConfirmationOpen(false);
     setIsCashConfirmationOpen(false);
     setRefundActionReceipt(null);
@@ -3466,7 +3518,8 @@ export default function AdminRefundsPage() {
 
   const handleSaveCase = async (
     editorOverride?: EditorState,
-    customerMessageType?: RefundCustomerPortalMessageType | null
+    customerMessageType?: RefundCustomerPortalMessageType | null,
+    options: { quietTransactionConfirmation?: boolean } = {}
   ): Promise<CaseSaveResult> => {
     if (!selectedCase || !editor) return null;
     const nextEditor = editorOverride ?? editor;
@@ -3539,13 +3592,14 @@ export default function AdminRefundsPage() {
           : [],
       } as const;
       const result = await updateRefundCaseAdmin(updateInput);
-      return await applyCaseUpdateResponse(result);
+      const applied = await applyCaseUpdateResponse(result, options);
+      return applied;
     } catch (saveError) {
       if (
         isRefundCaseUpdateError(saveError) &&
         saveError.data?.errorCode === 'stale_review_evidence'
       ) {
-        setIsEvidenceConfirmationOpen(false);
+        setIsRefundConfirmationOpen(false);
         setEditor((current) => current
           ? {
               ...current,
@@ -3728,7 +3782,8 @@ export default function AdminRefundsPage() {
       return;
     }
 
-    const refundAmountCents = selectedCase.matchedNayaxAmountCents;
+    const candidateBeingSelected = selectedNayaxCandidate(editor, nayaxCandidates);
+    const refundAmountCents = candidateBeingSelected?.amountCents ?? selectedCase.matchedNayaxAmountCents;
     if (typeof refundAmountCents !== 'number' || refundAmountCents <= 0) {
       setNayaxExecutionNotice({
         tone: 'warning',
@@ -3756,11 +3811,71 @@ export default function AdminRefundsPage() {
     setIsRunningNayaxRefund(true);
     setNayaxExecutionNotice(null);
     setRefundActionReceipt(null);
-    const executionInput = {
-      caseId: selectedCase.id,
-      expectedOfficialActionVersion: officialActionVersion,
-    };
     try {
+      let executionVersion = officialActionVersion;
+      if (candidateBeingSelected) {
+        const selectionEditor: EditorState = {
+          ...editor,
+          status: 'card_refund_pending',
+          decision: 'approved',
+        };
+        const approvalResult = await handleSaveCase(
+          selectionEditor,
+          null,
+          { quietTransactionConfirmation: true }
+        );
+        if (!approvalResult || approvalResult === 'step_up_pending') return;
+        if (
+          approvalResult.updateApplied !== true ||
+          approvalResult.officialActionVersion <= 0
+        ) {
+          setIsRefundConfirmationOpen(false);
+          setNayaxExecutionNotice({
+            tone: 'warning',
+            message: 'Bloomjoy could not retain this refund approval. Reload the current case before continuing.',
+          });
+          return;
+        }
+        executionVersion = approvalResult.officialActionVersion;
+        let approvedReadiness: Awaited<ReturnType<typeof fetchNayaxCardRefundAvailability>>;
+        try {
+          approvedReadiness = await fetchNayaxCardRefundAvailability(selectedCase.id);
+        } catch {
+          setIsRefundConfirmationOpen(false);
+          setNayaxExecutionNotice({
+            tone: 'info',
+            message: 'Your refund approval was saved. Bloomjoy will continue the guarded refund when availability can be checked again.',
+          });
+          await refresh();
+          return;
+        }
+        queryClient.setQueryData(
+          ['nayax-card-refund-availability', selectedCase.id],
+          approvedReadiness
+        );
+        if (
+          approvedReadiness.transactionConfirmed !== true ||
+          approvedReadiness.canIssueCardRefund !== true ||
+          approvedReadiness.caseVersion !== executionVersion
+        ) {
+          setIsRefundConfirmationOpen(false);
+          setNayaxExecutionNotice({
+            tone: 'info',
+            message: approvedReadiness.blockReason
+              ? `Your refund approval was saved. ${refundReadinessBlockMessage(approvedReadiness.blockReason)}`
+              : 'Your refund approval was saved. Bloomjoy will continue the guarded refund when it becomes available.',
+          });
+          await refresh();
+          return;
+        }
+      }
+      const executionInput = {
+        caseId: selectedCase.id,
+        expectedOfficialActionVersion: executionVersion,
+      };
+      nayaxApprovedExecutionAttemptedRef.current.add(
+        `${selectedCase.id}:${executionVersion}`
+      );
       const result = await executeNayaxCardRefund(executionInput);
       await applyNayaxExecutionResult(result);
     } catch (executionError) {
@@ -3800,6 +3915,55 @@ export default function AdminRefundsPage() {
       setIsRunningNayaxRefund(false);
     }
   };
+  nayaxApprovedExecutionRequestRef.current = () => {
+    void handleRunNayaxRefund();
+  };
+
+  useEffect(() => {
+    const approvalPendingExecution =
+      selectedRefundReadiness?.approvalPendingExecution === true;
+    const approvalContinuationReady =
+      selectedRefundReadiness?.approvalContinuationReady === true;
+    const approvalAutoResumeReady =
+      approvalPendingExecution || approvalContinuationReady;
+    if (
+      isUsingDemoData ||
+      isRunningNayaxRefund ||
+      nayaxRefundInFlightRef.current ||
+      !selectedCase ||
+      !editor ||
+      selectedCaseIsReviewOnly ||
+      selectedCase.paymentMethod !== 'card' ||
+      selectedCase.status !== 'card_refund_pending' ||
+      selectedCase.decision !== 'approved' ||
+      (selectedCase.providerHold && !approvalContinuationReady) ||
+      (selectedCase.canPerformOfficialAction !== true && !approvalContinuationReady) ||
+      hasConfirmedRefundReceipt(selectedCase) ||
+      !approvalAutoResumeReady ||
+      selectedRefundReadiness.canIssueCardRefund !== true ||
+      selectedRefundReadiness.caseVersion !== officialActionVersion ||
+      officialActionVersion <= 0
+    ) return;
+
+    const resumeKey = `${selectedCase.id}:${officialActionVersion}`;
+    if (nayaxApprovedExecutionAttemptedRef.current.has(resumeKey)) return;
+    setIsRefundConfirmationOpen(false);
+    setNayaxExecutionNotice({
+      tone: 'info',
+      message: approvalContinuationReady
+        ? 'Continuing the refund you already approved at Nayax’s approval step. No additional manager decision or refund request is needed.'
+        : 'Continuing the refund you already approved. No additional manager decision is needed.',
+    });
+    queueMicrotask(() => nayaxApprovedExecutionRequestRef.current());
+  }, [
+    editor,
+    isUsingDemoData,
+    isRunningNayaxRefund,
+    officialActionVersion,
+    selectedCase,
+    selectedCaseIsReviewOnly,
+    selectedRefundReadiness,
+  ]);
 
   const handlePrepareNayaxResolution = async () => {
     if (
@@ -4064,12 +4228,14 @@ export default function AdminRefundsPage() {
       setIsGmailResolutionOpen(true);
       return;
     }
-    if (primaryAction.mode === 'retry_message') {
-      await handleSendCustomerMessage(primaryAction.messageType);
+    if (primaryAction.mode === 'review_transaction_evidence') {
+      const evidence = document.getElementById('refund-machine-transaction');
+      evidence?.focus({ preventScroll: true });
+      evidence?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
-    if (primaryAction.mode === 'nayax_evidence_selection') {
-      setIsEvidenceConfirmationOpen(true);
+    if (primaryAction.mode === 'retry_message') {
+      await handleSendCustomerMessage(primaryAction.messageType);
       return;
     }
     if (primaryAction.mode === 'manual_nayax_approval') {
@@ -4105,21 +4271,6 @@ export default function AdminRefundsPage() {
     });
   };
 
-  const handleConfirmEvidenceSelection = async () => {
-    if (
-      evidenceSelectionInFlightRef.current ||
-      !primaryActionEditor
-    ) return;
-
-    evidenceSelectionInFlightRef.current = true;
-    try {
-      setEditor(primaryActionEditor);
-      const saveResult = await handleSaveCase(primaryActionEditor, null);
-      if (saveResult) setIsEvidenceConfirmationOpen(false);
-    } finally {
-      evidenceSelectionInFlightRef.current = false;
-    }
-  };
 
   const handleConfirmCashCompletion = async () => {
     if (
@@ -5654,6 +5805,9 @@ export default function AdminRefundsPage() {
     const hasUnsavedTransactionChoice =
       !selectedCase.hasMatchedNayaxTransaction &&
       Boolean(editor.matchedNayaxCandidateToken.trim());
+    const selectedCandidateRefundUnavailable =
+      hasUnsavedTransactionChoice &&
+      typeof selectedRefundReadiness?.approvalPendingExecution !== 'boolean';
     const managerState: RefundManagerState = hasConfirmedRefundReceipt(selectedCase) ||
       (hasProtectedRefundLifecycle(selectedCase) && !selectedCaseApprovalContinuationReady) ||
       (selectedCase.customerDeliveryException && !hasUnpaidRefundReview(selectedCase))
@@ -5666,12 +5820,20 @@ export default function AdminRefundsPage() {
           nextStep: 'Refund Operations will review the authorization state. Do not try the refund again.',
           tone: 'warning',
         }
+      : selectedCandidateRefundUnavailable
+      ? {
+          id: 'refund_unavailable',
+          label: primaryAction?.label ?? 'Checking refund availability',
+          explanation: 'Bloomjoy has the selected transaction but cannot confirm that the guarded refund service is ready yet.',
+          nextStep: primaryAction?.helper ?? refundReadinessBlockMessage(null),
+          tone: 'warning',
+        }
       : hasUnsavedTransactionChoice
       ? {
           id: 'match_attention',
           label: 'Confirm transaction',
           explanation: 'You selected a possible transaction for this customer.',
-          nextStep: 'Select Confirm this transaction. No refund will be issued yet.',
+          nextStep: `Review the selected sale and confirm ${formatCurrency(cardAmountCents)} once to issue the refund.`,
           tone: 'info',
         }
       : !hasSelectedMatch &&
@@ -5826,6 +5988,11 @@ export default function AdminRefundsPage() {
                     if (hasReadyRefund) {
                       setNayaxExecutionNotice(null);
                       setRefundActionReceipt(null);
+                      if (selectedCaseApprovalContinuationReady) {
+                        setIsRefundConfirmationOpen(false);
+                        void handleRunNayaxRefund();
+                        return;
+                      }
                       setIsRefundConfirmationOpen(true);
                       return;
                     }
@@ -5938,7 +6105,7 @@ export default function AdminRefundsPage() {
               <p className="mt-3 line-clamp-3 text-sm leading-6 text-muted-foreground">{selectedCase.issueSummary}</p>
             </article>
 
-            <article data-testid="nayax-result-card" data-refund-section="match-summary" className="bg-muted/20 p-4">
+            <article id="refund-machine-transaction" tabIndex={-1} data-testid="nayax-result-card" data-refund-section="match-summary" className="bg-muted/20 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -6652,38 +6819,6 @@ export default function AdminRefundsPage() {
             </div>
           </details>
         )}
-
-        <AlertDialog
-          open={isEvidenceConfirmationOpen}
-          onOpenChange={(open) => {
-            if (!isSaving) setIsEvidenceConfirmationOpen(open);
-          }}
-        >
-          <AlertDialogContent data-testid="refund-evidence-confirmation-dialog" className="max-w-lg">
-            <AlertDialogHeader>
-              <AlertDialogTitle>Confirm this transaction?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This records your selection for review. It does not issue a refund, approve the request, or email the customer.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={isSaving}>Go back</AlertDialogCancel>
-              <Button
-                data-testid="refund-confirm-evidence-selection"
-                type="button"
-                onClick={() => void handleConfirmEvidenceSelection()}
-                disabled={isSaving}
-              >
-                {isSaving ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="mr-2 h-4 w-4" />
-                )}
-                Confirm transaction
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
 
         <AlertDialog
           open={isRefundConfirmationOpen}

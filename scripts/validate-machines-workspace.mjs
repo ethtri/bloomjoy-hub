@@ -31,7 +31,7 @@ const checks = [
   ['retired launch-cap copy is absent', !machinesSource.includes('$50 launch limit') && !machinesSource.includes('Activate card refunds · $50 limit')],
   ['UAT waits for asynchronous field hydration', machineUatSource.includes('if (await predicate()) return;')],
   ['UAT proves guard truthfulness in row, filter, and detail', machineUatSource.includes('Ready refund filter requires live global availability') && machineUatSource.includes('Unavailable provider configuration is distinct from machine capability') && machineUatSource.includes('Guarded detail preserves customer intake, transaction lookup, and machine capability facts')],
-  ['Refund portal UAT proves direct first attempt and reviewed rejection fallback', refundPortalUatSource.includes('Configured first refund needs no balance form or portal handoff') && refundPortalUatSource.includes('Released rejection offers portal fallback even when API retry is available') && refundPortalUatSource.includes("name: 'Approve refund for Nayax portal'")],
+  ['Refund portal UAT proves direct first attempt and reviewed rejection fallback', refundPortalUatSource.includes('Configured first refund needs no balance form or portal handoff') && refundPortalUatSource.includes('Released rejection offers the reviewed portal fallback when the direct API is unavailable') && refundPortalUatSource.includes("name: 'Approve refund for Nayax portal'")],
   ['production PPV skips local-only demo assertions', machineUatSource.includes("if (arg === '--skip-demo')") && machineUatSource.includes('Production PPV skips local-only demo assertions')],
 ];
 

@@ -1270,7 +1270,7 @@ serve(async (req) => {
           stageEvent,
         });
         const { data, error } = await supabase.rpc(
-          "service_record_nayax_refund_provider_stage_v3_outcomes",
+          "service_record_nayax_refund_provider_stage_v3_diagnostics",
           {
             p_executor_assertion: executionConfig.executorAssertion,
             p_attempt_id: normalAttemptId,
@@ -1331,6 +1331,19 @@ serve(async (req) => {
             p_business_pair_retained:
               stageEvent.event === "result" &&
                 result.businessPairRetained === true,
+            p_observed_result_scalar:
+              stageEvent.event === "result" &&
+                result.observedScalarPairRetained === true
+                ? result.observedResultScalar
+                : null,
+            p_observed_status_scalar:
+              stageEvent.event === "result" &&
+                result.observedScalarPairRetained === true
+                ? result.observedStatusScalar
+                : null,
+            p_observed_scalar_pair_retained:
+              stageEvent.event === "result" &&
+                result.observedScalarPairRetained === true,
           },
         );
         if (error || !data || typeof data !== "object") {
@@ -1352,6 +1365,8 @@ serve(async (req) => {
             NAYAX_REFUND_RESPONSE_ENVELOPE_VERSION ||
           decision.businessOutcomeRecordVersion !==
             "nayax-business-outcome-v2" ||
+          decision.restrictedScalarEvidenceVersion !==
+            "nayax-restricted-response-scalars-v1" ||
           decision.payloadRedacted !== true
         ) {
           throw new Error("provider_journal_version_mismatch");

@@ -371,6 +371,7 @@ export default function RefundRequestPage() {
           reference: refundCase.publicReference,
           statusToken: refundCase.statusToken,
           statusExpiresAt: refundCase.statusExpiresAt,
+          paymentMethod: form.paymentMethod,
         },
       });
     } catch (error) {

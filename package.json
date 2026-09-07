@@ -55,6 +55,7 @@
     "refunds:validate-browser-network-provenance": "node --test scripts/refunds/refund-browser-uat-network.test.mjs scripts/refunds/validate-refund-browser-uat-network.test.mjs && node scripts/refunds/validate-refund-browser-uat-network.mjs",
     "refunds:validate-machine-manager-uat": "npm run refunds:validate-browser-network-provenance && node scripts/refunds/validate-machine-manager-uat.mjs",
     "refunds:validate-portal-uat": "npm run refunds:validate-browser-network-provenance && node scripts/refunds/validate-refund-portal-uat.mjs",
+    "refunds:validate-selection-compatibility": "node scripts/refunds/validate-refund-portal-uat.mjs --selection-compatibility-only",
     "refunds:validate-portal-uat-lifecycle": "node --test scripts/refunds/refund-portal-uat-lifecycle.test.mjs && node scripts/refunds/validate-refund-portal-uat-lifecycle.mjs",
     "refunds:validate-legacy-state-uat": "node scripts/refunds/validate-refund-portal-uat.mjs --legacy-state-only",
     "refunds:validate-customer-comms": "node scripts/refunds/validate-refund-customer-comms.mjs",

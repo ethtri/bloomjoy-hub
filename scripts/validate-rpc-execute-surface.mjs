@@ -129,7 +129,7 @@ const serviceRoleOnlyFunctions = [
     signature:
       'public.service_defer_refund_automatic_completion_delivery(uuid, uuid, text)',
     name: 'service_defer_refund_automatic_completion_delivery',
-    migrationName: '20260906005234_refund_receipt_automatic_completion_kernel.sql',
+    migrationName: '20260906052200_refund_receipt_automatic_completion_kernel.sql',
   },
 ];
 
