@@ -747,7 +747,8 @@ begin
       where attempt.refund_case_id = case_row.id
         and attempt.created_at >= marker.created_at
     );
-exception when invalid_text_representation or datetime_field_overflow then
+exception when invalid_text_representation or invalid_datetime_format
+    or datetime_field_overflow then
   return false;
 end;
 $$;
@@ -884,7 +885,7 @@ begin
     and approval_authorization.actor_user_id = marker.actor_user_id
     and approval_authorization.manager_mapping_id is not null
     and approval_authorization.manager_mapping_version > 0
-    and approval_authorization.expected_case_version + 1 =
+    and approval_authorization.expected_case_version <
       (marker.metadata ->> 'case_version')::bigint
     and marker.created_at <= attempt_row.created_at
     and marker.metadata ->> 'schema_version' = 'nayax-selection-approval-v1'
@@ -973,7 +974,8 @@ begin
     and current_context ->> 'accountScope' is not distinct from
       execution_context ->> 'accountScope';
 exception
-  when invalid_text_representation or datetime_field_overflow or numeric_value_out_of_range then
+  when invalid_text_representation or invalid_datetime_format
+      or datetime_field_overflow or numeric_value_out_of_range then
     return false;
 end;
 $$;

@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(73);
+select plan(78);
 
 create function pg_temp.set_auth_claims(p_user_id uuid)
 returns void language plpgsql as $$
@@ -455,6 +455,28 @@ select is((public.refund_case_nayax_manager_readiness(
 
 set local session_replication_role=replica;
 update public.refund_case_events
+set metadata=jsonb_set(metadata,'{machine_authorization_time}',to_jsonb('not-a-timestamp'::text))
+where refund_case_id='fb150000-0000-4000-8000-000000000001'
+  and event_type='nayax_refund_execution_authorized';
+set local session_replication_role=origin;
+select is(public.refund_nayax_current_manager_approval_pending(
+  'fb110000-0000-4000-8000-000000000001','fb150000-0000-4000-8000-000000000001'),false,
+  'A malformed saved approval timestamp fails closed instead of raising an error');
+select is((public.refund_case_nayax_manager_readiness(
+  'fb110000-0000-4000-8000-000000000001','fb150000-0000-4000-8000-000000000001'
+)->>'approvalPendingExecution'),'false',
+  'Manager readiness hides a saved approval whose immutable timestamp is malformed');
+set local session_replication_role=replica;
+update public.refund_case_events marker
+set metadata=jsonb_set(metadata,'{machine_authorization_time}',to_jsonb(refund_case.matched_nayax_machine_auth_time))
+from public.refund_cases refund_case
+where marker.refund_case_id=refund_case.id
+  and marker.refund_case_id='fb150000-0000-4000-8000-000000000001'
+  and marker.event_type='nayax_refund_execution_authorized';
+set local session_replication_role=origin;
+
+set local session_replication_role=replica;
+update public.refund_case_events
 set metadata=jsonb_set(metadata,'{case_version}',to_jsonb(0))
 where refund_case_id='fb150000-0000-4000-8000-000000000001'
   and event_type='nayax_refund_execution_authorized';
@@ -672,14 +694,24 @@ select is(public.refund_nayax_current_manager_approval_pending(
 select ok((select execution_authorization.expected_case_version=
       (prior.execution_context->>'caseVersion')::bigint
     and refund_case.official_action_version=execution_authorization.expected_case_version+1
+    and approval_authorization.expected_case_version <
+      (approval_marker.metadata->>'case_version')::bigint
   from pg_temp.soft_time_handoff_result reservation
   cross join pg_temp.soft_time_handoff_before prior
   join public.refund_case_nayax_refund_attempts attempt
     on attempt.id=(reservation.result#>>'{attempt,attemptId}')::uuid
   join public.refund_case_official_action_authorizations execution_authorization
     on execution_authorization.id=attempt.official_action_authorization_id
+  join public.refund_case_official_action_authorizations approval_authorization
+    on approval_authorization.id=(
+      select authorization_id from pg_temp.soft_time_handoff_approval_receipt
+    )
+  join public.refund_case_events approval_marker
+    on approval_marker.refund_case_id=attempt.refund_case_id
+    and approval_marker.event_type='nayax_refund_execution_authorized'
+    and approval_marker.metadata->>'authorization_id'=approval_authorization.id::text
   join public.refund_cases refund_case on refund_case.id=attempt.refund_case_id),
-  'Durable preapproval records the execution authorization at the saved context version and advances the case once');
+  'Durable preapproval binds the consumed approval across its versioned mutations and advances execution once');
 
 set local role service_role;
 select lives_ok($$select public.service_record_nayax_refund_provider_stage_v3_outcomes(
@@ -784,6 +816,47 @@ select is(public.refund_case_nayax_manager_readiness(
   'fb110000-0000-4000-8000-000000000002','fb150000-0000-4000-8000-000000000002'
 )#>>'{approvalContinuationReady}','true',
   'Only the restored exact durable marker can expose approval continuation again');
+
+set local session_replication_role=replica;
+update public.refund_case_events marker
+set metadata=jsonb_set(metadata,'{machine_authorization_time}',to_jsonb('not-a-timestamp'::text))
+where marker.refund_case_id='fb150000-0000-4000-8000-000000000002'
+  and marker.event_type='nayax_refund_execution_authorized'
+  and marker.metadata->>'authorization_id'=(
+    select authorization_id::text from pg_temp.soft_time_handoff_approval_receipt
+  );
+set local session_replication_role=origin;
+select is(public.refund_case_nayax_manager_readiness(
+  'fb110000-0000-4000-8000-000000000002','fb150000-0000-4000-8000-000000000002'
+)#>>'{approvalContinuationReady}','false',
+  'A malformed durable marker timestamp hides approval-only continuation without raising an error');
+set local role service_role;
+select throws_ok($$select public.service_reserve_nayax_refund_approval_continuation_v1(
+  'soft-time-executor','fb110000-0000-4000-8000-000000000002',
+  'fb150000-0000-4000-8000-000000000002',
+  (select official_action_version from public.refund_cases where id='fb150000-0000-4000-8000-000000000002'),
+  'nayax-refund-'||repeat('a',64),1090,'USD',
+  'nayax-production-account-contract-v2','nayax-provider-journal-v3'
+)$$,'P4628',null,
+  'A malformed durable marker timestamp cannot reserve an approval continuation');
+reset role;
+select is((select count(*) from public.refund_nayax_attempt_approval_continuations continuation
+  where continuation.nayax_refund_attempt_id=(
+    select (result#>>'{attempt,attemptId}')::uuid from pg_temp.soft_time_handoff_result
+  )),0::bigint,'A malformed durable marker creates no continuation claim');
+set local session_replication_role=replica;
+update public.refund_case_events marker
+set metadata=jsonb_set(
+  metadata,'{machine_authorization_time}',
+  to_jsonb((select matched_nayax_machine_auth_time from public.refund_cases
+    where id='fb150000-0000-4000-8000-000000000002'))
+)
+where marker.refund_case_id='fb150000-0000-4000-8000-000000000002'
+  and marker.event_type='nayax_refund_execution_authorized'
+  and marker.metadata->>'authorization_id'=(
+    select authorization_id::text from pg_temp.soft_time_handoff_approval_receipt
+  );
+set local session_replication_role=origin;
 
 create temp table soft_time_handoff_continuation(result jsonb);
 grant select,insert on table pg_temp.soft_time_handoff_continuation to service_role;
