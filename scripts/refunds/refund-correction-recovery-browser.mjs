@@ -7,7 +7,7 @@ async (page) => {
   const ready = { state:'ready', publicReference:'RF-RECOVERY-TEST',version:3,locale:'en',requestedFields:['card_last4'],allowedFields,
     locationChoices:[{key:'new-location',label:'Example second location'}],
     values:{location_or_machine:'Example original location',incident_date:'2026-09-03',incident_time:'14:30',payment_method:'card',payment_interaction:'tap_card',card_last4:'1234'} };
-  let context=ready, inspectFailure=false, submitFailure=false, submitUnavailable=false, submitOperational=false, nextAction='review', inspectGate=null;
+  let context=ready, inspectFailure=false, inspectHang=false, submitFailure=false, submitUnavailable=false, submitOperational=false, nextAction='review', inspectGate=null;
   const submissions=[]; const evidence=[]; let inspectCount=0;
   const check=(value,message)=>{if(!value)throw new Error(message);};
   await page.route('http://127.0.0.1:54321/**',async route=>{
@@ -17,6 +17,7 @@ async (page) => {
     if(body.action==='inspectPurchaseCorrection') {
       inspectCount++;
       if(inspectGate) await inspectGate;
+      if(inspectHang) await page.waitForTimeout(11000);
       if(inspectFailure)return route.abort('failed');
       return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({correction:context})});
     }
@@ -34,7 +35,7 @@ async (page) => {
   };
   for(const width of [390,1440]) {
     await page.setViewportSize({width,height:900});
-    context=JSON.parse(JSON.stringify(ready)); inspectFailure=false; submitUnavailable=false; submitFailure=false;
+    context=JSON.parse(JSON.stringify(ready)); inspectFailure=false; inspectHang=false; submitUnavailable=false; submitFailure=false;
     let release; inspectGate=new Promise(resolve=>{release=resolve;});
     await open(); await page.getByRole('status').filter({hasText:'Opening your secure'}).waitFor();
     await page.screenshot({path:`output/playwright/correction-loading-${width}.png`,fullPage:true});
@@ -75,7 +76,19 @@ async (page) => {
     check(inspectCount===stoppedAt,'Read polling stops after human review');
     evidence.push({width,savedProgressRefreshMs:refreshMs,additionalSubmissions:0,pollStopped:true});
 
-    context=JSON.parse(JSON.stringify(ready));inspectFailure=true;await open();
+    context=JSON.parse(JSON.stringify(ready));inspectHang=true;
+    const timeoutStartedAt=Date.now();await open();
+    await page.getByRole('heading',{name:'We couldn’t open your request.'}).waitFor({timeout:12000});
+    const timeoutMs=Date.now()-timeoutStartedAt;
+    check(timeoutMs>=9000 && timeoutMs<12000,'Hung inspection reaches the bounded retry state');
+    check(await page.evaluate(()=>window.location.hash)==='','Capability fragment is removed before timeout recovery');
+    check(await page.getByText('This link is no longer available.',{exact:true}).count()===0,'Timeout is not expiry');
+    await page.screenshot({path:`output/playwright/correction-timeout-${width}.png`,fullPage:true});
+    inspectHang=false;await page.getByRole('button',{name:'Try again / Intentar de nuevo'}).click();
+    await page.locator('#correction-card_last4-answer').waitFor();
+    evidence.push({width,timeoutMs,timeoutRetry:true,fragmentCleared:true});
+
+    inspectFailure=true;await open();
     await page.getByRole('heading',{name:'We couldn’t open your request.'}).waitFor();
     check(await page.getByText('This link is no longer available.',{exact:true}).count()===0,'Network failure is not expiry');
     inspectFailure=false;await page.getByRole('button',{name:'Try again / Intentar de nuevo'}).click();

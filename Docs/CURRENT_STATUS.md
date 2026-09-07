@@ -6,6 +6,12 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 
 ## Live Work
 
+- **Refund correction link recovery (`#1204`):** customer correction inspection
+  and submission now stop after a 10-second client bound and preserve the existing
+  token-safe retry or reply-by-email recovery path. Focused automated coverage
+  includes success, timeout, explicit retry, and unavailable-link handling; the
+  synthetic desktop/mobile browser check passes with zero live writes.
+
 - Refund MVP planning was consolidated on September 5: start with [REFUND_MVP_PLAN.md](./REFUND_MVP_PLAN.md) and issue #628. The existing API, report importer, corrections and lifecycle are the baseline. Remaining work is attributable API success, evidence-aware matching, validated outcome automation, automatic receipt/customer completion, and a simpler manager workspace. Older rollout descriptions below are historical; issue bodies identify remaining work. This planning change does not itself implement or certify those outcomes.
 
 - **Refund migration-history reconciliation (`#1163`, `#1165`):** production recorded the reviewed structured payment-context SQL as migration `20260905190311`, while the merged branch retained its earlier local version. Canonical history now adopts the read-only fetched production source and orders the request-time boundary immediately after it. This reconciliation performs no production write, payment, message, or case mutation. Database and function deployment remains blocked until the exact clean release passes the owner-token Auth gate, backup confirmation, dry-run, and postdeploy parity checks.
