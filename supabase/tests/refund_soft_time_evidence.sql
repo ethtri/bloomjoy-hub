@@ -71,7 +71,7 @@ create function pg_temp.soft_time_evidence(
     'selection_allowed',boundary <> 'after_request' and (
       (c.incident_time_resolution in ('exact','legacy_absolute')
         and c.incident_time_confidence is distinct from 'rough')
-      or c.card_last4 = '6768'
+      or coalesce(c.card_last4 = '6768', false)
     ),'is_recommended',true,'one_click_eligible',false,
     'recommendation_state','manual_exception','confidence_class','ambiguous_manual',
     'policy_version','2026-09-05.v11','identifier_policy_version','2026-09-05.identifier.v2',
