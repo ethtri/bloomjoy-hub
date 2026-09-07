@@ -125,7 +125,7 @@ select (public.service_begin_refund_nayax_lookup(
 )->>'lookupGeneration')::bigint generation;
 
 -- Model grouped v11 rows persisted before the stricter selection validator.
--- The compatibility path may expose one correction field but never selection.
+-- Unknown purchase-occurrence timing remains manager-owned and never selectable.
 set local session_replication_role=replica;
 insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
   actor_user_id,reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,
@@ -159,8 +159,8 @@ reset role;
 
 select is(public.refund_purchase_correction_request_fields(
   'd9140000-0000-4000-8000-000000000001'),
-  array['incident_time']::text[],
-  'The current helper derives the one useful distinguishing fact');
+  '{}'::text[],
+  'The current helper invents no customer question from unproved provider times');
 
 create temp table case_rows_before as
 select id,to_jsonb(c) value from public.refund_cases c

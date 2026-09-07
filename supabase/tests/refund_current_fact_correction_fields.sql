@@ -58,7 +58,7 @@ create function pg_temp.current_fact_evidence(
     'card_last4_comparison','exact_support','card_network_comparison','missing',
     'payment_interaction_comparison','supporting','same_identifier_equivalence_proven',false,
     'identifier_review_state','needs_corroboration',
-    'customer_correction_fields','["incident_time"]'::jsonb,
+    'customer_correction_fields','["incident_time","incident_time_source"]'::jsonb,
     'hard_exclusions','[]'::jsonb,
     'manual_review_reasons','["customer_occurrence_evidence_needed"]'::jsonb,
     'reason_codes','["machine_exact","amount_exact","customer_time_rough","multiple_candidates_need_distinguishing_time"]'::jsonb,
@@ -76,19 +76,20 @@ create function pg_temp.current_fact_evidence(
   ) || jsonb_build_object(
     'customer_request_received_at',c.customer_request_received_at,
     'customer_request_received_source',c.customer_request_received_source,
-    'request_time_boundary','occurrence_time_uncertain',
-    'transaction_occurrence_comparable',false,
-    'transaction_occurrence_semantics','unknown',
-    'transaction_occurrence_proof_source','null'::jsonb,
-    'transaction_occurrence_timestamp_source','null'::jsonb,
-    'transaction_occurrence_timezone_basis','null'::jsonb,
-    'transaction_occurrence_lower_bound_at','null'::jsonb,
-    'transaction_occurrence_upper_bound_at','null'::jsonb,
-    'request_receipt_lower_bound_at','null'::jsonb,
-    'request_receipt_upper_bound_at','null'::jsonb,
+    'request_time_boundary','before_or_at_request',
+    'transaction_occurrence_comparable',true,
+    'transaction_occurrence_semantics','online_purchase_occurrence',
+    'transaction_occurrence_proof_source','verified_provider_purchase_occurrence_v1',
+    'transaction_occurrence_timestamp_source','authorization_gmt',
+    'transaction_occurrence_timezone_basis','utc',
+    'transaction_occurrence_lower_bound_at',authorized_at,
+    'transaction_occurrence_upper_bound_at',authorized_at,
+    'request_receipt_lower_bound_at',c.customer_request_received_at,
+    'request_receipt_upper_bound_at',c.customer_request_received_at,
     'payment_status','approved','payment_status_evidence','last_sales_contract',
     'provider_refund_state','clear','duplicate_provider_record',false,
-    'amount_delta_cents',0,'time_delta_minutes',null,
+    'amount_delta_cents',0,'time_delta_minutes',
+      ceil(abs(extract(epoch from (authorized_at-c.incident_at)))/60.0)::integer,
     'provider_processing_time_delta_minutes',
       ceil(abs(extract(epoch from (authorized_at-c.incident_at)))/60.0)::integer
   )
@@ -154,8 +155,8 @@ select is((public.service_commit_refund_nayax_lookup(
 
 select is(public.refund_purchase_correction_request_fields(
   'cf150000-0000-4000-8000-000000000001'),
-  array['incident_time']::text[],
-  'Grouped exact-card purchases request only the one distinguishing time despite an unrelated hard exclusion');
+  array['incident_time','incident_time_source']::text[],
+  'Grouped proved purchases request the distinguishing time and its source despite an unrelated hard exclusion');
 
 set local role service_role;
 select throws_ok($$select public.service_select_refund_nayax_candidate_as_actor(
@@ -193,7 +194,7 @@ select is((select count(*)::integer from public.refund_case_messages
 
 create temp table correction_message as
 select pg_temp.queue_current_fact_scope(
-  array['incident_time']
+  array['incident_time','incident_time_source']
 ) value;
 select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id='cf150000-0000-4000-8000-000000000001'),1,
@@ -204,7 +205,7 @@ select lives_ok(format(
 ), 'The one message receives one secure existing-case correction capability');
 select ok((select count(*)=1
     and bool_and(correction_requested_fields =
-      array['incident_time']::text[])
+      array['incident_time','incident_time_source']::text[])
   from public.refund_wallet_correction_contexts
   where refund_case_id='cf150000-0000-4000-8000-000000000001'),
   'The secure capability contains only the current useful fields');
@@ -218,7 +219,8 @@ select lives_ok($$
   select public.service_submit_refund_purchase_correction(
     repeat('c',64),2,
     '{
-      "incident_time":{"disposition":"cannot_provide"}
+      "incident_time":{"disposition":"cannot_provide"},
+      "incident_time_source":{"disposition":"cannot_provide"}
     }'::jsonb
   )
 $$, 'Choosing Not sure for every requested field completes the correction once');

@@ -35,6 +35,26 @@ $$;
 revoke all on function public.refund_nayax_purchase_occurrence_minute_range_v1(jsonb)
   from public, anon, authenticated, service_role;
 
+-- A proved time correction includes the source that makes the customer's
+-- clock answer reviewable. Extend the existing immutable manual-message
+-- boundary without replacing its authorization, idempotency, or outbox logic.
+do $migration$
+declare
+  source text;
+  needle text := E'      ''location_or_machine'', ''incident_date'', ''incident_time'',\n      ''payment_method'', ''amount'', ''card_last4'', ''zelle_payment_contact''';
+  replacement text := E'      ''location_or_machine'', ''incident_date'', ''incident_time'', ''incident_time_source'',\n      ''payment_method'', ''amount'', ''card_last4'', ''zelle_payment_contact''';
+begin
+  select pg_get_functiondef(
+    'public.service_enqueue_refund_manual_message_intent_pre_payout_recovery(uuid,bigint,uuid,uuid,text,text,text,text,text,text,text,text[],uuid,boolean,uuid)'::regprocedure
+  ) into source;
+  source := replace(source, E'\r\n', E'\n');
+  if position(needle in source) = 0 then
+    raise exception 'Refund manual-message requested-field allowlist changed';
+  end if;
+  execute replace(source, needle, replacement);
+end;
+$migration$;
+
 -- A customer's honest rough-time answer is review context, not a categorical
 -- veto after the combined current evidence identifies an exact provider sale.
 -- Wallet classification likewise does not change the provider transaction

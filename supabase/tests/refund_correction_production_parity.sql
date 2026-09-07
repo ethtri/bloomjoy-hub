@@ -247,8 +247,8 @@ select is(public.refund_purchase_correction_request_fields_pre_production_parity
 
 select is(public.refund_purchase_correction_request_fields(
   'cf150000-0000-4000-8000-000000000001'),
-  array['incident_time']::text[],
-  'The grouped production case asks only the one distinguishing time');
+  '{}'::text[],
+  'The grouped production case invents no customer question from unproved provider times');
 
 update public.reporting_machines
 set nayax_account_key='CONTRADICTORY_ACCOUNT'
@@ -270,6 +270,35 @@ where refund_case_id='cf150000-0000-4000-8000-000000000001'
     where refund_case_id='cf150000-0000-4000-8000-000000000001'
       and lookup_generation=(select generation from refreshed_claim)
     order by machine_authorization_time,token limit 1);
+set local session_replication_role=origin;
+
+-- Replace the legacy rows with current proof-gated collision evidence before
+-- exercising the correction delivery contract below. The original ten
+-- purchases remain present and their exact occurrence minutes are distinct.
+set local session_replication_role=replica;
+update public.refund_nayax_lookup_candidates candidate
+set evidence_summary=candidate.evidence_summary || jsonb_build_object(
+  'identifier_review_state','needs_corroboration',
+  'customer_correction_fields','["incident_time","incident_time_source"]'::jsonb,
+  'manual_review_reasons','["multiple_candidates_need_distinguishing_time"]'::jsonb,
+  'reason_codes','["machine_exact","amount_exact","customer_time_rough","multiple_candidates_need_distinguishing_time"]'::jsonb,
+  'request_time_boundary','before_or_at_request',
+  'transaction_occurrence_comparable',true,
+  'transaction_occurrence_semantics','online_purchase_occurrence',
+  'transaction_occurrence_proof_source','verified_provider_purchase_occurrence_v1',
+  'transaction_occurrence_timestamp_source','authorization_gmt',
+  'transaction_occurrence_timezone_basis','utc',
+  'transaction_occurrence_lower_bound_at',candidate.machine_authorization_time,
+  'transaction_occurrence_upper_bound_at',candidate.machine_authorization_time,
+  'request_receipt_lower_bound_at',case_row.customer_request_received_at,
+  'request_receipt_upper_bound_at',case_row.customer_request_received_at,
+  'time_delta_minutes',
+    ceil(abs(extract(epoch from (candidate.machine_authorization_time-case_row.incident_at)))/60.0)::integer
+)
+from public.refund_cases case_row
+where candidate.refund_case_id='cf150000-0000-4000-8000-000000000001'
+  and case_row.id=candidate.refund_case_id
+  and candidate.lookup_generation=(select generation from refreshed_claim);
 set local session_replication_role=origin;
 select is(public.refund_purchase_correction_request_fields(
   'cf150000-0000-4000-8000-000000000001'), '{}'::text[],
@@ -313,7 +342,7 @@ select is((select count(*)::integer from public.refund_case_messages
 
 create temp table correction_message as
 select pg_temp.queue_current_fact_scope(
-  array['incident_time']
+  array['incident_time','incident_time_source']
 ) value;
 select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id='cf150000-0000-4000-8000-000000000001'),1,
@@ -326,7 +355,7 @@ select lives_ok(format(
 ), 'The one message receives one secure existing-case correction capability');
 select ok((select count(*)=1
     and bool_and(correction_requested_fields =
-      array['incident_time']::text[])
+      array['incident_time','incident_time_source']::text[])
   from public.refund_wallet_correction_contexts
   where refund_case_id='cf150000-0000-4000-8000-000000000001'),
   'The secure capability contains only the current useful fields');
@@ -343,7 +372,8 @@ select lives_ok($$
       where refund_case_id='cf150000-0000-4000-8000-000000000001'
         and token_hash=repeat('c',64)),
     '{
-      "incident_time":{"disposition":"cannot_provide"}
+      "incident_time":{"disposition":"cannot_provide"},
+      "incident_time_source":{"disposition":"cannot_provide"}
     }'::jsonb
   )
 $$, 'Choosing Not sure for every requested field completes the correction once');
@@ -354,7 +384,7 @@ select is(public.refund_purchase_correction_request_fields(
   'Submitting Not sure clears the resolved lookup without reopening the redundant source question');
 select throws_like(
   $$select pg_temp.queue_current_fact_scope(
-    array['incident_time'])$$,
+    array['incident_time','incident_time_source'])$$,
   '%A customer message is already queued for this case%',
   'The existing same-case message prevents a duplicate correction enqueue');
 select is((select count(*)::integer from public.refund_case_messages
