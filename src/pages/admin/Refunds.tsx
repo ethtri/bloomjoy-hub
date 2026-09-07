@@ -3889,17 +3889,26 @@ export default function AdminRefundsPage() {
   };
 
   useEffect(() => {
+    const approvalPendingExecution =
+      selectedRefundReadiness?.approvalPendingExecution === true;
+    const approvalContinuationReady =
+      selectedRefundReadiness?.approvalContinuationReady === true;
+    const approvalAutoResumeReady =
+      approvalPendingExecution || approvalContinuationReady;
     if (
       isUsingDemoData ||
       isRunningNayaxRefund ||
       nayaxRefundInFlightRef.current ||
       !selectedCase ||
+      !editor ||
+      selectedCaseIsReviewOnly ||
       selectedCase.paymentMethod !== 'card' ||
       selectedCase.status !== 'card_refund_pending' ||
       selectedCase.decision !== 'approved' ||
-      selectedCase.providerHold ||
+      (selectedCase.providerHold && !approvalContinuationReady) ||
+      (selectedCase.canPerformOfficialAction !== true && !approvalContinuationReady) ||
       hasConfirmedRefundReceipt(selectedCase) ||
-      selectedRefundReadiness?.approvalPendingExecution !== true ||
+      !approvalAutoResumeReady ||
       selectedRefundReadiness.canIssueCardRefund !== true ||
       selectedRefundReadiness.caseVersion !== officialActionVersion ||
       officialActionVersion <= 0
@@ -3907,17 +3916,21 @@ export default function AdminRefundsPage() {
 
     const resumeKey = `${selectedCase.id}:${officialActionVersion}`;
     if (nayaxApprovedExecutionAttemptedRef.current.has(resumeKey)) return;
-    nayaxApprovedExecutionAttemptedRef.current.add(resumeKey);
+    setIsRefundConfirmationOpen(false);
     setNayaxExecutionNotice({
       tone: 'info',
-      message: 'Continuing the refund you already approved. No additional manager decision is needed.',
+      message: approvalContinuationReady
+        ? 'Continuing the refund you already approved at Nayax’s approval step. No additional manager decision or refund request is needed.'
+        : 'Continuing the refund you already approved. No additional manager decision is needed.',
     });
     queueMicrotask(() => nayaxApprovedExecutionRequestRef.current());
   }, [
+    editor,
     isUsingDemoData,
     isRunningNayaxRefund,
     officialActionVersion,
     selectedCase,
+    selectedCaseIsReviewOnly,
     selectedRefundReadiness,
   ]);
 
@@ -5927,6 +5940,11 @@ export default function AdminRefundsPage() {
                     if (hasReadyRefund) {
                       setNayaxExecutionNotice(null);
                       setRefundActionReceipt(null);
+                      if (selectedCaseApprovalContinuationReady) {
+                        setIsRefundConfirmationOpen(false);
+                        void handleRunNayaxRefund();
+                        return;
+                      }
                       setIsRefundConfirmationOpen(true);
                       return;
                     }

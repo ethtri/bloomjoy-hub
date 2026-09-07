@@ -89,6 +89,7 @@ const parseArgs = (argv) => {
     duplicateOnly: false,
     demoOnly: false,
     managerQueueOnly: false,
+    approvalContinuationOnly: false,
     deliveryTruthOnly: false,
     inboundLinkOnly: false,
   };
@@ -156,6 +157,11 @@ const parseArgs = (argv) => {
       continue;
     }
 
+    if (arg === '--approval-continuation-only') {
+      args.approvalContinuationOnly = true;
+      continue;
+    }
+
     if (arg === '--delivery-truth-only') {
       args.deliveryTruthOnly = true;
       continue;
@@ -215,7 +221,7 @@ const parseArgs = (argv) => {
   args.appUrl = args.appUrl.replace(/\/+$/, '');
   args.artifactDir = path.resolve(process.cwd(), args.artifactDir);
   args.fragmentDir = path.resolve(process.cwd(), args.fragmentDir);
-  if (!args.managerStepUpOnly && !args.demoOnly && !args.managerQueueOnly && !args.deliveryTruthOnly && !args.inboundLinkOnly && !args.dualRoleOnly && !args.providerOutcomesOnly &&
+  if (!args.managerStepUpOnly && !args.demoOnly && !args.managerQueueOnly && !args.approvalContinuationOnly && !args.deliveryTruthOnly && !args.inboundLinkOnly && !args.dualRoleOnly && !args.providerOutcomesOnly &&
     !args.ownerTotpOnly && !args.legacyStateOnly && !args.nayaxResolutionOnly &&
     !args.nayaxLookupOnly && !args.duplicateOnly) {
     requireEvidenceRunToken(args.runToken);
@@ -1805,6 +1811,38 @@ const buildPhysicalCardMismatchRefundOverview = () => {
   return overview;
 };
 
+const buildApprovalContinuationOverview = ({
+  caseVersion = 7,
+  canPerformOfficialAction = true,
+  continuationReady = true,
+} = {}) => {
+  const overview = buildMockRefundOverview();
+  const refundCase = overview.cases[0];
+  overview.cases = [{
+    ...refundCase,
+    id: 'case-approval-continuation',
+    publicReference: 'RF-UAT-APPROVAL-CONTINUATION',
+    status: 'card_refund_pending',
+    decision: 'approved',
+    providerHold: true,
+    providerOutcome: 'requested',
+    canPerformOfficialAction,
+    officialActionBlockReason: canPerformOfficialAction ? null : 'manager_mapping_required',
+    officialActionVersion: caseVersion,
+    lifecycle: buildLifecycleFixture('needs_refund_operations', 50, 'refund_operations'),
+    refundReadiness: {
+      ...refundCase.refundReadiness,
+      transactionConfirmed: true,
+      canIssueCardRefund: continuationReady,
+      blockReason: continuationReady ? null : 'manager_mapping_required',
+      caseVersion,
+      approvalPendingExecution: false,
+      approvalContinuationReady: continuationReady,
+    },
+  }];
+  return overview;
+};
+
 const jsonResponse = (body) => ({
   status: 200,
   contentType: 'application/json',
@@ -1824,6 +1862,7 @@ const installMockSupabaseRoutes = async (
     nayaxCardRefundAvailabilityResolver = null,
     nayaxCardRefundAvailabilityAfterExecutionResponse = null,
     nayaxCardRefundAvailabilityStatus = 200,
+    nayaxCardRefundAvailabilityVersionOverride = null,
     nayaxCardRefundAvailabilityDelayMs = 0,
     nayaxCardRefundStatus = 409,
     nayaxCardRefundDelayMs = 0,
@@ -2275,7 +2314,8 @@ const installMockSupabaseRoutes = async (
                 : 'transaction_not_confirmed',
               refundAmountCents: refundCase?.refundAmountCents ?? refundCase?.paymentAmountCents ?? null,
               machineLimitCents: 1200,
-              caseVersion: officialActionVersions.get(caseId) ?? refundCase?.officialActionVersion ?? 1,
+              caseVersion: nayaxCardRefundAvailabilityVersionOverride ??
+                officialActionVersions.get(caseId) ?? refundCase?.officialActionVersion ?? 1,
               approvalPendingExecution: approvedPendingExecutionCaseIds.has(caseId),
             }
           : currentNayaxCardRefundAvailability;
@@ -7174,6 +7214,184 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
   }
 };
 
+const runApprovalContinuationAutoResumeChecks = async ({
+  browser,
+  appUrl,
+  artifactDir,
+  recorder,
+}) => {
+  const successResponse = {
+    executed: true,
+    status: 'succeeded',
+    providerReference: 'NAYAX-APPROVAL-CONTINUATION-1',
+    providerAttempted: true,
+    replayed: false,
+    reconciliationRequired: false,
+    fallbackIssued: false,
+    reportingAdjustmentPresent: true,
+    customerCompletion: {
+      status: 'sent',
+      transport: 'gmail_thread',
+      managerCcCount: 2,
+      originalThread: true,
+      operationApplied: true,
+      managerCompletionNoticeSent: false,
+    },
+    message: 'The existing request completed at the approval step.',
+  };
+  const continuationAvailability = {
+    available: true,
+    status: 'available',
+    blockReason: null,
+    approvalContinuationReady: true,
+    approvalPendingExecution: false,
+    payloadRedacted: true,
+  };
+
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const functionCalls = [];
+  const functionBodies = [];
+  await context.addInitScript(() => {
+    window.__refundConfirmationEverOpened = false;
+    const markOpenDialog = () => {
+      if (document.querySelector(
+        '[data-testid="refund-confirmation-dialog"][data-state="open"]'
+      )) {
+        window.__refundConfirmationEverOpened = true;
+      }
+    };
+    new MutationObserver(markOpenDialog).observe(document, {
+      attributes: true,
+      childList: true,
+      subtree: true,
+      attributeFilter: ['data-state'],
+    });
+    queueMicrotask(markOpenDialog);
+  });
+  await installMockSupabaseRoutes(context, {
+    refundOverview: buildApprovalContinuationOverview,
+    functionCalls,
+    functionBodies,
+    nayaxCardRefundAvailabilityResponse: continuationAvailability,
+    nayaxCardRefundResponse: successResponse,
+    nayaxCardRefundStatus: 200,
+    nayaxCardRefundDelayMs: 350,
+  });
+  const page = await context.newPage();
+  let continuationRequest;
+  await signInRefundUser(page, appUrl, '/refunds?case=case-approval-continuation', () => {
+    continuationRequest = page.waitForRequest((request) => {
+      if (!new URL(request.url()).pathname.endsWith('/functions/v1/nayax-card-refund')) return false;
+      try {
+        return request.postDataJSON()?.operation !== 'availability';
+      } catch {
+        return false;
+      }
+    }, { timeout: 10000 }).then(
+      (request) => ({ request, error: null }),
+      (error) => ({ request: null, error })
+    );
+  });
+  await page.getByRole('heading', {
+    name: 'RF-UAT-APPROVAL-CONTINUATION',
+    exact: true,
+  }).waitFor({ timeout: 10000 });
+  const continuationRequestResult = await continuationRequest;
+  if (continuationRequestResult.error) {
+    throw new Error(
+      `Approval continuation did not start: ${continuationRequestResult.error.message}. ` +
+      JSON.stringify({ functionCalls, functionBodies })
+    );
+  }
+  recorder.assert(
+    'Reloaded accepted request resumes at Nayax approval without a second manager dialog or click',
+    functionCalls.filter((name) => name === 'nayax-card-refund').length === 1 &&
+      !(await page.getByTestId('refund-confirmation-dialog').isVisible().catch(() => false)) &&
+      await page.evaluate(() => window.__refundConfirmationEverOpened === false),
+    JSON.stringify({ functionCalls, functionBodies })
+  );
+  await page.getByTestId('refund-action-receipt').getByText('Refund completed', { exact: true })
+    .waitFor({ timeout: 10000 });
+  await page.waitForTimeout(250);
+  recorder.assert(
+    'Approval-only browser continuation makes one execution call across readiness rerenders',
+    functionCalls.filter((name) => name === 'nayax-card-refund').length === 1 &&
+      functionBodies.filter((entry) =>
+        entry.functionName === 'nayax-card-refund' && entry.body?.operation !== 'availability'
+      ).length === 1 &&
+      !(await page.getByTestId('refund-confirmation-dialog').isVisible().catch(() => false)),
+    JSON.stringify({ functionCalls, functionBodies })
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-approval-continuation-no-second-dialog.png'),
+    fullPage: false,
+  });
+  await closeRefundPortalContext(context);
+
+  const staleContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const staleFunctionCalls = [];
+  await installMockSupabaseRoutes(staleContext, {
+    refundOverview: buildApprovalContinuationOverview,
+    functionCalls: staleFunctionCalls,
+    nayaxCardRefundAvailabilityResponse: continuationAvailability,
+    nayaxCardRefundAvailabilityVersionOverride: 6,
+  });
+  const stalePage = await staleContext.newPage();
+  await signInRefundUser(
+    stalePage,
+    appUrl,
+    '/refunds?case=case-approval-continuation'
+  );
+  await stalePage.getByRole('heading', {
+    name: 'RF-UAT-APPROVAL-CONTINUATION',
+    exact: true,
+  }).waitFor({ timeout: 10000 });
+  await stalePage.waitForTimeout(350);
+  recorder.assert(
+    'A stale continuation readiness version cannot start approval execution',
+    staleFunctionCalls.filter((name) => name === 'nayax-card-refund').length === 0 &&
+      !(await stalePage.getByTestId('refund-confirmation-dialog').isVisible().catch(() => false)),
+    staleFunctionCalls.join(', ')
+  );
+  await closeRefundPortalContext(staleContext);
+
+  const revokedContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const revokedFunctionCalls = [];
+  await installMockSupabaseRoutes(revokedContext, {
+    refundOverview: () => buildApprovalContinuationOverview({
+      canPerformOfficialAction: false,
+      continuationReady: false,
+    }),
+    functionCalls: revokedFunctionCalls,
+    nayaxCardRefundAvailabilityResponse: {
+      available: false,
+      status: 'unavailable',
+      blockReason: 'manager_mapping_required',
+      approvalContinuationReady: false,
+      approvalPendingExecution: false,
+      payloadRedacted: true,
+    },
+  });
+  const revokedPage = await revokedContext.newPage();
+  await signInRefundUser(
+    revokedPage,
+    appUrl,
+    '/refunds?case=case-approval-continuation'
+  );
+  await revokedPage.getByRole('heading', {
+    name: 'RF-UAT-APPROVAL-CONTINUATION',
+    exact: true,
+  }).waitFor({ timeout: 10000 });
+  await revokedPage.waitForTimeout(350);
+  recorder.assert(
+    'Revoked manager authority cannot auto-resume or expose a second confirmation',
+    revokedFunctionCalls.filter((name) => name === 'nayax-card-refund').length === 0 &&
+      !(await revokedPage.getByTestId('refund-confirmation-dialog').isVisible().catch(() => false)),
+    revokedFunctionCalls.join(', ')
+  );
+  await closeRefundPortalContext(revokedContext);
+};
+
 const runOfficialActionVersionResetChecks = async ({ browser, appUrl, recorder }) => {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
@@ -9815,6 +10033,7 @@ const run = async () => {
   if (!args.managerStepUpOnly && !args.dualRoleOnly && !args.ownerTotpOnly &&
     !args.legacyStateOnly && !args.nayaxResolutionOnly && !args.nayaxLookupOnly &&
     !args.gmailDraftOnly && !args.duplicateOnly && !args.managerQueueOnly &&
+    !args.approvalContinuationOnly &&
     !args.inboundLinkOnly) {
     await mkdir(args.fragmentDir, { recursive: true });
   }
@@ -9846,6 +10065,13 @@ const run = async () => {
         artifactDir: args.artifactDir,
         recorder,
       });
+    } else if (args.approvalContinuationOnly) {
+      await runApprovalContinuationAutoResumeChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
+      });
     } else if (args.managerQueueOnly) {
       await runRefundOnlyChecks({
         browser,
@@ -9862,6 +10088,12 @@ const run = async () => {
       await runOfficialActionVersionResetChecks({
         browser,
         appUrl: args.appUrl,
+        recorder,
+      });
+      await runApprovalContinuationAutoResumeChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
         recorder,
       });
       await runAcknowledgementRecoveryChecks({
@@ -10034,6 +10266,12 @@ const run = async () => {
       appUrl: args.appUrl,
       recorder,
     });
+    await runApprovalContinuationAutoResumeChecks({
+      browser,
+      appUrl: args.appUrl,
+      artifactDir: args.artifactDir,
+      recorder,
+    });
     await runCustomerCommsFailureChecks({
       browser,
       appUrl: args.appUrl,
@@ -10131,6 +10369,18 @@ const run = async () => {
       return;
     }
     console.log('\nRefund manager-queue UAT passed.');
+    console.log(`Screenshots written to ${args.artifactDir}`);
+    return;
+  }
+
+  if (args.approvalContinuationOnly) {
+    const focusedFailures = recorder.failed();
+    if (focusedFailures.length > 0) {
+      console.error(`\nRefund approval-continuation UAT failed: ${focusedFailures.length} check(s).`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log('\nRefund approval-continuation UAT passed.');
     console.log(`Screenshots written to ${args.artifactDir}`);
     return;
   }

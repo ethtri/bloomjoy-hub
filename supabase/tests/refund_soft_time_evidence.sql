@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(54);
+select plan(73);
 
 create function pg_temp.set_auth_claims(p_user_id uuid)
 returns void language plpgsql as $$
@@ -667,6 +667,174 @@ select ok((select count(*)=1
 select is(public.refund_nayax_current_manager_approval_pending(
   'fb110000-0000-4000-8000-000000000002','fb150000-0000-4000-8000-000000000002'),false,
   'A created attempt ends automatic approval resumption and moves the case to outcome inspection');
+
+select ok((select execution_authorization.expected_case_version=
+      (prior.execution_context->>'caseVersion')::bigint
+    and refund_case.official_action_version=execution_authorization.expected_case_version+1
+  from pg_temp.soft_time_handoff_result reservation
+  cross join pg_temp.soft_time_handoff_before prior
+  join public.refund_case_nayax_refund_attempts attempt
+    on attempt.id=(reservation.result#>>'{attempt,attemptId}')::uuid
+  join public.refund_case_official_action_authorizations execution_authorization
+    on execution_authorization.id=attempt.official_action_authorization_id
+  join public.refund_cases refund_case on refund_case.id=attempt.refund_case_id),
+  'Durable preapproval records the execution authorization at the saved context version and advances the case once');
+
+set local role service_role;
+select lives_ok($$select public.service_record_nayax_refund_provider_stage_v3_outcomes(
+  'soft-time-executor',
+  (select (result#>>'{attempt,attemptId}')::uuid from pg_temp.soft_time_handoff_result),
+  (select result->>'providerClaimToken' from pg_temp.soft_time_handoff_result),
+  'request','started',null,null,null,null,repeat('c',64),
+  'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  null,null,null,null,null,null,null,null,null,null,null,null,null,null,false)$$,
+  'The durable attempt records one request start under its original claim');
+select lives_ok($$select public.service_record_nayax_refund_provider_stage_v3_outcomes(
+  'soft-time-executor',
+  (select (result#>>'{attempt,attemptId}')::uuid from pg_temp.soft_time_handoff_result),
+  (select result->>'providerClaimToken' from pg_temp.soft_time_handoff_result),
+  'request','result',200,'accepted',true,null,repeat('d',64),
+  'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  true,'application_json','json_object','1_256',true,true,true,true,true,'string','string',true,
+  'True','Pending Approval',true)$$,
+  'The durable attempt retains the exact accepted request outcome that permits approval-only recovery');
+reset role;
+update public.refund_case_nayax_refund_attempts
+set provider_claim_expires_at=statement_timestamp()-interval '1 second'
+where id=(select (result#>>'{attempt,attemptId}')::uuid from pg_temp.soft_time_handoff_result);
+
+select is(public.refund_case_nayax_manager_readiness(
+  'fb110000-0000-4000-8000-000000000001','fb150000-0000-4000-8000-000000000002'
+)#>>'{approvalContinuationReady}','true',
+  'The original approving manager can resume only the accepted attempt at the approval step');
+select is(public.refund_case_nayax_manager_readiness(
+  'fb110000-0000-4000-8000-000000000002','fb150000-0000-4000-8000-000000000002'
+)#>>'{approvalContinuationReady}','true',
+  'A replacement current manager can resume the same accepted attempt without another business decision');
+
+update public.reporting_machine_refund_managers
+set status='revoked',revoked_at=statement_timestamp(),revoke_reason='Durable continuation authority check'
+where reporting_machine_id='fb140000-0000-4000-8000-000000000001'
+  and manager_user_id='fb110000-0000-4000-8000-000000000002';
+select is(public.refund_case_nayax_manager_readiness(
+  'fb110000-0000-4000-8000-000000000002','fb150000-0000-4000-8000-000000000002'
+)#>>'{approvalContinuationReady}','false',
+  'Revoked replacement-manager authority cannot expose durable approval continuation');
+set local role service_role;
+select throws_ok($$select public.service_reserve_nayax_refund_approval_continuation_v1(
+  'soft-time-executor','fb110000-0000-4000-8000-000000000002',
+  'fb150000-0000-4000-8000-000000000002',
+  (select official_action_version from public.refund_cases where id='fb150000-0000-4000-8000-000000000002'),
+  'nayax-refund-'||repeat('a',64),1090,'USD',
+  'nayax-production-account-contract-v2','nayax-provider-journal-v3'
+)$$,'P4628',null,
+  'Revoked replacement-manager authority cannot reserve a durable approval continuation');
+reset role;
+select is((select count(*) from public.refund_nayax_attempt_approval_continuations continuation
+  where continuation.nayax_refund_attempt_id=(
+    select (result#>>'{attempt,attemptId}')::uuid from pg_temp.soft_time_handoff_result
+  )),0::bigint,'Revoked authority creates no continuation claim');
+update public.reporting_machine_refund_managers
+set status='active',revoked_at=null,revoke_reason=null
+where reporting_machine_id='fb140000-0000-4000-8000-000000000001'
+  and manager_user_id='fb110000-0000-4000-8000-000000000002';
+
+set local session_replication_role=replica;
+update public.refund_case_events marker
+set metadata=jsonb_set(metadata,'{deterministic_fact_version}',to_jsonb(0))
+where marker.refund_case_id='fb150000-0000-4000-8000-000000000002'
+  and marker.event_type='nayax_refund_execution_authorized'
+  and marker.metadata->>'authorization_id'=(
+    select authorization_id::text from pg_temp.soft_time_handoff_approval_receipt
+  );
+set local session_replication_role=origin;
+select is(public.refund_case_nayax_manager_readiness(
+  'fb110000-0000-4000-8000-000000000002','fb150000-0000-4000-8000-000000000002'
+)#>>'{approvalContinuationReady}','false',
+  'A changed matching-fact marker cannot authenticate the short durable version shape');
+set local role service_role;
+select throws_ok($$select public.service_reserve_nayax_refund_approval_continuation_v1(
+  'soft-time-executor','fb110000-0000-4000-8000-000000000002',
+  'fb150000-0000-4000-8000-000000000002',
+  (select official_action_version from public.refund_cases where id='fb150000-0000-4000-8000-000000000002'),
+  'nayax-refund-'||repeat('a',64),1090,'USD',
+  'nayax-production-account-contract-v2','nayax-provider-journal-v3'
+)$$,'P4628',null,
+  'Changed matching facts cannot reserve a durable approval continuation');
+reset role;
+select is((select count(*) from public.refund_nayax_attempt_approval_continuations continuation
+  where continuation.nayax_refund_attempt_id=(
+    select (result#>>'{attempt,attemptId}')::uuid from pg_temp.soft_time_handoff_result
+  )),0::bigint,'Changed matching facts create no continuation claim');
+set local session_replication_role=replica;
+update public.refund_case_events marker
+set metadata=jsonb_set(
+  metadata,'{deterministic_fact_version}',
+  to_jsonb((select deterministic_fact_version from public.refund_cases
+    where id='fb150000-0000-4000-8000-000000000002'))
+)
+where marker.refund_case_id='fb150000-0000-4000-8000-000000000002'
+  and marker.event_type='nayax_refund_execution_authorized'
+  and marker.metadata->>'authorization_id'=(
+    select authorization_id::text from pg_temp.soft_time_handoff_approval_receipt
+  );
+set local session_replication_role=origin;
+select is(public.refund_case_nayax_manager_readiness(
+  'fb110000-0000-4000-8000-000000000002','fb150000-0000-4000-8000-000000000002'
+)#>>'{approvalContinuationReady}','true',
+  'Only the restored exact durable marker can expose approval continuation again');
+
+create temp table soft_time_handoff_continuation(result jsonb);
+grant select,insert on table pg_temp.soft_time_handoff_continuation to service_role;
+set local role service_role;
+insert into pg_temp.soft_time_handoff_continuation(result)
+select public.service_reserve_nayax_refund_approval_continuation_v1(
+  'soft-time-executor','fb110000-0000-4000-8000-000000000002',
+  'fb150000-0000-4000-8000-000000000002',
+  (select official_action_version from public.refund_cases where id='fb150000-0000-4000-8000-000000000002'),
+  'nayax-refund-'||repeat('a',64),1090,'USD',
+  'nayax-production-account-contract-v2','nayax-provider-journal-v3'
+);
+reset role;
+select is((select result#>>'{attempt,shouldExecute}' from pg_temp.soft_time_handoff_continuation),'true',
+  'The replacement manager receives one approval-only claim for the durable attempt');
+select is((select result#>>'{attempt,executionPlan}' from pg_temp.soft_time_handoff_continuation),
+  'approval_continuation','The durable recovery plan cannot repeat the refund request stage');
+select is((select count(*) from public.refund_nayax_provider_stage_journal journal
+  where journal.nayax_refund_attempt_id=(
+    select (result#>>'{attempt,attemptId}')::uuid from pg_temp.soft_time_handoff_result
+  ) and journal.stage='request'),2::bigint,
+  'Durable approval continuation creates no second request journal event');
+select is((select count(*) from public.refund_nayax_attempt_approval_continuations continuation
+  where continuation.nayax_refund_attempt_id=(
+    select (result#>>'{attempt,attemptId}')::uuid from pg_temp.soft_time_handoff_result
+  )),1::bigint,'The immutable durable attempt has exactly one continuation claim');
+select ok((select refund_case.decided_by=prior.decided_by
+    and refund_case.decided_at=prior.decided_at
+    and (select count(*)=1 from public.refund_case_events marker
+      where marker.refund_case_id=refund_case.id
+        and marker.event_type='nayax_refund_execution_authorized'
+        and marker.metadata->>'authorization_id'=(
+          select authorization_id::text from pg_temp.soft_time_handoff_approval_receipt
+        ))
+  from public.refund_cases refund_case
+  cross join pg_temp.soft_time_handoff_before prior
+  where refund_case.id='fb150000-0000-4000-8000-000000000002'),
+  'Approval-only recovery preserves the original business approver, approval time, and durable marker');
+set local role service_role;
+select is((select public.service_reserve_nayax_refund_approval_continuation_v1(
+  'soft-time-executor','fb110000-0000-4000-8000-000000000002',
+  'fb150000-0000-4000-8000-000000000002',
+  (select official_action_version from public.refund_cases where id='fb150000-0000-4000-8000-000000000002'),
+  'nayax-refund-'||repeat('a',64),1090,'USD',
+  'nayax-production-account-contract-v2','nayax-provider-journal-v3'
+)#>>'{attempt,shouldExecute}'),'false',
+  'A repeated durable continuation cannot obtain a second provider claim');
+reset role;
+select is(public.refund_case_nayax_manager_readiness(
+  'fb110000-0000-4000-8000-000000000001','fb150000-0000-4000-8000-000000000002'
+)#>>'{approvalContinuationReady}','false',
+  'No manager sees another actionable continuation after the one claim is reserved');
 
 -- The mature retry path may have only a superseded approval marker after a
 -- definitive no-refund release and generation advance. A new explicit manager

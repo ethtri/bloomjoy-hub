@@ -583,6 +583,12 @@ assert(
     oneManagerDecisionMigration.includes("(marker.metadata ->> 'attempt_generation')::integer = refund_case.nayax_refund_attempt_generation") &&
     oneManagerDecisionMigration.includes("marker.metadata ->> 'transaction_id' is not distinct from refund_case.matched_nayax_transaction_id") &&
     oneManagerDecisionMigration.includes("'approvalPendingExecution'") &&
+    oneManagerDecisionMigration.includes('refund_nayax_durable_preapproval_started_attempt_v1') &&
+    oneManagerDecisionMigration.includes('approval_authorization.expected_case_version + 1') &&
+    oneManagerDecisionMigration.includes('execution_authorization.expected_case_version =') &&
+    oneManagerDecisionMigration.includes("marker.metadata ->> 'deterministic_fact_version'") &&
+    oneManagerDecisionMigration.includes('p_user_id, refund_case.id, attempt.id') &&
+    oneManagerDecisionMigration.includes('p_actor_user_id, case_row.id, attempt_row.id') &&
     oneManagerDecisionMigration.includes("position('refund_purchase_correction_request_fields' in overview_definition)") &&
     !oneManagerDecisionMigration.includes('p_case.card_wallet_used = false') &&
     oneManagerDecisionMigration.includes('p_case.refund_amount_cents = p_case.matched_nayax_amount_cents') &&
@@ -610,6 +616,11 @@ assert(
     refundOperationsUi.includes("decision: 'approved'") &&
     refundOperationsUi.includes('approvalResult.officialActionVersion') &&
     refundOperationsUi.includes('approvalPendingExecution') &&
+    refundOperationsUi.includes('approvalContinuationReady') &&
+    refundOperationsUi.includes('approvalAutoResumeReady') &&
+    refundOperationsUi.includes('(selectedCase.providerHold && !approvalContinuationReady)') &&
+    refundOperationsUi.includes('selectedCaseIsReviewOnly') &&
+    refundOperationsUi.includes('setIsRefundConfirmationOpen(false)') &&
     refundOperationsUi.includes('isRunningNayaxRefund ||') &&
     refundOperationsUi.includes('nayaxApprovedExecutionAttemptedRef.current.add(') &&
     refundOperationsUi.includes('Continuing the refund you already approved') &&
