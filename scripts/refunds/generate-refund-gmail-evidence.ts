@@ -22,6 +22,7 @@ import {
 } from "../../supabase/functions/_shared/refund-gmail.ts";
 import { requireRefundCustomerManagerCcResolution } from "../../supabase/functions/_shared/refund-gmail-transport.ts";
 import { createAuthenticatedEvidenceFragment } from "./refund-uat-fragment-provenance.mjs";
+import { validateMachineReadableEvidence } from "./refund-uat-evidence.mjs";
 
 const SYNTHETIC_ENV = {
   GMAIL_SUPPORT_CLIENT_ID: "synthetic-client-id",
@@ -910,9 +911,11 @@ export const runRefundGmailEvidenceHarness = async () => {
   const mimeRoleAssertions = await runFirstContactMimeAssertions();
   assertEvidenceIsSanitized(killSwitchAssertions);
   assertEvidenceIsSanitized(mimeRoleAssertions);
+  const mimeRoleEvidence = { ...mimeRoleAssertions, passed: true };
+  validateMachineReadableEvidence("refund-gmail-mime-roles.json", mimeRoleEvidence);
   return {
     killSwitchEvidence: { ...killSwitchAssertions, passed: true },
-    mimeRoleEvidence: { ...mimeRoleAssertions, passed: true },
+    mimeRoleEvidence,
   };
 };
 

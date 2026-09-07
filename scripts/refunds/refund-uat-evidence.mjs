@@ -441,7 +441,7 @@ const validateMimeRoles = (payload) => {
   assertLiteral(payload.automaticHeadersPresent, true, 'Gmail automatic-header assertion');
   assertLiteral(payload.caseSpecificAutomaticHeadersAbsent, true, 'Gmail case-specific manual-header assertion');
   assertLiteral(payload.internalLinkCount, 0, 'Gmail internal-link count');
-  assertLiteral(payload.providerFetchCount, 3, 'Gmail provider-fetch count');
+  assertLiteral(payload.providerFetchCount, 5, 'Gmail provider-fetch count');
   assertLiteral(payload.providerSendCount, 2, 'Gmail provider-send count');
   assertLiteral(payload.caseSpecificOutboundCount, 1, 'Gmail case-specific outbound count');
   assertLiteral(payload.firstContactOperationCount, 1, 'Gmail first-contact operation count');

@@ -1038,7 +1038,10 @@ const evidenceSanitization = evidenceHarness.indexOf(
   'assertEvidenceIsSanitized(mimeRoleAssertions);',
 );
 const passedMarker = evidenceHarness.indexOf(
-  'mimeRoleEvidence: { ...mimeRoleAssertions, passed: true }',
+  'const mimeRoleEvidence = { ...mimeRoleAssertions, passed: true };',
+);
+const evidenceContractCheck = evidenceHarness.indexOf(
+  'validateMachineReadableEvidence("refund-gmail-mime-roles.json", mimeRoleEvidence);',
 );
 assert(
   evidenceAssertionCall >= 0 &&
@@ -1046,6 +1049,8 @@ assert(
     evidenceHarness.includes('assertEvidenceIsSanitized(killSwitchAssertions)') &&
     evidenceSanitization >= 0 &&
     passedMarker > evidenceSanitization &&
+    evidenceContractCheck > passedMarker &&
+    firstEvidenceWrite > evidenceContractCheck &&
     evidenceHarness.includes('{ createNew: true }'),
   'No Gmail evidence file may be written until every executable and sanitization assertion passes',
 );
