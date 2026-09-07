@@ -552,9 +552,9 @@ begin
     p_nayax_disagreement_reason
   );
 
-  select authorization.* into strict authorization_row
-  from public.refund_case_official_action_authorizations authorization
-  where authorization.id = p_authorization_id
+  select action_authorization.* into strict authorization_row
+  from public.refund_case_official_action_authorizations action_authorization
+  where action_authorization.id = p_authorization_id
   for share;
   select candidate.* into strict candidate_row
   from public.refund_nayax_lookup_candidates candidate
@@ -702,9 +702,9 @@ begin
       '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' then
     return false;
   end if;
-  select authorization.* into approval
-  from public.refund_case_official_action_authorizations authorization
-  where authorization.id = (marker.metadata ->> 'authorization_id')::uuid;
+  select action_authorization.* into approval
+  from public.refund_case_official_action_authorizations action_authorization
+  where action_authorization.id = (marker.metadata ->> 'authorization_id')::uuid;
   if not found then return false; end if;
 
   return public.can_perform_refund_official_action(p_user_id, case_row.id)

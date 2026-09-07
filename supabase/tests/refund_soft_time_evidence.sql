@@ -71,7 +71,7 @@ create function pg_temp.soft_time_evidence(
     'selection_allowed',boundary <> 'after_request' and (
       (c.incident_time_resolution in ('exact','legacy_absolute')
         and c.incident_time_confidence is distinct from 'rough')
-      or c.card_last4 = '6768'
+      or coalesce(c.card_last4 = '6768', false)
     ),'is_recommended',true,'one_click_eligible',false,
     'recommendation_state','manual_exception','confidence_class','ambiguous_manual',
     'policy_version','2026-09-05.v11','identifier_policy_version','2026-09-05.identifier.v2',
@@ -437,14 +437,15 @@ select ok(public.refund_nayax_current_manager_approval_pending(
   'fb110000-0000-4000-8000-000000000002','fb150000-0000-4000-8000-000000000001'),
   'A different currently mapped manager can continue the same exact business approval after handoff');
 update public.reporting_machine_refund_managers
-set status='revoked',revoked_at=statement_timestamp()
+set status='revoked',revoked_at=statement_timestamp(),
+  revoke_reason='Synthetic authority-revocation regression'
 where reporting_machine_id='fb140000-0000-4000-8000-000000000001'
   and manager_user_id='fb110000-0000-4000-8000-000000000002';
 select is(public.refund_nayax_current_manager_approval_pending(
   'fb110000-0000-4000-8000-000000000002','fb150000-0000-4000-8000-000000000001'),false,
   'A manager whose current authority was revoked cannot continue the payment action');
 update public.reporting_machine_refund_managers
-set status='active',revoked_at=null
+set status='active',revoked_at=null,revoke_reason=null
 where reporting_machine_id='fb140000-0000-4000-8000-000000000001'
   and manager_user_id='fb110000-0000-4000-8000-000000000002';
 select is((public.refund_case_nayax_manager_readiness(
