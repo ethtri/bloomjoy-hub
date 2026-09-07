@@ -142,6 +142,7 @@ Production execution remains held until configuration and operational acceptance
 
 **Why this choice**
 - Provider acceptance proves only that the API accepted a request. Persisting later provider evidence without replay authority makes the queue truthful while preserving exactly-once customer messaging and transaction-scoped payment safety.
+
 ## 2026-08-31 - Nayax lookup recovery is exact-account and internally owned (`#890`, `#992`)
 
 - Every transaction lookup uses the reporting machine's explicit Nayax account scope. A non-default account may resolve only its exact server-side credential; missing scope or access never falls back to the default account and never cross-searches a sibling machine or location.
@@ -778,7 +779,7 @@ Bloomjoy will connect one designated support mailbox to Refund Operations as a n
 ## 2026-07-16 - Timekeeping V1 is shift entry and machine-manager review (`#587`)
 Bloomjoy will replace the contractor Google Sheets/AppSheet workflow with a lightweight Hub timekeeping flow before expanding into payment execution.
 
-This entry is retained as implementation history. The 2026-09-01 Timekeeping decision supersedes its per-entry approval/correction queue and lock/review behavior.
+This entry is retained as implementation history. The 2026-09-07 Timekeeping decision supersedes its per-entry approval/correction queue and lock/review behavior.
 
 **Canonical behavior**
 - V1 uses after-the-fact completed-shift entry; it does not add a live clock-in/clock-out mode.
