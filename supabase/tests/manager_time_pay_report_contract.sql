@@ -62,6 +62,13 @@ values
   ('a4000000-0000-0000-0000-000000000001', 'a2000000-0000-0000-0000-000000000001', 'a3000000-0000-0000-0000-000000000001', 'Manager Report Machine'),
   ('a4000000-0000-0000-0000-000000000002', 'a2000000-0000-0000-0000-000000000001', 'a3000000-0000-0000-0000-000000000001', 'Partial Assignment Machine');
 
+insert into public.reporting_machine_tax_rates (
+  id, machine_id, tax_rate_percent, effective_start_date, status
+)
+values
+  ('a4050000-0000-0000-0000-000000000001', 'a4000000-0000-0000-0000-000000000001', 10.0000, '2026-01-01', 'active'),
+  ('a4050000-0000-0000-0000-000000000002', 'a4000000-0000-0000-0000-000000000002', 10.0000, '2026-01-01', 'active');
+
 insert into public.reporting_machine_refund_managers (
   id, reporting_machine_id, manager_user_id, manager_email, grant_reason
 )
@@ -189,13 +196,13 @@ values
 insert into public.payout_period_machine_revenue_snapshots (
   id, account_id, payout_period_id, reporting_machine_id, reporting_location_id,
   period_start_date, period_end_date, gross_sales_cents, refund_adjustment_cents,
-  net_revenue_cents, eligible_commission_revenue_cents, transaction_count,
+  tax_cents, net_revenue_cents, eligible_commission_revenue_cents, transaction_count,
   source_sales_row_count, source_adjustment_row_count, source_latest_sale_date,
   source_latest_adjustment_date, status, warnings
 )
 values
-  ('aa000000-0000-0000-0000-000000000001', 'a2000000-0000-0000-0000-000000000001', 'a7000000-0000-0000-0000-000000000001', 'a4000000-0000-0000-0000-000000000001', 'a3000000-0000-0000-0000-000000000001', '2026-07-01', '2026-07-31', 10000, 1000, 9000, 9000, 10, 2, 1, '2026-07-31', '2026-07-31', 'source_generated', '[]'::jsonb),
-  ('aa000000-0000-0000-0000-000000000002', 'a2000000-0000-0000-0000-000000000001', 'a7000000-0000-0000-0000-000000000001', 'a4000000-0000-0000-0000-000000000002', 'a3000000-0000-0000-0000-000000000001', '2026-07-01', '2026-07-31', 5000, 500, 4500, 4500, 5, 2, 1, '2026-07-31', '2026-07-31', 'source_generated', '[]'::jsonb);
+  ('aa000000-0000-0000-0000-000000000001', 'a2000000-0000-0000-0000-000000000001', 'a7000000-0000-0000-0000-000000000001', 'a4000000-0000-0000-0000-000000000001', 'a3000000-0000-0000-0000-000000000001', '2026-07-01', '2026-07-31', 10000, 1000, 1000, 8000, 8000, 10, 2, 1, '2026-07-31', '2026-07-31', 'source_generated', '[]'::jsonb),
+  ('aa000000-0000-0000-0000-000000000002', 'a2000000-0000-0000-0000-000000000001', 'a7000000-0000-0000-0000-000000000001', 'a4000000-0000-0000-0000-000000000002', 'a3000000-0000-0000-0000-000000000001', '2026-07-01', '2026-07-31', 5000, 500, 500, 4000, 4000, 5, 2, 1, '2026-07-31', '2026-07-31', 'source_generated', '[]'::jsonb);
 
 insert into public.operator_recurring_compensation_items (
   id, account_id, operator_profile_id, item_type, description, amount_cents,
@@ -383,12 +390,12 @@ select is(
 );
 select is(
   public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,commissionableSalesCents}',
-  '9000',
-  'Commissionable Sales uses authoritative date-bounded sales and refund facts'
+  '8000',
+  'Commissionable Sales uses authoritative date-bounded sales, refund, and tax facts'
 );
 select is(
   public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,commissionEarningsCents}',
-  '1400',
+  '1240',
   'commission reconciles from two effective-rate date segments'
 );
 select is(
@@ -398,13 +405,16 @@ select is(
 );
 select is(
   public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,currentTotalCents}',
-  '16900',
+  '16740',
   'current total includes shifts, commission, and supply credit without deducting refunds twice'
 );
 select is(
-  public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,machines,0,refundAdjustmentCents}',
-  '1000',
-  'the source refund remains visible in the machine calculation'
+  concat(
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,machines,0,refundAdjustmentCents}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,machines,0,taxCents}'
+  ),
+  '1000:1000',
+  'the source refund and effective-date tax remain visible in the machine calculation'
 );
 select is(
   public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,calculationMeta,refundAppliedOnce}',
@@ -513,7 +523,7 @@ select is(
     public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,machines,0,commissionSegments,1,commissionBasisPoints}', ':',
     public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,machines,0,commissionSegments,1,commissionableSalesCents}'
   ),
-  '1000:4000:2000:5000',
+  '1000:3600:2000:4400',
   'commission segments expose each effective rate and its Commissionable Sales basis'
 );
 select is(
@@ -525,7 +535,7 @@ select is(
     public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,machines,0,commissionSegments,1,segmentEndDate}', ':',
     public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,machines,0,commissionSegments,1,commissionEarningsCents}'
   ),
-  '2026-07-01:2026-07-15:400:2026-07-16:2026-07-31:1000',
+  '2026-07-01:2026-07-15:360:2026-07-16:2026-07-31:880',
   'midmonth commission segments expose exact date windows and earnings'
 );
 select is(
@@ -563,7 +573,7 @@ select is(
     public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionSegments,1,commissionBasisPoints}', ':',
     public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionSegments,1,commissionableSalesCents}'
   ),
-  '500:2000:1000:2500',
+  '500:1800:1000:2200',
   'partial assignment commission segments use only date-bounded source facts'
 );
 select is(
@@ -575,17 +585,17 @@ select is(
     public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionSegments,1,segmentEndDate}', ':',
     public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionSegments,1,commissionEarningsCents}'
   ),
-  '2026-07-16:2026-07-23:100:2026-07-24:2026-07-31:250',
+  '2026-07-16:2026-07-23:90:2026-07-24:2026-07-31:220',
   'partial assignment segments expose exact date windows and earnings'
 );
 select is(
   public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,commissionableSalesCents}',
-  '4500',
+  '4000',
   'partial assignment totals only its in-window Commissionable Sales'
 );
 select is(
   public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,commissionEarningsCents}',
-  '350',
+  '310',
   'partial assignment commission reconciles across its two rates'
 );
 
@@ -596,8 +606,9 @@ where id = 'a9200000-0000-0000-0000-000000000001';
 
 update public.payout_period_machine_revenue_snapshots
 set refund_adjustment_cents = 8000,
-    net_revenue_cents = 2000,
-    eligible_commission_revenue_cents = 2000
+    tax_cents = 1000,
+    net_revenue_cents = 1000,
+    eligible_commission_revenue_cents = 1000
 where id = 'aa000000-0000-0000-0000-000000000001';
 
 set local role authenticated;
@@ -608,7 +619,7 @@ select is(
     public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,machines,0,snapshotMatchesFacts}', ':',
     public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,machines,0,commissionableSalesCents}'
   ),
-  'true:2000',
+  'true:1000',
   'cross-rate refunds reconcile to authoritative facts with the machine basis capped once'
 );
 select is(
@@ -645,8 +656,9 @@ where id = 'a9200000-0000-0000-0000-000000000002';
 
 update public.payout_period_machine_revenue_snapshots
 set refund_adjustment_cents = 4000,
-    net_revenue_cents = 1000,
-    eligible_commission_revenue_cents = 1000
+    tax_cents = 500,
+    net_revenue_cents = 500,
+    eligible_commission_revenue_cents = 500
 where id = 'aa000000-0000-0000-0000-000000000002';
 
 set local role authenticated;
@@ -663,7 +675,7 @@ select is(
     public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionSegments,0,commissionableSalesCents}', ':',
     public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionSegments,0,commissionEarningsCents}'
   ),
-  '1:2026-07-16:2026-07-31:5000:4000:1000:1000:50',
+  '1:2026-07-16:2026-07-31:5000:4000:500:500:25',
   'same-rate date islands collapse to one once-capped and once-rounded equation'
 );
 select is(
@@ -673,7 +685,7 @@ select is(
     public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionEarningsCents}', ':',
     public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,publishable}'
   ),
-  'true:1000:50:true',
+  'true:500:25:true',
   'the collapsed same-rate equation reconciles exactly to its publishable machine total'
 );
 
@@ -683,8 +695,8 @@ select is(
     public.get_technician_pay_report_context('2026-07-01') #>> '{capabilities,paymentExecution}', ':',
     public.get_technician_pay_report_context('2026-07-01') #>> '{capabilities,taxCalculation}'
   ),
-  'false:false:false',
-  'the pay report exposes no approval, payment, or tax execution capability'
+  'false:false:true',
+  'the pay report calculates tax without exposing approval or payment execution capability'
 );
 
 select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000002', true);

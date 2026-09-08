@@ -106,12 +106,13 @@ const payContext = {
     actualDurationMinutes: 121,
     paidShifts: 3,
     shiftEarningsCents: 6500,
-    commissionableSalesCents: 150000,
-    commissionEarningsCents: 14000,
+    taxCents: 14400,
+    commissionableSalesCents: 135600,
+    commissionEarningsCents: 12650,
     bonusCents: 2500,
     supplyCreditCents: 1000,
     expenseReimbursementCents: 500,
-    currentTotalCents: 24500,
+    currentTotalCents: 23150,
     publishable: false,
     entries: [
       { id: 'pay-entry-1', workDate: '2026-09-01', actualStartAt: '2026-09-01T08:00:00-07:00', actualEndAt: '2026-09-01T09:01:00-07:00', actualDurationMinutes: 61, paidShifts: 2, machineId: MACHINE_A, machineLabel: 'Cotton Candy 01', locationId: LOCATION_ID, locationName: 'Mall Atrium', shiftRate: {}, shiftRateCents: 2000, shiftEarningsCents: 4000 },
@@ -131,34 +132,39 @@ const payContext = {
       assignmentScopeResolved: true,
       fullPeriodAssignment: true,
       commissionRateCompleteForPeriod: true,
+      taxRateCompleteForSales: true,
       commissionAllocationResolved: true,
       revenueSnapshotId: null,
       revenueSnapshotStatus: null,
       revenueGeneratedAt: null,
       sourceLatestSaleDate: '2026-09-30',
       grossSalesCents: 110000,
-      refundAdjustmentCents: -10000,
-      netRevenueCents: 100000,
-      commissionableSalesCents: 100000,
+      refundAdjustmentCents: 10000,
+      taxCents: 9900,
+      netRevenueCents: 90100,
+      commissionableSalesCents: 90100,
       commissionRate: { source: 'technician_default' },
       commissionBasisPoints: 1000,
-      commissionEarningsCents: 10000,
+      commissionEarningsCents: 9010,
       commissionSegments: [{
         segmentStartDate: '2026-09-01',
         segmentEndDate: '2026-09-30',
         commissionRate: { source: 'technician_default' },
         commissionBasisPoints: 1000,
         grossSalesCents: 110000,
-        refundAdjustmentCents: -10000,
-        netRevenueCents: 100000,
-        commissionableSalesCents: 100000,
-        commissionEarningsCents: 10000,
+        refundAdjustmentCents: 10000,
+        taxRatePercent: 9,
+        taxCents: 9900,
+        netRevenueCents: 90100,
+        commissionableSalesCents: 90100,
+        commissionEarningsCents: 9010,
         sourceSalesRowCount: 8,
         sourceAdjustmentRowCount: 1,
         sourceLatestSaleDate: '2026-09-30',
       }],
       snapshotGrossSalesCents: 0,
       snapshotRefundAdjustmentCents: 0,
+      snapshotTaxCents: 0,
       snapshotNetRevenueCents: 0,
       snapshotCommissionableSalesCents: 0,
       snapshotSourceLatestSaleDate: null,
@@ -174,6 +180,7 @@ const payContext = {
       assignmentScopeResolved: true,
       fullPeriodAssignment: true,
       commissionRateCompleteForPeriod: true,
+      taxRateCompleteForSales: true,
       commissionAllocationResolved: true,
       revenueSnapshotId: 'snapshot-2',
       revenueSnapshotStatus: 'source_generated',
@@ -181,11 +188,12 @@ const payContext = {
       sourceLatestSaleDate: '2026-09-30',
       grossSalesCents: 50000,
       refundAdjustmentCents: 0,
-      netRevenueCents: 50000,
-      commissionableSalesCents: 50000,
+      taxCents: 4500,
+      netRevenueCents: 45500,
+      commissionableSalesCents: 45500,
       commissionRate: { source: 'technician_default' },
       commissionBasisPoints: null,
-      commissionEarningsCents: 4000,
+      commissionEarningsCents: 3640,
       commissionSegments: [{
         segmentStartDate: '2026-09-01',
         segmentEndDate: '2026-09-15',
@@ -193,9 +201,11 @@ const payContext = {
         commissionBasisPoints: 500,
         grossSalesCents: 20000,
         refundAdjustmentCents: 0,
-        netRevenueCents: 20000,
-        commissionableSalesCents: 20000,
-        commissionEarningsCents: 1000,
+        taxRatePercent: 9,
+        taxCents: 1800,
+        netRevenueCents: 18200,
+        commissionableSalesCents: 18200,
+        commissionEarningsCents: 910,
         sourceSalesRowCount: 4,
         sourceAdjustmentRowCount: 0,
         sourceLatestSaleDate: '2026-09-15',
@@ -206,17 +216,20 @@ const payContext = {
         commissionBasisPoints: 1000,
         grossSalesCents: 30000,
         refundAdjustmentCents: 0,
-        netRevenueCents: 30000,
-        commissionableSalesCents: 30000,
-        commissionEarningsCents: 3000,
+        taxRatePercent: 9,
+        taxCents: 2700,
+        netRevenueCents: 27300,
+        commissionableSalesCents: 27300,
+        commissionEarningsCents: 2730,
         sourceSalesRowCount: 5,
         sourceAdjustmentRowCount: 0,
         sourceLatestSaleDate: '2026-09-30',
       }],
       snapshotGrossSalesCents: 50000,
       snapshotRefundAdjustmentCents: 0,
-      snapshotNetRevenueCents: 50000,
-      snapshotCommissionableSalesCents: 50000,
+      snapshotTaxCents: 4500,
+      snapshotNetRevenueCents: 45500,
+      snapshotCommissionableSalesCents: 45500,
       snapshotSourceLatestSaleDate: '2026-09-30',
       snapshotMatchesFacts: true,
       warnings: [],
@@ -228,9 +241,9 @@ const payContext = {
     ],
     blockers: [{ code: 'missing_revenue_snapshot', severity: 'blocker', message: 'September sales snapshot needs a refresh.', machineId: MACHINE_A }],
     warnings: [{ code: 'rate_changed', severity: 'warning', message: 'The shift rate changed during this month.' }],
-    calculationMeta: { schemaVersion: 'technician-pay-report-v1', commissionBasisSource: 'revenue_snapshot', refundAppliedOnce: true, approvalRequired: false, paymentExecution: false, taxCalculation: false },
+    calculationMeta: { schemaVersion: 'technician-pay-report-v2', commissionBasisSource: 'sales less refunds and tax', commissionFormula: '(sales - refunds - tax) x commission rate', refundAppliedOnce: true, approvalRequired: false, paymentExecution: false, taxCalculation: true },
   }],
-  capabilities: { accountPayAuthorityRequired: true, canCorrectTime: false, approvalRequired: false, paymentExecution: false, taxCalculation: false },
+  capabilities: { accountPayAuthorityRequired: true, canCorrectTime: false, approvalRequired: false, paymentExecution: false, taxCalculation: true },
 };
 
 const setupContext = {
@@ -352,8 +365,8 @@ const run = async () => {
     check('Pay Report sends an unambiguous full ISO date to PostgreSQL', payReportRead?.body.p_month === '2026-09-01');
     const bodyText = await page.locator('body').innerText();
     check('Pay Report separates mid-month rate bands', bodyText.includes('2 shifts × $20.00') && bodyText.includes('1 shift × $25.00'));
-    check('Pay Report shows time, shifts, and dated commission segments by machine', bodyText.includes('2 hr 1 min actual · 3 paid shifts') && bodyText.includes('$200.00 × 5% = $10.00') && bodyText.includes('$300.00 × 10% = $30.00'));
-    check('A valid mixed-rate machine stays available with the summed commission', bodyText.includes('Cotton Candy 02') && bodyText.includes('$40.00'));
+    check('Pay Report shows time, shifts, tax, and dated commission segments by machine', bodyText.includes('2 hr 1 min actual · 3 paid shifts') && bodyText.includes('$200.00 sales − $0.00 refunds − $18.00 tax (9%)') && bodyText.includes('$182.00 × 5% = $9.10') && bodyText.includes('$273.00 × 10% = $27.30'));
+    check('A valid mixed-rate machine stays available with the summed commission', bodyText.includes('Cotton Candy 02') && bodyText.includes('$36.40'));
     check('Missing Commissionable Sales is unavailable rather than a plausible zero', /COMMISSIONABLE\s+SALES\s+Unavailable/i.test(bodyText) && bodyText.includes('Commissionable Sales unavailable × 10%'));
     check('Pay Report does not present unresolved commission or totals as trustworthy amounts', bodyText.includes('Commission\nUnavailable') && bodyText.includes('Current total\nUnavailable'));
 
@@ -365,7 +378,7 @@ const run = async () => {
     await page.getByRole('heading', { name: 'Technician Pay Report' }).waitFor();
     const integrityBlockerFooter = await page.locator('footer').filter({ hasText: 'Commission' }).last().innerText();
     const integrityBlockerBody = await page.locator('body').innerText();
-    check('Snapshot/fact mismatch makes commission unavailable', integrityBlockerFooter.includes('Commission\nUnavailable') && integrityBlockerBody.includes('$200.00 × 5% = Allocation unavailable'));
+    check('Snapshot/fact mismatch makes commission unavailable', integrityBlockerFooter.includes('Commission\nUnavailable') && integrityBlockerBody.includes('$182.00 × 5% = Allocation unavailable'));
     payContext.technicians[0].blockers = originalBlockers;
     payContext.technicians[0].machines[0].revenueSnapshotId = originalFirstMachineSnapshotId;
     await page.reload({ waitUntil: 'domcontentloaded' });
