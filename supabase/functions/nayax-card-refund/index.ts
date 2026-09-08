@@ -36,7 +36,12 @@ import {
 } from "../_shared/nayax-refund-provider.mjs";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { RefundGmailError } from "../_shared/refund-gmail.ts";
-import { deliverNayaxCompletionWithDefiniteRetry } from "../_shared/nayax-resolution-completion.ts";
+import {
+  deliverNayaxCompletionWithDefiniteRetry,
+  deliverNayaxFormReceiptCompletion,
+  parseNayaxFormReceiptClaim,
+} from "../_shared/nayax-resolution-completion.ts";
+import { drainRefundManualMessageOutbox } from "../_shared/refund-manual-message-outbox.ts";
 import { buildRefundStoredTextWithStatus } from "../_shared/refund-email.ts";
 import { tryIssueRefundStatusCapabilityForMessage } from "../_shared/refund-status-capability.ts";
 import {
@@ -1557,6 +1562,20 @@ serve(async (req) => {
           const claim = claimData && typeof claimData === "object"
             ? claimData as Record<string, unknown>
             : null;
+          const formClaim = claimError
+            ? null
+            : parseNayaxFormReceiptClaim(claim, caseId);
+          if (formClaim) {
+            return await deliverNayaxFormReceiptCompletion({
+              claim: formClaim,
+              drain: async (messageId) =>
+                await drainRefundManualMessageOutbox({
+                  supabase,
+                  messageId,
+                  limit: 1,
+                }),
+            }) as NayaxCompletionDelivery;
+          }
           if (
             claimError || !claim ||
             typeof claim.refundCaseId !== "string" ||

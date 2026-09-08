@@ -415,11 +415,11 @@ as $$
     join public.refund_case_nayax_refund_attempts attempt
       on attempt.id = p_attempt_id
       and attempt.refund_case_id = refund_case.id
-    join public.refund_case_official_action_authorizations authorization
-      on authorization.id = attempt.official_action_authorization_id
+    join public.refund_case_official_action_authorizations authz
+      on authz.id = attempt.official_action_authorization_id
     join public.refund_manager_action_step_up_intents intent
       on intent.id = attempt.step_up_intent_id
-      and intent.id = authorization.step_up_intent_id
+      and intent.id = authz.step_up_intent_id
     join public.refund_nayax_execution_contexts saved
       on saved.attempt_id = attempt.id
       and saved.refund_case_id = refund_case.id
@@ -461,37 +461,37 @@ as $$
       and refund_case.payment_method = 'card'
       and refund_case.decision = 'approved'
       and attempt.execution_mode = 'request_and_approve'
-      and attempt.actor_user_id = authorization.actor_user_id
+      and attempt.actor_user_id = authz.actor_user_id
       and attempt.amount_cents = refund_case.refund_amount_cents
       and attempt.amount_cents = refund_case.matched_nayax_amount_cents
       and attempt.currency_code = 'USD'
       and attempt.currency_code = refund_case.matched_nayax_currency_code
       and attempt.idempotency_key ~ '^nayax-refund-[a-f0-9]{64}$'
       and attempt.request_fingerprint = public.refund_nayax_attempt_request_fingerprint(
-        authorization.id,
+        authz.id,
         refund_case.id,
         attempt.idempotency_key,
         attempt.amount_cents,
         attempt.currency_code,
-        authorization.nayax_execution_evidence_hash
+        authz.nayax_execution_evidence_hash
       )
-      and authorization.status = 'consumed'
-      and authorization.consumed_at is not null
-      and authorization.action = 'nayax_execute'
-      and authorization.refund_case_id = refund_case.id
-      and authorization.verified_totp_at is not null
-      and authorization.nayax_execution_evidence_hash is not null
+      and authz.status = 'consumed'
+      and authz.consumed_at is not null
+      and authz.action = 'nayax_execute'
+      and authz.refund_case_id = refund_case.id
+      and authz.verified_totp_at is not null
+      and authz.nayax_execution_evidence_hash is not null
       and intent.status = 'consumed'
       and intent.action = 'nayax_execute'
       and intent.target_function = 'nayax-card-refund'
       and intent.refund_case_id = refund_case.id
-      and intent.actor_user_id = authorization.actor_user_id
-      and intent.verified_totp_at = authorization.verified_totp_at
-      and intent.nayax_execution_evidence_hash = authorization.nayax_execution_evidence_hash
+      and intent.actor_user_id = authz.actor_user_id
+      and intent.verified_totp_at = authz.verified_totp_at
+      and intent.nayax_execution_evidence_hash = authz.nayax_execution_evidence_hash
       and context."caseId" = refund_case.id
       and context."reportingMachineId" = machine.id
-      and authorization.expected_case_version = context."caseVersion"
-      and context."contextHash" = authorization.nayax_execution_evidence_hash
+      and authz.expected_case_version = context."caseVersion"
+      and context."contextHash" = authz.nayax_execution_evidence_hash
       and context."attemptGeneration" = refund_case.nayax_refund_attempt_generation
       and context."accountScope" = machine.nayax_account_key
       and context."providerMachineId" = machine.nayax_machine_id
@@ -584,13 +584,13 @@ as $$
       join public.refund_case_nayax_refund_attempts attempt
         on attempt.id = p_attempt_id
         and attempt.refund_case_id = canonical.id
-      join public.refund_case_official_action_authorizations authorization
-        on authorization.id = attempt.official_action_authorization_id
+      join public.refund_case_official_action_authorizations authz
+        on authz.id = attempt.official_action_authorization_id
       where canonical.id = p_case_id
         and canonical.status in ('approved', 'card_refund_pending')
         and canonical.decision = 'approved'
         and canonical.nayax_refund_execution_status = 'requested'
-        and canonical.official_action_version = authorization.expected_case_version + 1
+        and canonical.official_action_version = authz.expected_case_version + 1
         and not canonical.nayax_match_execution_eligible
         and canonical.refund_completed_at is null
         and canonical.reporting_adjustment_id is null
@@ -864,6 +864,214 @@ $$;
 revoke all on function public.refund_claim_nayax_refund_completion_internal(uuid)
   from public, anon, authenticated, service_role;
 
+-- Form-origin refunds do not have a Gmail thread to reply to. Once the same
+-- immutable API receipt exists, use the canonical receipt-completion intent and
+-- automatic outbox instead. This function only queues durable delivery work;
+-- the outbox owns the first provider attempt with its existing row-lock claim.
+create function public.refund_claim_nayax_form_receipt_completion_internal(
+  p_attempt_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  case_row public.refund_cases%rowtype;
+  attempt_row public.refund_case_nayax_refund_attempts%rowtype;
+  receipt_row public.refund_authoritative_receipts%rowtype;
+  authority_row public.refund_receipt_completion_automation_authorities%rowtype;
+  intent_row public.refund_receipt_completion_intents%rowtype;
+  message_row public.refund_case_messages%rowtype;
+  completion_copy jsonb;
+  intent_id uuid;
+begin
+  select refund_case.* into case_row
+  from public.refund_case_nayax_refund_attempts attempt
+  join public.refund_cases refund_case on refund_case.id = attempt.refund_case_id
+  where attempt.id = p_attempt_id
+  for update of refund_case;
+  select * into attempt_row from public.refund_case_nayax_refund_attempts
+    where id = p_attempt_id and refund_case_id = case_row.id for share;
+  select * into receipt_row from public.refund_authoritative_receipts
+    where refund_case_id = case_row.id and nayax_refund_attempt_id = attempt_row.id
+      and confirmation_source = 'api_stage_contract' for share;
+
+  if case_row.id is null or attempt_row.id is null or receipt_row.id is null
+    or case_row.intake_source is distinct from 'form'
+    or case_row.case_population is distinct from 'customer'
+    or case_row.payment_method is distinct from 'card'
+    or case_row.status is distinct from 'completed'
+    or case_row.refund_completed_at is null
+    or case_row.reporting_adjustment_id is null
+    or attempt_row.status is distinct from 'succeeded'
+    or attempt_row.provider_outcome is distinct from 'success'
+    or attempt_row.reconciliation_required
+    or attempt_row.reporting_adjustment_id is distinct from case_row.reporting_adjustment_id
+    or attempt_row.case_finalization_committed_at is null
+    or receipt_row.attempt_binding_kind is distinct from 'proved_terminal_api'
+    or receipt_row.provider_status is not null
+    or receipt_row.refunded_amount_cents is distinct from case_row.refund_amount_cents
+    or receipt_row.refunded_amount_cents is distinct from receipt_row.original_amount_cents
+    or receipt_row.currency_code is distinct from 'USD'
+    or not public.refund_nayax_api_terminal_evidence_proved(case_row.id, attempt_row.id) then
+    raise exception 'Fully committed form refund with exact API receipt required';
+  end if;
+
+  select * into intent_row from public.refund_receipt_completion_intents
+    where receipt_id = receipt_row.id;
+  if intent_row.receipt_id is not null then
+    select * into message_row from public.refund_case_messages
+      where id = intent_row.message_id;
+    if message_row.id is null
+      or not public.is_refund_receipt_completion_message(to_jsonb(message_row))
+      or message_row.delivery_kind is distinct from 'automatic' then
+      raise exception 'Canonical form receipt completion binding is inconsistent'
+        using errcode = 'P4668';
+    end if;
+    return jsonb_build_object(
+      'claimed', false, 'refundCaseId', case_row.id,
+      'refundCaseMessageId', message_row.id, 'gmailThreadId', null,
+      'recipientEmail', message_row.recipient_email,
+      'subject', message_row.subject, 'body', message_row.body,
+      'status', case when message_row.status = 'sent' then 'already_sent'
+        else coalesce(message_row.manual_delivery_state, message_row.status) end,
+      'transport', 'transactional_email', 'originalThread', false,
+      'noticeDeferred', message_row.manual_delivery_state = 'queued'
+        and message_row.manual_delivery_provider_attempted_at is null,
+      'payloadRedacted', true
+    );
+  end if;
+
+  if exists(select 1 from public.refund_completion_notice_adoptions notice
+      where notice.receipt_id = receipt_row.id)
+    or exists(select 1 from public.refund_external_notice_observations notice
+      where notice.receipt_id = receipt_row.id)
+    or exists(select 1 from public.refund_case_messages message
+      where message.refund_case_id = case_row.id and message.message_type = 'completed') then
+    return jsonb_build_object(
+      'claimed', false, 'refundCaseId', case_row.id,
+      'refundCaseMessageId', null, 'gmailThreadId', null,
+      'status', 'notice_deferred', 'transport', null,
+      'originalThread', false, 'noticeDeferred', true,
+      'payloadRedacted', true
+    );
+  end if;
+
+  completion_copy := public.refund_receipt_completion_copy(case_row.id);
+  if completion_copy is null
+    or lower(btrim(coalesce(completion_copy ->> 'recipientEmail', ''))) is distinct from
+      lower(btrim(coalesce(case_row.customer_email, '')))
+    or lower(btrim(coalesce(case_row.customer_email, ''))) !~
+      '^[^[:space:]@<>]+@[^[:space:]@<>]+\.[^[:space:]@<>]+$' then
+    return jsonb_build_object(
+      'claimed', false, 'refundCaseId', case_row.id,
+      'refundCaseMessageId', null, 'gmailThreadId', null,
+      'status', 'notice_deferred', 'transport', null,
+      'originalThread', false, 'noticeDeferred', true,
+      'payloadRedacted', true
+    );
+  end if;
+
+  select * into authority_row
+  from public.refund_receipt_completion_automation_authorities
+  where receipt_id = receipt_row.id;
+  if authority_row.id is null then
+    insert into public.refund_receipt_completion_automation_authorities(
+      receipt_id, refund_case_id, expected_case_version,
+      authorized_actor_user_id, source_kind, source_policy,
+      source_event_digest, receipt_observed_at
+    ) values (
+      receipt_row.id, case_row.id, case_row.official_action_version,
+      receipt_row.recorded_by, 'nayax_api_terminal',
+      'verified_terminal_refund_v1', receipt_row.evidence_reference_digest,
+      receipt_row.observed_at
+    ) returning * into authority_row;
+  elsif authority_row.refund_case_id is distinct from case_row.id
+    or authority_row.expected_case_version is distinct from case_row.official_action_version
+    or authority_row.authorized_actor_user_id is distinct from receipt_row.recorded_by
+    or authority_row.source_kind is distinct from 'nayax_api_terminal'
+    or authority_row.source_policy is distinct from 'verified_terminal_refund_v1'
+    or authority_row.source_event_digest is distinct from receipt_row.evidence_reference_digest
+    or authority_row.receipt_observed_at is distinct from receipt_row.observed_at then
+    raise exception 'Form receipt completion authority conflicts with payment evidence'
+      using errcode = 'P4668';
+  end if;
+
+  intent_id := gen_random_uuid();
+  message_row.id := gen_random_uuid();
+  message_row.refund_case_id := case_row.id;
+  message_row.message_type := 'completed';
+  message_row.status := 'pending';
+  message_row.recipient_email := completion_copy ->> 'recipientEmail';
+  message_row.subject := completion_copy ->> 'subject';
+  message_row.body := completion_copy ->> 'body';
+  message_row.template_key := 'refund_receipt_completed';
+  message_row.template_version := 'refund_receipt_completion_v1';
+  message_row.created_by := authority_row.authorized_actor_user_id;
+  message_row.content_source := 'deterministic_template';
+  message_row.delivery_kind := 'automatic';
+  message_row.requested_fields := '{}'::text[];
+  message_row.manual_delivery_intent_id := intent_id;
+  message_row.manual_delivery_state := 'queued';
+  message_row.manual_delivery_expected_case_version := case_row.official_action_version;
+  message_row.manual_delivery_status_link_requested := false;
+
+  insert into public.refund_receipt_completion_intents(
+    receipt_id, refund_case_id, message_id, intent_id, expected_case_version,
+    actor_user_id, message_identity_digest, reviewed_no_existing_notice,
+    automation_authority_id
+  ) values (
+    receipt_row.id, case_row.id, message_row.id, intent_id,
+    case_row.official_action_version, authority_row.authorized_actor_user_id,
+    public.refund_receipt_completion_message_digest(to_jsonb(message_row)),
+    false, authority_row.id
+  );
+  if not public.is_refund_receipt_completion_message(to_jsonb(message_row)) then
+    raise exception 'Form receipt completion identity changed' using errcode = 'P4668';
+  end if;
+  insert into public.refund_case_messages(
+    id, refund_case_id, message_type, status, recipient_email, subject, body,
+    template_key, template_version, created_by, content_source, delivery_kind,
+    requested_fields, manual_delivery_intent_id, manual_delivery_state,
+    manual_delivery_expected_case_version, manual_delivery_status_link_requested
+  ) values (
+    message_row.id, message_row.refund_case_id, message_row.message_type,
+    message_row.status, message_row.recipient_email, message_row.subject,
+    message_row.body, message_row.template_key, message_row.template_version,
+    message_row.created_by, message_row.content_source, message_row.delivery_kind,
+    message_row.requested_fields, message_row.manual_delivery_intent_id,
+    message_row.manual_delivery_state,
+    message_row.manual_delivery_expected_case_version, false
+  );
+  insert into public.refund_case_events(
+    refund_case_id, actor_user_id, event_type, message, metadata
+  ) values (
+    case_row.id, authority_row.authorized_actor_user_id,
+    'customer_message_queued',
+    'Confirmed-refund notice entered the existing delivery queue from immutable API receipt authority.',
+    jsonb_build_object(
+      'message_id', message_row.id, 'receipt_id', receipt_row.id,
+      'automation_authority_id', authority_row.id,
+      'message_type', 'completed', 'provider_call_made', false,
+      'payload_redacted', true
+    )
+  );
+  return jsonb_build_object(
+    'claimed', true, 'refundCaseId', case_row.id,
+    'refundCaseMessageId', message_row.id, 'gmailThreadId', null,
+    'recipientEmail', message_row.recipient_email,
+    'subject', message_row.subject, 'body', message_row.body,
+    'status', 'queued', 'transport', 'transactional_email',
+    'originalThread', false, 'noticeDeferred', false,
+    'payloadRedacted', true
+  );
+end;
+$$;
+
+revoke all on function public.refund_claim_nayax_form_receipt_completion_internal(uuid)
+  from public, anon, authenticated, service_role;
+
 create or replace function public.service_claim_nayax_refund_completion(
   p_executor_assertion text,
   p_attempt_id uuid
@@ -873,8 +1081,16 @@ language plpgsql
 security definer
 set search_path = ''
 as $$
+declare intake_source text;
 begin
   perform public.assert_nayax_provider_executor(p_executor_assertion);
+  select refund_case.intake_source into intake_source
+  from public.refund_case_nayax_refund_attempts attempt
+  join public.refund_cases refund_case on refund_case.id = attempt.refund_case_id
+  where attempt.id = p_attempt_id;
+  if intake_source = 'form' then
+    return public.refund_claim_nayax_form_receipt_completion_internal(p_attempt_id);
+  end if;
   return public.refund_claim_nayax_refund_completion_internal(p_attempt_id);
 end;
 $$;
@@ -922,8 +1138,8 @@ as $$
     and exists (
       select 1
       from public.refund_case_nayax_refund_attempts attempt
-      join public.refund_case_official_action_authorizations authorization
-        on authorization.id = attempt.official_action_authorization_id
+      join public.refund_case_official_action_authorizations authz
+        on authz.id = attempt.official_action_authorization_id
       join public.refund_cases duplicate
         on duplicate.id = current_setting(
           'bloomjoy.nayax_journal_recovery_duplicate_id', true
@@ -939,7 +1155,7 @@ as $$
         and attempt.provider_outcome_recorded_at is null
         and attempt.reporting_adjustment_id is null
         and (p_old ->> 'official_action_version')::bigint
-          = authorization.expected_case_version + 1
+          = authz.expected_case_version + 1
         and duplicate.duplicate_of_refund_case_id = (p_old ->> 'id')::uuid
         and duplicate.duplicate_marked_at is not null
         and duplicate.duplicate_marked_by is not null
@@ -1019,8 +1235,8 @@ as $$
     and exists (
       select 1
       from public.refund_cases refund_case
-      join public.refund_case_official_action_authorizations authorization
-        on authorization.id = (p_old ->> 'official_action_authorization_id')::uuid
+      join public.refund_case_official_action_authorizations authz
+        on authz.id = (p_old ->> 'official_action_authorization_id')::uuid
       join public.refund_cases duplicate
         on duplicate.id = current_setting(
           'bloomjoy.nayax_journal_recovery_duplicate_id', true
@@ -1030,7 +1246,7 @@ as $$
       where refund_case.id = (p_old ->> 'refund_case_id')::uuid
         and refund_case.status = 'completed'
         and refund_case.decision = 'approved'
-        and refund_case.official_action_version = authorization.expected_case_version + 2
+        and refund_case.official_action_version = authz.expected_case_version + 2
         and refund_case.nayax_refund_execution_status = 'approved'
         and refund_case.reporting_adjustment_id = adjustment.id
         and duplicate.duplicate_of_refund_case_id = refund_case.id
@@ -1113,7 +1329,7 @@ declare
   canonical public.refund_cases%rowtype;
   duplicate public.refund_cases%rowtype;
   attempt public.refund_case_nayax_refund_attempts%rowtype;
-  authorization public.refund_case_official_action_authorizations%rowtype;
+  authz public.refund_case_official_action_authorizations%rowtype;
   approve_journal public.refund_nayax_provider_stage_journal%rowtype;
   adjustment public.sales_adjustment_facts%rowtype;
   receipt_id uuid;
@@ -1171,7 +1387,20 @@ begin
     if receipt_id is null then
       raise exception 'Completed recovery is missing its authoritative receipt';
     end if;
-    completion_claim := public.refund_claim_nayax_refund_completion_internal(attempt.id);
+    select jsonb_build_object(
+      'refundCaseMessageId', message.id,
+      'status', case when message.status = 'sent' then 'already_sent'
+        else coalesce(message.manual_delivery_state, message.status) end,
+      'noticeDeferred', false
+    ) into completion_claim
+    from public.refund_receipt_completion_intents intent
+    join public.refund_case_messages message on message.id = intent.message_id
+    where intent.receipt_id = receipt_id
+      and public.is_refund_receipt_completion_message(to_jsonb(message));
+    completion_claim := coalesce(completion_claim, jsonb_build_object(
+      'refundCaseMessageId', null, 'status', 'notice_deferred',
+      'noticeDeferred', true
+    ));
     return jsonb_build_object(
       'recovered', false, 'replayed', true,
       'refundCaseId', canonical.id, 'duplicateRefundCaseId', duplicate.id,
@@ -1189,7 +1418,7 @@ begin
       using errcode = 'P4674';
   end if;
 
-  select * into authorization
+  select * into authz
   from public.refund_case_official_action_authorizations action_authorization
   where action_authorization.id = attempt.official_action_authorization_id;
   select * into approve_journal
@@ -1226,8 +1455,8 @@ begin
     jsonb_build_object(
       'review_id', review_id, 'canonical_case_id', canonical.id,
       'duplicate_case_id', duplicate.id, 'attempt_id', attempt.id,
-      'authorization_id', authorization.id,
-      'original_approval_actor_id', authorization.actor_user_id,
+      'authorization_id', authz.id,
+      'original_approval_actor_id', authz.actor_user_id,
       'resolution_reason_code', 'same_incident',
       'provider_call_made', false, 'customer_message_sent', false,
       'recovery_authority', 'service_role_with_confirmed_duplicate_and_proved_provider_approval',
@@ -1267,7 +1496,7 @@ begin
   update public.refund_cases
   set status = 'completed', decision = 'approved',
       manual_refund_reference = recovered_provider_reference,
-      refund_completed_by = authorization.actor_user_id,
+      refund_completed_by = authz.actor_user_id,
       refund_completed_at = approve_journal.created_at,
       automation_state = 'completed', nayax_refund_execution_status = 'approved',
       nayax_match_execution_eligible = false,
@@ -1294,7 +1523,27 @@ begin
   receipt_id := public.refund_ensure_proved_nayax_api_terminal_receipt(
     canonical.id, attempt.id
   );
-  completion_claim := public.refund_claim_nayax_refund_completion_internal(attempt.id);
+  begin
+    completion_claim := public.refund_claim_nayax_form_receipt_completion_internal(
+      attempt.id
+    );
+  exception when others then
+    completion_claim := jsonb_build_object(
+      'refundCaseMessageId', null, 'status', 'notice_deferred',
+      'noticeDeferred', true, 'payloadRedacted', true
+    );
+    insert into public.refund_case_events(
+      refund_case_id, actor_user_id, event_type, message, metadata
+    ) values (
+      canonical.id, null, 'customer_message_deferred',
+      'Confirmed payment was retained while completion-notice preparation was deferred for internal follow-up.',
+      jsonb_build_object(
+        'attempt_id', attempt.id, 'terminal_receipt_id', receipt_id,
+        'provider_call_made', false, 'customer_message_sent', false,
+        'reason', 'notice_preparation_failed', 'payload_redacted', true
+      )
+    );
+  end;
 
   insert into public.refund_case_events (
     refund_case_id, actor_user_id, event_type, message, metadata
@@ -1302,10 +1551,11 @@ begin
     canonical.id, null, 'nayax_journal_success_recovery_completed',
     'Immutable request-and-approval evidence completed the case without another provider or customer delivery call.',
     jsonb_build_object(
-      'attempt_id', attempt.id, 'authorization_id', authorization.id,
+      'attempt_id', attempt.id, 'authorization_id', authz.id,
       'review_id', review_id, 'duplicate_case_id', duplicate.id,
       'terminal_receipt_id', receipt_id,
       'refund_case_message_id', completion_claim -> 'refundCaseMessageId',
+      'completion_notice_status', completion_claim ->> 'status',
       'provider_approved_at', approve_journal.created_at,
       'recovery_committed_at', recovery_at,
       'provider_call_made', false, 'customer_message_sent', false,
@@ -1321,6 +1571,9 @@ begin
     'reportingAdjustmentId', adjustment.id,
     'refundCaseMessageId', completion_claim -> 'refundCaseMessageId',
     'completionMessageStatus', completion_claim ->> 'status',
+    'completionNoticeDeferred', coalesce(
+      (completion_claim ->> 'noticeDeferred')::boolean, false
+    ),
     'providerApprovedAt', approve_journal.created_at,
     'providerCallMade', false, 'customerMessageSent', false
   );
@@ -1333,4 +1586,4 @@ grant execute on function public.service_recover_proved_nayax_api_success_with_d
   to service_role;
 
 comment on function public.service_recover_proved_nayax_api_success_with_duplicate(uuid, uuid, uuid) is
-  'Provider-free recovery of one immutable request-accepted/approval-succeeded attempt blocked by one exact same-incident sibling. It creates one pending completion intent but performs no provider or Gmail transport.';
+  'Provider-free recovery of one immutable request-accepted/approval-succeeded attempt blocked by one exact same-incident sibling. Payment truth commits independently; an eligible form notice enters the existing receipt outbox without provider transport.';

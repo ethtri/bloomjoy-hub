@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(106);
+select plan(108);
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
@@ -631,28 +631,6 @@ insert into public.refund_cases(
   false,'not_requested','form'
 from public.refund_cases where id='ca500000-0000-4000-8000-000000000007';
 
-insert into public.refund_gmail_threads(
-  id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,
-  first_message_at,latest_message_at,retention_expires_at
-) values (
-  'ca700000-0000-4000-8000-000000000007',
-  'ca500000-0000-4000-8000-000000000007',repeat('7',64),
-  'continuation-recovery-thread','Synthetic recovery thread',
-  now()-interval '1 day',now(),now()+interval '30 days'
-);
-insert into public.refund_gmail_messages(
-  id,gmail_thread_id,refund_case_id,provider_message_id,direction,message_kind,status,
-  sender_email,recipient_email,participant_role,participant_trust,subject,plain_body,
-  received_at,retention_expires_at
-) values (
-  'ca710000-0000-4000-8000-000000000007',
-  'ca700000-0000-4000-8000-000000000007',
-  'ca500000-0000-4000-8000-000000000007','continuation-recovery-inbound',
-  'inbound','message','received','fixture-7@example.test','info@bloomjoysweets.com',
-  'customer','verified','Synthetic recovery thread','Synthetic original request',
-  now()-interval '1 day',now()+interval '30 days'
-);
-
 select ok(not has_function_privilege('authenticated',
   'public.service_recover_proved_nayax_api_success_with_duplicate(uuid,uuid,uuid)','execute')
   and has_function_privilege('service_role',
@@ -686,6 +664,8 @@ reset role;
 select ok(not exists(select 1 from public.sales_adjustment_facts
     where refund_case_id='ca500000-0000-4000-8000-000000000007')
   and not exists(select 1 from public.refund_case_messages
+    where refund_case_id='ca500000-0000-4000-8000-000000000007')
+  and not exists(select 1 from public.refund_receipt_completion_intents
     where refund_case_id='ca500000-0000-4000-8000-000000000007'),
   'A refused recovery rolls back without adjustment or customer-message intent');
 
@@ -757,8 +737,8 @@ select set_config('test.journal_recovery',
     'ca500000-0000-4000-8000-000000000107')::text,true);
 reset role;
 select ok(current_setting('test.journal_recovery')::jsonb @>
-    '{"recovered":true,"replayed":false,"providerCallMade":false,"customerMessageSent":false,"completionMessageStatus":"pending"}'::jsonb,
-  'Journal recovery completes payment state and only creates a pending notice intent');
+    '{"recovered":true,"replayed":false,"providerCallMade":false,"customerMessageSent":false,"completionMessageStatus":"queued","completionNoticeDeferred":false}'::jsonb,
+  'Journal recovery completes payment state and queues delivery separately');
 select ok((select status='succeeded' and provider_outcome='success'
       and provider_status='approve_succeeded_contract_match'
       and safe_transport_stage='settled' and not reconciliation_required
@@ -782,16 +762,29 @@ select ok((select confirmation_source='api_stage_contract'
     where refund_case_id='ca500000-0000-4000-8000-000000000007'),
   'Recovery records the existing API-stage authoritative receipt contract');
 select ok((select count(*)=1 and bool_and(status='pending')
-      and bool_and(template_version='refund_nayax_completion_v2')
-      and bool_and(delivery_kind='manual')
-      and bool_and(nayax_refund_attempt_id=(select (result#>>'{attempt,attemptId}')::uuid
-        from recovery_reservation))
+      and bool_and(template_version='refund_receipt_completion_v1')
+      and bool_and(delivery_kind='automatic')
+      and bool_and(manual_delivery_state='queued')
+      and bool_and(nayax_refund_attempt_id is null)
+      and bool_and(public.is_refund_receipt_completion_message(to_jsonb(refund_case_messages)))
     from public.refund_case_messages
     where refund_case_id='ca500000-0000-4000-8000-000000000007')
-  and (select completion_gmail_thread_id='ca700000-0000-4000-8000-000000000007'
+  and (select completion_gmail_thread_id is null and completion_message_id is null
     from public.refund_case_nayax_refund_attempts
-    where id=(select (result#>>'{attempt,attemptId}')::uuid from recovery_reservation)),
-  'Exactly one v2 completion intent binds the canonical case and original thread');
+    where id=(select (result#>>'{attempt,attemptId}')::uuid from recovery_reservation))
+  and not exists(select 1 from public.refund_gmail_threads
+    where refund_case_id='ca500000-0000-4000-8000-000000000007')
+  and not exists(select 1 from public.refund_gmail_messages
+    where refund_case_id='ca500000-0000-4000-8000-000000000007')
+  and (select count(*)=1 from public.refund_receipt_completion_intents intent
+    join public.refund_authoritative_receipts receipt on receipt.id=intent.receipt_id
+    join public.refund_receipt_completion_automation_authorities authority
+      on authority.id=intent.automation_authority_id
+    where intent.refund_case_id='ca500000-0000-4000-8000-000000000007'
+      and not intent.reviewed_no_existing_notice
+      and authority.source_kind='nayax_api_terminal'
+      and authority.source_event_digest=receipt.evidence_reference_digest),
+  'Exactly one API-receipt authority binds the automatic form completion outbox intent');
 select is((select count(*) from public.refund_nayax_provider_stage_journal
     where nayax_refund_attempt_id=(select (result#>>'{attempt,attemptId}')::uuid
       from recovery_reservation)),4::bigint,
@@ -813,6 +806,14 @@ select ok(current_setting('test.journal_replay')::jsonb @>
   and (select count(*)=1 from public.refund_case_messages
     where refund_case_id='ca500000-0000-4000-8000-000000000007'),
   'Recovery replay returns the same receipt-bound message and creates no second intent');
+set local role service_role;
+select is((select count(*) from public.service_claim_refund_manual_message_deliveries(
+    current_setting('test.journal_recovery_message_id')::uuid,1)),1::bigint,
+  'The automatic form completion receives one atomic initial-send outbox claim');
+select is((select count(*) from public.service_claim_refund_manual_message_deliveries(
+    current_setting('test.journal_recovery_message_id')::uuid,1)),0::bigint,
+  'A concurrent initial sender cannot claim the same form completion again');
+reset role;
 
 select pg_temp.record_request(5,'accepted',true,true,'True','Pending Approval');
 update public.reporting_machine_refund_managers
