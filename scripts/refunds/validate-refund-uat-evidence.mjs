@@ -324,7 +324,7 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 92, 'Evidence must enumerate all 92 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 93, 'Evidence must enumerate all 93 reviewed screenshots');
   assert(
     EXPECTED_SCREENSHOTS.includes('machine-refunds-valley-product-unverified-desktop.png') &&
       EXPECTED_SCREENSHOTS.includes('machine-refunds-valley-product-unverified-mobile.png'),
@@ -378,8 +378,12 @@ try {
   );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-manager-')).length,
-    9,
-    'Evidence must include confirmed ready/blocked, stale-evidence, action-clarity, responsive, and cached-read manager states'
+    10,
+    'Evidence must include confirmed ready/blocked, stale-evidence, action-clarity, responsive, cached-read, and long-queue manager states'
+  );
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-manager-long-queue-desktop.png'),
+    'Evidence must include the reviewed bounded long-queue manager state'
   );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('machine-refunds-')).length,
