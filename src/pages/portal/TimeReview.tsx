@@ -44,6 +44,7 @@ type CorrectionDraft = {
 };
 
 const currentMonthValue = () => getTodayInTimekeepingZone().slice(0, 7);
+const isMonthValue = (value: string) => /^\d{4}-\d{2}$/.test(value);
 const reviewQueryKey = (workDate: string) => ['operator-time-report', workDate] as const;
 
 const formatDate = (value: string) =>
@@ -55,9 +56,11 @@ const formatDate = (value: string) =>
   }).format(new Date(`${value}T12:00:00.000Z`));
 
 const formatMonth = (value: string) =>
-  new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(
-    new Date(`${value}-01T12:00:00.000Z`)
-  );
+  isMonthValue(value)
+    ? new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(
+        new Date(`${value}-01T12:00:00.000Z`)
+      )
+    : 'Selected month';
 
 const formatTime = (value: string) => {
   const [hour, minute] = value.split(':').map(Number);
@@ -269,7 +272,7 @@ export default function PortalTimeReviewPage() {
               <div className="grid gap-4 rounded-xl border border-border bg-card p-4 shadow-sm sm:grid-cols-3 sm:p-5">
                 <div>
                   <label htmlFor="time-report-month" className="text-sm font-medium text-foreground">Month</label>
-                  <Input id="time-report-month" type="month" value={month} max={currentMonthValue()} className="mt-2 min-h-11" onChange={(event) => setMonth(event.target.value)} />
+                  <Input id="time-report-month" type="month" value={month} max={currentMonthValue()} className="mt-2 min-h-11" onChange={(event) => { if (isMonthValue(event.target.value)) setMonth(event.target.value); }} />
                 </div>
                 <div>
                   <label htmlFor="time-report-technician" className="text-sm font-medium text-foreground">Technician</label>

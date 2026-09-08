@@ -48,6 +48,7 @@ import { cn } from '@/lib/utils';
 
 const currentMonthValue = () => getTodayInTimekeepingZone().slice(0, 7);
 const TECHNICIAN_DEFAULT_MACHINE = 'technician-default';
+const isMonthValue = (value: string) => /^\d{4}-\d{2}$/.test(value);
 
 type PayInputKind = 'shift' | 'commission' | OperatorRecurringCompensationItemType;
 
@@ -86,9 +87,11 @@ const formatDate = (value: string | null | undefined) =>
     : '—';
 
 const formatMonth = (month: string) =>
-  new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(
-    new Date(`${month}-01T12:00:00.000Z`)
-  );
+  isMonthValue(month)
+    ? new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(
+        new Date(`${month}-01T12:00:00.000Z`)
+      )
+    : 'Selected month';
 
 const formatRate = (basisPoints: number | null | undefined) =>
   `${((basisPoints ?? 0) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
@@ -546,7 +549,7 @@ export default function AdminPayoutsPage() {
         ) : (
           <>
             <section className="grid gap-4 rounded-xl border border-border bg-card p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4" aria-label="Pay Report filters">
-              <div><label htmlFor="pay-report-month" className="text-sm font-medium text-foreground">Month</label><Input id="pay-report-month" type="month" value={month} max={currentMonthValue()} className="mt-2 min-h-11" onChange={(event) => setMonth(event.target.value)} /></div>
+              <div><label htmlFor="pay-report-month" className="text-sm font-medium text-foreground">Month</label><Input id="pay-report-month" type="month" value={month} max={currentMonthValue()} className="mt-2 min-h-11" onChange={(event) => { if (isMonthValue(event.target.value)) setMonth(event.target.value); }} /></div>
               <div><label htmlFor="pay-report-account" className="text-sm font-medium text-foreground">Account</label><Select value={accountId} onValueChange={setAccountId}><SelectTrigger id="pay-report-account" className="mt-2 min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All accounts</SelectItem>{context.accounts.map((account) => <SelectItem key={account.accountId} value={account.accountId}>{account.accountName}</SelectItem>)}</SelectContent></Select></div>
               <div><label htmlFor="pay-report-technician" className="text-sm font-medium text-foreground">Technician</label><Select value={technicianId} onValueChange={setTechnicianId}><SelectTrigger id="pay-report-technician" className="mt-2 min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All Technicians</SelectItem>{technicians.map((technician) => <SelectItem key={technician.operatorProfileId} value={technician.operatorProfileId}>{technician.displayName}</SelectItem>)}</SelectContent></Select></div>
               <div><label htmlFor="pay-report-machine" className="text-sm font-medium text-foreground">Machine</label><Select value={machineId} onValueChange={setMachineId}><SelectTrigger id="pay-report-machine" className="mt-2 min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All machines</SelectItem>{machines.map((machine) => <SelectItem key={machine.id} value={machine.id}>{machine.label}</SelectItem>)}</SelectContent></Select></div>

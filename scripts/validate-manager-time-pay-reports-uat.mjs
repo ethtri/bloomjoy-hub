@@ -249,6 +249,8 @@ const run = async () => {
       throw new Error(`${error.message}; browser errors: ${browserErrors.join(' | ')}`, { cause: error });
     }
     await page.getByText('Cotton Candy 01 · Mall Atrium', { exact: true }).waitFor();
+    await page.locator('#time-report-month').fill('');
+    check('Time Report ignores an empty native month-input change without crashing', await page.locator('#time-report-month').inputValue() === '2026-09' && await page.getByRole('heading', { name: 'Time Report' }).isVisible());
     const initialTimeText = await page.locator('body').innerText();
     check('Time Report shows 61 minutes as two shifts', initialTimeText.includes('1 hr 1 min actual · 2 paid shifts'));
     check('Time Report groups totals by Technician', initialTimeText.includes('Alex Magana') && initialTimeText.includes('1 hr 21 min actual · 3 paid shifts'));
@@ -266,6 +268,8 @@ const run = async () => {
 
     await openAuthenticated(page, '/admin/payouts', 'Technician Pay Report');
     await page.getByText('Contractor 1042', { exact: true }).waitFor();
+    await page.locator('#pay-report-month').fill('');
+    check('Pay Report ignores an empty native month-input change without crashing', await page.locator('#pay-report-month').inputValue() === '2026-09' && await page.getByRole('heading', { name: 'Technician Pay Report' }).isVisible());
     const payReportRead = state.rpcCalls.find((call) => call.rpcName === 'get_technician_pay_report_context');
     check('Pay Report sends an unambiguous full ISO date to PostgreSQL', payReportRead?.body.p_month === '2026-09-01');
     const bodyText = await page.locator('body').innerText();
