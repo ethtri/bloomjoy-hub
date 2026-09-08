@@ -1065,8 +1065,9 @@ export const fetchMyTimeReviewContext = async (
 export const fetchTechnicianPayReportContext = async (
   month: string
 ): Promise<TechnicianPayReportContext> => {
+  const normalizedMonth = /^\d{4}-\d{2}$/.test(month) ? `${month}-01` : month;
   const { data, error } = await supabaseClient.rpc('get_technician_pay_report_context', {
-    p_month: month,
+    p_month: normalizedMonth,
   });
 
   if (error) {

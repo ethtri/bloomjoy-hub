@@ -113,6 +113,7 @@ for (const snippet of [
   'TechnicianPayReportTechnician',
   'TechnicianPayReportContext',
   'fetchTechnicianPayReportContext',
+  "`${month}-01`",
   'supersedeOperatorCompensationRateAdmin',
   'refreshTechnicianPayReportSalesAdmin',
   "'get_technician_pay_report_context'",

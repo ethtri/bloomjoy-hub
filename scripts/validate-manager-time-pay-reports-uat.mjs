@@ -246,6 +246,8 @@ const run = async () => {
 
     await openAuthenticated(page, '/admin/payouts', 'Technician Pay Report');
     await page.getByText('Contractor 1042', { exact: true }).waitFor();
+    const payReportRead = state.rpcCalls.find((call) => call.rpcName === 'get_technician_pay_report_context');
+    check('Pay Report sends an unambiguous full ISO date to PostgreSQL', payReportRead?.body.p_month === '2026-09-01');
     const bodyText = await page.locator('body').innerText();
     check('Pay Report separates mid-month rate bands', bodyText.includes('2 shifts × $20.00') && bodyText.includes('1 shift × $25.00'));
     check('Pay Report shows time, shifts, and transparent commission inputs by machine', bodyText.includes('2 hr 1 min actual · 3 paid shifts') && bodyText.includes('$1,000.00 commissionable sales × 10%'));
