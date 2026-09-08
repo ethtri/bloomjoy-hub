@@ -775,6 +775,22 @@ select ok((select confirmation_source='api_stage_contract'
     from public.refund_authoritative_receipts
     where refund_case_id='ca500000-0000-4000-8000-000000000007'),
   'Recovery records the existing API-stage authoritative receipt contract');
+select is((select count(*) from public.refund_nayax_provider_stage_journal
+    where nayax_refund_attempt_id=(select (result#>>'{attempt,attemptId}')::uuid
+      from recovery_reservation)),4::bigint,
+  'Provider-free recovery preserves the exact two-stage journal without another call');
+drop trigger reject_recovery_notice_preparation
+  on public.refund_receipt_completion_automation_authorities;
+set local role service_role;
+select set_config('test.form_completion_claim',
+  public.service_claim_nayax_refund_completion(
+    'continuation-executor',
+    (select (result#>>'{attempt,attemptId}')::uuid from recovery_reservation)
+  )::text,true);
+reset role;
+select ok(current_setting('test.form_completion_claim')::jsonb @>
+    '{"claimed":true,"status":"queued","transport":"transactional_email","originalThread":false,"noticeDeferred":false,"payloadRedacted":true}'::jsonb,
+  'The normal form completion path can queue the exact receipt notice after deferred preparation');
 select ok((select count(*)=1 and bool_and(status='pending')
       and bool_and(template_version='refund_receipt_completion_v1')
       and bool_and(delivery_kind='automatic')
@@ -799,22 +815,6 @@ select ok((select count(*)=1 and bool_and(status='pending')
       and authority.source_kind='nayax_api_terminal'
       and authority.source_event_digest=receipt.evidence_reference_digest),
   'Exactly one API-receipt authority binds the automatic form completion outbox intent');
-select is((select count(*) from public.refund_nayax_provider_stage_journal
-    where nayax_refund_attempt_id=(select (result#>>'{attempt,attemptId}')::uuid
-      from recovery_reservation)),4::bigint,
-  'Provider-free recovery preserves the exact two-stage journal without another call');
-drop trigger reject_recovery_notice_preparation
-  on public.refund_receipt_completion_automation_authorities;
-set local role service_role;
-select set_config('test.form_completion_claim',
-  public.service_claim_nayax_refund_completion(
-    'continuation-executor',
-    (select (result#>>'{attempt,attemptId}')::uuid from recovery_reservation)
-  )::text,true);
-reset role;
-select ok(current_setting('test.form_completion_claim')::jsonb @>
-    '{"claimed":true,"status":"queued","transport":"transactional_email","originalThread":false,"noticeDeferred":false,"payloadRedacted":true}'::jsonb,
-  'The normal form completion path can queue the exact receipt notice after deferred preparation');
 select set_config('test.journal_recovery_message_id',(select id::text
   from public.refund_case_messages
   where refund_case_id='ca500000-0000-4000-8000-000000000007'),true);

@@ -50,6 +50,16 @@ test('form completion uses the receipt-bound outbox claim instead of a Gmail thr
   assert.match(formClaim, /message_row\.manual_delivery_state := 'queued'/);
   assert.match(formClaim, /message_row\.manual_delivery_expected_case_version := case_row\.official_action_version/);
 
+  const wrapperStart = duplicateRecovery.indexOf(
+    'create or replace function public.service_claim_nayax_refund_completion',
+  );
+  const wrapperEnd = duplicateRecovery.indexOf('\n$$;', wrapperStart);
+  const wrapper = duplicateRecovery.slice(wrapperStart, wrapperEnd);
+  assert.match(wrapper, /receipt\.confirmation_source = 'api_stage_contract'/);
+  assert.match(wrapper, /receipt\.attempt_binding_kind = 'proved_terminal_api'/);
+  assert.match(wrapper, /not exists\(select 1 from public\.refund_gmail_threads/);
+  assert.match(wrapper, /return public\.refund_claim_nayax_refund_completion_internal/);
+
   const deliveryStart = handler.indexOf('deliverCustomerCompletion: async');
   const deliveryEnd = handler.indexOf('\n        },\n      },', deliveryStart);
   const delivery = handler.slice(deliveryStart, deliveryEnd);

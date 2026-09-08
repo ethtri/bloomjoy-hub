@@ -1081,14 +1081,26 @@ language plpgsql
 security definer
 set search_path = ''
 as $$
-declare intake_source text;
+declare
+  case_row public.refund_cases%rowtype;
+  use_form_receipt_outbox boolean := false;
 begin
   perform public.assert_nayax_provider_executor(p_executor_assertion);
-  select refund_case.intake_source into intake_source
+  select refund_case.* into case_row
   from public.refund_case_nayax_refund_attempts attempt
   join public.refund_cases refund_case on refund_case.id = attempt.refund_case_id
-  where attempt.id = p_attempt_id;
-  if intake_source = 'form' then
+  where attempt.id = p_attempt_id
+  for update of refund_case;
+  select case_row.id is not null and case_row.intake_source = 'form'
+    and exists(select 1 from public.refund_authoritative_receipts receipt
+      where receipt.refund_case_id = case_row.id
+        and receipt.nayax_refund_attempt_id = p_attempt_id
+        and receipt.confirmation_source = 'api_stage_contract'
+        and receipt.attempt_binding_kind = 'proved_terminal_api')
+    and not exists(select 1 from public.refund_gmail_threads thread
+      where thread.refund_case_id = case_row.id)
+  into use_form_receipt_outbox;
+  if use_form_receipt_outbox then
     return public.refund_claim_nayax_form_receipt_completion_internal(p_attempt_id);
   end if;
   return public.refund_claim_nayax_refund_completion_internal(p_attempt_id);
