@@ -292,8 +292,10 @@ declare
   old_text text := 'then run one safe read-only retry or use the reviewed manual Nayax portal fallback.';
   new_text text := 'then run a fresh read-only transaction check or use the reviewed manual Nayax portal fallback.';
 begin
+  -- The scope-recovery overview was preserved under this name when delivery
+  -- truth wrapped it. The public entry point no longer owns this copy.
   definition := pg_catalog.pg_get_functiondef(
-    'public.admin_get_refund_operations_overview()'::regprocedure
+    'public.admin_get_refund_operations_overview_pre_delivery_truth_v1()'::regprocedure
   );
   if length(definition) - length(replace(definition, old_text, '')) <>
     length(old_text) then
