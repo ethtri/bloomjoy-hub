@@ -263,6 +263,59 @@ $$;
 revoke all on function public.refund_terminal_api_completion_message_change_allowed(jsonb,jsonb)
   from public,anon,authenticated,service_role;
 
+create function public.refund_terminal_api_completion_has_sent_gmail_proof(
+  p_attempt jsonb
+)
+returns boolean language sql stable security definer set search_path='' as $$
+  select coalesce(exists(
+    select 1
+    from jsonb_to_record(p_attempt) as attempt(
+      id uuid,refund_case_id uuid,completion_message_id uuid,
+      completion_gmail_thread_id uuid,completion_manager_cc_count integer
+    )
+    join public.refund_case_messages message
+      on message.id=attempt.completion_message_id
+      and message.refund_case_id=attempt.refund_case_id
+      and message.nayax_refund_attempt_id=attempt.id
+    join public.refund_cases c on c.id=attempt.refund_case_id
+    join public.refund_gmail_messages outbound
+      on outbound.operation_key='refund-case-message:'||message.id::text
+      and outbound.refund_case_id=c.id
+      and outbound.refund_case_message_id=message.id
+      and outbound.gmail_thread_id=attempt.completion_gmail_thread_id
+    where public.is_refund_terminal_api_completion_message(to_jsonb(message))
+      and message.status='sent' and message.sent_at is not null
+      and outbound.direction='outbound' and outbound.message_kind='message'
+      and outbound.status='sent' and outbound.sent_at is not null
+      and nullif(btrim(outbound.provider_message_id),'') is not null
+      and outbound.delivery_kind='manual'
+      and outbound.recipient_resolution_status='resolved'
+      and lower(btrim(outbound.recipient_email))=lower(btrim(message.recipient_email))
+      and outbound.plain_body=message.body
+      and outbound.subject=message.subject
+      and outbound.recipient_cc_count between 1 and 3
+      and cardinality(outbound.recipient_cc_emails)=outbound.recipient_cc_count
+      and attempt.completion_manager_cc_count=outbound.recipient_cc_count
+      and outbound.recipient_cc_count=(select count(distinct lower(btrim(manager.manager_email)))::integer
+        from public.reporting_machine_refund_managers manager
+        where manager.reporting_machine_id=c.reporting_machine_id
+          and manager.status='active' and manager.revoked_at is null)
+      and not exists(select 1
+        from public.reporting_machine_refund_managers manager
+        where manager.reporting_machine_id=c.reporting_machine_id
+          and manager.status='active' and manager.revoked_at is null
+          and not (lower(btrim(manager.manager_email))=any(outbound.recipient_cc_emails)))
+      and not exists(select 1 from unnest(outbound.recipient_cc_emails) cc(email)
+        where not exists(select 1
+          from public.reporting_machine_refund_managers manager
+          where manager.reporting_machine_id=c.reporting_machine_id
+            and manager.status='active' and manager.revoked_at is null
+            and lower(btrim(manager.manager_email))=lower(btrim(cc.email))))
+  ),false);
+$$;
+revoke all on function public.refund_terminal_api_completion_has_sent_gmail_proof(jsonb)
+  from public,anon,authenticated,service_role;
+
 create function public.refund_terminal_api_completion_attempt_change_allowed(
   p_old jsonb,p_new jsonb
 )
@@ -283,8 +336,9 @@ returns boolean language sql stable security definer set search_path='' as $$
         in ('pending','sent','failed','delivery_unknown')
       when 'failed' then p_new->>'completion_delivery_status' in ('failed','pending')
       when 'sent' then p_new->>'completion_delivery_status'='sent'
-      when 'delivery_unknown' then p_new->>'completion_delivery_status'
-        in ('delivery_unknown','sent')
+      when 'delivery_unknown' then p_new->>'completion_delivery_status'='delivery_unknown'
+        or (p_new->>'completion_delivery_status'='sent'
+          and public.refund_terminal_api_completion_has_sent_gmail_proof(p_new))
       else false end
     and (p_new->>'completion_delivery_retry_count')::integer
       between (p_old->>'completion_delivery_retry_count')::integer and 1
