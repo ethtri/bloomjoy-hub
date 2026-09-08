@@ -252,7 +252,6 @@ as $$
       daily.activity_date - row_number() over (
         partition by
           coalesce(daily.tax_rate_percent::text, 'missing'),
-          coalesce(daily.commission_rate ->> 'ruleId', 'missing'),
           coalesce(daily.commission_rate ->> 'commissionBasisPoints', 'missing')
         order by daily.activity_date
       )::integer as segment_group
@@ -286,7 +285,6 @@ as $$
     from segmented day_row
     group by
       day_row.tax_rate_percent,
-      day_row.commission_rate,
       day_row.commission_basis_points,
       day_row.segment_group
   ),

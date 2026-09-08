@@ -6,6 +6,7 @@ const files = {
   generator: 'supabase/functions/pay-stub-generator/index.ts',
   manager: 'src/pages/admin/Payouts.tsx',
   technician: 'src/pages/portal/Time.tsx',
+  databaseTest: 'supabase/tests/manager_time_pay_report_contract.sql',
 };
 
 const content = Object.fromEntries(
@@ -29,6 +30,9 @@ const required = [
   ['manager', 'Publish Pay Stub'],
   ['manager', 'estimated sales tax'],
   ['technician', 'await downloadOperatorPayStatementHtml'],
+  ['databaseTest', "10.0000, '2026-01-01', 'active'"],
+  ['databaseTest', "'1000:1000'"],
+  ['databaseTest', "'false:false:true'"],
 ];
 
 const missing = required.filter(([file, marker]) => !content[file].includes(marker));
@@ -41,6 +45,7 @@ if (missing.length) {
 const forbidden = [
   ['migration', "profile.user_id = p_user_id\n            and statement.status in ('issued', 'revised')"],
   ['generator', 'upsert: true'],
+  ['migration', "coalesce(daily.commission_rate ->> 'ruleId', 'missing')"],
 ];
 const violations = forbidden.filter(([file, marker]) => content[file].includes(marker));
 if (violations.length) {
