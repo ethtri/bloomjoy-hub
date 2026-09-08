@@ -165,3 +165,13 @@ The `blocked` label blocks merge until resolved, but it is not owner approval by
 - Track priorities in GitHub Issues labeled `P0` through `P3` and use the Bloomjoy Project board.
 - Keep personal notes local. Do not commit them.
 - Keep repo docs durable and compact; use issue and PR comments for task-level chronology.
+# Nayax refund implementation baseline
+
+Before any Nayax refund implementation, diagnosis or support escalation, read
+`Docs/NAYAX_REFUND_WORKING_CONTRACT.md`. Production request and approval
+permissions were proved with the existing credentials on September 8, 2026.
+Use the documented working payload and exact response mapping. Investigate
+actual code/configuration and exact transaction state before alleging missing
+permissions; a generic access-or-transaction error does not establish that.
+Do not repeat a pending or completed refund. This rule adds no payment approval
+gate and grants no authority to send correspondence.
