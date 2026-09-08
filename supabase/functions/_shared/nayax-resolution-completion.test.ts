@@ -161,6 +161,56 @@ Deno.test("definite pre-send failure retries the same completion once", async ()
   assertEquals(result.status, "sent");
 });
 
+Deno.test("successful first completion send does not prepare a retry", async () => {
+  let deliveryCalls = 0;
+  let prepareCalls = 0;
+  const finishCalls: string[] = [];
+  const result = await deliverNayaxCompletionWithDefiniteRetry({
+    deliver: async () => {
+      deliveryCalls += 1;
+      return true;
+    },
+    finish: async (status) => {
+      finishCalls.push(status);
+      return { status };
+    },
+    isDeliveryUncertain: () => false,
+    prepareSameMessageRetry: async () => {
+      prepareCalls += 1;
+      return true;
+    },
+  });
+  assertEquals(deliveryCalls, 1);
+  assertEquals(prepareCalls, 0);
+  assertEquals(finishCalls, ["sent"]);
+  assertEquals(result.status, "sent");
+});
+
+Deno.test("second definite completion failure stops after one retry", async () => {
+  let deliveryCalls = 0;
+  let prepareCalls = 0;
+  const finishCalls: string[] = [];
+  const result = await deliverNayaxCompletionWithDefiniteRetry({
+    deliver: async () => {
+      deliveryCalls += 1;
+      throw new Error("fixed_pre_send_failure");
+    },
+    finish: async (status) => {
+      finishCalls.push(status);
+      return { status };
+    },
+    isDeliveryUncertain: () => false,
+    prepareSameMessageRetry: async () => {
+      prepareCalls += 1;
+      return true;
+    },
+  });
+  assertEquals(deliveryCalls, 2);
+  assertEquals(prepareCalls, 1);
+  assertEquals(finishCalls, ["failed", "failed"]);
+  assertEquals(result.status, "failed");
+});
+
 Deno.test("uncertain completion is held without an automatic retry", async () => {
   let prepareCalls = 0;
   const uncertain = new Error("fixed_uncertain_failure") as Error & {
