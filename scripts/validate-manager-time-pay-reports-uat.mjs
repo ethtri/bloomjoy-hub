@@ -224,6 +224,7 @@ const run = async () => {
     } catch (error) {
       throw new Error(`${error.message}; browser errors: ${browserErrors.join(' | ')}`, { cause: error });
     }
+    await page.getByText('Cotton Candy 01 · Mall Atrium', { exact: true }).waitFor();
     const initialTimeText = await page.locator('body').innerText();
     check('Time Report shows 61 minutes as two shifts', initialTimeText.includes('1 hr 1 min actual · 2 paid shifts'));
     check('Time Report groups totals by Technician', initialTimeText.includes('Alex Magana') && initialTimeText.includes('1 hr 21 min actual · 3 paid shifts'));
@@ -240,6 +241,7 @@ const run = async () => {
     await page.screenshot({ path: path.join(artifactDir, 'time-report-desktop.png'), fullPage: true });
 
     await openAuthenticated(page, '/admin/payouts', 'Technician Pay Report');
+    await page.getByText('Contractor 1042', { exact: true }).waitFor();
     const bodyText = await page.locator('body').innerText();
     check('Pay Report separates mid-month rate bands', bodyText.includes('2 shifts × $20.00') && bodyText.includes('1 shift × $25.00'));
     check('Pay Report shows time, shifts, and transparent commission by machine', bodyText.includes('2 hr 1 min actual · 3 paid shifts') && bodyText.includes('$1,000.00 commissionable sales × 10%') && bodyText.includes('$100.00'));
@@ -250,7 +252,7 @@ const run = async () => {
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.getByRole('heading', { name: 'Technician Pay Report' }).waitFor();
+    await page.getByText('Contractor 1042', { exact: true }).waitFor();
     check('Pay Report has no mobile page overflow', await noOverflow(page));
     const shortControls = await page.locator('button:visible, input:visible').evaluateAll((elements) => elements.filter((element) => element.getBoundingClientRect().height < 43).length);
     check('Visible mobile controls meet touch target height', shortControls === 0);
