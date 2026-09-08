@@ -24,6 +24,7 @@ The MVP is a lightweight timekeeping and contractor-statement product. It is not
 
 - A manager sees Technicians and machines only within the manager's effective scope.
 - A manager can view and correct time entries before or after the Technician cutoff without approving entries or entering a correction reason.
+- When a Technician misses the cutoff entirely, a manager can add the missing completed-time entry on the Technician's behalf using the same historical assignment, future-time, overlap, and per-entry shift rules, even if that Technician is now inactive. The action records the manager and before/after audit evidence without requiring an approval or written reason.
 - A manager can maintain authorized pay inputs, investigate generation exceptions, and regenerate affected Pay Stubs.
 - Sensitive pay configuration and statement access must remain within the existing owner/scoped-manager authorization boundary.
 
@@ -55,6 +56,7 @@ The MVP is a lightweight timekeeping and contractor-statement product. It is not
 - Pay periods are calendar months.
 - Technician editing closes at 11:59 p.m. Pacific on the fourth calendar day after month-end. December entries, for example, remain Technician-editable through January 4 at 11:59 p.m. and lock at the start of January 5.
 - Managers retain correction access after the Technician cutoff.
+- Manager correction access includes adding an entirely missing entry, not only editing an entry that already exists.
 - Every manager correction retains before/after audit history even though no written reason is required.
 
 ## Compensation inputs and calculations
@@ -126,6 +128,7 @@ The MVP is a lightweight timekeeping and contractor-statement product. It is not
 ### Regeneration and history
 
 - An authorized manager can regenerate a Pay Stub after correcting time, machine scope, a rate, sales inputs, or another compensation item.
+- If time changes after the current Pay Stub calculation was generated, Pay Reports persistently marks that Technician's stub as needing regeneration until a newer version is published. A machine-only manager is told to contact an account pay manager rather than being given pay access.
 - Regeneration creates an immutable new version and never overwrites the previously published artifact.
 - The newest published version is the current Technician copy and is clearly labeled when revised.
 - When an earlier period changes, affected year-to-date totals on later statements are recalculated and republished as new versions or explicitly held as stale until that cascade completes.
