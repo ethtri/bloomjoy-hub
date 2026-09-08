@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(102);
+select plan(106);
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
@@ -661,6 +661,17 @@ select is((select status from public.refund_case_reconciliation_reviews
   where 'ca500000-0000-4000-8000-000000000107' in
     (left_refund_case_id,right_refund_case_id)), 'pending',
   'A same-source possible duplicate receives an ordinary pending manager review');
+select throws_ok($$insert into public.sales_adjustment_facts(
+  reporting_machine_id,reporting_location_id,adjustment_date,adjustment_type,
+  amount_cents,complaint_count,source,source_row_hash,source_reference,
+  source_row_reference,refund_case_id,match_status,match_confidence,notes,raw_payload
+) select reporting_machine_id,reporting_location_id,incident_at::date,'refund',
+  payment_amount_cents,1,'google_sheets','recovery-null-case-fingerprint',
+  'synthetic-sheet','synthetic-row',null,'applied',1,'Synthetic unresolved duplicate',
+  jsonb_build_object('incident_date',incident_at::date,'payment_method',payment_method)
+from public.refund_cases where id='ca500000-0000-4000-8000-000000000007'$$,
+  '23505',null,
+  'A null-case adjustment still fails closed against an unresolved business fingerprint');
 
 select set_config('request.jwt.claim.role','service_role',true);
 select set_config('request.jwt.claims','{"role":"service_role"}',true);
@@ -700,6 +711,40 @@ select ok((select duplicate_of_refund_case_id='ca500000-0000-4000-8000-000000000
       and resolution_reason_code='same_incident'
       and resolved_by='ca000000-0000-4000-8000-000000000001'),
   'Recovery precondition preserves the real manager actor and canonical binding');
+
+select set_config('request.jwt.claim.role','service_role',true);
+select set_config('request.jwt.claims','{"role":"service_role"}',true);
+set local role service_role;
+select throws_ok($cmd$do $stale$
+begin
+  update public.refund_cases set correlation_summary=coalesce(correlation_summary,'')||' stale-version-fixture'
+  where id='ca500000-0000-4000-8000-000000000007';
+  perform public.service_recover_proved_nayax_api_success_with_duplicate(
+    'ca500000-0000-4000-8000-000000000007',
+    (select (result#>>'{attempt,attemptId}')::uuid from recovery_reservation),
+    'ca500000-0000-4000-8000-000000000107');
+end $stale$$cmd$,'P4674',null,
+  'Recovery rejects a stale official-action version and rolls its test mutation back');
+select throws_ok($cmd$do $forged$
+begin
+  perform set_config('bloomjoy.nayax_journal_recovery_attempt_id',
+    (select (result#>>'{attempt,attemptId}') from recovery_reservation),true);
+  perform set_config('bloomjoy.nayax_journal_recovery_duplicate_id',
+    'ca500000-0000-4000-8000-000000000107',true);
+  update public.refund_cases set status='completed',
+    manual_refund_reference='nayax-evidence-'||repeat('f',64),
+    refund_completed_by='ca000000-0000-4000-8000-000000000001',
+    refund_completed_at=statement_timestamp(),automation_state='completed',
+    nayax_refund_execution_status='approved'
+  where id='ca500000-0000-4000-8000-000000000007';
+end $forged$$cmd$,'P0001',null,
+  'Forged recovery settings cannot bypass the exact adjustment-bound case guard');
+select throws_ok($$select public.service_recover_proved_nayax_api_success_with_duplicate(
+  'ca500000-0000-4000-8000-000000000007',
+  (select (result#>>'{attempt,attemptId}')::uuid from recovery_reservation),
+  'ca500000-0000-4000-8000-000000000006')$$,
+  'P4674',null,'Recovery rejects a different sibling binding');
+reset role;
 
 select set_config('request.jwt.claim.role','service_role',true);
 select set_config('request.jwt.claims','{"role":"service_role"}',true);

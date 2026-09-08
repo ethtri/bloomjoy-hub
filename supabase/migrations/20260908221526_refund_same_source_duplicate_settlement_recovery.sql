@@ -358,7 +358,10 @@ begin
       where refund_case.id <> coalesce(new.refund_case_id, '00000000-0000-0000-0000-000000000000'::uuid)
         and refund_case.refund_business_fingerprint = new.refund_business_fingerprint
         and refund_case.status not in ('denied', 'closed')
-        and refund_case.duplicate_of_refund_case_id is distinct from new.refund_case_id
+        and (
+          new.refund_case_id is null
+          or refund_case.duplicate_of_refund_case_id is distinct from new.refund_case_id
+        )
       limit 1;
 
       if duplicate_case_id is not null then
