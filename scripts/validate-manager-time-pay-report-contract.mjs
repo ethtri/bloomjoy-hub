@@ -15,6 +15,12 @@ const files = {
     'migrations',
     '20260908002416_manager_time_and_pay_report_contract.sql'
   ),
+  missedTimeMigration: path.join(
+    repoRoot,
+    'supabase',
+    'migrations',
+    '20260908213408_manager_add_missed_time.sql'
+  ),
   setupMigration: path.join(
     repoRoot,
     'supabase',
@@ -24,6 +30,7 @@ const files = {
   pgTap: path.join(repoRoot, 'supabase', 'tests', 'manager_time_pay_report_contract.sql'),
   helper: path.join(repoRoot, 'src', 'lib', 'operatorPayouts.ts'),
   payReportPage: path.join(repoRoot, 'src', 'pages', 'admin', 'Payouts.tsx'),
+  timeReviewPage: path.join(repoRoot, 'src', 'pages', 'portal', 'TimeReview.tsx'),
   authContext: path.join(repoRoot, 'src', 'contexts', 'AuthContext.tsx'),
   packageJson: path.join(repoRoot, 'package.json'),
 };
@@ -124,6 +131,27 @@ for (const snippet of [
   expect(setupMigration, snippet, 'Timekeeping pilot setup migration');
 }
 
+const missedTimeMigration = readText(files.missedTimeMigration);
+for (const snippet of [
+  'create or replace function public.get_my_time_review_entry_options',
+  'create or replace function public.manager_create_operator_time_entry',
+  'public.can_manage_operator_payout_machine(actor_user_id, machine_row.id)',
+  'Technician is not assigned to this machine for the work date',
+  'Time entry overlaps another Technician entry',
+  "'manager_created'",
+  "'operator_time_entry.manager_created'",
+  "'afterTechnicianCutoff'",
+  "'payStubRegenerationRequired'",
+  "'after_cutoff_allowed', true",
+  'private.operator_pay_stub_regeneration_required',
+  "'pay_stub_regeneration_required'",
+  'get_technician_pay_report_context_without_time_regeneration_state',
+  'revoke execute on function public.manager_create_operator_time_entry',
+  'grant execute on function public.manager_create_operator_time_entry',
+]) {
+  expect(missedTimeMigration, snippet, 'manager missed-time migration');
+}
+
 if (/\b(insert|update|delete)\s+public\.payout_(runs|run_items|adjustments)\b/i.test(migration)) {
   fail('The manager report contract must remain calculation-only and cannot mutate payout execution state.');
 }
@@ -155,7 +183,7 @@ for (const snippet of [
 const payReportPage = readText(files.payReportPage);
 for (const snippet of [
   'Rate missing',
-  'Commission rate missing',
+  'commission rate missing',
   "totalUnavailable ? 'Unavailable'",
   'supersedeOperatorCompensationRateAdmin',
   'upsertOperatorRecurringItemAdmin',
@@ -172,6 +200,24 @@ for (const snippet of [
   if (!payReportPage.includes(snippet)) {
     fail(`Technician Pay Report page missing ${snippet}`);
   }
+}
+
+const timeReviewPage = readText(files.timeReviewPage);
+for (const snippet of [
+  'Add missed time',
+  'createManagerTimeEntry',
+  'availableTechnicians',
+  'missedTimeMachines',
+  'Add to report',
+  'included in the manager report',
+]) {
+  if (!timeReviewPage.includes(snippet)) {
+    fail(`Time Report page missing ${snippet}`);
+  }
+}
+
+if (!payReportPage.includes('Regenerate Pay Stub')) {
+  fail('Technician Pay Report page missing durable stale-stub action label');
 }
 
 for (const snippet of ['get_my_time_report_access', "'timekeeping.review'"]) {
@@ -200,6 +246,14 @@ for (const marker of [
   'the superseded rate ends the prior window on the preceding day',
   'Commissionable Sales refresh retains historically valid revoked assignments',
   'manager correction accepts historical time after later assignment revocation without a reason',
+  'manager entry choices include an inactive historically assigned Technician with no submitted time',
+  'a manager can add entirely missing time after the Technician cutoff without exposing pay-stub state',
+  'manager-created missed time retains an audit trail',
+  'Pay Reports persistently flags the stale published Pay Stub until regeneration',
+  'future manager-created time is rejected',
+  'manager-created time outside the effective assignment is rejected',
+  'overlapping manager-created time is rejected',
+  'an outsider cannot add missed time for a managed machine',
   'one manager action creates the complete initial Timekeeping setup',
   'repeating initial setup fails closed instead of creating overlapping records',
   'a user without account pay authority cannot read Timekeeping setup choices',

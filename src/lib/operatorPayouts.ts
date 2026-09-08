@@ -587,6 +587,14 @@ export type OperatorTimeReportTechnician = {
   machines: OperatorTimeReviewMachine[];
 };
 
+export type OperatorTimeReviewEntryOption = {
+  operatorProfileId: string;
+  operatorName: string;
+  machineId: string;
+  effectiveStartDate: string;
+  effectiveEndDate: string | null;
+};
+
 export type OperatorTimeReviewContext = {
   workDate: string;
   periodStartDate: string;
@@ -594,6 +602,7 @@ export type OperatorTimeReviewContext = {
   hasAccess: boolean;
   machines: OperatorTimeReviewMachine[];
   technicians: OperatorTimeReportTechnician[];
+  entryOptions: OperatorTimeReviewEntryOption[];
   entries: OperatorTimeReviewEntry[];
   capabilities: {
     canCorrectTime: boolean;
@@ -730,6 +739,7 @@ export type TechnicianPayReportTechnician = {
   expenseReimbursementCents: number;
   currentTotalCents: number;
   publishable: boolean;
+  payStubRegenerationRequired?: boolean;
   entries: TechnicianPayReportEntry[];
   shiftRateLines: TechnicianPayReportShiftRateLine[];
   machines: TechnicianPayReportMachine[];
@@ -890,6 +900,20 @@ export type CorrectOperatorTimeEntryInput = {
   actualEndAt: string;
   notes?: string | null;
   void?: boolean;
+};
+
+export type CreateManagerTimeEntryInput = {
+  operatorProfileId: string;
+  machineId: string;
+  actualStartAt: string;
+  actualEndAt: string;
+  notes?: string | null;
+};
+
+export type CreateManagerTimeEntryResult = {
+  timeEntry: OperatorTimeReviewEntry;
+  context: OperatorTimeReviewContext;
+  afterTechnicianCutoff: boolean;
 };
 
 export type ReviewOperatorTimeEntryInput = {
@@ -1154,12 +1178,23 @@ export const fetchMyOperatorTimekeepingContext = async (
 export const fetchMyTimeReviewContext = async (
   workDate?: string
 ): Promise<OperatorTimeReviewContext> => {
-  const { data, error } = await supabaseClient.rpc('get_my_time_review_context', {
-    p_work_date: workDate ?? null,
-  });
+  const [contextResult, entryOptionsResult] = await Promise.all([
+    supabaseClient.rpc('get_my_time_review_context', {
+      p_work_date: workDate ?? null,
+    }),
+    supabaseClient.rpc('get_my_time_review_entry_options', {
+      p_work_date: workDate ?? null,
+    }),
+  ]);
+
+  const { data, error } = contextResult;
 
   if (error) {
     throw new Error(error.message || 'Unable to load time review.');
+  }
+
+  if (entryOptionsResult.error) {
+    throw new Error(entryOptionsResult.error.message || 'Unable to load Technician choices.');
   }
 
   return {
@@ -1176,6 +1211,7 @@ export const fetchMyTimeReviewContext = async (
       paymentExecution: false,
     },
     ...((data as Partial<OperatorTimeReviewContext> | null) ?? {}),
+    entryOptions: (entryOptionsResult.data as OperatorTimeReviewEntryOption[] | null) ?? [],
   };
 };
 
@@ -1402,6 +1438,33 @@ export const correctOperatorTimeEntry = async (
   }
 
   return payload.context;
+};
+
+export const createManagerTimeEntry = async (
+  input: CreateManagerTimeEntryInput
+): Promise<CreateManagerTimeEntryResult> => {
+  const { data, error } = await supabaseClient.rpc('manager_create_operator_time_entry', {
+    p_operator_profile_id: input.operatorProfileId,
+    p_reporting_machine_id: input.machineId,
+    p_actual_start_at: input.actualStartAt,
+    p_actual_end_at: input.actualEndAt,
+    p_notes: input.notes ?? null,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to add missed Technician time.');
+  }
+
+  const payload = data as Partial<CreateManagerTimeEntryResult>;
+  if (!payload.context || !payload.timeEntry) {
+    throw new Error('Time entry saved, but the updated manager report was not returned.');
+  }
+
+  return {
+    timeEntry: payload.timeEntry,
+    context: payload.context,
+    afterTechnicianCutoff: payload.afterTechnicianCutoff === true,
+  };
 };
 
 export const fetchPayoutRevenueSnapshotContext = async (

@@ -310,7 +310,9 @@ function TechnicianReport({
               onClick={onGeneratePayStub}
             >
               {isGeneratingPayStub ? <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Banknote className="mr-2 h-4 w-4" />}
-              {isGeneratingPayStub ? 'Publishing…' : 'Publish Pay Stub'}
+              {isGeneratingPayStub
+                ? technician.payStubRegenerationRequired ? 'Regenerating…' : 'Publishing…'
+                : technician.payStubRegenerationRequired ? 'Regenerate Pay Stub' : 'Publish Pay Stub'}
             </Button>
           </div>
         </div>

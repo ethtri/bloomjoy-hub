@@ -4,7 +4,7 @@ import { chromium } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
-const APP_URL = 'http://127.0.0.1:8081';
+const APP_URL = process.env.APP_URL || 'http://127.0.0.1:8081';
 const FIXED_NOW = new Date('2026-09-03T19:00:00.000Z');
 const PROFILE_ID = '77000000-0000-4000-8000-000000000010';
 const ACCOUNT_ID = '77000000-0000-4000-8000-000000000011';
@@ -76,6 +76,20 @@ const state = {
   ],
 };
 
+const timeEntryOptions = [{
+  operatorProfileId: PROFILE_ID,
+  operatorName: 'Alex Magana',
+  machineId: MACHINE_A,
+  effectiveStartDate: '2026-01-01',
+  effectiveEndDate: null,
+}, {
+  operatorProfileId: PROFILE_ID,
+  operatorName: 'Alex Magana',
+  machineId: MACHINE_B,
+  effectiveStartDate: '2026-01-01',
+  effectiveEndDate: null,
+}];
+
 const timeContext = () => ({
   workDate: '2026-09-01',
   periodStartDate: '2026-09-01',
@@ -85,6 +99,7 @@ const timeContext = () => ({
     { machineId: MACHINE_A, machineLabel: 'Cotton Candy 01', locationId: LOCATION_ID, locationName: 'Mall Atrium' },
     { machineId: MACHINE_B, machineLabel: 'Cotton Candy 02', locationId: LOCATION_ID, locationName: 'Mall Atrium' },
   ],
+  entryOptions: timeEntryOptions,
   entries: state.timeEntries,
 });
 
@@ -114,6 +129,7 @@ const payContext = {
     expenseReimbursementCents: 500,
     currentTotalCents: 23150,
     publishable: false,
+    payStubRegenerationRequired: true,
     entries: [
       { id: 'pay-entry-1', workDate: '2026-09-01', actualStartAt: '2026-09-01T08:00:00-07:00', actualEndAt: '2026-09-01T09:01:00-07:00', actualDurationMinutes: 61, paidShifts: 2, machineId: MACHINE_A, machineLabel: 'Cotton Candy 01', locationId: LOCATION_ID, locationName: 'Mall Atrium', shiftRate: {}, shiftRateCents: 2000, shiftEarningsCents: 4000 },
       { id: 'pay-entry-2', workDate: '2026-09-16', actualStartAt: '2026-09-16T08:00:00-07:00', actualEndAt: '2026-09-16T09:00:00-07:00', actualDurationMinutes: 60, paidShifts: 1, machineId: MACHINE_A, machineLabel: 'Cotton Candy 01', locationId: LOCATION_ID, locationName: 'Mall Atrium', shiftRate: {}, shiftRateCents: 2500, shiftEarningsCents: 2500 },
@@ -278,10 +294,22 @@ const installRoutes = async (context) => {
     if (rpcName === 'get_my_portal_access_context') return route.fulfill(json({ access_tier: 'plus', is_plus_member: true, is_training_operator: false, is_admin: true, is_corporate_partner: false, capabilities: ['timekeeping.review'], effective_presets: ['super_admin'] }));
     if (rpcName === 'get_my_reporting_access_context') return route.fulfill(json({ has_reporting_access: true, can_manage_reporting: true }));
     if (rpcName === 'get_my_time_review_context') return route.fulfill(json(timeContext()));
+    if (rpcName === 'get_my_time_review_entry_options') return route.fulfill(json(timeEntryOptions));
     if (rpcName === 'get_my_time_report_access') return route.fulfill(json(true));
     if (rpcName === 'manager_correct_operator_time_entry') {
       state.timeEntries = state.timeEntries.map((candidate) => candidate.id === body.p_time_entry_id ? { ...candidate, actualEndAt: body.p_actual_end_at, endTime: '09:00', actualDurationMinutes: 60, rawDurationMinutes: 60, paidShifts: 1, roundedPaidMinutes: 60 } : candidate);
-      return route.fulfill(json({ context: timeContext() }));
+      const legacyCorrectionContext = timeContext();
+      delete legacyCorrectionContext.entryOptions;
+      return route.fulfill(json({ context: legacyCorrectionContext }));
+    }
+    if (rpcName === 'manager_create_operator_time_entry') {
+      const createdEntry = entry('time-missed', body.p_reporting_machine_id, 'Cotton Candy 01', '2026-09-03', '10:00', '11:01', 61, 2);
+      state.timeEntries = [...state.timeEntries, createdEntry];
+      return route.fulfill(json({
+        timeEntry: createdEntry,
+        afterTechnicianCutoff: true,
+        context: timeContext(),
+      }));
     }
     if (rpcName === 'get_technician_pay_report_context') return route.fulfill(json(payContext));
     if (rpcName === 'get_timekeeping_setup_context') return route.fulfill(json(setupContext));
@@ -355,9 +383,46 @@ const run = async () => {
     await page.getByRole('dialog').waitFor({ state: 'hidden' });
     const correction = state.rpcCalls.find((call) => call.rpcName === 'manager_correct_operator_time_entry');
     check('Correction sends exact canonical timestamps without reason', Boolean(correction?.body.p_actual_start_at && correction?.body.p_actual_end_at && !('p_reason' in correction.body)));
+    await page.getByRole('button', { name: 'Add missed time' }).click();
+    check('Missed-time dialog explains the cutoff and audit behavior', await page.getByText(/works after the monthly cutoff and stays in the audit history/i).isVisible());
+    await page.locator('#missed-time-date').fill('2026-09-03');
+    await page.locator('#missed-time-start').fill('10:00');
+    await page.locator('#missed-time-end').fill('11:01');
+    check('Missed-time preview uses per-entry rounding', await page.getByText('1 hr 1 min actual → 2 paid shifts', { exact: true }).isVisible());
+    await page.screenshot({ path: path.join(artifactDir, 'missed-time-desktop.png') });
+    await page.getByRole('button', { name: 'Add to report' }).click();
+    await page.waitForTimeout(500);
+    if (await page.getByRole('dialog').isVisible()) {
+      throw new Error(`Missed-time dialog did not close after save: ${await page.getByRole('dialog').innerText()}`);
+    }
+    await page.getByRole('dialog').waitFor({ state: 'hidden' });
+    const missedTime = state.rpcCalls.find((call) => call.rpcName === 'manager_create_operator_time_entry');
+    check('Missed time sends Technician, machine, and exact canonical timestamps without an approval reason', Boolean(missedTime?.body.p_operator_profile_id === PROFILE_ID && missedTime?.body.p_reporting_machine_id === MACHINE_A && missedTime?.body.p_actual_start_at && missedTime?.body.p_actual_end_at && !('p_reason' in missedTime.body)));
+    check('Missed time appears in the refreshed report', (await page.locator('body').innerText()).includes('1 hr 1 min actual · 2 paid shifts'));
+    check('Late missed time clearly confirms it was included after cutoff without exposing pay-stub state', await page.getByText(/included in the manager report/i).isVisible());
     await page.screenshot({ path: path.join(artifactDir, 'time-report-desktop.png'), fullPage: true });
 
+    await page.setViewportSize({ width: 390, height: 667 });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByRole('heading', { name: 'Time Report' }).waitFor();
+    check('Time Report has no mobile page overflow', await noOverflow(page));
+    await page.getByRole('button', { name: 'Add missed time' }).click();
+    const missedTimeMobileDialog = page.getByRole('dialog');
+    await missedTimeMobileDialog.waitFor();
+    const missedTimeDialogFitsViewport = await missedTimeMobileDialog.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return bounds.top >= 0 && bounds.bottom <= window.innerHeight + 1;
+    });
+    check('Missed-time dialog is bounded and scrollable on a short phone viewport', missedTimeDialogFitsViewport);
+    const mobileAddTimeButton = page.getByRole('button', { name: 'Add to report' });
+    await mobileAddTimeButton.scrollIntoViewIfNeeded();
+    check('Missed-time action remains reachable on a short phone viewport', await mobileAddTimeButton.isVisible());
+    await page.screenshot({ path: path.join(artifactDir, 'missed-time-mobile.png'), fullPage: true });
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await page.setViewportSize({ width: 1365, height: 900 });
+
     await openAuthenticated(page, '/admin/payouts', 'Technician Pay Report');
+    check('Pay Report labels a stale published statement as needing regeneration', await page.getByRole('button', { name: 'Regenerate Pay Stub' }).isVisible());
     await page.getByText('Contractor 1042', { exact: true }).waitFor();
     await page.locator('#pay-report-month').fill('');
     check('Pay Report ignores an empty native month-input change without crashing', await page.locator('#pay-report-month').inputValue() === '2026-09' && await page.getByRole('heading', { name: 'Technician Pay Report' }).isVisible());
