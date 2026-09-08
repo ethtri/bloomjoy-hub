@@ -45,7 +45,7 @@ This section records the earlier held-case migration. It is not current authorit
 
 Rollback before a manager action: redeploy the prior frontend/functions and apply a new forward-only migration that restores the official-action and resolver gates to false. Rollback after a committed result must never reverse the reporting adjustment, reopen the attempt, resend the customer message, or call Nayax; preserve the immutable outcome and roll back UI/function availability only.
 
-Historical held-case release-state note: the canonical ten-function/51-migration object remains immutable pre-`#427` evidence. For that held transaction only, Nayax support confirmed a refund and the reviewed closeout used a provider-free resolution-window/closure sequence; no further request or approval was permitted. Those exact-window and hard-off statements describe the completed held-case recovery, not current API permissions or the normal refund lane.
+Historical held-case release-state note: the canonical ten-function/51-migration object remains immutable pre-`#427` evidence. For that held transaction only, Nayax support confirmed a refund and the reviewed closeout used a paired provider-free resolution-window/closure sequence; no further request or approval was permitted. Those exact-window and hard-off statements describe the completed held-case recovery, not current API permissions or the normal refund lane.
 
 ## 1) Roles and ownership
 - Release owner: owns the operating limits and may engage the kill switch; no repeated per-case go/no-go is required after the current policy is recorded.
