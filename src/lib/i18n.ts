@@ -106,9 +106,9 @@ export const translations = {
       'Guided agreement setup, participants, assigned machines, split terms, and preview.',
     'admin.reporting': 'Reporting',
     'admin.reportingDescription': 'Report schedules, exports, and sync status.',
-    'admin.payouts': 'Technician Pay',
+    'admin.payouts': 'Technician Pay Report',
     'admin.payoutsDescription':
-      'Timekeeping-based pay review, adjustments, finalization, and pay statements.',
+      'Paid shifts, commission, other earnings, and calculation issues.',
     'admin.refunds': 'Refunds',
     'admin.refundsDescription':
       'Review assigned refund cases and take the next step.',
@@ -131,7 +131,7 @@ export const translations = {
     'portal.access.refunds': 'Refunds',
     'portal.access.team': 'Team',
     'portal.access.timekeeping': 'Timekeeping',
-    'portal.access.timeReview': 'Time Review',
+    'portal.access.timeReview': 'Time Report',
     'portal.access.open': 'Open',
 
     'portal.nav.dashboard': 'Dashboard',
@@ -141,9 +141,9 @@ export const translations = {
     'portal.nav.time': 'Time',
     'portal.nav.timeDescription':
       'Record completed work by machine and view your weekly time.',
-    'portal.nav.timeReview': 'Review Time',
+    'portal.nav.timeReview': 'Time Report',
     'portal.nav.timeReviewDescription':
-      'Approve or return submitted shifts for managed machines.',
+      'View and correct completed time for managed machines.',
     'portal.nav.account': 'Account Settings',
     'portal.nav.accountDescription': 'Profile, billing, shipping, and language preferences.',
     'portal.nav.team': 'Team',
@@ -856,8 +856,8 @@ export const translations = {
     'admin.partnershipsDescription': '协议设置、参与方、分配机器、分账条款和预览。',
     'admin.reporting': '报表',
     'admin.reportingDescription': '报表计划、导出和同步状态。',
-    'admin.payouts': '技术员薪酬',
-    'admin.payoutsDescription': '基于工时的技术员薪酬审核、调整、最终确认和薪酬单。',
+    'admin.payouts': '技术员薪酬报告',
+    'admin.payoutsDescription': '查看班次收入、佣金、其他收入和需要处理的数据问题。',
     'admin.refunds': '退款',
     'admin.refundsDescription': '退款受理、关联凭证、经理决策和结算准备。',
 
@@ -878,7 +878,7 @@ export const translations = {
     'portal.access.refunds': '退款',
     'portal.access.team': '团队',
     'portal.access.timekeeping': '工时',
-    'portal.access.timeReview': '工时审核',
+    'portal.access.timeReview': '工时报告',
     'portal.access.open': '开放',
 
     'portal.nav.dashboard': '仪表盘',
@@ -887,8 +887,8 @@ export const translations = {
     'portal.nav.ordersDescription': '收据、总额和物流跟踪。',
     'portal.nav.time': '工时',
     'portal.nav.timeDescription': '按机器记录已完成的工作，并查看每周工时。',
-    'portal.nav.timeReview': '审核工时',
-    'portal.nav.timeReviewDescription': '审核或退回所管理机器的已提交班次。',
+    'portal.nav.timeReview': '工时报告',
+    'portal.nav.timeReviewDescription': '查看并更正所管理机器的已完成工时。',
     'portal.nav.account': '账户设置 / Account Settings',
     'portal.nav.accountDescription': '资料、账单、收货信息和语言偏好。',
     'portal.nav.team': '团队 / Team',

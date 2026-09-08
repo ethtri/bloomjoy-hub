@@ -599,7 +599,7 @@ Historical controlled-pilot regression evidence remains the **ten-function/51-mi
 - [ ] Technician Time blocks end-before-start, future work, exact duplicates, and any overlapping time for the same Technician, including overlaps across different machines.
 - [ ] Technician edit/delete controls work through 11:59 p.m. Pacific on the fourth day after month-end and fail closed at the start of day five; December time therefore locks to the Technician at the start of January 5.
 - [ ] Technician Time empty state explains that assigned machines are required before time can be entered, without exposing payroll-setup jargon.
-- [ ] Review Time (`/portal/time-review`) becomes the manager Time Report, appears only for machine-manager/payout-management authority, and returns time only for machines the current manager may manage.
+- [ ] Time Report (`/portal/time-review`) appears only for machine-manager/payout-management authority and returns time only for machines the current manager may manage.
 - [ ] The Time Report defaults to the current month, supports another month, filters by Technician and machine, and shows actual time, calculated shifts, per-Technician totals, and machine breakdowns without unrelated account data.
 - [ ] The manager Time Report contains no approve, reject, return, or correction-request workflow.
 - [ ] A Machine Manager may edit an in-scope entry before or after the Technician lock date without supplying a written reason; the database retains before/after audit history.
@@ -617,6 +617,7 @@ Historical controlled-pilot regression evidence remains the **ten-function/51-mi
 - [ ] Manager corrections after the Technician cutoff recalculate the affected report without requiring a per-entry approval or edit reason.
 - [ ] Missing required rates, unresolved machine scope, stale required sales data, and other calculation blockers appear as manager exception work and prevent a knowingly incomplete Pay Stub from publishing.
 - [ ] Reporting and pay-stub publication do not execute payment, require proof of payment, or claim direct-deposit/tax-provider behavior.
+- [ ] Run `npm run operator-payouts:validate-manager-reports-uat` against `npm run dev:uat`; review the desktop Time Report, desktop Pay Report, and mobile Pay Report screenshots in `output/playwright/manager-time-pay-reports`.
 
 ### Technician Pay Stubs (legacy validator: Technician Pay Statements)
 - [ ] At the start of the fifth day after month-end, the system idempotently generates and publishes one Pay Stub for each payable Technician whose locked monthly report has complete required inputs; safe retries do not duplicate a current statement or adjustment.

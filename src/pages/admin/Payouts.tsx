@@ -1,1036 +1,314 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   AlertTriangle,
-  Ban,
-  CheckCircle2,
+  Banknote,
+  CalendarDays,
   Clock3,
-  FileText,
   Loader2,
   RefreshCw,
-  RotateCcw,
-  Send,
   ShieldCheck,
+  ShoppingBag,
+  UserRound,
 } from 'lucide-react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import {
-  addPayoutAdjustmentAdmin,
-  calculatePayoutRunAdmin,
-  fetchPayoutReviewContext,
-  finalizePayoutRunAdmin,
-  issuePayStatementsAdmin,
-  markPayoutRunReviewedAdmin,
-  previewPayStatementsAdmin,
-  reopenPayoutRunAdmin,
-  voidPayoutRunAdmin,
-  type PayStatementPreviewResult,
-  type PayoutCalculationWarning,
-  type PayoutReviewPeriod,
-  type PayoutRun,
-  type PayoutRunItem,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  fetchTechnicianPayReportContext,
+  type TechnicianPayReportTechnician,
 } from '@/lib/operatorPayouts';
+import { getTodayInTimekeepingZone } from '@/lib/timekeepingUi';
 import { cn } from '@/lib/utils';
 
-type ReviewAction = 'mark_reviewed' | 'finalize' | 'reopen' | 'void';
+const currentMonthValue = () => getTodayInTimekeepingZone().slice(0, 7);
 
-const statusVariant = (status: string): 'default' | 'destructive' | 'outline' => {
-  if (['finalized', 'issued', 'closed', 'reviewed'].includes(status)) return 'default';
-  if (status === 'voided') return 'destructive';
-  return 'outline';
+const formatCurrency = (cents: number | null | undefined) =>
+  new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(
+    (cents ?? 0) / 100
+  );
+
+const formatDuration = (minutes: number) => {
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  if (!hours) return `${remainder} min`;
+  if (!remainder) return `${hours} hr${hours === 1 ? '' : 's'}`;
+  return `${hours} hr ${remainder} min`;
 };
-
-const warningVariant = (severity: string): 'default' | 'destructive' | 'outline' =>
-  severity === 'blocker' ? 'destructive' : severity === 'warning' ? 'outline' : 'default';
-
-const formatStatus = (value: string) =>
-  value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 
 const formatDate = (value: string | null | undefined) =>
   value
-    ? new Date(`${value}T00:00:00`).toLocaleDateString(undefined, {
+    ? new Intl.DateTimeFormat(undefined, {
         month: 'short',
         day: 'numeric',
         year: 'numeric',
-      })
-    : 'n/a';
+        timeZone: 'UTC',
+      }).format(new Date(`${value}T12:00:00.000Z`))
+    : '—';
 
-const formatCurrency = (cents: number | null | undefined) =>
-  new Intl.NumberFormat(undefined, {
-    style: 'currency',
-    currency: 'USD',
-  }).format((cents ?? 0) / 100);
+const formatMonth = (month: string) =>
+  new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(
+    new Date(`${month}-01T12:00:00.000Z`)
+  );
 
-const formatHours = (minutes: number) => `${(minutes / 60).toFixed(2)}h`;
-
-const centsFromCurrency = (value: string) => {
-  const normalized = value.replace(/[$,\s]/g, '');
-  if (!normalized) return null;
-  const numeric = Number(normalized);
-  if (!Number.isFinite(numeric) || numeric === 0) return null;
-  return Math.round(numeric * 100);
-};
-
-const collectWarnings = (run: PayoutRun | null): PayoutCalculationWarning[] => [
-  ...(run?.warnings ?? []),
-  ...(run?.items.flatMap((item) => item.warnings) ?? []),
-];
+const formatRate = (basisPoints: number | null | undefined) =>
+  `${((basisPoints ?? 0) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
 
 const Metric = ({
   label,
   value,
-  tone = 'default',
+  helper,
+  icon: Icon,
 }: {
   label: string;
   value: string;
-  tone?: 'default' | 'good' | 'warning';
+  helper: string;
+  icon: typeof Clock3;
 }) => (
-  <div
-    className={cn(
-      'rounded-lg border bg-background p-4',
-      tone === 'good' && 'border-sage/30 bg-sage-light',
-      tone === 'warning' && 'border-amber/30 bg-amber/10'
-    )}
-  >
-    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-      {label}
-    </p>
-    <p className="mt-2 text-2xl font-semibold text-foreground">{value}</p>
+  <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
+        <p className="mt-2 text-2xl font-semibold text-foreground">{value}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{helper}</p>
+      </div>
+      <span className="rounded-lg bg-primary/10 p-2 text-primary"><Icon className="h-4 w-4" /></span>
+    </div>
   </div>
 );
 
-const EmptyState = ({ title, children }: { title: string; children: ReactNode }) => (
-  <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-sm">
-    <h2 className="font-semibold text-foreground">{title}</h2>
-    <p className="mt-2 text-muted-foreground">{children}</p>
+const BreakdownRow = ({ label, detail, amount }: { label: string; detail: ReactNode; amount: string }) => (
+  <div className="grid gap-1 border-t border-border py-3 first:border-t-0 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)_auto] sm:items-center sm:gap-4">
+    <p className="font-medium text-foreground">{label}</p>
+    <div className="text-sm text-muted-foreground">{detail}</div>
+    <p className="text-base font-semibold text-foreground sm:text-right">{amount}</p>
   </div>
 );
 
-const PeriodCard = ({
-  period,
-  selected,
-  onSelect,
-}: {
-  period: PayoutReviewPeriod;
-  selected: boolean;
-  onSelect: () => void;
-}) => {
-  const run = period.payoutRun;
-  const warningCount = collectWarnings(run).length;
+const issueKey = (issue: { code: string; message: string }, index: number) =>
+  `${issue.code}-${issue.message}-${index}`;
+
+function TechnicianReport({ technician }: { technician: TechnicianPayReportTechnician }) {
+  const issues = [...technician.blockers, ...technician.warnings];
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={cn(
-        'w-full rounded-lg border p-4 text-left transition-colors',
-        selected
-          ? 'border-primary/40 bg-primary/10'
-          : 'border-border bg-background hover:bg-muted/40'
-      )}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-foreground">{period.accountName}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {formatDate(period.periodStartDate)} - {formatDate(period.periodEndDate)}
-          </p>
-        </div>
-        <Badge variant={statusVariant(run?.status ?? period.status)}>
-          {formatStatus(run?.status ?? period.status)}
-        </Badge>
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-        <span>{formatCurrency(run?.totalPayoutCents ?? 0)}</span>
-        <span>{run?.items.length ?? 0} Technicians</span>
-        {warningCount > 0 && <span>{warningCount} warnings</span>}
-        {period.revisionCount > 0 && <span>{period.revisionCount} revisions</span>}
-      </div>
-    </button>
-  );
-};
-
-const OperatorItemCard = ({ item }: { item: PayoutRunItem }) => (
-  <div className="rounded-lg border border-border bg-background p-4">
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div>
-        <h3 className="font-semibold text-foreground">{item.operatorDisplayName}</h3>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <Badge variant={statusVariant(item.status)}>{formatStatus(item.status)}</Badge>
-          <Badge variant="outline">{formatHours(item.roundedPaidMinutes)}</Badge>
-          <Badge variant="outline">{item.shiftCount} shifts</Badge>
-        </div>
-      </div>
-      <div className="text-left sm:text-right">
-        <p className="text-lg font-semibold text-foreground">
-          {formatCurrency(item.totalPayoutCents)}
-        </p>
-        <p className="text-xs text-muted-foreground">
-          {formatCurrency(item.hourlyPayCents)} hourly / {formatCurrency(item.commissionPayCents)} commission
-        </p>
-      </div>
-    </div>
-
-    {item.warnings.length > 0 && (
-      <div className="mt-4 space-y-2">
-        {item.warnings.map((warning, index) => (
-          <div
-            key={`${warning.code}-${index}`}
-            className="rounded-md border border-amber/30 bg-amber/10 p-3 text-xs text-amber-900"
-          >
-            <span className="font-semibold">{formatStatus(warning.severity)}:</span>{' '}
-            {warning.message}
-          </div>
-        ))}
-      </div>
-    )}
-
-    <div className="mt-4 overflow-x-auto">
-      <table className="min-w-full text-left text-sm">
-        <thead className="text-xs uppercase text-muted-foreground">
-          <tr>
-            <th className="py-2 pr-4 font-semibold">Machine</th>
-            <th className="py-2 pr-4 font-semibold">Time</th>
-            <th className="py-2 pr-4 font-semibold">Revenue</th>
-            <th className="py-2 pr-4 font-semibold">Commission</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {item.machines.map((machine) => (
-            <tr key={machine.id}>
-              <td className="py-2 pr-4">
-                <span className="block font-medium text-foreground">{machine.machineLabel}</span>
-                <span className="text-xs text-muted-foreground">{machine.locationName}</span>
-              </td>
-              <td className="py-2 pr-4">{formatHours(machine.roundedPaidMinutes)}</td>
-              <td className="py-2 pr-4">{formatCurrency(machine.eligibleNetRevenueCents)}</td>
-              <td className="py-2 pr-4">{formatCurrency(machine.commissionPayCents)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-
-    {item.adjustments.length > 0 && (
-      <div className="mt-4 rounded-md border border-border bg-muted/20 p-3">
-        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          Adjustments
-        </p>
-        <div className="mt-2 space-y-2 text-sm">
-          {item.adjustments.map((adjustment) => (
-            <div key={adjustment.id} className="flex items-start justify-between gap-3">
-              <span className="text-muted-foreground">{adjustment.description}</span>
-              <span className="font-medium text-foreground">
-                {formatCurrency(adjustment.amountCents)}
-              </span>
+    <article className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <header className="border-b border-border bg-muted/25 p-4 sm:p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-lg font-semibold text-foreground">{technician.displayName}</h2>
+              <Badge variant="outline">{technician.workerType || 'Contractor'}</Badge>
+              {technician.publishable ? (
+                <Badge className="border-sage/30 bg-sage-light text-foreground">Ready</Badge>
+              ) : (
+                <Badge variant="destructive">Needs attention</Badge>
+              )}
             </div>
-          ))}
+            <p className="mt-1 text-sm text-muted-foreground">
+              {technician.workerIdentifier || technician.positionTitle || 'Technician'}
+            </p>
+          </div>
+          <div className="sm:text-right">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Current total</p>
+            <p className="mt-1 text-2xl font-semibold text-foreground">{formatCurrency(technician.currentTotalCents)}</p>
+          </div>
         </div>
-      </div>
-    )}
-  </div>
-);
+      </header>
+
+      {issues.length > 0 && (
+        <section className="border-b border-border p-4 sm:p-5" aria-labelledby={`issues-${technician.operatorProfileId}`}>
+          <h3 id={`issues-${technician.operatorProfileId}`} className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <AlertTriangle className="h-4 w-4 text-amber-700" /> Calculation issues
+          </h3>
+          <div className="mt-3 space-y-2">
+            {issues.map((issue, index) => (
+              <div
+                key={issueKey(issue, index)}
+                className={cn(
+                  'rounded-lg border px-3 py-2 text-sm',
+                  issue.severity === 'blocker'
+                    ? 'border-destructive/30 bg-destructive/5 text-destructive'
+                    : 'border-amber-300/60 bg-amber-50 text-amber-950'
+                )}
+                role={issue.severity === 'blocker' ? 'alert' : undefined}
+              >
+                <span className="font-semibold">{issue.severity === 'blocker' ? 'Blocks publishing: ' : 'Check: '}</span>
+                {issue.message}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="p-4 sm:p-5" aria-labelledby={`shift-pay-${technician.operatorProfileId}`}>
+        <h3 id={`shift-pay-${technician.operatorProfileId}`} className="font-semibold text-foreground">Shift pay</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Every started hour is one paid shift. A 61-minute entry is two shifts.
+        </p>
+        <div className="mt-3 rounded-lg border border-border px-3">
+          {technician.shiftRateLines.length ? technician.shiftRateLines.map((line, index) => (
+            <BreakdownRow
+              key={`${line.shiftRateCents}-${line.firstWorkDate}-${index}`}
+              label={`${line.paidShifts} shift${line.paidShifts === 1 ? '' : 's'} × ${formatCurrency(line.shiftRateCents)}`}
+              detail={<>{formatDuration(line.actualDurationMinutes)} actual · {formatDate(line.firstWorkDate)}–{formatDate(line.lastWorkDate)}</>}
+              amount={formatCurrency(line.shiftEarningsCents)}
+            />
+          )) : <p className="py-4 text-sm text-muted-foreground">No paid shifts in this month.</p>}
+        </div>
+      </section>
+
+      <section className="border-t border-border p-4 sm:p-5" aria-labelledby={`commission-${technician.operatorProfileId}`}>
+        <h3 id={`commission-${technician.operatorProfileId}`} className="font-semibold text-foreground">Machine sales and commission</h3>
+        <p className="mt-1 text-sm text-muted-foreground">Sales are shown so the commission amount can be checked.</p>
+        <div className="mt-3 rounded-lg border border-border px-3">
+          {technician.machines.length ? technician.machines.map((machine) => (
+            <BreakdownRow
+              key={machine.machineId}
+              label={machine.machineLabel}
+              detail={
+                <>
+                  <span>{machine.locationName} · {formatCurrency(machine.commissionableSalesCents)} commissionable sales × {formatRate(machine.commissionBasisPoints)}</span>
+                  {machine.refundAdjustmentCents !== 0 && <span className="mt-1 block">Includes {formatCurrency(machine.refundAdjustmentCents)} refund adjustment</span>}
+                </>
+              }
+              amount={formatCurrency(machine.commissionEarningsCents)}
+            />
+          )) : <p className="py-4 text-sm text-muted-foreground">No commissionable machine sales in this month.</p>}
+        </div>
+      </section>
+
+      <section className="border-t border-border p-4 sm:p-5" aria-labelledby={`other-pay-${technician.operatorProfileId}`}>
+        <h3 id={`other-pay-${technician.operatorProfileId}`} className="font-semibold text-foreground">Other earnings</h3>
+        <div className="mt-3 rounded-lg border border-border px-3">
+          {technician.otherEarnings.length ? technician.otherEarnings.map((earning) => (
+            <BreakdownRow
+              key={earning.id}
+              label={earning.type === 'bonus' ? 'Bonus' : earning.type === 'supply_credit' ? 'Supply Credit' : 'Expense Reimbursement'}
+              detail={<>{earning.description || 'No description'} · {formatDate(earning.effectiveStartDate)}</>}
+              amount={formatCurrency(earning.amountCents)}
+            />
+          )) : <p className="py-4 text-sm text-muted-foreground">No bonuses, supply credits, or expense reimbursements.</p>}
+        </div>
+      </section>
+
+      <footer className="grid gap-2 border-t border-border bg-muted/20 p-4 text-sm sm:grid-cols-4 sm:p-5">
+        <div><span className="text-muted-foreground">Shift earnings</span><strong className="mt-1 block text-foreground">{formatCurrency(technician.shiftEarningsCents)}</strong></div>
+        <div><span className="text-muted-foreground">Commission</span><strong className="mt-1 block text-foreground">{formatCurrency(technician.commissionEarningsCents)}</strong></div>
+        <div><span className="text-muted-foreground">Other earnings</span><strong className="mt-1 block text-foreground">{formatCurrency(technician.bonusCents + technician.supplyCreditCents + technician.expenseReimbursementCents)}</strong></div>
+        <div><span className="text-muted-foreground">Current total</span><strong className="mt-1 block text-lg text-foreground">{formatCurrency(technician.currentTotalCents)}</strong></div>
+      </footer>
+    </article>
+  );
+}
 
 export default function AdminPayoutsPage() {
-  const queryClient = useQueryClient();
-  const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
-  const [calculateReason, setCalculateReason] = useState('');
-  const [isCalculating, setIsCalculating] = useState(false);
-  const [action, setAction] = useState<ReviewAction | null>(null);
-  const [actionReason, setActionReason] = useState('');
-  const [overrideBlockers, setOverrideBlockers] = useState(false);
-  const [overrideReason, setOverrideReason] = useState('');
-  const [adjustmentForm, setAdjustmentForm] = useState({
-    operatorProfileId: '',
-    amount: '',
-    adjustmentType: 'manual_adjustment',
-    description: '',
-    reason: '',
-    visibleToOperator: true,
-  });
-  const [isAddingAdjustment, setIsAddingAdjustment] = useState(false);
-  const [isRunningAction, setIsRunningAction] = useState(false);
-  const [statementPreview, setStatementPreview] = useState<PayStatementPreviewResult | null>(null);
-  const [isPreviewingStatements, setIsPreviewingStatements] = useState(false);
-  const [isIssuingStatements, setIsIssuingStatements] = useState(false);
-  const [issueReason, setIssueReason] = useState('');
-  const [issueRevisionReason, setIssueRevisionReason] = useState('');
+  const [month, setMonth] = useState(currentMonthValue);
+  const [accountId, setAccountId] = useState('all');
+  const [technicianId, setTechnicianId] = useState('all');
+  const [machineId, setMachineId] = useState('all');
 
-  const {
-    data: reviewContext,
-    isLoading,
-    isFetching,
-    error,
-  } = useQuery({
-    queryKey: ['admin-payout-review-context'],
-    queryFn: fetchPayoutReviewContext,
-    staleTime: 1000 * 20,
+  const { data: context, isLoading, isFetching, error, refetch } = useQuery({
+    queryKey: ['technician-pay-report', month],
+    queryFn: () => fetchTechnicianPayReportContext(month),
+    staleTime: 20_000,
+    retry: false,
   });
 
-  const periods = useMemo(() => reviewContext?.periods ?? [], [reviewContext?.periods]);
-  const selectedPeriod = useMemo(
-    () => periods.find((period) => period.id === selectedPeriodId) ?? periods[0] ?? null,
-    [periods, selectedPeriodId]
+  const technicians = useMemo(() => context?.technicians ?? [], [context?.technicians]);
+  const machines = useMemo(
+    () => [...new Map(technicians.flatMap((technician) => technician.machines.map((machine) => [machine.machineId, machine.machineLabel] as const))).entries()].map(([id, label]) => ({ id, label })).sort((left, right) => left.label.localeCompare(right.label)),
+    [technicians]
   );
-  const selectedRun = selectedPeriod?.payoutRun ?? null;
-  const warnings = useMemo(() => collectWarnings(selectedRun), [selectedRun]);
-  const blockerCount = warnings.filter((warning) => warning.severity === 'blocker').length;
-  const canMutateRun =
-    Boolean(selectedPeriod?.canFinalize) &&
-    Boolean(selectedRun) &&
-    ['draft', 'review', 'reopened'].includes(selectedRun?.status ?? '');
-  const canIssueStatements =
-    Boolean(selectedPeriod?.canFinalize) &&
-    Boolean(selectedRun) &&
-    ['finalized', 'issued'].includes(selectedRun?.status ?? '');
-  const hasIssuedStatements = Boolean(selectedPeriod?.issuedStatementCount);
-
-  useEffect(() => {
-    if (!selectedPeriodId && periods[0]) {
-      setSelectedPeriodId(periods[0].id);
-    }
-  }, [periods, selectedPeriodId]);
-
-  useEffect(() => {
-    const firstOperator = selectedRun?.items[0]?.operatorProfileId ?? '';
-    setAdjustmentForm((current) => ({
-      ...current,
-      operatorProfileId: firstOperator,
-    }));
-  }, [selectedRun?.id, selectedRun?.items]);
-
-  useEffect(() => {
-    setStatementPreview(null);
-    setIssueReason('');
-    setIssueRevisionReason('');
-  }, [selectedRun?.id]);
-
-  const refresh = () =>
-    queryClient.invalidateQueries({ queryKey: ['admin-payout-review-context'] });
-
-  const runCalculation = async () => {
-    if (!selectedPeriod) return;
-    const existingRun = Boolean(selectedPeriod.payoutRun);
-
-    if (existingRun && !calculateReason.trim()) {
-      toast.error('Enter a recalculation reason before regenerating this pay run.');
-      return;
-    }
-
-    setIsCalculating(true);
-    try {
-      await calculatePayoutRunAdmin({
-        payoutPeriodId: selectedPeriod.id,
-        regenerate: existingRun,
-        reason: calculateReason.trim() || null,
-      });
-      toast.success(existingRun ? 'Pay run recalculated.' : 'Pay run generated.');
-      setCalculateReason('');
-      await refresh();
-    } catch (calculationError) {
-      toast.error(
-        calculationError instanceof Error
-          ? calculationError.message
-          : 'Unable to calculate pay run.'
-      );
-    } finally {
-      setIsCalculating(false);
-    }
-  };
-
-  const resetActionDialog = () => {
-    setAction(null);
-    setActionReason('');
-    setOverrideBlockers(false);
-    setOverrideReason('');
-  };
-
-  const runReviewAction = async () => {
-    if (!selectedRun || !action) return;
-
-    if (!actionReason.trim()) {
-      toast.error('Enter an audit reason before saving this pay action.');
-      return;
-    }
-
-    if (action === 'finalize' && overrideBlockers && !overrideReason.trim()) {
-      toast.error('Enter an override reason for critical pay warnings.');
-      return;
-    }
-
-    setIsRunningAction(true);
-    try {
-      if (action === 'mark_reviewed') {
-        await markPayoutRunReviewedAdmin({
-          payoutRunId: selectedRun.id,
-          reason: actionReason.trim(),
-        });
-        toast.success('Pay run marked reviewed.');
-      }
-
-      if (action === 'finalize') {
-        await finalizePayoutRunAdmin({
-          payoutRunId: selectedRun.id,
-          reason: actionReason.trim(),
-          overrideBlockers,
-          overrideReason: overrideBlockers ? overrideReason.trim() : null,
-        });
-        toast.success('Pay run finalized.');
-      }
-
-      if (action === 'reopen') {
-        await reopenPayoutRunAdmin({
-          payoutRunId: selectedRun.id,
-          reason: actionReason.trim(),
-        });
-        toast.success('Pay run reopened.');
-      }
-
-      if (action === 'void') {
-        await voidPayoutRunAdmin({
-          payoutRunId: selectedRun.id,
-          reason: actionReason.trim(),
-        });
-        toast.success('Pay run voided.');
-      }
-
-      resetActionDialog();
-      await refresh();
-    } catch (actionError) {
-      toast.error(actionError instanceof Error ? actionError.message : 'Unable to update pay run.');
-    } finally {
-      setIsRunningAction(false);
-    }
-  };
-
-  const addAdjustment = async () => {
-    if (!selectedRun) return;
-    const amountCents = centsFromCurrency(adjustmentForm.amount);
-
-    if (!adjustmentForm.operatorProfileId) {
-      toast.error('Choose a Technician for the adjustment.');
-      return;
-    }
-
-    if (amountCents === null) {
-      toast.error('Enter a non-zero adjustment amount.');
-      return;
-    }
-
-    if (!adjustmentForm.description.trim() || !adjustmentForm.reason.trim()) {
-      toast.error('Adjustment description and audit reason are required.');
-      return;
-    }
-
-    setIsAddingAdjustment(true);
-    try {
-      await addPayoutAdjustmentAdmin({
-        payoutRunId: selectedRun.id,
-        operatorProfileId: adjustmentForm.operatorProfileId,
-        amountCents,
-        adjustmentType: adjustmentForm.adjustmentType,
-        description: adjustmentForm.description.trim(),
-        visibleToOperator: adjustmentForm.visibleToOperator,
-        reason: adjustmentForm.reason.trim(),
-      });
-      toast.success('Adjustment added and pay run recalculated.');
-      setAdjustmentForm((current) => ({
-        ...current,
-        amount: '',
-        description: '',
-        reason: '',
-      }));
-      await refresh();
-    } catch (adjustmentError) {
-      toast.error(
-        adjustmentError instanceof Error ? adjustmentError.message : 'Unable to add adjustment.'
-      );
-    } finally {
-      setIsAddingAdjustment(false);
-    }
-  };
-
-  const previewStatements = async () => {
-    if (!selectedRun) return;
-
-    setIsPreviewingStatements(true);
-    try {
-      const preview = await previewPayStatementsAdmin(selectedRun.id);
-      setStatementPreview(preview);
-      toast.success(`Previewed ${preview.statementCount} pay statement${preview.statementCount === 1 ? '' : 's'}.`);
-    } catch (previewError) {
-      toast.error(
-        previewError instanceof Error ? previewError.message : 'Unable to preview pay statements.'
-      );
-    } finally {
-      setIsPreviewingStatements(false);
-    }
-  };
-
-  const issueStatements = async () => {
-    if (!selectedRun) return;
-
-    if (!issueReason.trim()) {
-      toast.error('Enter an audit reason before issuing pay statements.');
-      return;
-    }
-
-    if (hasIssuedStatements && !issueRevisionReason.trim()) {
-      toast.error('Enter a revision reason before reissuing statements.');
-      return;
-    }
-
-    setIsIssuingStatements(true);
-    try {
-      const result = await issuePayStatementsAdmin({
-        payoutRunId: selectedRun.id,
-        reason: issueReason.trim(),
-        revisionReason: hasIssuedStatements ? issueRevisionReason.trim() : null,
-      });
-      toast.success(`Issued ${result.issuedStatementCount} pay statement${result.issuedStatementCount === 1 ? '' : 's'}.`);
-      setStatementPreview(null);
-      setIssueReason('');
-      setIssueRevisionReason('');
-      await refresh();
-    } catch (issueError) {
-      toast.error(issueError instanceof Error ? issueError.message : 'Unable to issue pay statements.');
-    } finally {
-      setIsIssuingStatements(false);
-    }
-  };
-
-  const actionTitle =
-    action === 'mark_reviewed'
-      ? 'Mark Reviewed'
-      : action === 'finalize'
-        ? 'Finalize Pay Run'
-        : action === 'reopen'
-          ? 'Reopen Pay Run'
-          : 'Void Pay Run';
+  const visibleTechnicians = useMemo(
+    () => technicians.filter((technician) =>
+      (accountId === 'all' || technician.accountId === accountId) &&
+      (technicianId === 'all' || technician.operatorProfileId === technicianId) &&
+      (machineId === 'all' || technician.machines.some((machine) => machine.machineId === machineId))
+    ),
+    [accountId, machineId, technicianId, technicians]
+  );
+  const totalPaidShifts = visibleTechnicians.reduce((sum, technician) => sum + technician.paidShifts, 0);
+  const totalCommissionableSales = visibleTechnicians.reduce((sum, technician) => sum + technician.commissionableSalesCents, 0);
+  const currentTotal = visibleTechnicians.reduce((sum, technician) => sum + technician.currentTotalCents, 0);
+  const blockerCount = visibleTechnicians.reduce((sum, technician) => sum + technician.blockers.length, 0);
 
   return (
     <AppLayout>
-      <section className="border-b border-border bg-muted/20">
-        <div className="container-page py-8">
-          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                Compensation
-              </p>
-              <h1 className="mt-2 font-display text-3xl font-bold text-foreground">
-                Technician Pay
-              </h1>
-              <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                Review assigned-machine time, revenue snapshots, compensation rules, warnings,
-                adjustments, and finalization history before pay statements are issued.
-              </p>
-              <p className="mt-3 max-w-3xl rounded-md border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
-                Technician Pay publishes reviewed pay statements only. It does not run payroll,
-                direct deposit, tax withholding, W-2s, 1099s, or refund payments.
-              </p>
-            </div>
-            <Button variant="outline" onClick={() => void refresh()} disabled={isFetching}>
-              {isFetching ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="mr-2 h-4 w-4" />
-              )}
-              Refresh
+      <div className="space-y-6 p-4 sm:p-6 lg:p-8">
+        <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-3xl">
+            <div className="flex items-center gap-2 text-sm font-medium text-primary"><Banknote className="h-4 w-4" /> Manager report</div>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">Technician Pay Report</h1>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Check paid shifts, rate changes, machine sales, commission, and other earnings. This report does not approve or send payment.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline" className="min-h-8 gap-1.5 px-3"><CalendarDays className="h-3.5 w-3.5" /> {formatMonth(month)}</Badge>
+            <Button type="button" variant="outline" className="min-h-11" disabled={isFetching} onClick={() => void refetch()}>
+              <RefreshCw className={cn('mr-2 h-4 w-4', isFetching && 'animate-spin motion-reduce:animate-none')} /> Refresh
             </Button>
           </div>
-        </div>
-      </section>
+        </header>
 
-      <section className="section-padding">
-        <div className="container-page">
-          {isLoading ? (
-            <EmptyState title="Loading pay review">
-              Pulling the latest pay periods, review states, and scoped manager permissions.
-            </EmptyState>
-          ) : error ? (
-            <EmptyState title="Unable to load pay review">
-              {error instanceof Error ? error.message : 'The pay review queue could not load.'}
-            </EmptyState>
-          ) : periods.length === 0 ? (
-            <EmptyState title="No pay periods ready">
-              Create a Technician pay profile and pay period first. Pay review appears here after a
-              period has assigned time or a generated pay run.
-            </EmptyState>
-          ) : (
-            <div className="grid gap-6 lg:grid-cols-[minmax(260px,360px)_1fr]">
-              <aside className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h2 className="font-semibold text-foreground">Pay periods</h2>
-                  <Badge variant="outline">{periods.length}</Badge>
-                </div>
-                {periods.map((period) => (
-                  <PeriodCard
-                    key={period.id}
-                    period={period}
-                    selected={selectedPeriod?.id === period.id}
-                    onSelect={() => setSelectedPeriodId(period.id)}
-                  />
-                ))}
-              </aside>
+        {isLoading ? (
+          <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground"><Loader2 className="mr-2 inline h-4 w-4 animate-spin motion-reduce:animate-none" />Loading the Technician Pay Report…</div>
+        ) : error ? (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-6" role="alert">
+            <h2 className="font-semibold text-foreground">Pay Report unavailable</h2>
+            <p className="mt-2 text-sm text-muted-foreground">Account-level pay access is required. If you should have access, ask a Bloomjoy owner to confirm your account role.</p>
+            <Button type="button" className="mt-5 min-h-11" onClick={() => void refetch()}>Try again</Button>
+          </div>
+        ) : !context?.hasAccess ? (
+          <div className="rounded-xl border border-border bg-card p-6">
+            <ShieldCheck className="h-5 w-5 text-muted-foreground" />
+            <h2 className="mt-3 font-semibold text-foreground">Account pay authority required</h2>
+            <p className="mt-2 text-sm text-muted-foreground">Machine Managers can correct time in the Time Report, but pay details are limited to account-level pay managers.</p>
+          </div>
+        ) : (
+          <>
+            <section className="grid gap-4 rounded-xl border border-border bg-card p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4" aria-label="Pay Report filters">
+              <div><label htmlFor="pay-report-month" className="text-sm font-medium text-foreground">Month</label><Input id="pay-report-month" type="month" value={month} max={currentMonthValue()} className="mt-2 min-h-11" onChange={(event) => setMonth(event.target.value)} /></div>
+              <div><label htmlFor="pay-report-account" className="text-sm font-medium text-foreground">Account</label><Select value={accountId} onValueChange={setAccountId}><SelectTrigger id="pay-report-account" className="mt-2 min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All accounts</SelectItem>{context.accounts.map((account) => <SelectItem key={account.accountId} value={account.accountId}>{account.accountName}</SelectItem>)}</SelectContent></Select></div>
+              <div><label htmlFor="pay-report-technician" className="text-sm font-medium text-foreground">Technician</label><Select value={technicianId} onValueChange={setTechnicianId}><SelectTrigger id="pay-report-technician" className="mt-2 min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All Technicians</SelectItem>{technicians.map((technician) => <SelectItem key={technician.operatorProfileId} value={technician.operatorProfileId}>{technician.displayName}</SelectItem>)}</SelectContent></Select></div>
+              <div><label htmlFor="pay-report-machine" className="text-sm font-medium text-foreground">Machine</label><Select value={machineId} onValueChange={setMachineId}><SelectTrigger id="pay-report-machine" className="mt-2 min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All machines</SelectItem>{machines.map((machine) => <SelectItem key={machine.id} value={machine.id}>{machine.label}</SelectItem>)}</SelectContent></Select></div>
+            </section>
 
-              <div className="space-y-6">
-                <div className="rounded-lg border border-border bg-background p-5">
-                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="font-display text-2xl font-semibold text-foreground">
-                          {selectedPeriod?.accountName}
-                        </h2>
-                        <Badge variant={statusVariant(selectedRun?.status ?? selectedPeriod?.status ?? '')}>
-                          {formatStatus(selectedRun?.status ?? selectedPeriod?.status ?? '')}
-                        </Badge>
-                        {selectedPeriod?.canFinalize && (
-                          <Badge variant="outline" className="gap-1">
-                            <ShieldCheck className="h-3.5 w-3.5" />
-                            Review access
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        {formatDate(selectedPeriod?.periodStartDate)} -{' '}
-                        {formatDate(selectedPeriod?.periodEndDate)} / target pay date{' '}
-                        {formatDate(selectedPeriod?.targetPayoutDate)}
-                      </p>
-                      {selectedPeriod?.issuedStatementCount ? (
-                        <p className="mt-2 text-sm text-destructive">
-                          {selectedPeriod.issuedStatementCount} issued statements already exist;
-                          finalization is blocked to prevent duplicates.
-                        </p>
-                      ) : null}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        variant="outline"
-                        onClick={() => setAction('mark_reviewed')}
-                        disabled={!canMutateRun}
-                      >
-                        <CheckCircle2 className="mr-2 h-4 w-4" />
-                        Mark Reviewed
-                      </Button>
-                      <Button
-                        onClick={() => setAction('finalize')}
-                        disabled={!canMutateRun || Boolean(selectedPeriod?.issuedStatementCount)}
-                      >
-                        <ShieldCheck className="mr-2 h-4 w-4" />
-                        Finalize Pay Run
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => setAction('reopen')}
-                        disabled={!selectedRun || !selectedPeriod?.canFinalize}
-                      >
-                        <RotateCcw className="mr-2 h-4 w-4" />
-                        Reopen Pay Run
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => setAction('void')}
-                        disabled={!selectedRun || !selectedPeriod?.canFinalize}
-                      >
-                        <Ban className="mr-2 h-4 w-4" />
-                        Void Pay Run
-                      </Button>
-                    </div>
-                  </div>
+            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-live="polite">
+              <Metric label="Paid shifts" value={`${totalPaidShifts}`} helper="Each started hour" icon={Clock3} />
+              <Metric label="Commissionable sales" value={formatCurrency(totalCommissionableSales)} helper="After one refund adjustment" icon={ShoppingBag} />
+              <Metric label="Current total" value={formatCurrency(currentTotal)} helper="Before payment or tax" icon={Banknote} />
+              <Metric label="Technicians" value={`${visibleTechnicians.length}`} helper={blockerCount ? `${blockerCount} publishing blocker${blockerCount === 1 ? '' : 's'}` : 'No publishing blockers'} icon={UserRound} />
+            </section>
 
-                  <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    <Metric label="Total Technician pay" value={formatCurrency(selectedRun?.totalPayoutCents)} tone="good" />
-                    <Metric label="Technicians" value={`${selectedRun?.items.length ?? 0}`} />
-                    <Metric label="Paid hours" value={formatHours(selectedRun?.totalRoundedPaidMinutes ?? 0)} />
-                    <Metric
-                      label="Warnings"
-                      value={`${warnings.length}`}
-                      tone={blockerCount > 0 ? 'warning' : 'default'}
-                    />
-                  </div>
-                </div>
-
-                <div className="rounded-lg border border-border bg-background p-5">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-                    <div>
-                      <h2 className="font-semibold text-foreground">Pay Run</h2>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        Generate the first pay run or regenerate after corrections. Existing
-                        runs require an audit reason.
-                      </p>
-                    </div>
-                    <Button onClick={() => void runCalculation()} disabled={isCalculating || !selectedPeriod}>
-                      {isCalculating ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Clock3 className="mr-2 h-4 w-4" />
-                      )}
-                      {selectedRun ? 'Recalculate Pay Run' : 'Generate Pay Run'}
-                    </Button>
-                  </div>
-                  <div className="mt-4">
-                    <Label htmlFor="payout-calculate-reason">Audit reason</Label>
-                    <Textarea
-                      id="payout-calculate-reason"
-                      value={calculateReason}
-                      onChange={(event) => setCalculateReason(event.target.value)}
-                      placeholder="Explain the correction, override, or source-data refresh."
-                      className="mt-2"
-                    />
-                  </div>
-                </div>
-
-                {warnings.length > 0 && (
-                  <div className="rounded-lg border border-amber/30 bg-amber/10 p-5">
-                    <div className="flex items-start gap-3">
-                      <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-700" />
-                      <div>
-                        <h2 className="font-semibold text-foreground">Warnings</h2>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          Critical warnings block finalization unless a manager records an
-                          explicit override reason.
-                        </p>
-                      </div>
-                    </div>
-                    <div className="mt-4 space-y-2">
-                      {warnings.map((warning, index) => (
-                        <div
-                          key={`${warning.code}-${index}`}
-                          className="rounded-md border border-border bg-background p-3 text-sm"
-                        >
-                          <Badge variant={warningVariant(warning.severity)}>
-                            {formatStatus(warning.severity)}
-                          </Badge>
-                          <p className="mt-2 font-medium text-foreground">{warning.message}</p>
-                          <p className="mt-1 text-xs text-muted-foreground">{warning.code}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {selectedRun && (
-                  <div className="rounded-lg border border-border bg-background p-5">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                      <div>
-                        <h2 className="font-semibold text-foreground">Pay Statements</h2>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          Preview Technician statements, then publish the finalized pay run to each
-                          Technician's portal with versioned revision history.
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          variant="outline"
-                          onClick={() => void previewStatements()}
-                          disabled={!selectedPeriod?.canFinalize || isPreviewingStatements}
-                        >
-                          {isPreviewingStatements ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          ) : (
-                            <FileText className="mr-2 h-4 w-4" />
-                          )}
-                          Preview
-                        </Button>
-                        <Button
-                          onClick={() => void issueStatements()}
-                          disabled={!canIssueStatements || isIssuingStatements}
-                        >
-                          {isIssuingStatements ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          ) : (
-                            <Send className="mr-2 h-4 w-4" />
-                          )}
-                          Issue
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 grid gap-4 md:grid-cols-2">
-                      <div>
-                        <Label htmlFor="statement-issue-reason">Audit reason</Label>
-                        <Textarea
-                          id="statement-issue-reason"
-                          value={issueReason}
-                          onChange={(event) => setIssueReason(event.target.value)}
-                          placeholder="Approved after final pay review."
-                          className="mt-2"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="statement-revision-reason">Revision reason</Label>
-                        <Textarea
-                          id="statement-revision-reason"
-                          value={issueRevisionReason}
-                          onChange={(event) => setIssueRevisionReason(event.target.value)}
-                          placeholder={
-                            hasIssuedStatements
-                              ? 'Required because statements already exist.'
-                              : 'Only needed when reissuing a statement.'
-                          }
-                          className="mt-2"
-                          disabled={!hasIssuedStatements}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                      <Metric
-                        label="Statement records"
-                        value={`${selectedPeriod?.issuedStatementCount ?? 0}`}
-                      />
-                      <Metric label="Portal status" value={hasIssuedStatements ? 'Published' : 'Not issued'} />
-                      <Metric label="Eligible now" value={canIssueStatements ? 'Yes' : 'Finalize first'} />
-                    </div>
-
-                    {statementPreview && (
-                      <div className="mt-4 rounded-lg border border-border bg-muted/20 p-4">
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                          <div>
-                            <p className="font-semibold text-foreground">
-                              Draft Preview ({statementPreview.statementCount})
-                            </p>
-                            <p className="mt-1 text-sm text-muted-foreground">
-                              Preview rows are not visible to Technicians until issued.
-                            </p>
-                          </div>
-                          <Badge variant="outline">{formatStatus(statementPreview.status)}</Badge>
-                        </div>
-                        <div className="mt-3 divide-y divide-border">
-                          {statementPreview.statements.slice(0, 5).map((statement) => (
-                            <div
-                              key={`${statement.statementNumber}-${statement.operator.operatorProfileId}`}
-                              className="flex flex-col gap-1 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
-                            >
-                              <div>
-                                <p className="font-medium text-foreground">
-                                  {statement.operator.displayName}
-                                </p>
-                                <p className="text-muted-foreground">
-                                  {formatDate(statement.period.periodStartDate)} -{' '}
-                                  {formatDate(statement.period.periodEndDate)}
-                                </p>
-                              </div>
-                              <p className="font-semibold text-foreground">
-                                {formatCurrency(statement.totals.totalPayoutCents)}
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {selectedRun && (
-                  <div className="rounded-lg border border-border bg-background p-5">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                      <div>
-                        <h2 className="font-semibold text-foreground">Manual Adjustment</h2>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          Add bonuses, reimbursements, corrections, or deductions with both an
-                          Technician-visible description and manager audit reason.
-                        </p>
-                      </div>
-                      <Button
-                        variant="outline"
-                        onClick={() => void addAdjustment()}
-                        disabled={!canMutateRun || isAddingAdjustment}
-                      >
-                        {isAddingAdjustment && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Add Adjustment
-                      </Button>
-                    </div>
-                    <div className="mt-4 grid gap-4 md:grid-cols-2">
-                      <div>
-                        <Label htmlFor="adjustment-operator">Technician</Label>
-                        <select
-                          id="adjustment-operator"
-                          value={adjustmentForm.operatorProfileId}
-                          onChange={(event) =>
-                            setAdjustmentForm((current) => ({
-                              ...current,
-                              operatorProfileId: event.target.value,
-                            }))
-                          }
-                          className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                        >
-                          {selectedRun.items.map((item) => (
-                            <option key={item.id} value={item.operatorProfileId}>
-                              {item.operatorDisplayName}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <Label htmlFor="adjustment-amount">Amount</Label>
-                        <Input
-                          id="adjustment-amount"
-                          value={adjustmentForm.amount}
-                          onChange={(event) =>
-                            setAdjustmentForm((current) => ({
-                              ...current,
-                              amount: event.target.value,
-                            }))
-                          }
-                          placeholder="75.00 or -25.00"
-                          className="mt-2"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="adjustment-type">Type</Label>
-                        <select
-                          id="adjustment-type"
-                          value={adjustmentForm.adjustmentType}
-                          onChange={(event) =>
-                            setAdjustmentForm((current) => ({
-                              ...current,
-                              adjustmentType: event.target.value,
-                            }))
-                          }
-                          className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                        >
-                          <option value="manual_adjustment">Manual adjustment</option>
-                          <option value="bonus">Bonus</option>
-                          <option value="reimbursement">Reimbursement</option>
-                          <option value="prior_period_correction">Prior period correction</option>
-                          <option value="deduction">Deduction</option>
-                        </select>
-                      </div>
-                      <label className="flex items-center gap-2 pt-7 text-sm text-muted-foreground">
-                        <input
-                          type="checkbox"
-                          checked={adjustmentForm.visibleToOperator}
-                          onChange={(event) =>
-                            setAdjustmentForm((current) => ({
-                              ...current,
-                              visibleToOperator: event.target.checked,
-                            }))
-                          }
-                        />
-                        Show on Technician statement
-                      </label>
-                      <div className="md:col-span-2">
-                        <Label htmlFor="adjustment-description">Technician-visible description</Label>
-                        <Input
-                          id="adjustment-description"
-                          value={adjustmentForm.description}
-                          onChange={(event) =>
-                            setAdjustmentForm((current) => ({
-                              ...current,
-                              description: event.target.value,
-                            }))
-                          }
-                          placeholder="Weekend event bonus"
-                          className="mt-2"
-                        />
-                      </div>
-                      <div className="md:col-span-2">
-                        <Label htmlFor="adjustment-reason">Manager audit reason</Label>
-                        <Textarea
-                          id="adjustment-reason"
-                          value={adjustmentForm.reason}
-                          onChange={(event) =>
-                            setAdjustmentForm((current) => ({
-                              ...current,
-                              reason: event.target.value,
-                            }))
-                          }
-                          placeholder="Approved by operations after event review."
-                          className="mt-2"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {selectedRun ? (
-                  <div className="space-y-4">
-                    {selectedRun.items.map((item) => (
-                      <OperatorItemCard key={item.id} item={item} />
-                    ))}
-                  </div>
-                ) : (
-                  <EmptyState title="No pay run yet">
-                    Generate a pay run after Technicians have submitted time for this period.
-                  </EmptyState>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      </section>
-
-      <Dialog open={Boolean(action)} onOpenChange={(open) => !open && resetActionDialog()}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{actionTitle}</DialogTitle>
-            <DialogDescription>
-              This action writes an audit record and preserves a review snapshot before the pay run
-              changes state.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="payout-action-reason">Audit reason</Label>
-              <Textarea
-                id="payout-action-reason"
-                value={actionReason}
-                onChange={(event) => setActionReason(event.target.value)}
-                placeholder="Explain the review decision or correction."
-                className="mt-2"
-              />
-            </div>
-            {action === 'finalize' && blockerCount > 0 && (
-              <div className="rounded-lg border border-amber/30 bg-amber/10 p-3">
-                <label className="flex items-start gap-2 text-sm font-medium text-foreground">
-                  <input
-                    type="checkbox"
-                    checked={overrideBlockers}
-                    onChange={(event) => setOverrideBlockers(event.target.checked)}
-                    className="mt-1"
-                  />
-                  Finalize with critical warnings
-                </label>
-                {overrideBlockers && (
-                  <div className="mt-3">
-                    <Label htmlFor="payout-override-reason">Override reason</Label>
-                    <Textarea
-                      id="payout-override-reason"
-                      value={overrideReason}
-                      onChange={(event) => setOverrideReason(event.target.value)}
-                      placeholder="Document why the pay run can proceed despite critical warnings."
-                      className="mt-2"
-                    />
-                  </div>
-                )}
-              </div>
+            {blockerCount > 0 && (
+              <section className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 sm:p-5" role="alert">
+                <h2 className="flex items-center gap-2 font-semibold text-foreground"><AlertTriangle className="h-5 w-5 text-destructive" />Resolve {blockerCount} publishing blocker{blockerCount === 1 ? '' : 's'}</h2>
+                <p className="mt-2 text-sm text-muted-foreground">The report stays visible for checking, but affected pay stubs should not publish until these data issues are resolved.</p>
+              </section>
             )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={resetActionDialog} disabled={isRunningAction}>
-              Cancel
-            </Button>
-            <Button onClick={() => void runReviewAction()} disabled={isRunningAction}>
-              {isRunningAction && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Save
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+
+            <section className="space-y-5" aria-label="Technician pay details">
+              {visibleTechnicians.length ? visibleTechnicians.map((technician) => <TechnicianReport key={technician.operatorProfileId} technician={technician} />) : (
+                <div className="rounded-xl border border-dashed border-border bg-card p-6"><h2 className="font-semibold text-foreground">No matching pay details</h2><p className="mt-2 text-sm text-muted-foreground">Change the filters or choose another month.</p></div>
+              )}
+            </section>
+
+            <p className="text-xs leading-5 text-muted-foreground">
+              Report totals are calculation records for contractor pay stubs. They do not record proof of payment, calculate taxes, or change contractor classification.
+            </p>
+          </>
+        )}
+      </div>
     </AppLayout>
   );
 }

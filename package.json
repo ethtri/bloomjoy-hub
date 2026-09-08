@@ -143,6 +143,7 @@
     "operator-payouts:validate-timekeeping": "deno test --no-lock src/lib/timekeepingUi.test.ts && node scripts/validate-operator-timekeeping.mjs",
     "operator-payouts:validate-data-rules": "node scripts/validate-timekeeping-data-rules.mjs",
     "operator-payouts:validate-timekeeping-uat": "node scripts/validate-operator-timekeeping-uat.mjs",
+    "operator-payouts:validate-manager-reports-uat": "node scripts/validate-manager-time-pay-reports-uat.mjs",
     "operator-payouts:validate-revenue-snapshots": "node scripts/validate-operator-revenue-snapshots.mjs",
     "operator-payouts:validate-calculation": "node scripts/validate-operator-payout-calculation.mjs",
     "operator-payouts:validate-review": "node scripts/validate-operator-payout-review.mjs",

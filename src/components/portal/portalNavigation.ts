@@ -66,9 +66,9 @@ export const portalDestinations: PortalDestination[] = [
   },
   {
     href: '/portal/time-review',
-    label: 'Review Time',
+    label: 'Time Report',
     labelKey: 'portal.nav.timeReview',
-    description: 'Approve or return submitted shifts for managed machines.',
+    description: 'View and correct completed time for managed machines.',
     descriptionKey: 'portal.nav.timeReviewDescription',
     icon: ClipboardCheck,
     access: 'time-review',

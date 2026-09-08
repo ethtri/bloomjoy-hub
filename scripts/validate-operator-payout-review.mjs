@@ -109,20 +109,35 @@ for (const snippet of [
 
 const page = readText(files.page);
 for (const snippet of [
-  'Technician Pay',
-  'Manual Adjustment',
-  'Finalize',
-  'Critical warnings block finalization',
-  'issued statements already exist',
-  'Show on Technician statement',
-  'Review access',
-  'No pay run yet',
-  'does not run payroll',
-  'direct deposit',
-  'refund payments',
+  'Technician Pay Report',
+  'fetchTechnicianPayReportContext',
+  'Paid shifts',
+  'Shift pay',
+  'Machine sales and commission',
+  'Commissionable sales',
+  'Bonus',
+  'Supply Credit',
+  'Expense Reimbursement',
+  'Blocks publishing',
+  'does not approve or send payment',
+  'do not record proof of payment',
+  'calculate taxes',
 ]) {
   if (!page.includes(snippet)) {
     fail(`Admin payouts page missing ${snippet}`);
+  }
+}
+
+for (const retiredAction of [
+  'Mark Reviewed',
+  '>Finalize<',
+  '>Reopen<',
+  '>Void<',
+  'Issue statements',
+  'Override critical blockers',
+]) {
+  if (page.includes(retiredAction)) {
+    fail(`Admin payouts page still exposes retired approval action: ${retiredAction}`);
   }
 }
 
@@ -166,8 +181,8 @@ if (!packageJson.includes('operator-payouts:validate-review')) {
 }
 
 const smoke = readText(files.smoke);
-if (!smoke.includes('Admin Technician Pay Review')) {
-  fail('Smoke checklist missing Admin Technician Pay Review coverage.');
+if (!smoke.includes('Technician Pay Report')) {
+  fail('Smoke checklist missing Technician Pay Report coverage.');
 }
 
 const status = readText(files.status);
@@ -181,5 +196,5 @@ if (!actionOrder.includes('finalized') || !actionOrder.includes('reopened')) {
 }
 
 console.log(
-  'Operator payout review checks passed: scoped admin surface, review queue UI, immutable snapshots, blocker-aware finalization, duplicate statement guard, reopen/void audit flow, and smoke coverage are present.'
+  'Operator payout review checks passed: scoped pay-report surface, transparent shift and commission UI, blocker visibility, historical workflow compatibility, and smoke coverage are present.'
 );
