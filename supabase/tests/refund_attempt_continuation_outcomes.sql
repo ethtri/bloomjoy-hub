@@ -56,7 +56,9 @@ select gen_random_uuid(),c.id,c.nayax_lookup_generation,'ca000000-0000-4000-8000
   jsonb_build_object('machine_authorization_time_raw',
     case when c.id='ca500000-0000-4000-8000-000000000001'::uuid
       then '2026-08-26T13:17:09.810' else '2026-08-26T13:17:08.123' end,
-    'machine_authorization_time_source','MachineAuthorizationTime')
+    'machine_authorization_time_source','MachineAuthorizationTime',
+    'machine_time_resolution',case when c.id='ca500000-0000-4000-8000-000000000001'::uuid
+      then 'exact' else 'unknown' end)
     ||jsonb_build_object('lookup_account_scope','CONTINUATION_ACCOUNT',
       'lookup_provider_machine_id','CONTINUATION-MACHINE','provider_machine_id','CONTINUATION-MACHINE'),
   now()+interval '1 hour'
