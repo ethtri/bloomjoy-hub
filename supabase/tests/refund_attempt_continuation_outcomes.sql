@@ -147,7 +147,8 @@ select ok(not has_function_privilege('authenticated',
   'Browser roles cannot write restricted provider response scalars');
 select ok(
   public.refund_nayax_response_diagnostic_is_safe(repeat('safe ',20),'length_extended','81_160',true,'string')
-  and public.refund_nayax_response_diagnostic_is_safe(repeat('x',160),'length_truncated','over_160',true,'string')
+  and public.refund_nayax_response_diagnostic_is_safe(repeat('safe ',32),'length_truncated','over_160',true,'string')
+  and not public.refund_nayax_response_diagnostic_is_safe(repeat('x',160),'length_truncated','over_160',true,'string')
   and public.refund_nayax_response_diagnostic_is_safe('[redacted]','sensitive_redacted','1_80',true,'string')
   and public.refund_nayax_response_diagnostic_is_safe('customer notice','exact','1_80',true,'string')
   and not public.refund_nayax_response_diagnostic_is_safe('safe'||chr(133)||'unsafe','exact','1_80',true,'string'),
