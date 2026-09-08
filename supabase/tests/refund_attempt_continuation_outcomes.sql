@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(87);
+select plan(89);
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
@@ -448,6 +448,13 @@ select throws_ok($$update public.refund_case_messages
   set body=body||E'\nChanged after receipt'
   where id=current_setting('test.terminal_api_message_id')::uuid$$,
   'P4663',null,'The receipt keeps the bound v2 customer copy immutable');
+select throws_ok($$update public.refund_case_messages set status='sent',sent_at=now()
+  where id=current_setting('test.terminal_api_message_id')::uuid$$,
+  'P4663',null,'A pending receipt-bound message cannot become sent without exact provider proof');
+select throws_ok($$update public.refund_case_nayax_refund_attempts
+  set completion_delivery_status='sent',completion_manager_cc_count=1
+  where id=current_setting('test.terminal_api_attempt_id')::uuid$$,
+  'P4663',null,'A pending receipt-bound attempt cannot become sent without exact provider proof');
 set local role service_role;
 select throws_ok($$select public.service_claim_refund_gmail_outbound_v3(
   'ca500000-0000-4000-8000-000000000001',

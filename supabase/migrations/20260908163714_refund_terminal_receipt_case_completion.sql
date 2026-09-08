@@ -232,39 +232,8 @@ $$;
 revoke all on function public.is_refund_terminal_api_completion_message(jsonb)
   from public,anon,authenticated,service_role;
 
-create function public.refund_terminal_api_completion_message_change_allowed(
-  p_old jsonb,p_new jsonb
-)
-returns boolean language sql stable security definer set search_path='' as $$
-  select coalesce(
-    public.is_refund_terminal_api_completion_message(p_old)
-    and public.is_refund_terminal_api_completion_message(p_new)
-    and case p_old->>'status'
-      when 'pending' then p_new->>'status' in ('pending','sent','failed')
-      when 'failed' then p_new->>'status' in ('failed','pending')
-      when 'sent' then p_new->>'status'='sent'
-      else false end
-    and jsonb_build_array(
-      p_new->'id',p_new->'refund_case_id',p_new->'nayax_refund_attempt_id',
-      p_new->'message_type',p_new->'recipient_email',p_new->'subject',p_new->'body',
-      p_new->'template_key',p_new->'created_by',p_new->'content_source',
-      p_new->'delivery_kind',p_new->'template_version',p_new->'requested_fields',
-      p_new->'created_at')
-      is not distinct from
-      jsonb_build_array(
-        p_old->'id',p_old->'refund_case_id',p_old->'nayax_refund_attempt_id',
-        p_old->'message_type',p_old->'recipient_email',p_old->'subject',p_old->'body',
-        p_old->'template_key',p_old->'created_by',p_old->'content_source',
-        p_old->'delivery_kind',p_old->'template_version',p_old->'requested_fields',
-        p_old->'created_at'),
-    false
-  );
-$$;
-revoke all on function public.refund_terminal_api_completion_message_change_allowed(jsonb,jsonb)
-  from public,anon,authenticated,service_role;
-
 create function public.refund_terminal_api_completion_has_sent_gmail_proof(
-  p_attempt jsonb
+  p_attempt jsonb,p_require_recorded_manager_cc boolean
 )
 returns boolean language sql stable security definer set search_path='' as $$
   select coalesce(exists(
@@ -292,10 +261,10 @@ returns boolean language sql stable security definer set search_path='' as $$
       and outbound.recipient_resolution_status='resolved'
       and lower(btrim(outbound.recipient_email))=lower(btrim(message.recipient_email))
       and outbound.plain_body=message.body
-      and outbound.subject=message.subject
       and outbound.recipient_cc_count between 1 and 3
       and cardinality(outbound.recipient_cc_emails)=outbound.recipient_cc_count
-      and attempt.completion_manager_cc_count=outbound.recipient_cc_count
+      and (not p_require_recorded_manager_cc
+        or attempt.completion_manager_cc_count=outbound.recipient_cc_count)
       and outbound.recipient_cc_count=(select count(distinct lower(btrim(manager.manager_email)))::integer
         from public.reporting_machine_refund_managers manager
         where manager.reporting_machine_id=c.reporting_machine_id
@@ -313,7 +282,43 @@ returns boolean language sql stable security definer set search_path='' as $$
             and lower(btrim(manager.manager_email))=lower(btrim(cc.email))))
   ),false);
 $$;
-revoke all on function public.refund_terminal_api_completion_has_sent_gmail_proof(jsonb)
+revoke all on function public.refund_terminal_api_completion_has_sent_gmail_proof(jsonb,boolean)
+  from public,anon,authenticated,service_role;
+
+create function public.refund_terminal_api_completion_message_change_allowed(
+  p_old jsonb,p_new jsonb
+)
+returns boolean language sql stable security definer set search_path='' as $$
+  select coalesce(
+    public.is_refund_terminal_api_completion_message(p_old)
+    and public.is_refund_terminal_api_completion_message(p_new)
+    and case p_old->>'status'
+      when 'pending' then p_new->>'status' in ('pending','failed')
+        or (p_new->>'status'='sent' and exists(select 1
+          from public.refund_case_nayax_refund_attempts attempt
+          where attempt.id=(p_new->>'nayax_refund_attempt_id')::uuid
+            and public.refund_terminal_api_completion_has_sent_gmail_proof(
+              to_jsonb(attempt),false)))
+      when 'failed' then p_new->>'status' in ('failed','pending')
+      when 'sent' then p_new->>'status'='sent'
+      else false end
+    and jsonb_build_array(
+      p_new->'id',p_new->'refund_case_id',p_new->'nayax_refund_attempt_id',
+      p_new->'message_type',p_new->'recipient_email',p_new->'subject',p_new->'body',
+      p_new->'template_key',p_new->'created_by',p_new->'content_source',
+      p_new->'delivery_kind',p_new->'template_version',p_new->'requested_fields',
+      p_new->'created_at')
+      is not distinct from
+      jsonb_build_array(
+        p_old->'id',p_old->'refund_case_id',p_old->'nayax_refund_attempt_id',
+        p_old->'message_type',p_old->'recipient_email',p_old->'subject',p_old->'body',
+        p_old->'template_key',p_old->'created_by',p_old->'content_source',
+        p_old->'delivery_kind',p_old->'template_version',p_old->'requested_fields',
+        p_old->'created_at'),
+    false
+  );
+$$;
+revoke all on function public.refund_terminal_api_completion_message_change_allowed(jsonb,jsonb)
   from public,anon,authenticated,service_role;
 
 create function public.refund_terminal_api_completion_attempt_change_allowed(
@@ -333,12 +338,14 @@ returns boolean language sql stable security definer set search_path='' as $$
     and case p_old->>'completion_delivery_status'
       when 'not_claimed' then p_new->>'completion_delivery_status'='pending'
       when 'pending' then p_new->>'completion_delivery_status'
-        in ('pending','sent','failed','delivery_unknown')
+        in ('pending','failed','delivery_unknown')
+        or (p_new->>'completion_delivery_status'='sent'
+          and public.refund_terminal_api_completion_has_sent_gmail_proof(p_new,true))
       when 'failed' then p_new->>'completion_delivery_status' in ('failed','pending')
       when 'sent' then p_new->>'completion_delivery_status'='sent'
       when 'delivery_unknown' then p_new->>'completion_delivery_status'='delivery_unknown'
         or (p_new->>'completion_delivery_status'='sent'
-          and public.refund_terminal_api_completion_has_sent_gmail_proof(p_new))
+          and public.refund_terminal_api_completion_has_sent_gmail_proof(p_new,true))
       else false end
     and (p_new->>'completion_delivery_retry_count')::integer
       between (p_old->>'completion_delivery_retry_count')::integer and 1
