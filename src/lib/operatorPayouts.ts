@@ -565,13 +565,156 @@ export type OperatorTimeReviewEntry = OperatorTimeEntry & {
   operatorName: string;
 };
 
+export type OperatorTimeReportTechnician = {
+  operatorProfileId: string;
+  operatorName: string;
+  actualDurationMinutes: number;
+  paidShifts: number;
+  entryCount: number;
+  machines: OperatorTimeReviewMachine[];
+};
+
 export type OperatorTimeReviewContext = {
   workDate: string;
   periodStartDate: string;
   periodEndDate: string;
   hasAccess: boolean;
   machines: OperatorTimeReviewMachine[];
+  technicians: OperatorTimeReportTechnician[];
   entries: OperatorTimeReviewEntry[];
+  capabilities: {
+    canCorrectTime: boolean;
+    approvalRequired: false;
+    paymentExecution: false;
+  };
+};
+
+export type TechnicianPayReportIssue = {
+  code: string;
+  severity: 'info' | 'warning' | 'blocker';
+  message: string;
+  operatorProfileId?: string;
+  machineId?: string;
+  timeEntryId?: string;
+  [key: string]: unknown;
+};
+
+export type TechnicianPayReportRate = {
+  ruleId: string;
+  rateType: OperatorCompensationRateType;
+  source: 'technician_default' | 'technician_machine_override';
+  shiftRateCents: number | null;
+  commissionBasisPoints: number | null;
+  effectiveStartDate: string;
+  effectiveEndDate: string | null;
+};
+
+export type TechnicianPayReportEntry = {
+  id: string;
+  workDate: string;
+  actualStartAt: string;
+  actualEndAt: string;
+  actualDurationMinutes: number;
+  paidShifts: number;
+  machineId: string;
+  machineLabel: string;
+  locationId: string;
+  locationName: string;
+  shiftRate: TechnicianPayReportRate | null;
+  shiftRateCents: number | null;
+  shiftEarningsCents: number;
+};
+
+export type TechnicianPayReportShiftRateLine = {
+  shiftRateCents: number | null;
+  paidShifts: number;
+  actualDurationMinutes: number;
+  shiftEarningsCents: number;
+  firstWorkDate: string;
+  lastWorkDate: string;
+};
+
+export type TechnicianPayReportMachine = {
+  machineId: string;
+  machineLabel: string;
+  locationId: string;
+  locationName: string;
+  assignedStartDate: string;
+  assignedEndDate: string;
+  assignmentScopeResolved: boolean;
+  commissionRateCompleteForPeriod: boolean;
+  revenueSnapshotId: string | null;
+  revenueSnapshotStatus: PayoutRevenueSnapshotStatus | null;
+  revenueGeneratedAt: string | null;
+  sourceLatestSaleDate: string | null;
+  grossSalesCents: number;
+  refundAdjustmentCents: number;
+  netRevenueCents: number;
+  commissionableSalesCents: number;
+  commissionRate: TechnicianPayReportRate | null;
+  commissionBasisPoints: number | null;
+  commissionEarningsCents: number;
+  warnings: TechnicianPayReportIssue[];
+};
+
+export type TechnicianPayReportOtherEarning = {
+  id: string;
+  type: OperatorRecurringCompensationItemType;
+  description: string;
+  amountCents: number;
+  effectiveStartDate: string;
+  effectiveEndDate: string | null;
+};
+
+export type TechnicianPayReportTechnician = {
+  operatorProfileId: string;
+  accountId: string;
+  displayName: string;
+  workerType: OperatorWorkerType;
+  workerIdentifier: string | null;
+  positionTitle: string;
+  periodStartDate: string;
+  periodEndDate: string;
+  actualDurationMinutes: number;
+  paidShifts: number;
+  shiftEarningsCents: number;
+  commissionableSalesCents: number;
+  commissionEarningsCents: number;
+  bonusCents: number;
+  supplyCreditCents: number;
+  expenseReimbursementCents: number;
+  currentTotalCents: number;
+  publishable: boolean;
+  entries: TechnicianPayReportEntry[];
+  shiftRateLines: TechnicianPayReportShiftRateLine[];
+  machines: TechnicianPayReportMachine[];
+  otherEarnings: TechnicianPayReportOtherEarning[];
+  blockers: TechnicianPayReportIssue[];
+  warnings: TechnicianPayReportIssue[];
+  calculationMeta: {
+    schemaVersion: 'technician-pay-report-v1';
+    commissionBasisSource: string;
+    refundAppliedOnce: true;
+    approvalRequired: false;
+    paymentExecution: false;
+    taxCalculation: false;
+  };
+};
+
+export type TechnicianPayReportContext = {
+  month: string;
+  periodStartDate: string;
+  periodEndDate: string;
+  hasAccess: boolean;
+  accounts: Array<{ accountId: string; accountName: string }>;
+  technicians: TechnicianPayReportTechnician[];
+  capabilities: {
+    accountPayAuthorityRequired: true;
+    canCorrectTime: false;
+    approvalRequired: false;
+    paymentExecution: false;
+    taxCalculation: false;
+  };
 };
 
 export type OperatorPayoutProfileRecord = {
@@ -903,8 +1046,43 @@ export const fetchMyTimeReviewContext = async (
     periodEndDate: '',
     hasAccess: false,
     machines: [],
+    technicians: [],
     entries: [],
+    capabilities: {
+      canCorrectTime: false,
+      approvalRequired: false,
+      paymentExecution: false,
+    },
     ...((data as Partial<OperatorTimeReviewContext> | null) ?? {}),
+  };
+};
+
+export const fetchTechnicianPayReportContext = async (
+  month: string
+): Promise<TechnicianPayReportContext> => {
+  const { data, error } = await supabaseClient.rpc('get_technician_pay_report_context', {
+    p_month: month,
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Unable to load the Technician Pay Report.');
+  }
+
+  return {
+    month,
+    periodStartDate: '',
+    periodEndDate: '',
+    hasAccess: false,
+    accounts: [],
+    technicians: [],
+    capabilities: {
+      accountPayAuthorityRequired: true,
+      canCorrectTime: false,
+      approvalRequired: false,
+      paymentExecution: false,
+      taxCalculation: false,
+    },
+    ...((data as Partial<TechnicianPayReportContext> | null) ?? {}),
   };
 };
 
