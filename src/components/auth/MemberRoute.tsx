@@ -93,7 +93,7 @@ export function MemberRoute() {
       : isTimekeepingRoute
         ? 'Time opens after a Technician pay profile is active. Assigned machines and pay-period details appear there once setup is complete.'
         : isTimeReviewRoute
-          ? 'Review Time is limited to Machine Managers and operations admins responsible for Technician pay.'
+          ? 'The Time Report is limited to Machine Managers and operations admins responsible for Technician time.'
           : lockedDestination.access === 'refunds'
             ? 'Refund cases appear only for assigned refund reviewers and operations admins.'
             : 'The dashboard only shows workflows that are available for this account right now.';

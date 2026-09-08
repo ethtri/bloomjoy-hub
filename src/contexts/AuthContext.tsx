@@ -167,6 +167,15 @@ const getPortalAccessContext = async (): Promise<PortalAccessContextRecord | nul
     : ((data as PortalAccessContextRecord | null) ?? null);
 };
 
+const getTimeReportAccess = async (): Promise<boolean> => {
+  try {
+    const { data, error } = await supabaseClient.rpc('get_my_time_report_access');
+    return !error && data === true;
+  } catch {
+    return false;
+  }
+};
+
 const resolvePendingEntitlements = async (): Promise<void> => {
   const settle = async (resolver: () => Promise<unknown>) => {
     try {
@@ -190,11 +199,12 @@ const buildAuthUser = async (supabaseUser: SupabaseUser): Promise<User> => {
     await resolvePendingEntitlements();
   }
 
-  const [plusAccess, dbAdminAccess, portalAccessContext, reportingAccess] = await Promise.all([
+  const [plusAccess, dbAdminAccess, portalAccessContext, reportingAccess, hasTimeReportAccess] = await Promise.all([
     getPlusAccess(),
     getAdminAccess(supabaseUser.id),
     getPortalAccessContext(),
     getReportingAccess(),
+    getTimeReportAccess(),
   ]);
   const hasDevAdminOverride = hasDevAdminEmailOverride(email);
   const adminAccess: AdminAccessContext = hasDevAdminOverride
@@ -242,9 +252,12 @@ const buildAuthUser = async (supabaseUser: SupabaseUser): Promise<User> => {
     hasSupplyDiscount,
     canRequestSupport,
     canManageTechnicians,
-    capabilities: Array.isArray(portalAccessContext?.capabilities)
-      ? portalAccessContext.capabilities
-      : [],
+    capabilities: [
+      ...(Array.isArray(portalAccessContext?.capabilities)
+        ? portalAccessContext.capabilities
+        : []),
+      ...(hasTimeReportAccess ? ['timekeeping.review'] : []),
+    ],
     effectivePresets: Array.isArray(portalAccessContext?.effective_presets)
       ? portalAccessContext.effective_presets
       : [],

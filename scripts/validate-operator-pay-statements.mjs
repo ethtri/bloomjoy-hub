@@ -93,24 +93,26 @@ for (const snippet of [
 
 const adminPage = readText(files.adminPage);
 for (const snippet of [
-  'Pay Statements',
-  'previewStatements',
-  'issueStatements',
-  'Revision reason',
-  'Preview rows are not visible to Technicians until issued.',
-  'Eligible now',
+  'Technician Pay Report',
+  'This report does not approve or send payment.',
+  'Refresh sales',
 ]) {
   if (!adminPage.includes(snippet)) {
     fail(`Admin payouts page missing ${snippet}`);
   }
 }
+for (const snippet of ['previewStatements', 'issueStatements', 'Revision reason']) {
+  if (adminPage.includes(snippet)) {
+    fail(`Admin payouts page still exposes superseded statement control ${snippet}`);
+  }
+}
 
 const portalTime = readText(files.portalTime);
 for (const snippet of [
-  'PayStatementsPanel',
-  'downloadStatement',
-  'Download issued pay statements',
-  'No pay statements yet.',
+  'PayStubsPanel',
+  'downloadPayStub',
+  'Download Pay Stub',
+  'No Pay Stubs have been published yet.',
   'fetchPayStatementArtifact',
   'downloadOperatorPayStatementHtml',
 ]) {
@@ -146,5 +148,5 @@ if (!status.includes('Operator pay statements slice `#449`')) {
 }
 
 console.log(
-  'Technician pay statement checks passed: versioned statement payloads, manager preview/issuance, Technician-only latest statements, artifact downloads, portal publication tracking, and smoke coverage are present.'
+  'Technician pay statement checks passed: versioned statement payloads remain compatible, the manager surface is report-only, Technician-only latest statements and artifact downloads remain available, and migration smoke coverage is present.'
 );

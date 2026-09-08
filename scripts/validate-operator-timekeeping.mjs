@@ -199,22 +199,17 @@ for (const snippet of [
 const reviewPage = readText(files.reviewPage);
 for (const snippet of [
   'fetchMyTimeReviewContext',
-  'reviewOperatorTimeEntry',
+  'correctOperatorTimeEntry',
+  'Time Report',
   'All managed machines',
-  'Needs review',
-  'Request correction',
-  'A reason is required',
+  'Paid shifts',
+  'Actual time',
+  'Edit time',
+  'No approval is required',
   'No managed machines',
-  'Review was not saved',
-  'time-review-queue-heading',
-  'role="status"',
+  'Your changes are still here',
   'aria-live="polite"',
-  'data-time-status-badge',
-  'border-sage/40 bg-sage/10 text-foreground',
-  'border-amber/40 bg-amber/10 text-foreground',
-  'border-border bg-muted/60 text-foreground',
-  'aria-label={`Request correction for',
-  "aria-label={`${entry.managerReviewStatus === 'approved' ? 'Approved' : 'Approve'}",
+  'aria-label={`Edit ${entryLabel(entry)}`',
 ]) {
   if (!reviewPage.includes(snippet)) {
     fail(`Time Review page missing ${snippet}`);
@@ -229,15 +224,15 @@ expect(readText(files.nav), "href: '/portal/time'", 'portal navigation');
 expect(readText(files.nav), "href: '/portal/time-review'", 'portal review navigation');
 expect(readText(files.helper), 'fetchMyOperatorTimekeepingContext', 'operator payout helper');
 expect(readText(files.helper), 'fetchMyTimeReviewContext', 'time review context helper');
-expect(readText(files.helper), 'reviewOperatorTimeEntry', 'time review action helper');
+expect(readText(files.helper), 'correctOperatorTimeEntry', 'time correction action helper');
 expect(
   readText(files.accessHook),
   'queryFn: () => fetchMyOperatorTimekeepingContext()',
   'timekeeping access query'
 );
 expect(readText(files.smoke), 'Technician Time (`/portal/time`)', 'smoke checklist');
-expect(readText(files.smoke), 'Review Time (`/portal/time-review`)', 'review smoke checklist');
+expect(readText(files.smoke), 'Time Report (`/portal/time-review`)', 'review smoke checklist');
 
 console.log(
-  'Operator timekeeping static checks passed: weekly Technician entry, canonical shift previews, machine-manager review, access guards, RPCs, UI states, and smoke coverage are present.'
+  'Operator timekeeping static checks passed: weekly Technician entry, canonical shift previews, direct manager corrections, access guards, RPCs, UI states, and smoke coverage are present.'
 );
