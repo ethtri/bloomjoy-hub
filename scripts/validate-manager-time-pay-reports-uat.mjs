@@ -129,9 +129,9 @@ const payContext = {
       assignedStartDate: '2026-01-01',
       assignedEndDate: null,
       assignmentScopeResolved: true,
-      revenueSnapshotId: 'snapshot-1',
-      revenueSnapshotStatus: 'source_generated',
-      revenueGeneratedAt: FIXED_NOW.toISOString(),
+      revenueSnapshotId: null,
+      revenueSnapshotStatus: null,
+      revenueGeneratedAt: null,
       sourceLatestSaleDate: '2026-09-30',
       grossSalesCents: 110000,
       refundAdjustmentCents: -10000,
@@ -274,7 +274,8 @@ const run = async () => {
     check('Pay Report sends an unambiguous full ISO date to PostgreSQL', payReportRead?.body.p_month === '2026-09-01');
     const bodyText = await page.locator('body').innerText();
     check('Pay Report separates mid-month rate bands', bodyText.includes('2 shifts × $20.00') && bodyText.includes('1 shift × $25.00'));
-    check('Pay Report shows time, shifts, and transparent commission inputs by machine', bodyText.includes('2 hr 1 min actual · 3 paid shifts') && bodyText.includes('$1,000.00 commissionable sales × 10%'));
+    check('Pay Report shows time, shifts, and transparent commission inputs by machine', bodyText.includes('2 hr 1 min actual · 3 paid shifts') && bodyText.includes('$500.00 commissionable sales × 10%'));
+    check('Missing Commissionable Sales is unavailable rather than a plausible zero', /COMMISSIONABLE\s+SALES\s+Unavailable/i.test(bodyText) && bodyText.includes('Commissionable Sales unavailable × 10%'));
     check('Pay Report does not present unresolved commission or totals as trustworthy amounts', bodyText.includes('Commission\nUnavailable') && bodyText.includes('Current total\nUnavailable'));
     check('Pay Report shows all explicit other earning categories', ['Bonus', 'Supply Credit', 'Expense Reimbursement'].every((label) => bodyText.includes(label)));
     check('Pay Report distinguishes blockers and warnings', bodyText.includes('Blocks publishing:') && bodyText.includes('Check:'));

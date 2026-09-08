@@ -319,6 +319,7 @@ function TechnicianReport({
             const machineCommissionUnavailable = machine.commissionBasisPoints == null || technician.blockers.some(
               (issue) => unresolvedCommissionCodes.has(issue.code) && (!issue.machineId || issue.machineId === machine.machineId)
             );
+            const machineSalesUnavailable = machine.revenueSnapshotId == null;
             return (
               <BreakdownRow
                 key={machine.machineId}
@@ -327,7 +328,7 @@ function TechnicianReport({
                   <>
                     <span>{machine.locationName} · {formatDuration(machineActualMinutes)} actual · {machinePaidShifts} paid {machinePaidShifts === 1 ? 'shift' : 'shifts'}</span>
                     <span className="mt-1 block">
-                      {formatCurrency(machine.commissionableSalesCents)} commissionable sales × {machine.commissionBasisPoints == null ? 'Commission rate missing' : formatRate(machine.commissionBasisPoints)}
+                      {machineSalesUnavailable ? 'Commissionable Sales unavailable' : `${formatCurrency(machine.commissionableSalesCents)} commissionable sales`} × {machine.commissionBasisPoints == null ? 'Commission rate missing' : formatRate(machine.commissionBasisPoints)}
                     </span>
                     {machine.refundAdjustmentCents !== 0 && <span className="mt-1 block">Includes {formatCurrency(machine.refundAdjustmentCents)} refund adjustment</span>}
                   </>
@@ -411,6 +412,9 @@ export default function AdminPayoutsPage() {
   const currentTotal = visibleTechnicians.reduce((sum, technician) => sum + technician.currentTotalCents, 0);
   const blockerCount = visibleTechnicians.reduce((sum, technician) => sum + technician.blockers.length, 0);
   const totalsUnavailable = visibleTechnicians.some((technician) => technician.blockers.length > 0);
+  const commissionableSalesUnavailable = visibleTechnicians.some((technician) =>
+    technician.machines.some((machine) => machine.revenueSnapshotId == null)
+  );
 
   const openPayInput = (
     technician: TechnicianPayReportTechnician,
@@ -558,7 +562,7 @@ export default function AdminPayoutsPage() {
 
             <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-live="polite">
               <Metric label="Paid shifts" value={`${totalPaidShifts}`} helper="Each started hour" icon={Clock3} />
-              <Metric label="Commissionable sales" value={formatCurrency(totalCommissionableSales)} helper="After one refund adjustment" icon={ShoppingBag} />
+              <Metric label="Commissionable sales" value={commissionableSalesUnavailable ? 'Unavailable' : formatCurrency(totalCommissionableSales)} helper={commissionableSalesUnavailable ? 'Refresh required' : 'After one refund adjustment'} icon={ShoppingBag} />
               <Metric label="Current total" value={totalsUnavailable ? 'Unavailable' : formatCurrency(currentTotal)} helper={totalsUnavailable ? 'Resolve calculation blockers' : 'Before payment or tax'} icon={Banknote} />
               <Metric label="Technicians" value={`${visibleTechnicians.length}`} helper={blockerCount ? `${blockerCount} publishing blocker${blockerCount === 1 ? '' : 's'}` : 'No publishing blockers'} icon={UserRound} />
             </section>
