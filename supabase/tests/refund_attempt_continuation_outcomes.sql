@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(67);
+select plan(75);
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
@@ -11,6 +11,10 @@ insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_co
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
 values('00000000-0000-0000-0000-000000000000','ca000000-0000-4000-8000-000000000002',
   'authenticated','authenticated','handoff-manager@example.test','',now(),'{}','{}',now(),now());
+insert into auth.sessions(id,user_id,created_at,updated_at)
+values('ca010000-0000-4000-8000-000000000001','ca000000-0000-4000-8000-000000000001',now(),now());
+insert into public.admin_roles(user_id,role,active)
+values('ca000000-0000-4000-8000-000000000001','super_admin',true);
 insert into public.customer_accounts(id,name,account_type)
 values('ca100000-0000-4000-8000-000000000001','Continuation fixture','internal');
 insert into public.reporting_locations(id,account_id,name,timezone)
@@ -407,6 +411,30 @@ select ok((select message_type='completed' and status='pending'
   from public.refund_case_messages
   where refund_case_id='ca500000-0000-4000-8000-000000000001'),
   'The permitted message retains the exact claimed v2 identity and delivery kind');
+select is(public.service_get_refund_lifecycle(
+    'ca500000-0000-4000-8000-000000000001')#>>'{stage}',
+  'refund_confirmed',
+  'An API receipt with a queued v2 notice remains payment-confirmed');
+select is(public.service_get_refund_lifecycle(
+    'ca500000-0000-4000-8000-000000000001')#>>'{managerQueue,bucket}',
+  'in_progress',
+  'A queued v2 notice does not fall into receipt accounting review');
+select is(public.service_get_refund_lifecycle(
+    'ca500000-0000-4000-8000-000000000001')#>>'{accountingState,state}',
+  'applied',
+  'The existing adjustment remains separate applied accounting');
+select set_config('request.jwt.claim.role','authenticated',true);
+select set_config('request.jwt.claims',
+  '{"sub":"ca000000-0000-4000-8000-000000000001","role":"authenticated","session_id":"ca010000-0000-4000-8000-000000000001","is_anonymous":false}',true);
+set local role authenticated;
+select set_config('test.terminal_api_overview',
+  public.admin_get_refund_authoritative_receipt_overview(
+    'ca500000-0000-4000-8000-000000000001')::text,true);
+reset role;
+select ok(current_setting('test.terminal_api_overview')::jsonb->>'attemptBindingKind'='proved_terminal_api'
+    and not (current_setting('test.terminal_api_overview')::jsonb?'completionNotice')
+    and current_setting('test.terminal_api_overview')::jsonb->'noticeChoices'='[]'::jsonb,
+  'The manager overview recognizes API proof without offering receipt-v1 notice controls');
 select set_config('test.terminal_api_message_id',(select id::text
   from public.refund_case_messages
   where refund_case_id='ca500000-0000-4000-8000-000000000001'),true);
@@ -416,6 +444,10 @@ select set_config('test.terminal_api_recipient',(select recipient_email
 select set_config('test.terminal_api_body',(select body
   from public.refund_case_messages
   where id=current_setting('test.terminal_api_message_id')::uuid),true);
+select throws_ok($$update public.refund_case_messages
+  set body=body||E'\nChanged after receipt'
+  where id=current_setting('test.terminal_api_message_id')::uuid$$,
+  'P4663',null,'The receipt keeps the bound v2 customer copy immutable');
 set local role service_role;
 select throws_ok($$select public.service_claim_refund_gmail_outbound_v3(
   'ca500000-0000-4000-8000-000000000001',
@@ -440,6 +472,24 @@ select throws_ok($$insert into public.refund_case_messages(
   'refund_nayax_completed_v2','ca000000-0000-4000-8000-000000000001',
   'deterministic_template','manual','refund_nayax_completion_v2','{}'
 )$$,'P4663',null,'Receipt guard rejects every unbound additional completion message');
+set local role service_role;
+select lives_ok($$select public.service_finish_nayax_refund_completion(
+  'continuation-executor',current_setting('test.terminal_api_attempt_id')::uuid,'sent'
+)$$,'The exact claimed v2 notice can finish independently after receipt creation');
+reset role;
+select is(public.service_get_refund_lifecycle(
+    'ca500000-0000-4000-8000-000000000001')#>>'{stage}',
+  'customer_notified',
+  'A sent v2 notice moves the API-confirmed case to customer-notified');
+select is(public.service_get_refund_lifecycle(
+    'ca500000-0000-4000-8000-000000000001')#>>'{managerQueue,bucket}',
+  'completed',
+  'A sent v2 notice removes the API-confirmed case from the actionable manager queue');
+select ok((public.service_get_refund_lifecycle(
+    'ca500000-0000-4000-8000-000000000001')->>'terminal')::boolean
+    and public.service_get_refund_lifecycle(
+      'ca500000-0000-4000-8000-000000000001')#>>'{accountingState,state}'='applied',
+  'Customer delivery can finish while applied accounting remains separate');
 
 select pg_temp.record_request(5,'accepted',true,true,'True','Pending Approval');
 update public.reporting_machine_refund_managers

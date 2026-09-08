@@ -73,6 +73,8 @@ test('receipt guard admits only the succeeded attempt bound v2 message', () => {
     'create function public.is_refund_terminal_api_completion_message');
   assert.match(predicate, /receipt\.confirmation_source='api_stage_contract'/);
   assert.match(predicate, /message\.template_version='refund_nayax_completion_v2'/);
+  assert.match(predicate, /message\.template_key='refund_nayax_completed_v2'/);
+  assert.match(predicate, /message\.delivery_kind='manual'/);
   assert.match(predicate, /attempt\.status='succeeded'/);
   assert.match(predicate, /attempt\.provider_outcome='success'/);
   assert.match(predicate, /other_message\.message_type='completed'/);
@@ -80,6 +82,11 @@ test('receipt guard admits only the succeeded attempt bound v2 message', () => {
     /Authoritative receipt forbids customer resend; use the one bound completion/);
   assert.match(migration,
     /p_delivery_kind is distinct from m\.delivery_kind/);
+  const change = functionBody(migration,
+    'create function public.refund_terminal_api_completion_message_change_allowed');
+  for (const field of ['recipient_email', 'subject', 'body', 'delivery_kind']) {
+    assert.match(change, new RegExp(`'${field}'`));
+  }
 });
 
 test('provider-free recovery is exact, idempotent, and adds no payment, adjustment, or notice', () => {
@@ -112,6 +119,20 @@ test('API receipt overview keeps DTM-only notice controls out of the manager con
   assert.match(overview, /attemptBindingKind' is distinct from 'proved_terminal_api'/);
   assert.match(overview, /base-'completionNotice'-'historicalOwnerNoticeAvailable'/);
   assert.match(overview, /'noticeChoices','\[\]'::jsonb/);
+});
+
+test('API receipt lifecycle reuses v2 delivery state and keeps accounting separate', () => {
+  const lifecycle = functionBody(migration,
+    'create function public.refund_lifecycle_contract(p_refund_case_id uuid)');
+  assert.match(lifecycle,
+    /refund_lifecycle_contract_pre_authoritative_receipt_v1/);
+  for (const key of [
+    'stage', 'messageState', 'managerNextAction', 'managerQueue',
+    'operations', 'terminal', 'refreshAfterSeconds',
+  ]) assert.match(lifecycle, new RegExp(`'${key}',delivery_base->'${key}'`));
+  assert.match(lifecycle, /'paymentWorkComplete',true/);
+  assert.match(lifecycle, /'accountingState'.*?'state','applied'/s);
+  assert.doesNotMatch(lifecycle, /'bucket','accounting_review'/);
 });
 
 test('definite failures retry once while uncertain delivery remains held', () => {

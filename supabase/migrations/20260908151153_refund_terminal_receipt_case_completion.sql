@@ -200,7 +200,8 @@ returns boolean language sql stable security definer set search_path='' as $$
     select 1
     from jsonb_to_record(p_message) as message(
       id uuid,refund_case_id uuid,nayax_refund_attempt_id uuid,message_type text,
-      status text,recipient_email text,template_version text
+      status text,recipient_email text,template_key text,content_source text,
+      delivery_kind text,template_version text,requested_fields text[]
     )
     join public.refund_authoritative_receipts receipt
       on receipt.refund_case_id=message.refund_case_id
@@ -211,6 +212,10 @@ returns boolean language sql stable security definer set search_path='' as $$
       on attempt.id=message.nayax_refund_attempt_id and attempt.refund_case_id=c.id
     where message.id is not null and message.message_type='completed'
       and message.template_version='refund_nayax_completion_v2'
+      and message.template_key='refund_nayax_completed_v2'
+      and message.content_source='deterministic_template'
+      and message.delivery_kind='manual'
+      and cardinality(coalesce(message.requested_fields,'{}'::text[]))=0
       and message.status in ('pending','sent','failed')
       and lower(btrim(message.recipient_email))=lower(btrim(c.customer_email))
       and c.status='completed' and attempt.status='succeeded'
@@ -225,6 +230,32 @@ returns boolean language sql stable security definer set search_path='' as $$
   );
 $$;
 revoke all on function public.is_refund_terminal_api_completion_message(jsonb)
+  from public,anon,authenticated,service_role;
+
+create function public.refund_terminal_api_completion_message_change_allowed(
+  p_old jsonb,p_new jsonb
+)
+returns boolean language sql stable security definer set search_path='' as $$
+  select coalesce(
+    public.is_refund_terminal_api_completion_message(p_old)
+    and public.is_refund_terminal_api_completion_message(p_new)
+    and jsonb_build_array(
+      p_new->'id',p_new->'refund_case_id',p_new->'nayax_refund_attempt_id',
+      p_new->'message_type',p_new->'recipient_email',p_new->'subject',p_new->'body',
+      p_new->'template_key',p_new->'created_by',p_new->'content_source',
+      p_new->'delivery_kind',p_new->'template_version',p_new->'requested_fields',
+      p_new->'created_at')
+      is not distinct from
+      jsonb_build_array(
+        p_old->'id',p_old->'refund_case_id',p_old->'nayax_refund_attempt_id',
+        p_old->'message_type',p_old->'recipient_email',p_old->'subject',p_old->'body',
+        p_old->'template_key',p_old->'created_by',p_old->'content_source',
+        p_old->'delivery_kind',p_old->'template_version',p_old->'requested_fields',
+        p_old->'created_at'),
+    false
+  );
+$$;
+revoke all on function public.refund_terminal_api_completion_message_change_allowed(jsonb,jsonb)
   from public,anon,authenticated,service_role;
 
 create function public.refund_terminal_api_completion_attempt_change_allowed(
@@ -320,8 +351,11 @@ begin
     ||E'  if tg_table_name=''refund_case_nayax_refund_attempts'' and tg_op=''UPDATE''\n'
     ||E'    and public.refund_terminal_api_completion_attempt_change_allowed(to_jsonb(old),to_jsonb(new)) then\n'
     ||E'    return new;\n  end if;\n'
-    ||E'  if tg_table_name=''refund_case_messages''\n'
-    ||E'    and public.is_refund_terminal_api_completion_message(to_jsonb(new)) then\n'
+    ||E'  if tg_table_name=''refund_case_messages'' and (\n'
+    ||E'    (tg_op=''INSERT'' and public.is_refund_terminal_api_completion_message(to_jsonb(new)))\n'
+    ||E'    or (tg_op=''UPDATE'' and public.refund_terminal_api_completion_message_change_allowed(\n'
+    ||E'      to_jsonb(old),to_jsonb(new)))\n'
+    ||E'  ) then\n'
     ||E'    return new;\n  end if;\n  if tg_table_name=';
   if cardinality(string_to_array(body,anchor))<>2 then
     raise exception 'Unexpected authoritative receipt guard shape';
@@ -489,8 +523,7 @@ begin
     begin
       receipt_id:=public.refund_ensure_proved_nayax_api_terminal_receipt(
         p_case_id,p_attempt_id);
-      result:=result||jsonb_build_object('terminalReceiptRecorded',true,
-        'terminalReceiptId',receipt_id);
+      result:=result||jsonb_build_object('terminalReceiptRecorded',true);
     exception when others then
       insert into public.refund_case_events(
         refund_case_id,event_type,message,metadata
@@ -599,8 +632,9 @@ revoke all on function public.admin_get_refund_authoritative_receipt_overview(uu
 grant execute on function public.admin_get_refund_authoritative_receipt_overview(uuid)
   to authenticated;
 
--- Show an existing normal adjustment as applied accounting. Receipt-only cases
--- retain an unknown settlement time and a separate accounting-review queue.
+-- API-confirmed receipts keep the normal v2 completion-message lifecycle. The
+-- receipt proves payment independently; it must not replace sent, queued, or
+-- failed delivery state with the receipt-v1 accounting-review queue.
 alter function public.refund_lifecycle_contract(uuid)
   rename to refund_lifecycle_contract_pre_terminal_reconciliation_v1;
 revoke all on function public.refund_lifecycle_contract_pre_terminal_reconciliation_v1(uuid)
@@ -609,6 +643,7 @@ create function public.refund_lifecycle_contract(p_refund_case_id uuid)
 returns jsonb language plpgsql stable security definer set search_path='' as $$
 declare
   base jsonb;
+  delivery_base jsonb;
   receipt public.refund_authoritative_receipts%rowtype;
   adjustment_fact public.sales_adjustment_facts%rowtype;
 begin
@@ -624,7 +659,24 @@ begin
     on fact.id=c.reporting_adjustment_id and fact.refund_case_id=c.id
   where c.id=p_refund_case_id;
   if adjustment_fact.id is null then return base; end if;
+  delivery_base:=public.refund_lifecycle_contract_pre_authoritative_receipt_v1(
+    p_refund_case_id
+  );
   return base||jsonb_build_object(
+      'stage',delivery_base->'stage',
+      'stageRank',delivery_base->'stageRank',
+      'reasonCode',delivery_base->'reasonCode',
+      'paymentState',delivery_base->'paymentState',
+      'messageState',delivery_base->'messageState',
+      'managerAction',delivery_base->'managerAction',
+      'managerNextAction',delivery_base->'managerNextAction',
+      'managerQueue',delivery_base->'managerQueue',
+      'operations',delivery_base->'operations',
+      'publicCopyKey',delivery_base->'publicCopyKey',
+      'lastUpdatedAt',delivery_base->'lastUpdatedAt',
+      'terminal',delivery_base->'terminal',
+      'refreshAfterSeconds',delivery_base->'refreshAfterSeconds',
+      'paymentWorkComplete',true,
       'accountingState',jsonb_build_object('state','applied','owner','Refund Operations',
         'accountingDate',adjustment_fact.adjustment_date,
         'settlementTimePrecision','unknown','settledAt',null,
