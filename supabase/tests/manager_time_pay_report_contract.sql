@@ -431,6 +431,10 @@ select is(
   null,
   'a midmonth raise can supersede an existing open-ended shift rate in one action'
 );
+
+-- The point-in-time resolver is deliberately service-only; inspect it as the
+-- privileged fixture role rather than widening browser execution privileges.
+reset role;
 select is(
   concat(
     public.operator_compensation_rate_at(
@@ -718,7 +722,7 @@ select is(
 );
 
 set local role authenticated;
-select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000001', true);
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
 select is(
   (
     select entry.value ->> 'shiftRateCents'
