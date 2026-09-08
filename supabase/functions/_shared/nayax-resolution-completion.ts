@@ -15,13 +15,21 @@ type DeliverNayaxCompletionOnceInput = {
   isDeliveryUncertain: (error: unknown) => boolean;
 };
 
-type DeliverPreparedNayaxCompletionOnceInput<T> = Omit<
-  DeliverNayaxCompletionOnceInput,
-  "deliver"
-> & {
-  load: () => Promise<T>;
-  deliverLoaded: (loaded: T) => Promise<boolean>;
-};
+type DeliverPreparedNayaxCompletionOnceInput<T> =
+  & Omit<
+    DeliverNayaxCompletionOnceInput,
+    "deliver"
+  >
+  & {
+    load: () => Promise<T>;
+    deliverLoaded: (loaded: T) => Promise<boolean>;
+  };
+
+type DeliverNayaxCompletionWithDefiniteRetryInput =
+  & DeliverNayaxCompletionOnceInput
+  & {
+    prepareSameMessageRetry: () => Promise<boolean>;
+  };
 
 const fallbackResult = (
   status: NayaxCompletionDeliveryStatus,
@@ -70,3 +78,29 @@ export const deliverPreparedNayaxCompletionOnce = async <T>({
     finish,
     isDeliveryUncertain,
   });
+
+export const deliverNayaxCompletionWithDefiniteRetry = async ({
+  deliver,
+  finish,
+  isDeliveryUncertain,
+  prepareSameMessageRetry,
+}: DeliverNayaxCompletionWithDefiniteRetryInput) => {
+  const first = await deliverNayaxCompletionOnce({
+    deliver,
+    finish,
+    isDeliveryUncertain,
+  });
+  if (first.status !== "failed") return first;
+
+  try {
+    if (!await prepareSameMessageRetry()) return first;
+  } catch {
+    return first;
+  }
+
+  return await deliverNayaxCompletionOnce({
+    deliver,
+    finish,
+    isDeliveryUncertain,
+  });
+};

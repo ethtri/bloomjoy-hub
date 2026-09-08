@@ -255,7 +255,11 @@ for (const scenario of [
 ]) {
   assert.match(continuationTest, new RegExp(scenario), `continuation pgTAP must cover ${scenario}`);
 }
-assert.match(continuationTest, /select plan\(60\)/u);
+const continuationPlan = continuationTest.match(/select plan\((\d+)\)/u);
+assert.ok(
+  continuationPlan && Number(continuationPlan[1]) >= 60,
+  'continuation pgTAP must retain its original coverage as regression cases are added',
+);
 assert.match(
   continuationHandoffMigration,
   /attempt\.actor_user_id = action_authorization\.actor_user_id[\s\S]*public\.can_perform_refund_official_action\(p_user_id, refund_case\.id\)/u,

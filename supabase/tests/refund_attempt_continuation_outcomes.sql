@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(60);
+select plan(89);
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
@@ -11,6 +11,10 @@ insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_co
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
 values('00000000-0000-0000-0000-000000000000','ca000000-0000-4000-8000-000000000002',
   'authenticated','authenticated','handoff-manager@example.test','',now(),'{}','{}',now(),now());
+insert into auth.sessions(id,user_id,created_at,updated_at)
+values('ca010000-0000-4000-8000-000000000001','ca000000-0000-4000-8000-000000000001',now(),now());
+insert into public.admin_roles(user_id,role,active)
+values('ca000000-0000-4000-8000-000000000001','super_admin',true);
 insert into public.customer_accounts(id,name,account_type)
 values('ca100000-0000-4000-8000-000000000001','Continuation fixture','internal');
 insert into public.reporting_locations(id,account_id,name,timezone)
@@ -225,7 +229,8 @@ select is((select result_disposition||'|'||status_disposition
   where r.n=2 and d.stage='request'),'unavailable|unavailable',
   'Transport failure records unavailable diagnostics without inventing parsed missing keys');
 
-select pg_temp.record_request(1,'accepted',true,true,'True','Pending Approval');
+select pg_temp.record_request(1,'accepted',true,true,
+  'Refund status updated successfully, but the email could not be sent','Partial success');
 select ok(public.refund_case_nayax_manager_readiness(
   'ca000000-0000-4000-8000-000000000001',
   'ca500000-0000-4000-8000-000000000001') @> jsonb_build_object(
@@ -264,10 +269,14 @@ select is((select count(*) from public.refund_nayax_provider_stage_journal j
   where r.n=1 and j.stage='request'),2::bigint,'Continuation creates no second request journal event');
 select is((select business_result||'|'||business_status from public.refund_nayax_provider_business_outcomes b
   join continuation_reservations r on (r.result#>>'{attempt,attemptId}')::uuid=b.nayax_refund_attempt_id
-  where r.n=1 and b.stage='request'),'True|Pending Approval','Exact bounded request business pair is retained');
+  where r.n=1 and b.stage='request'),
+  'Refund status updated successfully, but the email could not be sent|Partial success',
+  'Exact bounded request business pair is retained');
 select is((select observed_result_scalar||'|'||observed_status_scalar from public.refund_nayax_provider_business_outcomes b
   join continuation_reservations r on (r.result#>>'{attempt,attemptId}')::uuid=b.nayax_refund_attempt_id
-  where r.n=1 and b.stage='request'),'True|Pending Approval','Restricted request scalars are retained separately');
+  where r.n=1 and b.stage='request'),
+  'Refund status updated successfully, but the email could not be sent|Partial success',
+  'Restricted request scalars are retained separately');
 select is(pg_temp.continue_attempt(1)#>>'{attempt,shouldExecute}','false',
   'Duplicate click or concurrent worker cannot obtain a second continuation claim');
 select is((select count(*) from public.refund_nayax_attempt_approval_continuations c
@@ -327,17 +336,24 @@ select public.service_record_nayax_refund_provider_stage_v4_diagnostics('continu
   (select result->>'providerClaimToken' from issued_continuation),'approve','result',200,'succeeded',true,null,
   repeat('b',64),'nayax-production-account-contract-v2','nayax-provider-journal-v3',
   true,'application_json','json_object','1_256',true,true,true,true,true,'string','string',true,
-  'True','Approved',true,'True','Approved',true,
-  'True','exact','1_80','Approved','exact','1_80');
+  'Refund status updated successfully, but the email could not be sent','Partial success',true,
+  'Refund status updated successfully, but the email could not be sent','Partial success',true,
+  'Refund status updated successfully, but the email could not be sent','exact','1_80',
+  'Partial success','exact','1_80');
 select is((select business_result||'|'||business_status from public.refund_nayax_provider_business_outcomes b
   join continuation_reservations r on (r.result#>>'{attempt,attemptId}')::uuid=b.nayax_refund_attempt_id
-  where r.n=1 and b.stage='approve'),'True|Approved','Exact bounded approval business pair is retained');
+  where r.n=1 and b.stage='approve'),
+  'Refund status updated successfully, but the email could not be sent|Partial success',
+  'Exact bounded approval business pair is retained');
 select is((select observed_result_scalar||'|'||observed_status_scalar from public.refund_nayax_provider_business_outcomes b
   join continuation_reservations r on (r.result#>>'{attempt,attemptId}')::uuid=b.nayax_refund_attempt_id
-  where r.n=1 and b.stage='approve'),'True|Approved','Restricted approval scalars are retained separately');
+  where r.n=1 and b.stage='approve'),
+  'Refund status updated successfully, but the email could not be sent|Partial success',
+  'Restricted approval scalars are retained separately');
 select is((select result_text||'|'||status_text from public.refund_nayax_provider_response_diagnostics d
   join continuation_reservations r on (r.result#>>'{attempt,attemptId}')::uuid=d.nayax_refund_attempt_id
-  where r.n=1 and d.stage='approve'),'True|Approved',
+  where r.n=1 and d.stage='approve'),
+  'Refund status updated successfully, but the email could not be sent|Partial success',
   'Independent approval diagnostics bind the same safe response pair');
 select is(pg_temp.continue_attempt(1)#>>'{attempt,shouldExecute}','false',
   'An approval journal result cannot be approved again');
@@ -360,6 +376,205 @@ select lives_ok($$select public.service_settle_nayax_refund_attempt('continuatio
 select is((select status from public.refund_case_nayax_refund_attempts
   where id=(select (result#>>'{attempt,attemptId}')::uuid from issued_continuation)),'succeeded',
   'Settlement-after-effect recovery commits the existing attempt');
+select ok((select confirmation_source='api_stage_contract' and provider_status is null
+    and settled_at is null and settlement_time_precision='unknown'
+    and nayax_refund_attempt_id=(select (result#>>'{attempt,attemptId}')::uuid
+      from issued_continuation)
+  from public.refund_authoritative_receipts
+  where refund_case_id='ca500000-0000-4000-8000-000000000001'),
+  'Exact successful request and approval journals record payment truth before customer delivery');
+select is((select count(*) from public.refund_case_messages
+  where refund_case_id='ca500000-0000-4000-8000-000000000001'),0::bigint,
+  'Receipt recording does not require or create the completion notice');
+insert into public.refund_gmail_threads(
+  id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,
+  first_message_at,latest_message_at,retention_expires_at
+) values (
+  'ca700000-0000-4000-8000-000000000001',
+  'ca500000-0000-4000-8000-000000000001',repeat('9',64),
+  'continuation-terminal-thread','Synthetic terminal thread',
+  now()-interval '1 day',now(),now()+interval '30 days'
+);
+insert into public.refund_gmail_messages(
+  id,gmail_thread_id,refund_case_id,provider_message_id,direction,message_kind,status,
+  sender_email,recipient_email,participant_role,participant_trust,subject,plain_body,
+  received_at,retention_expires_at
+) values (
+  'ca710000-0000-4000-8000-000000000001',
+  'ca700000-0000-4000-8000-000000000001',
+  'ca500000-0000-4000-8000-000000000001','continuation-terminal-inbound',
+  'inbound','message','received','fixture-1@example.test','info@bloomjoysweets.com',
+  'customer','verified','Synthetic terminal thread','Synthetic original request',
+  now()-interval '1 day',now()+interval '30 days'
+);
+select set_config('test.terminal_api_attempt_id',
+  (select (result#>>'{attempt,attemptId}') from issued_continuation),true);
+select set_config('request.jwt.claim.role','service_role',true);
+select set_config('request.jwt.claims','{"role":"service_role"}',true);
+set local role service_role;
+select set_config('test.terminal_api_claim',public.service_claim_nayax_refund_completion(
+  'continuation-executor',current_setting('test.terminal_api_attempt_id')::uuid)::text,true);
+reset role;
+select ok((current_setting('test.terminal_api_claim')::jsonb->>'claimed')::boolean,
+  'The receipt permits the succeeded attempt to create its one exact completion message');
+select ok((select message_type='completed' and status='pending'
+    and template_version='refund_nayax_completion_v2' and delivery_kind='manual'
+    and nayax_refund_attempt_id=current_setting('test.terminal_api_attempt_id')::uuid
+  from public.refund_case_messages
+  where refund_case_id='ca500000-0000-4000-8000-000000000001'),
+  'The permitted message retains the exact claimed v2 identity and delivery kind');
+select is(public.service_get_refund_lifecycle(
+    'ca500000-0000-4000-8000-000000000001')#>>'{stage}',
+  'refund_confirmed',
+  'An API receipt with a queued v2 notice remains payment-confirmed');
+select is(public.service_get_refund_lifecycle(
+    'ca500000-0000-4000-8000-000000000001')#>>'{managerQueue,bucket}',
+  'in_progress',
+  'A queued v2 notice does not fall into receipt accounting review');
+select is(public.service_get_refund_lifecycle(
+    'ca500000-0000-4000-8000-000000000001')#>>'{accountingState,state}',
+  'applied',
+  'The existing adjustment remains separate applied accounting');
+select set_config('request.jwt.claim.role','authenticated',true);
+select set_config('request.jwt.claims',
+  '{"sub":"ca000000-0000-4000-8000-000000000001","role":"authenticated","session_id":"ca010000-0000-4000-8000-000000000001","is_anonymous":false}',true);
+set local role authenticated;
+select set_config('test.terminal_api_overview',
+  public.admin_get_refund_authoritative_receipt_overview(
+    'ca500000-0000-4000-8000-000000000001')::text,true);
+reset role;
+select ok(current_setting('test.terminal_api_overview')::jsonb->>'attemptBindingKind'='proved_terminal_api'
+    and not (current_setting('test.terminal_api_overview')::jsonb?'completionNotice')
+    and current_setting('test.terminal_api_overview')::jsonb->'noticeChoices'='[]'::jsonb,
+  'The manager overview recognizes API proof without offering receipt-v1 notice controls');
+select set_config('test.terminal_api_message_id',(select id::text
+  from public.refund_case_messages
+  where refund_case_id='ca500000-0000-4000-8000-000000000001'),true);
+select set_config('test.terminal_api_recipient',(select recipient_email
+  from public.refund_case_messages
+  where id=current_setting('test.terminal_api_message_id')::uuid),true);
+select set_config('test.terminal_api_body',(select body
+  from public.refund_case_messages
+  where id=current_setting('test.terminal_api_message_id')::uuid),true);
+select throws_ok($$update public.refund_case_messages
+  set body=body||E'\nChanged after receipt'
+  where id=current_setting('test.terminal_api_message_id')::uuid$$,
+  'P4663',null,'The receipt keeps the bound v2 customer copy immutable');
+select throws_ok($$update public.refund_case_messages set status='sent',sent_at=now()
+  where id=current_setting('test.terminal_api_message_id')::uuid$$,
+  'P4663',null,'A pending receipt-bound message cannot become sent without exact provider proof');
+select throws_ok($$update public.refund_case_nayax_refund_attempts
+  set completion_delivery_status='sent',completion_manager_cc_count=1
+  where id=current_setting('test.terminal_api_attempt_id')::uuid$$,
+  'P4663',null,'A pending receipt-bound attempt cannot become sent without exact provider proof');
+set local role service_role;
+select throws_ok($$select public.service_claim_refund_gmail_outbound_v3(
+  'ca500000-0000-4000-8000-000000000001',
+  current_setting('test.terminal_api_message_id')::uuid,
+  'refund-case-message:'||current_setting('test.terminal_api_message_id'),
+  'info@bloomjoysweets.com',current_setting('test.terminal_api_recipient'),
+  current_setting('test.terminal_api_body'),array['info@bloomjoysweets.com'],
+  'automatic','ca700000-0000-4000-8000-000000000001'
+)$$,'P4664',null,'The receipt rejects a transport kind different from the stored v2 message');
+reset role;
+set local role service_role;
+select is(public.service_claim_nayax_refund_completion(
+  'continuation-executor',current_setting('test.terminal_api_attempt_id')::uuid)->>'claimed',
+  'false','Duplicate completion claim reuses the same message');
+reset role;
+select throws_ok($$insert into public.refund_case_messages(
+  refund_case_id,message_type,status,recipient_email,subject,body,template_key,
+  created_by,content_source,delivery_kind,template_version,requested_fields
+) values (
+  'ca500000-0000-4000-8000-000000000001','completed','pending',
+  'fixture-1@example.test','Changed completion','Changed completion',
+  'refund_nayax_completed_v2','ca000000-0000-4000-8000-000000000001',
+  'deterministic_template','manual','refund_nayax_completion_v2','{}'
+)$$,'P4663',null,'Receipt guard rejects every unbound additional completion message');
+set local role service_role;
+select set_config('test.terminal_api_outbound',public.service_claim_refund_gmail_outbound_v3(
+  'ca500000-0000-4000-8000-000000000001',
+  current_setting('test.terminal_api_message_id')::uuid,
+  'refund-case-message:'||current_setting('test.terminal_api_message_id'),
+  'info@bloomjoysweets.com',current_setting('test.terminal_api_recipient'),
+  current_setting('test.terminal_api_body'),array['info@bloomjoysweets.com'],
+  'manual','ca700000-0000-4000-8000-000000000001'
+)::text,true);
+reset role;
+select ok((current_setting('test.terminal_api_outbound')::jsonb->>'claimed')::boolean,
+  'The exact receipt-bound v2 notice can claim its original-thread transport');
+select is(public.service_get_refund_lifecycle(
+    'ca500000-0000-4000-8000-000000000001')#>>'{managerQueue,bucket}',
+  'needs_action',
+  'A claimed transport without provider confirmation does not look safely unsent');
+set local role service_role;
+select lives_ok($$select public.service_finish_nayax_refund_completion(
+  'continuation-executor',current_setting('test.terminal_api_attempt_id')::uuid,
+  'delivery_unknown')$$,
+  'A transport with no result is durably held without retrying its message');
+reset role;
+select ok((select completion_delivery_status='delivery_unknown'
+      from public.refund_case_nayax_refund_attempts
+      where id=current_setting('test.terminal_api_attempt_id')::uuid)
+    and public.service_get_refund_lifecycle(
+      'ca500000-0000-4000-8000-000000000001')#>>'{managerQueue,bucket}'='needs_action',
+  'Delivery uncertainty remains actionable while payment stays confirmed');
+select throws_ok(format($sql$update public.refund_case_nayax_refund_attempts
+  set completion_delivery_status='sent',completion_manager_cc_count=1 where id=%L$sql$,
+  current_setting('test.terminal_api_attempt_id')),
+  'P4663',null,'Delivery unknown cannot become sent without exact Gmail provider and manager-CC proof');
+set local role service_role;
+select lives_ok(format($sql$select public.service_finish_refund_gmail_outbound(
+  %L,'sent','terminal-api-provider-message',null,null)$sql$,
+  current_setting('test.terminal_api_outbound')::jsonb->>'transportMessageId'),
+  'The normal Gmail finalizer records exact provider sent proof');
+select lives_ok($$select public.service_finish_nayax_refund_completion(
+  'continuation-executor',current_setting('test.terminal_api_attempt_id')::uuid,'sent'
+)$$,'The exact claimed v2 notice can finish independently after receipt creation');
+reset role;
+select ok(public.service_get_refund_lifecycle(
+      'ca500000-0000-4000-8000-000000000001')#>>'{stage}'='customer_notified'
+    and public.service_get_refund_lifecycle(
+      'ca500000-0000-4000-8000-000000000001')->>'publicCopyKey'='refund_customer_notified'
+    and public.service_get_refund_lifecycle(
+      'ca500000-0000-4000-8000-000000000001')#>>'{messageState,state}'='sent',
+  'A sent v2 notice projects consistent customer-notified state and public copy');
+select is(public.service_get_refund_lifecycle(
+    'ca500000-0000-4000-8000-000000000001')#>>'{managerQueue,bucket}',
+  'completed',
+  'A sent v2 notice removes the API-confirmed case from the actionable manager queue');
+select ok((public.service_get_refund_lifecycle(
+    'ca500000-0000-4000-8000-000000000001')->>'terminal')::boolean
+    and public.service_get_refund_lifecycle(
+      'ca500000-0000-4000-8000-000000000001')#>>'{accountingState,state}'='applied',
+  'Customer delivery can finish while applied accounting remains separate');
+select ok((select attempt.completion_delivery_status='sent' and message.status='sent'
+    from public.refund_case_nayax_refund_attempts attempt
+    join public.refund_case_messages message on message.id=attempt.completion_message_id
+    where attempt.id=current_setting('test.terminal_api_attempt_id')::uuid),
+  'The guarded finalizers retain exact sent state on the bound attempt and message');
+set local role service_role;
+select is(public.service_finish_nayax_refund_completion(
+    'continuation-executor',current_setting('test.terminal_api_attempt_id')::uuid,'sent')->>'status',
+  'already_sent','Sent completion replay performs no retry');
+reset role;
+select throws_ok(format($sql$update public.refund_case_messages set status='pending'
+  where id=%L$sql$,current_setting('test.terminal_api_message_id')),
+  'P4663',null,'A sent receipt-bound v2 message cannot move backward to pending');
+select throws_ok(format($sql$update public.refund_case_nayax_refund_attempts
+  set completion_delivery_status='failed' where id=%L$sql$,
+  current_setting('test.terminal_api_attempt_id')),
+  'P4663',null,'A sent receipt-bound completion attempt cannot move backward to failed');
+select ok(not public.refund_terminal_api_completion_attempt_change_allowed(
+  (select to_jsonb(attempt)||jsonb_build_object(
+      'completion_delivery_status','failed','completion_delivery_retry_count',1)
+    from public.refund_case_nayax_refund_attempts attempt
+    where id=current_setting('test.terminal_api_attempt_id')::uuid),
+  (select to_jsonb(attempt)||jsonb_build_object(
+      'completion_delivery_status','pending','completion_delivery_retry_count',0)
+    from public.refund_case_nayax_refund_attempts attempt
+    where id=current_setting('test.terminal_api_attempt_id')::uuid)),
+  'A receipt-bound delivery retry count cannot decrease');
 
 select pg_temp.record_request(5,'accepted',true,true,'True','Pending Approval');
 update public.reporting_machine_refund_managers

@@ -52,6 +52,7 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-manager-clarity-ask-desktop.png',
   'refund-manager-clarity-ask-200-percent-reflow.png',
   'refund-manager-clarity-cached-read-delay.png',
+  'refund-manager-long-queue-desktop.png',
   'refund-manager-stale-evidence-recovery-desktop.png',
   'refund-manager-stale-evidence-recovery-mobile.png',
   'refund-nayax-support-resolution-desktop.png',

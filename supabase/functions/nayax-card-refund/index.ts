@@ -36,7 +36,7 @@ import {
 } from "../_shared/nayax-refund-provider.mjs";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { RefundGmailError } from "../_shared/refund-gmail.ts";
-import { deliverNayaxCompletionOnce } from "../_shared/nayax-resolution-completion.ts";
+import { deliverNayaxCompletionWithDefiniteRetry } from "../_shared/nayax-resolution-completion.ts";
 import { buildRefundStoredTextWithStatus } from "../_shared/refund-email.ts";
 import { tryIssueRefundStatusCapabilityForMessage } from "../_shared/refund-status-capability.ts";
 import {
@@ -1573,7 +1573,7 @@ serve(async (req) => {
           }
 
           const messageBody = claim.body;
-          return await deliverNayaxCompletionOnce({
+          return await deliverNayaxCompletionWithDefiniteRetry({
             deliver: async () => {
               const statusCapability = await tryIssueRefundStatusCapabilityForMessage({
                 supabase,
@@ -1595,7 +1595,7 @@ serve(async (req) => {
                   text: completionEmail.text,
                   html: completionEmail.html,
                 },
-                deliveryKind: "automatic",
+                deliveryKind: "manual",
                 gmailThreadId: claim.gmailThreadId as string,
               });
               return gmailDelivery.usedGmail;
@@ -1618,6 +1618,27 @@ serve(async (req) => {
             },
             isDeliveryUncertain: (error) =>
               error instanceof RefundGmailError && error.deliveryUncertain,
+            prepareSameMessageRetry: async () => {
+              const { data, error } = await supabase.rpc(
+                "service_prepare_nayax_completion_retry",
+                {
+                  p_executor_assertion: executionConfig.executorAssertion,
+                  p_refund_case_message_id: claim.refundCaseMessageId,
+                },
+              );
+              const retry = data && typeof data === "object"
+                ? data as Record<string, unknown>
+                : null;
+              return !error && retry?.prepared === true &&
+                retry.refundCaseId === claim.refundCaseId &&
+                retry.refundCaseMessageId === claim.refundCaseMessageId &&
+                retry.attemptId === attemptId &&
+                retry.gmailThreadId === claim.gmailThreadId &&
+                retry.recipientEmail === claim.recipientEmail &&
+                retry.subject === claim.subject && retry.body === claim.body &&
+                retry.retryCount === 1 && retry.originalThread === true &&
+                retry.payloadRedacted === true;
+            },
           }) as NayaxCompletionDelivery;
         },
       },

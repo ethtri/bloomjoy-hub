@@ -56,6 +56,30 @@ Deno.test('authorized overview is explicit and strips unrelated private fields',
   assertThrows(() => parseRefundReceiptOverview({ ...overview(), expectedCaseVersion: null }));
   assertThrows(() => parseRefundReceiptOverview({ ...overview(), currencyCode: null }));
 });
+Deno.test('proved API receipt parses without DTM-only completion controls', () => {
+  const v = parseRefundReceiptOverview({
+    ...overview(),
+    canRecord: false,
+    attemptId: 'ad600000-0000-4000-8000-000000000001',
+    attemptBindingKind: 'proved_terminal_api',
+    receipt: {
+      id: 'ad900000-0000-4000-8000-000000000001',
+      observedAt: '2026-09-08T15:00:00Z',
+      settlementTimePrecision: 'unknown',
+      noticeAdopted: false,
+      noticeSentAt: null,
+      managerCcVerified: null,
+    },
+    noticeChoices: [],
+  })!;
+  assertEquals(v.attemptBindingKind, 'proved_terminal_api');
+  assertEquals(v.completionNotice, undefined);
+  assertThrows(() => buildReceiptCompletionRequest(
+    v,
+    'ad700000-0000-4000-8000-000000000001',
+    true,
+  ));
+});
 Deno.test('UI receipt request uses exact selected fields and cannot supply a settlement time', () => {
   const v = parseRefundReceiptOverview(overview())!;
   assertThrows(() => buildReceiptRecordRequest(v, 'DTM:NAYAX-123456782', true));

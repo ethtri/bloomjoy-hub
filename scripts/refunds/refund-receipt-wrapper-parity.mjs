@@ -5,11 +5,12 @@ export const RECEIPT_MIGRATION = '20260902191832_refund_authoritative_reconcilia
 export const CORE_DISPATCH_MIGRATION = '20260902182311_refund_all_message_delivery_bookkeeping.sql';
 export const PRIOR_COMPLETION_MIGRATION = '20260903154800_refund_receipt_customer_completion.sql';
 export const COMPLETION_MIGRATION = '20260906052200_refund_receipt_automatic_completion_kernel.sql';
+export const TERMINAL_API_MIGRATION = '20260908163714_refund_terminal_receipt_case_completion.sql';
 export const OWNER_RESOLUTION_MIGRATION = '20260904182000_refund_owner_nonrefund_adoption.sql';
 const TEST_FILE = 'refund_receipt_wrapper_parity.sql';
 const gmailArgs = 'uuid,uuid,text,text,text,text,text[],text,uuid';
 const definitions = [
-  [COMPLETION_MIGRATION, 'service_claim_refund_gmail_outbound_v3', 'service_claim_refund_gmail_outbound_v3', gmailArgs, true],
+  [TERMINAL_API_MIGRATION, 'service_claim_refund_gmail_outbound_v3', 'service_claim_refund_gmail_outbound_v3', gmailArgs, true],
   [CORE_DISPATCH_MIGRATION, 'service_claim_refund_gmail_outbound_v3', 'service_claim_refund_gmail_outbound_pre_receipt_v1', gmailArgs, false],
   [COMPLETION_MIGRATION, 'service_mark_refund_transactional_delivery_attempt', 'service_mark_refund_transactional_delivery_attempt', 'uuid', true],
   [CORE_DISPATCH_MIGRATION, 'service_mark_refund_transactional_delivery_attempt', 'service_mark_refund_delivery_pre_receipt_v1', 'uuid', false],
@@ -48,14 +49,19 @@ export function buildReceiptWrapperParityTest(repoRoot) {
   if (!files.includes(RECEIPT_MIGRATION) || !files.includes(CORE_DISPATCH_MIGRATION) ||
     !files.includes(PRIOR_COMPLETION_MIGRATION) || !files.includes(COMPLETION_MIGRATION) ||
     COMPLETION_MIGRATION <= RECEIPT_MIGRATION || RECEIPT_MIGRATION <= CORE_DISPATCH_MIGRATION) throw new Error('Receipt must follow the current core dispatch migration');
-  // A later public replacement would silently remove the outer receipt gate on
+  // A later public replacement would silently remove an outer receipt gate on
   // fresh replay even when an out-of-order production installation looked safe.
   for (const name of ['service_claim_refund_gmail_outbound_v3', 'service_mark_refund_transactional_delivery_attempt']) {
     const definingFiles = files.filter((file) => new RegExp(`^create(?: or replace)? function public\\.${name}\\(`, 'm')
       .test(fs.readFileSync(path.join(migrationsDir, file), 'utf8')));
-    if (definingFiles.at(-1) !== COMPLETION_MIGRATION) throw new Error(`Receipt wrapper overwritten later: ${name}`);
-    if (definingFiles.at(-2) !== PRIOR_COMPLETION_MIGRATION || definingFiles.at(-3) !== RECEIPT_MIGRATION ||
-      definingFiles.at(-4) !== CORE_DISPATCH_MIGRATION) throw new Error(`Receipt delegate is not the current core: ${name}`);
+    const expected = name === 'service_claim_refund_gmail_outbound_v3'
+      ? [CORE_DISPATCH_MIGRATION, RECEIPT_MIGRATION, PRIOR_COMPLETION_MIGRATION,
+        COMPLETION_MIGRATION, TERMINAL_API_MIGRATION]
+      : [CORE_DISPATCH_MIGRATION, RECEIPT_MIGRATION, PRIOR_COMPLETION_MIGRATION,
+        COMPLETION_MIGRATION];
+    if (!expected.every((file, index) => definingFiles.at(index - expected.length) === file)) {
+      throw new Error(`Receipt delegate is not the current core: ${name}`);
+    }
   }
   const checks = definitions.flatMap(([file, sourceName, runtimeName, args, serviceAllowed]) => {
     const body = extractReceiptParityBody(fs.readFileSync(path.join(migrationsDir, file), 'utf8'), sourceName);

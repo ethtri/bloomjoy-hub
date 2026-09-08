@@ -3528,6 +3528,13 @@ const runPublicRefundSubmissionChecks = async ({ browser, appUrl, recorder }) =>
     const page = await context.newPage();
     await navigateRefundPortalPage(page, `${appUrl}${journey.path}`, { waitUntil: 'domcontentloaded' });
     await page.getByLabel('Machine location').selectOption(selectionKey);
+    await page.getByLabel('Email').fill('   ');
+    await page.getByRole('button', { name: 'Send refund request' }).click();
+    recorder.assert(
+      `${journey.name} refund journey rejects whitespace-only email without creating a case`,
+      await page.getByText('Enter a valid email address.', { exact: true }).isVisible() &&
+        submissions.length === 0
+    );
     await page.getByLabel('Email').fill('synthetic-customer@example.test');
     await page.getByRole('radio', { name: /^Card/ }).click();
     await page.getByLabel('Amount paid').fill('7.00');
@@ -3770,11 +3777,34 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   const matchBox = await page.getByTestId('nayax-result-card').boundingBox();
   const actionBox = await page.getByTestId('refund-primary-action').boundingBox();
   const primaryButtonBox = await page.getByTestId('refund-run-nayax-refund').boundingBox();
+  const boundedWorkspace = await page.evaluate(() => {
+    const queue = document.querySelector('[aria-label="Refund case queue"]');
+    const detail = document.querySelector('[aria-label="Selected refund case"]');
+    if (!(queue instanceof HTMLElement) || !(detail instanceof HTMLElement)) return null;
+    return {
+      queueOverflowY: getComputedStyle(queue).overflowY,
+      detailOverflowY: getComputedStyle(detail).overflowY,
+      queueHeight: queue.getBoundingClientRect().height,
+      detailHeight: detail.getBoundingClientRect().height,
+      viewportHeight: window.innerHeight,
+    };
+  });
   recorder.assert(
-    'Request and recommended transaction compare side by side on a laptop viewport',
+    'Desktop queue and detail use independent bounded scrolling',
+    boundedWorkspace?.queueOverflowY === 'auto' &&
+      boundedWorkspace?.detailOverflowY === 'auto' &&
+      boundedWorkspace.queueHeight > 400 &&
+      boundedWorkspace.detailHeight > 400 &&
+      boundedWorkspace.queueHeight < boundedWorkspace.viewportHeight &&
+      boundedWorkspace.detailHeight < boundedWorkspace.viewportHeight,
+    JSON.stringify(boundedWorkspace)
+  );
+  recorder.assert(
+    'Compact request details and recommended transaction share one decision workspace on a laptop viewport',
     Boolean(requestBox && matchBox && actionBox) &&
-      Math.abs(requestBox.y - matchBox.y) <= 2 &&
-      Math.abs(requestBox.height - matchBox.height) <= 2 &&
+      requestBox.y < matchBox.y &&
+      Math.abs(requestBox.x - matchBox.x) <= 2 &&
+      Math.abs(requestBox.width - matchBox.width) <= 2 &&
       actionBox.y < requestBox.y,
     JSON.stringify({ requestBox, matchBox, actionBox, primaryButtonBox })
   );
@@ -3801,30 +3831,57 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       await page.getByTestId('nayax-result-card').getByText('Selected', { exact: true }).isVisible()
   );
   const selectedTransactionEvidence = page.getByTestId('selected-nayax-transaction-evidence');
+  const purchaseComparison = page.getByTestId('refund-purchase-comparison');
+  const transactionEvidenceDetails = page.getByTestId('selected-nayax-transaction-evidence-details');
   const copyTransactionButton = page.getByTestId('copy-selected-nayax-transaction-id');
+  const transactionEvidenceDisclosure = transactionEvidenceDetails.getByText('Transaction evidence', { exact: true });
+  const selectedPurchaseBox = await selectedTransactionEvidence.boundingBox();
+  const purchaseComparisonBox = await purchaseComparison.boundingBox();
+  const transactionEvidenceDetailsBox = await transactionEvidenceDetails.boundingBox();
+  recorder.assert(
+    'Selected purchase summary and comparison are visible before technical evidence',
+      await selectedTransactionEvidence.isVisible() &&
+      await selectedTransactionEvidence.getByText('$7.00 USD', { exact: false }).first().isVisible() &&
+      await purchaseComparison.isVisible() &&
+      await transactionEvidenceDisclosure.isVisible() &&
+      !(await page.getByText('NAYAX-UAT-SELECTED-7001', { exact: true }).isVisible()) &&
+      !(await page.getByText('Provider machine-local time', { exact: true }).isVisible()) &&
+      Boolean(
+        selectedPurchaseBox && purchaseComparisonBox && transactionEvidenceDetailsBox &&
+        selectedPurchaseBox.y < purchaseComparisonBox.y &&
+        purchaseComparisonBox.y < 1000 &&
+        purchaseComparisonBox.y < transactionEvidenceDetailsBox.y
+      ),
+    JSON.stringify({ selectedPurchaseBox, purchaseComparisonBox, transactionEvidenceDetailsBox })
+  );
+  await transactionEvidenceDisclosure.click();
   const copyTransactionButtonBox = await copyTransactionButton.boundingBox();
   recorder.assert(
-    'Selected transaction evidence is visible, source-labeled, and copyable',
-    await selectedTransactionEvidence.isVisible() &&
-      await selectedTransactionEvidence.getByText('NAYAX-UAT-SELECTED-7001', { exact: true }).isVisible() &&
-      await selectedTransactionEvidence.getByText('$7.00 USD', { exact: true }).isVisible() &&
-      await selectedTransactionEvidence.getByText('Customer-reported time', { exact: true }).isVisible() &&
-      await selectedTransactionEvidence.getByText('Provider machine-local time', { exact: true }).isVisible() &&
-      (await selectedTransactionEvidence.getByText('America/Los_Angeles', { exact: false }).count()) >= 2 &&
-      await selectedTransactionEvidence.getByText('Why this transaction was selected', { exact: true }).isVisible() &&
-      Boolean(copyTransactionButtonBox && copyTransactionButtonBox.height >= 44),
-    JSON.stringify(copyTransactionButtonBox)
+    'Technical transaction evidence remains available from the disclosure',
+      await transactionEvidenceDetails.getByText('Selected Nayax transaction ID', { exact: true }).isVisible() &&
+      await transactionEvidenceDetails.getByText('NAYAX-UAT-SELECTED-7001', { exact: true }).isVisible() &&
+      await transactionEvidenceDetails.getByText('Customer-reported time', { exact: true }).isVisible() &&
+      await transactionEvidenceDetails.getByText('Provider machine-local time', { exact: true }).isVisible() &&
+      (await transactionEvidenceDetails.getByText('America/Los_Angeles', { exact: false }).count()) >= 2 &&
+      await transactionEvidenceDetails.getByText('Why this transaction was selected', { exact: true }).isVisible() &&
+      Boolean(copyTransactionButtonBox && copyTransactionButtonBox.height >= 44)
   );
   await copyTransactionButton.click();
   recorder.assert(
     'Copy ID writes only the exact selected Nayax transaction reference',
     await page.evaluate(() => navigator.clipboard.readText()) === 'NAYAX-UAT-SELECTED-7001'
   );
+  await transactionEvidenceDisclosure.click();
+  await page.getByText('Nayax transaction ID copied.', { exact: true })
+    .waitFor({ state: 'hidden', timeout: 10000 })
+    .catch(() => undefined);
+  await settleRefundPortalPage(page);
   await page.screenshot({
     path: path.join(artifactDir, 'refund-selected-nayax-transaction-desktop.png'),
     fullPage: true,
   });
   await page.setViewportSize({ width: 390, height: 844 });
+  await transactionEvidenceDisclosure.click();
   await selectedTransactionEvidence.scrollIntoViewIfNeeded();
   const mobileEvidenceBox = await selectedTransactionEvidence.boundingBox();
   const mobileCopyButtonBox = await copyTransactionButton.boundingBox();
@@ -3841,7 +3898,10 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     path: path.join(artifactDir, 'refund-selected-nayax-transaction-mobile.png'),
     fullPage: true,
   });
+  await transactionEvidenceDisclosure.click();
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await settleRefundPortalPage(page);
+  await page.getByTestId('refund-run-nayax-refund').waitFor({ state: 'visible', timeout: 10000 });
   recorder.assert(
     'Customer and Nayax card types are compared in plain language',
     /Card type\s+Visa\s+Visa\s+Same card type/.test(
@@ -3856,10 +3916,24 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     'Selected card match keeps candidate chooser out of the normal path',
     (await page.getByText('Choose the matching card sale').count()) === 0
   );
+  const selectedRefundActions = page.getByRole('button', { name: 'Refund $7.00', exact: true });
+  const selectedActionDiagnostics = {
+    policyCopyCount: await page.getByText(/transaction evidence, not a refund decision/i).count(),
+    refundActionCount: await selectedRefundActions.count(),
+    visibleRefundActionCount: await selectedRefundActions.evaluateAll((buttons) =>
+      buttons.filter((button) => {
+        const box = button.getBoundingClientRect();
+        const style = window.getComputedStyle(button);
+        return box.width > 0 && box.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+      }).length
+    ),
+  };
   recorder.assert(
     'Selected match keeps one manager-owned action without policy copy',
-    (await page.getByText(/transaction evidence, not a refund decision/i).count()) === 0 &&
-      (await page.getByRole('button', { name: 'Refund $7.00', exact: true }).count()) === 1
+    selectedActionDiagnostics.policyCopyCount === 0 &&
+      selectedActionDiagnostics.refundActionCount === 1 &&
+      selectedActionDiagnostics.visibleRefundActionCount === 1,
+    JSON.stringify(selectedActionDiagnostics)
   );
   recorder.assert(
     'Case header keeps one current state and one next step',
@@ -4042,8 +4116,10 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
   await page.waitForTimeout(100);
   recorder.assert(
-    'Mobile queue hides after selection with a clear return control',
-    await page.getByRole('button', { name: 'Show queue', exact: true }).isVisible() &&
+    'Mobile queue card hides after selection with one clear return control',
+    await page.getByTestId('refund-detail-back-to-queue').isVisible() &&
+      !(await page.locator('#refund-queue-panel').isVisible()) &&
+      (await page.getByRole('button', { name: 'Back to queue', exact: true }).count()) === 1 &&
       (await page.locator('button:visible', { hasText: 'RF-UAT-CARD' }).count()) === 0 &&
       (await page.locator('button:visible', { hasText: 'RF-UAT-WAIT' }).count()) === 0
   );
@@ -4089,6 +4165,26 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       overflow.bodyScrollWidth <= overflow.innerWidth + 1,
     JSON.stringify(overflow)
   );
+  await page.getByTestId('refund-detail-back-to-queue').click();
+  await page.waitForTimeout(100);
+  const mobileQueueReturn = await page.evaluate(() => {
+    const headerBottom = document.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
+    const queuePanel = document.getElementById('refund-queue-panel');
+    return queuePanel instanceof HTMLElement
+      ? {
+          focused: document.activeElement === queuePanel,
+          top: queuePanel.getBoundingClientRect().top,
+          headerBottom,
+        }
+      : null;
+  });
+  recorder.assert(
+    'Mobile detail Back to queue expands, scrolls to, and focuses the queue',
+    mobileQueueReturn?.focused === true &&
+      mobileQueueReturn.top >= mobileQueueReturn.headerBottom &&
+      await page.locator('button:visible', { hasText: 'RF-UAT-CARD' }).first().isVisible(),
+    JSON.stringify(mobileQueueReturn)
+  );
   recorder.assert(
     'No browser console/page errors during mocked QA pass',
     getUatPageFailures(page, consoleErrors).length === 0,
@@ -4096,6 +4192,91 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   );
 
   await closeRefundPortalContext(context);
+
+  const longQueueContext = await browser.newContext({
+    viewport: { width: 1440, height: 1000 },
+  });
+  const baseLongQueueOverview = buildMockRefundOverview();
+  const longQueueCases = Array.from({ length: 30 }, (_, index) => ({
+    ...baseLongQueueOverview.cases[0],
+    id: `case-long-queue-${index + 1}`,
+    publicReference: `RF-UAT-LONG-${String(index + 1).padStart(2, '0')}`,
+    customerName: `Queue customer ${index + 1}`,
+    createdAt: isoHoursAgo(index + 1),
+    updatedAt: isoHoursAgo(Math.max(1, index)),
+  }));
+  await installMockSupabaseRoutes(longQueueContext, {
+    refundOverview: () => ({
+      ...baseLongQueueOverview,
+      cases: longQueueCases,
+    }),
+  });
+  const longQueuePage = await longQueueContext.newPage();
+  await signInRefundUser(longQueuePage, appUrl);
+  await longQueuePage.getByRole('button', { name: /^Ready to refund 30$/ }).click();
+  await waitForQueueCount(longQueuePage, 30);
+  const firstQueueCase = longQueuePage.getByTestId('refund-case-queue-item').filter({ visible: true }).first();
+  const firstQueueReference = (await firstQueueCase.innerText()).match(/RF-UAT-LONG-\d{2}/)?.[0];
+  if (!firstQueueReference) throw new Error('Long queue fixture did not expose a case reference.');
+  await firstQueueCase.click();
+  await longQueuePage.getByRole('heading', { name: firstQueueReference, exact: true }).waitFor();
+
+  const queueRegion = longQueuePage.getByRole('region', { name: 'Refund case queue' });
+  const scrollIsolation = await longQueuePage.evaluate(() => {
+    const queue = document.querySelector('[aria-label="Refund case queue"]');
+    const detail = document.querySelector('[aria-label="Selected refund case"]');
+    if (!(queue instanceof HTMLElement) || !(detail instanceof HTMLElement)) return null;
+    detail.scrollTop = Math.min(220, Math.max(0, detail.scrollHeight - detail.clientHeight));
+    const detailBeforeQueueScroll = detail.scrollTop;
+    queue.scrollTop = 360;
+    return {
+      queueClientHeight: queue.clientHeight,
+      queueScrollHeight: queue.scrollHeight,
+      queueScrollTop: queue.scrollTop,
+      detailClientHeight: detail.clientHeight,
+      detailScrollHeight: detail.scrollHeight,
+      detailBeforeQueueScroll,
+      detailAfterQueueScroll: detail.scrollTop,
+    };
+  });
+  recorder.assert(
+    'A 30-case desktop queue scrolls inside its pane without moving the selected detail',
+    Boolean(scrollIsolation) &&
+      scrollIsolation.queueScrollHeight > scrollIsolation.queueClientHeight &&
+      scrollIsolation.queueScrollTop > 0 &&
+      scrollIsolation.detailScrollHeight > scrollIsolation.detailClientHeight &&
+      scrollIsolation.detailBeforeQueueScroll > 0 &&
+      scrollIsolation.detailAfterQueueScroll === scrollIsolation.detailBeforeQueueScroll,
+    JSON.stringify(scrollIsolation)
+  );
+
+  const nextQueueCase = longQueuePage.getByTestId('refund-case-queue-item').filter({ visible: true }).nth(5);
+  const nextQueueReference = (await nextQueueCase.innerText()).match(/RF-UAT-LONG-\d{2}/)?.[0];
+  if (!nextQueueReference) throw new Error('Long queue fixture did not expose a second case reference.');
+  await nextQueueCase.scrollIntoViewIfNeeded();
+  await nextQueueCase.click();
+  await longQueuePage.getByRole('heading', { name: nextQueueReference, exact: true }).waitFor();
+  const selectionReset = await longQueuePage.evaluate(() => {
+    const detail = document.querySelector('[aria-label="Selected refund case"]');
+    return detail instanceof HTMLElement
+      ? { scrollTop: detail.scrollTop, focused: document.activeElement === detail }
+      : null;
+  });
+  recorder.assert(
+    'Selecting another queued case resets and focuses its detail pane',
+    selectionReset?.scrollTop === 0 && selectionReset?.focused === true,
+    JSON.stringify(selectionReset)
+  );
+  await queueRegion.focus();
+  await longQueuePage.getByText('Signed in. Redirecting...', { exact: true })
+    .waitFor({ state: 'hidden', timeout: 10000 })
+    .catch(() => undefined);
+  await settleRefundPortalPage(longQueuePage);
+  await longQueuePage.screenshot({
+    path: path.join(artifactDir, 'refund-manager-long-queue-desktop.png'),
+    fullPage: false,
+  });
+  await closeRefundPortalContext(longQueueContext);
 };
 
 const runEmailPilotDuplicateChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
@@ -6672,13 +6853,22 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       }
       if (scenario.expectedReviewableMismatch) {
         const candidateOption = page.getByTestId('nayax-candidate-option').first();
+        const requestSummary = page.getByTestId('refund-request-summary');
+        await requestSummary.locator('summary').click();
+        const physicalCardSource = requestSummary.getByText('Last four from physical card', { exact: true });
+        const mismatchExplanation = candidateOption.getByText(
+          /Card ending differs; wallet, contactless, or source differences may explain it/
+        );
+        await physicalCardSource.waitFor({ state: 'visible' });
         recorder.assert(
           'A close contactless suffix mismatch gives one manager review action without claiming identifier equivalence',
           await page.getByTestId('nayax-candidate-availability').getByText('1 transaction available to select', { exact: true }).isVisible() &&
+            await candidateOption.isVisible() &&
             await candidateOption.getByText('Review this', { exact: true }).isVisible() &&
             await candidateOption.locator('input[type="radio"]').isEnabled() &&
-            await page.getByText('Last four from physical card', { exact: true }).isVisible() &&
-            await page.getByText(/Card ending differs; wallet, contactless, or source differences may explain it/).first().isVisible() &&
+            await requestSummary.isVisible() &&
+            await physicalCardSource.isVisible() &&
+            await mismatchExplanation.isVisible() &&
             (await page.getByText('Ask customer for details', { exact: true }).count()) === 0
         );
         await candidateOption.click();
@@ -6723,6 +6913,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         );
       }
       if (scenario.expectedWalletCardMismatch) {
+        await page.getByText('What matches and what still needs confirmation', { exact: true }).click();
         recorder.assert(
           `Nayax ${scenario.name} explains wallet card-number differences without calling them a match`,
           await page.getByText('Card ending differs; wallet, contactless, or source differences may explain it', { exact: true }).first().isVisible()
@@ -7039,11 +7230,13 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
   await waitForQueueCount(blockedPage, 1);
   await queueCase(blockedPage, 'RF-UAT-CARD').click();
   await blockedPage.getByRole('button', { name: 'Approve refund for Nayax portal', exact: true }).waitFor({ timeout: 10000 });
+  const blockedRequestSummary = blockedPage.getByTestId('refund-request-summary');
+  await blockedRequestSummary.locator('summary').click();
   recorder.assert(
     'Released rejection offers the reviewed portal fallback when the direct API is unavailable',
     (await blockedPage.getByRole('button', { name: /^Refund \$/i }).count()) === 0 &&
       await blockedPage.getByRole('button', { name: 'Approve refund for Nayax portal', exact: true }).isVisible() &&
-      await blockedPage.getByText('Apple Pay on a phone or watch', { exact: true }).isVisible() &&
+      await blockedRequestSummary.getByText('Apple Pay on a phone or watch', { exact: true }).isVisible() &&
       (await blockedPage.getByTestId('refund-primary-action').innerText()).includes('Payment: Not issued'),
     JSON.stringify({
       managerState: await blockedPage.getByTestId('refund-manager-state').innerText(),
@@ -10070,6 +10263,8 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
       'Confirmed demo transaction keeps Deny request visible as a secondary action',
       await page.getByTestId('refund-deny-instead').isVisible()
     );
+    const demoRequestSummary = page.getByTestId('refund-request-summary');
+    await demoRequestSummary.locator('summary').click();
     const customerFactEvidence = page.getByTestId('refund-customer-fact-evidence');
     recorder.assert(
       'Customer correction evidence shows source, time, provenance, and one fact version',
