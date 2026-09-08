@@ -798,6 +798,10 @@ select is(
   '2000:700',
   'initial setup creates the starting per-shift and default commission rates'
 );
+
+-- Audit rows are intentionally not directly selectable by an account pay
+-- manager, so inspect the fixture as the privileged test role.
+reset role;
 select is(
   (
     select count(*)::integer
@@ -808,6 +812,9 @@ select is(
   1,
   'initial setup leaves one explicit completion audit record'
 );
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
 select is(
   pg_temp.capture_error($$
     select public.admin_setup_timekeeping_technician(
