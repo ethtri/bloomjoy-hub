@@ -347,5 +347,21 @@ select throws_ok($$select public.service_reserve_nayax_refund_manager_action_v5(
   'nayax-refund-'||repeat('6',64),800,null,null,'USD','nayax-production-account-contract-v2','nayax-provider-journal-v3',
   (select context->>'contextHash' from offset_execution_input),'source_with_bound_offset','empty_string')$$,
   'P4620',null,'A historical omitted-email reservation cannot adopt explicit empty email after upgrade');
+-- The current case version advances after request reservation. Continuation
+-- compares frozen transport fields instead of rejecting that legitimate change.
+select throws_ok($$select public.service_reserve_nayax_refund_approval_continuation_v2(
+  'verification-executor','b7000000-0000-4000-8000-000000000001','b7400000-0000-4000-8000-000000000006',
+  (select official_action_version from public.refund_cases where id='b7400000-0000-4000-8000-000000000006'),
+  'nayax-refund-'||repeat('6',64),800,'USD','nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  '2026-08-26T13:17:09.810','exact_source','omit')$$,
+  'P4628','Original Nayax continuation serialization changed',
+  'A bound-offset request cannot approve after an exact-source configuration change');
+select throws_ok($$select public.service_reserve_nayax_refund_approval_continuation_v2(
+  'verification-executor','b7000000-0000-4000-8000-000000000001','b7400000-0000-4000-8000-000000000006',
+  (select official_action_version from public.refund_cases where id='b7400000-0000-4000-8000-000000000006'),
+  'nayax-refund-'||repeat('6',64),800,'USD','nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  '2026-08-26T13:17:09.810-04:00','source_with_bound_offset','omit')$$,
+  'P4628','Original Nayax continuation serialization changed',
+  'Matching mode alone cannot authorize a changed timestamp wire');
 select * from finish();
 rollback;

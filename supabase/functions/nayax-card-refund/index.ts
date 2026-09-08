@@ -1477,8 +1477,13 @@ serve(async (req) => {
           if (shouldRequestNayaxApprovalContinuation(reservation)) {
             const { data: continuationData, error: continuationError } =
               await supabase.rpc(
-                "service_reserve_nayax_refund_approval_continuation_v1",
+                "service_reserve_nayax_refund_approval_continuation_v2",
                 {
+                  p_machine_authorization_time_wire:
+                    refundCase.executionContext!.machineAuthorizationTimeWire,
+                  p_machine_authorization_time_mode:
+                    managerContract!.machineAuthorizationTimeMode,
+                  p_refund_email_list_mode: managerContract!.refundEmailListMode,
                   p_executor_assertion: executionConfig.executorAssertion,
                   p_actor_user_id: user.id,
                   p_case_id: request.caseId,

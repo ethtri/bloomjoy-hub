@@ -143,3 +143,56 @@ revoke all on function public.service_reserve_nayax_refund_manager_action_v5(
 grant execute on function public.service_reserve_nayax_refund_manager_action_v5(
   text,uuid,uuid,bigint,text,integer,integer,integer,text,text,text,text,text,text
 ) to service_role;
+
+-- Continuation must preserve the original transport representation even when
+-- deployment configuration changes. Case version advances during reservation,
+-- so compare transport fields rather than the complete current context hash.
+create function public.service_reserve_nayax_refund_approval_continuation_v2(
+  p_executor_assertion text,p_actor_user_id uuid,p_case_id uuid,
+  p_expected_case_version bigint,p_idempotency_key text,p_amount_cents integer,
+  p_currency_code text,p_provider_contract_version text,p_journal_contract_version text,
+  p_machine_authorization_time_wire text,p_machine_authorization_time_mode text,
+  p_refund_email_list_mode text
+)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare original_context jsonb;
+begin
+  perform public.assert_nayax_provider_executor(p_executor_assertion);
+  perform 1 from public.refund_cases where id=p_case_id for update;
+  select frozen.context into original_context
+  from public.refund_case_nayax_refund_attempts attempt
+  join public.refund_nayax_execution_contexts frozen on frozen.attempt_id=attempt.id
+  where attempt.refund_case_id=p_case_id and attempt.idempotency_key=p_idempotency_key
+    and frozen.refund_case_id=p_case_id;
+  if original_context is null
+    or nullif(btrim(p_machine_authorization_time_wire),'') is null
+    or p_machine_authorization_time_mode is null
+    or p_machine_authorization_time_mode not in ('exact_source','source_with_bound_offset')
+    or p_refund_email_list_mode is null
+    or p_refund_email_list_mode not in ('omit','empty_string')
+    or (original_context ? 'machineAuthorizationTimeSerializationMode'
+      and nullif(original_context->>'machineAuthorizationTimeWire','') is null)
+    or coalesce(original_context->>'machineAuthorizationTimeWire',
+      original_context->>'machineAuthorizationTime') is distinct from p_machine_authorization_time_wire
+    or coalesce(original_context->>'machineAuthorizationTimeSerializationMode','exact_source')
+      is distinct from p_machine_authorization_time_mode
+    or coalesce(original_context->>'refundEmailListMode','omit')
+      is distinct from p_refund_email_list_mode then
+    raise exception 'Original Nayax continuation serialization changed' using errcode='P4628';
+  end if;
+  return public.service_reserve_nayax_refund_approval_continuation_v1(
+    p_executor_assertion,p_actor_user_id,p_case_id,p_expected_case_version,
+    p_idempotency_key,p_amount_cents,p_currency_code,p_provider_contract_version,
+    p_journal_contract_version);
+end;
+$$;
+revoke all on function public.service_reserve_nayax_refund_approval_continuation_v2(
+  text,uuid,uuid,bigint,text,integer,text,text,text,text,text,text
+) from public,anon,authenticated;
+grant execute on function public.service_reserve_nayax_refund_approval_continuation_v2(
+  text,uuid,uuid,bigint,text,integer,text,text,text,text,text,text
+) to service_role;
+-- Old workers fail closed during deployment instead of bypassing the binding.
+revoke execute on function public.service_reserve_nayax_refund_approval_continuation_v1(
+  text,uuid,uuid,bigint,text,integer,text,text,text
+) from service_role;
