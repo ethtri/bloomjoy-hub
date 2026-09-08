@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(31);
+select plan(35);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -147,6 +147,20 @@ values (
   'active'
 );
 
+insert into public.compensation_rules (
+  id, account_id, operator_profile_id, reporting_machine_id,
+  commission_basis_points, effective_start_date, status
+)
+values (
+  'a8000000-0000-0000-0000-000000000004',
+  'a2000000-0000-0000-0000-000000000001',
+  'a6000000-0000-0000-0000-000000000001',
+  'a4000000-0000-0000-0000-000000000001',
+  1200,
+  '2026-08-01',
+  'active'
+);
+
 insert into public.time_entries (
   id, account_id, operator_profile_id, reporting_machine_id, reporting_location_id,
   payout_policy_id, payout_period_id, work_date, start_time, end_time,
@@ -189,6 +203,45 @@ values (
   5000,
   '2026-01-01',
   'active'
+);
+
+insert into public.payout_runs (
+  id, account_id, payout_period_id, status
+)
+values (
+  'ac000000-0000-0000-0000-000000000001',
+  'a2000000-0000-0000-0000-000000000001',
+  'a7000000-0000-0000-0000-000000000001',
+  'review'
+);
+
+insert into public.payout_run_items (
+  id, payout_run_id, account_id, operator_profile_id, worker_type,
+  raw_minutes, rounded_paid_minutes, shift_count, hourly_pay_cents,
+  eligible_net_revenue_cents, commission_basis_points,
+  commission_pay_cents, total_payout_cents, status
+)
+values (
+  'ac100000-0000-0000-0000-000000000001',
+  'ac000000-0000-0000-0000-000000000001',
+  'a2000000-0000-0000-0000-000000000001',
+  'a6000000-0000-0000-0000-000000000001',
+  'contractor_1099',
+  121, 180, 3, 6500, 9000, 1000, 900, 7400, 'draft'
+);
+
+insert into public.payout_run_item_machines (
+  id, payout_run_item_id, reporting_machine_id, reporting_location_id,
+  net_revenue_cents, eligible_net_revenue_cents,
+  commission_basis_points, commission_pay_cents, shift_count,
+  raw_minutes, rounded_paid_minutes, included_in_commission_basis
+)
+values (
+  'ac200000-0000-0000-0000-000000000001',
+  'ac100000-0000-0000-0000-000000000001',
+  'a4000000-0000-0000-0000-000000000001',
+  'a3000000-0000-0000-0000-000000000001',
+  9000, 9000, 1000, 900, 3, 121, 180, true
 );
 
 select ok(
@@ -251,6 +304,10 @@ select is(
   0,
   'machine-only Time Report authority cannot read the legacy payout surface either'
 );
+select is((select count(*)::integer from public.compensation_rules), 0, 'machine-only managers cannot select compensation rates directly');
+select is((select count(*)::integer from public.payout_runs), 0, 'machine-only managers cannot select payout runs directly');
+select is((select count(*)::integer from public.payout_run_items), 0, 'machine-only managers cannot select payout items directly');
+select is((select count(*)::integer from public.payout_run_item_machines), 0, 'machine-only managers cannot select machine pay rows directly');
 
 select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
 

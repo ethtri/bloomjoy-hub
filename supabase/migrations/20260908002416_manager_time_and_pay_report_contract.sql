@@ -87,6 +87,22 @@ as $$
     );
 $$;
 
+drop policy if exists "compensation_rules_select_manager"
+  on public.compensation_rules;
+create policy "compensation_rules_select_manager"
+on public.compensation_rules
+for select
+to authenticated
+using (public.can_manage_operator_payout_account_current_user(account_id));
+
+drop policy if exists "payout_run_item_machines_select_accessible"
+  on public.payout_run_item_machines;
+create policy "payout_run_item_machines_select_accessible"
+on public.payout_run_item_machines
+for select
+to authenticated
+using (public.can_access_payout_run_item_current_user(payout_run_item_id));
+
 -- Replace the legacy approval-queue projection with canonical completed-time
 -- fields. Access remains machine-scoped: account pay authority is not required
 -- to correct time, and one machine manager never sees another machine.

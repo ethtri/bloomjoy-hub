@@ -50,6 +50,10 @@ for (const snippet of [
   'create or replace function public.can_access_payout_run_item',
   'create or replace function public.can_access_pay_statement',
   'Machine-only Time Report authority does not expose pay details',
+  'drop policy if exists "compensation_rules_select_manager"',
+  'using (public.can_manage_operator_payout_account_current_user(account_id))',
+  'drop policy if exists "payout_run_item_machines_select_accessible"',
+  'using (public.can_access_payout_run_item_current_user(payout_run_item_id))',
   "'actualStartAt', entry.actual_start_at",
   "'actualEndAt', entry.actual_end_at",
   "'actualDurationMinutes', entry.raw_duration_minutes",
@@ -118,6 +122,8 @@ for (const marker of [
   'without deducting refunds twice',
   'machine-only Time Report authority cannot read pay data',
   'machine-only Time Report authority cannot read the legacy payout surface either',
+  'machine-only managers cannot select compensation rates directly',
+  'machine-only managers cannot select machine pay rows directly',
   'the existing manager correction RPC still works without a reason',
 ]) {
   if (!pgTap.includes(marker)) {
