@@ -6837,13 +6837,22 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       }
       if (scenario.expectedReviewableMismatch) {
         const candidateOption = page.getByTestId('nayax-candidate-option').first();
+        const requestSummary = page.getByTestId('refund-request-summary');
+        await requestSummary.locator('summary').click();
+        const physicalCardSource = requestSummary.getByText('Last four from physical card', { exact: true });
+        const mismatchExplanation = candidateOption.getByText(
+          /Card ending differs; wallet, contactless, or source differences may explain it/
+        );
+        await physicalCardSource.waitFor({ state: 'visible' });
         recorder.assert(
           'A close contactless suffix mismatch gives one manager review action without claiming identifier equivalence',
           await page.getByTestId('nayax-candidate-availability').getByText('1 transaction available to select', { exact: true }).isVisible() &&
+            await candidateOption.isVisible() &&
             await candidateOption.getByText('Review this', { exact: true }).isVisible() &&
             await candidateOption.locator('input[type="radio"]').isEnabled() &&
-            await page.getByText('Last four from physical card', { exact: true }).isVisible() &&
-            await page.getByText(/Card ending differs; wallet, contactless, or source differences may explain it/).first().isVisible() &&
+            await requestSummary.isVisible() &&
+            await physicalCardSource.isVisible() &&
+            await mismatchExplanation.isVisible() &&
             (await page.getByText('Ask customer for details', { exact: true }).count()) === 0
         );
         await candidateOption.click();
@@ -7205,12 +7214,13 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
   await waitForQueueCount(blockedPage, 1);
   await queueCase(blockedPage, 'RF-UAT-CARD').click();
   await blockedPage.getByRole('button', { name: 'Approve refund for Nayax portal', exact: true }).waitFor({ timeout: 10000 });
-  await blockedPage.getByText('Transaction evidence', { exact: true }).click();
+  const blockedRequestSummary = blockedPage.getByTestId('refund-request-summary');
+  await blockedRequestSummary.locator('summary').click();
   recorder.assert(
     'Released rejection offers the reviewed portal fallback when the direct API is unavailable',
     (await blockedPage.getByRole('button', { name: /^Refund \$/i }).count()) === 0 &&
       await blockedPage.getByRole('button', { name: 'Approve refund for Nayax portal', exact: true }).isVisible() &&
-      await blockedPage.getByText('Apple Pay on a phone or watch', { exact: true }).isVisible() &&
+      await blockedRequestSummary.getByText('Apple Pay on a phone or watch', { exact: true }).isVisible() &&
       (await blockedPage.getByTestId('refund-primary-action').innerText()).includes('Payment: Not issued'),
     JSON.stringify({
       managerState: await blockedPage.getByTestId('refund-manager-state').innerText(),
@@ -10237,6 +10247,8 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
       'Confirmed demo transaction keeps Deny request visible as a secondary action',
       await page.getByTestId('refund-deny-instead').isVisible()
     );
+    const demoRequestSummary = page.getByTestId('refund-request-summary');
+    await demoRequestSummary.locator('summary').click();
     const customerFactEvidence = page.getByTestId('refund-customer-fact-evidence');
     recorder.assert(
       'Customer correction evidence shows source, time, provenance, and one fact version',
