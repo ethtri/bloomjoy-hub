@@ -392,6 +392,191 @@ begin
 end;
 $$;
 
+-- Manager corrections may use an assignment that covered the corrected work
+-- date even if that assignment was revoked later. Technician writes still
+-- require the assignment to be currently active.
+create or replace function public.set_operator_time_entry_durations()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  machine_row public.reporting_machines;
+  profile_row public.operator_payout_profiles;
+  policy_row public.payout_policies;
+  period_row public.payout_periods;
+  manager_correction boolean;
+begin
+  manager_correction := coalesce(
+    current_setting('app.timekeeping_manager_correction', true),
+    ''
+  ) = 'true';
+
+  if tg_op = 'INSERT' then
+    if new.actual_start_at is null then
+      new.actual_start_at :=
+        (new.work_date::timestamp + new.start_time) at time zone 'America/Los_Angeles';
+    end if;
+    if new.actual_end_at is null then
+      new.actual_end_at :=
+        (new.work_date::timestamp + new.end_time) at time zone 'America/Los_Angeles';
+    end if;
+  elsif new.actual_start_at is not distinct from old.actual_start_at
+    and new.actual_end_at is not distinct from old.actual_end_at
+    and (
+      new.work_date is distinct from old.work_date
+      or new.start_time is distinct from old.start_time
+      or new.end_time is distinct from old.end_time
+    ) then
+    new.actual_start_at :=
+      (new.work_date::timestamp + new.start_time) at time zone 'America/Los_Angeles';
+    new.actual_end_at :=
+      (new.work_date::timestamp + new.end_time) at time zone 'America/Los_Angeles';
+  end if;
+
+  if new.actual_end_at <= new.actual_start_at then
+    raise exception 'End time must be after start time';
+  end if;
+
+  new.work_date := (new.actual_start_at at time zone 'America/Los_Angeles')::date;
+  new.start_time := (new.actual_start_at at time zone 'America/Los_Angeles')::time;
+  new.end_time := (new.actual_end_at at time zone 'America/Los_Angeles')::time;
+
+  select *
+  into profile_row
+  from public.operator_payout_profiles profile
+  where profile.id = new.operator_profile_id;
+
+  if profile_row.id is null then
+    raise exception 'Technician pay profile not found';
+  end if;
+
+  select *
+  into machine_row
+  from public.reporting_machines machine
+  where machine.id = new.reporting_machine_id;
+
+  if machine_row.id is null or machine_row.account_id <> profile_row.account_id then
+    raise exception 'Technician and machine must belong to the same account';
+  end if;
+
+  select *
+  into period_row
+  from public.payout_periods period
+  where period.id = new.payout_period_id;
+
+  select *
+  into policy_row
+  from public.payout_policies policy
+  where policy.id = new.payout_policy_id;
+
+  if period_row.id is null or policy_row.id is null then
+    raise exception 'Time entry pay period configuration is missing';
+  end if;
+
+  if new.work_date not between period_row.period_start_date and period_row.period_end_date then
+    raise exception 'Work date must fall inside the pay period';
+  end if;
+
+  if not manager_correction
+    and period_row.status not in ('open', 'grace_period', 'reopened') then
+    raise exception 'Time entry is closed for Technician editing';
+  end if;
+
+  if not exists (
+    select 1
+    from public.operator_machine_assignments assignment
+    where assignment.operator_profile_id = new.operator_profile_id
+      and assignment.reporting_machine_id = new.reporting_machine_id
+      and assignment.effective_start_date <= new.work_date
+      and (
+        assignment.effective_end_date is null
+        or assignment.effective_end_date >= new.work_date
+      )
+      and (
+        (
+          manager_correction
+          and coalesce(
+            public.can_manage_operator_payout_machine(auth.uid(), new.reporting_machine_id),
+            false
+          )
+        )
+        or (assignment.status = 'active' and assignment.revoked_at is null)
+      )
+  ) then
+    raise exception 'Technician is not assigned to this machine for the work date';
+  end if;
+
+  if policy_row.account_id <> profile_row.account_id
+    or period_row.account_id <> profile_row.account_id
+    or period_row.payout_policy_id <> policy_row.id then
+    raise exception 'Time entry pay policy, period, Technician, and machine must share an account';
+  end if;
+
+  new.account_id := profile_row.account_id;
+  new.reporting_location_id := machine_row.location_id;
+  new.raw_duration_minutes := ceil(
+    extract(epoch from (new.actual_end_at - new.actual_start_at)) / 60
+  )::integer;
+  new.paid_shift_count := public.operator_paid_shift_count(new.raw_duration_minutes);
+  new.rounded_paid_minutes := new.paid_shift_count * 60;
+
+  if new.created_by is null then
+    new.created_by := auth.uid();
+  end if;
+  new.updated_by := auth.uid();
+
+  return new;
+end;
+$$;
+
+create or replace function public.validate_operator_time_entry_assignment()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  manager_correction boolean;
+begin
+  manager_correction := coalesce(
+    current_setting('app.timekeeping_manager_correction', true),
+    ''
+  ) = 'true';
+
+  if new.work_date > (now() at time zone 'America/Los_Angeles')::date then
+    raise exception 'Future work dates are not allowed';
+  end if;
+
+  if not exists (
+    select 1
+    from public.operator_machine_assignments assignment
+    where assignment.operator_profile_id = new.operator_profile_id
+      and assignment.reporting_machine_id = new.reporting_machine_id
+      and assignment.effective_start_date <= new.work_date
+      and (
+        assignment.effective_end_date is null
+        or assignment.effective_end_date >= new.work_date
+      )
+      and (
+        (
+          manager_correction
+          and coalesce(
+            public.can_manage_operator_payout_machine(auth.uid(), new.reporting_machine_id),
+            false
+          )
+        )
+        or (assignment.status = 'active' and assignment.revoked_at is null)
+      )
+  ) then
+    raise exception 'Time entry machine is not assigned for this work date';
+  end if;
+
+  return new;
+end;
+$$;
+
 -- Managers may correct historical time after an assignment is later revoked.
 -- The work-date effective window is authoritative; current assignment status
 -- must not erase valid historical scope.
@@ -514,6 +699,7 @@ begin
       reporting_location_id = machine_row.location_id,
       payout_policy_id = period_row.payout_policy_id,
       payout_period_id = period_row.id,
+      work_date = work_date_local,
       actual_start_at = p_actual_start_at,
       actual_end_at = p_actual_end_at,
       notes = nullif(trim(coalesce(p_notes, '')), ''),
@@ -1123,21 +1309,39 @@ as $$
           then max(segment.commission_basis_points)
           else null
         end as single_commission_basis_points,
-        jsonb_agg(jsonb_build_object(
-          'segmentStartDate', segment.segment_start_date,
-          'segmentEndDate', segment.segment_end_date,
-          'commissionRate', segment.commission_rate,
-          'commissionBasisPoints', segment.commission_basis_points,
-          'grossSalesCents', segment.gross_sales_cents,
-          'refundAdjustmentCents', segment.refund_adjustment_cents,
-          'netRevenueCents', segment.net_revenue_cents,
-          'commissionableSalesCents', segment.eligible_commission_revenue_cents,
-          'commissionEarningsCents', segment.commission_earnings_cents,
-          'sourceSalesRowCount', segment.source_sales_row_count,
-          'sourceAdjustmentRowCount', segment.source_adjustment_row_count,
-          'sourceLatestSaleDate', segment.source_latest_sale_date
-        ) order by segment.segment_start_date, segment.segment_end_date)
-          as commission_segments
+        case
+          when max(scope.commission_rate_count) = 1 then jsonb_build_array(
+            jsonb_build_object(
+              'segmentStartDate', min(segment.segment_start_date),
+              'segmentEndDate', max(segment.segment_end_date),
+              'commissionRate',
+                (array_agg(segment.commission_rate order by segment.segment_start_date))[1],
+              'commissionBasisPoints', max(segment.commission_basis_points),
+              'grossSalesCents', sum(segment.gross_sales_cents),
+              'refundAdjustmentCents', sum(segment.refund_adjustment_cents),
+              'netRevenueCents', sum(segment.net_revenue_cents),
+              'commissionableSalesCents', max(scope.eligible_commission_revenue_cents),
+              'commissionEarningsCents', max(scope.commission_earnings_cents),
+              'sourceSalesRowCount', sum(segment.source_sales_row_count),
+              'sourceAdjustmentRowCount', sum(segment.source_adjustment_row_count),
+              'sourceLatestSaleDate', max(segment.source_latest_sale_date)
+            )
+          )
+          else jsonb_agg(jsonb_build_object(
+            'segmentStartDate', segment.segment_start_date,
+            'segmentEndDate', segment.segment_end_date,
+            'commissionRate', segment.commission_rate,
+            'commissionBasisPoints', segment.commission_basis_points,
+            'grossSalesCents', segment.gross_sales_cents,
+            'refundAdjustmentCents', segment.refund_adjustment_cents,
+            'netRevenueCents', segment.net_revenue_cents,
+            'commissionableSalesCents', segment.eligible_commission_revenue_cents,
+            'commissionEarningsCents', segment.commission_earnings_cents,
+            'sourceSalesRowCount', segment.source_sales_row_count,
+            'sourceAdjustmentRowCount', segment.source_adjustment_row_count,
+            'sourceLatestSaleDate', segment.source_latest_sale_date
+          ) order by segment.segment_start_date, segment.segment_end_date)
+        end as commission_segments
       from commission_segment_lines segment
       join commission_machine_scope scope
         on scope.reporting_machine_id = segment.reporting_machine_id

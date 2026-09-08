@@ -9,7 +9,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(60);
+select plan(64);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -139,7 +139,7 @@ insert into public.compensation_rules (
   commission_basis_points, effective_start_date, status
 )
 values (
-  'a8000000-0000-0000-0000-000000000004',
+  'a8000000-0000-0000-0000-000000000007',
   'a2000000-0000-0000-0000-000000000001',
   'a6000000-0000-0000-0000-000000000001',
   'a4000000-0000-0000-0000-000000000001',
@@ -607,6 +607,45 @@ select is(
   'ambiguous refund attribution fails closed with one explicit blocker'
 );
 
+update public.compensation_rules
+set commission_basis_points = 500
+where id = 'a8000000-0000-0000-0000-000000000006';
+
+update public.sales_adjustment_facts
+set amount_cents = 4000
+where id = 'a9200000-0000-0000-0000-000000000002';
+
+update public.payout_period_machine_revenue_snapshots
+set refund_adjustment_cents = 4000,
+    net_revenue_cents = 1000,
+    eligible_commission_revenue_cents = 1000
+where id = 'aa000000-0000-0000-0000-000000000002';
+
+select is(
+  concat(
+    jsonb_array_length(public.get_technician_pay_report_context('2026-07-01') #> '{technicians,1,machines,0,commissionSegments}'), ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionSegments,0,segmentStartDate}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionSegments,0,segmentEndDate}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionSegments,0,grossSalesCents}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionSegments,0,refundAdjustmentCents}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionSegments,0,netRevenueCents}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionSegments,0,commissionableSalesCents}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionSegments,0,commissionEarningsCents}'
+  ),
+  '1:2026-07-16:2026-07-31:5000:4000:1000:1000:50',
+  'same-rate date islands collapse to one once-capped and once-rounded equation'
+);
+select is(
+  concat(
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionAllocationResolved}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionableSalesCents}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionEarningsCents}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,publishable}'
+  ),
+  'true:1000:50:true',
+  'the collapsed same-rate equation reconciles exactly to its publishable machine total'
+);
+
 select is(
   concat(
     public.get_technician_pay_report_context('2026-07-01') #>> '{capabilities,approvalRequired}', ':',
@@ -618,22 +657,30 @@ select is(
 );
 
 select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000002', true);
+-- Static validator marker: manager correction accepts historical time after later assignment revocation without a reason.
 select is(
-  pg_temp.capture_error($$
-    select public.manager_correct_operator_time_entry(
+  public.manager_correct_operator_time_entry(
       'a9000000-0000-0000-0000-000000000001',
       'a4000000-0000-0000-0000-000000000001',
-      '2026-07-05 15:00:00+00',
-      '2026-07-05 16:02:00+00',
+      '2026-08-01 15:00:00+00',
+      '2026-08-01 16:02:00+00',
       null,
       false
-    )
-  $$),
-  null,
-  'manager correction accepts historical time after later assignment revocation without a reason'
+    ) #>> '{timeEntry,workDate}',
+  '2026-08-01',
+  'manager correction returns the corrected local work date after later assignment revocation'
 );
 
 reset role;
+select is(
+  (
+    select entry.work_date::text
+    from public.time_entries entry
+    where entry.id = 'a9000000-0000-0000-0000-000000000001'
+  ),
+  '2026-08-01',
+  'manager correction persists the corrected local work date'
+);
 select is(
   (
     select count(*)::integer
@@ -646,6 +693,19 @@ select is(
 );
 
 set local role authenticated;
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000001', true);
+select is(
+  (
+    select entry.value ->> 'shiftRateCents'
+    from jsonb_array_elements(
+      public.get_technician_pay_report_context('2026-08-01') #> '{technicians,0,entries}'
+    ) entry(value)
+    where entry.value ->> 'id' = 'a9000000-0000-0000-0000-000000000001'
+  ),
+  '3000',
+  'the corrected work date applies its newly effective shift rate'
+);
+
 select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000004', true);
 select is(
   public.get_my_time_review_context('2026-07-01')->>'hasAccess',
