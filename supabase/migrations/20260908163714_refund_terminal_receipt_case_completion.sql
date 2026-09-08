@@ -233,7 +233,7 @@ revoke all on function public.is_refund_terminal_api_completion_message(jsonb)
   from public,anon,authenticated,service_role;
 
 create function public.refund_terminal_api_completion_has_sent_gmail_proof(
-  p_attempt jsonb,p_require_recorded_manager_cc boolean
+  p_attempt jsonb,p_message jsonb,p_require_recorded_manager_cc boolean
 )
 returns boolean language sql stable security definer set search_path='' as $$
   select coalesce(exists(
@@ -242,17 +242,20 @@ returns boolean language sql stable security definer set search_path='' as $$
       id uuid,refund_case_id uuid,completion_message_id uuid,
       completion_gmail_thread_id uuid,completion_manager_cc_count integer
     )
-    join public.refund_case_messages message
-      on message.id=attempt.completion_message_id
-      and message.refund_case_id=attempt.refund_case_id
-      and message.nayax_refund_attempt_id=attempt.id
+    cross join jsonb_to_record(p_message) as message(
+      id uuid,refund_case_id uuid,nayax_refund_attempt_id uuid,status text,
+      recipient_email text,body text,sent_at timestamptz
+    )
     join public.refund_cases c on c.id=attempt.refund_case_id
     join public.refund_gmail_messages outbound
       on outbound.operation_key='refund-case-message:'||message.id::text
       and outbound.refund_case_id=c.id
       and outbound.refund_case_message_id=message.id
       and outbound.gmail_thread_id=attempt.completion_gmail_thread_id
-    where public.is_refund_terminal_api_completion_message(to_jsonb(message))
+    where message.id=attempt.completion_message_id
+      and message.refund_case_id=attempt.refund_case_id
+      and message.nayax_refund_attempt_id=attempt.id
+      and public.is_refund_terminal_api_completion_message(p_message)
       and message.status='sent' and message.sent_at is not null
       and outbound.direction='outbound' and outbound.message_kind='message'
       and outbound.status='sent' and outbound.sent_at is not null
@@ -282,7 +285,7 @@ returns boolean language sql stable security definer set search_path='' as $$
             and lower(btrim(manager.manager_email))=lower(btrim(cc.email))))
   ),false);
 $$;
-revoke all on function public.refund_terminal_api_completion_has_sent_gmail_proof(jsonb,boolean)
+revoke all on function public.refund_terminal_api_completion_has_sent_gmail_proof(jsonb,jsonb,boolean)
   from public,anon,authenticated,service_role;
 
 create function public.refund_terminal_api_completion_message_change_allowed(
@@ -298,7 +301,7 @@ returns boolean language sql stable security definer set search_path='' as $$
           from public.refund_case_nayax_refund_attempts attempt
           where attempt.id=(p_new->>'nayax_refund_attempt_id')::uuid
             and public.refund_terminal_api_completion_has_sent_gmail_proof(
-              to_jsonb(attempt),false)))
+              to_jsonb(attempt),p_new,false)))
       when 'failed' then p_new->>'status' in ('failed','pending')
       when 'sent' then p_new->>'status'='sent'
       else false end
@@ -340,12 +343,16 @@ returns boolean language sql stable security definer set search_path='' as $$
       when 'pending' then p_new->>'completion_delivery_status'
         in ('pending','failed','delivery_unknown')
         or (p_new->>'completion_delivery_status'='sent'
-          and public.refund_terminal_api_completion_has_sent_gmail_proof(p_new,true))
+          and public.refund_terminal_api_completion_has_sent_gmail_proof(
+            p_new,(select to_jsonb(message) from public.refund_case_messages message
+              where message.id=(p_new->>'completion_message_id')::uuid),true))
       when 'failed' then p_new->>'completion_delivery_status' in ('failed','pending')
       when 'sent' then p_new->>'completion_delivery_status'='sent'
       when 'delivery_unknown' then p_new->>'completion_delivery_status'='delivery_unknown'
         or (p_new->>'completion_delivery_status'='sent'
-          and public.refund_terminal_api_completion_has_sent_gmail_proof(p_new,true))
+          and public.refund_terminal_api_completion_has_sent_gmail_proof(
+            p_new,(select to_jsonb(message) from public.refund_case_messages message
+              where message.id=(p_new->>'completion_message_id')::uuid),true))
       else false end
     and (p_new->>'completion_delivery_retry_count')::integer
       between (p_old->>'completion_delivery_retry_count')::integer and 1

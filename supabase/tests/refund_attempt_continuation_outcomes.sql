@@ -395,6 +395,18 @@ insert into public.refund_gmail_threads(
   'continuation-terminal-thread','Synthetic terminal thread',
   now()-interval '1 day',now(),now()+interval '30 days'
 );
+insert into public.refund_gmail_messages(
+  id,gmail_thread_id,refund_case_id,provider_message_id,direction,message_kind,status,
+  sender_email,recipient_email,participant_role,participant_trust,subject,plain_body,
+  received_at,retention_expires_at
+) values (
+  'ca710000-0000-4000-8000-000000000001',
+  'ca700000-0000-4000-8000-000000000001',
+  'ca500000-0000-4000-8000-000000000001','continuation-terminal-inbound',
+  'inbound','message','received','fixture-1@example.test','info@bloomjoysweets.com',
+  'customer','verified','Synthetic terminal thread','Synthetic original request',
+  now()-interval '1 day',now()+interval '30 days'
+);
 select set_config('test.terminal_api_attempt_id',
   (select (result#>>'{attempt,attemptId}') from issued_continuation),true);
 select set_config('request.jwt.claim.role','service_role',true);
