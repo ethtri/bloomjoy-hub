@@ -345,7 +345,8 @@ const run = async () => {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.getByRole('heading', { name: 'Technician Pay Report' }).waitFor();
     const integrityBlockerFooter = await page.locator('footer').filter({ hasText: 'Commission' }).last().innerText();
-    check('Snapshot/fact mismatch makes commission unavailable', integrityBlockerFooter.includes('Commission\nUnavailable'));
+    const integrityBlockerBody = await page.locator('body').innerText();
+    check('Snapshot/fact mismatch makes commission unavailable', integrityBlockerFooter.includes('Commission\nUnavailable') && integrityBlockerBody.includes('$200.00 × 5% = Allocation unavailable'));
     payContext.technicians[0].blockers = originalBlockers;
     payContext.technicians[0].machines[0].revenueSnapshotId = originalFirstMachineSnapshotId;
     await page.reload({ waitUntil: 'domcontentloaded' });

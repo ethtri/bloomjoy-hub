@@ -349,7 +349,7 @@ function TechnicianReport({
                               {formatDate(segment.segmentStartDate)}–{formatDate(segment.segmentEndDate)}
                             </span>
                             <span className="mt-0.5 block">
-                              {formatCurrency(segment.commissionableSalesCents)} × {segment.commissionBasisPoints == null ? 'Commission rate missing' : formatRate(segment.commissionBasisPoints)} = {segment.commissionBasisPoints == null ? 'Unavailable' : formatCurrency(segment.commissionEarningsCents)}
+                              {formatCurrency(segment.commissionableSalesCents)} × {segment.commissionBasisPoints == null ? 'Commission rate missing' : formatRate(segment.commissionBasisPoints)} = {machineCommissionUnavailable ? 'Allocation unavailable' : formatCurrency(segment.commissionEarningsCents)}
                             </span>
                           </span>
                         ))}
