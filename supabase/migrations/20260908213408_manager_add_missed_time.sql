@@ -77,6 +77,137 @@ as $$
   from scoped_assignments option_row;
 $$;
 
+create or replace function public.ensure_operator_payout_period_for_date(
+  p_operator_profile_id uuid,
+  p_work_date date default current_date
+)
+returns public.payout_periods
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  actor_user_id uuid;
+  profile_row public.operator_payout_profiles;
+  policy_row public.payout_policies;
+  period_row public.payout_periods;
+  target_work_date date;
+  period_start date;
+  period_end date;
+  cutoff_at timestamptz;
+  actor_can_manage_profile boolean;
+begin
+  actor_user_id := auth.uid();
+  target_work_date := coalesce(p_work_date, current_date);
+
+  if actor_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+
+  select * into profile_row
+  from public.operator_payout_profiles profile
+  where profile.id = p_operator_profile_id;
+
+  if profile_row.id is null then
+    raise exception 'Technician pay profile not found';
+  end if;
+
+  actor_can_manage_profile := coalesce(
+    public.can_manage_operator_payout_account(actor_user_id, profile_row.account_id),
+    false
+  ) or exists (
+    select 1
+    from public.operator_machine_assignments assignment
+    where assignment.operator_profile_id = profile_row.id
+      and target_work_date between assignment.effective_start_date
+        and coalesce(assignment.effective_end_date, 'infinity'::date)
+      and public.can_manage_operator_payout_machine(
+        actor_user_id,
+        assignment.reporting_machine_id
+      )
+  );
+
+  if profile_row.user_id <> actor_user_id and not actor_can_manage_profile then
+    raise exception 'Technician timekeeping access required';
+  end if;
+
+  if profile_row.status <> 'active' and not actor_can_manage_profile then
+    raise exception 'Technician pay profile not found';
+  end if;
+
+  select * into policy_row
+  from public.payout_policies policy
+  where policy.id = coalesce(
+    profile_row.payout_policy_id,
+    (
+      select account.default_payout_policy_id
+      from public.customer_accounts account
+      where account.id = profile_row.account_id
+    )
+  )
+    and policy.account_id = profile_row.account_id
+    and policy.active;
+
+  if policy_row.id is null then
+    select * into policy_row
+    from public.ensure_default_operator_payout_policy(profile_row.account_id);
+  end if;
+
+  if policy_row.frequency <> 'monthly'
+    or policy_row.monthly_period_type <> 'calendar_month' then
+    raise exception 'Timekeeping requires a monthly calendar pay policy';
+  end if;
+
+  period_start := date_trunc('month', target_work_date::timestamp)::date;
+  period_end := (date_trunc('month', target_work_date::timestamp) + interval '1 month - 1 day')::date;
+  cutoff_at := public.operator_time_entry_cutoff_at(target_work_date);
+
+  insert into public.payout_periods (
+    account_id,
+    payout_policy_id,
+    period_start_date,
+    period_end_date,
+    submission_due_date,
+    lock_date,
+    target_payout_date,
+    status,
+    created_by,
+    updated_by
+  )
+  values (
+    profile_row.account_id,
+    policy_row.id,
+    period_start,
+    period_end,
+    period_end + 4,
+    period_end + 4,
+    period_end + 5,
+    case when now() >= cutoff_at then 'locked' else 'open' end,
+    actor_user_id,
+    actor_user_id
+  )
+  on conflict (account_id, payout_policy_id, period_start_date, period_end_date)
+  do update set
+    submission_due_date = excluded.submission_due_date,
+    lock_date = excluded.lock_date,
+    target_payout_date = excluded.target_payout_date,
+    status = case
+      when public.payout_periods.status in (
+        'review', 'draft_payout', 'finalized', 'issued', 'closed', 'reopened', 'voided'
+      ) then public.payout_periods.status
+      when now() >= cutoff_at then 'locked'
+      else 'open'
+    end,
+    updated_by = actor_user_id
+  returning * into period_row;
+
+  return period_row;
+end;
+$$;
+
+comment on function public.ensure_operator_payout_period_for_date(uuid, date) is
+  'Creates or finds the monthly Timekeeping period for an active Technician or a manager with effective-date machine/account authority; inactive Technicians cannot self-service.';
+
 create or replace function public.manager_create_operator_time_entry(
   p_operator_profile_id uuid,
   p_reporting_machine_id uuid,
