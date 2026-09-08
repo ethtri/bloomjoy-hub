@@ -1,5 +1,28 @@
 # Decisions
 
+## 2026-09-08 - Email-based, agent-prepared refunds with one final manager decision
+
+New public refund requests must provide a valid email address, enforced by both
+the form and server. Email carries clarification and completion updates. SMS
+replies are outside the current workflow; this supersedes the earlier manual-SMS
+and deferred paid-automation direction. Preserve existing legacy records and
+contact history without inventing missing addresses. Verification is tracked in
+`#1238`; `#889` now covers email/form closeout only.
+
+Agents and the system prepare the case, find and explain the purchase match,
+request only necessary clarification, and follow the confirmed outcome. Managers
+make the final ordinary full-refund decision. Preserve current scope, exact
+purchase identity, approved amount, duplicate prevention and truthful unknown
+outcomes without adding another approval step.
+
+Repair current manager lookup failures in `#1236`, finish completion/email and
+accounting separation in `#971`/`#973`, and simplify the crowded manager page as
+P1 `#1237`. After these fixes, exercise the workflow with the existing genuine
+refund population under ordinary manager authority. Use each case's actual state;
+never repeat completed or uncertain payments to increase test volume. Record and
+fix practical friction without manufactured transactions or arbitrary quotas.
+The existing `#427` observation window is unchanged.
+
 ## 2026-09-08 - Use the proved Nayax API contract and permissions baseline
 
 The canonical account's existing separate request and approval credentials have
