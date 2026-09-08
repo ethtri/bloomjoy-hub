@@ -144,6 +144,7 @@ const unresolvedCommissionCodes = new Set([
   'missing_commission_sales_facts',
   'stale_commission_sales_facts',
   'revenue_snapshot_fact_mismatch',
+  'cross_rate_refund_allocation_ambiguous',
   'missing_commission_rate',
 ]);
 
