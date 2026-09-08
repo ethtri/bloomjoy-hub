@@ -594,7 +594,7 @@ export default function AdminPayoutsPage() {
             setPayInputError(null);
           }
         }}>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
             {payInputDraft && (
               <form onSubmit={(event) => {
                 event.preventDefault();

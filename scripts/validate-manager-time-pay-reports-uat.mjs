@@ -106,12 +106,12 @@ const payContext = {
     actualDurationMinutes: 121,
     paidShifts: 3,
     shiftEarningsCents: 6500,
-    commissionableSalesCents: 100000,
-    commissionEarningsCents: 10000,
+    commissionableSalesCents: 150000,
+    commissionEarningsCents: 15000,
     bonusCents: 2500,
     supplyCreditCents: 1000,
     expenseReimbursementCents: 500,
-    currentTotalCents: 20500,
+    currentTotalCents: 25500,
     publishable: false,
     entries: [
       { id: 'pay-entry-1', workDate: '2026-09-01', actualStartAt: '2026-09-01T08:00:00-07:00', actualEndAt: '2026-09-01T09:01:00-07:00', actualDurationMinutes: 61, paidShifts: 2, machineId: MACHINE_A, machineLabel: 'Cotton Candy 01', locationId: LOCATION_ID, locationName: 'Mall Atrium', shiftRate: {}, shiftRateCents: 2000, shiftEarningsCents: 4000 },
@@ -137,9 +137,29 @@ const payContext = {
       refundAdjustmentCents: -10000,
       netRevenueCents: 100000,
       commissionableSalesCents: 100000,
-      commissionRate: 0.1,
+      commissionRate: { source: 'technician_default' },
       commissionBasisPoints: 1000,
       commissionEarningsCents: 10000,
+      warnings: [],
+    }, {
+      machineId: MACHINE_B,
+      machineLabel: 'Cotton Candy 02',
+      locationId: LOCATION_ID,
+      locationName: 'Mall Atrium',
+      assignedStartDate: '2026-01-01',
+      assignedEndDate: null,
+      assignmentScopeResolved: true,
+      revenueSnapshotId: 'snapshot-2',
+      revenueSnapshotStatus: 'source_generated',
+      revenueGeneratedAt: FIXED_NOW.toISOString(),
+      sourceLatestSaleDate: '2026-09-30',
+      grossSalesCents: 50000,
+      refundAdjustmentCents: 0,
+      netRevenueCents: 50000,
+      commissionableSalesCents: 50000,
+      commissionRate: { source: 'technician_default' },
+      commissionBasisPoints: 1000,
+      commissionEarningsCents: 5000,
       warnings: [],
     }],
     otherEarnings: [
@@ -256,6 +276,14 @@ const run = async () => {
     check('Pay Report distinguishes blockers and warnings', bodyText.includes('Blocks publishing:') && bodyText.includes('Check:'));
     check('Pay Report contains no approval or payment actions', !/mark reviewed|finalize|reopen|void|issue statements|run payroll/i.test(bodyText));
 
+    await page.locator('#pay-report-machine').click();
+    await page.getByRole('option', { name: 'Cotton Candy 02' }).click();
+    await page.getByText('Machine filtering shows only that machine’s time', { exact: false }).waitFor();
+    const filteredMachineText = await page.locator('body').innerText();
+    check('Machine filter scopes card and headline totals without Technician-level other earnings', filteredMachineText.includes('Cotton Candy 02') && !filteredMachineText.includes('Cotton Candy 01') && filteredMachineText.includes('$500.00') && filteredMachineText.includes('$50.00') && !filteredMachineText.includes('September bonus'));
+    await page.locator('#pay-report-machine').click();
+    await page.getByRole('option', { name: 'All machines' }).click();
+
     await page.getByRole('button', { name: 'Refresh sales' }).click();
     await page.getByText('Commissionable Sales refreshed for 1 machine.').waitFor();
     const refreshedSales = state.rpcCalls.find((call) => call.rpcName === 'admin_refresh_technician_pay_report_sales');
@@ -284,12 +312,24 @@ const run = async () => {
     check('Manager can add a one-time other earning without an approval or reason', savedOtherEarning?.body.p_amount_cents === 3000 && savedOtherEarning?.body.p_item_type === 'bonus' && savedOtherEarning?.body.p_effective_end_date === '2026-09-30' && !('p_reason' in savedOtherEarning.body));
     await page.screenshot({ path: path.join(artifactDir, 'pay-report-desktop.png'), fullPage: true });
 
-    await page.setViewportSize({ width: 390, height: 844 });
+    await page.setViewportSize({ width: 390, height: 667 });
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.getByText('Contractor 1042', { exact: true }).waitFor();
     check('Pay Report has no mobile page overflow', await noOverflow(page));
     const shortControls = await page.locator('button:visible, input:visible').evaluateAll((elements) => elements.filter((element) => element.getBoundingClientRect().height < 43).length);
     check('Visible mobile controls meet touch target height', shortControls === 0);
+    await page.getByRole('button', { name: 'Add other earning' }).click();
+    const mobileDialog = page.getByRole('dialog');
+    const dialogFitsViewport = await mobileDialog.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return bounds.top >= 0 && bounds.bottom <= window.innerHeight + 1;
+    });
+    check('Pay input dialog is bounded and scrollable on a short phone viewport', dialogFitsViewport);
+    const mobileSaveButton = page.getByRole('button', { name: 'Save pay input' });
+    await mobileSaveButton.scrollIntoViewIfNeeded();
+    check('Pay input Save action remains reachable on a short phone viewport', await mobileSaveButton.isVisible());
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: path.join(artifactDir, 'pay-report-mobile.png'), fullPage: true });
   } finally {
     await browser.close();
