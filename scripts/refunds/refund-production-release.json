@@ -175,7 +175,8 @@
     "20260908033000_refund_nayax_bound_offset_time.sql",
     "20260908044000_refund_nayax_independent_response_diagnostics.sql",
     "20260908061500_refund_nayax_email_mode_binding.sql",
-    "20260908151902_refund_nayax_lookup_retry_recovery.sql"
+    "20260908151902_refund_nayax_lookup_retry_recovery.sql",
+    "20260908163714_refund_terminal_receipt_case_completion.sql"
   ],
   "migrationFilesSha256": "46220a8601c993185a04ec71be9a93722d3f6e3be2259f183d5c17c51111d934",
   "migrationVersionSetSha256": "4ee83c394d6c85950dc5001f45bf06b70d46058ddec884e4bb72a674748e5033",
