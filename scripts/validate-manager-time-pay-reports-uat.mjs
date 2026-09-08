@@ -107,11 +107,11 @@ const payContext = {
     paidShifts: 3,
     shiftEarningsCents: 6500,
     commissionableSalesCents: 150000,
-    commissionEarningsCents: 15000,
+    commissionEarningsCents: 14000,
     bonusCents: 2500,
     supplyCreditCents: 1000,
     expenseReimbursementCents: 500,
-    currentTotalCents: 25500,
+    currentTotalCents: 24500,
     publishable: false,
     entries: [
       { id: 'pay-entry-1', workDate: '2026-09-01', actualStartAt: '2026-09-01T08:00:00-07:00', actualEndAt: '2026-09-01T09:01:00-07:00', actualDurationMinutes: 61, paidShifts: 2, machineId: MACHINE_A, machineLabel: 'Cotton Candy 01', locationId: LOCATION_ID, locationName: 'Mall Atrium', shiftRate: {}, shiftRateCents: 2000, shiftEarningsCents: 4000 },
@@ -129,6 +129,8 @@ const payContext = {
       assignedStartDate: '2026-01-01',
       assignedEndDate: null,
       assignmentScopeResolved: true,
+      fullPeriodAssignment: true,
+      commissionRateCompleteForPeriod: true,
       revenueSnapshotId: null,
       revenueSnapshotStatus: null,
       revenueGeneratedAt: null,
@@ -140,6 +142,26 @@ const payContext = {
       commissionRate: { source: 'technician_default' },
       commissionBasisPoints: 1000,
       commissionEarningsCents: 10000,
+      commissionSegments: [{
+        segmentStartDate: '2026-09-01',
+        segmentEndDate: '2026-09-30',
+        commissionRate: { source: 'technician_default' },
+        commissionBasisPoints: 1000,
+        grossSalesCents: 110000,
+        refundAdjustmentCents: -10000,
+        netRevenueCents: 100000,
+        commissionableSalesCents: 100000,
+        commissionEarningsCents: 10000,
+        sourceSalesRowCount: 8,
+        sourceAdjustmentRowCount: 1,
+        sourceLatestSaleDate: '2026-09-30',
+      }],
+      snapshotGrossSalesCents: 0,
+      snapshotRefundAdjustmentCents: 0,
+      snapshotNetRevenueCents: 0,
+      snapshotCommissionableSalesCents: 0,
+      snapshotSourceLatestSaleDate: null,
+      snapshotMatchesFacts: false,
       warnings: [],
     }, {
       machineId: MACHINE_B,
@@ -149,6 +171,8 @@ const payContext = {
       assignedStartDate: '2026-01-01',
       assignedEndDate: null,
       assignmentScopeResolved: true,
+      fullPeriodAssignment: true,
+      commissionRateCompleteForPeriod: true,
       revenueSnapshotId: 'snapshot-2',
       revenueSnapshotStatus: 'source_generated',
       revenueGeneratedAt: FIXED_NOW.toISOString(),
@@ -158,8 +182,41 @@ const payContext = {
       netRevenueCents: 50000,
       commissionableSalesCents: 50000,
       commissionRate: { source: 'technician_default' },
-      commissionBasisPoints: 1000,
-      commissionEarningsCents: 5000,
+      commissionBasisPoints: null,
+      commissionEarningsCents: 4000,
+      commissionSegments: [{
+        segmentStartDate: '2026-09-01',
+        segmentEndDate: '2026-09-15',
+        commissionRate: { source: 'machine' },
+        commissionBasisPoints: 500,
+        grossSalesCents: 20000,
+        refundAdjustmentCents: 0,
+        netRevenueCents: 20000,
+        commissionableSalesCents: 20000,
+        commissionEarningsCents: 1000,
+        sourceSalesRowCount: 4,
+        sourceAdjustmentRowCount: 0,
+        sourceLatestSaleDate: '2026-09-15',
+      }, {
+        segmentStartDate: '2026-09-16',
+        segmentEndDate: '2026-09-30',
+        commissionRate: { source: 'machine' },
+        commissionBasisPoints: 1000,
+        grossSalesCents: 30000,
+        refundAdjustmentCents: 0,
+        netRevenueCents: 30000,
+        commissionableSalesCents: 30000,
+        commissionEarningsCents: 3000,
+        sourceSalesRowCount: 5,
+        sourceAdjustmentRowCount: 0,
+        sourceLatestSaleDate: '2026-09-30',
+      }],
+      snapshotGrossSalesCents: 50000,
+      snapshotRefundAdjustmentCents: 0,
+      snapshotNetRevenueCents: 50000,
+      snapshotCommissionableSalesCents: 50000,
+      snapshotSourceLatestSaleDate: '2026-09-30',
+      snapshotMatchesFacts: true,
       warnings: [],
     }],
     otherEarnings: [
@@ -274,9 +331,24 @@ const run = async () => {
     check('Pay Report sends an unambiguous full ISO date to PostgreSQL', payReportRead?.body.p_month === '2026-09-01');
     const bodyText = await page.locator('body').innerText();
     check('Pay Report separates mid-month rate bands', bodyText.includes('2 shifts × $20.00') && bodyText.includes('1 shift × $25.00'));
-    check('Pay Report shows time, shifts, and transparent commission inputs by machine', bodyText.includes('2 hr 1 min actual · 3 paid shifts') && bodyText.includes('$500.00 commissionable sales × 10%'));
+    check('Pay Report shows time, shifts, and dated commission segments by machine', bodyText.includes('2 hr 1 min actual · 3 paid shifts') && bodyText.includes('$200.00 × 5% = $10.00') && bodyText.includes('$300.00 × 10% = $30.00'));
+    check('A valid mixed-rate machine stays available with the summed commission', bodyText.includes('Cotton Candy 02') && bodyText.includes('$40.00'));
     check('Missing Commissionable Sales is unavailable rather than a plausible zero', /COMMISSIONABLE\s+SALES\s+Unavailable/i.test(bodyText) && bodyText.includes('Commissionable Sales unavailable × 10%'));
     check('Pay Report does not present unresolved commission or totals as trustworthy amounts', bodyText.includes('Commission\nUnavailable') && bodyText.includes('Current total\nUnavailable'));
+
+    const originalBlockers = payContext.technicians[0].blockers;
+    const originalFirstMachineSnapshotId = payContext.technicians[0].machines[0].revenueSnapshotId;
+    payContext.technicians[0].blockers = [{ code: 'revenue_snapshot_fact_mismatch', severity: 'blocker', message: 'Sales facts do not reconcile to the monthly snapshot.', machineId: MACHINE_B }];
+    payContext.technicians[0].machines[0].revenueSnapshotId = 'snapshot-1';
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByRole('heading', { name: 'Technician Pay Report' }).waitFor();
+    const integrityBlockerFooter = await page.locator('footer').filter({ hasText: 'Commission' }).last().innerText();
+    check('Snapshot/fact mismatch makes commission unavailable', integrityBlockerFooter.includes('Commission\nUnavailable'));
+    payContext.technicians[0].blockers = originalBlockers;
+    payContext.technicians[0].machines[0].revenueSnapshotId = originalFirstMachineSnapshotId;
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByRole('heading', { name: 'Technician Pay Report' }).waitFor();
+
     check('Pay Report shows all explicit other earning categories', ['Bonus', 'Supply Credit', 'Expense Reimbursement'].every((label) => bodyText.includes(label)));
     check('Pay Report distinguishes blockers and warnings', bodyText.includes('Blocks publishing:') && bodyText.includes('Check:'));
     check('Pay Report contains no approval or payment actions', !/mark reviewed|finalize|reopen|void|issue statements|run payroll/i.test(bodyText));

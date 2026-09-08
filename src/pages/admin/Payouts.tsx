@@ -141,6 +141,9 @@ const unresolvedCommissionCodes = new Set([
   'partial_period_assignment_scope',
   'shared_machine_compensation_scope',
   'missing_revenue_snapshot',
+  'missing_commission_sales_facts',
+  'stale_commission_sales_facts',
+  'revenue_snapshot_fact_mismatch',
   'missing_commission_rate',
 ]);
 
@@ -316,7 +319,10 @@ function TechnicianReport({
             const machineEntries = technician.entries.filter((entry) => entry.machineId === machine.machineId);
             const machineActualMinutes = machineEntries.reduce((sum, entry) => sum + entry.actualDurationMinutes, 0);
             const machinePaidShifts = machineEntries.reduce((sum, entry) => sum + entry.paidShifts, 0);
-            const machineCommissionUnavailable = machine.commissionBasisPoints == null || technician.blockers.some(
+            const hasIncompleteCommissionSegment = machine.commissionSegments.some(
+              (segment) => segment.commissionBasisPoints == null
+            );
+            const machineCommissionUnavailable = hasIncompleteCommissionSegment || technician.blockers.some(
               (issue) => unresolvedCommissionCodes.has(issue.code) && (!issue.machineId || issue.machineId === machine.machineId)
             );
             const machineSalesUnavailable = machine.revenueSnapshotId == null;
@@ -327,9 +333,31 @@ function TechnicianReport({
                 detail={
                   <>
                     <span>{machine.locationName} · {formatDuration(machineActualMinutes)} actual · {machinePaidShifts} paid {machinePaidShifts === 1 ? 'shift' : 'shifts'}</span>
-                    <span className="mt-1 block">
-                      {machineSalesUnavailable ? 'Commissionable Sales unavailable' : `${formatCurrency(machine.commissionableSalesCents)} commissionable sales`} × {machine.commissionBasisPoints == null ? 'Commission rate missing' : formatRate(machine.commissionBasisPoints)}
-                    </span>
+                    {machineSalesUnavailable ? (
+                      <span className="mt-1 block">
+                        Commissionable Sales unavailable{machine.commissionBasisPoints == null ? '' : ` × ${formatRate(machine.commissionBasisPoints)}`}
+                      </span>
+                    ) : machine.commissionSegments.length ? (
+                      <span className="mt-2 block space-y-1.5">
+                        {machine.commissionSegments.map((segment) => (
+                          <span
+                            key={`${segment.segmentStartDate}-${segment.segmentEndDate}-${segment.commissionBasisPoints ?? 'missing'}`}
+                            className="block rounded-md bg-muted/50 px-2 py-1.5"
+                          >
+                            <span className="font-medium text-foreground">
+                              {formatDate(segment.segmentStartDate)}–{formatDate(segment.segmentEndDate)}
+                            </span>
+                            <span className="mt-0.5 block">
+                              {formatCurrency(segment.commissionableSalesCents)} × {segment.commissionBasisPoints == null ? 'Commission rate missing' : formatRate(segment.commissionBasisPoints)} = {segment.commissionBasisPoints == null ? 'Unavailable' : formatCurrency(segment.commissionEarningsCents)}
+                            </span>
+                          </span>
+                        ))}
+                      </span>
+                    ) : (
+                      <span className="mt-1 block">
+                        {formatCurrency(machine.commissionableSalesCents)} commissionable sales · No dated commission segment
+                      </span>
+                    )}
                     {machine.refundAdjustmentCents !== 0 && <span className="mt-1 block">Includes {formatCurrency(machine.refundAdjustmentCents)} refund adjustment</span>}
                   </>
                 }
