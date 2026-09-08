@@ -83,6 +83,17 @@ const timeZoneOffsetMs = (date: Date) => {
 
 export const getTodayInTimekeepingZone = (now = new Date()) => formatPlainDateParts(now);
 
+export const getTechnicianCutoffDate = (workDate: string) => {
+  const { year, month } = parsePlainDate(workDate);
+  const cutoff = new Date(Date.UTC(year, month, 5, 12));
+  return `${cutoff.getUTCFullYear()}-${String(cutoff.getUTCMonth() + 1).padStart(2, '0')}-${String(
+    cutoff.getUTCDate()
+  ).padStart(2, '0')}`;
+};
+
+export const isTechnicianWorkDateEditable = (workDate: string, now = new Date()) =>
+  getTodayInTimekeepingZone(now) < getTechnicianCutoffDate(workDate);
+
 export const addPlainDateDays = (value: string, amount: number) => {
   const { year, month, day } = parsePlainDate(value);
   const date = new Date(Date.UTC(year, month - 1, day + amount, 12));
@@ -126,11 +137,15 @@ export const combineDateAndTimeInTimekeepingZone = (dateValue: string, timeValue
   return new Date(candidate).toISOString();
 };
 
-export const getActualDurationMinutes = (startTime: string, endTime: string) => {
+export const getActualDurationMinutes = (
+  workDate: string,
+  startTime: string,
+  endTime: string
+) => {
   if (!startTime || !endTime) return 0;
-  const start = parseTime(startTime);
-  const end = parseTime(endTime);
-  return Math.max(0, end.hour * 60 + end.minute - (start.hour * 60 + start.minute));
+  const startAt = Date.parse(combineDateAndTimeInTimekeepingZone(workDate, startTime));
+  const endAt = Date.parse(combineDateAndTimeInTimekeepingZone(workDate, endTime));
+  return Math.max(0, Math.round((endAt - startAt) / 60_000));
 };
 
 export const timeDraftOverlapsEntry = (
@@ -138,15 +153,23 @@ export const timeDraftOverlapsEntry = (
   entry: ComparableTimeEntry
 ) => {
   if (draft.workDate !== entry.workDate) return false;
-  const draftStart = parseTime(draft.startTime);
-  const draftEnd = parseTime(draft.endTime);
-  const entryStart = parseTime(entry.startTime);
-  const entryEnd = parseTime(entry.endTime);
-  const draftStartMinutes = draftStart.hour * 60 + draftStart.minute;
-  const draftEndMinutes = draftEnd.hour * 60 + draftEnd.minute;
-  const entryStartMinutes = entryStart.hour * 60 + entryStart.minute;
-  const entryEndMinutes = entryEnd.hour * 60 + entryEnd.minute;
-  return draftStartMinutes < entryEndMinutes && entryStartMinutes < draftEndMinutes;
+  try {
+    const draftStart = Date.parse(
+      combineDateAndTimeInTimekeepingZone(draft.workDate, draft.startTime)
+    );
+    const draftEnd = Date.parse(
+      combineDateAndTimeInTimekeepingZone(draft.workDate, draft.endTime)
+    );
+    const entryStart = Date.parse(
+      combineDateAndTimeInTimekeepingZone(entry.workDate, entry.startTime)
+    );
+    const entryEnd = Date.parse(
+      combineDateAndTimeInTimekeepingZone(entry.workDate, entry.endTime)
+    );
+    return draftStart < entryEnd && entryStart < draftEnd;
+  } catch {
+    return false;
+  }
 };
 
 export const timeDraftMatchesEntry = (

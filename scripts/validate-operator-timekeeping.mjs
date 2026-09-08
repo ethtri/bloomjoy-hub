@@ -90,6 +90,7 @@ for (const snippet of [
   'voidOperatorTimeEntry',
   'getWeekMonthAnchors',
   'combineDateAndTimeInTimekeepingZone',
+  'isTechnicianWorkDateEditable',
   'calculateOperatorPaidShifts',
   'technicianEditable',
   'Add time',
@@ -125,6 +126,8 @@ for (const retiredSnippet of [
   'submitOperatorTimeEntry',
   'updateOperatorTimeEntry',
   'Save this time entry anyway?',
+  'editablePeriodStatuses',
+  'currentPeriod.status',
 ]) {
   reject(page, retiredSnippet, 'Time page');
 }
@@ -136,6 +139,9 @@ for (const snippet of [
   'getWeekStart',
   'getWeekMonthAnchors',
   'combineDateAndTimeInTimekeepingZone',
+  'getTechnicianCutoffDate',
+  'isTechnicianWorkDateEditable',
+  'getActualDurationMinutes',
   'timeDraftOverlapsEntry',
   'describeTimekeepingError',
 ]) {
@@ -143,7 +149,16 @@ for (const snippet of [
 }
 
 const uiHelperTest = readText(files.uiHelperTest);
-for (const snippet of ['winter offset', 'summer offset', 'spring-forward gap', '61-minute duration']) {
+for (const snippet of [
+  'winter offset',
+  'summer offset',
+  'spring-forward gap',
+  'spring-forward duration',
+  'fall-back duration',
+  '61-minute duration',
+  'one second before Pacific cutoff',
+  'at Pacific cutoff',
+]) {
   expect(uiHelperTest, snippet, 'timekeeping UI helper tests');
 }
 

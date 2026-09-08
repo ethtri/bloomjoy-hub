@@ -64,6 +64,7 @@ import {
   getWeekMonthAnchors,
   getWeekStart,
   isCompletedTimeInFuture,
+  isTechnicianWorkDateEditable,
   timeDraftMatchesEntry,
   timeDraftOverlapsEntry,
   TIMEKEEPING_TIME_ZONE,
@@ -81,7 +82,6 @@ type FormErrors = Partial<Record<keyof TimeEntryForm | 'form', string>>;
 const getContextQueryKey = (monthAnchor: string) =>
   ['operator-timekeeping', monthAnchor] as const;
 const getPayStubsQueryKey = ['operator-pay-statements'] as const;
-const editablePeriodStatuses = new Set(['open', 'grace_period', 'reopened']);
 
 const isDateValue = (value: string | null): value is string =>
   Boolean(value && /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(value));
@@ -203,6 +203,7 @@ export default function PortalTimePage() {
   const [selectedProfileId, setSelectedProfileId] = useState('');
   const [form, setForm] = useState<TimeEntryForm>(() => defaultForm(initialDate));
   const [formErrors, setFormErrors] = useState<FormErrors>({});
+  const [serverLockedFormDate, setServerLockedFormDate] = useState<string | null>(null);
   const [initializedEntryId, setInitializedEntryId] = useState<string | null>(null);
   const [deleteEntry, setDeleteEntry] = useState<OperatorTimeEntry | null>(null);
   const [deleteError, setDeleteError] = useState<{ id: string; message: string } | null>(null);
@@ -302,9 +303,11 @@ export default function PortalTimePage() {
   const profileForFormDate = contextForFormDate?.profiles.find(
     (profile) => profile.id === selectedProfile?.id
   );
-  const periodCanEdit = profileForFormDate
-    ? editablePeriodStatuses.has(profileForFormDate.currentPeriod.status)
-    : false;
+  const formDateCanEdit = Boolean(
+    profileForFormDate &&
+      isTechnicianWorkDateEditable(form.workDate) &&
+      serverLockedFormDate !== form.workDate
+  );
   const entries = useMemo(
     () =>
       (selectedProfile?.currentEntries ?? [])
@@ -321,7 +324,18 @@ export default function PortalTimePage() {
     0
   );
   const totalPaidShifts = entries.reduce((total, entry) => total + entry.paidShifts, 0);
-  const durationMinutes = getActualDurationMinutes(form.startTime, form.endTime);
+  let durationMinutes = 0;
+  let localTimeError: string | null = null;
+  if (form.startTime && form.endTime) {
+    try {
+      durationMinutes = getActualDurationMinutes(form.workDate, form.startTime, form.endTime);
+    } catch (error) {
+      localTimeError =
+        error instanceof Error
+          ? error.message
+          : 'Choose times that exist in Bloomjoy’s Pacific operating timezone.';
+    }
+  }
   const previewPaidShifts = calculateOperatorPaidShifts(durationMinutes);
   const comparableEntries = selectedProfile?.currentEntries ?? [];
   const duplicateEntry =
@@ -387,6 +401,9 @@ export default function PortalTimePage() {
     onError: async (error) => {
       const message = describeTimekeepingError(error);
       setFormErrors((current) => ({ ...current, form: message }));
+      if (/closed|cutoff|locked/i.test(String(error))) {
+        setServerLockedFormDate(form.workDate);
+      }
       if (/closed|cutoff|locked|assigned|assignment/i.test(String(error))) {
         await invalidateVisibleMonths();
       }
@@ -423,8 +440,12 @@ export default function PortalTimePage() {
     navigate(`/portal/time?week=${nextWeekStart}&date=${nextSelectedDate}`);
   };
 
-  const openAddTime = (date = selectedDate) =>
+  const openAddTime = (date = selectedDate) => {
+    setForm(defaultForm(date));
+    setFormErrors({});
+    setInitializedEntryId(null);
     navigate(`/portal/time/new?date=${date}&week=${weekStart}`);
+  };
 
   const openEditTime = (entry: OperatorTimeEntry) =>
     navigate(
@@ -437,10 +458,17 @@ export default function PortalTimePage() {
     if (!form.machineId) errors.machineId = 'Choose the machine you worked on.';
     if (!form.startTime) errors.startTime = 'Enter the start time.';
     if (!form.endTime) errors.endTime = 'Enter the end time.';
-    if (form.startTime && form.endTime && durationMinutes <= 0) {
+    if (localTimeError) {
+      errors.endTime = localTimeError;
+    } else if (form.startTime && form.endTime && durationMinutes <= 0) {
       errors.endTime = 'End time must be later than start time.';
     }
-    if (form.workDate && form.endTime && isCompletedTimeInFuture(form.workDate, form.endTime)) {
+    if (
+      !localTimeError &&
+      form.workDate &&
+      form.endTime &&
+      isCompletedTimeInFuture(form.workDate, form.endTime)
+    ) {
       errors.endTime = 'Enter time only after the work has ended.';
     }
     if (!effectiveMachines.some((machine) => machine.machineId === form.machineId)) {
@@ -453,7 +481,7 @@ export default function PortalTimePage() {
         overlappingEntry.endTime
       )} entry on ${overlappingEntry.machineLabel}. Times may touch, but they cannot overlap.`;
     }
-    if (!periodCanEdit || (routeEntry && !routeEntry.technicianEditable)) {
+    if (!formDateCanEdit || (routeEntry && !routeEntry.technicianEditable)) {
       errors.form =
         'Technician editing has closed for this month. Your manager can still correct the entry.';
     }
@@ -532,7 +560,7 @@ export default function PortalTimePage() {
   if (isFormRoute) {
     const editingEntryMissing = Boolean(entryId && !routeEntry && !isLoading);
     const selectedMachine = effectiveMachines.find((machine) => machine.machineId === form.machineId);
-    const formLocked = !periodCanEdit || Boolean(routeEntry && !routeEntry.technicianEditable);
+    const formLocked = !formDateCanEdit || Boolean(routeEntry && !routeEntry.technicianEditable);
 
     return (
       <PortalLayout>
@@ -1010,13 +1038,7 @@ export default function PortalTimePage() {
               ) : (
                 <div className="mt-4 divide-y divide-border rounded-xl border border-border">
                   {selectedDayEntries.map((entry) => {
-                    const entryPeriod = contexts
-                      .find((context) => context.workDate.slice(0, 7) === entry.workDate.slice(0, 7))
-                      ?.profiles.find((profile) => profile.id === entry.operatorProfileId)
-                      ?.currentPeriod;
-                    const canEdit =
-                      entry.technicianEditable &&
-                      Boolean(entryPeriod && editablePeriodStatuses.has(entryPeriod.status));
+                    const canEdit = entry.technicianEditable;
                     return (
                       <article key={entry.id} className="p-4 sm:p-5">
                         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">

@@ -64,7 +64,7 @@ const jsonResponse = (body, status = 200) => ({
 const rpcError = (message, code = 'MOCK_UAT_FAILURE') =>
   jsonResponse({ code, details: null, hint: null, message }, 500);
 
-const getMonthPeriod = (dateValue, locked = false) => {
+const getMonthPeriod = (dateValue, locked = false, statusOverride = null) => {
   const month = dateValue.slice(0, 7);
   const [year, monthNumber] = month.split('-').map(Number);
   const end = new Date(Date.UTC(year, monthNumber, 0, 12));
@@ -83,7 +83,7 @@ const getMonthPeriod = (dateValue, locked = false) => {
     submissionDueDate: lockValue,
     lockDate: lockValue,
     targetPayoutDate: lockValue,
-    status: locked ? 'locked' : 'open',
+    status: locked ? 'locked' : statusOverride || 'open',
   };
 };
 
@@ -177,7 +177,11 @@ const initialEntries = () => [
 
 const buildContext = (state, requestedDate) => {
   const target = typeof requestedDate === 'string' ? requestedDate : '2026-09-03';
-  const period = getMonthPeriod(target, state.contextLocked && target.startsWith('2026-09'));
+  const period = getMonthPeriod(
+    target,
+    state.contextLocked && target.startsWith('2026-09'),
+    state.periodStatus
+  );
   if (state.contextMode === 'no_profile' && typeof requestedDate === 'string') {
     return { workDate: target, profiles: [] };
   }
@@ -403,6 +407,7 @@ const run = async () => {
     rpcCalls: [],
     contextMode: 'normal',
     contextLocked: false,
+    periodStatus: null,
     loadError: false,
     failNextSave: false,
     failNextDelete: false,
@@ -466,6 +471,16 @@ const run = async () => {
         /waiting for review|correction requested|submit for review|approve|reject|included in pay/i
       )
     );
+
+    state.periodStatus = 'review';
+    await openWeek();
+    check.assert(
+      'Legacy payout workflow status does not lock Technician time before cutoff',
+      (await page.getByRole('button', { name: /^Add time$/ }).first().isEnabled()) &&
+        (await page.getByRole('button', { name: /Edit .*10:00 AM to 11:01 AM/i }).isVisible())
+    );
+    state.periodStatus = null;
+    await openWeek();
     await page
       .getByText('Signed in. Redirecting...', { exact: true })
       .waitFor({ state: 'detached', timeout: 6000 })
@@ -511,6 +526,18 @@ const run = async () => {
       (element) => getComputedStyle(element).transitionDuration
     );
     check.assert('Reduced motion removes the day transition', transitionDuration === '0s', transitionDuration);
+
+    await page.getByRole('button', { name: /Thursday, September 3/i }).click();
+    await page.getByRole('button', { name: /^Add time$/ }).first().click();
+    await page.getByRole('heading', { name: 'Add time' }).waitFor();
+    check.assert(
+      'Add time starts blank on the selected day',
+      (await page.locator('#work-date').inputValue()) === '2026-09-03' &&
+        (await page.locator('#start-time').inputValue()) === '' &&
+        (await page.locator('#end-time').inputValue()) === ''
+    );
+    await page.getByRole('button', { name: 'Back to week' }).click();
+    await page.getByRole('button', { name: /Wednesday, September 2/i }).click();
 
     const primaryAddTime = page.getByRole('button', { name: /^Add time$/ }).first();
     await primaryAddTime.focus();
@@ -572,6 +599,16 @@ const run = async () => {
         (call) => call.rpcName === 'save_operator_time_entry' && call.body.p_time_entry_id
       )
     );
+
+    await page.getByRole('button', { name: /^Add time$/ }).first().click();
+    await page.getByRole('heading', { name: 'Add time' }).waitFor();
+    check.assert(
+      'Add time clears values retained by a prior edit',
+      (await page.locator('#work-date').inputValue()) === '2026-09-02' &&
+        (await page.locator('#start-time').inputValue()) === '' &&
+        (await page.locator('#end-time').inputValue()) === ''
+    );
+    await page.getByRole('button', { name: 'Back to week' }).click();
 
     const deleteButton = page.getByRole('button', { name: /Delete .*12:00 PM to 1:02 PM/i });
     await deleteButton.click();

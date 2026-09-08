@@ -4,10 +4,12 @@ import {
   addPlainDateDays,
   combineDateAndTimeInTimekeepingZone,
   getActualDurationMinutes,
+  getTechnicianCutoffDate,
   getTodayInTimekeepingZone,
   getWeekMonthAnchors,
   getWeekStart,
   isCompletedTimeInFuture,
+  isTechnicianWorkDateEditable,
 } from './timekeepingUi.ts';
 
 const assertEquals = (actual: unknown, expected: unknown, message: string) => {
@@ -46,11 +48,38 @@ Deno.test('Pacific helpers reject skipped daylight-saving time', () => {
 });
 
 Deno.test('duration and future checks support visible paid-shift previews', () => {
-  assertEquals(getActualDurationMinutes('09:00', '10:01'), 61, '61-minute duration');
+  assertEquals(getActualDurationMinutes('2026-07-15', '09:00', '10:01'), 61, '61-minute duration');
   assertEquals(
     isCompletedTimeInFuture('2026-07-15', '10:00', new Date('2026-07-15T16:30:00.000Z')),
     true,
     'future end'
   );
   assertEquals(getTodayInTimekeepingZone(new Date('2026-01-01T07:30:00.000Z')), '2025-12-31', 'Pacific date');
+});
+
+Deno.test('duration previews use the same Pacific instants as canonical saves across DST', () => {
+  assertEquals(
+    getActualDurationMinutes('2026-03-08', '01:30', '03:30'),
+    60,
+    'spring-forward duration'
+  );
+  assertEquals(
+    getActualDurationMinutes('2026-11-01', '01:30', '02:30'),
+    120,
+    'fall-back duration'
+  );
+});
+
+Deno.test('Technician editing closes exactly at Pacific midnight on day five', () => {
+  assertEquals(getTechnicianCutoffDate('2026-12-15'), '2027-01-05', 'December cutoff date');
+  assertEquals(
+    isTechnicianWorkDateEditable('2026-12-15', new Date('2027-01-05T07:59:59.000Z')),
+    true,
+    'one second before Pacific cutoff'
+  );
+  assertEquals(
+    isTechnicianWorkDateEditable('2026-12-15', new Date('2027-01-05T08:00:00.000Z')),
+    false,
+    'at Pacific cutoff'
+  );
 });
