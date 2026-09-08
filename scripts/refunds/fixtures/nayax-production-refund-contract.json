@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 2,
+  "contractVersion": "nayax-production-account-contract-v2",
+  "baseUrl": "https://lynx.nayax.com/operational/v1",
+  "authorizationMode": "bearer",
+  "amountUnit": "major",
+  "amountRoundingMode": "exact_cent",
+  "machineAuthorizationTimeMode": "exact_source",
+  "refundEmailListMode": "empty_string",
+  "writeCredentialMode": "separate",
+  "sameWriteTokenContractConfirmed": false,
+  "reconciliationMode": "dtm_then_structured_resolution",
+  "responseLearningMode": "inspect_unknown",
+  "requestResponses": [
+    {
+      "result": "Refund status updated successfully, but the email could not be sent",
+      "status": "Partial success",
+      "outcome": "accepted"
+    }
+  ],
+  "approveResponses": [
+    {
+      "result": "Refund status updated successfully, but the email could not be sent",
+      "status": "Partial success",
+      "outcome": "succeeded"
+    }
+  ]
+}

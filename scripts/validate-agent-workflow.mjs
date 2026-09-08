@@ -104,6 +104,12 @@ if (exists("scripts/agent-context.mjs")) {
     /if \(isMatch\(haystack, \/refund\|nayax\/\)\) \{[\s\S]*?Docs\/NAYAX_REFUND_PRODUCTION_RCA\.md/.test(agentContext),
     "Refund or Nayax context must route agents through Docs/NAYAX_REFUND_PRODUCTION_RCA.md.",
   );
+  assert(
+    exists("Docs/NAYAX_REFUND_WORKING_CONTRACT.md") &&
+      agentContext.includes('docs.add("Docs/NAYAX_REFUND_WORKING_CONTRACT.md")') &&
+      read("AGENTS.md").includes("Docs/NAYAX_REFUND_WORKING_CONTRACT.md"),
+    "Refund agents must discover the verified working API contract from both instructions and generated context.",
+  );
 }
 
 if (exists("Docs/NAYAX_REFUND_PRODUCTION_RCA.md")) {

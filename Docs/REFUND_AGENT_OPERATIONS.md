@@ -6,13 +6,18 @@ This is the operating entry point for agents handling refunds. Follow the
 [#628](https://github.com/ethtri/bloomjoy-hub/issues/628). A procedure, merged PR,
 or successful API response is not production activation or payment authority.
 
-## Current baseline — September 3, 2026
+## Current baseline — September 8, 2026
+
+**Request and approval permissions are proved with the existing credentials.**
+Read [the working API contract](NAYAX_REFUND_WORKING_CONTRACT.md) before changing
+code or escalating to Nayax. Correct payload serialization and exact response
+handling resolved the two September 8 refunds; no additional roles were needed.
 
 | Capability | Operating boundary |
 | --- | --- |
 | Scoped queue, case, inventory, recent-sales and mailbox research | Use existing read-only tools with the correct account and mailbox. Last Sales is not exhaustive history or refund-outcome proof. |
 | Supported manager evidence and provider-free outcome actions | Check the deployed action's actual availability, current manager mapping, case version and evidence requirements. No direct database repair. |
-| Direct API refunds | Deployed and enabled. Actively use legitimate, owed, normally manager-approved purchases under [#990](https://github.com/ethtri/bloomjoy-hub/issues/990). Complete request → approval → independently confirmed outcome remains unproved. |
+| Direct API refunds | Deployed, enabled and proved: Valley $26.50 and Great Mall $10.90 completed request → approval → independently confirmed DTM outcome on September 8. Use the working contract for legitimate, owed, normally manager-approved purchases under [#990](https://github.com/ethtri/bloomjoy-hub/issues/990). Automated final report confirmation remains separate. |
 | Portal verification and refund fallback | Exact portal evidence is usable where reports lack proven terminal status. Continue an existing pending request or use supported fallback after definite rejection/no-refund evidence. Inspect uncertainty before another payment action. |
 | Unknown-settlement-time receipts, machine corrections and prior-notice adoption | Deployed under [#971](https://github.com/ethtri/bloomjoy-hub/issues/971); existing full-refund receipt and notice adoption have live verification. Reuse them; remaining scenarios still need acceptance. |
 | Scheduled reports | First actual linked CSV delivered September 3 at 21:09 UTC under [#973](https://github.com/ethtri/bloomjoy-hub/issues/973), including parent and child transactions. The refund row has blank status fields; its negative amount alone cannot prove completion. Normalize only proven fields through #971. Neither reports nor [#1089](https://github.com/ethtri/bloomjoy-hub/issues/1089) tooling gate an approved first attempt. |

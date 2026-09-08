@@ -1,6 +1,6 @@
 # Nayax Lynx API Notes
 
-Last updated: 2026-09-05
+Last updated: 2026-09-08
 
 For the current MVP scope and delivery sequence, start with [REFUND_MVP_PLAN.md](./REFUND_MVP_PLAN.md). Historical audits below explain evidence, not additional activation gates.
 
@@ -11,26 +11,26 @@ Do not call Nayax directly from the browser. Any implementation should run throu
 
 ## Current Release Status
 
-The September 3 coordinated release is deployed and API execution is enabled.
-Use `Docs/REFUND_AGENT_OPERATIONS.md` and the current #990 body to test legitimate,
-normally approved customer refunds and capture useful request/approval evidence.
-One attributable request → approval → independently confirmed outcome remains
-unproved. #973's first linked CSV arrived September 3 at 21:09 UTC, including parent
-and child transactions. Its refund status fields are blank; exact portal evidence
-remains usable while terminal report semantics and ingestion are validated.
+The September 8 production flow has proved attributable request → approval →
+independently confirmed full refunds for Valley and Great Mall. Existing canonical
+account permissions and both stage credentials worked without changes. Start with
+[NAYAX_REFUND_WORKING_CONTRACT.md](NAYAX_REFUND_WORKING_CONTRACT.md).
+Exact portal evidence remains usable while automated terminal report confirmation
+is validated. #973's first linked CSV had blank refund-status fields; report
+delivery alone is not final refund proof.
 Ordinary unchanged refund approval persists across stages and agent handoffs;
 there is no extra testing approval or balance/vendor/report prerequisite.
 
 - **Selected transaction execution (`#990`, September 3):** the original Last Sales response and rejected request prove that `AuthorizationDateTimeGMT` was incorrectly substituted for the distinct `MachineAuthorizationTime`. Nayax [documents them separately](https://devzone.nayax.com/reference/lynx/machines/get-last-sales-for-machine-by-machineid). The current implementation keeps GMT for matching, binds the actual queried account/machine and original purchase to one authorized attempt, and preserves the exact machine timestamp through request and approval. Missing or conflicting source evidence cannot authorize payment. The owner removed the blanket remaining-refundable gate: rely on Nayax's original-transaction cap while preserving local authority, amount, duplicate, claim and outcome controls. No balance form or report is a first-attempt prerequisite. Release and real provider acceptance remain tracked on #990; no historical attempt is rewritten.
 
 - **Historical evidence corrected (September 3):** the Eastridge `$10.90` refund was later confirmed by Nayax and reconciled, but the original request and both approval logs report provider failures. The operation or actor that completed the refund is unproved. This case does not prove successful API execution; those failure responses also do not prove zero side effects or API unavailability. The owner's API-first operating decision remains unchanged.
-- **Direct automation is not yet proved:** a confirmed historical refund is not proof of the API operation that caused it. The owner directs API-first handling of legitimate approved purchases through the deployed path. Explicit `inspect_unknown` response handling permits a request without invented response rules; an unfamiliar response stops before automatic approval or retry and requires independent inspection. If the request exists pending, continue that same request through supported evidence-bound handling or authorized portal approval. See `Docs/NAYAX_REFUND_PRODUCTION_RCA.md` for the historical evidence.
+- **Normal API chain proved September 8:** Great Mall completed one journal-authorized request and approval, full reporting adjustment and case finalization; DTM independently confirmed the full amount. Its first customer email failed and the supported email-only retry succeeded. Valley also has attributable API success and a sent customer notice. This is not a claim that independent report confirmation or every first-pass email is automated. `inspect_unknown` retains holds for unlisted pairs alongside the exact learned success pair.
 - **Canonical executor:** active Nayax user `103260239`, login `dually-app\TGpaci266`, email `ethtri@gmail.com`, under `TGpaci LLC`. Nayax Support confirmed Last Sales, refund-request, and refund-approval capabilities for this account on 2026-08-17. Separate Bloomjoy Refund Request and Bloomjoy Refund Approval production Lynx tokens created on 2026-08-25 belong to this user.
 - **Non-executors:** invited user `570755401` (`dually-app\Ethan50862`, `etrifari@bloomjoysweets.com`) and expired user `931941189` (`dually-app\911004`, `ethtri@gmail.com`) are not production refund identities. Do not activate, promote, or move credentials to either as a routine refund fix. Email alone is not a safe identity key.
 - The earlier $8 request-plus-approval attempt was authoritatively resolved as not refunded and released without replay. The newer $8 attempt made one request only; its unfamiliar `Result`/`Status` pair caused Bloomjoy to stop before approval, and Nayax's provider-owned log later proved it was a business rejection over HTTP `200`. DTM confirmed no refund, completion, reporting adjustment, customer success message, or retry. That held attempt must never be replayed.
-- Vendor clarification of literal `Result`/`Status` pairs and the historical rejection remains open. It is not a blanket first-attempt prerequisite and is not evidence that the active user lacks roles. Change roles or tokens only if Nayax evidence identifies a scope problem.
-- **Current support routing:** case `#03594386` and routing tickets `#03624855`, `#03624856`, and `#03624867` are awaiting a substantive human response. The copy sent to `integration-support@nayax.com` bounced with a recipient-address rejection; do not describe that address as delivered, send another copy there, or wait on it as a working channel. The weekday mailbox monitor is read-only and reports only a materially new response.
-- Current request and approval payloads use Nayax's published field structure, including the same `TransactionId`, `SiteId`, and `MachineAuTime` across stages and `IsRefundedExternally: false` for an ordinary Nayax-issued refund. A wrong value, amount-unit interpretation, email-list behavior, or token-specific scope remains possible but unproved; do not record one as the cause until Nayax classifies the exact provider log.
+- The exact successful `Result`/`Status` pair is proved at both stages; additional rejection/duplicate semantics and the historical rejection's internal cause remain unknown. They do not reopen the proved permissions baseline. Change roles or tokens only for a newly evidenced scope problem.
+- **Historical support routing:** case `#03594386` and routing tickets `#03624855`, `#03624856`, and `#03624867` were earlier escalation records, not current payment blockers. The copy to `integration-support@nayax.com` bounced. Check the latest correspondence and existing sending authority before any follow-up; do not revive old monitors or send another copy to the bounced address.
+- The working payload uses full major-unit amount, explicit empty email and the same raw `TransactionId`, `SiteId`, and `MachineAuTime` across stages, with `IsRefundedExternally: false`. Correcting our request representation and exact response mapping resolved the current flow. Do not invent an internal Nayax cause for older rejected requests or infer missing permissions from their combined error text.
 - Nayax's current request schema types `MachineAuTime` as `date-time`, while its published request and Last Sales examples use an explicitly zoned timestamp. Bloomjoy therefore supports a default-off diagnostic mode that preserves the selected `MachineAuthorizationTime` wall clock and fractional digits and appends only the offset proved by that selection's normalized instant. It never substitutes `AuthorizationDateTimeGMT`. The same exact wire value is bound to request and approval, and any calendar, precision, offset, candidate, mode or replay mismatch stops before transport.
 - The earlier request-plus-approval incident exposed a lossy observability boundary: Bloomjoy retained HTTP/outcome/digest evidence but not media type or safe body-shape metadata, so its approval HTTP `500` cannot be attributed to a specific provider body, contract mismatch, identity, or permission cause from stored evidence.
 - Journal v3 and contract schema v2 repair that boundary. The new runtime requires Bearer authorization and exact HTTP `200` + `application/json` + valid object/string fields + an account-confirmed accepted pair before the database may authorize approval. An unfamiliar `2xx` no longer advances.
@@ -193,7 +193,13 @@ An authenticated caller may POST `{ "operation": "availability" }` to `nayax-car
 
 ## Official Refund Contract Audit (2026-07-22)
 
-Nayax's public Lynx documentation now confirms that a card refund is a two-step operation, even if Bloomjoy presents it as one manager action:
+**September 8 production baseline:** both API stages and existing write
+permissions are proved. Start with [NAYAX_REFUND_WORKING_CONTRACT.md](NAYAX_REFUND_WORKING_CONTRACT.md)
+and its tested configuration. Explicit empty `RefundEmailList`, exact source
+timestamp and the verified stage-specific `Partial success` pair completed two
+full refunds without role grants or credential changes.
+
+Nayax's public Lynx documentation confirms that a card refund is a two-step operation, even if Bloomjoy presents it as one manager action:
 
 1. `POST /operational/v1/payment/refund-request` creates a pending refund request.
 2. `POST /operational/v1/payment/refund-approve` approves that request; the documented decline path is `POST /operational/v1/payment/refund-decline`.
@@ -208,7 +214,7 @@ Nayax also documents a manual reconciliation path: a successfully requested refu
 
 Production review also found refunds completed in Dynamic Transactions Monitor before Bloomjoy recorded an attempt, including one case with no attempt and one with a later ambiguous attempt. Neither may enter the normal refund executor or be marked retry-safe. The never-attempted case opens one provider-free `evidence_only` synthetic hold. For a later held attempt, exact DTM success between the matched sale and attempt creation is server-classified as a pre-existing provider refund; historical support/manual evidence cannot use this exception. Both paths store only a one-way reference digest, prevent one successful reference from completing multiple cases, preserve the original attempt outcome in audit metadata, reuse the exactly-once reporting/customer-completion resolver, and never call Nayax. This is the supported operational fallback for `#971` until Nayax provides an authoritative programmatic readback contract.
 
-Nayax's current Dynamic Transactions Monitor guide defines Transaction Status ID `12` as **Approved** and describes the other listed IDs as cancellation reasons; it also exposes refund requester, date, and reason fields. The current MoMa guide says only **Settled** transactions are refund-eligible and a separate user with refund-approval permission must approve. The documented machine Last Sales response intentionally has no separate status field, and Nayax directs refund clients to obtain `TransactionID` and `SiteID` from that endpoint. Bloomjoy therefore treats membership in that explicitly bound feed as sale evidence for deterministic matching only when the other machine, amount, time, card, currency, duplicate, and already-refunded checks pass. A present blank, unknown, negative, or contradictory status remains closed. This matching rule does not prove write response values or final refund outcome. The account-level roles are confirmed; the remaining execution-contract blocker is the active account/current token's exact `Result`/`Status` meaning.
+Nayax's current Dynamic Transactions Monitor guide defines Transaction Status ID `12` as **Approved** and describes the other listed IDs as cancellation reasons; it also exposes refund requester, date, and reason fields. The current MoMa guide says only **Settled** transactions are refund-eligible and a separate user with refund-approval permission must approve. The documented machine Last Sales response intentionally has no separate status field, and Nayax directs refund clients to obtain `TransactionID` and `SiteID` from that endpoint. Bloomjoy therefore treats membership in that explicitly bound feed as sale evidence for deterministic matching only when the other machine, amount, time, card, currency, duplicate, and already-refunded checks pass. A present blank, unknown, negative, or contradictory status remains closed. This matching rule does not prove write response values or final refund outcome. The account-level roles and actual request/approval writes are proved. The working guide records the exact successful response pair; unlisted pairs still require investigation.
 
 Primary references:
 - [Refund flow overview](https://devzone.nayax.com/docs/manage-data-operations/lynx-api/refunds/payments)
@@ -220,16 +226,28 @@ Primary references:
 - [Dynamic Transactions Monitor overview](https://nayax-u.nayax.com/article/dynamic-transaction-monitor-dtm-in-nayax-core-overview-10787)
 - [MoMa refund eligibility and approval](https://nayax-u.nayax.com/article/how-to-use-mo-ma-on-a-route-80366)
 
-Public documentation defines the expected request shape but does not close every response-contract gap. Bloomjoy account evidence separately confirms the production endpoint and separate account-scoped request/approval credentials under the canonical active user; the existing reporting token must never be used as a write-permission probe or fallback. Remaining contract questions are:
-- whether `RefundAmount` is expressed in major currency units and how rounding is handled;
-- the exact `Result` and `Status` values for accepted, rejected, already-refunded, duplicate, pending, and unknown outcomes;
+Public documentation defines the expected shape; September 8 account evidence
+additionally proves full major-unit amounts, exact-cent conversion, explicit
+empty notification email, the successful pair at both stages, and working
+existing separate request/approval credentials. The reporting token is not a
+write fallback. Remaining contract questions are:
+- additional literal rejected, already-refunded, duplicate and pending response pairs beyond the proved success pair;
 - whether either step supports a provider idempotency key, how duplicate retries behave, and whether an API status/reconciliation endpoint exists after a timeout; the documented Dynamic Transactions Monitor remains the manual fallback;
 - any Bloomjoy-account deviation from the documented Last Sales schema, including a missing `SiteID`; feed membership is matching evidence only and does not independently prove response outcome or final refundability;
-- whether `RefundEmailList` can remain empty so Bloomjoy sends the single customer confirmation only after final confirmed success.
 
-A historical read-only Gmail and Drive audit on 2026-07-22 found no private technical refund contract that closed these gaps at that time. Nayax Support later confirmed the active account's requested roles on 2026-08-17, and separate production tokens were created on 2026-08-25. Those later facts supersede the audit for permission status, but they still do not enumerate the exact response semantics.
+A historical July 22 audit found no private contract; later role confirmations
+and September 8 successful writes supersede that finding for current permissions
+and the observed success pair. It is not a current vendor blocker.
 
-Use the next qualified, normally approved production refund under #990 to resolve the remaining contract questions. Preserve request and approval evidence separately and classify only demonstrated response pairs. The current journal retains classification, shape and digests; learning the literal pair requires restricted provider-log evidence or a narrowly scoped diagnostic improvement, not public raw payloads. Approval accepted/queued is not automatically final success. Revisit roles or tokens only for an evidenced scope problem. Timeout, malformed response, contract mismatch or uncertain transport remains transaction-specific reconciliation; authoritative rejection/no-refund evidence permits supported correction or fallback. Never revive the retired approval-only runtime or require complete vendor documentation before an unaffected first request.
+Use the working contract for normally approved refunds under #990. Preserve
+request/approval evidence separately and classify only demonstrated response
+pairs. The current diagnostic path retains bounded safe Result/Status fields
+alongside the journal's classifications and digests. Pending is not completed.
+Revisit roles only with new concrete scope evidence, after comparing actual
+payload and stage selection with the working baseline. Uncertain outcomes need
+exact transaction reconciliation before further payment actions. Never revive
+the retired approval-only runtime or require complete vendor documentation
+before an unaffected normally authorized first request.
 
 ## Retest Commands
 Use a local-only `.env` value. Do not paste tokens into chat, issues, PRs, or docs.

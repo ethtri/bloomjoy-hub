@@ -1,27 +1,46 @@
 # Nayax Refund Production Root Cause Analysis
 
-Last updated: 2026-09-03
+Last updated: 2026-09-08
 
-Current operations: the September 3 release is deployed and API execution is
-enabled. Follow `Docs/REFUND_AGENT_OPERATIONS.md` and current #990 decisions for
-real normally approved production attempts. Historical recovery prerequisites
-below do not impose a new balance fetch, vendor/report wait or testing approval.
-Independent exact portal confirmation is valid outcome evidence while automated
-terminal report confirmation remains unproved; it must be attributable to the same original/attempt
-to establish API execution success.
+Current operations: the September 8 working flow is deployed and proved with
+existing credentials. Follow `Docs/NAYAX_REFUND_WORKING_CONTRACT.md` and the
+ordinary manager procedure. Exact portal confirmation tied to the same
+original/attempt established API success. Automated terminal report confirmation
+is a separate remaining claim. Historical recovery prerequisites below do not
+impose a new balance fetch, vendor/report wait or testing approval.
 
 ## Executive finding
 
+**Production request and approval permissions are proved.** On September 8,
+Bloomjoy refunded Valley $26.50 and Great Mall $10.90 using the existing separate
+stage credentials, with no role or token changes. Exact DTM records independently
+confirmed both full refunds. The fixes were our explicit empty `RefundEmailList`
+and stage-specific recognition of the observed notification-email failure /
+`Partial success` response. Great Mall completed the ordinary request/approval
+chain with one of each call. Read the
+[working contract](NAYAX_REFUND_WORKING_CONTRACT.md) for the precise implementation
+and [production results](https://github.com/ethtri/bloomjoy-hub/issues/990#issuecomment-5581337850).
+
+Do not use the historical findings below as a current missing-permissions
+diagnosis or a reason to wait for Nayax before correcting code. They do not
+establish the cause of every historical rejection. Both customer notices were
+subsequently sent; Valley's settlement time remains unknown and Great Mall's
+first email required the supported email-only recovery. A direct, fully automatic request -> approval -> finalization
+run including independent automated report confirmation and first-pass email
+delivery is still a separate acceptance claim.
+
+### Historical September 3 finding (superseded as the current API baseline)
+
 **The historical Eastridge `$10.90` refund is confirmed; its attribution to Bloomjoy's API calls is unproved.** September 3 review of the original request and both approval logs found provider-reported failures. Later Nayax Support and DTM confirmation establishes that the transaction was refunded, but does not establish which operation or actor completed it. The earlier claim that this case proved API write capability was too strong.
 
-The unresolved problem is narrower and more technical:
+The September 3 unresolved questions were:
 
-1. Bloomjoy has not yet proved one direct, fully automatic request -> approval -> finalization run. Current production acceptance first requires attributable API request/approval and an independently confirmed outcome; exact Dynamic Transactions Monitor (DTM) evidence is sufficient for that independent check while report automation is unproved.
+1. At that time Bloomjoy had not proved an attributable API request/approval with independent confirmation. September 8 closes that gap; fully automated final report confirmation remains separate.
 2. Nayax returns business meaning in the JSON `Result` and `Status` fields, but its public contract does not publish the literal accepted/rejected values that Bloomjoy must match.
 3. An outer HTTP `200` is not proof of business acceptance. Nayax's provider-owned log for the later held `$8` request proves an HTTP-`200` business rejection.
 4. Nayax's public Lynx documentation does not identify a read-only refund-status endpoint. DTM or a Nayax Support confirmation is therefore the authoritative fallback when the write response is ambiguous.
 
-These failures also do not establish that the calls had no side effects or that the API cannot refund. The owner's September 2 API-first operating decision remains unchanged; safe execution and its end-to-end proof remain implementation work in `#990`.
+These failures also do not establish that the calls had no side effects or that the API cannot refund. The owner's API-first operating decision remains unchanged; September 8 provides the attributable API proof that was missing from this historical review.
 
 ## What each kind of proof means
 
@@ -110,9 +129,9 @@ Nayax documents DTM as the place where a pending request and later approval/decl
 
 That limitation does not prevent refunds. It prevents Bloomjoy from claiming fully automatic final reconciliation until a supported readback contract is implemented and proved.
 
-### Not established as root causes
+### Limits of the historical diagnosis
 
-The evidence does **not** currently prove any of the following:
+The pre-September-8 evidence did **not** prove any of the following:
 
 - that Nayax's refund API is unavailable;
 - that the canonical active user lacks account-level request or approval roles;
@@ -121,7 +140,11 @@ The evidence does **not** currently prove any of the following:
 - that `RefundAmount`, `RefundEmailList`, `MachineAuTime`, or another payload value caused the rejection;
 - that either an HTTP `200` or an HTTP `500` alone describes the final money-movement outcome.
 
-These remain hypotheses until Nayax ties an exact provider log to an exact reason or supplies an authoritative account/token contract.
+Those historical causes must not be invented retrospectively. September 8
+demonstrates that the existing account and write credentials work, and that
+explicit empty email plus correct response mapping resolves the current flow.
+Missing permission is not the current baseline. The combined access-or-invalid-
+transaction error alone did not justify attributing the issue to permissions.
 
 ## Current code and payload audit
 
@@ -135,14 +158,15 @@ The current server adapter in `supabase/functions/_shared/nayax-refund-provider.
 | Response classification | Requires exact HTTP/media/JSON/schema/semantic evidence | Stricter than the incomplete public response description, intentionally fail-closed |
 | Approval authority | Uses the database journal's returned decision; JavaScript cannot independently authorize approval | Repairs the historical cross-layer drift |
 
-This structural match is meaningful but not a successful-production proof. The following account-specific facts still require Nayax confirmation:
+The September 8 production proof now establishes full major-unit amounts,
+exact source timestamps, explicit empty email and one literal successful pair
+for both stages. The canonical account and both existing credentials can perform
+these writes. The working guide and tested configuration supersede the former
+request to obtain permission/success confirmation from Nayax.
 
-- literal, case-sensitive accepted and rejected `Result` + `Status` pairs for request and approval;
-- the precise reason for the business rejection in provider log `17117058946`;
-- whether either active token has a token-specific scope restriction despite the account's provider-confirmed roles;
-- the production interpretation of refund amount units/rounding and whether omitted versus empty notification-email behavior affects this account.
-
-No code or configuration should be changed to one of these hypotheses without provider evidence.
+Other literal rejection/duplicate pairs, provider idempotency guarantees and the
+internal cause of the historical provider rejection remain unproved. Keep
+unlisted responses unknown; diagnose a new exact failure from its own evidence.
 
 ## Historical response hold — superseded September 3
 
@@ -203,4 +227,5 @@ replies are useful evidence, not a prerequisite.
   - <https://devzone.nayax.com/reference/lynx/payment/approve-payment-refund>
   - <https://devzone.nayax.com/docs/manage-data-operations/lynx-api/refunds/approve-or-decline-a-refund>
 
-Raw provider response values, credentials, IP addresses, customer data, and card data are intentionally excluded.
+Only the non-sensitive verified response pair is published in the working guide.
+Credentials, raw provider payloads, IP addresses, customer and card data remain excluded.

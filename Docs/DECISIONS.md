@@ -1,5 +1,25 @@
 # Decisions
 
+## 2026-09-08 - Use the proved Nayax API contract and permissions baseline
+
+The canonical account's existing separate request and approval credentials have
+demonstrated production refund permissions: Valley $26.50 and Great Mall $10.90
+were refunded by attributable API calls and independently confirmed in DTM.
+No role grants or credential changes were needed. The working request sends an
+explicit empty `RefundEmailList` and exact source `MachineAuthorizationTime`;
+the exact observed email-failure/`Partial success` pair means request accepted
+or approval succeeded according to stage. Follow
+[NAYAX_REFUND_WORKING_CONTRACT.md](NAYAX_REFUND_WORKING_CONTRACT.md) for the exact
+configuration, evidence and regression command.
+
+This supersedes earlier current-state claims that API write permissions or all
+success semantics remain unproved. Preserve historical failures and unknown
+attribution as history. Diagnose actual payload, account/stage selection,
+response mapping and exact provider state before attributing an error to Nayax
+permissions. New concrete scope evidence can reopen that question; ambiguous
+error wording cannot. No new approval gates, account-wide restrictions or
+permission to send vendor mail is introduced.
+
 ## 2026-09-07 - Timekeeping uses per-machine shift units, transparent commission, and automatic contractor pay stubs
 
 Bloomjoy will replace the Google Form, manual Google Sheets compilation, and manually exported PDF workflow with lightweight Timekeeping, a manager pay report, and contractor Pay Stub self-service. The detailed MVP requirements are in [TIMEKEEPING_PAY_STUB_REQUIREMENTS.md](TIMEKEEPING_PAY_STUB_REQUIREMENTS.md). This decision supersedes the per-entry manager-approval workflow in `#587` and the earlier default lock/review behavior in the 2026-05-20 Operator Pay decision.
