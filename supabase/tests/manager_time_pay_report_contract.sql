@@ -891,7 +891,7 @@ select is(
     order by audit.created_at desc
     limit 1
   ),
-  'a1000000-0000-0000-0000-000000000002:true',
+  'a1000000-0000-0000-0000-000000000002:t',
   'manager-created missed time audit records the responsible actor and timestamp'
 );
 
