@@ -392,6 +392,184 @@ begin
 end;
 $$;
 
+-- Managers may correct historical time after an assignment is later revoked.
+-- The work-date effective window is authoritative; current assignment status
+-- must not erase valid historical scope.
+create or replace function public.manager_correct_operator_time_entry(
+  p_time_entry_id uuid,
+  p_reporting_machine_id uuid,
+  p_actual_start_at timestamptz,
+  p_actual_end_at timestamptz,
+  p_notes text default null,
+  p_void boolean default false
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  actor_user_id uuid;
+  before_row public.time_entries;
+  after_row public.time_entries;
+  profile_row public.operator_payout_profiles;
+  machine_row public.reporting_machines;
+  period_row public.payout_periods;
+  work_date_local date;
+begin
+  actor_user_id := auth.uid();
+
+  if actor_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+
+  select * into before_row
+  from public.time_entries entry
+  where entry.id = p_time_entry_id
+  for update;
+
+  if before_row.id is null then
+    raise exception 'Time entry not found';
+  end if;
+
+  if not coalesce(
+    public.can_manage_operator_payout_machine(actor_user_id, before_row.reporting_machine_id),
+    false
+  ) then
+    raise exception 'Machine manager access required';
+  end if;
+
+  select * into profile_row
+  from public.operator_payout_profiles profile
+  where profile.id = before_row.operator_profile_id;
+
+  if coalesce(p_void, false) then
+    perform set_config('app.timekeeping_manager_correction', 'true', true);
+    perform set_config('app.timekeeping_change_kind', 'manager_voided', true);
+
+    update public.time_entries
+    set status = 'voided', updated_by = actor_user_id
+    where id = before_row.id
+    returning * into after_row;
+  else
+    if p_actual_start_at is null or p_actual_end_at is null
+      or p_actual_end_at <= p_actual_start_at then
+      raise exception 'End time must be after start time';
+    end if;
+
+    if p_actual_end_at > now() then
+      raise exception 'Time can be entered only after the work is completed';
+    end if;
+
+    work_date_local := (p_actual_start_at at time zone 'America/Los_Angeles')::date;
+
+    select * into machine_row
+    from public.reporting_machines machine
+    where machine.id = p_reporting_machine_id
+      and machine.account_id = before_row.account_id;
+
+    if machine_row.id is null
+      or not coalesce(
+        public.can_manage_operator_payout_machine(actor_user_id, machine_row.id),
+        false
+      ) then
+      raise exception 'Machine manager access required';
+    end if;
+
+    if not exists (
+      select 1
+      from public.operator_machine_assignments assignment
+      where assignment.operator_profile_id = before_row.operator_profile_id
+        and assignment.reporting_machine_id = machine_row.id
+        and work_date_local between assignment.effective_start_date
+          and coalesce(assignment.effective_end_date, 'infinity'::date)
+    ) then
+      raise exception 'Technician is not assigned to this machine for the work date';
+    end if;
+
+    if exists (
+      select 1
+      from public.time_entries existing
+      where existing.operator_profile_id = before_row.operator_profile_id
+        and existing.status <> 'voided'
+        and existing.id <> before_row.id
+        and tstzrange(existing.actual_start_at, existing.actual_end_at, '[)')
+          && tstzrange(p_actual_start_at, p_actual_end_at, '[)')
+    ) then
+      raise exception 'Time entry overlaps another Technician entry';
+    end if;
+
+    select * into period_row
+    from public.ensure_operator_payout_period_for_date(
+      before_row.operator_profile_id,
+      work_date_local
+    );
+
+    perform set_config('app.timekeeping_manager_correction', 'true', true);
+    perform set_config('app.timekeeping_change_kind', 'manager_corrected', true);
+
+    update public.time_entries
+    set
+      reporting_machine_id = machine_row.id,
+      reporting_location_id = machine_row.location_id,
+      payout_policy_id = period_row.payout_policy_id,
+      payout_period_id = period_row.id,
+      actual_start_at = p_actual_start_at,
+      actual_end_at = p_actual_end_at,
+      notes = nullif(trim(coalesce(p_notes, '')), ''),
+      status = 'submitted',
+      manager_review_status = 'pending',
+      manager_review_reason = null,
+      manager_reviewed_at = null,
+      manager_reviewed_by = null,
+      locked_at = null,
+      locked_by = null,
+      updated_by = actor_user_id
+    where id = before_row.id
+    returning * into after_row;
+  end if;
+
+  perform set_config('app.timekeeping_change_kind', '', true);
+  perform set_config('app.timekeeping_manager_correction', '', true);
+
+  insert into public.admin_audit_log (
+    actor_user_id,
+    action,
+    entity_type,
+    entity_id,
+    target_user_id,
+    before,
+    after,
+    meta
+  )
+  values (
+    actor_user_id,
+    case when coalesce(p_void, false)
+      then 'operator_time_entry.manager_voided'
+      else 'operator_time_entry.manager_corrected'
+    end,
+    'time_entry',
+    after_row.id::text,
+    profile_row.user_id,
+    to_jsonb(before_row),
+    to_jsonb(after_row),
+    jsonb_build_object(
+      'machine_manager_correction', true,
+      'reason_required', false,
+      'after_cutoff_allowed', true,
+      'payment_execution', false
+    )
+  );
+
+  return jsonb_build_object(
+    'timeEntry', public.operator_time_entry_payload(after_row.id),
+    'context', public.get_my_time_review_context(
+      coalesce(work_date_local, before_row.work_date)
+    )
+  );
+end;
+$$;
+
 -- Replace the legacy approval-queue projection with canonical completed-time
 -- fields. Access remains machine-scoped: account pay authority is not required
 -- to correct time, and one machine manager never sees another machine.

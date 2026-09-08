@@ -502,7 +502,7 @@ select is(
     )
   $$),
   null,
-  'the existing manager correction RPC still works without a reason'
+  'manager correction accepts historical time after later assignment revocation without a reason'
 );
 
 reset role;

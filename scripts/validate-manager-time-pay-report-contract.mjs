@@ -55,6 +55,7 @@ for (const snippet of [
   'create or replace function public.get_my_time_report_access',
   'create or replace function public.admin_supersede_operator_compensation_rate',
   'create or replace function public.admin_refresh_technician_pay_report_sales',
+  'create or replace function public.manager_correct_operator_time_entry',
   "p_effective_start_date - 1",
   "'Technician Pay Report sales refresh'",
   'Machine-only Time Report authority does not expose pay details',
@@ -167,7 +168,7 @@ for (const marker of [
   'a midmonth raise can supersede an existing open-ended shift rate in one action',
   'the superseded rate ends the prior window on the preceding day',
   'Commissionable Sales refresh retains historically valid revoked assignments',
-  'the existing manager correction RPC still works without a reason',
+  'manager correction accepts historical time after later assignment revocation without a reason',
 ]) {
   if (!pgTap.includes(marker)) {
     fail(`pgTAP coverage missing marker: ${marker}`);
