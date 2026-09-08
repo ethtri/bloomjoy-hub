@@ -143,4 +143,3 @@ revoke all on function public.service_reserve_nayax_refund_manager_action_v5(
 grant execute on function public.service_reserve_nayax_refund_manager_action_v5(
   text,uuid,uuid,bigint,text,integer,integer,integer,text,text,text,text,text,text
 ) to service_role;
-
