@@ -25,6 +25,10 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../..');
+const productionRefundContractFixture = JSON.parse(fs.readFileSync(
+  path.join(__dirname, 'fixtures/nayax-production-refund-contract.json'),
+  'utf8',
+));
 let assertionCount = 0;
 
 const check = (condition, message) => {
@@ -1178,6 +1182,130 @@ const orchestrationRequest = {
   amountCents: frozenEvidence.amountCents,
   currencyCode: 'USD',
 };
+
+const provenProductionContract = parseNayaxRefundProviderContract(
+  productionRefundContractFixture,
+);
+const provenProductionEvidence = {
+  caseId: '98000000-0000-4000-8000-000000000001',
+  amountCents: 1263,
+  currencyCode: 'USD',
+  transactionId: '900000001',
+  siteId: 900001,
+  machineAuthorizationTime: '2026-09-08T12:34:56.63',
+  refundEmailListMode: 'empty_string',
+};
+const provenProductionRequest = {
+  caseId: provenProductionEvidence.caseId,
+  idempotencyKey: `nayax-refund-${'9'.repeat(64)}`,
+  amountCents: provenProductionEvidence.amountCents,
+  currencyCode: 'USD',
+};
+const provenProviderPayload = {
+  Result: 'Refund status updated successfully, but the email could not be sent',
+  Status: 'Partial success',
+};
+const provenProductionCalls = [];
+const provenProductionStages = [];
+let provenRequestJournalAuthorized = false;
+const provenProductionAdapter = createNayaxRefundProviderAdapter({
+  contract: productionRefundContractFixture,
+  requestToken: 'synthetic-production-request-token',
+  approveToken: 'synthetic-production-approve-token',
+  evidence: provenProductionEvidence,
+  fetchImpl: async (url, options) => {
+    provenProductionCalls.push({
+      url,
+      authorization: options.headers.Authorization,
+      body: JSON.parse(options.body),
+    });
+    return response(provenProviderPayload);
+  },
+  onStageEvent: async (stageEvent) => {
+    provenProductionStages.push(stageEvent);
+    if (stageEvent.stage === 'request' && stageEvent.event === 'result') {
+      provenRequestJournalAuthorized =
+        stageEvent.result.outcome === 'accepted' &&
+        stageEvent.result.contractMatched === true;
+      return {
+        approvalAuthorized: provenRequestJournalAuthorized,
+        journalContractVersion: 'nayax-provider-journal-v3',
+        payloadRedacted: true,
+      };
+    }
+    return undefined;
+  },
+});
+const provenProductionOutcome = await provenProductionAdapter.execute(
+  provenProductionRequest,
+);
+equal(provenProductionContract.baseUrl, NAYAX_REFUND_PRODUCTION_BASE_URL, 'The regression fixture uses the exact production API root.');
+equal(provenProductionOutcome.kind, 'success', 'The proven production response pair completes the real adapter flow.');
+check(provenRequestJournalAuthorized, 'Only the journal-authorized exact accepted request reaches approval.');
+equal(provenProductionCalls.length, 2, 'The proven flow makes exactly one request and one approval call.');
+equal(provenProductionStages[1].result.outcome, 'accepted', 'The request pair is classified as the proven accepted outcome.');
+equal(provenProductionStages[3].result.outcome, 'succeeded', 'The approval pair is classified as the proven succeeded outcome.');
+check(provenProductionCalls[0].url.endsWith('/payment/refund-request'), 'The first call uses the refund request endpoint.');
+check(provenProductionCalls[1].url.endsWith('/payment/refund-approve'), 'The second call uses the refund approval endpoint.');
+equal(provenProductionCalls[0].authorization, 'Bearer synthetic-production-request-token', 'The request uses only its separate stage credential.');
+equal(provenProductionCalls[1].authorization, 'Bearer synthetic-production-approve-token', 'The approval uses only its separate stage credential.');
+equal(provenProductionCalls[0].body.RefundAmount, 12.63, 'The request sends the full exact-cent amount in major units.');
+equal(provenProductionCalls[0].body.RefundEmailList, '', 'The request sends the proven explicit empty email list.');
+equal(provenProductionCalls[0].body.MachineAuTime, provenProductionEvidence.machineAuthorizationTime, 'The request preserves the exact raw MachineAuTime.');
+equal(provenProductionCalls[1].body.MachineAuTime, provenProductionCalls[0].body.MachineAuTime, 'The approval reuses the exact accepted request MachineAuTime.');
+deepEqual(
+  provenProductionStages.map(({ stage, event }) => `${stage}_${event}`),
+  ['request_started', 'request_result', 'approve_started', 'approve_result'],
+  'The journal sees one complete request and approval sequence.',
+);
+
+for (const unsafeRequestResponse of [
+  {
+    label: 'malformed JSON',
+    build: () => rawResponse('{not-json'),
+    expectedErrorCode: 'provider_request_response_invalid',
+  },
+  {
+    label: 'near-match response',
+    build: () => response({ ...provenProviderPayload, Status: 'Partial Success' }),
+    expectedErrorCode: 'provider_request_semantic_mismatch',
+  },
+  {
+    label: 'HTTP error with an exact body',
+    build: () => response(provenProviderPayload, 500),
+    expectedErrorCode: 'provider_request_http_error_unknown',
+  },
+  {
+    label: 'unconfigured duplicate response',
+    build: () => response({ Result: 'False', Status: 'Duplicate' }),
+    expectedErrorCode: 'provider_request_semantic_mismatch',
+  },
+]) {
+  let transportCalls = 0;
+  let approveStarted = false;
+  const unsafeAdapter = createNayaxRefundProviderAdapter({
+    contract: productionRefundContractFixture,
+    requestToken: 'synthetic-production-request-token',
+    approveToken: 'synthetic-production-approve-token',
+    evidence: provenProductionEvidence,
+    fetchImpl: async () => {
+      transportCalls += 1;
+      return unsafeRequestResponse.build();
+    },
+    onStageEvent: async (stageEvent) => {
+      if (stageEvent.stage === 'approve' && stageEvent.event === 'started') {
+        approveStarted = true;
+      }
+      return simulatedDatabaseStageDecision(stageEvent);
+    },
+  });
+  const unsafeOutcome = await unsafeAdapter.execute(provenProductionRequest);
+  check(unsafeOutcome.kind !== 'success', `${unsafeRequestResponse.label} cannot complete the refund.`);
+  equal(unsafeOutcome.errorCode, unsafeRequestResponse.expectedErrorCode, `${unsafeRequestResponse.label} remains a specific reconcilable outcome.`);
+  equal(transportCalls, 1, `${unsafeRequestResponse.label} cannot authorize or retry an approval call.`);
+  check(!approveStarted, `${unsafeRequestResponse.label} never starts the approval journal stage.`);
+}
+
 const adapterCalls = [];
 const adapter = createNayaxRefundProviderAdapter({
   contract: baseContract,
