@@ -2,20 +2,21 @@
 
 Purpose: provide a single launch-day procedure for Bloomjoy Hub production release and rollback.
 
-Last updated: 2026-08-30
+Last updated: 2026-09-08
 
 ## Nayax card-refund operation (current authority)
 
 Bloomjoy is in production. Follow `Docs/REFUND_PRODUCTION_POLICY.md`; do not reintroduce pilot caps, canaries, account-wide holds, or first-proof ceremony.
 
-Agents start with `Docs/REFUND_AGENT_OPERATIONS.md` and current #628/#990 bodies.
-The September 3 release is deployed and API execution enabled. Ordinary exact
-refund approval covers unchanged request, approval, inspection and supported
-fallback; it survives handoff without another testing approval. The first scheduled
-report arrived September 3, but its refund row lacks terminal status. Report
-delivery is not a first-attempt dependency; use exact portal confirmation where
-needed. Historical sections below preserve earlier rollout evidence, not current
-activation gates.
+Agents start with `Docs/REFUND_AGENT_OPERATIONS.md`,
+`Docs/NAYAX_REFUND_WORKING_CONTRACT.md`, and current #628/#990 bodies. The
+September 8 production flow proved the existing separate request and approval
+credentials, explicit empty `RefundEmailList`, exact-source `MachineAuTime`, and
+the learned stage-specific success pair. Ordinary exact refund approval covers
+unchanged request, approval, inspection and supported fallback; it survives
+handoff without another testing approval. Report delivery is not a first-attempt
+dependency; use exact portal confirmation where needed. Historical sections
+below preserve earlier rollout evidence, not current activation gates.
 
 ### Normal refund
 
@@ -44,7 +45,7 @@ This section records the earlier held-case migration. It is not current authorit
 
 Rollback before a manager action: redeploy the prior frontend/functions and apply a new forward-only migration that restores the official-action and resolver gates to false. Rollback after a committed result must never reverse the reporting adjustment, reopen the attempt, resend the customer message, or call Nayax; preserve the immutable outcome and roll back UI/function availability only.
 
-Refund release-state note: the canonical ten-function/51-migration object remains immutable pre-`#427` evidence. Nayax support confirmed the held transaction refunded, so the reviewed closeout adds a paired provider-free resolution-window/closure sequence. No request or approval is permitted. Gmail automation, automatic customer contact, manager reminders, GPT triage, broad official actions, and live Nayax execution stay off; only the existing structured resolver and its one original-thread completion may run inside the exact window.
+Historical held-case release-state note: the canonical ten-function/51-migration object remains immutable pre-`#427` evidence. For that held transaction only, Nayax support confirmed a refund and the reviewed closeout used a provider-free resolution-window/closure sequence; no further request or approval was permitted. Those exact-window and hard-off statements describe the completed held-case recovery, not current API permissions or the normal refund lane.
 
 ## 1) Roles and ownership
 - Release owner: owns the operating limits and may engage the kill switch; no repeated per-case go/no-go is required after the current policy is recorded.

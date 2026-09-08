@@ -1,6 +1,6 @@
 # Refund Operations v1 Production Cutover Packet
 
-> **Historical cutover record.** The 2026-08-27 operating decision in `Docs/DECISIONS.md` supersedes this packet anywhere it requires a controlled non-customer canary, staffed pilot, cohort, recruited UAT, first-ten review, or repeated approval ceremony. Current activation uses an eligible unresolved customer refund of $10 or less and follows `Docs/PRODUCTION_RUNBOOK.md` plus issues `#628`, `#990`, and `#427`.
+> **Historical cutover record.** Later decisions supersede this packet anywhere it requires a controlled non-customer canary, dollar cap, staffed pilot, cohort, recruited UAT, first-ten review, repeated approval ceremony, or new observation window. Current operations follow `Docs/PRODUCTION_RUNBOOK.md` and `Docs/NAYAX_REFUND_WORKING_CONTRACT.md`. The fixed `#427` window runs from `2026-09-07T23:29:24.541985Z` through `2026-09-10T23:29:24.541985Z` and is never reset.
 
 Last updated: 2026-08-24
 

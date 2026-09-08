@@ -162,7 +162,11 @@ Notes:
 - Never prefix Sunze, Google, service-role, or scheduler secrets with `VITE_`.
 
 ## Nayax Lynx API notes
-For Nayax work, read the Refund Operations snapshot in `Docs/CURRENT_STATUS.md` and the newest entries in `Docs/DECISIONS.md` first. Use `Docs/NAYAX_LYNX_API.md` for endpoint and historical technical evidence; its **Current Release Status** section governs over older incident narratives in that file.
+For Nayax refund work, start with `Docs/NAYAX_REFUND_WORKING_CONTRACT.md`, then
+read the Refund Operations snapshot in `Docs/CURRENT_STATUS.md` and the newest
+entries in `Docs/DECISIONS.md`. Use `Docs/NAYAX_LYNX_API.md` for endpoint and
+historical technical evidence; dated incident narratives do not override the
+working permissions, payload, response, or duplicate-prevention baseline.
 
 Current server-only secret:
 - Supabase production project `ygbzkgxktzqsiygjlqyg`: `NAYAX_LYNX_API_TOKEN`
@@ -273,14 +277,22 @@ Use this path for agent-run QA of `/refunds/request`, `/refunds`, and Admin > Ma
 
 Executive proof review happens only after agent QA has a pass/fail evidence packet. The executive sponsor should not be the first person to discover broken saves, missing test data, or access-boundary defects.
 
-For manager-wide shadow-pilot go/no-go tracking, use `Docs/REFUND_OPERATIONS_SHADOW_PILOT.md`.
+`Docs/REFUND_OPERATIONS_SHADOW_PILOT.md` is historical evidence only. Current
+refund operation and verification follow `Docs/PRODUCTION_RUNBOOK.md` and the
+working Nayax contract; do not create a new shadow-pilot go/no-go gate.
 
 Prereqs:
 - Local Supabase is running and the refund operations migration has been applied.
 - `.env` or `.env.local` contains local-only `SUPABASE_URL` or `VITE_SUPABASE_URL`, plus server-only `SUPABASE_SERVICE_ROLE_KEY`.
 - The Supabase URL should be `localhost`, `127.0.0.1`, or `::1`. The helper refuses non-local Supabase URLs by default.
 - For card lookup UAT, set server-only `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB` or the fallback `NAYAX_LYNX_API_TOKEN`, and keep `NAYAX_LYNX_BASE_URL=https://lynx.nayax.com/operational/v1`. Do not use `VITE_` for Nayax secrets.
-- The candidate's production `nayax-card-refund` handler is statically disabled before attempt reservation or provider access. The historical disabled/dry-run/kill-switch values are defense in depth, not an activation mechanism. Use `npm run refunds:validate-nayax-execution` to verify that boundary; do not attempt live provider execution from this candidate. Issue `#430` must add and review the real adapter and gate-on path separately.
+- The older `#430` candidate's statically disabled handler is historical test
+  context. Current production execution is proved with the real adapter and the
+  existing separate stage credentials. Local verification remains synthetic:
+  use `npm run refunds:validate-nayax-provider` and
+  `npm run refunds:validate-nayax-execution`. Keep these synthetic suites on
+  mocked transport; use the production-verification lane below for authorized
+  real operations.
 - Server-side Nayax machine mapping must exist before the lookup button can return card candidates. Machine Managers use `/refunds` for case processing and do not see setup controls.
 - For mocked GPT triage validation, no live OpenAI API call is required. Run `npm run refunds:validate-gpt-triage` and `npm run db:validate-migrations`.
 - For local server-runner preflight, keep `OPENAI_API_KEY` only in the worktree's gitignored `.env.local`; also set local-only `OPENAI_REFUND_TRIAGE_SAFETY_SALT`, `REFUND_GPT_TRIAGE_SYNC_SECRET`, and `REFUND_GPT_TRIAGE_ENABLED=false`, then run `npm run refunds:preflight-gpt-triage -- --env-file .env.local`. Never use a `VITE_` name.
@@ -293,7 +305,7 @@ Steps:
 2) Seed synthetic fixtures and generate a one-click local magic link:
    - `node scripts/refunds/local-refund-uat.mjs --email refund-agent-uat@bloomjoy.localhost`
    - Add `--open` to open the generated link automatically.
-3) Open the printed magic link. It should land on `/refunds` as a local super-admin/Machine Manager fixture. Admin access alone never authorizes payment, but a current exact-machine mapping remains valid even when the same person also has admin access. Use the dedicated mapped-manager/TOTP suites and owner-approved UAT for official actions. `/portal/refunds` and `/admin/refunds` are compatibility paths.
+3) Open the printed magic link. It should land on `/refunds` as a local super-admin/Machine Manager fixture. Admin access alone never authorizes payment, but a current exact-machine mapping remains valid even when the same person also has admin access. Use the current mapped-manager and official-action synthetic suites; the retired refund-specific TOTP ceremony is not a current requirement. `/portal/refunds` and `/admin/refunds` are compatibility paths.
 4) Review the synthetic queue cases:
    - `RF-UAT-CARD`: matched card review path with transaction evidence; it is not live-refund completion evidence.
    - `RF-UAT-WAIT`: waiting-on-customer path with confirmation and more-info message history.
@@ -336,7 +348,7 @@ Steps:
 Three validation modes:
 - `DEMO DATA - visual review only`: append `?demo=on` on localhost/127.0.0.1 for synthetic, browser-only visual review. Demo mode must not be used as evidence that saves, Nayax lookup, access scope, or reporting write-through work.
 - Seeded functional UAT: use the local Supabase helper above. This is the path for save/write-through and real state-transition testing.
-- Production verification: use the current mapped-manager scope and deployed behavior under `Docs/REFUND_AGENT_OPERATIONS.md` and #628/#990. Ordinary approval for the exact purchase and amount carries through unchanged request, approval, inspection, supported fallback and handoffs. Preserve normal enabled execution; synthetic validation is separate from real approved operations and cannot prove a customer received a refund.
+- Production verification: use the current mapped-manager scope and deployed behavior under `Docs/REFUND_AGENT_OPERATIONS.md`, `Docs/NAYAX_REFUND_WORKING_CONTRACT.md`, and #628/#990. Ordinary approval for the exact purchase and amount carries through unchanged request, approval, inspection, supported fallback and handoffs. Preserve normal enabled execution; synthetic validation is separate from real approved operations and cannot prove a customer received a refund.
 
 Admin > Machines Machine Manager UAT:
 - For visual review without remote data, open `/admin/machines?demo=on`; use the listed `example.test` demo users only. Demo assignments save in the browser and do not write to Supabase.

@@ -20,6 +20,15 @@ permissions. New concrete scope evidence can reopen that question; ambiguous
 error wording cannot. No new approval gates, account-wide restrictions or
 permission to send vendor mail is introduced.
 
+Both customers were notified after the payment results were established. Great
+Mall used one normal request and one approval, one reporting adjustment, and an
+email-only retry after its first completion email failed. Valley's supported
+receipt preserves an unknown settlement time and separate accounting follow-up.
+Neither payment may be repeated. This proves the payment chain; it does not prove
+automatic terminal report confirmation or universal first-pass email delivery.
+The `#427` observation window is fixed from `2026-09-07T23:29:24.541985Z` through
+`2026-09-10T23:29:24.541985Z` and is not reset by ordinary incidents or repairs.
+
 ## 2026-09-07 - Timekeeping uses per-machine shift units, transparent commission, and automatic contractor pay stubs
 
 Bloomjoy will replace the Google Form, manual Google Sheets compilation, and manually exported PDF workflow with lightweight Timekeeping, a manager pay report, and contractor Pay Stub self-service. The detailed MVP requirements are in [TIMEKEEPING_PAY_STUB_REQUIREMENTS.md](TIMEKEEPING_PAY_STUB_REQUIREMENTS.md). This decision supersedes the per-entry manager-approval workflow in `#587` and the earlier default lock/review behavior in the 2026-05-20 Operator Pay decision.
@@ -303,7 +312,12 @@ This supersedes the 2026-07-21 choice of GitHub Actions as the primary refund-au
 - Separating pending intent from effective authority prevents an unverified or mistyped email from receiving admin access.
 - Reusing the established email-code activation path preserves scanner resistance, password completion, delivery evidence, and a consistent recipient experience.
 
-## 2026-08-28 - Reconciled refund work waits on confirmed Nayax routes, not speculative writes (`#990`)
+## 2026-08-28 - Historical vendor-wait decision (superseded September 8) (`#990`)
+
+The September 8 decision above supersedes this section as current permissions,
+payload, response-contract, proof, and `#427` timing guidance. The bullets below
+preserve the August 28 operating state and do not require a new vendor response,
+fresh proof refund, role/token change, or restarted observation window.
 
 - Provider-free reconciliation of both later `$8` attempts is complete. Neither attempt is pending, neither may be replayed or approved, and no provider request or approval is currently in flight.
 - The remaining external dependency is narrow: Nayax must supply the literal, case-sensitive accepted/rejected `Result`/`Status` pairs for request and approval, classify provider log `17117058946`, and identify any exact token-scope or payload-validation defect.
@@ -316,7 +330,12 @@ This supersedes the 2026-07-21 choice of GitHub Actions as the primary refund-au
 - It separates work Bloomjoy can safely complete now from the provider facts only Nayax can supply.
 - It prevents a bounced email address or a closed tracking item from being mistaken for successful escalation or completed production enablement.
 
-## 2026-08-28 - Separate Nayax refund capability from Bloomjoy automatic proof (`#877`, `#961`, `#990`)
+## 2026-08-28 - Historical proof boundary (superseded September 8) (`#877`, `#961`, `#990`)
+
+The September 8 decision above supplies the attributable API proof that this
+section said was missing. Its historical Eastridge attribution limits and the
+separation between payment, automated report confirmation, accounting, and
+email delivery remain valid.
 
 **Evidence corrected September 3, 2026:** the historical Eastridge refund is confirmed, but its attribution to Bloomjoy's API calls is unproved. The original request and both approval logs report provider failures. Those responses do not prove zero side effects, and the later refund does not establish its initiating operation or actor. The owner's September 2 API-first operating decision in `#990` remains unchanged.
 
