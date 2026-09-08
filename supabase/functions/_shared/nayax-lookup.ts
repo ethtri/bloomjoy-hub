@@ -850,7 +850,7 @@ const lookupGroupedLivermoreCandidates = async ({
     refundCase: caseSnapshot,
     message,
     summary: "Setup needed before Nayax can check this grouped card refund.",
-    recommendedAction: "Refund Operations must repair the exact grouped machine/account mapping, then run one safe read-only retry. Do not ask the customer to repeat details Bloomjoy owns.",
+    recommendedAction: "Refund Operations must repair the exact grouped machine/account mapping, then run a fresh read-only transaction check. Do not ask the customer to repeat details Bloomjoy owns.",
     setupIssueCode,
     responsibleOwner: "refund_operations",
     requiredAccountScope,
@@ -1270,21 +1270,21 @@ export const lookupNayaxCandidatesForRefundCase = async ({
   if (!nayaxMachineId) {
     return setupResult(
       "This machine needs a Nayax machine ID before card lookup can run.",
-      "Refund Operations must add the exact Nayax machine mapping, then run one safe read-only retry. Do not ask the customer to repeat the selected machine or location.",
+      "Refund Operations must add the exact Nayax machine mapping, then run a fresh read-only transaction check. Do not ask the customer to repeat the selected machine or location.",
       "machine_mapping_missing",
     );
   }
   if (!accountKey) {
     return setupResult(
       "This machine needs an explicit Nayax account scope before card lookup can run.",
-      "Refund Operations must map the exact Nayax account scope, then run one safe read-only retry. Do not ask the customer to repeat details Bloomjoy owns.",
+      "Refund Operations must map the exact Nayax account scope, then run a fresh read-only transaction check. Do not ask the customer to repeat details Bloomjoy owns.",
       "account_scope_missing",
     );
   }
   if (!nayaxApiToken) {
     return setupResult(
       "This machine's separate Nayax account scope is not connected for read-only lookup.",
-      "Refund Operations must connect the required account scope, then run one safe read-only retry or use the reviewed manual Nayax portal fallback. Do not ask the customer to repeat purchase details.",
+      "Refund Operations must connect the required account scope, then run a fresh read-only transaction check or use the reviewed manual Nayax portal fallback. Do not ask the customer to repeat purchase details.",
       "account_access_unavailable",
     );
   }
