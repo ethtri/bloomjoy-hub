@@ -888,6 +888,11 @@ export type UpsertOperatorCompensationRateInput = {
   notes?: string | null;
 };
 
+export type SupersedeOperatorCompensationRateInput = Omit<
+  UpsertOperatorCompensationRateInput,
+  'rateId' | 'status'
+>;
+
 export type OperatorRecurringCompensationItemType =
   | 'bonus'
   | 'supply_credit'
@@ -1412,6 +1417,56 @@ export const upsertOperatorCompensationRateAdmin = async ({
   }
 
   return data as OperatorCompensationRate;
+};
+
+export const supersedeOperatorCompensationRateAdmin = async ({
+  accountId,
+  operatorProfileId,
+  machineId = null,
+  rateType,
+  rateValue,
+  effectiveStartDate,
+  effectiveEndDate = null,
+  notes = null,
+}: SupersedeOperatorCompensationRateInput): Promise<OperatorCompensationRate> => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_supersede_operator_compensation_rate',
+    {
+      p_account_id: accountId,
+      p_operator_profile_id: operatorProfileId,
+      p_reporting_machine_id: machineId,
+      p_rate_type: rateType,
+      p_rate_value: rateValue,
+      p_effective_start_date: effectiveStartDate,
+      p_effective_end_date: effectiveEndDate,
+      p_notes: notes,
+    }
+  );
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to save Technician compensation rate change.');
+  }
+
+  return data as OperatorCompensationRate;
+};
+
+export const refreshTechnicianPayReportSalesAdmin = async (
+  month: string,
+  accountId: string | null = null
+): Promise<{ periodCount: number; snapshotCount: number }> => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_refresh_technician_pay_report_sales',
+    {
+      p_month: month,
+      p_account_id: accountId,
+    }
+  );
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to refresh Commissionable Sales.');
+  }
+
+  return data as { periodCount: number; snapshotCount: number };
 };
 
 export const upsertOperatorRecurringItemAdmin = async ({

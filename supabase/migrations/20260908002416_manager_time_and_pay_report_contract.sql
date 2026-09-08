@@ -103,6 +103,295 @@ for select
 to authenticated
 using (public.can_access_payout_run_item_current_user(payout_run_item_id));
 
+create or replace function public.get_my_admin_access_context()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  actor_user_id uuid;
+  actor_is_super_admin boolean;
+  actor_machine_ids uuid[];
+  actor_is_scoped_admin boolean;
+  actor_is_refund_manager boolean;
+  actor_can_manage_payouts boolean;
+  allowed_surfaces text[];
+begin
+  actor_user_id := auth.uid();
+
+  if actor_user_id is null then
+    return jsonb_build_object(
+      'isSuperAdmin', false,
+      'isScopedAdmin', false,
+      'canAccessAdmin', false,
+      'allowedSurfaces', '[]'::jsonb,
+      'scopedMachineIds', '[]'::jsonb
+    );
+  end if;
+
+  actor_is_super_admin := public.is_super_admin(actor_user_id);
+  actor_machine_ids := coalesce(public.scoped_admin_machine_ids(actor_user_id), '{}'::uuid[]);
+  actor_is_scoped_admin := public.is_scoped_admin(actor_user_id);
+  actor_is_refund_manager := public.user_is_refund_manager(actor_user_id);
+  actor_can_manage_payouts := exists (
+    select 1
+    from public.customer_accounts account
+    where public.can_manage_operator_payout_account(actor_user_id, account.id)
+  );
+
+  if actor_is_super_admin then
+    allowed_surfaces := array['*'];
+  else
+    allowed_surfaces := '{}'::text[];
+
+    if actor_is_scoped_admin then
+      allowed_surfaces := allowed_surfaces || array[
+        'overview',
+        'orders',
+        'support',
+        'accounts',
+        'machines',
+        'access',
+        'audit',
+        'reporting_access',
+        'refunds',
+        'partnerships'
+      ];
+    end if;
+
+    if actor_is_refund_manager then
+      allowed_surfaces := allowed_surfaces || array['refunds'];
+    end if;
+
+    if actor_can_manage_payouts then
+      allowed_surfaces := allowed_surfaces || array['payouts'];
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'isSuperAdmin', actor_is_super_admin,
+    'isScopedAdmin', actor_is_scoped_admin,
+    'canAccessAdmin',
+      actor_is_super_admin
+      or actor_is_scoped_admin
+      or actor_is_refund_manager
+      or actor_can_manage_payouts,
+    'allowedSurfaces', to_jsonb(array(
+      select distinct surface
+      from unnest(allowed_surfaces) as surface
+    )),
+    'scopedMachineIds', to_jsonb(actor_machine_ids)
+  );
+end;
+$$;
+
+create or replace function public.get_my_time_report_access()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select auth.uid() is not null
+    and exists (
+      select 1
+      from public.reporting_machines machine
+      where public.can_manage_operator_payout_machine(auth.uid(), machine.id)
+    );
+$$;
+
+-- A rate change is one manager action. The database closes the prior effective
+-- rate on the preceding day and creates the replacement atomically, preserving
+-- both effective-dated history and the existing audit trail.
+create or replace function public.admin_supersede_operator_compensation_rate(
+  p_account_id uuid,
+  p_operator_profile_id uuid,
+  p_reporting_machine_id uuid,
+  p_rate_type text,
+  p_rate_value integer,
+  p_effective_start_date date,
+  p_effective_end_date date default null,
+  p_notes text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  actor_user_id uuid;
+  normalized_type text;
+  prior_rule public.compensation_rules;
+  prior_rate_value integer;
+  lock_key text;
+begin
+  actor_user_id := auth.uid();
+  normalized_type := lower(trim(coalesce(p_rate_type, '')));
+
+  if actor_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+
+  if not coalesce(
+    public.can_manage_operator_payout_account(actor_user_id, p_account_id),
+    false
+  ) then
+    raise exception 'Technician compensation access required';
+  end if;
+
+  if normalized_type not in ('shift', 'commission') then
+    raise exception 'Rate type must be shift or commission';
+  end if;
+
+  lock_key := concat_ws(
+    ':',
+    p_operator_profile_id::text,
+    coalesce(p_reporting_machine_id::text, 'default'),
+    normalized_type
+  );
+  perform pg_advisory_xact_lock(hashtextextended(lock_key, 0));
+
+  select rule.*
+  into prior_rule
+  from public.compensation_rules rule
+  where rule.account_id = p_account_id
+    and rule.operator_profile_id = p_operator_profile_id
+    and rule.reporting_machine_id is not distinct from p_reporting_machine_id
+    and rule.status = 'active'
+    and p_effective_start_date between rule.effective_start_date
+      and coalesce(rule.effective_end_date, 'infinity'::date)
+    and (
+      (normalized_type = 'shift' and rule.shift_rate_cents is not null)
+      or (normalized_type = 'commission' and rule.commission_basis_points is not null)
+    )
+  order by rule.effective_start_date desc, rule.created_at desc, rule.id
+  limit 1
+  for update;
+
+  if prior_rule.id is not null and prior_rule.effective_start_date = p_effective_start_date then
+    return public.admin_upsert_operator_compensation_rate(
+      prior_rule.id,
+      p_account_id,
+      p_operator_profile_id,
+      p_reporting_machine_id,
+      normalized_type,
+      p_rate_value,
+      p_effective_start_date,
+      p_effective_end_date,
+      'active',
+      p_notes
+    );
+  end if;
+
+  if prior_rule.id is not null then
+    prior_rate_value := case
+      when normalized_type = 'shift' then prior_rule.shift_rate_cents
+      else prior_rule.commission_basis_points
+    end;
+
+    perform public.admin_upsert_operator_compensation_rate(
+      prior_rule.id,
+      p_account_id,
+      p_operator_profile_id,
+      p_reporting_machine_id,
+      normalized_type,
+      prior_rate_value,
+      prior_rule.effective_start_date,
+      p_effective_start_date - 1,
+      'active',
+      prior_rule.notes
+    );
+  end if;
+
+  return public.admin_upsert_operator_compensation_rate(
+    null,
+    p_account_id,
+    p_operator_profile_id,
+    p_reporting_machine_id,
+    normalized_type,
+    p_rate_value,
+    p_effective_start_date,
+    p_effective_end_date,
+    'active',
+    p_notes
+  );
+end;
+$$;
+
+-- Report-specific convenience action: refresh every monthly sales snapshot the
+-- caller may manage, including historically valid assignments later revoked.
+create or replace function public.admin_refresh_technician_pay_report_sales(
+  p_month date default current_date,
+  p_account_id uuid default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  actor_user_id uuid;
+  period_start date;
+  period_end date;
+  period_row public.payout_periods;
+  machine_id uuid;
+  period_count integer := 0;
+  snapshot_count integer := 0;
+begin
+  actor_user_id := auth.uid();
+  period_start := date_trunc('month', coalesce(p_month, current_date)::timestamp)::date;
+  period_end := (period_start + interval '1 month - 1 day')::date;
+
+  if actor_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+
+  if p_account_id is not null and not coalesce(
+    public.can_manage_operator_payout_account(actor_user_id, p_account_id),
+    false
+  ) then
+    raise exception 'Technician compensation access required';
+  end if;
+
+  for period_row in
+    select period.*
+    from public.payout_periods period
+    where period.period_start_date = period_start
+      and period.period_end_date = period_end
+      and period.status <> 'voided'
+      and (p_account_id is null or period.account_id = p_account_id)
+      and public.can_manage_operator_payout_account(actor_user_id, period.account_id)
+    order by period.account_id, period.id
+  loop
+    period_count := period_count + 1;
+
+    for machine_id in
+      select distinct assignment.reporting_machine_id
+      from public.operator_machine_assignments assignment
+      where assignment.account_id = period_row.account_id
+        and assignment.effective_start_date <= period_row.period_end_date
+        and coalesce(assignment.effective_end_date, 'infinity'::date) >= period_row.period_start_date
+      order by assignment.reporting_machine_id
+    loop
+      perform public.admin_generate_payout_revenue_snapshot(
+        period_row.id,
+        machine_id,
+        true,
+        null
+      );
+      snapshot_count := snapshot_count + 1;
+    end loop;
+  end loop;
+
+  return jsonb_build_object(
+    'periodCount', period_count,
+    'snapshotCount', snapshot_count
+  );
+end;
+$$;
+
 -- Replace the legacy approval-queue projection with canonical completed-time
 -- fields. Access remains machine-scoped: account pay authority is not required
 -- to correct time, and one machine manager never sees another machine.
@@ -302,7 +591,6 @@ as $$
     from public.operator_payout_profiles profile
     where profile.id = p_operator_profile_id
       and profile.account_id = p_account_id
-      and profile.status = 'active'
   ),
   entry_base as materialized (
     select
@@ -362,8 +650,6 @@ as $$
           from public.operator_machine_assignments coverage
           where coverage.operator_profile_id = p_operator_profile_id
             and coverage.reporting_machine_id = assignment.reporting_machine_id
-            and coverage.status = 'active'
-            and coverage.revoked_at is null
             and day_value::date between coverage.effective_start_date
               and coalesce(coverage.effective_end_date, 'infinity'::date)
         )
@@ -373,8 +659,6 @@ as $$
         from public.operator_machine_assignments other_assignment
         where other_assignment.reporting_machine_id = assignment.reporting_machine_id
           and other_assignment.operator_profile_id <> p_operator_profile_id
-          and other_assignment.status = 'active'
-          and other_assignment.revoked_at is null
           and other_assignment.effective_start_date <= p_period_end_date
           and coalesce(other_assignment.effective_end_date, 'infinity'::date) >= p_period_start_date
       ) as shared_compensation_scope
@@ -385,8 +669,6 @@ as $$
     join public.reporting_locations location on location.id = machine.location_id
     where assignment.operator_profile_id = p_operator_profile_id
       and assignment.account_id = p_account_id
-      and assignment.status = 'active'
-      and assignment.revoked_at is null
       and assignment.effective_start_date <= p_period_end_date
       and coalesce(assignment.effective_end_date, 'infinity'::date) >= p_period_start_date
     group by
@@ -517,8 +799,6 @@ as $$
       from public.operator_machine_assignments assignment
       where assignment.operator_profile_id = p_operator_profile_id
         and assignment.reporting_machine_id = entry.reporting_machine_id
-        and assignment.status = 'active'
-        and assignment.revoked_at is null
         and entry.work_date between assignment.effective_start_date
           and coalesce(assignment.effective_end_date, 'infinity'::date)
     )
@@ -804,7 +1084,33 @@ begin
     from authorized_accounts account
     join public.operator_payout_profiles profile
       on profile.account_id = account.id
-      and profile.status = 'active'
+      and (
+        profile.status = 'active'
+        or exists (
+          select 1
+          from public.time_entries historical_entry
+          where historical_entry.operator_profile_id = profile.id
+            and historical_entry.account_id = account.id
+            and historical_entry.work_date between period_start and period_end
+            and historical_entry.status <> 'voided'
+        )
+        or exists (
+          select 1
+          from public.operator_machine_assignments historical_assignment
+          where historical_assignment.operator_profile_id = profile.id
+            and historical_assignment.account_id = account.id
+            and historical_assignment.effective_start_date <= period_end
+            and coalesce(historical_assignment.effective_end_date, 'infinity'::date) >= period_start
+        )
+        or exists (
+          select 1
+          from public.operator_recurring_compensation_items historical_item
+          where historical_item.operator_profile_id = profile.id
+            and historical_item.account_id = account.id
+            and historical_item.effective_start_date <= period_end
+            and coalesce(historical_item.effective_end_date, 'infinity'::date) >= period_start
+        )
+      )
   )
   select jsonb_build_object(
     'month', period_start,
@@ -849,10 +1155,31 @@ comment on function public.can_access_payout_run_item(uuid, uuid) is
   'Account-pay-authorized payout-item access. Machine-only Time Report authority does not expose pay details.';
 comment on function public.can_access_pay_statement(uuid, uuid) is
   'Account-pay-authorized or own-published Pay Stub access. Machine-only Time Report authority does not expose pay details.';
+comment on function public.get_my_time_report_access() is
+  'Safe machine-scoped portal capability probe. It exposes no machine or pay data.';
+comment on function public.admin_supersede_operator_compensation_rate(uuid, uuid, uuid, text, integer, date, date, text) is
+  'Atomically closes the prior effective rate and creates its audited replacement without an approval workflow.';
+comment on function public.admin_refresh_technician_pay_report_sales(date, uuid) is
+  'Refreshes authoritative monthly Commissionable Sales snapshots for account-authorized Technician Pay Reports.';
 
 revoke execute on function public.get_my_time_review_context(date)
   from public, anon, authenticated;
 grant execute on function public.get_my_time_review_context(date)
+  to authenticated;
+
+revoke execute on function public.get_my_time_report_access()
+  from public, anon, authenticated;
+grant execute on function public.get_my_time_report_access()
+  to authenticated;
+
+revoke execute on function public.admin_supersede_operator_compensation_rate(uuid, uuid, uuid, text, integer, date, date, text)
+  from public, anon, authenticated;
+grant execute on function public.admin_supersede_operator_compensation_rate(uuid, uuid, uuid, text, integer, date, date, text)
+  to authenticated;
+
+revoke execute on function public.admin_refresh_technician_pay_report_sales(date, uuid)
+  from public, anon, authenticated;
+grant execute on function public.admin_refresh_technician_pay_report_sales(date, uuid)
   to authenticated;
 
 revoke execute on function public.get_technician_pay_report_context(date)

@@ -147,7 +147,7 @@ const payContext = {
       { id: 'credit-1', type: 'supply_credit', description: 'Monthly supply credit', amountCents: 1000, effectiveStartDate: '2026-09-01', effectiveEndDate: null },
       { id: 'expense-1', type: 'expense_reimbursement', description: 'Parking', amountCents: 500, effectiveStartDate: '2026-09-03', effectiveEndDate: null },
     ],
-    blockers: [{ code: 'missing_future_sales', severity: 'blocker', message: 'September sales snapshot needs a refresh.' }],
+    blockers: [{ code: 'missing_revenue_snapshot', severity: 'blocker', message: 'September sales snapshot needs a refresh.', machineId: MACHINE_A }],
     warnings: [{ code: 'rate_changed', severity: 'warning', message: 'The shift rate changed during this month.' }],
     calculationMeta: { schemaVersion: 'technician-pay-report-v1', commissionBasisSource: 'revenue_snapshot', refundAppliedOnce: true, approvalRequired: false, paymentExecution: false, taxCalculation: false },
   }],
@@ -174,11 +174,15 @@ const installRoutes = async (context) => {
     if (rpcName === 'get_my_portal_access_context') return route.fulfill(json({ access_tier: 'plus', is_plus_member: true, is_training_operator: false, is_admin: true, is_corporate_partner: false, capabilities: ['timekeeping.review'], effective_presets: ['super_admin'] }));
     if (rpcName === 'get_my_reporting_access_context') return route.fulfill(json({ has_reporting_access: true, can_manage_reporting: true }));
     if (rpcName === 'get_my_time_review_context') return route.fulfill(json(timeContext()));
+    if (rpcName === 'get_my_time_report_access') return route.fulfill(json(true));
     if (rpcName === 'manager_correct_operator_time_entry') {
       state.timeEntries = state.timeEntries.map((candidate) => candidate.id === body.p_time_entry_id ? { ...candidate, actualEndAt: body.p_actual_end_at, endTime: '09:00', actualDurationMinutes: 60, rawDurationMinutes: 60, paidShifts: 1, roundedPaidMinutes: 60 } : candidate);
       return route.fulfill(json({ context: timeContext() }));
     }
     if (rpcName === 'get_technician_pay_report_context') return route.fulfill(json(payContext));
+    if (rpcName === 'admin_supersede_operator_compensation_rate') return route.fulfill(json({ id: 'saved-rate' }));
+    if (rpcName === 'admin_upsert_operator_recurring_item') return route.fulfill(json({ id: 'saved-item' }));
+    if (rpcName === 'admin_refresh_technician_pay_report_sales') return route.fulfill(json({ periodCount: 1, snapshotCount: 1 }));
     if (rpcName === 'resolve_my_technician_entitlements') return route.fulfill(json({ technicianEmail: user.email }));
     return route.fulfill(json({}));
   });
@@ -244,10 +248,38 @@ const run = async () => {
     await page.getByText('Contractor 1042', { exact: true }).waitFor();
     const bodyText = await page.locator('body').innerText();
     check('Pay Report separates mid-month rate bands', bodyText.includes('2 shifts × $20.00') && bodyText.includes('1 shift × $25.00'));
-    check('Pay Report shows time, shifts, and transparent commission by machine', bodyText.includes('2 hr 1 min actual · 3 paid shifts') && bodyText.includes('$1,000.00 commissionable sales × 10%') && bodyText.includes('$100.00'));
+    check('Pay Report shows time, shifts, and transparent commission inputs by machine', bodyText.includes('2 hr 1 min actual · 3 paid shifts') && bodyText.includes('$1,000.00 commissionable sales × 10%'));
+    check('Pay Report does not present unresolved commission or totals as trustworthy amounts', bodyText.includes('Commission\nUnavailable') && bodyText.includes('Current total\nUnavailable'));
     check('Pay Report shows all explicit other earning categories', ['Bonus', 'Supply Credit', 'Expense Reimbursement'].every((label) => bodyText.includes(label)));
     check('Pay Report distinguishes blockers and warnings', bodyText.includes('Blocks publishing:') && bodyText.includes('Check:'));
     check('Pay Report contains no approval or payment actions', !/mark reviewed|finalize|reopen|void|issue statements|run payroll/i.test(bodyText));
+
+    await page.getByRole('button', { name: 'Refresh sales' }).click();
+    await page.getByText('Commissionable Sales refreshed for 1 machine.').waitFor();
+    const refreshedSales = state.rpcCalls.find((call) => call.rpcName === 'admin_refresh_technician_pay_report_sales');
+    check('Manager can refresh authoritative Commissionable Sales from the report', refreshedSales?.body.p_month === '2026-09-01' && refreshedSales?.body.p_account_id === null);
+
+    await page.getByRole('button', { name: 'Add rate change' }).click();
+    await page.locator('#pay-input-value').fill('22.50');
+    await page.getByRole('button', { name: 'Save pay input' }).click();
+    await page.getByRole('dialog').waitFor({ state: 'hidden' });
+    const savedShiftRate = state.rpcCalls.find((call) => call.rpcName === 'admin_supersede_operator_compensation_rate' && call.body.p_rate_type === 'shift');
+    check('Manager can add an effective-dated shift rate without an approval or reason', savedShiftRate?.body.p_rate_value === 2250 && savedShiftRate?.body.p_effective_start_date === '2026-09-01' && !('p_reason' in savedShiftRate.body));
+
+    await page.getByRole('button', { name: 'Add commission rate' }).click();
+    await page.locator('#pay-input-value').fill('12');
+    await page.getByRole('button', { name: 'Save pay input' }).click();
+    await page.getByRole('dialog').waitFor({ state: 'hidden' });
+    const savedDefaultCommission = state.rpcCalls.find((call) => call.rpcName === 'admin_supersede_operator_compensation_rate' && call.body.p_rate_type === 'commission');
+    check('Commission setup defaults to the Technician rate rather than a machine override', savedDefaultCommission?.body.p_rate_value === 1200 && savedDefaultCommission?.body.p_reporting_machine_id === null);
+
+    await page.getByRole('button', { name: 'Add other earning' }).click();
+    await page.locator('#pay-input-value').fill('30');
+    await page.locator('#pay-input-description').fill('Route coverage bonus');
+    await page.getByRole('button', { name: 'Save pay input' }).click();
+    await page.getByRole('dialog').waitFor({ state: 'hidden' });
+    const savedOtherEarning = state.rpcCalls.find((call) => call.rpcName === 'admin_upsert_operator_recurring_item' && call.body.p_description === 'Route coverage bonus');
+    check('Manager can add a one-time other earning without an approval or reason', savedOtherEarning?.body.p_amount_cents === 3000 && savedOtherEarning?.body.p_item_type === 'bonus' && savedOtherEarning?.body.p_effective_end_date === '2026-09-30' && !('p_reason' in savedOtherEarning.body));
     await page.screenshot({ path: path.join(artifactDir, 'pay-report-desktop.png'), fullPage: true });
 
     await page.setViewportSize({ width: 390, height: 844 });

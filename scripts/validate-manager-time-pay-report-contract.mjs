@@ -17,6 +17,8 @@ const files = {
   ),
   pgTap: path.join(repoRoot, 'supabase', 'tests', 'manager_time_pay_report_contract.sql'),
   helper: path.join(repoRoot, 'src', 'lib', 'operatorPayouts.ts'),
+  payReportPage: path.join(repoRoot, 'src', 'pages', 'admin', 'Payouts.tsx'),
+  authContext: path.join(repoRoot, 'src', 'contexts', 'AuthContext.tsx'),
   packageJson: path.join(repoRoot, 'package.json'),
 };
 
@@ -49,6 +51,11 @@ for (const snippet of [
   'create or replace function public.can_access_payout_run',
   'create or replace function public.can_access_payout_run_item',
   'create or replace function public.can_access_pay_statement',
+  'create or replace function public.get_my_admin_access_context',
+  'create or replace function public.get_my_time_report_access',
+  'create or replace function public.admin_supersede_operator_compensation_rate',
+  'create or replace function public.admin_refresh_technician_pay_report_sales',
+  "p_effective_start_date - 1",
   'Machine-only Time Report authority does not expose pay details',
   'drop policy if exists "compensation_rules_select_manager"',
   'using (public.can_manage_operator_payout_account_current_user(account_id))',
@@ -105,10 +112,37 @@ for (const snippet of [
   'TechnicianPayReportTechnician',
   'TechnicianPayReportContext',
   'fetchTechnicianPayReportContext',
+  'supersedeOperatorCompensationRateAdmin',
+  'refreshTechnicianPayReportSalesAdmin',
   "'get_technician_pay_report_context'",
 ]) {
   if (!helper.includes(snippet)) {
     fail(`operatorPayouts helper missing ${snippet}`);
+  }
+}
+
+const payReportPage = readText(files.payReportPage);
+for (const snippet of [
+  'Rate missing',
+  'Commission rate missing',
+  "totalUnavailable ? 'Unavailable'",
+  'supersedeOperatorCompensationRateAdmin',
+  'upsertOperatorRecurringItemAdmin',
+  'Refresh sales',
+  'All assigned machines — Technician default',
+  'Add rate change',
+  'Add commission rate',
+  'Add other earning',
+  'No approval or edit reason is required',
+]) {
+  if (!payReportPage.includes(snippet)) {
+    fail(`Technician Pay Report page missing ${snippet}`);
+  }
+}
+
+for (const snippet of ['get_my_time_report_access', "'timekeeping.review'"]) {
+  if (!readText(files.authContext).includes(snippet)) {
+    fail(`Auth context missing ${snippet}`);
   }
 }
 
@@ -124,6 +158,13 @@ for (const marker of [
   'machine-only Time Report authority cannot read the legacy payout surface either',
   'machine-only managers cannot select compensation rates directly',
   'machine-only managers cannot select machine pay rows directly',
+  'a machine-only Time Report manager does not receive the Technician Pay admin surface',
+  'a machine manager receives the safe Time Report portal capability',
+  'an inactive Technician remains available in a historical monthly report',
+  'a later-revoked assignment retains its valid historical calculation window',
+  'a midmonth raise can supersede an existing open-ended shift rate in one action',
+  'the superseded rate ends the prior window on the preceding day',
+  'Commissionable Sales refresh retains historically valid revoked assignments',
   'the existing manager correction RPC still works without a reason',
 ]) {
   if (!pgTap.includes(marker)) {

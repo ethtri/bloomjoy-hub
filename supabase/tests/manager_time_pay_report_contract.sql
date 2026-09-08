@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(35);
+select plan(45);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -257,6 +257,18 @@ select ok(
   'anonymous callers cannot reach the pay report'
 );
 select ok(
+  has_function_privilege('authenticated', 'public.admin_supersede_operator_compensation_rate(uuid,uuid,uuid,text,integer,date,date,text)', 'execute'),
+  'account pay managers can reach the audited rate-change action'
+);
+select ok(
+  not has_function_privilege('anon', 'public.admin_supersede_operator_compensation_rate(uuid,uuid,uuid,text,integer,date,date,text)', 'execute'),
+  'anonymous callers cannot change compensation rates'
+);
+select ok(
+  has_function_privilege('authenticated', 'public.admin_refresh_technician_pay_report_sales(date,uuid)', 'execute'),
+  'account pay managers can reach the Commissionable Sales refresh action'
+);
+select ok(
   not has_function_privilege('authenticated', 'private.calculate_technician_pay_report(uuid,uuid,date,date)', 'execute'),
   'browser callers cannot invoke the private pay calculation directly'
 );
@@ -267,6 +279,11 @@ select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000002
 select ok(
   (public.get_my_time_review_context('2026-07-01')->>'hasAccess')::boolean,
   'a machine manager has Time Report access'
+);
+select ok(public.get_my_time_report_access(), 'a machine manager receives the safe Time Report portal capability');
+select ok(
+  not (public.get_my_admin_access_context()->'allowedSurfaces' ? 'payouts'),
+  'a machine-only Time Report manager does not receive the Technician Pay admin surface'
 );
 select is(
   jsonb_array_length(public.get_my_time_review_context('2026-07-01')->'entries'),
@@ -392,6 +409,76 @@ select is(
   'true',
   'complete inputs produce a publishable calculation'
 );
+select is(
+  pg_temp.capture_error($$
+    select public.admin_supersede_operator_compensation_rate(
+      'a2000000-0000-0000-0000-000000000001',
+      'a6000000-0000-0000-0000-000000000001',
+      null,
+      'shift',
+      3000,
+      '2026-08-01',
+      null,
+      null
+    )
+  $$),
+  null,
+  'a midmonth raise can supersede an existing open-ended shift rate in one action'
+);
+select is(
+  concat(
+    public.operator_compensation_rate_at(
+      'a2000000-0000-0000-0000-000000000001',
+      'a6000000-0000-0000-0000-000000000001',
+      null,
+      '2026-07-31',
+      'shift'
+    ) ->> 'shiftRateCents',
+    ':',
+    public.operator_compensation_rate_at(
+      'a2000000-0000-0000-0000-000000000001',
+      'a6000000-0000-0000-0000-000000000001',
+      null,
+      '2026-08-01',
+      'shift'
+    ) ->> 'shiftRateCents'
+  ),
+  '2500:3000',
+  'the superseded rate ends the prior window on the preceding day'
+);
+update public.operator_payout_profiles
+set status = 'inactive'
+where id = 'a6000000-0000-0000-0000-000000000001';
+update public.operator_machine_assignments
+set status = 'revoked',
+    revoked_at = now()
+where id = 'a6100000-0000-0000-0000-000000000001';
+select is(
+  jsonb_array_length(public.get_technician_pay_report_context('2026-07-01')->'technicians'),
+  1,
+  'an inactive Technician remains available in a historical monthly report'
+);
+select is(
+  public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,publishable}',
+  'true',
+  'a later-revoked assignment retains its valid historical calculation window'
+);
+select is(
+  (
+    select concat(result ->> 'periodCount', ':', result ->> 'snapshotCount')
+    from (
+      select public.admin_refresh_technician_pay_report_sales(
+        '2026-07-01',
+        'a2000000-0000-0000-0000-000000000001'
+      ) as result
+    ) refreshed
+  ),
+  '1:1',
+  'Commissionable Sales refresh retains historically valid revoked assignments'
+);
+update public.operator_payout_profiles
+set status = 'active'
+where id = 'a6000000-0000-0000-0000-000000000001';
 select is(
   concat(
     public.get_technician_pay_report_context('2026-07-01') #>> '{capabilities,approvalRequired}', ':',

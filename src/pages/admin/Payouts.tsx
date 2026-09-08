@@ -1,19 +1,29 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   Banknote,
   CalendarDays,
   Clock3,
   Loader2,
+  Plus,
   RefreshCw,
   ShieldCheck,
   ShoppingBag,
   UserRound,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -24,12 +34,33 @@ import {
 } from '@/components/ui/select';
 import {
   fetchTechnicianPayReportContext,
+  refreshTechnicianPayReportSalesAdmin,
+  supersedeOperatorCompensationRateAdmin,
+  upsertOperatorRecurringItemAdmin,
+  type OperatorRecurringCompensationItemType,
+  type TechnicianPayReportEntry,
+  type TechnicianPayReportOtherEarning,
+  type TechnicianPayReportShiftRateLine,
   type TechnicianPayReportTechnician,
 } from '@/lib/operatorPayouts';
 import { getTodayInTimekeepingZone } from '@/lib/timekeepingUi';
 import { cn } from '@/lib/utils';
 
 const currentMonthValue = () => getTodayInTimekeepingZone().slice(0, 7);
+const TECHNICIAN_DEFAULT_MACHINE = 'technician-default';
+
+type PayInputKind = 'shift' | 'commission' | OperatorRecurringCompensationItemType;
+
+type PayInputDraft = {
+  technician: TechnicianPayReportTechnician;
+  kind: PayInputKind;
+  itemId: string | null;
+  machineId: string;
+  value: string;
+  description: string;
+  effectiveStartDate: string;
+  effectiveEndDate: string;
+};
 
 const formatCurrency = (cents: number | null | undefined) =>
   new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(
@@ -91,19 +122,109 @@ const Metric = ({
   </div>
 );
 
-const BreakdownRow = ({ label, detail, amount }: { label: string; detail: ReactNode; amount: string }) => (
+const BreakdownRow = ({ label, detail, amount }: { label: string; detail: ReactNode; amount: ReactNode }) => (
   <div className="grid gap-1 border-t border-border py-3 first:border-t-0 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)_auto] sm:items-center sm:gap-4">
     <p className="font-medium text-foreground">{label}</p>
     <div className="text-sm text-muted-foreground">{detail}</div>
-    <p className="text-base font-semibold text-foreground sm:text-right">{amount}</p>
+    <div className="text-base font-semibold text-foreground sm:text-right">{amount}</div>
   </div>
 );
 
 const issueKey = (issue: { code: string; message: string }, index: number) =>
   `${issue.code}-${issue.message}-${index}`;
 
-function TechnicianReport({ technician }: { technician: TechnicianPayReportTechnician }) {
+const unresolvedCommissionCodes = new Set([
+  'commission_rate_changed_within_snapshot',
+  'partial_period_assignment_scope',
+  'shared_machine_compensation_scope',
+  'missing_revenue_snapshot',
+  'missing_commission_rate',
+]);
+
+const hasUnresolvedCommission = (technician: TechnicianPayReportTechnician) =>
+  technician.blockers.some((issue) => unresolvedCommissionCodes.has(issue.code));
+
+const hasMissingShiftRate = (technician: TechnicianPayReportTechnician) =>
+  technician.shiftRateLines.some((line) => line.shiftRateCents == null) ||
+  technician.blockers.some((issue) => issue.code === 'missing_shift_rate');
+
+const buildShiftRateLines = (
+  entries: TechnicianPayReportEntry[]
+): TechnicianPayReportShiftRateLine[] => {
+  const groups = new Map<string, TechnicianPayReportShiftRateLine>();
+  for (const entry of entries) {
+    const key = entry.shiftRateCents == null ? 'missing' : String(entry.shiftRateCents);
+    const current = groups.get(key);
+    if (current) {
+      current.paidShifts += entry.paidShifts;
+      current.actualDurationMinutes += entry.actualDurationMinutes;
+      current.shiftEarningsCents += entry.shiftEarningsCents;
+      if (entry.workDate < current.firstWorkDate) current.firstWorkDate = entry.workDate;
+      if (entry.workDate > current.lastWorkDate) current.lastWorkDate = entry.workDate;
+    } else {
+      groups.set(key, {
+        shiftRateCents: entry.shiftRateCents,
+        paidShifts: entry.paidShifts,
+        actualDurationMinutes: entry.actualDurationMinutes,
+        shiftEarningsCents: entry.shiftEarningsCents,
+        firstWorkDate: entry.workDate,
+        lastWorkDate: entry.workDate,
+      });
+    }
+  }
+  return [...groups.values()].sort((left, right) =>
+    left.firstWorkDate.localeCompare(right.firstWorkDate)
+  );
+};
+
+const scopeTechnicianToMachine = (
+  technician: TechnicianPayReportTechnician,
+  machineId: string
+): TechnicianPayReportTechnician => {
+  const entries = technician.entries.filter((entry) => entry.machineId === machineId);
+  const machines = technician.machines.filter((machine) => machine.machineId === machineId);
+  const blockers = technician.blockers.filter((issue) => !issue.machineId || issue.machineId === machineId);
+  const warnings = technician.warnings.filter((issue) => !issue.machineId || issue.machineId === machineId);
+  const shiftEarningsCents = entries.reduce((sum, entry) => sum + entry.shiftEarningsCents, 0);
+  const commissionEarningsCents = machines.reduce((sum, machine) => sum + machine.commissionEarningsCents, 0);
+  return {
+    ...technician,
+    actualDurationMinutes: entries.reduce((sum, entry) => sum + entry.actualDurationMinutes, 0),
+    paidShifts: entries.reduce((sum, entry) => sum + entry.paidShifts, 0),
+    shiftEarningsCents,
+    commissionableSalesCents: machines.reduce((sum, machine) => sum + machine.commissionableSalesCents, 0),
+    commissionEarningsCents,
+    bonusCents: 0,
+    supplyCreditCents: 0,
+    expenseReimbursementCents: 0,
+    currentTotalCents: shiftEarningsCents + commissionEarningsCents,
+    publishable: blockers.length === 0,
+    entries,
+    shiftRateLines: buildShiftRateLines(entries),
+    machines,
+    otherEarnings: [],
+    blockers,
+    warnings,
+  };
+};
+
+function TechnicianReport({
+  technician,
+  onAddShiftRate,
+  onAddCommissionRate,
+  onAddOtherEarning,
+  onEditOtherEarning,
+}: {
+  technician: TechnicianPayReportTechnician;
+  onAddShiftRate: () => void;
+  onAddCommissionRate: () => void;
+  onAddOtherEarning: () => void;
+  onEditOtherEarning: (earning: TechnicianPayReportOtherEarning) => void;
+}) {
   const issues = [...technician.blockers, ...technician.warnings];
+  const commissionUnavailable = hasUnresolvedCommission(technician);
+  const shiftPayUnavailable = hasMissingShiftRate(technician);
+  const totalUnavailable = technician.blockers.length > 0;
 
   return (
     <article className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
@@ -125,7 +246,9 @@ function TechnicianReport({ technician }: { technician: TechnicianPayReportTechn
           </div>
           <div className="sm:text-right">
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Current total</p>
-            <p className="mt-1 text-2xl font-semibold text-foreground">{formatCurrency(technician.currentTotalCents)}</p>
+            <p className="mt-1 text-2xl font-semibold text-foreground">
+              {totalUnavailable ? 'Unavailable' : formatCurrency(technician.currentTotalCents)}
+            </p>
           </div>
         </div>
       </header>
@@ -156,7 +279,12 @@ function TechnicianReport({ technician }: { technician: TechnicianPayReportTechn
       )}
 
       <section className="p-4 sm:p-5" aria-labelledby={`shift-pay-${technician.operatorProfileId}`}>
-        <h3 id={`shift-pay-${technician.operatorProfileId}`} className="font-semibold text-foreground">Shift pay</h3>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 id={`shift-pay-${technician.operatorProfileId}`} className="font-semibold text-foreground">Shift pay</h3>
+          <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={onAddShiftRate}>
+            <Plus className="mr-2 h-4 w-4" /> Add rate change
+          </Button>
+        </div>
         <p className="mt-1 text-sm text-muted-foreground">
           Every started hour is one paid shift. A 61-minute entry is two shifts.
         </p>
@@ -164,22 +292,30 @@ function TechnicianReport({ technician }: { technician: TechnicianPayReportTechn
           {technician.shiftRateLines.length ? technician.shiftRateLines.map((line, index) => (
             <BreakdownRow
               key={`${line.shiftRateCents}-${line.firstWorkDate}-${index}`}
-              label={`${line.paidShifts} shift${line.paidShifts === 1 ? '' : 's'} × ${formatCurrency(line.shiftRateCents)}`}
+              label={`${line.paidShifts} shift${line.paidShifts === 1 ? '' : 's'} × ${line.shiftRateCents == null ? 'Rate missing' : formatCurrency(line.shiftRateCents)}`}
               detail={<>{formatDuration(line.actualDurationMinutes)} actual · {formatDate(line.firstWorkDate)}–{formatDate(line.lastWorkDate)}</>}
-              amount={formatCurrency(line.shiftEarningsCents)}
+              amount={line.shiftRateCents == null ? 'Unavailable' : formatCurrency(line.shiftEarningsCents)}
             />
           )) : <p className="py-4 text-sm text-muted-foreground">No paid shifts in this month.</p>}
         </div>
       </section>
 
       <section className="border-t border-border p-4 sm:p-5" aria-labelledby={`commission-${technician.operatorProfileId}`}>
-        <h3 id={`commission-${technician.operatorProfileId}`} className="font-semibold text-foreground">Machine sales and commission</h3>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 id={`commission-${technician.operatorProfileId}`} className="font-semibold text-foreground">Machine sales and commission</h3>
+          <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={onAddCommissionRate} disabled={!technician.machines.length}>
+            <Plus className="mr-2 h-4 w-4" /> Add commission rate
+          </Button>
+        </div>
         <p className="mt-1 text-sm text-muted-foreground">Sales are shown so the commission amount can be checked.</p>
         <div className="mt-3 rounded-lg border border-border px-3">
           {technician.machines.length ? technician.machines.map((machine) => {
             const machineEntries = technician.entries.filter((entry) => entry.machineId === machine.machineId);
             const machineActualMinutes = machineEntries.reduce((sum, entry) => sum + entry.actualDurationMinutes, 0);
             const machinePaidShifts = machineEntries.reduce((sum, entry) => sum + entry.paidShifts, 0);
+            const machineCommissionUnavailable = machine.commissionBasisPoints == null || technician.blockers.some(
+              (issue) => unresolvedCommissionCodes.has(issue.code) && (!issue.machineId || issue.machineId === machine.machineId)
+            );
             return (
               <BreakdownRow
                 key={machine.machineId}
@@ -187,11 +323,13 @@ function TechnicianReport({ technician }: { technician: TechnicianPayReportTechn
                 detail={
                   <>
                     <span>{machine.locationName} · {formatDuration(machineActualMinutes)} actual · {machinePaidShifts} paid {machinePaidShifts === 1 ? 'shift' : 'shifts'}</span>
-                    <span className="mt-1 block">{formatCurrency(machine.commissionableSalesCents)} commissionable sales × {formatRate(machine.commissionBasisPoints)}</span>
+                    <span className="mt-1 block">
+                      {formatCurrency(machine.commissionableSalesCents)} commissionable sales × {machine.commissionBasisPoints == null ? 'Commission rate missing' : formatRate(machine.commissionBasisPoints)}
+                    </span>
                     {machine.refundAdjustmentCents !== 0 && <span className="mt-1 block">Includes {formatCurrency(machine.refundAdjustmentCents)} refund adjustment</span>}
                   </>
                 }
-                amount={formatCurrency(machine.commissionEarningsCents)}
+                amount={machineCommissionUnavailable ? 'Unavailable' : formatCurrency(machine.commissionEarningsCents)}
               />
             );
           }) : <p className="py-4 text-sm text-muted-foreground">No commissionable machine sales in this month.</p>}
@@ -199,34 +337,47 @@ function TechnicianReport({ technician }: { technician: TechnicianPayReportTechn
       </section>
 
       <section className="border-t border-border p-4 sm:p-5" aria-labelledby={`other-pay-${technician.operatorProfileId}`}>
-        <h3 id={`other-pay-${technician.operatorProfileId}`} className="font-semibold text-foreground">Other earnings</h3>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 id={`other-pay-${technician.operatorProfileId}`} className="font-semibold text-foreground">Other earnings</h3>
+          <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={onAddOtherEarning}>
+            <Plus className="mr-2 h-4 w-4" /> Add other earning
+          </Button>
+        </div>
         <div className="mt-3 rounded-lg border border-border px-3">
           {technician.otherEarnings.length ? technician.otherEarnings.map((earning) => (
             <BreakdownRow
               key={earning.id}
               label={earning.type === 'bonus' ? 'Bonus' : earning.type === 'supply_credit' ? 'Supply Credit' : 'Expense Reimbursement'}
               detail={<>{earning.description || 'No description'} · {formatDate(earning.effectiveStartDate)}</>}
-              amount={formatCurrency(earning.amountCents)}
+              amount={
+                <div className="flex items-center gap-2 sm:justify-end">
+                  <span>{formatCurrency(earning.amountCents)}</span>
+                  <Button type="button" variant="ghost" size="sm" className="min-h-11" onClick={() => onEditOtherEarning(earning)}>Edit</Button>
+                </div>
+              }
             />
           )) : <p className="py-4 text-sm text-muted-foreground">No bonuses, supply credits, or expense reimbursements.</p>}
         </div>
       </section>
 
       <footer className="grid gap-2 border-t border-border bg-muted/20 p-4 text-sm sm:grid-cols-4 sm:p-5">
-        <div><span className="text-muted-foreground">Shift earnings</span><strong className="mt-1 block text-foreground">{formatCurrency(technician.shiftEarningsCents)}</strong></div>
-        <div><span className="text-muted-foreground">Commission</span><strong className="mt-1 block text-foreground">{formatCurrency(technician.commissionEarningsCents)}</strong></div>
+        <div><span className="text-muted-foreground">Shift earnings</span><strong className="mt-1 block text-foreground">{shiftPayUnavailable ? 'Unavailable' : formatCurrency(technician.shiftEarningsCents)}</strong></div>
+        <div><span className="text-muted-foreground">Commission</span><strong className="mt-1 block text-foreground">{commissionUnavailable ? 'Unavailable' : formatCurrency(technician.commissionEarningsCents)}</strong></div>
         <div><span className="text-muted-foreground">Other earnings</span><strong className="mt-1 block text-foreground">{formatCurrency(technician.bonusCents + technician.supplyCreditCents + technician.expenseReimbursementCents)}</strong></div>
-        <div><span className="text-muted-foreground">Current total</span><strong className="mt-1 block text-lg text-foreground">{formatCurrency(technician.currentTotalCents)}</strong></div>
+        <div><span className="text-muted-foreground">Current total</span><strong className="mt-1 block text-lg text-foreground">{totalUnavailable ? 'Unavailable' : formatCurrency(technician.currentTotalCents)}</strong></div>
       </footer>
     </article>
   );
 }
 
 export default function AdminPayoutsPage() {
+  const queryClient = useQueryClient();
   const [month, setMonth] = useState(currentMonthValue);
   const [accountId, setAccountId] = useState('all');
   const [technicianId, setTechnicianId] = useState('all');
   const [machineId, setMachineId] = useState('all');
+  const [payInputDraft, setPayInputDraft] = useState<PayInputDraft | null>(null);
+  const [payInputError, setPayInputError] = useState<string | null>(null);
 
   const { data: context, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ['technician-pay-report', month],
@@ -241,17 +392,120 @@ export default function AdminPayoutsPage() {
     [technicians]
   );
   const visibleTechnicians = useMemo(
-    () => technicians.filter((technician) =>
-      (accountId === 'all' || technician.accountId === accountId) &&
-      (technicianId === 'all' || technician.operatorProfileId === technicianId) &&
-      (machineId === 'all' || technician.machines.some((machine) => machine.machineId === machineId))
-    ),
+    () => technicians
+      .filter((technician) =>
+        (accountId === 'all' || technician.accountId === accountId) &&
+        (technicianId === 'all' || technician.operatorProfileId === technicianId) &&
+        (machineId === 'all' || technician.machines.some((machine) => machine.machineId === machineId))
+      )
+      .map((technician) =>
+        machineId === 'all' ? technician : scopeTechnicianToMachine(technician, machineId)
+      ),
     [accountId, machineId, technicianId, technicians]
   );
   const totalPaidShifts = visibleTechnicians.reduce((sum, technician) => sum + technician.paidShifts, 0);
   const totalCommissionableSales = visibleTechnicians.reduce((sum, technician) => sum + technician.commissionableSalesCents, 0);
   const currentTotal = visibleTechnicians.reduce((sum, technician) => sum + technician.currentTotalCents, 0);
   const blockerCount = visibleTechnicians.reduce((sum, technician) => sum + technician.blockers.length, 0);
+  const totalsUnavailable = visibleTechnicians.some((technician) => technician.blockers.length > 0);
+
+  const openPayInput = (
+    technician: TechnicianPayReportTechnician,
+    kind: PayInputKind,
+    earning?: TechnicianPayReportOtherEarning
+  ) => {
+    const selectedMachine = machineId === 'all'
+      ? null
+      : technician.machines.find((machine) => machine.machineId === machineId) ?? null;
+    const defaultCommissionRate = technician.machines.find((machine) => machine.commissionRate?.source === 'technician_default')?.commissionBasisPoints;
+    const shiftRate = technician.shiftRateLines.find((line) => line.shiftRateCents != null)?.shiftRateCents;
+    const isOtherEarning = kind === 'bonus' || kind === 'supply_credit' || kind === 'expense_reimbursement';
+    setPayInputError(null);
+    setPayInputDraft({
+      technician,
+      kind,
+      itemId: earning?.id ?? null,
+      machineId: kind === 'commission' ? selectedMachine?.machineId ?? TECHNICIAN_DEFAULT_MACHINE : '',
+      value: earning
+        ? (earning.amountCents / 100).toFixed(2)
+        : kind === 'shift' && shiftRate != null
+          ? (shiftRate / 100).toFixed(2)
+          : kind === 'commission' && (selectedMachine?.commissionBasisPoints ?? defaultCommissionRate) != null
+            ? ((selectedMachine?.commissionBasisPoints ?? defaultCommissionRate ?? 0) / 100).toFixed(2)
+            : '',
+      description: earning?.description ?? (isOtherEarning ? '' : ''),
+      effectiveStartDate: earning?.effectiveStartDate ?? `${month}-01`,
+      effectiveEndDate: earning?.effectiveEndDate
+        ?? (kind === 'bonus' || kind === 'expense_reimbursement' ? technician.periodEndDate : ''),
+    });
+  };
+
+  const savePayInput = useMutation({
+    mutationFn: async (draft: PayInputDraft) => {
+      const numericValue = Number(draft.value);
+      if (!Number.isFinite(numericValue) || numericValue <= 0) {
+        throw new Error('Enter an amount greater than zero.');
+      }
+      if (!draft.effectiveStartDate) throw new Error('Choose an effective start date.');
+      if (draft.effectiveEndDate && draft.effectiveEndDate < draft.effectiveStartDate) {
+        throw new Error('The end date cannot be before the start date.');
+      }
+
+      if (draft.kind === 'shift' || draft.kind === 'commission') {
+        if (draft.kind === 'commission' && numericValue > 100) {
+          throw new Error('Commission cannot be more than 100%.');
+        }
+        return supersedeOperatorCompensationRateAdmin({
+          accountId: draft.technician.accountId,
+          operatorProfileId: draft.technician.operatorProfileId,
+          machineId: draft.kind === 'commission' && draft.machineId !== TECHNICIAN_DEFAULT_MACHINE ? draft.machineId : null,
+          rateType: draft.kind,
+          rateValue: Math.round(numericValue * 100),
+          effectiveStartDate: draft.effectiveStartDate,
+          effectiveEndDate: draft.effectiveEndDate || null,
+        });
+      }
+
+      if (!draft.description.trim()) throw new Error('Add a short description.');
+      return upsertOperatorRecurringItemAdmin({
+        itemId: draft.itemId,
+        accountId: draft.technician.accountId,
+        operatorProfileId: draft.technician.operatorProfileId,
+        itemType: draft.kind,
+        description: draft.description.trim(),
+        amountCents: Math.round(numericValue * 100),
+        effectiveStartDate: draft.effectiveStartDate,
+        effectiveEndDate: draft.effectiveEndDate || null,
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['technician-pay-report'] });
+      setPayInputDraft(null);
+      setPayInputError(null);
+      toast.success('Pay input saved. The report has been refreshed.');
+    },
+    onError: (saveError) => {
+      setPayInputError(saveError instanceof Error ? saveError.message : 'Unable to save this pay input.');
+    },
+  });
+
+  const refreshSales = useMutation({
+    mutationFn: () => refreshTechnicianPayReportSalesAdmin(
+      `${month}-01`,
+      accountId === 'all' ? null : accountId
+    ),
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ['technician-pay-report'] });
+      if (result.periodCount === 0) {
+        toast.error('No monthly pay period was found for this selection.');
+      } else {
+        toast.success(`Commissionable Sales refreshed for ${result.snapshotCount} machine${result.snapshotCount === 1 ? '' : 's'}.`);
+      }
+    },
+    onError: (refreshError) => {
+      toast.error(refreshError instanceof Error ? refreshError.message : 'Unable to refresh Commissionable Sales.');
+    },
+  });
 
   return (
     <AppLayout>
@@ -266,6 +520,9 @@ export default function AdminPayoutsPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className="min-h-8 gap-1.5 px-3"><CalendarDays className="h-3.5 w-3.5" /> {formatMonth(month)}</Badge>
+            <Button type="button" variant="outline" className="min-h-11" disabled={refreshSales.isPending || isFetching} onClick={() => refreshSales.mutate()}>
+              <ShoppingBag className={cn('mr-2 h-4 w-4', refreshSales.isPending && 'animate-pulse motion-reduce:animate-none')} /> Refresh sales
+            </Button>
             <Button type="button" variant="outline" className="min-h-11" disabled={isFetching} onClick={() => void refetch()}>
               <RefreshCw className={cn('mr-2 h-4 w-4', isFetching && 'animate-spin motion-reduce:animate-none')} /> Refresh
             </Button>
@@ -294,11 +551,12 @@ export default function AdminPayoutsPage() {
               <div><label htmlFor="pay-report-technician" className="text-sm font-medium text-foreground">Technician</label><Select value={technicianId} onValueChange={setTechnicianId}><SelectTrigger id="pay-report-technician" className="mt-2 min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All Technicians</SelectItem>{technicians.map((technician) => <SelectItem key={technician.operatorProfileId} value={technician.operatorProfileId}>{technician.displayName}</SelectItem>)}</SelectContent></Select></div>
               <div><label htmlFor="pay-report-machine" className="text-sm font-medium text-foreground">Machine</label><Select value={machineId} onValueChange={setMachineId}><SelectTrigger id="pay-report-machine" className="mt-2 min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All machines</SelectItem>{machines.map((machine) => <SelectItem key={machine.id} value={machine.id}>{machine.label}</SelectItem>)}</SelectContent></Select></div>
             </section>
+            {machineId !== 'all' && <p className="-mt-3 text-xs text-muted-foreground">Machine filtering shows only that machine’s time, shift earnings, sales, and commission. Technician-level other earnings are excluded from these filtered totals.</p>}
 
             <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-live="polite">
               <Metric label="Paid shifts" value={`${totalPaidShifts}`} helper="Each started hour" icon={Clock3} />
               <Metric label="Commissionable sales" value={formatCurrency(totalCommissionableSales)} helper="After one refund adjustment" icon={ShoppingBag} />
-              <Metric label="Current total" value={formatCurrency(currentTotal)} helper="Before payment or tax" icon={Banknote} />
+              <Metric label="Current total" value={totalsUnavailable ? 'Unavailable' : formatCurrency(currentTotal)} helper={totalsUnavailable ? 'Resolve calculation blockers' : 'Before payment or tax'} icon={Banknote} />
               <Metric label="Technicians" value={`${visibleTechnicians.length}`} helper={blockerCount ? `${blockerCount} publishing blocker${blockerCount === 1 ? '' : 's'}` : 'No publishing blockers'} icon={UserRound} />
             </section>
 
@@ -310,7 +568,16 @@ export default function AdminPayoutsPage() {
             )}
 
             <section className="space-y-5" aria-label="Technician pay details">
-              {visibleTechnicians.length ? visibleTechnicians.map((technician) => <TechnicianReport key={technician.operatorProfileId} technician={technician} />) : (
+              {visibleTechnicians.length ? visibleTechnicians.map((technician) => (
+                <TechnicianReport
+                  key={technician.operatorProfileId}
+                  technician={technician}
+                  onAddShiftRate={() => openPayInput(technician, 'shift')}
+                  onAddCommissionRate={() => openPayInput(technician, 'commission')}
+                  onAddOtherEarning={() => openPayInput(technician, 'bonus')}
+                  onEditOtherEarning={(earning) => openPayInput(technician, earning.type, earning)}
+                />
+              )) : (
                 <div className="rounded-xl border border-dashed border-border bg-card p-6"><h2 className="font-semibold text-foreground">No matching pay details</h2><p className="mt-2 text-sm text-muted-foreground">Change the filters or choose another month.</p></div>
               )}
             </section>
@@ -320,6 +587,126 @@ export default function AdminPayoutsPage() {
             </p>
           </>
         )}
+
+        <Dialog open={Boolean(payInputDraft)} onOpenChange={(open) => {
+          if (!open && !savePayInput.isPending) {
+            setPayInputDraft(null);
+            setPayInputError(null);
+          }
+        }}>
+          <DialogContent className="max-w-lg">
+            {payInputDraft && (
+              <form onSubmit={(event) => {
+                event.preventDefault();
+                setPayInputError(null);
+                savePayInput.mutate(payInputDraft);
+              }}>
+                <DialogHeader>
+                  <DialogTitle>
+                    {payInputDraft.itemId ? 'Edit' : 'Add'} {payInputDraft.kind === 'shift'
+                      ? 'shift rate'
+                      : payInputDraft.kind === 'commission'
+                        ? 'commission rate'
+                        : 'other earning'}
+                  </DialogTitle>
+                  <DialogDescription>
+                    {payInputDraft.technician.displayName} · Changes take effect on the date you choose and refresh this report. No approval or edit reason is required.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="mt-5 space-y-4">
+                  {(payInputDraft.kind === 'bonus' || payInputDraft.kind === 'supply_credit' || payInputDraft.kind === 'expense_reimbursement') && (
+                    <div>
+                      <label htmlFor="pay-input-type" className="text-sm font-medium text-foreground">Earning type</label>
+                      <Select value={payInputDraft.kind} onValueChange={(value: OperatorRecurringCompensationItemType) => setPayInputDraft((current) => current ? {
+                        ...current,
+                        kind: value,
+                        effectiveEndDate: value === 'supply_credit' ? '' : current.technician.periodEndDate,
+                      } : current)}>
+                        <SelectTrigger id="pay-input-type" className="mt-2 min-h-11"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="bonus">Bonus</SelectItem>
+                          <SelectItem value="supply_credit">Supply Credit</SelectItem>
+                          <SelectItem value="expense_reimbursement">Expense Reimbursement</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  {payInputDraft.kind === 'commission' && (
+                    <div>
+                      <label htmlFor="pay-input-machine" className="text-sm font-medium text-foreground">Machine</label>
+                      <Select value={payInputDraft.machineId} onValueChange={(value) => setPayInputDraft((current) => current ? { ...current, machineId: value } : current)}>
+                        <SelectTrigger id="pay-input-machine" className="mt-2 min-h-11"><SelectValue placeholder="Choose a machine" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={TECHNICIAN_DEFAULT_MACHINE}>All assigned machines — Technician default</SelectItem>
+                          {payInputDraft.technician.machines.map((machine) => <SelectItem key={machine.machineId} value={machine.machineId}>{machine.machineLabel}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  <div>
+                    <label htmlFor="pay-input-value" className="text-sm font-medium text-foreground">
+                      {payInputDraft.kind === 'commission' ? 'Commission percent' : payInputDraft.kind === 'shift' ? 'Pay per shift' : 'Amount'}
+                    </label>
+                    <div className="relative mt-2">
+                      {payInputDraft.kind !== 'commission' && <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">$</span>}
+                      <Input
+                        id="pay-input-value"
+                        type="number"
+                        inputMode="decimal"
+                        min="0.01"
+                        max={payInputDraft.kind === 'commission' ? '100' : undefined}
+                        step="0.01"
+                        value={payInputDraft.value}
+                        className={cn('min-h-11', payInputDraft.kind !== 'commission' && 'pl-7', payInputDraft.kind === 'commission' && 'pr-8')}
+                        onChange={(event) => setPayInputDraft((current) => current ? { ...current, value: event.target.value } : current)}
+                        required
+                      />
+                      {payInputDraft.kind === 'commission' && <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-muted-foreground">%</span>}
+                    </div>
+                  </div>
+
+                  {(payInputDraft.kind === 'bonus' || payInputDraft.kind === 'supply_credit' || payInputDraft.kind === 'expense_reimbursement') && (
+                    <div>
+                      <label htmlFor="pay-input-description" className="text-sm font-medium text-foreground">Description</label>
+                      <Input id="pay-input-description" value={payInputDraft.description} className="mt-2 min-h-11" onChange={(event) => setPayInputDraft((current) => current ? { ...current, description: event.target.value } : current)} required />
+                    </div>
+                  )}
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label htmlFor="pay-input-start" className="text-sm font-medium text-foreground">Effective start</label>
+                      <Input id="pay-input-start" type="date" value={payInputDraft.effectiveStartDate} className="mt-2 min-h-11" onChange={(event) => setPayInputDraft((current) => current ? { ...current, effectiveStartDate: event.target.value } : current)} required />
+                    </div>
+                    <div>
+                      <label htmlFor="pay-input-end" className="text-sm font-medium text-foreground">Effective end <span className="font-normal text-muted-foreground">(optional)</span></label>
+                      <Input id="pay-input-end" type="date" value={payInputDraft.effectiveEndDate} className="mt-2 min-h-11" onChange={(event) => setPayInputDraft((current) => current ? { ...current, effectiveEndDate: event.target.value } : current)} />
+                    </div>
+                  </div>
+
+                  {(payInputDraft.kind === 'bonus' || payInputDraft.kind === 'expense_reimbursement') && (
+                    <p className="text-xs leading-5 text-muted-foreground">This one-time earning defaults to the selected month. Change the end date only if it should span more than one month.</p>
+                  )}
+                  {payInputDraft.kind === 'supply_credit' && (
+                    <p className="text-xs leading-5 text-muted-foreground">Leave the end date blank for a recurring Supply Credit, or choose an end date to limit it.</p>
+                  )}
+
+                  {payInputError && <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">{payInputError}</p>}
+                </div>
+
+                <DialogFooter className="mt-6 gap-2 sm:gap-0">
+                  <Button type="button" variant="outline" className="min-h-11" disabled={savePayInput.isPending} onClick={() => setPayInputDraft(null)}>Cancel</Button>
+                  <Button type="submit" className="min-h-11" disabled={savePayInput.isPending}>
+                    {savePayInput.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />}
+                    Save pay input
+                  </Button>
+                </DialogFooter>
+              </form>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </AppLayout>
   );
