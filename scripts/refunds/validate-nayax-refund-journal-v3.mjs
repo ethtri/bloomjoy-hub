@@ -37,12 +37,16 @@ const restrictedScalarMigrationUrl = new URL(
   '../../supabase/migrations/20260907010000_refund_nayax_restricted_response_scalars.sql',
   import.meta.url,
 );
+const independentDiagnosticsMigrationUrl = new URL(
+  '../../supabase/migrations/20260908044000_refund_nayax_independent_response_diagnostics.sql',
+  import.meta.url,
+);
 const nayaxCardRefundUrl = new URL(
   '../../supabase/functions/nayax-card-refund/index.ts',
   import.meta.url,
 );
 
-const [migration, test, legacyRecoveryTest, productionSimplification, continuationMigration, continuationReadinessMigration, continuationHandoffMigration, continuationTest, restrictedScalarMigration, nayaxCardRefund] = await Promise.all([
+const [migration, test, legacyRecoveryTest, productionSimplification, continuationMigration, continuationReadinessMigration, continuationHandoffMigration, continuationTest, restrictedScalarMigration, independentDiagnosticsMigration, nayaxCardRefund] = await Promise.all([
   readFile(migrationUrl, 'utf8'),
   readFile(testUrl, 'utf8'),
   readFile(legacyRecoveryTestUrl, 'utf8'),
@@ -52,6 +56,7 @@ const [migration, test, legacyRecoveryTest, productionSimplification, continuati
   readFile(continuationHandoffMigrationUrl, 'utf8'),
   readFile(continuationTestUrl, 'utf8'),
   readFile(restrictedScalarMigrationUrl, 'utf8'),
+  readFile(independentDiagnosticsMigrationUrl, 'utf8'),
   readFile(nayaxCardRefundUrl, 'utf8'),
 ]);
 
@@ -250,7 +255,7 @@ for (const scenario of [
 ]) {
   assert.match(continuationTest, new RegExp(scenario), `continuation pgTAP must cover ${scenario}`);
 }
-assert.match(continuationTest, /select plan\(49\)/u);
+assert.match(continuationTest, /select plan\(56\)/u);
 assert.match(
   continuationHandoffMigration,
   /attempt\.actor_user_id = action_authorization\.actor_user_id[\s\S]*public\.can_perform_refund_official_action\(p_user_id, refund_case\.id\)/u,
@@ -290,15 +295,46 @@ for (const marker of [
   'nayax-restricted-response-scalars-v1',
 ]) {
   assert.match(restrictedScalarMigration, new RegExp(marker), `restricted scalar migration must publish ${marker}`);
-  assert.match(nayaxCardRefund, new RegExp(marker.replaceAll('_', '.*'), 'i'), `normal executor must use ${marker}`);
+  if (marker !== 'service_record_nayax_refund_provider_stage_v3_diagnostics') {
+    assert.match(nayaxCardRefund, new RegExp(marker.replaceAll('_', '.*'), 'i'), `normal executor must use ${marker}`);
+  }
 }
-assert.match(continuationTest, /service_record_nayax_refund_provider_stage_v3_diagnostics/u);
+for (const marker of [
+  'refund_nayax_provider_response_diagnostics',
+  'service_record_nayax_refund_provider_stage_v4_diagnostics',
+  'nayax-restricted-response-diagnostics-v2',
+  'sensitive_redacted',
+  'length_truncated',
+]) {
+  assert.match(independentDiagnosticsMigration, new RegExp(marker), `independent diagnostic migration must publish ${marker}`);
+  if (marker !== 'nayax-restricted-response-diagnostics-v2') {
+    assert.match(continuationTest, new RegExp(marker), `continuation pgTAP must verify ${marker}`);
+  }
+}
+assert.match(nayaxCardRefund, /service_record_nayax_refund_provider_stage_v4_diagnostics/u);
+assert.match(nayaxCardRefund, /nayax-restricted-response-diagnostics-v2/u);
+assert.match(continuationTest, /service_record_nayax_refund_provider_stage_v4_diagnostics/u);
 assert.match(continuationTest, /Unknown request scalars are captured without changing their unknown outcome/u);
 assert.match(continuationTest, /Browser roles cannot write restricted provider response scalars/u);
 assert.match(
   restrictedScalarMigration,
   /alter table public\.refund_nayax_provider_business_outcomes/u,
   'restricted capture must extend the existing owner-only business outcome journal',
+);
+assert.match(independentDiagnosticsMigration, /enable row level security/iu);
+assert.match(
+  independentDiagnosticsMigration,
+  /revoke all on table public\.refund_nayax_provider_response_diagnostics\s+from public,anon,authenticated,service_role;/u,
+);
+assert.match(
+  independentDiagnosticsMigration,
+  /p_text = '\[redacted\]'/u,
+  'sensitive diagnostic text must be wholly replaced with the fixed redaction literal',
+);
+assert.match(
+  independentDiagnosticsMigration,
+  /p_text !~ '\[\[:cntrl:\]\]'/u,
+  'the database must reject control characters from every retained safe-text disposition',
 );
 assert.doesNotMatch(
   restrictedScalarMigration,

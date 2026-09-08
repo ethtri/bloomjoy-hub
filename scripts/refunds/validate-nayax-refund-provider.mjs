@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import {
   areNayaxRefundWriteCredentialsReady,
   buildNayaxRefundApprovalBody,
+  buildNayaxRestrictedScalarDiagnostic,
   buildRedactedNayaxStageDigest,
   buildNayaxRefundRequestBody,
   classifyNayaxRefundResponse,
@@ -442,6 +443,12 @@ deepEqual(
     observedResultScalar: 'True',
     observedStatusScalar: 'Pending Approval',
     observedScalarPairRetained: true,
+    observedResultDiagnosticText: 'True',
+    observedResultDiagnosticDisposition: 'exact',
+    observedResultDiagnosticLengthBucket: '1_80',
+    observedStatusDiagnosticText: 'Pending Approval',
+    observedStatusDiagnosticDisposition: 'exact',
+    observedStatusDiagnosticLengthBucket: '1_80',
     payloadRedacted: true,
   },
   'An exact HTTP 200 application/json object retains only the bounded business pair.',
@@ -461,8 +468,11 @@ check(
 );
 check(
   !JSON.stringify(redactedClassification).includes('owner@example.test') &&
-    !JSON.stringify(redactedClassification).includes('customer-4242'),
-  'Unmatched provider text cannot enter a stage result or log payload.',
+    redactedClassification.observedResultDiagnosticText === '[redacted]' &&
+    redactedClassification.observedResultDiagnosticDisposition === 'sensitive_redacted' &&
+    redactedClassification.observedStatusDiagnosticText === 'customer-4242' &&
+    redactedClassification.observedStatusDiagnosticDisposition === 'exact',
+  'An identifier-shaped Result is wholly redacted without hiding harmless provider prose.',
 );
 equal(
   redactedClassification.contractMatched,
@@ -483,9 +493,11 @@ check(
   'Unreviewed alphabetic names and secrets are not retained.',
 );
 check(
-  !JSON.stringify(alphabeticSecretClassification).includes('Alice') &&
+  alphabeticSecretClassification.observedResultDiagnosticText === 'Alice' &&
+    alphabeticSecretClassification.observedResultDiagnosticDisposition === 'exact' &&
+    alphabeticSecretClassification.observedStatusDiagnosticText === '[redacted]' &&
     !JSON.stringify(alphabeticSecretClassification).includes('TopSecret'),
-  'Unreviewed alphabetic text cannot enter a stage result or log payload.',
+  'A safe peer remains independently diagnostic while secret-shaped text is wholly redacted.',
 );
 equal(
   classifyNayaxRefundResponse({
@@ -520,6 +532,49 @@ equal(restrictedUnknownPair.observedResultScalar, 'Unrecognized', 'The exact saf
 equal(restrictedUnknownPair.observedStatusScalar, 'Queued Review', 'The exact safe Status scalar is retained.');
 equal(restrictedUnknownPair.observedScalarPairRetained, true, 'Safe unknown scalars are available only to restricted journaling.');
 check(!JSON.stringify(restrictedUnknownPair).includes('discard-me'), 'The surrounding response payload is never retained.');
+deepEqual(
+  buildNayaxRestrictedScalarDiagnostic({
+    value: `${'word '.repeat(20)}result`, keyPresent: true, valueType: 'string',
+  }),
+  { text: `${'word '.repeat(20)}result`, disposition: 'length_extended', lengthBucket: '81_160' },
+  'A safe unfamiliar scalar above the legacy ceiling is retained independently.',
+);
+const unicodeDiagnostic = buildNayaxRestrictedScalarDiagnostic({
+  value: '🙂'.repeat(161), keyPresent: true, valueType: 'string',
+});
+equal(Array.from(unicodeDiagnostic.text).length, 160, 'Truncation preserves complete Unicode code points.');
+equal(unicodeDiagnostic.disposition, 'length_truncated', 'A longer safe scalar records explicit truncation.');
+deepEqual(
+  buildNayaxRestrictedScalarDiagnostic({
+    value: `safe prefix owner@example.test ${'x'.repeat(170)}`,
+    keyPresent: true,
+    valueType: 'string',
+  }),
+  { text: '[redacted]', disposition: 'sensitive_redacted', lengthBucket: 'over_160' },
+  'Any sensitive match redacts the entire scalar before retention.',
+);
+deepEqual(
+  buildNayaxRestrictedScalarDiagnostic({ value: null, keyPresent: true, valueType: 'null' }),
+  { text: null, disposition: 'json_null', lengthBucket: 'json_null' },
+  'JSON null is distinguishable without being confused with a dropped string.',
+);
+for (const unsafe of ['safe\u0085unsafe', `safe${String.fromCharCode(0xd800)}unsafe`]) {
+  const classification = classifyNayaxRefundResponse({
+    stage: 'request', httpStatus: 200, payload: { Result: unsafe, Status: 'Review' }, patterns: [],
+  });
+  deepEqual(
+    {
+      text: classification.observedResultDiagnosticText,
+      disposition: classification.observedResultDiagnosticDisposition,
+      lengthBucket: classification.observedResultDiagnosticLengthBucket,
+    },
+    { text: '[redacted]', disposition: 'sensitive_redacted', lengthBucket: '1_80' },
+    'C1 controls and unpaired surrogates are wholly redacted before PostgreSQL transport.',
+  );
+  equal(classification.businessPairRetained, false, 'Storage-invalid Unicode cannot enter legacy business fields.');
+  equal(classification.observedScalarPairRetained, false, 'Storage-invalid Unicode cannot enter legacy restricted scalar fields.');
+  equal(classification.observedStatusDiagnosticText, 'Review', 'A safe peer remains independently diagnostic.');
+}
 const scalarBoundary = (result, status = 'Review') => classifyNayaxRefundResponse({
   stage: 'request', httpStatus: 200, payload: { Result: result, Status: status }, patterns: [],
 });
@@ -949,6 +1004,16 @@ equal(schemaMismatchResult.statusValueType, 'string', 'Status value type is reta
 check(!schemaMismatchResult.schemaMatched, 'Non-string Result values fail the response schema.');
 check(!schemaMismatchResult.semanticPairMatched, 'Schema-invalid values cannot match a semantic pair.');
 
+const missingStatusResult = await postNayaxRefundStep({
+  stage: 'request',
+  contract,
+  token: 'synthetic-test-token',
+  body: majorBody,
+  fetchImpl: async () => response({ Result: 'True' }),
+});
+equal(missingStatusResult.observedResultDiagnosticText, 'True', 'A present safe Result remains independently diagnostic.');
+equal(missingStatusResult.observedStatusDiagnosticDisposition, 'missing', 'A parsed object missing Status is distinguished from an unavailable response.');
+
 const nonObjectResult = await postNayaxRefundStep({
   stage: 'request',
   contract,
@@ -959,6 +1024,7 @@ const nonObjectResult = await postNayaxRefundStep({
 check(nonObjectResult.jsonParsed, 'A JSON array is recognized as parsed JSON.');
 check(!nonObjectResult.jsonObject, 'A JSON array cannot satisfy the object contract.');
 equal(nonObjectResult.bodyKind, 'json_non_object', 'Non-object JSON has a fixed body category.');
+equal(nonObjectResult.observedResultDiagnosticDisposition, 'missing', 'A parsed non-object has no Result key.');
 
 const malformedJsonResult = await postNayaxRefundStep({
   stage: 'request',
@@ -969,6 +1035,7 @@ const malformedJsonResult = await postNayaxRefundStep({
 });
 equal(malformedJsonResult.bodyKind, 'malformed_json', 'Malformed application/json is distinguishable without retaining its body.');
 check(!malformedJsonResult.jsonParsed, 'Malformed JSON cannot be marked parsed.');
+equal(malformedJsonResult.observedResultDiagnosticDisposition, 'unavailable', 'A malformed body cannot produce a scalar diagnostic.');
 
 const htmlResult = await postNayaxRefundStep({
   stage: 'approve',
@@ -1012,6 +1079,7 @@ equal(responseReadResult.httpStatus, 200, 'A body-read failure preserves the rec
 check(responseReadResult.httpAccepted, 'HTTP acceptance remains separate from body-read success.');
 equal(responseReadResult.failureType, 'response_read', 'Body-read failures have a fixed safe failure type.');
 equal(responseReadResult.bodyKind, 'read_error', 'Body-read failures have a fixed body category.');
+equal(responseReadResult.observedResultDiagnosticDisposition, 'unavailable', 'A body-read failure cannot be mistaken for a parsed missing key.');
 check(!responseReadResult.contractMatched, 'A body-read failure can never match the complete contract.');
 check(!JSON.stringify(responseReadResult).includes('private response details'), 'Read errors cannot leak exception text.');
 
@@ -1062,6 +1130,12 @@ deepEqual(networkResult, {
   schemaMatched: false,
   semanticPairMatched: false,
   contractMatched: false,
+  observedResultDiagnosticText: null,
+  observedResultDiagnosticDisposition: 'unavailable',
+  observedResultDiagnosticLengthBucket: 'unavailable',
+  observedStatusDiagnosticText: null,
+  observedStatusDiagnosticDisposition: 'unavailable',
+  observedStatusDiagnosticLengthBucket: 'unavailable',
   failureType: 'network',
   payloadRedacted: true,
 }, 'Network failures become sanitized unknown outcomes.');
@@ -1083,6 +1157,7 @@ const timeoutResult = await postNayaxRefundStep({
 });
 equal(timeoutResult.failureType, 'timeout', 'The bounded transport timeout is distinguishable from network uncertainty.');
 equal(timeoutResult.outcome, 'unknown', 'Timeouts are never treated as success.');
+equal(timeoutResult.observedStatusDiagnosticDisposition, 'unavailable', 'A timeout records response unavailability without inventing a missing key.');
 
 await assert.rejects(
   () => postNayaxRefundStep({
@@ -1366,7 +1441,8 @@ check(
     !handler.includes('NAYAX_LYNX_API_TOKEN_${normalAccountKey}') &&
     handler.includes('provider,') &&
     handler.includes('service_reserve_nayax_refund_manager_action_v4') &&
-    handler.includes('service_record_nayax_refund_provider_stage_v3') &&
+    handler.includes('service_record_nayax_refund_provider_stage_v4_diagnostics') &&
+    handler.includes('nayax-restricted-response-diagnostics-v2') &&
     handler.includes('service_get_nayax_refund_provider_journal_capability_v3') &&
     handler.includes('p_media_type_class:') &&
     handler.includes('p_body_kind:') &&

@@ -1293,7 +1293,7 @@ serve(async (req) => {
           stageEvent,
         });
         const { data, error } = await supabase.rpc(
-          "service_record_nayax_refund_provider_stage_v3_diagnostics",
+          "service_record_nayax_refund_provider_stage_v4_diagnostics",
           {
             p_executor_assertion: executionConfig.executorAssertion,
             p_attempt_id: normalAttemptId,
@@ -1367,6 +1367,28 @@ serve(async (req) => {
             p_observed_scalar_pair_retained:
               stageEvent.event === "result" &&
                 result.observedScalarPairRetained === true,
+            p_result_diagnostic_text: stageEvent.event === "result"
+              ? typeof result.observedResultDiagnosticText === "string"
+                ? result.observedResultDiagnosticText
+                : null
+              : null,
+            p_result_diagnostic_disposition: stageEvent.event === "result"
+              ? sanitizeText(result.observedResultDiagnosticDisposition, 40) || null
+              : null,
+            p_result_diagnostic_length_bucket: stageEvent.event === "result"
+              ? sanitizeText(result.observedResultDiagnosticLengthBucket, 40) || null
+              : null,
+            p_status_diagnostic_text: stageEvent.event === "result"
+              ? typeof result.observedStatusDiagnosticText === "string"
+                ? result.observedStatusDiagnosticText
+                : null
+              : null,
+            p_status_diagnostic_disposition: stageEvent.event === "result"
+              ? sanitizeText(result.observedStatusDiagnosticDisposition, 40) || null
+              : null,
+            p_status_diagnostic_length_bucket: stageEvent.event === "result"
+              ? sanitizeText(result.observedStatusDiagnosticLengthBucket, 40) || null
+              : null,
           },
         );
         if (error || !data || typeof data !== "object") {
@@ -1390,6 +1412,8 @@ serve(async (req) => {
             "nayax-business-outcome-v2" ||
           decision.restrictedScalarEvidenceVersion !==
             "nayax-restricted-response-scalars-v1" ||
+          decision.restrictedScalarDiagnosticVersion !==
+            "nayax-restricted-response-diagnostics-v2" ||
           decision.payloadRedacted !== true
         ) {
           throw new Error("provider_journal_version_mismatch");
