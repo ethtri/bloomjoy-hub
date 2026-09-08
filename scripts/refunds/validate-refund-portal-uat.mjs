@@ -3900,6 +3900,8 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   });
   await transactionEvidenceDisclosure.click();
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await settleRefundPortalPage(page);
+  await page.getByTestId('refund-run-nayax-refund').waitFor({ state: 'visible', timeout: 10000 });
   recorder.assert(
     'Customer and Nayax card types are compared in plain language',
     /Card type\s+Visa\s+Visa\s+Same card type/.test(
@@ -3914,10 +3916,24 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     'Selected card match keeps candidate chooser out of the normal path',
     (await page.getByText('Choose the matching card sale').count()) === 0
   );
+  const selectedRefundActions = page.getByRole('button', { name: 'Refund $7.00', exact: true });
+  const selectedActionDiagnostics = {
+    policyCopyCount: await page.getByText(/transaction evidence, not a refund decision/i).count(),
+    refundActionCount: await selectedRefundActions.count(),
+    visibleRefundActionCount: await selectedRefundActions.evaluateAll((buttons) =>
+      buttons.filter((button) => {
+        const box = button.getBoundingClientRect();
+        const style = window.getComputedStyle(button);
+        return box.width > 0 && box.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+      }).length
+    ),
+  };
   recorder.assert(
     'Selected match keeps one manager-owned action without policy copy',
-    (await page.getByText(/transaction evidence, not a refund decision/i).count()) === 0 &&
-      (await page.getByRole('button', { name: 'Refund $7.00', exact: true }).count()) === 1
+    selectedActionDiagnostics.policyCopyCount === 0 &&
+      selectedActionDiagnostics.refundActionCount === 1 &&
+      selectedActionDiagnostics.visibleRefundActionCount === 1,
+    JSON.stringify(selectedActionDiagnostics)
   );
   recorder.assert(
     'Case header keeps one current state and one next step',
