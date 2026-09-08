@@ -102,6 +102,17 @@ select ok(not has_table_privilege('service_role','public.refund_authoritative_re
 select ok(not has_table_privilege('authenticated','public.refund_completion_notice_adoptions','select'), 'Prior message evidence is private');
 select ok(not has_function_privilege('anon','public.admin_record_refund_authoritative_receipt(uuid,uuid,bigint,text,text,text,integer,integer,text,integer,text,boolean)','execute'), 'Anonymous cannot record evidence');
 select ok(not has_function_privilege('service_role','public.admin_record_refund_authoritative_receipt(uuid,uuid,bigint,text,text,text,integer,integer,text,integer,text,boolean)','execute'), 'Background service cannot impersonate operator');
+select throws_ok($$insert into public.refund_authoritative_receipts(
+  refund_case_id,reporting_machine_id,account_scope,provider_machine_id,
+  original_transaction_id,original_amount_cents,refunded_amount_cents,currency_code,
+  provider_status,evidence_reference_digest,recorded_by,attempt_binding_kind,
+  current_provider_observation_reviewed
+) values (
+  'ad400000-0000-4000-8000-000000000004',
+  'ad300000-0000-4000-8000-000000000001','DTM-NULL-CONSTRAINT',
+  'DTM-NULL-MACHINE','DTM-NULL-TRANSACTION',700,700,'USD',null,repeat('d',64),
+  'ad000000-0000-4000-8000-000000000001','no_attempt_integrity_hold',true
+)$$,'23514',null,'DTM confirmation cannot omit exact provider status62');
 -- The full persona suite runs after the disposable historical-DDL regressions
 -- roll back. Assert the final runtime eligibility guards survived that replay.
 select ok((select prosecdef and position('refund_authoritative_receipts' in prosrc)>0
@@ -457,6 +468,45 @@ select ok((select attempt_binding_kind='legacy_manual_portal_observation' and hi
 select ok((select official_action_authorization_id is null and status='manual_review' and provider_outcome='unknown'
     and reporting_adjustment_id is null from public.refund_case_nayax_refund_attempts
     where refund_case_id='ad400000-0000-4000-8000-000000000005'),'Legacy attempt remains unapproved and unresolved historical evidence');
+select ok(has_function_privilege('service_role',
+  'public.service_reconcile_terminal_refund_receipt(uuid,uuid,uuid)','execute')
+  and not has_function_privilege('authenticated',
+    'public.service_reconcile_terminal_refund_receipt(uuid,uuid,uuid)','execute'),
+  'Only the background service can apply an exact provider-free terminal receipt recovery');
+select set_config('test.terminal_receipt_id',(select id::text
+  from public.refund_authoritative_receipts
+  where refund_case_id='ad400000-0000-4000-8000-000000000005'),true);
+select set_config('test.terminal_attempt_id',(select id::text
+  from public.refund_case_nayax_refund_attempts
+  where refund_case_id='ad400000-0000-4000-8000-000000000005'),true);
+select set_config('request.jwt.claim.role','service_role',true);
+select set_config('request.jwt.claims','{"role":"service_role"}',true);
+set local role service_role;
+select is(public.service_reconcile_terminal_refund_receipt(
+  'ad400000-0000-4000-8000-000000000005',
+  current_setting('test.terminal_receipt_id')::uuid,
+  current_setting('test.terminal_attempt_id')::uuid) ->> 'status',
+  'reconciled','Service applies the exact receipt recovery once');
+reset role;
+select ok((select status='completed' and decision='approved'
+    and refund_completed_at is null and reporting_adjustment_id is null
+    and automation_state='completed' and nayax_match_execution_eligible=false
+  from public.refund_cases where id='ad400000-0000-4000-8000-000000000005'),
+  'Confirmed receipt leaves the actionable payment queue without inventing settlement or accounting dates');
+set local role service_role;
+select is(public.service_reconcile_terminal_refund_receipt(
+  'ad400000-0000-4000-8000-000000000005',
+  current_setting('test.terminal_receipt_id')::uuid,
+  current_setting('test.terminal_attempt_id')::uuid) ->> 'status',
+  'already_reconciled','Duplicate receipt recovery makes no second transition');
+reset role;
+select set_config('request.jwt.claim.role','authenticated',true);
+select set_config('request.jwt.claims',
+  '{"sub":"ad000000-0000-4000-8000-000000000001","role":"authenticated","session_id":"ad010000-0000-4000-8000-000000000001","is_anonymous":false}',true);
+select is((select count(*)::integer from public.refund_case_events
+  where refund_case_id='ad400000-0000-4000-8000-000000000005'
+    and event_type='terminal_refund_receipt_reconciled'),1,
+  'Duplicate recovery records one reconciliation event');
 select is((select count(*)::integer from public.sales_adjustment_facts where refund_case_id='ad400000-0000-4000-8000-000000000005'),0,'Legacy observation creates no dated adjustment');
 select is((select count(*)::integer from public.refund_case_messages where refund_case_id='ad400000-0000-4000-8000-000000000005'),1,'Legacy observation retains only its original historical notice and creates no send');
 select is((select to_jsonb(message) from public.refund_case_messages message where id='ad820000-0000-4000-8000-000000000005'),
