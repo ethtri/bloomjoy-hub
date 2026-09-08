@@ -8,6 +8,85 @@ create schema if not exists private;
 revoke all on schema private from public, anon, authenticated;
 grant usage on schema private to service_role;
 
+-- Pay details are account-sensitive. The original proof-of-concept also let a
+-- machine-only manager inherit payout-run and Pay Stub reads from one machine.
+-- Keep Time Report corrections machine-scoped, but remove that inheritance
+-- from every existing payout table policy that calls these helpers.
+create or replace function public.can_access_payout_run(
+  p_user_id uuid,
+  p_payout_run_id uuid
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select p_user_id is not null
+    and p_payout_run_id is not null
+    and exists (
+      select 1
+      from public.payout_runs run
+      where run.id = p_payout_run_id
+        and (
+          public.is_super_admin(p_user_id)
+          or public.can_manage_operator_payout_account(p_user_id, run.account_id)
+        )
+    );
+$$;
+
+create or replace function public.can_access_payout_run_item(
+  p_user_id uuid,
+  p_payout_run_item_id uuid
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select p_user_id is not null
+    and p_payout_run_item_id is not null
+    and exists (
+      select 1
+      from public.payout_run_items item
+      where item.id = p_payout_run_item_id
+        and (
+          public.is_super_admin(p_user_id)
+          or public.can_manage_operator_payout_account(p_user_id, item.account_id)
+        )
+    );
+$$;
+
+create or replace function public.can_access_pay_statement(
+  p_user_id uuid,
+  p_pay_statement_id uuid
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select p_user_id is not null
+    and p_pay_statement_id is not null
+    and exists (
+      select 1
+      from public.pay_statements statement
+      join public.operator_payout_profiles profile
+        on profile.id = statement.operator_profile_id
+      where statement.id = p_pay_statement_id
+        and (
+          (
+            profile.user_id = p_user_id
+            and statement.status in ('issued', 'revised')
+          )
+          or public.is_super_admin(p_user_id)
+          or public.can_manage_operator_payout_account(p_user_id, statement.account_id)
+        )
+    );
+$$;
+
 -- Replace the legacy approval-queue projection with canonical completed-time
 -- fields. Access remains machine-scoped: account pay authority is not required
 -- to correct time, and one machine manager never sees another machine.
@@ -748,6 +827,12 @@ comment on function private.calculate_technician_pay_report(uuid, uuid, date, da
   'Deterministic read-only Technician pay calculation used by manager reporting and future Pay Stub generation.';
 comment on function public.get_technician_pay_report_context(date) is
   'Account-pay-authorized monthly Technician Pay Report. It calculates only and never approves time, executes payment, calculates tax, or marks payment complete.';
+comment on function public.can_access_payout_run(uuid, uuid) is
+  'Account-pay-authorized payout-run access. Machine-only Time Report authority does not expose pay details.';
+comment on function public.can_access_payout_run_item(uuid, uuid) is
+  'Account-pay-authorized payout-item access. Machine-only Time Report authority does not expose pay details.';
+comment on function public.can_access_pay_statement(uuid, uuid) is
+  'Account-pay-authorized or own-published Pay Stub access. Machine-only Time Report authority does not expose pay details.';
 
 revoke execute on function public.get_my_time_review_context(date)
   from public, anon, authenticated;

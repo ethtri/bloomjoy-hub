@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(30);
+select plan(31);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -245,6 +245,11 @@ select is(
   pg_temp.capture_error($$select public.get_technician_pay_report_context('2026-07-01')$$),
   'Account pay authority required',
   'machine-only Time Report authority cannot read pay data'
+);
+select is(
+  jsonb_array_length(public.get_payout_review_context()->'periods'),
+  0,
+  'machine-only Time Report authority cannot read the legacy payout surface either'
 );
 
 select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);

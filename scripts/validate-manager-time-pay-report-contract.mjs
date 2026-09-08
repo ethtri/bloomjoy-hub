@@ -46,6 +46,10 @@ for (const [label, filePath] of Object.entries(files)) {
 const migration = readText(files.migration);
 for (const snippet of [
   'create or replace function public.get_my_time_review_context',
+  'create or replace function public.can_access_payout_run',
+  'create or replace function public.can_access_payout_run_item',
+  'create or replace function public.can_access_pay_statement',
+  'Machine-only Time Report authority does not expose pay details',
   "'actualStartAt', entry.actual_start_at",
   "'actualEndAt', entry.actual_end_at",
   "'actualDurationMinutes', entry.raw_duration_minutes",
@@ -113,6 +117,7 @@ for (const marker of [
   'one effective recurring supply credit is included once',
   'without deducting refunds twice',
   'machine-only Time Report authority cannot read pay data',
+  'machine-only Time Report authority cannot read the legacy payout surface either',
   'the existing manager correction RPC still works without a reason',
 ]) {
   if (!pgTap.includes(marker)) {
