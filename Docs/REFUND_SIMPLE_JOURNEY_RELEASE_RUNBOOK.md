@@ -1,5 +1,11 @@
 # Simple Card-Refund Release and UAT Runbook
 
+> **Historical `#949` release record only.** The launch cap, bounded-pilot,
+> owner go/no-go, and new monitoring-window instructions below do not govern
+> current refunds. Use `Docs/PRODUCTION_RUNBOOK.md` and
+> `Docs/NAYAX_REFUND_WORKING_CONTRACT.md`; the existing `#427` observation window
+> is fixed and must not be reset.
+
 This runbook closes issue `#949` up to the owner-controlled production boundary. A merged PR, synthetic UAT, or read-only audit does not authorize deployment, machine activation, customer contact, or a live refund.
 
 ## The manager promise
