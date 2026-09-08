@@ -59,8 +59,24 @@ export type NayaxControlledPilotStageResult = Readonly<{
   observedResultScalar?: string | null;
   observedStatusScalar?: string | null;
   observedScalarPairRetained?: boolean;
+  observedResultDiagnosticText: string | null;
+  observedResultDiagnosticDisposition: string;
+  observedResultDiagnosticLengthBucket: string;
+  observedStatusDiagnosticText: string | null;
+  observedStatusDiagnosticDisposition: string;
+  observedStatusDiagnosticLengthBucket: string;
   failureType?: "timeout" | "network" | "response_read";
   payloadRedacted: true;
+}>;
+
+export function buildNayaxRestrictedScalarDiagnostic(input: {
+  value: unknown;
+  keyPresent: boolean;
+  valueType: NayaxResponseValueType;
+}): Readonly<{
+  text: string | null;
+  disposition: string;
+  lengthBucket: string;
 }>;
 
 export type NayaxControlledPilotStageEvent =

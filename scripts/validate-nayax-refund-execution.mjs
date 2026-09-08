@@ -178,7 +178,7 @@ assert(
   fn.includes('can_perform_refund_official_action') &&
     fn.includes('createNayaxRefundProviderAdapter') &&
   fn.includes('service_reserve_nayax_refund_manager_action_v4') &&
-    fn.includes('service_record_nayax_refund_provider_stage_v3') &&
+    fn.includes('service_record_nayax_refund_provider_stage_v4_diagnostics') &&
     fn.includes('service_get_nayax_refund_provider_journal_capability_v3') &&
     fn.includes('orchestrateNayaxRefund') &&
     fn.includes('authorizeRefundOfficialAction') &&

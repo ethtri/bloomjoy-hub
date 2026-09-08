@@ -180,7 +180,7 @@ const retainSanitizedBusinessOutcomeValue = (value) => {
     value.length < 1 ||
     value.length > 80 ||
     value !== value.trim() ||
-    /[\u0000-\u001f\u007f]/u.test(value) ||
+    /[\u0000-\u001f\u007f-\u009f\ud800-\udfff]/u.test(value) ||
     /@|https?:\/\//iu.test(value) ||
     /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/iu.test(value) ||
     /\d/u.test(value)
@@ -205,7 +205,7 @@ const retainRestrictedResponseScalar = (value) => {
   if (
     typeof value !== "string" ||
     value.length > 80 ||
-    /[\u0000-\u001f\u007f]/u.test(value) ||
+    /[\u0000-\u001f\u007f-\u009f\ud800-\udfff]/u.test(value) ||
     /@|https?:\/\//iu.test(value) ||
     /(?:bearer|password|secret|token)/iu.test(value) ||
     /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/iu.test(value) ||
@@ -215,6 +215,70 @@ const retainRestrictedResponseScalar = (value) => {
     return undefined;
   }
   return value;
+};
+
+const restrictedScalarContainsSensitiveText = (value) =>
+  /[\u0000-\u001f\u007f-\u009f\ud800-\udfff]/u.test(value) ||
+  /@|https?:\/\//iu.test(value) ||
+  /(?:bearer|password|secret|token)/iu.test(value) ||
+  /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/iu.test(value) ||
+  /(?:\d[ -]?){12,}/u.test(value) ||
+  /[A-Za-z0-9_-]{32,}/u.test(value);
+
+const restrictedScalarLengthBucket = (length) => {
+  if (length === 0) return "empty";
+  if (length <= 80) return "1_80";
+  if (length <= 160) return "81_160";
+  return "over_160";
+};
+
+export const buildNayaxRestrictedScalarDiagnostic = ({
+  value,
+  keyPresent,
+  valueType,
+}) => {
+  if (!keyPresent) {
+    const unavailable = valueType === "unavailable";
+    return Object.freeze({
+      text: null,
+      disposition: unavailable ? "unavailable" : "missing",
+      lengthBucket: unavailable ? "unavailable" : "missing",
+    });
+  }
+  if (valueType === "null") {
+    return Object.freeze({ text: null, disposition: "json_null", lengthBucket: "json_null" });
+  }
+  const scalar = typeof value === "boolean"
+    ? value ? "true" : "false"
+    : typeof value === "number" && Number.isSafeInteger(value) &&
+        Math.abs(value) <= 999_999_999
+    ? String(value)
+    : typeof value === "string"
+    ? value
+    : null;
+  if (scalar === null) {
+    return Object.freeze({ text: null, disposition: "unsupported", lengthBucket: "unsupported" });
+  }
+  const codePoints = Array.from(scalar);
+  const lengthBucket = restrictedScalarLengthBucket(codePoints.length);
+  if (restrictedScalarContainsSensitiveText(scalar)) {
+    return Object.freeze({
+      text: "[redacted]",
+      disposition: "sensitive_redacted",
+      lengthBucket,
+    });
+  }
+  if (codePoints.length <= 80) {
+    return Object.freeze({ text: scalar, disposition: "exact", lengthBucket });
+  }
+  if (codePoints.length <= 160) {
+    return Object.freeze({ text: scalar, disposition: "length_extended", lengthBucket });
+  }
+  return Object.freeze({
+    text: codePoints.slice(0, 160).join(""),
+    disposition: "length_truncated",
+    lengthBucket,
+  });
 };
 
 export function parseNayaxRefundProviderContract(rawValue) {
@@ -656,6 +720,16 @@ export function classifyNayaxRefundResponse({
     : undefined;
   const observedScalarPairRetained =
     observedResultScalar !== undefined && observedStatusScalar !== undefined;
+  const resultDiagnostic = buildNayaxRestrictedScalarDiagnostic({
+    value: record.Result,
+    keyPresent: resultKeyPresent,
+    valueType: resultValueType,
+  });
+  const statusDiagnostic = buildNayaxRestrictedScalarDiagnostic({
+    value: record.Status,
+    keyPresent: statusKeyPresent,
+    valueType: statusValueType,
+  });
   const contractMatched = safeFailureType === null &&
     httpAccepted &&
     safeMediaTypeClass === "application_json" &&
@@ -700,6 +774,12 @@ export function classifyNayaxRefundResponse({
         observedScalarPairRetained,
       }
       : {}),
+    observedResultDiagnosticText: resultDiagnostic.text,
+    observedResultDiagnosticDisposition: resultDiagnostic.disposition,
+    observedResultDiagnosticLengthBucket: resultDiagnostic.lengthBucket,
+    observedStatusDiagnosticText: statusDiagnostic.text,
+    observedStatusDiagnosticDisposition: statusDiagnostic.disposition,
+    observedStatusDiagnosticLengthBucket: statusDiagnostic.lengthBucket,
     ...(safeFailureType ? { failureType: safeFailureType } : {}),
     payloadRedacted: true,
   });
