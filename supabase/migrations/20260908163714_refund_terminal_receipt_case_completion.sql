@@ -239,6 +239,11 @@ returns boolean language sql stable security definer set search_path='' as $$
   select coalesce(
     public.is_refund_terminal_api_completion_message(p_old)
     and public.is_refund_terminal_api_completion_message(p_new)
+    and case p_old->>'status'
+      when 'pending' then p_new->>'status' in ('pending','sent','failed')
+      when 'failed' then p_new->>'status' in ('failed','pending')
+      when 'sent' then p_new->>'status'='sent'
+      else false end
     and jsonb_build_array(
       p_new->'id',p_new->'refund_case_id',p_new->'nayax_refund_attempt_id',
       p_new->'message_type',p_new->'recipient_email',p_new->'subject',p_new->'body',
@@ -272,6 +277,17 @@ returns boolean language sql stable security definer set search_path='' as $$
     and p_old->>'provider_outcome'='success' and p_new->>'provider_outcome'='success'
     and coalesce((p_old->>'reconciliation_required')::boolean,false)=false
     and coalesce((p_new->>'reconciliation_required')::boolean,false)=false
+    and case p_old->>'completion_delivery_status'
+      when 'not_claimed' then p_new->>'completion_delivery_status'='pending'
+      when 'pending' then p_new->>'completion_delivery_status'
+        in ('pending','sent','failed','delivery_unknown')
+      when 'failed' then p_new->>'completion_delivery_status' in ('failed','pending')
+      when 'sent' then p_new->>'completion_delivery_status'='sent'
+      when 'delivery_unknown' then p_new->>'completion_delivery_status'
+        in ('delivery_unknown','sent')
+      else false end
+    and (p_new->>'completion_delivery_retry_count')::integer
+      between (p_old->>'completion_delivery_retry_count')::integer and 1
     and nullif(p_new->>'completion_message_id','') is not null
     and exists(select 1 from public.refund_case_messages message
       where message.id=(p_new->>'completion_message_id')::uuid
@@ -351,12 +367,15 @@ begin
     ||E'  if tg_table_name=''refund_case_nayax_refund_attempts'' and tg_op=''UPDATE''\n'
     ||E'    and public.refund_terminal_api_completion_attempt_change_allowed(to_jsonb(old),to_jsonb(new)) then\n'
     ||E'    return new;\n  end if;\n'
-    ||E'  if tg_table_name=''refund_case_messages'' and (\n'
-    ||E'    (tg_op=''INSERT'' and public.is_refund_terminal_api_completion_message(to_jsonb(new)))\n'
-    ||E'    or (tg_op=''UPDATE'' and public.refund_terminal_api_completion_message_change_allowed(\n'
-    ||E'      to_jsonb(old),to_jsonb(new)))\n'
-    ||E'  ) then\n'
-    ||E'    return new;\n  end if;\n  if tg_table_name=';
+    ||E'  if tg_table_name=''refund_case_messages'' and tg_op=''INSERT''\n'
+    ||E'    and public.is_refund_terminal_api_completion_message(to_jsonb(new)) then\n'
+    ||E'    return new;\n  end if;\n'
+    ||E'  if tg_table_name=''refund_case_messages'' and tg_op=''UPDATE''\n'
+    ||E'    and public.is_refund_terminal_api_completion_message(to_jsonb(old)) then\n'
+    ||E'    if public.refund_terminal_api_completion_message_change_allowed(\n'
+    ||E'      to_jsonb(old),to_jsonb(new)) then return new; end if;\n'
+    ||E'    raise exception ''Confirmed API completion message cannot move backward or change identity''\n'
+    ||E'      using errcode=''P4663'';\n  end if;\n  if tg_table_name=';
   if cardinality(string_to_array(body,anchor))<>2 then
     raise exception 'Unexpected authoritative receipt guard shape';
   end if;
@@ -645,7 +664,11 @@ declare
   base jsonb;
   delivery_base jsonb;
   receipt public.refund_authoritative_receipts%rowtype;
+  attempt public.refund_case_nayax_refund_attempts%rowtype;
+  completion_message public.refund_case_messages%rowtype;
   adjustment_fact public.sales_adjustment_facts%rowtype;
+  unsent_pending boolean:=false;
+  sent_complete boolean:=false;
 begin
   base:=public.refund_lifecycle_contract_pre_terminal_reconciliation_v1(p_refund_case_id);
   select * into receipt from public.refund_authoritative_receipts
@@ -662,6 +685,50 @@ begin
   delivery_base:=public.refund_lifecycle_contract_pre_authoritative_receipt_v1(
     p_refund_case_id
   );
+  select * into attempt from public.refund_case_nayax_refund_attempts
+    where id=receipt.nayax_refund_attempt_id and refund_case_id=p_refund_case_id;
+  select * into completion_message from public.refund_case_messages
+    where id=attempt.completion_message_id and refund_case_id=p_refund_case_id;
+  unsent_pending:=attempt.id is not null and completion_message.id is not null
+    and public.is_refund_terminal_api_completion_message(to_jsonb(completion_message))
+    and attempt.completion_delivery_status='pending'
+    and completion_message.status='pending'
+    and completion_message.delivery_transport is null
+    and completion_message.manual_delivery_provider_attempted_at is null
+    and not exists(select 1 from public.refund_gmail_messages gmail_message
+      where gmail_message.refund_case_message_id=completion_message.id);
+  sent_complete:=attempt.id is not null and completion_message.id is not null
+    and public.is_refund_terminal_api_completion_message(to_jsonb(completion_message))
+    and attempt.completion_delivery_status='sent'
+    and completion_message.status='sent';
+  if unsent_pending then
+    delivery_base:=delivery_base||jsonb_build_object(
+      'managerAction',jsonb_build_object('action','wait_for_customer_notification',
+        'owner','Machine Manager','safeRetryEligible',false,'payloadRedacted',true),
+      'managerNextAction','wait_for_customer_notification',
+      'managerQueue',jsonb_build_object('schemaVersion','refund_manager_queue_v2',
+        'bucket','in_progress','label','In progress',
+        'nextAction','wait_for_customer_notification','safeRetryEligible',false,
+        'customerActionFields','[]'::jsonb,'payloadRedacted',true),
+      'operations',(delivery_base->'operations')||jsonb_build_object(
+        'required',false,'ageMinutes',null,'dueAt',null,'slaBreached',false,
+        'failureClass',null,'nextStep',null));
+  elsif sent_complete then
+    delivery_base:=delivery_base||jsonb_build_object(
+      'reasonCode','completion_sent',
+      'messageState',(delivery_base->'messageState')||jsonb_build_object('state','sent'),
+      'managerAction',jsonb_build_object('action','none','owner','Machine Manager',
+        'safeRetryEligible',false,'payloadRedacted',true),
+      'managerNextAction','none',
+      'managerQueue',jsonb_build_object('schemaVersion','refund_manager_queue_v2',
+        'bucket','completed','label','Done','nextAction','none',
+        'safeRetryEligible',false,'customerActionFields','[]'::jsonb,
+        'payloadRedacted',true),
+      'operations',(delivery_base->'operations')||jsonb_build_object(
+        'required',false,'ageMinutes',null,'dueAt',null,'slaBreached',false,
+        'failureClass',null,'nextStep',null),
+      'terminal',true,'refreshAfterSeconds',null);
+  end if;
   return base||jsonb_build_object(
       'stage',delivery_base->'stage',
       'stageRank',delivery_base->'stageRank',

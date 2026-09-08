@@ -408,6 +408,8 @@ reset role;
 -- Sanitized reproduction of the documented ad-hoc batch, not a modern RPC or
 -- invented approval. The fingerprint deliberately contains NO account identity.
 select pg_temp.set_receipt_auth('ad000000-0000-4000-8000-000000000001','ad010000-0000-4000-8000-000000000001');
+update public.refund_cases set decision='approved'
+where id='ad400000-0000-4000-8000-000000000005';
 -- A historical confirmation predates the held attempt. Apply the actual 0700
 -- backfill fields/predicates to this isolated row while every trigger stays on.
 insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,sent_at)
