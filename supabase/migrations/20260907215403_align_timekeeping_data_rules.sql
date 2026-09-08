@@ -921,6 +921,10 @@ as $$
     and (
       profile.user_id = (select auth.uid())
       or public.can_access_operator_payout_profile((select auth.uid()), profile.id)
+      or public.can_manage_operator_payout_machine(
+        (select auth.uid()),
+        entry.reporting_machine_id
+      )
     );
 $$;
 
