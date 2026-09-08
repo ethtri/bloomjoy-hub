@@ -171,7 +171,8 @@
     "20260907213000_refund_receipt_trigger_privilege_boundary.sql",
     "20260907215325_refund_one_manager_pending_integrity.sql",
     "20260907221500_refund_gmail_canonical_threading.sql",
-    "20260907234016_refund_manager_read_timezone_fastpath.sql"
+    "20260907234016_refund_manager_read_timezone_fastpath.sql",
+    "20260908033000_refund_nayax_bound_offset_time.sql"
   ],
   "migrationFilesSha256": "767e9018cc5c787b14969748b24138171aeb08e45a817363cbebd642e2a3e9a6",
   "migrationVersionSetSha256": "0907e7ac297e30aec9948ac5c0f84ed5327ef802eb28c3e82fa7b46256a028af",

@@ -91,6 +91,22 @@ test('active journal-v3 refund inputs pass while execution gates remain fail-clo
   assert.match(result.stdout, /Commerce and refund operations preflight checks passed/);
 });
 
+test('machine-time serialization can opt in separately without rewriting the manager contract', () => {
+  const enabled = runPreflight({
+    NAYAX_REFUND_MACHINE_AUTHORIZATION_TIME_MODE: 'source_with_bound_offset',
+  });
+  assert.equal(enabled.status, 0, `${enabled.stdout}\n${enabled.stderr}`);
+
+  const invalid = runPreflight({
+    NAYAX_REFUND_MACHINE_AUTHORIZATION_TIME_MODE: 'offset_guess',
+  });
+  assert.equal(invalid.status, 1);
+  assert.match(
+    invalid.stdout,
+    /NAYAX_REFUND_MACHINE_AUTHORIZATION_TIME_MODE must be exact_source or source_with_bound_offset/,
+  );
+});
+
 test('obsolete pilot confirmation cannot substitute for active v3 contract inputs', () => {
   const result = runPreflight({
     NAYAX_REFUND_EXECUTION_PROVIDER_CONTRACT_CONFIRMED: 'true',

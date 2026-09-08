@@ -1,4 +1,7 @@
-import { parseNayaxMachineAuthorizationTime } from './nayax-machine-authorization-time.mjs';
+import {
+  buildNayaxMachineAuthorizationTimeWireValue,
+  parseNayaxMachineAuthorizationTime,
+} from './nayax-machine-authorization-time.mjs';
 
 export const NAYAX_REFUND_PRODUCTION_BASE_URL =
   "https://lynx.nayax.com/operational/v1";
@@ -232,6 +235,7 @@ export function parseNayaxRefundProviderContract(rawValue) {
       "authorizationMode",
       "amountUnit",
       "amountRoundingMode",
+      "machineAuthorizationTimeMode",
       "refundEmailListMode",
       "writeCredentialMode",
       "sameWriteTokenContractConfirmed",
@@ -264,6 +268,18 @@ export function parseNayaxRefundProviderContract(rawValue) {
   if (amountRoundingMode !== "exact_cent") {
     throw new Error(
       "Nayax refund provider amountRoundingMode must be exact_cent.",
+    );
+  }
+
+  const machineAuthorizationTimeMode = text(
+    contract.machineAuthorizationTimeMode ?? "exact_source",
+    60,
+  ).toLowerCase();
+  if (!new Set(["exact_source", "source_with_bound_offset"]).has(
+    machineAuthorizationTimeMode,
+  )) {
+    throw new Error(
+      "Nayax refund provider machineAuthorizationTimeMode is invalid.",
     );
   }
 
@@ -358,6 +374,7 @@ export function parseNayaxRefundProviderContract(rawValue) {
     authorizationMode,
     amountUnit,
     amountRoundingMode,
+    machineAuthorizationTimeMode,
     refundEmailListMode,
     writeCredentialMode,
     sameWriteTokenContractConfirmed,
@@ -448,7 +465,9 @@ export function areNayaxRefundWriteCredentialsReady({
   }
 }
 
-export function freezeNayaxRefundEvidence(value) {
+export function freezeNayaxRefundEvidence(value, contract = {
+  machineAuthorizationTimeMode: "exact_source",
+}) {
   const record = assertPlainObject(value, "Nayax refund execution evidence");
   assertExactKeys(
     record,
@@ -459,6 +478,8 @@ export function freezeNayaxRefundEvidence(value) {
       "transactionId",
       "siteId",
       "machineAuthorizationTime",
+      "machineAuthorizationTimeInstant",
+      "machineAuthorizationTimeWire",
     ]),
     "Nayax refund execution evidence",
   );
@@ -471,6 +492,28 @@ export function freezeNayaxRefundEvidence(value) {
     throw new Error("Nayax refund evidence must use USD.");
   }
 
+  const machineAuthorizationTime = parseMachineAuthorizationTime(
+    record.machineAuthorizationTime,
+  );
+  const machineAuthorizationTimeInstant =
+    record.machineAuthorizationTimeInstant === undefined
+      ? undefined
+      : parseMachineAuthorizationTime(record.machineAuthorizationTimeInstant);
+  const machineAuthorizationTimeWire =
+    contract.machineAuthorizationTimeMode === "source_with_bound_offset"
+      ? buildNayaxMachineAuthorizationTimeWireValue({
+        rawValue: machineAuthorizationTime,
+        normalizedInstant: machineAuthorizationTimeInstant,
+        mode: contract.machineAuthorizationTimeMode,
+      })
+      : machineAuthorizationTime;
+  if (
+    record.machineAuthorizationTimeWire !== undefined &&
+    record.machineAuthorizationTimeWire !== machineAuthorizationTimeWire
+  ) {
+    throw new Error("Nayax refund wire time does not match frozen evidence.");
+  }
+
   return Object.freeze({
     caseId,
     amountCents: providerAmount(record.amountCents, "minor"),
@@ -480,9 +523,11 @@ export function freezeNayaxRefundEvidence(value) {
       "Nayax TransactionId",
     ),
     siteId: parseProviderInteger(record.siteId, "Nayax SiteId", INT32_MAX),
-    machineAuthorizationTime: parseMachineAuthorizationTime(
-      record.machineAuthorizationTime,
-    ),
+    machineAuthorizationTime,
+    ...(machineAuthorizationTimeInstant === undefined
+      ? {}
+      : { machineAuthorizationTimeInstant }),
+    machineAuthorizationTimeWire,
   });
 }
 
@@ -1290,7 +1335,7 @@ export function createNayaxRefundProviderAdapter({
     requestToken: rawRequestToken,
     approveToken: rawApproveToken,
   });
-  const evidence = freezeNayaxRefundEvidence(rawEvidence);
+  const evidence = freezeNayaxRefundEvidence(rawEvidence, contract);
   const boundedTimeoutMs = safeTimeoutMs(timeoutMs);
 
   return Object.freeze({
@@ -1318,7 +1363,7 @@ export function createNayaxRefundProviderAdapter({
           approveToken,
           transactionId: evidence.transactionId,
           siteId: evidence.siteId,
-          machineAuthorizationTime: evidence.machineAuthorizationTime,
+          machineAuthorizationTime: evidence.machineAuthorizationTimeWire,
           fetchImpl,
           timeoutMs: boundedTimeoutMs,
           onStageEvent,
@@ -1330,7 +1375,7 @@ export function createNayaxRefundProviderAdapter({
           amountCents: evidence.amountCents,
           transactionId: evidence.transactionId,
           siteId: evidence.siteId,
-          machineAuthorizationTime: evidence.machineAuthorizationTime,
+          machineAuthorizationTime: evidence.machineAuthorizationTimeWire,
           fetchImpl,
           timeoutMs: boundedTimeoutMs,
           onStageEvent,

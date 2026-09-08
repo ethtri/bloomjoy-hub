@@ -1,8 +1,19 @@
-import { parseNayaxMachineAuthorizationTime } from './nayax-machine-authorization-time.mjs';
+import {
+  buildNayaxMachineAuthorizationTimeWireValue,
+  parseNayaxMachineAuthorizationTime,
+} from './nayax-machine-authorization-time.mjs';
 
 export type NayaxRefundExecutionContext = {
   contextHash: string; caseId: string; caseVersion: number; attemptGeneration: number;
   transactionId: string; siteId: number; machineAuthorizationTime: string;
+  machineAuthorizationTimeInstant: string;
+  machineAuthorizationTimeWire: string;
+  machineAuthorizationTimeSerializationMode:
+    | 'exact_source'
+    | 'source_with_bound_offset';
+  machineAuthorizationTimeSerializationSource:
+    | 'exact_source'
+    | 'selected_normalized_instant';
   originalAmountCents: number; currencyCode: 'USD'; accountScope: string; providerMachineId: string;
 };
 
@@ -10,6 +21,7 @@ export function parseNayaxRefundExecutionContext(value: unknown, expected: {
   caseId: string; caseVersion: number; attemptGeneration: number;
   transactionId: string | null; siteId: number | null; amountCents: number | null;
   accountScope: string | null; providerMachineId: string | null;
+  machineAuthorizationInstant: string | null;
 }): NayaxRefundExecutionContext | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const v = value as Record<string, unknown>;
@@ -20,6 +32,33 @@ export function parseNayaxRefundExecutionContext(value: unknown, expected: {
     v.originalAmountCents !== expected.amountCents || !Number.isSafeInteger(v.originalAmountCents) || Number(v.originalAmountCents) <= 0 ||
     v.currencyCode !== 'USD' || v.accountScope !== expected.accountScope || v.providerMachineId !== expected.providerMachineId ||
     v.machineAuthorizationTimeSource !== 'MachineAuthorizationTime') return null;
-  try { parseNayaxMachineAuthorizationTime(v.machineAuthorizationTime); } catch { return null; }
+  const boundInstant = Date.parse(String(v.machineAuthorizationTimeInstant));
+  const expectedInstant = Date.parse(String(expected.machineAuthorizationInstant));
+  if (
+    !Number.isFinite(boundInstant) ||
+    !Number.isFinite(expectedInstant) ||
+    boundInstant !== expectedInstant ||
+    !new Set(['exact_source', 'source_with_bound_offset']).has(
+      String(v.machineAuthorizationTimeSerializationMode),
+    )
+  ) return null;
+  const mode = v.machineAuthorizationTimeSerializationMode as
+    | 'exact_source'
+    | 'source_with_bound_offset';
+  const expectedSource = mode === 'exact_source'
+    ? 'exact_source'
+    : 'selected_normalized_instant';
+  if (v.machineAuthorizationTimeSerializationSource !== expectedSource) return null;
+  try {
+    parseNayaxMachineAuthorizationTime(v.machineAuthorizationTime);
+    const wire = buildNayaxMachineAuthorizationTimeWireValue({
+      rawValue: v.machineAuthorizationTime,
+      normalizedInstant: v.machineAuthorizationTimeInstant,
+      mode,
+    });
+    if (v.machineAuthorizationTimeWire !== wire) return null;
+  } catch {
+    return null;
+  }
   return Object.freeze(v as NayaxRefundExecutionContext);
 }
