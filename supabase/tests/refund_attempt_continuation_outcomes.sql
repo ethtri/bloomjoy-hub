@@ -84,7 +84,7 @@ select n,(context->>'caseVersion')::bigint,
     ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
     (context->>'caseVersion')::bigint,'nayax-refund-'||repeat(n::text,64),800,null,null,'USD',
     'nayax-production-account-contract-v2','nayax-provider-journal-v3',context->>'contextHash') end
-from generate_series(1,6) n
+from generate_series(1,7) n
 cross join lateral (
   select case when n=1 then public.service_get_refund_nayax_execution_context_v2('continuation-executor',
     'ca000000-0000-4000-8000-000000000001',
