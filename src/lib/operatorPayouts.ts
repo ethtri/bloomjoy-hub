@@ -658,6 +658,7 @@ export type TechnicianPayReportMachine = {
   assignedEndDate: string;
   assignmentScopeResolved: boolean;
   fullPeriodAssignment: boolean;
+  commissionAllocationResolved: boolean;
   commissionRateCompleteForPeriod: boolean;
   revenueSnapshotId: string | null;
   revenueSnapshotStatus: PayoutRevenueSnapshotStatus | null;

@@ -972,11 +972,56 @@ as $$
       day_row.commission_rate,
       day_row.segment_group
   ),
+  commission_machine_scope as materialized (
+    select
+      segment.reporting_machine_id,
+      (count(distinct segment.commission_basis_points)
+        filter (where segment.commission_basis_points is not null))::integer
+        as commission_rate_count,
+      bool_or(segment.commission_rate is null) as commission_rate_missing_day,
+      (
+        count(distinct segment.commission_basis_points)
+          filter (where segment.commission_basis_points is not null) > 1
+        and bool_or(segment.net_revenue_cents < 0)
+      ) as cross_rate_refund_allocation_ambiguous,
+      greatest(sum(segment.net_revenue_cents), 0)::bigint
+        as eligible_commission_revenue_cents,
+      case
+        when bool_or(segment.commission_rate is null) then 0
+        when count(distinct segment.commission_basis_points)
+          filter (where segment.commission_basis_points is not null) > 1
+          and bool_or(segment.net_revenue_cents < 0)
+        then 0
+        when count(distinct segment.commission_basis_points)
+          filter (where segment.commission_basis_points is not null) = 1
+        then round(
+          greatest(sum(segment.net_revenue_cents), 0)::numeric
+          * max(segment.commission_basis_points)
+          / 10000
+        )::integer
+        else sum(round(
+          segment.eligible_commission_revenue_cents::numeric
+          * segment.commission_basis_points
+          / 10000
+        ))::integer
+      end as commission_earnings_cents
+    from commission_segments segment
+    group by segment.reporting_machine_id
+  ),
   commission_segment_lines as materialized (
     select
       segment.*,
+      not scope.cross_rate_refund_allocation_ambiguous
+        as commission_allocation_resolved,
       case
-        when segment.commission_rate is null then 0
+        when segment.commission_rate is null
+          or scope.cross_rate_refund_allocation_ambiguous
+        then 0
+        when scope.commission_rate_count = 1 then round(
+          segment.net_revenue_cents::numeric
+          * segment.commission_basis_points
+          / 10000
+        )::integer
         else round(
           segment.eligible_commission_revenue_cents::numeric
           * segment.commission_basis_points
@@ -984,6 +1029,8 @@ as $$
         )::integer
       end as commission_earnings_cents
     from commission_segments segment
+    join commission_machine_scope scope
+      on scope.reporting_machine_id = segment.reporting_machine_id
   ),
   commission_lines as materialized (
     select
@@ -1013,6 +1060,8 @@ as $$
         as commission_rate_missing_day,
       coalesce(assigned_totals.commission_rate_count, 0)::integer
         as commission_rate_count,
+      coalesce(assigned_totals.cross_rate_refund_allocation_ambiguous, false)
+        as cross_rate_refund_allocation_ambiguous,
       assigned_totals.single_commission_rate as commission_rate,
       assigned_totals.single_commission_basis_points as commission_basis_points,
       coalesce(assigned_totals.commission_segments, '[]'::jsonb) as commission_segments,
@@ -1052,16 +1101,16 @@ as $$
         sum(segment.gross_sales_cents)::bigint as gross_sales_cents,
         sum(segment.refund_adjustment_cents)::bigint as refund_adjustment_cents,
         sum(segment.net_revenue_cents)::bigint as net_revenue_cents,
-        sum(segment.eligible_commission_revenue_cents)::bigint
+        max(scope.eligible_commission_revenue_cents)::bigint
           as eligible_commission_revenue_cents,
-        sum(segment.commission_earnings_cents)::bigint as commission_earnings_cents,
+        max(scope.commission_earnings_cents)::bigint as commission_earnings_cents,
         sum(segment.source_sales_row_count)::integer as source_sales_row_count,
         sum(segment.source_adjustment_row_count)::integer as source_adjustment_row_count,
         max(segment.source_latest_sale_date) as source_latest_sale_date,
-        bool_or(segment.commission_rate is null) as commission_rate_missing_day,
-        (count(distinct segment.commission_basis_points)
-          filter (where segment.commission_basis_points is not null))::integer
-          as commission_rate_count,
+        bool_or(scope.commission_rate_missing_day) as commission_rate_missing_day,
+        max(scope.commission_rate_count)::integer as commission_rate_count,
+        bool_or(scope.cross_rate_refund_allocation_ambiguous)
+          as cross_rate_refund_allocation_ambiguous,
         case
           when count(distinct segment.commission_basis_points)
             filter (where segment.commission_basis_points is not null) = 1
@@ -1090,6 +1139,8 @@ as $$
         ) order by segment.segment_start_date, segment.segment_end_date)
           as commission_segments
       from commission_segment_lines segment
+      join commission_machine_scope scope
+        on scope.reporting_machine_id = segment.reporting_machine_id
       where segment.reporting_machine_id = assigned.reporting_machine_id
     ) assigned_totals on true
     left join lateral (
@@ -1228,6 +1279,18 @@ as $$
     union all
 
     select jsonb_build_object(
+      'code', 'cross_rate_refund_allocation_ambiguous',
+      'severity', 'blocker',
+      'message', 'Resolve refund attribution across commission-rate periods before publishing.',
+      'operatorProfileId', p_operator_profile_id,
+      'machineId', commission.reporting_machine_id
+    )
+    from commission_lines commission
+    where commission.cross_rate_refund_allocation_ambiguous
+
+    union all
+
+    select jsonb_build_object(
       'code', 'shared_machine_compensation_scope',
       'severity', 'blocker',
       'message', 'Resolve overlapping Technician assignment dates for this machine before publishing.',
@@ -1351,6 +1414,7 @@ as $$
         'assignedEndDate', commission.assigned_end_date,
         'assignmentScopeResolved', not commission.shared_compensation_scope,
         'fullPeriodAssignment', commission.full_period_scope,
+        'commissionAllocationResolved', not commission.cross_rate_refund_allocation_ambiguous,
         'commissionRateCompleteForPeriod', not commission.commission_rate_missing_day,
         'revenueSnapshotId', commission.revenue_snapshot_id,
         'revenueSnapshotStatus', commission.revenue_snapshot_status,
@@ -1395,6 +1459,7 @@ as $$
       'legacyPartialPeriodBlocker', 'partial_period_assignment_scope removed; valid partial windows are date segmented',
       'removedLegacyBlockers', jsonb_build_array('partial_period_assignment_scope'),
       'refundAppliedOnce', true,
+      'crossRateRefundPolicy', 'fail closed when a negative segment cannot be attributed across multiple effective commission rates',
       'approvalRequired', false,
       'paymentExecution', false,
       'taxCalculation', false

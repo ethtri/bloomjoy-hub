@@ -9,7 +9,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(57);
+select plan(60);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -565,6 +565,48 @@ select is(
   '350',
   'partial assignment commission reconciles across its two rates'
 );
+
+update public.sales_adjustment_facts
+set amount_cents = 8000
+where id = 'a9200000-0000-0000-0000-000000000001';
+
+update public.payout_period_machine_revenue_snapshots
+set refund_adjustment_cents = 8000,
+    net_revenue_cents = 2000,
+    eligible_commission_revenue_cents = 2000
+where id = 'aa000000-0000-0000-0000-000000000001';
+
+select is(
+  concat(
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,machines,0,snapshotMatchesFacts}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,machines,0,commissionableSalesCents}'
+  ),
+  'true:2000',
+  'cross-rate refunds reconcile to authoritative facts with the machine basis capped once'
+);
+select is(
+  concat(
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,machines,0,commissionAllocationResolved}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,machines,0,commissionEarningsCents}'
+  ),
+  'false:0',
+  'an ambiguous cross-rate refund cannot contribute commission earnings'
+);
+select is(
+  concat(
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,publishable}', ':',
+    (
+      select count(*)::integer
+      from jsonb_array_elements(
+        public.get_technician_pay_report_context('2026-07-01') #> '{technicians,0,blockers}'
+      ) blocker(value)
+      where blocker.value ->> 'code' = 'cross_rate_refund_allocation_ambiguous'
+    )
+  ),
+  'false:1',
+  'ambiguous refund attribution fails closed with one explicit blocker'
+);
+
 select is(
   concat(
     public.get_technician_pay_report_context('2026-07-01') #>> '{capabilities,approvalRequired}', ':',
