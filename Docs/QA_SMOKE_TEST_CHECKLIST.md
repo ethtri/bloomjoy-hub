@@ -609,6 +609,9 @@ Historical controlled-pilot regression evidence remains the **ten-function/51-mi
 
 ### Technician Pay Report (legacy validator: Admin Technician Pay Review)
 - [ ] Admin or scoped Technician Pay manager can open `/admin/payouts`; users without Technician Pay admin access see the existing admin access-required state.
+- [ ] From `/admin/payouts`, an account pay manager can open **Set up Technician**, follow the visible People & Permissions invitation prerequisite, choose worker classification, account, one or more active machines, pay per shift, default commission, and a start date, then activate Timekeeping in one action.
+- [ ] Initial Technician setup requires an already accepted invitation/sign-in, rejects missing or out-of-scope machines and invalid rates, and commits the profile, effective machine assignments, shift rate, and commission rate atomically with an audit record; a failure creates no partial setup.
+- [ ] The initial setup dialog remains keyboard accessible, touch friendly, scrollable on a short `390x667` viewport, and keeps **Activate Timekeeping** reachable without page-level horizontal overflow.
 - [ ] The monthly report groups actual time, paid shifts, applicable per-shift rate, shift earnings, commissionable sales, applicable commission rate, commission, other earnings/credits, and statement total by Technician.
 - [ ] The report's machine breakdown shows actual time, independently rounded shifts, commissionable sales, and commission contribution without exposing out-of-scope machines or another Technician's compensation.
 - [ ] Commissionable sales come from the authoritative eligible-revenue snapshot for the Technician's effective machine scope; the source sales basis, applied percentage, and resulting commission reconcile exactly and a reporting adjustment is not deducted twice.

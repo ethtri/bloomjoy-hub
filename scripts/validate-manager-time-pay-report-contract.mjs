@@ -15,6 +15,12 @@ const files = {
     'migrations',
     '20260908002416_manager_time_and_pay_report_contract.sql'
   ),
+  setupMigration: path.join(
+    repoRoot,
+    'supabase',
+    'migrations',
+    '20260908043000_timekeeping_pilot_setup.sql'
+  ),
   pgTap: path.join(repoRoot, 'supabase', 'tests', 'manager_time_pay_report_contract.sql'),
   helper: path.join(repoRoot, 'src', 'lib', 'operatorPayouts.ts'),
   payReportPage: path.join(repoRoot, 'src', 'pages', 'admin', 'Payouts.tsx'),
@@ -98,6 +104,26 @@ for (const snippet of [
   expect(migration, snippet, 'manager report migration');
 }
 
+const setupMigration = readText(files.setupMigration);
+for (const snippet of [
+  'create or replace function public.get_timekeeping_setup_context',
+  'create or replace function public.admin_setup_timekeeping_technician',
+  'public.can_manage_operator_payout_account(actor_user_id, p_account_id)',
+  'public.can_manage_operator_payout_machine(actor_user_id, machine.id)',
+  'pg_advisory_xact_lock',
+  'public.admin_upsert_operator_payout_profile',
+  'public.admin_upsert_operator_machine_assignment',
+  'public.admin_upsert_operator_compensation_rate',
+  "'shift'",
+  "'commission'",
+  "'timekeeping_technician.setup_completed'",
+  'revoke execute on function public.get_timekeeping_setup_context()',
+  'grant execute on function public.get_timekeeping_setup_context() to authenticated',
+  'grant execute on function public.admin_setup_timekeeping_technician(text, uuid, text, text, text, uuid[], integer, integer, date) to authenticated',
+]) {
+  expect(setupMigration, snippet, 'Timekeeping pilot setup migration');
+}
+
 if (/\b(insert|update|delete)\s+public\.payout_(runs|run_items|adjustments)\b/i.test(migration)) {
   fail('The manager report contract must remain calculation-only and cannot mutate payout execution state.');
 }
@@ -114,6 +140,8 @@ for (const snippet of [
   'TechnicianPayReportTechnician',
   'TechnicianPayReportContext',
   'fetchTechnicianPayReportContext',
+  'fetchTimekeepingSetupContext',
+  'setupTimekeepingTechnicianAdmin',
   "`${month}-01`",
   'supersedeOperatorCompensationRateAdmin',
   'refreshTechnicianPayReportSalesAdmin',
@@ -137,6 +165,9 @@ for (const snippet of [
   'Add commission rate',
   'Add other earning',
   'No approval or edit reason is required',
+  'Set up Technician Timekeeping',
+  'Activate Timekeeping',
+  'Open People &amp; Permissions',
 ]) {
   if (!payReportPage.includes(snippet)) {
     fail(`Technician Pay Report page missing ${snippet}`);
@@ -169,6 +200,9 @@ for (const marker of [
   'the superseded rate ends the prior window on the preceding day',
   'Commissionable Sales refresh retains historically valid revoked assignments',
   'manager correction accepts historical time after later assignment revocation without a reason',
+  'one manager action creates the complete initial Timekeeping setup',
+  'repeating initial setup fails closed instead of creating overlapping records',
+  'a user without account pay authority cannot read Timekeeping setup choices',
 ]) {
   if (!pgTap.includes(marker)) {
     fail(`pgTAP coverage missing marker: ${marker}`);
@@ -196,5 +230,5 @@ if (shiftEarnings !== 10500 || commission !== 900 || currentTotal !== 16400) {
 }
 
 console.log(
-  'Manager Time/Pay Report contract checks passed: canonical time, per-entry shifts, effective rates, authoritative Commissionable Sales, recurring credits, blockers, once-only refunds, account pay authority, and calculation-only capabilities are present.'
+  'Manager Time/Pay Report contract checks passed: canonical time, per-entry shifts, effective rates, authoritative Commissionable Sales, recurring credits, blockers, once-only refunds, account pay authority, atomic Technician setup, and calculation-only capabilities are present.'
 );

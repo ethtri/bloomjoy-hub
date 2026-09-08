@@ -1,9 +1,11 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
   Banknote,
   CalendarDays,
+  CheckCircle2,
   Clock3,
   Loader2,
   Plus,
@@ -16,6 +18,7 @@ import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -34,9 +37,12 @@ import {
 } from '@/components/ui/select';
 import {
   fetchTechnicianPayReportContext,
+  fetchTimekeepingSetupContext,
   refreshTechnicianPayReportSalesAdmin,
+  setupTimekeepingTechnicianAdmin,
   supersedeOperatorCompensationRateAdmin,
   upsertOperatorRecurringItemAdmin,
+  type OperatorWorkerType,
   type OperatorRecurringCompensationItemType,
   type TechnicianPayReportEntry,
   type TechnicianPayReportOtherEarning,
@@ -62,6 +68,39 @@ type PayInputDraft = {
   effectiveStartDate: string;
   effectiveEndDate: string;
 };
+
+type TechnicianSetupDraft = {
+  userEmail: string;
+  displayName: string;
+  workerType: OperatorWorkerType;
+  workerIdentifier: string;
+  accountId: string;
+  machineIds: string[];
+  shiftRate: string;
+  commissionRate: string;
+  effectiveStartDate: string;
+};
+
+const newTechnicianSetupDraft = (): TechnicianSetupDraft => ({
+  userEmail: '',
+  displayName: '',
+  workerType: 'contractor_1099',
+  workerIdentifier: '',
+  accountId: '',
+  machineIds: [],
+  shiftRate: '',
+  commissionRate: '',
+  effectiveStartDate: getTodayInTimekeepingZone(),
+});
+
+const workerTypeOptions: Array<{ value: OperatorWorkerType; label: string }> = [
+  { value: 'contractor_1099', label: 'Independent contractor' },
+  { value: 'employee_w2', label: 'Employee' },
+  { value: 'part_time_employee', label: 'Part-time employee' },
+  { value: 'owner_operator', label: 'Owner / operator' },
+  { value: 'partner', label: 'Partner' },
+  { value: 'other', label: 'Other' },
+];
 
 const formatCurrency = (cents: number | null | undefined) =>
   new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(
@@ -411,12 +450,22 @@ export default function AdminPayoutsPage() {
   const [machineId, setMachineId] = useState('all');
   const [payInputDraft, setPayInputDraft] = useState<PayInputDraft | null>(null);
   const [payInputError, setPayInputError] = useState<string | null>(null);
+  const [setupDraft, setSetupDraft] = useState<TechnicianSetupDraft | null>(null);
+  const [setupError, setSetupError] = useState<string | null>(null);
 
   const { data: context, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ['technician-pay-report', month],
     queryFn: () => fetchTechnicianPayReportContext(month),
     staleTime: 20_000,
     retry: false,
+  });
+
+  const setupContextQuery = useQuery({
+    queryKey: ['timekeeping-setup-context'],
+    queryFn: fetchTimekeepingSetupContext,
+    staleTime: 60_000,
+    retry: false,
+    enabled: Boolean(setupDraft),
   });
 
   const technicians = useMemo(() => context?.technicians ?? [], [context?.technicians]);
@@ -444,6 +493,59 @@ export default function AdminPayoutsPage() {
   const commissionableSalesUnavailable = visibleTechnicians.some((technician) =>
     technician.machines.some((machine) => machine.revenueSnapshotId == null)
   );
+  const setupMachines = setupContextQuery.data?.accounts.find(
+    (account) => account.accountId === setupDraft?.accountId
+  )?.machines ?? [];
+
+  const openTechnicianSetup = () => {
+    setSetupError(null);
+    setSetupDraft(newTechnicianSetupDraft());
+  };
+
+  const saveTechnicianSetup = useMutation({
+    mutationFn: async (draft: TechnicianSetupDraft) => {
+      const shiftRate = Number(draft.shiftRate);
+      const commissionRate = Number(draft.commissionRate);
+      if (!draft.userEmail.trim() || !draft.userEmail.includes('@')) {
+        throw new Error('Enter the email used for the Technician invitation.');
+      }
+      if (!draft.displayName.trim()) throw new Error('Enter the Technician’s name.');
+      if (!draft.accountId) throw new Error('Choose an account.');
+      if (!draft.machineIds.length) throw new Error('Choose at least one machine.');
+      if (!Number.isFinite(shiftRate) || shiftRate <= 0) {
+        throw new Error('Enter pay per shift greater than zero.');
+      }
+      if (!Number.isFinite(commissionRate) || commissionRate < 0 || commissionRate > 100) {
+        throw new Error('Enter a commission percent from 0 to 100.');
+      }
+      if (!draft.effectiveStartDate) throw new Error('Choose the Timekeeping start date.');
+
+      return setupTimekeepingTechnicianAdmin({
+        userEmail: draft.userEmail.trim(),
+        accountId: draft.accountId,
+        displayName: draft.displayName.trim(),
+        workerType: draft.workerType,
+        workerIdentifier: draft.workerIdentifier.trim() || null,
+        machineIds: draft.machineIds,
+        shiftRateCents: Math.round(shiftRate * 100),
+        commissionBasisPoints: Math.round(commissionRate * 100),
+        effectiveStartDate: draft.effectiveStartDate,
+      });
+    },
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ['technician-pay-report'] });
+      setSetupDraft(null);
+      setSetupError(null);
+      toast.success(`${result.displayName} can now use Timekeeping.`);
+    },
+    onError: (setupSaveError) => {
+      setSetupError(
+        setupSaveError instanceof Error
+          ? setupSaveError.message
+          : 'Unable to activate Timekeeping for this Technician.'
+      );
+    },
+  });
 
   const openPayInput = (
     technician: TechnicianPayReportTechnician,
@@ -556,6 +658,9 @@ export default function AdminPayoutsPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className="min-h-8 gap-1.5 px-3"><CalendarDays className="h-3.5 w-3.5" /> {formatMonth(month)}</Badge>
+            <Button type="button" className="min-h-11" onClick={openTechnicianSetup}>
+              <Plus className="mr-2 h-4 w-4" /> Set up Technician
+            </Button>
             <Button type="button" variant="outline" className="min-h-11" disabled={refreshSales.isPending || isFetching} onClick={() => refreshSales.mutate()}>
               <ShoppingBag className={cn('mr-2 h-4 w-4', refreshSales.isPending && 'animate-pulse motion-reduce:animate-none')} /> Refresh sales
             </Button>
@@ -614,7 +719,15 @@ export default function AdminPayoutsPage() {
                   onEditOtherEarning={(earning) => openPayInput(technician, earning.type, earning)}
                 />
               )) : (
-                <div className="rounded-xl border border-dashed border-border bg-card p-6"><h2 className="font-semibold text-foreground">No matching pay details</h2><p className="mt-2 text-sm text-muted-foreground">Change the filters or choose another month.</p></div>
+                <div className="rounded-xl border border-dashed border-border bg-card p-6">
+                  <h2 className="font-semibold text-foreground">{technicians.length ? 'No matching pay details' : 'No Technicians set up yet'}</h2>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {technicians.length
+                      ? 'Change the filters or choose another month.'
+                      : 'After a Technician accepts their portal invitation, add their machines and starting rates here.'}
+                  </p>
+                  {!technicians.length && <Button type="button" className="mt-5 min-h-11" onClick={openTechnicianSetup}><Plus className="mr-2 h-4 w-4" />Set up first Technician</Button>}
+                </div>
               )}
             </section>
 
@@ -737,6 +850,146 @@ export default function AdminPayoutsPage() {
                   <Button type="submit" className="min-h-11" disabled={savePayInput.isPending}>
                     {savePayInput.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />}
                     Save pay input
+                  </Button>
+                </DialogFooter>
+              </form>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={Boolean(setupDraft)} onOpenChange={(open) => {
+          if (!open && !saveTechnicianSetup.isPending) {
+            setSetupDraft(null);
+            setSetupError(null);
+          }
+        }}>
+          <DialogContent className="max-h-[92vh] max-w-2xl overflow-y-auto">
+            {setupDraft && (
+              <form onSubmit={(event) => {
+                event.preventDefault();
+                setSetupError(null);
+                saveTechnicianSetup.mutate(setupDraft);
+              }}>
+                <DialogHeader>
+                  <DialogTitle>Set up Technician Timekeeping</DialogTitle>
+                  <DialogDescription>
+                    One setup adds the Technician’s machines, pay per shift, and default commission rate. No approval workflow is added.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="mt-5 rounded-xl border border-sage/30 bg-sage-light/50 p-4">
+                  <div className="flex gap-3">
+                    <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">Invite first, then complete this setup</p>
+                      <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                        The Technician must accept their invitation and sign in once so Bloomjoy can match this setup to the right account.
+                      </p>
+                      <Button asChild type="button" variant="link" className="mt-1 h-auto min-h-11 px-0">
+                        <Link to="/admin/access?action=add-access&preset=technician">Open People &amp; Permissions</Link>
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {setupContextQuery.isLoading ? (
+                  <div className="mt-5 rounded-xl border border-border p-5 text-sm text-muted-foreground">
+                    <Loader2 className="mr-2 inline h-4 w-4 animate-spin motion-reduce:animate-none" />Loading accounts and machines…
+                  </div>
+                ) : setupContextQuery.error ? (
+                  <div className="mt-5 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive" role="alert">
+                    Timekeeping setup choices could not be loaded. Confirm account-level pay access and try again.
+                  </div>
+                ) : (
+                  <div className="mt-5 space-y-5">
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <label htmlFor="setup-technician-email" className="text-sm font-medium text-foreground">Invitation email</label>
+                        <Input id="setup-technician-email" type="email" autoComplete="email" className="mt-2 min-h-11" placeholder="technician@example.com" value={setupDraft.userEmail} onChange={(event) => setSetupDraft((current) => current ? { ...current, userEmail: event.target.value } : current)} required />
+                      </div>
+                      <div>
+                        <label htmlFor="setup-technician-name" className="text-sm font-medium text-foreground">Technician name</label>
+                        <Input id="setup-technician-name" autoComplete="name" className="mt-2 min-h-11" placeholder="Full name" value={setupDraft.displayName} onChange={(event) => setSetupDraft((current) => current ? { ...current, displayName: event.target.value } : current)} required />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <label htmlFor="setup-worker-type" className="text-sm font-medium text-foreground">Worker type</label>
+                        <Select value={setupDraft.workerType} onValueChange={(value: OperatorWorkerType) => setSetupDraft((current) => current ? { ...current, workerType: value } : current)}>
+                          <SelectTrigger id="setup-worker-type" className="mt-2 min-h-11"><SelectValue /></SelectTrigger>
+                          <SelectContent>{workerTypeOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <label htmlFor="setup-worker-id" className="text-sm font-medium text-foreground">Contractor or employee ID <span className="font-normal text-muted-foreground">(optional)</span></label>
+                        <Input id="setup-worker-id" className="mt-2 min-h-11" value={setupDraft.workerIdentifier} onChange={(event) => setSetupDraft((current) => current ? { ...current, workerIdentifier: event.target.value } : current)} />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label htmlFor="setup-account" className="text-sm font-medium text-foreground">Account</label>
+                      <Select value={setupDraft.accountId} onValueChange={(value) => setSetupDraft((current) => current ? { ...current, accountId: value, machineIds: [] } : current)}>
+                        <SelectTrigger id="setup-account" className="mt-2 min-h-11"><SelectValue placeholder="Choose an account" /></SelectTrigger>
+                        <SelectContent>{setupContextQuery.data?.accounts.map((account) => <SelectItem key={account.accountId} value={account.accountId}>{account.accountName}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+
+                    <fieldset>
+                      <legend className="text-sm font-medium text-foreground">Machines</legend>
+                      {!setupDraft.accountId ? (
+                        <p className="mt-2 rounded-xl border border-dashed border-border px-4 py-5 text-sm text-muted-foreground">Choose an account to see its active machines.</p>
+                      ) : setupMachines.length ? (
+                        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                          {setupMachines.map((machine) => {
+                            const checked = setupDraft.machineIds.includes(machine.machineId);
+                            return (
+                              <label key={machine.machineId} className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border border-border px-3 py-2.5 transition-colors hover:bg-muted/40">
+                                <Checkbox checked={checked} onCheckedChange={(nextChecked) => setSetupDraft((current) => current ? {
+                                  ...current,
+                                  machineIds: nextChecked
+                                    ? [...current.machineIds, machine.machineId]
+                                    : current.machineIds.filter((id) => id !== machine.machineId),
+                                } : current)} />
+                                <span className="min-w-0 text-sm">
+                                  <span className="block font-medium text-foreground">{machine.machineLabel}</span>
+                                  {machine.locationName && <span className="block truncate text-muted-foreground">{machine.locationName}</span>}
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="mt-2 rounded-xl border border-dashed border-border px-4 py-5 text-sm text-muted-foreground">This account has no active machines available for Timekeeping.</p>
+                      )}
+                    </fieldset>
+
+                    <div className="grid gap-4 sm:grid-cols-3">
+                      <div>
+                        <label htmlFor="setup-shift-rate" className="text-sm font-medium text-foreground">Pay per shift</label>
+                        <div className="relative mt-2"><span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">$</span><Input id="setup-shift-rate" type="number" inputMode="decimal" min="0.01" step="0.01" className="min-h-11 pl-7" value={setupDraft.shiftRate} onChange={(event) => setSetupDraft((current) => current ? { ...current, shiftRate: event.target.value } : current)} required /></div>
+                      </div>
+                      <div>
+                        <label htmlFor="setup-commission-rate" className="text-sm font-medium text-foreground">Commission</label>
+                        <div className="relative mt-2"><Input id="setup-commission-rate" type="number" inputMode="decimal" min="0" max="100" step="0.01" className="min-h-11 pr-8" value={setupDraft.commissionRate} onChange={(event) => setSetupDraft((current) => current ? { ...current, commissionRate: event.target.value } : current)} required /><span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-muted-foreground">%</span></div>
+                      </div>
+                      <div>
+                        <label htmlFor="setup-start-date" className="text-sm font-medium text-foreground">Starts</label>
+                        <Input id="setup-start-date" type="date" className="mt-2 min-h-11" value={setupDraft.effectiveStartDate} onChange={(event) => setSetupDraft((current) => current ? { ...current, effectiveStartDate: event.target.value } : current)} required />
+                      </div>
+                    </div>
+
+                    <p className="text-xs leading-5 text-muted-foreground">Each started hour counts as one paid shift. The commission rate applies to all selected machines unless a manager adds a machine-specific rate later.</p>
+
+                    {setupError && <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">{setupError}</p>}
+                  </div>
+                )}
+
+                <DialogFooter className="mt-6 gap-2 sm:gap-0">
+                  <Button type="button" variant="outline" className="min-h-11" disabled={saveTechnicianSetup.isPending} onClick={() => setSetupDraft(null)}>Cancel</Button>
+                  <Button type="submit" className="min-h-11" disabled={saveTechnicianSetup.isPending || setupContextQuery.isLoading || Boolean(setupContextQuery.error)}>
+                    {saveTechnicianSetup.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />}
+                    Activate Timekeeping
                   </Button>
                 </DialogFooter>
               </form>

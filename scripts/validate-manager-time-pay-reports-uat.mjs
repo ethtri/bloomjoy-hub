@@ -233,6 +233,18 @@ const payContext = {
   capabilities: { accountPayAuthorityRequired: true, canCorrectTime: false, approvalRequired: false, paymentExecution: false, taxCalculation: false },
 };
 
+const setupContext = {
+  accounts: [{
+    accountId: ACCOUNT_ID,
+    accountName: 'Bloomjoy Sweets',
+    machines: [
+      { machineId: MACHINE_A, machineLabel: 'Cotton Candy 01', locationName: 'Mall Atrium' },
+      { machineId: MACHINE_B, machineLabel: 'Cotton Candy 02', locationName: 'Mall Atrium' },
+    ],
+  }],
+  capabilities: { accountPayAuthorityRequired: true, approvalRequired: false, paymentExecution: false },
+};
+
 const installRoutes = async (context) => {
   await context.route('**/auth/v1/**', async (route) => {
     const url = route.request().url();
@@ -259,6 +271,13 @@ const installRoutes = async (context) => {
       return route.fulfill(json({ context: timeContext() }));
     }
     if (rpcName === 'get_technician_pay_report_context') return route.fulfill(json(payContext));
+    if (rpcName === 'get_timekeeping_setup_context') return route.fulfill(json(setupContext));
+    if (rpcName === 'admin_setup_timekeeping_technician') {
+      if (body.p_user_email === 'pending-technician@example.test') {
+        return route.fulfill(json({ code: 'P0001', message: 'Technician must accept the invitation and sign in once before Timekeeping setup' }, 400));
+      }
+      return route.fulfill(json({ operatorProfileId: 'new-profile', accountId: ACCOUNT_ID, displayName: body.p_display_name, machineCount: body.p_machine_ids.length, effectiveStartDate: body.p_effective_start_date }));
+    }
     if (rpcName === 'admin_supersede_operator_compensation_rate') return route.fulfill(json({ id: 'saved-rate' }));
     if (rpcName === 'admin_upsert_operator_recurring_item') return route.fulfill(json({ id: 'saved-item' }));
     if (rpcName === 'admin_refresh_technician_pay_report_sales') return route.fulfill(json({ periodCount: 1, snapshotCount: 1 }));
@@ -356,6 +375,29 @@ const run = async () => {
     check('Pay Report distinguishes blockers and warnings', bodyText.includes('Blocks publishing:') && bodyText.includes('Check:'));
     check('Pay Report contains no approval or payment actions', !/mark reviewed|finalize|reopen|void|issue statements|run payroll/i.test(bodyText));
 
+    await page.getByRole('button', { name: 'Set up Technician', exact: true }).click();
+    await page.getByRole('heading', { name: 'Set up Technician Timekeeping' }).waitFor();
+    check('Setup clearly links the invitation prerequisite', await page.getByRole('link', { name: 'Open People & Permissions' }).isVisible());
+    await page.locator('#setup-technician-email').fill('pending-technician@example.test');
+    await page.locator('#setup-technician-name').fill('New Technician');
+    await page.locator('#setup-worker-id').fill('Contractor 2044');
+    await page.locator('#setup-account').click();
+    await page.getByRole('option', { name: 'Bloomjoy Sweets' }).click();
+    const setupDialog = page.getByRole('dialog');
+    await setupDialog.getByText('Cotton Candy 01', { exact: true }).click();
+    await setupDialog.getByText('Cotton Candy 02', { exact: true }).click();
+    await page.locator('#setup-shift-rate').fill('20');
+    await page.locator('#setup-commission-rate').fill('7');
+    await page.screenshot({ path: path.join(artifactDir, 'technician-setup-desktop.png'), fullPage: true });
+    await page.getByRole('button', { name: 'Activate Timekeeping' }).click();
+    await page.getByText('Technician must accept the invitation and sign in once before Timekeeping setup').waitFor();
+    check('An unaccepted invitation keeps the completed setup form available to retry', await page.locator('#setup-technician-name').inputValue() === 'New Technician' && await page.getByRole('dialog').isVisible());
+    await page.locator('#setup-technician-email').fill('new-technician@example.test');
+    await page.getByRole('button', { name: 'Activate Timekeeping' }).click();
+    await page.getByText('New Technician can now use Timekeeping.').waitFor();
+    const setupCall = state.rpcCalls.find((call) => call.rpcName === 'admin_setup_timekeeping_technician' && call.body.p_user_email === 'new-technician@example.test');
+    check('One manager action sends profile, both machines, and starting rates atomically', setupCall?.body.p_user_email === 'new-technician@example.test' && setupCall?.body.p_worker_type === 'contractor_1099' && setupCall?.body.p_machine_ids.length === 2 && setupCall?.body.p_shift_rate_cents === 2000 && setupCall?.body.p_commission_basis_points === 700 && !('p_reason' in setupCall.body));
+
     await page.locator('#pay-report-machine').click();
     await page.getByRole('option', { name: 'Cotton Candy 02' }).click();
     await page.getByText('Machine filtering shows only that machine’s time', { exact: false }).waitFor();
@@ -408,6 +450,21 @@ const run = async () => {
     const mobileSaveButton = page.getByRole('button', { name: 'Save pay input' });
     await mobileSaveButton.scrollIntoViewIfNeeded();
     check('Pay input Save action remains reachable on a short phone viewport', await mobileSaveButton.isVisible());
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await page.getByRole('button', { name: 'Set up Technician', exact: true }).click();
+    const mobileSetupDialog = page.getByRole('dialog');
+    await mobileSetupDialog.waitFor();
+    await page.waitForTimeout(250);
+    await page.screenshot({ path: path.join(artifactDir, 'technician-setup-mobile-top.png') });
+    const mobileSetupFitsViewport = await mobileSetupDialog.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return bounds.top >= 0 && bounds.bottom <= window.innerHeight + 1;
+    });
+    check('Technician setup dialog is bounded and scrollable on a short phone viewport', mobileSetupFitsViewport);
+    const mobileActivateButton = page.getByRole('button', { name: 'Activate Timekeeping' });
+    await mobileActivateButton.scrollIntoViewIfNeeded();
+    check('Technician setup action remains reachable on a short phone viewport', await mobileActivateButton.isVisible());
+    await page.screenshot({ path: path.join(artifactDir, 'technician-setup-mobile.png'), fullPage: true });
     await page.getByRole('button', { name: 'Cancel' }).click();
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: path.join(artifactDir, 'pay-report-mobile.png'), fullPage: true });

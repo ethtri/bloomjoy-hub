@@ -743,6 +743,47 @@ export type TechnicianPayReportContext = {
   };
 };
 
+export type TimekeepingSetupMachine = {
+  machineId: string;
+  machineLabel: string;
+  locationName: string | null;
+};
+
+export type TimekeepingSetupAccount = {
+  accountId: string;
+  accountName: string;
+  machines: TimekeepingSetupMachine[];
+};
+
+export type TimekeepingSetupContext = {
+  accounts: TimekeepingSetupAccount[];
+  capabilities: {
+    accountPayAuthorityRequired: true;
+    approvalRequired: false;
+    paymentExecution: false;
+  };
+};
+
+export type SetupTimekeepingTechnicianInput = {
+  userEmail: string;
+  accountId: string;
+  displayName: string;
+  workerType: OperatorWorkerType;
+  workerIdentifier?: string | null;
+  machineIds: string[];
+  shiftRateCents: number;
+  commissionBasisPoints: number;
+  effectiveStartDate: string;
+};
+
+export type SetupTimekeepingTechnicianResult = {
+  operatorProfileId: string;
+  accountId: string;
+  displayName: string;
+  machineCount: number;
+  effectiveStartDate: string;
+};
+
 export type OperatorPayoutProfileRecord = {
   id: string;
   account_id: string;
@@ -1116,6 +1157,54 @@ export const fetchTechnicianPayReportContext = async (
     },
     ...((data as Partial<TechnicianPayReportContext> | null) ?? {}),
   };
+};
+
+export const fetchTimekeepingSetupContext = async (): Promise<TimekeepingSetupContext> => {
+  const { data, error } = await supabaseClient.rpc('get_timekeeping_setup_context');
+
+  if (error) {
+    throw new Error(error.message || 'Unable to load Timekeeping setup choices.');
+  }
+
+  return {
+    accounts: [],
+    capabilities: {
+      accountPayAuthorityRequired: true,
+      approvalRequired: false,
+      paymentExecution: false,
+    },
+    ...((data as Partial<TimekeepingSetupContext> | null) ?? {}),
+  };
+};
+
+export const setupTimekeepingTechnicianAdmin = async ({
+  userEmail,
+  accountId,
+  displayName,
+  workerType,
+  workerIdentifier,
+  machineIds,
+  shiftRateCents,
+  commissionBasisPoints,
+  effectiveStartDate,
+}: SetupTimekeepingTechnicianInput): Promise<SetupTimekeepingTechnicianResult> => {
+  const { data, error } = await supabaseClient.rpc('admin_setup_timekeeping_technician', {
+    p_user_email: userEmail,
+    p_account_id: accountId,
+    p_display_name: displayName,
+    p_worker_type: workerType,
+    p_worker_identifier: workerIdentifier ?? null,
+    p_machine_ids: machineIds,
+    p_shift_rate_cents: shiftRateCents,
+    p_commission_basis_points: commissionBasisPoints,
+    p_effective_start_date: effectiveStartDate,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to activate Timekeeping for this Technician.');
+  }
+
+  return data as SetupTimekeepingTechnicianResult;
 };
 
 export const reviewOperatorTimeEntry = async (

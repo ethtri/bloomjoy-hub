@@ -9,7 +9,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(64);
+select plan(73);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -32,7 +32,8 @@ values
   ('00000000-0000-0000-0000-000000000000', 'a1000000-0000-0000-0000-000000000002', 'authenticated', 'authenticated', 'pay-report-machine-manager@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now()),
   ('00000000-0000-0000-0000-000000000000', 'a1000000-0000-0000-0000-000000000003', 'authenticated', 'authenticated', 'pay-report-owner@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now()),
   ('00000000-0000-0000-0000-000000000000', 'a1000000-0000-0000-0000-000000000004', 'authenticated', 'authenticated', 'pay-report-outsider@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now()),
-  ('00000000-0000-0000-0000-000000000000', 'a1000000-0000-0000-0000-000000000005', 'authenticated', 'authenticated', 'pay-report-partial-tech@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now());
+  ('00000000-0000-0000-0000-000000000000', 'a1000000-0000-0000-0000-000000000005', 'authenticated', 'authenticated', 'pay-report-partial-tech@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now()),
+  ('00000000-0000-0000-0000-000000000000', 'a1000000-0000-0000-0000-000000000006', 'authenticated', 'authenticated', 'pilot-setup-tech@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now());
 
 insert into public.customer_accounts (id, name, account_type)
 values ('a2000000-0000-0000-0000-000000000001', 'Manager report account', 'customer');
@@ -736,7 +737,124 @@ select is(
   'the corrected work date applies its newly effective shift rate'
 );
 
+select is(
+  concat(
+    jsonb_array_length(public.get_timekeeping_setup_context()->'accounts'), ':',
+    jsonb_array_length(public.get_timekeeping_setup_context() #> '{accounts,0,machines}')
+  ),
+  '1:2',
+  'Timekeeping setup lists only the owner-authorized active account and machines'
+);
+select is(
+  public.admin_setup_timekeeping_technician(
+    'pilot-setup-tech@example.test',
+    'a2000000-0000-0000-0000-000000000001',
+    'Pilot Setup Technician',
+    'contractor_1099',
+    'PILOT-001',
+    array[
+      'a4000000-0000-0000-0000-000000000001'::uuid,
+      'a4000000-0000-0000-0000-000000000002'::uuid
+    ],
+    2000,
+    700,
+    '2026-09-08'
+  ) #>> '{machineCount}',
+  '2',
+  'one manager action creates the complete initial Timekeeping setup'
+);
+select is(
+  (
+    select concat(profile.display_name, ':', profile.worker_type, ':', profile.worker_identifier, ':', profile.position_title)
+    from public.operator_payout_profiles profile
+    where profile.user_id = 'a1000000-0000-0000-0000-000000000006'
+  ),
+  'Pilot Setup Technician:contractor_1099:PILOT-001:Technician',
+  'initial setup records the Technician identity and editable worker classification'
+);
+select is(
+  (
+    select concat(
+      count(*), ':', min(assignment.effective_start_date), ':',
+      count(*) filter (where assignment.effective_end_date is null)
+    )
+    from public.operator_machine_assignments assignment
+    join public.operator_payout_profiles profile on profile.id = assignment.operator_profile_id
+    where profile.user_id = 'a1000000-0000-0000-0000-000000000006'
+  ),
+  '2:2026-09-08:2',
+  'initial setup creates both open-ended machine assignments on the chosen date'
+);
+select is(
+  (
+    select concat(
+      max(rule.shift_rate_cents) filter (where rule.shift_rate_cents is not null), ':',
+      max(rule.commission_basis_points) filter (where rule.commission_basis_points is not null)
+    )
+    from public.compensation_rules rule
+    join public.operator_payout_profiles profile on profile.id = rule.operator_profile_id
+    where profile.user_id = 'a1000000-0000-0000-0000-000000000006'
+  ),
+  '2000:700',
+  'initial setup creates the starting per-shift and default commission rates'
+);
+
+-- Audit rows are intentionally not directly selectable by an account pay
+-- manager, so inspect the fixture as the privileged test role.
+reset role;
+select is(
+  (
+    select count(*)::integer
+    from public.admin_audit_log audit
+    where audit.action = 'timekeeping_technician.setup_completed'
+      and audit.target_user_id = 'a1000000-0000-0000-0000-000000000006'
+  ),
+  1,
+  'initial setup leaves one explicit completion audit record'
+);
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
+select is(
+  pg_temp.capture_error($$
+    select public.admin_setup_timekeeping_technician(
+      'pilot-setup-tech@example.test',
+      'a2000000-0000-0000-0000-000000000001',
+      'Pilot Setup Technician',
+      'contractor_1099',
+      'PILOT-001',
+      array['a4000000-0000-0000-0000-000000000001'::uuid],
+      2000,
+      700,
+      '2026-09-08'
+    )
+  $$),
+  'Technician already has Timekeeping setup for this account',
+  'repeating initial setup fails closed instead of creating overlapping records'
+);
+select is(
+  (
+    select concat(
+      count(distinct profile.id), ':',
+      count(distinct assignment.id), ':',
+      count(distinct rule.id)
+    )
+    from public.operator_payout_profiles profile
+    left join public.operator_machine_assignments assignment on assignment.operator_profile_id = profile.id
+    left join public.compensation_rules rule on rule.operator_profile_id = profile.id
+    where profile.user_id = 'a1000000-0000-0000-0000-000000000006'
+  ),
+  '1:2:2',
+  'a rejected repeat leaves one profile, two assignments, and two rates'
+);
+
 select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000004', true);
+select is(
+  pg_temp.capture_error($$select public.get_timekeeping_setup_context()$$),
+  'Account pay authority required',
+  'a user without account pay authority cannot read Timekeeping setup choices'
+);
+
 select is(
   public.get_my_time_review_context('2026-07-01')->>'hasAccess',
   'false',
