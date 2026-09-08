@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(108);
+select plan(109);
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
@@ -727,6 +727,16 @@ select throws_ok($$select public.service_recover_proved_nayax_api_success_with_d
   'P4674',null,'Recovery rejects a different sibling binding');
 reset role;
 
+create function pg_temp.reject_recovery_notice_preparation()
+returns trigger language plpgsql as $$
+begin
+  raise exception 'synthetic_notice_preparation_failure';
+end;
+$$;
+create trigger reject_recovery_notice_preparation
+before insert on public.refund_receipt_completion_automation_authorities
+for each row execute function pg_temp.reject_recovery_notice_preparation();
+
 select set_config('request.jwt.claim.role','service_role',true);
 select set_config('request.jwt.claims','{"role":"service_role"}',true);
 set local role service_role;
@@ -737,8 +747,12 @@ select set_config('test.journal_recovery',
     'ca500000-0000-4000-8000-000000000107')::text,true);
 reset role;
 select ok(current_setting('test.journal_recovery')::jsonb @>
-    '{"recovered":true,"replayed":false,"providerCallMade":false,"customerMessageSent":false,"completionMessageStatus":"queued","completionNoticeDeferred":false}'::jsonb,
-  'Journal recovery completes payment state and queues delivery separately');
+    '{"recovered":true,"replayed":false,"providerCallMade":false,"customerMessageSent":false,"completionMessageStatus":"notice_deferred","completionNoticeDeferred":true}'::jsonb
+  and not exists(select 1 from public.refund_case_messages
+    where refund_case_id='ca500000-0000-4000-8000-000000000007')
+  and not exists(select 1 from public.refund_receipt_completion_intents
+    where refund_case_id='ca500000-0000-4000-8000-000000000007'),
+  'A notice-preparation failure is deferred without rolling back payment truth or creating partial intent state');
 select ok((select status='succeeded' and provider_outcome='success'
       and provider_status='approve_succeeded_contract_match'
       and safe_transport_stage='settled' and not reconciliation_required
@@ -789,6 +803,18 @@ select is((select count(*) from public.refund_nayax_provider_stage_journal
     where nayax_refund_attempt_id=(select (result#>>'{attempt,attemptId}')::uuid
       from recovery_reservation)),4::bigint,
   'Provider-free recovery preserves the exact two-stage journal without another call');
+drop trigger reject_recovery_notice_preparation
+  on public.refund_receipt_completion_automation_authorities;
+set local role service_role;
+select set_config('test.form_completion_claim',
+  public.service_claim_nayax_refund_completion(
+    'continuation-executor',
+    (select (result#>>'{attempt,attemptId}')::uuid from recovery_reservation)
+  )::text,true);
+reset role;
+select ok(current_setting('test.form_completion_claim')::jsonb @>
+    '{"claimed":true,"status":"queued","transport":"transactional_email","originalThread":false,"noticeDeferred":false,"payloadRedacted":true}'::jsonb,
+  'The normal form completion path can queue the exact receipt notice after deferred preparation');
 select set_config('test.journal_recovery_message_id',(select id::text
   from public.refund_case_messages
   where refund_case_id='ca500000-0000-4000-8000-000000000007'),true);
