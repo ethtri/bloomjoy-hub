@@ -452,6 +452,8 @@ select is(
   '2500:3000',
   'the superseded rate ends the prior window on the preceding day'
 );
+
+reset role;
 update public.operator_payout_profiles
 set status = 'inactive'
 where id = 'a6000000-0000-0000-0000-000000000001';
@@ -459,6 +461,9 @@ update public.operator_machine_assignments
 set status = 'revoked',
     revoked_at = now()
 where id = 'a6100000-0000-0000-0000-000000000001';
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
 select is(
   jsonb_array_length(public.get_technician_pay_report_context('2026-07-01')->'technicians'),
   2,
@@ -482,9 +487,14 @@ select is(
   '1:2',
   'Commissionable Sales refresh retains both historically valid assignment machines'
 );
+
+reset role;
 update public.operator_payout_profiles
 set status = 'active'
 where id = 'a6000000-0000-0000-0000-000000000001';
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
 select is(
   jsonb_array_length(public.get_technician_pay_report_context('2026-07-01') #> '{technicians,0,machines,0,commissionSegments}'),
   2,
@@ -573,6 +583,7 @@ select is(
   'partial assignment commission reconciles across its two rates'
 );
 
+reset role;
 update public.sales_adjustment_facts
 set amount_cents = 8000
 where id = 'a9200000-0000-0000-0000-000000000001';
@@ -582,6 +593,9 @@ set refund_adjustment_cents = 8000,
     net_revenue_cents = 2000,
     eligible_commission_revenue_cents = 2000
 where id = 'aa000000-0000-0000-0000-000000000001';
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
 
 select is(
   concat(
@@ -614,6 +628,7 @@ select is(
   'ambiguous refund attribution fails closed with one explicit blocker'
 );
 
+reset role;
 update public.compensation_rules
 set commission_basis_points = 500
 where id = 'a8000000-0000-0000-0000-000000000006';
@@ -627,6 +642,9 @@ set refund_adjustment_cents = 4000,
     net_revenue_cents = 1000,
     eligible_commission_revenue_cents = 1000
 where id = 'aa000000-0000-0000-0000-000000000002';
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
 
 select is(
   concat(
