@@ -583,6 +583,7 @@ select ok(not public.refund_terminal_api_completion_attempt_change_allowed(
 -- duplicate state this provider-free recovery accepts.
 create temp table recovery_reservation as
 select result from continuation_reservations where n=7;
+grant select on recovery_reservation to service_role;
 select public.service_record_nayax_refund_provider_stage_v4_diagnostics('continuation-executor',
   (select (result#>>'{attempt,attemptId}')::uuid from recovery_reservation),
   (select result->>'providerClaimToken' from recovery_reservation),
