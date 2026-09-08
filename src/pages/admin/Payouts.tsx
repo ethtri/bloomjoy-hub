@@ -62,6 +62,12 @@ const formatMonth = (month: string) =>
 const formatRate = (basisPoints: number | null | undefined) =>
   `${((basisPoints ?? 0) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
 
+const formatWorkerType = (value: string | null | undefined) => {
+  if (value === 'contractor_1099') return 'Independent contractor';
+  if (value === 'employee_w2') return 'Employee';
+  return value?.replaceAll('_', ' ') || 'Technician';
+};
+
 const Metric = ({
   label,
   value,
@@ -106,7 +112,7 @@ function TechnicianReport({ technician }: { technician: TechnicianPayReportTechn
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-semibold text-foreground">{technician.displayName}</h2>
-              <Badge variant="outline">{technician.workerType || 'Contractor'}</Badge>
+              <Badge variant="outline">{formatWorkerType(technician.workerType)}</Badge>
               {technician.publishable ? (
                 <Badge className="border-sage/30 bg-sage-light text-foreground">Ready</Badge>
               ) : (
@@ -170,19 +176,25 @@ function TechnicianReport({ technician }: { technician: TechnicianPayReportTechn
         <h3 id={`commission-${technician.operatorProfileId}`} className="font-semibold text-foreground">Machine sales and commission</h3>
         <p className="mt-1 text-sm text-muted-foreground">Sales are shown so the commission amount can be checked.</p>
         <div className="mt-3 rounded-lg border border-border px-3">
-          {technician.machines.length ? technician.machines.map((machine) => (
-            <BreakdownRow
-              key={machine.machineId}
-              label={machine.machineLabel}
-              detail={
-                <>
-                  <span>{machine.locationName} · {formatCurrency(machine.commissionableSalesCents)} commissionable sales × {formatRate(machine.commissionBasisPoints)}</span>
-                  {machine.refundAdjustmentCents !== 0 && <span className="mt-1 block">Includes {formatCurrency(machine.refundAdjustmentCents)} refund adjustment</span>}
-                </>
-              }
-              amount={formatCurrency(machine.commissionEarningsCents)}
-            />
-          )) : <p className="py-4 text-sm text-muted-foreground">No commissionable machine sales in this month.</p>}
+          {technician.machines.length ? technician.machines.map((machine) => {
+            const machineEntries = technician.entries.filter((entry) => entry.machineId === machine.machineId);
+            const machineActualMinutes = machineEntries.reduce((sum, entry) => sum + entry.actualDurationMinutes, 0);
+            const machinePaidShifts = machineEntries.reduce((sum, entry) => sum + entry.paidShifts, 0);
+            return (
+              <BreakdownRow
+                key={machine.machineId}
+                label={machine.machineLabel}
+                detail={
+                  <>
+                    <span>{machine.locationName} · {formatDuration(machineActualMinutes)} actual · {machinePaidShifts} paid {machinePaidShifts === 1 ? 'shift' : 'shifts'}</span>
+                    <span className="mt-1 block">{formatCurrency(machine.commissionableSalesCents)} commissionable sales × {formatRate(machine.commissionBasisPoints)}</span>
+                    {machine.refundAdjustmentCents !== 0 && <span className="mt-1 block">Includes {formatCurrency(machine.refundAdjustmentCents)} refund adjustment</span>}
+                  </>
+                }
+                amount={formatCurrency(machine.commissionEarningsCents)}
+              />
+            );
+          }) : <p className="py-4 text-sm text-muted-foreground">No commissionable machine sales in this month.</p>}
         </div>
       </section>
 

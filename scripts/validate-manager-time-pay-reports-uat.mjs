@@ -113,7 +113,10 @@ const payContext = {
     expenseReimbursementCents: 500,
     currentTotalCents: 20500,
     publishable: false,
-    entries: [],
+    entries: [
+      { id: 'pay-entry-1', workDate: '2026-09-01', actualStartAt: '2026-09-01T08:00:00-07:00', actualEndAt: '2026-09-01T09:01:00-07:00', actualDurationMinutes: 61, paidShifts: 2, machineId: MACHINE_A, machineLabel: 'Cotton Candy 01', locationId: LOCATION_ID, locationName: 'Mall Atrium', shiftRate: {}, shiftRateCents: 2000, shiftEarningsCents: 4000 },
+      { id: 'pay-entry-2', workDate: '2026-09-16', actualStartAt: '2026-09-16T08:00:00-07:00', actualEndAt: '2026-09-16T09:00:00-07:00', actualDurationMinutes: 60, paidShifts: 1, machineId: MACHINE_A, machineLabel: 'Cotton Candy 01', locationId: LOCATION_ID, locationName: 'Mall Atrium', shiftRate: {}, shiftRateCents: 2500, shiftEarningsCents: 2500 },
+    ],
     shiftRateLines: [
       { shiftRateCents: 2000, paidShifts: 2, actualDurationMinutes: 61, shiftEarningsCents: 4000, firstWorkDate: '2026-09-01', lastWorkDate: '2026-09-01' },
       { shiftRateCents: 2500, paidShifts: 1, actualDurationMinutes: 60, shiftEarningsCents: 2500, firstWorkDate: '2026-09-16', lastWorkDate: '2026-09-16' },
@@ -185,7 +188,12 @@ const noOverflow = (page) => page.evaluate(() => document.documentElement.scroll
 
 const openAuthenticated = async (page, url, heading) => {
   await page.goto(`${APP_URL}${url}`, { waitUntil: 'domcontentloaded' });
-  await Promise.race([page.waitForURL(/\/login(?:\?|$)/), page.getByRole('heading', { name: heading }).waitFor()]);
+  try {
+    await Promise.race([page.waitForURL(/\/login(?:\?|$)/), page.getByRole('heading', { name: heading }).waitFor()]);
+  } catch (error) {
+    const visibleText = (await page.locator('body').innerText()).slice(0, 600);
+    throw new Error(`Timed out opening ${url}; current URL is ${page.url()}; visible text: ${visibleText}`, { cause: error });
+  }
   if (new URL(page.url()).pathname === '/login') {
     await page.fill('#email-password', user.email);
     await page.fill('#password', 'mock-password');
@@ -204,13 +212,21 @@ const run = async () => {
   await installRoutes(context);
   const page = await context.newPage();
   await page.clock.setFixedTime(FIXED_NOW);
+  const browserErrors = [];
+  page.on('console', (message) => message.type() === 'error' && browserErrors.push(message.text()));
+  page.on('pageerror', (error) => browserErrors.push(error.message));
   const failures = [];
   const check = (name, condition) => { console.log(`${condition ? 'PASS' : 'FAIL'} ${name}`); if (!condition) failures.push(name); };
 
   try {
-    await openAuthenticated(page, '/portal/time-review', 'Time Report');
-    check('Time Report shows 61 minutes as two shifts', await page.getByText('1 hr 1 min actual ·', { exact: false }).isVisible() && await page.getByText('2 paid shifts', { exact: true }).isVisible());
-    check('Time Report groups totals by Technician', await page.getByText('Alex Magana', { exact: true }).first().isVisible() && await page.getByText('3 paid shifts', { exact: true }).first().isVisible());
+    try {
+      await openAuthenticated(page, '/portal/time-review', 'Time Report');
+    } catch (error) {
+      throw new Error(`${error.message}; browser errors: ${browserErrors.join(' | ')}`, { cause: error });
+    }
+    const initialTimeText = await page.locator('body').innerText();
+    check('Time Report shows 61 minutes as two shifts', initialTimeText.includes('1 hr 1 min actual · 2 paid shifts'));
+    check('Time Report groups totals by Technician', initialTimeText.includes('Alex Magana') && initialTimeText.includes('1 hr 21 min actual · 3 paid shifts'));
     check('Time Report contains no approval actions', !/approve|reject|request correction/i.test(await page.locator('body').innerText()));
     await page.getByRole('button', { name: /Edit Alex Magana.*8:00 AM to 9:01 AM/i }).click();
     check('Correction explains direct audited edit', await page.getByText(/No approval or written reason is required/i).isVisible());
@@ -218,6 +234,7 @@ const run = async () => {
     check('Correction preview recalculates shifts', await page.getByText('1 hr actual → 1 paid shift', { exact: true }).isVisible());
     await page.getByRole('button', { name: 'Save correction' }).click();
     await page.getByText('1 hr actual ·', { exact: false }).waitFor();
+    await page.getByRole('dialog').waitFor({ state: 'hidden' });
     const correction = state.rpcCalls.find((call) => call.rpcName === 'manager_correct_operator_time_entry');
     check('Correction sends exact canonical timestamps without reason', Boolean(correction?.body.p_actual_start_at && correction?.body.p_actual_end_at && !('p_reason' in correction.body)));
     await page.screenshot({ path: path.join(artifactDir, 'time-report-desktop.png'), fullPage: true });
@@ -225,7 +242,7 @@ const run = async () => {
     await openAuthenticated(page, '/admin/payouts', 'Technician Pay Report');
     const bodyText = await page.locator('body').innerText();
     check('Pay Report separates mid-month rate bands', bodyText.includes('2 shifts × $20.00') && bodyText.includes('1 shift × $25.00'));
-    check('Pay Report shows transparent commission math', bodyText.includes('$1,000.00 commissionable sales × 10%') && bodyText.includes('$100.00'));
+    check('Pay Report shows time, shifts, and transparent commission by machine', bodyText.includes('2 hr 1 min actual · 3 paid shifts') && bodyText.includes('$1,000.00 commissionable sales × 10%') && bodyText.includes('$100.00'));
     check('Pay Report shows all explicit other earning categories', ['Bonus', 'Supply Credit', 'Expense Reimbursement'].every((label) => bodyText.includes(label)));
     check('Pay Report distinguishes blockers and warnings', bodyText.includes('Blocks publishing:') && bodyText.includes('Check:'));
     check('Pay Report contains no approval or payment actions', !/mark reviewed|finalize|reopen|void|issue statements|run payroll/i.test(bodyText));
