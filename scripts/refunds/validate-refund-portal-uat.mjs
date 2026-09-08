@@ -40,6 +40,7 @@ const NAVIGATION_READ_ONLY_RPCS = new Set([
   'get_my_admin_access_context',
   'get_my_plus_access',
   'get_my_operator_timekeeping_context',
+  'get_my_time_report_access',
   'get_my_portal_access_context',
   'get_my_reporting_access_context',
   'get_refund_automation_health',
