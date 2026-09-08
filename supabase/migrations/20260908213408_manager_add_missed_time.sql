@@ -361,7 +361,7 @@ begin
     'time_entry',
     entry_row.id::text,
     profile_row.user_id,
-    null,
+    '{}'::jsonb,
     to_jsonb(entry_row),
     jsonb_build_object(
       'machine_manager_correction', true,
