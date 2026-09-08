@@ -7585,7 +7585,7 @@ export default function AdminRefundsPage() {
                         </div>
                         <p className="mt-1 break-words text-sm text-muted-foreground">
                           {formatRefundMachineLocation(selectedCase.locationName, selectedCase.machineLabel)} ·{' '}
-                          {formatCurrency(selectedCase.paymentAmountCents)}
+                          {formatCurrency(selectedCase.refundAmountCents ?? selectedCase.paymentAmountCents)}
                         </p>
                         <p data-testid="refund-customer-problem-summary" className="mt-2 line-clamp-2 max-w-3xl text-sm leading-5 text-foreground">
                           {selectedCase.issueSummary}

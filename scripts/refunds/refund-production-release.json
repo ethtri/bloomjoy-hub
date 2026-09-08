@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "3d9ec5e1db3b19ae97163418059643751e56ad07",
+  "sourceGitCommit": "da115f5f58a6e17256909299614a7368636d47f8",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -246,9 +246,9 @@
       "verifyJwt": false,
       "sourceSha256": "0e6065509cbaca107357f51eb158ae1e41670b8d4fe64b28cb60be44fac8340b",
       "production": {
-        "version": 122,
-        "ezbrSha256": "682ed941b62fec77ce48788235f4640df671ba2b57dac5018e419d35d414c549",
-        "sourceSha256": "fb7de258dc0f85b86cbd44f67e52c21ff5c5b850f66914ec97b9f661bc1f72d3",
+        "version": 132,
+        "ezbrSha256": "41e4fafe81095c09451ee223a8a1e03ab1ff39e00ed8c800151b30e47d3190e0",
+        "sourceSha256": "0e6065509cbaca107357f51eb158ae1e41670b8d4fe64b28cb60be44fac8340b",
         "entrypointIdentity": "supabase/functions/refund-case-intake/index.ts"
       }
     },
@@ -257,9 +257,9 @@
       "verifyJwt": false,
       "sourceSha256": "a7f1b6cb066c4cfdc664eaf0b422daad6c6d55de1fc42bbc5d3eeecb6c65a14e",
       "production": {
-        "version": 112,
-        "ezbrSha256": "b3f8b05868c406a3fad3e9247a8efea1f5ea6e8381d8f7a75c301cd574b71a8b",
-        "sourceSha256": "da1b6a2073f35383417f8c50b18c3b4d355bf25a38e3db2b4167ace3ada50bfa",
+        "version": 122,
+        "ezbrSha256": "fff4ebb4e0686f32cb4036ee1e695905df923f947b3849c82e48265968f66de0",
+        "sourceSha256": "a7f1b6cb066c4cfdc664eaf0b422daad6c6d55de1fc42bbc5d3eeecb6c65a14e",
         "entrypointIdentity": "supabase/functions/nayax-transaction-lookup/index.ts"
       }
     },
@@ -268,9 +268,9 @@
       "verifyJwt": false,
       "sourceSha256": "194fba71a3b2ec9abf88503d13a6e742953c978e55ee209d9d73cc6b65d670e5",
       "production": {
-        "version": 120,
-        "ezbrSha256": "5777305dd1b415fb412a5a05fb526a1c69475d8ec74da0daac405c79260b9fd2",
-        "sourceSha256": "a9ca18c031f2d3605add88e6b0d86d9e2caea543662bf8d1ba71dc5b956c9b9e",
+        "version": 130,
+        "ezbrSha256": "de00328766bf113aac3ea53790323de178f97d9a8d342035a8fa7bf7c663a86f",
+        "sourceSha256": "194fba71a3b2ec9abf88503d13a6e742953c978e55ee209d9d73cc6b65d670e5",
         "entrypointIdentity": "supabase/functions/refund-case-admin-update/index.ts"
       }
     },
@@ -279,9 +279,9 @@
       "verifyJwt": false,
       "sourceSha256": "c00e4f7926d6ac656823c2265699264eb977e895697022296ca924b76152216f",
       "production": {
-        "version": 113,
-        "ezbrSha256": "cec4ff5001a51f01c4bf8eb8d02d5fd76fa838e524c072bb9b01f3dce946ba02",
-        "sourceSha256": "45753c1ae17ff934b488a8f32b7837d3bf8d51c1e16cbfd9a3fa1adfc47cbbfc",
+        "version": 123,
+        "ezbrSha256": "2d6f6a0eedea3fceefaf64964f5b19e264401a3961eeb740503b23e6a9d7638a",
+        "sourceSha256": "c00e4f7926d6ac656823c2265699264eb977e895697022296ca924b76152216f",
         "entrypointIdentity": "supabase/functions/refund-case-message-send/index.ts"
       }
     },
@@ -290,9 +290,9 @@
       "verifyJwt": false,
       "sourceSha256": "f00fbba8622b4e3ef89357fce03d7ce7dc634509df1deadbbe9c50094da12e5b",
       "production": {
-        "version": 125,
-        "ezbrSha256": "147dbf1ffcb70d6b3485549fcfbc2ace5b0a00e69197fa27f428737b5a34d2de",
-        "sourceSha256": "7d92876d0957f6f6a5e4c9b968eb442f0e993f8608c3aab852ba93ede089a550",
+        "version": 135,
+        "ezbrSha256": "37ace15f3eddb0391573a9a6d3978cb1727d9c2088face3337aebb28d3959dd3",
+        "sourceSha256": "f00fbba8622b4e3ef89357fce03d7ce7dc634509df1deadbbe9c50094da12e5b",
         "entrypointIdentity": "supabase/functions/refund-case-automation-sweep/index.ts"
       }
     },
@@ -301,9 +301,9 @@
       "verifyJwt": false,
       "sourceSha256": "48c1c6c6146a841caa18d3d525f9dfe11d4a3a633f899dba497fb9b0a3005e3e",
       "production": {
-        "version": 119,
-        "ezbrSha256": "f38036d9189c4c43486f2231ad05facf2350527a45f4231373d15cc1007a4142",
-        "sourceSha256": "ae6f649839d65d2c5914d51e3bc46ed1a2cd1075d8d71aad6a01c55c69b6c830",
+        "version": 129,
+        "ezbrSha256": "c523fd03788bd95373574d138a4fdef15702f691067e2be28baefc4f9d7f4f12",
+        "sourceSha256": "48c1c6c6146a841caa18d3d525f9dfe11d4a3a633f899dba497fb9b0a3005e3e",
         "entrypointIdentity": "supabase/functions/refund-gmail-sync/index.ts"
       }
     },
@@ -323,9 +323,9 @@
       "verifyJwt": false,
       "sourceSha256": "df731e969b50be9d6231d47d69ec03e9e81cd1da7bd8ab320a8ac73955e15a14",
       "production": {
-        "version": 120,
-        "ezbrSha256": "9cce8b1287e83482e7149f84f89f04bcafe1f9bb6737c72531462944605fff56",
-        "sourceSha256": "fbc5e6b9a88d5d743f270b325afcd801c11cb9303d0e279d5476b144c6ccc445",
+        "version": 130,
+        "ezbrSha256": "570a571059fde78c8ac4784428ac753ba9352d596b4546205b58b07b0831959a",
+        "sourceSha256": "df731e969b50be9d6231d47d69ec03e9e81cd1da7bd8ab320a8ac73955e15a14",
         "entrypointIdentity": "supabase/functions/nayax-card-refund/index.ts"
       }
     },
@@ -334,9 +334,9 @@
       "verifyJwt": false,
       "sourceSha256": "e2c06c8144bc2a3f408e091c8405ea18ea9f3d55d3c456ebd27f61915dd3d9aa",
       "production": {
-        "version": 101,
-        "ezbrSha256": "38e3ffe0334c65a5bf2e479cb0c0a20206ea53d633a919ebb2544f04a6bada5a",
-        "sourceSha256": "264b7be4dabc0100e15b15e1f1d3562b82900d9d7c8fa7965d411bb22284e598",
+        "version": 111,
+        "ezbrSha256": "97b31f2ee6ae58a1937433c922cff65d44e62eb77403e0be7a95353b7b35ccb0",
+        "sourceSha256": "e2c06c8144bc2a3f408e091c8405ea18ea9f3d55d3c456ebd27f61915dd3d9aa",
         "entrypointIdentity": "supabase/functions/refund-manager-action-step-up/index.ts"
       }
     },
@@ -356,9 +356,9 @@
       "verifyJwt": false,
       "sourceSha256": "ce33a7c92f8ac4c7a274e674b7e90acc2d9ac0f2ea312d3e31a1886c92d28bcd",
       "production": {
-        "version": 54,
-        "ezbrSha256": "b3d94894765804ea6a17eff575a2ba08ab6eda58affb2841176cabd92f0de6a4",
-        "sourceSha256": "7537cc720973bf6499dc001d3e7f4b599cb6f6bb98006440c117d1f2e6282cd5",
+        "version": 64,
+        "ezbrSha256": "da4d6fbf97eaac4f73b927939068d16c7d215949bdff7a53c643f8013e09c890",
+        "sourceSha256": "ce33a7c92f8ac4c7a274e674b7e90acc2d9ac0f2ea312d3e31a1886c92d28bcd",
         "entrypointIdentity": "supabase/functions/refund-nayax-outcome-resolve/index.ts"
       }
     }
