@@ -391,6 +391,209 @@ Deno.test("the lifecycle parser accepts optional receipt accounting separation",
   }
 });
 
+Deno.test("the lifecycle parser accepts exact applied accounting delivery states", () => {
+  const appliedSent = {
+    ...fixture,
+    stage: "customer_notified",
+    stageRank: 80,
+    reasonCode: "completion_sent",
+    paymentState: "confirmed",
+    paymentWorkComplete: true,
+    safeRetryEligible: false,
+    messageState: { ...fixture.messageState, state: "sent", messageType: "completed" },
+    managerNextAction: "none",
+    managerAction: {
+      action: "none",
+      owner: "Machine Manager",
+      safeRetryEligible: false,
+      payloadRedacted: true,
+    },
+    managerQueue: {
+      schemaVersion: "refund_manager_queue_v2",
+      bucket: "completed",
+      label: "Done",
+      nextAction: "none",
+      safeRetryEligible: false,
+      customerActionFields: [],
+      payloadRedacted: true,
+    },
+    operations: {
+      required: false,
+      queue: "Refund Operations",
+      owner: "Refund Operations",
+      slaMinutes: 60,
+      ageMinutes: null,
+      dueAt: null,
+      slaBreached: false,
+      safeStage: "settled",
+      failureClass: null,
+      nextStep: null,
+    },
+    accountingState: {
+      state: "applied",
+      owner: "Refund Operations",
+      accountingDate: "2026-09-08",
+      settlementTimePrecision: "unknown",
+      settledAt: null,
+      blocksPaymentCompletion: false,
+      blocksCustomerNotice: false,
+      payloadRedacted: true,
+    },
+    terminal: true,
+    refreshAfterSeconds: null,
+  };
+  assert(isRefundLifecycleContract(appliedSent), "a sent applied receipt should parse");
+
+  const appliedPending = {
+    ...appliedSent,
+    stage: "refund_confirmed",
+    stageRank: 70,
+    reasonCode: "customer_notification_pending",
+    messageState: { ...appliedSent.messageState, state: "pending" },
+    managerNextAction: "wait_for_customer_notification",
+    managerAction: {
+      ...appliedSent.managerAction,
+      action: "wait_for_customer_notification",
+    },
+    managerQueue: {
+      ...appliedSent.managerQueue,
+      bucket: "in_progress",
+      label: "In progress",
+      nextAction: "wait_for_customer_notification",
+    },
+    terminal: false,
+    refreshAfterSeconds: 5,
+  };
+  assert(isRefundLifecycleContract(appliedPending), "a queued applied receipt should parse");
+
+  const reviewOperations = {
+    ...appliedSent.operations,
+    required: true,
+    ageMinutes: 12,
+    dueAt: "2026-09-08T20:00:00.000Z",
+    failureClass: "customer_delivery_exception",
+    nextStep:
+      "Refund confirmed. Review the existing completion message delivery and accounting date; do not retry payment or create another message.",
+  };
+  const appliedFailed = {
+    ...appliedPending,
+    reasonCode: "completion_delivery_failed",
+    messageState: { ...appliedSent.messageState, state: "failed" },
+    managerNextAction: "review_delivery_no_resend",
+    managerAction: {
+      ...appliedSent.managerAction,
+      action: "review_delivery_no_resend",
+      owner: "Refund Operations",
+    },
+    managerQueue: {
+      ...appliedSent.managerQueue,
+      bucket: "needs_action",
+      label: "Action needed",
+      nextAction: "review_delivery_no_resend",
+    },
+    operations: reviewOperations,
+  };
+  assert(isRefundLifecycleContract(appliedFailed), "a failed applied receipt should parse");
+
+  const appliedUnknown = {
+    ...appliedFailed,
+    stage: "customer_notified",
+    reasonCode: "completion_delivery_unconfirmed",
+    messageState: { ...appliedSent.messageState, state: "delivery_unconfirmed" },
+    operations: {
+      ...reviewOperations,
+      nextStep:
+        "Refund confirmed. The customer completion has one saved delivery record. Resolve the accounting date internally; do not retry payment.",
+    },
+  };
+  assert(isRefundLifecycleContract(appliedUnknown), "an unconfirmed applied receipt should parse");
+
+  const mixedOverview = {
+    cases: [
+      { id: "ordinary-provider-hold", lifecycle: fixture },
+      { id: "paid-applied", lifecycle: appliedSent },
+    ],
+  };
+  const consumedCases = mixedOverview.cases.map((refundCase) => ({
+    ...refundCase,
+    lifecycle: requireRefundLifecycleContract(refundCase.lifecycle),
+  }));
+  assert(consumedCases.length === 2, "one paid lifecycle must not blank a mixed overview");
+  assert(
+    consumedCases[0].lifecycle.managerQueue.bucket === "provider_hold" &&
+      consumedCases[1].lifecycle.managerQueue.bucket === "completed",
+    "the mixed overview consumer should retain ordinary and completed cases",
+  );
+
+  const { accountingDate: _accountingDate, ...appliedWithoutDate } = appliedSent.accountingState;
+  const appliedMismatches: Array<[string, unknown]> = [
+    ["missing accounting date", { ...appliedSent, accountingState: appliedWithoutDate }],
+    ["invalid accounting date", {
+      ...appliedSent,
+      accountingState: { ...appliedSent.accountingState, accountingDate: "2026-99-99" },
+    }],
+    ["normalized accounting date", {
+      ...appliedSent,
+      accountingState: { ...appliedSent.accountingState, accountingDate: "2026-02-31" },
+    }],
+    ["pending accounting queue", {
+      ...appliedSent,
+      managerQueue: {
+        ...appliedSent.managerQueue,
+        bucket: "accounting_review",
+        label: "Refund confirmed · accounting review",
+        nextAction: "review_accounting_date",
+      },
+    }],
+    ["sent nonterminal", { ...appliedSent, terminal: false }],
+    ["pending terminal", { ...appliedPending, terminal: true }],
+    ["safe retry", { ...appliedUnknown, safeRetryEligible: true }],
+    ["extra accounting key", {
+      ...appliedSent,
+      accountingState: { ...appliedSent.accountingState, providerReference: "private" },
+    }],
+    ["missing manager action", { ...appliedSent, managerAction: null }],
+  ];
+  for (const [mismatch, contract] of appliedMismatches) {
+    assert(!isRefundLifecycleContract(contract), `applied ${mismatch} must fail closed`);
+  }
+
+  const pendingAccounting = {
+    ...appliedPending,
+    reasonCode: "settlement_time_unknown",
+    managerNextAction: "review_accounting_date",
+    managerAction: {
+      ...appliedPending.managerAction,
+      action: "review_accounting_date",
+      owner: "Refund Operations",
+    },
+    managerQueue: {
+      ...appliedPending.managerQueue,
+      bucket: "accounting_review",
+      label: "Refund confirmed · accounting review",
+      nextAction: "review_accounting_date",
+    },
+    operations: {
+      ...reviewOperations,
+      safeStage: "payment_confirmed_accounting_pending",
+      failureClass: "settlement_time_unknown",
+    },
+    accountingState: {
+      state: "pending",
+      owner: "Refund Operations",
+      settlementTimePrecision: "unknown",
+      settledAt: null,
+      blocksPaymentCompletion: false,
+      blocksCustomerNotice: false,
+      payloadRedacted: true,
+    },
+  };
+  assert(
+    !isRefundLifecycleContract({ ...pendingAccounting, managerAction: null }),
+    "pending accounting without a manager action must fail closed without throwing",
+  );
+});
+
 Deno.test("the lifecycle parser accepts only boolean definitive no-refund markers", () => {
   assert(
     isRefundLifecycleContract({

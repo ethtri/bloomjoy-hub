@@ -43,7 +43,7 @@ export type RefundManagerQueueContract = {
   payloadRedacted: true;
 };
 
-export type RefundAccountingState = {
+export type RefundPendingAccountingState = {
   state: "pending";
   owner: "Refund Operations";
   settlementTimePrecision: "unknown";
@@ -52,6 +52,21 @@ export type RefundAccountingState = {
   blocksCustomerNotice: false;
   payloadRedacted: true;
 };
+
+export type RefundAppliedAccountingState = {
+  state: "applied";
+  owner: "Refund Operations";
+  accountingDate: string;
+  settlementTimePrecision: "unknown";
+  settledAt: null;
+  blocksPaymentCompletion: false;
+  blocksCustomerNotice: false;
+  payloadRedacted: true;
+};
+
+export type RefundAccountingState =
+  | RefundPendingAccountingState
+  | RefundAppliedAccountingState;
 
 export type RefundLifecycleContract = {
   schemaVersion: typeof REFUND_LIFECYCLE_SCHEMA_VERSION;
@@ -178,6 +193,159 @@ export const isRefundLifecycleContract = (
     : messageState?.state === "failed"
     ? "completion_delivery_failed"
     : "customer_notification_pending";
+  const accountingKeys = [
+    "blocksCustomerNotice", "blocksPaymentCompletion", "owner", "payloadRedacted",
+    "settledAt", "settlementTimePrecision", "state",
+  ];
+  const managerActionKeys = [
+    "action", "owner", "payloadRedacted", "safeRetryEligible",
+  ];
+  const managerQueueKeys = [
+    "bucket", "customerActionFields", "label", "nextAction", "payloadRedacted",
+    "safeRetryEligible", "schemaVersion",
+  ];
+  const operationsKeys = [
+    "ageMinutes", "dueAt", "failureClass", "nextStep", "owner", "queue",
+    "required", "safeStage", "slaBreached", "slaMinutes",
+  ];
+  const pendingAccountingContract = contract.paymentWorkComplete === true &&
+    Boolean(accountingState) &&
+    exactObjectKeys(accountingState!, accountingKeys) &&
+    contract.reasonCode === "settlement_time_unknown" &&
+    contract.paymentState === "confirmed" &&
+    ["refund_confirmed", "customer_notified"].includes(String(contract.stage)) &&
+    contract.safeRetryEligible === false &&
+    contract.managerNextAction === "review_accounting_date" &&
+    contract.terminal === noticeComplete &&
+    contract.refreshAfterSeconds === (noticeComplete ? null : 5) &&
+    Boolean(managerAction) &&
+    exactObjectKeys(managerAction!, managerActionKeys) &&
+    managerAction?.action === "review_accounting_date" &&
+    managerAction?.owner === "Refund Operations" &&
+    managerAction?.safeRetryEligible === false &&
+    managerAction?.payloadRedacted === true &&
+    Boolean(managerQueue) &&
+    exactObjectKeys(managerQueue!, managerQueueKeys) &&
+    managerQueue?.schemaVersion === "refund_manager_queue_v2" &&
+    managerQueue?.bucket === "accounting_review" &&
+    managerQueue?.label === "Refund confirmed · accounting review" &&
+    managerQueue?.nextAction === "review_accounting_date" &&
+    managerQueue?.safeRetryEligible === false &&
+    Array.isArray(managerQueue?.customerActionFields) &&
+    managerQueue.customerActionFields.length === 0 &&
+    managerQueue?.payloadRedacted === true &&
+    lookup?.safeRetryEligible === false &&
+    operations?.required === true &&
+    operations?.queue === "Refund Operations" &&
+    operations?.owner === "Refund Operations" &&
+    operations?.safeStage === "payment_confirmed_accounting_pending" &&
+    operations?.failureClass === "settlement_time_unknown" &&
+    accountingState?.state === "pending" &&
+    accountingState?.owner === "Refund Operations" &&
+    accountingState?.settlementTimePrecision === "unknown" &&
+    accountingState?.settledAt === null &&
+    accountingState?.blocksPaymentCompletion === false &&
+    accountingState?.blocksCustomerNotice === false &&
+    accountingState?.payloadRedacted === true;
+  const appliedNoticeState = String(messageState?.state);
+  const appliedNoticeComplete = ["sent", "delivered"].includes(appliedNoticeState);
+  const appliedNoticeReview = ["failed", "delivery_unconfirmed"].includes(appliedNoticeState);
+  const appliedNoticePending = appliedNoticeState === "pending";
+  const appliedExpectedReason = appliedNoticeComplete
+    ? "completion_sent"
+    : appliedNoticeState === "failed"
+    ? "completion_delivery_failed"
+    : appliedNoticeState === "delivery_unconfirmed"
+    ? "completion_delivery_unconfirmed"
+    : "customer_notification_pending";
+  const appliedExpectedAction = appliedNoticeComplete
+    ? "none"
+    : appliedNoticeReview
+    ? "review_delivery_no_resend"
+    : "wait_for_customer_notification";
+  const appliedExpectedOwner = appliedNoticeReview ? "Refund Operations" : "Machine Manager";
+  const appliedExpectedBucket = appliedNoticeComplete
+    ? "completed"
+    : appliedNoticeReview
+    ? "needs_action"
+    : "in_progress";
+  const appliedExpectedLabel = appliedNoticeComplete
+    ? "Done"
+    : appliedNoticeReview
+    ? "Action needed"
+    : "In progress";
+  const appliedReviewNextSteps = [
+    "Refund confirmed. Review the existing completion message delivery and accounting date; do not retry payment or create another message.",
+    "Refund confirmed. The customer completion has one saved delivery record. Resolve the accounting date internally; do not retry payment.",
+  ];
+  const appliedPendingNextSteps = [null, appliedReviewNextSteps[1]];
+  const accountingDate = accountingState?.accountingDate;
+  const parsedAccountingDate = typeof accountingDate === "string"
+    ? Date.parse(`${accountingDate}T00:00:00Z`)
+    : Number.NaN;
+  const appliedAccountingContract = contract.paymentWorkComplete === true &&
+    Boolean(accountingState) &&
+    exactObjectKeys(accountingState!, [...accountingKeys, "accountingDate"]) &&
+    accountingState?.state === "applied" &&
+    accountingState?.owner === "Refund Operations" &&
+    typeof accountingDate === "string" &&
+    /^\d{4}-\d{2}-\d{2}$/.test(accountingDate) &&
+    Number.isFinite(parsedAccountingDate) &&
+    new Date(parsedAccountingDate).toISOString().slice(0, 10) === accountingDate &&
+    accountingState?.settlementTimePrecision === "unknown" &&
+    accountingState?.settledAt === null &&
+    accountingState?.blocksPaymentCompletion === false &&
+    accountingState?.blocksCustomerNotice === false &&
+    accountingState?.payloadRedacted === true &&
+    contract.paymentState === "confirmed" &&
+    contract.safeRetryEligible === false &&
+    lookup?.safeRetryEligible === false &&
+    (appliedNoticeComplete || appliedNoticeReview || appliedNoticePending) &&
+    contract.stage === (appliedNoticeComplete || appliedNoticeState === "delivery_unconfirmed"
+      ? "customer_notified"
+      : "refund_confirmed") &&
+    contract.reasonCode === appliedExpectedReason &&
+    contract.managerNextAction === appliedExpectedAction &&
+    contract.terminal === appliedNoticeComplete &&
+    contract.refreshAfterSeconds === (appliedNoticeComplete ? null : 5) &&
+    Boolean(managerAction) &&
+    exactObjectKeys(managerAction!, managerActionKeys) &&
+    managerAction?.action === appliedExpectedAction &&
+    managerAction?.owner === appliedExpectedOwner &&
+    managerAction?.safeRetryEligible === false &&
+    managerAction?.payloadRedacted === true &&
+    Boolean(managerQueue) &&
+    exactObjectKeys(managerQueue!, managerQueueKeys) &&
+    managerQueue?.schemaVersion === "refund_manager_queue_v2" &&
+    managerQueue?.bucket === appliedExpectedBucket &&
+    managerQueue?.label === appliedExpectedLabel &&
+    managerQueue?.nextAction === appliedExpectedAction &&
+    managerQueue?.safeRetryEligible === false &&
+    Array.isArray(managerQueue?.customerActionFields) &&
+    managerQueue.customerActionFields.length === 0 &&
+    managerQueue?.payloadRedacted === true &&
+    Boolean(operations) &&
+    exactObjectKeys(operations!, operationsKeys) &&
+    operations?.queue === "Refund Operations" &&
+    operations?.owner === "Refund Operations" &&
+    operations?.slaMinutes === 60 &&
+    operations?.safeStage === "settled" &&
+    (appliedNoticeReview
+      ? operations?.required === true &&
+        typeof operations?.ageMinutes === "number" &&
+        Number.isSafeInteger(operations.ageMinutes) &&
+        typeof operations?.dueAt === "string" &&
+        typeof operations?.slaBreached === "boolean" &&
+        operations?.failureClass === "customer_delivery_exception" &&
+        appliedReviewNextSteps.includes(operations?.nextStep as string)
+      : operations?.required === false &&
+        operations?.ageMinutes === null &&
+        operations?.dueAt === null &&
+        operations?.slaBreached === false &&
+        operations?.failureClass === null &&
+        (appliedNoticeComplete
+          ? operations?.nextStep === null
+          : appliedPendingNextSteps.includes(operations?.nextStep as string | null)));
   return contract.schemaVersion === REFUND_LIFECYCLE_SCHEMA_VERSION &&
     typeof contract.version === "number" && Number.isSafeInteger(contract.version) &&
     contract.version >= 1 &&
@@ -195,53 +363,7 @@ export const isRefundLifecycleContract = (
     typeof managerAction?.safeRetryEligible === "boolean" &&
     managerAction?.payloadRedacted === true &&
     typeof contract.paymentState === "string" &&
-    (!hasAccountingState ||
-      (contract.paymentWorkComplete === true &&
-        Boolean(accountingState) &&
-        exactObjectKeys(accountingState!, [
-          "blocksCustomerNotice", "blocksPaymentCompletion", "owner", "payloadRedacted",
-          "settledAt", "settlementTimePrecision", "state",
-        ]) &&
-        contract.reasonCode === "settlement_time_unknown" &&
-        contract.paymentState === "confirmed" &&
-        ["refund_confirmed", "customer_notified"].includes(String(contract.stage)) &&
-        contract.safeRetryEligible === false &&
-        contract.managerNextAction === "review_accounting_date" &&
-        contract.terminal === noticeComplete &&
-        contract.refreshAfterSeconds === (noticeComplete ? null : 5) &&
-        exactObjectKeys(managerAction!, [
-          "action", "owner", "payloadRedacted", "safeRetryEligible",
-        ]) &&
-        managerAction?.action === "review_accounting_date" &&
-        managerAction?.owner === "Refund Operations" &&
-        managerAction?.safeRetryEligible === false &&
-        managerAction?.payloadRedacted === true &&
-        Boolean(managerQueue) &&
-        exactObjectKeys(managerQueue!, [
-          "bucket", "customerActionFields", "label", "nextAction", "payloadRedacted",
-          "safeRetryEligible", "schemaVersion",
-        ]) &&
-        managerQueue?.schemaVersion === "refund_manager_queue_v2" &&
-        managerQueue?.bucket === "accounting_review" &&
-        managerQueue?.label === "Refund confirmed · accounting review" &&
-        managerQueue?.nextAction === "review_accounting_date" &&
-        managerQueue?.safeRetryEligible === false &&
-        Array.isArray(managerQueue?.customerActionFields) &&
-        managerQueue.customerActionFields.length === 0 &&
-        managerQueue?.payloadRedacted === true &&
-        lookup?.safeRetryEligible === false &&
-        operations?.required === true &&
-        operations?.queue === "Refund Operations" &&
-        operations?.owner === "Refund Operations" &&
-        operations?.safeStage === "payment_confirmed_accounting_pending" &&
-        operations?.failureClass === "settlement_time_unknown" &&
-        accountingState?.state === "pending" &&
-        accountingState?.owner === "Refund Operations" &&
-        accountingState?.settlementTimePrecision === "unknown" &&
-        accountingState?.settledAt === null &&
-        accountingState?.blocksPaymentCompletion === false &&
-        accountingState?.blocksCustomerNotice === false &&
-        accountingState?.payloadRedacted === true)) &&
+    (!hasAccountingState || pendingAccountingContract || appliedAccountingContract) &&
     (!hasRestrictedManagerProjection ||
       (contract.managerVisibility === "restricted" &&
         !hasAccountingState &&

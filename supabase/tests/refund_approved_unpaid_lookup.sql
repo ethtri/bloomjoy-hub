@@ -70,6 +70,11 @@ select ok(has_function_privilege('service_role','public.service_begin_refund_nay
   and not has_function_privilege('service_role','public.service_begin_refund_nayax_lookup_pre_scope_recovery_v1(uuid,bigint,text,uuid)','execute'),
   'Only the existing service wrapper exposes the approved lookup continuation');
 
+select ok(not has_function_privilege('authenticated','public.guard_refund_nayax_lookup_retry_budget()','execute')
+  and not has_function_privilege('anon','public.guard_refund_nayax_lookup_retry_budget()','execute')
+  and has_function_privilege('service_role','public.guard_refund_nayax_lookup_retry_budget()','execute'),
+  'The lookup retry trigger helper is not exposed to public API roles');
+
 set local role service_role;
 select throws_ok($$select pg_temp.begin_lookup(1,'fa410000-0000-4000-8000-000000000002')$$,'42501',null,'Another manager cannot look up this approved case');
 select throws_ok($$select pg_temp.begin_lookup(1,null)$$,'P4622',null,'Approved continuation requires an explicit scoped manager');

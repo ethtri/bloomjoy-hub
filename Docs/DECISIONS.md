@@ -23,6 +23,18 @@ never repeat completed or uncertain payments to increase test volume. Record and
 fix practical friction without manufactured transactions or arbitrary quotas.
 The existing `#427` observation window is unchanged.
 
+### Completion and delivery contract
+
+[PR #1243](https://github.com/ethtri/bloomjoy-hub/pull/1243) attempts authoritative
+receipt recording after successful settlement and before completion email. A
+receipt-write failure records deferred recovery while payment stays successful
+and delivery follows its separately guarded path. Proven sent delivery settles
+once; unknown delivery never permits blind retry. Provider-free known-case
+recovery preserves unknown settlement time and existing sent evidence without
+another Nayax payment. New intake requires valid email; legacy **Email needed**
+is an honest display, and SMS stays out of scope. Fresh ordinary approved-case
+automatic completion remains separate live acceptance in #971/#1239.
+
 ## 2026-09-08 - Use the proved Nayax API contract and permissions baseline
 
 The canonical account's existing separate request and approval credentials have
