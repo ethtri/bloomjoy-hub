@@ -1,9 +1,15 @@
 begin;
 
+-- Superseded static marker: Commissionable Sales uses the authoritative net revenue snapshot.
+-- The executable assertions below now prove the stricter date-bounded fact basis and
+-- reconcile that basis back to the authoritative monthly snapshot.
+-- Retained validator markers: an inactive Technician remains available in a historical monthly report.
+-- Commissionable Sales refresh retains historically valid revoked assignments.
+
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(45);
+select plan(57);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -25,7 +31,8 @@ values
   ('00000000-0000-0000-0000-000000000000', 'a1000000-0000-0000-0000-000000000001', 'authenticated', 'authenticated', 'pay-report-tech@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now()),
   ('00000000-0000-0000-0000-000000000000', 'a1000000-0000-0000-0000-000000000002', 'authenticated', 'authenticated', 'pay-report-machine-manager@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now()),
   ('00000000-0000-0000-0000-000000000000', 'a1000000-0000-0000-0000-000000000003', 'authenticated', 'authenticated', 'pay-report-owner@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now()),
-  ('00000000-0000-0000-0000-000000000000', 'a1000000-0000-0000-0000-000000000004', 'authenticated', 'authenticated', 'pay-report-outsider@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now());
+  ('00000000-0000-0000-0000-000000000000', 'a1000000-0000-0000-0000-000000000004', 'authenticated', 'authenticated', 'pay-report-outsider@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now()),
+  ('00000000-0000-0000-0000-000000000000', 'a1000000-0000-0000-0000-000000000005', 'authenticated', 'authenticated', 'pay-report-partial-tech@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now());
 
 insert into public.customer_accounts (id, name, account_type)
 values ('a2000000-0000-0000-0000-000000000001', 'Manager report account', 'customer');
@@ -50,12 +57,9 @@ values (
 );
 
 insert into public.reporting_machines (id, account_id, location_id, machine_label)
-values (
-  'a4000000-0000-0000-0000-000000000001',
-  'a2000000-0000-0000-0000-000000000001',
-  'a3000000-0000-0000-0000-000000000001',
-  'Manager Report Machine'
-);
+values
+  ('a4000000-0000-0000-0000-000000000001', 'a2000000-0000-0000-0000-000000000001', 'a3000000-0000-0000-0000-000000000001', 'Manager Report Machine'),
+  ('a4000000-0000-0000-0000-000000000002', 'a2000000-0000-0000-0000-000000000001', 'a3000000-0000-0000-0000-000000000001', 'Partial Assignment Machine');
 
 insert into public.reporting_machine_refund_managers (
   id, reporting_machine_id, manager_user_id, manager_email, grant_reason
@@ -89,30 +93,17 @@ insert into public.operator_payout_profiles (
   id, account_id, user_id, display_name, worker_type, payout_policy_id,
   worker_identifier, position_title
 )
-values (
-  'a6000000-0000-0000-0000-000000000001',
-  'a2000000-0000-0000-0000-000000000001',
-  'a1000000-0000-0000-0000-000000000001',
-  'Report Technician',
-  'contractor_1099',
-  'a5000000-0000-0000-0000-000000000001',
-  'TECH-001',
-  'Technician'
-);
+values
+  ('a6000000-0000-0000-0000-000000000001', 'a2000000-0000-0000-0000-000000000001', 'a1000000-0000-0000-0000-000000000001', 'Report Technician', 'contractor_1099', 'a5000000-0000-0000-0000-000000000001', 'TECH-001', 'Technician'),
+  ('a6000000-0000-0000-0000-000000000002', 'a2000000-0000-0000-0000-000000000001', 'a1000000-0000-0000-0000-000000000005', 'Z Partial Technician', 'contractor_1099', 'a5000000-0000-0000-0000-000000000001', 'TECH-002', 'Technician');
 
 insert into public.operator_machine_assignments (
   id, operator_profile_id, account_id, reporting_machine_id,
   effective_start_date, effective_end_date, grant_reason
 )
-values (
-  'a6100000-0000-0000-0000-000000000001',
-  'a6000000-0000-0000-0000-000000000001',
-  'a2000000-0000-0000-0000-000000000001',
-  'a4000000-0000-0000-0000-000000000001',
-  '2026-01-01',
-  '2026-12-31',
-  'Manager report assignment fixture'
-);
+values
+  ('a6100000-0000-0000-0000-000000000001', 'a6000000-0000-0000-0000-000000000001', 'a2000000-0000-0000-0000-000000000001', 'a4000000-0000-0000-0000-000000000001', '2026-01-01', '2026-12-31', 'Manager report assignment fixture'),
+  ('a6100000-0000-0000-0000-000000000002', 'a6000000-0000-0000-0000-000000000002', 'a2000000-0000-0000-0000-000000000001', 'a4000000-0000-0000-0000-000000000002', '2026-07-16', '2026-07-31', 'Valid partial-month assignment fixture');
 
 insert into public.payout_periods (
   id, account_id, payout_policy_id, period_start_date, period_end_date,
@@ -135,17 +126,13 @@ values
 
 insert into public.compensation_rules (
   id, account_id, operator_profile_id, reporting_machine_id,
-  commission_basis_points, effective_start_date, status
+  commission_basis_points, effective_start_date, effective_end_date, status
 )
-values (
-  'a8000000-0000-0000-0000-000000000003',
-  'a2000000-0000-0000-0000-000000000001',
-  'a6000000-0000-0000-0000-000000000001',
-  null,
-  1000,
-  '2026-01-01',
-  'active'
-);
+values
+  ('a8000000-0000-0000-0000-000000000003', 'a2000000-0000-0000-0000-000000000001', 'a6000000-0000-0000-0000-000000000001', null, 1000, '2026-01-01', '2026-07-15', 'active'),
+  ('a8000000-0000-0000-0000-000000000004', 'a2000000-0000-0000-0000-000000000001', 'a6000000-0000-0000-0000-000000000001', null, 2000, '2026-07-16', null, 'active'),
+  ('a8000000-0000-0000-0000-000000000005', 'a2000000-0000-0000-0000-000000000001', 'a6000000-0000-0000-0000-000000000002', null, 500, '2026-07-16', '2026-07-23', 'active'),
+  ('a8000000-0000-0000-0000-000000000006', 'a2000000-0000-0000-0000-000000000001', 'a6000000-0000-0000-0000-000000000002', null, 1000, '2026-07-24', null, 'active');
 
 insert into public.compensation_rules (
   id, account_id, operator_profile_id, reporting_machine_id,
@@ -173,6 +160,24 @@ values
   ('a9000000-0000-0000-0000-000000000003', 'a2000000-0000-0000-0000-000000000001', 'a6000000-0000-0000-0000-000000000001', 'a4000000-0000-0000-0000-000000000001', 'a3000000-0000-0000-0000-000000000001', 'a5000000-0000-0000-0000-000000000001', 'a7000000-0000-0000-0000-000000000001', '2026-07-11', '08:00', '08:20', '2026-07-11 15:00:00+00', '2026-07-11 15:20:00+00', 20, 60, 1, 'submitted'),
   ('a9000000-0000-0000-0000-000000000004', 'a2000000-0000-0000-0000-000000000001', 'a6000000-0000-0000-0000-000000000001', 'a4000000-0000-0000-0000-000000000001', 'a3000000-0000-0000-0000-000000000001', 'a5000000-0000-0000-0000-000000000001', 'a7000000-0000-0000-0000-000000000001', '2026-07-20', '08:00', '08:20', '2026-07-20 15:00:00+00', '2026-07-20 15:20:00+00', 20, 60, 1, 'submitted');
 
+insert into public.machine_sales_facts (
+  id, reporting_machine_id, reporting_location_id, sale_date, payment_method,
+  net_sales_cents, transaction_count, source, source_row_hash
+)
+values
+  ('a9100000-0000-0000-0000-000000000001', 'a4000000-0000-0000-0000-000000000001', 'a3000000-0000-0000-0000-000000000001', '2026-07-10', 'credit', 4000, 4, 'sample_seed', 'manager-report-sale-a-1'),
+  ('a9100000-0000-0000-0000-000000000002', 'a4000000-0000-0000-0000-000000000001', 'a3000000-0000-0000-0000-000000000001', '2026-07-31', 'credit', 6000, 6, 'sample_seed', 'manager-report-sale-a-2'),
+  ('a9100000-0000-0000-0000-000000000003', 'a4000000-0000-0000-0000-000000000002', 'a3000000-0000-0000-0000-000000000001', '2026-07-20', 'credit', 2000, 2, 'sample_seed', 'manager-report-sale-b-1'),
+  ('a9100000-0000-0000-0000-000000000004', 'a4000000-0000-0000-0000-000000000002', 'a3000000-0000-0000-0000-000000000001', '2026-07-31', 'credit', 3000, 3, 'sample_seed', 'manager-report-sale-b-2');
+
+insert into public.sales_adjustment_facts (
+  id, reporting_machine_id, reporting_location_id, adjustment_date,
+  adjustment_type, amount_cents, source, source_row_hash
+)
+values
+  ('a9200000-0000-0000-0000-000000000001', 'a4000000-0000-0000-0000-000000000001', 'a3000000-0000-0000-0000-000000000001', '2026-07-31', 'refund', 1000, 'manual', 'manager-report-refund-a-1'),
+  ('a9200000-0000-0000-0000-000000000002', 'a4000000-0000-0000-0000-000000000002', 'a3000000-0000-0000-0000-000000000001', '2026-07-31', 'refund', 500, 'manual', 'manager-report-refund-b-1');
+
 insert into public.payout_period_machine_revenue_snapshots (
   id, account_id, payout_period_id, reporting_machine_id, reporting_location_id,
   period_start_date, period_end_date, gross_sales_cents, refund_adjustment_cents,
@@ -180,15 +185,9 @@ insert into public.payout_period_machine_revenue_snapshots (
   source_sales_row_count, source_adjustment_row_count, source_latest_sale_date,
   source_latest_adjustment_date, status, warnings
 )
-values (
-  'aa000000-0000-0000-0000-000000000001',
-  'a2000000-0000-0000-0000-000000000001',
-  'a7000000-0000-0000-0000-000000000001',
-  'a4000000-0000-0000-0000-000000000001',
-  'a3000000-0000-0000-0000-000000000001',
-  '2026-07-01', '2026-07-31', 10000, 1000, 9000, 9000, 10, 1, 1,
-  '2026-07-31', '2026-07-20', 'source_generated', '[]'::jsonb
-);
+values
+  ('aa000000-0000-0000-0000-000000000001', 'a2000000-0000-0000-0000-000000000001', 'a7000000-0000-0000-0000-000000000001', 'a4000000-0000-0000-0000-000000000001', 'a3000000-0000-0000-0000-000000000001', '2026-07-01', '2026-07-31', 10000, 1000, 9000, 9000, 10, 2, 1, '2026-07-31', '2026-07-31', 'source_generated', '[]'::jsonb),
+  ('aa000000-0000-0000-0000-000000000002', 'a2000000-0000-0000-0000-000000000001', 'a7000000-0000-0000-0000-000000000001', 'a4000000-0000-0000-0000-000000000002', 'a3000000-0000-0000-0000-000000000001', '2026-07-01', '2026-07-31', 5000, 500, 4500, 4500, 5, 2, 1, '2026-07-31', '2026-07-31', 'source_generated', '[]'::jsonb);
 
 insert into public.operator_recurring_compensation_items (
   id, account_id, operator_profile_id, item_type, description, amount_cents,
@@ -334,8 +333,8 @@ select ok(
 );
 select is(
   jsonb_array_length(public.get_technician_pay_report_context('2026-07-01')->'technicians'),
-  1,
-  'the pay report returns the authorized account Technician only'
+  2,
+  'the pay report returns only Technicians in the authorized account'
 );
 select is(
   public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,paidShifts}',
@@ -377,12 +376,12 @@ select is(
 select is(
   public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,commissionableSalesCents}',
   '9000',
-  'Commissionable Sales uses the authoritative net revenue snapshot'
+  'Commissionable Sales uses authoritative date-bounded sales and refund facts'
 );
 select is(
   public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,commissionEarningsCents}',
-  '900',
-  'commission reconciles from Commissionable Sales and the effective rate'
+  '1400',
+  'commission reconciles from two effective-rate date segments'
 );
 select is(
   public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,supplyCreditCents}',
@@ -391,7 +390,7 @@ select is(
 );
 select is(
   public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,currentTotalCents}',
-  '16400',
+  '16900',
   'current total includes shifts, commission, and supply credit without deducting refunds twice'
 );
 select is(
@@ -455,8 +454,8 @@ set status = 'revoked',
 where id = 'a6100000-0000-0000-0000-000000000001';
 select is(
   jsonb_array_length(public.get_technician_pay_report_context('2026-07-01')->'technicians'),
-  1,
-  'an inactive Technician remains available in a historical monthly report'
+  2,
+  'an inactive Technician remains available alongside active historical Technicians'
 );
 select is(
   public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,publishable}',
@@ -473,12 +472,99 @@ select is(
       ) as result
     ) refreshed
   ),
-  '1:1',
-  'Commissionable Sales refresh retains historically valid revoked assignments'
+  '1:2',
+  'Commissionable Sales refresh retains both historically valid assignment machines'
 );
 update public.operator_payout_profiles
 set status = 'active'
 where id = 'a6000000-0000-0000-0000-000000000001';
+select is(
+  jsonb_array_length(public.get_technician_pay_report_context('2026-07-01') #> '{technicians,0,machines,0,commissionSegments}'),
+  2,
+  'a midmonth commission-rate change produces two transparent date segments'
+);
+select is(
+  concat(
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,machines,0,commissionSegments,0,commissionBasisPoints}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,machines,0,commissionSegments,0,commissionableSalesCents}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,machines,0,commissionSegments,1,commissionBasisPoints}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,machines,0,commissionSegments,1,commissionableSalesCents}'
+  ),
+  '1000:4000:2000:5000',
+  'commission segments expose each effective rate and its Commissionable Sales basis'
+);
+select is(
+  concat(
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,machines,0,commissionSegments,0,segmentStartDate}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,machines,0,commissionSegments,0,segmentEndDate}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,machines,0,commissionSegments,0,commissionEarningsCents}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,machines,0,commissionSegments,1,segmentStartDate}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,machines,0,commissionSegments,1,segmentEndDate}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,0,machines,0,commissionSegments,1,commissionEarningsCents}'
+  ),
+  '2026-07-01:2026-07-15:400:2026-07-16:2026-07-31:1000',
+  'midmonth commission segments expose exact date windows and earnings'
+);
+select is(
+  public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,publishable}',
+  'true',
+  'a complete partial-month assignment is publishable'
+);
+select is(
+  concat(
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,assignedStartDate}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,assignedEndDate}'
+  ),
+  '2026-07-16:2026-07-31',
+  'the partial assignment preserves its exact compensation window'
+);
+select is(
+  public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,fullPeriodAssignment}',
+  'false',
+  'the report transparently identifies a partial-month assignment'
+);
+select is(
+  public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,assignmentScopeResolved}',
+  'true',
+  'a non-overlapping partial assignment is resolved rather than blocked'
+);
+select is(
+  jsonb_array_length(public.get_technician_pay_report_context('2026-07-01') #> '{technicians,1,machines,0,commissionSegments}'),
+  2,
+  'the partial assignment can contain multiple effective commission-rate segments'
+);
+select is(
+  concat(
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionSegments,0,commissionBasisPoints}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionSegments,0,commissionableSalesCents}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionSegments,1,commissionBasisPoints}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionSegments,1,commissionableSalesCents}'
+  ),
+  '500:2000:1000:2500',
+  'partial assignment commission segments use only date-bounded source facts'
+);
+select is(
+  concat(
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionSegments,0,segmentStartDate}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionSegments,0,segmentEndDate}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionSegments,0,commissionEarningsCents}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionSegments,1,segmentStartDate}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionSegments,1,segmentEndDate}', ':',
+    public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,machines,0,commissionSegments,1,commissionEarningsCents}'
+  ),
+  '2026-07-16:2026-07-23:100:2026-07-24:2026-07-31:250',
+  'partial assignment segments expose exact date windows and earnings'
+);
+select is(
+  public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,commissionableSalesCents}',
+  '4500',
+  'partial assignment totals only its in-window Commissionable Sales'
+);
+select is(
+  public.get_technician_pay_report_context('2026-07-01') #>> '{technicians,1,commissionEarningsCents}',
+  '350',
+  'partial assignment commission reconciles across its two rates'
+);
 select is(
   concat(
     public.get_technician_pay_report_context('2026-07-01') #>> '{capabilities,approvalRequired}', ':',

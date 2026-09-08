@@ -634,6 +634,21 @@ export type TechnicianPayReportShiftRateLine = {
   lastWorkDate: string;
 };
 
+export type TechnicianPayReportCommissionSegment = {
+  segmentStartDate: string;
+  segmentEndDate: string;
+  commissionRate: TechnicianPayReportRate | null;
+  commissionBasisPoints: number | null;
+  grossSalesCents: number;
+  refundAdjustmentCents: number;
+  netRevenueCents: number;
+  commissionableSalesCents: number;
+  commissionEarningsCents: number;
+  sourceSalesRowCount: number;
+  sourceAdjustmentRowCount: number;
+  sourceLatestSaleDate: string | null;
+};
+
 export type TechnicianPayReportMachine = {
   machineId: string;
   machineLabel: string;
@@ -642,11 +657,14 @@ export type TechnicianPayReportMachine = {
   assignedStartDate: string;
   assignedEndDate: string;
   assignmentScopeResolved: boolean;
+  fullPeriodAssignment: boolean;
   commissionRateCompleteForPeriod: boolean;
   revenueSnapshotId: string | null;
   revenueSnapshotStatus: PayoutRevenueSnapshotStatus | null;
   revenueGeneratedAt: string | null;
   sourceLatestSaleDate: string | null;
+  sourceSalesRowCount: number;
+  sourceAdjustmentRowCount: number;
   grossSalesCents: number;
   refundAdjustmentCents: number;
   netRevenueCents: number;
@@ -654,6 +672,13 @@ export type TechnicianPayReportMachine = {
   commissionRate: TechnicianPayReportRate | null;
   commissionBasisPoints: number | null;
   commissionEarningsCents: number;
+  commissionSegments: TechnicianPayReportCommissionSegment[];
+  snapshotGrossSalesCents: number;
+  snapshotRefundAdjustmentCents: number;
+  snapshotNetRevenueCents: number;
+  snapshotCommissionableSalesCents: number;
+  snapshotSourceLatestSaleDate: string | null;
+  snapshotMatchesFacts: boolean;
   warnings: TechnicianPayReportIssue[];
 };
 

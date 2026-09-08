@@ -808,38 +808,14 @@ as $$
       end as shift_earnings_cents
     from entry_base entry
   ),
-  assigned_machines as materialized (
+  assignment_windows as materialized (
     select
       assignment.reporting_machine_id,
       machine.machine_label,
       machine.location_id,
       location.name as location_name,
-      min(greatest(assignment.effective_start_date, p_period_start_date)) as assigned_start_date,
-      max(least(coalesce(assignment.effective_end_date, p_period_end_date), p_period_end_date)) as assigned_end_date,
-      not exists (
-        select 1
-        from generate_series(
-          p_period_start_date::timestamp,
-          p_period_end_date::timestamp,
-          interval '1 day'
-        ) day_value
-        where not exists (
-          select 1
-          from public.operator_machine_assignments coverage
-          where coverage.operator_profile_id = p_operator_profile_id
-            and coverage.reporting_machine_id = assignment.reporting_machine_id
-            and day_value::date between coverage.effective_start_date
-              and coalesce(coverage.effective_end_date, 'infinity'::date)
-        )
-      ) as full_period_scope,
-      exists (
-        select 1
-        from public.operator_machine_assignments other_assignment
-        where other_assignment.reporting_machine_id = assignment.reporting_machine_id
-          and other_assignment.operator_profile_id <> p_operator_profile_id
-          and other_assignment.effective_start_date <= p_period_end_date
-          and coalesce(other_assignment.effective_end_date, 'infinity'::date) >= p_period_start_date
-      ) as shared_compensation_scope
+      greatest(assignment.effective_start_date, p_period_start_date) as assigned_start_date,
+      least(coalesce(assignment.effective_end_date, p_period_end_date), p_period_end_date) as assigned_end_date
     from public.operator_machine_assignments assignment
     join public.reporting_machines machine
       on machine.id = assignment.reporting_machine_id
@@ -849,67 +825,216 @@ as $$
       and assignment.account_id = p_account_id
       and assignment.effective_start_date <= p_period_end_date
       and coalesce(assignment.effective_end_date, 'infinity'::date) >= p_period_start_date
-    group by
-      assignment.reporting_machine_id,
-      machine.machine_label,
-      machine.location_id,
-      location.name
   ),
-  commission_base as materialized (
+  assigned_machines as materialized (
     select
-      assigned.*,
-      snapshot.id as revenue_snapshot_id,
-      snapshot.gross_sales_cents,
-      snapshot.refund_adjustment_cents,
-      snapshot.net_revenue_cents,
-      snapshot.eligible_commission_revenue_cents,
-      snapshot.source_latest_sale_date,
-      snapshot.generated_at as revenue_generated_at,
-      snapshot.status as revenue_snapshot_status,
-      snapshot.warnings as revenue_warnings,
-      public.operator_compensation_rate_at(
-        p_account_id,
-        p_operator_profile_id,
-        assigned.reporting_machine_id,
-        p_period_end_date,
-        'commission'
-      ) as commission_rate,
-      (
-        select count(distinct rate_value.commission_basis_points)::integer
-        from (
-          select nullif(
-            public.operator_compensation_rate_at(
-              p_account_id,
-              p_operator_profile_id,
-              assigned.reporting_machine_id,
-              day_value::date,
-              'commission'
-            ) ->> 'commissionBasisPoints',
-            ''
-          )::integer as commission_basis_points
-          from generate_series(
-            p_period_start_date::timestamp,
-            p_period_end_date::timestamp,
-            interval '1 day'
-          ) day_value
-        ) rate_value
-        where rate_value.commission_basis_points is not null
-      ) as commission_rate_count,
-      exists (
+      assignment.reporting_machine_id,
+      assignment.machine_label,
+      assignment.location_id,
+      assignment.location_name,
+      min(assignment.assigned_start_date) as assigned_start_date,
+      max(assignment.assigned_end_date) as assigned_end_date,
+      not exists (
         select 1
         from generate_series(
           p_period_start_date::timestamp,
           p_period_end_date::timestamp,
           interval '1 day'
         ) day_value
-        where public.operator_compensation_rate_at(
-          p_account_id,
-          p_operator_profile_id,
-          assigned.reporting_machine_id,
-          day_value::date,
-          'commission'
-        ) is null
-      ) as commission_rate_missing_day
+        where not exists (
+          select 1
+          from assignment_windows coverage
+          where coverage.reporting_machine_id = assignment.reporting_machine_id
+            and day_value::date between coverage.assigned_start_date and coverage.assigned_end_date
+        )
+      ) as full_period_scope,
+      exists (
+        select 1
+        from assignment_windows own_assignment
+        join public.operator_machine_assignments other_assignment
+          on other_assignment.reporting_machine_id = own_assignment.reporting_machine_id
+          and other_assignment.operator_profile_id <> p_operator_profile_id
+          and daterange(
+            own_assignment.assigned_start_date,
+            own_assignment.assigned_end_date + 1,
+            '[)'
+          ) && daterange(
+            greatest(other_assignment.effective_start_date, p_period_start_date),
+            least(coalesce(other_assignment.effective_end_date, p_period_end_date), p_period_end_date) + 1,
+            '[)'
+          )
+        where own_assignment.reporting_machine_id = assignment.reporting_machine_id
+          and other_assignment.effective_start_date <= p_period_end_date
+          and coalesce(other_assignment.effective_end_date, 'infinity'::date) >= p_period_start_date
+      ) as shared_compensation_scope
+    from assignment_windows assignment
+    group by
+      assignment.reporting_machine_id,
+      assignment.machine_label,
+      assignment.location_id,
+      assignment.location_name
+  ),
+  assigned_days as materialized (
+    select
+      assigned.reporting_machine_id,
+      assigned.machine_label,
+      assigned.location_id,
+      assigned.location_name,
+      assigned.assigned_start_date,
+      assigned.assigned_end_date,
+      assigned.full_period_scope,
+      assigned.shared_compensation_scope,
+      day_value::date as sales_date,
+      public.operator_compensation_rate_at(
+        p_account_id,
+        p_operator_profile_id,
+        assigned.reporting_machine_id,
+        day_value::date,
+        'commission'
+      ) as commission_rate,
+      coalesce(sales.gross_sales_cents, 0)::bigint as gross_sales_cents,
+      coalesce(sales.source_sales_row_count, 0)::integer as source_sales_row_count,
+      coalesce(refunds.refund_adjustment_cents, 0)::bigint as refund_adjustment_cents,
+      coalesce(refunds.source_adjustment_row_count, 0)::integer as source_adjustment_row_count
+    from assigned_machines assigned
+    cross join lateral generate_series(
+      assigned.assigned_start_date::timestamp,
+      assigned.assigned_end_date::timestamp,
+      interval '1 day'
+    ) day_value
+    left join lateral (
+      select
+        coalesce(sum(fact.net_sales_cents), 0)::bigint as gross_sales_cents,
+        count(*)::integer as source_sales_row_count
+      from public.machine_sales_facts fact
+      where fact.reporting_machine_id = assigned.reporting_machine_id
+        and fact.sale_date = day_value::date
+    ) sales on true
+    left join lateral (
+      select
+        coalesce(sum(adjustment.amount_cents), 0)::bigint as refund_adjustment_cents,
+        count(*)::integer as source_adjustment_row_count
+      from public.sales_adjustment_facts adjustment
+      where adjustment.reporting_machine_id = assigned.reporting_machine_id
+        and adjustment.adjustment_date = day_value::date
+        and adjustment.adjustment_type in ('refund', 'complaint_refund')
+        and adjustment.amount_cents > 0
+    ) refunds on true
+    where exists (
+      select 1
+      from assignment_windows coverage
+      where coverage.reporting_machine_id = assigned.reporting_machine_id
+        and day_value::date between coverage.assigned_start_date and coverage.assigned_end_date
+    )
+  ),
+  segmented_days as materialized (
+    select
+      day_row.*,
+      day_row.sales_date - row_number() over (
+        partition by
+          day_row.reporting_machine_id,
+          coalesce(day_row.commission_rate ->> 'ruleId', 'missing'),
+          coalesce(day_row.commission_rate ->> 'commissionBasisPoints', 'missing')
+        order by day_row.sales_date
+      )::integer as segment_group
+    from assigned_days day_row
+  ),
+  commission_segments as materialized (
+    select
+      day_row.reporting_machine_id,
+      day_row.machine_label,
+      day_row.location_id,
+      day_row.location_name,
+      min(day_row.sales_date) as segment_start_date,
+      max(day_row.sales_date) as segment_end_date,
+      (array_agg(day_row.commission_rate order by day_row.sales_date))[1] as commission_rate,
+      nullif(day_row.commission_rate ->> 'commissionBasisPoints', '')::integer
+        as commission_basis_points,
+      sum(day_row.gross_sales_cents)::bigint as gross_sales_cents,
+      sum(day_row.refund_adjustment_cents)::bigint as refund_adjustment_cents,
+      (
+        sum(day_row.gross_sales_cents) - sum(day_row.refund_adjustment_cents)
+      )::bigint as net_revenue_cents,
+      greatest(
+        sum(day_row.gross_sales_cents) - sum(day_row.refund_adjustment_cents),
+        0
+      )::bigint as eligible_commission_revenue_cents,
+      sum(day_row.source_sales_row_count)::integer as source_sales_row_count,
+      sum(day_row.source_adjustment_row_count)::integer as source_adjustment_row_count,
+      max(day_row.sales_date) filter (where day_row.source_sales_row_count > 0)
+        as source_latest_sale_date
+    from segmented_days day_row
+    group by
+      day_row.reporting_machine_id,
+      day_row.machine_label,
+      day_row.location_id,
+      day_row.location_name,
+      day_row.commission_rate,
+      day_row.segment_group
+  ),
+  commission_segment_lines as materialized (
+    select
+      segment.*,
+      case
+        when segment.commission_rate is null then 0
+        else round(
+          segment.eligible_commission_revenue_cents::numeric
+          * segment.commission_basis_points
+          / 10000
+        )::integer
+      end as commission_earnings_cents
+    from commission_segments segment
+  ),
+  commission_lines as materialized (
+    select
+      assigned.*,
+      snapshot.id as revenue_snapshot_id,
+      snapshot.gross_sales_cents as snapshot_gross_sales_cents,
+      snapshot.refund_adjustment_cents as snapshot_refund_adjustment_cents,
+      snapshot.net_revenue_cents as snapshot_net_revenue_cents,
+      snapshot.eligible_commission_revenue_cents as snapshot_commissionable_sales_cents,
+      snapshot.source_latest_sale_date as snapshot_source_latest_sale_date,
+      snapshot.generated_at as revenue_generated_at,
+      snapshot.status as revenue_snapshot_status,
+      snapshot.warnings as revenue_warnings,
+      coalesce(assigned_totals.gross_sales_cents, 0)::bigint as gross_sales_cents,
+      coalesce(assigned_totals.refund_adjustment_cents, 0)::bigint as refund_adjustment_cents,
+      coalesce(assigned_totals.net_revenue_cents, 0)::bigint as net_revenue_cents,
+      coalesce(assigned_totals.eligible_commission_revenue_cents, 0)::bigint
+        as eligible_commission_revenue_cents,
+      coalesce(assigned_totals.commission_earnings_cents, 0)::bigint
+        as commission_earnings_cents,
+      coalesce(assigned_totals.source_sales_row_count, 0)::integer
+        as source_sales_row_count,
+      coalesce(assigned_totals.source_adjustment_row_count, 0)::integer
+        as source_adjustment_row_count,
+      assigned_totals.source_latest_sale_date,
+      coalesce(assigned_totals.commission_rate_missing_day, true)
+        as commission_rate_missing_day,
+      coalesce(assigned_totals.commission_rate_count, 0)::integer
+        as commission_rate_count,
+      assigned_totals.single_commission_rate as commission_rate,
+      assigned_totals.single_commission_basis_points as commission_basis_points,
+      coalesce(assigned_totals.commission_segments, '[]'::jsonb) as commission_segments,
+      coalesce(full_facts.gross_sales_cents, 0)::bigint as full_fact_gross_sales_cents,
+      coalesce(full_facts.refund_adjustment_cents, 0)::bigint
+        as full_fact_refund_adjustment_cents,
+      greatest(
+        coalesce(full_facts.gross_sales_cents, 0)
+        - coalesce(full_facts.refund_adjustment_cents, 0),
+        0
+      )::bigint as full_fact_commissionable_sales_cents,
+      coalesce(full_facts.source_sales_row_count, 0)::integer
+        as full_fact_source_sales_row_count,
+      full_facts.source_latest_sale_date as full_fact_source_latest_sale_date,
+      snapshot.id is not null
+        and snapshot.gross_sales_cents = coalesce(full_facts.gross_sales_cents, 0)
+        and snapshot.refund_adjustment_cents = coalesce(full_facts.refund_adjustment_cents, 0)
+        and snapshot.eligible_commission_revenue_cents = greatest(
+          coalesce(full_facts.gross_sales_cents, 0)
+          - coalesce(full_facts.refund_adjustment_cents, 0),
+          0
+        ) as snapshot_matches_facts
     from assigned_machines assigned
     left join lateral (
       select candidate.*
@@ -922,21 +1047,76 @@ as $$
       order by candidate.updated_at desc, candidate.id
       limit 1
     ) snapshot on true
-  ),
-  commission_lines as materialized (
-    select
-      commission.*,
-      nullif(commission.commission_rate ->> 'commissionBasisPoints', '')::integer
-        as commission_basis_points,
-      case
-        when commission.revenue_snapshot_id is null or commission.commission_rate is null then 0
-        else round(
-          commission.eligible_commission_revenue_cents::numeric
-          * nullif(commission.commission_rate ->> 'commissionBasisPoints', '')::integer
-          / 10000
-        )::integer
-      end as commission_earnings_cents
-    from commission_base commission
+    left join lateral (
+      select
+        sum(segment.gross_sales_cents)::bigint as gross_sales_cents,
+        sum(segment.refund_adjustment_cents)::bigint as refund_adjustment_cents,
+        sum(segment.net_revenue_cents)::bigint as net_revenue_cents,
+        sum(segment.eligible_commission_revenue_cents)::bigint
+          as eligible_commission_revenue_cents,
+        sum(segment.commission_earnings_cents)::bigint as commission_earnings_cents,
+        sum(segment.source_sales_row_count)::integer as source_sales_row_count,
+        sum(segment.source_adjustment_row_count)::integer as source_adjustment_row_count,
+        max(segment.source_latest_sale_date) as source_latest_sale_date,
+        bool_or(segment.commission_rate is null) as commission_rate_missing_day,
+        (count(distinct segment.commission_basis_points)
+          filter (where segment.commission_basis_points is not null))::integer
+          as commission_rate_count,
+        case
+          when count(distinct segment.commission_basis_points)
+            filter (where segment.commission_basis_points is not null) = 1
+          then (array_agg(segment.commission_rate order by segment.segment_start_date))[1]
+          else null
+        end as single_commission_rate,
+        case
+          when count(distinct segment.commission_basis_points)
+            filter (where segment.commission_basis_points is not null) = 1
+          then max(segment.commission_basis_points)
+          else null
+        end as single_commission_basis_points,
+        jsonb_agg(jsonb_build_object(
+          'segmentStartDate', segment.segment_start_date,
+          'segmentEndDate', segment.segment_end_date,
+          'commissionRate', segment.commission_rate,
+          'commissionBasisPoints', segment.commission_basis_points,
+          'grossSalesCents', segment.gross_sales_cents,
+          'refundAdjustmentCents', segment.refund_adjustment_cents,
+          'netRevenueCents', segment.net_revenue_cents,
+          'commissionableSalesCents', segment.eligible_commission_revenue_cents,
+          'commissionEarningsCents', segment.commission_earnings_cents,
+          'sourceSalesRowCount', segment.source_sales_row_count,
+          'sourceAdjustmentRowCount', segment.source_adjustment_row_count,
+          'sourceLatestSaleDate', segment.source_latest_sale_date
+        ) order by segment.segment_start_date, segment.segment_end_date)
+          as commission_segments
+      from commission_segment_lines segment
+      where segment.reporting_machine_id = assigned.reporting_machine_id
+    ) assigned_totals on true
+    left join lateral (
+      select
+        sales.gross_sales_cents,
+        sales.source_sales_row_count,
+        sales.source_latest_sale_date,
+        refunds.refund_adjustment_cents
+      from (
+        select
+          coalesce(sum(fact.net_sales_cents), 0)::bigint as gross_sales_cents,
+          count(*)::integer as source_sales_row_count,
+          max(fact.sale_date) as source_latest_sale_date
+        from public.machine_sales_facts fact
+        where fact.reporting_machine_id = assigned.reporting_machine_id
+          and fact.sale_date between p_period_start_date and p_period_end_date
+      ) sales
+      cross join (
+        select coalesce(sum(adjustment.amount_cents), 0)::bigint
+          as refund_adjustment_cents
+        from public.sales_adjustment_facts adjustment
+        where adjustment.reporting_machine_id = assigned.reporting_machine_id
+          and adjustment.adjustment_date between p_period_start_date and p_period_end_date
+          and adjustment.adjustment_type in ('refund', 'complaint_refund')
+          and adjustment.amount_cents > 0
+      ) refunds
+    ) full_facts on true
   ),
   recurring_lines as materialized (
     select item.*
@@ -1003,44 +1183,59 @@ as $$
       'machineId', commission.reporting_machine_id
     )
     from commission_lines commission
-    where commission.commission_rate is null
-      or commission.commission_rate_missing_day
+    where commission.commission_rate_missing_day
 
     union all
 
     select jsonb_build_object(
-      'code', 'partial_period_assignment_scope',
+      'code', 'missing_commission_sales_facts',
       'severity', 'blocker',
-      'message', 'Resolve the Technician assignment window before publishing this month.',
+      'message', 'Load Commissionable Sales facts for this Technician assignment window.',
       'operatorProfileId', p_operator_profile_id,
       'machineId', commission.reporting_machine_id
     )
     from commission_lines commission
-    where not commission.full_period_scope
+    where commission.source_sales_row_count = 0
+
+    union all
+
+    select jsonb_build_object(
+      'code', 'stale_commission_sales_facts',
+      'severity', 'blocker',
+      'message', 'Refresh Commissionable Sales facts through the end of this Technician assignment window.',
+      'operatorProfileId', p_operator_profile_id,
+      'machineId', commission.reporting_machine_id,
+      'sourceLatestSaleDate', commission.source_latest_sale_date,
+      'assignedEndDate', commission.assigned_end_date
+    )
+    from commission_lines commission
+    where commission.source_latest_sale_date is not null
+      and commission.source_latest_sale_date < commission.assigned_end_date
+
+    union all
+
+    select jsonb_build_object(
+      'code', 'revenue_snapshot_fact_mismatch',
+      'severity', 'blocker',
+      'message', 'Reconcile the monthly revenue snapshot with the authoritative sales and refund facts.',
+      'operatorProfileId', p_operator_profile_id,
+      'machineId', commission.reporting_machine_id
+    )
+    from commission_lines commission
+    where commission.revenue_snapshot_id is not null
+      and not commission.snapshot_matches_facts
 
     union all
 
     select jsonb_build_object(
       'code', 'shared_machine_compensation_scope',
       'severity', 'blocker',
-      'message', 'Resolve the shared machine compensation scope before publishing this month.',
+      'message', 'Resolve overlapping Technician assignment dates for this machine before publishing.',
       'operatorProfileId', p_operator_profile_id,
       'machineId', commission.reporting_machine_id
     )
     from commission_lines commission
     where commission.shared_compensation_scope
-
-    union all
-
-    select jsonb_build_object(
-      'code', 'commission_rate_changed_within_snapshot',
-      'severity', 'blocker',
-      'message', 'Refresh Commissionable Sales into effective-rate segments before publishing this month.',
-      'operatorProfileId', p_operator_profile_id,
-      'machineId', commission.reporting_machine_id
-    )
-    from commission_lines commission
-    where commission.commission_rate_count > 1
 
     union all
 
@@ -1154,12 +1349,15 @@ as $$
         'locationName', commission.location_name,
         'assignedStartDate', commission.assigned_start_date,
         'assignedEndDate', commission.assigned_end_date,
-        'assignmentScopeResolved', commission.full_period_scope and not commission.shared_compensation_scope,
+        'assignmentScopeResolved', not commission.shared_compensation_scope,
+        'fullPeriodAssignment', commission.full_period_scope,
         'commissionRateCompleteForPeriod', not commission.commission_rate_missing_day,
         'revenueSnapshotId', commission.revenue_snapshot_id,
         'revenueSnapshotStatus', commission.revenue_snapshot_status,
         'revenueGeneratedAt', commission.revenue_generated_at,
         'sourceLatestSaleDate', commission.source_latest_sale_date,
+        'sourceSalesRowCount', commission.source_sales_row_count,
+        'sourceAdjustmentRowCount', commission.source_adjustment_row_count,
         'grossSalesCents', coalesce(commission.gross_sales_cents, 0),
         'refundAdjustmentCents', coalesce(commission.refund_adjustment_cents, 0),
         'netRevenueCents', coalesce(commission.net_revenue_cents, 0),
@@ -1167,6 +1365,13 @@ as $$
         'commissionRate', commission.commission_rate,
         'commissionBasisPoints', commission.commission_basis_points,
         'commissionEarningsCents', commission.commission_earnings_cents,
+        'commissionSegments', commission.commission_segments,
+        'snapshotGrossSalesCents', coalesce(commission.snapshot_gross_sales_cents, 0),
+        'snapshotRefundAdjustmentCents', coalesce(commission.snapshot_refund_adjustment_cents, 0),
+        'snapshotNetRevenueCents', coalesce(commission.snapshot_net_revenue_cents, 0),
+        'snapshotCommissionableSalesCents', coalesce(commission.snapshot_commissionable_sales_cents, 0),
+        'snapshotSourceLatestSaleDate', commission.snapshot_source_latest_sale_date,
+        'snapshotMatchesFacts', commission.snapshot_matches_facts,
         'warnings', coalesce(commission.revenue_warnings, '[]'::jsonb)
       ) order by commission.location_name, commission.machine_label, commission.reporting_machine_id)
       from commission_lines commission
@@ -1186,7 +1391,9 @@ as $$
     'warnings', coalesce((select jsonb_agg(item) from warnings), '[]'::jsonb),
     'calculationMeta', jsonb_build_object(
       'schemaVersion', 'technician-pay-report-v1',
-      'commissionBasisSource', 'payout_period_machine_revenue_snapshots.eligible_commission_revenue_cents',
+      'commissionBasisSource', 'date-bounded machine_sales_facts less sales_adjustment_facts, reconciled to the monthly revenue snapshot',
+      'legacyPartialPeriodBlocker', 'partial_period_assignment_scope removed; valid partial windows are date segmented',
+      'removedLegacyBlockers', jsonb_build_array('partial_period_assignment_scope'),
       'refundAppliedOnce', true,
       'approvalRequired', false,
       'paymentExecution', false,
