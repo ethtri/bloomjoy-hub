@@ -280,7 +280,7 @@ const run = async () => {
     await page.getByRole('option', { name: 'Cotton Candy 02' }).click();
     await page.getByText('Machine filtering shows only that machine’s time', { exact: false }).waitFor();
     const filteredMachineText = await page.locator('body').innerText();
-    check('Machine filter scopes card and headline totals without Technician-level other earnings', filteredMachineText.includes('Cotton Candy 02') && !filteredMachineText.includes('Cotton Candy 01') && filteredMachineText.includes('$500.00') && filteredMachineText.includes('$50.00') && !filteredMachineText.includes('September bonus'));
+    check('Machine filter scopes financial totals without hiding month-wide publishing blockers', filteredMachineText.includes('Cotton Candy 02') && !filteredMachineText.includes('Cotton Candy 01') && filteredMachineText.includes('$500.00') && filteredMachineText.includes('Needs attention') && filteredMachineText.includes('Current total\nUnavailable') && filteredMachineText.includes('publishing status remains month-wide') && !filteredMachineText.includes('September bonus'));
     await page.locator('#pay-report-machine').click();
     await page.getByRole('option', { name: 'All machines' }).click();
 

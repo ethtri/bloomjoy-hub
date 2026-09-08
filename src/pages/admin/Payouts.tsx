@@ -183,7 +183,7 @@ const scopeTechnicianToMachine = (
 ): TechnicianPayReportTechnician => {
   const entries = technician.entries.filter((entry) => entry.machineId === machineId);
   const machines = technician.machines.filter((machine) => machine.machineId === machineId);
-  const blockers = technician.blockers.filter((issue) => !issue.machineId || issue.machineId === machineId);
+  const blockers = technician.blockers;
   const warnings = technician.warnings.filter((issue) => !issue.machineId || issue.machineId === machineId);
   const shiftEarningsCents = entries.reduce((sum, entry) => sum + entry.shiftEarningsCents, 0);
   const commissionEarningsCents = machines.reduce((sum, machine) => sum + machine.commissionEarningsCents, 0);
@@ -198,7 +198,7 @@ const scopeTechnicianToMachine = (
     supplyCreditCents: 0,
     expenseReimbursementCents: 0,
     currentTotalCents: shiftEarningsCents + commissionEarningsCents,
-    publishable: blockers.length === 0,
+    publishable: technician.publishable,
     entries,
     shiftRateLines: buildShiftRateLines(entries),
     machines,
@@ -551,7 +551,7 @@ export default function AdminPayoutsPage() {
               <div><label htmlFor="pay-report-technician" className="text-sm font-medium text-foreground">Technician</label><Select value={technicianId} onValueChange={setTechnicianId}><SelectTrigger id="pay-report-technician" className="mt-2 min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All Technicians</SelectItem>{technicians.map((technician) => <SelectItem key={technician.operatorProfileId} value={technician.operatorProfileId}>{technician.displayName}</SelectItem>)}</SelectContent></Select></div>
               <div><label htmlFor="pay-report-machine" className="text-sm font-medium text-foreground">Machine</label><Select value={machineId} onValueChange={setMachineId}><SelectTrigger id="pay-report-machine" className="mt-2 min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All machines</SelectItem>{machines.map((machine) => <SelectItem key={machine.id} value={machine.id}>{machine.label}</SelectItem>)}</SelectContent></Select></div>
             </section>
-            {machineId !== 'all' && <p className="-mt-3 text-xs text-muted-foreground">Machine filtering shows only that machine’s time, shift earnings, sales, and commission. Technician-level other earnings are excluded from these filtered totals.</p>}
+            {machineId !== 'all' && <p className="-mt-3 text-xs text-muted-foreground">Machine filtering shows only that machine’s time, shift earnings, sales, and commission. Technician-level other earnings are excluded from these filtered totals; publishing status remains month-wide.</p>}
 
             <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-live="polite">
               <Metric label="Paid shifts" value={`${totalPaidShifts}`} helper="Each started hour" icon={Clock3} />
