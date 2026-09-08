@@ -27,6 +27,8 @@ const files = {
   app: path.join(repoRoot, 'src', 'App.tsx'),
   nav: path.join(repoRoot, 'src', 'components', 'portal', 'portalNavigation.ts'),
   helper: path.join(repoRoot, 'src', 'lib', 'operatorPayouts.ts'),
+  uiHelper: path.join(repoRoot, 'src', 'lib', 'timekeepingUi.ts'),
+  uiHelperTest: path.join(repoRoot, 'src', 'lib', 'timekeepingUi.test.ts'),
   accessHook: path.join(repoRoot, 'src', 'hooks', 'usePortalTimekeepingAccess.ts'),
   smoke: path.join(repoRoot, 'Docs', 'QA_SMOKE_TEST_CHECKLIST.md'),
 };
@@ -47,6 +49,12 @@ const compact = (value) =>
 const expect = (source, snippet, label) => {
   if (!compact(source).includes(compact(snippet))) {
     fail(`${label}: missing ${snippet}`);
+  }
+};
+
+const reject = (source, snippet, label) => {
+  if (compact(source).includes(compact(snippet))) {
+    fail(`${label}: found retired Technician UI concept ${snippet}`);
   }
 };
 
@@ -76,37 +84,82 @@ for (const snippet of [
 const page = readText(files.page);
 for (const snippet of [
   'PortalPageIntro',
+  'useQueries',
   'fetchMyOperatorTimekeepingContext',
-  'submitOperatorTimeEntry',
-  'updateOperatorTimeEntry',
+  'saveCompletedOperatorTimeEntry',
   'voidOperatorTimeEntry',
-  'assigned machine',
+  'getWeekMonthAnchors',
+  'combineDateAndTimeInTimekeepingZone',
+  'isTechnicianWorkDateEditable',
+  'calculateOperatorPaidShifts',
+  'technicianEditable',
+  'Add time',
+  'This week',
+  'Previous week',
+  'Next week',
+  'Pay preview',
+  "paid ${",
+  'Pay Stubs',
+  'Save time',
+  'No machine assignment for this day',
+  'Technician editing is closed for this month',
+  'Enter time only after the work has ended',
+  'This exact time is already recorded',
+  'Times may touch, but they cannot overlap',
   'overlaps',
-  '10+ hours',
-  'End time must be after start time',
-  'Delete this submitted time entry',
-  'duplicate of an existing shift',
   'Record completed work',
-  'submitted shifts',
-  'Waiting for review',
-  'Correction requested',
-  'Timekeeping is unavailable',
-  'Check setup again',
-  'Shift was not saved',
-  'Each shift up to the next full hour',
-  'id="operator-profile-select"',
-  'id="work-profile-select"',
-  'Your manager requested a correction',
-  'data-time-status-badge',
-  'border-sage/40 bg-sage/10 text-foreground',
-  'border-amber/40 bg-amber/10 text-foreground',
-  'border-border bg-muted/60 text-foreground',
-  'aria-label={`Edit shift on',
-  'aria-label={`Delete shift on',
+  'aria-label={`Edit ${entryLabel(entry)}`}',
+  'aria-label={`Delete ${entryLabel(entry)}`}',
+  'motion-reduce:transition-none',
+  'min-h-11',
 ]) {
   if (!page.includes(snippet)) {
     fail(`Time page missing ${snippet}`);
   }
+}
+
+for (const retiredSnippet of [
+  'Waiting for review',
+  'Correction requested',
+  'Included in pay',
+  'Delete this submitted time entry',
+  'submitOperatorTimeEntry',
+  'updateOperatorTimeEntry',
+  'Save this time entry anyway?',
+  'editablePeriodStatuses',
+  'currentPeriod.status',
+]) {
+  reject(page, retiredSnippet, 'Time page');
+}
+
+const uiHelper = readText(files.uiHelper);
+for (const snippet of [
+  "TIMEKEEPING_TIME_ZONE = 'America/Los_Angeles'",
+  'getTodayInTimekeepingZone',
+  'getWeekStart',
+  'getWeekMonthAnchors',
+  'combineDateAndTimeInTimekeepingZone',
+  'getTechnicianCutoffDate',
+  'isTechnicianWorkDateEditable',
+  'getActualDurationMinutes',
+  'timeDraftOverlapsEntry',
+  'describeTimekeepingError',
+]) {
+  expect(uiHelper, snippet, 'timekeeping UI helper');
+}
+
+const uiHelperTest = readText(files.uiHelperTest);
+for (const snippet of [
+  'winter offset',
+  'summer offset',
+  'spring-forward gap',
+  'spring-forward duration',
+  'fall-back duration',
+  '61-minute duration',
+  'one second before Pacific cutoff',
+  'at Pacific cutoff',
+]) {
+  expect(uiHelperTest, snippet, 'timekeeping UI helper tests');
 }
 
 const managerMigration = readText(files.managerMigration);
@@ -186,5 +239,5 @@ expect(readText(files.smoke), 'Technician Time (`/portal/time`)', 'smoke checkli
 expect(readText(files.smoke), 'Review Time (`/portal/time-review`)', 'review smoke checklist');
 
 console.log(
-  'Operator timekeeping static checks passed: worker entry, machine-manager review, access guards, RPCs, UI states, and smoke coverage are present.'
+  'Operator timekeeping static checks passed: weekly Technician entry, canonical shift previews, machine-manager review, access guards, RPCs, UI states, and smoke coverage are present.'
 );
