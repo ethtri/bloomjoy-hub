@@ -46,6 +46,8 @@ GitHub Issues and the Bloomjoy Project board are the operational source of truth
 
 ## Current Themes
 
+- **Refund selected-evidence read integrity (`#1225`, `#1222`, `#751`):** the manager client accepts the selected Nayax explanation produced by the existing bounded factor contract: at most 20 labels of 300 characters joined with the canonical separator. A valid generated explanation above the former 500-character client limit no longer rejects the complete HTTP-successful overview. The client still rejects empty, over-contract, or malformed selected evidence; no stored evidence is truncated or rewritten.
+
 - **Recovery and current API work (`#628`, `#990`, September 3):** refund intake, real email delivery/correction and normal scheduling were verified. Historical reconciliation is recorded on #628. The owner removed the blanket remaining-balance prerequisite for qualified first attempts. The current release preserves the distinct machine authorization time, exact queried account/machine and original purchase, and retains duplicate, idempotency, journal and unknown-outcome controls. See #990 for rollout and the next legitimate provider outcome. Earlier release-candidate and incident-state snapshots below are historical.
 
 - **Signed delivery callbacks (`#628`):** Verify the original request bytes before parsing their JSON. Svix 2.2 returns no decoded payload; treating its return value as the event rejects valid delivery notifications. Production delivery readiness requires the real-library handler regression and a live signed boundary check, followed by actual provider delivery evidence.

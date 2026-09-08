@@ -411,6 +411,19 @@ const mockSession = {
   user: mockUser,
 };
 
+const longGeneratedNayaxMatchFactors = [
+  { key: 'request_time', outcome: 'manual', label: 'Bloomjoy does not have a reliable original request receipt time for this case; compare the transaction manually' },
+  { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
+  { key: 'amount', outcome: 'partial', label: 'Transaction amount differs by $1.50; this may reflect tax or rounding' },
+  { key: 'product', outcome: 'neutral', label: 'Nayax recorded Selection 1' },
+  { key: 'incident_time', outcome: 'manual', label: 'Customer-reported purchase time cannot be compared with this provider processing timestamp' },
+  { key: 'qr_time', outcome: 'missing', label: 'No verified machine QR start time is available' },
+  { key: 'card', outcome: 'match', label: 'Card last four matches' },
+  { key: 'card_network', outcome: 'missing', label: 'Customer card type is unknown' },
+  { key: 'currency', outcome: 'match', label: 'Currency is USD' },
+  { key: 'provider_status', outcome: 'match', label: "Nayax returned this transaction from the machine's Last Sales feed" },
+];
+
 const buildMockRefundOverview = () => ({
   managerQueueContractVersion: 'refund_manager_queue_v2',
   selectedNayaxTransactionContractVersion: 'refund_selected_nayax_transaction_v1',
@@ -492,12 +505,8 @@ const buildMockRefundOverview = () => ({
         recognitionMethod: 'tap',
         paymentInteraction: 'tap_card',
         walletProvider: null,
-        matchExplanation: 'Exact mapped machine and location; exact amount; card last four matches',
-        matchFactors: [
-          { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
-          { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
-          { key: 'card', outcome: 'match', label: 'Card last four matches' },
-        ],
+        matchExplanation: longGeneratedNayaxMatchFactors.map(({ label }) => label).join('; '),
+        matchFactors: longGeneratedNayaxMatchFactors,
         evidenceSource: 'nayax_last_sales',
         payloadRedacted: true,
       },

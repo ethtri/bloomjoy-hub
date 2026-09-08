@@ -7,6 +7,11 @@ import { supabaseClient } from '@/lib/supabaseClient';
 import { parseRefundReportFreshness, type RefundReportFreshness } from '@/lib/refundReportFreshness';
 import { parseRefundMachineCorrectionEvidence, type RefundMachineCorrectionEvidence } from '@/lib/refundAuthoritativeReceipt';
 import {
+  isSupportedRefundSelectedNayaxMatchExplanation,
+  REFUND_SELECTED_NAYAX_MATCH_FACTOR_LABEL_LIMIT,
+  REFUND_SELECTED_NAYAX_MATCH_FACTOR_LIMIT,
+} from '@/lib/refundSelectedNayaxEvidence';
+import {
   REFUND_LIFECYCLE_SCHEMA_VERSION,
   requireRefundLifecycleContract,
   type RefundLifecycleContract,
@@ -613,17 +618,16 @@ const requireRefundSelectedNayaxTransaction = (
       typeof evidence.walletProvider !== 'string' ||
       !selectedNayaxWalletProviders.has(evidence.walletProvider as RefundWalletProvider)
     )) ||
-    typeof evidence.matchExplanation !== 'string' ||
-    evidence.matchExplanation.trim().length === 0 ||
-    evidence.matchExplanation.length > 500 ||
+    !isSupportedRefundSelectedNayaxMatchExplanation(evidence.matchExplanation) ||
     !matchFactors ||
-    matchFactors.length > 20 ||
+    matchFactors.length > REFUND_SELECTED_NAYAX_MATCH_FACTOR_LIMIT ||
     !matchFactors.every((factor) => {
       if (!factor || typeof factor !== 'object') return false;
       const candidate = factor as Record<string, unknown>;
       return typeof candidate.key === 'string' && candidate.key.length <= 80 &&
         typeof candidate.outcome === 'string' && candidate.outcome.length <= 80 &&
-        typeof candidate.label === 'string' && candidate.label.length <= 300;
+        typeof candidate.label === 'string' &&
+        candidate.label.length <= REFUND_SELECTED_NAYAX_MATCH_FACTOR_LABEL_LIMIT;
     }) ||
     typeof evidenceSource !== 'string' ||
     !selectedNayaxEvidenceSources.has(
