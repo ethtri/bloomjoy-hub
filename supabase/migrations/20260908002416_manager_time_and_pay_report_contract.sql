@@ -379,7 +379,7 @@ begin
         period_row.id,
         machine_id,
         true,
-        null
+        'Technician Pay Report sales refresh'
       );
       snapshot_count := snapshot_count + 1;
     end loop;

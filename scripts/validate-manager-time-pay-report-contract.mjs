@@ -56,6 +56,7 @@ for (const snippet of [
   'create or replace function public.admin_supersede_operator_compensation_rate',
   'create or replace function public.admin_refresh_technician_pay_report_sales',
   "p_effective_start_date - 1",
+  "'Technician Pay Report sales refresh'",
   'Machine-only Time Report authority does not expose pay details',
   'drop policy if exists "compensation_rules_select_manager"',
   'using (public.can_manage_operator_payout_account_current_user(account_id))',
