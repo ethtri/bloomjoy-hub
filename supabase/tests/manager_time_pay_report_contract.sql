@@ -463,7 +463,8 @@ set status = 'inactive'
 where id = 'a6000000-0000-0000-0000-000000000001';
 update public.operator_machine_assignments
 set status = 'revoked',
-    revoked_at = now()
+    revoked_at = now(),
+    revoke_reason = 'Historical report fixture'
 where id = 'a6100000-0000-0000-0000-000000000001';
 
 set local role authenticated;
