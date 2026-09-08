@@ -185,11 +185,21 @@ export type OperatorPayStatementPayload = {
   };
 };
 
+export type OperatorPayStubPayload = {
+  schemaVersion: 'operator-pay-stub-v2';
+  id: string;
+  statementNumber: string;
+  statementLabel: 'Pay Stub';
+  status: 'issued' | 'revised';
+  version: number;
+  issuedAt: string;
+};
+
 export type OperatorPayStatementArtifact = {
-  statement: OperatorPayStatementPayload;
+  statement: OperatorPayStatementPayload | OperatorPayStubPayload;
   artifact: {
-    format: 'html';
-    source: 'database_payload';
+    format: 'html' | 'pdf';
+    source: 'database_payload' | 'private_storage';
     storageBucket: string;
     storagePath: string | null;
     downloadFileName: string;
@@ -318,6 +328,8 @@ export type PayoutRevenueSnapshot = {
   periodEndDate: string;
   grossSalesCents: number;
   refundAdjustmentCents: number;
+  taxCents?: number;
+  taxSegments?: TechnicianPayReportCommissionSegment[];
   netRevenueCents: number;
   eligibleCommissionRevenueCents: number;
   transactionCount: number;
@@ -343,6 +355,7 @@ export type PayoutRevenueSnapshotContext = {
   totals: {
     grossSalesCents: number;
     refundAdjustmentCents: number;
+    taxCents?: number;
     netRevenueCents: number;
     eligibleCommissionRevenueCents: number;
     transactionCount: number;
@@ -641,6 +654,8 @@ export type TechnicianPayReportCommissionSegment = {
   commissionBasisPoints: number | null;
   grossSalesCents: number;
   refundAdjustmentCents: number;
+  taxRatePercent: number | null;
+  taxCents: number;
   netRevenueCents: number;
   commissionableSalesCents: number;
   commissionEarningsCents: number;
@@ -660,6 +675,7 @@ export type TechnicianPayReportMachine = {
   fullPeriodAssignment: boolean;
   commissionAllocationResolved: boolean;
   commissionRateCompleteForPeriod: boolean;
+  taxRateCompleteForSales: boolean;
   revenueSnapshotId: string | null;
   revenueSnapshotStatus: PayoutRevenueSnapshotStatus | null;
   revenueGeneratedAt: string | null;
@@ -668,6 +684,7 @@ export type TechnicianPayReportMachine = {
   sourceAdjustmentRowCount: number;
   grossSalesCents: number;
   refundAdjustmentCents: number;
+  taxCents: number;
   netRevenueCents: number;
   commissionableSalesCents: number;
   commissionRate: TechnicianPayReportRate | null;
@@ -676,6 +693,7 @@ export type TechnicianPayReportMachine = {
   commissionSegments: TechnicianPayReportCommissionSegment[];
   snapshotGrossSalesCents: number;
   snapshotRefundAdjustmentCents: number;
+  snapshotTaxCents: number;
   snapshotNetRevenueCents: number;
   snapshotCommissionableSalesCents: number;
   snapshotSourceLatestSaleDate: string | null;
@@ -704,6 +722,7 @@ export type TechnicianPayReportTechnician = {
   actualDurationMinutes: number;
   paidShifts: number;
   shiftEarningsCents: number;
+  taxCents: number;
   commissionableSalesCents: number;
   commissionEarningsCents: number;
   bonusCents: number;
@@ -718,12 +737,14 @@ export type TechnicianPayReportTechnician = {
   blockers: TechnicianPayReportIssue[];
   warnings: TechnicianPayReportIssue[];
   calculationMeta: {
-    schemaVersion: 'technician-pay-report-v1';
+    schemaVersion: 'technician-pay-report-v1' | 'technician-pay-report-v2';
     commissionBasisSource: string;
+    commissionFormula?: string;
     refundAppliedOnce: true;
     approvalRequired: false;
     paymentExecution: false;
-    taxCalculation: false;
+    taxCalculation: boolean;
+    taxRounding?: string;
   };
 };
 
@@ -739,7 +760,7 @@ export type TechnicianPayReportContext = {
     canCorrectTime: false;
     approvalRequired: false;
     paymentExecution: false;
-    taxCalculation: false;
+    taxCalculation: boolean;
   };
 };
 
@@ -1083,6 +1104,35 @@ export const fetchPayStatementArtifact = async (
   return data as OperatorPayStatementArtifact;
 };
 
+export const requestPayStubGenerationAdmin = async (
+  operatorProfileId: string,
+  month: string
+): Promise<{ requestId: string; status: string }> => {
+  const { data: request, error: requestError } = await supabaseClient.rpc(
+    'admin_request_pay_stub_generation',
+    {
+      p_operator_profile_id: operatorProfileId,
+      p_month: `${month}-01`,
+    }
+  );
+  if (requestError || !request) {
+    throw new Error(requestError?.message || 'Unable to request the Pay Stub.');
+  }
+
+  const requestId = String((request as { requestId?: string }).requestId ?? '');
+  const { data: generated, error: generationError } = await supabaseClient.functions.invoke(
+    'pay-stub-generator',
+    { body: { requestId } }
+  );
+  if (generationError) throw new Error(generationError.message || 'Unable to generate the Pay Stub PDF.');
+  const result = (generated as { results?: Array<{ status?: string; blockers?: Array<{ message?: string }> }> } | null)
+    ?.results?.[0];
+  if (result?.status === 'blocked') {
+    throw new Error(result.blockers?.[0]?.message || 'Resolve the calculation blockers before publishing this Pay Stub.');
+  }
+  return { requestId, status: result?.status || 'completed' };
+};
+
 export const fetchMyOperatorTimekeepingContext = async (
   workDate?: string
 ): Promise<OperatorTimekeepingContext> => {
@@ -1153,7 +1203,7 @@ export const fetchTechnicianPayReportContext = async (
       canCorrectTime: false,
       approvalRequired: false,
       paymentExecution: false,
-      taxCalculation: false,
+      taxCalculation: true,
     },
     ...((data as Partial<TechnicianPayReportContext> | null) ?? {}),
   };
@@ -1373,6 +1423,7 @@ export const fetchPayoutRevenueSnapshotContext = async (
     totals: {
       grossSalesCents: 0,
       refundAdjustmentCents: 0,
+      taxCents: 0,
       netRevenueCents: 0,
       eligibleCommissionRevenueCents: 0,
       transactionCount: 0,
@@ -2020,7 +2071,28 @@ export const buildOperatorPayStatementHtml = (statement: OperatorPayStatementPay
 </html>`;
 };
 
-export const downloadOperatorPayStatementHtml = (artifact: OperatorPayStatementArtifact) => {
+export const downloadOperatorPayStatementHtml = async (artifact: OperatorPayStatementArtifact) => {
+  if (artifact.artifact.format === 'pdf' && artifact.artifact.storagePath) {
+    const { data, error } = await supabaseClient.storage
+      .from(artifact.artifact.storageBucket)
+      .createSignedUrl(artifact.artifact.storagePath, 60, {
+        download: artifact.artifact.downloadFileName,
+      });
+    if (error || !data?.signedUrl) {
+      throw new Error(error?.message || 'Unable to open the Pay Stub PDF.');
+    }
+    const anchor = document.createElement('a');
+    anchor.href = data.signedUrl;
+    anchor.download = artifact.artifact.downloadFileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    return;
+  }
+
+  if (artifact.statement.schemaVersion !== 'operator-pay-statement-v1') {
+    throw new Error('This Pay Stub PDF is not available yet.');
+  }
   const html = buildOperatorPayStatementHtml(artifact.statement);
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const url = URL.createObjectURL(blob);

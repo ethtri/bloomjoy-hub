@@ -90,11 +90,11 @@ The MVP is a lightweight timekeeping and contractor-statement product. It is not
   - actual worked time;
   - paid shifts;
   - shift rate and shift earnings;
-  - commissionable sales, commission rate, and commission;
+  - machine sales, refunds, estimated sales tax, commissionable sales, commission rate, and commission;
   - bonus, supply credit, expense reimbursement, or other authorized adjustments;
   - current-period total; and
   - any missing or stale input that prevents accurate publication.
-- The report provides a machine breakdown of actual time, paid shifts, commissionable sales, and commission contribution.
+- The report provides a machine breakdown of actual time, paid shifts, sales, refunds, estimated sales tax, commissionable sales, and commission contribution. Commissionable sales equal `sales - refunds - estimated sales tax`; commission equals that nonnegative basis multiplied by the Technician's effective commission rate. Sales tax uses the effective machine tax rate on each sale date and rounds to cents per machine/day. A missing tax rate on a date with sales blocks publication, while an explicit `0%` rate is valid.
 - Managers correct source time or compensation inputs from the report context. There is no per-entry or monthly approval action.
 - Publishing a Pay Stub does not mark a person paid and requires no proof of payment.
 
@@ -118,7 +118,7 @@ The MVP is a lightweight timekeeping and contractor-statement product. It is not
   - Bonus;
   - Supply Credit; and
   - Expense Reimbursement.
-- Machine detail shows the source of paid shifts and commissionable sales without exposing unrelated machines or another Technician's data.
+- A commission appendix shows each machine's sales, refunds, effective tax rate and estimated tax, commissionable sales, effective commission rate, and resulting commission without exposing unrelated machines or another Technician's data.
 - The statement shows a current-period total and calendar-year-to-date total. Empty optional categories are omitted or consistently shown as zero; the same rule applies throughout the product.
 - Contractor profiles receive the current independent-contractor/no-withholding notice. Worker classification and notice selection are profile-driven rather than hard-coded globally; the initial recipient population is entirely contractors.
 - Dates, currency, quantity labels, spelling, and rounding are consistent. The mixed manual-sheet label `Hours / Sales` is replaced by explicit **Paid Shifts** and **Commissionable Sales** labels.

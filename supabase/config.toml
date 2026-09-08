@@ -37,6 +37,9 @@ verify_jwt = false
 [functions.sales-report-export]
 verify_jwt = false
 
+[functions.pay-stub-generator]
+verify_jwt = false
+
 [functions.partner-report-export]
 verify_jwt = false
 
