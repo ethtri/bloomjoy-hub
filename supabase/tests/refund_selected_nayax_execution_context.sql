@@ -29,10 +29,10 @@ select ('b7400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-VERIFY-'||n,
   'b7300000-0000-4000-8000-000000000001','b7200000-0000-4000-8000-000000000001',
   'verification-customer@example.invalid','Synthetic verification fixture',now()-interval '3 days','card',800,800,'4242',
   'needs_review','matched','nayax',1,'approved',(723456780+n)::text,800,'USD','2026-08-26T18:17:09.810Z',6,
-  'high_confidence','2026-07-21.v1',true,'not_requested' from generate_series(1,5) n;
+  'high_confidence','2026-07-21.v1',true,'not_requested' from generate_series(1,6) n;
 insert into public.refund_case_events(refund_case_id,actor_user_id,event_type,message,metadata)
 select ('b7400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'b7000000-0000-4000-8000-000000000001',
-  'nayax_match_selected','Synthetic exact selection','{"payload_redacted":true}' from generate_series(1,5) n;
+  'nayax_match_selected','Synthetic exact selection','{"payload_redacted":true}' from generate_series(1,6) n;
 select set_config('request.jwt.claims','{"sub":"b7000000-0000-4000-8000-000000000001","role":"authenticated","session_id":"b7010000-0000-4000-8000-000000000001","is_anonymous":false}',true);
 select set_config('request.jwt.claim.sub','b7000000-0000-4000-8000-000000000001',true);
 select set_config('request.jwt.claim.role','authenticated',true);
@@ -42,7 +42,7 @@ insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_ge
 select gen_random_uuid(),c.id,c.nayax_lookup_generation,'b7000000-0000-4000-8000-000000000001',c.reporting_machine_id,
   c.matched_nayax_transaction_id,c.matched_nayax_site_id,c.matched_nayax_machine_auth_time,c.matched_nayax_amount_cents,
   c.matched_nayax_card_last4,c.matched_nayax_currency_code,
-  '{"machine_authorization_time_raw":"2026-08-26T13:17:08.123","machine_authorization_time_source":"MachineAuthorizationTime"}'::jsonb||jsonb_build_object('lookup_account_scope',regexp_replace(upper(btrim(m.nayax_account_key)),'[^A-Z0-9_]','_','g'),'lookup_provider_machine_id',m.nayax_machine_id,'provider_machine_id',m.nayax_machine_id),now()+interval '1 hour'
+  '{"machine_authorization_time_raw":"2026-08-26T13:17:09.810","machine_authorization_time_source":"MachineAuthorizationTime","machine_time_resolution":"exact"}'::jsonb||jsonb_build_object('lookup_account_scope',regexp_replace(upper(btrim(m.nayax_account_key)),'[^A-Z0-9_]','_','g'),'lookup_provider_machine_id',m.nayax_machine_id,'provider_machine_id',m.nayax_machine_id),now()+interval '1 hour'
   from public.refund_cases c join public.reporting_machines m on m.id=c.reporting_machine_id where c.id::text like 'b7400000-%';
 
 create function pg_temp.reserve_context(n integer,context_hash text default null,amount integer default 800) returns jsonb language plpgsql as $$
@@ -86,7 +86,7 @@ select throws_ok($$select public.service_record_nayax_refund_provider_stage_v2('
   'request','started',null,null,null,null,repeat('a',64),'nayax-production-observed-2026-08-22','nayax-provider-journal-v2')$$,
   'P4620',null,'A bound attempt cannot downgrade its provider journal');
 select is((select context->>'machineAuthorizationTime' from public.refund_nayax_execution_contexts
-  where refund_case_id='b7400000-0000-4000-8000-000000000001'),'2026-08-26T13:17:08.123','Raw machine clock remains exact');
+  where refund_case_id='b7400000-0000-4000-8000-000000000001'),'2026-08-26T13:17:09.810','Raw machine clock remains exact');
 select throws_ok($$update public.refund_nayax_execution_contexts set context='{}'
   where refund_case_id='b7400000-0000-4000-8000-000000000001'$$,'P4660',null,'Execution context cannot be rewritten');
 delete from public.refund_nayax_lookup_candidates where refund_case_id='b7400000-0000-4000-8000-000000000001';
@@ -112,6 +112,113 @@ update changed_candidate_fixtures set evidence_summary=evidence_summary||'{"mach
 insert into public.refund_nayax_lookup_candidates select * from changed_candidate_fixtures;
 select is(public.refund_nayax_selected_execution_context('b7400000-0000-4000-8000-000000000003'),null::jsonb,'Wrong site cannot supply the raw timestamp');
 select is(public.refund_nayax_selected_execution_context('b7400000-0000-4000-8000-000000000004'),null::jsonb,'GMT source cannot substitute for the machine clock');
+
+create temp table offset_execution_input as select
+  public.service_get_refund_nayax_execution_context_v2(
+    'verification-executor',
+    'b7000000-0000-4000-8000-000000000001',
+    'b7400000-0000-4000-8000-000000000006',
+    'source_with_bound_offset'
+  ) context;
+select is(
+  (select context->>'machineAuthorizationTimeWire' from offset_execution_input),
+  '2026-08-26T13:17:09.810-05:00',
+  'Bound-offset mode preserves the raw Chicago wall clock and appends its selected offset'
+);
+select is(
+  (select context->>'machineAuthorizationTime' from offset_execution_input),
+  '2026-08-26T13:17:09.810',
+  'Bound-offset mode retains the immutable raw provider identity separately'
+);
+select is(
+  (select context->>'machineAuthorizationTimeSerializationSource' from offset_execution_input),
+  'selected_normalized_instant',
+  'The experiment records the honest offset derivation source'
+);
+select throws_ok(
+  $$select public.refund_nayax_machine_authorization_wire_value(
+    '2026-08-26T13:17:09.810','2026-08-26T18:17:08.810Z',
+    'source_with_bound_offset')$$,
+  'P4620',null,
+  'A non-minute raw-to-normalized difference is rejected'
+);
+select throws_ok(
+  $$select public.refund_nayax_machine_authorization_wire_value(
+    '2026-08-26T13:17:09.810','2026-08-27T18:17:09.810Z',
+    'source_with_bound_offset')$$,
+  'P4620',null,
+  'An offset outside the supported range is rejected'
+);
+select throws_ok(
+  $$select public.refund_nayax_machine_authorization_wire_value(
+    '2026-08-26T13:17:09.810-04:00','2026-08-26T18:17:09.810Z',
+    'source_with_bound_offset')$$,
+  'P4620',null,
+  'An already-qualified source must match the selected instant'
+);
+create temp table offset_result(result jsonb);
+grant select on offset_execution_input to service_role;
+grant select,insert on offset_result to service_role;
+set local role service_role;
+insert into offset_result select public.service_reserve_nayax_refund_manager_action_v4(
+  'verification-executor','b7000000-0000-4000-8000-000000000001',
+  'b7400000-0000-4000-8000-000000000006',
+  (context->>'caseVersion')::bigint,'nayax-refund-'||repeat('6',64),
+  800,null,null,'USD','nayax-production-account-contract-v2',
+  'nayax-provider-journal-v3',context->>'contextHash',
+  'source_with_bound_offset'
+) from offset_execution_input;
+reset role;
+select is(
+  (select result#>>'{attempt,shouldExecute}' from offset_result),
+  'true',
+  'The v4 reservation binds one offset-qualified attempt'
+);
+select ok(
+  (select context->>'machineAuthorizationTimeWire' =
+      '2026-08-26T13:17:09.810-05:00'
+    and context->>'machineAuthorizationTimeSerializationMode' =
+      'source_with_bound_offset'
+   from public.refund_nayax_execution_contexts
+   where refund_case_id='b7400000-0000-4000-8000-000000000006'),
+  'The immutable attempt context journals the actual wire timestamp and mode'
+);
+select throws_ok(
+  $$select public.service_reserve_nayax_refund_manager_action_v4(
+    'verification-executor','b7000000-0000-4000-8000-000000000001',
+    'b7400000-0000-4000-8000-000000000006',
+    (select official_action_version from public.refund_cases where id='b7400000-0000-4000-8000-000000000006'),
+    'nayax-refund-'||repeat('6',64),800,null,null,'USD',
+    'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+    (select context->>'contextHash' from offset_execution_input),
+    'exact_source')$$,
+  'P4620',null,
+  'The same idempotency key cannot adopt a reserved attempt under another serialization mode'
+);
+select is(
+  (select public.service_reserve_nayax_refund_manager_action_v4(
+    'verification-executor','b7000000-0000-4000-8000-000000000001',
+    'b7400000-0000-4000-8000-000000000006',
+    (select official_action_version from public.refund_cases where id='b7400000-0000-4000-8000-000000000006'),
+    'nayax-refund-'||repeat('6',64),800,null,null,'USD',
+    'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+    (select context->>'contextHash' from offset_execution_input),
+    'source_with_bound_offset')#>>'{attempt,shouldExecute}'),
+  'false',
+  'An exact same-mode replay adopts the existing attempt without another request'
+);
+select throws_ok(
+  $$select public.service_reserve_nayax_refund_manager_action_v4(
+    'verification-executor','b7000000-0000-4000-8000-000000000001',
+    'b7400000-0000-4000-8000-000000000006',
+    (select official_action_version from public.refund_cases where id='b7400000-0000-4000-8000-000000000006'),
+    'nayax-refund-'||repeat('7',64),800,null,null,'USD',
+    'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+    (select context->>'contextHash' from offset_execution_input),
+    'exact_source')$$,
+  'P4620',null,
+  'A reserved offset context cannot be replayed under another serialization mode'
+);
 -- One actual normal reservation/start/unknown result may be independently
 -- confirmed through the existing receipt writer. No second payment or date.
 select is(public.refund_receipt_verified_api_attempt('b7400000-0000-4000-8000-000000000001',

@@ -289,6 +289,18 @@ function run() {
   }
 
   if (args.includeRefunds) {
+    if (
+      !isRemoteSource &&
+      env.NAYAX_REFUND_MACHINE_AUTHORIZATION_TIME_MODE &&
+      !['exact_source', 'source_with_bound_offset'].includes(
+        String(env.NAYAX_REFUND_MACHINE_AUTHORIZATION_TIME_MODE).trim()
+      )
+    ) {
+      errors.push(
+        'NAYAX_REFUND_MACHINE_AUTHORIZATION_TIME_MODE must be exact_source or source_with_bound_offset.'
+      );
+    }
+
     const credentialAccounts = findNayaxRefundWriteCredentialAccounts(env);
     if (credentialAccounts.pairedAccounts.length === 0) {
       errors.push(

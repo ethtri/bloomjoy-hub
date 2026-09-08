@@ -94,6 +94,9 @@ export type NayaxRefundProviderContract = Readonly<{
   authorizationMode: "bearer";
   amountUnit: "major" | "minor";
   amountRoundingMode: "exact_cent";
+  machineAuthorizationTimeMode:
+    | "exact_source"
+    | "source_with_bound_offset";
   refundEmailListMode: "omit" | "empty_string";
   writeCredentialMode: "separate" | "same_token_explicit";
   sameWriteTokenContractConfirmed: boolean;
@@ -191,6 +194,8 @@ export function createNayaxRefundProviderAdapter(input: {
     transactionId: string | null;
     siteId: number | null;
     machineAuthorizationTime: string | null;
+    machineAuthorizationTimeInstant?: string | null;
+    machineAuthorizationTimeWire?: string | null;
   };
   fetchImpl?: typeof fetch;
   timeoutMs?: number;

@@ -20,6 +20,7 @@ const files = {
   dailyReadinessUsageMigration: 'supabase/migrations/20260824224813_refund_nayax_daily_readiness_usage.sql',
   productionSimplificationMigration: 'supabase/migrations/20260830202234_refund_production_simplification.sql',
   oneManagerDecisionMigration: 'supabase/migrations/20260906230000_refund_one_manager_decision.sql',
+  boundOffsetMigration: 'supabase/migrations/20260908033000_refund_nayax_bound_offset_time.sql',
   providerOrchestration: 'supabase/functions/_shared/nayax-refund-orchestration.ts',
   providerGates: 'supabase/functions/_shared/nayax-refund-gates.ts',
   providerGatesTest: 'supabase/functions/_shared/nayax-refund-gates.test.ts',
@@ -72,6 +73,7 @@ const pendingApprovalRecoveryMigration = read(files.pendingApprovalRecoveryMigra
 const dailyReadinessUsageMigration = read(files.dailyReadinessUsageMigration);
 const productionSimplificationMigration = read(files.productionSimplificationMigration);
 const oneManagerDecisionMigration = read(files.oneManagerDecisionMigration);
+const boundOffsetMigration = read(files.boundOffsetMigration);
 const executionContextMigration = read('supabase/migrations/20260903134847_refund_selected_nayax_execution_context.sql');
 const providerOrchestration = read(files.providerOrchestration);
 const providerGates = read(files.providerGates);
@@ -168,14 +170,14 @@ assert(
     providerGates.includes('NAYAX_REFUND_EXECUTOR_ASSERTION') &&
     providerGates.includes('NAYAX_REFUND_IDEMPOTENCY_SECRET') &&
     !providerGates.includes('remainingValueVerified') &&
-    fn.includes('service_get_refund_nayax_execution_context') &&
+  fn.includes('service_get_refund_nayax_execution_context_v2') &&
     fn.includes('p_execution_context_hash: refundCase.executionContext!.contextHash'),
   'The HTTP boundary retains ordinary gates and binds the automatic exact selected purchase.'
 );
 assert(
   fn.includes('can_perform_refund_official_action') &&
     fn.includes('createNayaxRefundProviderAdapter') &&
-    fn.includes('service_reserve_nayax_refund_manager_action_v3') &&
+  fn.includes('service_reserve_nayax_refund_manager_action_v4') &&
     fn.includes('service_record_nayax_refund_provider_stage_v3') &&
     fn.includes('service_get_nayax_refund_provider_journal_capability_v3') &&
     fn.includes('orchestrateNayaxRefund') &&
@@ -358,6 +360,20 @@ assert(
     providerAdapterTest.includes('Evidence mismatch fails before any provider call') &&
     providerAdapterTest.includes('The kill switch defaults to active'),
   'The production adapter must be host-bounded, evidence-bound, exact-contract, redacted, timeout-safe, and comprehensively tested.'
+);
+assert(
+  providerAdapter.includes('source_with_bound_offset') &&
+    providerAdapter.includes('machineAuthorizationTimeWire') &&
+    fn.includes('service_get_refund_nayax_execution_context_v2') &&
+    fn.includes('service_reserve_nayax_refund_manager_action_v4') &&
+    fn.includes('p_machine_authorization_time_mode:') &&
+    boundOffsetMigration.includes('selected_normalized_instant') &&
+    boundOffsetMigration.includes('refund_nayax_machine_authorization_wire_value') &&
+    boundOffsetMigration.includes('refund_nayax_selected_execution_context_v2') &&
+    boundOffsetMigration.includes('service_reserve_nayax_refund_manager_action_v4') &&
+    boundOffsetMigration.includes("p_serialization_mode = 'exact_source'") &&
+    boundOffsetMigration.includes("p_serialization_mode <> 'source_with_bound_offset'"),
+  'The optional timestamp experiment preserves the default and binds its exact wire mode in the immutable attempt context.'
 );
 assert(
   providerCapsMigration.includes('pg_catalog.pg_advisory_xact_lock') &&

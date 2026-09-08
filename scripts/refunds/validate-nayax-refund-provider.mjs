@@ -161,6 +161,11 @@ check(Object.isFrozen(contract.requestResponses), 'Request patterns must be immu
 check(Object.isFrozen(contract.requestResponses[0]), 'Individual response patterns must be immutable.');
 equal(contract.baseUrl, baseContract.baseUrl, 'The exact approved QA path is preserved.');
 equal(
+  contract.machineAuthorizationTimeMode,
+  'exact_source',
+  'Existing contracts retain exact-source timestamp serialization by default.',
+);
+equal(
   NAYAX_REFUND_PRODUCTION_BASE_URL,
   'https://lynx.nayax.com/operational/v1',
   'The production runtime host is a single exact constant.',
@@ -208,6 +213,7 @@ for (const [mutate, pattern, message] of [
   [(value) => ({ ...value, authorizationMode: 'raw' }), /must be bearer/, 'Raw authorization fails closed.'],
   [(value) => ({ ...value, authorizationMode: 'guess' }), /authorizationMode/, 'Authorization mode must be explicit.'],
   [(value) => ({ ...value, amountUnit: 'guess' }), /amountUnit/, 'Amount units must be explicit.'],
+  [(value) => ({ ...value, machineAuthorizationTimeMode: 'guess' }), /machineAuthorizationTimeMode/, 'Machine time serialization must be explicit.'],
   [(value) => ({ ...value, amountRoundingMode: 'guess' }), /amountRoundingMode/, 'Amount rounding must be exact.'],
   [(value) => ({ ...value, refundEmailListMode: 'guess' }), /refundEmailListMode/, 'Refund email ownership must be explicit.'],
   [(value) => ({ ...value, providerEmailBehavior: 'recipient_omitted' }), /unsupported field/, 'Dead provider email assertions fail closed.'],
@@ -303,6 +309,39 @@ deepEqual(majorBody, {
 }, 'Major-unit contracts convert integer cents to decimal currency exactly.');
 check(!('RefundEmailList' in majorBody), 'The omit policy sends no Nayax customer email field.');
 
+const offsetContract = parseNayaxRefundProviderContract({
+  ...baseContract,
+  machineAuthorizationTimeMode: 'source_with_bound_offset',
+});
+const offsetEvidence = freezeNayaxRefundEvidence({
+  caseId: '9f5f0000-0000-4000-8000-000000000001',
+  amountCents: 2650,
+  currencyCode: 'USD',
+  transactionId: '4664651456',
+  siteId: 4,
+  machineAuthorizationTime: '2026-09-05T12:18:30.48',
+  machineAuthorizationTimeInstant: '2026-09-05T16:18:30.48Z',
+  machineAuthorizationTimeWire: '2026-09-05T12:18:30.48-04:00',
+}, offsetContract);
+equal(
+  offsetEvidence.machineAuthorizationTime,
+  '2026-09-05T12:18:30.48',
+  'Bound-offset mode preserves the raw provider identity.',
+);
+equal(
+  offsetEvidence.machineAuthorizationTimeWire,
+  '2026-09-05T12:18:30.48-04:00',
+  'Bound-offset mode changes only the request serialization.',
+);
+throws(
+  () => freezeNayaxRefundEvidence({
+    ...offsetEvidence,
+    machineAuthorizationTimeWire: '2026-09-05T12:18:30.48-05:00',
+  }, offsetContract),
+  /wire time does not match frozen evidence/,
+  'A wire timestamp cannot diverge from the selected normalized instant.',
+);
+
 const minorContract = parseNayaxRefundProviderContract({
   ...baseContract,
   contractVersion: 'nayax-production-account-contract-v2-minor',
@@ -360,6 +399,7 @@ check(Object.isFrozen(frozenEvidence), 'Provider evidence is copied into an immu
 deepEqual(frozenEvidence, {
   ...frozenEvidenceInput,
   transactionId: 123456789,
+  machineAuthorizationTimeWire: frozenEvidenceInput.machineAuthorizationTime,
 }, 'Frozen evidence contains only validated provider fields.');
 throws(
   () => freezeNayaxRefundEvidence({ ...frozenEvidenceInput, currencyCode: 'EUR' }),
@@ -1085,6 +1125,37 @@ check(/^nayax-evidence-[a-f0-9]{64}$/u.test(adapterSuccess.providerReference), '
 check(!adapterSuccess.providerReference.includes('123456789'), 'The provider transaction ID is never represented as a provider refund receipt.');
 equal(adapterCalls.length, 2, 'One adapter execution makes at most one request and one approval.');
 
+const offsetAdapterCalls = [];
+const offsetAdapter = createNayaxRefundProviderAdapter({
+  contract: offsetContract,
+  requestToken: 'dedicated-request-write-token',
+  approveToken: 'dedicated-approve-write-token',
+  evidence: offsetEvidence,
+  fetchImpl: async (_url, options) => {
+    offsetAdapterCalls.push(JSON.parse(options.body));
+    return offsetAdapterCalls.length === 1
+      ? response({ Result: 'True', Status: 'Pending Approval' })
+      : response({ Result: 'True', Status: 'Approved' });
+  },
+});
+await offsetAdapter.execute({
+  caseId: offsetEvidence.caseId,
+  idempotencyKey: `nayax-refund-${'f'.repeat(64)}`,
+  amountCents: offsetEvidence.amountCents,
+  currencyCode: 'USD',
+});
+equal(offsetAdapterCalls.length, 2, 'Bound-offset execution still performs at most one request and one approval.');
+equal(
+  offsetAdapterCalls[0].MachineAuTime,
+  '2026-09-05T12:18:30.48-04:00',
+  'The request uses only the bound offset-qualified timestamp.',
+);
+equal(
+  offsetAdapterCalls[1].MachineAuTime,
+  offsetAdapterCalls[0].MachineAuTime,
+  'Approval repeats the exact timestamp sent in the accepted request.',
+);
+
 const continuationAdapterCalls = [];
 const continuationAdapter = createNayaxRefundProviderAdapter({
   contract: baseContract,
@@ -1288,12 +1359,13 @@ check(
 );
 check(
   handler.includes('NAYAX_REFUND_MANAGER_CONTRACT_JSON') &&
+    handler.includes('NAYAX_REFUND_MACHINE_AUTHORIZATION_TIME_MODE') &&
     !handler.includes('DEFAULT_NAYAX_MANAGER_CONTRACT') &&
     handler.includes('NAYAX_REFUND_REQUEST_WRITE_TOKEN_${accountKey}') &&
     handler.includes('NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}') &&
     !handler.includes('NAYAX_LYNX_API_TOKEN_${normalAccountKey}') &&
     handler.includes('provider,') &&
-    handler.includes('service_reserve_nayax_refund_manager_action_v3') &&
+    handler.includes('service_reserve_nayax_refund_manager_action_v4') &&
     handler.includes('service_record_nayax_refund_provider_stage_v3') &&
     handler.includes('service_get_nayax_refund_provider_journal_capability_v3') &&
     handler.includes('p_media_type_class:') &&
@@ -1304,7 +1376,7 @@ check(
     handler.includes('approvalAuthorized: decision.approvalAuthorized === true') &&
     handler.includes('productionScope: "manager_approved_original_transaction"') &&
     !gates.includes('remainingValueVerified') &&
-    handler.includes('service_get_refund_nayax_execution_context') &&
+    handler.includes('service_get_refund_nayax_execution_context_v2') &&
     handler.includes('p_execution_context_hash: refundCase.executionContext!.contextHash') &&
     !gates.includes('provider_remaining_value_unverified') &&
     !gates.includes('NAYAX_REFUND_BROAD_REOPEN_APPROVED') &&
@@ -1410,6 +1482,7 @@ check(/^NAYAX_REFUND_EXECUTION_ENABLED=false$/m.test(envExample), 'Execution def
 check(/^NAYAX_REFUND_EXECUTION_DRY_RUN=true$/m.test(envExample), 'Dry-run defaults to enabled.');
 check(/^NAYAX_REFUND_EXECUTION_KILL_SWITCH=true$/m.test(envExample), 'The kill switch defaults to active.');
 check(/^NAYAX_REFUND_MANAGER_CONTRACT_JSON=$/m.test(envExample), 'The manager response contract defaults to unset.');
+check(/^NAYAX_REFUND_MACHINE_AUTHORIZATION_TIME_MODE=$/m.test(envExample), 'The separate machine-time serialization mode defaults to unset.');
 check(/^NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED=false$/m.test(envExample), 'Normal manager contract confirmation defaults to false.');
 check(/^NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED=false$/m.test(envExample), 'Approval permission confirmation defaults to false.');
 check(!/NAYAX_REFUND_(?:CANARY|BROAD_REOPEN|MAX_AMOUNT|DAILY_)/m.test(envExample), 'Retired canary and cap settings are absent from the production environment template.');

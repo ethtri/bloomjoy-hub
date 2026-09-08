@@ -108,11 +108,25 @@ const resolveNormalWriteCredentials = (accountKey: string) => ({
     : "",
 });
 
+const resolveMachineAuthorizationTimeMode = () => {
+  const value = Deno.env.get("NAYAX_REFUND_MACHINE_AUTHORIZATION_TIME_MODE")
+    ?.trim() ?? "";
+  if (!value || value === "exact_source") return "exact_source" as const;
+  if (value === "source_with_bound_offset") {
+    return "source_with_bound_offset" as const;
+  }
+  return null;
+};
+
 const parseConfiguredManagerContract = () => {
   const raw = Deno.env.get("NAYAX_REFUND_MANAGER_CONTRACT_JSON")?.trim() ?? "";
   if (!raw) return null;
   try {
-    return parseNayaxRefundProviderContract(raw);
+    const contract = parseNayaxRefundProviderContract(raw);
+    const machineAuthorizationTimeMode = resolveMachineAuthorizationTimeMode();
+    return machineAuthorizationTimeMode
+      ? { ...contract, machineAuthorizationTimeMode }
+      : null;
   } catch {
     return null;
   }
@@ -499,9 +513,12 @@ serve(async (req) => {
 
     if (operation !== "approve_pending_request" && executionConfig.executorAssertion) {
       const { data: verificationData, error: verificationError } = await supabase.rpc(
-        "service_get_refund_nayax_execution_context", {
+        "service_get_refund_nayax_execution_context_v2", {
           p_executor_assertion: executionConfig.executorAssertion,
           p_actor_user_id: user.id, p_case_id: refundCase.id,
+          p_serialization_mode:
+            resolveMachineAuthorizationTimeMode() ??
+              "exact_source",
         },
       );
       if (!verificationError) {
@@ -512,6 +529,8 @@ serve(async (req) => {
           siteId: refundCase.matched_nayax_site_id, amountCents: refundCase.matched_nayax_amount_cents,
           accountScope: refundCase.reporting_machines?.nayax_account_key ?? null,
           providerMachineId: refundCase.reporting_machines?.nayax_machine_id ?? null,
+          machineAuthorizationInstant:
+            refundCase.matched_nayax_machine_auth_time,
         });
       }
     }
@@ -1255,6 +1274,10 @@ serve(async (req) => {
         transactionId: refundCase.matched_nayax_transaction_id,
         siteId: refundCase.matched_nayax_site_id,
         machineAuthorizationTime: refundCase.executionContext!.machineAuthorizationTime,
+        machineAuthorizationTimeInstant:
+          refundCase.executionContext!.machineAuthorizationTimeInstant,
+        machineAuthorizationTimeWire:
+          refundCase.executionContext!.machineAuthorizationTimeWire,
       },
       onStageEvent: async (stageEvent) => {
         if (!isUuid(normalAttemptId) || normalProviderClaimToken.length < 43) {
@@ -1396,7 +1419,7 @@ serve(async (req) => {
         provider,
         reserveAndConsumeAttempt: async (request) => {
           const { data, error } = await supabase.rpc(
-            "service_reserve_nayax_refund_manager_action_v3",
+            "service_reserve_nayax_refund_manager_action_v4",
             {
               p_execution_context_hash: refundCase.executionContext!.contextHash,
               p_executor_assertion: executionConfig.executorAssertion,
@@ -1410,6 +1433,8 @@ serve(async (req) => {
               p_currency_code: request.currencyCode,
               p_provider_contract_version: managerContract!.contractVersion,
               p_journal_contract_version: NAYAX_REFUND_JOURNAL_CONTRACT_VERSION,
+              p_machine_authorization_time_mode:
+                managerContract!.machineAuthorizationTimeMode,
             },
           );
           // A reloaded interrupted attempt can fail the ordinary reservation's
