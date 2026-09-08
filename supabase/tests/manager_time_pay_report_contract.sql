@@ -9,7 +9,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(73);
+select plan(88);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -72,13 +72,21 @@ values
 insert into public.reporting_machine_refund_managers (
   id, reporting_machine_id, manager_user_id, manager_email, grant_reason
 )
-values (
-  'a4100000-0000-0000-0000-000000000001',
-  'a4000000-0000-0000-0000-000000000001',
-  'a1000000-0000-0000-0000-000000000002',
-  'pay-report-machine-manager@example.test',
-  'Machine-only Time Report fixture'
-);
+values
+  (
+    'a4100000-0000-0000-0000-000000000001',
+    'a4000000-0000-0000-0000-000000000001',
+    'a1000000-0000-0000-0000-000000000002',
+    'pay-report-machine-manager@example.test',
+    'Machine-only Time Report fixture'
+  ),
+  (
+    'a4100000-0000-0000-0000-000000000002',
+    'a4000000-0000-0000-0000-000000000002',
+    'a1000000-0000-0000-0000-000000000002',
+    'pay-report-machine-manager@example.test',
+    'Machine-only missed-time fixture'
+  );
 
 insert into public.payout_policies (
   id, account_id, name, frequency, period_anchor_type, monthly_period_type,
@@ -244,6 +252,37 @@ values (
   121, 180, 3, 6500, 9000, 1000, 900, 7400, 'draft'
 );
 
+insert into public.payout_run_items (
+  id, payout_run_id, account_id, operator_profile_id, worker_type,
+  raw_minutes, rounded_paid_minutes, shift_count, hourly_pay_cents,
+  eligible_net_revenue_cents, commission_pay_cents, total_payout_cents, status
+)
+values (
+  'ac100000-0000-0000-0000-000000000002',
+  'ac000000-0000-0000-0000-000000000001',
+  'a2000000-0000-0000-0000-000000000001',
+  'a6000000-0000-0000-0000-000000000002',
+  'contractor_1099',
+  0, 0, 0, 0, 0, 0, 0, 'finalized'
+);
+
+insert into public.pay_statements (
+  id, payout_run_id, payout_run_item_id, account_id, operator_profile_id,
+  statement_number, statement_label, status, version, issued_at,
+  statement_payload, operator_notification_status
+)
+values (
+  'ac300000-0000-0000-0000-000000000001',
+  'ac000000-0000-0000-0000-000000000001',
+  'ac100000-0000-0000-0000-000000000002',
+  'a2000000-0000-0000-0000-000000000001',
+  'a6000000-0000-0000-0000-000000000002',
+  'BJ-STUB-202607-PARTIAL-V1', 'Pay Stub', 'issued', 1,
+  '2026-08-01 00:00:00+00',
+  '{"schemaVersion":"operator-pay-stub-v2"}'::jsonb,
+  'portal_published'
+);
+
 insert into public.payout_run_item_machines (
   id, payout_run_item_id, reporting_machine_id, reporting_location_id,
   net_revenue_cents, eligible_net_revenue_cents,
@@ -261,6 +300,18 @@ values (
 select ok(
   has_function_privilege('authenticated', 'public.get_my_time_review_context(date)', 'execute'),
   'authenticated managers can call the machine-scoped Time Report'
+);
+select ok(
+  has_function_privilege('authenticated', 'public.get_my_time_review_entry_options(date)', 'execute'),
+  'authenticated managers can load machine-scoped missed-time choices'
+);
+select ok(
+  has_function_privilege('authenticated', 'public.manager_create_operator_time_entry(uuid,uuid,timestamptz,timestamptz,text)', 'execute'),
+  'authenticated managers can reach the authorization-gated missed-time action'
+);
+select ok(
+  not has_function_privilege('anon', 'public.manager_create_operator_time_entry(uuid,uuid,timestamptz,timestamptz,text)', 'execute'),
+  'anonymous callers cannot add missed Technician time'
 );
 select ok(
   has_function_privilege('authenticated', 'public.get_technician_pay_report_context(date)', 'execute'),
@@ -736,7 +787,122 @@ select is(
 );
 
 set local role authenticated;
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000002', true);
+reset role;
+update public.operator_payout_profiles
+set status = 'inactive'
+where id = 'a6000000-0000-0000-0000-000000000002';
+set local role authenticated;
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000002', true);
+select is(
+  jsonb_array_length(public.get_my_time_review_entry_options('2026-07-01')),
+  2,
+  'manager entry choices include an inactive historically assigned Technician with no submitted time'
+);
+select is(
+  public.manager_create_operator_time_entry(
+    'a6000000-0000-0000-0000-000000000002',
+    'a4000000-0000-0000-0000-000000000002',
+    '2026-07-30 15:00:00+00',
+    '2026-07-30 16:01:00+00',
+    null
+  ) #>> '{afterTechnicianCutoff}',
+  'true',
+  'a manager can add entirely missing time after the Technician cutoff without exposing pay-stub state'
+);
+select is(
+  (
+    select concat(entry.raw_duration_minutes, ':', entry.paid_shift_count, ':', entry.status)
+    from public.time_entries entry
+    where entry.operator_profile_id = 'a6000000-0000-0000-0000-000000000002'
+      and entry.work_date = '2026-07-30'
+  ),
+  '61:2:submitted',
+  'manager-created late time uses the canonical per-entry shift calculation'
+);
+select is(
+  pg_temp.capture_error($$
+    select public.manager_create_operator_time_entry(
+      'a6000000-0000-0000-0000-000000000002',
+      'a4000000-0000-0000-0000-000000000002',
+      '2099-07-30 15:00:00+00',
+      '2099-07-30 16:00:00+00',
+      null
+    )
+  $$),
+  'Time can be entered only after the work is completed',
+  'future manager-created time is rejected'
+);
+select is(
+  pg_temp.capture_error($$
+    select public.manager_create_operator_time_entry(
+      'a6000000-0000-0000-0000-000000000002',
+      'a4000000-0000-0000-0000-000000000002',
+      '2026-07-10 15:00:00+00',
+      '2026-07-10 16:00:00+00',
+      null
+    )
+  $$),
+  'Technician is not assigned to this machine for the work date',
+  'manager-created time outside the effective assignment is rejected'
+);
+select is(
+  pg_temp.capture_error($$
+    select public.manager_create_operator_time_entry(
+      'a6000000-0000-0000-0000-000000000002',
+      'a4000000-0000-0000-0000-000000000002',
+      '2026-07-30 15:30:00+00',
+      '2026-07-30 16:30:00+00',
+      null
+    )
+  $$),
+  'Time entry overlaps another Technician entry',
+  'overlapping manager-created time is rejected'
+);
+
+reset role;
+select is(
+  (
+    select count(*)::integer
+    from public.time_entry_change_events event
+    join public.time_entries entry on entry.id = event.time_entry_id
+    where entry.operator_profile_id = 'a6000000-0000-0000-0000-000000000002'
+      and entry.work_date = '2026-07-30'
+      and event.change_kind = 'manager_created'
+  ),
+  1,
+  'manager-created missed time retains an audit trail'
+);
+select is(
+  (
+    select count(*)::integer
+    from public.admin_audit_log audit
+    where audit.action = 'operator_time_entry.manager_created'
+      and audit.target_user_id = 'a1000000-0000-0000-0000-000000000005'
+  ),
+  1,
+  'manager-created missed time records the responsible manager action'
+);
+select is(
+  (
+    select concat(audit.actor_user_id, ':', audit.created_at is not null)
+    from public.admin_audit_log audit
+    where audit.action = 'operator_time_entry.manager_created'
+    order by audit.created_at desc
+    limit 1
+  ),
+  'a1000000-0000-0000-0000-000000000002:t',
+  'manager-created missed time audit records the responsible actor and timestamp'
+);
+
+set local role authenticated;
 select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
+select is(
+  public.get_technician_pay_report_context('2026-07-01')
+    #>> '{technicians,1,payStubRegenerationRequired}',
+  'true',
+  'Pay Reports persistently flags the stale published Pay Stub until regeneration'
+);
 select is(
   (
     select entry.value ->> 'shiftRateCents'
@@ -876,6 +1042,24 @@ select is(
   jsonb_array_length(public.get_my_time_review_context('2026-07-01')->'entries'),
   0,
   'an outsider cannot see any time entries'
+);
+select is(
+  jsonb_array_length(public.get_my_time_review_entry_options('2026-07-01')),
+  0,
+  'an outsider cannot see Technician choices for managed machines'
+);
+select is(
+  pg_temp.capture_error($$
+    select public.manager_create_operator_time_entry(
+      'a6000000-0000-0000-0000-000000000002',
+      'a4000000-0000-0000-0000-000000000002',
+      '2026-07-29 15:00:00+00',
+      '2026-07-29 16:00:00+00',
+      null
+    )
+  $$),
+  'Machine manager access required',
+  'an outsider cannot add missed time for a managed machine'
 );
 
 select * from finish();

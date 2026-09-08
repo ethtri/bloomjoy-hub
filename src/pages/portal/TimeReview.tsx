@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarDays, Clock3, Edit3, Loader2, RefreshCw, Users } from 'lucide-react';
+import { CalendarDays, CalendarPlus2, Clock3, Edit3, Loader2, RefreshCw, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { PortalPageIntro } from '@/components/portal/PortalPageIntro';
@@ -24,6 +24,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import {
   correctOperatorTimeEntry,
+  createManagerTimeEntry,
   fetchMyTimeReviewContext,
   type OperatorTimeReviewContext,
   type OperatorTimeReviewEntry,
@@ -41,6 +42,10 @@ type CorrectionDraft = {
   startTime: string;
   endTime: string;
   notes: string;
+};
+
+type MissedTimeDraft = CorrectionDraft & {
+  operatorProfileId: string;
 };
 
 const currentMonthValue = () => getTodayInTimekeepingZone().slice(0, 7);
@@ -98,6 +103,25 @@ const draftForEntry = (entry: OperatorTimeReviewEntry): CorrectionDraft => ({
   notes: entry.notes ?? '',
 });
 
+const getDraftTiming = (draft: CorrectionDraft | null) => {
+  if (!draft?.startTime || !draft.endTime) return { minutes: 0, error: null as string | null };
+
+  try {
+    return {
+      minutes: getActualDurationMinutes(draft.workDate, draft.startTime, draft.endTime),
+      error: null as string | null,
+    };
+  } catch (previewError) {
+    return {
+      minutes: 0,
+      error:
+        previewError instanceof Error
+          ? previewError.message
+          : 'Choose times that exist in Bloomjoy’s Pacific operating timezone.',
+    };
+  }
+};
+
 export default function PortalTimeReviewPage() {
   const queryClient = useQueryClient();
   const [month, setMonth] = useState(currentMonthValue);
@@ -105,8 +129,10 @@ export default function PortalTimeReviewPage() {
   const [machineId, setMachineId] = useState('all');
   const [correctionEntry, setCorrectionEntry] = useState<OperatorTimeReviewEntry | null>(null);
   const [draft, setDraft] = useState<CorrectionDraft | null>(null);
+  const [missedTimeDraft, setMissedTimeDraft] = useState<MissedTimeDraft | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const editTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const addTriggerRef = useRef<HTMLButtonElement | null>(null);
   const workDate = `${month}-01`;
 
   const { data: context, isLoading, isFetching, error, refetch } = useQuery({
@@ -123,6 +149,13 @@ export default function PortalTimeReviewPage() {
         .map(([id, name]) => ({ id, name }))
         .sort((left, right) => left.name.localeCompare(right.name)),
     [entries]
+  );
+  const availableTechnicians = useMemo(
+    () =>
+      [...new Map((context?.entryOptions ?? []).map((option) => [option.operatorProfileId, option.operatorName])).entries()]
+        .map(([id, name]) => ({ id, name }))
+        .sort((left, right) => left.name.localeCompare(right.name)),
+    [context?.entryOptions]
   );
   const visibleEntries = useMemo(
     () =>
@@ -153,19 +186,24 @@ export default function PortalTimeReviewPage() {
     [visibleEntries]
   );
 
-  let previewMinutes = 0;
-  let localTimeError: string | null = null;
-  if (draft?.startTime && draft.endTime) {
-    try {
-      previewMinutes = getActualDurationMinutes(draft.workDate, draft.startTime, draft.endTime);
-    } catch (previewError) {
-      localTimeError =
-        previewError instanceof Error
-          ? previewError.message
-          : 'Choose times that exist in Bloomjoy’s Pacific operating timezone.';
-    }
-  }
+  const { minutes: previewMinutes, error: localTimeError } = getDraftTiming(draft);
   const previewShifts = previewMinutes > 0 ? Math.ceil(previewMinutes / 60) : 0;
+  const { minutes: missedPreviewMinutes, error: missedLocalTimeError } = getDraftTiming(missedTimeDraft);
+  const missedPreviewShifts = missedPreviewMinutes > 0 ? Math.ceil(missedPreviewMinutes / 60) : 0;
+  const missedTimeMachines = useMemo(() => {
+    if (!missedTimeDraft || !context) return [];
+    const eligibleMachineIds = new Set(
+      context.entryOptions
+        .filter(
+          (option) =>
+            option.operatorProfileId === missedTimeDraft.operatorProfileId &&
+            option.effectiveStartDate <= missedTimeDraft.workDate &&
+            (!option.effectiveEndDate || option.effectiveEndDate >= missedTimeDraft.workDate)
+        )
+        .map((option) => option.machineId)
+    );
+    return context.machines.filter((machine) => eligibleMachineIds.has(machine.machineId));
+  }, [context, missedTimeDraft]);
 
   const correctionMutation = useMutation({
     mutationFn: () => {
@@ -179,7 +217,10 @@ export default function PortalTimeReviewPage() {
       });
     },
     onSuccess: (nextContext) => {
-      queryClient.setQueryData<OperatorTimeReviewContext>(reviewQueryKey(workDate), nextContext);
+      queryClient.setQueryData<OperatorTimeReviewContext>(reviewQueryKey(workDate), {
+        ...nextContext,
+        entryOptions: context?.entryOptions ?? [],
+      });
       setCorrectionEntry(null);
       setDraft(null);
       setFormError(null);
@@ -191,6 +232,37 @@ export default function PortalTimeReviewPage() {
         mutationError instanceof Error
           ? mutationError.message
           : 'We could not save this correction. Your changes are still here.'
+      );
+    },
+  });
+
+  const missedTimeMutation = useMutation({
+    mutationFn: () => {
+      if (!missedTimeDraft) throw new Error('Complete the missed time entry.');
+      return createManagerTimeEntry({
+        operatorProfileId: missedTimeDraft.operatorProfileId,
+        machineId: missedTimeDraft.machineId,
+        actualStartAt: combineDateAndTimeInTimekeepingZone(missedTimeDraft.workDate, missedTimeDraft.startTime),
+        actualEndAt: combineDateAndTimeInTimekeepingZone(missedTimeDraft.workDate, missedTimeDraft.endTime),
+        notes: missedTimeDraft.notes || null,
+      });
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData<OperatorTimeReviewContext>(reviewQueryKey(workDate), result.context);
+      setMissedTimeDraft(null);
+      setFormError(null);
+      toast.success(
+        result.afterTechnicianCutoff
+          ? 'Missed time added after the Technician cutoff. It is included in the manager report.'
+          : 'Time added. The report is up to date.'
+      );
+      requestAnimationFrame(() => addTriggerRef.current?.focus());
+    },
+    onError: (mutationError) => {
+      setFormError(
+        mutationError instanceof Error
+          ? mutationError.message
+          : 'We could not add this missed time. Your changes are still here.'
       );
     },
   });
@@ -231,6 +303,84 @@ export default function PortalTimeReviewPage() {
     requestAnimationFrame(() => editTriggerRef.current?.focus());
   };
 
+  const openMissedTime = (trigger: HTMLButtonElement) => {
+    if (!context || availableTechnicians.length === 0) return;
+    addTriggerRef.current = trigger;
+    const today = getTodayInTimekeepingZone();
+    const defaultDate = today < context.periodStartDate
+      ? context.periodStartDate
+      : today > context.periodEndDate
+        ? context.periodEndDate
+        : today;
+    const selectedTechnician =
+      availableTechnicians.find((technician) => technician.id === technicianId) ?? availableTechnicians[0];
+    const firstOption = context.entryOptions.find(
+      (option) =>
+        option.operatorProfileId === selectedTechnician.id &&
+        option.effectiveStartDate <= defaultDate &&
+        (!option.effectiveEndDate || option.effectiveEndDate >= defaultDate)
+    );
+    setMissedTimeDraft({
+      operatorProfileId: selectedTechnician.id,
+      machineId: firstOption?.machineId ?? '',
+      workDate: defaultDate,
+      startTime: '',
+      endTime: '',
+      notes: '',
+    });
+    setFormError(null);
+  };
+
+  const updateMissedTimeIdentity = (operatorProfileId: string, workDate: string) => {
+    if (!context || !missedTimeDraft) return;
+    const firstOption = context.entryOptions.find(
+      (option) =>
+        option.operatorProfileId === operatorProfileId &&
+        option.effectiveStartDate <= workDate &&
+        (!option.effectiveEndDate || option.effectiveEndDate >= workDate)
+    );
+    setMissedTimeDraft({
+      ...missedTimeDraft,
+      operatorProfileId,
+      workDate,
+      machineId: firstOption?.machineId ?? '',
+    });
+  };
+
+  const saveMissedTime = () => {
+    if (!missedTimeDraft) return;
+    if (
+      !missedTimeDraft.operatorProfileId ||
+      !missedTimeDraft.machineId ||
+      !missedTimeDraft.workDate ||
+      !missedTimeDraft.startTime ||
+      !missedTimeDraft.endTime
+    ) {
+      setFormError('Complete the Technician, date, machine, start time, and end time.');
+      return;
+    }
+    if (missedLocalTimeError) {
+      setFormError(missedLocalTimeError);
+      return;
+    }
+    if (missedPreviewMinutes <= 0) {
+      setFormError('End time must be later than start time.');
+      return;
+    }
+    if (isCompletedTimeInFuture(missedTimeDraft.workDate, missedTimeDraft.endTime)) {
+      setFormError('Enter time only after the work has ended.');
+      return;
+    }
+    setFormError(null);
+    missedTimeMutation.mutate();
+  };
+
+  const closeMissedTime = () => {
+    setMissedTimeDraft(null);
+    setFormError(null);
+    requestAnimationFrame(() => addTriggerRef.current?.focus());
+  };
+
   return (
     <PortalLayout>
       <section className="portal-section">
@@ -244,10 +394,22 @@ export default function PortalTimeReviewPage() {
               { label: `${totalPaidShifts} paid shifts`, tone: 'primary', icon: Clock3 },
             ]}
             actions={
-              <Button type="button" variant="outline" className="min-h-11" disabled={isFetching} onClick={() => void refetch()}>
-                <RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin motion-reduce:animate-none' : ''}`} />
-                Refresh
-              </Button>
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                <Button
+                  ref={addTriggerRef}
+                  type="button"
+                  className="min-h-11"
+                  disabled={availableTechnicians.length === 0}
+                  onClick={(event) => openMissedTime(event.currentTarget)}
+                >
+                  <CalendarPlus2 className="mr-2 h-4 w-4" />
+                  Add missed time
+                </Button>
+                <Button type="button" variant="outline" className="min-h-11" disabled={isFetching} onClick={() => void refetch()}>
+                  <RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? 'animate-spin motion-reduce:animate-none' : ''}`} />
+                  Refresh
+                </Button>
+              </div>
             }
           />
 
@@ -354,6 +516,94 @@ export default function PortalTimeReviewPage() {
             </div>
           )}
           <DialogFooter><Button type="button" variant="outline" className="min-h-11" disabled={correctionMutation.isPending} onClick={closeCorrection}>Cancel</Button><Button type="button" className="min-h-11" disabled={correctionMutation.isPending} onClick={saveCorrection}>{correctionMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />}Save correction</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(missedTimeDraft)} onOpenChange={(open) => !open && !missedTimeMutation.isPending && closeMissedTime()}>
+        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add missed time</DialogTitle>
+            <DialogDescription>
+              Add completed work that a Technician forgot to enter. This works after the monthly cutoff and stays in the audit history.
+            </DialogDescription>
+          </DialogHeader>
+          {missedTimeDraft && (
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="missed-time-technician" className="text-sm font-medium text-foreground">Technician</label>
+                <Select
+                  value={missedTimeDraft.operatorProfileId}
+                  onValueChange={(value) => updateMissedTimeIdentity(value, missedTimeDraft.workDate)}
+                >
+                  <SelectTrigger id="missed-time-technician" className="mt-2 min-h-11"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {availableTechnicians.map((technician) => (
+                      <SelectItem key={technician.id} value={technician.id}>{technician.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label htmlFor="missed-time-date" className="text-sm font-medium text-foreground">Work date</label>
+                <Input
+                  id="missed-time-date"
+                  type="date"
+                  value={missedTimeDraft.workDate}
+                  min={context?.periodStartDate}
+                  max={context?.periodEndDate}
+                  className="mt-2 min-h-11"
+                  onChange={(event) => updateMissedTimeIdentity(missedTimeDraft.operatorProfileId, event.target.value)}
+                />
+              </div>
+              <div>
+                <label htmlFor="missed-time-machine" className="text-sm font-medium text-foreground">Machine</label>
+                <Select
+                  value={missedTimeDraft.machineId}
+                  onValueChange={(value) => setMissedTimeDraft({ ...missedTimeDraft, machineId: value })}
+                >
+                  <SelectTrigger id="missed-time-machine" className="mt-2 min-h-11"><SelectValue placeholder="Choose a machine" /></SelectTrigger>
+                  <SelectContent>
+                    {missedTimeMachines.map((machine) => (
+                      <SelectItem key={machine.machineId} value={machine.machineId}>{machine.machineLabel} · {machine.locationName}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {missedTimeMachines.length === 0 && (
+                  <p className="mt-2 text-sm text-muted-foreground">This Technician was not assigned to one of your machines on that date.</p>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="missed-time-start" className="text-sm font-medium text-foreground">Start time</label>
+                  <Input id="missed-time-start" type="time" value={missedTimeDraft.startTime} className="mt-2 min-h-11" onChange={(event) => setMissedTimeDraft({ ...missedTimeDraft, startTime: event.target.value })} />
+                </div>
+                <div>
+                  <label htmlFor="missed-time-end" className="text-sm font-medium text-foreground">End time</label>
+                  <Input id="missed-time-end" type="time" value={missedTimeDraft.endTime} className="mt-2 min-h-11" onChange={(event) => setMissedTimeDraft({ ...missedTimeDraft, endTime: event.target.value })} />
+                </div>
+              </div>
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-4" aria-live="polite">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pay preview</p>
+                <p className="mt-1 font-semibold text-foreground">
+                  {missedPreviewMinutes > 0
+                    ? `${formatDuration(missedPreviewMinutes)} actual → ${missedPreviewShifts} paid ${missedPreviewShifts === 1 ? 'shift' : 'shifts'}`
+                    : 'Enter a valid start and end time.'}
+                </p>
+              </div>
+              <div>
+                <label htmlFor="missed-time-notes" className="text-sm font-medium text-foreground">Notes (optional)</label>
+                <Textarea id="missed-time-notes" value={missedTimeDraft.notes} className="mt-2" onChange={(event) => setMissedTimeDraft({ ...missedTimeDraft, notes: event.target.value })} />
+              </div>
+              {formError && <p className="text-sm text-destructive" role="alert">{formError}</p>}
+            </div>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" className="min-h-11" disabled={missedTimeMutation.isPending} onClick={closeMissedTime}>Cancel</Button>
+            <Button type="button" className="min-h-11" disabled={missedTimeMutation.isPending || missedTimeMachines.length === 0} onClick={saveMissedTime}>
+              {missedTimeMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />}
+              Add to report
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </PortalLayout>
