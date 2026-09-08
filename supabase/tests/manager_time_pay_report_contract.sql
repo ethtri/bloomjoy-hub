@@ -148,6 +148,11 @@ values (
   'active'
 );
 
+-- These historical locked-period rows are fixture setup, so seed them through
+-- the same explicit manager-correction context enforced by the production trigger.
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000002', true);
+select set_config('app.timekeeping_manager_correction', 'true', true);
+
 insert into public.time_entries (
   id, account_id, operator_profile_id, reporting_machine_id, reporting_location_id,
   payout_policy_id, payout_period_id, work_date, start_time, end_time,
@@ -159,6 +164,8 @@ values
   ('a9000000-0000-0000-0000-000000000002', 'a2000000-0000-0000-0000-000000000001', 'a6000000-0000-0000-0000-000000000001', 'a4000000-0000-0000-0000-000000000001', 'a3000000-0000-0000-0000-000000000001', 'a5000000-0000-0000-0000-000000000001', 'a7000000-0000-0000-0000-000000000001', '2026-07-10', '08:00', '08:20', '2026-07-10 15:00:00+00', '2026-07-10 15:20:00+00', 20, 60, 1, 'submitted'),
   ('a9000000-0000-0000-0000-000000000003', 'a2000000-0000-0000-0000-000000000001', 'a6000000-0000-0000-0000-000000000001', 'a4000000-0000-0000-0000-000000000001', 'a3000000-0000-0000-0000-000000000001', 'a5000000-0000-0000-0000-000000000001', 'a7000000-0000-0000-0000-000000000001', '2026-07-11', '08:00', '08:20', '2026-07-11 15:00:00+00', '2026-07-11 15:20:00+00', 20, 60, 1, 'submitted'),
   ('a9000000-0000-0000-0000-000000000004', 'a2000000-0000-0000-0000-000000000001', 'a6000000-0000-0000-0000-000000000001', 'a4000000-0000-0000-0000-000000000001', 'a3000000-0000-0000-0000-000000000001', 'a5000000-0000-0000-0000-000000000001', 'a7000000-0000-0000-0000-000000000001', '2026-07-20', '08:00', '08:20', '2026-07-20 15:00:00+00', '2026-07-20 15:20:00+00', 20, 60, 1, 'submitted');
+
+select set_config('app.timekeeping_manager_correction', 'false', true);
 
 insert into public.machine_sales_facts (
   id, reporting_machine_id, reporting_location_id, sale_date, payment_method,
