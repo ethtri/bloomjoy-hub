@@ -119,18 +119,11 @@ select is(
   'A claimed lookup publishes the checking state immediately'
 );
 
-insert into public.refund_nayax_lookup_candidates (
-  token, refund_case_id, reporting_machine_id, provider_transaction_id,
-  site_id, machine_authorization_time, amount_cents, card_last4,
-  currency_code, evidence_summary, expires_at, lookup_generation
-) values (
-  'b5000000-0000-4000-8000-000000000001',
-  'b4000000-0000-4000-8000-000000000001',
-  'b3000000-0000-4000-8000-000000000001',
-  'DURABLE-TXN-OLD-001', 101, statement_timestamp() - interval '30 minutes',
-  700, '4242', 'USD', '{"selection_allowed":true}'::jsonb,
-  statement_timestamp() + interval '30 minutes', 1
-);
+-- A live check now owns its slot. Recover an expired worker before starting
+-- generation two; the old worker's late evidence below must still lose.
+update public.refund_cases
+set nayax_lookup_started_at = statement_timestamp() - interval '2 minutes'
+where id = 'b4000000-0000-4000-8000-000000000001';
 
 insert into lookup_results values (
   'generation_two',
@@ -142,7 +135,22 @@ select is(
   (select (result ->> 'lookupGeneration')::integer from lookup_results
     where result_key = 'generation_two'),
   2,
-  'A newer request receives the next lookup generation'
+  'Recovery of an expired worker receives the next lookup generation'
+);
+
+-- Model the expired worker returning after its replacement has claimed the
+-- case. This evidence must be removed by the stale generation commit.
+insert into public.refund_nayax_lookup_candidates (
+  token, refund_case_id, reporting_machine_id, provider_transaction_id,
+  site_id, machine_authorization_time, amount_cents, card_last4,
+  currency_code, evidence_summary, expires_at, lookup_generation
+) values (
+  'b5000000-0000-4000-8000-000000000001',
+  'b4000000-0000-4000-8000-000000000001',
+  'b3000000-0000-4000-8000-000000000001',
+  'DURABLE-TXN-OLD-001', 101, statement_timestamp() - interval '30 minutes',
+  700, '4242', 'USD', '{"selection_allowed":true}'::jsonb,
+  statement_timestamp() + interval '30 minutes', 1
 );
 
 insert into public.refund_nayax_lookup_candidates (
