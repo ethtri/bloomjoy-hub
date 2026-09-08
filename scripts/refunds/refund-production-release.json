@@ -174,7 +174,8 @@
     "20260907234016_refund_manager_read_timezone_fastpath.sql",
     "20260908033000_refund_nayax_bound_offset_time.sql",
     "20260908044000_refund_nayax_independent_response_diagnostics.sql",
-    "20260908061500_refund_nayax_email_mode_binding.sql"
+    "20260908061500_refund_nayax_email_mode_binding.sql",
+    "20260908151902_refund_nayax_lookup_retry_recovery.sql"
   ],
   "migrationFilesSha256": "7f21baad3ab3d40abc31e4fe0039076ded84a4ed22ad8427d365854de9e3811b",
   "migrationVersionSetSha256": "2889637b45e4183877976afd0d2b7ff746ab44aaa95729e59d31228ae9d2143b",
