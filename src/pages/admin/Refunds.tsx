@@ -1331,7 +1331,7 @@ const transactionSearchDescription = (summary: RefundNayaxLookupSummary | null) 
         : 'Bloomjoy needs internal machine/account setup before it can check this machine. Do not ask the customer to repeat details Bloomjoy owns.';
     case 'lookup_failed':
       return summary.safeRetryEligible
-        ? 'The bounded transaction search did not finish. Refund Operations owns one safe read-only retry; no customer correction is needed.'
+        ? 'The bounded transaction search did not finish. A fresh read-only check is available; no customer correction is needed.'
         : 'The bounded transaction search did not finish. Refund Operations owns the internal fallback; do not ask the customer to repeat purchase details.';
     case 'no_match':
       return summary.providerWindowRecordCount && summary.providerWindowRecordCount > 0
@@ -2559,6 +2559,7 @@ export default function AdminRefundsPage() {
   const nayaxRefundInFlightRef = useRef(false);
   const nayaxApprovedExecutionRequestRef = useRef<() => void>(() => {});
   const nayaxApprovedExecutionAttemptedRef = useRef(new Set<string>());
+  const nayaxLookupInFlightCaseRef = useRef<string | null>(null);
   const lookupRequestSequenceRef = useRef(0);
   const autoLookupAttemptedRef = useRef(new Set<string>());
   const handledCaseQueryRef = useRef<string | null>(null);
@@ -3298,9 +3299,11 @@ export default function AdminRefundsPage() {
   const selectedNayaxSummary = useMemo(
     () =>
       selectedCase
-        ? nayaxLookupSummary ??
-          selectedCase.nayaxLookupSummary ??
-          getFallbackNayaxLookupSummary(selectedCase, nayaxCandidates, isLookingUpNayax, nayaxLookupNotice)
+        ? isLookingUpNayax
+          ? getFallbackNayaxLookupSummary(selectedCase, nayaxCandidates, true, nayaxLookupNotice)
+          : nayaxLookupSummary ??
+            selectedCase.nayaxLookupSummary ??
+            getFallbackNayaxLookupSummary(selectedCase, nayaxCandidates, false, nayaxLookupNotice)
         : null,
     [isLookingUpNayax, nayaxCandidates, nayaxLookupNotice, nayaxLookupSummary, selectedCase]
   );
@@ -4336,8 +4339,11 @@ export default function AdminRefundsPage() {
   const handleNayaxLookup = async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!selectedCase) return;
     const lookupCaseId = selectedCase.id;
+    if (nayaxLookupInFlightCaseRef.current === lookupCaseId) return;
+    nayaxLookupInFlightCaseRef.current = lookupCaseId;
     const requestSequence = ++lookupRequestSequenceRef.current;
     if (isUsingDemoData) {
+      nayaxLookupInFlightCaseRef.current = null;
       setNayaxLookupNotice({
         tone: 'info',
         message: 'Demo cases use fixed transaction results and cannot be refreshed.',
@@ -4444,19 +4450,6 @@ export default function AdminRefundsPage() {
     } catch {
       if (lookupRequestSequenceRef.current !== requestSequence) return;
       const message = 'The transaction search could not be completed.';
-      setNayaxLookupSummary({
-        lookupStatus: 'lookup_failed',
-        lastCheckedAt: new Date().toISOString(),
-        windowHours: 6,
-        providerWindowRecordCount: null,
-        candidateCount: 0,
-        summary: `${message} Keep the case open and try the transaction check again later.`,
-        recommendedAction: 'Do not tell the customer a refund succeeded until the transaction check is working.',
-        safeRetryEligible: false,
-        failureClass: 'network_or_server_error',
-        automatic: true,
-        lastUpdatedAt: new Date().toISOString(),
-      });
       setNayaxLookupNotice({
         tone: 'error',
         message: `${message} Keep the case open and try the transaction check again later.`,
@@ -4464,7 +4457,16 @@ export default function AdminRefundsPage() {
       if (!silent) {
         toast.error(message);
       }
+      await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
+      if (lookupRequestSequenceRef.current !== requestSequence) return;
+      const authoritativeCase = queryClient
+        .getQueryData<RefundOperationsOverview>(['admin-refund-operations-overview'])
+        ?.cases.find((refundCase) => refundCase.id === lookupCaseId);
+      setNayaxLookupSummary(authoritativeCase?.nayaxLookupSummary ?? null);
     } finally {
+      if (nayaxLookupInFlightCaseRef.current === lookupCaseId) {
+        nayaxLookupInFlightCaseRef.current = null;
+      }
       if (lookupRequestSequenceRef.current === requestSequence) {
         setIsLookingUpNayax(false);
       }
@@ -5258,6 +5260,12 @@ export default function AdminRefundsPage() {
       !hasSelectedMatch &&
       selectedCase.lifecycle?.managerQueue.safeRetryEligible === true &&
       selectedCase.lifecycle.managerQueue.nextAction === 'retry_read_only_lookup';
+    const lookupRefreshAllowed = ![
+      'lookup_failed',
+      'lookup_timed_out',
+      'response_limited',
+    ].includes(selectedNayaxSummary?.lookupStatus ?? '') ||
+      selectedNayaxSummary?.safeRetryEligible === true;
     const needsDisagreementReason = Boolean(selectedCandidate && selectedCandidate.isRecommended !== true);
     const selectCandidate = (candidate: NayaxLookupCandidate) => {
       if (!caseAllowsCandidateSelection || candidate.selectionAllowed === false) return;
@@ -5645,7 +5653,7 @@ export default function AdminRefundsPage() {
               Use these options only if the selected transaction looks wrong or out of date.
             </p>
             <div className="flex flex-wrap gap-2">
-              {!automaticLookupPending && !showVisibleLookupRetry && (
+              {!automaticLookupPending && !showVisibleLookupRetry && lookupRefreshAllowed && (
                 <Button
                   data-testid="nayax-check-transaction"
                   type="button"
