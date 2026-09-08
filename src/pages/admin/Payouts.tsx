@@ -39,6 +39,7 @@ import {
   fetchTechnicianPayReportContext,
   fetchTimekeepingSetupContext,
   refreshTechnicianPayReportSalesAdmin,
+  requestPayStubGenerationAdmin,
   setupTimekeepingTechnicianAdmin,
   supersedeOperatorCompensationRateAdmin,
   upsertOperatorRecurringItemAdmin,
@@ -185,6 +186,7 @@ const unresolvedCommissionCodes = new Set([
   'revenue_snapshot_fact_mismatch',
   'cross_rate_refund_allocation_ambiguous',
   'missing_commission_rate',
+  'missing_machine_tax_rate',
 ]);
 
 const hasUnresolvedCommission = (technician: TechnicianPayReportTechnician) =>
@@ -238,6 +240,7 @@ const scopeTechnicianToMachine = (
     actualDurationMinutes: entries.reduce((sum, entry) => sum + entry.actualDurationMinutes, 0),
     paidShifts: entries.reduce((sum, entry) => sum + entry.paidShifts, 0),
     shiftEarningsCents,
+    taxCents: machines.reduce((sum, machine) => sum + (machine.taxCents ?? 0), 0),
     commissionableSalesCents: machines.reduce((sum, machine) => sum + machine.commissionableSalesCents, 0),
     commissionEarningsCents,
     bonusCents: 0,
@@ -260,12 +263,16 @@ function TechnicianReport({
   onAddCommissionRate,
   onAddOtherEarning,
   onEditOtherEarning,
+  onGeneratePayStub,
+  isGeneratingPayStub,
 }: {
   technician: TechnicianPayReportTechnician;
   onAddShiftRate: () => void;
   onAddCommissionRate: () => void;
   onAddOtherEarning: () => void;
   onEditOtherEarning: (earning: TechnicianPayReportOtherEarning) => void;
+  onGeneratePayStub: () => void;
+  isGeneratingPayStub: boolean;
 }) {
   const issues = [...technician.blockers, ...technician.warnings];
   const commissionUnavailable = hasUnresolvedCommission(technician);
@@ -295,6 +302,16 @@ function TechnicianReport({
             <p className="mt-1 text-2xl font-semibold text-foreground">
               {totalUnavailable ? 'Unavailable' : formatCurrency(technician.currentTotalCents)}
             </p>
+            <Button
+              type="button"
+              size="sm"
+              className="mt-3 min-h-11"
+              disabled={!technician.publishable || isGeneratingPayStub}
+              onClick={onGeneratePayStub}
+            >
+              {isGeneratingPayStub ? <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Banknote className="mr-2 h-4 w-4" />}
+              {isGeneratingPayStub ? 'Publishing…' : 'Publish Pay Stub'}
+            </Button>
           </div>
         </div>
       </header>
@@ -353,7 +370,9 @@ function TechnicianReport({
             <Plus className="mr-2 h-4 w-4" /> Add commission rate
           </Button>
         </div>
-        <p className="mt-1 text-sm text-muted-foreground">Sales are shown so the commission amount can be checked.</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Commission is calculated as (sales − refunds − estimated sales tax) × the contractor’s commission rate.
+        </p>
         <div className="mt-3 rounded-lg border border-border px-3">
           {technician.machines.length ? technician.machines.map((machine) => {
             const machineEntries = technician.entries.filter((entry) => entry.machineId === machine.machineId);
@@ -388,7 +407,10 @@ function TechnicianReport({
                               {formatDate(segment.segmentStartDate)}–{formatDate(segment.segmentEndDate)}
                             </span>
                             <span className="mt-0.5 block">
-                              {formatCurrency(segment.commissionableSalesCents)} × {segment.commissionBasisPoints == null ? 'Commission rate missing' : formatRate(segment.commissionBasisPoints)} = {machineCommissionUnavailable ? 'Allocation unavailable' : formatCurrency(segment.commissionEarningsCents)}
+                              {formatCurrency(segment.grossSalesCents)} sales − {formatCurrency(Math.abs(segment.refundAdjustmentCents ?? 0))} refunds − {formatCurrency(Math.abs(segment.taxCents ?? 0))} tax ({segment.taxRatePercent == null ? 'rate missing' : `${segment.taxRatePercent}%`})
+                            </span>
+                            <span className="mt-0.5 block font-medium text-foreground">
+                              {formatCurrency(segment.commissionableSalesCents)} × {segment.commissionBasisPoints == null ? 'commission rate missing' : formatRate(segment.commissionBasisPoints)} = {machineCommissionUnavailable ? 'Allocation unavailable' : formatCurrency(segment.commissionEarningsCents)}
                             </span>
                           </span>
                         ))}
@@ -398,7 +420,9 @@ function TechnicianReport({
                         {formatCurrency(machine.commissionableSalesCents)} commissionable sales · No dated commission segment
                       </span>
                     )}
-                    {machine.refundAdjustmentCents !== 0 && <span className="mt-1 block">Includes {formatCurrency(machine.refundAdjustmentCents)} refund adjustment</span>}
+                    <span className="mt-1 block">
+                      Machine totals: {formatCurrency(machine.grossSalesCents)} sales − {formatCurrency(Math.abs(machine.refundAdjustmentCents ?? 0))} refunds − {formatCurrency(Math.abs(machine.taxCents ?? 0))} estimated sales tax
+                    </span>
                   </>
                 }
                 amount={machineCommissionUnavailable ? 'Unavailable' : formatCurrency(machine.commissionEarningsCents)}
@@ -452,6 +476,7 @@ export default function AdminPayoutsPage() {
   const [payInputError, setPayInputError] = useState<string | null>(null);
   const [setupDraft, setSetupDraft] = useState<TechnicianSetupDraft | null>(null);
   const [setupError, setSetupError] = useState<string | null>(null);
+  const [generatingProfileId, setGeneratingProfileId] = useState<string | null>(null);
 
   const { data: context, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ['technician-pay-report', month],
@@ -486,6 +511,7 @@ export default function AdminPayoutsPage() {
     [accountId, machineId, technicianId, technicians]
   );
   const totalPaidShifts = visibleTechnicians.reduce((sum, technician) => sum + technician.paidShifts, 0);
+  const totalEstimatedTax = visibleTechnicians.reduce((sum, technician) => sum + (technician.taxCents ?? 0), 0);
   const totalCommissionableSales = visibleTechnicians.reduce((sum, technician) => sum + technician.commissionableSalesCents, 0);
   const currentTotal = visibleTechnicians.reduce((sum, technician) => sum + technician.currentTotalCents, 0);
   const blockerCount = visibleTechnicians.reduce((sum, technician) => sum + technician.blockers.length, 0);
@@ -645,6 +671,19 @@ export default function AdminPayoutsPage() {
     },
   });
 
+  const generatePayStub = useMutation({
+    mutationFn: (operatorProfileId: string) => requestPayStubGenerationAdmin(operatorProfileId, month),
+    onMutate: (operatorProfileId) => setGeneratingProfileId(operatorProfileId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['technician-pay-report'] });
+      toast.success('Pay Stub published. The Technician can download the PDF now.');
+    },
+    onError: (generationError) => {
+      toast.error(generationError instanceof Error ? generationError.message : 'Unable to publish the Pay Stub.');
+    },
+    onSettled: () => setGeneratingProfileId(null),
+  });
+
   return (
     <AppLayout>
       <div className="space-y-6 p-4 sm:p-6 lg:p-8">
@@ -696,7 +735,7 @@ export default function AdminPayoutsPage() {
 
             <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-live="polite">
               <Metric label="Paid shifts" value={`${totalPaidShifts}`} helper="Each started hour" icon={Clock3} />
-              <Metric label="Commissionable sales" value={commissionableSalesUnavailable ? 'Unavailable' : formatCurrency(totalCommissionableSales)} helper={commissionableSalesUnavailable ? 'Refresh required' : 'After one refund adjustment'} icon={ShoppingBag} />
+              <Metric label="Commissionable sales" value={commissionableSalesUnavailable ? 'Unavailable' : formatCurrency(totalCommissionableSales)} helper={commissionableSalesUnavailable ? 'Refresh required' : `After refunds and ${formatCurrency(totalEstimatedTax)} tax`} icon={ShoppingBag} />
               <Metric label="Current total" value={totalsUnavailable ? 'Unavailable' : formatCurrency(currentTotal)} helper={totalsUnavailable ? 'Resolve calculation blockers' : 'Before payment or tax'} icon={Banknote} />
               <Metric label="Technicians" value={`${visibleTechnicians.length}`} helper={blockerCount ? `${blockerCount} publishing blocker${blockerCount === 1 ? '' : 's'}` : 'No publishing blockers'} icon={UserRound} />
             </section>
@@ -717,6 +756,8 @@ export default function AdminPayoutsPage() {
                   onAddCommissionRate={() => openPayInput(technician, 'commission')}
                   onAddOtherEarning={() => openPayInput(technician, 'bonus')}
                   onEditOtherEarning={(earning) => openPayInput(technician, earning.type, earning)}
+                  onGeneratePayStub={() => generatePayStub.mutate(technician.operatorProfileId)}
+                  isGeneratingPayStub={generatingProfileId === technician.operatorProfileId}
                 />
               )) : (
                 <div className="rounded-xl border border-dashed border-border bg-card p-6">
@@ -732,7 +773,7 @@ export default function AdminPayoutsPage() {
             </section>
 
             <p className="text-xs leading-5 text-muted-foreground">
-              Report totals are calculation records for contractor pay stubs. They do not record proof of payment, calculate taxes, or change contractor classification.
+              Report totals are calculation records for contractor Pay Stubs. Estimated sales tax is deducted only for commission; this does not record proof of payment, calculate payroll withholding, or change contractor classification.
             </p>
           </>
         )}

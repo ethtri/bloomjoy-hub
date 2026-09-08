@@ -495,7 +495,7 @@ export default function PortalTimePage() {
     setDownloadingPayStubId(payStub.id);
     try {
       const artifact = await fetchPayStatementArtifact(payStub.id);
-      downloadOperatorPayStatementHtml(artifact);
+      await downloadOperatorPayStatementHtml(artifact);
       toast.success('Pay Stub downloaded.');
     } catch (error) {
       toast.error(describeTimekeepingError(error));
