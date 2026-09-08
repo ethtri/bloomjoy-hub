@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8').replaceAll('\r\n', '\n');
-const migration = read('supabase/migrations/20260908151153_refund_terminal_receipt_case_completion.sql');
+const migration = read('supabase/migrations/20260908163714_refund_terminal_receipt_case_completion.sql');
 const nayaxFunction = read('supabase/functions/nayax-card-refund/index.ts');
 const completionHelper = read('supabase/functions/_shared/nayax-resolution-completion.ts');
 const originalClaim = read('supabase/migrations/202608040004_refund_nayax_provider_orchestration.sql');
