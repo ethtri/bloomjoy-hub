@@ -544,6 +544,7 @@ export function freezeNayaxRefundEvidence(value, contract = {
       "machineAuthorizationTime",
       "machineAuthorizationTimeInstant",
       "machineAuthorizationTimeWire",
+      "refundEmailListMode",
     ]),
     "Nayax refund execution evidence",
   );
@@ -559,6 +560,10 @@ export function freezeNayaxRefundEvidence(value, contract = {
   const machineAuthorizationTime = parseMachineAuthorizationTime(
     record.machineAuthorizationTime,
   );
+  if (record.refundEmailListMode !== undefined &&
+      record.refundEmailListMode !== contract.refundEmailListMode) {
+    throw new Error("Nayax refund email mode does not match frozen evidence.");
+  }
   const machineAuthorizationTimeInstant =
     record.machineAuthorizationTimeInstant === undefined
       ? undefined

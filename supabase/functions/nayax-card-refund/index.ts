@@ -124,8 +124,11 @@ const parseConfiguredManagerContract = () => {
   try {
     const contract = parseNayaxRefundProviderContract(raw);
     const machineAuthorizationTimeMode = resolveMachineAuthorizationTimeMode();
-    return machineAuthorizationTimeMode
-      ? { ...contract, machineAuthorizationTimeMode }
+    const configuredEmailMode = Deno.env.get("NAYAX_REFUND_EMAIL_LIST_MODE")?.trim() ?? "";
+    const refundEmailListMode = configuredEmailMode || contract.refundEmailListMode;
+    return machineAuthorizationTimeMode &&
+        (refundEmailListMode === "omit" || refundEmailListMode === "empty_string")
+      ? { ...contract, machineAuthorizationTimeMode, refundEmailListMode }
       : null;
   } catch {
     return null;
@@ -511,14 +514,16 @@ serve(async (req) => {
       }, 409);
     }
 
+    const managerContract = parseConfiguredManagerContract();
     if (operation !== "approve_pending_request" && executionConfig.executorAssertion) {
       const { data: verificationData, error: verificationError } = await supabase.rpc(
-        "service_get_refund_nayax_execution_context_v2", {
+        "service_get_refund_nayax_execution_context_v3", {
           p_executor_assertion: executionConfig.executorAssertion,
           p_actor_user_id: user.id, p_case_id: refundCase.id,
           p_serialization_mode:
-            resolveMachineAuthorizationTimeMode() ??
+            managerContract?.machineAuthorizationTimeMode ??
               "exact_source",
+          p_refund_email_list_mode: managerContract?.refundEmailListMode ?? "omit",
         },
       );
       if (!verificationError) {
@@ -1165,7 +1170,6 @@ serve(async (req) => {
     const normalWriteCredentials = resolveNormalWriteCredentials(
       normalAccountKey,
     );
-    const managerContract = parseConfiguredManagerContract();
     const normalCredentialsPresent = Boolean(
       normalWriteCredentials.requestToken && normalWriteCredentials.approveToken,
     );
@@ -1278,6 +1282,7 @@ serve(async (req) => {
           refundCase.executionContext!.machineAuthorizationTimeInstant,
         machineAuthorizationTimeWire:
           refundCase.executionContext!.machineAuthorizationTimeWire,
+        refundEmailListMode: refundCase.executionContext!.refundEmailListMode,
       },
       onStageEvent: async (stageEvent) => {
         if (!isUuid(normalAttemptId) || normalProviderClaimToken.length < 43) {
@@ -1443,7 +1448,7 @@ serve(async (req) => {
         provider,
         reserveAndConsumeAttempt: async (request) => {
           const { data, error } = await supabase.rpc(
-            "service_reserve_nayax_refund_manager_action_v4",
+            "service_reserve_nayax_refund_manager_action_v5",
             {
               p_execution_context_hash: refundCase.executionContext!.contextHash,
               p_executor_assertion: executionConfig.executorAssertion,
@@ -1459,6 +1464,7 @@ serve(async (req) => {
               p_journal_contract_version: NAYAX_REFUND_JOURNAL_CONTRACT_VERSION,
               p_machine_authorization_time_mode:
                 managerContract!.machineAuthorizationTimeMode,
+              p_refund_email_list_mode: managerContract!.refundEmailListMode,
             },
           );
           // A reloaded interrupted attempt can fail the ordinary reservation's

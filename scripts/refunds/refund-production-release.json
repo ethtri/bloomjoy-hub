@@ -173,7 +173,8 @@
     "20260907221500_refund_gmail_canonical_threading.sql",
     "20260907234016_refund_manager_read_timezone_fastpath.sql",
     "20260908033000_refund_nayax_bound_offset_time.sql",
-    "20260908044000_refund_nayax_independent_response_diagnostics.sql"
+    "20260908044000_refund_nayax_independent_response_diagnostics.sql",
+    "20260908061500_refund_nayax_email_mode_binding.sql"
   ],
   "migrationFilesSha256": "ce8a2dabe432b3c6245f98ec29eca3ad326c79bfce5a6de7ed24a2293c57d3ab",
   "migrationVersionSetSha256": "554225b4b514e178afa24668f4d7bbb26d462ccb55649688b75311dfdc8cb79a",

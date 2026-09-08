@@ -8,6 +8,7 @@ export type NayaxRefundExecutionContext = {
   transactionId: string; siteId: number; machineAuthorizationTime: string;
   machineAuthorizationTimeInstant: string;
   machineAuthorizationTimeWire: string;
+  refundEmailListMode: 'omit' | 'empty_string';
   machineAuthorizationTimeSerializationMode:
     | 'exact_source'
     | 'source_with_bound_offset';
@@ -25,6 +26,8 @@ export function parseNayaxRefundExecutionContext(value: unknown, expected: {
 }): NayaxRefundExecutionContext | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const v = value as Record<string, unknown>;
+  const refundEmailListMode = v.refundEmailListMode ?? 'omit';
+  if (refundEmailListMode !== 'omit' && refundEmailListMode !== 'empty_string') return null;
   if (typeof v.contextHash !== 'string' || !/^[a-f0-9]{64}$/.test(v.contextHash) ||
     v.caseId !== expected.caseId || v.caseVersion !== expected.caseVersion ||
     v.attemptGeneration !== expected.attemptGeneration || v.transactionId !== expected.transactionId ||
@@ -60,5 +63,5 @@ export function parseNayaxRefundExecutionContext(value: unknown, expected: {
   } catch {
     return null;
   }
-  return Object.freeze(v as NayaxRefundExecutionContext);
+  return Object.freeze({ ...v, refundEmailListMode } as NayaxRefundExecutionContext);
 }

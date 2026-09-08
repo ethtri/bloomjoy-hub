@@ -1231,6 +1231,36 @@ equal(
   'Approval repeats the exact timestamp sent in the accepted request.',
 );
 
+const emptyEmailCalls = [];
+const emptyEmailContract = { ...baseContract, refundEmailListMode: 'empty_string' };
+const emptyEmailEvidence = { ...frozenEvidence, refundEmailListMode: 'empty_string' };
+const emptyEmailAdapter = createNayaxRefundProviderAdapter({
+  contract: emptyEmailContract,
+  requestToken: 'dedicated-request-write-token',
+  approveToken: 'dedicated-approve-write-token',
+  evidence: emptyEmailEvidence,
+  fetchImpl: async (_url, options) => {
+    emptyEmailCalls.push(JSON.parse(options.body));
+    return response({ Result: 'Unrecognized provider failure', Status: 'failed' });
+  },
+});
+await emptyEmailAdapter.execute(orchestrationRequest);
+equal(emptyEmailCalls.length, 1, 'Unrecognized empty-email response never proceeds to approval.');
+equal(emptyEmailCalls[0].RefundEmailList, '', 'The bound experiment sends an explicit empty email list.');
+equal(emptyEmailCalls[0].MachineAuTime, frozenEvidence.machineAuthorizationTime, 'Email experiment preserves the exact provider machine timestamp.');
+throws(() => createNayaxRefundProviderAdapter({
+  contract: baseContract,
+  requestToken: 'dedicated-request-write-token',
+  approveToken: 'dedicated-approve-write-token',
+  evidence: emptyEmailEvidence,
+}), /email mode does not match frozen evidence/, 'An empty-email reservation cannot rebuild an omitted-email request.');
+throws(() => createNayaxRefundProviderAdapter({
+  contract: emptyEmailContract,
+  requestToken: 'dedicated-request-write-token',
+  approveToken: 'dedicated-approve-write-token',
+  evidence: { ...frozenEvidence, refundEmailListMode: 'omit' },
+}), /email mode does not match frozen evidence/, 'An omitted-email reservation cannot rebuild an empty-email request.');
+
 const continuationAdapterCalls = [];
 const continuationAdapter = createNayaxRefundProviderAdapter({
   contract: baseContract,
@@ -1440,7 +1470,7 @@ check(
     handler.includes('NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}') &&
     !handler.includes('NAYAX_LYNX_API_TOKEN_${normalAccountKey}') &&
     handler.includes('provider,') &&
-    handler.includes('service_reserve_nayax_refund_manager_action_v4') &&
+    handler.includes('service_reserve_nayax_refund_manager_action_v5') &&
     handler.includes('service_record_nayax_refund_provider_stage_v4_diagnostics') &&
     handler.includes('nayax-restricted-response-diagnostics-v2') &&
     handler.includes('service_get_nayax_refund_provider_journal_capability_v3') &&
@@ -1452,7 +1482,7 @@ check(
     handler.includes('approvalAuthorized: decision.approvalAuthorized === true') &&
     handler.includes('productionScope: "manager_approved_original_transaction"') &&
     !gates.includes('remainingValueVerified') &&
-    handler.includes('service_get_refund_nayax_execution_context_v2') &&
+    handler.includes('service_get_refund_nayax_execution_context_v3') &&
     handler.includes('p_execution_context_hash: refundCase.executionContext!.contextHash') &&
     !gates.includes('provider_remaining_value_unverified') &&
     !gates.includes('NAYAX_REFUND_BROAD_REOPEN_APPROVED') &&
