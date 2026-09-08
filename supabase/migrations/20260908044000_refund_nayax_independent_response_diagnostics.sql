@@ -139,7 +139,7 @@ before insert on public.refund_nayax_provider_response_diagnostics
 for each row execute function public.guard_refund_nayax_provider_response_diagnostic();
 create trigger freeze_refund_nayax_provider_response_diagnostic
 before update or delete on public.refund_nayax_provider_response_diagnostics
-for each row execute function public.reject_refund_nayax_provider_business_outcome_change();
+for each row execute function public.guard_refund_nayax_provider_stage_immutable();
 
 create function public.service_record_nayax_refund_provider_stage_v4_diagnostics(
   p_executor_assertion text,p_attempt_id uuid,p_provider_claim_token text,
