@@ -714,9 +714,8 @@ begin
     or attempt_row.case_finalization_committed_at is null
     or case_row.status is distinct from 'completed'
     or case_row.refund_completed_at is null
-    or case_row.reporting_adjustment_id is distinct from attempt_row.reporting_adjustment_id
-    or not public.refund_nayax_api_terminal_evidence_proved(case_row.id, attempt_row.id) then
-    raise exception 'Fully committed journal-proved Nayax success required before customer completion';
+    or case_row.reporting_adjustment_id is distinct from attempt_row.reporting_adjustment_id then
+    raise exception 'Fully committed Nayax success required before customer completion';
   end if;
 
   select thread.*
