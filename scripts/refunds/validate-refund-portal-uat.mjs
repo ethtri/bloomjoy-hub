@@ -3831,38 +3831,57 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       await page.getByTestId('nayax-result-card').getByText('Selected', { exact: true }).isVisible()
   );
   const selectedTransactionEvidence = page.getByTestId('selected-nayax-transaction-evidence');
+  const purchaseComparison = page.getByTestId('refund-purchase-comparison');
+  const transactionEvidenceDetails = page.getByTestId('selected-nayax-transaction-evidence-details');
   const copyTransactionButton = page.getByTestId('copy-selected-nayax-transaction-id');
-  const transactionEvidenceDisclosure = selectedTransactionEvidence.getByText('Transaction evidence', { exact: true });
+  const transactionEvidenceDisclosure = transactionEvidenceDetails.getByText('Transaction evidence', { exact: true });
+  const selectedPurchaseBox = await selectedTransactionEvidence.boundingBox();
+  const purchaseComparisonBox = await purchaseComparison.boundingBox();
+  const transactionEvidenceDetailsBox = await transactionEvidenceDetails.boundingBox();
+  recorder.assert(
+    'Selected purchase summary and comparison are visible before technical evidence',
+      await selectedTransactionEvidence.isVisible() &&
+      await selectedTransactionEvidence.getByText('$7.00 USD', { exact: false }).first().isVisible() &&
+      await purchaseComparison.isVisible() &&
+      await transactionEvidenceDisclosure.isVisible() &&
+      !(await page.getByText('NAYAX-UAT-SELECTED-7001', { exact: true }).isVisible()) &&
+      !(await page.getByText('Provider machine-local time', { exact: true }).isVisible()) &&
+      Boolean(
+        selectedPurchaseBox && purchaseComparisonBox && transactionEvidenceDetailsBox &&
+        selectedPurchaseBox.y < purchaseComparisonBox.y &&
+        purchaseComparisonBox.y < 1000 &&
+        purchaseComparisonBox.y < transactionEvidenceDetailsBox.y
+      ),
+    JSON.stringify({ selectedPurchaseBox, purchaseComparisonBox, transactionEvidenceDetailsBox })
+  );
+  await transactionEvidenceDisclosure.click();
   const copyTransactionButtonBox = await copyTransactionButton.boundingBox();
   recorder.assert(
-    'Selected purchase identity is visible and copyable while technical evidence stays on demand',
-      await selectedTransactionEvidence.isVisible() &&
-      await selectedTransactionEvidence.getByText('NAYAX-UAT-SELECTED-7001', { exact: true }).isVisible() &&
-      await selectedTransactionEvidence.getByText('$7.00 USD', { exact: false }).first().isVisible() &&
-      await transactionEvidenceDisclosure.isVisible() &&
-      !(await selectedTransactionEvidence.getByText('Provider machine-local time', { exact: true }).isVisible()) &&
-      Boolean(copyTransactionButtonBox && copyTransactionButtonBox.height >= 44),
-    JSON.stringify(copyTransactionButtonBox)
-  );
-  await transactionEvidenceDisclosure.click();
-  recorder.assert(
     'Technical transaction evidence remains available from the disclosure',
-      await selectedTransactionEvidence.getByText('Customer-reported time', { exact: true }).isVisible() &&
-      await selectedTransactionEvidence.getByText('Provider machine-local time', { exact: true }).isVisible() &&
-      (await selectedTransactionEvidence.getByText('America/Los_Angeles', { exact: false }).count()) >= 2 &&
-      await selectedTransactionEvidence.getByText('Why this transaction was selected', { exact: true }).isVisible()
+      await transactionEvidenceDetails.getByText('Selected Nayax transaction ID', { exact: true }).isVisible() &&
+      await transactionEvidenceDetails.getByText('NAYAX-UAT-SELECTED-7001', { exact: true }).isVisible() &&
+      await transactionEvidenceDetails.getByText('Customer-reported time', { exact: true }).isVisible() &&
+      await transactionEvidenceDetails.getByText('Provider machine-local time', { exact: true }).isVisible() &&
+      (await transactionEvidenceDetails.getByText('America/Los_Angeles', { exact: false }).count()) >= 2 &&
+      await transactionEvidenceDetails.getByText('Why this transaction was selected', { exact: true }).isVisible() &&
+      Boolean(copyTransactionButtonBox && copyTransactionButtonBox.height >= 44)
   );
-  await transactionEvidenceDisclosure.click();
   await copyTransactionButton.click();
   recorder.assert(
     'Copy ID writes only the exact selected Nayax transaction reference',
     await page.evaluate(() => navigator.clipboard.readText()) === 'NAYAX-UAT-SELECTED-7001'
   );
+  await transactionEvidenceDisclosure.click();
+  await page.getByText('Nayax transaction ID copied.', { exact: true })
+    .waitFor({ state: 'hidden', timeout: 10000 })
+    .catch(() => undefined);
+  await settleRefundPortalPage(page);
   await page.screenshot({
     path: path.join(artifactDir, 'refund-selected-nayax-transaction-desktop.png'),
     fullPage: true,
   });
   await page.setViewportSize({ width: 390, height: 844 });
+  await transactionEvidenceDisclosure.click();
   await selectedTransactionEvidence.scrollIntoViewIfNeeded();
   const mobileEvidenceBox = await selectedTransactionEvidence.boundingBox();
   const mobileCopyButtonBox = await copyTransactionButton.boundingBox();
@@ -3879,6 +3898,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     path: path.join(artifactDir, 'refund-selected-nayax-transaction-mobile.png'),
     fullPage: true,
   });
+  await transactionEvidenceDisclosure.click();
   await page.setViewportSize({ width: 1440, height: 1000 });
   recorder.assert(
     'Customer and Nayax card types are compared in plain language',
@@ -4080,8 +4100,10 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
   await page.waitForTimeout(100);
   recorder.assert(
-    'Mobile queue hides after selection with a clear return control',
+    'Mobile queue card hides after selection with one clear return control',
     await page.getByTestId('refund-detail-back-to-queue').isVisible() &&
+      !(await page.locator('#refund-queue-panel').isVisible()) &&
+      (await page.getByRole('button', { name: 'Back to queue', exact: true }).count()) === 1 &&
       (await page.locator('button:visible', { hasText: 'RF-UAT-CARD' }).count()) === 0 &&
       (await page.locator('button:visible', { hasText: 'RF-UAT-WAIT' }).count()) === 0
   );

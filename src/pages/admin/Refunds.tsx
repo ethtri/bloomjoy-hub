@@ -6150,7 +6150,7 @@ export default function AdminRefundsPage() {
               </div>
             </details>
 
-            <article id="refund-machine-transaction" tabIndex={-1} data-testid="nayax-result-card" data-refund-section="match-summary" className="bg-muted/20 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <article id="refund-machine-transaction" tabIndex={-1} data-testid="nayax-result-card" data-refund-section="match-summary" className="flex flex-col bg-muted/20 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -6167,6 +6167,18 @@ export default function AdminRefundsPage() {
                           waitingOnCustomer
                         )}
                   </h4>
+                  {selectedTransactionEvidence && (
+                    <p
+                      data-testid="selected-nayax-transaction-evidence"
+                      className="mt-1 text-sm text-muted-foreground"
+                      aria-label="Selected purchase summary"
+                    >
+                      {formatProviderCurrency(
+                        selectedTransactionEvidence.saleAmountCents,
+                        selectedTransactionEvidence.currencyCode
+                      )}{' · '}{selectedTransactionEvidence.machineLabel}
+                    </p>
+                  )}
                 </div>
                 <Badge className="w-fit border-border bg-background text-foreground">
                   {selectedCase.legacyStateReviewRequired
@@ -6212,51 +6224,42 @@ export default function AdminRefundsPage() {
 
               {selectedTransactionEvidence ? (
                 <section
-                  data-testid="selected-nayax-transaction-evidence"
-                  className="mt-3 rounded-lg border border-primary/25 bg-primary/5 p-3"
-                  aria-label="Selected Nayax transaction evidence"
+                  className="contents"
                 >
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Selected purchase
-                      </p>
-                      <code
-                        data-testid="selected-nayax-transaction-id"
-                        className="mt-1 block break-all font-mono text-sm font-semibold text-foreground"
-                      >
-                        {selectedTransactionEvidence.transactionId}
-                      </code>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {formatProviderCurrency(
-                          selectedTransactionEvidence.saleAmountCents,
-                          selectedTransactionEvidence.currencyCode
-                        )}{' · '}{selectedTransactionEvidence.machineLabel}
-                      </p>
-                    </div>
-                    <Button
-                      data-testid="copy-selected-nayax-transaction-id"
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="min-h-11 shrink-0 bg-background"
-                      aria-label="Copy selected Nayax transaction ID"
-                      onClick={() => {
-                        void navigator.clipboard.writeText(selectedTransactionEvidence.transactionId)
-                          .then(() => toast.success('Nayax transaction ID copied.'))
-                          .catch(() => toast.error('Unable to copy the transaction ID. Select the ID and copy it manually.'));
-                      }}
-                    >
-                      <Copy className="mr-2 h-4 w-4" />
-                      Copy ID
-                    </Button>
-                  </div>
-
-                  <details className="group mt-3 border-t border-primary/15 pt-3">
+                  <details data-testid="selected-nayax-transaction-evidence-details" className="group order-1 mt-3 rounded-lg border border-border bg-background p-3">
                     <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-md text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
                       <span>Transaction evidence</span>
                       <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
                     </summary>
+                    <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Selected Nayax transaction ID
+                        </p>
+                        <code
+                          data-testid="selected-nayax-transaction-id"
+                          className="mt-1 block break-all font-mono text-sm font-semibold text-foreground"
+                        >
+                          {selectedTransactionEvidence.transactionId}
+                        </code>
+                      </div>
+                      <Button
+                        data-testid="copy-selected-nayax-transaction-id"
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="min-h-11 shrink-0 bg-background"
+                        aria-label="Copy selected Nayax transaction ID"
+                        onClick={() => {
+                          void navigator.clipboard.writeText(selectedTransactionEvidence.transactionId)
+                            .then(() => toast.success('Nayax transaction ID copied.'))
+                            .catch(() => toast.error('Unable to copy the transaction ID. Select the ID and copy it manually.'));
+                        }}
+                      >
+                        <Copy className="mr-2 h-4 w-4" />
+                        Copy ID
+                      </Button>
+                    </div>
                     <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
                     <div>
                       <dt className="text-xs text-muted-foreground">Provider-confirmed sale</dt>
@@ -6338,7 +6341,7 @@ export default function AdminRefundsPage() {
 
               {comparisonCandidate ? (
                 <>
-                  <div className="mt-3 overflow-hidden rounded-lg border border-border bg-background text-sm">
+                  <div data-testid="refund-purchase-comparison" className="mt-3 overflow-hidden rounded-lg border border-border bg-background text-sm">
                     <div className="grid grid-cols-[74px_minmax(0,1fr)_minmax(0,1fr)] bg-muted/40 px-3 py-2 text-xs font-semibold text-muted-foreground">
                       <span>Detail</span>
                       <span>Customer request</span>
@@ -7397,7 +7400,10 @@ export default function AdminRefundsPage() {
             <div
               id="refund-queue-panel"
               tabIndex={-1}
-              className="scroll-mt-20 min-w-0 overflow-hidden rounded-xl border border-border bg-card outline-none focus-visible:ring-2 focus-visible:ring-ring lg:sticky lg:top-4 lg:flex lg:h-[calc(100dvh-20rem)] lg:min-h-[28rem] lg:max-h-[52rem] lg:flex-col"
+              className={cn(
+                'scroll-mt-20 min-w-0 overflow-hidden rounded-xl border border-border bg-card outline-none focus-visible:ring-2 focus-visible:ring-ring lg:sticky lg:top-4 lg:flex lg:h-[calc(100dvh-20rem)] lg:min-h-[28rem] lg:max-h-[52rem] lg:flex-col',
+                selectedCase && !isMobileQueueExpanded && 'hidden lg:flex'
+              )}
             >
               <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 py-3">
                 <div>
