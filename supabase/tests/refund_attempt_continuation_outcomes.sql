@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(89);
+select plan(102);
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
@@ -38,18 +38,20 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
   card_last4,status,correlation_status,correlation_source,correlation_confidence,automation_state,
   matched_nayax_transaction_id,matched_nayax_amount_cents,matched_nayax_currency_code,
   matched_nayax_machine_auth_time,matched_nayax_site_id,nayax_recommendation_state,
-  nayax_recommendation_policy_version,nayax_match_execution_eligible,nayax_refund_execution_status)
+  nayax_recommendation_policy_version,nayax_match_execution_eligible,nayax_refund_execution_status,
+  intake_source)
 select ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-CONTINUE-'||n,
   'ca300000-0000-4000-8000-000000000001','ca200000-0000-4000-8000-000000000001',
   'fixture-'||n||'@example.test','Synthetic continuation fixture',
   now()-(n||' days')::interval,
   'card',800,800,'4242','needs_review','matched','nayax',1,'approved',(823456780+n)::text,
-  800,'USD','2026-08-26T18:17:09.810Z',6,'high_confidence','2026-07-21.v1',true,'not_requested'
-from generate_series(1,6) n;
+  800,'USD','2026-08-26T18:17:09.810Z',6,'high_confidence','2026-07-21.v1',true,'not_requested',
+  'form'
+from generate_series(1,7) n;
 insert into public.refund_case_events(refund_case_id,actor_user_id,event_type,message,metadata)
 select ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
   'ca000000-0000-4000-8000-000000000001','nayax_match_selected',
-  'Synthetic exact selection','{"payload_redacted":true}'::jsonb from generate_series(1,6) n;
+  'Synthetic exact selection','{"payload_redacted":true}'::jsonb from generate_series(1,7) n;
 insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,
   reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,amount_cents,
   card_last4,currency_code,evidence_summary,expires_at)
@@ -575,6 +577,196 @@ select ok(not public.refund_terminal_api_completion_attempt_change_allowed(
     from public.refund_case_nayax_refund_attempts attempt
     where id=current_setting('test.terminal_api_attempt_id')::uuid)),
   'A receipt-bound delivery retry count cannot decrease');
+
+-- A normal request/approve pair may outlive its plaintext claim after the
+-- provider succeeded. A manager-confirmed same-incident sibling is the only
+-- duplicate state this provider-free recovery accepts.
+create temp table recovery_reservation as
+select result from continuation_reservations where n=7;
+select public.service_record_nayax_refund_provider_stage_v4_diagnostics('continuation-executor',
+  (select (result#>>'{attempt,attemptId}')::uuid from recovery_reservation),
+  (select result->>'providerClaimToken' from recovery_reservation),
+  'request','started',null,null,null,null,repeat('7',64),
+  'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  null,null,null,null,null,null,null,null,null,null,null,null,null,null,false,
+  null,null,false,null,null,null,null,null,null);
+select public.service_record_nayax_refund_provider_stage_v4_diagnostics('continuation-executor',
+  (select (result#>>'{attempt,attemptId}')::uuid from recovery_reservation),
+  (select result->>'providerClaimToken' from recovery_reservation),
+  'request','result',200,'accepted',true,null,repeat('8',64),
+  'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  true,'application_json','json_object','1_256',true,true,true,true,true,'string','string',true,
+  'Refund status updated successfully, but the email could not be sent','Partial success',true,
+  'Refund status updated successfully, but the email could not be sent','Partial success',true,
+  'Refund status updated successfully, but the email could not be sent','exact','1_80',
+  'Partial success','exact','1_80');
+select public.service_record_nayax_refund_provider_stage_v4_diagnostics('continuation-executor',
+  (select (result#>>'{attempt,attemptId}')::uuid from recovery_reservation),
+  (select result->>'providerClaimToken' from recovery_reservation),
+  'approve','started',null,null,null,null,repeat('9',64),
+  'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  null,null,null,null,null,null,null,null,null,null,null,null,null,null,false,
+  null,null,false,null,null,null,null,null,null);
+select public.service_record_nayax_refund_provider_stage_v4_diagnostics('continuation-executor',
+  (select (result#>>'{attempt,attemptId}')::uuid from recovery_reservation),
+  (select result->>'providerClaimToken' from recovery_reservation),
+  'approve','result',200,'succeeded',true,null,repeat('a',64),
+  'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  true,'application_json','json_object','1_256',true,true,true,true,true,'string','string',true,
+  'Refund status updated successfully, but the email could not be sent','Partial success',true,
+  'Refund status updated successfully, but the email could not be sent','Partial success',true,
+  'Refund status updated successfully, but the email could not be sent','exact','1_80',
+  'Partial success','exact','1_80');
+insert into public.refund_cases(
+  id,public_reference,reporting_machine_id,reporting_location_id,customer_email,
+  issue_summary,incident_at,payment_method,payment_amount_cents,card_last4,
+  card_wallet_used,status,correlation_status,automation_state,
+  nayax_match_execution_eligible,nayax_refund_execution_status,intake_source
+) select
+  'ca500000-0000-4000-8000-000000000107','RF-CONTINUE-7-DUP',
+  reporting_machine_id,reporting_location_id,customer_email,
+  'Same incident submitted again',incident_at,payment_method,payment_amount_cents,
+  card_last4,card_wallet_used,'needs_review','manual_review','needs_review',
+  false,'not_requested','form'
+from public.refund_cases where id='ca500000-0000-4000-8000-000000000007';
+
+insert into public.refund_gmail_threads(
+  id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,
+  first_message_at,latest_message_at,retention_expires_at
+) values (
+  'ca700000-0000-4000-8000-000000000007',
+  'ca500000-0000-4000-8000-000000000007',repeat('7',64),
+  'continuation-recovery-thread','Synthetic recovery thread',
+  now()-interval '1 day',now(),now()+interval '30 days'
+);
+insert into public.refund_gmail_messages(
+  id,gmail_thread_id,refund_case_id,provider_message_id,direction,message_kind,status,
+  sender_email,recipient_email,participant_role,participant_trust,subject,plain_body,
+  received_at,retention_expires_at
+) values (
+  'ca710000-0000-4000-8000-000000000007',
+  'ca700000-0000-4000-8000-000000000007',
+  'ca500000-0000-4000-8000-000000000007','continuation-recovery-inbound',
+  'inbound','message','received','fixture-7@example.test','info@bloomjoysweets.com',
+  'customer','verified','Synthetic recovery thread','Synthetic original request',
+  now()-interval '1 day',now()+interval '30 days'
+);
+
+select ok(not has_function_privilege('authenticated',
+  'public.service_recover_proved_nayax_api_success_with_duplicate(uuid,uuid,uuid)','execute')
+  and has_function_privilege('service_role',
+  'public.service_recover_proved_nayax_api_success_with_duplicate(uuid,uuid,uuid)','execute'),
+  'Only service role can invoke journal-proved settlement recovery');
+select is((select status from public.refund_case_reconciliation_reviews
+  where 'ca500000-0000-4000-8000-000000000107' in
+    (left_refund_case_id,right_refund_case_id)), 'pending',
+  'A same-source possible duplicate receives an ordinary pending manager review');
+
+select set_config('request.jwt.claim.role','service_role',true);
+select set_config('request.jwt.claims','{"role":"service_role"}',true);
+set local role service_role;
+select throws_ok($$select public.service_recover_proved_nayax_api_success_with_duplicate(
+  'ca500000-0000-4000-8000-000000000007',
+  (select (result#>>'{attempt,attemptId}')::uuid from recovery_reservation),
+  'ca500000-0000-4000-8000-000000000107')$$,
+  'P4674',null,'Recovery refuses a possible duplicate before explicit manager resolution');
+reset role;
+select ok(not exists(select 1 from public.sales_adjustment_facts
+    where refund_case_id='ca500000-0000-4000-8000-000000000007')
+  and not exists(select 1 from public.refund_case_messages
+    where refund_case_id='ca500000-0000-4000-8000-000000000007'),
+  'A refused recovery rolls back without adjustment or customer-message intent');
+
+select set_config('request.jwt.claim.role','authenticated',true);
+select set_config('request.jwt.claim.sub','ca000000-0000-4000-8000-000000000001',true);
+select set_config('request.jwt.claims',
+  '{"sub":"ca000000-0000-4000-8000-000000000001","role":"authenticated","session_id":"ca010000-0000-4000-8000-000000000001","is_anonymous":false}',true);
+set local role authenticated;
+select lives_ok($$select public.admin_resolve_refund_case_reconciliation(
+  (select id from public.refund_case_reconciliation_reviews
+    where 'ca500000-0000-4000-8000-000000000107' in
+      (left_refund_case_id,right_refund_case_id)),
+  'duplicate','ca500000-0000-4000-8000-000000000007','same_incident')$$,
+  'The existing authenticated manager boundary confirms the same incident');
+reset role;
+select ok((select duplicate_of_refund_case_id='ca500000-0000-4000-8000-000000000007'
+    and duplicate_marked_by='ca000000-0000-4000-8000-000000000001'
+    from public.refund_cases where id='ca500000-0000-4000-8000-000000000107')
+  and exists(select 1 from public.refund_case_reconciliation_reviews
+    where 'ca500000-0000-4000-8000-000000000107' in
+      (left_refund_case_id,right_refund_case_id)
+      and status='confirmed_duplicate'
+      and canonical_refund_case_id='ca500000-0000-4000-8000-000000000007'
+      and resolution_reason_code='same_incident'
+      and resolved_by='ca000000-0000-4000-8000-000000000001'),
+  'Recovery precondition preserves the real manager actor and canonical binding');
+
+select set_config('request.jwt.claim.role','service_role',true);
+select set_config('request.jwt.claims','{"role":"service_role"}',true);
+set local role service_role;
+select set_config('test.journal_recovery',
+  public.service_recover_proved_nayax_api_success_with_duplicate(
+    'ca500000-0000-4000-8000-000000000007',
+    (select (result#>>'{attempt,attemptId}')::uuid from recovery_reservation),
+    'ca500000-0000-4000-8000-000000000107')::text,true);
+reset role;
+select ok(current_setting('test.journal_recovery')::jsonb @>
+    '{"recovered":true,"replayed":false,"providerCallMade":false,"customerMessageSent":false,"completionMessageStatus":"pending"}'::jsonb,
+  'Journal recovery completes payment state and only creates a pending notice intent');
+select ok((select status='succeeded' and provider_outcome='success'
+      and provider_status='approve_succeeded_contract_match'
+      and safe_transport_stage='settled' and not reconciliation_required
+      and provider_claim_consumed_at > provider_outcome_recorded_at
+    from public.refund_case_nayax_refund_attempts
+    where id=(select (result#>>'{attempt,attemptId}')::uuid from recovery_reservation)),
+  'Attempt records historical provider approval separately from later recovery consumption');
+select ok((select status='completed' and decision='approved'
+      and nayax_refund_execution_status='approved'
+      and reporting_adjustment_id is not null
+    from public.refund_cases where id='ca500000-0000-4000-8000-000000000007')
+  and (select count(*)=1 from public.sales_adjustment_facts
+    where refund_case_id='ca500000-0000-4000-8000-000000000007'
+      and match_status='applied'),
+  'Canonical case and one applied adjustment commit atomically');
+select ok((select confirmation_source='api_stage_contract'
+      and attempt_binding_kind='proved_terminal_api' and provider_status is null
+      and nayax_refund_attempt_id=(select (result#>>'{attempt,attemptId}')::uuid
+        from recovery_reservation)
+    from public.refund_authoritative_receipts
+    where refund_case_id='ca500000-0000-4000-8000-000000000007'),
+  'Recovery records the existing API-stage authoritative receipt contract');
+select ok((select count(*)=1 and bool_and(status='pending')
+      and bool_and(template_version='refund_nayax_completion_v2')
+      and bool_and(delivery_kind='manual')
+      and bool_and(nayax_refund_attempt_id=(select (result#>>'{attempt,attemptId}')::uuid
+        from recovery_reservation))
+    from public.refund_case_messages
+    where refund_case_id='ca500000-0000-4000-8000-000000000007')
+  and (select completion_gmail_thread_id='ca700000-0000-4000-8000-000000000007'
+    from public.refund_case_nayax_refund_attempts
+    where id=(select (result#>>'{attempt,attemptId}')::uuid from recovery_reservation)),
+  'Exactly one v2 completion intent binds the canonical case and original thread');
+select is((select count(*) from public.refund_nayax_provider_stage_journal
+    where nayax_refund_attempt_id=(select (result#>>'{attempt,attemptId}')::uuid
+      from recovery_reservation)),4::bigint,
+  'Provider-free recovery preserves the exact two-stage journal without another call');
+select set_config('test.journal_recovery_message_id',(select id::text
+  from public.refund_case_messages
+  where refund_case_id='ca500000-0000-4000-8000-000000000007'),true);
+set local role service_role;
+select set_config('test.journal_replay',
+  public.service_recover_proved_nayax_api_success_with_duplicate(
+    'ca500000-0000-4000-8000-000000000007',
+    (select (result#>>'{attempt,attemptId}')::uuid from recovery_reservation),
+    'ca500000-0000-4000-8000-000000000107')::text,true);
+reset role;
+select ok(current_setting('test.journal_replay')::jsonb @>
+    '{"recovered":false,"replayed":true,"providerCallMade":false,"customerMessageSent":false}'::jsonb
+  and current_setting('test.journal_replay')::jsonb->>'refundCaseMessageId'
+    = current_setting('test.journal_recovery_message_id')
+  and (select count(*)=1 from public.refund_case_messages
+    where refund_case_id='ca500000-0000-4000-8000-000000000007'),
+  'Recovery replay returns the same receipt-bound message and creates no second intent');
 
 select pg_temp.record_request(5,'accepted',true,true,'True','Pending Approval');
 update public.reporting_machine_refund_managers
