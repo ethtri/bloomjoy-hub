@@ -12,6 +12,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { collectCorrectionResponseNotices, type CorrectionNoticeState } from '@/lib/refundCorrectionContinuity';
 import {
   AlertTriangle,
+  ArrowLeft,
   CheckCircle2,
   ChevronDown,
   Clock3,
@@ -2881,7 +2882,15 @@ export default function AdminRefundsPage() {
   }, [hasUnsavedCaseText]);
 
   useLayoutEffect(() => {
-    if (!selectedId || typeof window === 'undefined' || !window.matchMedia('(max-width: 1023px)').matches) {
+    if (!selectedId || typeof window === 'undefined') {
+      return;
+    }
+
+    if (!window.matchMedia('(max-width: 1023px)').matches) {
+      const detailPanel = detailPanelRef.current;
+      if (!detailPanel) return;
+      detailPanel.scrollTop = 0;
+      detailPanel.focus({ preventScroll: true });
       return;
     }
 
@@ -3485,6 +3494,17 @@ export default function AdminRefundsPage() {
       return;
     }
     selectCase(refundCase);
+  }
+
+  function handleShowMobileQueue() {
+    setIsMobileQueueExpanded(true);
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const queuePanel = document.getElementById('refund-queue-panel');
+        queuePanel?.scrollIntoView({ behavior: 'auto', block: 'start' });
+        queuePanel?.focus({ preventScroll: true });
+      });
+    });
   }
   caseSelectionRequestRef.current = handleSelectCase;
 
@@ -5994,7 +6014,7 @@ export default function AdminRefundsPage() {
                 <Button
                   data-testid={hasReadyRefund ? 'refund-run-nayax-refund' : 'refund-save-case'}
                   type="button"
-                  className="h-auto min-h-11 w-full whitespace-normal bg-foreground px-4 py-2 text-center font-semibold leading-5 text-background hover:bg-foreground/90 sm:w-auto"
+                  className="h-auto min-h-11 w-full whitespace-normal px-5 py-2.5 text-center font-semibold leading-5 sm:w-auto"
                   onClick={() => {
                     if (hasReadyRefund) {
                       setNayaxExecutionNotice(null);
@@ -6030,9 +6050,15 @@ export default function AdminRefundsPage() {
           )}
 
           {selectedCase.lifecycle && (
-            <div className="border-b border-border px-4 py-4">
-              <RefundLifecycleProgress lifecycle={selectedCase.lifecycle} />
-            </div>
+            <details className="group border-b border-border">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+                <span>Refund progress</span>
+                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
+              </summary>
+              <div className="px-4 pb-4">
+                <RefundLifecycleProgress lifecycle={selectedCase.lifecycle} />
+              </div>
+            </details>
           )}
 
           {!selectedCase.customerDeliveryException && ['failed', 'skipped'].includes(getLatestCustomerMessage(selectedCase)?.status ?? '') && (
@@ -6043,37 +6069,44 @@ export default function AdminRefundsPage() {
           )}
           <CustomerCorrectionSummary refundCase={selectedCase} onReview={(trigger) => { correctionDialogTriggerRef.current={caseId:selectedCase.id,element:trigger}; setCorrectionSelection({caseId:selectedCase.id,version:officialActionVersion,fields:[...(selectedCase.customerCorrection?.requestedFields ?? [])],requestId:selectedCase.customerCorrection?.requestId,editing:false}); }} />
           {revisionDeliveryReview}
-          <div className="grid gap-px bg-border lg:grid-cols-2">
-            <article data-testid="refund-request-summary" className="bg-card p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Customer request</p>
-              <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <p className="text-xs text-muted-foreground">Location</p>
-                  <p className="mt-1 font-medium text-foreground">{selectedCase.locationName}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Machine</p>
-                  <p className="mt-1 font-medium text-foreground">{selectedCase.machineLabel}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Customer time</p>
-                  <p className="mt-1 font-medium text-foreground">{formatDate(selectedCase.incidentAt)}</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    {incidentTimeConfidenceLabel(selectedCase)}
-                  </p>
-                </div>
-                {selectedCase.qrClaimOpenedAt && (
+          <div className="grid gap-px bg-border">
+            <details data-testid="refund-request-summary" className="group bg-card">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+                <span>Customer request details</span>
+                <span className="flex items-center gap-2 text-xs font-normal text-muted-foreground">
+                  {formatCurrency(selectedCase.paymentAmountCents)}
+                  <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
+                </span>
+              </summary>
+              <div className="border-t border-border px-4 pb-4 pt-3">
+                <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
-                    <p className="text-xs text-muted-foreground">Refund form opened</p>
-                    <p className="mt-1 font-medium text-foreground">{formatDate(selectedCase.qrClaimOpenedAt)}</p>
+                    <p className="text-xs text-muted-foreground">Location</p>
+                    <p className="mt-1 font-medium text-foreground">{selectedCase.locationName}</p>
                   </div>
-                )}
-                <div>
-                  <p className="text-xs text-muted-foreground">Requested</p>
-                  <p className="mt-1 font-medium text-foreground">{formatCurrency(selectedCase.paymentAmountCents)}</p>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Machine</p>
+                    <p className="mt-1 font-medium text-foreground">{selectedCase.machineLabel}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Customer time</p>
+                    <p className="mt-1 font-medium text-foreground">{formatDate(selectedCase.incidentAt)}</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      {incidentTimeConfidenceLabel(selectedCase)}
+                    </p>
+                  </div>
+                  {selectedCase.qrClaimOpenedAt && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Refund form opened</p>
+                      <p className="mt-1 font-medium text-foreground">{formatDate(selectedCase.qrClaimOpenedAt)}</p>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-xs text-muted-foreground">Requested</p>
+                    <p className="mt-1 font-medium text-foreground">{formatCurrency(selectedCase.paymentAmountCents)}</p>
+                  </div>
                 </div>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-3 flex flex-wrap gap-2">
                 <Badge className="border-border bg-muted text-foreground">
                   Card ending {selectedCase.cardLast4 || 'n/a'}
                 </Badge>
@@ -6097,8 +6130,8 @@ export default function AdminRefundsPage() {
                 <Badge className="border-border bg-muted text-foreground">
                   {nearbyAttemptCountLabel(selectedCase)}
                 </Badge>
-              </div>
-              {selectedCase.customerFactEvidence && (
+                </div>
+                {selectedCase.customerFactEvidence && (
                 <p
                   data-testid="refund-customer-fact-evidence"
                   className="mt-3 text-xs leading-5 text-muted-foreground"
@@ -6108,13 +6141,14 @@ export default function AdminRefundsPage() {
                   {cardLast4ProvenanceLabel(selectedCase)} · fact version{' '}
                   {selectedCase.customerFactEvidence.factVersion}
                 </p>
-              )}
-              <p className="mt-3 text-sm font-medium text-foreground">{issueCategoryLabel(selectedCase)}</p>
-              {selectedCase.productDescription && (
+                )}
+                <p className="mt-3 text-sm font-medium text-foreground">{issueCategoryLabel(selectedCase)}</p>
+                {selectedCase.productDescription && (
                 <p className="mt-1 text-sm text-muted-foreground">Product: {selectedCase.productDescription}</p>
-              )}
-              <p className="mt-3 line-clamp-3 text-sm leading-6 text-muted-foreground">{selectedCase.issueSummary}</p>
-            </article>
+                )}
+                <p className="mt-3 line-clamp-3 text-sm leading-6 text-muted-foreground">{selectedCase.issueSummary}</p>
+              </div>
+            </details>
 
             <article id="refund-machine-transaction" tabIndex={-1} data-testid="nayax-result-card" data-refund-section="match-summary" className="bg-muted/20 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <div className="flex items-start justify-between gap-3">
@@ -6185,7 +6219,7 @@ export default function AdminRefundsPage() {
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Selected Nayax transaction ID
+                        Selected purchase
                       </p>
                       <code
                         data-testid="selected-nayax-transaction-id"
@@ -6193,6 +6227,12 @@ export default function AdminRefundsPage() {
                       >
                         {selectedTransactionEvidence.transactionId}
                       </code>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {formatProviderCurrency(
+                          selectedTransactionEvidence.saleAmountCents,
+                          selectedTransactionEvidence.currencyCode
+                        )}{' · '}{selectedTransactionEvidence.machineLabel}
+                      </p>
                     </div>
                     <Button
                       data-testid="copy-selected-nayax-transaction-id"
@@ -6212,7 +6252,12 @@ export default function AdminRefundsPage() {
                     </Button>
                   </div>
 
-                  <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                  <details className="group mt-3 border-t border-primary/15 pt-3">
+                    <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-md text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                      <span>Transaction evidence</span>
+                      <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
+                    </summary>
+                    <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
                     <div>
                       <dt className="text-xs text-muted-foreground">Provider-confirmed sale</dt>
                       <dd className="mt-1 font-medium text-foreground">
@@ -6271,14 +6316,15 @@ export default function AdminRefundsPage() {
                         Customer: {paymentInteractionLabel(selectedCase)}
                       </dd>
                     </div>
-                  </dl>
+                    </dl>
 
-                  <div className="mt-3 border-t border-primary/15 pt-3 text-xs leading-5">
-                    <p className="font-semibold text-foreground">Why this transaction was selected</p>
-                    <p className="mt-1 text-muted-foreground">
-                      {selectedTransactionEvidence.matchExplanation}
-                    </p>
-                  </div>
+                    <div className="mt-3 border-t border-primary/15 pt-3 text-xs leading-5">
+                      <p className="font-semibold text-foreground">Why this transaction was selected</p>
+                      <p className="mt-1 text-muted-foreground">
+                        {selectedTransactionEvidence.matchExplanation}
+                      </p>
+                    </div>
+                  </details>
                 </section>
               ) : hasPersistedSelectedMatch ? (
                 <div
@@ -6295,8 +6341,8 @@ export default function AdminRefundsPage() {
                   <div className="mt-3 overflow-hidden rounded-lg border border-border bg-background text-sm">
                     <div className="grid grid-cols-[74px_minmax(0,1fr)_minmax(0,1fr)] bg-muted/40 px-3 py-2 text-xs font-semibold text-muted-foreground">
                       <span>Detail</span>
-                      <span>Customer</span>
-                      <span>Machine record</span>
+                      <span>Customer request</span>
+                      <span>{hasPersistedSelectedMatch ? 'Selected purchase' : 'Purchase candidate'}</span>
                     </div>
                     <div className="grid grid-cols-[74px_minmax(0,1fr)_minmax(0,1fr)] gap-x-2 border-t border-border px-3 py-3">
                       <span className="text-muted-foreground">Amount</span>
@@ -6355,16 +6401,19 @@ export default function AdminRefundsPage() {
                   )}
 
                   {comparisonCandidate.matchFactors && comparisonCandidate.matchFactors.length > 0 && (
-                    <div className="mt-3">
-                      <p className="text-xs font-semibold text-foreground">
-                        {comparisonCandidate.selectionAllowed === false
-                          ? 'Why this transaction cannot be selected'
-                          : comparisonCandidate.identifierReviewState === 'reviewable_uncertainty'
-                            ? 'What supports this match and what is uncertain'
-                          : waitingOnCustomer
-                            ? 'What matches and what still needs confirmation'
-                            : 'Why this looks like a match'}
-                      </p>
+                    <details className="group mt-3 rounded-md border border-border bg-background px-3 py-2">
+                      <summary className="flex min-h-8 cursor-pointer list-none items-center justify-between gap-3 text-xs font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                        <span>
+                          {comparisonCandidate.selectionAllowed === false
+                            ? 'Why this transaction cannot be selected'
+                            : comparisonCandidate.identifierReviewState === 'reviewable_uncertainty'
+                              ? 'What supports this match and what is uncertain'
+                              : waitingOnCustomer
+                                ? 'What matches and what still needs confirmation'
+                                : 'Why this looks like a match'}
+                        </span>
+                        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
+                      </summary>
                       <ul className="mt-2 space-y-1 text-xs leading-5 text-muted-foreground">
                         {comparisonCandidate.matchFactors.slice(0, 4).map((factor) => (
                           <li key={`${factor.key}-${factor.label}`} className="flex gap-2">
@@ -6373,7 +6422,7 @@ export default function AdminRefundsPage() {
                           </li>
                         ))}
                       </ul>
-                    </div>
+                    </details>
                   )}
 
                   {(comparisonCandidate.machineStatus || (comparisonCandidate.nearbyMachineAlerts?.length ?? 0) > 0) && (
@@ -7184,12 +7233,12 @@ export default function AdminRefundsPage() {
 
   return (
     <AppLayout>
-      <section className="section-padding">
-        <div className="container-page">
+      <section className="py-6 sm:py-8 lg:py-10">
+        <div className="mx-auto w-full max-w-[1600px] px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 className="text-2xl font-semibold text-foreground">Refunds</h1>
-              <p className="mt-1 text-sm text-muted-foreground">Review each request and take its next action.</p>
+              <h1 className="text-3xl font-semibold text-foreground">Refunds</h1>
+              <p className="mt-1 text-sm text-muted-foreground">Review purchase evidence and refund status.</p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               {gmailNeedsAttention && (
@@ -7231,7 +7280,18 @@ export default function AdminRefundsPage() {
           </div>
 
           {refundOperationsAccess && !isUsingDemoData && (
-            <RefundReportFreshnessAdvisory freshness={gmailHealth?.reportFreshness} />
+            <details className="group mt-4 rounded-lg border border-border bg-card">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                <span>System status</span>
+                <span className="flex items-center gap-2 text-xs font-normal text-muted-foreground">
+                  View report and delivery checks
+                  <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
+                </span>
+              </summary>
+              <div className="border-t border-border px-3 pb-3">
+                <RefundReportFreshnessAdvisory freshness={gmailHealth?.reportFreshness} />
+              </div>
+            </details>
           )}
 
           <div data-testid="refund-overview-read-status" role="status" aria-live="polite" aria-atomic="true"
@@ -7277,7 +7337,8 @@ export default function AdminRefundsPage() {
             </div>
           )}
 
-          <div className="mt-5 flex flex-wrap gap-2" aria-label="Refund case views">
+          <div className="mt-5 rounded-xl border border-border bg-card p-3 sm:p-4">
+            <div className="flex flex-nowrap gap-2 overflow-x-auto pb-1" aria-label="Refund case views">
             {([
               ['needs_action', 'Action needed'],
               ['ready_to_pay', 'Ready to refund'],
@@ -7329,10 +7390,15 @@ export default function AdminRefundsPage() {
           <div id="refund-search-scope" className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
             <p>{isSearching ? `Searching ${searchScope}, regardless of status.` : 'Search across statuses. Clear the search to return to your selected queue.'}</p>
             {isSearching && <Button type="button" variant="outline" className="min-h-11" onClick={() => { setSearch(''); document.getElementById('refund-case-search')?.focus(); }}>Clear search</Button>}
+            </div>
           </div>
 
-          <div className="mt-6 grid min-w-0 gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
-            <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
+          <div className="mt-4 grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(19rem,22rem)_minmax(0,1fr)]">
+            <div
+              id="refund-queue-panel"
+              tabIndex={-1}
+              className="scroll-mt-20 min-w-0 overflow-hidden rounded-xl border border-border bg-card outline-none focus-visible:ring-2 focus-visible:ring-ring lg:sticky lg:top-4 lg:flex lg:h-[calc(100dvh-20rem)] lg:min-h-[28rem] lg:max-h-[52rem] lg:flex-col"
+            >
               <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 py-3">
                 <div>
                   <h2 className="text-sm font-semibold text-foreground">{isSearching ? 'Search results' : 'Queue'}</h2>
@@ -7344,10 +7410,12 @@ export default function AdminRefundsPage() {
                   <button
                     type="button"
                     aria-expanded={isMobileQueueExpanded}
+                    aria-label={isMobileQueueExpanded ? 'Hide queue' : 'Show queue'}
                     onClick={() => setIsMobileQueueExpanded((current) => !current)}
-                    className="min-h-11 rounded-md px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 lg:hidden"
+                    className="flex min-h-11 items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 lg:hidden"
                   >
-                    {isMobileQueueExpanded ? 'Hide queue' : 'Show queue'}
+                    {!isMobileQueueExpanded && <ArrowLeft className="h-4 w-4" aria-hidden="true" />}
+                    {isMobileQueueExpanded ? 'Hide queue' : 'Back to queue'}
                   </button>
                 )}
               </div>
@@ -7410,7 +7478,12 @@ export default function AdminRefundsPage() {
                   ))}
               </div>
 
-              <div className="hidden divide-y divide-border/70 lg:block">
+              <div
+                role="region"
+                aria-label="Refund case queue"
+                tabIndex={0}
+                className="hidden min-h-0 flex-1 divide-y divide-border/70 overflow-y-auto overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:block"
+              >
                 {pageIsLoading && (
                   <div className="px-4 py-10 text-center text-sm text-muted-foreground">
                     Loading refund queue...
@@ -7474,7 +7547,7 @@ export default function AdminRefundsPage() {
               ref={detailPanelRef}
               tabIndex={-1}
               aria-label="Selected refund case"
-              className="scroll-mt-28 min-w-0 space-y-5 outline-none lg:scroll-mt-4"
+              className="scroll-mt-28 min-w-0 space-y-5 outline-none lg:h-[calc(100dvh-20rem)] lg:min-h-[28rem] lg:max-h-[52rem] lg:overflow-y-auto lg:overscroll-contain lg:pr-2 lg:scroll-mt-4"
             >
               <div className="min-w-0 rounded-xl border border-border bg-card p-4 sm:p-5">
                 {!selectedCase || !editor ? (
@@ -7483,24 +7556,38 @@ export default function AdminRefundsPage() {
                   </div>
                 ) : (
                   <div className="space-y-5">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="font-semibold text-foreground">{selectedCase.publicReference}</h2>
-                        <Badge
-                          variant="outline"
-                          data-testid="refund-selected-case-source"
-                          className={intakeSourceBadgeClass(selectedCase)}
-                        >
-                          {intakeSourceLabel(selectedCase)}
-                        </Badge>
-                        <Badge className={managerTaskBadgeClass(selectedCase)}>
-                          {managerTaskLabel(selectedCase)}
-                        </Badge>
+                    <button
+                      type="button"
+                      data-testid="refund-detail-back-to-queue"
+                      onClick={handleShowMobileQueue}
+                      className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm font-semibold text-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 lg:hidden"
+                    >
+                      <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                      Back to queue
+                    </button>
+                    <div className="flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h2 className="text-xl font-semibold text-foreground">{selectedCase.publicReference}</h2>
+                          <Badge
+                            variant="outline"
+                            data-testid="refund-selected-case-source"
+                            className={intakeSourceBadgeClass(selectedCase)}
+                          >
+                            {intakeSourceLabel(selectedCase)}
+                          </Badge>
+                        </div>
+                        <p className="mt-1 break-words text-sm text-muted-foreground">
+                          {formatRefundMachineLocation(selectedCase.locationName, selectedCase.machineLabel)} ·{' '}
+                          {formatCurrency(selectedCase.paymentAmountCents)}
+                        </p>
+                        <p data-testid="refund-customer-problem-summary" className="mt-2 line-clamp-2 max-w-3xl text-sm leading-5 text-foreground">
+                          {selectedCase.issueSummary}
+                        </p>
                       </div>
-                      <p className="mt-1 break-words text-sm text-muted-foreground">
-                        {formatRefundMachineLocation(selectedCase.locationName, selectedCase.machineLabel)} ·{' '}
-                        {formatCurrency(selectedCase.paymentAmountCents)}
-                      </p>
+                      <Badge className={cn('w-fit shrink-0', managerTaskBadgeClass(selectedCase))}>
+                        {managerTaskLabel(selectedCase)}
+                      </Badge>
                     </div>
 
                     {selectedCase.inboundLinkReview?.status === 'pending' && (
@@ -7939,8 +8026,11 @@ export default function AdminRefundsPage() {
                           <p className="mt-1 break-words font-medium text-foreground">
                             {selectedCase.customerName || 'Name not provided'}
                           </p>
-                          <p className="mt-1 break-words text-muted-foreground">
-                            {selectedCase.customerEmail}
+                          <p className={cn(
+                            'mt-1 break-words text-muted-foreground',
+                            !selectedCase.customerEmail?.trim() && 'font-medium text-amber-800'
+                          )}>
+                            {selectedCase.customerEmail?.trim() || 'Email needed'}
                           </p>
                           {selectedCase.customerPhone && (
                             <p className="mt-1 break-words text-muted-foreground">
