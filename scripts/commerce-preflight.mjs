@@ -246,6 +246,10 @@ function run() {
   }
 
   if (args.includeRefunds) {
+    if (!isRemoteSource && env.NAYAX_REFUND_EMAIL_LIST_MODE &&
+        !['omit', 'empty_string'].includes(String(env.NAYAX_REFUND_EMAIL_LIST_MODE).trim())) {
+      errors.push('NAYAX_REFUND_EMAIL_LIST_MODE must be omit or empty_string.');
+    }
     requiredKeys.push(
       'PUBLIC_INTAKE_ABUSE_HASH_SALT',
       'NAYAX_LYNX_BASE_URL',

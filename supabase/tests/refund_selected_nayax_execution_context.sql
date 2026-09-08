@@ -29,10 +29,10 @@ select ('b7400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-VERIFY-'||n,
   'b7300000-0000-4000-8000-000000000001','b7200000-0000-4000-8000-000000000001',
   'verification-customer@example.invalid','Synthetic verification fixture',now()-interval '3 days','card',800,800,'4242',
   'needs_review','matched','nayax',1,'approved',(723456780+n)::text,800,'USD','2026-08-26T18:17:09.810Z',6,
-  'high_confidence','2026-07-21.v1',true,'not_requested' from generate_series(1,6) n;
+  'high_confidence','2026-07-21.v1',true,'not_requested' from generate_series(1,7) n;
 insert into public.refund_case_events(refund_case_id,actor_user_id,event_type,message,metadata)
 select ('b7400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'b7000000-0000-4000-8000-000000000001',
-  'nayax_match_selected','Synthetic exact selection','{"payload_redacted":true}' from generate_series(1,6) n;
+  'nayax_match_selected','Synthetic exact selection','{"payload_redacted":true}' from generate_series(1,7) n;
 select set_config('request.jwt.claims','{"sub":"b7000000-0000-4000-8000-000000000001","role":"authenticated","session_id":"b7010000-0000-4000-8000-000000000001","is_anonymous":false}',true);
 select set_config('request.jwt.claim.sub','b7000000-0000-4000-8000-000000000001',true);
 select set_config('request.jwt.claim.role','authenticated',true);
@@ -113,6 +113,46 @@ insert into public.refund_nayax_lookup_candidates select * from changed_candidat
 select is(public.refund_nayax_selected_execution_context('b7400000-0000-4000-8000-000000000003'),null::jsonb,'Wrong site cannot supply the raw timestamp');
 select is(public.refund_nayax_selected_execution_context('b7400000-0000-4000-8000-000000000004'),null::jsonb,'GMT source cannot substitute for the machine clock');
 
+-- Email representation belongs to the immutable request identity.
+create temp table email_execution_input as select public.service_get_refund_nayax_execution_context_v3(
+  'verification-executor','b7000000-0000-4000-8000-000000000001',
+  'b7400000-0000-4000-8000-000000000007','exact_source','empty_string') context;
+select is(public.refund_nayax_selected_execution_context_v3('b7400000-0000-4000-8000-000000000007','exact_source','omit'),
+  public.refund_nayax_selected_execution_context_v2('b7400000-0000-4000-8000-000000000007','exact_source'),
+  'Omitted-email contexts retain their historical bytes and hash');
+select is(public.refund_nayax_selected_execution_context_v3('b7400000-0000-4000-8000-000000000007','exact_source','invalid'),
+  null::jsonb,'Unsupported email mode cannot yield an execution context');
+select ok((select context->>'contextHash' is distinct from public.refund_nayax_selected_execution_context_v2(
+  'b7400000-0000-4000-8000-000000000007','exact_source')->>'contextHash' from email_execution_input),
+  'Adding an explicit empty email list changes the bound request hash');
+select ok(not has_function_privilege('authenticated',
+  'public.service_reserve_nayax_refund_manager_action_v5(text,uuid,uuid,bigint,text,integer,integer,integer,text,text,text,text,text,text)','execute'),
+  'Browser roles cannot reserve email-mode experiments directly');
+create temp table email_result(result jsonb);
+grant select on email_execution_input to service_role;
+grant select,insert on email_result to service_role;
+set local role service_role;
+insert into email_result select public.service_reserve_nayax_refund_manager_action_v5(
+  'verification-executor','b7000000-0000-4000-8000-000000000001','b7400000-0000-4000-8000-000000000007',
+  (context->>'caseVersion')::bigint,'nayax-refund-'||repeat('7',64),800,null,null,'USD',
+  'nayax-production-account-contract-v2','nayax-provider-journal-v3',context->>'contextHash','exact_source','empty_string')
+  from email_execution_input;
+reset role;
+select is((select result#>>'{attempt,shouldExecute}' from email_result),'true','Fresh v5 reservation binds the explicit email mode');
+select is((select context->>'refundEmailListMode' from public.refund_nayax_execution_contexts
+  where refund_case_id='b7400000-0000-4000-8000-000000000007'),'empty_string','Email mode is retained in the immutable context');
+select throws_ok($$select public.service_reserve_nayax_refund_manager_action_v5(
+  'verification-executor','b7000000-0000-4000-8000-000000000001','b7400000-0000-4000-8000-000000000007',
+  (select official_action_version from public.refund_cases where id='b7400000-0000-4000-8000-000000000007'),
+  'nayax-refund-'||repeat('7',64),800,null,null,'USD','nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  (select context->>'contextHash' from email_execution_input),'exact_source','omit')$$,
+  'P4620',null,'Same-key replay cannot change the reserved email representation even with the old hash');
+select is((select public.service_reserve_nayax_refund_manager_action_v5(
+  'verification-executor','b7000000-0000-4000-8000-000000000001','b7400000-0000-4000-8000-000000000007',
+  (select official_action_version from public.refund_cases where id='b7400000-0000-4000-8000-000000000007'),
+  'nayax-refund-'||repeat('7',64),800,null,null,'USD','nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  (select context->>'contextHash' from email_execution_input),'exact_source','empty_string')#>>'{attempt,shouldExecute}'),
+  'false','Exact same-mode replay does not reserve another provider request');
 create temp table offset_execution_input as select
   public.service_get_refund_nayax_execution_context_v2(
     'verification-executor',
@@ -294,5 +334,34 @@ select is(public.admin_begin_refund_manual_nayax_portal('b7400000-0000-4000-8000
   'Rejected API purchase can enter one manager-approved portal hold');
 select is(public.refund_nayax_original_portal_fallback_ready('b7400000-0000-4000-8000-000000000005'),false,
   'A newer held portal attempt prevents reuse of earlier rejection authority');
+-- Upgrade replay preserves historical omitted-email reservations.
+select is((select public.service_reserve_nayax_refund_manager_action_v5(
+  'verification-executor','b7000000-0000-4000-8000-000000000001','b7400000-0000-4000-8000-000000000006',
+  (select official_action_version from public.refund_cases where id='b7400000-0000-4000-8000-000000000006'),
+  'nayax-refund-'||repeat('6',64),800,null,null,'USD','nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  (select context->>'contextHash' from offset_execution_input),'source_with_bound_offset','omit')#>>'{attempt,shouldExecute}'),
+  'false','A historical missing-email-key reservation replays through v5 without another request');
+select throws_ok($$select public.service_reserve_nayax_refund_manager_action_v5(
+  'verification-executor','b7000000-0000-4000-8000-000000000001','b7400000-0000-4000-8000-000000000006',
+  (select official_action_version from public.refund_cases where id='b7400000-0000-4000-8000-000000000006'),
+  'nayax-refund-'||repeat('6',64),800,null,null,'USD','nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  (select context->>'contextHash' from offset_execution_input),'source_with_bound_offset','empty_string')$$,
+  'P4620',null,'A historical omitted-email reservation cannot adopt explicit empty email after upgrade');
+-- The current case version advances after request reservation. Continuation
+-- compares frozen transport fields instead of rejecting that legitimate change.
+select throws_ok($$select public.service_reserve_nayax_refund_approval_continuation_v2(
+  'verification-executor','b7000000-0000-4000-8000-000000000001','b7400000-0000-4000-8000-000000000006',
+  (select official_action_version from public.refund_cases where id='b7400000-0000-4000-8000-000000000006'),
+  'nayax-refund-'||repeat('6',64),800,'USD','nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  '2026-08-26T13:17:09.810','exact_source','omit')$$,
+  'P4628','Original Nayax continuation serialization changed',
+  'A bound-offset request cannot approve after an exact-source configuration change');
+select throws_ok($$select public.service_reserve_nayax_refund_approval_continuation_v2(
+  'verification-executor','b7000000-0000-4000-8000-000000000001','b7400000-0000-4000-8000-000000000006',
+  (select official_action_version from public.refund_cases where id='b7400000-0000-4000-8000-000000000006'),
+  'nayax-refund-'||repeat('6',64),800,'USD','nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  '2026-08-26T13:17:09.810-04:00','source_with_bound_offset','omit')$$,
+  'P4628','Original Nayax continuation serialization changed',
+  'Matching mode alone cannot authorize a changed timestamp wire');
 select * from finish();
 rollback;

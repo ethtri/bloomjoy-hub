@@ -91,6 +91,14 @@ test('active journal-v3 refund inputs pass while execution gates remain fail-clo
   assert.match(result.stdout, /Commerce and refund operations preflight checks passed/);
 });
 
+test('email-list override accepts the explicit empty representation and rejects unsupported modes', () => {
+  const enabled = runPreflight({ NAYAX_REFUND_EMAIL_LIST_MODE: 'empty_string' });
+  assert.equal(enabled.status, 0, `${enabled.stdout}\n${enabled.stderr}`);
+  const invalid = runPreflight({ NAYAX_REFUND_EMAIL_LIST_MODE: 'null' });
+  assert.equal(invalid.status, 1);
+  assert.match(invalid.stdout, /NAYAX_REFUND_EMAIL_LIST_MODE must be omit or empty_string/);
+});
+
 test('machine-time serialization can opt in separately without rewriting the manager contract', () => {
   const enabled = runPreflight({
     NAYAX_REFUND_MACHINE_AUTHORIZATION_TIME_MODE: 'source_with_bound_offset',

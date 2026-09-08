@@ -212,6 +212,7 @@ export function createNayaxRefundProviderAdapter(input: {
     machineAuthorizationTime: string | null;
     machineAuthorizationTimeInstant?: string | null;
     machineAuthorizationTimeWire?: string | null;
+    refundEmailListMode?: "omit" | "empty_string";
   };
   fetchImpl?: typeof fetch;
   timeoutMs?: number;

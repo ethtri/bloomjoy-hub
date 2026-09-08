@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(56);
+select plan(60);
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
@@ -53,7 +53,12 @@ select gen_random_uuid(),c.id,c.nayax_lookup_generation,'ca000000-0000-4000-8000
   c.reporting_machine_id,c.matched_nayax_transaction_id,c.matched_nayax_site_id,
   c.matched_nayax_machine_auth_time,c.matched_nayax_amount_cents,c.matched_nayax_card_last4,
   c.matched_nayax_currency_code,
-  '{"machine_authorization_time_raw":"2026-08-26T13:17:08.123","machine_authorization_time_source":"MachineAuthorizationTime"}'::jsonb
+  jsonb_build_object('machine_authorization_time_raw',
+    case when c.id='ca500000-0000-4000-8000-000000000001'::uuid
+      then '2026-08-26T13:17:09.810' else '2026-08-26T13:17:08.123' end,
+    'machine_authorization_time_source','MachineAuthorizationTime',
+    'machine_time_resolution',case when c.id='ca500000-0000-4000-8000-000000000001'::uuid
+      then 'exact' else 'unknown' end)
     ||jsonb_build_object('lookup_account_scope','CONTINUATION_ACCOUNT',
       'lookup_provider_machine_id','CONTINUATION-MACHINE','provider_machine_id','CONTINUATION-MACHINE'),
   now()+interval '1 hour'
@@ -62,16 +67,25 @@ from public.refund_cases c where c.id::text like 'ca500000-%';
 create temp table continuation_reservations(n integer primary key, expected_version bigint, result jsonb);
 insert into continuation_reservations
 select n,(context->>'caseVersion')::bigint,
-  public.service_reserve_nayax_refund_manager_action_v3('continuation-executor',
+  case when n=1 then public.service_reserve_nayax_refund_manager_action_v4('continuation-executor',
     'ca000000-0000-4000-8000-000000000001',
     ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
     (context->>'caseVersion')::bigint,'nayax-refund-'||repeat(n::text,64),800,null,null,'USD',
-    'nayax-production-account-contract-v2','nayax-provider-journal-v3',context->>'contextHash')
+    'nayax-production-account-contract-v2','nayax-provider-journal-v3',context->>'contextHash',
+    'source_with_bound_offset')
+  else public.service_reserve_nayax_refund_manager_action_v3('continuation-executor',
+    'ca000000-0000-4000-8000-000000000001',
+    ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
+    (context->>'caseVersion')::bigint,'nayax-refund-'||repeat(n::text,64),800,null,null,'USD',
+    'nayax-production-account-contract-v2','nayax-provider-journal-v3',context->>'contextHash') end
 from generate_series(1,6) n
 cross join lateral (
-  select public.service_get_refund_nayax_execution_context('continuation-executor',
+  select case when n=1 then public.service_get_refund_nayax_execution_context_v2('continuation-executor',
     'ca000000-0000-4000-8000-000000000001',
-    ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid) as context
+    ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'source_with_bound_offset')
+  else public.service_get_refund_nayax_execution_context('continuation-executor',
+    'ca000000-0000-4000-8000-000000000001',
+    ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid) end as context
 ) execution;
 
 create function pg_temp.record_request(p_n integer,outcome_name text,contract_match boolean,
@@ -100,13 +114,17 @@ begin
 end $$;
 
 create function pg_temp.continue_attempt(p_n integer,version_offset integer default 2,
-  p_actor_user_id uuid default 'ca000000-0000-4000-8000-000000000001')
+  p_actor_user_id uuid default 'ca000000-0000-4000-8000-000000000001',
+  p_wire text default null,
+  p_mode text default null,p_email_mode text default 'omit')
 returns jsonb language sql as $$
-  select public.service_reserve_nayax_refund_approval_continuation_v1('continuation-executor',
+  select public.service_reserve_nayax_refund_approval_continuation_v2('continuation-executor',
     p_actor_user_id,
     ('ca500000-0000-4000-8000-'||lpad(p_n::text,12,'0'))::uuid,
     expected_version+version_offset,'nayax-refund-'||repeat(p_n::text,64),800,'USD',
-    'nayax-production-account-contract-v2','nayax-provider-journal-v3')
+    'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+    coalesce(p_wire,case when p_n=1 then '2026-08-26T13:17:09.810-05:00' else '2026-08-26T13:17:08.123' end),
+    coalesce(p_mode,case when p_n=1 then 'source_with_bound_offset' else 'exact_source' end),p_email_mode)
   from continuation_reservations where continuation_reservations.n=p_n;
 $$;
 
@@ -134,7 +152,7 @@ select ok(has_function_privilege('service_role',
   'public.service_record_nayax_refund_provider_stage_v3_diagnostics(text,uuid,text,text,text,integer,text,boolean,text,text,text,text,boolean,text,text,text,boolean,boolean,boolean,boolean,boolean,text,text,boolean,text,text,boolean,text,text,boolean)','execute')
   and has_function_privilege('service_role',
   'public.service_record_nayax_refund_provider_stage_v4_diagnostics(text,uuid,text,text,text,integer,text,boolean,text,text,text,text,boolean,text,text,text,boolean,boolean,boolean,boolean,boolean,text,text,boolean,text,text,boolean,text,text,boolean,text,text,text,text,text,text)','execute')
-  and has_function_privilege('service_role',
+  and not has_function_privilege('service_role',
   'public.service_reserve_nayax_refund_approval_continuation_v1(text,uuid,uuid,bigint,text,integer,text,text,text)','execute'),
   'Only assertion-protected service boundaries expose writes');
 select ok(not has_function_privilege('authenticated',
@@ -220,9 +238,22 @@ select is(public.refund_case_nayax_manager_readiness(
   'ca000000-0000-4000-8000-000000000002',
   'ca500000-0000-4000-8000-000000000001')#>>'{approvalContinuationReady}',
   'false','A different user without current machine authority cannot obtain continuation readiness');
+select throws_ok($$select pg_temp.continue_attempt(1,p_wire=>'2026-08-26T13:17:09.810',
+  p_mode=>'exact_source')$$,'P4628',null,
+  'A changed timestamp representation cannot reserve an approval continuation');
+select throws_ok($$select pg_temp.continue_attempt(1,p_email_mode=>'empty_string')$$,'P4628',null,
+  'A changed email representation cannot reserve an approval continuation');
+select is((select count(*) from public.refund_nayax_attempt_approval_continuations c
+  join continuation_reservations r on (r.result#>>'{attempt,attemptId}')::uuid=c.nayax_refund_attempt_id
+  where r.n=1),0::bigint,'Serialization mismatches create no continuation claim');
+select ok(not has_function_privilege('authenticated',
+  'public.service_reserve_nayax_refund_approval_continuation_v2(text,uuid,uuid,bigint,text,integer,text,text,text,text,text,text)','execute')
+  and has_function_privilege('service_role',
+  'public.service_reserve_nayax_refund_approval_continuation_v2(text,uuid,uuid,bigint,text,integer,text,text,text,text,text,text)','execute'),
+  'The serialization-bound continuation remains an assertion-protected service boundary');
 create temp table issued_continuation as select pg_temp.continue_attempt(1) result;
 select is((select result#>>'{attempt,shouldExecute}' from issued_continuation),'true',
-  'Crash after proved request acceptance reloads current version and receives one same-attempt approval continuation');
+  'Crash after proved request acceptance: a bound-offset request reloads its advanced case version and continues with the original wire');
 select is((select result#>>'{attempt,executionPlan}' from issued_continuation),'approval_continuation',
   'Continuation explicitly selects the approval-only current-contract plan');
 select isnt((select result->>'providerClaimToken' from issued_continuation),

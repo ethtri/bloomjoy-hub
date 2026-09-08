@@ -75,6 +75,16 @@ const productionSimplificationMigration = read(files.productionSimplificationMig
 const oneManagerDecisionMigration = read(files.oneManagerDecisionMigration);
 const boundOffsetMigration = read(files.boundOffsetMigration);
 const executionContextMigration = read('supabase/migrations/20260903134847_refund_selected_nayax_execution_context.sql');
+const emailModeMigration = read('supabase/migrations/20260908061500_refund_nayax_email_mode_binding.sql');
+assert(
+  emailModeMigration.includes('refund_nayax_selected_execution_context_v3') &&
+    emailModeMigration.includes('service_reserve_nayax_refund_manager_action_v5') &&
+    emailModeMigration.includes("p_refund_email_list_mode not in ('omit','empty_string')") &&
+    emailModeMigration.includes("coalesce(existing_context ->> 'refundEmailListMode','omit')") &&
+    emailModeMigration.includes("p_refund_email_list_mode = 'omit' then return result") &&
+    emailModeMigration.includes("existing_context ->> 'contextHash' is distinct from"),
+  'Email mode is frozen in the request hash while historical omitted-email reservations retain replay protection.'
+);
 const providerOrchestration = read(files.providerOrchestration);
 const providerGates = read(files.providerGates);
 const providerGatesTest = read(files.providerGatesTest);
@@ -170,14 +180,14 @@ assert(
     providerGates.includes('NAYAX_REFUND_EXECUTOR_ASSERTION') &&
     providerGates.includes('NAYAX_REFUND_IDEMPOTENCY_SECRET') &&
     !providerGates.includes('remainingValueVerified') &&
-  fn.includes('service_get_refund_nayax_execution_context_v2') &&
+  fn.includes('service_get_refund_nayax_execution_context_v3') &&
     fn.includes('p_execution_context_hash: refundCase.executionContext!.contextHash'),
   'The HTTP boundary retains ordinary gates and binds the automatic exact selected purchase.'
 );
 assert(
   fn.includes('can_perform_refund_official_action') &&
     fn.includes('createNayaxRefundProviderAdapter') &&
-  fn.includes('service_reserve_nayax_refund_manager_action_v4') &&
+  fn.includes('service_reserve_nayax_refund_manager_action_v5') &&
     fn.includes('service_record_nayax_refund_provider_stage_v4_diagnostics') &&
     fn.includes('service_get_nayax_refund_provider_journal_capability_v3') &&
     fn.includes('orchestrateNayaxRefund') &&
@@ -364,8 +374,8 @@ assert(
 assert(
   providerAdapter.includes('source_with_bound_offset') &&
     providerAdapter.includes('machineAuthorizationTimeWire') &&
-    fn.includes('service_get_refund_nayax_execution_context_v2') &&
-    fn.includes('service_reserve_nayax_refund_manager_action_v4') &&
+    fn.includes('service_get_refund_nayax_execution_context_v3') &&
+    fn.includes('service_reserve_nayax_refund_manager_action_v5') &&
     fn.includes('p_machine_authorization_time_mode:') &&
     boundOffsetMigration.includes('selected_normalized_instant') &&
     boundOffsetMigration.includes('refund_nayax_machine_authorization_wire_value') &&

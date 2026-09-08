@@ -898,12 +898,13 @@ select is(public.refund_case_nayax_manager_readiness(
 )#>>'{approvalContinuationReady}','false',
   'Revoked replacement-manager authority cannot expose durable approval continuation');
 set local role service_role;
-select throws_ok($$select public.service_reserve_nayax_refund_approval_continuation_v1(
+select throws_ok($$select public.service_reserve_nayax_refund_approval_continuation_v2(
   'soft-time-executor','fb110000-0000-4000-8000-000000000002',
   'fb150000-0000-4000-8000-000000000002',
   (select official_action_version from public.refund_cases where id='fb150000-0000-4000-8000-000000000002'),
   'nayax-refund-'||repeat('a',64),1090,'USD',
-  'nayax-production-account-contract-v2','nayax-provider-journal-v3'
+  'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  '2026-09-05T11:05:00.1234567','exact_source','omit'
 )$$,'P4628',null,
   'Revoked replacement-manager authority cannot reserve a durable approval continuation');
 reset role;
@@ -930,12 +931,13 @@ select is(public.refund_case_nayax_manager_readiness(
 )#>>'{approvalContinuationReady}','false',
   'A changed matching-fact marker cannot authenticate the short durable version shape');
 set local role service_role;
-select throws_ok($$select public.service_reserve_nayax_refund_approval_continuation_v1(
+select throws_ok($$select public.service_reserve_nayax_refund_approval_continuation_v2(
   'soft-time-executor','fb110000-0000-4000-8000-000000000002',
   'fb150000-0000-4000-8000-000000000002',
   (select official_action_version from public.refund_cases where id='fb150000-0000-4000-8000-000000000002'),
   'nayax-refund-'||repeat('a',64),1090,'USD',
-  'nayax-production-account-contract-v2','nayax-provider-journal-v3'
+  'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  '2026-09-05T11:05:00.1234567','exact_source','omit'
 )$$,'P4628',null,
   'Changed matching facts cannot reserve a durable approval continuation');
 reset role;
@@ -975,12 +977,13 @@ select is(public.refund_case_nayax_manager_readiness(
 )#>>'{approvalContinuationReady}','false',
   'A malformed durable marker timestamp hides approval-only continuation without raising an error');
 set local role service_role;
-select throws_ok($$select public.service_reserve_nayax_refund_approval_continuation_v1(
+select throws_ok($$select public.service_reserve_nayax_refund_approval_continuation_v2(
   'soft-time-executor','fb110000-0000-4000-8000-000000000002',
   'fb150000-0000-4000-8000-000000000002',
   (select official_action_version from public.refund_cases where id='fb150000-0000-4000-8000-000000000002'),
   'nayax-refund-'||repeat('a',64),1090,'USD',
-  'nayax-production-account-contract-v2','nayax-provider-journal-v3'
+  'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  '2026-09-05T11:05:00.1234567','exact_source','omit'
 )$$,'P4628',null,
   'A malformed durable marker timestamp cannot reserve an approval continuation');
 reset role;
@@ -1006,12 +1009,13 @@ create temp table soft_time_handoff_continuation(result jsonb);
 grant select,insert on table pg_temp.soft_time_handoff_continuation to service_role;
 set local role service_role;
 insert into pg_temp.soft_time_handoff_continuation(result)
-select public.service_reserve_nayax_refund_approval_continuation_v1(
+select public.service_reserve_nayax_refund_approval_continuation_v2(
   'soft-time-executor','fb110000-0000-4000-8000-000000000002',
   'fb150000-0000-4000-8000-000000000002',
   (select official_action_version from public.refund_cases where id='fb150000-0000-4000-8000-000000000002'),
   'nayax-refund-'||repeat('a',64),1090,'USD',
-  'nayax-production-account-contract-v2','nayax-provider-journal-v3'
+  'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  '2026-09-05T11:05:00.1234567','exact_source','omit'
 );
 reset role;
 select is((select result#>>'{attempt,shouldExecute}' from pg_temp.soft_time_handoff_continuation),'true',
@@ -1040,12 +1044,13 @@ select ok((select refund_case.decided_by=prior.decided_by
   where refund_case.id='fb150000-0000-4000-8000-000000000002'),
   'Approval-only recovery preserves the original business approver, approval time, and durable marker');
 set local role service_role;
-select is((select public.service_reserve_nayax_refund_approval_continuation_v1(
+select is((select public.service_reserve_nayax_refund_approval_continuation_v2(
   'soft-time-executor','fb110000-0000-4000-8000-000000000002',
   'fb150000-0000-4000-8000-000000000002',
   (select official_action_version from public.refund_cases where id='fb150000-0000-4000-8000-000000000002'),
   'nayax-refund-'||repeat('a',64),1090,'USD',
-  'nayax-production-account-contract-v2','nayax-provider-journal-v3'
+  'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  '2026-09-05T11:05:00.1234567','exact_source','omit'
 )#>>'{attempt,shouldExecute}'),'false',
   'A repeated durable continuation cannot obtain a second provider claim');
 reset role;
