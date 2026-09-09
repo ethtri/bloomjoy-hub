@@ -858,6 +858,253 @@ update public.refund_customer_contact_settings
 set automatic_customer_contact_enabled=true
 where singleton;
 
+-- Emit every nullable input row used by the two strict recovery predicates in
+-- one hosted run. This diagnostic is synthetic fixture data inside rollback.
+select diag((
+  with target as (
+    select 'ca500000-0000-4000-8000-000000000007'::uuid canonical_id,
+      'ca500000-0000-4000-8000-000000000107'::uuid duplicate_id,
+      current_setting('test.recovery_attempt_id')::uuid attempt_id
+  ), inputs as (
+    select canonical, duplicate, attempt, authz, intent, saved, machine
+    from target
+    join public.refund_cases canonical on canonical.id=target.canonical_id
+    left join public.refund_cases duplicate on duplicate.id=target.duplicate_id
+    left join public.refund_case_nayax_refund_attempts attempt on attempt.id=target.attempt_id
+    left join public.refund_case_official_action_authorizations authz
+      on authz.id=attempt.official_action_authorization_id
+    left join public.refund_manager_action_step_up_intents intent
+      on intent.id=attempt.step_up_intent_id
+    left join public.refund_nayax_execution_contexts saved on saved.attempt_id=attempt.id
+    left join public.reporting_machines machine on machine.id=canonical.reporting_machine_id
+  )
+  select jsonb_pretty(jsonb_build_object(
+    'journalProved',public.refund_nayax_unsettled_api_success_journal_proved(
+      target.canonical_id,target.attempt_id),
+    'duplicateProved',public.refund_nayax_unsettled_api_success_duplicate_proved(
+      target.canonical_id,target.attempt_id,target.duplicate_id),
+    'failedChecks',coalesce((select jsonb_agg(jsonb_build_object(
+        'check',check_row.name,'passed',check_row.passed) order by check_row.name)
+      from (values
+        ('journal.casePopulation',(inputs.canonical).case_population='customer'),
+        ('journal.paymentMethod',(inputs.canonical).payment_method='card'),
+        ('journal.decision',(inputs.canonical).decision='approved'),
+        ('journal.executionMode',(inputs.attempt).execution_mode='request_and_approve'),
+        ('journal.actor', (inputs.attempt).actor_user_id=(inputs.authz).actor_user_id),
+        ('journal.amountRefund',(inputs.attempt).amount_cents=(inputs.canonical).refund_amount_cents),
+        ('journal.amountMatch',(inputs.attempt).amount_cents=(inputs.canonical).matched_nayax_amount_cents),
+        ('journal.currency',(inputs.attempt).currency_code='USD' and
+          (inputs.attempt).currency_code=(inputs.canonical).matched_nayax_currency_code),
+        ('journal.idempotency',(inputs.attempt).idempotency_key~'^nayax-refund-[a-f0-9]{64}$'),
+        ('journal.fingerprint',(inputs.attempt).request_fingerprint=
+          public.refund_nayax_attempt_request_fingerprint((inputs.authz).id,
+            (inputs.canonical).id,(inputs.attempt).idempotency_key,
+            (inputs.attempt).amount_cents,(inputs.attempt).currency_code,
+            (inputs.authz).nayax_execution_evidence_hash)),
+        ('journal.authStatus',(inputs.authz).status='consumed'),
+        ('journal.authConsumedAt',(inputs.authz).consumed_at is not null),
+        ('journal.authAction',(inputs.authz).action='nayax_execute'),
+        ('journal.authCase',(inputs.authz).refund_case_id=(inputs.canonical).id),
+        ('journal.authTotp',(inputs.authz).verified_totp_at is not null),
+        ('journal.authHash',(inputs.authz).nayax_execution_evidence_hash is not null),
+        ('journal.intentStatus',(inputs.intent).status='consumed'),
+        ('journal.intentAction',(inputs.intent).action='nayax_execute'),
+        ('journal.intentTarget',(inputs.intent).target_function='nayax-card-refund'),
+        ('journal.intentCase',(inputs.intent).refund_case_id=(inputs.canonical).id),
+        ('journal.intentActor',(inputs.intent).actor_user_id=(inputs.authz).actor_user_id),
+        ('journal.intentTotp',(inputs.intent).verified_totp_at=(inputs.authz).verified_totp_at),
+        ('journal.intentHash',(inputs.intent).nayax_execution_evidence_hash=
+          (inputs.authz).nayax_execution_evidence_hash),
+        ('journal.contextCase',((inputs.saved).context->>'caseId')::uuid=(inputs.canonical).id),
+        ('journal.contextMachine',((inputs.saved).context->>'reportingMachineId')::uuid=(inputs.machine).id),
+        ('journal.contextVersion',(inputs.authz).expected_case_version=
+          ((inputs.saved).context->>'caseVersion')::bigint),
+        ('journal.contextHash',(inputs.saved).context->>'contextHash'=
+          (inputs.authz).nayax_execution_evidence_hash),
+        ('journal.contextGeneration',((inputs.saved).context->>'attemptGeneration')::integer=
+          (inputs.canonical).nayax_refund_attempt_generation),
+        ('journal.contextAccount',(inputs.saved).context->>'accountScope'=(inputs.machine).nayax_account_key),
+        ('journal.contextProviderMachine',(inputs.saved).context->>'providerMachineId'=(inputs.machine).nayax_machine_id),
+        ('journal.contextTransaction',(inputs.saved).context->>'transactionId'=
+          (inputs.canonical).matched_nayax_transaction_id),
+        ('journal.contextSite',((inputs.saved).context->>'siteId')::integer=
+          (inputs.canonical).matched_nayax_site_id),
+        ('journal.contextAmount',((inputs.saved).context->>'originalAmountCents')::integer=
+          (inputs.attempt).amount_cents),
+        ('journal.contextCurrency',(inputs.saved).context->>'currencyCode'=(inputs.attempt).currency_code),
+        ('journal.contextLast4',(inputs.saved).context->>'cardLast4'=
+          (inputs.canonical).matched_nayax_card_last4),
+        ('journal.contextInstant',((inputs.saved).context->>'machineAuthorizationTimeInstant')::timestamptz=
+          (inputs.canonical).matched_nayax_machine_auth_time),
+        ('journal.requestResultCount',(select count(*)=1
+          from public.refund_nayax_provider_stage_journal journal
+          where journal.nayax_refund_attempt_id=target.attempt_id
+            and journal.pending_approval_recovery_id is null
+            and journal.stage='request' and journal.event='result')),
+        ('journal.approveResultCount',(select count(*)=1
+          from public.refund_nayax_provider_stage_journal journal
+          where journal.nayax_refund_attempt_id=target.attempt_id
+            and journal.pending_approval_recovery_id is null
+            and journal.stage='approve' and journal.event='result')),
+        ('journal.pendingRecoveryAbsent',not exists(select 1
+          from public.refund_nayax_provider_stage_journal journal
+          where journal.nayax_refund_attempt_id=target.attempt_id
+            and journal.pending_approval_recovery_id is not null)),
+        ('journal.requestResult',(select bool_and(journal.http_status=200 and journal.http_accepted
+            and journal.outcome='accepted' and journal.contract_matched and journal.approval_authorized
+            and journal.schema_matched and journal.semantic_pair_matched
+            and journal.journal_contract_version='nayax-provider-journal-v3'
+            and journal.provider_contract_version='nayax-production-account-contract-v2')
+          from public.refund_nayax_provider_stage_journal journal
+          where journal.nayax_refund_attempt_id=target.attempt_id
+            and journal.pending_approval_recovery_id is null
+            and journal.stage='request' and journal.event='result')),
+        ('journal.approveResult',(select bool_and(journal.http_status=200 and journal.http_accepted
+            and journal.outcome='succeeded' and journal.contract_matched
+            and journal.schema_matched and journal.semantic_pair_matched
+            and journal.journal_contract_version='nayax-provider-journal-v3'
+            and journal.provider_contract_version='nayax-production-account-contract-v2')
+          from public.refund_nayax_provider_stage_journal journal
+          where journal.nayax_refund_attempt_id=target.attempt_id
+            and journal.pending_approval_recovery_id is null
+            and journal.stage='approve' and journal.event='result')),
+        ('journal.outcomes',(select count(*)=2 and bool_and(outcome.business_pair_retained
+            and outcome.observed_scalar_pair_retained
+            and outcome.business_result='Refund status updated successfully, but the email could not be sent'
+            and outcome.business_status='Partial success'
+            and outcome.observed_result_scalar=outcome.business_result
+            and outcome.observed_status_scalar=outcome.business_status)
+          from public.refund_nayax_provider_business_outcomes outcome
+          where outcome.nayax_refund_attempt_id=target.attempt_id)),
+        ('journal.stageOrder',(select min(journal.created_at) filter(where journal.stage='request')
+            < min(journal.created_at) filter(where journal.stage='approve')
+          from public.refund_nayax_provider_stage_journal journal
+          where journal.nayax_refund_attempt_id=target.attempt_id and journal.event='result')),
+        ('journal.noOtherAttempt',not exists(select 1
+          from public.refund_case_nayax_refund_attempts other_attempt
+          where other_attempt.refund_case_id=target.canonical_id
+            and other_attempt.id<>target.attempt_id
+            and (other_attempt.status in ('in_progress','requested','approved','succeeded')
+              or other_attempt.provider_outcome='success'))),
+        ('duplicate.canonicalStatus',(inputs.canonical).status in ('approved','card_refund_pending')),
+        ('duplicate.canonicalExecution',(inputs.canonical).nayax_refund_execution_status='requested'),
+        ('duplicate.canonicalVersion',(inputs.canonical).official_action_version=
+          (inputs.authz).expected_case_version+1),
+        ('duplicate.canonicalEligibility',not (inputs.canonical).nayax_match_execution_eligible),
+        ('duplicate.canonicalUntouched',(inputs.canonical).refund_completed_at is null
+          and (inputs.canonical).reporting_adjustment_id is null
+          and (inputs.canonical).manual_refund_reference is null
+          and (inputs.canonical).duplicate_of_refund_case_id is null),
+        ('duplicate.attemptState',(inputs.attempt).status='in_progress'
+          and (inputs.attempt).provider_outcome is null
+          and (inputs.attempt).provider_outcome_recorded_at is null
+          and (inputs.attempt).provider_claim_consumed_at is null
+          and (inputs.attempt).reconciliation_required
+          and (inputs.attempt).safe_transport_stage='approval_result'),
+        ('duplicate.attemptUntouched',(inputs.attempt).provider_status is null
+          and (inputs.attempt).provider_reference is null
+          and (inputs.attempt).error_code is null
+          and (inputs.attempt).reporting_adjustment_id is null
+          and (inputs.attempt).case_finalization_committed_at is null
+          and (inputs.attempt).completed_at is null
+          and (inputs.attempt).completion_message_id is null
+          and (inputs.attempt).completion_gmail_thread_id is null
+          and (inputs.attempt).completion_delivery_status='not_claimed'),
+        ('duplicate.populationSource',(inputs.duplicate).id<>(inputs.canonical).id
+          and (inputs.duplicate).case_population='customer'
+          and (inputs.duplicate).intake_source=(inputs.canonical).intake_source),
+        ('duplicate.state',(inputs.duplicate).status in ('submitted','needs_review','correlated')
+          and (inputs.duplicate).decision is null
+          and (inputs.duplicate).duplicate_of_refund_case_id=(inputs.canonical).id),
+        ('duplicate.untouched',(inputs.duplicate).refund_completed_at is null
+          and (inputs.duplicate).reporting_adjustment_id is null
+          and (inputs.duplicate).manual_refund_reference is null
+          and (inputs.duplicate).nayax_refund_execution_status='not_requested'
+          and not (inputs.duplicate).nayax_match_execution_eligible
+          and (inputs.duplicate).matched_nayax_transaction_id is null
+          and (inputs.duplicate).matched_nayax_site_id is null
+          and (inputs.duplicate).matched_nayax_amount_cents is null
+          and (inputs.duplicate).matched_nayax_currency_code is null),
+        ('duplicate.fingerprint',(inputs.duplicate).refund_business_fingerprint is not null
+          and (inputs.duplicate).refund_business_fingerprint=(inputs.canonical).refund_business_fingerprint),
+        ('duplicate.email',lower(btrim((inputs.duplicate).customer_email))=
+          lower(btrim((inputs.canonical).customer_email))),
+        ('duplicate.machine',(inputs.duplicate).reporting_machine_id=(inputs.canonical).reporting_machine_id),
+        ('duplicate.location',(inputs.duplicate).reporting_location_id=(inputs.canonical).reporting_location_id),
+        ('duplicate.incident',(inputs.duplicate).incident_at=(inputs.canonical).incident_at),
+        ('duplicate.payment',(inputs.duplicate).payment_method=(inputs.canonical).payment_method
+          and (inputs.duplicate).payment_amount_cents=(inputs.canonical).payment_amount_cents),
+        ('duplicate.last4',(inputs.duplicate).card_last4=(inputs.canonical).card_last4),
+        ('duplicate.network',(inputs.duplicate).card_network is not distinct from (inputs.canonical).card_network),
+        ('duplicate.walletUsed',(inputs.duplicate).card_wallet_used=(inputs.canonical).card_wallet_used),
+        ('duplicate.walletProvider',(inputs.duplicate).wallet_provider is not distinct from
+          (inputs.canonical).wallet_provider),
+        ('duplicate.walletDevice',(inputs.duplicate).wallet_device_kind is not distinct from
+          (inputs.canonical).wallet_device_kind),
+        ('duplicate.interaction',(inputs.duplicate).payment_interaction is not distinct from
+          (inputs.canonical).payment_interaction),
+        ('duplicate.issue',(inputs.duplicate).issue_category is not distinct from
+          (inputs.canonical).issue_category),
+        ('duplicate.review',exists(select 1 from public.refund_case_reconciliation_reviews review
+          where review.left_refund_case_id=least(target.canonical_id,target.duplicate_id)
+            and review.right_refund_case_id=greatest(target.canonical_id,target.duplicate_id)
+            and review.status='confirmed_duplicate' and review.canonical_refund_case_id=target.canonical_id
+            and review.resolution_reason_code='same_incident' and review.resolved_at is not null
+            and review.resolved_by=(inputs.duplicate).duplicate_marked_by)),
+        ('duplicate.noOfficialAction',not public.refund_case_has_official_action(target.duplicate_id)),
+        ('duplicate.noAttempt',not exists(select 1 from public.refund_case_nayax_refund_attempts a
+          where a.refund_case_id=target.duplicate_id)),
+        ('duplicate.noReceipt',not exists(select 1 from public.refund_authoritative_receipts r
+          where r.refund_case_id in (target.canonical_id,target.duplicate_id))),
+        ('duplicate.noAdjustment',not exists(select 1 from public.sales_adjustment_facts a
+          where a.refund_case_id in (target.canonical_id,target.duplicate_id))),
+        ('duplicate.noMessage',not exists(select 1 from public.refund_case_messages m
+          where m.refund_case_id in (target.canonical_id,target.duplicate_id))),
+        ('duplicate.noAuthorization',not exists(select 1
+          from public.refund_case_official_action_authorizations a
+          where a.refund_case_id=target.duplicate_id))
+      ) check_row(name,passed)
+      where check_row.passed is distinct from true),'[]'::jsonb),
+    'canonical',to_jsonb(inputs.canonical),
+    'duplicate',to_jsonb(inputs.duplicate),
+    'attempt',to_jsonb(inputs.attempt),
+    'authorization',to_jsonb(inputs.authz),
+    'stepUpIntent',to_jsonb(inputs.intent),
+    'savedContext',to_jsonb(inputs.saved),
+    'machine',to_jsonb(inputs.machine),
+    'stageJournals',coalesce((select jsonb_agg(to_jsonb(journal)
+        order by journal.created_at,journal.id)
+      from public.refund_nayax_provider_stage_journal journal
+      where journal.nayax_refund_attempt_id=target.attempt_id),'[]'::jsonb),
+    'businessOutcomes',coalesce((select jsonb_agg(to_jsonb(outcome)
+        order by outcome.created_at,outcome.id)
+      from public.refund_nayax_provider_business_outcomes outcome
+      where outcome.nayax_refund_attempt_id=target.attempt_id),'[]'::jsonb),
+    'reviews',coalesce((select jsonb_agg(to_jsonb(review) order by review.created_at,review.id)
+      from public.refund_case_reconciliation_reviews review
+      where target.canonical_id in (review.left_refund_case_id,review.right_refund_case_id)
+        and target.duplicate_id in (review.left_refund_case_id,review.right_refund_case_id)),
+      '[]'::jsonb),
+    'counts',jsonb_build_object(
+      'otherCanonicalAttempts',(select count(*) from public.refund_case_nayax_refund_attempts other_attempt
+        where other_attempt.refund_case_id=target.canonical_id and other_attempt.id<>target.attempt_id),
+      'duplicateAttempts',(select count(*) from public.refund_case_nayax_refund_attempts duplicate_attempt
+        where duplicate_attempt.refund_case_id=target.duplicate_id),
+      'receipts',(select count(*) from public.refund_authoritative_receipts receipt
+        where receipt.refund_case_id in (target.canonical_id,target.duplicate_id)),
+      'adjustments',(select count(*) from public.sales_adjustment_facts adjustment
+        where adjustment.refund_case_id in (target.canonical_id,target.duplicate_id)),
+      'messages',(select count(*) from public.refund_case_messages message
+        where message.refund_case_id in (target.canonical_id,target.duplicate_id)),
+      'duplicateAuthorizations',(select count(*)
+        from public.refund_case_official_action_authorizations duplicate_authz
+        where duplicate_authz.refund_case_id=target.duplicate_id),
+      'duplicateOfficialActions',public.refund_case_has_official_action(target.duplicate_id)
+    )
+  ))
+  from target cross join inputs
+)::text);
+
 create function pg_temp.reject_recovery_notice_preparation()
 returns trigger language plpgsql as $$
 begin
