@@ -166,6 +166,7 @@ for (const marker of [
   'manager correction works after the Technician cutoff without a reason',
   'out-of-scope manager correction fails closed',
   'sequential machine assignment windows are accepted',
+  'a machine-specific started-hour rate overrides the Technician default',
   'machine-specific commission overrides the Technician default',
   'recurring earnings and credits cannot silently become deductions',
   'opening YTD balance is idempotently replaceable',

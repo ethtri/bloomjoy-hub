@@ -82,6 +82,7 @@ type FormErrors = Partial<Record<keyof TimeEntryForm | 'form', string>>;
 const getContextQueryKey = (monthAnchor: string) =>
   ['operator-timekeeping', monthAnchor] as const;
 const getPayStubsQueryKey = ['operator-pay-statements'] as const;
+const lastMachineStorageKey = (profileId: string) => `bloomjoy-timekeeping-last-machine:${profileId}`;
 
 const isDateValue = (value: string | null): value is string =>
   Boolean(value && /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(value));
@@ -293,7 +294,11 @@ export default function PortalTimePage() {
       if (effectiveMachines.some((machine) => machine.machineId === current.machineId)) {
         return current;
       }
-      return { ...current, machineId: effectiveMachines[0]?.machineId ?? '' };
+      const lastMachineId = window.localStorage.getItem(lastMachineStorageKey(selectedProfile.id));
+      const nextMachineId = effectiveMachines.find((machine) => machine.machineId === lastMachineId)?.machineId
+        ?? effectiveMachines[0]?.machineId
+        ?? '';
+      return { ...current, machineId: nextMachineId };
     });
   }, [effectiveMachines, isFormRoute, selectedProfile]);
 
@@ -387,6 +392,7 @@ export default function PortalTimePage() {
       });
     },
     onSuccess: async ({ context, timeEntry }) => {
+      window.localStorage.setItem(lastMachineStorageKey(timeEntry.operatorProfileId), timeEntry.machineId);
       const monthAnchor = `${context.workDate.slice(0, 7)}-01`;
       queryClient.setQueryData(getContextQueryKey(monthAnchor), context);
       await invalidateVisibleMonths();
@@ -569,7 +575,7 @@ export default function PortalTimePage() {
             <PortalPageIntro
               eyebrow="Timekeeping"
               title={entryId ? 'Edit time' : 'Add time'}
-              description="Record one completed block of work for one machine. Each entry rounds up to a whole paid shift."
+              description="Record one completed block of work for one machine. Each saved entry rounds up to the next paid hour."
               actions={
                 <Button
                   type="button"
@@ -760,7 +766,7 @@ export default function PortalTimePage() {
                     </p>
                     {durationMinutes > 0 ? (
                       <p className="mt-1 text-base font-semibold text-foreground">
-                        {formatDuration(durationMinutes)} actual{' '}
+                        {formatDuration(durationMinutes)} worked{' '}
                         <span className="text-muted-foreground">→</span>{' '}
                         {previewPaidShifts} paid {previewPaidShifts === 1 ? 'shift' : 'shifts'}
                       </p>
@@ -834,27 +840,16 @@ export default function PortalTimePage() {
           <PortalPageIntro
             eyebrow="Technician"
             title="Time"
-            description="Record completed work by machine. Each entry rounds up independently to a whole paid shift."
+            description="Record completed work by machine. Each saved entry rounds up independently to the next paid hour."
             badges={[
               {
-                label: `${formatDuration(totalActualMinutes)} actual · ${totalPaidShifts} paid ${
+                label: `${formatDuration(totalActualMinutes)} worked · ${totalPaidShifts} paid ${
                   totalPaidShifts === 1 ? 'shift' : 'shifts'
                 }`,
                 tone: 'muted',
                 icon: Clock3,
               },
             ]}
-            actions={
-              <Button
-                type="button"
-                onClick={() => openAddTime()}
-                disabled={selectedDateIsFuture || !selectedDayHasAssignment}
-                className="min-h-11"
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                Add time
-              </Button>
-            }
           />
 
           {profiles.length > 1 && (
@@ -1028,12 +1023,8 @@ export default function PortalTimePage() {
                   <CalendarDays className="mx-auto h-6 w-6 text-muted-foreground" />
                   <p className="mt-3 font-medium text-foreground">No time recorded for this day</p>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Add each machine separately so its paid shift is easy to understand.
+                    Add each machine separately so the paid shifts are easy to understand.
                   </p>
-                  <Button type="button" className="mt-5 min-h-11" onClick={() => openAddTime()}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add time
-                  </Button>
                 </div>
               ) : (
                 <div className="mt-4 divide-y divide-border rounded-xl border border-border">
@@ -1053,7 +1044,7 @@ export default function PortalTimePage() {
                               {formatTime(entry.startTime)} to {formatTime(entry.endTime)}
                             </p>
                             <p className="mt-1 text-sm text-muted-foreground">
-                              {formatDuration(entry.actualDurationMinutes)} actual ·{' '}
+                              {formatDuration(entry.actualDurationMinutes)} worked ·{' '}
                               <span className="font-semibold text-foreground">
                                 {entry.paidShifts} paid {entry.paidShifts === 1 ? 'shift' : 'shifts'}
                               </span>

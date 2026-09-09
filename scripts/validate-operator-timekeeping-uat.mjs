@@ -458,11 +458,11 @@ const run = async () => {
     );
     check.assert(
       'Weekly summary preserves independent shift rounding',
-      await page.getByText('2 hr 1 min actual · 5 paid shifts', { exact: true }).isVisible()
+      await page.getByText('2 hr 1 min worked · 5 paid shifts', { exact: true }).isVisible()
     );
     check.assert(
       '61 minutes visibly produces two paid shifts',
-      (await page.getByText('1 hr 1 min actual ·', { exact: false }).isVisible()) &&
+      (await page.getByText('1 hr 1 min worked ·', { exact: false }).isVisible()) &&
         (await page.getByText('2 paid shifts', { exact: true }).isVisible())
     );
     check.assert(
@@ -544,6 +544,19 @@ const run = async () => {
     await page.keyboard.press('Enter');
     await page.getByRole('heading', { name: 'Add time' }).waitFor();
     check.assert('Keyboard activates the primary Add time action', true);
+    const mobileHeaderBounds = await page.locator('[data-app-shell-content-header]').boundingBox();
+    const addTimeHeadingBounds = await page.getByRole('heading', { name: 'Add time' }).boundingBox();
+    check.assert(
+      'Mobile shell header does not cover the Add time heading',
+      Boolean(
+        mobileHeaderBounds &&
+          addTimeHeadingBounds &&
+          mobileHeaderBounds.y + mobileHeaderBounds.height <= addTimeHeadingBounds.y
+      ),
+      JSON.stringify({ mobileHeaderBounds, addTimeHeadingBounds })
+    );
+    await page.locator('#work-machine').click();
+    await page.getByRole('option', { name: /Cotton Candy 02/ }).click();
     await page.locator('#start-time').fill('10:30');
     await page.locator('#end-time').fill('11:30');
     const callsBeforeOverlap = state.rpcCalls.filter(
@@ -561,12 +574,11 @@ const run = async () => {
     await page.locator('#end-time').fill('13:01');
     check.assert(
       'Form previews 61 minutes as two paid shifts',
-      (await page.getByText(/1 hr 1 min actual/).isVisible()) &&
+      (await page.getByText(/1 hr 1 min worked/).isVisible()) &&
         (await page.getByText(/2 paid shifts/).isVisible())
     );
     await page.screenshot({
       path: path.join(args.artifactDir, 'add-time-390.png'),
-      fullPage: true,
     });
     state.failNextSave = true;
     await page.getByRole('button', { name: 'Save time' }).click();
@@ -608,8 +620,14 @@ const run = async () => {
         (await page.locator('#start-time').inputValue()) === '' &&
         (await page.locator('#end-time').inputValue()) === ''
     );
+    check.assert(
+      'Add time remembers the Technician\'s last-used machine',
+      (await page.locator('#work-machine').textContent())?.includes('Cotton Candy 02')
+    );
     await page.getByRole('button', { name: 'Back to week' }).click();
+    await page.waitForURL(/\/portal\/time\?/);
 
+    await page.getByText('12:00 PM to 1:02 PM', { exact: true }).waitFor();
     const deleteButton = page.getByRole('button', { name: /Delete .*12:00 PM to 1:02 PM/i });
     await deleteButton.click();
     const deleteDialog = page.getByRole('alertdialog');
