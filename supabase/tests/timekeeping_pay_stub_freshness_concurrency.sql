@@ -20,6 +20,17 @@ begin;
 drop schema if exists pay_stub_freshness_race_test cascade;
 create schema pay_stub_freshness_race_test;
 
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+)
+values (
+  '00000000-0000-0000-0000-000000000000',
+  'b1000000-0000-4000-8000-000000000001',
+  'authenticated', 'authenticated', 'pay-stub-freshness-race@example.test', '', now(),
+  '{}'::jsonb, '{}'::jsonb, now(), now()
+);
+
 insert into public.customer_accounts (id, name, account_type)
 values ('b2000000-0000-4000-8000-000000000001', 'Pay Stub freshness race', 'customer');
 
@@ -46,11 +57,12 @@ set default_payout_policy_id = 'b5000000-0000-4000-8000-000000000001'
 where id = 'b2000000-0000-4000-8000-000000000001';
 
 insert into public.operator_payout_profiles (
-  id, account_id, display_name, worker_type, payout_policy_id
+  id, account_id, user_id, display_name, worker_type, payout_policy_id
 )
 values (
   'b6000000-0000-4000-8000-000000000001',
   'b2000000-0000-4000-8000-000000000001',
+  'b1000000-0000-4000-8000-000000000001',
   'Freshness Race Technician', 'contractor_1099',
   'b5000000-0000-4000-8000-000000000001'
 );
@@ -262,6 +274,7 @@ delete from public.payout_policies where id = 'b5000000-0000-4000-8000-000000000
 delete from public.reporting_machines where id = 'b4000000-0000-4000-8000-000000000001';
 delete from public.reporting_locations where id = 'b3000000-0000-4000-8000-000000000001';
 delete from public.customer_accounts where id = 'b2000000-0000-4000-8000-000000000001';
+delete from auth.users where id = 'b1000000-0000-4000-8000-000000000001';
 drop schema pay_stub_freshness_race_test cascade;
 commit;
 
