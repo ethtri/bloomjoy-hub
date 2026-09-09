@@ -4001,9 +4001,27 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       (await page.getByText('Open Nayax and refund the matched card sale.').count()) === 0 &&
       (await page.getByText('Card refund confirmation/reference').count()) === 0
   );
+  const activityHistory = page.getByTestId('refund-activity-history');
+  const activityHistorySummary = page.getByTestId('refund-activity-history-summary');
   recorder.assert(
-    'History stays behind progressive disclosure',
-    await page.getByText(/Event timeline \(2\)/).isVisible() &&
+    'Activity and messages stay behind one progressive disclosure',
+    await activityHistorySummary.getByText('Activity and messages', { exact: true }).isVisible() &&
+      await activityHistorySummary.getByText('3 records', { exact: true }).isVisible() &&
+      await activityHistory.evaluate((element) => element.open === false)
+  );
+  await activityHistorySummary.focus();
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  const activityHistorySummaryIsTabbed = await activityHistorySummary.evaluate(
+    (element) => document.activeElement === element && element.tabIndex >= 0
+  );
+  await page.keyboard.press('Enter');
+  recorder.assert(
+    'Activity and messages stays in the shared-shell Tab order and Enter opens it',
+    activityHistorySummaryIsTabbed &&
+      await activityHistory.evaluate((element) => element.open === true) &&
+      await activityHistorySummary.evaluate((element) => document.activeElement === element) &&
+      await page.getByText(/Event timeline \(2\)/).isVisible() &&
       await page.getByText(/Customer messages \(1\)/).isVisible()
   );
   const ordinaryMessageHistory = page.getByTestId('refund-customer-messages');
@@ -4016,11 +4034,13 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   );
   await page.keyboard.press('Enter');
   recorder.assert(
-    'Ordinary-case Customer messages stays in the shared-shell Tab order and Enter opens it',
+    'Nested Customer messages stays in the shared-shell Tab order and Enter opens it',
     ordinaryMessageSummaryIsTabbed &&
       await ordinaryMessageHistory.evaluate((element) => element.open === true) &&
       await ordinaryMessageHistorySummary.evaluate((element) => document.activeElement === element)
   );
+  await page.keyboard.press('Enter');
+  await activityHistorySummary.focus();
   await page.keyboard.press('Enter');
   recorder.assert(
     'Unselected provider transaction IDs remain absent from the workflow body',
@@ -5757,17 +5777,16 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
   );
   recorder.assert(
     'Provider setup state stays manager-only and cannot trigger customer correction copy',
-    (await page.getByText('Transaction search unavailable', { exact: true }).count()) >= 1 &&
       (await page.getByText('Ask customer for details', { exact: true }).count()) === 0 &&
-      await page.getByTestId('nayax-internal-setup-owner').getByText('Refund Operations', { exact: true }).isVisible() &&
-      await page.getByTestId('nayax-internal-setup-owner').getByText('Nashville Nayax account scope', { exact: true }).isVisible() &&
-      await page.getByTestId('nayax-internal-setup-owner').getByText(/Customer action: none/).isVisible()
+      (await page.getByText('Ask for missing details', { exact: true }).count()) === 0 &&
+      (await page.getByTestId('refund-manager-next-step').innerText()).includes('No customer follow-up is needed') &&
+      await page.getByTestId('nayax-internal-setup-owner').getByText(/Refund Operations owns the connection/).isVisible() &&
+      await page.getByTestId('nayax-internal-setup-owner').getByText(/No customer follow-up is needed\./).isVisible()
   );
   recorder.assert(
     'Pending transaction result explains the unavailable state',
-    await page.getByTestId('refund-primary-action').getByText('Transaction search unavailable', { exact: true }).isVisible() &&
-      await page.getByTestId('nayax-result-card').getByText('Transaction search is unavailable', { exact: true }).isVisible() &&
-      await page.getByTestId('nayax-result-card').getByText('Needs attention', { exact: true }).isVisible() &&
+    await page.getByTestId('refund-manager-state').getByText('Transaction search unavailable', { exact: true }).isVisible() &&
+      await page.getByTestId('nayax-result-card').getByText('Automatic match unavailable', { exact: true }).isVisible() &&
       await page.getByTestId('nayax-result-card').getByText('This machine\'s separate Nayax account scope is not connected for read-only lookup.').first().isVisible()
   );
   recorder.assert(
@@ -5841,10 +5860,10 @@ const runAdamManualCaseEvidenceChecks = async ({ browser, appUrl, artifactDir, r
 
   const comments = page.getByTestId('refund-customer-comments');
   const paymentDetails = page.getByTestId('refund-customer-payment-details');
-  const manualEvidence = page.getByTestId('manual-nayax-evidence-form');
-  await manualEvidence.waitFor({ state: 'visible', timeout: 10000 });
+  const setupSummary = page.getByTestId('nayax-internal-setup-owner');
+  await setupSummary.waitFor({ state: 'visible', timeout: 10000 });
   recorder.assert(
-    'Adam-managed manual case shows complete customer and payment evidence before portal entry',
+    'Adam-managed API-pending case shows complete customer and payment evidence',
     await page.getByText('Adam Case Customer · adam-case-customer@example.test · 555-0142', { exact: true }).isVisible() &&
       (await comments.innerText()).includes('machine display restarted twice') &&
       await paymentDetails.getByText('6768', { exact: true }).isVisible() &&
@@ -5853,32 +5872,46 @@ const runAdamManualCaseEvidenceChecks = async ({ browser, appUrl, artifactDir, r
       await page.getByText('Mall of Louisiana · $33.00', { exact: true }).isVisible()
   );
   recorder.assert(
-    'Adam-managed API-pending case keeps the reviewed manual Nayax path beside the visible evidence',
-    await manualEvidence.getByText('Find the exact transaction in Nayax', { exact: true }).isVisible() &&
-      await manualEvidence.getByText(/Adam’s Nayax account while the API connection is pending/).isVisible() &&
-      await manualEvidence.getByLabel('Transaction reference').isVisible() &&
-      await manualEvidence.getByLabel('Card last 4').isVisible() &&
+    'Adam-managed API-pending case removes portal transcription and keeps the blocker internal',
+    await page.getByTestId('nayax-decision-heading').getByText('Automatic match unavailable', { exact: true }).isVisible() &&
+      await setupSummary.getByText(/review this case directly in Nayax only if needed/).isVisible() &&
+      await setupSummary.getByText(/No customer follow-up is needed\./).isVisible() &&
+      (await page.getByTestId('refund-manager-next-step').innerText()).includes('No customer follow-up is needed') &&
+      (await page.getByText('Ask for missing details', { exact: true }).count()) === 0 &&
+      (await page.getByTestId('manual-nayax-evidence-form').count()) === 0 &&
+      (await page.getByLabel('Transaction reference').count()) === 0 &&
       functionCalls.length === 0 &&
       !rpcCalls.includes('admin_create_refund_manual_nayax_candidate')
   );
-  await comments.scrollIntoViewIfNeeded();
+  await page.getByText('Signed in. Redirecting...', { exact: true })
+    .waitFor({ state: 'hidden', timeout: 5000 })
+    .catch(() => undefined);
+  await page.evaluate(() => {
+    const selectedCasePanel = document.querySelector('[aria-label="Selected refund case"]');
+    if (selectedCasePanel instanceof HTMLElement) {
+      selectedCasePanel.style.maxHeight = 'none';
+      selectedCasePanel.style.overflow = 'visible';
+    }
+    window.scrollTo(0, 0);
+  });
   await page.screenshot({
-    path: path.join(artifactDir, 'refund-adam-manual-case-evidence-desktop.png'),
-    fullPage: false,
+    path: path.join(artifactDir, 'refund-adam-api-pending-case-desktop.png'),
+    fullPage: true,
   });
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await comments.scrollIntoViewIfNeeded();
+  await page.evaluate(() => window.scrollTo(0, 0));
   recorder.assert(
-    'Adam-managed case evidence and manual Nayax path remain usable on mobile',
+    'Adam-managed case evidence and compact fallback remain usable on mobile',
     await comments.isVisible() &&
       await paymentDetails.isVisible() &&
-      await manualEvidence.isVisible() &&
+      await setupSummary.isVisible() &&
+      (await page.getByTestId('manual-nayax-evidence-form').count()) === 0 &&
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
   );
   await page.screenshot({
-    path: path.join(artifactDir, 'refund-adam-manual-case-evidence-mobile.png'),
-    fullPage: false,
+    path: path.join(artifactDir, 'refund-adam-api-pending-case-mobile.png'),
+    fullPage: true,
   });
 
   await closeRefundPortalContext(context);
@@ -7503,6 +7536,7 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
       JSON.stringify({ functionCalls, functionBodies })
     );
 
+    await page.getByText('Other decisions', { exact: true }).click();
     recorder.assert(
       `${scenario.name} can choose denial after exact transaction confirmation`,
       await page.getByTestId('refund-deny-instead').isVisible() &&
@@ -7953,10 +7987,9 @@ const runAcknowledgementRecoveryChecks = async ({ browser, appUrl, artifactDir, 
   const exception = page.getByTestId('refund-acknowledgement-delivery-exception');
   const disposition = page.getByTestId('refund-record-later-contact-disposition');
   recorder.assert(
-    'A later message cannot hide the skipped initial acknowledgement',
+    'A later message cannot hide the single skipped-acknowledgement recovery panel',
     await exception.isVisible() &&
-      await page.getByLabel('Selected refund case')
-        .getByText('Acknowledgement needs review', { exact: true }).isVisible() &&
+      await exception.getByText('Customer acknowledgement was skipped', { exact: true }).isVisible() &&
       await disposition.isVisible()
   );
   recorder.assert(
@@ -8131,6 +8164,7 @@ const runCustomerLocaleCorrectionChecks = async ({ browser, appUrl, artifactDir,
     fullPage: false,
   });
 
+  await page.getByTestId('refund-activity-history-summary').click();
   const messageHistory = page.getByText('Customer messages (1)', { exact: true });
   await messageHistory.click();
   recorder.assert(
@@ -8315,7 +8349,7 @@ const runInternalTestDispositionChecks = async ({ browser, appUrl, artifactDir, 
     fullPage: false,
   });
   await page.getByTestId('refund-confirm-internal-test-classification').click();
-  await page.getByText('System status', { exact: true }).click();
+  await page.getByText('Operations status', { exact: true }).click();
   const archiveButton = page.getByRole('button', { name: /^View archive 1$/ });
   await archiveButton.waitFor({ timeout: 10000 });
   await archiveButton.click();
@@ -10396,6 +10430,7 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
         await demoRefundAction.isDisabled() &&
         (await page.getByTestId('refund-confirmation-dialog').count()) === 0
     );
+    await page.getByText('Other decisions', { exact: true }).click();
     recorder.assert(
       'Confirmed demo transaction keeps Deny request visible as a secondary action',
       await page.getByTestId('refund-deny-instead').isVisible()

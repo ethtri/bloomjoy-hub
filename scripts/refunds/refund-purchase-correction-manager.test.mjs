@@ -165,7 +165,8 @@ test('delivery-record review opens and focuses existing evidence without dispatc
   focus:options=>{assert.equal(options.preventScroll,true);focused++;},
  };
  load('handleReviewDeliveryRecord',{
-  customerMessagesDetailsRef:{current:details},
+ customerMessagesDetailsRef:{current:details},
+  activityHistoryDetailsRef:{current:{open:false}},
   customerMessagesSummaryRef:{current:summary},
   customerDeliveryEvidenceRef:{current:summary},
   window:{requestAnimationFrame:callback=>{scheduled++;callback();}},
@@ -183,7 +184,8 @@ test('delivery-record review falls back to the Customer messages summary when ex
   focus:()=>{focused++;},
  };
  load('handleReviewDeliveryRecord',{
-  customerMessagesDetailsRef:{current:details},
+ customerMessagesDetailsRef:{current:details},
+  activityHistoryDetailsRef:{current:{open:false}},
   customerMessagesSummaryRef:{current:summary},
   customerDeliveryEvidenceRef:{current:null},
   window:{requestAnimationFrame:callback=>callback()},

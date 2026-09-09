@@ -435,7 +435,7 @@ export const getRefundManagerState = (
             'match_attention',
             'Transaction search unavailable',
             'Bloomjoy cannot check this machine\'s transactions right now.',
-            'Keep the case open and try again later.',
+            'No customer follow-up is needed. Refund Operations owns the connection; review the case directly in Nayax only if necessary.',
             'warning'
           );
         }
@@ -824,7 +824,7 @@ export const getRefundManagerState = (
         'match_attention',
         'Transaction search unavailable',
         'Bloomjoy cannot check this machine\'s transactions right now.',
-        'Keep the case open and try again later.',
+        'No customer follow-up is needed. Refund Operations owns the connection; review the case directly in Nayax only if necessary.',
         'warning'
       );
     }

@@ -326,9 +326,9 @@ try {
   );
   assert.equal(EXPECTED_SCREENSHOTS.length, 95, 'Evidence must enumerate all 95 reviewed screenshots');
   assert(
-    EXPECTED_SCREENSHOTS.includes('refund-adam-manual-case-evidence-desktop.png') &&
-      EXPECTED_SCREENSHOTS.includes('refund-adam-manual-case-evidence-mobile.png'),
-    'Evidence must include the reviewed Adam-managed manual Nayax case on desktop and mobile'
+    EXPECTED_SCREENSHOTS.includes('refund-adam-api-pending-case-desktop.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-adam-api-pending-case-mobile.png'),
+    'Evidence must include the streamlined Adam-managed API-pending case on desktop and mobile'
   );
   assert(
     EXPECTED_SCREENSHOTS.includes('machine-refunds-valley-product-unverified-desktop.png') &&
