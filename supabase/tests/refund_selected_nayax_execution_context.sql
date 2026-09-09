@@ -1,7 +1,15 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
+\ir fixtures/refund_transaction_authority.inc
+select pg_temp.refund_reset_authority_markers();
 select no_plan();
+select ok(
+  pg_temp.refund_authority_markers_match('{}'::text[]),
+  'Payment execution fixtures begin without inherited transaction-local authority'
+);
+select diag(pg_temp.refund_authority_marker_diagnostic('{}'::text[])::text)
+where not pg_temp.refund_authority_markers_match('{}'::text[]);
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
 values('00000000-0000-4000-8000-000000000000','b7000000-0000-4000-8000-000000000001','authenticated','authenticated',
@@ -272,6 +280,24 @@ select public.service_settle_nayax_refund_attempt('verification-executor',
   (select (result#>>'{managerAction,authorizationId}')::uuid from verified_result),
   'b7400000-0000-4000-8000-000000000001','nayax-refund-'||repeat('1',64),800,'USD',
   (select result->>'providerClaimToken' from verified_result),'unknown',null,null,'provider_request_semantic_mismatch');
+select ok(
+  pg_temp.refund_authority_markers_match(array[
+    'bloomjoy.nayax_journal_contract_version',
+    'bloomjoy.nayax_settlement_attempt_id',
+    'bloomjoy.nayax_settlement_provider_claim'
+  ]::text[]),
+  'Normal request journaling and settlement create only their exact authority markers'
+);
+select diag(pg_temp.refund_authority_marker_diagnostic(array[
+    'bloomjoy.nayax_journal_contract_version',
+    'bloomjoy.nayax_settlement_attempt_id',
+    'bloomjoy.nayax_settlement_provider_claim'
+  ]::text[])::text)
+where not pg_temp.refund_authority_markers_match(array[
+  'bloomjoy.nayax_journal_contract_version',
+  'bloomjoy.nayax_settlement_attempt_id',
+  'bloomjoy.nayax_settlement_provider_claim'
+]::text[]);
 select ok(public.refund_receipt_verified_api_attempt('b7400000-0000-4000-8000-000000000001',
   (select (result#>>'{attempt,attemptId}')::uuid from verified_result)),'Settled uncertain API attempt has exact immutable purchase authority');
 select is(public.refund_nayax_original_portal_fallback_ready('b7400000-0000-4000-8000-000000000001'),false,

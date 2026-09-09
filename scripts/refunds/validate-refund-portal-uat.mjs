@@ -8565,10 +8565,20 @@ const runTransactionalDeliveryTruthChecks = async ({
     await waitForQueueCount(page, 1);
     await queueCase(page, scenario.publicReference).click();
 
-    const expectedActionCount = await page.getByText(scenario.expectedAction, { exact: true }).count();
-    const expectedActionVisible = expectedActionCount > 0
-      ? await page.getByText(scenario.expectedAction, { exact: true }).first().isVisible()
-      : false;
+    const expectedAction = page.getByRole(scenario.providerRejected ? 'status' : 'button', {
+      name: scenario.expectedAction,
+      exact: true,
+    });
+    await expectedAction.first().waitFor({ state: 'visible', timeout: 10000 });
+    const expectedActionSnapshot = await expectedAction.evaluateAll((elements) => ({
+      total: elements.length,
+      visible: elements.filter((element) => {
+        const style = window.getComputedStyle(element);
+        const bounds = element.getBoundingClientRect();
+        return style.display !== 'none' && style.visibility !== 'hidden' &&
+          Number(style.opacity) !== 0 && bounds.width > 0 && bounds.height > 0;
+      }).length,
+    }));
     const unexpectedActionCount = await page.getByText(scenario.unexpectedAction, { exact: true }).count();
     const deliveryReviewActionCount = await page.getByTestId('refund-review-delivery-record').count();
     const primaryActionText = await page.getByTestId('refund-primary-action').innerText().catch(() => 'missing');
@@ -8577,15 +8587,14 @@ const runTransactionalDeliveryTruthChecks = async ({
     );
     recorder.assert(
       `${scenario.name} preserves the safe primary-action precedence`,
-      expectedActionCount > 0 &&
-        expectedActionVisible &&
+      expectedActionSnapshot.total === 1 &&
+        expectedActionSnapshot.visible === 1 &&
         unexpectedActionCount === 0 &&
         deliveryReviewActionCount === 0 &&
         functionCalls.length === 0 &&
         unexpectedRpcCalls.length === 0,
       JSON.stringify({
-        expectedActionCount,
-        expectedActionVisible,
+        expectedActionSnapshot,
         unexpectedActionCount,
         deliveryReviewActionCount,
         primaryActionText,

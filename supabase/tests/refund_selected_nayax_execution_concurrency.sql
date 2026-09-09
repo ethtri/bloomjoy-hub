@@ -7,6 +7,17 @@ begin;
 create schema refund_verification_race;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
+\ir fixtures/refund_transaction_authority.inc
+select pg_temp.refund_reset_authority_markers();
+create table refund_verification_race.authority_markers(marker text primary key);
+insert into refund_verification_race.authority_markers
+select unnest(pg_temp.refund_authority_marker_names());
+create function refund_verification_race.active_authority_markers()
+returns text[] language sql stable as $$
+  select coalesce(array_agg(marker order by marker), '{}'::text[])
+  from refund_verification_race.authority_markers
+  where nullif(current_setting(marker, true), '') is not null;
+$$;
 
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
@@ -70,11 +81,24 @@ create function refund_verification_race.start_request() returns jsonb language 
   null,null,null,null,null,null,null,null,null,null,null,null);
 $$;
 commit;
-select plan(5);
+select plan(8);
+select ok(
+  pg_temp.refund_authority_markers_match('{}'::text[]),
+  'Concurrency fixture setup commits with no inherited authority markers'
+);
+select diag(pg_temp.refund_authority_marker_diagnostic('{}'::text[])::text)
+where not pg_temp.refund_authority_markers_match('{}'::text[]);
 do $$ declare connection text:='host=db port='||current_setting('port')||' dbname='||current_database()||' user=postgres password=postgres sslmode=disable'; begin
  perform extensions.dblink_connect('verification_a',connection||' application_name=verification_race_a');
  perform extensions.dblink_connect('verification_b',connection||' application_name=verification_race_b');
 end $$;
+select is(
+  (select markers from extensions.dblink(
+    'verification_a', 'select refund_verification_race.active_authority_markers()'
+  ) as remote_snapshot(markers text[])),
+  '{}'::text[],
+  'A representative independent transaction begins without fixture authority'
+);
 -- Block the attempt while request-start first acquires the case. A replay must
 -- wait for that case, not hold it while waiting back on the request's attempt.
 begin;
@@ -107,6 +131,13 @@ select is((select result#>>'{attempt,shouldExecute}' from verification_race_resu
 -- immutable reservation still allow exactly one request claim.
 select * from extensions.dblink_get_result('verification_a') as r(result jsonb);
 select * from extensions.dblink_get_result('verification_b') as r(result jsonb);
+select is(
+  (select markers from extensions.dblink(
+    'verification_a', 'select refund_verification_race.active_authority_markers()'
+  ) as remote_snapshot(markers text[])),
+  '{}'::text[],
+  'The next independent transaction cannot inherit authority created by the request-start action'
+);
 begin;
 select id from public.refund_cases where id='b8400000-0000-4000-8000-000000000002' for update;
 select extensions.dblink_send_query('verification_a',$q$select refund_verification_race.reserve_verified(2,null)$q$);
