@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(109);
+select plan(110);
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
@@ -669,15 +669,23 @@ select ok(not exists(select 1 from public.sales_adjustment_facts
     where refund_case_id='ca500000-0000-4000-8000-000000000007'),
   'A refused recovery rolls back without adjustment or customer-message intent');
 
+select set_config('test.recovery_review_id',(
+  select id::text from public.refund_case_reconciliation_reviews
+  where 'ca500000-0000-4000-8000-000000000107' in
+    (left_refund_case_id,right_refund_case_id)
+),true);
+select set_config('test.recovery_attempt_id',
+  (select result#>>'{attempt,attemptId}' from recovery_reservation),true);
+create temp table recovery_case_before_forgeries as
+select to_jsonb(refund_case) value from public.refund_cases refund_case
+where id='ca500000-0000-4000-8000-000000000007';
 select set_config('request.jwt.claim.role','authenticated',true);
 select set_config('request.jwt.claim.sub','ca000000-0000-4000-8000-000000000001',true);
 select set_config('request.jwt.claims',
   '{"sub":"ca000000-0000-4000-8000-000000000001","role":"authenticated","session_id":"ca010000-0000-4000-8000-000000000001","is_anonymous":false}',true);
 set local role authenticated;
 select lives_ok($$select public.admin_resolve_refund_case_reconciliation(
-  (select id from public.refund_case_reconciliation_reviews
-    where 'ca500000-0000-4000-8000-000000000107' in
-      (left_refund_case_id,right_refund_case_id)),
+  current_setting('test.recovery_review_id')::uuid,
   'duplicate','ca500000-0000-4000-8000-000000000007','same_incident')$$,
   'The existing authenticated manager boundary confirms the same incident');
 reset role;
@@ -695,7 +703,8 @@ select ok((select duplicate_of_refund_case_id='ca500000-0000-4000-8000-000000000
 
 select set_config('request.jwt.claim.role','service_role',true);
 select set_config('request.jwt.claims','{"role":"service_role"}',true);
-set local role service_role;
+-- Simulate trusted state advancing between approval and recovery. The DO block
+-- rolls the owner-only fixture mutation back with the expected recovery error.
 select throws_ok($cmd$do $stale$
 begin
   update public.refund_cases set correlation_summary=coalesce(correlation_summary,'')||' stale-version-fixture'
@@ -704,12 +713,14 @@ begin
     'ca500000-0000-4000-8000-000000000007',
     (select (result#>>'{attempt,attemptId}')::uuid from recovery_reservation),
     'ca500000-0000-4000-8000-000000000107');
+  raise exception 'stale recovery unexpectedly succeeded';
 end $stale$$cmd$,'P4674',null,
   'Recovery rejects a stale official-action version and rolls its test mutation back');
+set local role service_role;
 select throws_ok($cmd$do $forged$
 begin
   perform set_config('bloomjoy.nayax_journal_recovery_attempt_id',
-    (select (result#>>'{attempt,attemptId}') from recovery_reservation),true);
+    current_setting('test.recovery_attempt_id'),true);
   perform set_config('bloomjoy.nayax_journal_recovery_duplicate_id',
     'ca500000-0000-4000-8000-000000000107',true);
   update public.refund_cases set status='completed',
@@ -718,14 +729,22 @@ begin
     refund_completed_at=statement_timestamp(),automation_state='completed',
     nayax_refund_execution_status='approved'
   where id='ca500000-0000-4000-8000-000000000007';
-end $forged$$cmd$,'P0001',null,
-  'Forged recovery settings cannot bypass the exact adjustment-bound case guard');
+end $forged$$cmd$,'42501',null,
+  'Service role cannot turn forged recovery settings into a direct case transition');
 select throws_ok($$select public.service_recover_proved_nayax_api_success_with_duplicate(
   'ca500000-0000-4000-8000-000000000007',
   (select (result#>>'{attempt,attemptId}')::uuid from recovery_reservation),
   'ca500000-0000-4000-8000-000000000006')$$,
   'P4674',null,'Recovery rejects a different sibling binding');
 reset role;
+select ok((select to_jsonb(refund_case) from public.refund_cases refund_case
+      where id='ca500000-0000-4000-8000-000000000007')
+      is not distinct from (select value from recovery_case_before_forgeries)
+    and not exists(select 1 from public.sales_adjustment_facts
+      where refund_case_id='ca500000-0000-4000-8000-000000000007')
+    and not exists(select 1 from public.refund_case_messages
+      where refund_case_id='ca500000-0000-4000-8000-000000000007'),
+  'Rejected stale, forged, and wrong-sibling recovery attempts leave the case unchanged');
 
 create function pg_temp.reject_recovery_notice_preparation()
 returns trigger language plpgsql as $$
