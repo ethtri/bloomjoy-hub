@@ -135,7 +135,10 @@ export async function readReportHealth(client) {
   return { available: true, reason: null,
     importer: pick(data, ['status', 'lastRunAt', 'lastSuccessAt', 'lastRunStatus']),
     delivery: data?.reportFreshness ? pick(data.reportFreshness,
-      ['status', 'lastReceivedAt', 'reviewAfter', 'configuredCadenceMinutes', 'reviewGraceMinutes', 'schedulePhaseKnown', 'ownerLabel']) : null,
+      ['schemaVersion', 'status', 'deliveryState', 'ingestState', 'coverageState', 'coverageReason',
+        'attentionRequired', 'attentionReason', 'affectedCaseCount', 'lastReceivedAt', 'lastRecordedAt', 'lastProviderRunAt',
+        'reviewAfter', 'configuredCadenceMinutes', 'reviewGraceMinutes', 'schedulePhaseKnown', 'ownerLabel',
+        'absenceIsNoRefundEvidence', 'paymentRetryAuthorized']) : null,
     limits: 'Stored Gmail receipt time; receiver-header provenance, per-case coverage and provider refund-status semantics are not established by this health signal. Local grace is not a vendor SLA or payment gate.' };
 }
 
