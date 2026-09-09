@@ -1236,15 +1236,10 @@ select is(
 );
 
 reset role;
+insert into public.admin_roles (user_id, role, active)
+values ('a1000000-0000-0000-0000-000000000003', 'super_admin', true);
 insert into public.customer_accounts (id, name, account_type)
 values ('a2000000-0000-0000-0000-000000000002', 'Second payer account', 'customer');
-insert into public.customer_account_memberships (id, account_id, user_id, email, role, active)
-values (
-  'a2100000-0000-0000-0000-000000000002',
-  'a2000000-0000-0000-0000-000000000002',
-  'a1000000-0000-0000-0000-000000000003',
-  'pay-report-owner@example.test', 'owner', true
-);
 insert into public.reporting_locations (id, account_id, name)
 values ('a3000000-0000-0000-0000-000000000002', 'a2000000-0000-0000-0000-000000000002', 'Second payer location');
 insert into public.reporting_machines (id, account_id, location_id, machine_label)
