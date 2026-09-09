@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(115);
+select plan(118);
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
@@ -1189,6 +1189,46 @@ begin
 end $malformed_recovery_adjustment$$cmd$,'23514',null,
   'Recovery adjustment admission rejects a row whose amount differs from the proved provider attempt');
 
+-- The production case transition reaches its guards on both sides of the
+-- lifecycle revision trigger. Do not let an earlier settlement fixture leave
+-- the legacy provider-hold bypass armed for this recovery coverage.
+select set_config('bloomjoy.nayax_settlement_attempt_id','',true);
+create function pg_temp.mutate_journal_recovery_case_after_lifecycle()
+returns trigger language plpgsql as $$
+begin
+  if new.id='ca500000-0000-4000-8000-000000000007'::uuid
+    and new.status='completed' then
+    if current_setting('test.journal_recovery_case_mutation',true)='lifecycle_plus_two' then
+      new.lifecycle_revision := old.lifecycle_revision + 2;
+    elsif current_setting('test.journal_recovery_case_mutation',true)='unrelated_field' then
+      new.issue_summary := old.issue_summary || ' changed';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+create trigger refund_cases_c_test_journal_recovery_mutation
+before update on public.refund_cases
+for each row execute function pg_temp.mutate_journal_recovery_case_after_lifecycle();
+
+select set_config('request.jwt.claim.role','service_role',true);
+select set_config('request.jwt.claims','{"role":"service_role"}',true);
+set local role service_role;
+select set_config('test.journal_recovery_case_mutation','lifecycle_plus_two',true);
+select throws_ok($$select public.service_recover_proved_nayax_api_success_with_duplicate(
+  'ca500000-0000-4000-8000-000000000007',
+  (select (result#>>'{attempt,attemptId}')::uuid from recovery_reservation),
+  'ca500000-0000-4000-8000-000000000107')$$,'P0001',null,
+  'Recovery rejects a lifecycle revision advance beyond the one trigger-owned increment');
+select set_config('test.journal_recovery_case_mutation','unrelated_field',true);
+select throws_ok($$select public.service_recover_proved_nayax_api_success_with_duplicate(
+  'ca500000-0000-4000-8000-000000000007',
+  (select (result#>>'{attempt,attemptId}')::uuid from recovery_reservation),
+  'ca500000-0000-4000-8000-000000000107')$$,'P0001',null,
+  'Recovery rejects an unrelated case-field mutation at the post-lifecycle guard');
+select set_config('test.journal_recovery_case_mutation','',true);
+reset role;
+
 create function pg_temp.reject_recovery_notice_preparation()
 returns trigger language plpgsql as $$
 begin
@@ -1198,6 +1238,29 @@ $$;
 create trigger reject_recovery_notice_preparation
 before insert on public.refund_receipt_completion_automation_authorities
 for each row execute function pg_temp.reject_recovery_notice_preparation();
+
+select set_config('bloomjoy.nayax_definitive_rejection_attempt_id','',true);
+select set_config('bloomjoy.nayax_interruption_recovery_attempt_id','',true);
+select set_config('bloomjoy.nayax_journal_contract_version','',true);
+select set_config('bloomjoy.nayax_journal_recovery_attempt_id','',true);
+select set_config('bloomjoy.nayax_journal_recovery_duplicate_id','',true);
+select set_config('bloomjoy.nayax_no_call_recovery_attempt_id','',true);
+select set_config('bloomjoy.nayax_settlement_attempt_id','',true);
+select set_config('bloomjoy.nayax_settlement_provider_claim','',true);
+select set_config('bloomjoy.nayax_support_resolution_id','',true);
+select set_config('bloomjoy.refund_terminal_receipt_case_id','',true);
+select ok(
+  nullif(current_setting('bloomjoy.nayax_definitive_rejection_attempt_id',true),'') is null
+  and nullif(current_setting('bloomjoy.nayax_interruption_recovery_attempt_id',true),'') is null
+  and nullif(current_setting('bloomjoy.nayax_journal_contract_version',true),'') is null
+  and nullif(current_setting('bloomjoy.nayax_journal_recovery_attempt_id',true),'') is null
+  and nullif(current_setting('bloomjoy.nayax_journal_recovery_duplicate_id',true),'') is null
+  and nullif(current_setting('bloomjoy.nayax_no_call_recovery_attempt_id',true),'') is null
+  and nullif(current_setting('bloomjoy.nayax_settlement_attempt_id',true),'') is null
+  and nullif(current_setting('bloomjoy.nayax_settlement_provider_claim',true),'') is null
+  and nullif(current_setting('bloomjoy.nayax_support_resolution_id',true),'') is null
+  and nullif(current_setting('bloomjoy.refund_terminal_receipt_case_id',true),'') is null,
+  'Journal recovery coverage starts without an inherited transition bypass');
 
 select set_config('request.jwt.claim.role','service_role',true);
 select set_config('request.jwt.claims','{"role":"service_role"}',true);
