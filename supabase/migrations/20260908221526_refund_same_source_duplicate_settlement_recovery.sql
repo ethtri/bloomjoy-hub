@@ -1271,7 +1271,7 @@ declare
   authz public.refund_case_official_action_authorizations%rowtype;
   approve_journal public.refund_nayax_provider_stage_journal%rowtype;
   adjustment public.sales_adjustment_facts%rowtype;
-  receipt_id uuid;
+  terminal_receipt_id uuid;
   review_id uuid;
   recovery_at timestamptz := statement_timestamp();
   recovered_provider_reference text;
@@ -1318,12 +1318,12 @@ begin
         and event.metadata ->> 'duplicate_case_id' = duplicate.id::text
         and event.metadata ->> 'payload_redacted' = 'true'
     ) then
-    select receipt.id into receipt_id
+    select receipt.id into terminal_receipt_id
     from public.refund_authoritative_receipts receipt
     where receipt.refund_case_id = canonical.id
       and receipt.nayax_refund_attempt_id = attempt.id
       and receipt.confirmation_source = 'api_stage_contract';
-    if receipt_id is null then
+    if terminal_receipt_id is null then
       raise exception 'Completed recovery is missing its authoritative receipt';
     end if;
     select jsonb_build_object(
@@ -1334,7 +1334,7 @@ begin
     ) into completion_claim
     from public.refund_receipt_completion_intents intent
     join public.refund_case_messages message on message.id = intent.message_id
-    where intent.receipt_id = receipt_id
+    where intent.receipt_id = terminal_receipt_id
       and public.is_refund_receipt_completion_message(to_jsonb(message));
     completion_claim := coalesce(completion_claim, jsonb_build_object(
       'refundCaseMessageId', null, 'status', 'notice_deferred',
@@ -1343,7 +1343,7 @@ begin
     return jsonb_build_object(
       'recovered', false, 'replayed', true,
       'refundCaseId', canonical.id, 'duplicateRefundCaseId', duplicate.id,
-      'nayaxRefundAttemptId', attempt.id, 'terminalReceiptId', receipt_id,
+      'nayaxRefundAttemptId', attempt.id, 'terminalReceiptId', terminal_receipt_id,
       'refundCaseMessageId', completion_claim -> 'refundCaseMessageId',
       'completionMessageStatus', completion_claim ->> 'status',
       'providerCallMade', false, 'customerMessageSent', false
@@ -1452,14 +1452,14 @@ begin
         'recovery_recorded_at',recovery_at,'payload_redacted',true),
       provider_claim_consumed_at = recovery_at,
       provider_outcome = 'success',
-      provider_outcome_recorded_at = recovery_at,
+      provider_outcome_recorded_at = approve_journal.created_at,
       reconciliation_required = false,
       reporting_adjustment_id = adjustment.id,
       case_finalization_committed_at = recovery_at,
       completed_at = recovery_at
   where id = attempt.id;
 
-  receipt_id := public.refund_ensure_proved_nayax_api_terminal_receipt(
+  terminal_receipt_id := public.refund_ensure_proved_nayax_api_terminal_receipt(
     canonical.id, attempt.id
   );
   begin
@@ -1477,7 +1477,7 @@ begin
       canonical.id, null, 'customer_message_deferred',
       'Confirmed payment was retained while completion-notice preparation was deferred for internal follow-up.',
       jsonb_build_object(
-        'attempt_id', attempt.id, 'terminal_receipt_id', receipt_id,
+        'attempt_id', attempt.id, 'terminal_receipt_id', terminal_receipt_id,
         'provider_call_made', false, 'customer_message_sent', false,
         'reason', 'notice_preparation_failed', 'payload_redacted', true
       )
@@ -1492,7 +1492,7 @@ begin
     jsonb_build_object(
       'attempt_id', attempt.id, 'authorization_id', authz.id,
       'review_id', review_id, 'duplicate_case_id', duplicate.id,
-      'terminal_receipt_id', receipt_id,
+      'terminal_receipt_id', terminal_receipt_id,
       'refund_case_message_id', completion_claim -> 'refundCaseMessageId',
       'completion_notice_status', completion_claim ->> 'status',
       'provider_approved_at', approve_journal.created_at,
@@ -1506,7 +1506,7 @@ begin
   return jsonb_build_object(
     'recovered', true, 'replayed', false,
     'refundCaseId', canonical.id, 'duplicateRefundCaseId', duplicate.id,
-    'nayaxRefundAttemptId', attempt.id, 'terminalReceiptId', receipt_id,
+    'nayaxRefundAttemptId', attempt.id, 'terminalReceiptId', terminal_receipt_id,
     'reportingAdjustmentId', adjustment.id,
     'refundCaseMessageId', completion_claim -> 'refundCaseMessageId',
     'completionMessageStatus', completion_claim ->> 'status',
