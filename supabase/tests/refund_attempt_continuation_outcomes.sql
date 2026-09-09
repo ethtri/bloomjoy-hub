@@ -627,7 +627,7 @@ insert into public.refund_cases(
   'ca500000-0000-4000-8000-000000000107','RF-CONTINUE-7-DUP',
   reporting_machine_id,reporting_location_id,customer_email,
   'Same incident submitted again',incident_at,payment_method,payment_amount_cents,
-  card_last4,card_wallet_used,'needs_review','manual_review','needs_review',
+  card_last4,card_wallet_used,'needs_review','manual_review','approved',
   false,'not_requested','form'
 from public.refund_cases where id='ca500000-0000-4000-8000-000000000007';
 
