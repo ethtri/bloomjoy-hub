@@ -625,6 +625,7 @@ const run = async () => {
       (await page.locator('#work-machine').textContent())?.includes('Cotton Candy 02')
     );
     await page.getByRole('button', { name: 'Back to week' }).click();
+    await page.waitForURL(/\/portal\/time\?/);
 
     await page.getByText('12:00 PM to 1:02 PM', { exact: true }).waitFor();
     const deleteButton = page.getByRole('button', { name: /Delete .*12:00 PM to 1:02 PM/i });

@@ -495,7 +495,9 @@ const run = async () => {
     const refreshedSales = state.rpcCalls.find((call) => call.rpcName === 'admin_refresh_technician_pay_report_sales');
     check('Manager can refresh authoritative Commissionable Sales from the report', refreshedSales?.body.p_month === '2026-09-01' && refreshedSales?.body.p_account_id === null);
 
-    await page.getByRole('button', { name: 'Adjust pay' }).click();
+    const adjustPayTrigger = page.getByRole('button', { name: 'Adjust pay' });
+    await adjustPayTrigger.scrollIntoViewIfNeeded();
+    await adjustPayTrigger.click();
     await page.getByRole('menuitem', { name: 'Change started-hour rate' }).click();
     await page.locator('#pay-input-value').fill('22.50');
     await page.getByRole('button', { name: 'Save pay input' }).click();
@@ -503,7 +505,8 @@ const run = async () => {
     const savedShiftRate = state.rpcCalls.find((call) => call.rpcName === 'admin_supersede_operator_compensation_rate' && call.body.p_rate_type === 'shift');
     check('Manager can add an effective-dated shift rate without an approval or reason', savedShiftRate?.body.p_rate_value === 2250 && savedShiftRate?.body.p_effective_start_date === '2026-09-01' && !('p_reason' in savedShiftRate.body));
 
-    await page.getByRole('button', { name: 'Adjust pay' }).click();
+    await adjustPayTrigger.scrollIntoViewIfNeeded();
+    await adjustPayTrigger.click();
     await page.getByRole('menuitem', { name: 'Change commission' }).click();
     await page.locator('#pay-input-value').fill('12');
     await page.getByRole('button', { name: 'Save pay input' }).click();
@@ -527,7 +530,8 @@ const run = async () => {
     check('Pay Report has no mobile page overflow', await noOverflow(page));
     const shortControls = await page.locator('button:visible, input:visible').evaluateAll((elements) => elements.filter((element) => element.getBoundingClientRect().height < 43).length);
     check('Visible mobile controls meet touch target height', shortControls === 0);
-    await page.getByRole('button', { name: 'Adjust pay' }).click();
+    await adjustPayTrigger.scrollIntoViewIfNeeded();
+    await adjustPayTrigger.click();
     await page.getByRole('menuitem', { name: 'Add another earning' }).click();
     const mobileDialog = page.getByRole('dialog');
     const dialogFitsViewport = await mobileDialog.evaluate((element) => {
