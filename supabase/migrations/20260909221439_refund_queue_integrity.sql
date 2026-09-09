@@ -365,8 +365,14 @@ begin
   end if;
 
   if base #>> '{managerQueue,bucket}' = 'needs_action'
+    and base ->> 'stage' = 'customer_notified'
+    and base ->> 'reasonCode' = 'completion_delivery_unconfirmed'
+    and base ->> 'paymentState' = 'confirmed'
+    and base ->> 'managerNextAction' = 'review_delivery_no_resend'
     and base #>> '{managerAction,owner}' = 'Refund Operations'
-    and coalesce((base #>> '{operations,required}')::boolean, false) then
+    and coalesce((base #>> '{operations,required}')::boolean, false)
+    and base #>> '{operations,failureClass}' = 'customer_delivery_exception'
+    and base #>> '{operations,safeStage}' = 'settled' then
     base := base || jsonb_build_object(
       'managerQueue', (base -> 'managerQueue') || jsonb_build_object(
         'bucket', 'provider_hold',
