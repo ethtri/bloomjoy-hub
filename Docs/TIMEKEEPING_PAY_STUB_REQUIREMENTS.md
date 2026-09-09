@@ -58,6 +58,7 @@ The MVP is a lightweight timekeeping and contractor-statement product. It is not
 - Managers retain correction access after the Technician cutoff.
 - Manager correction access includes adding an entirely missing entry, not only editing an entry that already exists.
 - Every manager correction retains before/after audit history even though no written reason is required.
+- A voided monthly pay period rejects Technician and manager time-entry writes atomically. Managers must reopen or replace the pay period before correcting its time.
 
 ## Compensation inputs and calculations
 
@@ -128,10 +129,10 @@ The MVP is a lightweight timekeeping and contractor-statement product. It is not
 ### Regeneration and history
 
 - An authorized manager can regenerate a Pay Stub after correcting time, machine scope, a rate, sales inputs, or another compensation item.
-- If time changes after the current Pay Stub calculation was generated, Pay Reports persistently marks that Technician's stub as needing regeneration until a newer version is published. A machine-only manager is told to contact an account pay manager rather than being given pay access.
+- If time changes after the current Pay Stub calculation was generated, Pay Reports persistently marks that Technician's stub as needing regeneration until a newer version is published. Freshness is based on a monotonic audited source revision serialized with statement calculation, so transaction timing cannot make an omitted change appear current. A machine-only manager is told to contact an account pay manager rather than being given pay access.
 - Regeneration creates an immutable new version and never overwrites the previously published artifact.
 - The newest published version is the current Technician copy and is clearly labeled when revised.
-- When an earlier period changes, affected year-to-date totals on later statements are recalculated and republished as new versions or explicitly held as stale until that cascade completes.
+- When an earlier period changes, that period and every later issued statement in the same calendar year are explicitly held as stale until each affected statement is recalculated and republished as a new version. Successfully regenerating the earlier month does not by itself clear later statements, and a failed regeneration clears nothing.
 - A midyear launch supports manager-entered opening year-to-date balances so the first portal-generated statement can continue the totals from prior manual statements.
 - Technicians see a newest-first history by pay period and can view or download the current published PDF for each period. Superseded versions remain available only to authorized managers for audit purposes.
 
