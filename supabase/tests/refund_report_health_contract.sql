@@ -37,7 +37,7 @@ select is(public.get_refund_gmail_health()#>>'{reportFreshness,attentionRequired
 insert into public.nayax_scheduled_report_files(file_digest,received_at,byte_count,row_count,report)
 values(repeat('1',64),now()-interval '3 hours',100,1,jsonb_build_object('reportingPeriod',null));
 insert into public.nayax_scheduled_report_messages(message_id,file_digest,received_at,delivery_form)
-values('health-file-1',repeat('1',64),now()-interval '3 hours','linked_download');
+values('feed0001',repeat('1',64),now()-interval '3 hours','linked_download');
 select is(public.get_refund_gmail_health()#>>'{reportFreshness,deliveryState}','ordinary_silence','Old file without provider log evidence is ordinary silence');
 select is(public.get_refund_gmail_health()#>>'{reportFreshness,status}','recent','Compatibility status keeps ordinary silence out of manager warnings');
 select is((public.get_refund_gmail_health()#>>'{reportFreshness,lastRecordedAt}')::timestamptz,(select recorded_at from public.nayax_scheduled_report_files where file_digest=repeat('1',64)),'File received and recorded times remain separate');
@@ -74,7 +74,7 @@ select is(public.get_refund_gmail_health()#>>'{reportFreshness,attentionReason}'
 insert into public.refund_gmail_sync_runs(
   id,run_key,trigger_source,status,started_at,finished_at,messages_failed,failure_category,error_code
 ) values(
-  'e3500000-0000-4000-8000-000000000001','report-health-failed-run','failure_test','failed',
+  'e3500000-0000-4000-8000-000000000001','github-failure-test:1:1','failure_test','failed',
   now()-interval '1 minute',now(),1,'message_processing','nayax_report:normalize:nayax_report_contract_invalid'
 );
 update public.refund_gmail_sync_state
