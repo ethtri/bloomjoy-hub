@@ -64,7 +64,8 @@ returns jsonb language sql stable as $$
     'payment_interaction_comparison','unknown','same_identifier_equivalence_proven',false,
     'identifier_review_state','exact_support','customer_correction_fields','[]'::jsonb,
     'hard_exclusions','[]'::jsonb,
-    'reason_codes','["customer_request_time_unknown"]'::jsonb,
+    'reason_codes','["customer_request_time_unknown"]'::jsonb
+  ) || jsonb_build_object(
     'lookup_account_scope','CONTINUATION_ACCOUNT',
     'lookup_provider_machine_id','CONTINUATION-MACHINE',
     'provider_machine_id','CONTINUATION-MACHINE',
@@ -838,6 +839,10 @@ select ok((select to_jsonb(refund_case) from public.refund_cases refund_case
     and not exists(select 1 from public.refund_case_messages
       where refund_case_id='ca500000-0000-4000-8000-000000000007'),
   'Rejected stale, forged, and wrong-sibling recovery attempts leave the case unchanged');
+
+update public.refund_customer_contact_settings
+set automatic_customer_contact_enabled=true
+where singleton;
 
 create function pg_temp.reject_recovery_notice_preparation()
 returns trigger language plpgsql as $$
