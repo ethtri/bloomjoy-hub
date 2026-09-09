@@ -9,7 +9,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(88);
+select plan(111);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -279,7 +279,75 @@ values (
   'a6000000-0000-0000-0000-000000000002',
   'BJ-STUB-202607-PARTIAL-V1', 'Pay Stub', 'issued', 1,
   '2026-08-01 00:00:00+00',
-  '{"schemaVersion":"operator-pay-stub-v2"}'::jsonb,
+  jsonb_build_object(
+    'schemaVersion', 'operator-pay-stub-v2',
+    'calculationMeta', jsonb_build_object(
+      'paySourceRevision', private.operator_pay_time_source_revision(
+        'a6000000-0000-0000-0000-000000000002',
+        '2026-07-31'
+      )
+    )
+  ),
+  'portal_published'
+);
+
+insert into public.payout_periods (
+  id, account_id, payout_policy_id, period_start_date, period_end_date,
+  submission_due_date, lock_date, target_payout_date, status
+)
+values (
+  'a7000000-0000-0000-0000-000000000002',
+  'a2000000-0000-0000-0000-000000000001',
+  'a5000000-0000-0000-0000-000000000001',
+  '2026-08-01', '2026-08-31', '2026-09-04', '2026-09-04', '2026-09-05', 'issued'
+);
+
+insert into public.payout_runs (
+  id, account_id, payout_period_id, status
+)
+values (
+  'ac000000-0000-0000-0000-000000000002',
+  'a2000000-0000-0000-0000-000000000001',
+  'a7000000-0000-0000-0000-000000000002',
+  'issued'
+);
+
+insert into public.payout_run_items (
+  id, payout_run_id, account_id, operator_profile_id, worker_type,
+  raw_minutes, rounded_paid_minutes, shift_count, hourly_pay_cents,
+  eligible_net_revenue_cents, commission_pay_cents, total_payout_cents, status
+)
+values (
+  'ac100000-0000-0000-0000-000000000003',
+  'ac000000-0000-0000-0000-000000000002',
+  'a2000000-0000-0000-0000-000000000001',
+  'a6000000-0000-0000-0000-000000000002',
+  'contractor_1099',
+  0, 0, 0, 0, 0, 0, 0, 'finalized'
+);
+
+insert into public.pay_statements (
+  id, payout_run_id, payout_run_item_id, account_id, operator_profile_id,
+  statement_number, statement_label, status, version, issued_at,
+  statement_payload, operator_notification_status
+)
+values (
+  'ac300000-0000-0000-0000-000000000002',
+  'ac000000-0000-0000-0000-000000000002',
+  'ac100000-0000-0000-0000-000000000003',
+  'a2000000-0000-0000-0000-000000000001',
+  'a6000000-0000-0000-0000-000000000002',
+  'BJ-STUB-202608-PARTIAL-V1', 'Pay Stub', 'issued', 1,
+  '2026-09-01 00:00:00+00',
+  jsonb_build_object(
+    'schemaVersion', 'operator-pay-stub-v2',
+    'calculationMeta', jsonb_build_object(
+      'paySourceRevision', private.operator_pay_time_source_revision(
+        'a6000000-0000-0000-0000-000000000002',
+        '2026-08-31'
+      )
+    )
+  ),
   'portal_published'
 );
 
@@ -336,6 +404,18 @@ select ok(
 select ok(
   not has_function_privilege('authenticated', 'private.calculate_technician_pay_report(uuid,uuid,date,date)', 'execute'),
   'browser callers cannot invoke the private pay calculation directly'
+);
+select has_column(
+  'public',
+  'time_entry_change_events',
+  'source_revision',
+  'audited time changes carry a durable Pay Stub source revision'
+);
+select col_not_null(
+  'public',
+  'time_entry_change_events',
+  'source_revision',
+  'every audited time change must receive a source revision'
 );
 
 set local role authenticated;
@@ -894,6 +974,18 @@ select is(
   'a1000000-0000-0000-0000-000000000002:t',
   'manager-created missed time audit records the responsible actor and timestamp'
 );
+select ok(
+  (
+    select event.source_revision > 0
+    from public.time_entry_change_events event
+    join public.time_entries entry on entry.id = event.time_entry_id
+    where entry.operator_profile_id = 'a6000000-0000-0000-0000-000000000002'
+      and entry.work_date = '2026-07-30'
+      and event.change_kind = 'manager_created'
+    limit 1
+  ),
+  'the committed missed-time change receives a monotonic source revision'
+);
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
@@ -903,6 +995,122 @@ select is(
   'true',
   'Pay Reports persistently flags the stale published Pay Stub until regeneration'
 );
+
+reset role;
+select ok(
+  private.operator_pay_stub_regeneration_required(
+    'a6000000-0000-0000-0000-000000000002',
+    '2026-08-01',
+    '2026-08-31'
+  ),
+  'a July time change also marks the later issued August YTD Pay Stub stale'
+);
+
+update public.pay_statements statement
+set statement_payload = statement.statement_payload || jsonb_build_object(
+  'calculationMeta',
+  coalesce(statement.statement_payload -> 'calculationMeta', '{}'::jsonb)
+    || jsonb_build_object(
+      'paySourceRevision',
+      private.operator_pay_time_source_revision(
+        statement.operator_profile_id,
+        '2026-07-31'
+      )
+    )
+)
+where statement.id = 'ac300000-0000-0000-0000-000000000001';
+
+select ok(
+  not private.operator_pay_stub_regeneration_required(
+    'a6000000-0000-0000-0000-000000000002',
+    '2026-07-01',
+    '2026-07-31'
+  ),
+  'a regenerated July statement clears only its proven current source revision'
+);
+select ok(
+  private.operator_pay_stub_regeneration_required(
+    'a6000000-0000-0000-0000-000000000002',
+    '2026-08-01',
+    '2026-08-31'
+  ),
+  'regenerating July does not prematurely clear the later August YTD warning'
+);
+
+update public.pay_statements statement
+set statement_payload = statement.statement_payload || jsonb_build_object(
+  'calculationMeta',
+  coalesce(statement.statement_payload -> 'calculationMeta', '{}'::jsonb)
+    || jsonb_build_object(
+      'paySourceRevision',
+      private.operator_pay_time_source_revision(
+        statement.operator_profile_id,
+        '2026-08-31'
+      )
+    )
+)
+where statement.id = 'ac300000-0000-0000-0000-000000000002';
+
+select ok(
+  not private.operator_pay_stub_regeneration_required(
+    'a6000000-0000-0000-0000-000000000002',
+    '2026-08-01',
+    '2026-08-31'
+  ),
+  'the later YTD warning clears only after August records the current source revision'
+);
+
+insert into public.payout_periods (
+  id, account_id, payout_policy_id, period_start_date, period_end_date,
+  submission_due_date, lock_date, target_payout_date, status
+)
+values (
+  'a7000000-0000-0000-0000-000000000003',
+  'a2000000-0000-0000-0000-000000000001',
+  'a5000000-0000-0000-0000-000000000001',
+  '2026-09-01', '2026-09-30', '2026-10-04', '2026-10-04', '2026-10-05', 'voided'
+);
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000002', true);
+select is(
+  pg_temp.capture_error($$
+    select public.manager_create_operator_time_entry(
+      'a6000000-0000-0000-0000-000000000001',
+      'a4000000-0000-0000-0000-000000000001',
+      '2026-09-01 15:00:00+00',
+      '2026-09-01 16:00:00+00',
+      null
+    )
+  $$),
+  'Voided pay periods cannot accept time changes',
+  'manager-created time is rejected when its payout period is voided'
+);
+
+reset role;
+select is(
+  (
+    select count(*)::integer
+    from public.time_entries entry
+    where entry.operator_profile_id = 'a6000000-0000-0000-0000-000000000001'
+      and entry.work_date = '2026-09-01'
+  ),
+  0,
+  'a rejected voided-period write creates no time entry'
+);
+select is(
+  (
+    select count(*)::integer
+    from public.admin_audit_log audit
+    where audit.action = 'operator_time_entry.manager_created'
+      and audit.after ->> 'work_date' = '2026-09-01'
+  ),
+  0,
+  'a rejected voided-period write creates no manager audit record'
+);
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
 select is(
   (
     select entry.value ->> 'shiftRateCents'
@@ -1060,6 +1268,268 @@ select is(
   $$),
   'Machine manager access required',
   'an outsider cannot add missed time for a managed machine'
+);
+
+-- Publication must recheck the time-source watermark after PDF rendering.
+-- This proves a failed completion leaves the earlier issued statement current
+-- and stale, while a subsequent fresh completion clears the warning.
+reset role;
+insert into public.pay_statements (
+  id, payout_run_id, payout_run_item_id, account_id, operator_profile_id,
+  statement_number, statement_label, status, version,
+  revised_from_statement_id, statement_payload, statement_generated_at,
+  operator_notification_status
+)
+values (
+  'ac300000-0000-0000-0000-000000000003',
+  'ac000000-0000-0000-0000-000000000002',
+  'ac100000-0000-0000-0000-000000000003',
+  'a2000000-0000-0000-0000-000000000001',
+  'a6000000-0000-0000-0000-000000000002',
+  'BJ-STUB-202608-PARTIAL-V2-STALE', 'Pay Stub', 'draft', 2,
+  'ac300000-0000-0000-0000-000000000002',
+  jsonb_build_object(
+    'schemaVersion', 'operator-pay-stub-v2',
+    'calculationMeta', jsonb_build_object(
+      'paySourceRevision', private.operator_pay_time_source_revision(
+        'a6000000-0000-0000-0000-000000000002',
+        '2026-08-31'
+      )
+    )
+  ),
+  now(), 'not_sent'
+);
+insert into public.pay_stub_generation_requests (
+  id, account_id, operator_profile_id, payout_period_id, trigger_kind,
+  status, requested_by, pay_statement_id, attempt_count, started_at
+)
+values (
+  'ad000000-0000-0000-0000-000000000001',
+  'a2000000-0000-0000-0000-000000000001',
+  'a6000000-0000-0000-0000-000000000002',
+  'a7000000-0000-0000-0000-000000000002',
+  'manager_regeneration', 'processing',
+  'a1000000-0000-0000-0000-000000000003',
+  'ac300000-0000-0000-0000-000000000003', 1, now()
+);
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000002', true);
+select public.manager_create_operator_time_entry(
+  'a6000000-0000-0000-0000-000000000002',
+  'a4000000-0000-0000-0000-000000000002',
+  '2026-07-29 17:00:00+00',
+  '2026-07-29 18:00:00+00',
+  null
+);
+
+reset role;
+select is(
+  pg_temp.capture_error($$
+    select public.service_complete_pay_stub(
+      'ad000000-0000-0000-0000-000000000001',
+      'ac300000-0000-0000-0000-000000000003',
+      'test/stale.pdf'
+    )
+  $$),
+  'Pay Stub source changed during generation; retry required',
+  'Pay Stub publication rejects a time change committed after preparation'
+);
+select is(
+  (select status from public.pay_statements where id = 'ac300000-0000-0000-0000-000000000002'),
+  'issued',
+  'failed stale publication leaves the prior issued Pay Stub current'
+);
+select public.service_fail_pay_stub(
+  'ad000000-0000-0000-0000-000000000001',
+  'Pay Stub source changed during generation; retry required'
+);
+select is(
+  (select status from public.pay_stub_generation_requests where id = 'ad000000-0000-0000-0000-000000000001'),
+  'failed',
+  'the failed regeneration request remains recorded as failed'
+);
+select ok(
+  private.operator_pay_stub_regeneration_required(
+    'a6000000-0000-0000-0000-000000000002',
+    '2026-08-01', '2026-08-31'
+  ),
+  'a failed regeneration leaves the later Pay Stub stale'
+);
+
+delete from public.pay_statements
+where id = 'ac300000-0000-0000-0000-000000000003';
+
+insert into public.pay_statements (
+  id, payout_run_id, payout_run_item_id, account_id, operator_profile_id,
+  statement_number, statement_label, status, version,
+  revised_from_statement_id, statement_payload, statement_generated_at,
+  operator_notification_status
+)
+values (
+  'ac300000-0000-0000-0000-000000000004',
+  'ac000000-0000-0000-0000-000000000002',
+  'ac100000-0000-0000-0000-000000000003',
+  'a2000000-0000-0000-0000-000000000001',
+  'a6000000-0000-0000-0000-000000000002',
+  'BJ-STUB-202608-PARTIAL-V2-FRESH', 'Pay Stub', 'draft', 2,
+  'ac300000-0000-0000-0000-000000000002',
+  jsonb_build_object(
+    'schemaVersion', 'operator-pay-stub-v2',
+    'calculationMeta', jsonb_build_object(
+      'paySourceRevision', private.operator_pay_time_source_revision(
+        'a6000000-0000-0000-0000-000000000002',
+        '2026-08-31'
+      )
+    )
+  ),
+  now(), 'not_sent'
+);
+insert into public.pay_stub_generation_requests (
+  id, account_id, operator_profile_id, payout_period_id, trigger_kind,
+  status, requested_by, pay_statement_id, attempt_count, started_at
+)
+values (
+  'ad000000-0000-0000-0000-000000000002',
+  'a2000000-0000-0000-0000-000000000001',
+  'a6000000-0000-0000-0000-000000000002',
+  'a7000000-0000-0000-0000-000000000002',
+  'manager_regeneration', 'processing',
+  'a1000000-0000-0000-0000-000000000003',
+  'ac300000-0000-0000-0000-000000000004', 1, now()
+);
+
+select is(
+  public.service_complete_pay_stub(
+    'ad000000-0000-0000-0000-000000000002',
+    'ac300000-0000-0000-0000-000000000004',
+    'test/fresh.pdf'
+  ) ->> 'status',
+  'completed',
+  'a Pay Stub with the current source revision publishes successfully'
+);
+select is(
+  (select status from public.pay_statements where id = 'ac300000-0000-0000-0000-000000000004'),
+  'issued',
+  'successful regeneration publishes the fresh immutable version'
+);
+select ok(
+  not private.operator_pay_stub_regeneration_required(
+    'a6000000-0000-0000-0000-000000000002',
+    '2026-08-01', '2026-08-31'
+  ),
+  'successful regeneration clears the later Pay Stub stale state'
+);
+
+insert into public.payout_periods (
+  id, account_id, payout_policy_id, period_start_date, period_end_date,
+  submission_due_date, lock_date, target_payout_date, status
+)
+values (
+  'a7000000-0000-0000-0000-000000000004',
+  'a2000000-0000-0000-0000-000000000001',
+  'a5000000-0000-0000-0000-000000000001',
+  '2026-06-01', '2026-06-30', '2026-07-04', '2026-07-04', '2026-07-05', 'locked'
+);
+select set_config('app.timekeeping_manager_correction', 'true', true);
+insert into public.time_entries (
+  id, account_id, operator_profile_id, reporting_machine_id, reporting_location_id,
+  payout_policy_id, payout_period_id, work_date, start_time, end_time,
+  actual_start_at, actual_end_at, raw_duration_minutes, rounded_paid_minutes,
+  paid_shift_count, status
+)
+values (
+  'a9000000-0000-0000-0000-000000000008',
+  'a2000000-0000-0000-0000-000000000001',
+  'a6000000-0000-0000-0000-000000000001',
+  'a4000000-0000-0000-0000-000000000001',
+  'a3000000-0000-0000-0000-000000000001',
+  'a5000000-0000-0000-0000-000000000001',
+  'a7000000-0000-0000-0000-000000000004',
+  '2026-06-15', '08:00', '09:00',
+  '2026-06-15 15:00:00+00', '2026-06-15 16:00:00+00',
+  60, 60, 1, 'submitted'
+);
+update public.payout_periods
+set status = 'voided'
+where id = 'a7000000-0000-0000-0000-000000000004';
+
+select is(
+  pg_temp.capture_error($$
+    update public.time_entries
+    set actual_end_at = '2026-06-15 16:30:00+00'
+    where id = 'a9000000-0000-0000-0000-000000000008'
+  $$),
+  'Voided pay periods cannot accept time changes',
+  'manager correction cannot edit an existing entry in a voided period'
+);
+select is(
+  (select raw_duration_minutes from public.time_entries where id = 'a9000000-0000-0000-0000-000000000008'),
+  60,
+  'a rejected voided-period correction leaves the existing entry unchanged'
+);
+
+create temporary table pay_source_cross_move_baseline as
+select private.operator_pay_time_source_revision(
+  'a6000000-0000-0000-0000-000000000002',
+  '2026-07-31'
+) as source_revision;
+
+insert into public.time_entry_change_events (
+  time_entry_id, account_id, operator_profile_id, reporting_machine_id,
+  change_kind, before_state, after_state
+)
+values (
+  'a9000000-0000-0000-0000-000000000008',
+  'a2000000-0000-0000-0000-000000000001',
+  'a6000000-0000-0000-0000-000000000002',
+  'a4000000-0000-0000-0000-000000000002',
+  'system_changed',
+  '{"operator_profile_id":"a6000000-0000-0000-0000-000000000001","work_date":"2026-01-15"}'::jsonb,
+  '{"operator_profile_id":"a6000000-0000-0000-0000-000000000002","work_date":"2026-12-15"}'::jsonb
+);
+
+select is(
+  private.operator_pay_time_source_revision(
+    'a6000000-0000-0000-0000-000000000002',
+    '2026-07-31'
+  ),
+  (select source_revision from pay_source_cross_move_baseline),
+  'profile and work date stay paired when a time entry moves across both'
+);
+
+select has_column(
+  'public',
+  'customer_accounts',
+  'legal_name',
+  'Pay Stub payer records expose the optional legal-name field used by statement builders'
+);
+select is(
+  public.operator_pay_statement_payload_for_item(
+    'ac100000-0000-0000-0000-000000000001',
+    'BJ-PAY-LINT-PREVIEW',
+    1,
+    'draft',
+    null,
+    null
+  ) ->> 'schemaVersion',
+  'operator-pay-statement-v1',
+  'the legacy statement payload builder executes against the current account schema'
+);
+
+update public.payout_runs
+set status = 'finalized'
+where id = 'ac000000-0000-0000-0000-000000000001';
+set local role authenticated;
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
+select is(
+  public.admin_issue_pay_statements(
+    'ac000000-0000-0000-0000-000000000001',
+    'Synthetic lint regression',
+    'Synthetic lint regression'
+  ) ->> 'issuedStatementCount',
+  '2',
+  'legacy statement issuance resolves the existing payload column without ambiguity'
 );
 
 select * from finish();

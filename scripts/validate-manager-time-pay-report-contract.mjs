@@ -21,6 +21,18 @@ const files = {
     'migrations',
     '20260908213408_manager_add_missed_time.sql'
   ),
+  freshnessMigration: path.join(
+    repoRoot,
+    'supabase',
+    'migrations',
+    '20260908234718_timekeeping_pay_stub_freshness_hardening.sql'
+  ),
+  payStubLintMigration: path.join(
+    repoRoot,
+    'supabase',
+    'migrations',
+    '20260909003847_fix_pay_stub_database_lint_errors.sql'
+  ),
   setupMigration: path.join(
     repoRoot,
     'supabase',
@@ -28,6 +40,12 @@ const files = {
     '20260908043000_timekeeping_pilot_setup.sql'
   ),
   pgTap: path.join(repoRoot, 'supabase', 'tests', 'manager_time_pay_report_contract.sql'),
+  concurrencyPgTap: path.join(
+    repoRoot,
+    'supabase',
+    'tests',
+    'timekeeping_pay_stub_freshness_concurrency.sql'
+  ),
   helper: path.join(repoRoot, 'src', 'lib', 'operatorPayouts.ts'),
   payReportPage: path.join(repoRoot, 'src', 'pages', 'admin', 'Payouts.tsx'),
   timeReviewPage: path.join(repoRoot, 'src', 'pages', 'portal', 'TimeReview.tsx'),
@@ -152,6 +170,50 @@ for (const snippet of [
   expect(missedTimeMigration, snippet, 'manager missed-time migration');
 }
 
+const freshnessMigration = readText(files.freshnessMigration);
+for (const snippet of [
+  'time_entry_change_source_revision_seq',
+  'source_revision bigint',
+  'time_entry_change_events_source_revision_uidx',
+  'private.operator_pay_time_source_lock_key',
+  'pg_advisory_xact_lock',
+  'private.guard_time_entry_voided_payout_period',
+  'Voided pay periods cannot accept time changes',
+  'private.operator_pay_time_source_revision',
+  "'paySourceRevision'",
+  'service_prepare_pay_stub_without_time_source_revision',
+  'create function public.service_prepare_pay_stub',
+  'service_complete_pay_stub_without_time_source_revision',
+  'create function public.service_complete_pay_stub',
+  'Pay Stub source changed during generation; retry required',
+  'private.operator_pay_stub_regeneration_required',
+  'revoke execute on function public.service_prepare_pay_stub',
+  'revoke execute on function public.service_complete_pay_stub',
+]) {
+  expect(freshnessMigration, snippet, 'Pay Stub freshness migration');
+}
+
+const concurrencyPgTap = readText(files.concurrencyPgTap);
+for (const marker of [
+  'the independent time-entry transaction waits on the shared Technician/year lock',
+  'the later-committing time entry receives a newer source revision',
+  'a time change absent from the serialized calculation cannot appear current',
+]) {
+  if (!concurrencyPgTap.includes(marker)) {
+    fail(`concurrency pgTAP coverage missing marker: ${marker}`);
+  }
+}
+
+const payStubLintMigration = readText(files.payStubLintMigration);
+for (const snippet of [
+  'add column if not exists legal_name text',
+  'generated_statement_payload jsonb',
+  'statement_payload = prior_statement.statement_payload',
+  'statement_payload = current_statement.statement_payload',
+]) {
+  expect(payStubLintMigration, snippet, 'Pay Stub lint repair migration');
+}
+
 if (/\b(insert|update|delete)\s+public\.payout_(runs|run_items|adjustments)\b/i.test(migration)) {
   fail('The manager report contract must remain calculation-only and cannot mutate payout execution state.');
 }
@@ -250,6 +312,16 @@ for (const marker of [
   'a manager can add entirely missing time after the Technician cutoff without exposing pay-stub state',
   'manager-created missed time retains an audit trail',
   'Pay Reports persistently flags the stale published Pay Stub until regeneration',
+  'a July time change also marks the later issued August YTD Pay Stub stale',
+  'regenerating July does not prematurely clear the later August YTD warning',
+  'manager-created time is rejected when its payout period is voided',
+  'a rejected voided-period write creates no time entry',
+  'Pay Stub publication rejects a time change committed after preparation',
+  'a failed regeneration leaves the later Pay Stub stale',
+  'successful regeneration clears the later Pay Stub stale state',
+  'profile and work date stay paired when a time entry moves across both',
+  'the legacy statement payload builder executes against the current account schema',
+  'legacy statement issuance resolves the existing payload column without ambiguity',
   'future manager-created time is rejected',
   'manager-created time outside the effective assignment is rejected',
   'overlapping manager-created time is rejected',
