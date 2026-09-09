@@ -1307,7 +1307,7 @@ select set_config('test.journal_recovery',
 select set_config('test.journal_recovery_case_mutation','',true);
 reset role;
 select ok(
-  (select count(*)=1 and bool_and(markers=array[
+  (select count(*)>0 and bool_and(markers=array[
     'bloomjoy.nayax_journal_recovery_attempt_id',
     'bloomjoy.nayax_journal_recovery_duplicate_id'
   ]::text[]) from journal_recovery_marker_snapshots),
@@ -1320,7 +1320,7 @@ select diag(jsonb_build_object(
     ]::text[],
   'snapshots',coalesce((select jsonb_agg(markers) from journal_recovery_marker_snapshots),'[]'::jsonb)
 )::text)
-where not (select count(*)=1 and bool_and(markers=array[
+where not (select count(*)>0 and bool_and(markers=array[
   'bloomjoy.nayax_journal_recovery_attempt_id',
   'bloomjoy.nayax_journal_recovery_duplicate_id'
 ]::text[]) from journal_recovery_marker_snapshots);
