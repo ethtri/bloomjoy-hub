@@ -6,15 +6,13 @@ import {
   Banknote,
   CalendarDays,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
+  ChevronDown,
   Clock3,
   Loader2,
   Plus,
-  RefreshCw,
+  SlidersHorizontal,
   ShieldCheck,
   ShoppingBag,
-  Trash2,
   UserRound,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -31,6 +29,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Select,
   SelectContent,
@@ -74,47 +78,46 @@ type PayInputDraft = {
 };
 
 type TechnicianSetupDraft = {
-  step: 1 | 2;
   userEmail: string;
   displayName: string;
   workerType: OperatorWorkerType;
   workerIdentifier: string;
   machineIds: string[];
   effectiveStartDate: string;
-  arrangements: PayArrangementDraft[];
+  machinePay: Record<string, MachinePayDraft>;
 };
 
 type CommissionTiming = 'immediate' | 'three_months' | 'date';
+type CommissionChoice = 'none' | 'three_percent_three_months' | 'custom';
 
-type PayArrangementDraft = {
-  id: string;
-  machineIds: string[];
+type MachinePayDraft = {
   shiftRate: string;
+  commissionChoice: CommissionChoice;
   commissionEnabled: boolean;
   commissionRate: string;
   commissionTiming: CommissionTiming;
   commissionStartDate: string;
 };
 
-const newPayArrangement = (machineIds: string[] = []): PayArrangementDraft => ({
-  id: crypto.randomUUID(),
-  machineIds,
+const newMachinePayDraft = (): MachinePayDraft => ({
   shiftRate: '',
+  commissionChoice: 'none',
   commissionEnabled: false,
   commissionRate: '3',
-  commissionTiming: 'immediate',
+  commissionTiming: 'three_months',
   commissionStartDate: '',
 });
 
+const copyMachinePayDraft = (machinePay: MachinePayDraft): MachinePayDraft => ({ ...machinePay });
+
 const newTechnicianSetupDraft = (): TechnicianSetupDraft => ({
-  step: 1,
   userEmail: '',
   displayName: '',
   workerType: 'contractor_1099',
   workerIdentifier: '',
   machineIds: [],
   effectiveStartDate: getTodayInTimekeepingZone(),
-  arrangements: [newPayArrangement()],
+  machinePay: {},
 });
 
 const workerTypeOptions: Array<{ value: OperatorWorkerType; label: string }> = [
@@ -310,17 +313,20 @@ function TechnicianReport({
   onGeneratePayStub: () => void;
   isGeneratingPayStub: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const issues = [...technician.blockers, ...technician.warnings];
   const commissionUnavailable = hasUnresolvedCommission(technician);
   const shiftPayUnavailable = hasMissingShiftRate(technician);
   const totalUnavailable = technician.blockers.length > 0;
   const shiftRateLines = buildShiftRateLines(technician.entries);
+  const otherEarningsCents = technician.bonusCents + technician.supplyCreditCents + technician.expenseReimbursementCents;
+  const detailsId = `technician-pay-details-${technician.operatorProfileId}`;
 
   return (
     <article className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-      <header className="border-b border-border bg-muted/25 p-4 sm:p-5">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
+      <header className={cn('bg-muted/25 p-4 sm:p-5', expanded && 'border-b border-border')}>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-semibold text-foreground">{technician.displayName}</h2>
               <Badge variant="outline">{formatWorkerType(technician.workerType)}</Badge>
@@ -334,15 +340,23 @@ function TechnicianReport({
               {technician.workerIdentifier || technician.positionTitle || 'Technician'}
             </p>
           </div>
-          <div className="sm:text-right">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Current total</p>
-            <p className="mt-1 text-2xl font-semibold text-foreground">
-              {totalUnavailable ? 'Unavailable' : formatCurrency(technician.currentTotalCents)}
-            </p>
+          <div className="flex flex-wrap gap-2 lg:justify-end">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" size="sm" className="min-h-11 bg-background">
+                  Adjust pay <ChevronDown className="ml-2 h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={onAddShiftRate}>Change started-hour rate</DropdownMenuItem>
+                <DropdownMenuItem onSelect={onAddCommissionRate} disabled={!technician.machines.length}>Change commission</DropdownMenuItem>
+                <DropdownMenuItem onSelect={onAddOtherEarning}>Add another earning</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button
               type="button"
               size="sm"
-              className="mt-3 min-h-11"
+              className="min-h-11"
               disabled={!technician.publishable || isGeneratingPayStub}
               onClick={onGeneratePayStub}
             >
@@ -353,8 +367,29 @@ function TechnicianReport({
             </Button>
           </div>
         </div>
+        <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-border/70 pt-4 text-sm sm:grid-cols-3 lg:grid-cols-6">
+          <div><span className="text-muted-foreground">Paid shifts</span><strong className="mt-1 block text-foreground">{technician.paidShifts}</strong></div>
+          <div><span className="text-muted-foreground">Time worked</span><strong className="mt-1 block text-foreground">{formatDuration(technician.actualDurationMinutes)}</strong></div>
+          <div><span className="text-muted-foreground">Shift pay</span><strong className="mt-1 block text-foreground">{shiftPayUnavailable ? 'Unavailable' : formatCurrency(technician.shiftEarningsCents)}</strong></div>
+          <div><span className="text-muted-foreground">Commission</span><strong className="mt-1 block text-foreground">{commissionUnavailable ? 'Unavailable' : formatCurrency(technician.commissionEarningsCents)}</strong></div>
+          <div><span className="text-muted-foreground">Other earnings</span><strong className="mt-1 block text-foreground">{formatCurrency(otherEarningsCents)}</strong></div>
+          <div><span className="text-muted-foreground">Total</span><strong className="mt-1 block text-lg text-foreground">{totalUnavailable ? 'Unavailable' : formatCurrency(technician.currentTotalCents)}</strong></div>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="mt-3 min-h-11 px-2"
+          aria-expanded={expanded}
+          aria-controls={detailsId}
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {expanded ? 'Hide breakdown' : 'View machine breakdown'}
+          <ChevronDown className={cn('ml-2 h-4 w-4 transition-transform', expanded && 'rotate-180')} />
+        </Button>
       </header>
 
+      {expanded && <div id={detailsId}>
       {issues.length > 0 && (
         <section className="border-b border-border p-4 sm:p-5" aria-labelledby={`issues-${technician.operatorProfileId}`}>
           <h3 id={`issues-${technician.operatorProfileId}`} className="flex items-center gap-2 text-sm font-semibold text-foreground">
@@ -381,12 +416,7 @@ function TechnicianReport({
       )}
 
       <section className="p-4 sm:p-5" aria-labelledby={`shift-pay-${technician.operatorProfileId}`}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 id={`shift-pay-${technician.operatorProfileId}`} className="font-semibold text-foreground">Shift pay</h3>
-          <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={onAddShiftRate}>
-            <Plus className="mr-2 h-4 w-4" /> Add rate change
-          </Button>
-        </div>
+        <h3 id={`shift-pay-${technician.operatorProfileId}`} className="font-semibold text-foreground">Shift pay</h3>
         <p className="mt-1 text-sm text-muted-foreground">
           Every started hour is one paid shift. A 61-minute entry is two shifts.
         </p>
@@ -395,7 +425,7 @@ function TechnicianReport({
             <BreakdownRow
               key={`${line.shiftRateCents}-${line.firstWorkDate}-${index}`}
               label={`${line.paidShifts} shift${line.paidShifts === 1 ? '' : 's'} × ${line.shiftRateCents == null ? 'Rate missing' : formatCurrency(line.shiftRateCents)}`}
-              detail={<>{line.machineLabel && <span className="font-medium text-foreground">{line.machineLabel} · </span>}{formatDuration(line.actualDurationMinutes)} actual · {formatDate(line.firstWorkDate)}–{formatDate(line.lastWorkDate)}</>}
+              detail={<>{line.machineLabel && <span className="font-medium text-foreground">{line.machineLabel} · </span>}{formatDuration(line.actualDurationMinutes)} worked · {formatDate(line.firstWorkDate)}–{formatDate(line.lastWorkDate)}</>}
               amount={line.shiftRateCents == null ? 'Unavailable' : formatCurrency(line.shiftEarningsCents)}
             />
           )) : <p className="py-4 text-sm text-muted-foreground">No paid shifts in this month.</p>}
@@ -403,12 +433,7 @@ function TechnicianReport({
       </section>
 
       <section className="border-t border-border p-4 sm:p-5" aria-labelledby={`commission-${technician.operatorProfileId}`}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 id={`commission-${technician.operatorProfileId}`} className="font-semibold text-foreground">Machine sales and commission</h3>
-          <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={onAddCommissionRate} disabled={!technician.machines.length}>
-            <Plus className="mr-2 h-4 w-4" /> Add commission rate
-          </Button>
-        </div>
+        <h3 id={`commission-${technician.operatorProfileId}`} className="font-semibold text-foreground">Machine sales and commission</h3>
         <p className="mt-1 text-sm text-muted-foreground">
           Commission is calculated as (sales − refunds − estimated sales tax) × the contractor’s commission rate.
         </p>
@@ -430,7 +455,7 @@ function TechnicianReport({
                 label={machine.machineLabel}
                 detail={
                   <>
-                    <span>{machine.locationName} · {formatDuration(machineActualMinutes)} actual · {machinePaidShifts} paid {machinePaidShifts === 1 ? 'shift' : 'shifts'}</span>
+                    <span>{machine.locationName} · {formatDuration(machineActualMinutes)} worked · {machinePaidShifts} paid {machinePaidShifts === 1 ? 'shift' : 'shifts'}</span>
                     {machineSalesUnavailable ? (
                       <span className="mt-1 block">
                         Commissionable Sales unavailable{machine.commissionBasisPoints == null ? '' : ` × ${formatRate(machine.commissionBasisPoints)}`}
@@ -472,12 +497,7 @@ function TechnicianReport({
       </section>
 
       <section className="border-t border-border p-4 sm:p-5" aria-labelledby={`other-pay-${technician.operatorProfileId}`}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 id={`other-pay-${technician.operatorProfileId}`} className="font-semibold text-foreground">Other earnings</h3>
-          <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={onAddOtherEarning}>
-            <Plus className="mr-2 h-4 w-4" /> Add other earning
-          </Button>
-        </div>
+        <h3 id={`other-pay-${technician.operatorProfileId}`} className="font-semibold text-foreground">Other earnings</h3>
         <div className="mt-3 rounded-lg border border-border px-3">
           {technician.otherEarnings.length ? technician.otherEarnings.map((earning) => (
             <BreakdownRow
@@ -501,6 +521,7 @@ function TechnicianReport({
         <div><span className="text-muted-foreground">Other earnings</span><strong className="mt-1 block text-foreground">{formatCurrency(technician.bonusCents + technician.supplyCreditCents + technician.expenseReimbursementCents)}</strong></div>
         <div><span className="text-muted-foreground">Current total</span><strong className="mt-1 block text-lg text-foreground">{totalUnavailable ? 'Unavailable' : formatCurrency(technician.currentTotalCents)}</strong></div>
       </footer>
+      </div>}
     </article>
   );
 }
@@ -517,6 +538,7 @@ export default function AdminPayoutsPage() {
   const [setupError, setSetupError] = useState<string | null>(null);
   const [setupSubmitting, setSetupSubmitting] = useState(false);
   const [generatingProfileId, setGeneratingProfileId] = useState<string | null>(null);
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
 
   const { data: context, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ['technician-pay-report', month],
@@ -566,6 +588,7 @@ export default function AdminPayoutsPage() {
   const selectedPayerCount = setupDraft
     ? setupAccounts.filter((account) => account.machines.some((machine) => setupDraft.machineIds.includes(machine.machineId))).length
     : 0;
+  const advancedFilterCount = Number(accountId !== 'all') + Number(machineId !== 'all');
 
   const openTechnicianSetup = () => {
     setSetupError(null);
@@ -581,35 +604,32 @@ export default function AdminPayoutsPage() {
       if (!draft.machineIds.length) throw new Error('Choose at least one machine.');
       if (!draft.effectiveStartDate) throw new Error('Choose the Timekeeping start date.');
 
-      const assignedMachines = draft.arrangements.flatMap((arrangement) => arrangement.machineIds);
-      if (assignedMachines.length !== draft.machineIds.length || new Set(assignedMachines).size !== draft.machineIds.length) {
-        throw new Error('Assign every selected machine to one pay arrangement.');
-      }
-
-      const machineCompensation = draft.arrangements.flatMap((arrangement) => {
-        const shiftRate = Number(arrangement.shiftRate);
-        const commissionRate = arrangement.commissionEnabled ? Number(arrangement.commissionRate) : 0;
+      const machineCompensation = draft.machineIds.map((machineId) => {
+        const machinePay = draft.machinePay[machineId];
+        if (!machinePay) throw new Error('Add pay details for every selected machine.');
+        const shiftRate = Number(machinePay.shiftRate);
+        const commissionRate = machinePay.commissionEnabled ? Number(machinePay.commissionRate) : 0;
         if (!Number.isFinite(shiftRate) || shiftRate <= 0) {
-          throw new Error('Enter pay per started hour greater than zero for every arrangement.');
+          throw new Error('Enter pay per started hour greater than zero for every selected machine.');
         }
         if (!Number.isFinite(commissionRate) || commissionRate < 0 || commissionRate > 100) {
           throw new Error('Enter a commission percent from 0 to 100.');
         }
-        const commissionStartDate = arrangement.commissionTiming === 'three_months'
+        const commissionStartDate = machinePay.commissionTiming === 'three_months'
           ? addUtcMonths(draft.effectiveStartDate, 3)
-          : arrangement.commissionTiming === 'date'
-            ? arrangement.commissionStartDate
+          : machinePay.commissionTiming === 'date'
+            ? machinePay.commissionStartDate
             : draft.effectiveStartDate;
         if (!commissionStartDate) throw new Error('Choose when commission begins.');
         if (commissionStartDate < draft.effectiveStartDate) {
           throw new Error('Commission cannot begin before Timekeeping starts.');
         }
-        return arrangement.machineIds.map((machineId) => ({
+        return {
           machineId,
           shiftRateCents: Math.round(shiftRate * 100),
           commissionBasisPoints: Math.round(commissionRate * 100),
           commissionEffectiveStartDate: commissionStartDate,
-        }));
+        };
       });
 
       return setupTimekeepingTechnicianAdmin({
@@ -772,9 +792,6 @@ export default function AdminPayoutsPage() {
             <Button type="button" variant="outline" className="min-h-11" disabled={refreshSales.isPending || isFetching} onClick={() => refreshSales.mutate()}>
               <ShoppingBag className={cn('mr-2 h-4 w-4', refreshSales.isPending && 'animate-pulse motion-reduce:animate-none')} /> Refresh sales
             </Button>
-            <Button type="button" variant="outline" className="min-h-11" disabled={isFetching} onClick={() => void refetch()}>
-              <RefreshCw className={cn('mr-2 h-4 w-4', isFetching && 'animate-spin motion-reduce:animate-none')} /> Refresh
-            </Button>
           </div>
         </header>
 
@@ -794,11 +811,19 @@ export default function AdminPayoutsPage() {
           </div>
         ) : (
           <>
-            <section className="grid gap-4 rounded-xl border border-border bg-card p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4" aria-label="Pay Report filters">
+            <section className="grid gap-4 rounded-xl border border-border bg-card p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-3" aria-label="Pay Report filters">
               <div><label htmlFor="pay-report-month" className="text-sm font-medium text-foreground">Month</label><Input id="pay-report-month" type="month" value={month} max={currentMonthValue()} className="mt-2 min-h-11" onChange={(event) => { if (isMonthValue(event.target.value)) setMonth(event.target.value); }} /></div>
-              <div><label htmlFor="pay-report-account" className="text-sm font-medium text-foreground">Account</label><Select value={accountId} onValueChange={setAccountId}><SelectTrigger id="pay-report-account" className="mt-2 min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All accounts</SelectItem>{context.accounts.map((account) => <SelectItem key={account.accountId} value={account.accountId}>{account.accountName}</SelectItem>)}</SelectContent></Select></div>
               <div><label htmlFor="pay-report-technician" className="text-sm font-medium text-foreground">Technician</label><Select value={technicianId} onValueChange={setTechnicianId}><SelectTrigger id="pay-report-technician" className="mt-2 min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All Technicians</SelectItem>{technicians.map((technician) => <SelectItem key={technician.operatorProfileId} value={technician.operatorProfileId}>{technician.displayName}</SelectItem>)}</SelectContent></Select></div>
-              <div><label htmlFor="pay-report-machine" className="text-sm font-medium text-foreground">Machine</label><Select value={machineId} onValueChange={setMachineId}><SelectTrigger id="pay-report-machine" className="mt-2 min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All machines</SelectItem>{machines.map((machine) => <SelectItem key={machine.id} value={machine.id}>{machine.label}</SelectItem>)}</SelectContent></Select></div>
+              <div className="flex items-end">
+                <Button type="button" variant="outline" className="min-h-11 w-full" aria-expanded={showMoreFilters} onClick={() => setShowMoreFilters((current) => !current)}>
+                  <SlidersHorizontal className="mr-2 h-4 w-4" />
+                  {showMoreFilters ? 'Hide account and machine filters' : `More filters${advancedFilterCount ? ` (${advancedFilterCount} active)` : ''}`}
+                </Button>
+              </div>
+              {showMoreFilters && <>
+                <div><label htmlFor="pay-report-account" className="text-sm font-medium text-foreground">Account</label><Select value={accountId} onValueChange={setAccountId}><SelectTrigger id="pay-report-account" className="mt-2 min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All accounts</SelectItem>{context.accounts.map((account) => <SelectItem key={account.accountId} value={account.accountId}>{account.accountName}</SelectItem>)}</SelectContent></Select></div>
+                <div><label htmlFor="pay-report-machine" className="text-sm font-medium text-foreground">Machine</label><Select value={machineId} onValueChange={setMachineId}><SelectTrigger id="pay-report-machine" className="mt-2 min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All machines</SelectItem>{machines.map((machine) => <SelectItem key={machine.id} value={machine.id}>{machine.label}</SelectItem>)}</SelectContent></Select></div>
+              </>}
             </section>
             {machineId !== 'all' && <p className="-mt-3 text-xs text-muted-foreground">Machine filtering shows only that machine’s time, shift earnings, sales, and commission. Technician-level other earnings are excluded from these filtered totals; publishing status remains month-wide.</p>}
 
@@ -810,9 +835,16 @@ export default function AdminPayoutsPage() {
             </section>
 
             {blockerCount > 0 && (
-              <section className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 sm:p-5" role="alert">
-                <h2 className="flex items-center gap-2 font-semibold text-foreground"><AlertTriangle className="h-5 w-5 text-destructive" />Resolve {blockerCount} publishing blocker{blockerCount === 1 ? '' : 's'}</h2>
-                <p className="mt-2 text-sm text-muted-foreground">The report stays visible for checking, but affected pay stubs should not publish until these data issues are resolved.</p>
+              <section className="flex flex-col gap-4 rounded-xl border border-destructive/30 bg-destructive/5 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5" role="alert">
+                <div>
+                  <h2 className="flex items-center gap-2 font-semibold text-foreground"><AlertTriangle className="h-5 w-5 text-destructive" />Resolve {blockerCount} publishing blocker{blockerCount === 1 ? '' : 's'}</h2>
+                  <p className="mt-2 text-sm text-muted-foreground">Open the affected Technician below for details. Pay Stubs remain unpublished until the missing information is fixed.</p>
+                </div>
+                {commissionableSalesUnavailable && (
+                  <Button type="button" variant="outline" className="min-h-11 shrink-0 bg-background" disabled={refreshSales.isPending || isFetching} onClick={() => refreshSales.mutate()}>
+                    <ShoppingBag className={cn('mr-2 h-4 w-4', refreshSales.isPending && 'animate-pulse motion-reduce:animate-none')} /> Refresh sales now
+                  </Button>
+                )}
               </section>
             )}
 
@@ -973,55 +1005,60 @@ export default function AdminPayoutsPage() {
             setSetupError(null);
           }
         }}>
-          <DialogContent className="max-h-[92vh] max-w-2xl overflow-y-auto">
+          <DialogContent className="max-h-[calc(100dvh-1rem)] max-w-4xl gap-0 overflow-hidden p-0 sm:max-h-[92vh]">
             {setupDraft && (
-              <form onSubmit={(event) => {
-                event.preventDefault();
-                setSetupError(null);
-                if (setupDraft.step === 1) {
-                  if (setupDraft.userEmail.trim() && setupDraft.displayName.trim() && setupDraft.effectiveStartDate && setupDraft.machineIds.length) {
-                    setSetupDraft((current) => current ? { ...current, step: 2 } : current);
-                  }
-                  return;
-                }
-                setSetupSubmitting(true);
-                saveTechnicianSetup.mutate(setupDraft);
-              }}>
-                <DialogHeader>
+              <form
+                className="flex max-h-[calc(100dvh-1rem)] min-h-0 flex-col sm:max-h-[92vh]"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  setSetupError(null);
+                  setSetupSubmitting(true);
+                  saveTechnicianSetup.mutate(setupDraft);
+                }}
+              >
+                <DialogHeader className="shrink-0 border-b border-border px-5 py-5 pr-16 sm:px-6">
                   <DialogTitle>Set up Technician Timekeeping</DialogTitle>
                   <DialogDescription>
-                    Step {setupDraft.step} of 2 · {setupDraft.step === 1 ? 'Choose the person and machines' : 'Set up pay arrangements'}
+                    Choose their machines, then enter what they earn for each one.
                   </DialogDescription>
                 </DialogHeader>
 
-                <div className="mt-5 rounded-xl border border-sage/30 bg-sage-light/50 p-4">
-                  <div className="flex gap-3">
-                    <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-                    <div>
-                      <p className="text-sm font-semibold text-foreground">Invite first, then complete this setup</p>
-                      <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                        The Technician must accept their invitation and sign in once so Bloomjoy can match this setup to the right account.
-                      </p>
-                      <Button asChild type="button" variant="link" className="mt-1 h-auto min-h-11 px-0">
-                        <Link to="/admin/access?action=add-access&preset=technician">Open People &amp; Permissions</Link>
-                      </Button>
+                <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5 sm:px-6">
+                  <div className="flex flex-col gap-3 rounded-xl border border-sage/30 bg-sage-light/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex gap-3">
+                      <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">Already invited this Technician?</p>
+                        <p className="mt-0.5 text-sm leading-5 text-muted-foreground">They must accept the invitation and sign in once before activation.</p>
+                      </div>
                     </div>
+                    <Button asChild type="button" variant="outline" size="sm" className="min-h-11 shrink-0 bg-background">
+                      <Link to="/admin/access?action=add-access&preset=technician">Invite Technician</Link>
+                    </Button>
                   </div>
-                </div>
 
-                {setupContextQuery.isLoading ? (
-                  <div className="mt-5 rounded-xl border border-border p-5 text-sm text-muted-foreground">
-                    <Loader2 className="mr-2 inline h-4 w-4 animate-spin motion-reduce:animate-none" />Loading accounts and machines…
-                  </div>
-                ) : setupContextQuery.error ? (
-                  <div className="mt-5 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive" role="alert">
-                    Timekeeping setup choices could not be loaded. Confirm account-level pay access and try again.
-                  </div>
-                ) : (
-                  <div className="mt-5 space-y-5">
-                    {setupDraft.step === 1 ? (
-                      <>
-                        <div className="grid gap-4 sm:grid-cols-2">
+                  {setupContextQuery.isLoading ? (
+                    <div className="rounded-xl border border-border p-5 text-sm text-muted-foreground">
+                      <Loader2 className="mr-2 inline h-4 w-4 animate-spin motion-reduce:animate-none" />Loading accounts and machines…
+                    </div>
+                  ) : setupContextQuery.error ? (
+                    <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive" role="alert">
+                      Timekeeping setup choices could not be loaded. Confirm account-level pay access and try again.
+                    </div>
+                  ) : (
+                    <>
+                      <section aria-labelledby="setup-person-heading">
+                        <div className="flex flex-wrap items-end justify-between gap-2">
+                          <div>
+                            <h3 id="setup-person-heading" className="font-semibold text-foreground">1. Who is the Technician?</h3>
+                            <p className="mt-1 text-sm text-muted-foreground">Use the same email address as their invitation.</p>
+                          </div>
+                          <div className="w-full sm:w-48">
+                            <label htmlFor="setup-start-date" className="text-sm font-medium text-foreground">Timekeeping starts</label>
+                            <Input id="setup-start-date" type="date" className="mt-2 min-h-11" value={setupDraft.effectiveStartDate} onChange={(event) => setSetupDraft((current) => current ? { ...current, effectiveStartDate: event.target.value } : current)} required />
+                          </div>
+                        </div>
+                        <div className="mt-4 grid gap-4 sm:grid-cols-2">
                           <div>
                             <label htmlFor="setup-technician-email" className="text-sm font-medium text-foreground">Invitation email</label>
                             <Input id="setup-technician-email" type="email" autoComplete="email" className="mt-2 min-h-11" placeholder="technician@example.com" value={setupDraft.userEmail} onChange={(event) => setSetupDraft((current) => current ? { ...current, userEmail: event.target.value } : current)} required />
@@ -1031,97 +1068,181 @@ export default function AdminPayoutsPage() {
                             <Input id="setup-technician-name" autoComplete="name" className="mt-2 min-h-11" placeholder="Full name" value={setupDraft.displayName} onChange={(event) => setSetupDraft((current) => current ? { ...current, displayName: event.target.value } : current)} required />
                           </div>
                         </div>
-                        <div className="grid gap-4 sm:grid-cols-3">
-                          <div>
-                            <label htmlFor="setup-worker-type" className="text-sm font-medium text-foreground">Worker type</label>
-                            <Select value={setupDraft.workerType} onValueChange={(value: OperatorWorkerType) => setSetupDraft((current) => current ? { ...current, workerType: value } : current)}>
-                              <SelectTrigger id="setup-worker-type" className="mt-2 min-h-11"><SelectValue /></SelectTrigger>
-                              <SelectContent>{workerTypeOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
-                            </Select>
+                        <details className="mt-4 rounded-lg border border-border bg-muted/20 px-4 py-3">
+                          <summary className="cursor-pointer text-sm font-medium text-foreground">Optional worker details</summary>
+                          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                            <div>
+                              <label htmlFor="setup-worker-type" className="text-sm font-medium text-foreground">Worker type</label>
+                              <Select value={setupDraft.workerType} onValueChange={(value: OperatorWorkerType) => setSetupDraft((current) => current ? { ...current, workerType: value } : current)}>
+                                <SelectTrigger id="setup-worker-type" className="mt-2 min-h-11"><SelectValue /></SelectTrigger>
+                                <SelectContent>{workerTypeOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <label htmlFor="setup-worker-id" className="text-sm font-medium text-foreground">Worker ID <span className="font-normal text-muted-foreground">(optional)</span></label>
+                              <Input id="setup-worker-id" className="mt-2 min-h-11" value={setupDraft.workerIdentifier} onChange={(event) => setSetupDraft((current) => current ? { ...current, workerIdentifier: event.target.value } : current)} />
+                            </div>
                           </div>
-                          <div>
-                            <label htmlFor="setup-worker-id" className="text-sm font-medium text-foreground">Worker ID <span className="font-normal text-muted-foreground">(optional)</span></label>
-                            <Input id="setup-worker-id" className="mt-2 min-h-11" value={setupDraft.workerIdentifier} onChange={(event) => setSetupDraft((current) => current ? { ...current, workerIdentifier: event.target.value } : current)} />
-                          </div>
-                          <div>
-                            <label htmlFor="setup-start-date" className="text-sm font-medium text-foreground">Timekeeping starts</label>
-                            <Input id="setup-start-date" type="date" className="mt-2 min-h-11" value={setupDraft.effectiveStartDate} onChange={(event) => setSetupDraft((current) => current ? { ...current, effectiveStartDate: event.target.value } : current)} required />
-                          </div>
-                        </div>
-                        <fieldset>
-                          <legend className="text-sm font-medium text-foreground">Machines</legend>
-                          <p className="mt-1 text-xs text-muted-foreground">Choose every machine this Technician may log time for.</p>
-                          <div className="mt-3 space-y-4">
-                            {setupAccounts.map((account) => (
-                              <div key={account.accountId} className="rounded-xl border border-border p-3">
-                                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{account.accountName}</p>
-                                <div className="grid gap-2 sm:grid-cols-2">
-                                  {account.machines.map((machine) => {
-                                    const checked = setupDraft.machineIds.includes(machine.machineId);
-                                    return (
-                                      <label key={machine.machineId} className={cn('flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors', checked ? 'border-primary/40 bg-primary/5' : 'border-border hover:bg-muted/40')}>
-                                        <Checkbox checked={checked} onCheckedChange={(nextChecked) => setSetupDraft((current) => {
-                                          if (!current) return current;
-                                          const machineIds = nextChecked ? [...current.machineIds, machine.machineId] : current.machineIds.filter((id) => id !== machine.machineId);
-                                          const arrangements = current.arrangements.map((arrangement, index) => ({
-                                            ...arrangement,
-                                            machineIds: nextChecked && index === 0
-                                              ? [...arrangement.machineIds, machine.machineId]
-                                              : arrangement.machineIds.filter((id) => id !== machine.machineId),
-                                          }));
-                                          return { ...current, machineIds, arrangements };
-                                        })} />
-                                        <span className="min-w-0 text-sm"><span className="block font-medium text-foreground">{machine.machineLabel}</span>{machine.locationName && <span className="block truncate text-muted-foreground">{machine.locationName}</span>}</span>
-                                      </label>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </fieldset>
-                        {selectedPayerCount > 1 && <p className="rounded-lg border border-sage/30 bg-sage-light/50 px-3 py-2 text-sm text-foreground">These machines span {selectedPayerCount} payers. Bloomjoy will keep one setup here and create a separate Pay Stub for each payer.</p>}
-                      </>
-                    ) : (
-                      <>
-                        <div className="rounded-xl border border-border bg-muted/20 p-4">
-                          <p className="font-semibold text-foreground">{setupDraft.displayName}</p>
-                          <p className="mt-1 text-sm text-muted-foreground">{setupDraft.machineIds.length} machine{setupDraft.machineIds.length === 1 ? '' : 's'} · starts {formatDate(setupDraft.effectiveStartDate)}</p>
-                        </div>
-                        <div className="space-y-4">
-                          {setupDraft.arrangements.map((arrangement, arrangementIndex) => (
-                            <section key={arrangement.id} className="rounded-xl border border-border p-4">
-                              <div className="flex items-center justify-between gap-3">
-                                <div><h3 className="font-semibold text-foreground">{arrangementIndex === 0 ? 'Standard pay' : `Different pay ${arrangementIndex}`}</h3><p className="text-xs text-muted-foreground">Choose the machines that use these terms.</p></div>
-                                {arrangementIndex > 0 && <Button type="button" variant="ghost" size="icon" aria-label="Remove this pay arrangement" onClick={() => setSetupDraft((current) => current ? { ...current, arrangements: current.arrangements.filter((item) => item.id !== arrangement.id).map((item, index) => index === 0 ? { ...item, machineIds: [...item.machineIds, ...arrangement.machineIds] } : item) } : current)}><Trash2 className="h-4 w-4" /></Button>}
-                              </div>
-                              <div className="mt-3 flex flex-wrap gap-2">
-                                {setupDraft.machineIds.map((selectedMachineId) => {
-                                  const machine = setupMachineById.get(selectedMachineId);
-                                  const checked = arrangement.machineIds.includes(selectedMachineId);
-                                  return <label key={selectedMachineId} className={cn('flex cursor-pointer items-center gap-2 rounded-full border px-3 py-2 text-sm', checked ? 'border-primary/40 bg-primary/5 text-foreground' : 'border-border text-muted-foreground')}><Checkbox checked={checked} onCheckedChange={(nextChecked) => setSetupDraft((current) => current ? { ...current, arrangements: current.arrangements.map((item) => ({ ...item, machineIds: item.id === arrangement.id && nextChecked ? [...item.machineIds, selectedMachineId] : item.machineIds.filter((id) => id !== selectedMachineId) })) } : current)} />{machine?.machineLabel}</label>;
+                        </details>
+                      </section>
+
+                      <fieldset>
+                        <legend className="font-semibold text-foreground">2. What machines can they work on?</legend>
+                        <p className="mt-1 text-sm text-muted-foreground">Choose every machine where this Technician may record time.</p>
+                        <div className="mt-4 space-y-3">
+                          {setupAccounts.map((account) => (
+                            <div key={account.accountId} className="rounded-xl border border-border p-3">
+                              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{account.accountName}</p>
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                {account.machines.map((machine) => {
+                                  const checked = setupDraft.machineIds.includes(machine.machineId);
+                                  return (
+                                    <label key={machine.machineId} className={cn('flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors', checked ? 'border-primary/40 bg-primary/5' : 'border-border hover:bg-muted/40')}>
+                                      <Checkbox checked={checked} onCheckedChange={(nextChecked) => setSetupDraft((current) => {
+                                        if (!current) return current;
+                                        if (nextChecked) {
+                                          const firstPay = current.machineIds.length ? current.machinePay[current.machineIds[0]] : null;
+                                          return {
+                                            ...current,
+                                            machineIds: [...current.machineIds, machine.machineId],
+                                            machinePay: {
+                                              ...current.machinePay,
+                                              [machine.machineId]: firstPay ? copyMachinePayDraft(firstPay) : newMachinePayDraft(),
+                                            },
+                                          };
+                                        }
+                                        const machinePay = { ...current.machinePay };
+                                        delete machinePay[machine.machineId];
+                                        return {
+                                          ...current,
+                                          machineIds: current.machineIds.filter((id) => id !== machine.machineId),
+                                          machinePay,
+                                        };
+                                      })} />
+                                      <span className="min-w-0 text-sm"><span className="block font-medium text-foreground">{machine.machineLabel}</span>{machine.locationName && <span className="block truncate text-muted-foreground">{machine.locationName}</span>}</span>
+                                    </label>
+                                  );
                                 })}
                               </div>
-                              <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                                <div><label htmlFor={`setup-shift-rate-${arrangement.id}`} className="text-sm font-medium text-foreground">Pay per started hour</label><div className="relative mt-2"><span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">$</span><Input id={`setup-shift-rate-${arrangement.id}`} type="number" min="0.01" step="0.01" className="min-h-11 pl-7" value={arrangement.shiftRate} onChange={(event) => setSetupDraft((current) => current ? { ...current, arrangements: current.arrangements.map((item) => item.id === arrangement.id ? { ...item, shiftRate: event.target.value } : item) } : current)} required /></div></div>
-                                <div className="rounded-lg border border-border px-3 py-2.5"><label className="flex min-h-6 cursor-pointer items-center gap-3 text-sm font-medium text-foreground"><Checkbox checked={arrangement.commissionEnabled} onCheckedChange={(checked) => setSetupDraft((current) => current ? { ...current, arrangements: current.arrangements.map((item) => item.id === arrangement.id ? { ...item, commissionEnabled: Boolean(checked) } : item) } : current)} />Add commission</label></div>
-                              </div>
-                              {arrangement.commissionEnabled && <div className="mt-4 grid gap-4 sm:grid-cols-2"><div><label htmlFor={`setup-commission-rate-${arrangement.id}`} className="text-sm font-medium text-foreground">Commission rate</label><div className="relative mt-2"><Input id={`setup-commission-rate-${arrangement.id}`} type="number" min="0" max="100" step="0.01" className="min-h-11 pr-8" value={arrangement.commissionRate} onChange={(event) => setSetupDraft((current) => current ? { ...current, arrangements: current.arrangements.map((item) => item.id === arrangement.id ? { ...item, commissionRate: event.target.value } : item) } : current)} required /><span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-muted-foreground">%</span></div></div><div><label htmlFor={`setup-commission-timing-${arrangement.id}`} className="text-sm font-medium text-foreground">Commission begins</label><Select value={arrangement.commissionTiming} onValueChange={(value: CommissionTiming) => setSetupDraft((current) => current ? { ...current, arrangements: current.arrangements.map((item) => item.id === arrangement.id ? { ...item, commissionTiming: value } : item) } : current)}><SelectTrigger id={`setup-commission-timing-${arrangement.id}`} className="mt-2 min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="immediate">Immediately</SelectItem><SelectItem value="three_months">After 3 months</SelectItem><SelectItem value="date">Choose a date</SelectItem></SelectContent></Select>{arrangement.commissionTiming === 'date' && <Input aria-label="Commission start date" type="date" min={setupDraft.effectiveStartDate} className="mt-2 min-h-11" value={arrangement.commissionStartDate} onChange={(event) => setSetupDraft((current) => current ? { ...current, arrangements: current.arrangements.map((item) => item.id === arrangement.id ? { ...item, commissionStartDate: event.target.value } : item) } : current)} required />}</div></div>}
-                              <p className="mt-4 text-xs leading-5 text-muted-foreground">{arrangement.machineIds.length || 'No'} machine{arrangement.machineIds.length === 1 ? '' : 's'} · {arrangement.shiftRate ? `${formatCurrency(Math.round(Number(arrangement.shiftRate) * 100))} per started hour` : 'add an hourly rate'}{arrangement.commissionEnabled ? ` + ${arrangement.commissionRate || '—'}% commission ${arrangement.commissionTiming === 'three_months' ? 'after 3 months' : arrangement.commissionTiming === 'date' ? `from ${formatDate(arrangement.commissionStartDate)}` : 'immediately'}` : ' · no commission'}</p>
-                            </section>
+                            </div>
                           ))}
                         </div>
-                        <Button type="button" variant="outline" className="min-h-11 w-full" onClick={() => setSetupDraft((current) => current ? { ...current, arrangements: [...current.arrangements, newPayArrangement()] } : current)}><Plus className="mr-2 h-4 w-4" />Some machines have different pay</Button>
-                        <p className="text-xs leading-5 text-muted-foreground">Each started hour counts as one paid shift, so 61 minutes is two paid shifts. Rates are saved by machine and retain their effective-date history.</p>
-                      </>
-                    )}
+                      </fieldset>
 
-                    {setupError && <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">{setupError}</p>}
-                  </div>
-                )}
+                      {selectedPayerCount > 1 && (
+                        <p className="rounded-lg border border-sage/30 bg-sage-light/50 px-3 py-2 text-sm text-foreground">
+                          This setup spans {selectedPayerCount} businesses, so {setupDraft.displayName || 'this Technician'} will receive {selectedPayerCount} separate Pay Stubs.
+                        </p>
+                      )}
 
-                <DialogFooter className="mt-6 gap-2 sm:gap-0">
-                  {setupDraft.step === 1 ? <><Button type="button" variant="outline" className="min-h-11" onClick={() => setSetupDraft(null)}>Cancel</Button><Button type="submit" className="min-h-11" disabled={!setupDraft.userEmail.trim() || !setupDraft.displayName.trim() || !setupDraft.effectiveStartDate || !setupDraft.machineIds.length}>Set up pay <ChevronRight className="ml-2 h-4 w-4" /></Button></> : <><Button type="button" variant="outline" className="min-h-11" disabled={setupSubmitting} onClick={() => { saveTechnicianSetup.reset(); setSetupError(null); setSetupDraft((current) => current ? { ...current, step: 1 } : current); }}><ChevronLeft className="mr-2 h-4 w-4" />Back</Button><Button type="submit" className="min-h-11" disabled={setupSubmitting || setupContextQuery.isLoading || Boolean(setupContextQuery.error)}>{setupSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />}Activate Timekeeping</Button></>}
+                      {setupDraft.machineIds.length > 0 && (
+                        <section aria-labelledby="setup-pay-heading">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                            <div>
+                              <h3 id="setup-pay-heading" className="font-semibold text-foreground">3. How is {setupDraft.displayName || 'this Technician'} paid for each machine?</h3>
+                              <p className="mt-1 text-sm text-muted-foreground">Enter the rate and commission for each machine. Start with the first one and copy it when the others match.</p>
+                            </div>
+                            {setupDraft.machineIds.length > 1 && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="min-h-11 shrink-0"
+                                onClick={() => setSetupDraft((current) => {
+                                  if (!current?.machineIds.length) return current;
+                                  const firstPay = current.machinePay[current.machineIds[0]];
+                                  if (!firstPay) return current;
+                                  return {
+                                    ...current,
+                                    machinePay: Object.fromEntries(current.machineIds.map((id) => [id, copyMachinePayDraft(firstPay)])),
+                                  };
+                                })}
+                              >
+                                Apply first machine to all
+                              </Button>
+                            )}
+                          </div>
+
+                          <div className="mt-4 space-y-3">
+                            {setupDraft.machineIds.map((selectedMachineId) => {
+                              const machine = setupMachineById.get(selectedMachineId);
+                              const machinePay = setupDraft.machinePay[selectedMachineId] ?? newMachinePayDraft();
+                              const updateMachinePay = (updates: Partial<MachinePayDraft>) => setSetupDraft((current) => current ? {
+                                ...current,
+                                machinePay: {
+                                  ...current.machinePay,
+                                  [selectedMachineId]: { ...(current.machinePay[selectedMachineId] ?? newMachinePayDraft()), ...updates },
+                                },
+                              } : current);
+                              return (
+                                <div key={selectedMachineId} className="rounded-xl border border-border bg-card p-4 shadow-sm">
+                                  <div className="flex flex-wrap items-start justify-between gap-2">
+                                    <div>
+                                      <p className="font-semibold text-foreground">{machine?.machineLabel ?? 'Selected machine'}</p>
+                                      <p className="mt-0.5 text-sm text-muted-foreground">{[machine?.locationName, machine?.accountName].filter(Boolean).join(' · ')}</p>
+                                    </div>
+                                    {machinePay.shiftRate && (
+                                      <Badge variant="outline" className="bg-muted/30">{formatCurrency(Math.round(Number(machinePay.shiftRate) * 100))} per started hour</Badge>
+                                    )}
+                                  </div>
+                                  <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
+                                    <div>
+                                      <label htmlFor={`setup-shift-rate-${selectedMachineId}`} className="text-sm font-medium text-foreground">Pay per started hour</label>
+                                      <div className="relative mt-2"><span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">$</span><Input id={`setup-shift-rate-${selectedMachineId}`} type="number" min="0.01" step="0.01" className="min-h-11 pl-7" value={machinePay.shiftRate} onChange={(event) => updateMachinePay({ shiftRate: event.target.value })} required /></div>
+                                    </div>
+                                    <div>
+                                      <label htmlFor={`setup-commission-choice-${selectedMachineId}`} className="text-sm font-medium text-foreground">Commission</label>
+                                      <Select value={machinePay.commissionChoice} onValueChange={(value: CommissionChoice) => {
+                                        if (value === 'none') updateMachinePay({ commissionChoice: value, commissionEnabled: false });
+                                        else if (value === 'three_percent_three_months') updateMachinePay({ commissionChoice: value, commissionEnabled: true, commissionRate: '3', commissionTiming: 'three_months', commissionStartDate: '' });
+                                        else updateMachinePay({ commissionChoice: value, commissionEnabled: true });
+                                      }}>
+                                        <SelectTrigger id={`setup-commission-choice-${selectedMachineId}`} className="mt-2 min-h-11"><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="none">No commission</SelectItem>
+                                          <SelectItem value="three_percent_three_months">3% after 3 months</SelectItem>
+                                          <SelectItem value="custom">Custom commission</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                  </div>
+                                  {machinePay.commissionChoice === 'three_percent_three_months' && (
+                                    <p className="mt-3 text-sm text-muted-foreground">3% commission begins {formatDate(addUtcMonths(setupDraft.effectiveStartDate, 3))}.</p>
+                                  )}
+                                  {machinePay.commissionChoice === 'custom' && (
+                                    <div className="mt-4 grid gap-4 border-t border-border pt-4 sm:grid-cols-2">
+                                      <div>
+                                        <label htmlFor={`setup-commission-rate-${selectedMachineId}`} className="text-sm font-medium text-foreground">Commission rate</label>
+                                        <div className="relative mt-2"><Input id={`setup-commission-rate-${selectedMachineId}`} type="number" min="0" max="100" step="0.01" className="min-h-11 pr-8" value={machinePay.commissionRate} onChange={(event) => updateMachinePay({ commissionRate: event.target.value })} required /><span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-muted-foreground">%</span></div>
+                                      </div>
+                                      <div>
+                                        <label htmlFor={`setup-commission-timing-${selectedMachineId}`} className="text-sm font-medium text-foreground">Commission begins</label>
+                                        <Select value={machinePay.commissionTiming} onValueChange={(value: CommissionTiming) => updateMachinePay({ commissionTiming: value })}>
+                                          <SelectTrigger id={`setup-commission-timing-${selectedMachineId}`} className="mt-2 min-h-11"><SelectValue /></SelectTrigger>
+                                          <SelectContent><SelectItem value="immediate">Immediately</SelectItem><SelectItem value="three_months">After 3 months</SelectItem><SelectItem value="date">Choose a date</SelectItem></SelectContent>
+                                        </Select>
+                                        {machinePay.commissionTiming === 'date' && <Input aria-label={`Commission start date for ${machine?.machineLabel ?? 'machine'}`} type="date" min={setupDraft.effectiveStartDate} className="mt-2 min-h-11" value={machinePay.commissionStartDate} onChange={(event) => updateMachinePay({ commissionStartDate: event.target.value })} required />}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <p className="mt-3 text-xs leading-5 text-muted-foreground">Each saved entry rounds up independently: 61 minutes worked counts as two paid shifts. Future rate changes retain their effective-date history.</p>
+                        </section>
+                      )}
+
+                      {setupError && <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">{setupError}</p>}
+                    </>
+                  )}
+                </div>
+
+                <DialogFooter className="shrink-0 gap-2 border-t border-border bg-background px-5 py-4 sm:px-6">
+                  <Button type="button" variant="outline" className="min-h-11" disabled={setupSubmitting} onClick={() => setSetupDraft(null)}>Cancel</Button>
+                  <Button type="submit" className="min-h-11" disabled={setupSubmitting || setupContextQuery.isLoading || Boolean(setupContextQuery.error) || !setupDraft.userEmail.trim() || !setupDraft.displayName.trim() || !setupDraft.effectiveStartDate || !setupDraft.machineIds.length}>
+                    {setupSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />}
+                    Activate Timekeeping
+                  </Button>
                 </DialogFooter>
               </form>
             )}

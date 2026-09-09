@@ -428,9 +428,10 @@ const run = async () => {
     check('Pay Report ignores an empty native month-input change without crashing', await page.locator('#pay-report-month').inputValue() === '2026-09' && await page.getByRole('heading', { name: 'Technician Pay Report' }).isVisible());
     const payReportRead = state.rpcCalls.find((call) => call.rpcName === 'get_technician_pay_report_context');
     check('Pay Report sends an unambiguous full ISO date to PostgreSQL', payReportRead?.body.p_month === '2026-09-01');
+    await page.getByRole('button', { name: 'View machine breakdown' }).click();
     const bodyText = await page.locator('body').innerText();
     check('Pay Report separates mid-month rate bands', bodyText.includes('2 shifts × $20.00') && bodyText.includes('1 shift × $25.00'));
-    check('Pay Report shows time, shifts, tax, and dated commission segments by machine', bodyText.includes('2 hr 1 min actual · 3 paid shifts') && bodyText.includes('$200.00 sales − $0.00 refunds − $18.00 tax (9%)') && bodyText.includes('$182.00 × 5% = $9.10') && bodyText.includes('$273.00 × 10% = $27.30'));
+    check('Pay Report shows time, shifts, tax, and dated commission segments by machine', bodyText.includes('2 hr 1 min worked · 3 paid shifts') && bodyText.includes('$200.00 sales − $0.00 refunds − $18.00 tax (9%)') && bodyText.includes('$182.00 × 5% = $9.10') && bodyText.includes('$273.00 × 10% = $27.30'));
     check('A valid mixed-rate machine stays available with the summed commission', bodyText.includes('Cotton Candy 02') && bodyText.includes('$36.40'));
     check('Missing Commissionable Sales is unavailable rather than a plausible zero', /COMMISSIONABLE\s+SALES\s+Unavailable/i.test(bodyText) && bodyText.includes('Commissionable Sales unavailable × 10%'));
     check('Pay Report does not present unresolved commission or totals as trustworthy amounts', bodyText.includes('Commission\nUnavailable') && bodyText.includes('Current total\nUnavailable'));
@@ -441,6 +442,7 @@ const run = async () => {
     payContext.technicians[0].machines[0].revenueSnapshotId = 'snapshot-1';
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.getByRole('heading', { name: 'Technician Pay Report' }).waitFor();
+    await page.getByRole('button', { name: 'View machine breakdown' }).click();
     const integrityBlockerFooter = await page.locator('footer').filter({ hasText: 'Commission' }).last().innerText();
     const integrityBlockerBody = await page.locator('body').innerText();
     check('Snapshot/fact mismatch makes commission unavailable', integrityBlockerFooter.includes('Commission\nUnavailable') && integrityBlockerBody.includes('$182.00 × 5% = Allocation unavailable'));
@@ -455,24 +457,22 @@ const run = async () => {
 
     await page.getByRole('button', { name: 'Set up Technician', exact: true }).click();
     await page.getByRole('heading', { name: 'Set up Technician Timekeeping' }).waitFor();
-    check('Setup clearly links the invitation prerequisite', await page.getByRole('link', { name: 'Open People & Permissions' }).isVisible());
+    check('Setup clearly links the invitation prerequisite', await page.getByRole('link', { name: 'Invite Technician' }).isVisible());
     await page.locator('#setup-technician-email').fill('pending-technician@example.test');
     await page.locator('#setup-technician-name').fill('New Technician');
-    await page.locator('#setup-worker-id').fill('Contractor 2044');
     const setupDialog = page.getByRole('dialog');
     await setupDialog.getByText('Cotton Candy 01', { exact: true }).click();
     await setupDialog.getByText('Cotton Candy 02', { exact: true }).click();
-    await page.getByRole('button', { name: 'Set up pay' }).click();
-    await page.getByLabel('Pay per started hour').fill('20');
-    await page.getByText('Add commission', { exact: true }).click();
-    await page.getByLabel('Commission rate').fill('7');
+    await page.locator(`#setup-shift-rate-${MACHINE_A}`).fill('20');
+    await page.locator(`#setup-commission-choice-${MACHINE_A}`).click();
+    await page.getByRole('option', { name: 'Custom commission' }).click();
+    await page.locator(`#setup-commission-rate-${MACHINE_A}`).fill('7');
+    await page.getByRole('button', { name: 'Apply first machine to all' }).click();
     await page.screenshot({ path: path.join(artifactDir, 'technician-setup-desktop.png'), fullPage: true });
     await page.getByRole('button', { name: 'Activate Timekeeping' }).click();
     await page.getByText('Technician must accept the invitation and sign in once before Timekeeping setup').waitFor();
-    check('An unaccepted invitation keeps the completed setup form available to retry', await page.getByText('New Technician', { exact: true }).isVisible() && await page.getByRole('dialog').isVisible());
-    await page.getByRole('button', { name: 'Back' }).click();
+    check('An unaccepted invitation keeps the completed setup form available to retry', (await page.locator('#setup-technician-name').inputValue()) === 'New Technician' && await page.getByRole('dialog').isVisible());
     await page.locator('#setup-technician-email').fill('new-technician@example.test');
-    await page.getByRole('button', { name: 'Set up pay' }).click();
     const retryActivation = page.getByRole('button', { name: 'Activate Timekeeping' });
     check('A corrected invitation can be retried without reopening setup', !(await retryActivation.isDisabled()) && !state.rpcCalls.some((call) => call.rpcName === 'admin_setup_timekeeping_technician_arrangements' && call.body.p_user_email === 'new-technician@example.test'));
     await retryActivation.click();
@@ -480,6 +480,8 @@ const run = async () => {
     const setupCall = state.rpcCalls.find((call) => call.rpcName === 'admin_setup_timekeeping_technician_arrangements' && call.body.p_user_email === 'new-technician@example.test');
     check('One manager action sends profile, both machines, and starting rates atomically', setupCall?.body.p_user_email === 'new-technician@example.test' && setupCall?.body.p_worker_type === 'contractor_1099' && setupCall?.body.p_machine_compensation.length === 2 && setupCall?.body.p_machine_compensation.every((item) => item.shiftRateCents === 2000 && item.commissionBasisPoints === 700) && !('p_reason' in setupCall.body));
 
+    await page.getByRole('button', { name: 'View machine breakdown' }).click();
+    await page.getByRole('button', { name: 'More filters' }).click();
     await page.locator('#pay-report-machine').click();
     await page.getByRole('option', { name: 'Cotton Candy 02' }).click();
     await page.getByText('Machine filtering shows only that machine’s time', { exact: false }).waitFor();
@@ -488,26 +490,29 @@ const run = async () => {
     await page.locator('#pay-report-machine').click();
     await page.getByRole('option', { name: 'All machines' }).click();
 
-    await page.getByRole('button', { name: 'Refresh sales' }).click();
+    await page.getByRole('button', { name: 'Refresh sales', exact: true }).click();
     await page.getByText('Commissionable Sales refreshed for 1 machine.').waitFor();
     const refreshedSales = state.rpcCalls.find((call) => call.rpcName === 'admin_refresh_technician_pay_report_sales');
     check('Manager can refresh authoritative Commissionable Sales from the report', refreshedSales?.body.p_month === '2026-09-01' && refreshedSales?.body.p_account_id === null);
 
-    await page.getByRole('button', { name: 'Add rate change' }).click();
+    await page.getByRole('button', { name: 'Adjust pay' }).click();
+    await page.getByRole('menuitem', { name: 'Change started-hour rate' }).click();
     await page.locator('#pay-input-value').fill('22.50');
     await page.getByRole('button', { name: 'Save pay input' }).click();
     await page.getByRole('dialog').waitFor({ state: 'hidden' });
     const savedShiftRate = state.rpcCalls.find((call) => call.rpcName === 'admin_supersede_operator_compensation_rate' && call.body.p_rate_type === 'shift');
     check('Manager can add an effective-dated shift rate without an approval or reason', savedShiftRate?.body.p_rate_value === 2250 && savedShiftRate?.body.p_effective_start_date === '2026-09-01' && !('p_reason' in savedShiftRate.body));
 
-    await page.getByRole('button', { name: 'Add commission rate' }).click();
+    await page.getByRole('button', { name: 'Adjust pay' }).click();
+    await page.getByRole('menuitem', { name: 'Change commission' }).click();
     await page.locator('#pay-input-value').fill('12');
     await page.getByRole('button', { name: 'Save pay input' }).click();
     await page.getByRole('dialog').waitFor({ state: 'hidden' });
     const savedDefaultCommission = state.rpcCalls.find((call) => call.rpcName === 'admin_supersede_operator_compensation_rate' && call.body.p_rate_type === 'commission');
     check('Commission setup defaults to the Technician rate rather than a machine override', savedDefaultCommission?.body.p_rate_value === 1200 && savedDefaultCommission?.body.p_reporting_machine_id === null);
 
-    await page.getByRole('button', { name: 'Add other earning' }).click();
+    await page.getByRole('button', { name: 'Adjust pay' }).click();
+    await page.getByRole('menuitem', { name: 'Add another earning' }).click();
     await page.locator('#pay-input-value').fill('30');
     await page.locator('#pay-input-description').fill('Route coverage bonus');
     await page.getByRole('button', { name: 'Save pay input' }).click();
@@ -522,7 +527,8 @@ const run = async () => {
     check('Pay Report has no mobile page overflow', await noOverflow(page));
     const shortControls = await page.locator('button:visible, input:visible').evaluateAll((elements) => elements.filter((element) => element.getBoundingClientRect().height < 43).length);
     check('Visible mobile controls meet touch target height', shortControls === 0);
-    await page.getByRole('button', { name: 'Add other earning' }).click();
+    await page.getByRole('button', { name: 'Adjust pay' }).click();
+    await page.getByRole('menuitem', { name: 'Add another earning' }).click();
     const mobileDialog = page.getByRole('dialog');
     const dialogFitsViewport = await mobileDialog.evaluate((element) => {
       const bounds = element.getBoundingClientRect();
@@ -543,19 +549,14 @@ const run = async () => {
       return bounds.top >= 0 && bounds.bottom <= window.innerHeight + 1;
     });
     check('Technician setup dialog is bounded and scrollable on a short phone viewport', mobileSetupFitsViewport);
-    const mobileNextButton = page.getByRole('button', { name: 'Set up pay' });
-    await mobileNextButton.scrollIntoViewIfNeeded();
-    check('Technician setup Step 1 action remains reachable on a short phone viewport', await mobileNextButton.isVisible());
     await page.locator('#setup-technician-email').fill('mobile-technician@example.test');
     await page.locator('#setup-technician-name').fill('Mobile Technician');
     await mobileSetupDialog.getByText('Cotton Candy 01', { exact: true }).click();
-    await mobileNextButton.click();
-    await page.getByLabel('Pay per started hour').fill('20');
+    await page.locator(`#setup-shift-rate-${MACHINE_A}`).fill('20');
     const mobileActivateButton = page.getByRole('button', { name: 'Activate Timekeeping' });
     await mobileActivateButton.scrollIntoViewIfNeeded();
-    check('Technician setup Step 2 action remains reachable on a short phone viewport', await mobileActivateButton.isVisible());
+    check('Technician setup action remains reachable on a short phone viewport', await mobileActivateButton.isVisible());
     await page.screenshot({ path: path.join(artifactDir, 'technician-setup-mobile.png'), fullPage: true });
-    await page.getByRole('button', { name: 'Back' }).click();
     await page.getByRole('button', { name: 'Cancel' }).click();
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: path.join(artifactDir, 'pay-report-mobile.png'), fullPage: true });

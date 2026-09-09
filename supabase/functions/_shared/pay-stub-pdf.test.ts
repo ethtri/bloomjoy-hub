@@ -70,5 +70,30 @@ Deno.test("Pay Stub PDF includes a summary and machine pay details", async () =>
   assertGreater(bytes.length, 1_000);
   const pdf = await PDFDocument.load(bytes);
   assertEquals(pdf.getPageCount(), 2);
-  assertEquals(pdf.getSubject(), "bloomjoy-pay-stub-pdf-v2");
+  assertEquals(pdf.getSubject(), "bloomjoy-pay-stub-pdf-v3");
+});
+
+Deno.test("simple Pay Stub stays on one page when no appendix is needed", async () => {
+  const payload = structuredClone(samplePayStubPayload);
+  payload.current.commissionableSalesCents = 0;
+  payload.current.commissionEarningsCents = 0;
+  payload.machines[0].commissionEarningsCents = 0;
+  payload.machines[0].commissionSegments[0].commissionBasisPoints = 0;
+  payload.machines[0].commissionSegments[0].commissionEarningsCents = 0;
+  const bytes = await buildPayStubPdf(payload);
+  const pdf = await PDFDocument.load(bytes);
+  assertEquals(pdf.getPageCount(), 1);
+});
+
+Deno.test("long commission appendix paginates without dropping segments", async () => {
+  const payload = structuredClone(samplePayStubPayload);
+  const baseSegment = payload.machines[0].commissionSegments[0];
+  payload.machines[0].commissionSegments = Array.from({ length: 32 }, (_, index) => ({
+    ...baseSegment,
+    segmentStartDate: `2026-08-${String((index % 28) + 1).padStart(2, "0")}`,
+    segmentEndDate: `2026-08-${String((index % 28) + 1).padStart(2, "0")}`,
+  }));
+  const bytes = await buildPayStubPdf(payload);
+  const pdf = await PDFDocument.load(bytes);
+  assertGreater(pdf.getPageCount(), 2);
 });

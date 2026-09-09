@@ -62,6 +62,15 @@ The MVP is a lightweight timekeeping and contractor-statement product. It is not
 
 ## Compensation inputs and calculations
 
+### Initial manager setup
+
+- The manager completes one setup form after the Technician has accepted the portal invitation and signed in once.
+- The manager chooses the Technician, effective start date, and every machine where the Technician may record time, then answers what rate and commission the Technician receives for each selected machine.
+- The first machine's complete pay terms can be copied to all selected machines; the manager then changes only machines with different terms.
+- Commission choices prioritize the common cases: no commission, 3% after three months, or a custom percentage and start date. The calculated three-month date is visible before activation.
+- Worker classification defaults to independent contractor for the current population while remaining editable under optional details.
+- A cross-payer selection remains one setup interaction and clearly predicts the number of separate Pay Stubs.
+
 ### Shift earnings
 
 - Started-hour pay is effective-dated and may be configured by Technician and machine. An explicit machine rate takes precedence over an optional Technician default.
@@ -88,7 +97,9 @@ The MVP is a lightweight timekeeping and contractor-statement product. It is not
 ## Manager monthly pay report
 
 - The report defaults to the current pay period and supports selecting another calendar month.
-- Managers can filter by Technician and machine.
+- The default view is a summary-first Technician list showing paid shifts, worked time, shift pay, commission, other earnings, total, and publication status. Machine calculations remain available through an explicit breakdown action.
+- Managers can filter by Technician and machine; account and machine filters are secondary controls and remain visibly identified when active.
+- Started-hour rate, commission, and other-earning changes share one **Adjust pay** entry point.
 - For each Technician, the report shows:
   - actual worked time;
   - paid shifts;
@@ -121,10 +132,10 @@ The MVP is a lightweight timekeeping and contractor-statement product. It is not
   - Bonus;
   - Supply Credit; and
   - Expense Reimbursement.
-- A pay-details appendix shows started-hour pay by machine when rates differ, followed by each machine's sales, refunds, effective tax rate and estimated tax, commissionable sales, effective commission rate, and resulting commission without exposing unrelated machines or another Technician's data.
+- A single-machine statement with one started-hour rate and no commission remains one page. Multiple machines, rate changes, or commission add a pay-details appendix showing started-hour pay by machine when rates differ, followed by each machine's sales, refunds, effective tax rate and estimated tax, commissionable sales, effective commission rate, and resulting commission without exposing unrelated machines or another Technician's data. Long appendices paginate without truncating machine or effective-period rows.
 - The statement shows a current-period total and calendar-year-to-date total. Empty optional categories are omitted or consistently shown as zero; the same rule applies throughout the product.
 - Contractor profiles receive the current independent-contractor/no-withholding notice. Worker classification and notice selection are profile-driven rather than hard-coded globally; the initial recipient population is entirely contractors.
-- Dates, currency, quantity labels, spelling, and rounding are consistent. The mixed manual-sheet label `Hours / Sales` is replaced by explicit **Paid Shifts** and **Commissionable Sales** labels.
+- Dates, currency, quantity labels, spelling, and rounding are consistent. Actual duration is shown in exact hours and minutes rather than a rounded decimal. The mixed manual-sheet label `Hours / Sales` is replaced by explicit **Paid Shifts** and **Commissionable Sales** labels.
 
 ### Regeneration and history
 
