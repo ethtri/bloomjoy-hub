@@ -4885,6 +4885,8 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     JSON.stringify(discardSignals)
   );
   await page.getByTestId('refund-gpt-draft-body').waitFor({ timeout: 10000 });
+  await page.getByTestId('refund-activity-history-summary').click();
+  await page.getByTestId('refund-gmail-open-recovery').waitFor({ timeout: 10000 });
   recorder.assert(
     'Incomplete Gmail draft cannot expose payment execution controls',
     (await page.getByTestId('refund-card-workbench').count()) === 0 &&
@@ -4989,6 +4991,8 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   await page.getByRole('button', { name: /RF-UAT-GMAIL/ }).click();
   await page.getByTestId('refund-gmail-draft-workbench').waitFor({ timeout: 10000 });
   await settleRefundPortalPage(page);
+  await page.getByTestId('refund-activity-history-summary').click();
+  await page.getByTestId('refund-gmail-open-recovery').waitFor({ timeout: 10000 });
   const overflow = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
     bodyScrollWidth: document.body.scrollWidth,
@@ -5730,12 +5734,14 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
     (name) => name === 'nayax-transaction-lookup'
   ).length;
   recorder.assert(
-    'Ready case explains that Bloomjoy starts the initial lookup automatically',
-    await page.getByText('Automatic transaction check', { exact: true }).isVisible() &&
-      await page.getByText(/starts this read-only check automatically/i).isVisible() &&
-      (await page.getByRole('button', { name: 'Check Nayax transaction' }).count()) === 0
+    'Unavailable transaction search stays read-only without manual provider controls',
+    await page.getByTestId('refund-manager-state').getByText('Transaction search unavailable', { exact: true }).isVisible() &&
+      (await page.getByTestId('manual-nayax-evidence-form').count()) === 0 &&
+      (await page.getByText('Transaction search details', { exact: true }).count()) === 0 &&
+      (await page.getByRole('button', { name: 'Check Nayax transaction' }).count()) === 0 &&
+      (await page.getByRole('button', { name: 'Refresh transaction results' }).count()) === 0
   );
-  const automaticLookupGuidance = page.getByText('Automatic transaction check', { exact: true });
+  const automaticLookupGuidance = page.getByTestId('refund-manager-state');
   await automaticLookupGuidance.scrollIntoViewIfNeeded();
   await page.screenshot({
     path: path.join(artifactDir, 'refund-automatic-nayax-ready-desktop.png'),
@@ -5752,28 +5758,21 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
     fullPage: false,
   });
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.getByText('Transaction search details', { exact: true }).click();
-  recorder.assert(
-    'Manual Refresh transaction results remains available as an operational fallback',
-    await page.getByRole('button', { name: 'Refresh transaction results' }).isVisible()
-  );
-  await page.getByTestId('nayax-check-transaction').click();
-  await page.getByTestId('nayax-result-card').getByText('This machine\'s separate Nayax account scope is not connected for read-only lookup.').first().waitFor({
-    timeout: 10000,
-  });
   evidence.primaryCheckLookupCallCountAfter = functionCalls.filter(
     (name) => name === 'nayax-transaction-lookup'
   ).length;
 
   recorder.assert(
-    'Explicit manager fallback runs Nayax lookup once when evidence is pending',
+    'Unavailable provider setup performs no manager-triggered lookup',
     evidence.primaryCheckLookupCallCountBefore === 0 &&
-      evidence.primaryCheckLookupCallCountAfter === 1,
+      evidence.primaryCheckLookupCallCountAfter === 0,
     functionCalls.join(', ')
   );
   recorder.assert(
-    'Unavailable transaction search is visible in the manager workbench',
-    await page.getByTestId('nayax-result-card').getByText('This machine\'s separate Nayax account scope is not connected for read-only lookup.').first().isVisible()
+    'Unavailable transaction search is visible without exposing provider setup detail',
+    await page.getByTestId('nayax-result-card').getByText('Automatic match unavailable', { exact: true }).isVisible() &&
+      await page.getByTestId('nayax-internal-setup-owner').getByText(/Refund Operations owns the connection/).isVisible() &&
+      (await page.getByText('Nashville Nayax account scope', { exact: false }).count()) === 0
   );
   recorder.assert(
     'Provider setup state stays manager-only and cannot trigger customer correction copy',
@@ -5787,7 +5786,7 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
     'Pending transaction result explains the unavailable state',
     await page.getByTestId('refund-manager-state').getByText('Transaction search unavailable', { exact: true }).isVisible() &&
       await page.getByTestId('nayax-result-card').getByText('Automatic match unavailable', { exact: true }).isVisible() &&
-      await page.getByTestId('nayax-result-card').getByText('This machine\'s separate Nayax account scope is not connected for read-only lookup.').first().isVisible()
+      await page.getByTestId('nayax-result-card').getByText(/Managers may review this case directly in Nayax only if needed/).isVisible()
   );
   recorder.assert(
     'Nayax setup notice does not expose raw provider IDs',
@@ -6823,12 +6822,16 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       );
     } else if (scenario.queueView === 'Waiting') {
       recorder.assert(
-        `Opening the ${scenario.name} case does not repeat a lookup without the canonical lifecycle trigger`,
-        functionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 0,
+        `Opening the ${scenario.name} case preserves the customer wait without exposing transaction-search controls`,
+        functionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 0 &&
+          (await page.getByText('Transaction search details', { exact: true }).count()) === 0 &&
+          (await page.getByTestId('nayax-check-transaction').count()) === 0 &&
+          await page.getByTestId('refund-manager-state').getByText('Waiting on customer', { exact: true }).isVisible() &&
+          (await page.getByTestId('refund-manager-next-step').innerText()).includes('Wait for the customer to reply'),
         functionCalls.join(', ')
       );
-      await page.getByText('Transaction search details', { exact: true }).click();
-      await page.getByTestId('nayax-check-transaction').click();
+      await closeRefundPortalContext(context);
+      continue;
     } else {
       await page.getByTestId('nayax-result-card').getByText(scenario.expectedStatus, { exact: true })
         .waitFor({ timeout: 10000 });
@@ -11009,7 +11012,7 @@ const run = async () => {
         evidence.navigationStepUpCallCount === 0 &&
         evidence.navigationMutatingRpcCallCount === 0 &&
         evidence.primaryCheckLookupCallCountBefore === 0 &&
-        evidence.primaryCheckLookupCallCountAfter === 1 &&
+        evidence.primaryCheckLookupCallCountAfter === 0 &&
         evidence.providerSuccessStateCount === 1 &&
         evidence.providerNonSuccessStateCount === 5 &&
         evidence.intakeAvailable === true &&

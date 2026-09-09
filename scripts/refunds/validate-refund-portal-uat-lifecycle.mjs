@@ -112,7 +112,7 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /scenario\.queueView === 'Waiting'[\s\S]*?does not repeat a lookup without the canonical lifecycle trigger[\s\S]*?else \{[\s\S]*?starts one automatic read-only lookup from the matching lifecycle/
+  /scenario\.queueView === 'Waiting'[\s\S]*?preserves the customer wait without exposing transaction-search controls[\s\S]*?continue;[\s\S]*?else \{[\s\S]*?starts one automatic read-only lookup from the matching lifecycle/
 );
 assert.equal(
   [...portalSource.matchAll(/url\.includes\('\/admin_get_refund_operations_overview'\)/g)].length,

@@ -6934,8 +6934,16 @@ export default function AdminRefundsPage() {
           <div className="grid border-t border-border lg:grid-cols-2 lg:divide-x lg:divide-border">
             <article data-testid="refund-cash-request-summary" className="p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Customer request</p>
-              <h4 className="mt-1 text-base font-semibold text-foreground">Payment and incident details</h4>
-              <div className="mt-3 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+              <h4 className="mt-1 text-base font-semibold text-foreground">What happened</h4>
+              <div
+                data-testid="refund-customer-comments"
+                className="mt-3 rounded-lg bg-muted/35 px-3 py-2.5"
+              >
+                <p className="whitespace-pre-line break-words text-sm leading-6 text-foreground">
+                  {selectedCase.issueSummary || 'No customer comments were provided.'}
+                </p>
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-3 border-t border-border/70 pt-4 text-sm sm:grid-cols-2">
                 <div>
                   <p className="text-xs text-muted-foreground">Location</p>
                   <p className="mt-1 font-medium text-foreground">{selectedCase.locationName}</p>

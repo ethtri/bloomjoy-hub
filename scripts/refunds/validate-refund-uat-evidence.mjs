@@ -112,7 +112,7 @@ const machineFixtures = {
     navigationStepUpCallCount: 0,
     navigationMutatingRpcCallCount: 0,
     primaryCheckLookupCallCountBefore: 0,
-    primaryCheckLookupCallCountAfter: 1,
+    primaryCheckLookupCallCountAfter: 0,
     providerSuccessStateCount: 1,
     providerNonSuccessStateCount: 5,
     intakeAvailable: true,
