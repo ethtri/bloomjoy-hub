@@ -9,7 +9,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(108);
+select plan(111);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -1496,6 +1496,40 @@ select is(
   ),
   (select source_revision from pay_source_cross_move_baseline),
   'profile and work date stay paired when a time entry moves across both'
+);
+
+select has_column(
+  'public',
+  'customer_accounts',
+  'legal_name',
+  'Pay Stub payer records expose the optional legal-name field used by statement builders'
+);
+select is(
+  public.operator_pay_statement_payload_for_item(
+    'ac100000-0000-0000-0000-000000000001',
+    'BJ-PAY-LINT-PREVIEW',
+    1,
+    'draft',
+    null,
+    null
+  ) ->> 'schemaVersion',
+  'operator-pay-statement-v1',
+  'the legacy statement payload builder executes against the current account schema'
+);
+
+update public.payout_runs
+set status = 'finalized'
+where id = 'ac000000-0000-0000-0000-000000000001';
+set local role authenticated;
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
+select is(
+  public.admin_issue_pay_statements(
+    'ac000000-0000-0000-0000-000000000001',
+    'Synthetic lint regression',
+    'Synthetic lint regression'
+  ) ->> 'issuedStatementCount',
+  '2',
+  'legacy statement issuance resolves the existing payload column without ambiguity'
 );
 
 select * from finish();

@@ -27,6 +27,12 @@ const files = {
     'migrations',
     '20260908234718_timekeeping_pay_stub_freshness_hardening.sql'
   ),
+  payStubLintMigration: path.join(
+    repoRoot,
+    'supabase',
+    'migrations',
+    '20260909003847_fix_pay_stub_database_lint_errors.sql'
+  ),
   setupMigration: path.join(
     repoRoot,
     'supabase',
@@ -198,6 +204,16 @@ for (const marker of [
   }
 }
 
+const payStubLintMigration = readText(files.payStubLintMigration);
+for (const snippet of [
+  'add column if not exists legal_name text',
+  'generated_statement_payload jsonb',
+  'statement_payload = prior_statement.statement_payload',
+  'statement_payload = current_statement.statement_payload',
+]) {
+  expect(payStubLintMigration, snippet, 'Pay Stub lint repair migration');
+}
+
 if (/\b(insert|update|delete)\s+public\.payout_(runs|run_items|adjustments)\b/i.test(migration)) {
   fail('The manager report contract must remain calculation-only and cannot mutate payout execution state.');
 }
@@ -304,6 +320,8 @@ for (const marker of [
   'a failed regeneration leaves the later Pay Stub stale',
   'successful regeneration clears the later Pay Stub stale state',
   'profile and work date stay paired when a time entry moves across both',
+  'the legacy statement payload builder executes against the current account schema',
+  'legacy statement issuance resolves the existing payload column without ambiguity',
   'future manager-created time is rejected',
   'manager-created time outside the effective assignment is rejected',
   'overlapping manager-created time is rejected',
