@@ -218,7 +218,8 @@ begin
     if context->>'contextHash' is distinct from p_execution_context_hash
       or context->>'machineAuthorizationTimeSerializationMode'
         is distinct from p_machine_authorization_time_mode
-      or context->>'refundEmailListMode' is distinct from p_refund_email_list_mode then
+      or coalesce(context->>'refundEmailListMode','omit')
+        is distinct from p_refund_email_list_mode then
       raise exception 'Selected Nayax purchase changed; refresh the transaction' using errcode='P4620';
     end if;
     perform public.refund_claim_exact_nayax_transaction(p_case_id,attempt_id,context);
