@@ -263,6 +263,8 @@ end;
 $$;
 
 begin;
+delete from public.time_entry_change_events
+where time_entry_id = 'b9000000-0000-4000-8000-000000000001';
 delete from public.time_entries where id = 'b9000000-0000-4000-8000-000000000001';
 delete from public.pay_statements where id = 'bc300000-0000-4000-8000-000000000001';
 delete from public.payout_run_items where id = 'bc100000-0000-4000-8000-000000000001';
