@@ -1323,6 +1323,7 @@ select is(
   4,
   'a delayed commission creates a zero-rate waiting window and future rate'
 );
+reset role;
 select is(
   concat(
     public.operator_compensation_rate_at(
@@ -1340,7 +1341,6 @@ select is(
   '0:300',
   'after-three-months commission resolves to zero before its start and three percent on its start'
 );
-reset role;
 select is(
   (
     select count(*)::integer from public.admin_audit_log audit
