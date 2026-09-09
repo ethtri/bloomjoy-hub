@@ -294,8 +294,21 @@ export const getRefundManagerState = (
     );
   }
 
+  if (refundCase.lifecycle?.stage === 'duplicate_resolved') {
+    const canonicalReference = refundCase.lifecycle.duplicateOfPublicReference;
+    return state(
+      'completed',
+      'Duplicate resolved',
+      canonicalReference
+        ? `This request is linked to completed refund case ${canonicalReference}.`
+        : 'This request is linked to a completed refund case.',
+      'No transaction search, customer clarification, message, or payment action is needed.',
+      'success'
+    );
+  }
+
   if (refundCase.customerDeliveryException && (
-    refundCase.paymentMethod !== 'card' || !refundCase.lifecycle ||
+    !refundCase.lifecycle ||
     (refundCase.lifecycle.paymentState === 'confirmed' && ['refund_confirmed', 'customer_notified'].includes(refundCase.lifecycle.stage))
   )) {
     const deliveryLabel = {
@@ -347,7 +360,10 @@ export const getRefundManagerState = (
     );
   }
 
-  if (refundCase.paymentMethod === 'card' && refundCase.lifecycle) {
+  if (
+    refundCase.lifecycle &&
+    (refundCase.paymentMethod === 'card' || refundCase.lifecycle.stage === 'awaiting_payout')
+  ) {
     const lifecycle = refundCase.lifecycle;
     switch (lifecycle.stage) {
       case 'waiting_on_customer': {
@@ -365,6 +381,30 @@ export const getRefundManagerState = (
         );
       }
       case 'matching':
+        if (
+          lifecycle.reasonCode === 'lookup_results_expired' ||
+          lifecycle.lookup.status === 'results_expired'
+        ) {
+          return state(
+            'match_attention',
+            'Transaction results expired',
+            'The previous read-only transaction check finished, but its selectable results are no longer current.',
+            'Select Refresh transaction results once. No refund has been issued.',
+            'warning'
+          );
+        }
+        if (
+          refundCase.nayaxLookupSummary?.lookupStatus === 'multiple_matches' ||
+          refundCase.nayaxLookupSummary?.recommendationState === 'ambiguous'
+        ) {
+          return state(
+            'match_attention',
+            'More than one possible match',
+            'The completed transaction check could not identify one safe purchase.',
+            'Review the returned evidence. Ask only for a specific missing detail that can distinguish the purchases.',
+            'warning'
+          );
+        }
         if (
           refundCase.nayaxLookupSummary?.lookupStatus === 'no_match' ||
           lifecycle.lookup.status === 'no_match'
@@ -534,6 +574,16 @@ export const getRefundManagerState = (
           'Completed',
           'The refund is confirmed and the customer update is recorded.',
           'No payment action is needed.',
+          'success'
+        );
+      case 'duplicate_resolved':
+        return state(
+          'completed',
+          'Duplicate resolved',
+          lifecycle.duplicateOfPublicReference
+            ? `This request is linked to completed refund case ${lifecycle.duplicateOfPublicReference}.`
+            : 'This request is linked to a completed refund case.',
+          'No transaction search, customer clarification, message, or payment action is needed.',
           'success'
         );
       case 'needs_refund_operations':

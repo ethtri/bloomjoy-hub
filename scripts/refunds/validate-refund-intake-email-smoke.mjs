@@ -5,12 +5,14 @@ import {
   buildRefundIntakeEmailEvidenceQuery,
   buildRefundIntakeEmailPreflightQuery,
   buildExistingSyntheticRunQuery,
+  buildSyntheticArchiveQuery,
   invokeSyntheticRefundIntake,
   parseRefundIntakeEmailSmokeArgs,
   validateRefundIntakeEmailEvidence,
   validateRefundIntakeEmailPreflight,
   validateRefundIntakeEmailSmokeArgs,
   validateExistingSyntheticRun,
+  validateSyntheticArchive,
 } from './refund-intake-email-smoke.mjs';
 
 const projectRef = 'a'.repeat(20);
@@ -38,6 +40,7 @@ assert.throws(
   () => validateRefundIntakeEmailSmokeArgs({ ...args, confirmProjectRef: 'b'.repeat(20) }, {}),
   /exactly match/,
 );
+
 assert.throws(
   () => validateRefundIntakeEmailSmokeArgs({ ...args, machineId: 'not-a-uuid' }, {}),
   /machine-id/,
@@ -53,6 +56,23 @@ const executionArgs = {
   authorizationPhrase: 'SEND SYNTHETIC REFUND EMAILS',
   syntheticRunId: '33333333-3333-4333-8333-333333333333',
 };
+const archiveQuery = buildSyntheticArchiveQuery(caseId, executionArgs.syntheticRunId);
+assert.match(archiveQuery, /owner_archive_refund_synthetic_smoke/);
+assert.match(archiveQuery, new RegExp(caseId));
+assert.match(archiveQuery, new RegExp(executionArgs.syntheticRunId));
+assert.doesNotMatch(archiveQuery, /customer_email|customer_name|issue_summary|card_last4/);
+assert.deepEqual(
+  validateSyntheticArchive([{ archived: true, replayed: false, payload_redacted: true }]),
+  { archived: true, replayed: false },
+);
+assert.deepEqual(
+  validateSyntheticArchive([{ archived: false, replayed: true, payload_redacted: true }]),
+  { archived: false, replayed: true },
+);
+assert.throws(
+  () => validateSyntheticArchive([{ archived: false, replayed: false, payload_redacted: true }]),
+  /safe terminal result/,
+);
 assert.throws(
   () => validateRefundIntakeEmailSmokeArgs({ ...executionArgs, authorizationPhrase: 'yes' }, {}),
   /requires --authorize-email-send/,

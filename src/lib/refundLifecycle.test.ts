@@ -16,7 +16,10 @@ Deno.test('every v2 lifecycle has an explicit progress label and nonpayment stat
   for (const stage of refundLifecycleStages) {
     const presentation = getRefundLifecycleProgressPresentation({ stage });
     assert(Boolean(presentation.label?.trim()), `${stage} has a readable label`);
-    const nonPayment = ['denied', 'unable_to_complete', 'internal_test_archived', 'integrity_hold'].includes(stage);
+    const nonPayment = [
+      'denied', 'unable_to_complete', 'duplicate_resolved',
+      'internal_test_archived', 'integrity_hold',
+    ].includes(stage);
     assert(presentation.showMilestones === !nonPayment, `${stage} milestone visibility`);
     if (nonPayment) assert(Boolean(presentation.note), `${stage} has explicit nonpayment copy`);
   }
@@ -487,8 +490,8 @@ Deno.test("the lifecycle parser accepts exact applied accounting delivery states
     },
     managerQueue: {
       ...appliedSent.managerQueue,
-      bucket: "needs_action",
-      label: "Action needed",
+      bucket: "provider_hold",
+      label: "Needs Refund Operations",
       nextAction: "review_delivery_no_resend",
     },
     operations: reviewOperations,

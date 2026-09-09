@@ -10,6 +10,7 @@ export const refundLifecycleStageLabels: Record<RefundLifecycleStage, string> = 
   confirming_with_nayax: 'Confirming the refund',
   refund_confirmed: 'Refund confirmed',
   customer_notified: 'Customer updated',
+  duplicate_resolved: 'Duplicate resolved',
   needs_refund_operations: 'Refund Operations review',
   integrity_hold: 'Payment status needs review',
   denied: 'Request denied',
@@ -21,6 +22,7 @@ const nonPaymentProgressNotes: Partial<Record<RefundLifecycleStage, string>> = {
   denied: 'No refund was issued.',
   unable_to_complete: 'Closed without a completed refund.',
   internal_test_archived: 'Customer contact and refund actions are suppressed.',
+  duplicate_resolved: 'This request is linked to a completed case. No separate refund was issued.',
   integrity_hold: 'Refund Operations must reconcile the payment evidence. Do not retry the refund.',
 };
 

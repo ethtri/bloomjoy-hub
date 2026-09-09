@@ -119,16 +119,16 @@ const lifecycle = (
   lastUpdatedAt: '2026-08-26T20:00:00.000Z',
   publicCopyKey: `refund_${stage}`,
   managerNextAction,
-  terminal: stage === 'customer_notified' || stage === 'denied',
+  terminal: stage === 'customer_notified' || stage === 'duplicate_resolved' || stage === 'denied',
   refreshAfterSeconds:
-    stage === 'customer_notified' || stage === 'denied' ? null : 5,
+    stage === 'customer_notified' || stage === 'duplicate_resolved' || stage === 'denied' ? null : 5,
   managerQueue: {
     schemaVersion: 'refund_manager_queue_v2',
     bucket: stage === 'waiting_on_customer'
       ? 'waiting_on_customer'
       : stage === 'needs_refund_operations'
         ? 'provider_hold'
-        : stage === 'customer_notified' || stage === 'denied'
+        : stage === 'customer_notified' || stage === 'duplicate_resolved' || stage === 'denied'
           ? 'completed'
           : stage === 'transaction_confirmed'
             ? 'ready_to_pay'
@@ -189,6 +189,56 @@ Deno.test('v2-only payout, integrity, closure, and internal/test states stay exp
     assertEquals(result.id, expectedId, `${stage} id`);
     assertEquals(result.label, expectedLabel, `${stage} label`);
   }
+});
+
+Deno.test('a confirmed duplicate of a completed case is terminal and names the canonical case', () => {
+  const contract = lifecycle('duplicate_resolved', 100, 'none');
+  contract.duplicateOfPublicReference = 'RF-CANONICAL1';
+  contract.paymentState = 'not_issued_duplicate';
+  const result = getRefundManagerState({
+    ...baseCase,
+    lifecycle: contract,
+  });
+
+  assertEquals(result.id, 'completed', 'duplicate terminal state');
+  assertEquals(result.label, 'Duplicate resolved', 'duplicate label');
+  assertEquals(
+    result.explanation,
+    'This request is linked to completed refund case RF-CANONICAL1.',
+    'canonical reference is visible',
+  );
+  assertEquals(
+    result.nextStep,
+    'No transaction search, customer clarification, message, or payment action is needed.',
+    'duplicate has no further action',
+  );
+});
+
+Deno.test('expired completed lookup results never render as an active search', () => {
+  const contract = lifecycle('matching', 10, 'retry_read_only_lookup');
+  contract.reasonCode = 'lookup_results_expired';
+  contract.lookup = {
+    ...contract.lookup,
+    status: 'results_expired',
+    safeRetryEligible: true,
+  };
+  contract.managerAction.safeRetryEligible = true;
+  contract.managerQueue.safeRetryEligible = true;
+  const result = getRefundManagerState({
+    ...baseCase,
+    lifecycle: contract,
+    nayaxLookupSummary: {
+      lookupStatus: 'multiple_matches',
+      recommendationState: 'ambiguous',
+    },
+  });
+
+  assertEquals(result.label, 'Transaction results expired', 'expired lookup label');
+  assertEquals(
+    result.nextStep,
+    'Select Refresh transaction results once. No refund has been issued.',
+    'expired lookup action',
+  );
 });
 
 Deno.test('manager state presents the normal card case as ready for review', () => {
@@ -271,6 +321,30 @@ Deno.test('an active money action remains more urgent than an earlier delivery e
     { isRefunding: true }
   );
   assertEquals(result.id, 'refunding', 'active refund state');
+});
+
+Deno.test('a cash payout task is not replaced by an earlier message delivery exception', () => {
+  const cashLifecycle = lifecycle('awaiting_payout', 30, 'request_payout_destination');
+  const result = getRefundManagerState({
+    ...baseCase,
+    paymentMethod: 'cash',
+    lifecycle: cashLifecycle,
+    customerDeliveryException: {
+      state: 'unknown',
+      messageType: 'confirmation',
+      recoveryOwner: 'refund_operations',
+      nextAction: 'review_delivery_no_resend',
+      customerMessageReplayAllowed: false,
+      paymentReplayAllowed: false,
+    },
+  });
+
+  assertEquals(result.label, 'Payout details needed', 'current payout task label');
+  assertEquals(
+    result.nextStep,
+    'Request only the payout destination in the existing customer thread.',
+    'current payout task remains authoritative',
+  );
 });
 
 Deno.test('manager state distinguishes missing facts and automatic lookup', () => {

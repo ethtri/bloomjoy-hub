@@ -1817,8 +1817,8 @@ const demoLifecycle = (
   lastUpdatedAt: demoIsoHoursAgo(0.05),
   publicCopyKey: `refund_${stage}`,
   managerNextAction,
-  terminal: ['customer_notified', 'denied', 'unable_to_complete', 'internal_test_archived'].includes(stage),
-  refreshAfterSeconds: ['customer_notified', 'denied', 'unable_to_complete', 'internal_test_archived'].includes(stage)
+  terminal: ['customer_notified', 'duplicate_resolved', 'denied', 'unable_to_complete', 'internal_test_archived'].includes(stage),
+  refreshAfterSeconds: ['customer_notified', 'duplicate_resolved', 'denied', 'unable_to_complete', 'internal_test_archived'].includes(stage)
     ? null
     : 5,
   managerQueue: {
@@ -1829,7 +1829,7 @@ const demoLifecycle = (
         ? 'provider_hold'
         : stage === 'integrity_hold'
           ? 'integrity_hold'
-        : ['customer_notified', 'denied', 'unable_to_complete'].includes(stage)
+        : ['customer_notified', 'duplicate_resolved', 'denied', 'unable_to_complete'].includes(stage)
           ? 'completed'
           : stage === 'internal_test_archived'
             ? 'internal_archive'

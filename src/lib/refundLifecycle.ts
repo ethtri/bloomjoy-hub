@@ -10,6 +10,7 @@ export const refundLifecycleStages = [
   "confirming_with_nayax",
   "refund_confirmed",
   "customer_notified",
+  "duplicate_resolved",
   "needs_refund_operations",
   "integrity_hold",
   "denied",
@@ -125,6 +126,7 @@ export type RefundLifecycleContract = {
   terminal: boolean;
   refreshAfterSeconds: number | null;
   managerQueue: RefundManagerQueueContract;
+  duplicateOfPublicReference?: string;
   managerVisibility?: "restricted";
   definitiveNoRefund?: boolean;
   safeRetryEligible?: boolean;
@@ -267,12 +269,12 @@ export const isRefundLifecycleContract = (
   const appliedExpectedBucket = appliedNoticeComplete
     ? "completed"
     : appliedNoticeReview
-    ? "needs_action"
+    ? "provider_hold"
     : "in_progress";
   const appliedExpectedLabel = appliedNoticeComplete
     ? "Done"
     : appliedNoticeReview
-    ? "Action needed"
+    ? "Needs Refund Operations"
     : "In progress";
   const appliedReviewNextSteps = [
     "Refund confirmed. Review the existing completion message delivery and accounting date; do not retry payment or create another message.",
@@ -439,6 +441,9 @@ export const isRefundLifecycleContract = (
       (Array.isArray(managerQueue.customerActionFields) &&
         managerQueue.customerActionFields.every((field) => typeof field === "string"))) &&
     managerQueue?.payloadRedacted === true &&
+    (contract.duplicateOfPublicReference === undefined ||
+      (typeof contract.duplicateOfPublicReference === "string" &&
+        /^RF-[A-Z0-9-]+$/.test(contract.duplicateOfPublicReference))) &&
     (contract.definitiveNoRefund === undefined ||
       typeof contract.definitiveNoRefund === "boolean") &&
     (contract.safeRetryEligible === undefined ||
