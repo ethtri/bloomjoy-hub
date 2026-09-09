@@ -178,7 +178,8 @@
     "20260908151902_refund_nayax_lookup_retry_recovery.sql",
     "20260908163714_refund_terminal_receipt_case_completion.sql",
     "20260908195201_refund_lookup_retry_trigger_grant_hardening.sql",
-    "20260908221526_refund_same_source_duplicate_settlement_recovery.sql"
+    "20260908221526_refund_same_source_duplicate_settlement_recovery.sql",
+    "20260909034000_refund_journal_recovery_lifecycle_order.sql"
   ],
   "migrationFilesSha256": "92d161776bc715684bdd57623865c874c089575ba87a3dbadc0cdf50c106e6f8",
   "migrationVersionSetSha256": "9f650d69ff40c1e7a75f537699fd61b42829aee663baa4f2e9e666b53e7e4525",
