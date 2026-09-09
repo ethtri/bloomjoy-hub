@@ -43,6 +43,7 @@ assert.deepEqual(overviewFixtureBuilders, [
   'buildCashRefundReviewOverview',
   'buildCashRefundVariantsOverview',
   'buildPendingNayaxRefundOverview',
+  'buildAdamManualNayaxRefundOverview',
   'buildNavigationOnlyPendingOverview',
   'buildSimpleCardRefundJourneyOverview',
   'buildGroupedLivermorePendingOverview',
@@ -76,6 +77,10 @@ assert.match(
 assert.match(
   portalSource,
   /const buildPendingNayaxRefundOverview = [\s\S]*?managerQueueContractVersion: 'refund_manager_queue_v2'[\s\S]*?lifecycle: buildLifecycleFixture\('matching', 10, 'wait'\)/
+);
+assert.match(
+  portalSource,
+  /const buildAdamManualNayaxRefundOverview = [\s\S]*?publicReference: 'RF-UAT-ADAM-MANUAL'[\s\S]*?manualNayaxPortalEnabled: true[\s\S]*?reviewedNayaxPortalFallbackKind: 'legacy_manual_evidence'/
 );
 assert.match(
   portalSource,
