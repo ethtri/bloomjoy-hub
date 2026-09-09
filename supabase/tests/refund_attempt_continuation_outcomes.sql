@@ -1235,6 +1235,8 @@ select ok(
   ),
   'Recovery runs with the production pre-lifecycle/post-lifecycle trigger order and validated constraints'
 );
+create temporary table journal_recovery_marker_snapshots(markers text[]);
+grant insert on journal_recovery_marker_snapshots to service_role;
 create function pg_temp.mutate_journal_recovery_case_after_lifecycle()
 returns trigger language plpgsql as $$
 begin
@@ -1244,6 +1246,9 @@ begin
       new.lifecycle_revision := old.lifecycle_revision + 2;
     elsif current_setting('test.journal_recovery_case_mutation',true)='unrelated_field' then
       new.issue_summary := old.issue_summary || ' changed';
+    elsif current_setting('test.journal_recovery_case_mutation',true)='capture_markers' then
+      insert into journal_recovery_marker_snapshots(markers)
+      values(pg_temp.refund_active_authority_markers());
     end if;
   end if;
   return new;
@@ -1253,6 +1258,7 @@ create trigger refund_cases_c_test_journal_recovery_mutation
 before update on public.refund_cases
 for each row execute function pg_temp.mutate_journal_recovery_case_after_lifecycle();
 
+select pg_temp.refund_reset_authority_markers();
 select set_config('request.jwt.claim.role','service_role',true);
 select set_config('request.jwt.claims','{"role":"service_role"}',true);
 set local role service_role;
@@ -1292,27 +1298,32 @@ where not pg_temp.refund_authority_markers_match('{}'::text[]);
 select set_config('request.jwt.claim.role','service_role',true);
 select set_config('request.jwt.claims','{"role":"service_role"}',true);
 set local role service_role;
+select set_config('test.journal_recovery_case_mutation','capture_markers',true);
 select set_config('test.journal_recovery',
   public.service_recover_proved_nayax_api_success_with_duplicate(
     'ca500000-0000-4000-8000-000000000007',
     (select (result#>>'{attempt,attemptId}')::uuid from recovery_reservation),
     'ca500000-0000-4000-8000-000000000107')::text,true);
+select set_config('test.journal_recovery_case_mutation','',true);
 reset role;
 select ok(
-  pg_temp.refund_authority_markers_match(array[
+  (select count(*)=1 and bool_and(markers=array[
     'bloomjoy.nayax_journal_recovery_attempt_id',
     'bloomjoy.nayax_journal_recovery_duplicate_id'
-  ]::text[]),
-  'Legitimate journal recovery creates only its exact internal authority markers'
+  ]::text[]) from journal_recovery_marker_snapshots),
+  'Legitimate journal recovery exposes only its exact internal authority markers during the protected update'
 );
-select diag(pg_temp.refund_authority_marker_diagnostic(array[
-    'bloomjoy.nayax_journal_recovery_attempt_id',
-    'bloomjoy.nayax_journal_recovery_duplicate_id'
-  ]::text[])::text)
-where not pg_temp.refund_authority_markers_match(array[
+select diag(jsonb_build_object(
+  'expected',array[
+      'bloomjoy.nayax_journal_recovery_attempt_id',
+      'bloomjoy.nayax_journal_recovery_duplicate_id'
+    ]::text[],
+  'snapshots',coalesce((select jsonb_agg(markers) from journal_recovery_marker_snapshots),'[]'::jsonb)
+)::text)
+where not (select count(*)=1 and bool_and(markers=array[
   'bloomjoy.nayax_journal_recovery_attempt_id',
   'bloomjoy.nayax_journal_recovery_duplicate_id'
-]::text[]);
+]::text[]) from journal_recovery_marker_snapshots);
 select ok(current_setting('test.journal_recovery')::jsonb @>
     '{"recovered":true,"replayed":false,"providerCallMade":false,"customerMessageSent":false,"completionMessageStatus":"notice_deferred","completionNoticeDeferred":true}'::jsonb
   and not exists(select 1 from public.refund_case_messages

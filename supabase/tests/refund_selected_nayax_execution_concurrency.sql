@@ -127,6 +127,10 @@ insert into verification_race_results select 'start',result from extensions.dbli
 insert into verification_race_results select 'replay',result from extensions.dblink_get_result('verification_b') as r(result jsonb);
 select is((select result->>'recorded' from verification_race_results where kind='start'),'true','Request starts without a replay deadlock');
 select is((select result#>>'{attempt,shouldExecute}' from verification_race_results where kind='replay'),'false','Concurrent replay never receives a provider claim');
+-- Two distinct sessions may review before either reserves. The case lock and
+-- immutable reservation still allow exactly one request claim.
+select * from extensions.dblink_get_result('verification_a') as r(result jsonb);
+select * from extensions.dblink_get_result('verification_b') as r(result jsonb);
 select is(
   (select markers from extensions.dblink(
     'verification_a', 'select refund_verification_race.active_authority_markers()'
@@ -134,10 +138,6 @@ select is(
   '{}'::text[],
   'The next independent transaction cannot inherit authority created by the request-start action'
 );
--- Two distinct sessions may review before either reserves. The case lock and
--- immutable reservation still allow exactly one request claim.
-select * from extensions.dblink_get_result('verification_a') as r(result jsonb);
-select * from extensions.dblink_get_result('verification_b') as r(result jsonb);
 begin;
 select id from public.refund_cases where id='b8400000-0000-4000-8000-000000000002' for update;
 select extensions.dblink_send_query('verification_a',$q$select refund_verification_race.reserve_verified(2,null)$q$);
