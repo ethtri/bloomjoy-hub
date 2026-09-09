@@ -285,6 +285,21 @@ test('missing/stale report health remains distinct from refund status and no-ref
   f.responses.get_refund_gmail_health.reportFreshness = { status: 'needs_review', lastReceivedAt: now.toISOString(), reviewGraceMinutes: 120, secret: 'SECRET_REPORT' };
   const r = await readReportHealth(f.client); assert.equal(r.delivery.status, 'needs_review');
   assert.doesNotMatch(JSON.stringify(r), /SECRET_REPORT/); assert.match(r.limits, /not.*payment gate/);
+  f.responses.get_refund_gmail_health.reportFreshness = {
+    schemaVersion: 'refund_report_health_v2', status: 'recent', deliveryState: 'ordinary_silence',
+    ingestState: 'healthy', coverageState: 'unknown', coverageReason: 'provider_reporting_period_not_supplied',
+    attentionRequired: false, attentionReason: null, affectedCaseCount: 3,
+    lastReceivedAt: now.toISOString(), lastRecordedAt: now.toISOString(), lastProviderRunAt: null, reviewAfter: now.toISOString(),
+    configuredCadenceMinutes: 60, reviewGraceMinutes: 120, schedulePhaseKnown: false,
+    ownerLabel: 'Refund Operations', absenceIsNoRefundEvidence: false, paymentRetryAuthorized: false,
+    secret: 'SECRET_REPORT',
+  };
+  const v2 = await readReportHealth(f.client);
+  assert.equal(v2.delivery.deliveryState, 'ordinary_silence');
+  assert.equal(v2.delivery.coverageState, 'unknown');
+  assert.equal(v2.delivery.attentionRequired, false);
+  assert.equal(v2.delivery.paymentRetryAuthorized, false);
+  assert.doesNotMatch(JSON.stringify(v2), /SECRET_REPORT/);
 });
 
 const token = claims => `header.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.signature`;

@@ -1,5 +1,7 @@
 # QA Smoke Test Checklist
 
+- [ ] As Refund Operations, confirm ordinary Nayax report silence and an authenticated Empty provider run show no manager-workflow warning; a real report ingest/provider failure shows one internal advisory with an unresolved-case count and explicitly says missing report data cannot confirm a refund or authorize another payment.
+
 - Saved approval and transaction-review guidance (#992): on a synthetic card case,
   open an unchanged approved `needs_review` state. Verify the saved amount and
   recorded reason appear without a false final-decision warning; edited decisions
