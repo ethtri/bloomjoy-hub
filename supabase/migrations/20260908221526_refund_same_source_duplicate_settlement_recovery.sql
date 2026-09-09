@@ -671,189 +671,12 @@ $$;
 revoke all on function public.refund_nayax_unsettled_api_success_duplicate_proved(uuid, uuid, uuid)
   from public, anon, authenticated, service_role;
 
--- Shared database-owned claim kernel. The public service wrapper keeps its
--- executor assertion; the exact journal recovery can call this private kernel
--- only after payment/accounting/receipt evidence commits in the same transaction.
-create function public.refund_claim_nayax_refund_completion_internal(
-  p_attempt_id uuid
-)
-returns jsonb
-language plpgsql
-security definer
-set search_path = ''
-as $$
-declare
-  attempt_row public.refund_case_nayax_refund_attempts%rowtype;
-  case_row public.refund_cases%rowtype;
-  thread_row public.refund_gmail_threads%rowtype;
-  message_row public.refund_case_messages%rowtype;
-  completion_subject text;
-  completion_body text;
-begin
-  if p_attempt_id is null then
-    raise exception 'Nayax provider attempt required';
-  end if;
-
-  select attempt.*
-  into attempt_row
-  from public.refund_case_nayax_refund_attempts attempt
-  where attempt.id = p_attempt_id
-  for update;
-
-  select refund_case.*
-  into case_row
-  from public.refund_cases refund_case
-  where refund_case.id = attempt_row.refund_case_id
-  for share;
-
-  if attempt_row.id is null
-    or attempt_row.status is distinct from 'succeeded'
-    or attempt_row.provider_outcome is distinct from 'success'
-    or attempt_row.reconciliation_required
-    or attempt_row.reporting_adjustment_id is null
-    or attempt_row.case_finalization_committed_at is null
-    or case_row.status is distinct from 'completed'
-    or case_row.refund_completed_at is null
-    or case_row.reporting_adjustment_id is distinct from attempt_row.reporting_adjustment_id then
-    raise exception 'Fully committed Nayax success required before customer completion';
-  end if;
-
-  select thread.*
-  into thread_row
-  from public.refund_gmail_threads thread
-  where thread.refund_case_id = case_row.id
-  order by thread.first_message_at, thread.id
-  limit 1
-  for update;
-
-  if thread_row.id is null then
-    raise exception 'Original case-bound Gmail thread required for Nayax completion';
-  end if;
-
-  completion_subject :=
-    'Your ' ||
-    to_char(case_row.refund_amount_cents::numeric / 100, 'FM$999999990.00') ||
-    ' Bloomjoy refund is on its way';
-  completion_body := concat_ws(
-    E'\n\n',
-    'Hi there,',
-    'We issued your ' ||
-      to_char(case_row.refund_amount_cents::numeric / 100, 'FM$999999990.00') ||
-      ' refund' ||
-      case
-        when case_row.matched_nayax_card_last4 ~ '^[0-9]{4}$'
-          then ' to the card ending in ' || case_row.matched_nayax_card_last4
-        else ''
-      end ||
-      ' on ' ||
-      to_char(
-        case_row.refund_completed_at at time zone 'America/Los_Angeles',
-        'Mon FMDD, YYYY'
-      ) || '.',
-    'Your bank or card issuer may take up to 4 business days to show the credit. If it is not visible after that, reply to this email with the reference below. We are sorry this needed a refund, and we appreciate the chance to make it right.',
-    'Reference: ' || case_row.public_reference,
-    E'Warmly,\nBloomjoy Sweets'
-  );
-
-  if attempt_row.completion_message_id is not null then
-    select message.*
-    into message_row
-    from public.refund_case_messages message
-    where message.id = attempt_row.completion_message_id;
-
-    if message_row.id is null
-      or message_row.refund_case_id is distinct from case_row.id
-      or message_row.nayax_refund_attempt_id is distinct from attempt_row.id
-      or attempt_row.completion_gmail_thread_id is distinct from thread_row.id then
-      raise exception 'Nayax completion claim evidence changed';
-    end if;
-
-    return jsonb_build_object(
-      'claimed', false,
-      'refundCaseId', case_row.id,
-      'refundCaseMessageId', message_row.id,
-      'gmailThreadId', thread_row.id,
-      'recipientEmail', case_row.customer_email,
-      'subject', message_row.subject,
-      'body', message_row.body,
-      'status', attempt_row.completion_delivery_status,
-      'originalThread', true
-    );
-  end if;
-
-  insert into public.refund_case_messages (
-    refund_case_id,
-    message_type,
-    status,
-    recipient_email,
-    subject,
-    body,
-    template_key,
-    created_by,
-    content_source,
-    delivery_kind,
-    template_version,
-    requested_fields,
-    nayax_refund_attempt_id
-  ) values (
-    case_row.id,
-    'completed',
-    'pending',
-    case_row.customer_email,
-    completion_subject,
-    completion_body,
-    'refund_nayax_completed_v2',
-    attempt_row.actor_user_id,
-    'deterministic_template',
-    'manual',
-    'refund_nayax_completion_v2',
-    '{}'::text[],
-    attempt_row.id
-  )
-  returning * into message_row;
-
-  update public.refund_case_nayax_refund_attempts
-  set
-    completion_message_id = message_row.id,
-    completion_gmail_thread_id = thread_row.id,
-    completion_delivery_status = 'pending'
-  where id = attempt_row.id;
-
-  insert into public.refund_case_events (
-    refund_case_id,
-    actor_user_id,
-    event_type,
-    message,
-    metadata
-  ) values (
-    case_row.id,
-    attempt_row.actor_user_id,
-    'nayax_customer_completion_claimed',
-    'The post-refund customer reply was bound to the original Gmail thread.',
-    jsonb_build_object(
-      'attempt_id', attempt_row.id,
-      'refund_case_message_id', message_row.id,
-      'original_thread', true,
-      'manager_completion_notice_sent', false,
-      'payload_redacted', true
-    )
-  );
-
-  return jsonb_build_object(
-    'claimed', true,
-    'refundCaseId', case_row.id,
-    'refundCaseMessageId', message_row.id,
-    'gmailThreadId', thread_row.id,
-    'recipientEmail', case_row.customer_email,
-    'subject', message_row.subject,
-    'body', message_row.body,
-    'status', 'pending',
-    'originalThread', true
-  );
-end;
-$$;
-
-revoke all on function public.refund_claim_nayax_refund_completion_internal(uuid)
+-- Preserve the exact currently deployed Gmail completion claim implementation.
+-- The wrapper below adds only the API-receipt form branch and delegates every
+-- other attempt to this original function with its original executor assertion.
+alter function public.service_claim_nayax_refund_completion(text, uuid)
+  rename to refund_claim_nayax_refund_completion_pre_form_receipt_v1;
+revoke all on function public.refund_claim_nayax_refund_completion_pre_form_receipt_v1(text, uuid)
   from public, anon, authenticated, service_role;
 
 -- Form-origin refunds do not have a Gmail thread to reply to. Once the same
@@ -1095,7 +918,10 @@ begin
   if use_form_receipt_outbox then
     return public.refund_claim_nayax_form_receipt_completion_internal(p_attempt_id);
   end if;
-  return public.refund_claim_nayax_refund_completion_internal(p_attempt_id);
+  return public.refund_claim_nayax_refund_completion_pre_form_receipt_v1(
+    p_executor_assertion,
+    p_attempt_id
+  );
 end;
 $$;
 

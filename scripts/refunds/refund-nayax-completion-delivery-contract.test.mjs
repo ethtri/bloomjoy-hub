@@ -58,7 +58,18 @@ test('form completion uses the receipt-bound outbox claim instead of a Gmail thr
   assert.match(wrapper, /receipt\.confirmation_source = 'api_stage_contract'/);
   assert.match(wrapper, /receipt\.attempt_binding_kind = 'proved_terminal_api'/);
   assert.match(wrapper, /not exists\(select 1 from public\.refund_gmail_threads/);
-  assert.match(wrapper, /return public\.refund_claim_nayax_refund_completion_internal/);
+  assert.match(
+    duplicateRecovery,
+    /alter function public\.service_claim_nayax_refund_completion\(text, uuid\)\s+rename to refund_claim_nayax_refund_completion_pre_form_receipt_v1/,
+  );
+  assert.match(
+    duplicateRecovery,
+    /revoke all on function public\.refund_claim_nayax_refund_completion_pre_form_receipt_v1\(text, uuid\)\s+from public, anon, authenticated, service_role/,
+  );
+  assert.match(
+    wrapper,
+    /return public\.refund_claim_nayax_refund_completion_pre_form_receipt_v1\(\s*p_executor_assertion,\s*p_attempt_id\s*\)/,
+  );
 
   const deliveryStart = handler.indexOf('deliverCustomerCompletion: async');
   const deliveryEnd = handler.indexOf('\n        },\n      },', deliveryStart);
