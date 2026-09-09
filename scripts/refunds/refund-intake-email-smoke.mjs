@@ -208,6 +208,36 @@ export const validateExistingSyntheticRun = (rows) => {
   return { id: row.id, publicReference: row.public_reference };
 };
 
+export const buildSyntheticArchiveQuery = (caseId, syntheticRunId) => {
+  if (!UUID_PATTERN.test(caseId)) throw new Error('Invalid refund case UUID.');
+  if (!UUID_PATTERN.test(syntheticRunId)) throw new Error('Invalid synthetic run UUID.');
+  return `
+with archived as (
+  select public.owner_archive_refund_synthetic_smoke(
+    '${caseId}'::uuid,
+    '${syntheticRunId}'::uuid
+  ) as result
+)
+select
+  (result ->> 'archived')::boolean as archived,
+  (result ->> 'replayed')::boolean as replayed,
+  (result ->> 'payloadRedacted')::boolean as payload_redacted
+from archived;
+`.trim();
+};
+
+export const validateSyntheticArchive = (rows) => {
+  if (!Array.isArray(rows) || rows.length !== 1) {
+    throw new Error('Synthetic archive must return one redacted row.');
+  }
+  const row = rows[0];
+  assertExactKeys(row, ['archived', 'replayed', 'payload_redacted'], 'Synthetic archive');
+  if (row.payload_redacted !== true || (row.archived !== true && row.replayed !== true)) {
+    throw new Error('Synthetic archive did not confirm a safe terminal result.');
+  }
+  return { archived: row.archived === true, replayed: row.replayed === true };
+};
+
 const assertExactKeys = (row, expectedKeys, label) => {
   if (!row || typeof row !== 'object' || Array.isArray(row)) {
     throw new Error(`${label} returned an invalid row.`);
@@ -410,6 +440,13 @@ const main = async () => {
       `Case ${row.case_reference}: ${row.event_type}; recipients=${row.recipient_count}; delivery=${row.delivery_state}`,
     );
   }
+  if (!evidence.passed) {
+    throw new Error('Synthetic delivery evidence did not pass; the case was left unchanged for review.');
+  }
+  const archive = validateSyntheticArchive(runLinkedQuery(
+    buildSyntheticArchiveQuery(refundCase.id, args.syntheticRunId),
+  ));
+  console.log(`Internal/test archive: ${archive.replayed ? 'ALREADY ARCHIVED' : 'ARCHIVED'}`);
   console.log(`Overall: ${evidence.passed ? 'PASS' : 'FAIL'}`);
   console.log('No inbox, machine ID, customer fields, payment data, or message content was printed or written.');
   if (!evidence.passed) process.exitCode = 2;

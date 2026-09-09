@@ -1759,6 +1759,15 @@ const primaryActionConfig = (
   candidates: NayaxLookupCandidate[],
   refundReadiness: RefundReadiness | null
 ): PrimaryActionConfig => {
+  if (refundCase.lifecycle?.stage === 'duplicate_resolved' || refundCase.confirmedDuplicate) {
+    return {
+      label: 'Duplicate resolved',
+      helper: refundCase.lifecycle?.duplicateOfPublicReference
+        ? `This request is linked to completed case ${refundCase.lifecycle.duplicateOfPublicReference}. No further action is needed.`
+        : 'This request is linked to its canonical case. No further action is needed.',
+      disabled: true,
+    };
+  }
   if (hasConfirmedRefundReceipt(refundCase)) {
     return {
       label: 'Refund confirmed · accounting review',
@@ -2878,6 +2887,41 @@ export default function AdminRefundsPage() {
     setIsInternalNoteDirty(false);
     setPendingCaseSelectionId(null);
   }, [overview.cases, internalTestCases, selectedId]);
+
+  useEffect(() => {
+    if (!selectedId || isSearching) return;
+    if (filteredCases.some((refundCase) => refundCase.id === selectedId)) return;
+    if (caseSelectionSafetyRef.current.actionInFlight) return;
+
+    if (caseSelectionSafetyRef.current.hasUnsavedCaseText) {
+      const selectedCase = [...overview.cases, ...internalTestCases]
+        .find((refundCase) => refundCase.id === selectedId);
+      if (selectedCase) {
+        setStatusFilter(getRefundQueueFilterForCase(selectedCase, refundOperationsAccess));
+        toast.info('Finish or discard the unsaved case text before changing queues.');
+      }
+      return;
+    }
+
+    setSelectedId(null);
+    setEditor(null);
+    setOfficialActionVersion(0);
+    setNayaxCandidates([]);
+    setNayaxLookupNotice(null);
+    setNayaxLookupSummary(null);
+    setIsRefundConfirmationOpen(false);
+    setIsCashConfirmationOpen(false);
+    setMessageSubject('');
+    setMessageBody('');
+    setPendingCaseSelectionId(null);
+  }, [
+    filteredCases,
+    internalTestCases,
+    isSearching,
+    overview.cases,
+    refundOperationsAccess,
+    selectedId,
+  ]);
 
   useEffect(() => {
     if (!hasUnsavedCaseText || typeof window === 'undefined') return;
@@ -5271,6 +5315,7 @@ export default function AdminRefundsPage() {
 
   const renderCardSaleCandidates = () => {
     if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return null;
+    if (selectedCase.lifecycle?.stage === 'duplicate_resolved') return null;
     // A normalized legacy case must never reuse lookup cache or match fields
     // captured before the repair. The database removes that cache as well;
     // this UI boundary keeps a stale response from hiding the fresh-check CTA.
