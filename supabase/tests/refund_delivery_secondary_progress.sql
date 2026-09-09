@@ -56,7 +56,7 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
  lifecycle_integrity_status,lifecycle_integrity_code,lifecycle_integrity_detected_at)
 select ('e4000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-DELIVERY-PROJECTION-'||n,
  'e3000000-0000-4000-8000-000000000001','e2000000-0000-4000-8000-000000000001',
- 'synthetic@example.invalid','Delivery projection fixture',now()-interval '1 hour','America/Los_Angeles',case when n=7 then 'cash' else 'card' end,700,700,
+ 'synthetic-'||n||'@example.invalid','Delivery projection fixture',now()-interval '1 hour','America/Los_Angeles',case when n=7 then 'cash' else 'card' end,700,700,
  '4242',case when n=5 then 'denied' when n in(4,6) then 'card_refund_pending' else 'needs_review' end,
  'matched','nayax',case when n=5 then 'denied' else 'approved' end,'Existing synthetic decision','under_review',
  case when n=6 then 'hold' else 'ok' end,case when n=6 then 'card_payment_state_without_attempt' end,
@@ -68,12 +68,12 @@ insert into public.refund_case_nayax_refund_attempts(refund_case_id,execution_mo
 values('e4000000-0000-4000-8000-000000000003','request_and_approve','ambiguous','delivery-uncertain',700),
  ('e4000000-0000-4000-8000-000000000004','request_and_approve','in_progress','delivery-pending',700);
 create temporary table delivery_before as
-select id,public.refund_lifecycle_contract(id) as contract from public.refund_cases where public_reference like 'RF-DELIVERY-PROJECTION-%';
+select id,customer_email,public.refund_lifecycle_contract(id) as contract from public.refund_cases where public_reference like 'RF-DELIVERY-PROJECTION-%';
 select is((select contract#>>'{managerQueue,bucket}' from delivery_before where id='e4000000-0000-4000-8000-000000000002'),'ready_to_pay','Fixture has authorized canonical refund readiness');
 
 insert into public.refund_case_messages(refund_case_id,message_type,status,recipient_email,subject,body,template_key,
  delivery_transport,delivery_state,delivery_state_updated_at)
-select id,'status_update','failed','synthetic@example.invalid','Synthetic message','Synthetic body','refund_status_update_v2_test',
+select id,'status_update','failed',customer_email,'Synthetic message','Synthetic body','refund_status_update_v2_test',
  'resend','failed',now() from delivery_before;
 -- The actual public projection runs through both unchanged receipt wrappers.
 select is(jsonb_build_array(after_value->'stage',after_value->'paymentState',after_value->'managerAction',after_value->'managerQueue'),

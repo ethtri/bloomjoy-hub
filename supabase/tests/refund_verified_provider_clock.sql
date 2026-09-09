@@ -42,7 +42,7 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
  nayax_refund_execution_status,incident_time_resolution,incident_time_confidence,
  customer_request_received_at,customer_request_received_source)
 select pg_temp.case_id(n),'RF-DIAGNOSTIC-'||n,'fc440000-0000-4000-8000-000000000001',
- 'fc430000-0000-4000-8000-000000000001','diagnostics-customer@example.invalid','Synthetic diagnostics',
+ 'fc430000-0000-4000-8000-000000000001','diagnostics-customer-'||n||'@example.invalid','Synthetic diagnostics',
  '2026-08-29T20:10:00Z','America/New_York','card',963,963,'4242','needs_review','approved','Ordinary decision',
  'fc410000-0000-4000-8000-000000000001',now()-interval '1 day','no_match','nayax',1,'not_requested','exact',
  case n when 5 then 'within_15_minutes' when 6 then 'within_1_hour' else 'rough' end,
@@ -209,7 +209,7 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
  customer_email,issue_summary,incident_at,incident_local_datetime,incident_timezone,incident_time_resolution,payment_method,payment_amount_cents,card_last4,card_network,payment_interaction,incident_time_confidence,issue_category,status,correlation_status)
 select pg_temp.case_id(n),'RF-CLOCK-PAIR-'||n,case when n=10 then '91bae5ac-4ba6-4378-91f0-ef266bdd4d7a'::uuid else null end,
  'fc430000-0000-4000-8000-000000000002',public.refund_livermore_selection_key(),'livermore_pair',public.refund_livermore_selection_machine_ids(),
- 'clock-pair@example.invalid','Synthetic grouped clock','2026-08-29T20:10:00Z','2026-08-29T13:10','America/Los_Angeles','exact','card',963,'4242','visa','tap_card','exact','charged_no_product','needs_review','no_match'
+ 'clock-pair-'||n||'@example.invalid','Synthetic grouped clock','2026-08-29T20:10:00Z','2026-08-29T13:10','America/Los_Angeles','exact','card',963,'4242','visa','tap_card','exact','charged_no_product','needs_review','no_match'
 from generate_series(9,10)n;
 select public.service_begin_refund_nayax_lookup(pg_temp.case_id(n),1,'manual','fc410000-0000-4000-8000-000000000001') from generate_series(9,10)n;
 create function pg_temp.pair_diagnostic(n integer) returns jsonb language sql stable as $$

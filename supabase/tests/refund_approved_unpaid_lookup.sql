@@ -25,7 +25,7 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
   nayax_refund_execution_status,matched_nayax_transaction_id,duplicate_of_refund_case_id,refund_completed_at,
   customer_request_received_at,customer_request_received_source,incident_time_resolution,incident_time_confidence)
 select pg_temp.case_id(n),'RF-APPROVED-LOOKUP-'||n,'fa440000-0000-4000-8000-000000000001',
-  'fa430000-0000-4000-8000-000000000001','lookup-customer@example.invalid','Synthetic approved lookup',
+  'fa430000-0000-4000-8000-000000000001','lookup-customer-'||n||'@example.invalid','Synthetic approved lookup',
   now()-interval '2 days','America/New_York',case when n=8 then 'cash' else 'card' end,963,963,'4242',
   case when n=3 then 'denied' when n=4 then 'completed' when n=10 then 'approved' else 'needs_review' end,
   case when n=3 then 'denied' when n=9 then null else 'approved' end,'Ordinary manager decision',
