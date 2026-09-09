@@ -177,13 +177,13 @@ cross join lateral (
     ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid) end as context
 ) execution;
 
-select ok((select authorization.expected_case_version=reservation.expected_version
-    and refund_case.official_action_version=authorization.expected_case_version+1
+select ok((select authz.expected_case_version=reservation.expected_version
+    and refund_case.official_action_version=authz.expected_case_version+1
   from continuation_reservations reservation
   join public.refund_case_nayax_refund_attempts attempt
     on attempt.id=(reservation.result#>>'{attempt,attemptId}')::uuid
-  join public.refund_case_official_action_authorizations authorization
-    on authorization.id=attempt.official_action_authorization_id
+  join public.refund_case_official_action_authorizations authz
+    on authz.id=attempt.official_action_authorization_id
   join public.refund_cases refund_case on refund_case.id=attempt.refund_case_id
   where reservation.n=7),
   'Recovery fixture preserves durable preapproval context and one execution version advance');
