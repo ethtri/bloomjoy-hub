@@ -162,6 +162,12 @@ select n,(context->>'caseVersion')::bigint,
     (context->>'caseVersion')::bigint,'nayax-refund-'||repeat(n::text,64),800,null,null,'USD',
     'nayax-production-account-contract-v2','nayax-provider-journal-v3',context->>'contextHash',
     'source_with_bound_offset')
+  when n=7 then public.service_reserve_nayax_refund_manager_action_v5('continuation-executor',
+    'ca000000-0000-4000-8000-000000000001',
+    ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
+    (context->>'caseVersion')::bigint,'nayax-refund-'||repeat(n::text,64),800,null,null,'USD',
+    'nayax-production-account-contract-v2','nayax-provider-journal-v3',context->>'contextHash',
+    'exact_source','empty_string')
   else public.service_reserve_nayax_refund_manager_action_v3('continuation-executor',
     'ca000000-0000-4000-8000-000000000001',
     ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
@@ -172,6 +178,9 @@ cross join lateral (
   select case when n=1 then public.service_get_refund_nayax_execution_context_v2('continuation-executor',
     'ca000000-0000-4000-8000-000000000001',
     ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'source_with_bound_offset')
+  when n=7 then public.service_get_refund_nayax_execution_context_v3('continuation-executor',
+    'ca000000-0000-4000-8000-000000000001',
+    ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'exact_source','empty_string')
   else public.service_get_refund_nayax_execution_context('continuation-executor',
     'ca000000-0000-4000-8000-000000000001',
     ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid) end as context
@@ -179,11 +188,16 @@ cross join lateral (
 
 select ok((select authz.expected_case_version=reservation.expected_version
     and refund_case.official_action_version=authz.expected_case_version+1
+    and (saved.context->>'machineAuthorizationTimeInstant')::timestamptz=
+      refund_case.matched_nayax_machine_auth_time
+    and saved.context->>'machineAuthorizationTimeSerializationMode'='exact_source'
+    and saved.context->>'refundEmailListMode'='empty_string'
   from continuation_reservations reservation
   join public.refund_case_nayax_refund_attempts attempt
     on attempt.id=(reservation.result#>>'{attempt,attemptId}')::uuid
   join public.refund_case_official_action_authorizations authz
     on authz.id=attempt.official_action_authorization_id
+  join public.refund_nayax_execution_contexts saved on saved.attempt_id=attempt.id
   join public.refund_cases refund_case on refund_case.id=attempt.refund_case_id
   where reservation.n=7),
   'Recovery fixture preserves durable preapproval context and one execution version advance');
