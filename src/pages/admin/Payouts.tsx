@@ -515,6 +515,7 @@ export default function AdminPayoutsPage() {
   const [payInputError, setPayInputError] = useState<string | null>(null);
   const [setupDraft, setSetupDraft] = useState<TechnicianSetupDraft | null>(null);
   const [setupError, setSetupError] = useState<string | null>(null);
+  const [setupSubmitting, setSetupSubmitting] = useState(false);
   const [generatingProfileId, setGeneratingProfileId] = useState<string | null>(null);
 
   const { data: context, isLoading, isFetching, error, refetch } = useQuery({
@@ -621,12 +622,14 @@ export default function AdminPayoutsPage() {
       });
     },
     onSuccess: async (result) => {
+      setSetupSubmitting(false);
       await queryClient.invalidateQueries({ queryKey: ['technician-pay-report'] });
       setSetupDraft(null);
       setSetupError(null);
       toast.success(`${result.displayName} can now use Timekeeping across ${result.machineCount} machine${result.machineCount === 1 ? '' : 's'}.`);
     },
     onError: (setupSaveError) => {
+      setSetupSubmitting(false);
       setSetupError(
         setupSaveError instanceof Error
           ? setupSaveError.message
@@ -965,7 +968,7 @@ export default function AdminPayoutsPage() {
         </Dialog>
 
         <Dialog open={Boolean(setupDraft)} onOpenChange={(open) => {
-          if (!open && !saveTechnicianSetup.isPending) {
+          if (!open && !setupSubmitting) {
             setSetupDraft(null);
             setSetupError(null);
           }
@@ -981,6 +984,7 @@ export default function AdminPayoutsPage() {
                   }
                   return;
                 }
+                setSetupSubmitting(true);
                 saveTechnicianSetup.mutate(setupDraft);
               }}>
                 <DialogHeader>
@@ -1117,7 +1121,7 @@ export default function AdminPayoutsPage() {
                 )}
 
                 <DialogFooter className="mt-6 gap-2 sm:gap-0">
-                  {setupDraft.step === 1 ? <><Button type="button" variant="outline" className="min-h-11" onClick={() => setSetupDraft(null)}>Cancel</Button><Button type="button" className="min-h-11" disabled={!setupDraft.userEmail.trim() || !setupDraft.displayName.trim() || !setupDraft.effectiveStartDate || !setupDraft.machineIds.length} onClick={() => setSetupDraft((current) => current ? { ...current, step: 2 } : current)}>Set up pay <ChevronRight className="ml-2 h-4 w-4" /></Button></> : <><Button type="button" variant="outline" className="min-h-11" disabled={saveTechnicianSetup.isPending} onClick={() => setSetupDraft((current) => current ? { ...current, step: 1 } : current)}><ChevronLeft className="mr-2 h-4 w-4" />Back</Button><Button type="submit" className="min-h-11" disabled={saveTechnicianSetup.isPending || setupContextQuery.isLoading || Boolean(setupContextQuery.error)}>{saveTechnicianSetup.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />}Activate Timekeeping</Button></>}
+                  {setupDraft.step === 1 ? <><Button type="button" variant="outline" className="min-h-11" onClick={() => setSetupDraft(null)}>Cancel</Button><Button type="submit" className="min-h-11" disabled={!setupDraft.userEmail.trim() || !setupDraft.displayName.trim() || !setupDraft.effectiveStartDate || !setupDraft.machineIds.length}>Set up pay <ChevronRight className="ml-2 h-4 w-4" /></Button></> : <><Button type="button" variant="outline" className="min-h-11" disabled={setupSubmitting} onClick={() => { saveTechnicianSetup.reset(); setSetupError(null); setSetupDraft((current) => current ? { ...current, step: 1 } : current); }}><ChevronLeft className="mr-2 h-4 w-4" />Back</Button><Button type="submit" className="min-h-11" disabled={setupSubmitting || setupContextQuery.isLoading || Boolean(setupContextQuery.error)}>{setupSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />}Activate Timekeeping</Button></>}
                 </DialogFooter>
               </form>
             )}
