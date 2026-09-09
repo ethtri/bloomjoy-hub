@@ -66,7 +66,12 @@ jobs:
       - name: Prove Gmail addressing and shutdown before provider access
         run: npm run refunds:evidence-gmail -- --evidence-dir output/refund-uat-fragments
       - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+        run: |
+          # Playwright downloads its own Chromium. The hosted runner's unrelated
+          # Google Chrome apt source can briefly publish mismatched indexes and
+          # prevent Ubuntu dependency installation before any UAT can run.
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list
+          npx playwright install --with-deps chromium
       - name: Start synthetic UAT app
         env:
           VITE_SUPABASE_URL: http://127.0.0.1:54321

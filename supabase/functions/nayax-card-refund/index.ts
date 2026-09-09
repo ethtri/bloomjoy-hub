@@ -387,21 +387,47 @@ const getPreflightBlocks = ({
   return Array.from(new Set(blocks));
 };
 
-const getDuplicateTransactionBlocks = async (
-  refundCase: RefundCaseForExecution,
-) => {
+type NayaxTransactionPreflight = {
+  blocks: string[];
+  reason: string | null;
+  resolutionAction: string | null;
+};
+
+const getDuplicateTransactionBlocks = async ({
+  refundCase,
+  actorUserId,
+  expectedCaseVersion,
+  executorAssertion,
+}: {
+  refundCase: RefundCaseForExecution;
+  actorUserId: string;
+  expectedCaseVersion: number;
+  executorAssertion: string | null;
+}): Promise<NayaxTransactionPreflight> => {
   if (
-    !supabase || !safeNayaxReference(refundCase.matched_nayax_transaction_id)
-  ) return [];
-  const { data, error } = await supabase
-    .from("refund_cases")
-    .select("id")
-    .eq("matched_nayax_transaction_id", refundCase.matched_nayax_transaction_id)
-    .neq("id", refundCase.id)
-    .limit(1)
-    .maybeSingle();
-  if (error) throw error;
-  return data?.id ? ["duplicate_transaction"] : [];
+    !supabase || !executorAssertion || !refundCase.executionContext ||
+    !safeNayaxReference(refundCase.matched_nayax_transaction_id)
+  ) return { blocks: [], reason: null, resolutionAction: null };
+  const { data, error } = await supabase.rpc(
+    "service_get_refund_nayax_transaction_preflight",
+    {
+      p_executor_assertion: executorAssertion,
+      p_actor_user_id: actorUserId,
+      p_case_id: refundCase.id,
+      p_expected_case_version: expectedCaseVersion,
+      p_execution_context_hash: refundCase.executionContext.contextHash,
+    },
+  );
+  if (error || !data || typeof data !== "object") throw error ?? new Error("transaction_preflight_unavailable");
+  const result = data as Record<string, unknown>;
+  const reason = sanitizeText(result.reason, 80) || null;
+  return {
+    blocks: result.blocked === true
+      ? [reason === "payment_already_confirmed" ? "already_refunded" : "duplicate_transaction"]
+      : [],
+    reason,
+    resolutionAction: sanitizeText(result.resolutionAction, 80) || null,
+  };
 };
 
 serve(async (req) => {
@@ -551,11 +577,26 @@ serve(async (req) => {
         actorUserId: user.id,
         executionConfig: executionConfig,
       });
+      const transactionPreflight = await getDuplicateTransactionBlocks({
+        refundCase,
+        actorUserId: user.id,
+        expectedCaseVersion: refundCase.official_action_version,
+        executorAssertion: executionConfig.executorAssertion,
+      });
+      const exactTransactionBlocked = transactionPreflight.blocks.length > 0;
       return jsonResponse({
-        available: readiness.canIssueCardRefund,
-        status: readiness.canIssueCardRefund ? "available" : "unavailable",
+        available: readiness.canIssueCardRefund && !exactTransactionBlocked,
+        status: readiness.canIssueCardRefund && !exactTransactionBlocked
+          ? "available"
+          : "unavailable",
         caseId,
         ...readiness,
+        canIssueCardRefund: readiness.canIssueCardRefund && !exactTransactionBlocked,
+        blockReason: exactTransactionBlocked
+          ? transactionPreflight.blocks[0]
+          : readiness.blockReason,
+        conflictReason: transactionPreflight.reason,
+        resolutionAction: transactionPreflight.resolutionAction,
         payloadRedacted: true,
       });
     }
@@ -818,9 +859,13 @@ serve(async (req) => {
       refundCase,
       actorCanManageCase: true,
     });
-    const duplicateTransactionBlocks = await getDuplicateTransactionBlocks(
+    const expectedOfficialActionVersion = Number(body?.expectedOfficialActionVersion);
+    const transactionPreflight = await getDuplicateTransactionBlocks({
       refundCase,
-    );
+      actorUserId: user.id,
+      expectedCaseVersion: expectedOfficialActionVersion,
+      executorAssertion: executionConfig.executorAssertion,
+    });
 
     if (operation === "controlled_owner_pilot") {
       const suppliedRunnerAssertion = securePilotAssertion(
@@ -923,7 +968,7 @@ serve(async (req) => {
         !approveWriteToken ? "approve_write_credential_missing" : null,
         !accountKey ? "machine_account_key_missing" : null,
         ...pilotCandidateBlocks,
-        ...duplicateTransactionBlocks,
+        ...transactionPreflight.blocks,
       ].filter((block): block is string => block !== null);
       if (
         suppliedRunnerAssertion && configuredRunnerAssertion &&
@@ -1252,6 +1297,8 @@ serve(async (req) => {
           : "preflight_blocked",
         errorCode: preferredError,
         blocks: preExecutionBlocks,
+        conflictReason: transactionPreflight.reason,
+        resolutionAction: transactionPreflight.resolutionAction,
         dryRun: executionConfig.dryRun,
         killSwitchActive: executionConfig.killSwitchActive,
       }, 409);
@@ -1439,9 +1486,6 @@ serve(async (req) => {
       },
     });
 
-    const expectedOfficialActionVersion = Number(
-      body?.expectedOfficialActionVersion,
-    );
     const result = await orchestrateNayaxRefund({
       request: {
         caseId: refundCase.id,
