@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(110);
+select plan(111);
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
@@ -36,18 +36,65 @@ on conflict(caller_id) do update set assertion_digest=excluded.assertion_digest,
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
   customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,
   card_last4,status,correlation_status,correlation_source,correlation_confidence,automation_state,
-  matched_nayax_transaction_id,matched_nayax_amount_cents,matched_nayax_currency_code,
+  matched_nayax_transaction_id,matched_nayax_amount_cents,matched_nayax_card_last4,
+  matched_nayax_currency_code,
   matched_nayax_machine_auth_time,matched_nayax_site_id,nayax_recommendation_state,
   nayax_recommendation_policy_version,nayax_match_execution_eligible,nayax_refund_execution_status,
   intake_source)
 select ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-CONTINUE-'||n,
   'ca300000-0000-4000-8000-000000000001','ca200000-0000-4000-8000-000000000001',
   'fixture-'||n||'@example.test','Synthetic continuation fixture',
-  now()-(n||' days')::interval,
+  case when n=7 then '2026-08-26T18:17:09.810Z'::timestamptz
+    else now()-(n||' days')::interval end,
   'card',800,800,'4242','needs_review','matched','nayax',1,'approved',(823456780+n)::text,
-  800,'USD','2026-08-26T18:17:09.810Z',6,'high_confidence','2026-07-21.v1',true,'not_requested',
+  800,'4242','USD','2026-08-26T18:17:09.810Z',6,'high_confidence','2026-07-21.v1',true,'not_requested',
   'form'
 from generate_series(1,7) n;
+create function pg_temp.recovery_candidate_evidence(p_case_id uuid)
+returns jsonb language sql stable as $$
+  select jsonb_build_object(
+    'selection_allowed',true,'is_recommended',true,'one_click_eligible',false,
+    'recommendation_state','high_confidence','confidence_class','evidence_aware_review',
+    'policy_version','2026-09-05.v11',
+    'identifier_policy_version','2026-09-05.identifier.v2',
+    'customer_fact_version',c.deterministic_fact_version,
+    'customer_credential_class','customer_identifier_unknown',
+    'provider_identifier_class','last_sales_identifier_unknown',
+    'card_last4_comparison','exact_support','card_network_comparison','missing',
+    'payment_interaction_comparison','unknown','same_identifier_equivalence_proven',false,
+    'identifier_review_state','exact_support','customer_correction_fields','[]'::jsonb,
+    'hard_exclusions','[]'::jsonb,
+    'reason_codes','["customer_request_time_unknown"]'::jsonb,
+    'lookup_account_scope','CONTINUATION_ACCOUNT',
+    'lookup_provider_machine_id','CONTINUATION-MACHINE',
+    'provider_machine_id','CONTINUATION-MACHINE',
+    'machine_authorization_time_raw','2026-08-26T13:17:09.810',
+    'machine_authorization_at',c.matched_nayax_machine_auth_time,
+    'machine_authorization_time_source','MachineAuthorizationTime',
+    'machine_time_resolution','exact','provider_time_resolution','exact',
+    'provider_time_source','authorization_gmt',
+    'authorized_at',c.matched_nayax_machine_auth_time,
+    'customer_request_received_at','null'::jsonb,
+    'customer_request_received_source','null'::jsonb,
+    'request_time_boundary','request_time_unknown',
+    'transaction_occurrence_comparable',false,
+    'transaction_occurrence_semantics','unknown',
+    'transaction_occurrence_proof_source','null'::jsonb,
+    'transaction_occurrence_timestamp_source','null'::jsonb,
+    'transaction_occurrence_timezone_basis','null'::jsonb,
+    'transaction_occurrence_lower_bound_at','null'::jsonb,
+    'transaction_occurrence_upper_bound_at','null'::jsonb,
+    'request_receipt_lower_bound_at','null'::jsonb,
+    'request_receipt_upper_bound_at','null'::jsonb,
+    'amount_delta_cents',0,'time_delta_minutes','null'::jsonb,
+    'provider_processing_time_delta_minutes',ceil(abs(extract(epoch from
+      (c.matched_nayax_machine_auth_time-c.incident_at)))/60.0)::integer,
+    'payment_status','approved','payment_status_evidence','last_sales_contract',
+    'provider_refund_state','clear','duplicate_provider_record',false,
+    'card_last4','4242','currency_code','USD','amount_cents',800,
+    'provider_payload_redacted',true
+  ) from public.refund_cases c where c.id=p_case_id;
+$$;
 insert into public.refund_case_events(refund_case_id,actor_user_id,event_type,message,metadata)
 select ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
   'ca000000-0000-4000-8000-000000000001','nayax_match_selected',
@@ -59,16 +106,51 @@ select gen_random_uuid(),c.id,c.nayax_lookup_generation,'ca000000-0000-4000-8000
   c.reporting_machine_id,c.matched_nayax_transaction_id,c.matched_nayax_site_id,
   c.matched_nayax_machine_auth_time,c.matched_nayax_amount_cents,c.matched_nayax_card_last4,
   c.matched_nayax_currency_code,
-  jsonb_build_object('machine_authorization_time_raw',
+  case when c.id='ca500000-0000-4000-8000-000000000007'::uuid then
+    pg_temp.recovery_candidate_evidence(c.id)
+  else jsonb_build_object('machine_authorization_time_raw',
     case when c.id='ca500000-0000-4000-8000-000000000001'::uuid
       then '2026-08-26T13:17:09.810' else '2026-08-26T13:17:08.123' end,
     'machine_authorization_time_source','MachineAuthorizationTime',
     'machine_time_resolution',case when c.id='ca500000-0000-4000-8000-000000000001'::uuid
       then 'exact' else 'unknown' end)
     ||jsonb_build_object('lookup_account_scope','CONTINUATION_ACCOUNT',
-      'lookup_provider_machine_id','CONTINUATION-MACHINE','provider_machine_id','CONTINUATION-MACHINE'),
+      'lookup_provider_machine_id','CONTINUATION-MACHINE','provider_machine_id','CONTINUATION-MACHINE') end,
   now()+interval '1 hour'
 from public.refund_cases c where c.id::text like 'ca500000-%';
+
+-- Case 7 models the production path: one ordinary authenticated approval
+-- durably selects the exact purchase before the provider worker reserves it.
+create temp table recovery_candidate as
+select token from public.refund_nayax_lookup_candidates
+where refund_case_id='ca500000-0000-4000-8000-000000000007';
+create temp table recovery_approval_receipt(authorization_id uuid primary key);
+grant select on recovery_candidate to authenticated,service_role;
+grant select,insert on recovery_approval_receipt to authenticated,service_role;
+select set_config('request.jwt.claim.role','authenticated',true);
+select set_config('request.jwt.claim.sub','ca000000-0000-4000-8000-000000000001',true);
+select set_config('request.jwt.claims',
+  '{"sub":"ca000000-0000-4000-8000-000000000001","role":"authenticated","session_id":"ca010000-0000-4000-8000-000000000001","is_anonymous":false}',true);
+set local role authenticated;
+insert into recovery_approval_receipt(authorization_id)
+select (public.admin_authorize_refund_official_action(
+  'ca500000-0000-4000-8000-000000000007','approve',
+  (select official_action_version from public.refund_cases
+    where id='ca500000-0000-4000-8000-000000000007'),
+  'card_refund_pending','approved',null,'customer_owed',null,800,null,null,false,
+  (select token from recovery_candidate),
+  'customer_confirmation'
+)->>'authorizationId')::uuid;
+reset role;
+select set_config('request.jwt.claim.role','service_role',true);
+select set_config('request.jwt.claims','{"role":"service_role"}',true);
+set local role service_role;
+select public.service_apply_refund_nayax_selection_approval(
+  (select authorization_id from recovery_approval_receipt),
+  'ca500000-0000-4000-8000-000000000007',null,'customer_owed',null,800,
+  (select token from recovery_candidate),
+  'customer_confirmation');
+reset role;
 
 create temp table continuation_reservations(n integer primary key, expected_version bigint, result jsonb);
 insert into continuation_reservations
@@ -93,6 +175,17 @@ cross join lateral (
     'ca000000-0000-4000-8000-000000000001',
     ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid) end as context
 ) execution;
+
+select ok((select authorization.expected_case_version=reservation.expected_version
+    and refund_case.official_action_version=authorization.expected_case_version+1
+  from continuation_reservations reservation
+  join public.refund_case_nayax_refund_attempts attempt
+    on attempt.id=(reservation.result#>>'{attempt,attemptId}')::uuid
+  join public.refund_case_official_action_authorizations authorization
+    on authorization.id=attempt.official_action_authorization_id
+  join public.refund_cases refund_case on refund_case.id=attempt.refund_case_id
+  where reservation.n=7),
+  'Recovery fixture preserves durable preapproval context and one execution version advance');
 
 create function pg_temp.record_request(p_n integer,outcome_name text,contract_match boolean,
   semantic_match boolean,business_result text,business_status text)
