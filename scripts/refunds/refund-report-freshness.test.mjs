@@ -16,6 +16,10 @@ const load = (path) => {
 const { parseRefundReportFreshness } = load('src/lib/refundReportFreshness.ts');
 const { RefundReportFreshnessAdvisory } = load('src/components/refunds/RefundReportFreshnessAdvisory.tsx');
 const overdue = { status: 'needs_review', lastReceivedAt: '2026-09-03T18:00:00Z', reviewAfter: '2026-09-03T20:00:00Z', configuredCadenceMinutes: 60, reviewGraceMinutes: 120 };
+const v2 = { ...overdue, status: 'recent', schemaVersion: 'refund_report_health_v2', deliveryState: 'ordinary_silence', ingestState: 'healthy',
+  coverageState: 'unknown', coverageReason: 'provider_reporting_period_not_supplied', attentionRequired: false,
+  attentionReason: null, affectedCaseCount: 0, lastRecordedAt: '2026-09-03T18:01:00Z', lastProviderRunAt: null, absenceIsNoRefundEvidence: false,
+  paymentRetryAuthorized: false };
 const render = (freshness) => renderToStaticMarkup(React.createElement(RefundReportFreshnessAdvisory, { freshness }));
 
 test('actual Gmail health fetch carries the private RPC result through to the advisory', async () => {
@@ -43,6 +47,14 @@ test('report health hides malformed or absent private data instead of inventing 
   assert.equal(parseRefundReportFreshness({ ...overdue, lastReceivedAt: 'invalid' }), null);
   assert.equal(parseRefundReportFreshness({ ...overdue, configuredCadenceMinutes: 10 }), null);
   assert.deepEqual(parseRefundReportFreshness(overdue), overdue);
+  assert.deepEqual(parseRefundReportFreshness(v2), v2);
+  assert.equal(parseRefundReportFreshness({ ...v2, status: 'recent', deliveryState: 'explicit_empty',
+    lastReceivedAt: null, lastRecordedAt: null, reviewAfter: null,
+    lastProviderRunAt: '2026-09-03T19:00:00Z' })?.deliveryState, 'explicit_empty');
+  assert.equal(parseRefundReportFreshness({ ...v2, paymentRetryAuthorized: true }), null);
+  assert.equal(parseRefundReportFreshness({ ...v2, attentionRequired: true }), null);
+  assert.equal(parseRefundReportFreshness({ ...v2, status: 'recent', attentionRequired: true,
+    attentionReason: 'provider_run_failed', deliveryState: 'provider_failed', lastProviderRunAt: '2026-09-03T19:00:00Z' }), null);
 });
 test('one readable advisory names internal owner and local grace without send or payment controls', () => {
   const html = render(overdue);
@@ -59,4 +71,15 @@ test('unobserved state does not invent a last delivery or a missed scheduled run
   const html = render({ ...overdue, status: 'unobserved', lastReceivedAt: null, reviewAfter: null });
   assert.match(html, /has not been recorded yet/);
   assert.doesNotMatch(html, /Last received|missed/);
+});
+test('v2 hides ordinary silence and explicit Empty runs but routes actual failures with affected scope', () => {
+  assert.equal(render(v2), '');
+  assert.equal(render({ ...v2, deliveryState: 'explicit_empty', lastProviderRunAt: '2026-09-03T19:00:00Z' }), '');
+  const failed = { ...v2, status: 'needs_review', ingestState: 'failed', attentionRequired: true,
+    attentionReason: 'report_ingest_failed', affectedCaseCount: 2 };
+  const html = render(failed);
+  assert.match(html, /could not be processed/);
+  assert.match(html, /2 unresolved cases/);
+  assert.match(html, /never confirms a refund or authorizes another payment/);
+  assert.doesNotMatch(html, /<button|role="alert"|<input/);
 });
