@@ -4,6 +4,7 @@ import {
   canConfirmRefundCandidate,
   getDisplayedRefundManagerNextStep,
   getRefundManagerState,
+  isResolvedDuplicateRefundCase,
   getRefundPaymentStateLabel,
   hasUnpaidRefundReview,
 } from './refundManagerState.ts';
@@ -211,6 +212,24 @@ Deno.test('a confirmed duplicate of a completed case is terminal and names the c
     result.nextStep,
     'No transaction search, customer clarification, message, or payment action is needed.',
     'duplicate has no further action',
+  );
+});
+
+Deno.test('resolved duplicate detection covers lifecycle and legacy projections', () => {
+  assertEquals(
+    isResolvedDuplicateRefundCase({ lifecycle: lifecycle('duplicate_resolved', 100, 'none') }),
+    true,
+    'current lifecycle projection',
+  );
+  assertEquals(
+    isResolvedDuplicateRefundCase({ confirmedDuplicate: true }),
+    true,
+    'legacy confirmed duplicate projection',
+  );
+  assertEquals(
+    isResolvedDuplicateRefundCase({ confirmedDuplicate: false }),
+    false,
+    'ordinary case',
   );
 });
 

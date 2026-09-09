@@ -115,6 +115,7 @@ import {
   hasUnpaidRefundReview,
   hasProtectedRefundLifecycle,
   isDefinitiveNoRefundRetryReady,
+  isResolvedDuplicateRefundCase,
   refundReadinessBlockMessage,
   type RefundManagerState,
   type RefundManagerStateTone,
@@ -3148,6 +3149,7 @@ export default function AdminRefundsPage() {
   const selectedCaseOfficialActionBlockReason = selectedCase?.officialActionBlockReason ??
     (selectedCase?.canPerformOfficialAction !== true ? 'manager_mapping_required' : null);
   const selectedCaseIsTerminal = selectedCase ? doneStatuses.has(selectedCase.status) : false;
+  const selectedCaseIsResolvedDuplicate = isResolvedDuplicateRefundCase(selectedCase);
   const selectedCaseApprovalContinuationReady =
     selectedRefundReadiness?.approvalContinuationReady === true;
   const selectedCaseIsReviewOnly = selectedCaseIsTerminal ||
@@ -5315,7 +5317,7 @@ export default function AdminRefundsPage() {
 
   const renderCardSaleCandidates = () => {
     if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return null;
-    if (selectedCase.lifecycle?.stage === 'duplicate_resolved') return null;
+    if (selectedCaseIsResolvedDuplicate) return null;
     // A normalized legacy case must never reuse lookup cache or match fields
     // captured before the repair. The database removes that cache as well;
     // this UI boundary keeps a stale response from hiding the fresh-check CTA.
@@ -5841,6 +5843,7 @@ export default function AdminRefundsPage() {
 
   const renderCardDecisionWorkbench = () => {
     if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return null;
+    if (selectedCaseIsResolvedDuplicate) return null;
 
     const effectiveCandidates = selectedCase.legacyStateReviewRequired ? [] : nayaxCandidates;
     const activeCandidate = activeNayaxCandidate(selectedCase, editor, effectiveCandidates);
@@ -7041,6 +7044,7 @@ export default function AdminRefundsPage() {
 
   const renderCashDecisionWorkbench = () => {
     if (!selectedCase || !editor || selectedCase.paymentMethod === 'card') return null;
+    if (selectedCaseIsResolvedDuplicate) return null;
 
     const cashAmountCents = selectedCase.paymentAmountCents;
     const isCashCompletion = primaryAction?.targetStatus === 'completed';
