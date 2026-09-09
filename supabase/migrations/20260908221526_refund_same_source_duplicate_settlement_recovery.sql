@@ -436,7 +436,12 @@ as $$
       "originalAmountCents" integer,
       "currencyCode" text,
       "cardLast4" text,
-      "machineAuthorizationTimeInstant" timestamptz
+      "machineAuthorizationTimeInstant" timestamptz,
+      "machineAuthorizationTime" text,
+      "machineAuthorizationTimeWire" text,
+      "machineAuthorizationTimeSerializationMode" text,
+      "machineAuthorizationTimeSerializationSource" text,
+      "refundEmailListMode" text
     )
     join public.refund_nayax_provider_stage_journal request_journal
       on request_journal.nayax_refund_attempt_id = attempt.id
@@ -480,7 +485,7 @@ as $$
       and authz.action = 'nayax_execute'
       and authz.refund_case_id = refund_case.id
       and authz.verified_totp_at is not null
-      and authz.nayax_execution_evidence_hash is not null
+      and authz.nayax_execution_evidence_hash ~ '^[a-f0-9]{64}$'
       and intent.status = 'consumed'
       and intent.action = 'nayax_execute'
       and intent.target_function = 'nayax-card-refund'
@@ -491,7 +496,18 @@ as $$
       and context."caseId" = refund_case.id
       and context."reportingMachineId" = machine.id
       and authz.expected_case_version = context."caseVersion"
-      and context."contextHash" = authz.nayax_execution_evidence_hash
+      -- The official-action evidence hash and selected-context hash are two
+      -- independent immutable contracts. The former binds authorization to
+      -- the intent and request fingerprint; the latter is a self-hash over
+      -- the exact request context persisted by the current Woodland path.
+      and context."contextHash" ~ '^[a-f0-9]{64}$'
+      and context."contextHash" = encode(extensions.digest(convert_to(
+        (saved.context - 'contextHash')::text, 'UTF8'
+      ), 'sha256'), 'hex')
+      and context."machineAuthorizationTimeSerializationMode" = 'exact_source'
+      and context."machineAuthorizationTimeSerializationSource" = 'exact_source'
+      and context."refundEmailListMode" = 'empty_string'
+      and context."machineAuthorizationTimeWire" = context."machineAuthorizationTime"
       and context."attemptGeneration" = refund_case.nayax_refund_attempt_generation
       and context."accountScope" = machine.nayax_account_key
       and context."providerMachineId" = machine.nayax_machine_id

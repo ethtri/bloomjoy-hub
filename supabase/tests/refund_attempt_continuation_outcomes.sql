@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(111);
+select plan(114);
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
@@ -883,6 +883,8 @@ select diag((
       target.canonical_id,target.attempt_id),
     'duplicateProved',public.refund_nayax_unsettled_api_success_duplicate_proved(
       target.canonical_id,target.attempt_id,target.duplicate_id),
+    'crossFormatHashesEqual',(inputs.saved).context->>'contextHash'=
+      (inputs.authz).nayax_execution_evidence_hash,
     'failedChecks',coalesce((select jsonb_agg(jsonb_build_object(
         'check',check_row.name,'passed',check_row.passed) order by check_row.name)
       from (values
@@ -906,7 +908,7 @@ select diag((
         ('journal.authAction',(inputs.authz).action='nayax_execute'),
         ('journal.authCase',(inputs.authz).refund_case_id=(inputs.canonical).id),
         ('journal.authTotp',(inputs.authz).verified_totp_at is not null),
-        ('journal.authHash',(inputs.authz).nayax_execution_evidence_hash is not null),
+        ('journal.authHash',(inputs.authz).nayax_execution_evidence_hash~'^[a-f0-9]{64}$'),
         ('journal.intentStatus',(inputs.intent).status='consumed'),
         ('journal.intentAction',(inputs.intent).action='nayax_execute'),
         ('journal.intentTarget',(inputs.intent).target_function='nayax-card-refund'),
@@ -919,8 +921,14 @@ select diag((
         ('journal.contextMachine',((inputs.saved).context->>'reportingMachineId')::uuid=(inputs.machine).id),
         ('journal.contextVersion',(inputs.authz).expected_case_version=
           ((inputs.saved).context->>'caseVersion')::bigint),
-        ('journal.contextHash',(inputs.saved).context->>'contextHash'=
-          (inputs.authz).nayax_execution_evidence_hash),
+        ('journal.contextHashSelf',(inputs.saved).context->>'contextHash'=
+          encode(extensions.digest(convert_to(
+            ((inputs.saved).context-'contextHash')::text,'UTF8'),'sha256'),'hex')),
+        ('journal.contextCurrentContract',(inputs.saved).context->>'machineAuthorizationTimeSerializationMode'='exact_source'
+          and (inputs.saved).context->>'machineAuthorizationTimeSerializationSource'='exact_source'
+          and (inputs.saved).context->>'refundEmailListMode'='empty_string'
+          and (inputs.saved).context->>'machineAuthorizationTimeWire'=
+            (inputs.saved).context->>'machineAuthorizationTime'),
         ('journal.contextGeneration',((inputs.saved).context->>'attemptGeneration')::integer=
           (inputs.canonical).nayax_refund_attempt_generation),
         ('journal.contextAccount',(inputs.saved).context->>'accountScope'=(inputs.machine).nayax_account_key),
@@ -1077,7 +1085,7 @@ select diag((
       from public.refund_nayax_provider_stage_journal journal
       where journal.nayax_refund_attempt_id=target.attempt_id),'[]'::jsonb),
     'businessOutcomes',coalesce((select jsonb_agg(to_jsonb(outcome)
-        order by outcome.created_at,outcome.id)
+        order by outcome.created_at,outcome.provider_stage_journal_id)
       from public.refund_nayax_provider_business_outcomes outcome
       where outcome.nayax_refund_attempt_id=target.attempt_id),'[]'::jsonb),
     'reviews',coalesce((select jsonb_agg(to_jsonb(review) order by review.created_at,review.id)
@@ -1104,6 +1112,46 @@ select diag((
   ))
   from target cross join inputs
 )::text);
+
+select throws_ok($cmd$do $changed_context$
+begin
+  alter table public.refund_nayax_execution_contexts
+    disable trigger refund_nayax_execution_context_immutable;
+  update public.refund_nayax_execution_contexts
+  set context=jsonb_set(context,'{machineAuthorizationTimeWire}',to_jsonb('changed'::text))
+  where attempt_id=current_setting('test.recovery_attempt_id')::uuid;
+  perform public.service_recover_proved_nayax_api_success_with_duplicate(
+    'ca500000-0000-4000-8000-000000000007',
+    current_setting('test.recovery_attempt_id')::uuid,
+    'ca500000-0000-4000-8000-000000000107');
+end $changed_context$$cmd$,'P4674',null,
+  'Recovery rejects a changed saved request context and rolls the mutation back');
+select throws_ok($cmd$do $changed_context_hash$
+begin
+  alter table public.refund_nayax_execution_contexts
+    disable trigger refund_nayax_execution_context_immutable;
+  update public.refund_nayax_execution_contexts
+  set context=jsonb_set(context,'{contextHash}',to_jsonb(repeat('0',64)))
+  where attempt_id=current_setting('test.recovery_attempt_id')::uuid;
+  perform public.service_recover_proved_nayax_api_success_with_duplicate(
+    'ca500000-0000-4000-8000-000000000007',
+    current_setting('test.recovery_attempt_id')::uuid,
+    'ca500000-0000-4000-8000-000000000107');
+end $changed_context_hash$$cmd$,'P4674',null,
+  'Recovery rejects a changed saved request-context hash and rolls the mutation back');
+select throws_ok($cmd$do $broken_authorization_intent$
+begin
+  update public.refund_manager_action_step_up_intents intent
+  set nayax_execution_evidence_hash=repeat('0',64)
+  from public.refund_case_nayax_refund_attempts attempt
+  where attempt.id=current_setting('test.recovery_attempt_id')::uuid
+    and intent.id=attempt.step_up_intent_id;
+  perform public.service_recover_proved_nayax_api_success_with_duplicate(
+    'ca500000-0000-4000-8000-000000000007',
+    current_setting('test.recovery_attempt_id')::uuid,
+    'ca500000-0000-4000-8000-000000000107');
+end $broken_authorization_intent$$cmd$,'P4674',null,
+  'Recovery rejects a broken authorization-to-intent evidence chain and rolls the mutation back');
 
 create function pg_temp.reject_recovery_notice_preparation()
 returns trigger language plpgsql as $$
