@@ -648,6 +648,9 @@ export type TechnicianPayReportEntry = {
 };
 
 export type TechnicianPayReportShiftRateLine = {
+  machineId?: string | null;
+  machineLabel?: string | null;
+  locationName?: string | null;
   shiftRateCents: number | null;
   paidShifts: number;
   actualDurationMinutes: number;
@@ -795,23 +798,27 @@ export type TimekeepingSetupContext = {
   };
 };
 
+export type TimekeepingMachineCompensation = {
+  machineId: string;
+  shiftRateCents: number;
+  commissionBasisPoints: number;
+  commissionEffectiveStartDate: string;
+};
+
 export type SetupTimekeepingTechnicianInput = {
   userEmail: string;
-  accountId: string;
   displayName: string;
   workerType: OperatorWorkerType;
   workerIdentifier?: string | null;
-  machineIds: string[];
-  shiftRateCents: number;
-  commissionBasisPoints: number;
   effectiveStartDate: string;
+  machineCompensation: TimekeepingMachineCompensation[];
 };
 
 export type SetupTimekeepingTechnicianResult = {
-  operatorProfileId: string;
-  accountId: string;
   displayName: string;
+  profiles: Array<{ operatorProfileId: string; accountId: string }>;
   machineCount: number;
+  payerCount: number;
   effectiveStartDate: string;
 };
 
@@ -1265,25 +1272,19 @@ export const fetchTimekeepingSetupContext = async (): Promise<TimekeepingSetupCo
 
 export const setupTimekeepingTechnicianAdmin = async ({
   userEmail,
-  accountId,
   displayName,
   workerType,
   workerIdentifier,
-  machineIds,
-  shiftRateCents,
-  commissionBasisPoints,
   effectiveStartDate,
+  machineCompensation,
 }: SetupTimekeepingTechnicianInput): Promise<SetupTimekeepingTechnicianResult> => {
-  const { data, error } = await supabaseClient.rpc('admin_setup_timekeeping_technician', {
+  const { data, error } = await supabaseClient.rpc('admin_setup_timekeeping_technician_arrangements', {
     p_user_email: userEmail,
-    p_account_id: accountId,
     p_display_name: displayName,
     p_worker_type: workerType,
     p_worker_identifier: workerIdentifier ?? null,
-    p_machine_ids: machineIds,
-    p_shift_rate_cents: shiftRateCents,
-    p_commission_basis_points: commissionBasisPoints,
     p_effective_start_date: effectiveStartDate,
+    p_machine_compensation: machineCompensation,
   });
 
   if (error || !data) {

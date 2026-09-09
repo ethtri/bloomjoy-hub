@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(43);
+select plan(46);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -400,6 +400,23 @@ select is(
   (pg_temp.resolve_rate('92000000-0000-0000-0000-000000000001', '96000000-0000-0000-0000-000000000001', '94000000-0000-0000-0000-000000000001', '2026-08-01', 'shift')->>'shiftRateCents')::integer,
   2500,
   'the later period uses the raised shift rate'
+);
+select is(
+  pg_temp.capture_error($$
+    select public.admin_upsert_operator_compensation_rate(null, '92000000-0000-0000-0000-000000000001', '96000000-0000-0000-0000-000000000001', '94000000-0000-0000-0000-000000000001', 'shift', 3500, '2026-08-01', null, 'active', null)
+  $$),
+  null,
+  'an authorized owner can create a machine-specific started-hour rate'
+);
+select is(
+  (pg_temp.resolve_rate('92000000-0000-0000-0000-000000000001', '96000000-0000-0000-0000-000000000001', '94000000-0000-0000-0000-000000000001', '2026-08-01', 'shift')->>'shiftRateCents')::integer,
+  3500,
+  'a machine-specific started-hour rate overrides the Technician default'
+);
+select is(
+  (pg_temp.resolve_rate('92000000-0000-0000-0000-000000000001', '96000000-0000-0000-0000-000000000001', '94000000-0000-0000-0000-000000000002', '2026-08-01', 'shift')->>'shiftRateCents')::integer,
+  2500,
+  'another machine still falls back to the Technician started-hour default'
 );
 select is(
   pg_temp.capture_error($$

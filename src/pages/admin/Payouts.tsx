@@ -6,12 +6,15 @@ import {
   Banknote,
   CalendarDays,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   Loader2,
   Plus,
   RefreshCw,
   ShieldCheck,
   ShoppingBag,
+  Trash2,
   UserRound,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -71,27 +74,47 @@ type PayInputDraft = {
 };
 
 type TechnicianSetupDraft = {
+  step: 1 | 2;
   userEmail: string;
   displayName: string;
   workerType: OperatorWorkerType;
   workerIdentifier: string;
-  accountId: string;
   machineIds: string[];
-  shiftRate: string;
-  commissionRate: string;
   effectiveStartDate: string;
+  arrangements: PayArrangementDraft[];
 };
 
+type CommissionTiming = 'immediate' | 'three_months' | 'date';
+
+type PayArrangementDraft = {
+  id: string;
+  machineIds: string[];
+  shiftRate: string;
+  commissionEnabled: boolean;
+  commissionRate: string;
+  commissionTiming: CommissionTiming;
+  commissionStartDate: string;
+};
+
+const newPayArrangement = (machineIds: string[] = []): PayArrangementDraft => ({
+  id: crypto.randomUUID(),
+  machineIds,
+  shiftRate: '',
+  commissionEnabled: false,
+  commissionRate: '3',
+  commissionTiming: 'immediate',
+  commissionStartDate: '',
+});
+
 const newTechnicianSetupDraft = (): TechnicianSetupDraft => ({
+  step: 1,
   userEmail: '',
   displayName: '',
   workerType: 'contractor_1099',
   workerIdentifier: '',
-  accountId: '',
   machineIds: [],
-  shiftRate: '',
-  commissionRate: '',
   effectiveStartDate: getTodayInTimekeepingZone(),
+  arrangements: [newPayArrangement()],
 });
 
 const workerTypeOptions: Array<{ value: OperatorWorkerType; label: string }> = [
@@ -140,6 +163,13 @@ const formatWorkerType = (value: string | null | undefined) => {
   if (value === 'contractor_1099') return 'Independent contractor';
   if (value === 'employee_w2') return 'Employee';
   return value?.replaceAll('_', ' ') || 'Technician';
+};
+
+const addUtcMonths = (dateValue: string, months: number) => {
+  const [year, month, day] = dateValue.split('-').map(Number);
+  if (!year || !month || !day) return '';
+  const result = new Date(Date.UTC(year, month - 1 + months, day));
+  return result.toISOString().slice(0, 10);
 };
 
 const Metric = ({
@@ -199,9 +229,12 @@ const hasMissingShiftRate = (technician: TechnicianPayReportTechnician) =>
 const buildShiftRateLines = (
   entries: TechnicianPayReportEntry[]
 ): TechnicianPayReportShiftRateLine[] => {
+  const distinctRates = new Set(entries.map((entry) => entry.shiftRateCents ?? 'missing'));
+  const showMachine = distinctRates.size > 1;
   const groups = new Map<string, TechnicianPayReportShiftRateLine>();
   for (const entry of entries) {
-    const key = entry.shiftRateCents == null ? 'missing' : String(entry.shiftRateCents);
+    const rateKey = entry.shiftRateCents == null ? 'missing' : String(entry.shiftRateCents);
+    const key = showMachine ? `${entry.machineId}:${rateKey}` : rateKey;
     const current = groups.get(key);
     if (current) {
       current.paidShifts += entry.paidShifts;
@@ -211,6 +244,9 @@ const buildShiftRateLines = (
       if (entry.workDate > current.lastWorkDate) current.lastWorkDate = entry.workDate;
     } else {
       groups.set(key, {
+        machineId: showMachine ? entry.machineId : null,
+        machineLabel: showMachine ? entry.machineLabel : null,
+        locationName: showMachine ? entry.locationName : null,
         shiftRateCents: entry.shiftRateCents,
         paidShifts: entry.paidShifts,
         actualDurationMinutes: entry.actualDurationMinutes,
@@ -278,6 +314,7 @@ function TechnicianReport({
   const commissionUnavailable = hasUnresolvedCommission(technician);
   const shiftPayUnavailable = hasMissingShiftRate(technician);
   const totalUnavailable = technician.blockers.length > 0;
+  const shiftRateLines = buildShiftRateLines(technician.entries);
 
   return (
     <article className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
@@ -354,11 +391,11 @@ function TechnicianReport({
           Every started hour is one paid shift. A 61-minute entry is two shifts.
         </p>
         <div className="mt-3 rounded-lg border border-border px-3">
-          {technician.shiftRateLines.length ? technician.shiftRateLines.map((line, index) => (
+          {shiftRateLines.length ? shiftRateLines.map((line, index) => (
             <BreakdownRow
               key={`${line.shiftRateCents}-${line.firstWorkDate}-${index}`}
               label={`${line.paidShifts} shift${line.paidShifts === 1 ? '' : 's'} × ${line.shiftRateCents == null ? 'Rate missing' : formatCurrency(line.shiftRateCents)}`}
-              detail={<>{formatDuration(line.actualDurationMinutes)} actual · {formatDate(line.firstWorkDate)}–{formatDate(line.lastWorkDate)}</>}
+              detail={<>{line.machineLabel && <span className="font-medium text-foreground">{line.machineLabel} · </span>}{formatDuration(line.actualDurationMinutes)} actual · {formatDate(line.firstWorkDate)}–{formatDate(line.lastWorkDate)}</>}
               amount={line.shiftRateCents == null ? 'Unavailable' : formatCurrency(line.shiftEarningsCents)}
             />
           )) : <p className="py-4 text-sm text-muted-foreground">No paid shifts in this month.</p>}
@@ -478,6 +515,7 @@ export default function AdminPayoutsPage() {
   const [payInputError, setPayInputError] = useState<string | null>(null);
   const [setupDraft, setSetupDraft] = useState<TechnicianSetupDraft | null>(null);
   const [setupError, setSetupError] = useState<string | null>(null);
+  const [setupSubmitting, setSetupSubmitting] = useState(false);
   const [generatingProfileId, setGeneratingProfileId] = useState<string | null>(null);
 
   const { data: context, isLoading, isFetching, error, refetch } = useQuery({
@@ -521,9 +559,13 @@ export default function AdminPayoutsPage() {
   const commissionableSalesUnavailable = visibleTechnicians.some((technician) =>
     technician.machines.some((machine) => machine.revenueSnapshotId == null)
   );
-  const setupMachines = setupContextQuery.data?.accounts.find(
-    (account) => account.accountId === setupDraft?.accountId
-  )?.machines ?? [];
+  const setupAccounts = setupContextQuery.data?.accounts ?? [];
+  const setupMachineById = new Map(
+    setupAccounts.flatMap((account) => account.machines.map((machine) => [machine.machineId, { ...machine, accountId: account.accountId, accountName: account.accountName }] as const))
+  );
+  const selectedPayerCount = setupDraft
+    ? setupAccounts.filter((account) => account.machines.some((machine) => setupDraft.machineIds.includes(machine.machineId))).length
+    : 0;
 
   const openTechnicianSetup = () => {
     setSetupError(null);
@@ -532,41 +574,62 @@ export default function AdminPayoutsPage() {
 
   const saveTechnicianSetup = useMutation({
     mutationFn: async (draft: TechnicianSetupDraft) => {
-      const shiftRate = Number(draft.shiftRate);
-      const commissionRate = Number(draft.commissionRate);
       if (!draft.userEmail.trim() || !draft.userEmail.includes('@')) {
         throw new Error('Enter the email used for the Technician invitation.');
       }
       if (!draft.displayName.trim()) throw new Error('Enter the Technician’s name.');
-      if (!draft.accountId) throw new Error('Choose an account.');
       if (!draft.machineIds.length) throw new Error('Choose at least one machine.');
-      if (!Number.isFinite(shiftRate) || shiftRate <= 0) {
-        throw new Error('Enter pay per shift greater than zero.');
-      }
-      if (!Number.isFinite(commissionRate) || commissionRate < 0 || commissionRate > 100) {
-        throw new Error('Enter a commission percent from 0 to 100.');
-      }
       if (!draft.effectiveStartDate) throw new Error('Choose the Timekeeping start date.');
+
+      const assignedMachines = draft.arrangements.flatMap((arrangement) => arrangement.machineIds);
+      if (assignedMachines.length !== draft.machineIds.length || new Set(assignedMachines).size !== draft.machineIds.length) {
+        throw new Error('Assign every selected machine to one pay arrangement.');
+      }
+
+      const machineCompensation = draft.arrangements.flatMap((arrangement) => {
+        const shiftRate = Number(arrangement.shiftRate);
+        const commissionRate = arrangement.commissionEnabled ? Number(arrangement.commissionRate) : 0;
+        if (!Number.isFinite(shiftRate) || shiftRate <= 0) {
+          throw new Error('Enter pay per started hour greater than zero for every arrangement.');
+        }
+        if (!Number.isFinite(commissionRate) || commissionRate < 0 || commissionRate > 100) {
+          throw new Error('Enter a commission percent from 0 to 100.');
+        }
+        const commissionStartDate = arrangement.commissionTiming === 'three_months'
+          ? addUtcMonths(draft.effectiveStartDate, 3)
+          : arrangement.commissionTiming === 'date'
+            ? arrangement.commissionStartDate
+            : draft.effectiveStartDate;
+        if (!commissionStartDate) throw new Error('Choose when commission begins.');
+        if (commissionStartDate < draft.effectiveStartDate) {
+          throw new Error('Commission cannot begin before Timekeeping starts.');
+        }
+        return arrangement.machineIds.map((machineId) => ({
+          machineId,
+          shiftRateCents: Math.round(shiftRate * 100),
+          commissionBasisPoints: Math.round(commissionRate * 100),
+          commissionEffectiveStartDate: commissionStartDate,
+        }));
+      });
 
       return setupTimekeepingTechnicianAdmin({
         userEmail: draft.userEmail.trim(),
-        accountId: draft.accountId,
         displayName: draft.displayName.trim(),
         workerType: draft.workerType,
         workerIdentifier: draft.workerIdentifier.trim() || null,
-        machineIds: draft.machineIds,
-        shiftRateCents: Math.round(shiftRate * 100),
-        commissionBasisPoints: Math.round(commissionRate * 100),
         effectiveStartDate: draft.effectiveStartDate,
+        machineCompensation,
       });
     },
     onSuccess: async (result) => {
+      setSetupSubmitting(false);
       await queryClient.invalidateQueries({ queryKey: ['technician-pay-report'] });
       setSetupDraft(null);
       setSetupError(null);
-      toast.success(`${result.displayName} can now use Timekeeping.`);
+      toast.success(`${result.displayName} can now use Timekeeping across ${result.machineCount} machine${result.machineCount === 1 ? '' : 's'}.`);
     },
     onError: (setupSaveError) => {
+      setSetupSubmitting(false);
       setSetupError(
         setupSaveError instanceof Error
           ? setupSaveError.message
@@ -584,14 +647,18 @@ export default function AdminPayoutsPage() {
       ? null
       : technician.machines.find((machine) => machine.machineId === machineId) ?? null;
     const defaultCommissionRate = technician.machines.find((machine) => machine.commissionRate?.source === 'technician_default')?.commissionBasisPoints;
-    const shiftRate = technician.shiftRateLines.find((line) => line.shiftRateCents != null)?.shiftRateCents;
+    const shiftRate = selectedMachine
+      ? technician.entries.find((entry) => entry.machineId === selectedMachine.machineId && entry.shiftRateCents != null)?.shiftRateCents
+      : technician.shiftRateLines.find((line) => line.shiftRateCents != null)?.shiftRateCents;
     const isOtherEarning = kind === 'bonus' || kind === 'supply_credit' || kind === 'expense_reimbursement';
     setPayInputError(null);
     setPayInputDraft({
       technician,
       kind,
       itemId: earning?.id ?? null,
-      machineId: kind === 'commission' ? selectedMachine?.machineId ?? TECHNICIAN_DEFAULT_MACHINE : '',
+      machineId: kind === 'shift' || kind === 'commission'
+        ? selectedMachine?.machineId ?? TECHNICIAN_DEFAULT_MACHINE
+        : '',
       value: earning
         ? (earning.amountCents / 100).toFixed(2)
         : kind === 'shift' && shiftRate != null
@@ -609,8 +676,8 @@ export default function AdminPayoutsPage() {
   const savePayInput = useMutation({
     mutationFn: async (draft: PayInputDraft) => {
       const numericValue = Number(draft.value);
-      if (!Number.isFinite(numericValue) || numericValue <= 0) {
-        throw new Error('Enter an amount greater than zero.');
+      if (!Number.isFinite(numericValue) || numericValue < 0 || (draft.kind !== 'commission' && numericValue === 0)) {
+        throw new Error(draft.kind === 'commission' ? 'Enter a commission from 0 to 100%.' : 'Enter an amount greater than zero.');
       }
       if (!draft.effectiveStartDate) throw new Error('Choose an effective start date.');
       if (draft.effectiveEndDate && draft.effectiveEndDate < draft.effectiveStartDate) {
@@ -624,7 +691,7 @@ export default function AdminPayoutsPage() {
         return supersedeOperatorCompensationRateAdmin({
           accountId: draft.technician.accountId,
           operatorProfileId: draft.technician.operatorProfileId,
-          machineId: draft.kind === 'commission' && draft.machineId !== TECHNICIAN_DEFAULT_MACHINE ? draft.machineId : null,
+          machineId: draft.machineId !== TECHNICIAN_DEFAULT_MACHINE ? draft.machineId : null,
           rateType: draft.kind,
           rateValue: Math.round(numericValue * 100),
           effectiveStartDate: draft.effectiveStartDate,
@@ -825,7 +892,7 @@ export default function AdminPayoutsPage() {
                     </div>
                   )}
 
-                  {payInputDraft.kind === 'commission' && (
+                  {(payInputDraft.kind === 'shift' || payInputDraft.kind === 'commission') && (
                     <div>
                       <label htmlFor="pay-input-machine" className="text-sm font-medium text-foreground">Machine</label>
                       <Select value={payInputDraft.machineId} onValueChange={(value) => setPayInputDraft((current) => current ? { ...current, machineId: value } : current)}>
@@ -840,7 +907,7 @@ export default function AdminPayoutsPage() {
 
                   <div>
                     <label htmlFor="pay-input-value" className="text-sm font-medium text-foreground">
-                      {payInputDraft.kind === 'commission' ? 'Commission percent' : payInputDraft.kind === 'shift' ? 'Pay per shift' : 'Amount'}
+                      {payInputDraft.kind === 'commission' ? 'Commission percent' : payInputDraft.kind === 'shift' ? 'Pay per started hour' : 'Amount'}
                     </label>
                     <div className="relative mt-2">
                       {payInputDraft.kind !== 'commission' && <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">$</span>}
@@ -901,7 +968,7 @@ export default function AdminPayoutsPage() {
         </Dialog>
 
         <Dialog open={Boolean(setupDraft)} onOpenChange={(open) => {
-          if (!open && !saveTechnicianSetup.isPending) {
+          if (!open && !setupSubmitting) {
             setSetupDraft(null);
             setSetupError(null);
           }
@@ -911,12 +978,19 @@ export default function AdminPayoutsPage() {
               <form onSubmit={(event) => {
                 event.preventDefault();
                 setSetupError(null);
+                if (setupDraft.step === 1) {
+                  if (setupDraft.userEmail.trim() && setupDraft.displayName.trim() && setupDraft.effectiveStartDate && setupDraft.machineIds.length) {
+                    setSetupDraft((current) => current ? { ...current, step: 2 } : current);
+                  }
+                  return;
+                }
+                setSetupSubmitting(true);
                 saveTechnicianSetup.mutate(setupDraft);
               }}>
                 <DialogHeader>
                   <DialogTitle>Set up Technician Timekeeping</DialogTitle>
                   <DialogDescription>
-                    One setup adds the Technician’s machines, pay per shift, and default commission rate. No approval workflow is added.
+                    Step {setupDraft.step} of 2 · {setupDraft.step === 1 ? 'Choose the person and machines' : 'Set up pay arrangements'}
                   </DialogDescription>
                 </DialogHeader>
 
@@ -945,95 +1019,109 @@ export default function AdminPayoutsPage() {
                   </div>
                 ) : (
                   <div className="mt-5 space-y-5">
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <label htmlFor="setup-technician-email" className="text-sm font-medium text-foreground">Invitation email</label>
-                        <Input id="setup-technician-email" type="email" autoComplete="email" className="mt-2 min-h-11" placeholder="technician@example.com" value={setupDraft.userEmail} onChange={(event) => setSetupDraft((current) => current ? { ...current, userEmail: event.target.value } : current)} required />
-                      </div>
-                      <div>
-                        <label htmlFor="setup-technician-name" className="text-sm font-medium text-foreground">Technician name</label>
-                        <Input id="setup-technician-name" autoComplete="name" className="mt-2 min-h-11" placeholder="Full name" value={setupDraft.displayName} onChange={(event) => setSetupDraft((current) => current ? { ...current, displayName: event.target.value } : current)} required />
-                      </div>
-                    </div>
-
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <label htmlFor="setup-worker-type" className="text-sm font-medium text-foreground">Worker type</label>
-                        <Select value={setupDraft.workerType} onValueChange={(value: OperatorWorkerType) => setSetupDraft((current) => current ? { ...current, workerType: value } : current)}>
-                          <SelectTrigger id="setup-worker-type" className="mt-2 min-h-11"><SelectValue /></SelectTrigger>
-                          <SelectContent>{workerTypeOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <label htmlFor="setup-worker-id" className="text-sm font-medium text-foreground">Contractor or employee ID <span className="font-normal text-muted-foreground">(optional)</span></label>
-                        <Input id="setup-worker-id" className="mt-2 min-h-11" value={setupDraft.workerIdentifier} onChange={(event) => setSetupDraft((current) => current ? { ...current, workerIdentifier: event.target.value } : current)} />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label htmlFor="setup-account" className="text-sm font-medium text-foreground">Account</label>
-                      <Select value={setupDraft.accountId} onValueChange={(value) => setSetupDraft((current) => current ? { ...current, accountId: value, machineIds: [] } : current)}>
-                        <SelectTrigger id="setup-account" className="mt-2 min-h-11"><SelectValue placeholder="Choose an account" /></SelectTrigger>
-                        <SelectContent>{setupContextQuery.data?.accounts.map((account) => <SelectItem key={account.accountId} value={account.accountId}>{account.accountName}</SelectItem>)}</SelectContent>
-                      </Select>
-                    </div>
-
-                    <fieldset>
-                      <legend className="text-sm font-medium text-foreground">Machines</legend>
-                      {!setupDraft.accountId ? (
-                        <p className="mt-2 rounded-xl border border-dashed border-border px-4 py-5 text-sm text-muted-foreground">Choose an account to see its active machines.</p>
-                      ) : setupMachines.length ? (
-                        <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                          {setupMachines.map((machine) => {
-                            const checked = setupDraft.machineIds.includes(machine.machineId);
-                            return (
-                              <label key={machine.machineId} className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border border-border px-3 py-2.5 transition-colors hover:bg-muted/40">
-                                <Checkbox checked={checked} onCheckedChange={(nextChecked) => setSetupDraft((current) => current ? {
-                                  ...current,
-                                  machineIds: nextChecked
-                                    ? [...current.machineIds, machine.machineId]
-                                    : current.machineIds.filter((id) => id !== machine.machineId),
-                                } : current)} />
-                                <span className="min-w-0 text-sm">
-                                  <span className="block font-medium text-foreground">{machine.machineLabel}</span>
-                                  {machine.locationName && <span className="block truncate text-muted-foreground">{machine.locationName}</span>}
-                                </span>
-                              </label>
-                            );
-                          })}
+                    {setupDraft.step === 1 ? (
+                      <>
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <div>
+                            <label htmlFor="setup-technician-email" className="text-sm font-medium text-foreground">Invitation email</label>
+                            <Input id="setup-technician-email" type="email" autoComplete="email" className="mt-2 min-h-11" placeholder="technician@example.com" value={setupDraft.userEmail} onChange={(event) => setSetupDraft((current) => current ? { ...current, userEmail: event.target.value } : current)} required />
+                          </div>
+                          <div>
+                            <label htmlFor="setup-technician-name" className="text-sm font-medium text-foreground">Technician name</label>
+                            <Input id="setup-technician-name" autoComplete="name" className="mt-2 min-h-11" placeholder="Full name" value={setupDraft.displayName} onChange={(event) => setSetupDraft((current) => current ? { ...current, displayName: event.target.value } : current)} required />
+                          </div>
                         </div>
-                      ) : (
-                        <p className="mt-2 rounded-xl border border-dashed border-border px-4 py-5 text-sm text-muted-foreground">This account has no active machines available for Timekeeping.</p>
-                      )}
-                    </fieldset>
-
-                    <div className="grid gap-4 sm:grid-cols-3">
-                      <div>
-                        <label htmlFor="setup-shift-rate" className="text-sm font-medium text-foreground">Pay per shift</label>
-                        <div className="relative mt-2"><span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">$</span><Input id="setup-shift-rate" type="number" inputMode="decimal" min="0.01" step="0.01" className="min-h-11 pl-7" value={setupDraft.shiftRate} onChange={(event) => setSetupDraft((current) => current ? { ...current, shiftRate: event.target.value } : current)} required /></div>
-                      </div>
-                      <div>
-                        <label htmlFor="setup-commission-rate" className="text-sm font-medium text-foreground">Commission</label>
-                        <div className="relative mt-2"><Input id="setup-commission-rate" type="number" inputMode="decimal" min="0" max="100" step="0.01" className="min-h-11 pr-8" value={setupDraft.commissionRate} onChange={(event) => setSetupDraft((current) => current ? { ...current, commissionRate: event.target.value } : current)} required /><span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-muted-foreground">%</span></div>
-                      </div>
-                      <div>
-                        <label htmlFor="setup-start-date" className="text-sm font-medium text-foreground">Starts</label>
-                        <Input id="setup-start-date" type="date" className="mt-2 min-h-11" value={setupDraft.effectiveStartDate} onChange={(event) => setSetupDraft((current) => current ? { ...current, effectiveStartDate: event.target.value } : current)} required />
-                      </div>
-                    </div>
-
-                    <p className="text-xs leading-5 text-muted-foreground">Each started hour counts as one paid shift. The commission rate applies to all selected machines unless a manager adds a machine-specific rate later.</p>
+                        <div className="grid gap-4 sm:grid-cols-3">
+                          <div>
+                            <label htmlFor="setup-worker-type" className="text-sm font-medium text-foreground">Worker type</label>
+                            <Select value={setupDraft.workerType} onValueChange={(value: OperatorWorkerType) => setSetupDraft((current) => current ? { ...current, workerType: value } : current)}>
+                              <SelectTrigger id="setup-worker-type" className="mt-2 min-h-11"><SelectValue /></SelectTrigger>
+                              <SelectContent>{workerTypeOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <label htmlFor="setup-worker-id" className="text-sm font-medium text-foreground">Worker ID <span className="font-normal text-muted-foreground">(optional)</span></label>
+                            <Input id="setup-worker-id" className="mt-2 min-h-11" value={setupDraft.workerIdentifier} onChange={(event) => setSetupDraft((current) => current ? { ...current, workerIdentifier: event.target.value } : current)} />
+                          </div>
+                          <div>
+                            <label htmlFor="setup-start-date" className="text-sm font-medium text-foreground">Timekeeping starts</label>
+                            <Input id="setup-start-date" type="date" className="mt-2 min-h-11" value={setupDraft.effectiveStartDate} onChange={(event) => setSetupDraft((current) => current ? { ...current, effectiveStartDate: event.target.value } : current)} required />
+                          </div>
+                        </div>
+                        <fieldset>
+                          <legend className="text-sm font-medium text-foreground">Machines</legend>
+                          <p className="mt-1 text-xs text-muted-foreground">Choose every machine this Technician may log time for.</p>
+                          <div className="mt-3 space-y-4">
+                            {setupAccounts.map((account) => (
+                              <div key={account.accountId} className="rounded-xl border border-border p-3">
+                                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{account.accountName}</p>
+                                <div className="grid gap-2 sm:grid-cols-2">
+                                  {account.machines.map((machine) => {
+                                    const checked = setupDraft.machineIds.includes(machine.machineId);
+                                    return (
+                                      <label key={machine.machineId} className={cn('flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors', checked ? 'border-primary/40 bg-primary/5' : 'border-border hover:bg-muted/40')}>
+                                        <Checkbox checked={checked} onCheckedChange={(nextChecked) => setSetupDraft((current) => {
+                                          if (!current) return current;
+                                          const machineIds = nextChecked ? [...current.machineIds, machine.machineId] : current.machineIds.filter((id) => id !== machine.machineId);
+                                          const arrangements = current.arrangements.map((arrangement, index) => ({
+                                            ...arrangement,
+                                            machineIds: nextChecked && index === 0
+                                              ? [...arrangement.machineIds, machine.machineId]
+                                              : arrangement.machineIds.filter((id) => id !== machine.machineId),
+                                          }));
+                                          return { ...current, machineIds, arrangements };
+                                        })} />
+                                        <span className="min-w-0 text-sm"><span className="block font-medium text-foreground">{machine.machineLabel}</span>{machine.locationName && <span className="block truncate text-muted-foreground">{machine.locationName}</span>}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </fieldset>
+                        {selectedPayerCount > 1 && <p className="rounded-lg border border-sage/30 bg-sage-light/50 px-3 py-2 text-sm text-foreground">These machines span {selectedPayerCount} payers. Bloomjoy will keep one setup here and create a separate Pay Stub for each payer.</p>}
+                      </>
+                    ) : (
+                      <>
+                        <div className="rounded-xl border border-border bg-muted/20 p-4">
+                          <p className="font-semibold text-foreground">{setupDraft.displayName}</p>
+                          <p className="mt-1 text-sm text-muted-foreground">{setupDraft.machineIds.length} machine{setupDraft.machineIds.length === 1 ? '' : 's'} · starts {formatDate(setupDraft.effectiveStartDate)}</p>
+                        </div>
+                        <div className="space-y-4">
+                          {setupDraft.arrangements.map((arrangement, arrangementIndex) => (
+                            <section key={arrangement.id} className="rounded-xl border border-border p-4">
+                              <div className="flex items-center justify-between gap-3">
+                                <div><h3 className="font-semibold text-foreground">{arrangementIndex === 0 ? 'Standard pay' : `Different pay ${arrangementIndex}`}</h3><p className="text-xs text-muted-foreground">Choose the machines that use these terms.</p></div>
+                                {arrangementIndex > 0 && <Button type="button" variant="ghost" size="icon" aria-label="Remove this pay arrangement" onClick={() => setSetupDraft((current) => current ? { ...current, arrangements: current.arrangements.filter((item) => item.id !== arrangement.id).map((item, index) => index === 0 ? { ...item, machineIds: [...item.machineIds, ...arrangement.machineIds] } : item) } : current)}><Trash2 className="h-4 w-4" /></Button>}
+                              </div>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {setupDraft.machineIds.map((selectedMachineId) => {
+                                  const machine = setupMachineById.get(selectedMachineId);
+                                  const checked = arrangement.machineIds.includes(selectedMachineId);
+                                  return <label key={selectedMachineId} className={cn('flex cursor-pointer items-center gap-2 rounded-full border px-3 py-2 text-sm', checked ? 'border-primary/40 bg-primary/5 text-foreground' : 'border-border text-muted-foreground')}><Checkbox checked={checked} onCheckedChange={(nextChecked) => setSetupDraft((current) => current ? { ...current, arrangements: current.arrangements.map((item) => ({ ...item, machineIds: item.id === arrangement.id && nextChecked ? [...item.machineIds, selectedMachineId] : item.machineIds.filter((id) => id !== selectedMachineId) })) } : current)} />{machine?.machineLabel}</label>;
+                                })}
+                              </div>
+                              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                                <div><label htmlFor={`setup-shift-rate-${arrangement.id}`} className="text-sm font-medium text-foreground">Pay per started hour</label><div className="relative mt-2"><span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground">$</span><Input id={`setup-shift-rate-${arrangement.id}`} type="number" min="0.01" step="0.01" className="min-h-11 pl-7" value={arrangement.shiftRate} onChange={(event) => setSetupDraft((current) => current ? { ...current, arrangements: current.arrangements.map((item) => item.id === arrangement.id ? { ...item, shiftRate: event.target.value } : item) } : current)} required /></div></div>
+                                <div className="rounded-lg border border-border px-3 py-2.5"><label className="flex min-h-6 cursor-pointer items-center gap-3 text-sm font-medium text-foreground"><Checkbox checked={arrangement.commissionEnabled} onCheckedChange={(checked) => setSetupDraft((current) => current ? { ...current, arrangements: current.arrangements.map((item) => item.id === arrangement.id ? { ...item, commissionEnabled: Boolean(checked) } : item) } : current)} />Add commission</label></div>
+                              </div>
+                              {arrangement.commissionEnabled && <div className="mt-4 grid gap-4 sm:grid-cols-2"><div><label htmlFor={`setup-commission-rate-${arrangement.id}`} className="text-sm font-medium text-foreground">Commission rate</label><div className="relative mt-2"><Input id={`setup-commission-rate-${arrangement.id}`} type="number" min="0" max="100" step="0.01" className="min-h-11 pr-8" value={arrangement.commissionRate} onChange={(event) => setSetupDraft((current) => current ? { ...current, arrangements: current.arrangements.map((item) => item.id === arrangement.id ? { ...item, commissionRate: event.target.value } : item) } : current)} required /><span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-muted-foreground">%</span></div></div><div><label htmlFor={`setup-commission-timing-${arrangement.id}`} className="text-sm font-medium text-foreground">Commission begins</label><Select value={arrangement.commissionTiming} onValueChange={(value: CommissionTiming) => setSetupDraft((current) => current ? { ...current, arrangements: current.arrangements.map((item) => item.id === arrangement.id ? { ...item, commissionTiming: value } : item) } : current)}><SelectTrigger id={`setup-commission-timing-${arrangement.id}`} className="mt-2 min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="immediate">Immediately</SelectItem><SelectItem value="three_months">After 3 months</SelectItem><SelectItem value="date">Choose a date</SelectItem></SelectContent></Select>{arrangement.commissionTiming === 'date' && <Input aria-label="Commission start date" type="date" min={setupDraft.effectiveStartDate} className="mt-2 min-h-11" value={arrangement.commissionStartDate} onChange={(event) => setSetupDraft((current) => current ? { ...current, arrangements: current.arrangements.map((item) => item.id === arrangement.id ? { ...item, commissionStartDate: event.target.value } : item) } : current)} required />}</div></div>}
+                              <p className="mt-4 text-xs leading-5 text-muted-foreground">{arrangement.machineIds.length || 'No'} machine{arrangement.machineIds.length === 1 ? '' : 's'} · {arrangement.shiftRate ? `${formatCurrency(Math.round(Number(arrangement.shiftRate) * 100))} per started hour` : 'add an hourly rate'}{arrangement.commissionEnabled ? ` + ${arrangement.commissionRate || '—'}% commission ${arrangement.commissionTiming === 'three_months' ? 'after 3 months' : arrangement.commissionTiming === 'date' ? `from ${formatDate(arrangement.commissionStartDate)}` : 'immediately'}` : ' · no commission'}</p>
+                            </section>
+                          ))}
+                        </div>
+                        <Button type="button" variant="outline" className="min-h-11 w-full" onClick={() => setSetupDraft((current) => current ? { ...current, arrangements: [...current.arrangements, newPayArrangement()] } : current)}><Plus className="mr-2 h-4 w-4" />Some machines have different pay</Button>
+                        <p className="text-xs leading-5 text-muted-foreground">Each started hour counts as one paid shift, so 61 minutes is two paid shifts. Rates are saved by machine and retain their effective-date history.</p>
+                      </>
+                    )}
 
                     {setupError && <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">{setupError}</p>}
                   </div>
                 )}
 
                 <DialogFooter className="mt-6 gap-2 sm:gap-0">
-                  <Button type="button" variant="outline" className="min-h-11" disabled={saveTechnicianSetup.isPending} onClick={() => setSetupDraft(null)}>Cancel</Button>
-                  <Button type="submit" className="min-h-11" disabled={saveTechnicianSetup.isPending || setupContextQuery.isLoading || Boolean(setupContextQuery.error)}>
-                    {saveTechnicianSetup.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />}
-                    Activate Timekeeping
-                  </Button>
+                  {setupDraft.step === 1 ? <><Button type="button" variant="outline" className="min-h-11" onClick={() => setSetupDraft(null)}>Cancel</Button><Button type="submit" className="min-h-11" disabled={!setupDraft.userEmail.trim() || !setupDraft.displayName.trim() || !setupDraft.effectiveStartDate || !setupDraft.machineIds.length}>Set up pay <ChevronRight className="ml-2 h-4 w-4" /></Button></> : <><Button type="button" variant="outline" className="min-h-11" disabled={setupSubmitting} onClick={() => { saveTechnicianSetup.reset(); setSetupError(null); setSetupDraft((current) => current ? { ...current, step: 1 } : current); }}><ChevronLeft className="mr-2 h-4 w-4" />Back</Button><Button type="submit" className="min-h-11" disabled={setupSubmitting || setupContextQuery.isLoading || Boolean(setupContextQuery.error)}>{setupSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />}Activate Timekeeping</Button></>}
                 </DialogFooter>
               </form>
             )}

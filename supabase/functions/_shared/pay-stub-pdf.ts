@@ -6,7 +6,7 @@ import {
   StandardFonts,
 } from "https://esm.sh/pdf-lib@1.17.1";
 
-export const PAY_STUB_PDF_GENERATOR_VERSION = "bloomjoy-pay-stub-pdf-v1";
+export const PAY_STUB_PDF_GENERATOR_VERSION = "bloomjoy-pay-stub-pdf-v2";
 
 export type PayStubMachineSegment = {
   segmentStartDate: string;
@@ -30,6 +30,16 @@ export type PayStubMachine = {
   commissionableSalesCents: number;
   commissionEarningsCents: number;
   commissionSegments: PayStubMachineSegment[];
+};
+
+export type PayStubShiftRateLine = {
+  machineId?: string | null;
+  machineLabel?: string | null;
+  locationName?: string | null;
+  shiftRateCents: number | null;
+  paidShifts: number;
+  actualDurationMinutes: number;
+  shiftEarningsCents: number;
 };
 
 export type PayStubPayload = {
@@ -77,6 +87,7 @@ export type PayStubPayload = {
     expenseReimbursementCents: number;
     totalEarningsCents: number;
   };
+  shiftRateLines?: PayStubShiftRateLine[];
   machines: PayStubMachine[];
   classificationNotice: string;
 };
@@ -201,8 +212,21 @@ const drawSummaryPage = (pdf: PDFDocument, fonts: Fonts, payload: PayStubPayload
 
 const drawAppendix = (pdf: PDFDocument, fonts: Fonts, payload: PayStubPayload) => {
   const page = pdf.addPage([WIDTH, HEIGHT]);
-  header(page, fonts, payload, "Commission appendix");
-  text(page, fonts.regular, "Every commission input is shown here so the amount can be checked.", MARGIN, 650, 9, MUTED);
+  header(page, fonts, payload, "Pay details");
+  text(page, fonts.bold, "Started-hour pay by machine", MARGIN, 650, 10);
+  const shiftLines = payload.shiftRateLines ?? [];
+  shiftLines.slice(0, 3).forEach((line, index) => {
+    const y = 630 - index * 18;
+    text(page, fonts.regular, (line.machineLabel || "All assigned machines").slice(0, 34), MARGIN, y, 8);
+    rightText(page, fonts.regular, `${line.paidShifts} × ${line.shiftRateCents == null ? "rate missing" : money(line.shiftRateCents)}`, 474, y, 8);
+    rightText(page, fonts.bold, money(line.shiftEarningsCents), WIDTH - MARGIN, y, 8, CORAL);
+  });
+  if (shiftLines.length > 3) {
+    text(page, fonts.regular, `+ ${shiftLines.length - 3} more machine rate${shiftLines.length === 4 ? "" : "s"}`, MARGIN, 576, 7, MUTED);
+  }
+
+  text(page, fonts.bold, "Commission appendix", MARGIN, 552, 10);
+  text(page, fonts.regular, "Sales - refunds - estimated sales tax = commissionable sales.", MARGIN, 536, 8, MUTED);
   const columns = [
     { label: "MACHINE / PERIOD", x: MARGIN, width: 158, right: false },
     { label: "SALES", x: 252, width: 58, right: true },
@@ -212,9 +236,9 @@ const drawAppendix = (pdf: PDFDocument, fonts: Fonts, payload: PayStubPayload) =
     { label: "COMMISSION", x: 508, width: 60, right: true },
   ];
   columns.forEach((column) => column.right
-    ? rightText(page, fonts.bold, column.label, column.x + column.width, 622, 6.8, MUTED)
-    : text(page, fonts.bold, column.label, column.x, 622, 6.8, MUTED));
-  page.drawLine({ start: { x: MARGIN, y: 611 }, end: { x: WIDTH - MARGIN, y: 611 }, thickness: 0.8, color: BORDER });
+    ? rightText(page, fonts.bold, column.label, column.x + column.width, 514, 6.8, MUTED)
+    : text(page, fonts.bold, column.label, column.x, 514, 6.8, MUTED));
+  page.drawLine({ start: { x: MARGIN, y: 503 }, end: { x: WIDTH - MARGIN, y: 503 }, thickness: 0.8, color: BORDER });
 
   const lines = payload.machines.flatMap((machine) =>
     (machine.commissionSegments?.length ? machine.commissionSegments : [{
@@ -230,8 +254,8 @@ const drawAppendix = (pdf: PDFDocument, fonts: Fonts, payload: PayStubPayload) =
     }]).map((segment) => ({ machine, segment }))
   );
 
-  lines.slice(0, 18).forEach(({ machine, segment }, index) => {
-    const y = 585 - index * 29;
+  lines.slice(0, 14).forEach(({ machine, segment }, index) => {
+    const y = 477 - index * 29;
     if (index % 2 === 1) page.drawRectangle({ x: MARGIN - 4, y: y - 8, width: WIDTH - MARGIN * 2 + 8, height: 25, color: PAPER });
     text(page, fonts.bold, machine.machineLabel.slice(0, 25), MARGIN, y + 4, 8);
     text(page, fonts.regular, `${machine.locationName.slice(0, 18)} | ${date(segment.segmentStartDate)}-${date(segment.segmentEndDate)}`, MARGIN, y - 7, 6.7, MUTED);

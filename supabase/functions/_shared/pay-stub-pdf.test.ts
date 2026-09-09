@@ -32,6 +32,15 @@ export const samplePayStubPayload: PayStubPayload = {
     expenseReimbursementCents: 0,
     totalEarningsCents: 29818,
   },
+  shiftRateLines: [{
+    machineId: "machine-1",
+    machineLabel: "Pilot Machine",
+    locationName: "Pilot Location",
+    shiftRateCents: 2000,
+    paidShifts: 2,
+    actualDurationMinutes: 61,
+    shiftEarningsCents: 4000,
+  }],
   machines: [{
     machineId: "machine-1",
     machineLabel: "Pilot Machine",
@@ -56,10 +65,10 @@ export const samplePayStubPayload: PayStubPayload = {
   classificationNotice: "Independent contractor statement. No payroll withholding or payment execution is represented.",
 };
 
-Deno.test("Pay Stub PDF includes a summary and commission appendix", async () => {
+Deno.test("Pay Stub PDF includes a summary and machine pay details", async () => {
   const bytes = await buildPayStubPdf(samplePayStubPayload);
   assertGreater(bytes.length, 1_000);
   const pdf = await PDFDocument.load(bytes);
   assertEquals(pdf.getPageCount(), 2);
-  assertEquals(pdf.getSubject(), "bloomjoy-pay-stub-pdf-v1");
+  assertEquals(pdf.getSubject(), "bloomjoy-pay-stub-pdf-v2");
 });
