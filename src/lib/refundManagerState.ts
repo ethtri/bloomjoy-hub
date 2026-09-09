@@ -308,6 +308,7 @@ export const getRefundManagerState = (
   }
 
   if (refundCase.customerDeliveryException && (
+    (refundCase.paymentMethod !== 'card' && refundCase.lifecycle?.stage !== 'awaiting_payout') ||
     !refundCase.lifecycle ||
     (refundCase.lifecycle.paymentState === 'confirmed' && ['refund_confirmed', 'customer_notified'].includes(refundCase.lifecycle.stage))
   )) {

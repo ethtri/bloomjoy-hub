@@ -347,6 +347,25 @@ Deno.test('a cash payout task is not replaced by an earlier message delivery exc
   );
 });
 
+Deno.test('a current cash delivery exception remains visible when no payout task supersedes it', () => {
+  const cashLifecycle = lifecycle('needs_refund_operations', 60, 'refund_operations');
+  const result = getRefundManagerState({
+    ...baseCase,
+    paymentMethod: 'cash',
+    lifecycle: cashLifecycle,
+    customerDeliveryException: {
+      state: 'failed',
+      messageType: 'status_update',
+      recoveryOwner: 'refund_operations',
+      nextAction: 'review_delivery_no_resend',
+      customerMessageReplayAllowed: false,
+      paymentReplayAllowed: false,
+    },
+  });
+
+  assertEquals(result.label, 'Delivery needs review', 'current delivery exception label');
+});
+
 Deno.test('manager state distinguishes missing facts and automatic lookup', () => {
   assertEquals(
     getRefundManagerState({ ...baseCase, status: 'waiting_on_customer', missingInformation: true }).label,
