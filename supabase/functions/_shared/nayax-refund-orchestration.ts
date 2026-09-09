@@ -78,6 +78,10 @@ export type NayaxAttemptSettlement = {
   attempt: NayaxAttemptSnapshot;
   updateApplied: boolean;
   reportingAdjustmentPresent: boolean;
+  paymentTerminal?: boolean;
+  accountingException?: boolean;
+  accountingState?: "pending" | "applied";
+  customerCompletionQueued?: boolean;
   safeRetryEligible?: boolean;
   definitiveNoRefund?: boolean;
 };
@@ -129,6 +133,9 @@ export type NayaxRefundOrchestrationResult = {
   message: string;
   safeRetryEligible?: boolean;
   definitiveNoRefund?: boolean;
+  paymentTerminal?: boolean;
+  accountingException?: boolean;
+  accountingState?: "pending" | "applied";
 };
 
 const disabledResult = (): NayaxRefundOrchestrationResult => ({
@@ -394,6 +401,32 @@ export const orchestrateNayaxRefund = async ({
     };
   }
   const settledAttempt = settlement.attempt;
+
+  if (settlement.paymentTerminal === true && settlement.accountingException === true) {
+    const customerCompletion = await deliverCommittedCompletion(
+      dependencies,
+      attempt.attemptId,
+    );
+    return {
+      executed: true,
+      status: "succeeded",
+      errorCode: completionNeedsReconciliation(customerCompletion)
+        ? "customer_completion_delivery_failure"
+        : "accounting_reconciliation_required",
+      providerAttempted: true,
+      replayed: false,
+      reconciliationRequired: true,
+      fallbackIssued: false,
+      reportingAdjustmentPresent: false,
+      paymentTerminal: true,
+      accountingException: true,
+      accountingState: "pending",
+      customerCompletion,
+      message: completionNeedsReconciliation(customerCompletion)
+        ? "The refund is confirmed and cannot be retried. Accounting and the customer notice need follow-up."
+        : "The refund is confirmed and the customer was notified. Refund Operations owns the separate accounting review.",
+    };
+  }
 
   if (settledAttempt.providerOutcome !== "success") {
     return incompleteResult({

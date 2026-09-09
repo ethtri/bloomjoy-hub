@@ -705,3 +705,68 @@ for (const phase of ["replay", "settlement"] as const) {
     );
   });
 }
+
+Deno.test("provider success with a late accounting collision remains terminal and sends one truthful notice", async () => {
+  let providerCalls = 0;
+  let noticeCalls = 0;
+  const result = await orchestrateNayaxRefund({
+    request,
+    dependencies: {
+      provider: {
+        mode: "synthetic",
+        execute: () => {
+          providerCalls += 1;
+          return Promise.resolve({ kind: "success" });
+        },
+      },
+      reserveAndConsumeAttempt: () =>
+        Promise.resolve({
+          managerAction,
+          providerClaimToken: "provider-claim-" + "f".repeat(64),
+          attempt: {
+            attemptId: "76300000-0000-4000-8000-000000000120",
+            status: "in_progress",
+            providerOutcome: null,
+            shouldExecute: true,
+            reconciliationRequired: false,
+            reportingAdjustmentPresent: false,
+            caseFinalizationCommitted: false,
+          },
+        }),
+      settleProviderOutcome: () =>
+        Promise.resolve({
+          attempt: {
+            attemptId: "76300000-0000-4000-8000-000000000120",
+            status: "ambiguous",
+            providerOutcome: "unknown",
+            shouldExecute: false,
+            reconciliationRequired: true,
+            reportingAdjustmentPresent: false,
+            caseFinalizationCommitted: false,
+          },
+          updateApplied: true,
+          reportingAdjustmentPresent: false,
+          paymentTerminal: true,
+          accountingException: true,
+          accountingState: "pending",
+          customerCompletionQueued: true,
+        }),
+      deliverCustomerCompletion: () => {
+        noticeCalls += 1;
+        return Promise.resolve({
+          status: "sent",
+          transport: "transactional_email",
+          managerCcCount: 0,
+          originalThread: false,
+          operationApplied: true,
+          managerCompletionNoticeSent: false,
+        });
+      },
+    },
+  });
+  assert(result.executed && result.status === "succeeded", "payment must remain terminal");
+  assert(result.paymentTerminal && result.accountingException, "accounting must stay separate");
+  assert(result.reportingAdjustmentPresent === false, "no adjustment may be invented");
+  assert(result.errorCode === "accounting_reconciliation_required", "owned accounting work must be explicit");
+  assert(providerCalls === 1 && noticeCalls === 1, "one payment and one notice only");
+});

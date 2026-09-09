@@ -2340,6 +2340,15 @@ const nayaxExecutionBlockLabel = (block: string) => {
 };
 
 const formatNayaxExecutionBlockedMessage = (result: NayaxCardRefundExecutionResponse) => {
+  if (result.conflictReason === 'exact_transaction_allocated') {
+    return 'This exact Nayax transaction is already reserved by another refund case. Review the canonical case before taking another payment action.';
+  }
+  if (result.conflictReason === 'payment_already_confirmed') {
+    return 'This payment is already confirmed. Review this case’s payment history; do not issue another refund.';
+  }
+  if (result.conflictReason === 'case_facts_changed') {
+    return 'The selected transaction changed. Refresh the transaction details before continuing.';
+  }
   if (result.errorCode) return nayaxExecutionBlockLabel(result.errorCode);
   if (result.blocks?.length) return nayaxExecutionBlockLabel(result.blocks[0]);
   return 'Card refund is not available for this case.';
@@ -3672,8 +3681,32 @@ export default function AdminRefundsPage() {
       result.reportingAdjustmentPresent === true &&
       result.reconciliationRequired !== true &&
       result.fallbackIssued !== true;
+    const hasPaidAccountingException =
+      result.executed === true &&
+      result.status === 'succeeded' &&
+      result.paymentTerminal === true &&
+      result.accountingException === true &&
+      result.reportingAdjustmentPresent !== true &&
+      result.fallbackIssued !== true;
 
     setIsRefundConfirmationOpen(false);
+
+    if (hasPaidAccountingException) {
+      const deliverySucceeded = completion?.status === 'sent' || completion?.status === 'already_sent';
+      setNayaxExecutionNotice(null);
+      setRefundActionReceipt({
+        tone: 'warning',
+        title: 'Refund confirmed · accounting review',
+        message: deliverySucceeded
+          ? 'Nayax confirmed the refund and the customer was notified. Do not retry the payment. Refund Operations owns the separate accounting conflict.'
+          : 'Nayax confirmed the refund. Do not retry the payment. Refund Operations owns the accounting conflict, and the single customer notice remains queued for controlled delivery.',
+        reference,
+      });
+      toast.success('The refund is confirmed. Accounting review is queued; do not retry it.');
+      await refresh();
+      await availabilityRefresh;
+      return;
+    }
 
     if (hasCommittedSuccess) {
       const deliverySucceeded = Boolean(

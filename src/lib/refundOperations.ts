@@ -1491,8 +1491,8 @@ export type ExecuteNayaxCardRefundInput = {
 };
 
 export type NayaxCustomerCompletionResult = {
-  status: 'pending' | 'sent' | 'failed' | 'delivery_unknown' | 'already_sent';
-  transport: 'gmail_thread' | null;
+  status: 'pending' | 'sent' | 'failed' | 'delivery_unknown' | 'already_sent' | 'deferred';
+  transport: 'gmail_thread' | 'transactional_email' | null;
   managerCcCount: number;
   originalThread: boolean;
   operationApplied: boolean;
@@ -1516,6 +1516,11 @@ export type NayaxCardRefundExecutionResponse = {
   reconciliationRequired?: boolean;
   fallbackIssued?: boolean;
   reportingAdjustmentPresent?: boolean;
+  paymentTerminal?: boolean;
+  accountingException?: boolean;
+  accountingState?: 'pending' | 'applied';
+  conflictReason?: string | null;
+  resolutionAction?: string | null;
   customerCompletion?: NayaxCustomerCompletionResult | null;
   safeRetryEligible?: boolean;
   definitiveNoRefund?: boolean;
