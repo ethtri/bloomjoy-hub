@@ -21,7 +21,7 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
  status,decision,decision_reason,decided_by,decided_at,correlation_status,correlation_source,deterministic_fact_version,
  nayax_refund_execution_status,incident_time_confidence)
 select pg_temp.case_id(n),'RF-DIAGNOSTIC-'||n,'fb440000-0000-4000-8000-000000000001',
- 'fb430000-0000-4000-8000-000000000001','diagnostics-customer@example.invalid','Synthetic diagnostics',
+ 'fb430000-0000-4000-8000-000000000001','diagnostics-customer-'||n||'@example.invalid','Synthetic diagnostics',
  '2026-08-29T20:10:00Z','America/New_York','card',963,963,'4242','needs_review','approved','Ordinary decision',
  'fb410000-0000-4000-8000-000000000001',now()-interval '1 day','no_match','nayax',1,'not_requested',
  case n when 5 then 'within_15_minutes' when 6 then 'within_1_hour' else 'rough' end

@@ -83,8 +83,8 @@ export type NayaxAttemptSettlement = {
 };
 
 export type NayaxCompletionDelivery = {
-  status: "sent" | "failed" | "delivery_unknown" | "already_sent";
-  transport: "gmail_thread" | null;
+  status: "sent" | "failed" | "delivery_unknown" | "already_sent" | "deferred";
+  transport: "gmail_thread" | "transactional_email" | null;
   managerCcCount: number;
   originalThread: boolean;
   operationApplied: boolean;
@@ -433,7 +433,7 @@ export const orchestrateNayaxRefund = async ({
     customerCompletion,
     message: customerCompletion.status === "sent" ||
         customerCompletion.status === "already_sent"
-      ? "Card refund completed and the customer was notified in the original Gmail thread."
+      ? "Card refund completed and the customer was notified."
       : "Card refund completed, but the customer completion message needs reconciliation.",
   };
 };

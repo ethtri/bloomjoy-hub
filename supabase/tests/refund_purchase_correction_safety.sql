@@ -16,7 +16,7 @@ declare cid uuid:=('dd000000-0000-4000-8001-'||lpad(n::text,12,'0'))::uuid; mid 
 begin
   insert into public.refund_cases(id,reporting_machine_id,reporting_location_id,customer_email,issue_summary,incident_at,incident_local_datetime,
     incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,payment_interaction,payment_amount_cents,card_last4,card_last4_provenance,card_wallet_used,card_network,status,correlation_status,intake_source)
-  values(cid,'dd000000-0000-4000-8000-000000000003','dd000000-0000-4000-8000-000000000002','scope-customer@example.invalid','Scoped correction test',
+  values(cid,'dd000000-0000-4000-8000-000000000003','dd000000-0000-4000-8000-000000000002','scope-customer-'||n||'@example.invalid','Scoped correction test',
     statement_timestamp()-interval '2 hours',to_char((statement_timestamp()-interval '2 hours') at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI'),
     'America/Los_Angeles','exact','exact','card','tap_card',
     case when n=12 then 700 else null end,case when n=12 then null else '1234' end,
@@ -24,7 +24,7 @@ begin
   cycle:=public.service_claim_refund_follow_up_cycle(cid,'missing_information','refund_follow_up_v2',md5(n::text)||md5(n::text),null);
   if not coalesce((cycle->>'claimed')::boolean,false) then raise exception 'Fixture cycle rejected: %',cycle; end if;
   insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,content_source,delivery_kind,reason_code,template_version,follow_up_cycle_id,requested_fields)
-  values(mid,cid,'more_info','pending','scope-customer@example.invalid','Please review your purchase','Scoped correction fixture','deterministic_template','automatic','missing_information','refund_follow_up_v2',(cycle#>>'{cycle,id}')::uuid,public.refund_missing_follow_up_fields(cid));
+  values(mid,cid,'more_info','pending','scope-customer-'||n||'@example.invalid','Please review your purchase','Scoped correction fixture','deterministic_template','automatic','missing_information','refund_follow_up_v2',(cycle#>>'{cycle,id}')::uuid,public.refund_missing_follow_up_fields(cid));
   select * into c from public.refund_cases where id=cid;
   perform public.service_issue_refund_purchase_correction(mid,lpad(to_hex(n),64,'0'),c.deterministic_fact_version);
   if deliver then update public.refund_case_messages set status='sent',sent_at=statement_timestamp() where id=mid; end if;
@@ -117,12 +117,12 @@ select public.service_mark_refund_transactional_delivery_attempt((select correct
 select throws_like($$select pg_temp.issue_new_scope(10)$$,'%already active%','Uncertain provider-attempt scope cannot be retired or resent');
 insert into public.refund_cases(id,reporting_machine_id,reporting_location_id,customer_email,issue_summary,incident_at,incident_timezone,incident_time_resolution,
  payment_method,payment_amount_cents,refund_amount_cents,status,decision,decided_by,decided_at,correlation_status,correlation_source,intake_source)
-values('dd000000-0000-4000-8001-000000000011','dd000000-0000-4000-8000-000000000003','dd000000-0000-4000-8000-000000000002','scope-customer@example.invalid',
+values('dd000000-0000-4000-8001-000000000011','dd000000-0000-4000-8000-000000000003','dd000000-0000-4000-8000-000000000002','scope-customer-11@example.invalid',
  'Approved cash correction fixture',statement_timestamp()-interval '2 hours','America/Los_Angeles','exact','cash',700,700,'cash_zelle_pending','approved',
  'dd000000-0000-4000-8000-000000000004',statement_timestamp(),'manual_review','manual','form');
 create temp table cash_message as select public.service_enqueue_refund_manual_message_intent(
  'dd000000-0000-4000-8001-000000000011',(select official_action_version from public.refund_cases where id='dd000000-0000-4000-8001-000000000011'),
- gen_random_uuid(),'dd000000-0000-4000-8000-000000000004','more_info','scope-customer@example.invalid','One destination detail','Reply with your Zelle email or phone.',
+ gen_random_uuid(),'dd000000-0000-4000-8000-000000000004','more_info','scope-customer-11@example.invalid','One destination detail','Reply with your Zelle email or phone.',
  'refund_more_info_editable_v1','manager_authored','missing_information',array['zelle_payment_contact'],null,false,null) as value;
 select public.service_issue_refund_purchase_correction((select(value->>'messageId')::uuid from cash_message),lpad('b',64,'0'),
  (select deterministic_fact_version from public.refund_cases where id='dd000000-0000-4000-8001-000000000011'));

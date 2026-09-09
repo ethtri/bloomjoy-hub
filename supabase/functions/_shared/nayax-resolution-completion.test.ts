@@ -1,8 +1,10 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
+  deliverNayaxFormReceiptCompletion,
   deliverNayaxCompletionOnce,
   deliverNayaxCompletionWithDefiniteRetry,
   deliverPreparedNayaxCompletionOnce,
+  parseNayaxFormReceiptClaim,
 } from "./nayax-resolution-completion.ts";
 import {
   assertOpenNayaxCompletionMessageLane,
@@ -54,6 +56,95 @@ Deno.test("completion sends once and settles sent once", async () => {
   assertEquals(scenario.deliveryCalls, 1);
   assertEquals(scenario.finishCalls, ["sent"]);
   assertEquals(scenario.result.status, "sent");
+});
+
+Deno.test("form completion drains the exact receipt message through the outbox once", async () => {
+  const drained: string[] = [];
+  const result = await deliverNayaxFormReceiptCompletion({
+    claim: {
+      refundCaseMessageId: "ca710000-0000-4000-8000-000000000007",
+      status: "queued",
+    },
+    drain: async (messageId) => {
+      drained.push(messageId);
+      return [{
+        messageId,
+        outcome: "sent",
+        transport: "transactional_email",
+        managerCcCount: 1,
+      }];
+    },
+  });
+  assertEquals(drained, ["ca710000-0000-4000-8000-000000000007"]);
+  assertEquals(result, {
+    status: "sent",
+    transport: "transactional_email",
+    managerCcCount: 1,
+    originalThread: false,
+    operationApplied: true,
+    managerCompletionNoticeSent: false,
+  });
+});
+
+Deno.test("form completion claim contention does not start a second transport", async () => {
+  let transportCalls = 0;
+  const result = await deliverNayaxFormReceiptCompletion({
+    claim: {
+      refundCaseMessageId: "ca710000-0000-4000-8000-000000000007",
+      status: "queued",
+    },
+    drain: async () => {
+      transportCalls += 1;
+      return [];
+    },
+  });
+  assertEquals(transportCalls, 1);
+  assertEquals(result.status, "delivery_unknown");
+  assertEquals(result.operationApplied, false);
+});
+
+Deno.test("deferred form completion has no transport call", async () => {
+  let transportCalls = 0;
+  const result = await deliverNayaxFormReceiptCompletion({
+    claim: { refundCaseMessageId: null, status: "notice_deferred" },
+    drain: async () => {
+      transportCalls += 1;
+      return [];
+    },
+  });
+  assertEquals(transportCalls, 0);
+  assertEquals(result.status, "deferred");
+  assertEquals(result.originalThread, false);
+});
+
+Deno.test("form completion claim is bound to the expected case and transport", () => {
+  const messageId = "ca710000-0000-4000-8000-000000000007";
+  const valid = {
+    refundCaseId: "ca500000-0000-4000-8000-000000000007",
+    refundCaseMessageId: messageId,
+    status: "queued",
+    transport: "transactional_email",
+    originalThread: false,
+    payloadRedacted: true,
+  };
+  assertEquals(
+    parseNayaxFormReceiptClaim(valid, valid.refundCaseId),
+    { refundCaseMessageId: messageId, status: "queued" },
+  );
+  assertEquals(
+    parseNayaxFormReceiptClaim(
+      { ...valid, refundCaseId: "ca500000-0000-4000-8000-000000000006" },
+      valid.refundCaseId,
+    ),
+    null,
+  );
+  assertEquals(
+    parseNayaxFormReceiptClaim(
+      { ...valid, transport: "gmail_thread" },
+      valid.refundCaseId,
+    ),
+    null,
+  );
 });
 
 Deno.test("safe pre-provider failure records failed without retry", async () => {

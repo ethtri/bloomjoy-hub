@@ -20,7 +20,7 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
   incident_at,payment_method,payment_amount_cents,card_last4,status,automation_state,created_at)
 select ('ef400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-NONREFUND-'||n,
   'ef300000-0000-4000-8000-000000000001','ef200000-0000-4000-8000-000000000001',
-  'nonrefund-customer@example.invalid','Synthetic nonrefund observation',now()-interval '3 days','card',900,'4242',
+  'nonrefund-customer-'||n||'@example.invalid','Synthetic nonrefund observation',now()-interval '3 days','card',900,'4242',
   'needs_review','under_review',now()-interval '2 days' from generate_series(1,4) n;
 create function pg_temp.owner_auth() returns void language plpgsql as $$ begin
   perform set_config('request.jwt.claim.sub','ef000000-0000-4000-8000-000000000001',true);
@@ -71,7 +71,7 @@ create temporary table before_facts as select c.id,jsonb_build_array(c.customer_
 -- Existing unknown delivery remains unknown; it is not retrospectively called sent/delivered.
 insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,sent_at,delivery_transport,delivery_state,delivery_state_updated_at)
 values('ef600000-0000-4000-8000-000000000001','ef400000-0000-4000-8000-000000000001','confirmation','sent',
- 'nonrefund-customer@example.invalid','Synthetic','Synthetic original',now()-interval '2 days','resend','unknown',now()-interval '2 days');
+ 'nonrefund-customer-1@example.invalid','Synthetic','Synthetic original',now()-interval '2 days','resend','unknown',now()-interval '2 days');
 create temporary table prior_message as select to_jsonb(m) value from public.refund_case_messages m where id='ef600000-0000-4000-8000-000000000001';
 -- Exercise the real authenticated RPC, not a service-role impersonation call.
 grant select on reviews to authenticated;
@@ -107,7 +107,7 @@ values('ef700000-0000-4000-8000-000000000001','ef400000-0000-4000-8000-000000000
 insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,provider_message_id,operation_key,direction,message_kind,status,
  sender_email,recipient_email,subject,plain_body,received_at,retention_expires_at,participant_role,participant_trust)
 values('ef800000-0000-4000-8000-000000000001','ef700000-0000-4000-8000-000000000001','ef400000-0000-4000-8000-000000000001',
- 'appeal-handoff-1','synthetic-nonrefund-appeal','inbound','message','received','nonrefund-customer@example.invalid','info@bloomjoysweets.com',
+ 'appeal-handoff-1','synthetic-nonrefund-appeal','inbound','message','received','nonrefund-customer-1@example.invalid','info@bloomjoysweets.com',
  'Synthetic appeal','Please review the same request.',now(),now()+interval '30 days','customer','verified');
 select is(public.service_record_refund_denial_appeal('ef400000-0000-4000-8000-000000000001','ef800000-0000-4000-8000-000000000001')->>'appealReceived','true','Verified same-case appeal is supported without a fabricated denial email');
 create temporary table after_appeal as select to_jsonb(c) value from public.refund_cases c where id='ef400000-0000-4000-8000-000000000001';
