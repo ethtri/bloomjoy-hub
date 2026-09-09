@@ -1311,6 +1311,54 @@ const buildPendingNayaxRefundOverview = () => {
   return overview;
 };
 
+const buildAdamManualNayaxRefundOverview = () => {
+  const overview = buildPendingNayaxRefundOverview();
+  overview.refundOperationsAccess = true;
+  overview.machines = [{
+    id: 'machine-adam-manual',
+    machineLabel: 'Mall of Louisiana',
+    locationName: 'Mall of Louisiana',
+    nayaxLookupConfigured: false,
+  }];
+  overview.managerAssignments = [{
+    reportingMachineId: 'machine-adam-manual',
+    managerEmail: mockUser.email,
+  }];
+  overview.cases = [{
+    ...overview.cases[0],
+    id: 'case-adam-manual',
+    publicReference: 'RF-UAT-ADAM-MANUAL',
+    correlationStatus: 'nayax_not_configured',
+    correlationSummary: 'Use Adam’s Nayax portal to find the exact transaction.',
+    machineLabel: 'Mall of Louisiana',
+    locationName: 'Mall of Louisiana',
+    customerEmail: 'adam-case-customer@example.test',
+    customerName: 'Adam Case Customer',
+    customerPhone: '555-0142',
+    issueSummary: 'Card was charged but no cotton candy was dispensed. Customer also reported that the machine display restarted twice.',
+    incidentAt: isoHoursAgo(2),
+    incidentTimeResolution: 'approximate',
+    paymentAmountCents: 3300,
+    cardLast4: '6768',
+    cardLast4Provenance: 'physical_card',
+    cardNetwork: 'mastercard',
+    cardWalletUsed: false,
+    paymentInteraction: 'tap_card',
+    issueCategory: 'charged_no_product',
+    productDescription: 'Cotton candy',
+    manualNayaxPortalEnabled: true,
+    manualNayaxEvidenceSelected: false,
+    manualNayaxLocationTimezone: 'America/Chicago',
+    reviewedNayaxPortalFallbackKind: 'legacy_manual_evidence',
+    nayaxLookupCandidates: [],
+    assignedManagerEmail: mockUser.email,
+    refundAmountCents: 3300,
+    createdAt: isoHoursAgo(3),
+    updatedAt: isoHoursAgo(1),
+  }];
+  return overview;
+};
+
 const buildNavigationOnlyPendingOverview = () => {
   const overview = buildPendingNayaxRefundOverview();
   overview.cases = overview.cases.map((refundCase) => ({
@@ -5770,6 +5818,66 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
   );
   await page.screenshot({
     path: path.join(artifactDir, 'refund-portal-uat-routine-manager-mobile.png'),
+    fullPage: false,
+  });
+
+  await closeRefundPortalContext(context);
+};
+
+const runAdamManualCaseEvidenceChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
+  const functionCalls = [];
+  const rpcCalls = [];
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await installMockSupabaseRoutes(context, {
+    refundOverview: buildAdamManualNayaxRefundOverview,
+    functionCalls,
+    rpcCalls,
+  });
+  const page = await context.newPage();
+  await signInRefundUser(page, appUrl);
+  await page.getByRole('button', { name: /^Action needed 1$/ }).click();
+  await waitForQueueCount(page, 1);
+  await queueCase(page, 'RF-UAT-ADAM-MANUAL').click();
+
+  const comments = page.getByTestId('refund-customer-comments');
+  const paymentDetails = page.getByTestId('refund-customer-payment-details');
+  const manualEvidence = page.getByTestId('manual-nayax-evidence-form');
+  await manualEvidence.waitFor({ state: 'visible', timeout: 10000 });
+  recorder.assert(
+    'Adam-managed manual case shows complete customer and payment evidence before portal entry',
+    await page.getByText('Adam Case Customer · adam-case-customer@example.test · 555-0142', { exact: true }).isVisible() &&
+      (await comments.innerText()).includes('machine display restarted twice') &&
+      await paymentDetails.getByText('6768', { exact: true }).isVisible() &&
+      await paymentDetails.getByText('Mastercard', { exact: true }).isVisible() &&
+      await paymentDetails.getByText('Tapped a physical card', { exact: true }).isVisible() &&
+      await page.getByText('Mall of Louisiana · $33.00', { exact: true }).isVisible()
+  );
+  recorder.assert(
+    'Adam-managed API-pending case keeps the reviewed manual Nayax path beside the visible evidence',
+    await manualEvidence.getByText('Find the exact transaction in Nayax', { exact: true }).isVisible() &&
+      await manualEvidence.getByText(/Adam’s Nayax account while the API connection is pending/).isVisible() &&
+      await manualEvidence.getByLabel('Transaction reference').isVisible() &&
+      await manualEvidence.getByLabel('Card last 4').isVisible() &&
+      functionCalls.length === 0 &&
+      !rpcCalls.includes('admin_create_refund_manual_nayax_candidate')
+  );
+  await comments.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-adam-manual-case-evidence-desktop.png'),
+    fullPage: false,
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await comments.scrollIntoViewIfNeeded();
+  recorder.assert(
+    'Adam-managed case evidence and manual Nayax path remain usable on mobile',
+    await comments.isVisible() &&
+      await paymentDetails.isVisible() &&
+      await manualEvidence.isVisible() &&
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-adam-manual-case-evidence-mobile.png'),
     fullPage: false,
   });
 
@@ -10432,6 +10540,12 @@ const run = async () => {
         artifactDir: args.artifactDir,
         recorder,
       });
+      await runAdamManualCaseEvidenceChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
+      });
       await runManagerClarityChecks({
         browser,
         appUrl: args.appUrl,
@@ -10566,6 +10680,12 @@ const run = async () => {
       recorder,
     });
     await runRefundOnlyChecks({
+      browser,
+      appUrl: args.appUrl,
+      artifactDir: args.artifactDir,
+      recorder,
+    });
+    await runAdamManualCaseEvidenceChecks({
       browser,
       appUrl: args.appUrl,
       artifactDir: args.artifactDir,
