@@ -207,6 +207,27 @@ declare context jsonb; result jsonb; attempt_id uuid;
 begin
   perform public.assert_nayax_provider_executor(p_executor_assertion);
   perform 1 from public.refund_cases where id=p_case_id for update;
+  -- An exact idempotent replay keeps the context captured by the first
+  -- reservation. That reservation legitimately advanced the case version, so
+  -- recomputing a fresh context would manufacture a false stale-facts error.
+  select attempt.id,saved.context into attempt_id,context
+  from public.refund_case_nayax_refund_attempts attempt
+  join public.refund_nayax_execution_contexts saved on saved.attempt_id=attempt.id
+  where attempt.refund_case_id=p_case_id and attempt.idempotency_key=p_idempotency_key;
+  if attempt_id is not null then
+    if context->>'contextHash' is distinct from p_execution_context_hash
+      or context->>'machineAuthorizationTimeSerializationMode'
+        is distinct from p_machine_authorization_time_mode
+      or context->>'refundEmailListMode' is distinct from p_refund_email_list_mode then
+      raise exception 'Selected Nayax purchase changed; refresh the transaction' using errcode='P4620';
+    end if;
+    perform public.refund_claim_exact_nayax_transaction(p_case_id,attempt_id,context);
+    return public.service_reserve_nayax_refund_manager_action_pre_transaction_claim_v1(
+      p_executor_assertion,p_actor_user_id,p_case_id,p_expected_case_version,
+      p_idempotency_key,p_amount_cents,p_daily_amount_cap_cents,p_daily_count_cap,
+      p_currency_code,p_provider_contract_version,p_journal_contract_version,
+      p_execution_context_hash,p_machine_authorization_time_mode,p_refund_email_list_mode);
+  end if;
   context:=public.refund_nayax_selected_execution_context_v3(
     p_case_id,p_machine_authorization_time_mode,p_refund_email_list_mode);
   if context is null or context->>'contextHash' is distinct from p_execution_context_hash
