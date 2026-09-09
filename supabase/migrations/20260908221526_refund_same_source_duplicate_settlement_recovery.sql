@@ -687,6 +687,99 @@ $$;
 revoke all on function public.refund_nayax_unsettled_api_success_duplicate_proved(uuid, uuid, uuid)
   from public, anon, authenticated, service_role;
 
+-- The normal adjustment trigger requires the case to be completed before an
+-- adjustment can be inserted. Recovery has the inverse storage dependency:
+-- the narrow case-transition guard requires the exact adjustment to exist
+-- before it admits the only pending-to-completed update. Admit just that one
+-- pre-transition row while the immutable provider and manager proof is intact.
+create function public.refund_journal_duplicate_recovery_adjustment_allowed(
+  p_new jsonb
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select coalesce(
+    auth.role() = 'service_role'
+    and nullif(current_setting('bloomjoy.nayax_journal_recovery_attempt_id', true), '') is not null
+    and nullif(current_setting('bloomjoy.nayax_journal_recovery_duplicate_id', true), '') is not null
+    and exists (
+      select 1
+      from public.refund_case_nayax_refund_attempts attempt
+      join public.refund_cases canonical on canonical.id = attempt.refund_case_id
+      join public.refund_cases duplicate on duplicate.id = nullif(current_setting(
+        'bloomjoy.nayax_journal_recovery_duplicate_id', true
+      ), '')::uuid
+      join public.refund_nayax_provider_stage_journal approve_journal
+        on approve_journal.nayax_refund_attempt_id = attempt.id
+        and approve_journal.pending_approval_recovery_id is null
+        and approve_journal.stage = 'approve'
+        and approve_journal.event = 'result'
+      where attempt.id = nullif(current_setting(
+          'bloomjoy.nayax_journal_recovery_attempt_id', true
+        ), '')::uuid
+        and public.refund_nayax_unsettled_api_success_duplicate_proved(
+          canonical.id, attempt.id, duplicate.id
+        )
+        and (p_new ->> 'refund_case_id')::uuid = canonical.id
+        and (p_new ->> 'reporting_machine_id')::uuid = canonical.reporting_machine_id
+        and (p_new ->> 'reporting_location_id')::uuid = canonical.reporting_location_id
+        and (p_new ->> 'adjustment_date')::date =
+          (approve_journal.created_at at time zone 'America/Los_Angeles')::date
+        and p_new ->> 'adjustment_type' = 'refund'
+        and (p_new ->> 'amount_cents')::integer = attempt.amount_cents
+        and (p_new ->> 'complaint_count')::integer = 1
+        and p_new ->> 'source' = 'refund_case'
+        and p_new ->> 'source_row_hash' = canonical.id::text
+        and p_new ->> 'source_reference' = 'refund_cases'
+        and p_new ->> 'source_row_reference' = canonical.public_reference
+        and p_new ->> 'match_status' = 'applied'
+        and (p_new ->> 'match_confidence')::numeric =
+          greatest(canonical.correlation_confidence, 0.01)
+        and p_new ->> 'notes' = 'Bloomjoy refund case ' || canonical.public_reference
+        and nullif(p_new ->> 'refund_review_row_id', '') is null
+        and nullif(p_new ->> 'import_run_id', '') is null
+        and p_new ->> 'refund_business_fingerprint' = canonical.refund_business_fingerprint
+        and p_new -> 'raw_payload' = jsonb_build_object(
+          'refund_case_id', canonical.id,
+          'refund_case_reference', canonical.public_reference,
+          'refund_case_status', 'completed',
+          'refund_case_decision', 'approved',
+          'payment_method', canonical.payment_method,
+          'correlation_source', canonical.correlation_source,
+          'correlation_has_card_lookup', true,
+          'nayax_provider_attempt_id', attempt.id,
+          'provider_reference_present', true,
+          'api_provider_approved_at', approve_journal.created_at,
+          'accounting_date_meaning', 'provider_approval_response_date_not_bank_settlement',
+          'payload_redacted', true
+        )
+    ),
+    false
+  );
+$$;
+
+revoke all on function public.refund_journal_duplicate_recovery_adjustment_allowed(jsonb)
+  from public, anon, authenticated, service_role;
+
+do $migration$
+declare body text; anchor text; replacement text;
+begin
+  body := replace(pg_get_functiondef(
+    'public.assert_sales_adjustment_refund_calculation_fields()'::regprocedure
+  ), E'\r\n', E'\n');
+  anchor := E'begin\n  if new.source = ''google_sheets''';
+  replacement := E'begin\n  if public.refund_journal_duplicate_recovery_adjustment_allowed(to_jsonb(new)) then return new; end if;\n'
+    || E'  if new.source = ''google_sheets''';
+  if cardinality(string_to_array(body, anchor)) <> 2 then
+    raise exception 'Unexpected adjustment calculation guard shape for journal recovery';
+  end if;
+  execute replace(body, anchor, replacement);
+end;
+$migration$;
+
 -- Preserve the exact currently deployed Gmail completion claim implementation.
 -- The wrapper below adds only the API-receipt form branch and delegates every
 -- other attempt to this original function with its original executor assertion.
@@ -1293,6 +1386,9 @@ begin
       using errcode = 'P4675';
   end if;
 
+  perform set_config('bloomjoy.nayax_journal_recovery_attempt_id', attempt.id::text, true);
+  perform set_config('bloomjoy.nayax_journal_recovery_duplicate_id', duplicate.id::text, true);
+
   insert into public.refund_case_events (
     refund_case_id, actor_user_id, event_type, message, metadata
   )
@@ -1335,9 +1431,6 @@ begin
       'payload_redacted', true
     )
   ) returning * into adjustment;
-
-  perform set_config('bloomjoy.nayax_journal_recovery_attempt_id', attempt.id::text, true);
-  perform set_config('bloomjoy.nayax_journal_recovery_duplicate_id', duplicate.id::text, true);
 
   update public.refund_cases
   set status = 'completed', decision = 'approved',

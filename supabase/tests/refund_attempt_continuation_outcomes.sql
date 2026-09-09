@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(114);
+select plan(115);
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
@@ -1152,6 +1152,42 @@ begin
     'ca500000-0000-4000-8000-000000000107');
 end $broken_authorization_intent$$cmd$,'P4674',null,
   'Recovery rejects a broken authorization-to-intent evidence chain and rolls the mutation back');
+select throws_ok($cmd$do $malformed_recovery_adjustment$
+begin
+  perform set_config('bloomjoy.nayax_journal_recovery_attempt_id',
+    current_setting('test.recovery_attempt_id'),true);
+  perform set_config('bloomjoy.nayax_journal_recovery_duplicate_id',
+    'ca500000-0000-4000-8000-000000000107',true);
+  insert into public.sales_adjustment_facts(
+    reporting_machine_id,reporting_location_id,adjustment_date,
+    adjustment_type,amount_cents,complaint_count,source,source_row_hash,
+    source_reference,source_row_reference,refund_case_id,match_status,
+    match_confidence,notes,raw_payload)
+  select c.reporting_machine_id,c.reporting_location_id,
+    (journal.created_at at time zone 'America/Los_Angeles')::date,
+    'refund',attempt.amount_cents+1,1,'refund_case',c.id::text,
+    'refund_cases',c.public_reference,c.id,'applied',
+    greatest(c.correlation_confidence,0.01),
+    'Bloomjoy refund case '||c.public_reference,
+    jsonb_build_object(
+      'refund_case_id',c.id,'refund_case_reference',c.public_reference,
+      'refund_case_status','completed','refund_case_decision','approved',
+      'payment_method',c.payment_method,'correlation_source',c.correlation_source,
+      'correlation_has_card_lookup',true,'nayax_provider_attempt_id',attempt.id,
+      'provider_reference_present',true,'api_provider_approved_at',journal.created_at,
+      'accounting_date_meaning','provider_approval_response_date_not_bank_settlement',
+      'payload_redacted',true)
+  from public.refund_cases c
+  join public.refund_case_nayax_refund_attempts attempt
+    on attempt.refund_case_id=c.id
+    and attempt.id=current_setting('test.recovery_attempt_id')::uuid
+  join public.refund_nayax_provider_stage_journal journal
+    on journal.nayax_refund_attempt_id=attempt.id
+    and journal.stage='approve' and journal.event='result'
+    and journal.pending_approval_recovery_id is null
+  where c.id='ca500000-0000-4000-8000-000000000007';
+end $malformed_recovery_adjustment$$cmd$,'23514',null,
+  'Recovery adjustment admission rejects a row whose amount differs from the proved provider attempt');
 
 create function pg_temp.reject_recovery_notice_preparation()
 returns trigger language plpgsql as $$
