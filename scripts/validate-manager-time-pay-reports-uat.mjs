@@ -313,11 +313,11 @@ const installRoutes = async (context) => {
     }
     if (rpcName === 'get_technician_pay_report_context') return route.fulfill(json(payContext));
     if (rpcName === 'get_timekeeping_setup_context') return route.fulfill(json(setupContext));
-    if (rpcName === 'admin_setup_timekeeping_technician') {
+    if (rpcName === 'admin_setup_timekeeping_technician_arrangements') {
       if (body.p_user_email === 'pending-technician@example.test') {
         return route.fulfill(json({ code: 'P0001', message: 'Technician must accept the invitation and sign in once before Timekeeping setup' }, 400));
       }
-      return route.fulfill(json({ operatorProfileId: 'new-profile', accountId: ACCOUNT_ID, displayName: body.p_display_name, machineCount: body.p_machine_ids.length, effectiveStartDate: body.p_effective_start_date }));
+      return route.fulfill(json({ profiles: [{ operatorProfileId: 'new-profile', accountId: ACCOUNT_ID }], payerCount: 1, displayName: body.p_display_name, machineCount: body.p_machine_compensation.length, effectiveStartDate: body.p_effective_start_date }));
     }
     if (rpcName === 'admin_supersede_operator_compensation_rate') return route.fulfill(json({ id: 'saved-rate' }));
     if (rpcName === 'admin_upsert_operator_recurring_item') return route.fulfill(json({ id: 'saved-item' }));
@@ -459,22 +459,24 @@ const run = async () => {
     await page.locator('#setup-technician-email').fill('pending-technician@example.test');
     await page.locator('#setup-technician-name').fill('New Technician');
     await page.locator('#setup-worker-id').fill('Contractor 2044');
-    await page.locator('#setup-account').click();
-    await page.getByRole('option', { name: 'Bloomjoy Sweets' }).click();
     const setupDialog = page.getByRole('dialog');
     await setupDialog.getByText('Cotton Candy 01', { exact: true }).click();
     await setupDialog.getByText('Cotton Candy 02', { exact: true }).click();
-    await page.locator('#setup-shift-rate').fill('20');
-    await page.locator('#setup-commission-rate').fill('7');
+    await page.getByRole('button', { name: 'Set up pay' }).click();
+    await page.getByLabel('Pay per started hour').fill('20');
+    await page.getByText('Add commission', { exact: true }).click();
+    await page.getByLabel('Commission rate').fill('7');
     await page.screenshot({ path: path.join(artifactDir, 'technician-setup-desktop.png'), fullPage: true });
     await page.getByRole('button', { name: 'Activate Timekeeping' }).click();
     await page.getByText('Technician must accept the invitation and sign in once before Timekeeping setup').waitFor();
-    check('An unaccepted invitation keeps the completed setup form available to retry', await page.locator('#setup-technician-name').inputValue() === 'New Technician' && await page.getByRole('dialog').isVisible());
+    check('An unaccepted invitation keeps the completed setup form available to retry', await page.getByText('New Technician', { exact: true }).isVisible() && await page.getByRole('dialog').isVisible());
+    await page.getByRole('button', { name: 'Back' }).click();
     await page.locator('#setup-technician-email').fill('new-technician@example.test');
+    await page.getByRole('button', { name: 'Set up pay' }).click();
     await page.getByRole('button', { name: 'Activate Timekeeping' }).click();
-    await page.getByText('New Technician can now use Timekeeping.').waitFor();
-    const setupCall = state.rpcCalls.find((call) => call.rpcName === 'admin_setup_timekeeping_technician' && call.body.p_user_email === 'new-technician@example.test');
-    check('One manager action sends profile, both machines, and starting rates atomically', setupCall?.body.p_user_email === 'new-technician@example.test' && setupCall?.body.p_worker_type === 'contractor_1099' && setupCall?.body.p_machine_ids.length === 2 && setupCall?.body.p_shift_rate_cents === 2000 && setupCall?.body.p_commission_basis_points === 700 && !('p_reason' in setupCall.body));
+    await page.getByText('New Technician can now use Timekeeping across 2 machines.').waitFor();
+    const setupCall = state.rpcCalls.find((call) => call.rpcName === 'admin_setup_timekeeping_technician_arrangements' && call.body.p_user_email === 'new-technician@example.test');
+    check('One manager action sends profile, both machines, and starting rates atomically', setupCall?.body.p_user_email === 'new-technician@example.test' && setupCall?.body.p_worker_type === 'contractor_1099' && setupCall?.body.p_machine_compensation.length === 2 && setupCall?.body.p_machine_compensation.every((item) => item.shiftRateCents === 2000 && item.commissionBasisPoints === 700) && !('p_reason' in setupCall.body));
 
     await page.locator('#pay-report-machine').click();
     await page.getByRole('option', { name: 'Cotton Candy 02' }).click();

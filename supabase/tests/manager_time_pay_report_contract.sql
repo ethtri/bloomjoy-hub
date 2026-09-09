@@ -9,7 +9,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(111);
+select plan(119);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -33,7 +33,8 @@ values
   ('00000000-0000-0000-0000-000000000000', 'a1000000-0000-0000-0000-000000000003', 'authenticated', 'authenticated', 'pay-report-owner@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now()),
   ('00000000-0000-0000-0000-000000000000', 'a1000000-0000-0000-0000-000000000004', 'authenticated', 'authenticated', 'pay-report-outsider@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now()),
   ('00000000-0000-0000-0000-000000000000', 'a1000000-0000-0000-0000-000000000005', 'authenticated', 'authenticated', 'pay-report-partial-tech@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now()),
-  ('00000000-0000-0000-0000-000000000000', 'a1000000-0000-0000-0000-000000000006', 'authenticated', 'authenticated', 'pilot-setup-tech@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now());
+  ('00000000-0000-0000-0000-000000000000', 'a1000000-0000-0000-0000-000000000006', 'authenticated', 'authenticated', 'pilot-setup-tech@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now()),
+  ('00000000-0000-0000-0000-000000000000', 'a1000000-0000-0000-0000-000000000007', 'authenticated', 'authenticated', 'arrangement-setup-tech@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now());
 
 insert into public.customer_accounts (id, name, account_type)
 values ('a2000000-0000-0000-0000-000000000001', 'Manager report account', 'customer');
@@ -1234,6 +1235,139 @@ select is(
   'a rejected repeat leaves one profile, two assignments, and two rates'
 );
 
+reset role;
+insert into public.customer_accounts (id, name, account_type)
+values ('a2000000-0000-0000-0000-000000000002', 'Second payer account', 'customer');
+insert into public.customer_account_memberships (id, account_id, user_id, email, role, active)
+values (
+  'a2100000-0000-0000-0000-000000000002',
+  'a2000000-0000-0000-0000-000000000002',
+  'a1000000-0000-0000-0000-000000000003',
+  'pay-report-owner@example.test', 'owner', true
+);
+insert into public.reporting_locations (id, account_id, name)
+values ('a3000000-0000-0000-0000-000000000002', 'a2000000-0000-0000-0000-000000000002', 'Second payer location');
+insert into public.reporting_machines (id, account_id, location_id, machine_label)
+values ('a4000000-0000-0000-0000-000000000003', 'a2000000-0000-0000-0000-000000000002', 'a3000000-0000-0000-0000-000000000002', 'Second Payer Machine');
+set local role authenticated;
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
+
+select is(
+  (
+    select concat(result ->> 'machineCount', ':', result ->> 'payerCount')
+    from (
+      select public.admin_setup_timekeeping_technician_arrangements(
+      'arrangement-setup-tech@example.test',
+      'Arrangement Setup Technician',
+      'contractor_1099',
+      'ARR-001',
+      '2026-09-08',
+      jsonb_build_array(
+        jsonb_build_object(
+          'machineId', 'a4000000-0000-0000-0000-000000000001',
+          'shiftRateCents', 2500,
+          'commissionBasisPoints', 300,
+          'commissionEffectiveStartDate', '2026-09-08'
+        ),
+        jsonb_build_object(
+          'machineId', 'a4000000-0000-0000-0000-000000000002',
+          'shiftRateCents', 3500,
+          'commissionBasisPoints', 300,
+          'commissionEffectiveStartDate', '2026-12-08'
+        ),
+        jsonb_build_object(
+          'machineId', 'a4000000-0000-0000-0000-000000000003',
+          'shiftRateCents', 2500,
+          'commissionBasisPoints', 300,
+          'commissionEffectiveStartDate', '2026-09-08'
+        )
+      )) as result
+    ) setup
+  ),
+  '3:2',
+  'one simple setup creates machine arrangements across two payers'
+);
+select is(
+  (
+    select count(*)::integer
+    from public.operator_payout_profiles profile
+    where profile.user_id = 'a1000000-0000-0000-0000-000000000007'
+  ),
+  2,
+  'arrangement setup creates one profile for each selected payer'
+);
+select is(
+  (
+    select count(*)::integer
+    from public.operator_machine_assignments assignment
+    join public.operator_payout_profiles profile on profile.id = assignment.operator_profile_id
+    where profile.user_id = 'a1000000-0000-0000-0000-000000000007'
+  ),
+  3,
+  'arrangement setup assigns every selected machine'
+);
+select is(
+  (
+    select string_agg(concat(rule.reporting_machine_id, ':', rule.shift_rate_cents), ',' order by rule.reporting_machine_id)
+    from public.compensation_rules rule
+    join public.operator_payout_profiles profile on profile.id = rule.operator_profile_id
+    where profile.user_id = 'a1000000-0000-0000-0000-000000000007'
+      and rule.shift_rate_cents is not null
+  ),
+  'a4000000-0000-0000-0000-000000000001:2500,a4000000-0000-0000-0000-000000000002:3500,a4000000-0000-0000-0000-000000000003:2500',
+  'arrangement setup stores a distinct started-hour rate for each machine'
+);
+select is(
+  (
+    select count(*)::integer
+    from public.compensation_rules rule
+    join public.operator_payout_profiles profile on profile.id = rule.operator_profile_id
+    where profile.user_id = 'a1000000-0000-0000-0000-000000000007'
+      and rule.commission_basis_points is not null
+  ),
+  4,
+  'a delayed commission creates a zero-rate waiting window and future rate'
+);
+select is(
+  concat(
+    public.operator_compensation_rate_at(
+      'a2000000-0000-0000-0000-000000000001',
+      (select id from public.operator_payout_profiles where user_id = 'a1000000-0000-0000-0000-000000000007' and account_id = 'a2000000-0000-0000-0000-000000000001'),
+      'a4000000-0000-0000-0000-000000000002', '2026-10-01', 'commission'
+    ) ->> 'commissionBasisPoints',
+    ':',
+    public.operator_compensation_rate_at(
+      'a2000000-0000-0000-0000-000000000001',
+      (select id from public.operator_payout_profiles where user_id = 'a1000000-0000-0000-0000-000000000007' and account_id = 'a2000000-0000-0000-0000-000000000001'),
+      'a4000000-0000-0000-0000-000000000002', '2026-12-08', 'commission'
+    ) ->> 'commissionBasisPoints'
+  ),
+  '0:300',
+  'after-three-months commission resolves to zero before its start and three percent on its start'
+);
+reset role;
+select is(
+  (
+    select count(*)::integer from public.admin_audit_log audit
+    where audit.action = 'timekeeping_technician.arrangements_setup_completed'
+      and audit.target_user_id = 'a1000000-0000-0000-0000-000000000007'
+  ),
+  1,
+  'arrangement setup records one summary audit event'
+);
+select is(
+  jsonb_array_length(
+    private.calculate_technician_pay_report(
+      'a2000000-0000-0000-0000-000000000001',
+      'a6000000-0000-0000-0000-000000000001',
+      '2026-07-01', '2026-07-31'
+    ) -> 'shiftRateLines'
+  ) > 0,
+  true,
+  'pay report retains machine-aware started-hour rate lines for Pay Stub detail'
+);
+
+set local role authenticated;
 select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000004', true);
 select is(
   pg_temp.capture_error($$select public.get_timekeeping_setup_context()$$),

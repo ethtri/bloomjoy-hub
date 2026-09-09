@@ -39,6 +39,12 @@ const files = {
     'migrations',
     '20260908043000_timekeeping_pilot_setup.sql'
   ),
+  arrangementMigration: path.join(
+    repoRoot,
+    'supabase',
+    'migrations',
+    '20260909172137_per_machine_compensation_arrangements.sql'
+  ),
   pgTap: path.join(repoRoot, 'supabase', 'tests', 'manager_time_pay_report_contract.sql'),
   concurrencyPgTap: path.join(
     repoRoot,
@@ -149,6 +155,24 @@ for (const snippet of [
   expect(setupMigration, snippet, 'Timekeeping pilot setup migration');
 }
 
+const arrangementMigration = readText(files.arrangementMigration);
+for (const snippet of [
+  'drop constraint if exists compensation_rules_canonical_shift_scope',
+  'reporting_machine_id = p_reporting_machine_id or rule.reporting_machine_id is null',
+  "then 'technician_machine_override'",
+  'machine-specific pay requires an effective Technician assignment',
+  'create or replace function public.admin_setup_timekeeping_technician_arrangements',
+  'jsonb_array_elements(p_machine_compensation)',
+  'count(distinct machine.account_id)',
+  'public.admin_upsert_operator_machine_assignment',
+  "'Commission waiting period'",
+  "'timekeeping_technician.arrangements_setup_completed'",
+  'grant execute on function public.admin_setup_timekeeping_technician_arrangements(text, text, text, text, date, jsonb) to authenticated',
+  "'machineLabel', grouped.machine_label",
+]) {
+  expect(arrangementMigration, snippet, 'per-machine compensation migration');
+}
+
 const missedTimeMigration = readText(files.missedTimeMigration);
 for (const snippet of [
   'create or replace function public.get_my_time_review_entry_options',
@@ -232,6 +256,8 @@ for (const snippet of [
   'fetchTechnicianPayReportContext',
   'fetchTimekeepingSetupContext',
   'setupTimekeepingTechnicianAdmin',
+  "'admin_setup_timekeeping_technician_arrangements'",
+  'machineCompensation',
   "`${month}-01`",
   'supersedeOperatorCompensationRateAdmin',
   'refreshTechnicianPayReportSalesAdmin',
@@ -256,6 +282,11 @@ for (const snippet of [
   'Add other earning',
   'No approval or edit reason is required',
   'Set up Technician Timekeeping',
+  'Standard pay',
+  'Some machines have different pay',
+  'Pay per started hour',
+  'After 3 months',
+  'separate Pay Stub for each payer',
   'Activate Timekeeping',
   'Open People &amp; Permissions',
 ]) {
@@ -328,6 +359,9 @@ for (const marker of [
   'an outsider cannot add missed time for a managed machine',
   'one manager action creates the complete initial Timekeeping setup',
   'repeating initial setup fails closed instead of creating overlapping records',
+  'one simple setup creates machine arrangements across two payers',
+  'after-three-months commission resolves to zero before its start and three percent on its start',
+  'pay report retains machine-aware started-hour rate lines for Pay Stub detail',
   'a user without account pay authority cannot read Timekeeping setup choices',
 ]) {
   if (!pgTap.includes(marker)) {
