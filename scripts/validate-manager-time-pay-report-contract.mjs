@@ -207,7 +207,9 @@ for (const marker of [
 const payStubLintMigration = readText(files.payStubLintMigration);
 for (const snippet of [
   'add column if not exists legal_name text',
-  "set plpgsql.variable_conflict = 'use_column'",
+  'generated_statement_payload jsonb',
+  'statement_payload = prior_statement.statement_payload',
+  'statement_payload = current_statement.statement_payload',
 ]) {
   expect(payStubLintMigration, snippet, 'Pay Stub lint repair migration');
 }
