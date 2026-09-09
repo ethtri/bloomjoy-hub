@@ -38,7 +38,11 @@ declare
   marker text;
 begin
   foreach marker in array pg_temp.refund_authority_marker_names() loop
-    perform set_config(marker, '', true);
+    -- Keep a never-used custom setting genuinely undefined. Defining every GUC
+    -- as an empty string can reach a UUID cast before a SQL guard is evaluated.
+    if current_setting(marker, true) is not null then
+      perform set_config(marker, '', true);
+    end if;
   end loop;
 end;
 $$;
