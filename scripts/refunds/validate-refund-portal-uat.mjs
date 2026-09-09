@@ -6830,6 +6830,10 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
           (await page.getByTestId('refund-manager-next-step').innerText()).includes('Wait for the customer to reply'),
         functionCalls.join(', ')
       );
+      await page.screenshot({
+        path: path.join(artifactDir, 'refund-portal-uat-wallet-waiting-on-customer.png'),
+        fullPage: false,
+      });
       await closeRefundPortalContext(context);
       continue;
     } else {
