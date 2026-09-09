@@ -22,6 +22,8 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-direct-intake-card-type-desktop.png',
   'refund-direct-intake-cash-desktop.png',
   'refund-direct-intake-desktop.png',
+  'refund-adam-manual-case-evidence-desktop.png',
+  'refund-adam-manual-case-evidence-mobile.png',
   'refund-acknowledgement-recovery-mobile.png',
   'refund-acknowledgement-recovery-resolved.png',
   'refund-customer-locale-correction-mobile.png',

@@ -324,7 +324,12 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 93, 'Evidence must enumerate all 93 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 95, 'Evidence must enumerate all 95 reviewed screenshots');
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-adam-manual-case-evidence-desktop.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-adam-manual-case-evidence-mobile.png'),
+    'Evidence must include the reviewed Adam-managed manual Nayax case on desktop and mobile'
+  );
   assert(
     EXPECTED_SCREENSHOTS.includes('machine-refunds-valley-product-unverified-desktop.png') &&
       EXPECTED_SCREENSHOTS.includes('machine-refunds-valley-product-unverified-mobile.png'),
