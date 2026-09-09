@@ -6131,18 +6131,6 @@ export default function AdminRefundsPage() {
             </div>
           )}
 
-          {selectedCase.lifecycle && (
-            <details className="group border-b border-border">
-              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-                <span>Refund progress</span>
-                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
-              </summary>
-              <div className="px-4 pb-4">
-                <RefundLifecycleProgress lifecycle={selectedCase.lifecycle} />
-              </div>
-            </details>
-          )}
-
           {!selectedCase.customerDeliveryException && ['failed', 'skipped'].includes(getLatestCustomerMessage(selectedCase)?.status ?? '') && (
             <div data-testid="refund-secondary-delivery-review" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
               <p className="font-semibold">Customer message needs review</p>
@@ -6152,27 +6140,19 @@ export default function AdminRefundsPage() {
           <CustomerCorrectionSummary refundCase={selectedCase} onReview={(trigger) => { correctionDialogTriggerRef.current={caseId:selectedCase.id,element:trigger}; setCorrectionSelection({caseId:selectedCase.id,version:officialActionVersion,fields:[...(selectedCase.customerCorrection?.requestedFields ?? [])],requestId:selectedCase.customerCorrection?.requestId,editing:false}); }} />
           {revisionDeliveryReview}
           <div className="grid gap-px bg-border">
-            <details data-testid="refund-request-summary" className="group bg-card">
-              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-                <span>Customer request details</span>
-                <span className="flex items-center gap-2 text-xs font-normal text-muted-foreground">
-                  {formatCurrency(selectedCase.paymentAmountCents)}
-                  <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
-                </span>
-              </summary>
-              <div className="border-t border-border px-4 pb-4 pt-3">
-                <div className="grid grid-cols-2 gap-3 text-sm">
+            <article data-testid="refund-request-summary" className="bg-card px-4 py-4">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Customer request</p>
+                  <h4 className="mt-1 text-base font-semibold text-foreground">Payment and incident details</h4>
+                </div>
+                <p className="text-sm font-semibold text-foreground">{formatCurrency(selectedCase.paymentAmountCents)}</p>
+              </div>
+              <div className="mt-4">
+                <dl data-testid="refund-customer-payment-details" className="grid grid-cols-1 gap-x-4 gap-y-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
                   <div>
-                    <p className="text-xs text-muted-foreground">Location</p>
-                    <p className="mt-1 font-medium text-foreground">{selectedCase.locationName}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Machine</p>
-                    <p className="mt-1 font-medium text-foreground">{selectedCase.machineLabel}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Customer time</p>
-                    <p className="mt-1 font-medium text-foreground">{formatDate(selectedCase.incidentAt)}</p>
+                    <dt className="text-xs text-muted-foreground">Customer time</dt>
+                    <dd className="mt-1 font-medium text-foreground">{formatDate(selectedCase.incidentAt)}</dd>
                     <p className="mt-1 text-xs leading-5 text-muted-foreground">
                       {incidentTimeConfidenceLabel(selectedCase)}
                     </p>
@@ -6184,53 +6164,60 @@ export default function AdminRefundsPage() {
                     </div>
                   )}
                   <div>
-                    <p className="text-xs text-muted-foreground">Requested</p>
-                    <p className="mt-1 font-medium text-foreground">{formatCurrency(selectedCase.paymentAmountCents)}</p>
+                    <dt className="text-xs text-muted-foreground">Requested</dt>
+                    <dd className="mt-1 font-medium text-foreground">{formatCurrency(selectedCase.paymentAmountCents)}</dd>
                   </div>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                <Badge className="border-border bg-muted text-foreground">
-                  Card ending {selectedCase.cardLast4 || 'n/a'}
-                </Badge>
-                <Badge className="border-border bg-muted text-foreground">
-                  Card type {cardNetworkLabel(selectedCase.cardNetwork)}
-                </Badge>
-                <Badge className="border-border bg-muted text-foreground">
-                  {paymentInteractionLabel(selectedCase)}
-                </Badge>
-                <Badge className="border-border bg-muted text-foreground">
-                  Last four from {cardLast4SourceLabel(selectedCase)}
-                </Badge>
-                {selectedCase.walletDeviceKind && (
-                  <Badge className="border-border bg-muted text-foreground">
-                    Wallet device {selectedCase.walletDeviceKind}
-                  </Badge>
-                )}
-                <Badge className="border-border bg-muted text-foreground">
-                  {incidentTimeSourceLabel(selectedCase)}
-                </Badge>
-                <Badge className="border-border bg-muted text-foreground">
-                  {nearbyAttemptCountLabel(selectedCase)}
-                </Badge>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Card ending</dt>
+                    <dd className="mt-1 font-semibold text-foreground">{selectedCase.cardLast4 || 'Not provided'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Card type</dt>
+                    <dd className="mt-1 font-semibold text-foreground">{cardNetworkLabel(selectedCase.cardNetwork)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">How customer paid</dt>
+                    <dd className="mt-1 font-semibold text-foreground">{paymentInteractionLabel(selectedCase)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Last four source</dt>
+                    <dd className="mt-1 font-semibold text-foreground">{cardLast4SourceLabel(selectedCase)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Issue</dt>
+                    <dd className="mt-1 font-medium text-foreground">{issueCategoryLabel(selectedCase)}</dd>
+                  </div>
+                  {selectedCase.productDescription && (
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Product</dt>
+                      <dd className="mt-1 font-medium text-foreground">{selectedCase.productDescription}</dd>
+                    </div>
+                  )}
+                  {selectedCase.walletDeviceKind && (
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Wallet device</dt>
+                      <dd className="mt-1 font-medium text-foreground">{selectedCase.walletDeviceKind}</dd>
+                    </div>
+                  )}
+                </dl>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                  <span>{incidentTimeSourceLabel(selectedCase)}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>{nearbyAttemptCountLabel(selectedCase)}</span>
                 </div>
                 {selectedCase.customerFactEvidence && (
-                <p
-                  data-testid="refund-customer-fact-evidence"
-                  className="mt-3 text-xs leading-5 text-muted-foreground"
-                >
-                  Customer facts from {customerFactSourceLabel(selectedCase)} ·{' '}
-                  {formatDate(selectedCase.customerFactEvidence.appliedAt)} ·{' '}
-                  {cardLast4ProvenanceLabel(selectedCase)} · fact version{' '}
-                  {selectedCase.customerFactEvidence.factVersion}
-                </p>
+                  <details className="mt-3 text-xs text-muted-foreground">
+                    <summary className="cursor-pointer font-medium text-foreground">Case evidence source</summary>
+                    <p data-testid="refund-customer-fact-evidence" className="mt-2 leading-5">
+                      Customer facts from {customerFactSourceLabel(selectedCase)} ·{' '}
+                      {formatDate(selectedCase.customerFactEvidence.appliedAt)} ·{' '}
+                      {cardLast4ProvenanceLabel(selectedCase)} · fact version{' '}
+                      {selectedCase.customerFactEvidence.factVersion}
+                    </p>
+                  </details>
                 )}
-                <p className="mt-3 text-sm font-medium text-foreground">{issueCategoryLabel(selectedCase)}</p>
-                {selectedCase.productDescription && (
-                <p className="mt-1 text-sm text-muted-foreground">Product: {selectedCase.productDescription}</p>
-                )}
-                <p className="mt-3 line-clamp-3 text-sm leading-6 text-muted-foreground">{selectedCase.issueSummary}</p>
               </div>
-            </details>
+            </article>
 
             <article id="refund-machine-transaction" tabIndex={-1} data-testid="nayax-result-card" data-refund-section="match-summary" className="flex flex-col bg-muted/20 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <div className="flex items-start justify-between gap-3">
@@ -6544,6 +6531,18 @@ export default function AdminRefundsPage() {
           </>
           )}
         </section>
+
+        {selectedCase.lifecycle && (
+          <details className="group rounded-xl border border-border bg-card">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-4 py-3 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+              <span>Refund progress</span>
+              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
+            </summary>
+            <div className="border-t border-border px-4 pb-4 pt-3">
+              <RefundLifecycleProgress lifecycle={selectedCase.lifecycle} />
+            </div>
+          </details>
+        )}
 
         {!selectedCaseIsResolvedDuplicate && (
         <section data-testid="refund-action-details" className="rounded-xl border border-border bg-card p-4">
@@ -7142,7 +7141,8 @@ export default function AdminRefundsPage() {
           <div className="grid border-t border-border lg:grid-cols-2 lg:divide-x lg:divide-border">
             <article data-testid="refund-cash-request-summary" className="p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Customer request</p>
-              <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+              <h4 className="mt-1 text-base font-semibold text-foreground">Payment and incident details</h4>
+              <div className="mt-3 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
                 <div>
                   <p className="text-xs text-muted-foreground">Location</p>
                   <p className="mt-1 font-medium text-foreground">{selectedCase.locationName}</p>
@@ -7159,8 +7159,14 @@ export default function AdminRefundsPage() {
                   <p className="text-xs text-muted-foreground">Requested</p>
                   <p className="mt-1 font-medium text-foreground">{formatCurrency(selectedCase.paymentAmountCents)}</p>
                 </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Refund method</p>
+                  <p className="mt-1 font-medium text-foreground">Cash payment · external reimbursement</p>
+                  {selectedCase.zellePaymentContact && (
+                    <p className="mt-1 break-words text-xs text-muted-foreground">Destination: {selectedCase.zellePaymentContact}</p>
+                  )}
+                </div>
               </div>
-              <p className="mt-3 line-clamp-3 text-sm leading-6 text-muted-foreground">{selectedCase.issueSummary}</p>
             </article>
 
             <article data-testid="refund-cash-match-summary" className="border-t border-border bg-muted/20 p-4 lg:border-t-0">
@@ -7378,8 +7384,28 @@ export default function AdminRefundsPage() {
                   <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
                 </span>
               </summary>
-              <div className="border-t border-border px-3 pb-3">
+              <div className="space-y-3 border-t border-border px-3 pb-3">
                 <RefundReportFreshnessAdvisory freshness={gmailHealth?.reportFreshness} />
+                <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Archived test records</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Employee, setup, provider, and synthetic records are kept outside the manager refund queue.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-11 shrink-0"
+                    aria-pressed={statusFilter === 'internal_test'}
+                    onClick={() => setStatusFilter('internal_test')}
+                  >
+                    View archive
+                    <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs text-foreground">
+                      {primaryQueueCounts.internal_test}
+                    </span>
+                  </Button>
+                </div>
               </div>
             </details>
           )}
@@ -7436,10 +7462,9 @@ export default function AdminRefundsPage() {
               ['provider_hold', 'Needs Refund Operations'],
               ['waiting_on_customer', 'Waiting'],
               ['completed', 'Done'],
-              ['internal_test', 'Internal/test archive'],
             ] as const)
               .filter(([value]) =>
-                (value !== 'provider_hold' && value !== 'internal_test') || refundOperationsAccess
+                value !== 'provider_hold' || refundOperationsAccess
               )
               .map(([value, label]) => (
               <Button
@@ -7674,9 +7699,16 @@ export default function AdminRefundsPage() {
                           {formatRefundMachineLocation(selectedCase.locationName, selectedCase.machineLabel)} ·{' '}
                           {formatCurrency(selectedCase.refundAmountCents ?? selectedCase.paymentAmountCents)}
                         </p>
-                        <p data-testid="refund-customer-problem-summary" className="mt-2 line-clamp-2 max-w-3xl text-sm leading-5 text-foreground">
-                          {selectedCase.issueSummary}
+                        <p className="mt-1 break-words text-sm text-muted-foreground">
+                          {selectedCase.customerName || 'Name not provided'} · {selectedCase.customerEmail || 'Email not provided'}
+                          {selectedCase.customerPhone ? ` · ${selectedCase.customerPhone}` : ''}
                         </p>
+                        <div data-testid="refund-customer-comments" className="mt-3 max-w-3xl border-l-2 border-primary/35 pl-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Customer comments</p>
+                          <p data-testid="refund-customer-problem-summary" className="mt-1 whitespace-pre-line break-words text-sm leading-5 text-foreground">
+                            {selectedCase.issueSummary || 'No customer comments were provided.'}
+                          </p>
+                        </div>
                       </div>
                       <Badge className={cn('w-fit shrink-0', managerTaskBadgeClass(selectedCase))}>
                         {managerTaskLabel(selectedCase)}
@@ -8799,7 +8831,7 @@ export default function AdminRefundsPage() {
                         <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-4 py-3 text-sm font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
                           <span>Case administration</span>
                           <span className="flex items-center gap-2 text-xs font-normal text-muted-foreground">
-                            <span>Language{refundOperationsAccess ? ' and internal/test tools' : ''}</span>
+                            <span>Optional settings</span>
                             <ChevronDown
                               className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180"
                               aria-hidden="true"
@@ -8808,13 +8840,20 @@ export default function AdminRefundsPage() {
                         </summary>
                         <div className="space-y-3 border-t border-border p-3 sm:p-4">
                           {refundOperationsAccess && (
-                            <section
+                            <details
                               data-testid="refund-internal-test-disposition"
-                              className="rounded-xl border border-border bg-muted/20 p-4"
+                              className="group/internal rounded-xl border border-border bg-muted/20"
                             >
-                              <div className="space-y-3">
+                              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-4 py-3 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+                                <span>Archive a non-customer test record</span>
+                                <ChevronDown
+                                  className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open/internal:rotate-180"
+                                  aria-hidden="true"
+                                />
+                              </summary>
+                              <div className="space-y-3 border-t border-border p-4">
                                 <div>
-                                  <p className="text-sm font-semibold text-foreground">Internal or test submission</p>
+                                  <p className="text-sm font-semibold text-foreground">Confirm this is not a customer refund request</p>
                                   <p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">
                                     Use only for employee, technician, setup, provider, or synthetic test records. This is not a denial and sends no customer message.
                                   </p>
@@ -8854,7 +8893,7 @@ export default function AdminRefundsPage() {
                                   </Button>
                                 </div>
                               </div>
-                            </section>
+                            </details>
                           )}
 
                           <section

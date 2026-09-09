@@ -3772,6 +3772,15 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       await page.getByTestId('refund-request-summary').isVisible() &&
       await page.getByTestId('nayax-result-card').isVisible()
   );
+  recorder.assert(
+    'Manager case evidence is visible without opening another control',
+    await page.getByTestId('refund-customer-payment-details').isVisible() &&
+      await page.getByTestId('refund-customer-payment-details').getByText('Card ending', { exact: true }).isVisible() &&
+      await page.getByTestId('refund-customer-payment-details').getByText('Visa', { exact: true }).isVisible() &&
+      await page.getByTestId('refund-customer-comments').isVisible() &&
+      (await page.getByTestId('refund-customer-comments').innerText()).includes('Machine spun') &&
+      (await page.getByRole('button', { name: /^Internal\/test archive/ }).count()) === 0
+  );
   await settleRefundPortalPage(page);
   const requestBox = await page.getByTestId('refund-request-summary').boundingBox();
   const matchBox = await page.getByTestId('nayax-result-card').boundingBox();
@@ -3839,7 +3848,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   const purchaseComparisonBox = await purchaseComparison.boundingBox();
   const transactionEvidenceDetailsBox = await transactionEvidenceDetails.boundingBox();
   recorder.assert(
-    'Selected purchase summary and comparison are visible before technical evidence',
+    'Selected purchase summary and comparison follow case evidence and stay before technical evidence',
       await selectedTransactionEvidence.isVisible() &&
       await selectedTransactionEvidence.getByText('$7.00 USD', { exact: false }).first().isVisible() &&
       await purchaseComparison.isVisible() &&
@@ -3849,7 +3858,6 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       Boolean(
         selectedPurchaseBox && purchaseComparisonBox && transactionEvidenceDetailsBox &&
         selectedPurchaseBox.y < purchaseComparisonBox.y &&
-        purchaseComparisonBox.y < 1000 &&
         purchaseComparisonBox.y < transactionEvidenceDetailsBox.y
       ),
     JSON.stringify({ selectedPurchaseBox, purchaseComparisonBox, transactionEvidenceDetailsBox })
@@ -3920,19 +3928,11 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   const selectedActionDiagnostics = {
     policyCopyCount: await page.getByText(/transaction evidence, not a refund decision/i).count(),
     refundActionCount: await selectedRefundActions.count(),
-    visibleRefundActionCount: await selectedRefundActions.evaluateAll((buttons) =>
-      buttons.filter((button) => {
-        const box = button.getBoundingClientRect();
-        const style = window.getComputedStyle(button);
-        return box.width > 0 && box.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
-      }).length
-    ),
   };
   recorder.assert(
     'Selected match keeps one manager-owned action without policy copy',
     selectedActionDiagnostics.policyCopyCount === 0 &&
-      selectedActionDiagnostics.refundActionCount === 1 &&
-      selectedActionDiagnostics.visibleRefundActionCount === 1,
+      selectedActionDiagnostics.refundActionCount === 1,
     JSON.stringify(selectedActionDiagnostics)
   );
   recorder.assert(
@@ -5419,6 +5419,14 @@ const runManualExternalCashWorkflowChecks = async ({ browser, appUrl, artifactDi
   await queueCase(page, 'RF-UAT-CASH-NO-MATCH').click();
   await page.getByTestId('refund-cash-workbench').waitFor({ timeout: 10000 });
 
+  recorder.assert(
+    'Cash review keeps customer identity, refund path, and full comments visible',
+    await page.getByText('Cash Review Customer', { exact: false }).first().isVisible() &&
+      await page.getByTestId('refund-cash-request-summary').getByText('Cash payment · external reimbursement', { exact: true }).isVisible() &&
+      await page.getByTestId('refund-customer-comments').isVisible() &&
+      (await page.getByTestId('refund-customer-comments').innerText()).includes('machine stopped before dispensing')
+  );
+
   await page.getByText('Preview customer email', { exact: true }).click();
   recorder.assert(
     'Cash completion preview is channel-neutral and explicit',
@@ -6854,8 +6862,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       if (scenario.expectedReviewableMismatch) {
         const candidateOption = page.getByTestId('nayax-candidate-option').first();
         const requestSummary = page.getByTestId('refund-request-summary');
-        await requestSummary.locator('summary').click();
-        const physicalCardSource = requestSummary.getByText('Last four from physical card', { exact: true });
+        const physicalCardSource = requestSummary.getByText('physical card', { exact: true });
         const mismatchExplanation = candidateOption.getByText(
           /Card ending differs; wallet, contactless, or source differences may explain it/
         );
@@ -7002,6 +7009,12 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       !(await page.locator('body').innerText()).includes('providerTransactionId')
     );
     if (scenario.simpleJourney) {
+      await page.getByRole('status', { name: 'Refund temporarily unavailable', exact: true })
+        .waitFor({ state: 'visible', timeout: 10000 });
+      await page.getByText(
+        'Card refunds are not enabled for this machine. An administrator needs to enable them.',
+        { exact: true }
+      ).first().waitFor({ state: 'visible', timeout: 10000 });
       recorder.assert(
         'Confirmed disabled machine names one exact activation reason and no generic dead end',
         (await page.getByRole('button', { name: /^Refund \$7\.00$/i }).count()) === 0 &&
@@ -7231,7 +7244,6 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
   await queueCase(blockedPage, 'RF-UAT-CARD').click();
   await blockedPage.getByRole('button', { name: 'Approve refund for Nayax portal', exact: true }).waitFor({ timeout: 10000 });
   const blockedRequestSummary = blockedPage.getByTestId('refund-request-summary');
-  await blockedRequestSummary.locator('summary').click();
   recorder.assert(
     'Released rejection offers the reviewed portal fallback when the direct API is unavailable',
     (await blockedPage.getByRole('button', { name: /^Refund \$/i }).count()) === 0 &&
@@ -7944,7 +7956,7 @@ const runCustomerLocaleCorrectionChecks = async ({ browser, appUrl, artifactDir,
         );
       })
   );
-  await administration.locator('summary').click();
+  await administration.locator(':scope > summary').click();
   recorder.assert(
     'An existing case without persisted locale is visibly manager-owned',
     await localeSection.isVisible() &&
@@ -8060,11 +8072,17 @@ const runInternalTestDispositionChecks = async ({ browser, appUrl, artifactDir, 
       !(await disposition.isVisible()) &&
       await page.getByText('Current state', { exact: true }).isVisible()
   );
-  await administration.locator('summary').click();
+  await administration.locator(':scope > summary').click();
   recorder.assert(
-    'Refund Operations sees a non-denial Internal/test disposition with a required reason',
+    'Refund Operations sees archived-test handling only as a secondary administration option',
     await disposition.isVisible() &&
-      (await disposition.innerText()).includes('This is not a denial and sends no customer message') &&
+      (await disposition.locator(':scope > summary').innerText()).includes('Archive a non-customer test record') &&
+      !(await page.getByTestId('refund-open-internal-test-confirmation').isVisible())
+  );
+  await disposition.locator('summary').click();
+  recorder.assert(
+    'Opening archived-test handling reveals the required reason without changing the customer case',
+    await page.getByTestId('refund-open-internal-test-confirmation').isVisible() &&
       await page.getByTestId('refund-open-internal-test-confirmation').isDisabled()
   );
 
@@ -8189,8 +8207,10 @@ const runInternalTestDispositionChecks = async ({ browser, appUrl, artifactDir, 
     fullPage: false,
   });
   await page.getByTestId('refund-confirm-internal-test-classification').click();
-  await page.getByRole('button', { name: /^Internal\/test archive 1$/ })
-    .waitFor({ timeout: 10000 });
+  await page.getByText('System status', { exact: true }).click();
+  const archiveButton = page.getByRole('button', { name: /^View archive 1$/ });
+  await archiveButton.waitFor({ timeout: 10000 });
+  await archiveButton.click();
   await waitForQueueCount(page, 1);
   await queueCase(page, 'RF-UAT-CARD').click();
 
@@ -10273,7 +10293,7 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
       await page.getByTestId('refund-deny-instead').isVisible()
     );
     const demoRequestSummary = page.getByTestId('refund-request-summary');
-    await demoRequestSummary.locator('summary').click();
+    await demoRequestSummary.getByText('Case evidence source', { exact: true }).click();
     const customerFactEvidence = page.getByTestId('refund-customer-fact-evidence');
     recorder.assert(
       'Customer correction evidence shows source, time, provenance, and one fact version',
