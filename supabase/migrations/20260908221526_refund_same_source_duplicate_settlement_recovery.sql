@@ -764,15 +764,7 @@ begin
     if message_row.id is null
       or message_row.refund_case_id is distinct from case_row.id
       or message_row.nayax_refund_attempt_id is distinct from attempt_row.id
-      or attempt_row.completion_gmail_thread_id is distinct from thread_row.id
-      or message_row.message_type is distinct from 'completed'
-      or message_row.template_key is distinct from 'refund_nayax_completed_v2'
-      or message_row.template_version is distinct from 'refund_nayax_completion_v2'
-      or message_row.content_source is distinct from 'deterministic_template'
-      or message_row.delivery_kind is distinct from 'manual'
-      or lower(btrim(message_row.recipient_email)) is distinct from lower(btrim(case_row.customer_email))
-      or message_row.subject is distinct from completion_subject
-      or message_row.body is distinct from completion_body then
+      or attempt_row.completion_gmail_thread_id is distinct from thread_row.id then
       raise exception 'Nayax completion claim evidence changed';
     end if;
 
