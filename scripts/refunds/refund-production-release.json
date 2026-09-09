@@ -179,7 +179,8 @@
     "20260908163714_refund_terminal_receipt_case_completion.sql",
     "20260908195201_refund_lookup_retry_trigger_grant_hardening.sql",
     "20260908221526_refund_same_source_duplicate_settlement_recovery.sql",
-    "20260909034000_refund_journal_recovery_lifecycle_order.sql"
+    "20260909034000_refund_journal_recovery_lifecycle_order.sql",
+    "20260909165105_refund_preflight_transaction_conflicts.sql"
   ],
   "migrationFilesSha256": "1ca2f259b6f1cd92f740c28e1f081eb1f86db59340e33dd2367aab283ded935b",
   "migrationVersionSetSha256": "cefbf7da80934e1419054184e93f7b9f8cadced19e18d72459045e7516f8013c",
