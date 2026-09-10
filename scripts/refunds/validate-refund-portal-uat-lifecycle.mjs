@@ -96,11 +96,11 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /const buildManagerClarityRefundOverview = [\s\S]*?status: 'draft'[\s\S]*?lifecycle: buildLifecycleFixture\('needs_transaction_selection', 20, 'select_transaction'\)[\s\S]*?status: 'waiting_on_customer'[\s\S]*?lifecycle: buildLifecycleFixture\('waiting_on_customer', 15, 'wait_for_customer_reply'\)/
+  /const buildManagerClarityRefundOverview = [\s\S]*?status: 'draft'[\s\S]*?lifecycle: buildLifecycleFixture\('needs_transaction_selection', 20, 'select_transaction'\)[\s\S]*?status: 'waiting_on_customer'[\s\S]*?buildLifecycleFixture\('waiting_on_customer', 15, 'wait_for_customer_reply'\)[\s\S]*?state: 'waiting_for_customer'[\s\S]*?nextAction: 'wait_for_customer'/
 );
 assert.match(
   portalSource,
-  /const buildCashRefundLifecycleFixture = [\s\S]*?bucket: readyToMarkRefunded \? 'ready_to_pay' : 'needs_action'[\s\S]*?nextAction: readyToMarkRefunded \? 'mark_external_refund' : 'request_missing_details'/
+  /const buildCashRefundLifecycleFixture = [\s\S]*?bucket: readyToMarkRefunded \? 'ready_to_pay' : 'needs_action'[\s\S]*?nextAction: readyToMarkRefunded \? 'mark_external_refund' : 'request_missing_details'[\s\S]*?state: 'manual_fallback'[\s\S]*?manualFallbackEligible: true[\s\S]*?requestedFields: \['amount'\]/
 );
 assert.match(
   portalSource,

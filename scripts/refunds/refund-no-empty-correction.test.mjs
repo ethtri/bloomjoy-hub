@@ -110,6 +110,96 @@ test('actual shared send boundary rejects empty card requests and reminders befo
   }
 });
 
+test('only an initial-request suppression settles the exact claimed cycle before returning', async () => {
+  const rpcCalls = [];
+  let contactAllowed = false;
+  const supabase = {
+    rpc: async (name, input) => {
+      rpcCalls.push([name, input]);
+      return { data: { settled: true, idempotentReplay: false }, error: null };
+    },
+  };
+  const send = new Function(
+    'supabase',
+    'automaticCustomerContactAllowed',
+    'messageTypeForFollowUp',
+    'refundCorrectionLinksEnabled',
+    'getCurrentRefundCorrectionFields',
+    `${functionSource('settleFollowUpPreMessageSuppression', 'sendCustomerStatusUpdate')}
+    return sendDeterministicFollowUpMessage;`,
+  )(
+    supabase,
+    async () => contactAllowed,
+    () => 'no_safe_match',
+    async () => true,
+    async () => [],
+  );
+  const refundCase = { id: 'case-fixture', payment_method: 'card' };
+  const cycle = { id: 'cycle-fixture', reasonCode: 'no_safe_match' };
+
+  assert.deepEqual(await send(refundCase, cycle, 'request', []), {
+    status: 'suppressed', messageId: null,
+  });
+  contactAllowed = true;
+  assert.deepEqual(await send(refundCase, cycle, 'request', ['incident_date']), {
+    status: 'suppressed', messageId: null,
+  });
+  contactAllowed = false;
+  assert.deepEqual(await send(refundCase, cycle, 'reminder', []), {
+    status: 'suppressed', messageId: null,
+  });
+  assert.deepEqual(await send(refundCase, cycle, 'information_received', []), {
+    status: 'suppressed', messageId: null,
+  });
+  contactAllowed = true;
+  assert.deepEqual(await send(refundCase, cycle, 'reminder', ['incident_date']), {
+    status: 'suppressed', messageId: null,
+  });
+  assert.deepEqual(rpcCalls, [
+    [
+      'service_settle_refund_follow_up_pre_message_suppression',
+      {
+        p_refund_case_id: 'case-fixture',
+        p_cycle_id: 'cycle-fixture',
+        p_reason: 'automatic_customer_contact_disabled',
+      },
+    ],
+    [
+      'service_settle_refund_follow_up_pre_message_suppression',
+      {
+        p_refund_case_id: 'case-fixture',
+        p_cycle_id: 'cycle-fixture',
+        p_reason: 'no_customer_correctable_fact',
+      },
+    ],
+  ]);
+});
+
+test('a transient contact-policy read failure is not recorded as durable policy suppression', async () => {
+  const rpcCalls = [];
+  const send = new Function(
+    'supabase',
+    'automaticCustomerContactAllowed',
+    'messageTypeForFollowUp',
+    'refundCorrectionLinksEnabled',
+    'getCurrentRefundCorrectionFields',
+    `${functionSource('settleFollowUpPreMessageSuppression', 'sendCustomerStatusUpdate')}
+    return sendDeterministicFollowUpMessage;`,
+  )(
+    { rpc: async (...args) => { rpcCalls.push(args); return { data: null, error: null }; } },
+    async () => { throw new Error('automatic_customer_contact_gate_unavailable'); },
+    () => 'more_info',
+    async () => false,
+    async () => [],
+  );
+
+  await assert.rejects(
+    send({ id: 'case-fixture' }, { id: 'cycle-fixture' }, 'request', []),
+    /automatic_customer_contact_gate_unavailable/,
+  );
+  assert.deepEqual(rpcCalls, []);
+});
+
 test('persisted correction evidence is restricted to current unexpired lookup generation', async () => {
   const calls = [];
   const chain = { then: (resolve) => resolve({ data: [], error: null }) };

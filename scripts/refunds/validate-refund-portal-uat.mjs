@@ -411,6 +411,21 @@ const buildCashRefundLifecycleFixture = (readyToMarkRefunded = true) => {
       label: readyToMarkRefunded ? 'Ready to refund' : 'Action needed',
       nextAction: readyToMarkRefunded ? 'mark_external_refund' : 'request_missing_details',
     },
+    customerOutreach: readyToMarkRefunded
+      ? buildCustomerOutreachFixture({
+          state: 'none',
+          owner: 'None',
+          nextAction: 'none',
+          requestedFields: [],
+        })
+      : buildCustomerOutreachFixture({
+          state: 'manual_fallback',
+          owner: 'Machine Manager',
+          nextAction: 'request_details',
+          manualFallbackEligible: true,
+          reasonCode: 'discretionary_customer_follow_up',
+          requestedFields: ['amount'],
+        }),
   };
 };
 
@@ -1525,7 +1540,15 @@ const buildManagerClarityRefundOverview = () => {
     publicReference: 'RF-UAT-WAITING-AMBIGUOUS',
     status: 'waiting_on_customer',
     customerEmail: 'customer-waiting-ambiguous@example.test',
-    lifecycle: buildLifecycleFixture('waiting_on_customer', 15, 'wait_for_customer_reply'),
+    lifecycle: {
+      ...buildLifecycleFixture('waiting_on_customer', 15, 'wait_for_customer_reply'),
+      customerOutreach: buildCustomerOutreachFixture({
+        state: 'waiting_for_customer',
+        owner: 'Customer',
+        nextAction: 'wait_for_customer',
+        requestedFields: ['card_last4'],
+      }),
+    },
     messages: [{
       id: 'msg-waiting-ambiguous',
       messageType: 'more_info',
@@ -5548,10 +5571,10 @@ const runManualExternalCashWorkflowChecks = async ({ browser, appUrl, artifactDi
   await queueCase(variantsPage, 'RF-UAT-CASH-MISSING-AMOUNT').click();
   recorder.assert(
     'Missing-amount cash case offers one actionable customer-detail path',
-    await variantsPage.getByTestId('refund-cash-primary-action').getByText('Ask for missing details').isVisible() &&
+    await variantsPage.getByTestId('refund-cash-primary-action').getByText('Request details').isVisible() &&
       (await variantsPage.getByText(/Mark \$.* as refunded/).count()) === 0 &&
       (await variantsPage.getByTestId('refund-manager-next-step').innerText()).includes(
-        'Ask only for the purchase details that are missing.'
+        'Select Request details once'
       ) &&
       !(await variantsPage.locator('body').innerText()).includes(
         'Colorado Mills - Colorado Mills — Cotton Candy'
@@ -5563,7 +5586,7 @@ const runManualExternalCashWorkflowChecks = async ({ browser, appUrl, artifactDi
     'Missing-detail action and matching next step remain practical at 390px',
     await variantsPage.getByTestId('refund-cash-primary-action').isVisible() &&
       (await variantsPage.getByTestId('refund-manager-next-step').innerText()).includes(
-        'Ask only for the purchase details that are missing.'
+        'Select Request details once'
       ) &&
       Boolean(missingDetailsActionBox && missingDetailsActionBox.height >= 44) &&
       await variantsPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
@@ -6100,7 +6123,7 @@ const runManagerClarityChecks = async ({ browser, appUrl, artifactDir, recorder 
   const waitingStatus = clarityPage.getByTestId('refund-action-status');
   recorder.assert(
     'Waiting card case keeps one wait instruction and exposes no second customer request',
-    await waitingStatus.getByText('Waiting for customer reply', { exact: true }).isVisible() &&
+    await waitingStatus.getByText('Waiting for customer', { exact: true }).isVisible() &&
       (await clarityPage.getByRole('button', { name: /Ask for missing/ }).count()) === 0 &&
       (await clarityPage.getByTestId('refund-save-case').count()) === 0 &&
       /wait/i.test(await clarityPage.getByTestId('refund-manager-next-step').innerText())
