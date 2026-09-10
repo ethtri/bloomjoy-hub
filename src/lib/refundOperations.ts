@@ -174,6 +174,7 @@ export type RefundAttachmentInput = {
 };
 
 export type SubmitRefundRequestInput = {
+  submissionId?: string;
   selectionKey?: string;
   machineId?: string;
   qrClaimToken?: string;

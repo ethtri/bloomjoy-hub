@@ -31,6 +31,7 @@ import {
 } from "../_shared/refund-location.ts";
 import {
   buildPublicIntakeDedupeKey,
+  buildPublicIntakeSubmissionDedupeKey,
   buildPublicIntakeKeyHashes,
   checkPublicIntakeRateLimits,
   getPublicIntakeClientIp,
@@ -1297,6 +1298,7 @@ serve(async (req) => {
     let intakeSelectionLocationTimezone = "";
     const qrClaimToken = sanitizeText(body?.qrClaimToken, 80);
     const emailContextToken = sanitizeText(body?.emailContextToken, 80);
+    const submissionId = sanitizeText(body?.submissionId, 80).toLowerCase();
     const customerEmail = sanitizeEmail(body?.customerEmail);
     const customerName = sanitizeText(body?.customerName, 160);
     const customerPhone = sanitizeText(body?.customerPhone, 80);
@@ -1397,6 +1399,12 @@ serve(async (req) => {
     if (emailContextToken && !isRefundEmailContextToken(emailContextToken)) {
       throw new RequestValidationError(
         "This email refund link is not valid. Open the latest link from your Bloomjoy email or submit the form without it.",
+      );
+    }
+
+    if (body?.submissionId !== undefined && !isUuid(submissionId)) {
+      throw new RequestValidationError(
+        "This refund submission could not be safely identified. Reload the page and try again.",
       );
     }
 
@@ -1759,28 +1767,34 @@ serve(async (req) => {
       new Date(),
       PUBLIC_INTAKE_DEDUPE_WINDOW_SECONDS,
     );
-    const serverDedupeKey = await buildPublicIntakeDedupeKey({
-      salt: abuseControlSalt,
-      submissionType: "refund_case",
-      email: customerEmail,
-      sourcePage,
-      message: [
-        intakeSelectionKey ?? machineRecord.id,
-        incidentAt.toISOString(),
-        paymentMethod,
-        amountCents ?? "amount-not-provided",
-        paymentMethod === "card" ? cardLast4 : "no-card-last4",
-        paymentInteraction,
-        cardLast4Source ?? "source-not-provided",
-        walletDeviceKind ?? "device-not-provided",
-        incidentTimeConfidence,
-        incidentTimeSource ?? "time-source-not-provided",
-        issueCategory,
-        productDescription,
-        issueSummary,
-      ].join("|"),
-      windowStartedAt: serverDedupeWindowStartedAt,
-    });
+    const serverDedupeKey = submissionId
+      ? await buildPublicIntakeSubmissionDedupeKey({
+          salt: abuseControlSalt,
+          submissionType: "refund_case",
+          submissionId,
+        })
+      : await buildPublicIntakeDedupeKey({
+          salt: abuseControlSalt,
+          submissionType: "refund_case",
+          email: customerEmail,
+          sourcePage,
+          message: [
+            intakeSelectionKey ?? machineRecord.id,
+            incidentAt.toISOString(),
+            paymentMethod,
+            amountCents ?? "amount-not-provided",
+            paymentMethod === "card" ? cardLast4 : "no-card-last4",
+            paymentInteraction,
+            cardLast4Source ?? "source-not-provided",
+            walletDeviceKind ?? "device-not-provided",
+            incidentTimeConfidence,
+            incidentTimeSource ?? "time-source-not-provided",
+            issueCategory,
+            productDescription,
+            issueSummary,
+          ].join("|"),
+          windowStartedAt: serverDedupeWindowStartedAt,
+        });
     const selectedRefundCaseColumns =
       "id, public_reference, status, correlation_status";
     const intakeMeta = {

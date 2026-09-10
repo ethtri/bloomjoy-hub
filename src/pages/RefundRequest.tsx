@@ -11,6 +11,11 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
 import { isEdgeFunctionError } from '@/lib/edgeFunctions';
 import {
+  getRefundSubmissionAttempt,
+  storeRefundSubmissionReceipt,
+  type RefundSubmissionAttempt,
+} from '@/lib/refundSubmissionRecovery';
+import {
   fetchRefundMachineOptions,
   buildLocalRefundMachineOptions,
   buildLocalRefundPublicSelections,
@@ -118,8 +123,12 @@ export default function RefundRequestPage() {
   const [searchParams] = useSearchParams();
   const [form, setForm] = useState(emptyForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionError, setSubmissionError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<RefundRequiredField, string>>>({});
   const formRef = useRef<HTMLFormElement>(null);
+  const submissionErrorRef = useRef<HTMLDivElement>(null);
+  const submissionAttemptRef = useRef<RefundSubmissionAttempt | null>(null);
+  const submissionLockRef = useRef(false);
   const [qrSubmissionError, setQrSubmissionError] = useState(false);
   const isDemoMode = isLocalUatDemoForced();
   const qrCode = (searchParams.get('qr') ?? '').trim();
@@ -244,6 +253,7 @@ export default function RefundRequestPage() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (submissionLockRef.current) return;
 
     // Native date/time controls can be populated by browser autofill without
     // dispatching the event React uses to update controlled state. Read the
@@ -306,7 +316,9 @@ export default function RefundRequestPage() {
     }
     if (!hasValidIncidentLocalTime(incidentDate, incidentTime)) return;
 
+    submissionLockRef.current = true;
     setIsSubmitting(true);
+    setSubmissionError('');
     setQrSubmissionError(false);
     try {
       if (isDemoMode) {
@@ -316,7 +328,7 @@ export default function RefundRequestPage() {
         return;
       }
 
-      const refundCase = await submitRefundRequest({
+      const requestInput = {
         selectionKey:
           qrClaim ||
           selectedMachine?.selectionKind === 'legacy_exact_machine' ||
@@ -363,9 +375,27 @@ export default function RefundRequestPage() {
         incidentTimeConfidence: form.incidentTimeConfidence || 'rough',
         incidentTimeSource: form.incidentTimeSource || undefined,
         issueCategory: form.issueCategory || 'other',
+      };
+      const submissionAttempt = getRefundSubmissionAttempt(
+        submissionAttemptRef.current,
+        requestInput,
+      );
+      submissionAttemptRef.current = submissionAttempt;
+      const refundCase = await submitRefundRequest({
+        ...requestInput,
+        submissionId: submissionAttempt.submissionId,
       });
 
       setForm(emptyForm);
+      submissionAttemptRef.current = null;
+      if (typeof window !== 'undefined') {
+        storeRefundSubmissionReceipt(window.sessionStorage, {
+          publicReference: refundCase.publicReference,
+          statusToken: refundCase.statusToken,
+          statusExpiresAt: refundCase.statusExpiresAt,
+          paymentMethod: form.paymentMethod,
+        });
+      }
       navigate('/refunds/thank-you', {
         state: {
           reference: refundCase.publicReference,
@@ -385,8 +415,12 @@ export default function RefundRequestPage() {
         setQrSubmissionError(true);
       }
       const message = error instanceof Error ? error.message : 'Unable to submit refund request.';
-      toast.error(message);
+      setSubmissionError(
+        `${message} Your answers are still here. Try again to safely continue this same submission.`,
+      );
+      requestAnimationFrame(() => submissionErrorRef.current?.focus());
     } finally {
+      submissionLockRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -1035,6 +1069,18 @@ export default function RefundRequestPage() {
                     </div>
                   </div>
                 </details>
+
+                  {submissionError && (
+                    <div
+                      ref={submissionErrorRef}
+                      tabIndex={-1}
+                      role="alert"
+                      className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm leading-6 text-foreground"
+                    >
+                      <p className="font-semibold">We could not confirm your request.</p>
+                      <p className="mt-1">{submissionError}</p>
+                    </div>
+                  )}
 
                   <div className="flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-start gap-2 text-sm text-muted-foreground">

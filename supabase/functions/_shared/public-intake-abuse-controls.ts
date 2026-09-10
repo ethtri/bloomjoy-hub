@@ -273,6 +273,24 @@ export const buildPublicIntakeDedupeKey = async ({
     ].join("|"),
   });
 
+export const buildPublicIntakeSubmissionDedupeKey = async ({
+  salt,
+  submissionType,
+  submissionId,
+}: {
+  salt: string;
+  submissionType: string;
+  submissionId: string;
+}): Promise<string> =>
+  await hashPublicIntakeValue({
+    salt,
+    purpose: "public-intake:submission-dedupe",
+    value: [
+      submissionType.trim().toLowerCase(),
+      submissionId.trim().toLowerCase(),
+    ].join("|"),
+  });
+
 const recordPublicIntakeRateLimitEvent = async (
   supabase: PublicIntakeAbuseSupabaseClient,
   rule: PublicIntakeLimitRule,
