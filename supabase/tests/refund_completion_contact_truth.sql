@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(23);
+select plan(30);
 
 insert into public.customer_accounts(id,name,account_type)
 values('c6200000-0000-4000-8000-000000000001','Completion contact truth','internal');
@@ -126,6 +126,20 @@ select ok(not has_function_privilege('authenticated','public.refund_completion_c
 select ok(has_function_privilege('service_role','public.refund_completion_contact_contract(uuid)','execute'), 'Service lifecycle may consume the projector');
 select is((public.refund_apply_completion_contact_to_lifecycle('{"paymentState":"confirmed"}'::jsonb,
   '{"state":"sent","messageType":"completed","lastUpdatedAt":"2026-09-10T00:00:00Z","payloadRedacted":true}'::jsonb)->>'stage'),'customer_notified','Sent advances only presentation');
+select is(public.refund_apply_completion_contact_to_lifecycle(null,
+  '{"state":"sent"}'::jsonb),null::jsonb,'SQL NULL lifecycle cannot fabricate contact truth');
+select is(public.refund_apply_completion_contact_to_lifecycle('null'::jsonb,
+  '{"state":"sent"}'::jsonb),'null'::jsonb,'JSON null lifecycle cannot fabricate contact truth');
+select is(public.refund_apply_completion_contact_to_lifecycle('{}'::jsonb,
+  '{"state":"sent"}'::jsonb),'{}'::jsonb,'Empty lifecycle cannot fabricate contact truth');
+select is(public.refund_apply_completion_contact_to_lifecycle('{"stage":"refund_confirmed"}'::jsonb,
+  '{"state":"sent"}'::jsonb),'{"stage":"refund_confirmed"}'::jsonb,'Lifecycle missing payment state remains unchanged');
+select is(public.refund_apply_completion_contact_to_lifecycle('{"paymentState":null}'::jsonb,
+  '{"state":"sent"}'::jsonb),'{"paymentState":null}'::jsonb,'Lifecycle with null payment state remains unchanged');
+select is(public.refund_apply_completion_contact_to_lifecycle('"malformed"'::jsonb,
+  '{"state":"sent"}'::jsonb),'"malformed"'::jsonb,'Scalar lifecycle cannot be converted into a projection');
+select is(public.refund_apply_completion_contact_to_lifecycle('[{"paymentState":"confirmed"}]'::jsonb,
+  '{"state":"sent"}'::jsonb),'[{"paymentState":"confirmed"}]'::jsonb,'Array lifecycle cannot be concatenated into a projection');
 select is((public.refund_apply_completion_contact_to_lifecycle('{"paymentState":"confirmed"}'::jsonb,
   '{"state":"delivery_unconfirmed","messageType":"completed","lastUpdatedAt":"2026-09-10T00:00:00Z","payloadRedacted":true}'::jsonb)#>>'{managerAction,action}'),'review_delivery_no_resend','Unknown outcome forbids blind resend');
 select is((public.refund_apply_completion_contact_to_lifecycle('{"paymentState":"confirmed"}'::jsonb,

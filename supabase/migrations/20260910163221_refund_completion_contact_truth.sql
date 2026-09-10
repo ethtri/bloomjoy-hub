@@ -119,11 +119,13 @@ immutable
 set search_path = ''
 as $$
 declare
-  result jsonb := coalesce(p_lifecycle, '{}'::jsonb)
-    || jsonb_build_object('messageState', p_contact);
+  result jsonb;
   contact_state text := p_contact ->> 'state';
 begin
-  if p_lifecycle ->> 'paymentState' <> 'confirmed' then return p_lifecycle; end if;
+  if jsonb_typeof(p_lifecycle) is distinct from 'object' then return p_lifecycle; end if;
+  if p_lifecycle ->> 'paymentState' is distinct from 'confirmed' then return p_lifecycle; end if;
+
+  result := p_lifecycle || jsonb_build_object('messageState', p_contact);
 
   -- Unknown-date accounting remains a separate Refund Operations queue. Only
   -- its contact truth and polling terminality change here.
