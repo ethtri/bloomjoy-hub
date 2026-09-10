@@ -2556,6 +2556,7 @@ export default function AdminRefundsPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<QueueFilter>('needs_action');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedIdRef = useRef<string | null>(null);
   const [selectionRevision, setSelectionRevision] = useState(0);
   const [isMobileQueueExpanded, setIsMobileQueueExpanded] = useState(true);
   const [editor, setEditor] = useState<EditorState | null>(null);
@@ -2838,7 +2839,9 @@ export default function AdminRefundsPage() {
 
     const selectedCaseStillExists = [...overview.cases, ...internalTestCases].some((refundCase) => refundCase.id === selectedId);
     if (selectedCaseStillExists) return;
+    if (selectedIdRef.current !== selectedId) return;
 
+    selectedIdRef.current = null;
     setSelectedId(null);
     setEditor(null);
     setOfficialActionVersion(0);
@@ -2869,6 +2872,8 @@ export default function AdminRefundsPage() {
       return;
     }
 
+    if (selectedIdRef.current !== selectedId) return;
+    selectedIdRef.current = null;
     setSelectedId(null);
     setEditor(null);
     setOfficialActionVersion(0);
@@ -3460,6 +3465,7 @@ export default function AdminRefundsPage() {
   function selectCase(refundCase: RefundCaseRecord) {
     pendingCaseSelectionTriggerRef.current = null;
     lookupRequestSequenceRef.current += 1;
+    selectedIdRef.current = refundCase.id;
     setSelectedId(refundCase.id);
     setSelectionRevision((current) => current + 1);
     setIsMobileQueueExpanded(false);
