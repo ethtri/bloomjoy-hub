@@ -1909,15 +1909,21 @@ select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003
 create temporary table automatic_sales_published_report as
 select public.get_current_technician_pay_report_context('2026-07-01') as payload;
 
+with technician as (
+  select technician.item
+  from automatic_sales_published_report report
+  cross join lateral jsonb_array_elements(report.payload -> 'technicians') technician(item)
+  where technician.item ->> 'operatorProfileId' = 'a6000000-0000-0000-0000-000000000002'
+)
 select is(
   concat(
-    payload #>> '{technicians,1,machines,0,snapshotMatchesFacts}', ':',
-    payload #>> '{technicians,1,payStubRegenerationRequired}'
+    technician.item #>> '{machines,0,snapshotMatchesFacts}', ':',
+    technician.item ->> 'payStubRegenerationRequired'
   ),
   'true:true',
   'post-publication sales reconcile while retaining the explicit Pay Stub regeneration safeguard'
 )
-from automatic_sales_published_report;
+from technician;
 
 select is(
   (select statement.statement_payload = baseline.statement_payload
