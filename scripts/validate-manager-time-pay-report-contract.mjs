@@ -61,7 +61,7 @@ const files = {
     repoRoot,
     'supabase',
     'migrations',
-    '20260910184347_automatic_technician_pay_sales_reconciliation.sql'
+    '20260910204434_automatic_technician_pay_sales_reconciliation.sql'
   ),
   pgTap: path.join(repoRoot, 'supabase', 'tests', 'manager_time_pay_report_contract.sql'),
   concurrencyPgTap: path.join(
