@@ -12,8 +12,23 @@ function load(name,dependencies){
  const context=vm.createContext({document:{activeElement:null,getElementById:()=>null},HTMLElement:class {},correctionDialogTriggerRef:{current:null},...dependencies,console,crypto:webcrypto});vm.runInContext(code,context);return context.handler;
 }
 const managerModule = { exports: {} };
-vm.runInNewContext(ts.transpileModule(fs.readFileSync(new URL('../../src/lib/refundManagerState.ts',import.meta.url),'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,managerModule);
-const dependencies={...managerModule.exports,hasConfirmedRefundReceipt:c=>c.receipt===true,getLatestCustomerMessage:()=>null,isDefinitiveNoRefundRetryReady:()=>false,transactionalDeliveryLabel:state=>state,hasTransactionMatch:c=>Boolean(c.matched),derivePortalRefundMissingFields:()=>[],isWaitingCase:()=>true,activeNayaxCandidate:()=>null,hasSelectedCardEvidence:()=>true,formatCurrency:amount=>`$${(amount/100).toFixed(2)}`};
+const outreachModule = { exports: {} };
+vm.runInNewContext(
+ ts.transpileModule(fs.readFileSync(new URL('../../src/lib/refundCustomerOutreach.ts',import.meta.url),'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
+ outreachModule,
+);
+const {
+ canRequestRefundCustomerDetailsManually,
+ getRefundCustomerOutreachPresentation,
+} = outreachModule.exports;
+vm.runInNewContext(
+ ts.transpileModule(fs.readFileSync(new URL('../../src/lib/refundManagerState.ts',import.meta.url),'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
+ {...managerModule,require:specifier=>{
+  if(specifier==='./refundCustomerOutreach.ts') return {getRefundCustomerOutreachPresentation};
+  throw new Error(`Unexpected refund manager dependency: ${specifier}`);
+ }},
+);
+const dependencies={...managerModule.exports,canRequestRefundCustomerDetailsManually,hasConfirmedRefundReceipt:c=>c.receipt===true,getLatestCustomerMessage:()=>null,isDefinitiveNoRefundRetryReady:()=>false,transactionalDeliveryLabel:state=>state,hasTransactionMatch:c=>Boolean(c.matched),derivePortalRefundMissingFields:()=>[],isWaitingCase:()=>true,activeNayaxCandidate:()=>null,hasSelectedCardEvidence:()=>true,formatCurrency:amount=>`$${(amount/100).toFixed(2)}`};
 test('actual workbench maps accounting review into the protected Refund Operations view',()=>{
  const refundCase={lifecycle:{managerQueue:{bucket:'accounting_review'}}};
  const bucket=caseValue=>caseValue.lifecycle.managerQueue.bucket;
@@ -71,7 +86,7 @@ test('selected candidate exposes one ordinary refund decision and direct API tak
   'manual_nayax_approval',
  );
 });
-test('proved separated competing purchases expose one structured same-case correction action',()=>{
+test('separated competing purchases cannot bypass server-owned outreach authority',()=>{
  const action=load('primaryActionConfig',{
   ...dependencies,
   derivePortalRefundMissingFields:refundCase=>refundCase.customerCorrectionFields??[],
@@ -87,10 +102,10 @@ test('proved separated competing purchases expose one structured same-case corre
   {candidateToken:'candidate-2',selectionAllowed:false},
  ];
  const result=action(refundCase,editor,candidates,null);
- assert.equal(result.label,'Ask for missing details');
- assert.equal(result.helper,'Send one same-case correction request for the detail that can distinguish these transactions.');
- assert.equal(result.messageType,'more_info');
-  assert.equal(result.mode,'retry_message');
+ assert.equal(result.label,'Customer follow-up unavailable');
+ assert.equal(result.disabled,true);
+ assert.equal(result.messageType,undefined);
+ assert.equal(result.mode,undefined);
 });
 test('unknown provider-time collision stays manager-owned after the customer cannot distinguish it',()=>{
  const action=load('primaryActionConfig',{

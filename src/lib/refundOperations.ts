@@ -890,6 +890,7 @@ export type RefundOperationsOverview = {
   managerAssignments: RefundManagerAssignment[];
   lifecycleContractVersion?: typeof REFUND_LIFECYCLE_SCHEMA_VERSION;
   managerQueueContractVersion?: 'refund_manager_queue_v2';
+  customerOutreachContractVersion?: 'refund_customer_outreach_v1';
   acknowledgementRecoveryContractVersion?: 'refund_acknowledgement_recovery_v1';
   customerLocaleContractVersion?: 'refund_customer_locale_v1';
   internalTestContractVersion?: 'refund_internal_test_v1';
@@ -1805,6 +1806,29 @@ const demoLifecycle = (
     lastUpdatedAt: stage === 'customer_notified' ? demoIsoHoursAgo(0.05) : null,
     payloadRedacted: true,
   },
+  customerOutreach: {
+    schemaVersion: 'refund_customer_outreach_v1',
+    state: stage === 'waiting_on_customer' ? 'waiting_for_customer' : 'none',
+    owner: stage === 'waiting_on_customer' ? 'Customer' : 'None',
+    nextAction: stage === 'waiting_on_customer' ? 'wait_for_customer' : 'none',
+    manualFallbackEligible: false,
+    requestedFields: stage === 'waiting_on_customer' ? ['incident_date', 'incident_time'] : [],
+    requestMessageId: stage === 'waiting_on_customer' ? '00000000-0000-4000-8000-000000000090' : null,
+    cycleId: stage === 'waiting_on_customer' ? '00000000-0000-4000-8000-000000000091' : null,
+    cycleNumber: stage === 'waiting_on_customer' ? 1 : null,
+    caseFactVersion: 1,
+    clarificationAttemptCount: stage === 'waiting_on_customer' ? 1 : 0,
+    clarificationLimit: 2,
+    requestCreatedAt: stage === 'waiting_on_customer' ? demoIsoHoursAgo(1) : null,
+    requestSentAt: stage === 'waiting_on_customer' ? demoIsoHoursAgo(0.9) : null,
+    deliveryState: stage === 'waiting_on_customer' ? 'delivered' : null,
+    deliveryStateUpdatedAt: stage === 'waiting_on_customer' ? demoIsoHoursAgo(0.8) : null,
+    replyReceivedAt: null,
+    recheckStartedAt: null,
+    reasonCode: null,
+    failureCode: null,
+    payloadRedacted: true,
+  },
   classification: 'customer',
   evidenceState: 'synthetic_demo',
   locationEvidence: {
@@ -1995,6 +2019,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
   return {
     lifecycleContractVersion: REFUND_LIFECYCLE_SCHEMA_VERSION,
     managerQueueContractVersion: 'refund_manager_queue_v2',
+    customerOutreachContractVersion: 'refund_customer_outreach_v1',
     selectedNayaxTransactionContractVersion: 'refund_selected_nayax_transaction_v1',
     ...(showInboundLinkReview
       ? { inboundLinkReviewContractVersion: 'refund_gmail_case_link_review_v1' as const }
@@ -2514,6 +2539,12 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
     throw new Error('Unsupported refund manager queue response.');
   }
   if (
+    overview.customerOutreachContractVersion !== undefined &&
+    overview.customerOutreachContractVersion !== 'refund_customer_outreach_v1'
+  ) {
+    throw new Error('Unsupported refund customer outreach response.');
+  }
+  if (
     overview.internalTestContractVersion !== undefined &&
     overview.internalTestContractVersion !== 'refund_internal_test_v1'
   ) {
@@ -2552,6 +2583,12 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
           : null,
       }))
     : [];
+  if (
+    overview.customerOutreachContractVersion === 'refund_customer_outreach_v1' &&
+    internalTestCases.some((refundCase) => refundCase.lifecycle && !refundCase.lifecycle.customerOutreach)
+  ) {
+    throw new Error('Unsupported refund customer outreach response.');
+  }
   const internalTestCaseIds = new Set(internalTestCases.map((refundCase) => refundCase.id));
   const gmailDrafts = Array.isArray(gmailDraftResult.data)
     ? (gmailDraftResult.data as RefundCaseRecord[])
@@ -2624,6 +2661,12 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
       } : {}),
     };
   });
+  if (
+    overview.customerOutreachContractVersion === 'refund_customer_outreach_v1' &&
+    cases.some((refundCase) => refundCase.lifecycle && !refundCase.lifecycle.customerOutreach)
+  ) {
+    throw new Error('Unsupported refund customer outreach response.');
+  }
 
   return {
     ...overview,

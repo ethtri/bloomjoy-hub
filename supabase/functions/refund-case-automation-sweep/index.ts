@@ -104,7 +104,9 @@ const supabase = supabaseUrl && supabaseServiceRoleKey
     })
   : null;
 
-const automaticCustomerContactAllowed = async () => {
+const automaticCustomerContactAllowed = async (
+  options: { throwOnReadError?: boolean } = {},
+) => {
   if (!automaticCustomerContactEnabled || !supabase) return false;
   const { data, error } = await supabase
     .from("refund_customer_contact_settings")
@@ -115,6 +117,9 @@ const automaticCustomerContactAllowed = async () => {
     console.error("refund automatic customer-contact gate unavailable", {
       errorType: typeof error.code === "string" ? error.code : "database_error",
     });
+    if (options.throwOnReadError) {
+      throw new Error("automatic_customer_contact_gate_unavailable");
+    }
     return false;
   }
   return data?.automatic_customer_contact_enabled === true;
@@ -823,13 +828,48 @@ const logDeterministicFollowUpMessage = async (
   return data?.id ?? null;
 };
 
+type RefundPreMessageSuppressionReason =
+  | "automatic_customer_contact_disabled"
+  | "automatic_customer_contact_paused"
+  | "no_customer_correctable_fact";
+
+const settleFollowUpPreMessageSuppression = async (
+  refundCaseId: string,
+  cycleId: string,
+  reason: RefundPreMessageSuppressionReason,
+) => {
+  if (!supabase) throw new Error("Refund automation is not configured.");
+  const { data, error } = await supabase.rpc(
+    "service_settle_refund_follow_up_pre_message_suppression",
+    {
+      p_refund_case_id: refundCaseId,
+      p_cycle_id: cycleId,
+      p_reason: reason,
+    },
+  );
+  if (error) throw error;
+  const result = data && typeof data === "object"
+    ? data as Record<string, unknown>
+    : {};
+  if (result.settled !== true && result.idempotentReplay !== true) {
+    throw new Error("Refund follow-up suppression was not durably settled.");
+  }
+};
+
 const sendDeterministicFollowUpMessage = async (
   refundCase: RefundSweepCase,
   cycle: RefundFollowUpCycleContext,
   messageClass: RefundFollowUpMessageClass,
   customerCorrectionFields: RefundMissingField[] = [],
 ) => {
-  if (!(await automaticCustomerContactAllowed())) {
+  if (!(await automaticCustomerContactAllowed({ throwOnReadError: true }))) {
+    if (messageClass === "request") {
+      await settleFollowUpPreMessageSuppression(
+        refundCase.id,
+        cycle.id,
+        "automatic_customer_contact_disabled",
+      );
+    }
     return { status: "suppressed" as const, messageId: null };
   }
   const messageType = messageTypeForFollowUp(cycle, messageClass);
@@ -838,7 +878,16 @@ const sendDeterministicFollowUpMessage = async (
     // Bundle every currently supported gap once; historical cycle fields can
     // be narrower than the present case. The message persists this exact list.
     customerCorrectionFields = await getCurrentRefundCorrectionFields(supabase!, refundCase.id);
-    if (customerCorrectionFields.length === 0) return { status: "suppressed" as const, messageId: null };
+    if (customerCorrectionFields.length === 0) {
+      if (messageClass === "request") {
+        await settleFollowUpPreMessageSuppression(
+          refundCase.id,
+          cycle.id,
+          "no_customer_correctable_fact",
+        );
+      }
+      return { status: "suppressed" as const, messageId: null };
+    }
   }
   if (
     refundCase.payment_method === "card" &&

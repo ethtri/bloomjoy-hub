@@ -1,4 +1,5 @@
 import type { RefundLifecycleContract } from './refundLifecycle.ts';
+import { getRefundCustomerOutreachPresentation } from './refundCustomerOutreach.ts';
 
 export type RefundManagerStateId =
   | 'needs_information'
@@ -291,7 +292,11 @@ export const refundReadinessBlockMessage = (blockReason: string | null | undefin
 
 export const getRefundManagerState = (
   refundCase: RefundManagerCaseFacts,
-  options: { isRefunding?: boolean; canResolveHeldResult?: boolean } = {}
+  options: {
+    isRefunding?: boolean;
+    canResolveHeldResult?: boolean;
+    canViewOperationsDetail?: boolean;
+  } = {}
 ): RefundManagerState => {
   if (options.isRefunding) {
     return state(
@@ -313,6 +318,28 @@ export const getRefundManagerState = (
         : 'This request is linked to a completed refund case.',
       'No transaction search, customer clarification, message, or payment action is needed.',
       'success'
+    );
+  }
+
+  const customerOutreach = refundCase.lifecycle?.customerOutreach;
+  if (customerOutreach && customerOutreach.state !== 'none') {
+    const presentation = getRefundCustomerOutreachPresentation(customerOutreach, {
+      canViewOperationsDetail: options.canViewOperationsDetail,
+    });
+    return state(
+      customerOutreach.state === 'waiting_for_customer'
+        ? 'waiting_on_customer'
+        : customerOutreach.state === 'customer_replied' || customerOutreach.state === 'rechecking'
+        ? 'checking_nayax'
+        : customerOutreach.owner === 'Refund Operations'
+        ? 'needs_refund_operations'
+        : 'needs_information',
+      presentation.label,
+      presentation.explanation,
+      presentation.operationsDetail
+        ? `${presentation.nextStep} ${presentation.operationsDetail}.`
+        : presentation.nextStep,
+      presentation.tone,
     );
   }
 

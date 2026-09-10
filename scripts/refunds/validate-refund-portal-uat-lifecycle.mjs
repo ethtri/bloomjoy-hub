@@ -16,6 +16,10 @@ const queueSource = await readFile(
   new URL('../../src/lib/refundQueue.ts', import.meta.url),
   'utf8'
 );
+const outreachSource = await readFile(
+  new URL('../../src/lib/refundCustomerOutreach.ts', import.meta.url),
+  'utf8'
+);
 const lifecycleSource = await readFile(
   new URL('./refund-portal-uat-lifecycle.mjs', import.meta.url),
   'utf8'
@@ -68,6 +72,14 @@ assert.match(
 );
 assert.match(
   portalSource,
+  /const runCustomerOutreachStateChecks = [\s\S]*?'preparing'[\s\S]*?'queued'[\s\S]*?'sent_unconfirmed'[\s\S]*?'waiting_for_customer'[\s\S]*?'delivery_failed'[\s\S]*?'delivery_unknown'[\s\S]*?'customer_replied'[\s\S]*?'rechecking'[\s\S]*?'clarification_exhausted'[\s\S]*?'policy_suppressed'[\s\S]*?'manual_fallback'/
+);
+assert.match(
+  portalSource,
+  /manualFallbackEligible === true[\s\S]*?requestDetails\.count\(\)[\s\S]*?document\.documentElement\.style\.fontSize = '200%'/
+);
+assert.match(
+  portalSource,
   /const withOfficialActionState = [\s\S]*?const queueProjectedCase = withManagerQueueProjection\(projectedCase\);[\s\S]*?return queueProjectedCase;/
 );
 assert.match(
@@ -84,11 +96,11 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /const buildManagerClarityRefundOverview = [\s\S]*?status: 'draft'[\s\S]*?lifecycle: buildLifecycleFixture\('needs_transaction_selection', 20, 'select_transaction'\)[\s\S]*?status: 'waiting_on_customer'[\s\S]*?lifecycle: buildLifecycleFixture\('waiting_on_customer', 15, 'wait_for_customer_reply'\)/
+  /const buildManagerClarityRefundOverview = [\s\S]*?status: 'draft'[\s\S]*?lifecycle: buildLifecycleFixture\('needs_transaction_selection', 20, 'select_transaction'\)[\s\S]*?status: 'waiting_on_customer'[\s\S]*?buildLifecycleFixture\('waiting_on_customer', 15, 'wait_for_customer_reply'\)[\s\S]*?state: 'waiting_for_customer'[\s\S]*?nextAction: 'wait_for_customer'/
 );
 assert.match(
   portalSource,
-  /const buildCashRefundLifecycleFixture = [\s\S]*?bucket: readyToMarkRefunded \? 'ready_to_pay' : 'needs_action'[\s\S]*?nextAction: readyToMarkRefunded \? 'mark_external_refund' : 'request_missing_details'/
+  /const buildCashRefundLifecycleFixture = [\s\S]*?bucket: readyToMarkRefunded \? 'ready_to_pay' : 'needs_action'[\s\S]*?nextAction: readyToMarkRefunded \? 'mark_external_refund' : 'request_missing_details'[\s\S]*?state: 'manual_fallback'[\s\S]*?manualFallbackEligible: true[\s\S]*?requestedFields: \['amount'\]/
 );
 assert.match(
   portalSource,
@@ -229,6 +241,18 @@ assert.match(
 assert.match(
   refundsSource,
   /findRefundDeepLinkedCase\(caseIdFromUrl, overview\.cases, internalTestCases\)/
+);
+assert.match(
+  refundsSource,
+  /canRequestRefundCustomerDetailsManually\(customerOutreach\)[\s\S]*?label: 'Request details'[\s\S]*?messageType: 'more_info'/
+);
+assert.match(
+  refundsSource,
+  /aria-live="polite"[\s\S]*?data-testid="refund-manager-state"/
+);
+assert.match(
+  outreachSource,
+  /state === 'manual_fallback'[\s\S]*?owner === 'Machine Manager'[\s\S]*?nextAction === 'request_details'[\s\S]*?manualFallbackEligible === true[\s\S]*?requestedFields\.length > 0/
 );
 
 console.log(

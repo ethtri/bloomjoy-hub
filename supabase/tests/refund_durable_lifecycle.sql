@@ -251,9 +251,9 @@ select ok(
     'public.get_refund_lifecycle_for_manager(uuid)'::regprocedure
   ) like '%auth.uid()%'
   and pg_get_functiondef(
-    'public.get_refund_lifecycle_for_manager(uuid)'::regprocedure
+    'public.get_refund_lifecycle_for_manager_pre_customer_outreach_v1(uuid)'::regprocedure
   ) like '%can_manage_refund_case%',
-  'Manager lifecycle reads revalidate the current authenticated session and case scope'
+  'Composed manager lifecycle reads revalidate the current authenticated session and case scope'
 );
 
 set local role anon;
