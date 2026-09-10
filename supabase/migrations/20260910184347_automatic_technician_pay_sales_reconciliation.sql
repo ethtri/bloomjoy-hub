@@ -226,7 +226,7 @@ as $$
             and snapshot.period_start_date = p_period_start
             and snapshot.period_end_date = p_period_end
             and snapshot.status <> 'voided'
-            and audit.created_at > latest.generated_at
+            and audit.created_at >= latest.generated_at
             and exists (
               select 1
               from public.operator_machine_assignments assignment

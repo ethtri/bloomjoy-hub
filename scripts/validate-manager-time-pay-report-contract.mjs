@@ -230,7 +230,7 @@ for (const snippet of [
   'snapshot_row.gross_sales_cents is distinct from',
   'Technician Pay Report automatic sales reconciliation',
   'private.operator_pay_stub_regeneration_required',
-  'audit.created_at > latest.generated_at',
+  'audit.created_at >= latest.generated_at',
   "'operator_payout_revenue_snapshot.regenerated'",
   'grant execute on function public.get_current_technician_pay_report_context(date) to authenticated',
 ]) {
