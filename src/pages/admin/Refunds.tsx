@@ -5843,7 +5843,6 @@ export default function AdminRefundsPage() {
 
   const renderCardDecisionWorkbench = () => {
     if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return null;
-    if (selectedCaseIsResolvedDuplicate) return null;
 
     const effectiveCandidates = selectedCase.legacyStateReviewRequired ? [] : nayaxCandidates;
     const activeCandidate = activeNayaxCandidate(selectedCase, editor, effectiveCandidates);
@@ -6123,6 +6122,8 @@ export default function AdminRefundsPage() {
             </div>
           </div>
 
+          {!selectedCaseIsResolvedDuplicate && (
+          <>
           {hasUnchangedSavedApproval(selectedCase, editor) && hasUnpaidRefundReview(selectedCase) && (
             <div data-testid="refund-existing-approval" className="border-b border-border px-4 py-3 text-sm text-muted-foreground">
               <p>Existing approval: {formatCurrency(selectedCase.refundAmountCents)}</p>
@@ -6540,8 +6541,11 @@ export default function AdminRefundsPage() {
               )}
             </article>
           </div>
+          </>
+          )}
         </section>
 
+        {!selectedCaseIsResolvedDuplicate && (
         <section data-testid="refund-action-details" className="rounded-xl border border-border bg-card p-4">
           {(editor.decision === 'denied' || editor.status === 'denied') && (
             <div className="border-b border-border pb-4">
@@ -6940,6 +6944,7 @@ export default function AdminRefundsPage() {
           </div>
           )}
         </section>
+        )}
 
         {selectedCase.attachments.length > 0 && (
           <details className="rounded-lg border border-border bg-card p-3">
@@ -7775,7 +7780,7 @@ export default function AdminRefundsPage() {
                       </section>
                     )}
 
-                    {!selectedCaseIsInternalTest && selectedCaseIsReviewOnly && !selectedCaseIsTerminal && !selectedCase.providerHold && (
+                    {!selectedCaseIsInternalTest && !selectedCaseIsResolvedDuplicate && selectedCaseIsReviewOnly && !selectedCaseIsTerminal && !selectedCase.providerHold && (
                       <div
                         data-testid={
                           selectedCase.legacyStateReviewRequired
