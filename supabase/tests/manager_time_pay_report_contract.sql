@@ -1871,6 +1871,13 @@ select is(
 
 -- Reconcile a sale after issuance: the published payload remains frozen while
 -- the report directs the manager through explicit Pay Stub regeneration.
+reset role;
+update public.operator_payout_profiles
+set status = 'active'
+where id = 'a6000000-0000-0000-0000-000000000002';
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
 create temporary table automatic_sales_statement_baseline as
 select statement.id, statement.statement_payload
 from public.pay_statements statement

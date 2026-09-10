@@ -19,6 +19,8 @@ declare
   profile_id uuid;
   scope_row record;
   snapshot_row public.payout_period_machine_revenue_snapshots;
+  refreshed_snapshot_row public.payout_period_machine_revenue_snapshots;
+  refreshed_snapshot_id uuid;
   current_values jsonb;
 begin
   actor_user_id := auth.uid();
@@ -116,18 +118,46 @@ begin
       or snapshot_row.tax_cents is distinct from (current_values ->> 'taxCents')::integer
       or snapshot_row.eligible_commission_revenue_cents is distinct from (current_values ->> 'commissionableSalesCents')::integer
     then
-      perform public.admin_generate_payout_revenue_snapshot(
+      refreshed_snapshot_id := public.service_refresh_pay_stub_revenue_snapshot(
         scope_row.payout_period_id,
-        scope_row.reporting_machine_id,
-        snapshot_row.id is not null,
+        scope_row.reporting_machine_id
+      );
+
+      select snapshot.*
+      into refreshed_snapshot_row
+      from public.payout_period_machine_revenue_snapshots snapshot
+      where snapshot.id = refreshed_snapshot_id;
+
+      insert into public.admin_audit_log (
+        actor_user_id,
+        action,
+        entity_type,
+        entity_id,
+        before,
+        after,
+        meta
+      ) values (
+        actor_user_id,
         case when snapshot_row.id is null
-          then null
-          else 'Technician Pay Report automatic sales reconciliation'
-        end
+          then 'operator_payout_revenue_snapshot.created'
+          else 'operator_payout_revenue_snapshot.regenerated'
+        end,
+        'payout_period_machine_revenue_snapshot',
+        refreshed_snapshot_id::text,
+        coalesce(to_jsonb(snapshot_row), '{}'::jsonb),
+        to_jsonb(refreshed_snapshot_row),
+        jsonb_build_object(
+          'reason', 'Technician Pay Report automatic sales reconciliation',
+          'payout_period_id', scope_row.payout_period_id,
+          'reporting_machine_id', scope_row.reporting_machine_id,
+          'raw_provider_payloads_included', false
+        )
       );
     end if;
 
     snapshot_row := null;
+    refreshed_snapshot_row := null;
+    refreshed_snapshot_id := null;
   end loop;
 
   return public.get_technician_pay_report_context(period_start);
