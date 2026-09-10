@@ -6698,6 +6698,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
     },
     {
       name: 'safe lookup interruption',
+      artifactSlug: 'lookup-failed',
       response: {
         configured: true,
         lookupStatus: 'lookup_failed',
