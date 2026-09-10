@@ -324,7 +324,7 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 96, 'Evidence must enumerate all 96 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 109, 'Evidence must enumerate all 109 reviewed screenshots');
   assert(
     EXPECTED_SCREENSHOTS.includes('refund-adam-api-pending-case-desktop.png') &&
       EXPECTED_SCREENSHOTS.includes('refund-adam-api-pending-case-mobile.png'),
@@ -407,6 +407,13 @@ try {
   assert(
     EXPECTED_SCREENSHOTS.includes('refund-email-pilot-source-badges-mobile.png'),
     'Evidence must include the reviewed mobile source-badge state'
+  );
+  assert.equal(
+    EXPECTED_SCREENSHOTS.filter((name) =>
+      name.startsWith('refund-portal-uat-customer-outreach-')
+    ).length,
+    13,
+    'Evidence must include every reviewed customer-outreach lifecycle and operations state'
   );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) =>
