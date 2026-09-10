@@ -129,7 +129,21 @@ test('read announcements preserve initial failure but suppress one cached pollin
 });
 
 test('late overview responses cannot regress per-case completion contact truth',()=>{
- const lifecycle=(version,state,at)=>({version,lastUpdatedAt:at,messageState:{state,lastUpdatedAt:at},terminal:false,refreshAfterSeconds:5});
+ const projection=(state)=>state==='failed'?{
+  stage:'refund_confirmed',stageRank:70,reasonCode:'completion_delivery_failed',managerNextAction:'review_delivery_no_resend',
+  managerAction:{action:'review_delivery_no_resend',owner:'Refund Operations'},
+  managerQueue:{bucket:'provider_hold',nextAction:'review_delivery_no_resend'},
+  operations:{required:true,owner:'Refund Operations',failureClass:'customer_delivery_exception'},terminal:false,refreshAfterSeconds:5,
+ }:{
+  stage:'customer_notified',stageRank:80,reasonCode:state==='sent'?'completion_sent':'completion_delivery_failed',
+  managerNextAction:state==='sent'?'none':'review_delivery_no_resend',
+  managerAction:{action:state==='sent'?'none':'review_delivery_no_resend',owner:state==='sent'?'System':'Refund Operations'},
+  managerQueue:{bucket:state==='sent'?'completed':'provider_hold',nextAction:state==='sent'?'none':'review_delivery_no_resend'},
+  operations:{required:state!=='sent',owner:state==='sent'?'System':'Refund Operations',failureClass:state==='sent'?null:'customer_delivery_exception'},
+  terminal:state==='sent',refreshAfterSeconds:state==='sent'?null:5,
+ };
+ const lifecycle=(version,state,at,extra={})=>({version,lastUpdatedAt:at,paymentState:'confirmed',accountingState:{state:'applied',accountingDate:'2026-09-10'},
+  messageState:{state,lastUpdatedAt:at},...projection(state),...extra});
  const sent={cases:[{id:'a',subject:'new',lifecycle:lifecycle(7,'sent','2026-09-10T12:00:00Z')}]};
  const lateQueued={cases:[{id:'a',subject:'old',lifecycle:lifecycle(7,'pending','2026-09-10T11:59:00Z')}]};
  const merged=mergeRefundOverviewContactTruth(sent,lateQueued);
@@ -137,11 +151,32 @@ test('late overview responses cannot regress per-case completion contact truth',
  assert.equal(merged.cases[0].lifecycle.messageState.state,'sent');
  const callback={cases:[{id:'a',subject:'callback',lifecycle:lifecycle(8,'bounced','2026-09-10T12:01:00Z')}]};
  assert.equal(mergeRefundOverviewContactTruth(merged,callback).cases[0].lifecycle.messageState.state,'bounced');
- const higherCaseVersionOlderContact={cases:[{id:'a',subject:'newer case fields',lifecycle:lifecycle(9,'pending','2026-09-10T11:58:00Z')}]};
+ const higherCaseVersionOlderContact={cases:[{id:'a',subject:'newer case fields',lifecycle:lifecycle(9,'pending','2026-09-10T11:58:00Z',{
+  accountingState:{state:'applied',accountingDate:'2026-09-11'},paymentAuditMarker:'newer-payment-truth',
+ })}]};
  const independent=mergeRefundOverviewContactTruth(callback,higherCaseVersionOlderContact);
  assert.equal(independent.cases[0].subject,'newer case fields','higher case version keeps newer overall object');
  assert.equal(independent.cases[0].lifecycle.version,9);
+ assert.equal(independent.cases[0].lifecycle.accountingState.accountingDate,'2026-09-11','newer accounting stays on the base lifecycle');
+ assert.equal(independent.cases[0].lifecycle.paymentAuditMarker,'newer-payment-truth');
  assert.equal(independent.cases[0].lifecycle.messageState.state,'bounced','older contact cannot replace newer callback');
+ assert.deepEqual(
+  Object.fromEntries(['stage','stageRank','reasonCode','managerNextAction','managerAction','managerQueue','operations','terminal','refreshAfterSeconds']
+   .map((key)=>[key,independent.cases[0].lifecycle[key]])),
+  Object.fromEntries(['stage','stageRank','reasonCode','managerNextAction','managerAction','managerQueue','operations','terminal','refreshAfterSeconds']
+   .map((key)=>[key,callback.cases[0].lifecycle[key]])),
+  'contact queue, detail, action, ownership and terminal projection move atomically',
+ );
+ const failedCallback={cases:[{id:'a',subject:'failed callback',lifecycle:lifecycle(8,'failed','2026-09-10T12:01:30Z')}]};
+ const failedMerged=mergeRefundOverviewContactTruth(higherCaseVersionOlderContact,failedCallback);
+ assert.equal(failedMerged.cases[0].subject,'newer case fields');
+ assert.equal(failedMerged.cases[0].lifecycle.version,9);
+ assert.equal(failedMerged.cases[0].lifecycle.accountingState.accountingDate,'2026-09-11');
+ assert.equal(failedMerged.cases[0].lifecycle.stage,'refund_confirmed');
+ assert.equal(failedMerged.cases[0].lifecycle.managerQueue.bucket,'provider_hold');
+ assert.equal(failedMerged.cases[0].lifecycle.managerAction.action,'review_delivery_no_resend');
+ assert.equal(failedMerged.cases[0].lifecycle.operations.owner,'Refund Operations');
+ assert.equal(failedMerged.cases[0].lifecycle.terminal,false);
  const sameVersionCallback={cases:[{id:'a',subject:'callback response',lifecycle:lifecycle(9,'complained','2026-09-10T12:02:00Z')}]};
  const sameVersionMerged=mergeRefundOverviewContactTruth(independent,sameVersionCallback);
  assert.equal(sameVersionMerged.cases[0].subject,'callback response');

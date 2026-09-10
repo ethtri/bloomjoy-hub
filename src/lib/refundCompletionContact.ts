@@ -14,6 +14,19 @@ export type RefundCompletionContactPresentation = {
   tone: 'neutral' | 'info' | 'success' | 'warning';
 };
 
+export type RefundCompletionHistoryPresentation = {
+  badgeLabel: 'Completion update record';
+  timeLabel: 'recorded';
+  recordedAt: string;
+};
+
+/** Historical rows stay tied to their own record; case-level contact proof has no message identity. */
+export const getRefundCompletionHistoryPresentation = (
+  message: { messageType: string; createdAt: string },
+): RefundCompletionHistoryPresentation | null => message.messageType === 'completed'
+  ? { badgeLabel: 'Completion update record', timeLabel: 'recorded', recordedAt: message.createdAt }
+  : null;
+
 export const getRefundCompletionContactState = (
   lifecycle: { messageState?: ({ state: string } & Record<string, unknown>) | null },
 ): RefundCompletionContactState => {

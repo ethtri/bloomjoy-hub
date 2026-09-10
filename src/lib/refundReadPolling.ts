@@ -30,6 +30,8 @@ type ContactLifecycle = {
   version: number;
   lastUpdatedAt: string;
   messageState: { state: string; lastUpdatedAt?: string | null };
+  accountingState?: { state?: string } | null;
+  [key: string]: unknown;
 };
 type ContactCase = { id: string; lifecycle?: ContactLifecycle | null };
 
@@ -45,13 +47,35 @@ const contactEvidenceTime = (lifecycle: ContactLifecycle) =>
 
 const caseEvidenceTime = (lifecycle: ContactLifecycle) => Date.parse(lifecycle.lastUpdatedAt);
 
-const newerMessageState = (first: ContactLifecycle, second: ContactLifecycle) => {
+const newerContactLifecycle = (first: ContactLifecycle, second: ContactLifecycle) => {
   const firstTime = contactEvidenceTime(first);
   const secondTime = contactEvidenceTime(second);
-  if (firstTime !== secondTime) return firstTime > secondTime ? first.messageState : second.messageState;
+  if (firstTime !== secondTime) return firstTime > secondTime ? first : second;
   return contactStateRank(first.messageState.state) > contactStateRank(second.messageState.state)
-    ? first.messageState
-    : second.messageState;
+    ? first
+    : second;
+};
+
+const contactProjectionKeys = [
+  'stage', 'stageRank', 'reasonCode', 'managerNextAction', 'managerAction',
+  'managerQueue', 'operations', 'terminal', 'refreshAfterSeconds',
+] as const;
+
+/** Apply contact-derived lifecycle fields atomically without replacing newer payment/accounting truth. */
+export const mergeRefundLifecycleContactProjection = <T extends ContactLifecycle>(
+  base: T,
+  contactEvidence: ContactLifecycle,
+): T => {
+  const merged = { ...base, messageState: contactEvidence.messageState } as T;
+  if (base.accountingState?.state === 'pending') {
+    merged.terminal = contactEvidence.terminal;
+    merged.refreshAfterSeconds = contactEvidence.refreshAfterSeconds;
+    return merged;
+  }
+  for (const key of contactProjectionKeys) {
+    (merged as ContactLifecycle)[key] = contactEvidence[key];
+  }
+  return merged;
 };
 
 /** Retain newer per-case contact evidence when polling responses finish out of order. */
@@ -75,12 +99,10 @@ export const mergeRefundOverviewContactTruth = <T extends {
             ? older!
             : item;
       const baseLifecycle = base.lifecycle!;
+      const contactLifecycle = newerContactLifecycle(oldLifecycle, newLifecycle);
       return {
         ...base,
-        lifecycle: {
-          ...baseLifecycle,
-          messageState: newerMessageState(oldLifecycle, newLifecycle),
-        },
+        lifecycle: mergeRefundLifecycleContactProjection(baseLifecycle, contactLifecycle),
       };
     });
   };

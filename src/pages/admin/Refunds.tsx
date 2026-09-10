@@ -8,7 +8,10 @@ import {
   refundOverviewReadMessage,
   mergeRefundOverviewContactTruth,
 } from '@/lib/refundReadPolling';
-import { getRefundCompletionContactPresentation } from '@/lib/refundCompletionContact';
+import {
+  getRefundCompletionContactPresentation,
+  getRefundCompletionHistoryPresentation,
+} from '@/lib/refundCompletionContact';
 import { formatRefundMachineLocation } from '@/lib/refundMachineLabel';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { collectCorrectionResponseNotices, type CorrectionNoticeState } from '@/lib/refundCorrectionContinuity';
@@ -8929,10 +8932,7 @@ export default function AdminRefundsPage() {
                           ) : (
                             selectedCase.messages.map((message) => {
                               const isSelectedDeliveryEvidence = message.id === selectedDeliveryEvidenceMessageId;
-                              const completionContact = message.messageType === 'completed' &&
-                                  selectedCase.lifecycle?.paymentState === 'confirmed'
-                                ? getRefundCompletionContactPresentation(selectedCase.lifecycle)
-                                : null;
+                              const completionHistory = getRefundCompletionHistoryPresentation(message);
                               return (
                                 <div
                                   key={message.id}
@@ -8941,7 +8941,7 @@ export default function AdminRefundsPage() {
                                   data-testid={isSelectedDeliveryEvidence ? 'refund-focused-delivery-record' : undefined}
                                   tabIndex={isSelectedDeliveryEvidence ? -1 : undefined}
                                   aria-label={isSelectedDeliveryEvidence
-                                    ? `Saved delivery record: ${completionContact?.progressLabel ?? transactionalDeliveryLabel(message.deliveryState)}`
+                                    ? `Saved delivery record: ${completionHistory?.badgeLabel ?? transactionalDeliveryLabel(message.deliveryState)}`
                                     : undefined}
                                   className={cn(
                                     'rounded-md border border-border/80 p-2',
@@ -8952,21 +8952,14 @@ export default function AdminRefundsPage() {
                                   <Badge variant="outline" className="capitalize">
                                     {statusLabel(message.messageType)}
                                   </Badge>
-                                  <Badge className={cn(
-                                    'capitalize',
-                                    messageStatusBadgeClass(completionContact
-                                      ? completionContact.tone === 'success'
-                                        ? 'sent'
-                                        : completionContact.state === 'failed' ||
-                                            completionContact.state === 'bounced' ||
-                                            completionContact.state === 'complained'
-                                          ? 'failed'
-                                          : 'pending'
-                                      : message.status),
-                                  )}>
-                                    {completionContact?.progressLabel ?? message.status}
-                                  </Badge>
-                                  {message.deliveryTransport === 'resend' && (
+                                  {completionHistory ? (
+                                    <Badge variant="secondary">{completionHistory.badgeLabel}</Badge>
+                                  ) : (
+                                    <Badge className={cn('capitalize', messageStatusBadgeClass(message.status))}>
+                                      {message.status}
+                                    </Badge>
+                                  )}
+                                  {message.deliveryTransport === 'resend' && !completionHistory && (
                                     <Badge
                                       data-testid={`refund-message-delivery-${message.id}`}
                                       variant="outline"
@@ -9006,10 +8999,8 @@ export default function AdminRefundsPage() {
                                 </p>
                                 <p className="mt-1 break-words text-xs text-muted-foreground">
                                   To {message.recipientEmail} /{' '}
-                                  {completionContact
-                                    ? `${completionContact.progressLabel.toLowerCase()} ${
-                                        formatDate(selectedCase.lifecycle?.messageState.lastUpdatedAt ?? message.createdAt)
-                                      }`
+                                  {completionHistory
+                                    ? `${completionHistory.timeLabel} ${formatDate(completionHistory.recordedAt)}`
                                     : message.deliveryTransport === 'resend'
                                     ? `${transactionalDeliveryLabel(message.deliveryState).toLowerCase()} ${
                                         formatDate(message.deliveryStateUpdatedAt ?? message.sentAt ?? message.createdAt)

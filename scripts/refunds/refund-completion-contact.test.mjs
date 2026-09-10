@@ -5,7 +5,7 @@ import ts from 'typescript';
 
 const helperSource = fs.readFileSync(new URL('../../src/lib/refundCompletionContact.ts', import.meta.url), 'utf8');
 const compiled = ts.transpile(helperSource, { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 });
-const { getRefundCompletionContactPresentation } = await import(
+const { getRefundCompletionContactPresentation, getRefundCompletionHistoryPresentation } = await import(
   `data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`
 );
 
@@ -38,7 +38,7 @@ test('source surfaces do not retain the overstated customer-updated phrase', () 
   }
 });
 
-test('progress and completion history cannot present review states as proved sent', () => {
+test('progress cannot present review states as proved sent', () => {
   const progress = fs.readFileSync(
     new URL('../../src/components/refunds/RefundLifecycleProgress.tsx', import.meta.url),
     'utf8',
@@ -46,9 +46,24 @@ test('progress and completion history cannot present review states as proved sen
   assert.match(progress, /contactComplete[\s\S]*state === 'sent'[\s\S]*state === 'delivered'/);
   assert.match(progress, /presentation\.contact\?\.tone === 'warning'/);
 
-  const history = fs.readFileSync(new URL('../../src/pages/admin/Refunds.tsx', import.meta.url), 'utf8');
-  assert.match(history, /completionContact\?\.progressLabel/);
-  assert.match(history, /selectedCase\.lifecycle\?\.messageState\.lastUpdatedAt/);
-  assert.match(history, /completionContact\.state === 'bounced'/);
-  assert.match(history, /completionContact\.state === 'complained'/);
+});
+
+test('multiple completion history rows retain their own neutral record identity and timestamp', () => {
+  const latestCaseContact = { state: 'delivered', lastUpdatedAt: '2026-09-10T13:00:00Z' };
+  const messages = [
+    { id: 'pending-old', messageType: 'completed', status: 'pending', createdAt: '2026-09-10T10:00:00Z' },
+    { id: 'failed-middle', messageType: 'completed', status: 'failed', createdAt: '2026-09-10T11:00:00Z' },
+    { id: 'sent-newer', messageType: 'completed', status: 'sent', createdAt: '2026-09-10T12:00:00Z' },
+  ];
+  const rows = messages.map((message) => ({
+    id: message.id,
+    ...getRefundCompletionHistoryPresentation(message),
+  }));
+  assert.deepEqual(rows.map(({ badgeLabel }) => badgeLabel), [
+    'Completion update record', 'Completion update record', 'Completion update record',
+  ]);
+  assert.deepEqual(rows.map(({ recordedAt }) => recordedAt), messages.map(({ createdAt }) => createdAt));
+  assert.equal(JSON.stringify(rows).includes(latestCaseContact.state), false);
+  assert.equal(JSON.stringify(rows).includes(latestCaseContact.lastUpdatedAt), false);
+  assert.equal(rows.some(({ badgeLabel }) => /sent|delivered|bounced|failed/i.test(badgeLabel)), false);
 });
