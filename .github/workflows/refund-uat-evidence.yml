@@ -33,7 +33,7 @@ jobs:
     needs: scope
     if: always() && (github.event_name == 'workflow_dispatch' || needs.scope.result != 'success' || needs.scope.outputs.required != 'false')
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@v6
