@@ -490,10 +490,10 @@ begin
     next_action := 'refund_operations';
     reason_code := 'contact_limit_reached';
   elsif not contact_enabled or thread_paused then
-    if cardinality(current_fields) > 0
-      or workflow_id is not null
-      or case_row.status = 'waiting_on_customer'
-      or case_row.automation_state = 'more_info_needed' then
+    -- A policy switch cannot invent an outreach lifecycle for an otherwise
+    -- ordinary manager case. Project suppression only when an exact durable
+    -- cycle or correction workflow already exists.
+    if workflow_id is not null then
       state := 'policy_suppressed';
       owner_name := 'Refund Operations';
       next_action := 'refund_operations';
