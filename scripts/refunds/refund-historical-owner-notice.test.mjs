@@ -4,7 +4,6 @@ import vm from 'node:vm';
 import test from 'node:test';
 import ts from 'typescript';
 import { buildReceiptWrapperParityTest } from './refund-receipt-wrapper-parity.mjs';
-import { getRefundCustomerOutreachPresentation } from '../../src/lib/refundCustomerOutreach.ts';
 
 const read = (p) => fs.readFileSync(p, 'utf8');
 const load = (file, dependencies = {}, globals = {}) => {
@@ -16,6 +15,7 @@ const load = (file, dependencies = {}, globals = {}) => {
   return exports;
 };
 const helpers = load('src/lib/refundHistoricalOwnerNotice.ts');
+const outreach = load('src/lib/refundCustomerOutreach.ts');
 const overview = () => ({ schemaVersion: 'refund_receipt_overview_v1', visible: true,
   caseId: 'bd400000-0000-4000-8000-000000000001', caseReference: 'RF-HISTORICAL-1', expectedCaseVersion: 2,
   canRecord: false, attemptId: null, attemptBindingKind: 'no_attempt_integrity_hold', accountScope: 'SYNTHETIC',
@@ -148,7 +148,7 @@ test('forward owner slice preserves support adopter, lifecycle and complete rece
 });
 test('actual manager summary records customer-notice evidence without claiming provider verification', () => {
   const manager = load('src/lib/refundManagerState.ts', {
-    './refundCustomerOutreach.ts': { getRefundCustomerOutreachPresentation },
+    './refundCustomerOutreach.ts': outreach,
   });
   const result = manager.getRefundManagerState({ status: 'card_refund_pending', paymentMethod: 'card',
     correlationStatus: 'matched', providerHold: true, lifecycle: { schemaVersion: 'refund_lifecycle_v2',

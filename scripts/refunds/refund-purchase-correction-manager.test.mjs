@@ -4,10 +4,6 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 import { webcrypto } from 'node:crypto';
-import {
- canRequestRefundCustomerDetailsManually,
- getRefundCustomerOutreachPresentation,
-} from '../../src/lib/refundCustomerOutreach.ts';
 const source=ts.createSourceFile('Refunds.tsx',fs.readFileSync(new URL('../../src/pages/admin/Refunds.tsx',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
 function load(name,dependencies){
  let initializer;function visit(node){if(ts.isVariableDeclaration(node)&&node.name.getText(source)===name)initializer=node.initializer;ts.forEachChild(node,visit);}visit(source);
@@ -16,6 +12,15 @@ function load(name,dependencies){
  const context=vm.createContext({document:{activeElement:null,getElementById:()=>null},HTMLElement:class {},correctionDialogTriggerRef:{current:null},...dependencies,console,crypto:webcrypto});vm.runInContext(code,context);return context.handler;
 }
 const managerModule = { exports: {} };
+const outreachModule = { exports: {} };
+vm.runInNewContext(
+ ts.transpileModule(fs.readFileSync(new URL('../../src/lib/refundCustomerOutreach.ts',import.meta.url),'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
+ outreachModule,
+);
+const {
+ canRequestRefundCustomerDetailsManually,
+ getRefundCustomerOutreachPresentation,
+} = outreachModule.exports;
 vm.runInNewContext(
  ts.transpileModule(fs.readFileSync(new URL('../../src/lib/refundManagerState.ts',import.meta.url),'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
  {...managerModule,require:specifier=>{
