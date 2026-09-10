@@ -45,7 +45,6 @@ import {
 import {
   fetchTechnicianPayReportContext,
   fetchTimekeepingSetupContext,
-  refreshTechnicianPayReportSalesAdmin,
   requestPayStubGenerationAdmin,
   setupTimekeepingTechnicianAdmin,
   supersedeOperatorCompensationRateAdmin,
@@ -240,11 +239,6 @@ const unresolvedCommissionCodes = new Set([
   'cross_rate_refund_allocation_ambiguous',
   'missing_commission_rate',
   'missing_machine_tax_rate',
-]);
-
-const refreshableCommissionCodes = new Set([
-  'missing_revenue_snapshot',
-  'revenue_snapshot_fact_mismatch',
 ]);
 
 const hasUnresolvedCommission = (technician: TechnicianPayReportTechnician) =>
@@ -649,7 +643,7 @@ export default function AdminPayoutsPage() {
   const [generatingProfileId, setGeneratingProfileId] = useState<string | null>(null);
   const [showMoreFilters, setShowMoreFilters] = useState(false);
 
-  const { data: context, isLoading, isFetching, error, refetch } = useQuery({
+  const { data: context, isLoading, error, refetch } = useQuery({
     queryKey: ['technician-pay-report', month],
     queryFn: () => fetchTechnicianPayReportContext(month),
     staleTime: 20_000,
@@ -689,9 +683,6 @@ export default function AdminPayoutsPage() {
   const totalsUnavailable = visibleTechnicians.some((technician) => technician.blockers.length > 0);
   const commissionableSalesUnavailable = visibleTechnicians.some((technician) =>
     technician.machines.some((machine) => machine.revenueSnapshotId == null)
-  );
-  const canRefreshSales = visibleTechnicians.some((technician) =>
-    technician.blockers.some((issue) => refreshableCommissionCodes.has(issue.code))
   );
   const periodInProgress = visibleTechnicians.some(
     (technician) => technician.calculationMeta.periodInProgress === true
@@ -904,44 +895,13 @@ export default function AdminPayoutsPage() {
     },
     onSuccess: async (_result, draft) => {
       const assignment = getAssignmentById(draft.technician, draft.assignmentId);
-      let salesRefreshFailed = false;
-      try {
-        const refreshedSales = await refreshTechnicianPayReportSalesAdmin(
-          `${month}-01`,
-          draft.technician.accountId
-        );
-        salesRefreshFailed = refreshedSales.periodCount === 0;
-      } catch {
-        salesRefreshFailed = true;
-      }
       await queryClient.invalidateQueries({ queryKey: ['technician-pay-report'] });
       setAssignmentInputDraft(null);
       setAssignmentInputError(null);
-      toast.success(`${assignment?.machineLabel ?? 'Machine'} assignment saved: ${formatAssignmentRange(draft.effectiveStartDate, draft.effectiveEndDate || null)}. Pay and commission rates were not changed.${salesRefreshFailed ? '' : ` ${formatMonth(month)} sales were recalculated.`}`);
-      if (salesRefreshFailed) {
-        toast.error(`Assignment dates were saved, but ${formatMonth(month)} sales could not be recalculated. Use Refresh sales and try again.`);
-      }
+      toast.success(`${assignment?.machineLabel ?? 'Machine'} assignment saved: ${formatAssignmentRange(draft.effectiveStartDate, draft.effectiveEndDate || null)}. ${formatMonth(month)} sales updated automatically; pay and commission rates were not changed.`);
     },
     onError: (saveError) => {
       setAssignmentInputError(saveError instanceof Error ? saveError.message : 'Unable to save assignment dates.');
-    },
-  });
-
-  const refreshSales = useMutation({
-    mutationFn: () => refreshTechnicianPayReportSalesAdmin(
-      `${month}-01`,
-      accountId === 'all' ? null : accountId
-    ),
-    onSuccess: async (result) => {
-      await queryClient.invalidateQueries({ queryKey: ['technician-pay-report'] });
-      if (result.periodCount === 0) {
-        toast.error('No monthly pay period was found for this selection.');
-      } else {
-        toast.success(`Commissionable Sales refreshed for ${result.snapshotCount} machine${result.snapshotCount === 1 ? '' : 's'}.`);
-      }
-    },
-    onError: (refreshError) => {
-      toast.error(refreshError instanceof Error ? refreshError.message : 'Unable to refresh Commissionable Sales.');
     },
   });
 
@@ -966,7 +926,7 @@ export default function AdminPayoutsPage() {
             <div className="flex items-center gap-2 text-sm font-medium text-primary"><Banknote className="h-4 w-4" /> Manager report</div>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">Technician Pay Report</h1>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Check paid shifts, rate changes, machine sales, commission, and other earnings. This report does not approve or send payment.
+              Check paid shifts, rate changes, machine sales, commission, and other earnings. Sales update automatically from the latest imported machine data; this report does not approve or send payment.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -974,11 +934,6 @@ export default function AdminPayoutsPage() {
             <Button type="button" className="min-h-11" onClick={openTechnicianSetup}>
               <Plus className="mr-2 h-4 w-4" /> Set up Technician
             </Button>
-            {canRefreshSales && (
-              <Button type="button" variant="outline" className="min-h-11" disabled={refreshSales.isPending || isFetching} onClick={() => refreshSales.mutate()}>
-                <ShoppingBag className={cn('mr-2 h-4 w-4', refreshSales.isPending && 'animate-pulse motion-reduce:animate-none')} /> Refresh sales
-              </Button>
-            )}
           </div>
         </header>
 
@@ -1023,7 +978,7 @@ export default function AdminPayoutsPage() {
 
             <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-live="polite">
               <Metric label="Paid shifts" value={`${totalPaidShifts}`} helper="Each started hour" icon={Clock3} />
-              <Metric label="Commissionable sales" value={commissionableSalesUnavailable ? 'Unavailable' : formatCurrency(totalCommissionableSales)} helper={commissionableSalesUnavailable ? (canRefreshSales ? 'Refresh required' : 'Sales facts required') : `After refunds and ${formatCurrency(totalEstimatedTax)} tax`} icon={ShoppingBag} />
+              <Metric label="Commissionable sales" value={commissionableSalesUnavailable ? 'Unavailable' : formatCurrency(totalCommissionableSales)} helper={commissionableSalesUnavailable ? 'See the details below' : `After refunds and ${formatCurrency(totalEstimatedTax)} tax`} icon={ShoppingBag} />
               <Metric label="Current total" value={totalsUnavailable ? 'Unavailable' : formatCurrency(currentTotal)} helper={totalsUnavailable ? 'Resolve calculation blockers' : periodInProgress ? 'Current estimate, before payment or tax' : 'Before payment or tax'} icon={Banknote} />
               <Metric label="Technicians" value={`${visibleTechnicians.length}`} helper={blockerCount ? `${blockerCount} publishing blocker${blockerCount === 1 ? '' : 's'}` : 'No publishing blockers'} icon={UserRound} />
             </section>
@@ -1034,11 +989,6 @@ export default function AdminPayoutsPage() {
                   <h2 className="flex items-center gap-2 font-semibold text-foreground"><AlertTriangle className="h-5 w-5 text-destructive" />Resolve {blockerCount} publishing blocker{blockerCount === 1 ? '' : 's'}</h2>
                   <p className="mt-2 text-sm text-muted-foreground">Open the affected Technician below for details. Pay Stubs remain unpublished until the missing information is fixed.</p>
                 </div>
-                {canRefreshSales && (
-                  <Button type="button" variant="outline" className="min-h-11 shrink-0 bg-background" disabled={refreshSales.isPending || isFetching} onClick={() => refreshSales.mutate()}>
-                    <ShoppingBag className={cn('mr-2 h-4 w-4', refreshSales.isPending && 'animate-pulse motion-reduce:animate-none')} /> Refresh sales now
-                  </Button>
-                )}
               </section>
             )}
 

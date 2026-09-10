@@ -1247,7 +1247,7 @@ export const fetchTechnicianPayReportContext = async (
   month: string
 ): Promise<TechnicianPayReportContext> => {
   const normalizedMonth = /^\d{4}-\d{2}$/.test(month) ? `${month}-01` : month;
-  const { data, error } = await supabaseClient.rpc('get_technician_pay_report_context', {
+  const { data, error } = await supabaseClient.rpc('get_current_technician_pay_report_context', {
     p_month: normalizedMonth,
   });
 
@@ -1700,25 +1700,6 @@ export const supersedeOperatorCompensationRateAdmin = async ({
   }
 
   return data as OperatorCompensationRate;
-};
-
-export const refreshTechnicianPayReportSalesAdmin = async (
-  month: string,
-  accountId: string | null = null
-): Promise<{ periodCount: number; snapshotCount: number }> => {
-  const { data, error } = await supabaseClient.rpc(
-    'admin_refresh_technician_pay_report_sales',
-    {
-      p_month: month,
-      p_account_id: accountId,
-    }
-  );
-
-  if (error || !data) {
-    throw new Error(error?.message || 'Unable to refresh Commissionable Sales.');
-  }
-
-  return data as { periodCount: number; snapshotCount: number };
 };
 
 export const upsertOperatorRecurringItemAdmin = async ({

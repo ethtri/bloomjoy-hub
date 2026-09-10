@@ -175,9 +175,9 @@ const payContext = {
       commissionRateCompleteForPeriod: true,
       taxRateCompleteForSales: true,
       commissionAllocationResolved: true,
-      revenueSnapshotId: null,
-      revenueSnapshotStatus: null,
-      revenueGeneratedAt: null,
+      revenueSnapshotId: 'snapshot-1',
+      revenueSnapshotStatus: 'source_generated',
+      revenueGeneratedAt: FIXED_NOW.toISOString(),
       sourceLatestSaleDate: '2026-09-30',
       grossSalesCents: 110000,
       refundAdjustmentCents: 10000,
@@ -203,13 +203,13 @@ const payContext = {
         sourceAdjustmentRowCount: 1,
         sourceLatestSaleDate: '2026-09-30',
       }],
-      snapshotGrossSalesCents: 0,
-      snapshotRefundAdjustmentCents: 0,
-      snapshotTaxCents: 0,
-      snapshotNetRevenueCents: 0,
-      snapshotCommissionableSalesCents: 0,
-      snapshotSourceLatestSaleDate: null,
-      snapshotMatchesFacts: false,
+      snapshotGrossSalesCents: 110000,
+      snapshotRefundAdjustmentCents: 10000,
+      snapshotTaxCents: 9900,
+      snapshotNetRevenueCents: 90100,
+      snapshotCommissionableSalesCents: 90100,
+      snapshotSourceLatestSaleDate: '2026-09-30',
+      snapshotMatchesFacts: true,
       warnings: [],
     }, {
       machineId: MACHINE_B,
@@ -280,7 +280,7 @@ const payContext = {
       { id: 'credit-1', type: 'supply_credit', description: 'Monthly supply credit', amountCents: 1000, effectiveStartDate: '2026-09-01', effectiveEndDate: null },
       { id: 'expense-1', type: 'expense_reimbursement', description: 'Parking', amountCents: 500, effectiveStartDate: '2026-09-03', effectiveEndDate: null },
     ],
-    blockers: [{ code: 'missing_revenue_snapshot', severity: 'blocker', message: 'September sales snapshot needs a refresh.', machineId: MACHINE_A }],
+    blockers: [],
     warnings: [{ code: 'rate_changed', severity: 'warning', message: 'The shift rate changed during this month.' }],
     calculationMeta: { schemaVersion: 'technician-pay-report-v2', commissionBasisSource: 'sales less refunds and tax', commissionFormula: '(sales - refunds - tax) x commission rate', refundAppliedOnce: true, approvalRequired: false, paymentExecution: false, taxCalculation: true, periodInProgress: true, asOfDate: '2026-09-03', salesThroughDate: '2026-09-02', hasAssignmentInPeriod: true },
   }],
@@ -376,7 +376,7 @@ const installRoutes = async (context) => {
         context: timeContext(),
       }));
     }
-    if (rpcName === 'get_technician_pay_report_context') {
+    if (rpcName === 'get_current_technician_pay_report_context') {
       return route.fulfill(json(body.p_month === '2026-08-01' ? historicalAssignmentGapContext : payContext));
     }
     if (rpcName === 'get_timekeeping_setup_context') return route.fulfill(json(setupContext));
@@ -396,7 +396,6 @@ const installRoutes = async (context) => {
       status: 'active',
     }));
     if (rpcName === 'admin_upsert_operator_recurring_item') return route.fulfill(json({ id: 'saved-item' }));
-    if (rpcName === 'admin_refresh_technician_pay_report_sales') return route.fulfill(json({ periodCount: 1, snapshotCount: 1 }));
     if (rpcName === 'resolve_my_technician_entitlements') return route.fulfill(json({ technicianEmail: user.email }));
     return route.fulfill(json({}));
   });
@@ -501,7 +500,7 @@ const run = async () => {
     await page.getByText('Contractor 1042', { exact: true }).waitFor();
     await page.locator('#pay-report-month').fill('');
     check('Pay Report ignores an empty native month-input change without crashing', await page.locator('#pay-report-month').inputValue() === '2026-09' && await page.getByRole('heading', { name: 'Technician Pay Report' }).isVisible());
-    const payReportRead = state.rpcCalls.find((call) => call.rpcName === 'get_technician_pay_report_context');
+    const payReportRead = state.rpcCalls.find((call) => call.rpcName === 'get_current_technician_pay_report_context');
     check('Pay Report sends an unambiguous full ISO date to PostgreSQL', payReportRead?.body.p_month === '2026-09-01');
     check('Current pay month is labeled as an estimate through the imported sales date', await page.getByText('Month in progress · Sales through Sep 2, 2026', { exact: true }).isVisible() && await page.getByText(/This month cannot be published until the Technician edit window closes/i).isVisible());
     await page.getByRole('button', { name: 'Assignment dates' }).click();
@@ -511,33 +510,18 @@ const run = async () => {
     await page.getByRole('dialog').waitFor({ state: 'hidden' });
     const savedAssignment = state.rpcCalls.find((call) => call.rpcName === 'admin_upsert_operator_machine_assignment');
     check('Manager can backdate one exact audited payout assignment', savedAssignment?.body.p_assignment_id === 'assignment-a' && savedAssignment?.body.p_effective_start_date === '2026-08-15' && savedAssignment?.body.p_effective_end_date === null);
-    await page.getByText(/Cotton Candy 01 assignment saved: Aug 15, 2026 to Present/i).waitFor();
+    await page.getByText(/Cotton Candy 01 assignment saved: Aug 15, 2026 to Present.*sales updated automatically/i).waitFor();
     await page.getByRole('button', { name: 'View machine breakdown' }).click();
     const bodyText = await page.locator('body').innerText();
     check('Pay Report exposes assignment windows alongside the machine calculation', bodyText.includes('Machine assignments') && bodyText.includes('Sep 1, 2026 to Present') && bodyText.includes('Assignment dates control which time and machine sales belong'));
     check('Pay Report separates mid-month rate bands', bodyText.includes('2 shifts × $20.00') && bodyText.includes('1 shift × $25.00'));
     check('Pay Report shows time, shifts, tax, and dated commission segments by machine', bodyText.includes('2 hr 1 min worked · 3 paid shifts') && bodyText.includes('$200.00 sales − $0.00 refunds − $18.00 tax (9%)') && bodyText.includes('$182.00 × 5% = $9.10') && bodyText.includes('$273.00 × 10% = $27.30'));
     check('A valid mixed-rate machine stays available with the summed commission', bodyText.includes('Cotton Candy 02') && bodyText.includes('$36.40'));
-    check('Missing Commissionable Sales is unavailable rather than a plausible zero', /COMMISSIONABLE\s+SALES\s+Unavailable/i.test(bodyText) && bodyText.includes('Commissionable Sales unavailable × 10%'));
-    check('Pay Report does not present unresolved commission or totals as trustworthy amounts', bodyText.includes('Commission\nUnavailable') && bodyText.includes('Current total\nUnavailable'));
-
-    const originalBlockers = payContext.technicians[0].blockers;
-    const originalFirstMachineSnapshotId = payContext.technicians[0].machines[0].revenueSnapshotId;
-    payContext.technicians[0].blockers = [{ code: 'revenue_snapshot_fact_mismatch', severity: 'blocker', message: 'Sales facts do not reconcile to the monthly snapshot.', machineId: MACHINE_B }];
-    payContext.technicians[0].machines[0].revenueSnapshotId = 'snapshot-1';
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.getByRole('heading', { name: 'Technician Pay Report' }).waitFor();
-    await page.getByRole('button', { name: 'View machine breakdown' }).click();
-    const integrityBlockerFooter = await page.locator('footer').filter({ hasText: 'Commission' }).last().innerText();
-    const integrityBlockerBody = await page.locator('body').innerText();
-    check('Snapshot/fact mismatch makes commission unavailable', integrityBlockerFooter.includes('Commission\nUnavailable') && integrityBlockerBody.includes('$182.00 × 5% = Allocation unavailable'));
-    payContext.technicians[0].blockers = originalBlockers;
-    payContext.technicians[0].machines[0].revenueSnapshotId = originalFirstMachineSnapshotId;
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.getByRole('heading', { name: 'Technician Pay Report' }).waitFor();
+    check('Automatically reconciled sales and pay are available on first render', /COMMISSIONABLE\s+SALES\s+\$1,356\.00/i.test(bodyText) && bodyText.includes('Commission\n$126.50') && bodyText.includes('Current total\n$231.50'));
+    check('Pay Report explains that sales update automatically and exposes no manual refresh action', bodyText.includes('Sales update automatically from the latest imported machine data') && await page.getByRole('button', { name: /Refresh sales/i }).count() === 0);
 
     check('Pay Report shows all explicit other earning categories', ['Bonus', 'Supply Credit', 'Expense Reimbursement'].every((label) => bodyText.includes(label)));
-    check('Pay Report distinguishes blockers and warnings', bodyText.includes('Blocks publishing:') && bodyText.includes('Check:'));
+    check('Pay Report keeps actionable warnings without internal snapshot errors', bodyText.includes('Check:') && !bodyText.includes('sales snapshot needs a refresh'));
     check('Pay Report contains no approval or payment actions', !/mark reviewed|finalize|reopen|void|issue statements|run payroll/i.test(bodyText));
 
     await page.locator('#pay-report-month').fill('2026-08');
@@ -579,15 +563,12 @@ const run = async () => {
     await page.locator('#pay-report-machine').click();
     await page.getByRole('option', { name: 'Cotton Candy 02' }).click();
     await page.getByText('Machine filtering shows only that machine’s time', { exact: false }).waitFor();
-    const filteredMachineText = await page.locator('body').innerText();
-    check('Machine filter scopes financial totals without hiding month-wide publishing blockers', filteredMachineText.includes('Cotton Candy 02') && !filteredMachineText.includes('Cotton Candy 01') && filteredMachineText.includes('$500.00') && filteredMachineText.includes('Needs attention') && filteredMachineText.includes('Current total\nUnavailable') && filteredMachineText.includes('publishing status remains month-wide') && !filteredMachineText.includes('September bonus'));
+    const filteredMachineText = await page.locator('article').filter({ hasText: 'Contractor 1042' }).innerText();
+    check('Machine filter scopes current financial totals without hiding month-wide publishing status', filteredMachineText.includes('Cotton Candy 02') && !filteredMachineText.includes('Cotton Candy 01') && filteredMachineText.includes('$500.00') && filteredMachineText.includes('Month in progress') && filteredMachineText.includes('Current total\n$36.40') && !filteredMachineText.includes('September bonus'));
     await page.locator('#pay-report-machine').click();
     await page.getByRole('option', { name: 'All machines' }).click();
 
-    await page.getByRole('button', { name: 'Refresh sales', exact: true }).click();
-    await page.getByText('Commissionable Sales refreshed for 1 machine.').waitFor();
-    const refreshedSales = state.rpcCalls.find((call) => call.rpcName === 'admin_refresh_technician_pay_report_sales');
-    check('Manager can refresh authoritative Commissionable Sales from the report', refreshedSales?.body.p_month === '2026-09-01' && refreshedSales?.body.p_account_id === null);
+    check('Normal report use never calls the manual sales refresh RPC', !state.rpcCalls.some((call) => call.rpcName === 'admin_refresh_technician_pay_report_sales'));
 
     const adjustPayTrigger = page.getByRole('button', { name: 'Adjust pay' });
     await adjustPayTrigger.scrollIntoViewIfNeeded();
