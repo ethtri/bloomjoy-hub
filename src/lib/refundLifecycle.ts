@@ -69,6 +69,88 @@ export type RefundAccountingState =
   | RefundPendingAccountingState
   | RefundAppliedAccountingState;
 
+export const refundCustomerOutreachStates = [
+  "none",
+  "preparing",
+  "queued",
+  "sent_unconfirmed",
+  "waiting_for_customer",
+  "delivery_failed",
+  "delivery_unknown",
+  "customer_replied",
+  "rechecking",
+  "clarification_exhausted",
+  "policy_suppressed",
+  "manual_fallback",
+] as const;
+
+export type RefundCustomerOutreachState = typeof refundCustomerOutreachStates[number];
+
+export const refundCustomerOutreachOwners = [
+  "None",
+  "System",
+  "Customer",
+  "Machine Manager",
+  "Refund Operations",
+] as const;
+
+export type RefundCustomerOutreachOwner = typeof refundCustomerOutreachOwners[number];
+
+export const refundCustomerOutreachNextActions = [
+  "none",
+  "wait_for_queue",
+  "wait_for_delivery",
+  "wait_for_customer",
+  "recheck_customer_reply",
+  "refund_operations",
+  "request_details",
+] as const;
+
+export type RefundCustomerOutreachNextAction = typeof refundCustomerOutreachNextActions[number];
+
+export const refundCustomerOutreachFields = [
+  "location_or_machine",
+  "incident_date",
+  "incident_time",
+  "incident_time_source",
+  "payment_method",
+  "payment_interaction",
+  "card_last4",
+  "card_last4_source",
+  "card_network",
+  "wallet_provider",
+  "wallet_device_kind",
+  "nearby_attempt_count",
+  "amount",
+  "zelle_payment_contact",
+] as const;
+
+export type RefundCustomerOutreachField = typeof refundCustomerOutreachFields[number];
+
+export type RefundCustomerOutreachContract = {
+  schemaVersion: "refund_customer_outreach_v1";
+  state: RefundCustomerOutreachState;
+  owner: RefundCustomerOutreachOwner;
+  nextAction: RefundCustomerOutreachNextAction;
+  manualFallbackEligible: boolean;
+  requestedFields: RefundCustomerOutreachField[];
+  requestMessageId: string | null;
+  cycleId: string | null;
+  cycleNumber: number | null;
+  caseFactVersion: number;
+  clarificationAttemptCount: number;
+  clarificationLimit: 2;
+  requestCreatedAt: string | null;
+  requestSentAt: string | null;
+  deliveryState: string | null;
+  deliveryStateUpdatedAt: string | null;
+  replyReceivedAt: string | null;
+  recheckStartedAt: string | null;
+  reasonCode: string | null;
+  failureCode: string | null;
+  payloadRedacted: true;
+};
+
 export type RefundLifecycleContract = {
   schemaVersion: typeof REFUND_LIFECYCLE_SCHEMA_VERSION;
   version: number;
@@ -97,6 +179,7 @@ export type RefundLifecycleContract = {
     lastUpdatedAt: string | null;
     payloadRedacted: true;
   };
+  customerOutreach?: RefundCustomerOutreachContract;
   classification: "customer" | "internal_test";
   evidenceState: string;
   locationEvidence: {
@@ -153,6 +236,10 @@ export type RefundLifecycleContract = {
 
 const stageSet = new Set<string>(refundLifecycleStages);
 const managerQueueBucketSet = new Set<string>(refundManagerQueueBuckets);
+const customerOutreachStateSet = new Set<string>(refundCustomerOutreachStates);
+const customerOutreachOwnerSet = new Set<string>(refundCustomerOutreachOwners);
+const customerOutreachNextActionSet = new Set<string>(refundCustomerOutreachNextActions);
+const customerOutreachFieldSet = new Set<string>(refundCustomerOutreachFields);
 const exactObjectKeys = (value: Record<string, unknown>, expected: string[]) => {
   const actual = Object.keys(value).sort();
   const sortedExpected = [...expected].sort();
@@ -175,9 +262,50 @@ export const isRefundLifecycleContract = (
   const customerReported = locationEvidence?.customerReported as Record<string, unknown> | null;
   const normalizedLocation = locationEvidence?.normalized as Record<string, unknown> | null;
   const accountingState = contract.accountingState as Record<string, unknown> | null;
+  const customerOutreach = contract.customerOutreach as Record<string, unknown> | null;
   const hasAccountingState = contract.paymentWorkComplete !== undefined ||
     contract.accountingState !== undefined;
   const hasRestrictedManagerProjection = contract.managerVisibility !== undefined;
+  const nullableString = (candidate: unknown) => candidate === null || typeof candidate === "string";
+  const customerOutreachKeys = [
+    "caseFactVersion", "clarificationAttemptCount", "clarificationLimit", "cycleId",
+    "cycleNumber", "deliveryState", "deliveryStateUpdatedAt", "failureCode",
+    "manualFallbackEligible", "nextAction", "owner", "payloadRedacted", "reasonCode",
+    "recheckStartedAt", "replyReceivedAt", "requestCreatedAt", "requestMessageId",
+    "requestSentAt", "requestedFields", "schemaVersion", "state",
+  ];
+  const validCustomerOutreach = !customerOutreach || (
+    exactObjectKeys(customerOutreach, customerOutreachKeys) &&
+    customerOutreach.schemaVersion === "refund_customer_outreach_v1" &&
+    typeof customerOutreach.state === "string" && customerOutreachStateSet.has(customerOutreach.state) &&
+    typeof customerOutreach.owner === "string" && customerOutreachOwnerSet.has(customerOutreach.owner) &&
+    typeof customerOutreach.nextAction === "string" && customerOutreachNextActionSet.has(customerOutreach.nextAction) &&
+    typeof customerOutreach.manualFallbackEligible === "boolean" &&
+    Array.isArray(customerOutreach.requestedFields) &&
+    customerOutreach.requestedFields.every((field) =>
+      typeof field === "string" && customerOutreachFieldSet.has(field)
+    ) &&
+    new Set(customerOutreach.requestedFields).size === customerOutreach.requestedFields.length &&
+    nullableString(customerOutreach.requestMessageId) &&
+    nullableString(customerOutreach.cycleId) &&
+    (customerOutreach.cycleNumber === null ||
+      (typeof customerOutreach.cycleNumber === "number" && Number.isSafeInteger(customerOutreach.cycleNumber) && customerOutreach.cycleNumber >= 1)) &&
+    typeof customerOutreach.caseFactVersion === "number" &&
+    Number.isSafeInteger(customerOutreach.caseFactVersion) && customerOutreach.caseFactVersion >= 1 &&
+    typeof customerOutreach.clarificationAttemptCount === "number" &&
+    Number.isSafeInteger(customerOutreach.clarificationAttemptCount) &&
+    customerOutreach.clarificationAttemptCount >= 0 &&
+    customerOutreach.clarificationLimit === 2 &&
+    nullableString(customerOutreach.requestCreatedAt) &&
+    nullableString(customerOutreach.requestSentAt) &&
+    nullableString(customerOutreach.deliveryState) &&
+    nullableString(customerOutreach.deliveryStateUpdatedAt) &&
+    nullableString(customerOutreach.replyReceivedAt) &&
+    nullableString(customerOutreach.recheckStartedAt) &&
+    nullableString(customerOutreach.reasonCode) &&
+    nullableString(customerOutreach.failureCode) &&
+    customerOutreach.payloadRedacted === true
+  );
   const noticeComplete = ["sent", "delivered"].includes(String(messageState?.state));
   const projectedAction = noticeComplete ? "none" : "wait";
   const projectedBucket = noticeComplete ? "completed" : "in_progress";
@@ -416,6 +544,7 @@ export const isRefundLifecycleContract = (
         operations?.nextStep === null)) &&
     Boolean(messageState) && typeof messageState?.state === "string" &&
     messageState?.payloadRedacted === true &&
+    validCustomerOutreach &&
     ["customer", "internal_test"].includes(String(contract.classification)) &&
     typeof contract.evidenceState === "string" &&
     Boolean(locationEvidence) && locationEvidence?.payloadRedacted === true &&

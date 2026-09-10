@@ -8,7 +8,11 @@ import {
   getRefundPaymentStateLabel,
   hasUnpaidRefundReview,
 } from './refundManagerState.ts';
-import type { RefundLifecycleContract, RefundLifecycleStage } from './refundLifecycle.ts';
+import type {
+  RefundCustomerOutreachContract,
+  RefundLifecycleContract,
+  RefundLifecycleStage,
+} from './refundLifecycle.ts';
 
 const assertEquals = (actual: unknown, expected: unknown, message: string) => {
   if (actual !== expected) throw new Error(`${message}: expected ${expected}, received ${actual}`);
@@ -162,6 +166,82 @@ const lifecycle = (
       : null,
   },
   payloadRedacted: true,
+});
+
+const outreach = (
+  state: RefundCustomerOutreachContract['state'],
+  owner: RefundCustomerOutreachContract['owner'],
+  nextAction: RefundCustomerOutreachContract['nextAction'],
+  manualFallbackEligible = false,
+): RefundCustomerOutreachContract => ({
+  schemaVersion: 'refund_customer_outreach_v1',
+  state,
+  owner,
+  nextAction,
+  manualFallbackEligible,
+  requestedFields: ['incident_time'],
+  requestMessageId: state === 'preparing' || state === 'policy_suppressed' ? null : '10000000-0000-4000-8000-000000000001',
+  cycleId: state === 'none' ? null : '10000000-0000-4000-8000-000000000002',
+  cycleNumber: state === 'none' ? null : 1,
+  caseFactVersion: 2,
+  clarificationAttemptCount: state === 'none' ? 0 : 1,
+  clarificationLimit: 2,
+  requestCreatedAt: state === 'none' ? null : '2026-09-10T18:00:00.000Z',
+  requestSentAt: ['sent_unconfirmed', 'waiting_for_customer', 'delivery_failed', 'delivery_unknown', 'customer_replied', 'rechecking', 'clarification_exhausted'].includes(state)
+    ? '2026-09-10T18:01:00.000Z'
+    : null,
+  deliveryState: state === 'waiting_for_customer' ? 'delivered' : null,
+  deliveryStateUpdatedAt: state === 'waiting_for_customer' ? '2026-09-10T18:02:00.000Z' : null,
+  replyReceivedAt: ['customer_replied', 'rechecking'].includes(state) ? '2026-09-10T19:00:00.000Z' : null,
+  recheckStartedAt: state === 'rechecking' ? '2026-09-10T19:00:01.000Z' : null,
+  reasonCode: state === 'policy_suppressed' ? 'contact_policy_disabled' : null,
+  failureCode: ['delivery_failed', 'delivery_unknown'].includes(state) ? 'delivery_transport' : null,
+  payloadRedacted: true,
+});
+
+Deno.test('durable customer outreach truth takes precedence over lookup and legacy case guesses', () => {
+  const scenarios = [
+    ['preparing', 'System', 'wait_for_queue', 'Preparing the request'],
+    ['queued', 'System', 'wait_for_delivery', 'Request queued'],
+    ['sent_unconfirmed', 'System', 'wait_for_delivery', 'Confirming delivery'],
+    ['waiting_for_customer', 'Customer', 'wait_for_customer', 'Waiting for customer'],
+    ['delivery_failed', 'Refund Operations', 'refund_operations', 'Customer request not delivered'],
+    ['delivery_unknown', 'Refund Operations', 'refund_operations', 'Customer request delivery unknown'],
+    ['customer_replied', 'System', 'recheck_customer_reply', 'New information received'],
+    ['rechecking', 'System', 'recheck_customer_reply', 'Rechecking the purchase'],
+    ['clarification_exhausted', 'Refund Operations', 'refund_operations', 'Clarification limit reached'],
+    ['policy_suppressed', 'Refund Operations', 'refund_operations', 'Customer request suppressed'],
+    ['manual_fallback', 'Machine Manager', 'request_details', 'Customer details needed'],
+  ] as const;
+
+  for (const [outreachState, owner, nextAction, expectedLabel] of scenarios) {
+    const contract = lifecycle('matching', 10, 'legacy_manager_guess');
+    contract.customerOutreach = outreach(
+      outreachState,
+      owner,
+      nextAction,
+      outreachState === 'manual_fallback',
+    );
+    const result = getRefundManagerState({
+      ...baseCase,
+      correlationStatus: 'multiple_candidates',
+      nayaxLookupSummary: { lookupStatus: 'multiple_matches', recommendationState: 'ambiguous' },
+      lifecycle: contract,
+    });
+    assertEquals(result.label, expectedLabel, `${outreachState} label comes from server outreach`);
+  }
+});
+
+Deno.test('outreach failure detail is visible only to Refund Operations', () => {
+  const contract = lifecycle('matching', 10);
+  contract.customerOutreach = outreach('delivery_failed', 'Refund Operations', 'refund_operations');
+  const ordinary = getRefundManagerState({ ...baseCase, lifecycle: contract });
+  const elevated = getRefundManagerState(
+    { ...baseCase, lifecycle: contract },
+    { canViewOperationsDetail: true },
+  );
+  assertEquals(ordinary.nextStep.includes('delivery transport'), false, 'ordinary view hides failure category');
+  assertEquals(elevated.nextStep.includes('delivery transport'), true, 'operations view includes redacted category');
 });
 
 Deno.test('v2-only payout, integrity, closure, and internal/test states stay explicit', () => {

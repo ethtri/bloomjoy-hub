@@ -94,6 +94,7 @@ const parseArgs = (argv) => {
     selectionCompatibilityOnly: false,
     deliveryTruthOnly: false,
     inboundLinkOnly: false,
+    customerOutreachOnly: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -136,6 +137,11 @@ const parseArgs = (argv) => {
 
     if (arg === '--nayax-lookup-only') {
       args.nayaxLookupOnly = true;
+      continue;
+    }
+
+    if (arg === '--customer-outreach-only') {
+      args.customerOutreachOnly = true;
       continue;
     }
 
@@ -354,6 +360,42 @@ const buildLifecycleFixture = (stage = 'matching', stageRank = 10, managerNextAc
     payloadRedacted: true,
   };
 };
+
+const buildCustomerOutreachFixture = ({
+  state,
+  owner,
+  nextAction,
+  manualFallbackEligible = false,
+  failureCode = null,
+  reasonCode = null,
+  requestedFields = ['incident_time'],
+}) => ({
+  schemaVersion: 'refund_customer_outreach_v1',
+  state,
+  owner,
+  nextAction,
+  manualFallbackEligible,
+  requestedFields,
+  requestMessageId: ['preparing', 'policy_suppressed', 'manual_fallback'].includes(state)
+    ? null
+    : '81000000-0000-4000-8000-000000000001',
+  cycleId: state === 'none' ? null : '81000000-0000-4000-8000-000000000002',
+  cycleNumber: state === 'none' ? null : 1,
+  caseFactVersion: 2,
+  clarificationAttemptCount: state === 'none' ? 0 : 1,
+  clarificationLimit: 2,
+  requestCreatedAt: state === 'none' ? null : isoHoursAgo(1),
+  requestSentAt: ['sent_unconfirmed', 'waiting_for_customer', 'delivery_failed', 'delivery_unknown', 'customer_replied', 'rechecking', 'clarification_exhausted'].includes(state)
+    ? isoHoursAgo(0.9)
+    : null,
+  deliveryState: state === 'waiting_for_customer' ? 'delivered' : null,
+  deliveryStateUpdatedAt: state === 'waiting_for_customer' ? isoHoursAgo(0.8) : null,
+  replyReceivedAt: ['customer_replied', 'rechecking'].includes(state) ? isoHoursAgo(0.2) : null,
+  recheckStartedAt: state === 'rechecking' ? isoHoursAgo(0.19) : null,
+  reasonCode,
+  failureCode,
+  payloadRedacted: true,
+});
 
 const buildCashRefundLifecycleFixture = (readyToMarkRefunded = true) => {
   const lifecycle = buildLifecycleFixture(
@@ -10690,6 +10732,207 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
   );
 };
 
+const runCustomerOutreachStateChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
+  const scenarios = [
+    { state: 'preparing', owner: 'System', nextAction: 'wait_for_queue', label: 'Preparing the request', returnedCandidates: 'customer_correctable' },
+    { state: 'queued', owner: 'System', nextAction: 'wait_for_delivery', label: 'Request queued' },
+    { state: 'sent_unconfirmed', owner: 'System', nextAction: 'wait_for_delivery', label: 'Confirming delivery' },
+    { state: 'waiting_for_customer', owner: 'Customer', nextAction: 'wait_for_customer', label: 'Waiting for customer' },
+    { state: 'delivery_failed', owner: 'Refund Operations', nextAction: 'refund_operations', label: 'Customer request not delivered', failureCode: 'delivery_transport' },
+    { state: 'delivery_unknown', owner: 'Refund Operations', nextAction: 'refund_operations', label: 'Customer request delivery unknown', failureCode: 'delivery_unconfirmed' },
+    { state: 'customer_replied', owner: 'System', nextAction: 'recheck_customer_reply', label: 'New information received' },
+    { state: 'rechecking', owner: 'System', nextAction: 'recheck_customer_reply', label: 'Rechecking the purchase' },
+    { state: 'clarification_exhausted', owner: 'Refund Operations', nextAction: 'refund_operations', label: 'Clarification limit reached' },
+    { state: 'policy_suppressed', owner: 'Refund Operations', nextAction: 'refund_operations', label: 'Customer request suppressed', reasonCode: 'internal_evidence_exception', returnedCandidates: 'internal_exception' },
+    { state: 'manual_fallback', owner: 'Machine Manager', nextAction: 'request_details', label: 'Customer details needed', manualFallbackEligible: true },
+  ];
+
+  const candidate = {
+    candidateToken: '82000000-0000-4000-8000-000000000001',
+    authorizedAt: isoHoursAgo(3),
+    machineAuthorizationTime: isoHoursAgo(3),
+    amountCents: 700,
+    currencyCode: 'USD',
+    cardLast4: '1111',
+    cardBrand: 'Visa',
+    recognitionMethod: 'contactless',
+    paymentStatus: 'approved',
+    amountDeltaCents: 0,
+    timeDeltaMinutes: 8,
+    recommendationRank: 1,
+    isTopRanked: true,
+    isRecommended: false,
+    recommendationState: 'manual_exception',
+    confidenceClass: 'ambiguous_manual',
+    reasonCodes: ['card_last4_mismatch'],
+    oneClickEligible: false,
+    selectionAllowed: false,
+    matchStrength: 'manual_review',
+    policyVersion: '2026-09-10.outreach.v1',
+    customerCorrectionFields: ['incident_time'],
+    matchReason: 'The returned transaction needs one specific customer correction.',
+  };
+
+  for (const scenario of scenarios) {
+    for (const elevated of scenario.failureCode ? [false, true] : [false]) {
+      const functionCalls = [];
+      const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+      await installMockSupabaseRoutes(context, {
+        functionCalls,
+        adminAccessContext: elevated ? {
+          isSuperAdmin: true,
+          isScopedAdmin: false,
+          canAccessAdmin: true,
+          allowedSurfaces: ['refunds'],
+          scopedMachineIds: [],
+        } : null,
+        refundOverview: () => {
+          const overview = buildPendingNayaxRefundOverview();
+          const operationsOwned = scenario.owner === 'Refund Operations';
+          const lifecycleStage = operationsOwned
+            ? 'needs_refund_operations'
+            : scenario.state === 'waiting_for_customer'
+              ? 'waiting_on_customer'
+              : 'matching';
+          const lifecycle = buildLifecycleFixture(
+            lifecycleStage,
+            operationsOwned ? 60 : 10,
+            scenario.nextAction,
+          );
+          lifecycle.customerOutreach = buildCustomerOutreachFixture(scenario);
+          lifecycle.managerAction = {
+            ...lifecycle.managerAction,
+            action: scenario.nextAction,
+            owner: scenario.owner,
+            safeRetryEligible: false,
+          };
+          lifecycle.managerNextAction = scenario.nextAction;
+          lifecycle.managerQueue = {
+            ...lifecycle.managerQueue,
+            bucket: operationsOwned
+              ? 'provider_hold'
+              : scenario.state === 'waiting_for_customer'
+                ? 'waiting_on_customer'
+                : ['preparing', 'queued', 'sent_unconfirmed', 'customer_replied', 'rechecking'].includes(scenario.state)
+                  ? 'in_progress'
+                  : 'needs_action',
+            label: operationsOwned
+              ? 'Needs Refund Operations'
+              : scenario.state === 'waiting_for_customer'
+                ? 'Waiting'
+                : ['preparing', 'queued', 'sent_unconfirmed', 'customer_replied', 'rechecking'].includes(scenario.state)
+                  ? 'In progress'
+                  : 'Action needed',
+            nextAction: scenario.nextAction,
+            customerActionFields: ['incident_time'],
+          };
+          lifecycle.operations = {
+            ...lifecycle.operations,
+            required: operationsOwned,
+            ageMinutes: operationsOwned ? 5 : null,
+            dueAt: operationsOwned ? isoHoursAgo(-0.9) : null,
+            safeStage: operationsOwned ? 'customer_outreach_exception' : 'not_needed',
+            failureClass: operationsOwned ? scenario.failureCode ?? scenario.reasonCode ?? 'customer_outreach_exception' : null,
+            nextStep: operationsOwned ? 'Review the customer outreach exception without resending blindly.' : null,
+          };
+          overview.customerOutreachContractVersion = 'refund_customer_outreach_v1';
+          overview.refundOperationsAccess = elevated;
+          overview.cases = overview.cases.map((refundCase) => ({
+            ...refundCase,
+            id: `case-outreach-${scenario.state}`,
+            publicReference: `RF-UAT-OUTREACH-${scenario.state.toUpperCase().replaceAll('_', '-')}`,
+            status: scenario.state === 'waiting_for_customer' ? 'waiting_on_customer' : 'needs_review',
+            correlationStatus: scenario.returnedCandidates ? 'multiple_candidates' : 'needs_nayax',
+            missingInformation: true,
+            nayaxLookupCandidates: scenario.returnedCandidates ? [candidate] : [],
+            lifecycle,
+          }));
+          return overview;
+        },
+      });
+      const page = await context.newPage();
+      await signInRefundUser(page, appUrl);
+      await navigateRefundPortalPage(
+        page,
+        `${appUrl}/refunds?case=${encodeURIComponent(`case-outreach-${scenario.state}`)}`,
+        { waitUntil: 'domcontentloaded' },
+      );
+      const stateHeading = page.getByTestId('refund-manager-state');
+      await stateHeading.getByText(scenario.label, { exact: true }).waitFor({ timeout: 10000 });
+      const statePanelText = await page.getByTestId('refund-primary-action').innerText();
+      recorder.assert(
+        `${scenario.state}${elevated ? ' elevated' : ''} renders durable outreach truth`,
+        statePanelText.includes(scenario.label) &&
+          !statePanelText.includes('Ask for missing details') &&
+          !statePanelText.includes('Internal review needed') &&
+          functionCalls.filter((name) => name === 'refund-case-message-send').length === 0,
+        statePanelText,
+      );
+      const requestDetails = page.getByRole('button', { name: 'Request details', exact: true });
+      recorder.assert(
+        `${scenario.state} exposes manual outreach only for the explicit fallback`,
+        scenario.manualFallbackEligible === true
+          ? (await requestDetails.count()) === 1 && await requestDetails.isEnabled()
+          : (await requestDetails.count()) === 0,
+      );
+      if (scenario.returnedCandidates) {
+        recorder.assert(
+          `${scenario.returnedCandidates} returned-candidate case has an explicit outreach classification`,
+          statePanelText.includes(scenario.label) && !statePanelText.includes('Internal review needed'),
+        );
+      }
+      if (scenario.failureCode) {
+        recorder.assert(
+          `${scenario.state} exposes only role-appropriate exception detail`,
+          elevated
+            ? statePanelText.includes(scenario.failureCode.replaceAll('_', ' '))
+            : !statePanelText.includes(scenario.failureCode.replaceAll('_', ' ')),
+          statePanelText,
+        );
+      }
+      if (scenario.manualFallbackEligible) {
+        await requestDetails.focus();
+        recorder.assert(
+          'Manual fallback is keyboard reachable and has one focused action',
+          await requestDetails.evaluate((element) => document.activeElement === element),
+        );
+        await requestDetails.click();
+        await page.waitForTimeout(100);
+        recorder.assert(
+          'Manual fallback dispatches one customer request without lookup or payment effects',
+          functionCalls.filter((name) => name === 'refund-case-message-send').length === 1 &&
+            !functionCalls.some((name) => [
+              'nayax-transaction-lookup', 'nayax-card-refund', 'refund-case-admin-update',
+            ].includes(name)),
+          functionCalls.join(', '),
+        );
+      }
+      await page.setViewportSize({ width: 390, height: 844 });
+      await stateHeading.scrollIntoViewIfNeeded();
+      recorder.assert(
+        `${scenario.state} stays readable on a 390px viewport`,
+        await stateHeading.isVisible() &&
+          await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      );
+      if (scenario.state === 'preparing') {
+        await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+        recorder.assert(
+          'Preparing outreach remains readable at 200% text zoom',
+          await stateHeading.isVisible() &&
+            await page.getByTestId('refund-primary-action').evaluate(
+              (element) => element.scrollWidth <= element.clientWidth,
+            ),
+        );
+      }
+      await page.screenshot({
+        path: path.join(artifactDir, `refund-portal-uat-customer-outreach-${scenario.state}${elevated ? '-operations' : ''}.png`),
+        fullPage: false,
+      });
+      await closeRefundPortalContext(context);
+    }
+  }
+};
+
 const run = async () => {
   const args = parseArgs(process.argv.slice(2));
   const recorder = createRecorder();
@@ -10723,7 +10966,7 @@ const run = async () => {
     !args.legacyStateOnly && !args.nayaxResolutionOnly && !args.nayaxLookupOnly &&
     !args.gmailDraftOnly && !args.duplicateOnly && !args.managerQueueOnly &&
     !args.approvalContinuationOnly && !args.selectionCompatibilityOnly &&
-    !args.inboundLinkOnly) {
+    !args.inboundLinkOnly && !args.customerOutreachOnly) {
     await mkdir(args.fragmentDir, { recursive: true });
   }
   await waitForServer(args.appUrl);
@@ -10742,6 +10985,13 @@ const run = async () => {
   try {
     if (args.inboundLinkOnly) {
       await runInboundCaseLinkReviewChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
+      });
+    } else if (args.customerOutreachOnly) {
+      await runCustomerOutreachStateChecks({
         browser,
         appUrl: args.appUrl,
         artifactDir: args.artifactDir,
@@ -11008,6 +11258,12 @@ const run = async () => {
       artifactDir: args.artifactDir,
       recorder,
     });
+    await runCustomerOutreachStateChecks({
+      browser,
+      appUrl: args.appUrl,
+      artifactDir: args.artifactDir,
+      recorder,
+    });
     await runInboundCaseLinkReviewChecks({
       browser,
       appUrl: args.appUrl,
@@ -11043,6 +11299,18 @@ const run = async () => {
     networkFailures.length === 0,
     [...networkFailures, ...fixtureOwnedPortalFailureDiagnostics].slice(0, 5).join(' | ')
   );
+
+  if (args.customerOutreachOnly) {
+    const focusedFailures = recorder.failed();
+    if (focusedFailures.length > 0) {
+      console.error(`\nRefund customer-outreach UAT failed: ${focusedFailures.length} check(s).`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log('\nRefund customer-outreach UAT passed.');
+    console.log(`Screenshots written to ${args.artifactDir}`);
+    return;
+  }
 
   if (args.selectionCompatibilityOnly) {
     const focusedFailures = recorder.failed();

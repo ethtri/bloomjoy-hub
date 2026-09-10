@@ -16,6 +16,10 @@ const queueSource = await readFile(
   new URL('../../src/lib/refundQueue.ts', import.meta.url),
   'utf8'
 );
+const outreachSource = await readFile(
+  new URL('../../src/lib/refundCustomerOutreach.ts', import.meta.url),
+  'utf8'
+);
 const lifecycleSource = await readFile(
   new URL('./refund-portal-uat-lifecycle.mjs', import.meta.url),
   'utf8'
@@ -65,6 +69,14 @@ assert.deepEqual(overviewFixtureBuilders, [
 assert.match(
   portalSource,
   /const buildLifecycleFixture = [\s\S]*?schemaVersion: 'refund_lifecycle_v2'[\s\S]*?version: 1[\s\S]*?locationEvidence: \{[\s\S]*?managerQueue: \{[\s\S]*?schemaVersion: 'refund_manager_queue_v2'/
+);
+assert.match(
+  portalSource,
+  /const runCustomerOutreachStateChecks = [\s\S]*?'preparing'[\s\S]*?'queued'[\s\S]*?'sent_unconfirmed'[\s\S]*?'waiting_for_customer'[\s\S]*?'delivery_failed'[\s\S]*?'delivery_unknown'[\s\S]*?'customer_replied'[\s\S]*?'rechecking'[\s\S]*?'clarification_exhausted'[\s\S]*?'policy_suppressed'[\s\S]*?'manual_fallback'/
+);
+assert.match(
+  portalSource,
+  /manualFallbackEligible === true[\s\S]*?requestDetails\.count\(\)[\s\S]*?document\.documentElement\.style\.fontSize = '200%'/
 );
 assert.match(
   portalSource,
@@ -229,6 +241,18 @@ assert.match(
 assert.match(
   refundsSource,
   /findRefundDeepLinkedCase\(caseIdFromUrl, overview\.cases, internalTestCases\)/
+);
+assert.match(
+  refundsSource,
+  /canRequestRefundCustomerDetailsManually\(customerOutreach\)[\s\S]*?label: 'Request details'[\s\S]*?messageType: 'more_info'/
+);
+assert.match(
+  refundsSource,
+  /aria-live="polite"[\s\S]*?data-testid="refund-manager-state"/
+);
+assert.match(
+  outreachSource,
+  /state === 'manual_fallback'[\s\S]*?owner === 'Machine Manager'[\s\S]*?nextAction === 'request_details'[\s\S]*?manualFallbackEligible === true[\s\S]*?requestedFields\.length > 0/
 );
 
 console.log(

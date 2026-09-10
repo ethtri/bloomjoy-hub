@@ -126,6 +126,10 @@ import {
   type RefundQueueFilter as QueueFilter,
 } from '@/lib/refundQueue';
 import { cn } from '@/lib/utils';
+import {
+  canRequestRefundCustomerDetailsManually,
+  getRefundCustomerOutreachPresentation,
+} from '@/lib/refundCustomerOutreach';
 
 const refundSearchViewLabel = (refundCase: RefundCaseRecord) => ({
   needs_action: 'Action needed', ready_to_pay: 'Ready to refund', in_progress: 'In progress',
@@ -1766,6 +1770,35 @@ const primaryActionConfig = (
   ) {
     const current = getRefundManagerState(refundCase);
     return { label: current.label, helper: current.nextStep, disabled: true };
+  }
+  const customerOutreach = refundCase.lifecycle?.customerOutreach;
+  if (customerOutreach && customerOutreach.state !== 'none') {
+    const presentation = getRefundCustomerOutreachPresentation(customerOutreach);
+    if (
+      canRequestRefundCustomerDetailsManually(customerOutreach)
+    ) {
+      return {
+        label: 'Request details',
+        helper: presentation.nextStep,
+        messageType: 'more_info',
+        mode: 'retry_message',
+      };
+    }
+    return {
+      label: presentation.label,
+      helper: presentation.nextStep,
+      disabled: true,
+    };
+  }
+  if (
+    derivePortalRefundMissingFields(refundCase).length > 0 &&
+    !canRequestRefundCustomerDetailsManually(customerOutreach)
+  ) {
+    return {
+      label: 'Customer follow-up unavailable',
+      helper: 'Bloomjoy has not assigned a manual customer request for this case. Follow the server-owned case state above.',
+      disabled: true,
+    };
   }
   if (refundCase.lifecycle?.stage === 'waiting_on_customer') return {
     label: 'Waiting for customer reply',
@@ -5647,6 +5680,7 @@ export default function AdminRefundsPage() {
       {
         isRefunding: isRunningNayaxRefund,
         canResolveHeldResult: nayaxResolutionReadiness?.available === true,
+        canViewOperationsDetail: refundOperationsAccess,
       }
     );
     const hasUnsavedTransactionChoice =
@@ -5734,7 +5768,9 @@ export default function AdminRefundsPage() {
       primaryAction.disabled === true ||
       (primaryActionNeedsOfficialAccess && (selectedCaseIsReviewOnly || officialActionVersion <= 0)) ||
       primaryActionIssues.length > 0;
-    const canAskForCustomerDetails = derivePortalRefundMissingFields(selectedCase).length > 0;
+    const canAskForCustomerDetails =
+      canRequestRefundCustomerDetailsManually(selectedCase.lifecycle?.customerOutreach) &&
+      derivePortalRefundMissingFields(selectedCase).length > 0;
 
     const chooseCustomerFollowUp = () => {
       if (!canAskForCustomerDetails || isSendingCustomerMessage) return;
@@ -5794,6 +5830,7 @@ export default function AdminRefundsPage() {
         <section className="overflow-hidden rounded-xl border border-border bg-card text-foreground">
           <div
             data-testid="refund-primary-action"
+            aria-live="polite"
             className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
           >
             <div>
@@ -6789,7 +6826,9 @@ export default function AdminRefundsPage() {
       (primaryActionNeedsOfficialAccess && (selectedCaseIsReviewOnly || officialActionVersion <= 0)) ||
       primaryActionIssues.length > 0;
     const cashMatchReady = selectedCase.hasMatchedSalesFact && selectedCase.correlationStatus === 'matched';
-    const canAskForCustomerDetails = derivePortalRefundMissingFields(selectedCase).length > 0;
+    const canAskForCustomerDetails =
+      canRequestRefundCustomerDetailsManually(selectedCase.lifecycle?.customerOutreach) &&
+      derivePortalRefundMissingFields(selectedCase).length > 0;
 
     const chooseCustomerFollowUp = () => {
       if (!canAskForCustomerDetails || isSendingCustomerMessage) return;
@@ -6815,6 +6854,7 @@ export default function AdminRefundsPage() {
         <section className="overflow-hidden rounded-xl border border-border bg-card">
           <div
             data-testid="refund-cash-primary-action-panel"
+            aria-live="polite"
             className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
           >
             <div>

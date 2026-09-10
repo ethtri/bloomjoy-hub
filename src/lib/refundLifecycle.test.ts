@@ -668,3 +668,47 @@ Deno.test("manager queue customer action fields are string-only", () => {
     "non-string action fields should fail closed",
   );
 });
+
+Deno.test("customer outreach accepts only the exact redacted v1 contract", () => {
+  const customerOutreach = {
+    schemaVersion: "refund_customer_outreach_v1",
+    state: "queued",
+    owner: "System",
+    nextAction: "wait_for_delivery",
+    manualFallbackEligible: false,
+    requestedFields: ["incident_time"],
+    requestMessageId: "10000000-0000-4000-8000-000000000001",
+    cycleId: "10000000-0000-4000-8000-000000000002",
+    cycleNumber: 1,
+    caseFactVersion: 3,
+    clarificationAttemptCount: 1,
+    clarificationLimit: 2,
+    requestCreatedAt: "2026-09-10T18:00:00.000Z",
+    requestSentAt: null,
+    deliveryState: null,
+    deliveryStateUpdatedAt: null,
+    replyReceivedAt: null,
+    recheckStartedAt: null,
+    reasonCode: "automatic_request_queued",
+    failureCode: null,
+    payloadRedacted: true,
+  } as const;
+  assert(isRefundLifecycleContract({ ...fixture, customerOutreach }), "exact outreach should parse");
+
+  for (const invalid of [
+    { ...customerOutreach, state: "sent" },
+    { ...customerOutreach, owner: "manager" },
+    { ...customerOutreach, manualFallbackEligible: "true" },
+    { ...customerOutreach, requestedFields: ["incident_time", 4] },
+    { ...customerOutreach, requestedFields: ["provider_account"] },
+    { ...customerOutreach, requestedFields: ["incident_time", "incident_time"] },
+    { ...customerOutreach, clarificationLimit: 3 },
+    { ...customerOutreach, payloadRedacted: false },
+    { ...customerOutreach, providerMessageId: "private" },
+  ]) {
+    assert(
+      !isRefundLifecycleContract({ ...fixture, customerOutreach: invalid }),
+      "malformed or expanded outreach must fail closed",
+    );
+  }
+});
