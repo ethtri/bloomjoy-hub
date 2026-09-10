@@ -1790,16 +1790,6 @@ const primaryActionConfig = (
       disabled: true,
     };
   }
-  if (
-    derivePortalRefundMissingFields(refundCase).length > 0 &&
-    !canRequestRefundCustomerDetailsManually(customerOutreach)
-  ) {
-    return {
-      label: 'Customer follow-up unavailable',
-      helper: 'Bloomjoy has not assigned a manual customer request for this case. Follow the server-owned case state above.',
-      disabled: true,
-    };
-  }
   if (refundCase.lifecycle?.stage === 'waiting_on_customer') return {
     label: 'Waiting for customer reply',
     helper: 'Wait for the customer to reply to the existing request. No new request is needed.', disabled: true,
@@ -1835,6 +1825,16 @@ const primaryActionConfig = (
     return {
       label: 'Refund was rejected',
       helper: 'No refund was sent. Keep the case open for payment support.',
+      disabled: true,
+    };
+  }
+  if (
+    derivePortalRefundMissingFields(refundCase).length > 0 &&
+    !canRequestRefundCustomerDetailsManually(customerOutreach)
+  ) {
+    return {
+      label: 'Customer follow-up unavailable',
+      helper: 'Bloomjoy has not assigned a manual customer request for this case. Follow the server-owned case state above.',
       disabled: true,
     };
   }
