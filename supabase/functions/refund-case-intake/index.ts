@@ -31,6 +31,8 @@ import {
 } from "../_shared/refund-location.ts";
 import {
   buildPublicIntakeDedupeKey,
+  buildPublicIntakeSubmissionDedupeKey,
+  buildPublicIntakeSubmissionFingerprint,
   buildPublicIntakeKeyHashes,
   checkPublicIntakeRateLimits,
   getPublicIntakeClientIp,
@@ -127,6 +129,7 @@ type SubmittedRefundCase = {
   status: string;
   correlation_status: string;
   gmail_thread_id?: string;
+  intake_meta?: Record<string, unknown> | null;
 };
 
 type VerifiedRefundQrClaim = {
@@ -569,6 +572,19 @@ const refundQrUnavailableResponse = () =>
     }),
     {
       status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    },
+  );
+
+const refundSubmissionIdentityConflictResponse = () =>
+  new Response(
+    JSON.stringify({
+      error:
+        "These answers no longer match the saved submission attempt. Review them and send this as a new attempt.",
+      errorCode: "refund_submission_identity_conflict",
+    }),
+    {
+      status: 409,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     },
   );
@@ -1297,6 +1313,7 @@ serve(async (req) => {
     let intakeSelectionLocationTimezone = "";
     const qrClaimToken = sanitizeText(body?.qrClaimToken, 80);
     const emailContextToken = sanitizeText(body?.emailContextToken, 80);
+    const submissionId = sanitizeText(body?.submissionId, 80).toLowerCase();
     const customerEmail = sanitizeEmail(body?.customerEmail);
     const customerName = sanitizeText(body?.customerName, 160);
     const customerPhone = sanitizeText(body?.customerPhone, 80);
@@ -1400,6 +1417,12 @@ serve(async (req) => {
       );
     }
 
+    if (body?.submissionId !== undefined && !isUuid(submissionId)) {
+      throw new RequestValidationError(
+        "This refund submission could not be safely identified. Reload the page and try again.",
+      );
+    }
+
     if (!qrClaimToken && !requestedSelectionKey && !isUuid(machineId)) {
       return new Response(JSON.stringify({ error: "Please choose a machine location." }), {
         status: 400,
@@ -1451,6 +1474,19 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    const runReplayNayaxLookup = async (caseId: string) => {
+      if (paymentValidation.shouldRunNayaxLookup) {
+        await runAutomaticNayaxLookupIfReady({
+          supabase,
+          caseId,
+          source: "hosted_intake",
+        }).catch((lookupError) => {
+          console.error("refund intake automatic Nayax trigger failed", {
+            errorType: lookupError instanceof Error ? lookupError.name : typeof lookupError,
+          });
+        });
+      }
+    };
 
     if (
       body?.incidentTimeConfidence !== undefined &&
@@ -1759,30 +1795,98 @@ serve(async (req) => {
       new Date(),
       PUBLIC_INTAKE_DEDUPE_WINDOW_SECONDS,
     );
+    // Keep the legacy, content-derived namespace on the unique column so a
+    // rolling deploy or rollback dedupes in either order. The durable opaque
+    // identity is separately bound to a canonical payload fingerprint below.
+    const legacyDedupeMessage = [
+      intakeSelectionKey ?? machineRecord.id,
+      incidentAt.toISOString(),
+      paymentMethod,
+      amountCents ?? "amount-not-provided",
+      paymentMethod === "card" ? cardLast4 : "no-card-last4",
+      paymentInteraction,
+      cardLast4Source ?? "source-not-provided",
+      walletDeviceKind ?? "device-not-provided",
+      incidentTimeConfidence,
+      incidentTimeSource ?? "time-source-not-provided",
+      issueCategory,
+      productDescription,
+      issueSummary,
+    ].join("|");
     const serverDedupeKey = await buildPublicIntakeDedupeKey({
       salt: abuseControlSalt,
       submissionType: "refund_case",
       email: customerEmail,
       sourcePage,
-      message: [
-        intakeSelectionKey ?? machineRecord.id,
-        incidentAt.toISOString(),
-        paymentMethod,
-        amountCents ?? "amount-not-provided",
-        paymentMethod === "card" ? cardLast4 : "no-card-last4",
-        paymentInteraction,
-        cardLast4Source ?? "source-not-provided",
-        walletDeviceKind ?? "device-not-provided",
-        incidentTimeConfidence,
-        incidentTimeSource ?? "time-source-not-provided",
-        issueCategory,
-        productDescription,
-        issueSummary,
-      ].join("|"),
+      message: legacyDedupeMessage,
       windowStartedAt: serverDedupeWindowStartedAt,
     });
+    const submissionIdentityHash = submissionId
+      ? await buildPublicIntakeSubmissionDedupeKey({
+          salt: abuseControlSalt,
+          submissionType: "refund_case",
+          submissionId,
+        })
+      : null;
+    const submissionPayloadFingerprint = submissionIdentityHash
+      ? await buildPublicIntakeSubmissionFingerprint({
+          salt: abuseControlSalt,
+          submissionType: "refund_case",
+          canonicalValues: [
+            customerEmail,
+            customerName,
+            customerPhone,
+            intakeSelectionKey ?? machineRecord.id,
+            machineRecord.id,
+            incidentAt.toISOString(),
+            hasLocalIncidentInput ? `${incidentDate}T${incidentTime}` : null,
+            locationRecord?.timezone ?? null,
+            paymentValidation.paymentMethod,
+            paymentValidation.amountCents,
+            paymentValidation.cardLast4,
+            cardLast4Source,
+            paymentValidation.cardNetwork,
+            paymentValidation.cardWalletUsed,
+            paymentValidation.paymentInteraction,
+            paymentValidation.walletProvider,
+            walletDeviceKind,
+            incidentTimeConfidence,
+            incidentTimeSource,
+            issueCategory,
+            productDescription,
+            issueSummary,
+          ],
+        })
+      : null;
     const selectedRefundCaseColumns =
-      "id, public_reference, status, correlation_status";
+      "id, public_reference, status, correlation_status, intake_meta, submission_identity_hash, submission_payload_fingerprint";
+    const claimSubmissionIdentity = async (refundCaseId: string | null) => {
+      if (!submissionIdentityHash || !submissionPayloadFingerprint) return null;
+      const { data, error } = await supabase.rpc(
+        "service_claim_refund_submission_identity",
+        {
+          p_refund_case_id: refundCaseId,
+          p_identity_hash: submissionIdentityHash,
+          p_payload_fingerprint: submissionPayloadFingerprint,
+        },
+      );
+      if (error || !data || typeof data !== "object" || Array.isArray(data)) {
+        throw new Error("Unable to safely check this refund submission.");
+      }
+      const claim = data as Record<string, unknown>;
+      const outcome = claim.outcome;
+      const claimedCaseId = claim.refundCaseId;
+      if (
+        !["missing", "match", "conflict", "adopted", "occupied"].includes(String(outcome))
+        || (claimedCaseId !== null && !isUuid(String(claimedCaseId)))
+      ) {
+        throw new Error("Unable to safely check this refund submission.");
+      }
+      return {
+        outcome: String(outcome) as "missing" | "match" | "conflict" | "adopted" | "occupied",
+        refundCaseId: claimedCaseId === null ? null : String(claimedCaseId),
+      };
+    };
     const intakeMeta = {
       source: "hosted_refund_intake",
       intake_path: verifiedQrClaim ? "machine_qr" : "direct_form",
@@ -1803,6 +1907,8 @@ serve(async (req) => {
       candidate_sales_fact_ids: candidateIds,
       customer_locale: customerLocale,
       user_agent: req.headers.get("user-agent")?.slice(0, 300) ?? null,
+      submission_identity_hash: submissionIdentityHash,
+      submission_payload_fingerprint: submissionPayloadFingerprint,
     };
     const insertValues = {
       reporting_machine_id: machineRecord.id,
@@ -1861,6 +1967,36 @@ serve(async (req) => {
       server_dedupe_window_started_at: serverDedupeWindowStartedAt.toISOString(),
     };
 
+    const initialIdentityClaim = await claimSubmissionIdentity(null);
+    if (initialIdentityClaim?.outcome === "conflict") {
+      return refundSubmissionIdentityConflictResponse();
+    }
+    if (initialIdentityClaim?.outcome === "match" && initialIdentityClaim.refundCaseId) {
+      const { data: existingSubmission, error: submissionLookupError } = await supabase
+        .from("refund_cases")
+        .select(selectedRefundCaseColumns)
+        .eq("id", initialIdentityClaim.refundCaseId)
+        .maybeSingle();
+      if (submissionLookupError || !existingSubmission) {
+        throw new Error("Unable to safely check this refund submission.");
+      }
+      await runReplayNayaxLookup(existingSubmission.id);
+      const statusCapability = await issueStatusCapability(existingSubmission.id);
+        return new Response(
+          JSON.stringify({
+            refundCase: {
+              id: existingSubmission.id,
+              publicReference: existingSubmission.public_reference,
+              status: existingSubmission.status,
+              correlationStatus: existingSubmission.correlation_status,
+            },
+            statusToken: statusCapability?.token ?? null,
+            statusExpiresAt: statusCapability?.expiresAt ?? null,
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+    }
+
     let refundCase: SubmittedRefundCase | null = null;
     let linkedGmailThreadId: string | null = null;
     if (emailContextToken) {
@@ -1911,6 +2047,37 @@ serve(async (req) => {
         },
       );
       if (linkError) {
+        if (linkError.code === "23505") {
+          const concurrentClaim = await claimSubmissionIdentity(null);
+          if (concurrentClaim?.outcome === "conflict") {
+            return refundSubmissionIdentityConflictResponse();
+          }
+          if (concurrentClaim?.outcome === "match" && concurrentClaim.refundCaseId) {
+            const { data: concurrentCase, error: concurrentCaseError } = await supabase
+              .from("refund_cases")
+              .select(selectedRefundCaseColumns)
+              .eq("id", concurrentClaim.refundCaseId)
+              .maybeSingle();
+            if (concurrentCaseError || !concurrentCase) {
+              throw new Error("Unable to safely check this refund submission.");
+            }
+            await runReplayNayaxLookup(concurrentCase.id);
+            const statusCapability = await issueStatusCapability(concurrentCase.id);
+            return new Response(
+              JSON.stringify({
+                refundCase: {
+                  id: concurrentCase.id,
+                  publicReference: concurrentCase.public_reference,
+                  status: concurrentCase.status,
+                  correlationStatus: concurrentCase.correlation_status,
+                },
+                statusToken: statusCapability?.token ?? null,
+                statusExpiresAt: statusCapability?.expiresAt ?? null,
+              }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+            );
+          }
+        }
         throw new RefundEmailContextUnavailableError();
       }
       const linkedCase = requireLinkedRefundEmailCase(
@@ -1922,6 +2089,10 @@ serve(async (req) => {
         emailContextToken,
         linkedCase,
       );
+      const linkedIdentityClaim = await claimSubmissionIdentity(linkedCase.id);
+      if (linkedIdentityClaim?.outcome === "conflict") {
+        return refundSubmissionIdentityConflictResponse();
+      }
       refundCase = linkedCase;
     }
 
@@ -1938,6 +2109,36 @@ serve(async (req) => {
             return refundQrUnavailableResponse();
           }
           throw new Error(insertError.message || "Unable to create refund case.");
+        }
+
+        const concurrentIdentityClaim = await claimSubmissionIdentity(null);
+        if (concurrentIdentityClaim?.outcome === "conflict") {
+          return refundSubmissionIdentityConflictResponse();
+        }
+        if (concurrentIdentityClaim?.outcome === "match" && concurrentIdentityClaim.refundCaseId) {
+          const { data: concurrentCase, error: concurrentCaseError } = await supabase
+            .from("refund_cases")
+            .select(selectedRefundCaseColumns)
+            .eq("id", concurrentIdentityClaim.refundCaseId)
+            .maybeSingle();
+          if (concurrentCaseError || !concurrentCase) {
+            throw new Error("Unable to safely check this refund submission.");
+          }
+          await runReplayNayaxLookup(concurrentCase.id);
+          const statusCapability = await issueStatusCapability(concurrentCase.id);
+          return new Response(
+            JSON.stringify({
+              refundCase: {
+                id: concurrentCase.id,
+                publicReference: concurrentCase.public_reference,
+                status: concurrentCase.status,
+                correlationStatus: concurrentCase.correlation_status,
+              },
+              statusToken: statusCapability?.token ?? null,
+              statusExpiresAt: statusCapability?.expiresAt ?? null,
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
         }
 
         const { data: dedupedRefundCase, error: dedupeLookupError } = await supabase
@@ -1963,17 +2164,19 @@ serve(async (req) => {
           throw new Error("Unable to create refund case.");
         }
 
-        if (paymentValidation.shouldRunNayaxLookup) {
-          await runAutomaticNayaxLookupIfReady({
-            supabase,
-            caseId: dedupedRefundCase.id,
-            source: "hosted_intake",
-          }).catch((lookupError) => {
-            console.error("refund intake automatic Nayax trigger failed", {
-              errorType: lookupError instanceof Error ? lookupError.name : typeof lookupError,
-            });
-          });
+        const adoptionClaim = await claimSubmissionIdentity(dedupedRefundCase.id);
+        if (adoptionClaim?.outcome === "conflict") {
+          return refundSubmissionIdentityConflictResponse();
         }
+        if (
+          adoptionClaim?.outcome === "match"
+          && adoptionClaim.refundCaseId
+          && adoptionClaim.refundCaseId !== dedupedRefundCase.id
+        ) {
+          throw new Error("Unable to safely retain this refund submission.");
+        }
+
+        await runReplayNayaxLookup(dedupedRefundCase.id);
         const statusCapability = await issueStatusCapability(dedupedRefundCase.id);
         return new Response(
           JSON.stringify({
