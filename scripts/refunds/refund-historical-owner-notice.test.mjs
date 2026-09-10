@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import test from 'node:test';
 import ts from 'typescript';
 import { buildReceiptWrapperParityTest } from './refund-receipt-wrapper-parity.mjs';
+import { getRefundCustomerOutreachPresentation } from '../../src/lib/refundCustomerOutreach.ts';
 
 const read = (p) => fs.readFileSync(p, 'utf8');
 const load = (file, dependencies = {}, globals = {}) => {
@@ -146,7 +147,9 @@ test('forward owner slice preserves support adopter, lifecycle and complete rece
   assert.match(buildReceiptWrapperParityTest(process.cwd()), /select plan\(25\)/);
 });
 test('actual manager summary records customer-notice evidence without claiming provider verification', () => {
-  const manager = load('src/lib/refundManagerState.ts');
+  const manager = load('src/lib/refundManagerState.ts', {
+    './refundCustomerOutreach.ts': { getRefundCustomerOutreachPresentation },
+  });
   const result = manager.getRefundManagerState({ status: 'card_refund_pending', paymentMethod: 'card',
     correlationStatus: 'matched', providerHold: true, lifecycle: { schemaVersion: 'refund_lifecycle_v2',
       stage: 'customer_notified', reasonCode: 'settlement_time_unknown', paymentState: 'confirmed' } });
