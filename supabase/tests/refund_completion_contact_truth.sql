@@ -16,7 +16,25 @@ select ('c6230000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-CONTACT-'||n
   'c6220000-0000-4000-8000-000000000001','c6210000-0000-4000-8000-000000000001',
   'contact-'||n||'@example.invalid','Synthetic completion contact',
   (date '2017-01-01' + n + time '12:00')::timestamp,
-  'card',500,'needs_review','matched' from generate_series(1,8) n;
+  'card',500,'needs_review','matched' from generate_series(1,1) n;
+
+insert into public.refund_cases(
+  id,public_reference,reporting_machine_id,reporting_location_id,customer_email,
+  issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,
+  status,decision,refund_completed_at,correlation_status,correlation_source,
+  correlation_confidence,automation_state,nayax_refund_execution_status,
+  nayax_match_execution_eligible,matched_nayax_transaction_id,
+  matched_nayax_machine_auth_time,matched_nayax_amount_cents,
+  matched_nayax_currency_code,matched_nayax_site_id
+)
+select ('c6230000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-CONTACT-'||n,
+  'c6220000-0000-4000-8000-000000000001','c6210000-0000-4000-8000-000000000001',
+  'contact-'||n||'@example.invalid','Synthetic completion contact',
+  (date '2017-01-01' + n + time '12:00')::timestamp,
+  'card',500,500,'completed','approved',statement_timestamp(),'matched','nayax',1,
+  'completed','approved',false,'CONTACT-TXN-'||lpad(n::text,4,'0'),
+  (date '2017-01-01' + n + time '12:00')::timestamp,500,'USD',7001
+from generate_series(2,8) n;
 
 -- Completion messages for card refunds are owned by committed settlements.
 -- Seed that terminal truth rather than bypassing the production guard.
@@ -29,7 +47,13 @@ select ('c6250000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
   'c6220000-0000-4000-8000-000000000001','c6210000-0000-4000-8000-000000000001',
   current_date,'refund',500,1,'refund_case','contact-adjustment-'||n,'refund_cases',
   'RF-CONTACT-'||n,('c6230000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
-  'applied',1,'Synthetic committed contact truth',jsonb_build_object('payload_redacted',true)
+  'applied',1,'Synthetic committed contact truth',jsonb_build_object(
+    'refund_case_id',('c6230000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
+    'refund_case_reference','RF-CONTACT-'||n,
+    'refund_case_status','completed','refund_case_decision','approved',
+    'payment_method','card','correlation_source','nayax',
+    'correlation_has_card_lookup',true,'payload_redacted',true
+  )
 from generate_series(2,8) n;
 
 select is(
@@ -50,10 +74,7 @@ select ok(
   'Each settlement adjustment retains the exact linked case business fingerprint'
 );
 
-update public.refund_cases c set
-  status='completed',decision='approved',refund_completed_at=statement_timestamp(),
-  automation_state='completed',nayax_refund_execution_status='approved',
-  nayax_match_execution_eligible=false,reporting_adjustment_id=a.id
+update public.refund_cases c set reporting_adjustment_id=a.id
 from public.sales_adjustment_facts a
 where a.refund_case_id=c.id and c.public_reference like 'RF-CONTACT-%';
 

@@ -48,8 +48,11 @@ insert into public.refund_cases (
   intake_selection_key, intake_selection_kind, intake_selection_machine_ids,
   customer_email, issue_summary, incident_at, incident_timezone,
   payment_method, payment_amount_cents, refund_amount_cents, card_last4,
-  status, correlation_status, correlation_source, correlation_confidence,
-  automation_state
+  status, decision, refund_completed_at, correlation_status, correlation_source,
+  correlation_confidence, automation_state, nayax_refund_execution_status,
+  nayax_match_execution_eligible, matched_nayax_transaction_id,
+  matched_nayax_machine_auth_time, matched_nayax_amount_cents,
+  matched_nayax_currency_code, matched_nayax_site_id
 ) values
   (
     'e4000000-0000-4000-8000-000000000001', 'RF-LIFECYCLE-V2-NORMAL',
@@ -59,8 +62,9 @@ insert into public.refund_cases (
     array['e3000000-0000-4000-8000-000000000001'::uuid],
     'lifecycle-normal@example.invalid', 'Lifecycle normal fixture',
     timestamp '2017-02-01 12:00:00', 'America/Los_Angeles',
-    'card', 700, 700, '4242', 'needs_review', 'matched', 'nayax', 1,
-    'under_review'
+    'card', 700, 700, '4242', 'completed', 'approved', statement_timestamp(),
+    'matched', 'nayax', 1, 'completed', 'approved', false,
+    'LIFECYCLE-TXN-0001', timestamp '2017-02-01 12:00:00', 700, 'USD', 7101
   ),
   (
     'e4000000-0000-4000-8000-000000000002', 'RF-LIFECYCLE-V2-CLOSED',
@@ -69,8 +73,8 @@ insert into public.refund_cases (
     null, null, null,
     'lifecycle-closed@example.invalid', 'Lifecycle closed fixture',
     statement_timestamp() - interval '40 minutes', 'America/Los_Angeles',
-    'card', 700, 700, '4242', 'closed', 'no_match', 'nayax', 0,
-    'closed_incomplete'
+    'card', 700, 700, '4242', 'closed', null, null, 'no_match', 'nayax', 0,
+    'closed_incomplete', 'not_requested', false, null, null, null, null, null
   ),
   (
     'e4000000-0000-4000-8000-000000000003', 'RF-LIFECYCLE-V2-CASH',
@@ -79,8 +83,8 @@ insert into public.refund_cases (
     null, null, null,
     'lifecycle-cash@example.invalid', 'Lifecycle payout fixture',
     statement_timestamp() - interval '20 minutes', 'America/Los_Angeles',
-    'cash', 800, 800, null, 'needs_review', 'not_started', null, 0,
-    'under_review'
+    'cash', 800, 800, null, 'needs_review', null, null, 'not_started', null, 0,
+    'under_review', 'not_requested', false, null, null, null, null, null
   );
 
 insert into public.refund_cases (
@@ -287,7 +291,16 @@ insert into public.sales_adjustment_facts (
   'refund', 700, 1, 'refund_case', 'lifecycle-v2-completed-adjustment',
   'refund_cases', 'RF-LIFECYCLE-V2-NORMAL',
   'e4000000-0000-4000-8000-000000000001', 'applied', 1,
-  'Synthetic committed lifecycle settlement', jsonb_build_object('payload_redacted', true)
+  'Synthetic committed lifecycle settlement', jsonb_build_object(
+    'refund_case_id', 'e4000000-0000-4000-8000-000000000001'::uuid,
+    'refund_case_reference', 'RF-LIFECYCLE-V2-NORMAL',
+    'refund_case_status', 'completed',
+    'refund_case_decision', 'approved',
+    'payment_method', 'card',
+    'correlation_source', 'nayax',
+    'correlation_has_card_lookup', true,
+    'payload_redacted', true
+  )
 );
 select ok(
   (
@@ -307,9 +320,6 @@ select ok(
   'Completion settlement has one exact, noncolliding case business fingerprint'
 );
 update public.refund_cases set
-  status = 'completed', decision = 'approved', refund_completed_at = statement_timestamp(),
-  automation_state = 'completed', nayax_refund_execution_status = 'approved',
-  nayax_match_execution_eligible = false,
   reporting_adjustment_id = 'e6500000-0000-4000-8000-000000000001'
 where id = 'e4000000-0000-4000-8000-000000000001';
 insert into public.refund_case_nayax_refund_attempts (
