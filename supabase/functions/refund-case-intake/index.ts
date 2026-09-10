@@ -421,17 +421,29 @@ const sendManagerIntakeNotification = async ({
       supabase,
       refundCaseId,
       customerEmail,
+      noticeReason: "intake_created",
       subject: `New Bloomjoy refund request ${publicReference}`,
       summaryText,
     });
 
     await supabase.from("refund_case_events").insert({
       refund_case_id: refundCaseId,
-      event_type: "manager_notification_sent",
-      message: notice.usedOpsFallback
+      event_type: notice.deliveryState === "sent"
+        ? "manager_notification_sent"
+        : "manager_notification_policy_recorded",
+      message: notice.deliveryState === "portal_only"
+        ? "New refund request is visible in the manager portal without a separate inbox notice."
+        : notice.deliveryState === "digest_eligible"
+        ? "New refund request was coalesced into manager digest eligibility."
+        : notice.usedOpsFallback
         ? "New refund request created an operations routing-exception notice because the complete current Machine Manager route could not be safely resolved."
         : "New refund request action notice sent only to the currently assigned Machine Managers.",
       metadata: {
+        notification_action_id: notice.actionId,
+        attention_version: notice.attentionVersion,
+        notice_reason: notice.noticeReason,
+        notification_channel: notice.channel,
+        delivery_state: notice.deliveryState,
         recipient_count: notice.recipientCount,
         machine_manager_recipient_count: notice.managerRecipientCount,
         manager_resolution_status: notice.resolutionStatus,
@@ -906,6 +918,7 @@ const sendWalletMatchReadyNotification = async ({
     supabase,
     refundCaseId,
     customerEmail,
+    noticeReason: "wallet_match_ready",
     subject: `Refund transaction ready for approval: ${publicReference}`,
     summaryText: [
       "Bloomjoy automatically re-checked corrected mobile-wallet details and found one high-confidence transaction.",
@@ -923,6 +936,11 @@ const sendWalletMatchReadyNotification = async ({
       ? "High-confidence wallet correction match created an operations routing-exception notice because the complete current Machine Manager route could not be safely resolved."
       : "High-confidence wallet correction action notice sent only to the currently assigned Machine Managers.",
     metadata: {
+      notification_action_id: notice.actionId,
+      attention_version: notice.attentionVersion,
+      notice_reason: notice.noticeReason,
+      notification_channel: notice.channel,
+      delivery_state: notice.deliveryState,
       recipient_count: notice.recipientCount,
       machine_manager_recipient_count: notice.managerRecipientCount,
       manager_resolution_status: notice.resolutionStatus,

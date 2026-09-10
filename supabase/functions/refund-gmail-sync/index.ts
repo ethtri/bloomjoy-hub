@@ -1414,6 +1414,7 @@ const sendGmailCaseActionNotice = async ({
       supabase,
       refundCaseId,
       customerEmail,
+      noticeReason: isHardBounce ? "hard_bounce" : "customer_reply",
       subject: isHardBounce
         ? `Refund delivery exception needs attention: ${publicReference}`
         : `Refund email needs attention: ${publicReference}`,
@@ -1433,13 +1434,23 @@ const sendGmailCaseActionNotice = async ({
 
     await supabase.from("refund_case_events").insert({
       refund_case_id: refundCaseId,
-      event_type: isHardBounce
+      event_type: notice.deliveryState !== "sent"
+        ? "gmail_manager_notification_policy_recorded"
+        : isHardBounce
         ? "gmail_bounce_action_notice_sent"
         : "gmail_customer_action_notice_sent",
-      message: notice.usedOpsFallback
+      message: notice.deliveryState === "digest_eligible"
+        ? "Verified customer correspondence was coalesced into manager digest eligibility."
+        : notice.deliveryState === "portal_only"
+        ? "Verified customer correspondence remains visible in the manager portal without a separate notice."
+        : notice.usedOpsFallback
         ? "Gmail action-needed work was routed to operations because the complete current Machine Manager route could not be safely resolved."
         : "Gmail action-needed notice sent only to the currently assigned Machine Managers.",
       metadata: {
+        notification_action_id: notice.actionId,
+        attention_version: notice.attentionVersion,
+        notification_channel: notice.channel,
+        delivery_state: notice.deliveryState,
         notice_reason: reason,
         recipient_count: notice.recipientCount,
         machine_manager_recipient_count: notice.managerRecipientCount,
@@ -1448,7 +1459,9 @@ const sendGmailCaseActionNotice = async ({
         payload_redacted: true,
       },
     });
-    counters.managerNoticeSentEvents += 1;
+    if (notice.deliveryState === "sent") {
+      counters.managerNoticeSentEvents += 1;
+    }
   } catch (notificationError) {
     console.error("refund-gmail-sync manager action notice failed", {
       errorType: notificationError instanceof Error

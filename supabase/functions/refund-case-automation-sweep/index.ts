@@ -1520,6 +1520,9 @@ const sendFollowUpManagerNotice = async ({
     supabase,
     refundCaseId: refundCase.id,
     customerEmail: refundCase.customer_email,
+    noticeReason: noticeKind === "customer_reply_review"
+      ? "customer_reply"
+      : noticeKind,
     subject: `Refund case needs attention: ${refundCase.public_reference}`,
     summaryText: [
       summary,
@@ -1531,11 +1534,18 @@ const sendFollowUpManagerNotice = async ({
   });
   const { error: eventError } = await supabase.from("refund_case_events").insert({
     refund_case_id: refundCase.id,
-    event_type: noticeKind.startsWith("provider_")
+    event_type: notice.deliveryState !== "sent"
+      ? "refund_manager_notification_policy_recorded"
+      : noticeKind.startsWith("provider_")
       ? "refund_provider_exception_notice_sent"
       : "refund_follow_up_manager_notice_sent",
     message: summary,
     metadata: {
+      notification_action_id: notice.actionId,
+      attention_version: notice.attentionVersion,
+      notice_reason: notice.noticeReason,
+      notification_channel: notice.channel,
+      delivery_state: notice.deliveryState,
       notice_kind: noticeKind,
       recipient_count: notice.recipientCount,
       machine_manager_recipient_count: notice.managerRecipientCount,
@@ -3943,6 +3953,41 @@ const runEnabledManagerAgingSweep = async (
         businessDayAge,
         status: refundCase.status,
       });
+      if (milestone === "reminder") {
+        const notice = await sendRefundManagerActionNotice({
+          supabase,
+          refundCaseId: refundCase.id,
+          customerEmail: refundCase.customer_email,
+          noticeReason: "manager_reminder",
+          subject: message.subject,
+          summaryText: message.summaryText,
+        });
+        if (
+          notice.deliveryState !== "digest_eligible" || !notice.actionId ||
+          notice.attentionVersion !== attentionVersion
+        ) {
+          throw new Error("Manager reminder digest policy result is invalid.");
+        }
+        const { data: marked, error: markError } = await supabase.rpc(
+          "service_mark_refund_manager_reminder_digest_eligible",
+          {
+            p_refund_case_id: refundCase.id,
+            p_attention_version: attentionVersion,
+            p_notification_action_id: notice.actionId,
+          },
+        );
+        if (markError) throw markError;
+        await finishAction(
+          action,
+          "completed",
+          marked === true
+            ? "manager_reminder_digest_eligible"
+            : "manager_reminder_state_changed",
+          null,
+          counters,
+        );
+        continue;
+      }
       beginRequested = true;
       const { data: attempt, error: attemptError } = await supabase.rpc(
         "service_begin_refund_manager_aging_notice_attempt",
@@ -4004,6 +4049,7 @@ const runEnabledManagerAgingSweep = async (
         supabase,
         refundCaseId: refundCase.id,
         customerEmail: refundCase.customer_email,
+        noticeReason: "manager_escalation",
         subject: message.subject,
         summaryText: message.summaryText,
         resolvedRouting: reservedRouting,
@@ -4028,7 +4074,6 @@ const runEnabledManagerAgingSweep = async (
         );
         continue;
       }
-      if (milestone === "reminder") counters.managerRemindersSent += 1;
       if (milestone === "escalation") counters.escalationsSent += 1;
       if (notice.usedOpsFallback) counters.managerRoutingExceptionsSent += 1;
       await finishAction(

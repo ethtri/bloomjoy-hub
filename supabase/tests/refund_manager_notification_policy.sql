@@ -1,0 +1,164 @@
+begin;
+
+create extension if not exists pgtap with schema extensions;
+set local search_path = public, extensions;
+select no_plan();
+
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+) values (
+  '00000000-0000-0000-0000-000000000000',
+  '92000000-0000-4000-8000-000000000001',
+  'authenticated', 'authenticated', 'notice-manager@example.test', '', now(),
+  '{}'::jsonb, '{}'::jsonb, now(), now()
+);
+
+insert into public.customer_accounts (id, name, account_type)
+values ('92100000-0000-4000-8000-000000000001', 'Notification policy test', 'customer');
+
+insert into public.reporting_locations (id, account_id, name, timezone)
+values (
+  '92200000-0000-4000-8000-000000000001',
+  '92100000-0000-4000-8000-000000000001',
+  'Synthetic notification location', 'America/Los_Angeles'
+);
+
+insert into public.reporting_machines (
+  id, account_id, location_id, machine_label, refund_public_display_label
+) values (
+  '92300000-0000-4000-8000-000000000001',
+  '92100000-0000-4000-8000-000000000001',
+  '92200000-0000-4000-8000-000000000001',
+  'Private synthetic machine', 'Lobby machine'
+);
+
+insert into public.reporting_machine_refund_managers (
+  id, reporting_machine_id, manager_user_id, manager_email, grant_reason
+) values (
+  '92400000-0000-4000-8000-000000000001',
+  '92300000-0000-4000-8000-000000000001',
+  '92000000-0000-4000-8000-000000000001',
+  'notice-manager@example.test', 'Synthetic notification test'
+);
+
+insert into public.refund_cases (
+  id, public_reference, reporting_machine_id, reporting_location_id,
+  customer_email, issue_summary, incident_at, payment_method,
+  payment_amount_cents, card_last4, status, automation_state
+) values (
+  '92500000-0000-4000-8000-000000000001', 'RF-NOTICE-TEST',
+  '92300000-0000-4000-8000-000000000001',
+  '92200000-0000-4000-8000-000000000001',
+  'notice-customer@example.test', 'Synthetic issue text.', now(), 'card',
+  500, '4242', 'needs_review', 'under_review'
+);
+
+select has_table('public', 'refund_manager_notification_actions', 'notification actions are durable');
+select has_table('public', 'refund_manager_notification_recipients', 'recipient dedupe is durable');
+select ok(not has_table_privilege('authenticated', 'public.refund_manager_notification_actions', 'select'), 'browser cannot read notification actions');
+select ok(not has_function_privilege('authenticated', 'public.service_begin_refund_manager_notification(uuid,text,text,text[],text[])', 'execute'), 'browser cannot reserve notifications');
+
+select is(
+  public.service_begin_refund_manager_notification(
+    '92500000-0000-4000-8000-000000000001', 'intake_created',
+    'notice-customer@example.test', array['mailbox@example.test'],
+    array['ops@example.test']
+  ) ->> 'channel',
+  'portal_only',
+  'intake is portal-only'
+);
+
+select is(
+  public.service_begin_refund_manager_notification(
+    '92500000-0000-4000-8000-000000000001', 'intake_created',
+    'notice-customer@example.test', array['mailbox@example.test'],
+    array['ops@example.test']
+  ) ->> 'reason',
+  'duplicate_coalesced',
+  'intake replay coalesces'
+);
+
+select is(
+  public.service_begin_refund_manager_notification(
+    '92500000-0000-4000-8000-000000000001', 'customer_reply',
+    'notice-customer@example.test', array['mailbox@example.test'],
+    array['ops@example.test']
+  ) ->> 'channel',
+  'daily_digest',
+  'customer reply becomes digest eligibility'
+);
+
+create temporary table notification_claim as
+select public.service_begin_refund_manager_notification(
+  '92500000-0000-4000-8000-000000000001', 'wallet_match_ready',
+  'notice-customer@example.test', array['mailbox@example.test'],
+  array['ops@example.test']
+) as value;
+
+select is((select (value ->> 'claimed')::boolean from notification_claim), true, 'action-ready notice is reserved once');
+select is((select value #>> '{recipientRoute,recipients,0}' from notification_claim), 'notice-manager@example.test', 'current manager is resolved at reservation time');
+
+select is(
+  (public.service_begin_refund_manager_notification(
+    '92500000-0000-4000-8000-000000000001', 'wallet_match_ready',
+    'notice-customer@example.test', array['mailbox@example.test'],
+    array['ops@example.test']
+  ) ->> 'claimed')::boolean,
+  false,
+  'concurrent or replayed action-ready work cannot send twice'
+);
+
+select is(
+  public.service_complete_refund_manager_notification(
+    (select (value ->> 'actionId')::uuid from notification_claim),
+    (select (value ->> 'claimToken')::uuid from notification_claim),
+    'sent', 'synthetic-provider-message-id'
+  ),
+  true,
+  'winning reservation settles once'
+);
+
+select is(
+  (select delivery_state from public.refund_manager_notification_actions where notice_reason = 'wallet_match_ready'),
+  'sent',
+  'settlement is retained'
+);
+select ok(
+  not exists (
+    select 1 from public.refund_manager_notification_actions
+    where row_to_json(refund_manager_notification_actions)::text like '%notice-manager@example.test%'
+       or row_to_json(refund_manager_notification_actions)::text like '%synthetic-provider-message-id%'
+  ),
+  'notification ledger stores neither recipient address nor provider id'
+);
+select is(
+  (select count(*)::integer from public.refund_manager_notification_recipients where delivery_state = 'sent'),
+  1,
+  'per-recipient delivery is settled without storing the address'
+);
+
+create temporary table reminder_eligibility as
+select public.service_begin_refund_manager_notification(
+  '92500000-0000-4000-8000-000000000001', 'manager_reminder',
+  'notice-customer@example.test', array['mailbox@example.test'],
+  array['ops@example.test']
+) as value;
+
+select is(
+  public.service_mark_refund_manager_reminder_digest_eligible(
+    '92500000-0000-4000-8000-000000000001',
+    (select (value ->> 'attentionVersion')::bigint from reminder_eligibility),
+    (select (value ->> 'actionId')::uuid from reminder_eligibility)
+  ),
+  true,
+  'two-business-day reminder is resolved into digest eligibility'
+);
+select is(
+  (select last_notice_outcome from public.refund_manager_attention_states where refund_case_id = '92500000-0000-4000-8000-000000000001'),
+  'digest_eligible',
+  'attention state records digest eligibility without claiming an email send'
+);
+
+select * from finish();
+rollback;
