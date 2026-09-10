@@ -62,6 +62,9 @@ import {
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import { RefundGmailError } from "../_shared/refund-gmail.ts";
 import { drainRefundManualMessageOutbox } from "../_shared/refund-manual-message-outbox.ts";
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 import { runAutomaticNayaxLookupIfReady } from "../_shared/automatic-nayax-lookup.ts";
 import {
   beginNayaxLookup,
@@ -381,9 +384,10 @@ const redactedSummary = (counters: SweepCounters) => ({
   payloadRedacted: true,
 });
 
-const runManualMessageOutboxSweep = async (counters: SweepCounters) => {
-  if (!supabase) return;
-  const results = await drainRefundManualMessageOutbox({ supabase, limit: 10 });
+const recordManualMessageOutboxResults = (
+  counters: SweepCounters,
+  results: Awaited<ReturnType<typeof drainRefundManualMessageOutbox>>,
+) => {
   for (const result of results) {
     counters.actionsAttempted += 1;
     if (result.outcome === "sent") {
@@ -405,10 +409,20 @@ const runManualMessageOutboxSweep = async (counters: SweepCounters) => {
   }
 };
 
+const runManualMessageOutboxSweep = async (
+  counters: SweepCounters,
+  messageId: string | null = null,
+  limit = 10,
+) => {
+  if (!supabase) return;
+  const results = await drainRefundManualMessageOutbox({ supabase, messageId, limit });
+  recordManualMessageOutboxResults(counters, results);
+};
+
 const queueAutomaticReceiptCompletions = async (
   counters: SweepCounters,
 ) => {
-  if (!supabase) return;
+  if (!supabase) return [] as string[];
   const { data, error } = await supabase.rpc(
     "service_ensure_refund_receipt_automatic_completions",
     { p_limit: 10 },
@@ -429,6 +443,17 @@ const queueAutomaticReceiptCompletions = async (
   const queued = count(result.queued);
   const replayed = count(result.replayed);
   const suppressed = count(result.suppressed);
+  const newMessageIds = Array.isArray(result.newMessageIds) &&
+      result.newMessageIds.every((value) =>
+        typeof value === "string" && UUID_PATTERN.test(value)
+      )
+    ? result.newMessageIds as string[]
+    : null;
+  if (!newMessageIds || newMessageIds.length !== queued || queued > 25) {
+    throw new Error(
+      "Automatic receipt completion queue returned invalid new-message identities.",
+    );
+  }
   counters.actionsAttempted += queued;
   counters.actionsSucceeded += queued;
   counters.actionsSuppressed += replayed + suppressed;
@@ -440,6 +465,135 @@ const queueAutomaticReceiptCompletions = async (
   }
   if (suppressed > 0) {
     addReason(counters, "automatic_receipt_completion_suppressed", suppressed);
+  }
+  return newMessageIds;
+};
+
+type CompletionOutboxHealth = {
+  status: "healthy" | "action_needed";
+  sampleCount: number;
+  queueToFirstProviderAttemptMedianSeconds: number | null;
+  queueToFirstProviderAttemptP95Seconds: number | null;
+  agingQueuedCount: number;
+  staleClaimedCount: number;
+  definiteFailedCount: number;
+  deliveryUnknownCount: number;
+  disabledContactDeferralCount: number;
+  missingRouteCount: number;
+  payloadRedacted: true;
+};
+
+const completionOutboxHealth = async (): Promise<CompletionOutboxHealth> => {
+  if (!supabase) throw new Error("Refund automation is not configured.");
+  const { data, error } = await supabase.rpc(
+    "service_get_refund_completion_outbox_health",
+  );
+  if (error) throw error;
+  const value = data && typeof data === "object" && !Array.isArray(data)
+    ? data as Record<string, unknown>
+    : {};
+  const countKeys = [
+    "sampleCount",
+    "agingQueuedCount",
+    "staleClaimedCount",
+    "definiteFailedCount",
+    "deliveryUnknownCount",
+    "disabledContactDeferralCount",
+    "missingRouteCount",
+  ] as const;
+  if (
+    value.payloadRedacted !== true ||
+    !["healthy", "action_needed"].includes(String(value.status)) ||
+    countKeys.some((key) =>
+      !Number.isSafeInteger(value[key]) || Number(value[key]) < 0
+    )
+  ) {
+    throw new Error("Completion outbox health contract is invalid.");
+  }
+  return value as unknown as CompletionOutboxHealth;
+};
+
+const sendCompletionOutboxHealthAlert = async (
+  health: CompletionOutboxHealth,
+  notificationType: "initial" | "reminder" | "recovery",
+) => {
+  const recovered = notificationType === "recovery";
+  await sendInternalEmail({
+    subject: recovered
+      ? "[Recovered] Refund completion outbox healthy"
+      : notificationType === "reminder"
+      ? "[Reminder] Refund completion outbox needs attention"
+      : "[Action needed] Refund completion outbox needs attention",
+    text: [
+      recovered
+        ? "Bloomjoy Refund Operations completion delivery has remained healthy for one hour."
+        : "Bloomjoy Refund Operations completion delivery needs attention.",
+      "",
+      `Aging queued: ${health.agingQueuedCount}`,
+      `Stale claimed: ${health.staleClaimedCount}`,
+      `Definite failures: ${health.definiteFailedCount}`,
+      `Delivery unknown: ${health.deliveryUnknownCount}`,
+      `Disabled-contact deferrals: ${health.disabledContactDeferralCount}`,
+      `Missing routes: ${health.missingRouteCount}`,
+      `Latency samples: ${health.sampleCount}`,
+      `Queue-to-provider median seconds: ${health.queueToFirstProviderAttemptMedianSeconds ?? "not available"}`,
+      `Queue-to-provider p95 seconds: ${health.queueToFirstProviderAttemptP95Seconds ?? "not available"}`,
+      "",
+      "No customer names, email addresses, payment details, message IDs, case IDs, or provider payloads are included.",
+    ].join("\n"),
+  });
+};
+
+const runCompletionOutboxHealthNotification = async (
+  runId: string,
+  counters: SweepCounters,
+  policyWindowStart: string,
+) => {
+  if (!supabase) return;
+  const health = await completionOutboxHealth();
+  const { data, error } = await supabase.rpc(
+    "service_claim_refund_completion_outbox_notification",
+    { p_health: health },
+  );
+  if (error) throw error;
+  const claim = data && typeof data === "object" && !Array.isArray(data)
+    ? data as Record<string, unknown>
+    : {};
+  const notificationType = ["initial", "reminder", "recovery"].includes(
+      String(claim.notificationType),
+    )
+    ? claim.notificationType as "initial" | "reminder" | "recovery"
+    : null;
+  const actionKey = typeof claim.actionKey === "string" ? claim.actionKey : null;
+  if (!notificationType || !actionKey) return;
+  const action = await claimAction(
+    runId,
+    null,
+    actionKey,
+    "ops_alert",
+    null,
+    policyWindowStart,
+    counters,
+  );
+  if (!action.claimed) return;
+  try {
+    await sendCompletionOutboxHealthAlert(health, notificationType);
+    await finishAction(
+      action,
+      "completed",
+      `completion_outbox_${notificationType}_sent`,
+      null,
+      counters,
+    );
+  } catch (error) {
+    await finishAction(
+      action,
+      "failed",
+      "completion_outbox_alert_delivery_failed",
+      null,
+      counters,
+    );
+    throw error;
   }
 };
 
@@ -4110,20 +4264,33 @@ serve(async (req) => {
     // Only future, immutable terminal-source authorities can enter this
     // bounded queue. The environment, policy-window, and database contact
     // gates all apply before queueing. The RPC scans authorities, never receipts.
+    let newlyQueuedCompletionMessageIds: string[] = [];
     if (
       automationEnabled && policyWindowIsOpen(scheduledAt) &&
       await automaticCustomerContactAllowed()
     ) {
       failureStage = "automatic_receipt_completion_queue";
-      await queueAutomaticReceiptCompletions(counters);
+      newlyQueuedCompletionMessageIds =
+        await queueAutomaticReceiptCompletions(counters);
     }
 
     // Manual messages remain independent of automatic gates. Automatic receipt
     // completions retain their delivery kind, so the shared worker rechecks its
     // kill switches before any fresh provider attempt. The policy window is not
-    // a delivery cancellation boundary for already queued work.
+    // a delivery cancellation boundary for already queued work. Exact new IDs
+    // drain first through the same atomic claim, one at a time; a crash or lost
+    // invocation leaves the durable row for the unchanged generic recovery pass.
     failureStage = "manual_message_outbox";
+    for (const messageId of newlyQueuedCompletionMessageIds) {
+      await runManualMessageOutboxSweep(counters, messageId, 1);
+    }
     await runManualMessageOutboxSweep(counters);
+    failureStage = "completion_outbox_health";
+    await runCompletionOutboxHealthNotification(
+      runId,
+      counters,
+      policyWindowStart,
+    );
     if (counters.actionsFailed > 0) {
       throw new RefundAutomationActionFailure();
     }
