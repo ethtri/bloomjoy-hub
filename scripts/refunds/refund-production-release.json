@@ -184,7 +184,8 @@
     "20260909193000_refund_report_health_contract.sql",
     "20260909221439_refund_queue_integrity.sql",
     "20260910035559_refund_server_owned_nayax_lookup_recovery.sql",
-    "20260910095126_refund_customer_outreach_truth.sql"
+    "20260910095126_refund_customer_outreach_truth.sql",
+    "20260910153000_refund_inactive_published_intake_retirement.sql"
   ],
   "migrationFilesSha256": "4d3271fc4619137ecdc676fe835f16c095511d89ae4ab4e63ce96a4354bb8abb",
   "migrationVersionSetSha256": "6c586525bbfd2ee17cfb7476d4e681f15dc92c3c53595f6a063981d5175b0cfc",
