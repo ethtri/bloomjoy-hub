@@ -1772,6 +1772,8 @@ serve(async (req) => {
           salt: abuseControlSalt,
           submissionType: "refund_case",
           submissionId,
+          email: customerEmail,
+          sourcePage,
         })
       : await buildPublicIntakeDedupeKey({
           salt: abuseControlSalt,

@@ -277,16 +277,22 @@ export const buildPublicIntakeSubmissionDedupeKey = async ({
   salt,
   submissionType,
   submissionId,
+  email,
+  sourcePage,
 }: {
   salt: string;
   submissionType: string;
   submissionId: string;
+  email: string;
+  sourcePage: string;
 }): Promise<string> =>
   await hashPublicIntakeValue({
     salt,
     purpose: "public-intake:submission-dedupe",
     value: [
       submissionType.trim().toLowerCase(),
+      email.trim().toLowerCase(),
+      normalizePublicIntakeSource(sourcePage),
       submissionId.trim().toLowerCase(),
     ].join("|"),
   });
