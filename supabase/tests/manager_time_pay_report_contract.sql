@@ -9,7 +9,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(123);
+select plan(132);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -391,6 +391,14 @@ select ok(
   'anonymous callers cannot reach the pay report'
 );
 select ok(
+  has_function_privilege('authenticated', 'public.get_current_technician_pay_report_context(date)', 'execute'),
+  'authenticated managers can reach the automatically reconciled pay report'
+);
+select ok(
+  not has_function_privilege('anon', 'public.get_current_technician_pay_report_context(date)', 'execute'),
+  'anonymous callers cannot reach the automatically reconciled pay report'
+);
+select ok(
   has_function_privilege('authenticated', 'public.admin_supersede_operator_compensation_rate(uuid,uuid,uuid,text,integer,date,date,text)', 'execute'),
   'account pay managers can reach the audited rate-change action'
 );
@@ -461,6 +469,11 @@ select is(
   pg_temp.capture_error($$select public.get_technician_pay_report_context('2026-07-01')$$),
   'Account pay authority required',
   'machine-only Time Report authority cannot read pay data'
+);
+select is(
+  pg_temp.capture_error($$select public.get_current_technician_pay_report_context('2026-07-01')$$),
+  'Account pay authority required',
+  'machine-only Time Report authority cannot reconcile or read pay data'
 );
 select is(
   jsonb_array_length(public.get_payout_review_context()->'periods'),
@@ -1768,6 +1781,130 @@ select is(
   ) ->> 'issuedStatementCount',
   '2',
   'legacy statement issuance resolves the existing payload column without ambiguity'
+);
+
+-- The manager-facing report creates the first month and snapshot in one request,
+-- then remains idempotent until imported facts actually change.
+create temporary table automatic_sales_initial_report as
+select public.get_current_technician_pay_report_context('2026-09-01') as payload;
+
+select is(
+  concat(
+    (select count(*)::integer
+     from public.payout_periods period
+     where period.account_id = 'a2000000-0000-0000-0000-000000000001'
+       and period.period_start_date = '2026-09-01'
+       and period.period_end_date = '2026-09-30'
+       and period.status <> 'voided'), ':',
+    payload #>> '{technicians,0,machines,0,snapshotMatchesFacts}'
+  ),
+  '1:true',
+  'one report request creates the missing month and returns a reconciled snapshot'
+)
+from automatic_sales_initial_report;
+
+create temporary table automatic_sales_first_read as
+select count(*)::integer as audit_count
+from public.admin_audit_log audit
+where audit.action in (
+  'operator_payout_revenue_snapshot.created',
+  'operator_payout_revenue_snapshot.regenerated'
+);
+
+select public.get_current_technician_pay_report_context('2026-09-01');
+select is(
+  (select count(*)::integer
+   from public.admin_audit_log audit
+   where audit.action in (
+     'operator_payout_revenue_snapshot.created',
+     'operator_payout_revenue_snapshot.regenerated'
+   )),
+  (select audit_count from automatic_sales_first_read),
+  'an unchanged second report read does not rewrite the revenue snapshot'
+);
+
+insert into public.machine_sales_facts (
+  id, reporting_machine_id, reporting_location_id, sale_date, payment_method,
+  net_sales_cents, transaction_count, source, source_row_hash
+)
+values (
+  'a9100000-0000-0000-0000-000000000005',
+  'a4000000-0000-0000-0000-000000000001',
+  'a3000000-0000-0000-0000-000000000001',
+  '2026-09-05', 'credit', 1000, 1, 'sample_seed', 'manager-report-auto-sale-september'
+);
+
+create temporary table automatic_sales_mismatch_baseline as
+select count(*)::integer as audit_count
+from public.admin_audit_log audit
+where audit.action = 'operator_payout_revenue_snapshot.regenerated';
+
+create temporary table automatic_sales_current_report as
+select public.get_current_technician_pay_report_context('2026-09-01') as payload;
+
+select is(
+  concat(
+    payload #>> '{technicians,0,machines,0,snapshotMatchesFacts}', ':',
+    payload #>> '{technicians,0,machines,0,commissionableSalesCents}'
+  ),
+  'true:900',
+  'a changed imported sale is reconciled before the current report is returned'
+)
+from automatic_sales_current_report;
+
+select is(
+  (select count(*)::integer
+   from public.admin_audit_log audit
+   where audit.action = 'operator_payout_revenue_snapshot.regenerated'),
+  (select audit_count + 1 from automatic_sales_mismatch_baseline),
+  'a fact mismatch performs exactly one audited snapshot regeneration'
+);
+
+-- Reconcile a sale after issuance: the published payload remains frozen while
+-- the report directs the manager through explicit Pay Stub regeneration.
+create temporary table automatic_sales_statement_baseline as
+select statement.id, statement.statement_payload
+from public.pay_statements statement
+where statement.operator_profile_id = 'a6000000-0000-0000-0000-000000000001'
+  and statement.status = 'issued'
+order by statement.version desc, statement.created_at desc
+limit 1;
+
+update public.pay_statements statement
+set statement_generated_at = '2026-09-01 00:00:00+00'
+from automatic_sales_statement_baseline baseline
+where statement.id = baseline.id;
+
+insert into public.machine_sales_facts (
+  id, reporting_machine_id, reporting_location_id, sale_date, payment_method,
+  net_sales_cents, transaction_count, source, source_row_hash
+)
+values (
+  'a9100000-0000-0000-0000-000000000006',
+  'a4000000-0000-0000-0000-000000000001',
+  'a3000000-0000-0000-0000-000000000001',
+  '2026-07-25', 'credit', 100, 1, 'sample_seed', 'manager-report-auto-sale-after-statement'
+);
+
+create temporary table automatic_sales_published_report as
+select public.get_current_technician_pay_report_context('2026-07-01') as payload;
+
+select is(
+  concat(
+    payload #>> '{technicians,0,machines,0,snapshotMatchesFacts}', ':',
+    payload #>> '{technicians,0,payStubRegenerationRequired}'
+  ),
+  'true:true',
+  'post-publication sales reconcile while retaining the explicit Pay Stub regeneration safeguard'
+)
+from automatic_sales_published_report;
+
+select is(
+  (select statement.statement_payload = baseline.statement_payload
+   from public.pay_statements statement
+   join automatic_sales_statement_baseline baseline on baseline.id = statement.id),
+  true,
+  'automatic sales reconciliation never mutates the issued Pay Stub payload'
 );
 
 select * from finish();
