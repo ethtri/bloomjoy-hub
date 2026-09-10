@@ -68,9 +68,20 @@ test('database tests cover replay, priority, crash semantics, privacy, and races
     'health RPC is private from authenticated callers',
   ]) assert.ok(pgTap.includes(marker), marker);
   for (const marker of [
+    'The bounded sweep returns the one newly-created canonical completion identity',
+    'Replay returns no newly-created priority identity',
+    'Adoption, observation, and suppressed authorities return no new priority identities',
+  ]) assert.ok(read('supabase/tests/refund_receipt_automatic_completion.sql').includes(marker), marker);
+  for (const marker of [
     'concurrent notification claims coalesce to one initial action',
     'concurrent claims preserve one open incident',
   ]) assert.ok(concurrency.includes(marker), marker);
+  const completionConcurrency = read('supabase/tests/refund_receipt_automatic_completion_concurrency.sql');
+  assert.ok(completionConcurrency.includes('Exact and generic concurrent drains claim the canonical completion once'));
+  assert.ok(completionConcurrency.includes('claim race creates no provider effect before the shared transport boundary'));
+  const deliveryUnit = read('supabase/functions/_shared/refund-manual-message-outbox.test.ts');
+  assert.ok(deliveryUnit.includes('mark-only automatic crash cannot send after env shutdown'));
+  assert.ok(deliveryUnit.includes('started automatic delivery reaches Gmail sent or unknown reconciliation after env shutdown'));
 });
 
 test('priority slice cannot alter payment, receipt, accounting, templates, or retry identity', () => {

@@ -156,6 +156,27 @@ select is((select count(*)::integer from public.refund_receipt_completion_intent
 select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id='cd400000-0000-4000-8000-000000000001' and template_version='refund_receipt_completion_v1'),1,
   'Concurrent coordinators preserve exactly one outbox message');
+select extensions.dblink_send_query('receipt_auto_race_a',$q$
+  select count(*)::integer from public.service_claim_refund_manual_message_deliveries(
+    (select id from public.refund_case_messages
+      where refund_case_id='cd400000-0000-4000-8000-000000000001'
+        and template_version='refund_receipt_completion_v1'),1)
+$q$);
+select extensions.dblink_send_query('receipt_auto_race_b',$q$
+  select count(*)::integer from public.service_claim_refund_manual_message_deliveries(null,10)
+$q$);
+create table refund_receipt_auto_race_test.delivery_claims(lane text,claim_count integer);
+insert into refund_receipt_auto_race_test.delivery_claims
+select 'exact',claim_count from extensions.dblink_get_result('receipt_auto_race_a') as x(claim_count integer);
+insert into refund_receipt_auto_race_test.delivery_claims
+select 'generic',claim_count from extensions.dblink_get_result('receipt_auto_race_b') as x(claim_count integer);
+select is((select sum(claim_count)::integer from refund_receipt_auto_race_test.delivery_claims),1,
+  'Exact and generic concurrent drains claim the canonical completion once');
+select is((select count(*)::integer from public.refund_case_messages
+  where refund_case_id='cd400000-0000-4000-8000-000000000001'
+    and manual_delivery_state='claimed' and manual_delivery_attempt_count=0
+    and manual_delivery_provider_attempted_at is null),1,
+  'Exact versus generic claim race creates no provider effect before the shared transport boundary');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
   where refund_case_id='cd400000-0000-4000-8000-000000000001'),0,
   'The coordinator race never creates a provider attempt');

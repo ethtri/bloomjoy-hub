@@ -176,6 +176,13 @@ create temp table receipt_auto_batch as
 select public.service_ensure_refund_receipt_automatic_completions(10) payload;
 select is((select payload->>'queued' from receipt_auto_batch),'1',
   'A bounded authority sweep queues the valid case');
+select is((select jsonb_array_length(payload->'newMessageIds') from receipt_auto_batch),1,
+  'The bounded sweep returns the one newly-created canonical completion identity');
+select is((select payload#>>'{newMessageIds,0}' from receipt_auto_batch),
+  (select id::text from public.refund_case_messages
+    where refund_case_id='ce400000-0000-4000-8000-000000000001'
+      and template_version='refund_receipt_completion_v1'),
+  'The returned priority identity is the exact canonical outbox message');
 select is((select payload->>'suppressed' from receipt_auto_batch),'0',
   'A review-required case does not consume the bounded candidate window');
 reset role;
@@ -187,6 +194,10 @@ select is((select payload->>'status' from receipt_auto_first),'canonical_message
 select is((select payload->>'replayed' from receipt_auto_first),'true',
   'Exact coordination replays the scheduler-created message');
 select is(pg_temp.ensure(1)->>'replayed','true','Service replay returns the same canonical message');
+create temp table receipt_auto_replay_batch as
+select public.service_ensure_refund_receipt_automatic_completions(10) payload;
+select is((select payload->'newMessageIds' from receipt_auto_replay_batch),'[]'::jsonb,
+  'Replay returns no newly-created priority identity');
 reset role;
 select is((select count(*)::integer from public.refund_receipt_completion_intents
   where refund_case_id='ce400000-0000-4000-8000-000000000001'),1,'Replay preserves one completion intent');
@@ -402,6 +413,10 @@ reset role;
 select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id='ce400000-0000-4000-8000-000000000006'),0,
   'External observation creates no canonical outbox duplicate');
+set local role service_role;
+select is(public.service_ensure_refund_receipt_automatic_completions(10)->'newMessageIds','[]'::jsonb,
+  'Adoption, observation, and suppressed authorities return no new priority identities');
+reset role;
 
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
   where refund_case_id in (select id from public.refund_cases where public_reference like 'RF-RC-AUTO-%')),0,
