@@ -1889,8 +1889,16 @@ limit 1;
 reset role;
 update public.pay_statements statement
 set statement_generated_at = '2026-09-01 00:00:00+00'
-from automatic_sales_statement_baseline baseline
-where statement.id = baseline.id;
+where statement.operator_profile_id = 'a6000000-0000-0000-0000-000000000002'
+  and statement.status = 'issued'
+  and exists (
+    select 1
+    from public.payout_runs run
+    join public.payout_periods period on period.id = run.payout_period_id
+    where run.id = statement.payout_run_id
+      and period.period_start_date = '2026-07-01'
+      and period.period_end_date = '2026-07-31'
+  );
 
 reset role;
 insert into public.machine_sales_facts (
