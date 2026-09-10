@@ -1,5 +1,7 @@
 # Current Status
 
+- **P1 server-owned Nayax lookup recovery (`#1287`):** the implementation candidate makes intake and Gmail fact events durable enqueue-only signals; the automation sweep is the sole provider-read executor for initial transaction checks, one classified-safe retry, and expired-result refresh. Its fairly ordered queue is keyed by case, deterministic fact version, recovery generation, and attempt ordinal, and exposes the exact future retry time as soon as a safe failure settles. Routine manager page activity is read-only and ordinary managers receive no provider-refresh authority; unsafe or exhausted failures remain Refund Operations work. Production deployment and UAT remain pending.
+
 - **P0 Nayax report-health truth (`#973`):** the Refund Operations health contract now separates actual report-processing failure, authenticated provider Empty/failed runs, ordinary file silence, and unknown transaction coverage. Routine managers receive no account-wide report banner; ordinary silence and Empty runs are quiet, while actionable failures show one internal advisory with only an affected-case count. Missing rows and freshness never authorize payment retry. The existing Gmail schedule/importer is reused; no polling service, monitor, customer contact, or provider-write path is added.
 
 Last compacted: 2026-09-01

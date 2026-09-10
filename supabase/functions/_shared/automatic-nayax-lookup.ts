@@ -1,14 +1,5 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { deriveRefundMissingFields } from "./refund-deterministic-follow-up.ts";
-import {
-  lookupNayaxCandidatesForRefundCase,
-  type NayaxLookupResult,
-} from "./nayax-lookup.ts";
-import {
-  beginNayaxLookup,
-  failNayaxLookup,
-  persistNayaxLookupResult,
-} from "./nayax-lookup-persistence.ts";
 
 export type AutomaticNayaxLookupSource =
   | "hosted_intake"
@@ -35,34 +26,13 @@ export type AutomaticNayaxLookupCase = {
 };
 
 type AutomaticLookupDependencies = {
-  claim: (input: {
+  enqueue: (input: {
     caseId: string;
     factVersion: number;
     source: AutomaticNayaxLookupSource;
-  }) => Promise<
-    { claimed: boolean; runId: string | null; actionId: string | null }
-  >;
-  markPending: (refundCase: AutomaticNayaxLookupCase) => Promise<number>;
-  lookup: (
-    refundCase: AutomaticNayaxLookupCase,
-    lookupGeneration: number,
-  ) => Promise<NayaxLookupResult>;
-  persist: (
-    refundCase: AutomaticNayaxLookupCase,
-    result: NayaxLookupResult,
-    lookupGeneration: number,
-  ) => Promise<void>;
-  fail: (
-    refundCase: AutomaticNayaxLookupCase,
-    error: unknown,
-    lookupGeneration: number,
-  ) => Promise<void>;
-  finish: (input: {
-    runId: string;
-    actionId: string;
-    succeeded: boolean;
-    reason: string;
-  }) => Promise<void>;
+  }) => Promise<{
+    status: "scheduled" | "deduplicated" | "not_ready" | "stale";
+  }>;
 };
 
 const terminalStatuses = new Set(["approved", "denied", "completed", "closed"]);
@@ -98,6 +68,9 @@ export const isRefundCaseReadyForAutomaticNayaxLookup = (
   }).missingFields.length === 0;
 };
 
+// Event handlers only create the durable generation-zero queue row. The sweep is
+// the single owner of begin/read/persist, so event and scheduled work cannot race
+// into separate provider reads. The sweep also backfills a missed event enqueue.
 export const coordinateAutomaticNayaxLookup = async ({
   refundCase,
   source,
@@ -110,58 +83,12 @@ export const coordinateAutomaticNayaxLookup = async ({
   if (!isRefundCaseReadyForAutomaticNayaxLookup(refundCase)) {
     return { status: "not_ready" as const };
   }
-
-  const claim = await dependencies.claim({
+  return await dependencies.enqueue({
     caseId: refundCase.id,
     factVersion: refundCase.deterministic_fact_version,
     source,
   });
-  if (!claim.claimed || !claim.runId || !claim.actionId) {
-    return { status: "deduplicated" as const };
-  }
-
-  let lookupGeneration: number | null = null;
-  try {
-    lookupGeneration = await dependencies.markPending(refundCase);
-    const result = await dependencies.lookup(refundCase, lookupGeneration);
-    await dependencies.persist(refundCase, result, lookupGeneration);
-    await dependencies.finish({
-      runId: claim.runId,
-      actionId: claim.actionId,
-      succeeded: true,
-      reason: result.configured ? "nayax_review_ready" : "nayax_setup_needed",
-    });
-    return { status: "completed" as const, result };
-  } catch (error) {
-    try {
-      if (lookupGeneration !== null) {
-        await dependencies.fail(refundCase, error, lookupGeneration);
-      }
-    } catch (failureRecordingError) {
-      console.error(
-        "automatic Nayax lookup failure state could not be recorded",
-        {
-          errorType: failureRecordingError instanceof Error
-            ? failureRecordingError.name
-            : typeof failureRecordingError,
-        },
-      );
-    }
-    await dependencies.finish({
-      runId: claim.runId,
-      actionId: claim.actionId,
-      succeeded: false,
-      reason:
-        error instanceof Error && error.message.includes("evidence changed")
-          ? "nayax_evidence_changed"
-          : "nayax_lookup_failed",
-    });
-    return { status: "failed" as const };
-  }
 };
-
-const textValue = (value: unknown) =>
-  typeof value === "string" ? value.trim() : "";
 
 export const runAutomaticNayaxLookupIfReady = async ({
   supabase,
@@ -192,96 +119,30 @@ export const runAutomaticNayaxLookupIfReady = async ({
     refundCase,
     source,
     dependencies: {
-      claim: async (
-        { caseId: claimedCaseId, factVersion, source: claimSource },
-      ) => {
-        const runKey = `nayax_event:${claimedCaseId}:v${factVersion}`;
-        const { data: runData, error: runError } = await supabase.rpc(
-          "service_start_refund_automation_run",
+      enqueue: async ({ caseId: currentCaseId, factVersion }) => {
+        const { data: enqueueData, error: enqueueError } = await supabase.rpc(
+          "service_enqueue_refund_nayax_lookup",
           {
-            p_run_key: runKey,
-            p_trigger_source: "event",
-            p_scheduled_for: null,
+            p_refund_case_id: currentCaseId,
+            p_expected_fact_version: factVersion,
           },
         );
-        if (runError) throw runError;
-        const runId = textValue(runData?.runId ?? runData?.run_id);
-        if (!runId) throw new Error("Automatic Nayax lookup run claim failed.");
-        const { data: actionData, error: actionError } = await supabase.rpc(
-          "service_claim_refund_automation_action",
-          {
-            p_run_id: runId,
-            p_refund_case_id: claimedCaseId,
-            p_action_key: `nayax_lookup:${claimedCaseId}:v${factVersion}`,
-            p_action_type: "nayax_lookup",
-            p_case_state: `ready:${claimSource}:v${factVersion}`,
-            p_policy_window_start: null,
-          },
-        );
-        if (actionError) throw actionError;
+        if (enqueueError) throw enqueueError;
+        const status = String(enqueueData?.status ?? "");
+        if (
+          !["scheduled", "deduplicated", "not_ready", "stale"].includes(status)
+        ) {
+          throw new Error(
+            "Automatic Nayax lookup enqueue returned an invalid status.",
+          );
+        }
         return {
-          claimed: actionData?.claimed === true,
-          runId,
-          actionId: textValue(actionData?.actionId ?? actionData?.action_id) ||
-            null,
+          status: status as
+            | "scheduled"
+            | "deduplicated"
+            | "not_ready"
+            | "stale",
         };
-      },
-      markPending: async (currentCase) =>
-        await beginNayaxLookup({
-          supabase,
-          caseId: currentCase.id,
-          actorUserId: null,
-          expectedFactVersion: currentCase.deterministic_fact_version,
-          trigger: "automatic",
-        }),
-      lookup: async (currentCase, lookupGeneration) =>
-        await lookupNayaxCandidatesForRefundCase({
-          supabase,
-          caseId: currentCase.id,
-          actorUserId: null,
-          lookupGeneration,
-          expectedFactVersion: currentCase.deterministic_fact_version,
-        }),
-      persist: async (currentCase, result, lookupGeneration) =>
-        await persistNayaxLookupResult({
-          supabase,
-          caseId: currentCase.id,
-          actorUserId: null,
-          result,
-          trigger: "automatic",
-          expectedFactVersion: currentCase.deterministic_fact_version,
-          lookupGeneration,
-        }),
-      fail: async (currentCase, lookupError, lookupGeneration) => {
-        await failNayaxLookup({
-          supabase,
-          caseId: currentCase.id,
-          actorUserId: null,
-          expectedFactVersion: currentCase.deterministic_fact_version,
-          lookupGeneration,
-          trigger: "automatic",
-          error: lookupError,
-        });
-      },
-      finish: async ({ runId, actionId, succeeded, reason }) => {
-        await supabase.rpc("service_finish_refund_automation_action", {
-          p_action_id: actionId,
-          p_status: succeeded ? "completed" : "failed",
-          p_reason_category: reason,
-          p_message_id: null,
-        });
-        await supabase.rpc("service_finish_refund_automation_run", {
-          p_run_id: runId,
-          p_status: succeeded ? "succeeded" : "failed",
-          p_cases_evaluated: 1,
-          p_actions_attempted: 1,
-          p_actions_succeeded: succeeded ? 1 : 0,
-          p_actions_failed: succeeded ? 0 : 1,
-          p_actions_suppressed: 0,
-          p_reason_counts: { [reason]: 1 },
-          p_failure_category: succeeded ? null : reason,
-          p_alert_status: "not_needed",
-        });
       },
     },
   });

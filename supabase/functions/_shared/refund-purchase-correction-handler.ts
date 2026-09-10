@@ -23,18 +23,21 @@ const invalidSaveMessages = new Set([
 export async function recheckSavedPurchaseCorrection(supabase: SupabaseClient, requestId: string, caseId: string, factVersion: number,
   lookup = runAutomaticNayaxLookupIfReady) {
   try {
-    // Reuse the current fact-version action claim and stale-result protection.
-    // A retry/replayed worker cannot issue a second lookup for this version.
+    // The correction event only enqueues. The sweep owns provider research and
+    // a replay observes the one exact durable queue row for this fact version.
     const result = await lookup({ supabase, caseId, source: 'customer_reply_recheck', expectedFactVersion: factVersion });
     let state: 'pending' | 'completed' | 'failed' | 'not_ready' | 'stale' | 'in_progress';
     if (result.status === 'deduplicated') {
-      const { data: action, error } = await supabase.from('refund_automation_actions').select('status')
-        .eq('action_key', `nayax_lookup:${caseId}:v${factVersion}`).maybeSingle();
+      const { data: action, error } = await supabase.from('refund_nayax_lookup_recoveries').select('status')
+        .eq('refund_case_id', caseId).eq('deterministic_fact_version', factVersion)
+        .order('recovery_generation', { ascending: false }).order('attempt_ordinal', { ascending: false })
+        .limit(1).maybeSingle();
       if (error) throw error;
-      state = action?.status === 'completed' ? 'completed' : action?.status === 'failed' ? 'failed' : 'in_progress';
-    } else state = result.status;
+      state = action?.status === 'completed' ? 'completed'
+        : ['failed','exhausted','cancelled'].includes(action?.status ?? '') ? 'failed' : 'in_progress';
+    } else state = result.status === 'scheduled' ? 'pending' : result.status;
     const { error } = await supabase.from('refund_wallet_correction_contexts').update({
-      correction_next_action: state === 'in_progress' ? 'recheck' : 'review',
+      correction_next_action: ['pending','in_progress'].includes(state) ? 'recheck' : 'review',
       correction_recheck_state: state,
     })
       .eq('id', requestId).eq('correction_resulting_fact_version', factVersion).eq('status', 'submitted');

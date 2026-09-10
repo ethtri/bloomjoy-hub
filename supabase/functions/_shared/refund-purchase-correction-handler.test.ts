@@ -52,16 +52,16 @@ Deno.test('actual public handler hashes a real status token in the correction do
   const submitted=await handlePurchaseCorrection({action:'submitPurchaseCorrection',token:statusToken,version:1,answers:{amount:{disposition:'changed',value:'7.00'}}},client as never);
   assert(submitted.status===409 && (await submitted.json()).errorCode==='correction_unavailable' && reads===2 && writes===0);
 });
-Deno.test('saved response records lookup failure truthfully rather than success', async () => {
+Deno.test('saved response records durable lookup scheduling without claiming success', async () => {
   let written:Record<string,unknown>|undefined;
   const query={eq(){return this;},then(resolve:(v:unknown)=>unknown){return Promise.resolve({error:null}).then(resolve);}};
   const client={from:()=>({update:(value:Record<string,unknown>)=>{written=value;return query;}})};
-  await recheckSavedPurchaseCorrection(client as never,'request','case',2,async()=>({status:'failed',reason:'provider_unavailable'}));
-  assert(written?.correction_recheck_state==='failed' && written?.correction_next_action==='review');
+  await recheckSavedPurchaseCorrection(client as never,'request','case',2,async()=>({status:'scheduled'}));
+  assert(written?.correction_recheck_state==='pending' && written?.correction_next_action==='recheck');
 });
 Deno.test('an already-running fact-version lookup retains recovery without another claim', async () => {
   let written:Record<string,unknown>|undefined;let count=0;
-  const query={eq(){return this;},maybeSingle:async()=>({data:{status:'claimed'},error:null}),then(resolve:(v:unknown)=>unknown){return Promise.resolve({error:null}).then(resolve);}};
+  const query={eq(){return this;},order(){return this;},limit(){return this;},maybeSingle:async()=>({data:{status:'claimed'},error:null}),then(resolve:(v:unknown)=>unknown){return Promise.resolve({error:null}).then(resolve);}};
   const client={from:()=>({select:()=>query,update:(value:Record<string,unknown>)=>{written=value;return query;}})};
   await recheckSavedPurchaseCorrection(client as never,'request','case',2,async()=>{count++;return {status:'deduplicated'};});
   assert(count===1 && written?.correction_recheck_state==='in_progress' && written?.correction_next_action==='recheck');

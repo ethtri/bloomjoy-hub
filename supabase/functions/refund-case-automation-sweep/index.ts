@@ -259,6 +259,11 @@ type SweepCounters = {
   nayaxNoMatchMovedToWaiting: number;
   nayaxLookupFailures: number;
   nayaxSetupNeeded: number;
+  nayaxAutomaticStarts: number;
+  nayaxAutomaticRecoveries: number;
+  nayaxRecoveryExhausted: number;
+  nayaxStaleResponsesRejected: number;
+  nayaxDuplicateAttemptsSuppressed: number;
   remindersSent: number;
   remindersFailed: number;
   missingInformationRequestsSent: number;
@@ -314,6 +319,11 @@ const createCounters = (): SweepCounters => ({
   nayaxNoMatchMovedToWaiting: 0,
   nayaxLookupFailures: 0,
   nayaxSetupNeeded: 0,
+  nayaxAutomaticStarts: 0,
+  nayaxAutomaticRecoveries: 0,
+  nayaxRecoveryExhausted: 0,
+  nayaxStaleResponsesRejected: 0,
+  nayaxDuplicateAttemptsSuppressed: 0,
   remindersSent: 0,
   remindersFailed: 0,
   missingInformationRequestsSent: 0,
@@ -345,6 +355,11 @@ const redactedSummary = (counters: SweepCounters) => ({
   nayaxNoMatchMovedToWaiting: counters.nayaxNoMatchMovedToWaiting,
   nayaxLookupFailures: counters.nayaxLookupFailures,
   nayaxSetupNeeded: counters.nayaxSetupNeeded,
+  nayaxAutomaticStarts: counters.nayaxAutomaticStarts,
+  nayaxAutomaticRecoveries: counters.nayaxAutomaticRecoveries,
+  nayaxRecoveryExhausted: counters.nayaxRecoveryExhausted,
+  nayaxStaleResponsesRejected: counters.nayaxStaleResponsesRejected,
+  nayaxDuplicateAttemptsSuppressed: counters.nayaxDuplicateAttemptsSuppressed,
   remindersSent: counters.remindersSent,
   remindersFailed: counters.remindersFailed,
   missingInformationRequestsSent: counters.missingInformationRequestsSent,
@@ -2262,31 +2277,56 @@ const runCardNayaxLookupSweep = async (
   policyWindowStart: string,
 ) => {
   if (!supabase) return;
+  const { data: recoveryData, error: recoveryError } = await supabase.rpc(
+    "service_claim_refund_nayax_lookup_recoveries",
+    { p_limit: 10 },
+  );
+  if (recoveryError) throw recoveryError;
+  const recoveryClaims = Array.isArray(recoveryData)
+    ? recoveryData as Array<Record<string, unknown>>
+    : [];
+  const claimedCaseIds = recoveryClaims.map((claim) => textValue(claim.caseId))
+    .filter(Boolean);
+  if (claimedCaseIds.length === 0) return;
+
   const { data: lookupCases, error: lookupCasesError } = await supabase
     .from("refund_cases")
     .select(caseSelect)
-    .eq("payment_method", "card")
-    .eq("status", "needs_review")
-    .in("correlation_status", ["not_started", "needs_nayax", "nayax_not_configured"])
-    .limit(10);
+    .in("id", claimedCaseIds);
 
   if (lookupCasesError) throw lookupCasesError;
+  const casesById = new Map(
+    ((lookupCases ?? []) as unknown as RawRefundSweepCase[]).map((rawCase) => [
+      rawCase.id,
+      rawCase,
+    ]),
+  );
 
-  for (const rawRefundCase of (lookupCases ?? []) as unknown as RawRefundSweepCase[]) {
+  for (const recoveryClaim of recoveryClaims) {
+    const recoveryId = textValue(recoveryClaim.recoveryId);
+    const claimToken = textValue(recoveryClaim.claimToken);
+    const recoveryGeneration = Number(recoveryClaim.recoveryGeneration);
+    const attemptOrdinal = Number(recoveryClaim.attemptOrdinal);
+    const claimedCaseId = textValue(recoveryClaim.caseId);
+    const rawRefundCase = casesById.get(claimedCaseId);
+    if (!rawRefundCase || !recoveryId || !claimToken ||
+      !Number.isSafeInteger(recoveryGeneration) || !Number.isSafeInteger(attemptOrdinal)) {
+      continue;
+    }
     const refundCase = normalizeRefundSweepCase(rawRefundCase);
     counters.evaluatedCaseIds.add(refundCase.id);
     const action = await claimAction(
       runId,
       refundCase.id,
-      `nayax_lookup:${refundCase.id}:v${refundCase.deterministic_fact_version}`,
+      `nayax_lookup:${refundCase.id}:v${refundCase.deterministic_fact_version}:r${recoveryGeneration}:a${attemptOrdinal}`,
       "nayax_lookup",
       refundCase.status,
       policyWindowStart,
       counters,
     );
-    if (!action.claimed) continue;
-
+    if (!action.claimed) counters.nayaxDuplicateAttemptsSuppressed += 1;
     let lookupGeneration: number | null = null;
+    let lookupPersisted = false;
     try {
       lookupGeneration = await beginNayaxLookup({
         supabase,
@@ -2295,6 +2335,18 @@ const runCardNayaxLookupSweep = async (
         expectedFactVersion: refundCase.deterministic_fact_version,
         trigger: "scheduled",
       });
+      const { data: recoveryBound, error: recoveryBindError } = await supabase.rpc(
+        "service_mark_refund_nayax_lookup_recovery_started",
+        {
+          p_recovery_id: recoveryId,
+          p_claim_token: claimToken,
+          p_lookup_generation: lookupGeneration,
+        },
+      );
+      if (recoveryBindError) throw recoveryBindError;
+      if (recoveryBound !== true) throw new Error("Lookup recovery generation binding failed.");
+      counters.nayaxAutomaticStarts += 1;
+      if (recoveryGeneration > 0 || attemptOrdinal > 0) counters.nayaxAutomaticRecoveries += 1;
       const lookupResult = await lookupNayaxCandidatesForRefundCase({
         supabase,
         caseId: refundCase.id,
@@ -2311,6 +2363,22 @@ const runCardNayaxLookupSweep = async (
         expectedFactVersion: refundCase.deterministic_fact_version,
         lookupGeneration,
       });
+      lookupPersisted = true;
+      const { error: recoveryFinishError } = await supabase.rpc(
+        "service_finish_refund_nayax_lookup_recovery",
+        {
+          p_recovery_id: recoveryId,
+          p_claim_token: claimToken,
+          p_lookup_generation: lookupGeneration,
+          p_succeeded: true,
+          p_failure_class: null,
+        },
+      );
+      if (recoveryFinishError) {
+        console.error("persisted Nayax lookup recovery bookkeeping is pending", {
+          errorType: recoveryFinishError.name,
+        });
+      }
       counters.nayaxLookupsRun += 1;
 
       if (!lookupResult.configured) {
@@ -2684,9 +2752,11 @@ const runCardNayaxLookupSweep = async (
       console.error("refund-case-automation-sweep Nayax lookup failed", {
         errorType: error instanceof Error ? error.name : typeof error,
       });
-      if (lookupGeneration !== null) {
+      let failureClass = "worker_interrupted";
+      let safeRetryEligible = true;
+      if (lookupGeneration !== null && !lookupPersisted) {
         try {
-          await failNayaxLookup({
+          const failure = await failNayaxLookup({
             supabase,
             caseId: refundCase.id,
             actorUserId: null,
@@ -2695,6 +2765,9 @@ const runCardNayaxLookupSweep = async (
             trigger: "scheduled",
             error,
           });
+          failureClass = failure.failureClass;
+          safeRetryEligible = failure.safeRetryEligible;
+          if (failureClass === "evidence_changed") counters.nayaxStaleResponsesRejected += 1;
         } catch (failureRecordingError) {
           console.error("scheduled Nayax lookup failure state could not be recorded", {
             errorType: failureRecordingError instanceof Error
@@ -2704,16 +2777,34 @@ const runCardNayaxLookupSweep = async (
         }
       }
       try {
-        await routeProviderException({
-          runId,
-          refundCase,
-          reasonCategory: classifyProviderException(error),
-          counters,
+        await supabase.rpc("service_finish_refund_nayax_lookup_recovery", {
+          p_recovery_id: recoveryId,
+          p_claim_token: claimToken,
+          p_lookup_generation: lookupGeneration,
+          p_succeeded: lookupPersisted,
+          p_failure_class: lookupPersisted ? null : failureClass,
         });
-      } catch (noticeError) {
-        console.error("refund provider exception notice failed", {
-          errorType: noticeError instanceof Error ? noticeError.name : typeof noticeError,
+      } catch (recoveryFinishError) {
+        console.error("scheduled Nayax recovery claim could not be finished", {
+          errorType: recoveryFinishError instanceof Error
+            ? recoveryFinishError.name
+            : typeof recoveryFinishError,
         });
+      }
+      if (!lookupPersisted && (!safeRetryEligible || attemptOrdinal >= 1)) {
+        if (attemptOrdinal >= 1) counters.nayaxRecoveryExhausted += 1;
+        try {
+          await routeProviderException({
+            runId,
+            refundCase,
+            reasonCategory: classifyProviderException(error),
+            counters,
+          });
+        } catch (noticeError) {
+          console.error("refund provider exception notice failed", {
+            errorType: noticeError instanceof Error ? noticeError.name : typeof noticeError,
+          });
+        }
       }
       await finishAction(action, "failed", sanitizeFailureCategory(error), null, counters);
     }

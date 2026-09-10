@@ -68,7 +68,7 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /const withOfficialActionState = [\s\S]*?return withManagerQueueProjection\(projectedCase\);/
+  /const withOfficialActionState = [\s\S]*?const queueProjectedCase = withManagerQueueProjection\(projectedCase\);[\s\S]*?return queueProjectedCase;/
 );
 assert.match(
   portalSource,
@@ -112,7 +112,7 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /scenario\.queueView === 'Waiting'[\s\S]*?preserves the customer wait without exposing transaction-search controls[\s\S]*?continue;[\s\S]*?else \{[\s\S]*?starts one automatic read-only lookup from the matching lifecycle/
+  /scenario\.queueView === 'Waiting'[\s\S]*?preserves the customer wait without exposing transaction-search controls[\s\S]*?continue;[\s\S]*?else \{[\s\S]*?renders durable server lookup evidence without a browser lookup/
 );
 assert.equal(
   [...portalSource.matchAll(/url\.includes\('\/admin_get_refund_operations_overview'\)/g)].length,

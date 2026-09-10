@@ -399,7 +399,7 @@ export const getRefundManagerState = (
             'match_attention',
             'Transaction results expired',
             'The previous read-only transaction check finished, but its selectable results are no longer current.',
-            'Select Refresh transaction results once. No refund has been issued.',
+            'Bloomjoy will refresh the read-only transaction evidence automatically. No refund has been issued.',
             'warning'
           );
         }
@@ -447,7 +447,9 @@ export const getRefundManagerState = (
             'match_attention',
             'Transaction check failed',
             'Bloomjoy could not finish checking transactions.',
-            'Select Refresh transaction results. No refund has been issued.',
+            lifecycle.lookup.safeRetryEligible
+              ? 'Bloomjoy will run the next safe read-only check automatically. No refund has been issued.'
+              : 'Refund Operations is handling the transaction-search problem. No refund has been issued.',
             'warning'
           );
         }
@@ -469,7 +471,7 @@ export const getRefundManagerState = (
               'match_attention',
               'Transaction check needs attention',
               'Bloomjoy could not finish the read-only transaction check.',
-              'Select Refresh transactions. No refund has been issued.',
+              'Bloomjoy will run the next safe read-only check automatically. No refund has been issued.',
               'warning'
             )
           : state(

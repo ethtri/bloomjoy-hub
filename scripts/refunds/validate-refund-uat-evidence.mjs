@@ -324,7 +324,7 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 95, 'Evidence must enumerate all 95 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 96, 'Evidence must enumerate all 96 reviewed screenshots');
   assert(
     EXPECTED_SCREENSHOTS.includes('refund-adam-api-pending-case-desktop.png') &&
       EXPECTED_SCREENSHOTS.includes('refund-adam-api-pending-case-mobile.png'),

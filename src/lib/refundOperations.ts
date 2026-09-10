@@ -855,6 +855,14 @@ export type RefundCaseRecord = {
   customerLocale?: RefundCustomerLocaleContract | null;
   internalTest?: RefundInternalTestContract | null;
   nayaxLookupSummary?: RefundNayaxLookupSummary | null;
+  nayaxLookupRecovery?: {
+    state: 'system' | 'refund_operations' | 'complete';
+    recoveryGeneration: number;
+    attemptOrdinal: 0 | 1;
+    nextAttemptAt: string | null;
+    failureClass: string | null;
+    payloadRedacted: true;
+  } | null;
   manualNayaxPortalEnabled?: boolean;
   manualNayaxEvidenceSelected?: boolean;
   manualNayaxLocationTimezone?: string | null;
