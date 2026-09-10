@@ -67,3 +67,15 @@ test('multiple completion history rows retain their own neutral record identity 
   assert.equal(JSON.stringify(rows).includes(latestCaseContact.lastUpdatedAt), false);
   assert.equal(rows.some(({ badgeLabel }) => /sent|delivered|bounced|failed/i.test(badgeLabel)), false);
 });
+
+test('completion history keeps its neutral application record beside per-message provider delivery truth', () => {
+  const refunds = fs.readFileSync(
+    new URL('../../src/pages/admin/Refunds.tsx', import.meta.url),
+    'utf8',
+  );
+  assert.match(
+    refunds,
+    /message\.deliveryTransport === 'resend' && \(\s*<Badge[\s\S]*?data-testid=\{`refund-message-delivery-\$\{message\.id\}`\}[\s\S]*?transactionalDeliveryLabel\(message\.deliveryState\)/,
+  );
+  assert.doesNotMatch(refunds, /message\.deliveryTransport === 'resend' && !completionHistory/);
+});

@@ -8959,7 +8959,7 @@ export default function AdminRefundsPage() {
                                       {message.status}
                                     </Badge>
                                   )}
-                                  {message.deliveryTransport === 'resend' && !completionHistory && (
+                                  {message.deliveryTransport === 'resend' && (
                                     <Badge
                                       data-testid={`refund-message-delivery-${message.id}`}
                                       variant="outline"
