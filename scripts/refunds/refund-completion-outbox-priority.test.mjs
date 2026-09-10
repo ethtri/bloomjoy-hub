@@ -33,6 +33,9 @@ test('canonical insert schedules one post-commit exact wakeup with scheduled fal
   assert.match(migration, /public\.is_refund_receipt_automatic_completion_message\(new\.id\)/);
   assert.match(migration, /'mode','completion_wakeup','messageId',p_message_id/);
   assert.match(migration, /exception when others then[\s\S]*'dispatch_unavailable'/);
+  assert.match(migration, /service_dispatch_refund_completion_wakeup\(p_message_id uuid\)[\s\S]*set search_path=''/);
+  assert.match(migration, /pg_catalog\.jsonb_build_object/);
+  assert.doesNotMatch(migration, /service_dispatch_refund_completion_wakeup\(p_message_id uuid\)[\s\S]{0,200}set search_path='public'/);
   assert.match(sweep, /mode === "completion_wakeup"/);
   assert.match(sweep, /drainRefundManualMessageOutbox\(\{[\s\S]*messageId,[\s\S]*limit: 1/);
   assert.match(sweep, /already_claimed_or_deferred/);
@@ -109,6 +112,9 @@ test('database tests cover replay, priority, crash semantics, privacy, and races
     'Runtime manual-outbox shutdown',
     'Database automatic-contact shutdown',
     'Mailbox collisions make every current queued or claimed route explicit',
+    'A post-drain failed row retains route classification after the current route is valid',
+    'Post-drain route health exposes only the aggregate and never the raw route error',
+    'The credential-bearing wakeup dispatcher has an empty search path',
   ]) assert.ok(read('supabase/tests/refund_receipt_automatic_completion.sql').includes(marker), marker);
   for (const marker of [
     'concurrent notification claims coalesce to one initial action',

@@ -52,7 +52,7 @@ select ('ce400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-RC-AUTO-'||n
   'ce300000-0000-4000-8000-000000000001','ce200000-0000-4000-8000-000000000001',
   'receipt-auto-customer@example.invalid','Synthetic receipt automatic completion',now()-interval '3 days','card',900,900,
   '4242','card_refund_pending','matched','nayax',1,'approved',(923456780+n)::text,900,'USD',now()-interval '3 days',
-  'hold','card_payment_state_without_attempt',now()-interval '1 day' from generate_series(1,12) n;
+  'hold','card_payment_state_without_attempt',now()-interval '1 day' from generate_series(1,13) n;
 
 select set_config('request.jwt.claim.sub','ce000000-0000-4000-8000-000000000001',true);
 select set_config('request.jwt.claim.role','authenticated',true);
@@ -66,7 +66,7 @@ from public.refund_cases c where c.id in (
   'ce400000-0000-4000-8000-000000000006','ce400000-0000-4000-8000-000000000007',
   'ce400000-0000-4000-8000-000000000008','ce400000-0000-4000-8000-000000000009',
   'ce400000-0000-4000-8000-000000000010','ce400000-0000-4000-8000-000000000011',
-  'ce400000-0000-4000-8000-000000000012');
+  'ce400000-0000-4000-8000-000000000012','ce400000-0000-4000-8000-000000000013');
 
 create function pg_temp.capture_error(statement text) returns text language plpgsql as $$
 begin execute statement; return null; exception when others then return sqlstate; end; $$;
@@ -126,6 +126,11 @@ select ok(not has_function_privilege('authenticated',
 select ok(not has_function_privilege('service_role',
   'public.service_dispatch_refund_completion_wakeup(uuid)','execute'),
   'The wakeup dispatcher is reachable only through its canonical insert trigger');
+select ok(pg_get_functiondef('public.service_dispatch_refund_completion_wakeup(uuid)'::regprocedure)
+    like '%SET search_path TO ''''%' and
+    pg_get_functiondef('public.service_dispatch_refund_completion_wakeup(uuid)'::regprocedure)
+    not like '%SET search_path TO ''public''%',
+  'The credential-bearing wakeup dispatcher has an empty search path');
 select ok(not has_function_privilege('authenticated',
   'public.service_defer_refund_automatic_completion_delivery(uuid,uuid,text)','execute'),
   'Authenticated users cannot defer an automatic completion claim');
@@ -445,9 +450,22 @@ select ok((select bool_and(c.refund_completed_at is null and c.reporting_adjustm
 
 -- Seed exact outbox states to verify aggregate latency, strict thresholds,
 -- runtime/database stops, and route collisions without invoking transport.
-select pg_temp.authorize(n) from generate_series(7,12) n;
+select pg_temp.authorize(n) from generate_series(7,13) n;
 set local role service_role;
-select pg_temp.ensure(n) from generate_series(7,12) n;
+select pg_temp.ensure(n) from generate_series(7,13) n;
+create temp table receipt_auto_route_failed_claim as
+select * from public.service_claim_refund_manual_message_deliveries(
+  (select id from public.refund_case_messages
+    where refund_case_id='ce400000-0000-4000-8000-000000000013'),1);
+select ok((public.service_mark_refund_manual_message_provider_attempt(
+    (select refund_case_message_id from receipt_auto_route_failed_claim),
+    (select claim_token from receipt_auto_route_failed_claim))->>'marked')::boolean,
+  'The route-failure fixture crosses the shared provider-attempt boundary without sending');
+select is(public.service_finish_refund_manual_message_delivery(
+    (select refund_case_message_id from receipt_auto_route_failed_claim),
+    (select claim_token from receipt_auto_route_failed_claim),'failed',null,
+    'manager_cc_required',0,null)->>'outcome','failed',
+  'A post-drain route failure persists its stable redacted category');
 reset role;
 alter table public.refund_case_messages disable trigger user;
 update public.refund_case_messages set status='pending',manual_delivery_state='claimed',
@@ -472,28 +490,33 @@ update public.refund_case_messages set created_at=now()-interval '61 seconds'
 where refund_case_id='ce400000-0000-4000-8000-000000000011';
 update public.refund_case_messages set created_at=now()-interval '60 seconds'
 where refund_case_id='ce400000-0000-4000-8000-000000000012';
+update public.refund_case_messages set manual_delivery_provider_attempted_at=created_at+interval '40 seconds'
+where refund_case_id='ce400000-0000-4000-8000-000000000013';
 alter table public.refund_case_messages enable trigger user;
 
 create temp table receipt_auto_health as select
   public.service_get_refund_completion_outbox_health('{}'::text[],true,true,true) payload;
-select is((select (payload->>'sampleCount')::integer from receipt_auto_health),4,
+select is((select (payload->>'sampleCount')::integer from receipt_auto_health),5,
   'Seeded completion health counts queue-to-first-provider samples');
-select is((select (payload->>'queueToFirstProviderAttemptMedianSeconds')::numeric from receipt_auto_health),25.000,
+select is((select (payload->>'queueToFirstProviderAttemptMedianSeconds')::numeric from receipt_auto_health),30.000,
   'Seeded completion health calculates exact median latency');
-select is((select (payload->>'queueToFirstProviderAttemptP95Seconds')::numeric from receipt_auto_health),89.500,
+select is((select (payload->>'queueToFirstProviderAttemptP95Seconds')::numeric from receipt_auto_health),88.000,
   'Seeded completion health calculates exact p95 latency');
 select is((select (payload->>'agingQueuedCount')::integer from receipt_auto_health),1,
   'The 60-second boundary is healthy while an older queued completion is aging');
 select is((select (payload->>'staleClaimedCount')::integer from receipt_auto_health),1,
   'The 10-minute boundary is healthy while an older claim is stale');
-select is((select (payload->>'definiteFailedCount')::integer from receipt_auto_health),2,
+select is((select (payload->>'definiteFailedCount')::integer from receipt_auto_health),3,
   'Seeded completion health counts definite failures');
 select is((select (payload->>'deliveryUnknownCount')::integer from receipt_auto_health),1,
   'Seeded completion health keeps unknown delivery separate');
-select is((select (payload->>'missingRouteCount')::integer from receipt_auto_health),0,
-  'A valid current manager route is not an exception');
+select is((select (payload->>'missingRouteCount')::integer from receipt_auto_health),1,
+  'A post-drain failed row retains route classification after the current route is valid');
+select ok((select payload::text not like '%manager_cc_required%'
+    and payload::text not like '%receipt-auto-%' from receipt_auto_health),
+  'Post-drain route health exposes only the aggregate and never the raw route error');
 select is((public.service_get_refund_completion_outbox_health(
-    array['receipt-auto-manager@example.invalid'],true,true,true)->>'missingRouteCount')::integer,4,
+    array['receipt-auto-manager@example.invalid'],true,true,true)->>'missingRouteCount')::integer,5,
   'Mailbox collisions make every current queued or claimed route explicit');
 select is((public.service_get_refund_completion_outbox_health('{}'::text[],false,true,true)
     ->>'disabledContactDeferralCount')::integer,2,

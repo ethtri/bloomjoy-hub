@@ -87,7 +87,7 @@ grant execute on function public.service_ensure_refund_receipt_automatic_complet
 -- recovery producer converges on this exact automatic message insert.
 create function public.service_dispatch_refund_completion_wakeup(p_message_id uuid)
 returns jsonb language plpgsql security definer
-set search_path='public','extensions','net','vault','pg_catalog' as $$
+set search_path='' as $$
 declare
   endpoint text;
   scheduler_secret text;
@@ -97,29 +97,29 @@ declare
 begin
   if p_message_id is null
     or not public.is_refund_receipt_automatic_completion_message(p_message_id) then
-    return jsonb_build_object('status','not_eligible','dispatched',false,'payloadRedacted',true);
+    return pg_catalog.jsonb_build_object('status','not_eligible','dispatched',false,'payloadRedacted',true);
   end if;
-  select count(*),max(decrypted_secret) into endpoint_count,endpoint
+  select pg_catalog.count(*),pg_catalog.max(decrypted_secret) into endpoint_count,endpoint
   from vault.decrypted_secrets where name='refund_automation_scheduler_url';
-  select count(*),max(decrypted_secret) into secret_count,scheduler_secret
+  select pg_catalog.count(*),pg_catalog.max(decrypted_secret) into secret_count,scheduler_secret
   from vault.decrypted_secrets where name='refund_automation_scheduler_secret';
   if endpoint_count<>1 or secret_count<>1
     or endpoint !~ '^https://[a-z0-9]{20}\.supabase\.co/functions/v1/refund-case-automation-sweep$'
-    or length(scheduler_secret) not between 32 and 255 then
-    return jsonb_build_object('status','configuration_unavailable','dispatched',false,'payloadRedacted',true);
+    or pg_catalog.length(scheduler_secret) not between 32 and 255 then
+    return pg_catalog.jsonb_build_object('status','configuration_unavailable','dispatched',false,'payloadRedacted',true);
   end if;
   request_id:=net.http_post(
     url:=endpoint,
-    headers:=jsonb_build_object('Authorization','Bearer '||scheduler_secret,
+    headers:=pg_catalog.jsonb_build_object('Authorization','Bearer '||scheduler_secret,
       'Content-Type','application/json'),
-    body:=jsonb_build_object('mode','completion_wakeup','messageId',p_message_id),
+    body:=pg_catalog.jsonb_build_object('mode','completion_wakeup','messageId',p_message_id),
     timeout_milliseconds:=15000);
-  return jsonb_build_object('status','dispatched','dispatched',true,
+  return pg_catalog.jsonb_build_object('status','dispatched','dispatched',true,
     'requestRecorded',request_id is not null,'payloadRedacted',true);
 exception when others then
   -- Delivery wakeup is secondary to immutable payment/receipt/outbox truth.
   -- The scheduled worker owns recovery and the health contract exposes aging.
-  return jsonb_build_object('status','dispatch_unavailable','dispatched',false,'payloadRedacted',true);
+  return pg_catalog.jsonb_build_object('status','dispatch_unavailable','dispatched',false,'payloadRedacted',true);
 end;
 $$;
 revoke all on function public.service_dispatch_refund_completion_wakeup(uuid)
@@ -215,6 +215,11 @@ begin
       and manual_delivery_provider_attempted_at>=created_at
   ), route as (
     select completion.id,
+      -- The shared delivery settlement persists only allowlisted machine codes,
+      -- never provider/customer text. Preserve route diagnosis after the drain
+      -- has moved the row from claimed to failed.
+      (completion.manual_delivery_state='failed' and completion.error_message in
+        ('manager_cc_required','manager_cc_resolution_invalid')) persisted_route_failure,
       count(manager.reporting_machine_id)::integer active_count,
       count(distinct lower(btrim(manager.manager_email)))::integer distinct_count,
       count(distinct lower(btrim(manager.manager_email))) filter (
@@ -226,6 +231,8 @@ begin
       on manager.reporting_machine_id=completion.reporting_machine_id
       and manager.status='active' and manager.revoked_at is null
     where completion.manual_delivery_state in ('queued','claimed')
+      or (completion.manual_delivery_state='failed' and completion.error_message in
+        ('manager_cc_required','manager_cc_resolution_invalid'))
     group by completion.id
   )
   select jsonb_build_object(
@@ -235,7 +242,8 @@ begin
       or count(*) filter(where manual_delivery_state in ('failed','delivery_unknown'))>0
       or count(*) filter(where manual_delivery_state='queued'
         and not (database_contact_enabled and all_runtime_delivery_enabled))>0
-      or (select count(*) from route where active_count not between 1 and 4
+      or (select count(*) from route where persisted_route_failure
+          or active_count not between 1 and 4
           or distinct_count<>active_count or valid_count<>distinct_count
           or mailbox_collision_count>0)>0
       then 'action_needed' else 'healthy' end,
@@ -254,7 +262,8 @@ begin
     'runtimeAutomationEnabled',coalesce(p_automation_enabled,false),
     'runtimeAutomaticContactEnabled',coalesce(p_automatic_contact_enabled,false),
     'runtimeManualOutboxEnabled',coalesce(p_manual_outbox_enabled,false),
-    'missingRouteCount',(select count(*) from route where active_count not between 1 and 4
+    'missingRouteCount',(select count(*) from route where persisted_route_failure
+      or active_count not between 1 and 4
       or distinct_count<>active_count or valid_count<>distinct_count
       or mailbox_collision_count>0),
     'payloadRedacted',true)
