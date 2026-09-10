@@ -9,6 +9,7 @@ const portal = read("src/pages/admin/Refunds.tsx");
 const lookupEndpoint = read("supabase/functions/nayax-transaction-lookup/index.ts");
 const recoveryMigration = read("supabase/migrations/20260910035559_refund_server_owned_nayax_lookup_recovery.sql");
 const recoveryConcurrency = read("supabase/tests/refund_server_owned_nayax_lookup_concurrency.sql");
+const recoverySql = read("supabase/tests/refund_server_owned_nayax_lookup_recovery.sql");
 const migration = read("supabase/migrations/202608150001_refund_automatic_nayax_lookup.sql");
 const lookup = read("supabase/functions/_shared/nayax-lookup.ts");
 
@@ -100,6 +101,13 @@ assert(
     recoveryMigration.includes("previous candidate") &&
     recoveryMigration.includes("expired.expired_at <= statement_timestamp()"),
   "recovery must stay read-only, preserve prior evidence, and refresh expiry automatically",
+);
+assert(
+  recoveryMigration.includes("'{canSelectNayaxCandidate}','false'::jsonb") &&
+    recoverySql.includes('Final customer-case overview disables retained evidence selection during System recovery') &&
+    recoverySql.includes('Final Internal/test overview disables retained evidence selection during System recovery') &&
+    recoverySql.includes('Completed non-System evidence preserves its existing selection projection'),
+  "System recovery must disable retained selection in both final overview arrays without broadening completed behavior",
 );
 assert(
   lookupEndpoint.includes('"is_super_admin"') &&

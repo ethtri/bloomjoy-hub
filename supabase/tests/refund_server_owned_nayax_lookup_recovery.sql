@@ -3,7 +3,18 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(32);
+select plan(35);
+
+create function pg_temp.set_auth_claims(p_user_id uuid)
+returns void language plpgsql as $$
+begin
+  perform set_config('request.jwt.claim.sub',p_user_id::text,true);
+  perform set_config('request.jwt.claim.role','authenticated',true);
+  perform set_config('request.jwt.claims',jsonb_build_object(
+    'sub',p_user_id,'role','authenticated','is_anonymous',false
+  )::text,true);
+end;
+$$;
 
 select has_table('public', 'refund_nayax_lookup_recoveries',
   'Final schema contains the durable server lookup queue');
@@ -163,37 +174,75 @@ select is((select jsonb_build_object(
     'action',item->'lifecycle'->'managerAction'->>'action',
     'actionOwner',item->'lifecycle'->'managerAction'->>'owner',
     'queueAction',item->'lifecycle'->'managerQueue'->>'nextAction',
-    'operationsOwner',item->'lifecycle'->'operations'->>'owner')
+    'operationsOwner',item->'lifecycle'->'operations'->>'owner',
+    'canSelectNayaxCandidate',(item->>'canSelectNayaxCandidate')::boolean)
   from jsonb_array_elements(public.refund_project_nayax_lookup_recovery_cases_for_manager(
     jsonb_build_array(jsonb_build_object('id','a8700000-0000-4000-8000-000000000010',
+      'canSelectNayaxCandidate',true,
       'lifecycle',jsonb_build_object('managerAction','{}'::jsonb,'managerQueue','{}'::jsonb,
         'lookup','{}'::jsonb,'operations','{}'::jsonb),'nayaxLookupSummary','{}'::jsonb)),false)) item),
   jsonb_build_object('state','refund_operations','action','refund_operations',
     'actionOwner','Refund Operations','queueAction','refund_operations',
-    'operationsOwner','Refund Operations'),
+    'operationsOwner','Refund Operations','canSelectNayaxCandidate',true),
   'Exhausted lookup fields agree on Refund Operations without manager retry authority');
 select ok((select item->'nayaxLookupRecovery'->>'state'='system'
     and item->'lifecycle'->'managerAction'->>'action'='none'
     and item->'lifecycle'->'managerAction'->>'owner'='System'
     and item->'lifecycle'->'managerQueue'->>'nextAction'='observe_automatic_lookup'
     and item->'nayaxLookupRecovery'->>'nextAttemptAt' is not null
+    and (item->>'canSelectNayaxCandidate')::boolean is false
   from jsonb_array_elements(public.refund_project_nayax_lookup_recovery_cases_for_manager(
     jsonb_build_array(jsonb_build_object('id','a8700000-0000-4000-8000-000000000011',
+      'canSelectNayaxCandidate',true,
       'lifecycle',jsonb_build_object('managerAction','{}'::jsonb,'managerQueue','{}'::jsonb,
         'lookup','{}'::jsonb,'operations','{}'::jsonb),'nayaxLookupSummary','{}'::jsonb)),false)) item),
-  'Scheduled retry fields agree on System observation and expose the due time');
+  'Scheduled retry fields agree on System observation, expose the due time, and disable retained evidence selection');
 select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
   jsonb_build_array(jsonb_build_object('id','a8700000-0000-4000-8000-000000000012',
+    'canSelectNayaxCandidate',true,
     'lifecycle',jsonb_build_object('lookup',jsonb_build_object('status','no_match')),
     'nayaxLookupSummary',jsonb_build_object('lookupStatus','no_match'))),false)
   ->0->'nayaxLookupRecovery'->>'state'),'complete',
   'A completed lookup is never projected as automatic checking');
 select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
   jsonb_build_array(jsonb_build_object('id','a8700000-0000-4000-8000-000000000012',
+    'canSelectNayaxCandidate',true,
     'lifecycle',jsonb_build_object('lookup',jsonb_build_object('status','no_match')),
     'nayaxLookupSummary',jsonb_build_object('lookupStatus','no_match'))),false)
   ->0->'lifecycle'->'lookup'->>'status'),'no_match',
   'Completed evidence retains its final lookup status');
+select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
+  jsonb_build_array(jsonb_build_object('id','a8700000-0000-4000-8000-000000000012',
+    'canSelectNayaxCandidate',true)),false)->0->>'canSelectNayaxCandidate')::boolean,true,
+  'Completed non-System evidence preserves its existing selection projection');
+
+insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
+  raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
+values('00000000-0000-0000-0000-000000000000','a8700000-0000-4000-8000-000000000020',
+  'authenticated','authenticated','lookup-recovery-operations@example.invalid','',now(),'{}','{}',now(),now());
+insert into public.admin_roles(user_id,role,active)
+values('a8700000-0000-4000-8000-000000000020','super_admin',true);
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
+  customer_email,issue_summary,incident_at,incident_timezone,incident_time_resolution,
+  payment_method,payment_amount_cents,card_last4,status,correlation_status,correlation_source)
+values('a8700000-0000-4000-8000-000000000013','RF-RECOVERY-INTERNAL',
+  'a8700000-0000-4000-8000-000000000003','a8700000-0000-4000-8000-000000000002',
+  'internal@example.invalid','Internal recovery fixture',statement_timestamp()-interval '1 hour',
+  'America/Los_Angeles','exact','card',700,'4242','needs_review','needs_nayax','nayax');
+select public.service_enqueue_refund_nayax_lookup('a8700000-0000-4000-8000-000000000013',1) is not null;
+set local role authenticated;
+select pg_temp.set_auth_claims('a8700000-0000-4000-8000-000000000020');
+select public.admin_classify_refund_case_internal_test(
+  'a8700000-0000-4000-8000-000000000013',1,'employee_technician_test') is not null;
+select is((select (item->>'canSelectNayaxCandidate')::boolean
+  from jsonb_array_elements(public.admin_get_refund_operations_overview()->'cases') item
+  where item->>'id'='a8700000-0000-4000-8000-000000000011'),false,
+  'Final customer-case overview disables retained evidence selection during System recovery');
+select is((select (item->>'canSelectNayaxCandidate')::boolean
+  from jsonb_array_elements(public.admin_get_refund_operations_overview()->'internalTestCases') item
+  where item->>'id'='a8700000-0000-4000-8000-000000000013'),false,
+  'Final Internal/test overview disables retained evidence selection during System recovery');
+reset role;
 
 select * from finish();
 rollback;

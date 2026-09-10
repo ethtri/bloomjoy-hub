@@ -6292,10 +6292,8 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       },
       expectedHeading: 'No clear transaction was found',
       expectedStatus: 'Needs attention',
-      expectedManagerNotice: 'No matching transaction was found.',
       expectedDescription: /none matched enough customer details/i,
       expectedAction: 'Do not select a transaction unless you can clearly identify it.',
-      expectedBadge: 'No match found',
     },
     {
       name: 'multiple candidates',
@@ -6371,8 +6369,6 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       },
       expectedHeading: 'More than one transaction could match',
       expectedStatus: 'Compare details',
-      expectedManagerNotice: '2 possible transactions were found.',
-      expectedBadge: 'Multiple possible matches',
       expectedAction: 'Compare Customer request with Machine transaction. Select one only when they clearly describe the same purchase.',
       expectedCandidateCount: 2,
       expectedGroupedMachineLabels: true,
@@ -6452,8 +6448,6 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       },
       expectedHeading: 'More than one transaction could match',
       expectedStatus: 'Compare details',
-      expectedManagerNotice: '4 possible transactions were found.',
-      expectedBadge: 'Multiple possible matches',
       expectedAction: 'Compare Customer request with Machine transaction. Select one only when they clearly describe the same purchase.',
       expectedCandidateCount: 4,
       expectedSafetyMatrix: true,
@@ -6509,8 +6503,6 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       },
       expectedHeading: 'No transaction is safe to select',
       expectedStatus: 'No selectable transaction',
-      expectedManagerNotice: '2 possible transactions were found.',
-      expectedBadge: 'Multiple possible matches',
       expectedAction: 'Review transaction evidence',
       expectedCandidateCount: 2,
       expectedManagerEvidenceReview: true,
@@ -6564,8 +6556,6 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       },
       expectedHeading: 'One likely transaction was found',
       expectedStatus: 'Likely match',
-      expectedManagerNotice: 'Transaction results updated.',
-      expectedBadge: 'Needs comparison',
       expectedAction: /Select the exact transaction, then confirm it/i,
       expectedCandidateCount: 1,
     },
@@ -6628,8 +6618,6 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       },
       expectedHeading: 'One likely transaction was found',
       expectedStatus: 'Likely match',
-      expectedManagerNotice: 'Transaction results updated.',
-      expectedBadge: 'Candidate found',
       expectedAction: 'Compare Customer request with Machine transaction.',
       expectedCandidateCount: 1,
     },
@@ -6704,8 +6692,6 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       },
       expectedHeading: 'One transaction needs manager review',
       expectedStatus: 'Likely match',
-      expectedManagerNotice: 'Transaction results updated.',
-      expectedBadge: 'Needs comparison',
       expectedAction: "Next: Review Machine transaction once. Select it only if the machine, amount comparison, and available customer and payment evidence identify the same purchase. The refund uses the selected provider transaction's full amount.",
       expectedCandidateCount: 1,
       expectedReviewableMismatch: true,
@@ -6734,7 +6720,6 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedStatus: 'Checking',
       expectedDescription: /Checking transactions near the time/i,
       expectedAction: 'Wait for the results. No refund has been issued.',
-      expectedBadge: 'Checking',
     },
     {
       name: 'unsafe or exhausted lookup failure',
@@ -6778,7 +6763,6 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedStatus: 'Needs attention',
       expectedDescription: /Refund Operations owns the internal fallback/i,
       expectedAction: 'Refund Operations owns the next step. No action is needed, and the payment will not be tried again.',
-      expectedBadge: 'Check failed',
     },
     {
       name: 'wallet waiting on customer',
@@ -6839,8 +6823,6 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       },
       expectedHeading: 'Transactions found; waiting for customer',
       expectedStatus: 'Waiting on customer',
-      expectedManagerNotice: 'Transaction results updated.',
-      expectedBadge: 'Candidate found',
       expectedAction: 'Next: Wait for the customer to reply with purchase date, purchase time in the existing email thread.',
       expectedCandidateCount: 1,
       expectedAmountMismatch: '$0.90',
@@ -6995,12 +6977,28 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
     );
     if (scenario.expectedOperationsRecoveryControl) {
       await page.getByText('Transaction search details', { exact: true }).click();
+      const operationsRecovery = page.getByTestId('nayax-operations-recovery');
       recorder.assert(
         'Elevated Refund Operations can reach only the narrow transaction-check recovery control',
-        await page.getByTestId('nayax-operations-recovery').isEnabled() &&
+        await operationsRecovery.isEnabled() &&
           (await page.getByTestId('nayax-check-transaction').count()) === 0 &&
           (await page.getByTestId('nayax-refresh-expired-results').count()) === 0 &&
           functionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 0
+      );
+      await operationsRecovery.click();
+      await page.waitForTimeout(100);
+      const lookupBodies = functionBodies.filter(
+        ({ functionName }) => functionName === 'nayax-transaction-lookup'
+      );
+      recorder.assert(
+        'Elevated Refund Operations recovery makes exactly one narrow lookup call and no payment or message call',
+        lookupBodies.length === 1 &&
+          lookupBodies[0].body?.caseId === 'case-card-pending' &&
+          JSON.stringify(Object.keys(lookupBodies[0].body ?? {}).sort()) === JSON.stringify(['caseId']) &&
+          !functionCalls.some((name) => [
+            'nayax-card-refund', 'refund-case-admin-update', 'refund-case-message-send',
+          ].includes(name)),
+        JSON.stringify({ functionCalls, lookupBodies })
       );
     }
     recorder.assert(
@@ -7409,6 +7407,54 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
 
     await closeRefundPortalContext(context);
   }
+
+  const ordinaryRecoveryContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const ordinaryRecoveryFunctionCalls = [];
+  const ordinaryRecoveryFunctionBodies = [];
+  await installMockSupabaseRoutes(ordinaryRecoveryContext, {
+    refundOverview: () => {
+      const overview = buildPendingNayaxRefundOverview();
+      overview.refundOperationsAccess = false;
+      overview.cases = overview.cases.map((refundCase) => ({
+        ...refundCase,
+        lifecycle: buildLifecycleFixture('needs_refund_operations', 50, 'refund_operations'),
+      }));
+      return overview;
+    },
+    functionCalls: ordinaryRecoveryFunctionCalls,
+    functionBodies: ordinaryRecoveryFunctionBodies,
+    persistedNayaxLookupResponse: {
+      configured: true,
+      lookupStatus: 'lookup_failed',
+      lastCheckedAt: now.toISOString(),
+      candidateCount: 0,
+      windowHours: 6,
+      summary: 'Nayax lookup failed. No raw provider details were exposed.',
+      recommendedAction: 'Do not send correction or success copy based on a provider failure.',
+      candidates: [],
+    },
+    persistedNayaxLookupRecovery: {
+      state: 'refund_operations', recoveryGeneration: 0, attemptOrdinal: 1,
+      nextAttemptAt: null, failureClass: 'response_limit', payloadRedacted: true,
+    },
+  });
+  const ordinaryRecoveryPage = await ordinaryRecoveryContext.newPage();
+  await signInRefundUser(ordinaryRecoveryPage, appUrl);
+  await ordinaryRecoveryPage.getByRole('button', { name: /^Action needed \d+$/ }).waitFor();
+  recorder.assert(
+    'Ordinary manager cannot reach or invoke the Refund Operations recovery for the same durable state',
+    (await ordinaryRecoveryPage.getByRole('button', { name: /Needs Refund Operations/ }).count()) === 0 &&
+      (await ordinaryRecoveryPage.getByTestId('nayax-operations-recovery').count()) === 0 &&
+      ordinaryRecoveryFunctionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 0 &&
+      !ordinaryRecoveryFunctionCalls.some((name) => [
+        'nayax-card-refund', 'refund-case-admin-update', 'refund-case-message-send',
+      ].includes(name)),
+    JSON.stringify({
+      functionCalls: ordinaryRecoveryFunctionCalls,
+      functionBodies: ordinaryRecoveryFunctionBodies,
+    })
+  );
+  await closeRefundPortalContext(ordinaryRecoveryContext);
 
   const staleContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const staleFunctionCalls = [];

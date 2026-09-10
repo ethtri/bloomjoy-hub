@@ -522,6 +522,7 @@ begin
         'failureClass',case when recovery_owner='refund_operations' then recovery.failure_class else null end,
         'payloadRedacted',true));
       if recovery_owner='system' then
+        item:=jsonb_set(item,'{canSelectNayaxCandidate}','false'::jsonb,true);
         item:=jsonb_set(jsonb_set(jsonb_set(jsonb_set(jsonb_set(item,
           '{lifecycle,managerAction,action}','"none"'::jsonb,true),
           '{lifecycle,managerAction,owner}','"System"'::jsonb,true),
