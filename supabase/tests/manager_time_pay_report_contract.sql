@@ -1786,15 +1786,15 @@ select is(
 -- The manager-facing report creates the first month and snapshot in one request,
 -- then remains idempotent until imported facts actually change.
 create temporary table automatic_sales_initial_report as
-select public.get_current_technician_pay_report_context('2026-09-01') as payload;
+select public.get_current_technician_pay_report_context('2026-10-01') as payload;
 
 select is(
   concat(
     (select count(*)::integer
      from public.payout_periods period
      where period.account_id = 'a2000000-0000-0000-0000-000000000001'
-       and period.period_start_date = '2026-09-01'
-       and period.period_end_date = '2026-09-30'
+       and period.period_start_date = '2026-10-01'
+       and period.period_end_date = '2026-10-31'
        and period.status <> 'voided'), ':',
     payload #>> '{technicians,0,machines,0,snapshotMatchesFacts}'
   ),
@@ -1811,7 +1811,7 @@ where audit.action in (
   'operator_payout_revenue_snapshot.regenerated'
 );
 
-select public.get_current_technician_pay_report_context('2026-09-01');
+select public.get_current_technician_pay_report_context('2026-10-01');
 select is(
   (select count(*)::integer
    from public.admin_audit_log audit
@@ -1823,6 +1823,7 @@ select is(
   'an unchanged second report read does not rewrite the revenue snapshot'
 );
 
+reset role;
 insert into public.machine_sales_facts (
   id, reporting_machine_id, reporting_location_id, sale_date, payment_method,
   net_sales_cents, transaction_count, source, source_row_hash
@@ -1831,7 +1832,7 @@ values (
   'a9100000-0000-0000-0000-000000000005',
   'a4000000-0000-0000-0000-000000000001',
   'a3000000-0000-0000-0000-000000000001',
-  '2026-09-05', 'credit', 1000, 1, 'sample_seed', 'manager-report-auto-sale-september'
+  '2026-10-05', 'credit', 1000, 1, 'sample_seed', 'manager-report-auto-sale-october'
 );
 
 create temporary table automatic_sales_mismatch_baseline as
@@ -1839,8 +1840,10 @@ select count(*)::integer as audit_count
 from public.admin_audit_log audit
 where audit.action = 'operator_payout_revenue_snapshot.regenerated';
 
+set local role authenticated;
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
 create temporary table automatic_sales_current_report as
-select public.get_current_technician_pay_report_context('2026-09-01') as payload;
+select public.get_current_technician_pay_report_context('2026-10-01') as payload;
 
 select is(
   concat(
@@ -1875,6 +1878,7 @@ set statement_generated_at = '2026-09-01 00:00:00+00'
 from automatic_sales_statement_baseline baseline
 where statement.id = baseline.id;
 
+reset role;
 insert into public.machine_sales_facts (
   id, reporting_machine_id, reporting_location_id, sale_date, payment_method,
   net_sales_cents, transaction_count, source, source_row_hash
@@ -1886,6 +1890,8 @@ values (
   '2026-07-25', 'credit', 100, 1, 'sample_seed', 'manager-report-auto-sale-after-statement'
 );
 
+set local role authenticated;
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
 create temporary table automatic_sales_published_report as
 select public.get_current_technician_pay_report_context('2026-07-01') as payload;
 

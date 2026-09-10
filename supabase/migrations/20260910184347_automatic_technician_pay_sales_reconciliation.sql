@@ -158,30 +158,28 @@ as $$
   with latest_statement as (
     select
       statement.account_id,
-      max(coalesce(statement.statement_generated_at, statement.issued_at)) as generated_at
+      coalesce(statement.statement_generated_at, statement.issued_at, statement.created_at) as generated_at,
+      nullif(
+        statement.statement_payload #>> '{calculationMeta,paySourceRevision}',
+        ''
+      )::bigint as source_revision
     from public.pay_statements statement
     join public.payout_runs run on run.id = statement.payout_run_id
     join public.payout_periods period on period.id = run.payout_period_id
     where statement.operator_profile_id = p_operator_profile_id
       and statement.status = 'issued'
+      and statement.statement_payload ->> 'schemaVersion' = 'operator-pay-stub-v2'
       and period.period_start_date = p_period_start
       and period.period_end_date = p_period_end
-    group by statement.account_id
+    order by statement.version desc, statement.issued_at desc nulls last, statement.created_at desc
+    limit 1
   )
-  select coalesce(exists (
-    select 1
-    from latest_statement latest
-    where latest.generated_at is not null
-      and (
-        exists (
-          select 1
-          from public.time_entry_change_events event
-          where event.operator_profile_id = p_operator_profile_id
-            and event.created_at > latest.generated_at
-            and (
-              nullif(event.after_state ->> 'work_date', '')::date between p_period_start and p_period_end
-              or nullif(event.before_state ->> 'work_date', '')::date between p_period_start and p_period_end
-            )
+  select coalesce(
+    (
+      select latest.source_revision is null
+        or latest.source_revision < private.operator_pay_time_source_revision(
+          p_operator_profile_id,
+          p_period_end
         )
         or exists (
           select 1
@@ -201,8 +199,10 @@ as $$
                 and coalesce(assignment.effective_end_date, 'infinity'::date) >= p_period_start
             )
         )
-      )
-  ), false);
+      from latest_statement latest
+    ),
+    false
+  );
 $$;
 
 revoke execute on function private.operator_pay_stub_regeneration_required(uuid, date, date)
