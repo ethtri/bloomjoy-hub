@@ -1324,8 +1324,11 @@ assert(
   notificationPolicyMigration.includes('create or replace function public.service_authorize_refund_customer_outbound') &&
     notificationPolicyMigration.includes("'managerCcEmails', '[]'::jsonb") &&
     notificationPolicyMigration.includes("'managerCopyPolicy', 'automatic_portal_only'") &&
-    notificationPolicyMigration.includes("'managerCopyPolicy', 'manager_cc_required'"),
-  'The final database authorization must keep manager mapping as a send gate while returning no CC route for automatic mail',
+    notificationPolicyMigration.includes("'managerCopyPolicy', 'manager_cc_required'") &&
+    notificationPolicyMigration.includes("delivery_kind = 'automatic'") &&
+    notificationPolicyMigration.includes('recipient_cc_count = 0') &&
+    notificationPolicyMigration.includes('recipient_manager_count = recipient_cc_count +'),
+  'The final database authorization and ledger constraint must allow automatic portal-only evidence while preserving exact manual manager CC',
 );
 assert(
   !adminUpdate.includes('managerCcEmails: [] as string[]') &&

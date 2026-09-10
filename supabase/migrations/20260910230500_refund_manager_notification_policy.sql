@@ -643,4 +643,33 @@ grant execute on function public.service_authorize_refund_customer_outbound(
 comment on function public.service_authorize_refund_customer_outbound(uuid, text, text[], text) is
   'Service-only customer-send authorization. Automatic messages require a current mapped-manager route but return no CC recipients; manual manager-authored replies retain exact current CC routing.';
 
+-- The Gmail ledger records both the number of mapped managers that authorized
+-- an automatic send and the number actually copied. Portal-only automatic mail
+-- therefore has a positive manager count with zero CC; manual mail continues to
+-- use the exact CC-plus-overlap shape returned by the service authorization.
+alter table public.refund_gmail_messages
+  drop constraint if exists refund_gmail_messages_resolved_manager_route_check;
+alter table public.refund_gmail_messages
+  add constraint refund_gmail_messages_resolved_manager_route_check check (
+    direction <> 'outbound'
+    or recipient_resolution_status is distinct from 'resolved'
+    or (
+      recipient_manager_count = 0
+      and not recipient_manager_overlap
+    )
+    or (
+      recipient_manager_count between 1 and 4
+      and (
+        (
+          delivery_kind = 'automatic'
+          and
+          recipient_cc_count = 0
+          and not recipient_manager_overlap
+        )
+        or recipient_manager_count = recipient_cc_count +
+          case when recipient_manager_overlap then 1 else 0 end
+      )
+    )
+  );
+
 select pg_notify('pgrst', 'reload schema');

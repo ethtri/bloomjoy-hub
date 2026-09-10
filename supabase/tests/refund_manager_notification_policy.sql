@@ -102,6 +102,62 @@ select is(
   'manager-authored customer conversation retains the current manager CC route'
 );
 
+insert into public.refund_gmail_threads (
+  id, refund_case_id, mailbox_hash, provider_thread_id, thread_subject,
+  first_message_at, latest_message_at, retention_expires_at
+) values (
+  '92600000-0000-4000-8000-000000000001',
+  '92500000-0000-4000-8000-000000000001', repeat('9', 64),
+  'notification-policy-thread', 'Synthetic notification policy thread',
+  statement_timestamp(), statement_timestamp(),
+  statement_timestamp() + interval '30 days'
+);
+
+select lives_ok(
+  $$
+    insert into public.refund_gmail_messages (
+      id, gmail_thread_id, refund_case_id, operation_key, direction,
+      message_kind, status, sender_email, recipient_email, subject, plain_body,
+      received_at, retention_expires_at, recipient_cc_emails,
+      recipient_cc_count, recipient_resolution_status, delivery_kind,
+      recipient_manager_overlap, recipient_manager_count
+    ) values (
+      '92700000-0000-4000-8000-000000000001',
+      '92600000-0000-4000-8000-000000000001',
+      '92500000-0000-4000-8000-000000000001',
+      'notification-policy-automatic', 'outbound', 'message', 'pending_send',
+      'mailbox@example.test', 'notice-customer@example.test',
+      'Synthetic automatic portal-only update', 'Synthetic body.',
+      statement_timestamp(), statement_timestamp() + interval '30 days',
+      '{}'::text[], 0, 'resolved', 'automatic', false, 1
+    )
+  $$,
+  'resolved automatic portal-only Gmail evidence stores manager authorization without manager CC'
+);
+
+select throws_ok(
+  $$
+    insert into public.refund_gmail_messages (
+      id, gmail_thread_id, refund_case_id, operation_key, direction,
+      message_kind, status, sender_email, recipient_email, subject, plain_body,
+      received_at, retention_expires_at, recipient_cc_emails,
+      recipient_cc_count, recipient_resolution_status, delivery_kind,
+      recipient_manager_overlap, recipient_manager_count
+    ) values (
+      '92700000-0000-4000-8000-000000000002',
+      '92600000-0000-4000-8000-000000000001',
+      '92500000-0000-4000-8000-000000000001',
+      'notification-policy-manual', 'outbound', 'message', 'pending_send',
+      'mailbox@example.test', 'notice-customer@example.test',
+      'Synthetic invalid manual update', 'Synthetic body.',
+      statement_timestamp(), statement_timestamp() + interval '30 days',
+      '{}'::text[], 0, 'resolved', 'manual', false, 1
+    )
+  $$,
+  '23514', null,
+  'manual Gmail evidence cannot use the automatic no-manager-CC shape'
+);
+
 select has_table('public', 'refund_manager_notification_actions', 'notification actions are durable');
 select has_table('public', 'refund_manager_notification_recipients', 'recipient dedupe is durable');
 select ok(not has_table_privilege('authenticated', 'public.refund_manager_notification_actions', 'select'), 'browser cannot read notification actions');
