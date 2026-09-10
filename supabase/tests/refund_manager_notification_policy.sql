@@ -135,6 +135,7 @@ select lives_ok(
   'resolved automatic portal-only Gmail evidence stores manager authorization without manager CC'
 );
 
+set local session_replication_role = replica;
 select throws_ok(
   $$
     insert into public.refund_gmail_messages (
@@ -157,6 +158,7 @@ select throws_ok(
   '23514', null,
   'manual Gmail evidence cannot use the automatic no-manager-CC shape'
 );
+set local session_replication_role = origin;
 
 select has_table('public', 'refund_manager_notification_actions', 'notification actions are durable');
 select has_table('public', 'refund_manager_notification_recipients', 'recipient dedupe is durable');
