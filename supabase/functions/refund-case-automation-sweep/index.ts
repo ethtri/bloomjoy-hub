@@ -60,7 +60,10 @@ import {
   hashRefundWalletCorrectionToken,
 } from "../_shared/refund-wallet-correction.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
-import { RefundGmailError } from "../_shared/refund-gmail.ts";
+import {
+  getRefundGmailMailboxIdentities,
+  RefundGmailError,
+} from "../_shared/refund-gmail.ts";
 import { drainRefundManualMessageOutbox } from "../_shared/refund-manual-message-outbox.ts";
 
 const UUID_PATTERN =
@@ -487,6 +490,7 @@ const completionOutboxHealth = async (): Promise<CompletionOutboxHealth> => {
   if (!supabase) throw new Error("Refund automation is not configured.");
   const { data, error } = await supabase.rpc(
     "service_get_refund_completion_outbox_health",
+    { p_mailbox_identities: getRefundGmailMailboxIdentities() },
   );
   if (error) throw error;
   const value = data && typeof data === "object" && !Array.isArray(data)

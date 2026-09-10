@@ -108,11 +108,12 @@ alter table public.refund_completion_outbox_incidents enable row level security;
 revoke all on table public.refund_completion_outbox_incidents
   from public,anon,authenticated,service_role;
 
-create function public.service_get_refund_completion_outbox_health()
+create function public.service_get_refund_completion_outbox_health(p_mailbox_identities text[])
 returns jsonb language plpgsql stable security definer set search_path='' as $$
 declare
   result jsonb;
   automatic_contact_enabled boolean:=false;
+  mailbox_identities text[]:=public.normalize_refund_mailbox_identities(p_mailbox_identities);
 begin
   select coalesce(settings.automatic_customer_contact_enabled,false)
     into automatic_contact_enabled
@@ -134,7 +135,9 @@ begin
       count(manager.reporting_machine_id)::integer active_count,
       count(distinct lower(btrim(manager.manager_email)))::integer distinct_count,
       count(distinct lower(btrim(manager.manager_email))) filter (
-        where public.refund_email_address_is_valid(manager.manager_email))::integer valid_count
+        where public.refund_email_address_is_valid(manager.manager_email))::integer valid_count,
+      count(distinct lower(btrim(manager.manager_email))) filter (
+        where lower(btrim(manager.manager_email))=any(mailbox_identities))::integer mailbox_collision_count
     from completion
     left join public.reporting_machine_refund_managers manager
       on manager.reporting_machine_id=completion.reporting_machine_id
@@ -149,7 +152,8 @@ begin
       or count(*) filter(where manual_delivery_state in ('failed','delivery_unknown'))>0
       or count(*) filter(where manual_delivery_state='queued' and not automatic_contact_enabled)>0
       or (select count(*) from route where active_count not between 1 and 4
-          or distinct_count<>active_count or valid_count<>distinct_count)>0
+          or distinct_count<>active_count or valid_count<>distinct_count
+          or mailbox_collision_count>0)>0
       then 'action_needed' else 'healthy' end,
     'sampleCount',(select count(*) from latency),
     'queueToFirstProviderAttemptMedianSeconds',
@@ -162,15 +166,16 @@ begin
     'deliveryUnknownCount',count(*) filter(where manual_delivery_state='delivery_unknown'),
     'disabledContactDeferralCount',count(*) filter(where manual_delivery_state='queued' and not automatic_contact_enabled),
     'missingRouteCount',(select count(*) from route where active_count not between 1 and 4
-      or distinct_count<>active_count or valid_count<>distinct_count),
+      or distinct_count<>active_count or valid_count<>distinct_count
+      or mailbox_collision_count>0),
     'payloadRedacted',true)
   into result from completion;
   return result;
 end;
 $$;
-revoke all on function public.service_get_refund_completion_outbox_health()
+revoke all on function public.service_get_refund_completion_outbox_health(text[])
   from public,anon,authenticated,service_role;
-grant execute on function public.service_get_refund_completion_outbox_health() to service_role;
+grant execute on function public.service_get_refund_completion_outbox_health(text[]) to service_role;
 
 create function public.service_claim_refund_completion_outbox_notification(p_health jsonb)
 returns jsonb language plpgsql security definer set search_path='' as $$
@@ -239,7 +244,7 @@ grant execute on function public.service_claim_refund_completion_outbox_notifica
 
 comment on function public.service_ensure_refund_receipt_automatic_completions(integer) is
   'Returns redacted counts plus only newly-created canonical completion message UUIDs so the caller can exact-drain them before generic recovery work.';
-comment on function public.service_get_refund_completion_outbox_health() is
+comment on function public.service_get_refund_completion_outbox_health(text[]) is
   'Returns private PII-free completion-outbox latency and actionable state aggregates; it exposes no message, case, or recipient identities.';
 comment on table public.refund_completion_outbox_incidents is
   'Private coalesced Operations incident ledger for completion-outbox aging, failures, unknown outcomes, disabled-contact deferrals, and missing routes.';

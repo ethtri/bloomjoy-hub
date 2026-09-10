@@ -41,8 +41,8 @@ test('health is aggregate-only, permission-restricted, and covers every actionab
     'staleClaimedCount', 'definiteFailedCount', 'deliveryUnknownCount',
     'disabledContactDeferralCount', 'missingRouteCount', 'payloadRedacted',
   ]) assert.ok(migration.includes(`'${key}'`), key);
-  assert.match(migration, /revoke all on function public\.service_get_refund_completion_outbox_health\(\)[\s\S]*from public,anon,authenticated,service_role/);
-  assert.match(migration, /grant execute on function public\.service_get_refund_completion_outbox_health\(\) to service_role/);
+  assert.match(migration, /revoke all on function public\.service_get_refund_completion_outbox_health\(text\[\]\)[\s\S]*from public,anon,authenticated,service_role/);
+  assert.match(migration, /grant execute on function public\.service_get_refund_completion_outbox_health\(text\[\]\) to service_role/);
   assert.match(migration, /not \(observed_health \?\| array\['messageIds','caseIds','emails','recipients'\]\)/);
 });
 

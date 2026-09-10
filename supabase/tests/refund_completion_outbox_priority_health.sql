@@ -3,9 +3,9 @@ set search_path=public,extensions;
 begin;
 select no_plan();
 
-select is((public.service_get_refund_completion_outbox_health()->>'payloadRedacted')::boolean,true,
+select is((public.service_get_refund_completion_outbox_health('{}'::text[])->>'payloadRedacted')::boolean,true,
   'health result is explicitly redacted');
-select ok(public.service_get_refund_completion_outbox_health() ?& array[
+select ok(public.service_get_refund_completion_outbox_health('{}'::text[]) ?& array[
   'sampleCount','queueToFirstProviderAttemptMedianSeconds','queueToFirstProviderAttemptP95Seconds',
   'agingQueuedCount','staleClaimedCount','definiteFailedCount','deliveryUnknownCount',
   'disabledContactDeferralCount','missingRouteCount'],
@@ -45,7 +45,7 @@ select is((select status from public.refund_completion_outbox_incidents),'resolv
 set local role authenticated;
 select throws_ok('select * from public.refund_completion_outbox_incidents','42501',null,
   'incident ledger is private from authenticated callers');
-select throws_ok('select public.service_get_refund_completion_outbox_health()','42501',null,
+select throws_ok('select public.service_get_refund_completion_outbox_health(''{}''::text[])','42501',null,
   'health RPC is private from authenticated callers');
 reset role;
 
