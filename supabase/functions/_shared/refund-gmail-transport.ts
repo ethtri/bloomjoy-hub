@@ -73,10 +73,12 @@ export const requireRefundCustomerManagerCcResolution = ({
   resolution,
   customerEmail,
   mailboxIdentities,
+  deliveryKind = "manual",
 }: {
   resolution: unknown;
   customerEmail: string;
   mailboxIdentities: string[];
+  deliveryKind?: "manual" | "automatic";
 }) => {
   const result = resolution && typeof resolution === "object"
     ? resolution as Record<string, unknown>
@@ -91,14 +93,17 @@ export const requireRefundCustomerManagerCcResolution = ({
   );
   const managerRecipientOverlap = result.managerRecipientOverlap === true;
   const managerRecipientCount = Number(result.managerRecipientCount);
+  const automaticPortalOnly = deliveryKind === "automatic";
 
   if (
     recipientResolutionStatus !== CUSTOMER_MANAGER_CC_ALLOWED_STATUS ||
     !Number.isSafeInteger(managerRecipientCount) ||
     managerRecipientCount < 1 ||
     managerRecipientCount > 4 ||
-    managerCcEmails.length + (managerRecipientOverlap ? 1 : 0) !==
-      managerRecipientCount
+    (automaticPortalOnly
+      ? managerCcEmails.length !== 0 || managerRecipientOverlap
+      : managerCcEmails.length + (managerRecipientOverlap ? 1 : 0) !==
+        managerRecipientCount)
   ) {
     throw new RefundGmailError(
       "manager_cc_required",
@@ -231,6 +236,7 @@ export const dispatchRefundCaseGmailReply = async ({
       },
       customerEmail: recipientEmail,
       mailboxIdentities,
+      deliveryKind,
     });
     return {
       usedGmail: false as const,
@@ -306,6 +312,8 @@ export const dispatchRefundCaseGmailReply = async ({
     );
   }
   if (claim.reconciled === true && claim.status === "sent") {
+    const legacyAutomaticManagerCopy = deliveryKind === "automatic" &&
+      Array.isArray(claim.managerCcEmails) && claim.managerCcEmails.length > 0;
     const reconciledResolution = requireRefundCustomerManagerCcResolution({
       resolution: {
         status: claim.recipientResolutionStatus,
@@ -315,6 +323,7 @@ export const dispatchRefundCaseGmailReply = async ({
       },
       customerEmail: recipientEmail,
       mailboxIdentities: config.mailboxIdentities,
+      deliveryKind: legacyAutomaticManagerCopy ? "manual" : deliveryKind,
     });
     return {
       usedGmail: true as const,
@@ -433,6 +442,7 @@ export const dispatchRefundCaseGmailReply = async ({
     },
     customerEmail: recipientEmail,
     mailboxIdentities: config.mailboxIdentities,
+    deliveryKind,
   });
   const managerCcEmails = managerResolution.managerCcEmails;
   const claimedResolutionStatus = managerResolution.recipientResolutionStatus;
@@ -475,6 +485,9 @@ export const dispatchRefundCaseGmailReply = async ({
       managerRecipientOverlap: managerResolution.managerRecipientOverlap,
       managerRecipientCount: managerResolution.managerRecipientCount,
       deliveryKind,
+      recipientPolicy: deliveryKind === "automatic"
+        ? "automatic_portal_only"
+        : "manager_cc_required",
       subject,
       text: email.text,
       html: email.html,

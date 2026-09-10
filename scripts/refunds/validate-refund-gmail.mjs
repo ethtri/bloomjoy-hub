@@ -31,6 +31,7 @@ const [
   syntheticProofHelper,
   refundEmail,
   managerNotification,
+  notificationPolicyMigration,
   syncFunction,
   sendFunction,
   manualMessageOutbox,
@@ -76,6 +77,7 @@ const [
     read('supabase/functions/_shared/refund-synthetic-gmail-proof.ts'),
     read('supabase/functions/_shared/refund-email.ts'),
     read('supabase/functions/_shared/refund-manager-notification.ts'),
+    read('supabase/migrations/20260910230500_refund_manager_notification_policy.sql'),
     read('supabase/functions/refund-gmail-sync/index.ts'),
     read('supabase/functions/refund-case-message-send/index.ts'),
     read('supabase/functions/_shared/refund-manual-message-outbox.ts'),
@@ -598,8 +600,9 @@ assert(
 );
 assert(gmailHelper.includes('Cc: ${safeCc.join(", ")}'), 'Gmail MIME must support visible mapped-manager CC');
 assert(
-  gmailHelper.includes('normalizedCc.length === 0'),
-  'The low-level refund Gmail sender must reject a customer message with no manager CC',
+  gmailHelper.includes('automaticPortalOnly') &&
+    gmailHelper.includes('automaticManagerCopyBlocked'),
+  'The low-level Gmail sender must require an explicit no-CC policy for automatic customer mail',
 );
 assert(gmailHelper.includes('threadId: providerThreadId'), 'Gmail sends must pin the original provider thread');
 assert(gmailHelper.includes('internal_case_link_blocked'), 'Customer-visible Gmail must reject internal case links');
@@ -960,9 +963,10 @@ assert(
     transportTest.includes('deliveryKind: "manual"') &&
     transportTest.includes('assertEquals(caught.code, "automatic_contact_disabled")') &&
     transportTest.includes('assertEquals(providerRequest.threadId, providerThreadId)') &&
-    transportTest.includes('assertEquals(result.managerCcCount, 2)') &&
+    transportTest.includes('assertEquals(result.managerCcCount, 0)') &&
+    transportTest.includes('assert(!/^Cc:/m.test(mime))') &&
     transportTest.includes('assert(!mime.includes("/refunds?case="))'),
-  'Synthetic transport evidence must cover disabled zero-call shutdown and enabled two-manager original-thread MIME',
+  'Synthetic transport evidence must cover disabled zero-call shutdown and enabled no-CC automatic original-thread MIME',
 );
 assert(
   firstContactCcTest.includes('first-contact-manager-a@example.test') &&
@@ -1304,15 +1308,24 @@ assert(
     gmailTransport.includes('managerRecipientOverlap') &&
     gmailTransport.includes('managerRecipientCount') &&
     gmailTransport.includes('"manager_cc_required"') &&
-    gmailTransport.includes('requireRefundCustomerManagerCcResolution'),
-  'Customer delivery must require a complete one-to-four manager recipient route in both Gmail and transactional paths',
+    gmailTransport.includes('requireRefundCustomerManagerCcResolution') &&
+    gmailTransport.includes('deliveryKind === "automatic"'),
+  'Customer delivery must require a complete one-to-four manager authorization route while suppressing automatic manager CC',
 );
 assert(
   refundEmail.includes('requireRefundManagerCcEmailsForSend') &&
     (refundEmail.match(/const managerCcEmails = requireRefundManagerCcEmailsForSend/g) ?? []).length === 2 &&
     refundEmail.includes('managerRecipientOverlap ? 1 : 0') &&
+    refundEmail.includes('managerCopyPolicy === "automatic_portal_only"') &&
     refundEmail.includes('> 4'),
-  'Transactional refund helpers must reject incomplete manager recipient routes while allowing a represented customer-manager',
+  'Transactional refund helpers must preserve manual manager CC and reject manager CC on portal-only automatic mail',
+);
+assert(
+  notificationPolicyMigration.includes('create or replace function public.service_authorize_refund_customer_outbound') &&
+    notificationPolicyMigration.includes("'managerCcEmails', '[]'::jsonb") &&
+    notificationPolicyMigration.includes("'managerCopyPolicy', 'automatic_portal_only'") &&
+    notificationPolicyMigration.includes("'managerCopyPolicy', 'manager_cc_required'"),
+  'The final database authorization must keep manager mapping as a send gate while returning no CC route for automatic mail',
 );
 assert(
   !adminUpdate.includes('managerCcEmails: [] as string[]') &&
@@ -1555,22 +1568,26 @@ assert(
   'Wallet-ready action notices must keep the raw confidence class behind the authenticated portal link',
 );
 assert(
-  qaChecklist.includes('complete current assigned Machine Manager route') &&
-    qaChecklist.includes('amount, incident time, payment method, and raw confidence remain in the authenticated portal') &&
-    qaChecklist.includes('whenever the complete current manager route cannot be safely resolved') &&
-    qaChecklist.includes('Duplicate normalized valid rows appear once only when every distinct active identity remains covered') &&
-    qaChecklist.includes('counts that address once when the customer is also a mapped manager') &&
-    qaChecklist.includes('a fifth manager, zero managers, malformed mappings, or a mailbox collision makes the complete route fail closed') &&
+  qaChecklist.includes("appear in the assigned manager's portal queue without a separate intake email") &&
+    qaChecklist.includes('Amount, incident time, payment method, raw confidence, and customer evidence remain in the authenticated portal') &&
+    qaChecklist.includes('an incomplete or invalid manager route remains an internal routing-repair exception') &&
+    qaChecklist.includes('routine automatic acknowledgements, follow-ups, reminders, corrections, and status messages have the customer as sole To and no manager CC') &&
+    qaChecklist.includes('A manager-authored conversation reply retains every other current active, non-revoked mapped Machine Manager exactly once in visible CC') &&
+    qaChecklist.includes('Provider-confirmation receipts retain their existing audited manager-copy exception') &&
+    qaChecklist.includes('A fifth manager, zero managers, malformed mappings, or a mailbox collision fails the route') &&
     !qaChecklist.includes('with reference, machine, amount, incident time, payment method, case link, and status only'),
-  'QA guidance must preserve private manager-notice fields and exact complete-route fallback semantics',
+  'QA guidance must preserve private portal fields, suppress routine manager email, retain manual Reply All, and fail closed on invalid routes',
 );
 assert(
     intakeFunction.includes('dispatchRefundCaseGmailReply') &&
     intakeFunction.includes('cc: gmailDelivery.managerCcEmails') &&
+    intakeFunction.includes('managerCopyPolicy: "automatic_portal_only"') &&
     manualMessageOutbox.includes('cc: gmailDelivery.managerCcEmails') &&
+    manualMessageOutbox.includes('? "automatic_portal_only"') &&
     adminUpdate.includes('managerCcEmails: gmailDelivery.managerCcEmails') &&
-    automationSweep.includes('managerCcEmails: gmailDelivery.managerCcEmails'),
-  'Every transactional refund fallback must receive its complete manager recipient route from the fail-closed send-time resolver',
+    automationSweep.includes('managerCcEmails: gmailDelivery.managerCcEmails') &&
+    automationSweep.includes('managerCopyPolicy: "automatic_portal_only"'),
+  'Transactional fallbacks must use the send-time manager authorization route and explicitly suppress automatic manager CC',
 );
 assert(
   !adminUpdate.includes('sendRefundManagerActionNotice') &&
@@ -1711,4 +1728,4 @@ assert(
   'The manager portal and client expose no arbitrary synthetic proof target or token setter',
 );
 
-console.log('Refund Gmail validation passed: default-off zero-call transport shutdown, label-only intake, idempotent no-CC pre-mapping acknowledgement, private email-to-form linkage, participant-safe original threading, current mapped-manager CC for case-specific mail, deterministic follow-ups, bounce recovery, retention, health, and least-privilege boundaries are present.');
+console.log('Refund Gmail validation passed: default-off zero-call transport shutdown, label-only intake, no-CC automatic customer mail, private email-to-form linkage, participant-safe original threading, manager-authored conversation CC, deterministic follow-ups, bounce recovery, retention, health, and least-privilege boundaries are present.');

@@ -1145,6 +1145,7 @@ const sendDeterministicFollowUpMessage = async (
         managerCcEmails: gmailDelivery.managerCcEmails,
         managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
         managerRecipientCount: gmailDelivery.managerRecipientCount,
+        managerCopyPolicy: "automatic_portal_only" as const,
         idempotencyKey: `refund-message-${messageId}`,
       };
       const sentEmail = customerCorrectionFields.length > 0
@@ -1308,6 +1309,7 @@ const sendCustomerStatusUpdate = async (
         managerCcEmails: gmailDelivery.managerCcEmails,
         managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
         managerRecipientCount: gmailDelivery.managerRecipientCount,
+        managerCopyPolicy: "automatic_portal_only",
         idempotencyKey: `refund-message-${messageId}`,
       });
       await bindRefundTransactionalDelivery({
@@ -1882,6 +1884,7 @@ const sendWalletCorrectionMessage = async (
         managerCcEmails: gmailDelivery.managerCcEmails,
         managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
         managerRecipientCount: gmailDelivery.managerRecipientCount,
+        managerCopyPolicy: "automatic_portal_only",
         idempotencyKey: `refund-message-${messageId}`,
       });
       await bindRefundTransactionalDelivery({
@@ -3575,6 +3578,7 @@ const sendPayoutDestinationReminder = async (
         managerCcEmails: gmailDelivery.managerCcEmails,
         managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
         managerRecipientCount: gmailDelivery.managerRecipientCount,
+        managerCopyPolicy: "automatic_portal_only",
         idempotencyKey: `refund-message-${messageId}`,
       });
       await bindRefundTransactionalDelivery({

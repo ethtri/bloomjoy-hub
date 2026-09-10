@@ -447,6 +447,7 @@ const processDenialAppealConfirmation = async ({
         managerCcEmails: delivery.managerCcEmails,
         managerRecipientOverlap: delivery.managerRecipientOverlap,
         managerRecipientCount: delivery.managerRecipientCount,
+        managerCopyPolicy: "automatic_portal_only",
         idempotencyKey: `refund-message-${refundCaseMessageId}`,
       });
       await bindRefundTransactionalDelivery({

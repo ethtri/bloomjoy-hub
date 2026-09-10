@@ -2415,6 +2415,7 @@ serve(async (req) => {
         const receipt = await sendRefundTransactionalEmail({
           to: [customerEmail],
           cc: gmailDelivery.managerCcEmails,
+          managerCopyPolicy: "automatic_portal_only",
           subject: email.subject,
           text: email.text,
           html: email.html,

@@ -505,4 +505,142 @@ comment on function public.service_complete_refund_manager_notification(uuid, uu
 comment on function public.service_mark_refund_manager_reminder_digest_eligible(uuid, bigint, uuid) is
   'Moves the two-business-day manager reminder into digest eligibility without reserving or sending an immediate email.';
 
+-- Keep mapped-manager resolution as a send-time authorization boundary, but
+-- do not copy managers on routine automatic customer messages. Manual,
+-- manager-authored conversation replies retain the existing exact CC route.
+create or replace function public.service_authorize_refund_customer_outbound(
+  p_refund_case_id uuid,
+  p_recipient_email text,
+  p_mailbox_identities text[],
+  p_delivery_kind text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  case_row public.refund_cases%rowtype;
+  settings_row public.refund_customer_contact_settings%rowtype;
+  recipient_resolution jsonb;
+  manager_cc_emails text[] := '{}'::text[];
+  manager_recipient_overlap boolean := false;
+  manager_recipient_count integer := 0;
+  mailbox_identities text[] := public.normalize_refund_mailbox_identities(
+    p_mailbox_identities
+  );
+  normalized_recipient text := lower(btrim(coalesce(p_recipient_email, '')));
+  normalized_delivery_kind text := lower(btrim(coalesce(p_delivery_kind, '')));
+  authority_bound_completion boolean := false;
+begin
+  if normalized_delivery_kind not in ('manual', 'automatic') then
+    raise exception 'Valid refund customer delivery kind required';
+  end if;
+
+  select * into case_row
+  from public.refund_cases
+  where id = p_refund_case_id
+  for update;
+
+  if case_row.id is null then
+    return jsonb_build_object('allowed', false, 'status', 'case_not_found');
+  end if;
+  if normalized_recipient <> lower(btrim(case_row.customer_email)) then
+    raise exception 'Customer recipient must match the refund case';
+  end if;
+
+  if normalized_delivery_kind = 'automatic' then
+    select * into settings_row
+    from public.refund_customer_contact_settings
+    where singleton
+    for share;
+    if not coalesce(settings_row.automatic_customer_contact_enabled, false) then
+      return jsonb_build_object(
+        'allowed', false,
+        'status', 'automatic_contact_disabled'
+      );
+    end if;
+    select exists (
+      select 1
+      from public.refund_case_messages message
+      where message.refund_case_id = case_row.id
+        and message.recipient_email = normalized_recipient
+        and public.is_refund_receipt_automatic_completion_message(message.id)
+    ) into authority_bound_completion;
+    if (
+      case_row.status in ('approved', 'denied', 'completed', 'closed')
+      or case_row.decision is not null
+    ) and not authority_bound_completion then
+      return jsonb_build_object('allowed', false, 'status', 'terminal_case');
+    end if;
+  end if;
+
+  recipient_resolution := public.service_resolve_refund_customer_manager_cc(
+    p_refund_case_id,
+    normalized_recipient,
+    mailbox_identities
+  );
+  select coalesce(array_agg(value order by value), '{}'::text[])
+  into manager_cc_emails
+  from jsonb_array_elements_text(
+    coalesce(recipient_resolution -> 'managerCcEmails', '[]'::jsonb)
+  ) value;
+  manager_recipient_overlap := coalesce(
+    (recipient_resolution ->> 'managerRecipientOverlap')::boolean,
+    false
+  );
+  manager_recipient_count := coalesce(
+    (recipient_resolution ->> 'managerRecipientCount')::integer,
+    0
+  );
+  if recipient_resolution ->> 'status' is distinct from 'resolved'
+    or manager_recipient_count not between 1 and 4
+    or manager_recipient_count <> cardinality(manager_cc_emails)
+      + (case when manager_recipient_overlap then 1 else 0 end) then
+    return jsonb_build_object(
+      'allowed', false,
+      'status', 'manager_cc_required',
+      'recipientResolutionStatus', recipient_resolution ->> 'status',
+      'managerCcEmails', '[]'::jsonb,
+      'managerCcCount', 0,
+      'managerRecipientOverlap', false,
+      'managerRecipientCount', 0
+    );
+  end if;
+
+  if normalized_delivery_kind = 'automatic' then
+    return jsonb_build_object(
+      'allowed', true,
+      'status', 'authorized',
+      'managerCcEmails', '[]'::jsonb,
+      'managerCcCount', 0,
+      'managerRecipientOverlap', false,
+      'managerRecipientCount', manager_recipient_count,
+      'recipientResolutionStatus', recipient_resolution ->> 'status',
+      'managerCopyPolicy', 'automatic_portal_only'
+    );
+  end if;
+
+  return jsonb_build_object(
+    'allowed', true,
+    'status', 'authorized',
+    'managerCcEmails', to_jsonb(manager_cc_emails),
+    'managerCcCount', cardinality(manager_cc_emails),
+    'managerRecipientOverlap', manager_recipient_overlap,
+    'managerRecipientCount', manager_recipient_count,
+    'recipientResolutionStatus', recipient_resolution ->> 'status',
+    'managerCopyPolicy', 'manager_cc_required'
+  );
+end;
+$$;
+
+revoke all on function public.service_authorize_refund_customer_outbound(
+  uuid, text, text[], text
+) from public, anon, authenticated, service_role;
+grant execute on function public.service_authorize_refund_customer_outbound(
+  uuid, text, text[], text
+) to service_role;
+comment on function public.service_authorize_refund_customer_outbound(uuid, text, text[], text) is
+  'Service-only customer-send authorization. Automatic messages require a current mapped-manager route but return no CC recipients; manual manager-authored replies retain exact current CC routing.';
+
 select pg_notify('pgrst', 'reload schema');

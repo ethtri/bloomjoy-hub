@@ -54,6 +54,54 @@ insert into public.refund_cases (
   500, '4242', 'needs_review', 'under_review'
 );
 
+update public.refund_customer_contact_settings
+set automatic_customer_contact_enabled = true,
+    updated_at = statement_timestamp()
+where singleton;
+
+select is(
+  public.service_authorize_refund_customer_outbound(
+    '92500000-0000-4000-8000-000000000001',
+    'notice-customer@example.test',
+    array['mailbox@example.test'],
+    'automatic'
+  ) -> 'managerCcEmails',
+  '[]'::jsonb,
+  'routine automatic customer mail has no manager CC recipients'
+);
+select is(
+  public.service_authorize_refund_customer_outbound(
+    '92500000-0000-4000-8000-000000000001',
+    'notice-customer@example.test',
+    array['mailbox@example.test'],
+    'automatic'
+  ) ->> 'managerCopyPolicy',
+  'automatic_portal_only',
+  'automatic customer mail remains manager-visible only in the portal'
+);
+select is(
+  (
+    public.service_authorize_refund_customer_outbound(
+      '92500000-0000-4000-8000-000000000001',
+      'notice-customer@example.test',
+      array['mailbox@example.test'],
+      'automatic'
+    ) ->> 'managerRecipientCount'
+  )::integer,
+  1,
+  'automatic mail still requires a current mapped-manager authorization route'
+);
+select is(
+  public.service_authorize_refund_customer_outbound(
+    '92500000-0000-4000-8000-000000000001',
+    'notice-customer@example.test',
+    array['mailbox@example.test'],
+    'manual'
+  ) -> 'managerCcEmails',
+  '["notice-manager@example.test"]'::jsonb,
+  'manager-authored customer conversation retains the current manager CC route'
+);
+
 select has_table('public', 'refund_manager_notification_actions', 'notification actions are durable');
 select has_table('public', 'refund_manager_notification_recipients', 'recipient dedupe is durable');
 select ok(not has_table_privilege('authenticated', 'public.refund_manager_notification_actions', 'select'), 'browser cannot read notification actions');

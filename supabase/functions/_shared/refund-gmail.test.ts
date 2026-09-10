@@ -421,6 +421,28 @@ Deno.test("customer manager CC resolution accepts only owned nonempty routes", (
     requireRefundCustomerManagerCcResolution({
       resolution: {
         status: "resolved",
+        managerCcEmails: [],
+        managerRecipientOverlap: false,
+        managerRecipientCount: 1,
+      },
+      customerEmail: "customer@example.test",
+      mailboxIdentities: ["info@bloomjoysweets.com"],
+      deliveryKind: "automatic",
+    }),
+    {
+      managerCcEmails: [],
+      managerCcCount: 0,
+      managerRecipientOverlap: false,
+      managerRecipientCount: 1,
+      recipientResolutionStatus: "resolved",
+    },
+    "automatic customer mail keeps the mapped-manager gate without a CC",
+  );
+
+  assertEquals(
+    requireRefundCustomerManagerCcResolution({
+      resolution: {
+        status: "resolved",
         managerCcEmails: ["MANAGER@example.test"],
         managerRecipientOverlap: false,
         managerRecipientCount: 1,
@@ -956,7 +978,7 @@ Deno.test("Gmail operation markers preserve the exact idempotency operation", ()
   }
 });
 
-Deno.test("Gmail send pins the provider thread and preserves the resolved CC set", async () => {
+Deno.test("manual Gmail send pins the provider thread and preserves the resolved CC set", async () => {
   const originalFetch = globalThis.fetch;
   const originalEnabled = Deno.env.get("REFUND_GMAIL_ENABLED");
   Deno.env.set("REFUND_GMAIL_ENABLED", "true");
@@ -1026,7 +1048,7 @@ Deno.test("Gmail send pins the provider thread and preserves the resolved CC set
       recipientEmail: "customer@example.test",
       ccEmails: ["manager@example.test"],
       managerRecipientCount: 1,
-      deliveryKind: "automatic",
+      deliveryKind: "manual",
       subject: "A quick refund update",
       text:
         "We are sorry for the inconvenience. Thank you for helping us review this carefully.",
@@ -1052,11 +1074,7 @@ Deno.test("Gmail send pins the provider thread and preserves the resolved CC set
       "sent customer sender",
     );
     assertIncludes(decoded, "Cc: manager@example.test", "sent manager CC");
-    assertIncludes(
-      decoded,
-      "Auto-Submitted: auto-generated",
-      "sent automatic-response header",
-    );
+    assertNotIncludes(decoded, "Auto-Submitted: auto-generated", "manual reply header");
   } finally {
     globalThis.fetch = originalFetch;
     if (originalEnabled === undefined) Deno.env.delete("REFUND_GMAIL_ENABLED");

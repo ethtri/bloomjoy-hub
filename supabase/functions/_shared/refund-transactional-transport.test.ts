@@ -13,6 +13,32 @@ const restoreEnv = (name: string, value: string | undefined) => {
   else Deno.env.set(name, value);
 };
 
+Deno.test("portal-only automatic transactional mail rejects manager CC before provider access", async () => {
+  const originalFetch = globalThis.fetch;
+  let providerCalls = 0;
+  globalThis.fetch = (() => {
+    providerCalls += 1;
+    throw new Error("Automatic manager CC must not reach the provider");
+  }) as typeof fetch;
+  try {
+    await assertRejects(
+      () =>
+        sendRefundTransactionalEmail({
+          to: ["customer@example.test"],
+          cc: ["manager@example.test"],
+          managerCopyPolicy: "automatic_portal_only",
+          subject: "Synthetic automatic update",
+          text: "Synthetic body.",
+        }),
+      Error,
+      "cannot include manager CC",
+    );
+    assertEquals(providerCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test("bounced original request mark rejection stops actual Resend transport before provider access", async () => {
   const originalFetch = globalThis.fetch;
   let markCalls = 0;
