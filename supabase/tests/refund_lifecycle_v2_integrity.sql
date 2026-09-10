@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(36);
+select plan(37);
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -48,8 +48,11 @@ insert into public.refund_cases (
   intake_selection_key, intake_selection_kind, intake_selection_machine_ids,
   customer_email, issue_summary, incident_at, incident_timezone,
   payment_method, payment_amount_cents, refund_amount_cents, card_last4,
-  status, correlation_status, correlation_source, correlation_confidence,
-  automation_state
+  status, decision, refund_completed_at, correlation_status, correlation_source,
+  correlation_confidence, automation_state, nayax_refund_execution_status,
+  nayax_match_execution_eligible, matched_nayax_transaction_id,
+  matched_nayax_machine_auth_time, matched_nayax_amount_cents,
+  matched_nayax_currency_code, matched_nayax_site_id
 ) values
   (
     'e4000000-0000-4000-8000-000000000001', 'RF-LIFECYCLE-V2-NORMAL',
@@ -58,9 +61,10 @@ insert into public.refund_cases (
     'customer-selection-e1', 'exact_machine',
     array['e3000000-0000-4000-8000-000000000001'::uuid],
     'lifecycle-normal@example.invalid', 'Lifecycle normal fixture',
-    statement_timestamp() - interval '30 minutes', 'America/Los_Angeles',
-    'card', 700, 700, '4242', 'needs_review', 'matched', 'nayax', 1,
-    'under_review'
+    timestamp '2017-02-01 12:00:00', 'America/Los_Angeles',
+    'card', 700, 700, '4242', 'completed', 'approved', statement_timestamp(),
+    'matched', 'nayax', 1, 'completed', 'approved', false,
+    'LIFECYCLE-TXN-0001', timestamp '2017-02-01 12:00:00', 700, 'USD', 7101
   ),
   (
     'e4000000-0000-4000-8000-000000000002', 'RF-LIFECYCLE-V2-CLOSED',
@@ -69,8 +73,8 @@ insert into public.refund_cases (
     null, null, null,
     'lifecycle-closed@example.invalid', 'Lifecycle closed fixture',
     statement_timestamp() - interval '40 minutes', 'America/Los_Angeles',
-    'card', 700, 700, '4242', 'closed', 'no_match', 'nayax', 0,
-    'closed_incomplete'
+    'card', 700, 700, '4242', 'closed', null, null, 'no_match', 'nayax', 0,
+    'closed_incomplete', 'not_requested', false, null, null, null, null, null
   ),
   (
     'e4000000-0000-4000-8000-000000000003', 'RF-LIFECYCLE-V2-CASH',
@@ -79,8 +83,8 @@ insert into public.refund_cases (
     null, null, null,
     'lifecycle-cash@example.invalid', 'Lifecycle payout fixture',
     statement_timestamp() - interval '20 minutes', 'America/Los_Angeles',
-    'cash', 800, 800, null, 'needs_review', 'not_started', null, 0,
-    'under_review'
+    'cash', 800, 800, null, 'needs_review', null, null, 'not_started', null, 0,
+    'under_review', 'not_requested', false, null, null, null, null, null
   );
 
 insert into public.refund_cases (
@@ -275,22 +279,71 @@ select lifecycle_revision
 from public.refund_cases
 where id = 'e4000000-0000-4000-8000-000000000001';
 
+insert into public.sales_adjustment_facts (
+  id, reporting_machine_id, reporting_location_id, adjustment_date,
+  adjustment_type, amount_cents, complaint_count, source, source_row_hash,
+  source_reference, source_row_reference, refund_case_id, match_status,
+  match_confidence, notes, raw_payload
+) values (
+  'e6500000-0000-4000-8000-000000000001',
+  'e3000000-0000-4000-8000-000000000001',
+  'e2000000-0000-4000-8000-000000000001', current_date,
+  'refund', 700, 1, 'refund_case', 'lifecycle-v2-completed-adjustment',
+  'refund_cases', 'RF-LIFECYCLE-V2-NORMAL',
+  'e4000000-0000-4000-8000-000000000001', 'applied', 1,
+  'Synthetic committed lifecycle settlement', jsonb_build_object(
+    'refund_case_id', 'e4000000-0000-4000-8000-000000000001'::uuid,
+    'refund_case_reference', 'RF-LIFECYCLE-V2-NORMAL',
+    'refund_case_status', 'completed',
+    'refund_case_decision', 'approved',
+    'payment_method', 'card',
+    'correlation_source', 'nayax',
+    'correlation_has_card_lookup', true,
+    'payload_redacted', true
+  )
+);
+select ok(
+  (
+    select adjustment.refund_business_fingerprint is not null
+      and adjustment.refund_business_fingerprint = refund_case.refund_business_fingerprint
+      and not exists (
+        select 1
+        from public.refund_cases sibling
+        where sibling.id <> refund_case.id
+          and sibling.status not in ('denied', 'closed')
+          and sibling.refund_business_fingerprint = adjustment.refund_business_fingerprint
+      )
+    from public.sales_adjustment_facts adjustment
+    join public.refund_cases refund_case on refund_case.id = adjustment.refund_case_id
+    where adjustment.id = 'e6500000-0000-4000-8000-000000000001'
+  ),
+  'Completion settlement has one exact, noncolliding case business fingerprint'
+);
+update public.refund_cases set
+  reporting_adjustment_id = 'e6500000-0000-4000-8000-000000000001'
+where id = 'e4000000-0000-4000-8000-000000000001';
 insert into public.refund_case_nayax_refund_attempts (
   id, refund_case_id, execution_mode, status, idempotency_key, amount_cents,
-  provider_outcome
+  provider_reference, provider_status, sanitized_response, provider_outcome,
+  provider_outcome_recorded_at, reconciliation_required, reporting_adjustment_id,
+  case_finalization_committed_at, completed_at
 ) values (
   'e6000000-0000-4000-8000-000000000002',
   'e4000000-0000-4000-8000-000000000001',
   'request_and_approve', 'succeeded', 'lifecycle-v2-completed-attempt', 700,
-  'success'
+  'LIFECYCLE-PROVIDER-SUCCESS', 'approved',
+  jsonb_build_object('provider_outcome', 'success', 'payload_redacted', true),
+  'success', statement_timestamp(), false,
+  'e6500000-0000-4000-8000-000000000001', statement_timestamp(), statement_timestamp()
 );
 insert into public.refund_case_messages (
-  refund_case_id, message_type, status, recipient_email, subject, body,
+  refund_case_id, nayax_refund_attempt_id, message_type, status, recipient_email, subject, body,
   template_key, delivery_transport, delivery_state, delivery_state_updated_at
 ) values (
-  'e4000000-0000-4000-8000-000000000001', 'status_update', 'failed',
+  'e4000000-0000-4000-8000-000000000001',
+  'e6000000-0000-4000-8000-000000000002', 'completed', 'failed',
   'lifecycle-normal@example.invalid', 'Status update', 'Redacted status update',
-  'refund_status_update_v2_test', 'resend', 'failed', statement_timestamp()
+  'refund_completed_v2_test', 'resend', 'failed', statement_timestamp()
 );
 
 select ok(

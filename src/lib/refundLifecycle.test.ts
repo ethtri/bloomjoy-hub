@@ -174,6 +174,12 @@ Deno.test("the lifecycle parser accepts optional receipt accounting separation",
     !isRefundLifecycleContract({ ...sentReceiptLifecycle, refreshAfterSeconds: 5 }),
     "sent canonical receipt accounting cannot keep polling",
   );
+  for (const contactState of ["bounced", "complained"] as const) {
+    assert(isRefundLifecycleContract({
+      ...receiptLifecycle,
+      messageState: { ...receiptLifecycle.messageState, state: contactState },
+    }), `${contactState} pending-accounting receipt should parse`);
+  }
   assert(
     !isRefundLifecycleContract({ ...fixture, paymentWorkComplete: true }),
     "payment completion without accounting state must fail closed",
@@ -510,6 +516,15 @@ Deno.test("the lifecycle parser accepts exact applied accounting delivery states
     },
   };
   assert(isRefundLifecycleContract(appliedUnknown), "an unconfirmed applied receipt should parse");
+
+  for (const contactState of ["bounced", "complained"] as const) {
+    assert(isRefundLifecycleContract({
+      ...appliedFailed,
+      stage: "customer_notified",
+      reasonCode: "completion_delivery_failed",
+      messageState: { ...appliedSent.messageState, state: contactState },
+    }), `${contactState} applied-accounting receipt should parse`);
+  }
 
   const mixedOverview = {
     cases: [

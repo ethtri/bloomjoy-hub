@@ -1,4 +1,5 @@
 import type { RefundLifecycleContract } from './refundLifecycle.ts';
+import { getRefundCompletionContactPresentation } from './refundCompletionContact.ts';
 import { getRefundCustomerOutreachPresentation } from './refundCustomerOutreach.ts';
 
 export type RefundManagerStateId =
@@ -213,51 +214,17 @@ const receiptAccountingManagerState = (
   // Historical receipt projections can predate messageState. Presentation may
   // show that absence as missing notice evidence; the lifecycle parser remains
   // strict and continues to reject incomplete live contracts.
-  const noticeState = lifecycle.messageState?.state ?? (
-    lifecycle.stage === 'customer_notified' ? 'sent' : 'none'
-  );
-  if (['pending', 'queued', 'claimed'].includes(noticeState)) {
-    return state(
-      'refund_confirmed',
-      'Refund confirmed · customer notice queued',
-      'Nayax confirms the full refund. The saved customer completion notice is waiting for delivery.',
-      'Keep monitoring the existing notice. Refund Operations owns the unknown accounting date. Do not retry payment or create another message.',
-      'info',
-    );
-  }
-  if (['failed', 'bounced', 'complained', 'deferred', 'delivery_unconfirmed', 'unknown'].includes(noticeState)) {
-    return state(
-      'refund_confirmed',
-      'Refund confirmed · delivery review',
-      'Nayax confirms the full refund, but delivery of the saved customer completion notice is failed or unconfirmed.',
-      'Refund Operations owns the message-delivery and accounting-date review. Do not retry payment or create another message blindly.',
-      'warning',
-    );
-  }
-  if (['sent', 'delivered'].includes(noticeState)) {
-    return state(
-      'refund_confirmed',
-      'Refund confirmed · customer updated',
-      'The existing customer notice is recorded for this claim. The settlement date remains unknown and no dated reporting adjustment has been applied.',
-      'Refund Operations owns the accounting-date review. Do not retry payment or resend the customer notice.',
-      'warning',
-    );
-  }
-  if (noticeState === 'none') {
-    return state(
-      'refund_confirmed',
-      'Refund confirmed · notice not recorded',
-      'Nayax confirms the full refund. No customer completion notice is queued or recorded yet, and the settlement date remains unknown.',
-      'Keep monitoring the canonical completion flow. Refund Operations owns the accounting-date review. Do not retry payment or create a separate message.',
-      'warning',
-    );
-  }
+  const contact = getRefundCompletionContactPresentation({
+    messageState: lifecycle.messageState ?? {
+      state: lifecycle.stage === 'customer_notified' ? 'delivery_unconfirmed' : 'none',
+      messageType: null, lastUpdatedAt: null, payloadRedacted: true,
+    },
+  });
   return state(
-    'refund_confirmed',
-    'Refund confirmed · delivery review',
-    'Nayax confirms the full refund, but the saved customer completion notice has an unrecognized delivery state.',
-    'Refund Operations owns the message-delivery and accounting-date review. Do not retry payment or create another message blindly.',
-    'warning',
+    'refund_confirmed', contact.label,
+    `${contact.detail} The settlement date remains unknown.`,
+    `${contact.nextAction} Refund Operations owns the accounting-date review.`,
+    contact.tone,
   );
 };
 

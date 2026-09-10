@@ -582,19 +582,21 @@ Deno.test('adopted unknown-date receipt keeps accounting internal without implyi
     reasonCode: 'settlement_time_unknown', paymentState: 'confirmed', terminal: false,
     messageState: { state: 'sent', messageType: 'completed', lastUpdatedAt: '2026-08-26T20:00:00.000Z', payloadRedacted: true },
   } });
-  assertEquals(result.label, 'Refund confirmed · customer updated', 'Adopted notice is visible');
+  assertEquals(result.label, 'Refund confirmed · update sent', 'Adopted notice is visible');
   assertEquals(result.nextStep.includes('Do not retry payment or resend'), true, 'No second payment or send');
   assertEquals(result.explanation.includes('settlement date remains unknown'), true, 'Accounting date remains unknown');
 });
 
 Deno.test('receipt manager state keeps every customer-notice outcome observable without reopening payment', () => {
   const fixtures = [
-    ['none', 'Refund confirmed · notice not recorded'],
-    ['pending', 'Refund confirmed · customer notice queued'],
-    ['failed', 'Refund confirmed · delivery review'],
-    ['delivery_unconfirmed', 'Refund confirmed · delivery review'],
-    ['sent', 'Refund confirmed · customer updated'],
-    ['delivered', 'Refund confirmed · customer updated'],
+    ['none', 'Refund confirmed · update needs preparation'],
+    ['pending', 'Refund confirmed · update queued'],
+    ['failed', 'Refund confirmed · update could not be sent'],
+    ['delivery_unconfirmed', 'Refund confirmed · update outcome unconfirmed'],
+    ['sent', 'Refund confirmed · update sent'],
+    ['delivered', 'Refund confirmed · update delivered'],
+    ['bounced', 'Refund confirmed · contact needs review'],
+    ['complained', 'Refund confirmed · contact needs review'],
   ] as const;
   for (const [messageState, label] of fixtures) {
     const contract = lifecycle(
@@ -633,14 +635,14 @@ Deno.test('legacy receipt presentation treats an absent message state as missing
     ...baseCase,
     lifecycle: legacyReceipt as RefundLifecycleContract,
   });
-  assertEquals(result.label, 'Refund confirmed · notice not recorded', 'missing notice remains explicit');
+  assertEquals(result.label, 'Refund confirmed · update needs preparation', 'missing notice remains explicit');
   assertEquals(result.nextStep.includes('Do not retry payment'), true, 'payment remains closed');
 
   const notifiedResult = getRefundManagerState({
     ...baseCase,
     lifecycle: { ...legacyReceipt, stage: 'customer_notified', stageRank: 80 } as RefundLifecycleContract,
   });
-  assertEquals(notifiedResult.label, 'Refund confirmed · customer updated', 'legacy notified stage remains evidence');
+  assertEquals(notifiedResult.label, 'Refund confirmed · update outcome unconfirmed', 'legacy stage alone is not send proof');
 });
 
 Deno.test('canonical waiting-on-customer stage wins over matching facts', () => {
