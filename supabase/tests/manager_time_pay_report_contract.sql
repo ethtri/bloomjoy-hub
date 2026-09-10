@@ -1874,7 +1874,7 @@ select is(
 create temporary table automatic_sales_statement_baseline as
 select statement.id, statement.statement_payload
 from public.pay_statements statement
-where statement.operator_profile_id = 'a6000000-0000-0000-0000-000000000001'
+where statement.operator_profile_id = 'a6000000-0000-0000-0000-000000000002'
   and statement.status = 'issued'
 order by statement.version desc, statement.created_at desc
 limit 1;
@@ -1892,7 +1892,7 @@ insert into public.machine_sales_facts (
 )
 values (
   'a9100000-0000-0000-0000-000000000006',
-  'a4000000-0000-0000-0000-000000000001',
+  'a4000000-0000-0000-0000-000000000002',
   'a3000000-0000-0000-0000-000000000001',
   '2026-07-25', 'credit', 100, 1, 'sample_seed', 'manager-report-auto-sale-after-statement'
 );
@@ -1904,8 +1904,8 @@ select public.get_current_technician_pay_report_context('2026-07-01') as payload
 
 select is(
   concat(
-    payload #>> '{technicians,0,machines,0,snapshotMatchesFacts}', ':',
-    payload #>> '{technicians,0,payStubRegenerationRequired}'
+    payload #>> '{technicians,1,machines,0,snapshotMatchesFacts}', ':',
+    payload #>> '{technicians,1,payStubRegenerationRequired}'
   ),
   'true:true',
   'post-publication sales reconcile while retaining the explicit Pay Stub regeneration safeguard'
