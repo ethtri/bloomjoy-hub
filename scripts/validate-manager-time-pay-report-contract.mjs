@@ -57,6 +57,12 @@ const files = {
     'migrations',
     '20260910173236_payout_assignment_sales_refresh.sql'
   ),
+  automaticSalesMigration: path.join(
+    repoRoot,
+    'supabase',
+    'migrations',
+    '20260910184347_automatic_technician_pay_sales_reconciliation.sql'
+  ),
   pgTap: path.join(repoRoot, 'supabase', 'tests', 'manager_time_pay_report_contract.sql'),
   concurrencyPgTap: path.join(
     repoRoot,
@@ -215,6 +221,22 @@ for (const snippet of [
   expect(snippet === "'revenueSnapshotId'" || snippet === "'snapshotMatchesFacts'" ? readText(files.pgTap) : assignmentRefreshMigration, snippet, 'assignment sales refresh regression');
 }
 
+const automaticSalesMigration = readText(files.automaticSalesMigration);
+for (const snippet of [
+  'create function public.get_current_technician_pay_report_context',
+  'public.ensure_operator_payout_period_for_date',
+  'private.operator_machine_tax_snapshot',
+  'pg_catalog.pg_advisory_xact_lock',
+  'snapshot_row.gross_sales_cents is distinct from',
+  'Technician Pay Report automatic sales reconciliation',
+  'private.operator_pay_stub_regeneration_required',
+  'audit.created_at >= latest.generated_at',
+  "'operator_payout_revenue_snapshot.regenerated'",
+  'grant execute on function public.get_current_technician_pay_report_context(date) to authenticated',
+]) {
+  expect(automaticSalesMigration, snippet, 'automatic Technician Pay Report sales reconciliation migration');
+}
+
 const missedTimeMigration = readText(files.missedTimeMigration);
 for (const snippet of [
   'create or replace function public.get_my_time_review_entry_options',
@@ -303,9 +325,8 @@ for (const snippet of [
   'machineCompensation',
   "`${month}-01`",
   'supersedeOperatorCompensationRateAdmin',
-  'refreshTechnicianPayReportSalesAdmin',
   'upsertEffectiveOperatorMachineAssignmentAdmin',
-  "'get_technician_pay_report_context'",
+  "'get_current_technician_pay_report_context'",
 ]) {
   if (!helper.includes(snippet)) {
     fail(`operatorPayouts helper missing ${snippet}`);
@@ -319,7 +340,6 @@ for (const snippet of [
   "totalUnavailable ? 'Unavailable'",
   'supersedeOperatorCompensationRateAdmin',
   'upsertOperatorRecurringItemAdmin',
-  'Refresh sales',
   'All assigned machines — Technician default',
   'Adjust pay',
   'Change started-hour rate',
@@ -340,11 +360,15 @@ for (const snippet of [
   'Month in progress',
   'Sales through',
   'Assignment dates were not changed',
-  'sales were recalculated',
+  'sales updated automatically',
 ]) {
   if (!payReportPage.includes(snippet)) {
     fail(`Technician Pay Report page missing ${snippet}`);
   }
+}
+
+if (payReportPage.includes('Refresh sales') || helper.includes('refreshTechnicianPayReportSalesAdmin')) {
+  fail('Technician Pay Report must not expose manual sales snapshot maintenance.');
 }
 
 const timeReviewPage = readText(files.timeReviewPage);

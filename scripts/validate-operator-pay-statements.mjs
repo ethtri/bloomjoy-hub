@@ -94,12 +94,15 @@ for (const snippet of [
 const adminPage = readText(files.adminPage);
 for (const snippet of [
   'Technician Pay Report',
-  'This report does not approve or send payment.',
-  'Refresh sales',
+  'Sales update automatically from the latest imported machine data',
+  'this report does not approve or send payment.',
 ]) {
   if (!adminPage.includes(snippet)) {
     fail(`Admin payouts page missing ${snippet}`);
   }
+}
+if (adminPage.includes('Refresh sales')) {
+  fail('Admin payouts page still exposes manual sales snapshot maintenance.');
 }
 for (const snippet of ['previewStatements', 'issueStatements', 'Revision reason']) {
   if (adminPage.includes(snippet)) {
