@@ -1851,15 +1851,21 @@ select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003
 create temporary table automatic_sales_current_report as
 select public.get_current_technician_pay_report_context('2026-10-01') as payload;
 
+with technician as (
+  select technician.item
+  from automatic_sales_current_report report
+  cross join lateral jsonb_array_elements(report.payload -> 'technicians') technician(item)
+  where technician.item ->> 'operatorProfileId' = 'a6000000-0000-0000-0000-000000000001'
+)
 select is(
   concat(
-    payload #>> '{technicians,0,machines,0,snapshotMatchesFacts}', ':',
-    payload #>> '{technicians,0,machines,0,commissionableSalesCents}'
+    technician.item #>> '{machines,0,snapshotMatchesFacts}', ':',
+    technician.item #>> '{machines,0,commissionableSalesCents}'
   ),
   'true:900',
   'a changed imported sale is reconciled before the current report is returned'
 )
-from automatic_sales_current_report;
+from technician;
 
 select is(
   (select count(*)::integer
