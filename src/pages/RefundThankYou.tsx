@@ -2,26 +2,24 @@ import { CheckCircle2, Mail, Sparkles } from 'lucide-react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/button';
-import { readRefundSubmissionReceipt } from '@/lib/refundSubmissionRecovery';
+import {
+  getRefundSessionStorage,
+  readRefundSubmissionReceipt,
+  resolveRefundThankYouContext,
+  type RefundThankYouNavigationState,
+} from '@/lib/refundSubmissionRecovery';
 
 export default function RefundThankYouPage() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const navigationState = location.state as {
-    reference?: string;
-    statusToken?: string | null;
-    statusExpiresAt?: string | null;
-    paymentMethod?: 'card' | 'cash';
-  } | null;
-  const savedReceipt = typeof window === 'undefined'
-    ? null
-    : readRefundSubmissionReceipt(window.sessionStorage);
-  const reference = navigationState?.reference?.trim()
-    || savedReceipt?.publicReference
-    || searchParams.get('ref')?.trim()
-    || '';
-  const statusToken = navigationState?.statusToken ?? savedReceipt?.statusToken ?? null;
-  const paymentMethod = navigationState?.paymentMethod ?? savedReceipt?.paymentMethod;
+  const navigationState = location.state as RefundThankYouNavigationState | null;
+  const savedReceipt = readRefundSubmissionReceipt(getRefundSessionStorage());
+  const { reference, statusToken, paymentMethod } = resolveRefundThankYouContext({
+    navigationState,
+    hasQueryReference: searchParams.has('ref'),
+    queryReference: searchParams.get('ref'),
+    savedReceipt,
+  });
   const hasStatusLink = typeof statusToken === 'string' && /^[A-Za-z0-9_-]{43}$/.test(statusToken);
   const isDemo = searchParams.get('demo') === 'on';
 

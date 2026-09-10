@@ -277,25 +277,52 @@ export const buildPublicIntakeSubmissionDedupeKey = async ({
   salt,
   submissionType,
   submissionId,
-  email,
-  sourcePage,
 }: {
   salt: string;
   submissionType: string;
   submissionId: string;
-  email: string;
-  sourcePage: string;
 }): Promise<string> =>
   await hashPublicIntakeValue({
     salt,
     purpose: "public-intake:submission-dedupe",
     value: [
       submissionType.trim().toLowerCase(),
-      email.trim().toLowerCase(),
-      normalizePublicIntakeSource(sourcePage),
       submissionId.trim().toLowerCase(),
     ].join("|"),
   });
+
+export const buildPublicIntakeSubmissionFingerprint = async ({
+  salt,
+  submissionType,
+  canonicalValues,
+}: {
+  salt: string;
+  submissionType: string;
+  canonicalValues: Array<string | number | boolean | null>;
+}): Promise<string> =>
+  await hashPublicIntakeValue({
+    salt,
+    purpose: "public-intake:submission-fingerprint",
+    value: JSON.stringify([
+      submissionType.trim().toLowerCase(),
+      ...canonicalValues,
+    ]),
+  });
+
+export const classifyPublicIntakeSubmissionReplay = ({
+  storedIdentityHash,
+  storedFingerprint,
+  identityHash,
+  fingerprint,
+}: {
+  storedIdentityHash: unknown;
+  storedFingerprint: unknown;
+  identityHash: string;
+  fingerprint: string;
+}): "match" | "conflict" | "unrelated" => {
+  if (storedIdentityHash !== identityHash) return "unrelated";
+  return storedFingerprint === fingerprint ? "match" : "conflict";
+};
 
 const recordPublicIntakeRateLimitEvent = async (
   supabase: PublicIntakeAbuseSupabaseClient,

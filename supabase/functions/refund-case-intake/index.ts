@@ -32,8 +32,10 @@ import {
 import {
   buildPublicIntakeDedupeKey,
   buildPublicIntakeSubmissionDedupeKey,
+  buildPublicIntakeSubmissionFingerprint,
   buildPublicIntakeKeyHashes,
   checkPublicIntakeRateLimits,
+  classifyPublicIntakeSubmissionReplay,
   getPublicIntakeClientIp,
   getPublicIntakeWindowStart,
   PUBLIC_INTAKE_DEDUPE_WINDOW_SECONDS,
@@ -128,6 +130,7 @@ type SubmittedRefundCase = {
   status: string;
   correlation_status: string;
   gmail_thread_id?: string;
+  intake_meta?: Record<string, unknown> | null;
 };
 
 type VerifiedRefundQrClaim = {
@@ -570,6 +573,19 @@ const refundQrUnavailableResponse = () =>
     }),
     {
       status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    },
+  );
+
+const refundSubmissionIdentityConflictResponse = () =>
+  new Response(
+    JSON.stringify({
+      error:
+        "These answers no longer match the saved submission attempt. Review them and send this as a new attempt.",
+      errorCode: "refund_submission_identity_conflict",
+    }),
+    {
+      status: 409,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     },
   );
@@ -1459,6 +1475,19 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    const runReplayNayaxLookup = async (caseId: string) => {
+      if (paymentValidation.shouldRunNayaxLookup) {
+        await runAutomaticNayaxLookupIfReady({
+          supabase,
+          caseId,
+          source: "hosted_intake",
+        }).catch((lookupError) => {
+          console.error("refund intake automatic Nayax trigger failed", {
+            errorType: lookupError instanceof Error ? lookupError.name : typeof lookupError,
+          });
+        });
+      }
+    };
 
     if (
       body?.incidentTimeConfidence !== undefined &&
@@ -1767,38 +1796,71 @@ serve(async (req) => {
       new Date(),
       PUBLIC_INTAKE_DEDUPE_WINDOW_SECONDS,
     );
-    const serverDedupeKey = submissionId
+    // Keep the legacy, content-derived namespace on the unique column so a
+    // rolling deploy or rollback dedupes in either order. The durable opaque
+    // identity is separately bound to a canonical payload fingerprint below.
+    const legacyDedupeMessage = [
+      intakeSelectionKey ?? machineRecord.id,
+      incidentAt.toISOString(),
+      paymentMethod,
+      amountCents ?? "amount-not-provided",
+      paymentMethod === "card" ? cardLast4 : "no-card-last4",
+      paymentInteraction,
+      cardLast4Source ?? "source-not-provided",
+      walletDeviceKind ?? "device-not-provided",
+      incidentTimeConfidence,
+      incidentTimeSource ?? "time-source-not-provided",
+      issueCategory,
+      productDescription,
+      issueSummary,
+    ].join("|");
+    const serverDedupeKey = await buildPublicIntakeDedupeKey({
+      salt: abuseControlSalt,
+      submissionType: "refund_case",
+      email: customerEmail,
+      sourcePage,
+      message: legacyDedupeMessage,
+      windowStartedAt: serverDedupeWindowStartedAt,
+    });
+    const submissionIdentityHash = submissionId
       ? await buildPublicIntakeSubmissionDedupeKey({
           salt: abuseControlSalt,
           submissionType: "refund_case",
           submissionId,
-          email: customerEmail,
-          sourcePage,
         })
-      : await buildPublicIntakeDedupeKey({
+      : null;
+    const submissionPayloadFingerprint = submissionIdentityHash
+      ? await buildPublicIntakeSubmissionFingerprint({
           salt: abuseControlSalt,
           submissionType: "refund_case",
-          email: customerEmail,
-          sourcePage,
-          message: [
+          canonicalValues: [
+            customerEmail,
+            customerName,
+            customerPhone,
             intakeSelectionKey ?? machineRecord.id,
+            machineRecord.id,
             incidentAt.toISOString(),
-            paymentMethod,
-            amountCents ?? "amount-not-provided",
-            paymentMethod === "card" ? cardLast4 : "no-card-last4",
-            paymentInteraction,
-            cardLast4Source ?? "source-not-provided",
-            walletDeviceKind ?? "device-not-provided",
+            hasLocalIncidentInput ? `${incidentDate}T${incidentTime}` : null,
+            locationRecord?.timezone ?? null,
+            paymentValidation.paymentMethod,
+            paymentValidation.amountCents,
+            paymentValidation.cardLast4,
+            cardLast4Source,
+            paymentValidation.cardNetwork,
+            paymentValidation.cardWalletUsed,
+            paymentValidation.paymentInteraction,
+            paymentValidation.walletProvider,
+            walletDeviceKind,
             incidentTimeConfidence,
-            incidentTimeSource ?? "time-source-not-provided",
+            incidentTimeSource,
             issueCategory,
             productDescription,
             issueSummary,
-          ].join("|"),
-          windowStartedAt: serverDedupeWindowStartedAt,
-        });
+          ],
+        })
+      : null;
     const selectedRefundCaseColumns =
-      "id, public_reference, status, correlation_status";
+      "id, public_reference, status, correlation_status, intake_meta";
     const intakeMeta = {
       source: "hosted_refund_intake",
       intake_path: verifiedQrClaim ? "machine_qr" : "direct_form",
@@ -1819,6 +1881,8 @@ serve(async (req) => {
       candidate_sales_fact_ids: candidateIds,
       customer_locale: customerLocale,
       user_agent: req.headers.get("user-agent")?.slice(0, 300) ?? null,
+      submission_identity_hash: submissionIdentityHash,
+      submission_payload_fingerprint: submissionPayloadFingerprint,
     };
     const insertValues = {
       reporting_machine_id: machineRecord.id,
@@ -1876,6 +1940,43 @@ serve(async (req) => {
       server_dedupe_key: serverDedupeKey,
       server_dedupe_window_started_at: serverDedupeWindowStartedAt.toISOString(),
     };
+
+    if (submissionIdentityHash && submissionPayloadFingerprint) {
+      const { data: existingSubmission, error: submissionLookupError } = await supabase
+        .from("refund_cases")
+        .select(selectedRefundCaseColumns)
+        .contains("intake_meta", { submission_identity_hash: submissionIdentityHash })
+        .maybeSingle();
+      if (submissionLookupError) {
+        throw new Error("Unable to safely check this refund submission.");
+      }
+      if (existingSubmission) {
+        const replay = classifyPublicIntakeSubmissionReplay({
+          storedIdentityHash: existingSubmission.intake_meta?.submission_identity_hash,
+          storedFingerprint: existingSubmission.intake_meta?.submission_payload_fingerprint,
+          identityHash: submissionIdentityHash,
+          fingerprint: submissionPayloadFingerprint,
+        });
+        if (replay !== "match") {
+          return refundSubmissionIdentityConflictResponse();
+        }
+        await runReplayNayaxLookup(existingSubmission.id);
+        const statusCapability = await issueStatusCapability(existingSubmission.id);
+        return new Response(
+          JSON.stringify({
+            refundCase: {
+              id: existingSubmission.id,
+              publicReference: existingSubmission.public_reference,
+              status: existingSubmission.status,
+              correlationStatus: existingSubmission.correlation_status,
+            },
+            statusToken: statusCapability?.token ?? null,
+            statusExpiresAt: statusCapability?.expiresAt ?? null,
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    }
 
     let refundCase: SubmittedRefundCase | null = null;
     let linkedGmailThreadId: string | null = null;
@@ -1938,6 +2039,40 @@ serve(async (req) => {
         emailContextToken,
         linkedCase,
       );
+      if (submissionIdentityHash && submissionPayloadFingerprint) {
+        const { data: linkedIdentityCase, error: linkedIdentityError } = await supabase
+          .from("refund_cases")
+          .select("id, intake_meta")
+          .eq("id", linkedCase.id)
+          .maybeSingle();
+        if (linkedIdentityError || !linkedIdentityCase) {
+          throw new Error("Unable to safely retain this refund submission.");
+        }
+        const storedIdentityHash = linkedIdentityCase.intake_meta?.submission_identity_hash;
+        if (storedIdentityHash === submissionIdentityHash) {
+          const replay = classifyPublicIntakeSubmissionReplay({
+            storedIdentityHash,
+            storedFingerprint: linkedIdentityCase.intake_meta?.submission_payload_fingerprint,
+            identityHash: submissionIdentityHash,
+            fingerprint: submissionPayloadFingerprint,
+          });
+          if (replay !== "match") return refundSubmissionIdentityConflictResponse();
+        } else if (typeof storedIdentityHash !== "string") {
+          const { error: linkedAdoptionError } = await supabase
+            .from("refund_cases")
+            .update({
+              intake_meta: {
+                ...(linkedIdentityCase.intake_meta ?? {}),
+                submission_identity_hash: submissionIdentityHash,
+                submission_payload_fingerprint: submissionPayloadFingerprint,
+              },
+            })
+            .eq("id", linkedCase.id);
+          if (linkedAdoptionError) {
+            throw new Error("Unable to safely retain this refund submission.");
+          }
+        }
+      }
       refundCase = linkedCase;
     }
 
@@ -1979,17 +2114,36 @@ serve(async (req) => {
           throw new Error("Unable to create refund case.");
         }
 
-        if (paymentValidation.shouldRunNayaxLookup) {
-          await runAutomaticNayaxLookupIfReady({
-            supabase,
-            caseId: dedupedRefundCase.id,
-            source: "hosted_intake",
-          }).catch((lookupError) => {
-            console.error("refund intake automatic Nayax trigger failed", {
-              errorType: lookupError instanceof Error ? lookupError.name : typeof lookupError,
+        if (submissionIdentityHash && submissionPayloadFingerprint) {
+          const storedIdentityHash = dedupedRefundCase.intake_meta?.submission_identity_hash;
+          if (storedIdentityHash === submissionIdentityHash) {
+            const replay = classifyPublicIntakeSubmissionReplay({
+              storedIdentityHash,
+              storedFingerprint: dedupedRefundCase.intake_meta?.submission_payload_fingerprint,
+              identityHash: submissionIdentityHash,
+              fingerprint: submissionPayloadFingerprint,
             });
-          });
+            if (replay !== "match") {
+              return refundSubmissionIdentityConflictResponse();
+            }
+          } else if (typeof storedIdentityHash !== "string") {
+            const adoptedIntakeMeta = {
+              ...(dedupedRefundCase.intake_meta ?? {}),
+              submission_identity_hash: submissionIdentityHash,
+              submission_payload_fingerprint: submissionPayloadFingerprint,
+            };
+            const { error: adoptionError } = await supabase
+              .from("refund_cases")
+              .update({ intake_meta: adoptedIntakeMeta })
+              .eq("id", dedupedRefundCase.id)
+              .eq("server_dedupe_key", serverDedupeKey);
+            if (adoptionError) {
+              throw new Error("Unable to safely retain this refund submission.");
+            }
+          }
         }
+
+        await runReplayNayaxLookup(dedupedRefundCase.id);
         const statusCapability = await issueStatusCapability(dedupedRefundCase.id);
         return new Response(
           JSON.stringify({
