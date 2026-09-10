@@ -69,6 +69,7 @@ export type RefundManagerNotificationChannel =
   | "portal_only";
 
 export type RefundManagerNotificationDeliveryState =
+  | "reserved"
   | "sent"
   | "delivery_unknown"
   | "known_not_sent"
@@ -97,7 +98,8 @@ export const REFUND_MANAGER_NOTIFICATION_POLICY: Readonly<
 > = {
   intake_created: "portal_only",
   wallet_match_ready: "immediate",
-  customer_reply: "daily_digest",
+  // #1281 will enable digest routing only after its durable consumer exists.
+  customer_reply: "immediate",
   hard_bounce: "immediate",
   provider_setup: "immediate",
   provider_outage: "immediate",
@@ -105,7 +107,7 @@ export const REFUND_MANAGER_NOTIFICATION_POLICY: Readonly<
   provider_timeout: "immediate",
   provider_unknown: "immediate",
   follow_up_manual_review: "immediate",
-  manager_reminder: "daily_digest",
+  manager_reminder: "immediate",
   manager_escalation: "immediate",
   routine_customer_message: "portal_only",
   manager_authored_conversation: "portal_only",
@@ -314,6 +316,7 @@ export const sendRefundManagerActionNotice = async ({
   subject,
   summaryText,
   resolvedRouting,
+  sendEmail = sendTransactionalEmail,
 }: {
   supabase: SupabaseClient;
   refundCaseId: string;
@@ -322,6 +325,7 @@ export const sendRefundManagerActionNotice = async ({
   subject: string;
   summaryText: string;
   resolvedRouting?: RefundManagerNoticeRouting;
+  sendEmail?: typeof sendTransactionalEmail;
 }): Promise<RefundManagerNoticeResult> => {
   const normalizedCustomerEmail = customerEmail.trim().toLowerCase();
   let actionId: string | undefined;
@@ -362,7 +366,7 @@ export const sendRefundManagerActionNotice = async ({
       if (
         !actionId || !Number.isInteger(attentionVersion) ||
         !["daily_digest", "portal_only", "immediate"].includes(channel) ||
-        !["digest_eligible", "portal_only", "sent", "delivery_unknown", "known_not_sent"]
+        !["reserved", "digest_eligible", "portal_only", "sent", "delivery_unknown", "known_not_sent"]
           .includes(deliveryState)
       ) {
         throw new Error("Refund manager notification policy result is invalid.");
@@ -407,9 +411,26 @@ export const sendRefundManagerActionNotice = async ({
     ? "Routing exception: the complete current Machine Manager route could not be safely resolved, so Bloomjoy operations is receiving this action notice."
     : "This action notice was routed only to the currently assigned Machine Managers.";
 
+  let providerAttemptStarted = false;
   let providerAccepted = false;
   try {
-    const receipt = await sendTransactionalEmail({
+    if (actionId && claimToken) {
+      const { data: marked, error: markError } = await supabase.rpc(
+        "service_mark_refund_manager_notification_provider_started",
+        {
+          p_action_id: actionId,
+          p_claim_token: claimToken,
+        },
+      );
+      if (markError) throw markError;
+      if (marked !== true) {
+        throw new Error(
+          "Refund manager notification provider-start marker was not accepted.",
+        );
+      }
+      providerAttemptStarted = true;
+    }
+    const receipt = await sendEmail({
       to: routing.recipients,
       subject,
       text: [
@@ -442,16 +463,22 @@ export const sendRefundManagerActionNotice = async ({
     }
   } catch (error) {
     if (actionId && claimToken) {
-      const outcome = providerAccepted ||
+      const outcome = providerAttemptStarted || providerAccepted ||
           error instanceof TransactionalEmailDeliveryUnknownError
         ? "delivery_unknown"
         : "known_not_sent";
-      await supabase.rpc("service_complete_refund_manager_notification", {
+      const { data: settled, error: settlementError } = await supabase.rpc(
+        "service_complete_refund_manager_notification",
+        {
         p_action_id: actionId,
         p_claim_token: claimToken,
         p_outcome: outcome,
         p_provider_message_id: null,
-      });
+        },
+      );
+      if (settlementError || settled !== true) {
+        throw new TransactionalEmailDeliveryUnknownError();
+      }
     }
     throw error;
   }

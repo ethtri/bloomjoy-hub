@@ -145,6 +145,28 @@ select throws_ok(
       recipient_cc_count, recipient_resolution_status, delivery_kind,
       recipient_manager_overlap, recipient_manager_count
     ) values (
+      '92700000-0000-4000-8000-000000000003',
+      '92600000-0000-4000-8000-000000000001',
+      '92500000-0000-4000-8000-000000000001',
+      'notification-policy-count-mismatch', 'outbound', 'message', 'pending_send',
+      'mailbox@example.test', 'notice-customer@example.test',
+      'Synthetic invalid count mismatch', 'Synthetic body.',
+      statement_timestamp(), statement_timestamp() + interval '30 days',
+      array['notice-manager@example.test'], 0, 'resolved', 'automatic', false, 1
+    )
+  $$,
+  '23514', null,
+  'resolved Gmail evidence rejects a CC array and count mismatch'
+);
+select throws_ok(
+  $$
+    insert into public.refund_gmail_messages (
+      id, gmail_thread_id, refund_case_id, operation_key, direction,
+      message_kind, status, sender_email, recipient_email, subject, plain_body,
+      received_at, retention_expires_at, recipient_cc_emails,
+      recipient_cc_count, recipient_resolution_status, delivery_kind,
+      recipient_manager_overlap, recipient_manager_count
+    ) values (
       '92700000-0000-4000-8000-000000000002',
       '92600000-0000-4000-8000-000000000001',
       '92500000-0000-4000-8000-000000000001',
@@ -158,12 +180,35 @@ select throws_ok(
   '23514', null,
   'manual Gmail evidence cannot use the automatic no-manager-CC shape'
 );
+select throws_ok(
+  $$
+    insert into public.refund_gmail_messages (
+      id, gmail_thread_id, refund_case_id, operation_key, direction,
+      message_kind, status, sender_email, recipient_email, subject, plain_body,
+      received_at, retention_expires_at, recipient_cc_emails,
+      recipient_cc_count, recipient_resolution_status, delivery_kind,
+      recipient_manager_overlap, recipient_manager_count
+    ) values (
+      '92700000-0000-4000-8000-000000000004',
+      '92600000-0000-4000-8000-000000000001',
+      '92500000-0000-4000-8000-000000000001',
+      'notification-policy-manual-zero', 'outbound', 'message', 'pending_send',
+      'mailbox@example.test', 'notice-customer@example.test',
+      'Synthetic invalid zero-manager manual update', 'Synthetic body.',
+      statement_timestamp(), statement_timestamp() + interval '30 days',
+      '{}'::text[], 0, 'resolved', 'manual', false, 0
+    )
+  $$,
+  '23514', null,
+  'resolved manual Gmail evidence cannot use the legacy zero-manager shape'
+);
 set local session_replication_role = origin;
 
 select has_table('public', 'refund_manager_notification_actions', 'notification actions are durable');
 select has_table('public', 'refund_manager_notification_recipients', 'recipient dedupe is durable');
 select ok(not has_table_privilege('authenticated', 'public.refund_manager_notification_actions', 'select'), 'browser cannot read notification actions');
 select ok(not has_function_privilege('authenticated', 'public.service_begin_refund_manager_notification(uuid,text,text,text[],text[])', 'execute'), 'browser cannot reserve notifications');
+select ok(not has_function_privilege('authenticated', 'public.service_mark_refund_manager_notification_provider_started(uuid,uuid)', 'execute'), 'browser cannot mark provider access');
 
 select is(
   public.service_begin_refund_manager_notification(
@@ -185,14 +230,71 @@ select is(
   'intake replay coalesces'
 );
 
+create temporary table customer_reply_claim as
+select public.service_begin_refund_manager_notification(
+  '92500000-0000-4000-8000-000000000001', 'customer_reply',
+  'notice-customer@example.test', array['mailbox@example.test'],
+  array['ops@example.test']
+) as value;
+
 select is(
-  public.service_begin_refund_manager_notification(
-    '92500000-0000-4000-8000-000000000001', 'customer_reply',
-    'notice-customer@example.test', array['mailbox@example.test'],
-    array['ops@example.test']
-  ) ->> 'channel',
-  'daily_digest',
-  'customer reply becomes digest eligibility'
+  (select value ->> 'channel' from customer_reply_claim),
+  'immediate',
+  'customer reply remains immediate until the durable digest consumer is deployed'
+);
+
+update public.refund_manager_notification_actions
+set updated_at = statement_timestamp() - interval '11 minutes'
+where id = (select (value ->> 'actionId')::uuid from customer_reply_claim);
+
+create temporary table reclaimed_customer_reply as
+select public.service_begin_refund_manager_notification(
+  '92500000-0000-4000-8000-000000000001', 'customer_reply',
+  'notice-customer@example.test', array['mailbox@example.test'],
+  array['ops@example.test']
+) as value;
+
+select is(
+  (select (value ->> 'claimed')::boolean from reclaimed_customer_reply),
+  true,
+  'a stale reservation with no provider-start marker is safely reclaimed'
+);
+select is(
+  (
+    select attempt_count
+    from public.refund_manager_notification_actions
+    where id = (select (value ->> 'actionId')::uuid from reclaimed_customer_reply)
+  ),
+  2,
+  'safe pre-provider reservation recovery is bounded and counted'
+);
+select is(
+  public.service_mark_refund_manager_notification_provider_started(
+    (select (value ->> 'actionId')::uuid from reclaimed_customer_reply),
+    (select (value ->> 'claimToken')::uuid from reclaimed_customer_reply)
+  ),
+  true,
+  'the provider boundary becomes delivery-unknown before provider access'
+);
+select is(
+  (
+    public.service_begin_refund_manager_notification(
+      '92500000-0000-4000-8000-000000000001', 'customer_reply',
+      'notice-customer@example.test', array['mailbox@example.test'],
+      array['ops@example.test']
+    ) ->> 'claimed'
+  )::boolean,
+  false,
+  'provider-started uncertainty is never reclaimed or blindly resent'
+);
+select is(
+  (
+    select delivery_state
+    from public.refund_manager_notification_actions
+    where id = (select (value ->> 'actionId')::uuid from reclaimed_customer_reply)
+  ),
+  'delivery_unknown',
+  'provider-started crash evidence remains visible for review'
 );
 
 create temporary table notification_claim as
@@ -213,6 +315,15 @@ select is(
   ) ->> 'claimed')::boolean,
   false,
   'concurrent or replayed action-ready work cannot send twice'
+);
+
+select is(
+  public.service_mark_refund_manager_notification_provider_started(
+    (select (value ->> 'actionId')::uuid from notification_claim),
+    (select (value ->> 'claimToken')::uuid from notification_claim)
+  ),
+  true,
+  'winning reservation marks provider access before delivery'
 );
 
 select is(
@@ -244,26 +355,14 @@ select is(
   'per-recipient delivery is settled without storing the address'
 );
 
-create temporary table reminder_eligibility as
-select public.service_begin_refund_manager_notification(
-  '92500000-0000-4000-8000-000000000001', 'manager_reminder',
-  'notice-customer@example.test', array['mailbox@example.test'],
-  array['ops@example.test']
-) as value;
-
 select is(
-  public.service_mark_refund_manager_reminder_digest_eligible(
+  public.service_begin_refund_manager_notification(
     '92500000-0000-4000-8000-000000000001',
-    (select (value ->> 'attentionVersion')::bigint from reminder_eligibility),
-    (select (value ->> 'actionId')::uuid from reminder_eligibility)
-  ),
-  true,
-  'two-business-day reminder is resolved into digest eligibility'
-);
-select is(
-  (select last_notice_outcome from public.refund_manager_attention_states where refund_case_id = '92500000-0000-4000-8000-000000000001'),
-  'digest_eligible',
-  'attention state records digest eligibility without claiming an email send'
+    'manager_reminder', 'notice-customer@example.test',
+    array['mailbox@example.test'], array['ops@example.test']
+  ) ->> 'channel',
+  'immediate',
+  'two-business-day reminder remains immediate until digest delivery exists'
 );
 
 select * from finish();

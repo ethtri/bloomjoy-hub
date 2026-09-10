@@ -1326,9 +1326,21 @@ assert(
     notificationPolicyMigration.includes("'managerCopyPolicy', 'automatic_portal_only'") &&
     notificationPolicyMigration.includes("'managerCopyPolicy', 'manager_cc_required'") &&
     notificationPolicyMigration.includes("delivery_kind = 'automatic'") &&
+    notificationPolicyMigration.includes('delivery_kind is null') &&
     notificationPolicyMigration.includes('recipient_cc_count = 0') &&
+    notificationPolicyMigration.includes('cardinality(recipient_cc_emails) = recipient_cc_count') &&
     notificationPolicyMigration.includes('recipient_manager_count = recipient_cc_count +'),
   'The final database authorization and ledger constraint must allow automatic portal-only evidence while preserving exact manual manager CC',
+);
+assert(
+  managerNotification.includes('customer_reply: "immediate"') &&
+    managerNotification.includes('manager_reminder: "immediate"') &&
+    notificationPolicyMigration.includes("when 'customer_reply' then 'immediate'") &&
+    notificationPolicyMigration.includes("when 'manager_reminder' then 'immediate'") &&
+    notificationPolicyMigration.includes("interval '10 minutes'") &&
+    notificationPolicyMigration.includes('provider_attempt_started_at is null') &&
+    notificationPolicyMigration.includes('service_mark_refund_manager_notification_provider_started'),
+  'Digest candidates must remain immediate until #1281 exists, while stale pre-provider reservations recover without retrying provider-unknown delivery',
 );
 assert(
   !adminUpdate.includes('managerCcEmails: [] as string[]') &&
@@ -1489,6 +1501,12 @@ assert(
     managerNotification.includes('resolutionStatus !== "resolved"') &&
     managerNotification.includes('!excluded.has(email)') &&
     managerNotification.includes('MAX_OPS_FALLBACK_RECIPIENTS') &&
+    managerNotification.includes('service_mark_refund_manager_notification_provider_started') &&
+    managerNotification.indexOf('service_mark_refund_manager_notification_provider_started') <
+      managerNotification.indexOf('const receipt = await sendEmail') &&
+    managerNotification.includes('settlementError || settled !== true') &&
+    managerNotification.includes('providerAttemptStarted || providerAccepted') &&
+    managerNotification.includes('["reserved", "digest_eligible", "portal_only"') &&
     managerNotification.includes(
       'the complete current Machine Manager route could not be safely resolved',
     ) &&
@@ -1501,7 +1519,7 @@ assert(
     !managerNotification.includes('no eligible active Machine Manager was resolved') &&
     !intakeFunction.includes('no eligible current Machine Manager was resolved') &&
     !syncFunction.includes('no eligible current Machine Manager was resolved'),
-  'Action notices must re-resolve current managers, use the canonical case link, and use a customer/mailbox-excluding capped ops fallback only for routing exceptions',
+  'Action notices must re-resolve current managers, mark provider access before send, validate settlement, and use a customer/mailbox-excluding capped ops fallback only for routing exceptions',
 );
 
 const canonicalGmailEnvironmentNames = [

@@ -49,6 +49,7 @@ create table public.refund_manager_notification_actions (
   provider_message_id_digest text check (
     provider_message_id_digest is null or provider_message_id_digest ~ '^[a-f0-9]{64}$'
   ),
+  provider_attempt_started_at timestamptz,
   created_at timestamptz not null default statement_timestamp(),
   updated_at timestamptz not null default statement_timestamp(),
   settled_at timestamptz,
@@ -64,6 +65,10 @@ create table public.refund_manager_notification_actions (
       and mapping_fingerprint is not null
       and manager_recipient_count is not null
       and recipient_count is not null
+      and (
+        delivery_state not in ('sent', 'delivery_unknown')
+        or provider_attempt_started_at is not null
+      )
     )
     or (
       channel = 'daily_digest'
@@ -75,6 +80,7 @@ create table public.refund_manager_notification_actions (
       and mapping_fingerprint is null
       and manager_recipient_count is null
       and recipient_count is null
+      and provider_attempt_started_at is null
     )
     or (
       channel = 'portal_only'
@@ -86,6 +92,7 @@ create table public.refund_manager_notification_actions (
       and mapping_fingerprint is null
       and manager_recipient_count is null
       and recipient_count is null
+      and provider_attempt_started_at is null
     )
   )
 );
@@ -107,7 +114,7 @@ create index refund_manager_notification_digest_idx
 
 create index refund_manager_notification_review_idx
   on public.refund_manager_notification_actions (updated_at, refund_case_id)
-  where delivery_state = 'delivery_unknown';
+  where delivery_state in ('reserved', 'delivery_unknown');
 
 alter table public.refund_manager_notification_actions enable row level security;
 alter table public.refund_manager_notification_recipients enable row level security;
@@ -145,8 +152,11 @@ declare
 begin
   channel_value := case p_notice_reason
     when 'intake_created' then 'portal_only'
-    when 'customer_reply' then 'daily_digest'
-    when 'manager_reminder' then 'daily_digest'
+    -- #1281 will switch these to daily_digest only when its durable consumer
+    -- is deployed and verified. Until then, preserve the existing immediate
+    -- delivery instead of silently suppressing manager work.
+    when 'customer_reply' then 'immediate'
+    when 'manager_reminder' then 'immediate'
     when 'routine_customer_message' then 'portal_only'
     when 'manager_authored_conversation' then 'portal_only'
     when 'customer_completion_copy' then 'portal_only'
@@ -286,7 +296,14 @@ begin
       and notice_reason = p_notice_reason
     for update;
 
-    if action_row.delivery_state = 'known_not_sent' and action_row.attempt_count < 3 then
+    if (
+      action_row.delivery_state = 'known_not_sent'
+      or (
+        action_row.delivery_state = 'reserved'
+        and action_row.provider_attempt_started_at is null
+        and action_row.updated_at <= statement_timestamp() - interval '10 minutes'
+      )
+    ) and action_row.attempt_count < 3 then
       update public.refund_manager_notification_actions
       set delivery_state = 'reserved',
           claim_token = claim_token_value,
@@ -296,6 +313,8 @@ begin
           mapping_fingerprint = mapping_fingerprint_value,
           manager_recipient_count = manager_recipient_count_value,
           recipient_count = cardinality(route_recipients),
+          provider_attempt_started_at = null,
+          provider_message_id_digest = null,
           settled_at = null,
           updated_at = statement_timestamp()
       where id = action_row.id
@@ -348,6 +367,38 @@ begin
 end;
 $$;
 
+create or replace function public.service_mark_refund_manager_notification_provider_started(
+  p_action_id uuid,
+  p_claim_token uuid
+)
+returns boolean
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  marked boolean := false;
+begin
+  update public.refund_manager_notification_actions
+  set delivery_state = 'delivery_unknown',
+      provider_attempt_started_at = statement_timestamp(),
+      settled_at = statement_timestamp(),
+      updated_at = statement_timestamp()
+  where id = p_action_id
+    and claim_token = p_claim_token
+    and delivery_state = 'reserved'
+    and provider_attempt_started_at is null;
+  marked := found;
+  if marked then
+    update public.refund_manager_notification_recipients
+    set delivery_state = 'delivery_unknown',
+        updated_at = statement_timestamp()
+    where action_id = p_action_id;
+  end if;
+  return marked;
+end;
+$$;
+
 create or replace function public.service_complete_refund_manager_notification(
   p_action_id uuid,
   p_claim_token uuid,
@@ -371,7 +422,8 @@ begin
   where id = p_action_id
   for update;
   if action_row.id is null then raise exception 'Refund manager notification action not found'; end if;
-  if action_row.delivery_state <> 'reserved' or action_row.claim_token <> p_claim_token then
+  if action_row.delivery_state not in ('reserved', 'delivery_unknown')
+    or action_row.claim_token <> p_claim_token then
     return false;
   end if;
   if p_outcome = 'sent' then
@@ -481,6 +533,9 @@ revoke execute on function public.service_begin_refund_manager_notification(
 revoke execute on function public.service_complete_refund_manager_notification(
   uuid, uuid, text, text
 ) from public, anon, authenticated;
+revoke execute on function public.service_mark_refund_manager_notification_provider_started(
+  uuid, uuid
+) from public, anon, authenticated;
 revoke execute on function public.service_mark_refund_manager_reminder_digest_eligible(
   uuid, bigint, uuid
 ) from public, anon, authenticated;
@@ -489,6 +544,9 @@ grant execute on function public.service_begin_refund_manager_notification(
 ) to service_role;
 grant execute on function public.service_complete_refund_manager_notification(
   uuid, uuid, text, text
+) to service_role;
+grant execute on function public.service_mark_refund_manager_notification_provider_started(
+  uuid, uuid
 ) to service_role;
 grant execute on function public.service_mark_refund_manager_reminder_digest_eligible(
   uuid, bigint, uuid
@@ -502,6 +560,8 @@ comment on function public.service_begin_refund_manager_notification(uuid, text,
   'Service-only policy classifier and atomic reservation. Resolves immediate recipients at send time and stores no raw address.';
 comment on function public.service_complete_refund_manager_notification(uuid, uuid, text, text) is
   'Service-only settlement for a claimed manager notification; unknown delivery remains non-retryable.';
+comment on function public.service_mark_refund_manager_notification_provider_started(uuid, uuid) is
+  'Marks the exact reserved manager notification delivery-unknown before provider access so a crash cannot cause blind resend.';
 comment on function public.service_mark_refund_manager_reminder_digest_eligible(uuid, bigint, uuid) is
   'Moves the two-business-day manager reminder into digest eligibility without reserving or sending an immediate email.';
 
@@ -656,14 +716,19 @@ alter table public.refund_gmail_messages
     or (
       recipient_manager_count = 0
       and not recipient_manager_overlap
+      and recipient_cc_count = 0
+      and cardinality(recipient_cc_emails) = 0
+      and delivery_kind is null
     )
     or (
       recipient_manager_count between 1 and 4
+      and cardinality(recipient_cc_emails) = recipient_cc_count
       and (
         (
           delivery_kind = 'automatic'
           and
           recipient_cc_count = 0
+          and cardinality(recipient_cc_emails) = 0
           and not recipient_manager_overlap
         )
         or recipient_manager_count = recipient_cc_count +
