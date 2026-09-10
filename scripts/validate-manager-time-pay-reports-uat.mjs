@@ -130,6 +130,31 @@ const payContext = {
     currentTotalCents: 23150,
     publishable: false,
     payStubRegenerationRequired: true,
+    assignments: [{
+      assignmentId: 'assignment-a',
+      machineId: MACHINE_A,
+      machineLabel: 'Cotton Candy 01',
+      locationId: LOCATION_ID,
+      locationName: 'Mall Atrium',
+      effectiveStartDate: '2026-09-01',
+      effectiveEndDate: null,
+      status: 'active',
+      editable: true,
+      overlapsSelectedPeriod: true,
+      selectedPeriodGrossSalesCents: 110000,
+    }, {
+      assignmentId: 'assignment-b',
+      machineId: MACHINE_B,
+      machineLabel: 'Cotton Candy 02',
+      locationId: LOCATION_ID,
+      locationName: 'Mall Atrium',
+      effectiveStartDate: '2026-09-01',
+      effectiveEndDate: null,
+      status: 'active',
+      editable: true,
+      overlapsSelectedPeriod: true,
+      selectedPeriodGrossSalesCents: 50000,
+    }],
     entries: [
       { id: 'pay-entry-1', workDate: '2026-09-01', actualStartAt: '2026-09-01T08:00:00-07:00', actualEndAt: '2026-09-01T09:01:00-07:00', actualDurationMinutes: 61, paidShifts: 2, machineId: MACHINE_A, machineLabel: 'Cotton Candy 01', locationId: LOCATION_ID, locationName: 'Mall Atrium', shiftRate: {}, shiftRateCents: 2000, shiftEarningsCents: 4000 },
       { id: 'pay-entry-2', workDate: '2026-09-16', actualStartAt: '2026-09-16T08:00:00-07:00', actualEndAt: '2026-09-16T09:00:00-07:00', actualDurationMinutes: 60, paidShifts: 1, machineId: MACHINE_A, machineLabel: 'Cotton Candy 01', locationId: LOCATION_ID, locationName: 'Mall Atrium', shiftRate: {}, shiftRateCents: 2500, shiftEarningsCents: 2500 },
@@ -257,9 +282,49 @@ const payContext = {
     ],
     blockers: [{ code: 'missing_revenue_snapshot', severity: 'blocker', message: 'September sales snapshot needs a refresh.', machineId: MACHINE_A }],
     warnings: [{ code: 'rate_changed', severity: 'warning', message: 'The shift rate changed during this month.' }],
-    calculationMeta: { schemaVersion: 'technician-pay-report-v2', commissionBasisSource: 'sales less refunds and tax', commissionFormula: '(sales - refunds - tax) x commission rate', refundAppliedOnce: true, approvalRequired: false, paymentExecution: false, taxCalculation: true },
+    calculationMeta: { schemaVersion: 'technician-pay-report-v2', commissionBasisSource: 'sales less refunds and tax', commissionFormula: '(sales - refunds - tax) x commission rate', refundAppliedOnce: true, approvalRequired: false, paymentExecution: false, taxCalculation: true, periodInProgress: true, asOfDate: '2026-09-03', salesThroughDate: '2026-09-02', hasAssignmentInPeriod: true },
   }],
   capabilities: { accountPayAuthorityRequired: true, canCorrectTime: false, approvalRequired: false, paymentExecution: false, taxCalculation: true },
+};
+
+const historicalAssignmentGapContext = structuredClone(payContext);
+historicalAssignmentGapContext.month = '2026-08-01';
+historicalAssignmentGapContext.periodStartDate = '2026-08-01';
+historicalAssignmentGapContext.periodEndDate = '2026-08-31';
+historicalAssignmentGapContext.technicians[0] = {
+  ...historicalAssignmentGapContext.technicians[0],
+  periodStartDate: '2026-08-01',
+  periodEndDate: '2026-08-31',
+  actualDurationMinutes: 0,
+  paidShifts: 0,
+  shiftEarningsCents: 0,
+  taxCents: 0,
+  commissionableSalesCents: 0,
+  commissionEarningsCents: 0,
+  bonusCents: 0,
+  supplyCreditCents: 0,
+  expenseReimbursementCents: 0,
+  currentTotalCents: 0,
+  publishable: false,
+  payStubRegenerationRequired: false,
+  entries: [],
+  shiftRateLines: [],
+  machines: [],
+  otherEarnings: [],
+  blockers: [],
+  warnings: [],
+  assignments: historicalAssignmentGapContext.technicians[0].assignments.map((assignment, index) => ({
+    ...assignment,
+    overlapsSelectedPeriod: false,
+    selectedPeriodGrossSalesCents: index === 0 ? 25000 : 15664,
+  })),
+  calculationMeta: {
+    ...historicalAssignmentGapContext.technicians[0].calculationMeta,
+    periodInProgress: false,
+    asOfDate: '2026-09-03',
+    salesThroughDate: null,
+    hasAssignmentInPeriod: false,
+  },
 };
 
 const setupContext = {
@@ -311,7 +376,9 @@ const installRoutes = async (context) => {
         context: timeContext(),
       }));
     }
-    if (rpcName === 'get_technician_pay_report_context') return route.fulfill(json(payContext));
+    if (rpcName === 'get_technician_pay_report_context') {
+      return route.fulfill(json(body.p_month === '2026-08-01' ? historicalAssignmentGapContext : payContext));
+    }
     if (rpcName === 'get_timekeeping_setup_context') return route.fulfill(json(setupContext));
     if (rpcName === 'admin_setup_timekeeping_technician_arrangements') {
       if (body.p_user_email === 'pending-technician@example.test') {
@@ -320,6 +387,14 @@ const installRoutes = async (context) => {
       return route.fulfill(json({ profiles: [{ operatorProfileId: 'new-profile', accountId: ACCOUNT_ID }], payerCount: 1, displayName: body.p_display_name, machineCount: body.p_machine_compensation.length, effectiveStartDate: body.p_effective_start_date }));
     }
     if (rpcName === 'admin_supersede_operator_compensation_rate') return route.fulfill(json({ id: 'saved-rate' }));
+    if (rpcName === 'admin_upsert_operator_machine_assignment') return route.fulfill(json({
+      id: body.p_assignment_id,
+      operatorProfileId: body.p_operator_profile_id,
+      machineId: body.p_reporting_machine_id,
+      effectiveStartDate: body.p_effective_start_date,
+      effectiveEndDate: body.p_effective_end_date,
+      status: 'active',
+    }));
     if (rpcName === 'admin_upsert_operator_recurring_item') return route.fulfill(json({ id: 'saved-item' }));
     if (rpcName === 'admin_refresh_technician_pay_report_sales') return route.fulfill(json({ periodCount: 1, snapshotCount: 1 }));
     if (rpcName === 'resolve_my_technician_entitlements') return route.fulfill(json({ technicianEmail: user.email }));
@@ -428,8 +503,18 @@ const run = async () => {
     check('Pay Report ignores an empty native month-input change without crashing', await page.locator('#pay-report-month').inputValue() === '2026-09' && await page.getByRole('heading', { name: 'Technician Pay Report' }).isVisible());
     const payReportRead = state.rpcCalls.find((call) => call.rpcName === 'get_technician_pay_report_context');
     check('Pay Report sends an unambiguous full ISO date to PostgreSQL', payReportRead?.body.p_month === '2026-09-01');
+    check('Current pay month is labeled as an estimate through the imported sales date', await page.getByText('Month in progress · Sales through Sep 2, 2026', { exact: true }).isVisible() && await page.getByText(/This month cannot be published until the Technician edit window closes/i).isVisible());
+    await page.getByRole('button', { name: 'Assignment dates' }).click();
+    check('Assignment editor distinguishes attribution dates from pay-rate dates', await page.getByText(/Pay and commission rates have their own effective dates and will not change here/i).isVisible());
+    await page.locator('#assignment-start').fill('2026-08-15');
+    await page.getByRole('button', { name: 'Save assignment dates' }).click();
+    await page.getByRole('dialog').waitFor({ state: 'hidden' });
+    const savedAssignment = state.rpcCalls.find((call) => call.rpcName === 'admin_upsert_operator_machine_assignment');
+    check('Manager can backdate one exact audited payout assignment', savedAssignment?.body.p_assignment_id === 'assignment-a' && savedAssignment?.body.p_effective_start_date === '2026-08-15' && savedAssignment?.body.p_effective_end_date === null);
+    await page.getByText(/Cotton Candy 01 assignment saved: Aug 15, 2026 to Present/i).waitFor();
     await page.getByRole('button', { name: 'View machine breakdown' }).click();
     const bodyText = await page.locator('body').innerText();
+    check('Pay Report exposes assignment windows alongside the machine calculation', bodyText.includes('Machine assignments') && bodyText.includes('Sep 1, 2026 to Present') && bodyText.includes('Assignment dates control which time and machine sales belong'));
     check('Pay Report separates mid-month rate bands', bodyText.includes('2 shifts × $20.00') && bodyText.includes('1 shift × $25.00'));
     check('Pay Report shows time, shifts, tax, and dated commission segments by machine', bodyText.includes('2 hr 1 min worked · 3 paid shifts') && bodyText.includes('$200.00 sales − $0.00 refunds − $18.00 tax (9%)') && bodyText.includes('$182.00 × 5% = $9.10') && bodyText.includes('$273.00 × 10% = $27.30'));
     check('A valid mixed-rate machine stays available with the summed commission', bodyText.includes('Cotton Candy 02') && bodyText.includes('$36.40'));
@@ -454,6 +539,15 @@ const run = async () => {
     check('Pay Report shows all explicit other earning categories', ['Bonus', 'Supply Credit', 'Expense Reimbursement'].every((label) => bodyText.includes(label)));
     check('Pay Report distinguishes blockers and warnings', bodyText.includes('Blocks publishing:') && bodyText.includes('Check:'));
     check('Pay Report contains no approval or payment actions', !/mark reviewed|finalize|reopen|void|issue statements|run payroll/i.test(bodyText));
+
+    await page.locator('#pay-report-month').fill('2026-08');
+    await page.getByText('No machine assignment in August 2026', { exact: true }).waitFor();
+    const assignmentGapText = await page.locator('body').innerText();
+    check('Historical assignment gap explains unattributed sales and never appears ready', assignmentGapText.includes('$406.64 in machine sales exists for this month') && assignmentGapText.includes('Backdate assignment') && assignmentGapText.includes('No assignment this month') && !assignmentGapText.includes('Ready'));
+    check('Historical assignment gap keeps Pay Stub publication disabled', await page.getByRole('button', { name: 'Publish Pay Stub' }).isDisabled());
+    await page.screenshot({ path: path.join(artifactDir, 'pay-report-assignment-gap-desktop.png'), fullPage: true });
+    await page.locator('#pay-report-month').fill('2026-09');
+    await page.getByText('Month in progress · Sales through Sep 2, 2026', { exact: true }).waitFor();
 
     await page.getByRole('button', { name: 'Set up Technician', exact: true }).click();
     await page.getByRole('heading', { name: 'Set up Technician Timekeeping' }).waitFor();
@@ -530,6 +624,15 @@ const run = async () => {
     check('Pay Report has no mobile page overflow', await noOverflow(page));
     const shortControls = await page.locator('button:visible, input:visible').evaluateAll((elements) => elements.filter((element) => element.getBoundingClientRect().height < 43).length);
     check('Visible mobile controls meet touch target height', shortControls === 0);
+    await page.getByRole('button', { name: 'Assignment dates' }).click();
+    const mobileAssignmentDialog = page.getByRole('dialog');
+    await mobileAssignmentDialog.waitFor();
+    const assignmentDialogFitsViewport = await mobileAssignmentDialog.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return bounds.top >= 0 && bounds.bottom <= window.innerHeight + 1;
+    });
+    check('Assignment editor is bounded and scrollable on a short phone viewport', assignmentDialogFitsViewport);
+    await page.getByRole('button', { name: 'Cancel' }).click();
     await adjustPayTrigger.scrollIntoViewIfNeeded();
     await adjustPayTrigger.click();
     await page.getByRole('menuitem', { name: 'Add another earning' }).click();

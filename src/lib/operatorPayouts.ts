@@ -713,6 +713,20 @@ export type TechnicianPayReportMachine = {
   warnings: TechnicianPayReportIssue[];
 };
 
+export type TechnicianPayReportAssignment = {
+  assignmentId: string;
+  machineId: string;
+  machineLabel: string;
+  locationId: string;
+  locationName: string;
+  effectiveStartDate: string;
+  effectiveEndDate: string | null;
+  status: 'active' | 'revoked';
+  editable: boolean;
+  overlapsSelectedPeriod: boolean;
+  selectedPeriodGrossSalesCents: number;
+};
+
 export type TechnicianPayReportOtherEarning = {
   id: string;
   type: OperatorRecurringCompensationItemType;
@@ -746,6 +760,7 @@ export type TechnicianPayReportTechnician = {
   entries: TechnicianPayReportEntry[];
   shiftRateLines: TechnicianPayReportShiftRateLine[];
   machines: TechnicianPayReportMachine[];
+  assignments: TechnicianPayReportAssignment[];
   otherEarnings: TechnicianPayReportOtherEarning[];
   blockers: TechnicianPayReportIssue[];
   warnings: TechnicianPayReportIssue[];
@@ -758,6 +773,11 @@ export type TechnicianPayReportTechnician = {
     paymentExecution: false;
     taxCalculation: boolean;
     taxRounding?: string;
+    periodInProgress?: boolean;
+    asOfDate?: string;
+    salesThroughDate?: string | null;
+    hasAssignmentInPeriod?: boolean;
+    freshnessPolicy?: string;
   };
 };
 
@@ -765,6 +785,7 @@ export type TechnicianPayReportContext = {
   month: string;
   periodStartDate: string;
   periodEndDate: string;
+  asOfDate?: string;
   hasAccess: boolean;
   accounts: Array<{ accountId: string; accountName: string }>;
   technicians: TechnicianPayReportTechnician[];

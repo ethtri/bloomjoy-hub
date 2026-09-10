@@ -49,9 +49,11 @@ import {
   requestPayStubGenerationAdmin,
   setupTimekeepingTechnicianAdmin,
   supersedeOperatorCompensationRateAdmin,
+  upsertEffectiveOperatorMachineAssignmentAdmin,
   upsertOperatorRecurringItemAdmin,
   type OperatorWorkerType,
   type OperatorRecurringCompensationItemType,
+  type TechnicianPayReportAssignment,
   type TechnicianPayReportEntry,
   type TechnicianPayReportOtherEarning,
   type TechnicianPayReportShiftRateLine,
@@ -73,6 +75,13 @@ type PayInputDraft = {
   machineId: string;
   value: string;
   description: string;
+  effectiveStartDate: string;
+  effectiveEndDate: string;
+};
+
+type AssignmentInputDraft = {
+  technician: TechnicianPayReportTechnician;
+  assignmentId: string;
   effectiveStartDate: string;
   effectiveEndDate: string;
 };
@@ -168,6 +177,17 @@ const formatWorkerType = (value: string | null | undefined) => {
   return value?.replaceAll('_', ' ') || 'Technician';
 };
 
+const formatAssignmentRange = (
+  effectiveStartDate: string,
+  effectiveEndDate: string | null | undefined
+) => `${formatDate(effectiveStartDate)} to ${effectiveEndDate ? formatDate(effectiveEndDate) : 'Present'}`;
+
+const getAssignmentById = (
+  technician: TechnicianPayReportTechnician,
+  assignmentId: string
+): TechnicianPayReportAssignment | null =>
+  (technician.assignments ?? []).find((assignment) => assignment.assignmentId === assignmentId) ?? null;
+
 const addUtcMonths = (dateValue: string, months: number) => {
   const [year, month, day] = dateValue.split('-').map(Number);
   if (!year || !month || !day) return '';
@@ -222,6 +242,11 @@ const unresolvedCommissionCodes = new Set([
   'missing_machine_tax_rate',
 ]);
 
+const refreshableCommissionCodes = new Set([
+  'missing_revenue_snapshot',
+  'revenue_snapshot_fact_mismatch',
+]);
+
 const hasUnresolvedCommission = (technician: TechnicianPayReportTechnician) =>
   technician.blockers.some((issue) => unresolvedCommissionCodes.has(issue.code));
 
@@ -270,6 +295,7 @@ const scopeTechnicianToMachine = (
 ): TechnicianPayReportTechnician => {
   const entries = technician.entries.filter((entry) => entry.machineId === machineId);
   const machines = technician.machines.filter((machine) => machine.machineId === machineId);
+  const assignments = (technician.assignments ?? []).filter((assignment) => assignment.machineId === machineId);
   const blockers = technician.blockers;
   const warnings = technician.warnings.filter((issue) => !issue.machineId || issue.machineId === machineId);
   const shiftEarningsCents = entries.reduce((sum, entry) => sum + entry.shiftEarningsCents, 0);
@@ -290,6 +316,7 @@ const scopeTechnicianToMachine = (
     entries,
     shiftRateLines: buildShiftRateLines(entries),
     machines,
+    assignments,
     otherEarnings: [],
     blockers,
     warnings,
@@ -298,6 +325,8 @@ const scopeTechnicianToMachine = (
 
 function TechnicianReport({
   technician,
+  selectedMonth,
+  onManageAssignments,
   onAddShiftRate,
   onAddCommissionRate,
   onAddOtherEarning,
@@ -306,6 +335,8 @@ function TechnicianReport({
   isGeneratingPayStub,
 }: {
   technician: TechnicianPayReportTechnician;
+  selectedMonth: string;
+  onManageAssignments: () => void;
   onAddShiftRate: () => void;
   onAddCommissionRate: () => void;
   onAddOtherEarning: () => void;
@@ -314,10 +345,21 @@ function TechnicianReport({
   isGeneratingPayStub: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const issues = [...technician.blockers, ...technician.warnings];
+  const assignments = technician.assignments ?? [];
+  const editableAssignments = assignments.filter((assignment) => assignment.editable);
+  const issues = [...technician.blockers, ...technician.warnings].filter(
+    (issue) => issue.code !== 'current_period_sales_through'
+  );
   const commissionUnavailable = hasUnresolvedCommission(technician);
   const shiftPayUnavailable = hasMissingShiftRate(technician);
   const totalUnavailable = technician.blockers.length > 0;
+  const periodInProgress = technician.calculationMeta.periodInProgress === true;
+  const hasAssignmentInPeriod = technician.calculationMeta.hasAssignmentInPeriod
+    ?? technician.machines.length > 0;
+  const assignmentGap = !hasAssignmentInPeriod && assignments.length > 0;
+  const salesOutsideAssignmentCents = assignments
+    .filter((assignment) => !assignment.overlapsSelectedPeriod)
+    .reduce((sum, assignment) => sum + assignment.selectedPeriodGrossSalesCents, 0);
   const shiftRateLines = buildShiftRateLines(technician.entries);
   const otherEarningsCents = technician.bonusCents + technician.supplyCreditCents + technician.expenseReimbursementCents;
   const detailsId = `technician-pay-details-${technician.operatorProfileId}`;
@@ -330,8 +372,14 @@ function TechnicianReport({
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-semibold text-foreground">{technician.displayName}</h2>
               <Badge variant="outline">{formatWorkerType(technician.workerType)}</Badge>
-              {technician.publishable ? (
+              {technician.blockers.length > 0 ? (
+                <Badge variant="destructive">Needs attention</Badge>
+              ) : technician.publishable ? (
                 <Badge className="border-sage/30 bg-sage-light text-foreground">Ready</Badge>
+              ) : periodInProgress ? (
+                <Badge variant="outline">Month in progress</Badge>
+              ) : assignmentGap ? (
+                <Badge variant="outline">No assignment this month</Badge>
               ) : (
                 <Badge variant="destructive">Needs attention</Badge>
               )}
@@ -341,6 +389,16 @@ function TechnicianReport({
             </p>
           </div>
           <div className="flex flex-wrap gap-2 lg:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="min-h-11 bg-background"
+              disabled={!editableAssignments.length}
+              onClick={onManageAssignments}
+            >
+              <CalendarDays className="mr-2 h-4 w-4" /> Assignment dates
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button type="button" variant="outline" size="sm" className="min-h-11 bg-background">
@@ -367,6 +425,11 @@ function TechnicianReport({
             </Button>
           </div>
         </div>
+        {assignments.length > 0 && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            {assignments.length} machine assignment{assignments.length === 1 ? '' : 's'} on record. Assignment dates control which time and machine sales belong to this Technician; pay-rate dates are separate.
+          </p>
+        )}
         <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-border/70 pt-4 text-sm sm:grid-cols-3 lg:grid-cols-6">
           <div><span className="text-muted-foreground">Paid shifts</span><strong className="mt-1 block text-foreground">{technician.paidShifts}</strong></div>
           <div><span className="text-muted-foreground">Time worked</span><strong className="mt-1 block text-foreground">{formatDuration(technician.actualDurationMinutes)}</strong></div>
@@ -389,7 +452,48 @@ function TechnicianReport({
         </Button>
       </header>
 
+      {assignmentGap && (
+        <section className="border-t border-border bg-muted/20 p-4 sm:p-5" aria-label={`No assignment in ${formatMonth(selectedMonth)}`}>
+          <h3 className="font-semibold text-foreground">No machine assignment in {formatMonth(selectedMonth)}</h3>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            {salesOutsideAssignmentCents > 0
+              ? `${formatCurrency(salesOutsideAssignmentCents)} in machine sales exists for this month, but it is not attributed to ${technician.displayName} because their assignment dates do not overlap.`
+              : `The machine assignments on record do not overlap ${formatMonth(selectedMonth)}, so this month is not ready to publish.`}
+          </p>
+          {editableAssignments.length > 0 && (
+            <Button type="button" variant="outline" size="sm" className="mt-3 min-h-11 bg-background" onClick={onManageAssignments}>
+              Backdate assignment
+            </Button>
+          )}
+        </section>
+      )}
+
       {expanded && <div id={detailsId}>
+      {assignments.length > 0 && (
+        <section className="border-b border-border p-4 sm:p-5" aria-labelledby={`assignments-${technician.operatorProfileId}`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 id={`assignments-${technician.operatorProfileId}`} className="font-semibold text-foreground">Machine assignments</h3>
+              <p className="mt-1 text-sm text-muted-foreground">These dates determine which time and sales are attributed. They do not change the pay rate.</p>
+            </div>
+            {editableAssignments.length > 0 && <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={onManageAssignments}>Edit dates</Button>}
+          </div>
+          <div className="mt-3 divide-y divide-border rounded-lg border border-border px-3">
+            {assignments.map((assignment) => (
+              <div key={assignment.assignmentId} className="flex flex-col gap-1 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                <div className="min-w-0">
+                  <p className="font-medium text-foreground">{assignment.machineLabel}</p>
+                  <p className="text-sm text-muted-foreground">{assignment.locationName}</p>
+                </div>
+                <div className="text-sm sm:text-right">
+                  <p className="font-medium text-foreground">{formatAssignmentRange(assignment.effectiveStartDate, assignment.effectiveEndDate)}</p>
+                  <p className="text-muted-foreground">{assignment.overlapsSelectedPeriod ? `Included in ${formatMonth(selectedMonth)}` : `Not assigned in ${formatMonth(selectedMonth)}`}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
       {issues.length > 0 && (
         <section className="border-b border-border p-4 sm:p-5" aria-labelledby={`issues-${technician.operatorProfileId}`}>
           <h3 id={`issues-${technician.operatorProfileId}`} className="flex items-center gap-2 text-sm font-semibold text-foreground">
@@ -407,7 +511,7 @@ function TechnicianReport({
                 )}
                 role={issue.severity === 'blocker' ? 'alert' : undefined}
               >
-                <span className="font-semibold">{issue.severity === 'blocker' ? 'Blocks publishing: ' : 'Check: '}</span>
+                <span className="font-semibold">{issue.severity === 'blocker' ? 'Blocks publishing: ' : issue.severity === 'info' ? 'Info: ' : 'Check: '}</span>
                 {issue.message}
               </div>
             ))}
@@ -487,6 +591,9 @@ function TechnicianReport({
                     <span className="mt-1 block">
                       Machine totals: {formatCurrency(machine.grossSalesCents)} sales − {formatCurrency(Math.abs(machine.refundAdjustmentCents ?? 0))} refunds − {formatCurrency(Math.abs(machine.taxCents ?? 0))} estimated sales tax
                     </span>
+                    <span className="mt-1 block">
+                      Included window {formatAssignmentRange(machine.assignedStartDate, machine.assignedEndDate)}{machine.sourceLatestSaleDate ? ` · Sales through ${formatDate(machine.sourceLatestSaleDate)}` : ''}
+                    </span>
                   </>
                 }
                 amount={machineCommissionUnavailable ? 'Unavailable' : formatCurrency(machine.commissionEarningsCents)}
@@ -534,6 +641,8 @@ export default function AdminPayoutsPage() {
   const [machineId, setMachineId] = useState('all');
   const [payInputDraft, setPayInputDraft] = useState<PayInputDraft | null>(null);
   const [payInputError, setPayInputError] = useState<string | null>(null);
+  const [assignmentInputDraft, setAssignmentInputDraft] = useState<AssignmentInputDraft | null>(null);
+  const [assignmentInputError, setAssignmentInputError] = useState<string | null>(null);
   const [setupDraft, setSetupDraft] = useState<TechnicianSetupDraft | null>(null);
   const [setupError, setSetupError] = useState<string | null>(null);
   const [setupSubmitting, setSetupSubmitting] = useState(false);
@@ -581,6 +690,18 @@ export default function AdminPayoutsPage() {
   const commissionableSalesUnavailable = visibleTechnicians.some((technician) =>
     technician.machines.some((machine) => machine.revenueSnapshotId == null)
   );
+  const canRefreshSales = visibleTechnicians.some((technician) =>
+    technician.blockers.some((issue) => refreshableCommissionCodes.has(issue.code))
+  );
+  const periodInProgress = visibleTechnicians.some(
+    (technician) => technician.calculationMeta.periodInProgress === true
+  );
+  const visibleSalesThroughDate = visibleTechnicians
+    .flatMap((technician) => technician.calculationMeta.salesThroughDate
+      ? [technician.calculationMeta.salesThroughDate]
+      : technician.machines.map((machine) => machine.sourceLatestSaleDate))
+    .filter((value): value is string => Boolean(value))
+    .sort()[0] ?? null;
   const setupAccounts = setupContextQuery.data?.accounts ?? [];
   const setupMachineById = new Map(
     setupAccounts.flatMap((account) => account.machines.map((machine) => [machine.machineId, { ...machine, accountId: account.accountId, accountName: account.accountName }] as const))
@@ -593,6 +714,21 @@ export default function AdminPayoutsPage() {
   const openTechnicianSetup = () => {
     setSetupError(null);
     setSetupDraft(newTechnicianSetupDraft());
+  };
+
+  const openAssignmentInput = (technician: TechnicianPayReportTechnician) => {
+    const assignment = (technician.assignments ?? []).find((candidate) => candidate.editable);
+    if (!assignment) {
+      toast.error('No editable machine assignment is available for this Technician.');
+      return;
+    }
+    setAssignmentInputError(null);
+    setAssignmentInputDraft({
+      technician,
+      assignmentId: assignment.assignmentId,
+      effectiveStartDate: assignment.effectiveStartDate,
+      effectiveEndDate: assignment.effectiveEndDate ?? '',
+    });
   };
 
   const saveTechnicianSetup = useMutation({
@@ -731,14 +867,50 @@ export default function AdminPayoutsPage() {
         effectiveEndDate: draft.effectiveEndDate || null,
       });
     },
-    onSuccess: async () => {
+    onSuccess: async (_result, draft) => {
       await queryClient.invalidateQueries({ queryKey: ['technician-pay-report'] });
       setPayInputDraft(null);
       setPayInputError(null);
-      toast.success('Pay input saved. The report has been refreshed.');
+      const machine = draft.machineId === TECHNICIAN_DEFAULT_MACHINE
+        ? null
+        : draft.technician.machines.find((candidate) => candidate.machineId === draft.machineId);
+      const payLabel = draft.kind === 'shift'
+        ? `${formatCurrency(Math.round(Number(draft.value) * 100))} per started hour`
+        : draft.kind === 'commission'
+          ? `${Number(draft.value).toLocaleString()}% commission`
+          : `${formatCurrency(Math.round(Number(draft.value) * 100))} ${draft.kind.replaceAll('_', ' ')}`;
+      toast.success(`${payLabel} saved for ${machine?.machineLabel ?? draft.technician.displayName}, effective ${formatDate(draft.effectiveStartDate)}. Assignment dates were not changed.`);
     },
     onError: (saveError) => {
       setPayInputError(saveError instanceof Error ? saveError.message : 'Unable to save this pay input.');
+    },
+  });
+
+  const saveAssignmentInput = useMutation({
+    mutationFn: async (draft: AssignmentInputDraft) => {
+      const assignment = getAssignmentById(draft.technician, draft.assignmentId);
+      if (!assignment?.editable) throw new Error('Choose an active machine assignment.');
+      if (!draft.effectiveStartDate) throw new Error('Choose the assignment start date.');
+      if (draft.effectiveEndDate && draft.effectiveEndDate < draft.effectiveStartDate) {
+        throw new Error('The assignment end date cannot be before the start date.');
+      }
+      return upsertEffectiveOperatorMachineAssignmentAdmin({
+        assignmentId: assignment.assignmentId,
+        operatorProfileId: draft.technician.operatorProfileId,
+        machineId: assignment.machineId,
+        effectiveStartDate: draft.effectiveStartDate,
+        effectiveEndDate: draft.effectiveEndDate || null,
+      });
+    },
+    onSuccess: async (_result, draft) => {
+      const assignment = getAssignmentById(draft.technician, draft.assignmentId);
+      await queryClient.invalidateQueries({ queryKey: ['technician-pay-report'] });
+      setAssignmentInputDraft(null);
+      setAssignmentInputError(null);
+      toast.success(`${assignment?.machineLabel ?? 'Machine'} assignment saved: ${formatAssignmentRange(draft.effectiveStartDate, draft.effectiveEndDate || null)}. Pay and commission rates were not changed.`);
+    },
+    onError: (saveError) => {
+      setAssignmentInputError(saveError instanceof Error ? saveError.message : 'Unable to save assignment dates.');
     },
   });
 
@@ -789,9 +961,11 @@ export default function AdminPayoutsPage() {
             <Button type="button" className="min-h-11" onClick={openTechnicianSetup}>
               <Plus className="mr-2 h-4 w-4" /> Set up Technician
             </Button>
-            <Button type="button" variant="outline" className="min-h-11" disabled={refreshSales.isPending || isFetching} onClick={() => refreshSales.mutate()}>
-              <ShoppingBag className={cn('mr-2 h-4 w-4', refreshSales.isPending && 'animate-pulse motion-reduce:animate-none')} /> Refresh sales
-            </Button>
+            {canRefreshSales && (
+              <Button type="button" variant="outline" className="min-h-11" disabled={refreshSales.isPending || isFetching} onClick={() => refreshSales.mutate()}>
+                <ShoppingBag className={cn('mr-2 h-4 w-4', refreshSales.isPending && 'animate-pulse motion-reduce:animate-none')} /> Refresh sales
+              </Button>
+            )}
           </div>
         </header>
 
@@ -827,10 +1001,17 @@ export default function AdminPayoutsPage() {
             </section>
             {machineId !== 'all' && <p className="-mt-3 text-xs text-muted-foreground">Machine filtering shows only that machine’s time, shift earnings, sales, and commission. Technician-level other earnings are excluded from these filtered totals; publishing status remains month-wide.</p>}
 
+            {periodInProgress && visibleSalesThroughDate && (
+              <section className="rounded-xl border border-border bg-muted/25 px-4 py-3" aria-label="Current month sales status">
+                <p className="text-sm font-semibold text-foreground">Month in progress · Sales through {formatDate(visibleSalesThroughDate)}</p>
+                <p className="mt-1 text-sm text-muted-foreground">Totals are a current estimate. This month cannot be published until the Technician edit window closes.</p>
+              </section>
+            )}
+
             <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-live="polite">
               <Metric label="Paid shifts" value={`${totalPaidShifts}`} helper="Each started hour" icon={Clock3} />
-              <Metric label="Commissionable sales" value={commissionableSalesUnavailable ? 'Unavailable' : formatCurrency(totalCommissionableSales)} helper={commissionableSalesUnavailable ? 'Refresh required' : `After refunds and ${formatCurrency(totalEstimatedTax)} tax`} icon={ShoppingBag} />
-              <Metric label="Current total" value={totalsUnavailable ? 'Unavailable' : formatCurrency(currentTotal)} helper={totalsUnavailable ? 'Resolve calculation blockers' : 'Before payment or tax'} icon={Banknote} />
+              <Metric label="Commissionable sales" value={commissionableSalesUnavailable ? 'Unavailable' : formatCurrency(totalCommissionableSales)} helper={commissionableSalesUnavailable ? (canRefreshSales ? 'Refresh required' : 'Sales facts required') : `After refunds and ${formatCurrency(totalEstimatedTax)} tax`} icon={ShoppingBag} />
+              <Metric label="Current total" value={totalsUnavailable ? 'Unavailable' : formatCurrency(currentTotal)} helper={totalsUnavailable ? 'Resolve calculation blockers' : periodInProgress ? 'Current estimate, before payment or tax' : 'Before payment or tax'} icon={Banknote} />
               <Metric label="Technicians" value={`${visibleTechnicians.length}`} helper={blockerCount ? `${blockerCount} publishing blocker${blockerCount === 1 ? '' : 's'}` : 'No publishing blockers'} icon={UserRound} />
             </section>
 
@@ -840,7 +1021,7 @@ export default function AdminPayoutsPage() {
                   <h2 className="flex items-center gap-2 font-semibold text-foreground"><AlertTriangle className="h-5 w-5 text-destructive" />Resolve {blockerCount} publishing blocker{blockerCount === 1 ? '' : 's'}</h2>
                   <p className="mt-2 text-sm text-muted-foreground">Open the affected Technician below for details. Pay Stubs remain unpublished until the missing information is fixed.</p>
                 </div>
-                {commissionableSalesUnavailable && (
+                {canRefreshSales && (
                   <Button type="button" variant="outline" className="min-h-11 shrink-0 bg-background" disabled={refreshSales.isPending || isFetching} onClick={() => refreshSales.mutate()}>
                     <ShoppingBag className={cn('mr-2 h-4 w-4', refreshSales.isPending && 'animate-pulse motion-reduce:animate-none')} /> Refresh sales now
                   </Button>
@@ -853,6 +1034,8 @@ export default function AdminPayoutsPage() {
                 <TechnicianReport
                   key={technician.operatorProfileId}
                   technician={technician}
+                  selectedMonth={month}
+                  onManageAssignments={() => openAssignmentInput(technician)}
                   onAddShiftRate={() => openPayInput(technician, 'shift')}
                   onAddCommissionRate={() => openPayInput(technician, 'commission')}
                   onAddOtherEarning={() => openPayInput(technician, 'bonus')}
@@ -996,6 +1179,93 @@ export default function AdminPayoutsPage() {
                 </DialogFooter>
               </form>
             )}
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={Boolean(assignmentInputDraft)} onOpenChange={(open) => {
+          if (!open && !saveAssignmentInput.isPending) {
+            setAssignmentInputDraft(null);
+            setAssignmentInputError(null);
+          }
+        }}>
+          <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+            {assignmentInputDraft && (() => {
+              const editableAssignments = (assignmentInputDraft.technician.assignments ?? []).filter(
+                (assignment) => assignment.editable
+              );
+              const selectedAssignment = getAssignmentById(
+                assignmentInputDraft.technician,
+                assignmentInputDraft.assignmentId
+              );
+              return (
+                <form onSubmit={(event) => {
+                  event.preventDefault();
+                  setAssignmentInputError(null);
+                  saveAssignmentInput.mutate(assignmentInputDraft);
+                }}>
+                  <DialogHeader>
+                    <DialogTitle>Edit machine assignment dates</DialogTitle>
+                    <DialogDescription>
+                      {assignmentInputDraft.technician.displayName} · These dates control which time and machine sales belong to this Technician. Pay and commission rates have their own effective dates and will not change here.
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <div className="mt-5 space-y-4">
+                    <div>
+                      <label htmlFor="assignment-machine" className="text-sm font-medium text-foreground">Machine assignment</label>
+                      <Select value={assignmentInputDraft.assignmentId} onValueChange={(assignmentId) => {
+                        const assignment = getAssignmentById(assignmentInputDraft.technician, assignmentId);
+                        if (!assignment) return;
+                        setAssignmentInputDraft((current) => current ? {
+                          ...current,
+                          assignmentId,
+                          effectiveStartDate: assignment.effectiveStartDate,
+                          effectiveEndDate: assignment.effectiveEndDate ?? '',
+                        } : current);
+                      }}>
+                        <SelectTrigger id="assignment-machine" className="mt-2 min-h-11"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {editableAssignments.map((assignment) => (
+                            <SelectItem key={assignment.assignmentId} value={assignment.assignmentId}>
+                              {assignment.machineLabel} · {formatAssignmentRange(assignment.effectiveStartDate, assignment.effectiveEndDate)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {selectedAssignment && (
+                      <p className="rounded-lg border border-border bg-muted/25 px-3 py-2 text-sm text-muted-foreground">
+                        {selectedAssignment.overlapsSelectedPeriod
+                          ? `This assignment currently applies to ${formatMonth(month)}.`
+                          : `${formatMonth(month)} is outside this assignment. ${selectedAssignment.selectedPeriodGrossSalesCents > 0 ? `${formatCurrency(selectedAssignment.selectedPeriodGrossSalesCents)} in machine sales for that month is not currently attributed to this Technician.` : 'Backdate the start only if this Technician was responsible for the machine during that month.'}`}
+                      </p>
+                    )}
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <label htmlFor="assignment-start" className="text-sm font-medium text-foreground">Assigned from</label>
+                        <Input id="assignment-start" type="date" value={assignmentInputDraft.effectiveStartDate} className="mt-2 min-h-11" onChange={(event) => setAssignmentInputDraft((current) => current ? { ...current, effectiveStartDate: event.target.value } : current)} required />
+                      </div>
+                      <div>
+                        <label htmlFor="assignment-end" className="text-sm font-medium text-foreground">Assigned through <span className="font-normal text-muted-foreground">(optional)</span></label>
+                        <Input id="assignment-end" type="date" value={assignmentInputDraft.effectiveEndDate} className="mt-2 min-h-11" onChange={(event) => setAssignmentInputDraft((current) => current ? { ...current, effectiveEndDate: event.target.value } : current)} />
+                      </div>
+                    </div>
+                    <p className="text-xs leading-5 text-muted-foreground">Leave the end date blank while the Technician remains assigned. Backdating changes pay attribution for the affected dates and is retained in the admin audit history.</p>
+                    {assignmentInputError && <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">{assignmentInputError}</p>}
+                  </div>
+
+                  <DialogFooter className="mt-6 gap-2 sm:gap-0">
+                    <Button type="button" variant="outline" className="min-h-11" disabled={saveAssignmentInput.isPending} onClick={() => setAssignmentInputDraft(null)}>Cancel</Button>
+                    <Button type="submit" className="min-h-11" disabled={saveAssignmentInput.isPending}>
+                      {saveAssignmentInput.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />}
+                      Save assignment dates
+                    </Button>
+                  </DialogFooter>
+                </form>
+              );
+            })()}
           </DialogContent>
         </Dialog>
 
