@@ -1882,19 +1882,21 @@ update public.operator_payout_profiles
 set status = 'active'
 where id = 'a6000000-0000-0000-0000-000000000002';
 
-set local role authenticated;
-select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
-create temporary table automatic_sales_statement_baseline as
-select statement.id, statement.statement_payload
-from public.pay_statements statement
-where statement.operator_profile_id = 'a6000000-0000-0000-0000-000000000002'
-  and statement.status = 'issued'
-order by statement.version desc, statement.created_at desc
-limit 1;
-
-reset role;
 update public.pay_statements statement
-set statement_generated_at = '2026-09-01 00:00:00+00'
+set
+  statement_payload = statement.statement_payload || jsonb_build_object(
+    'schemaVersion', 'operator-pay-stub-v2',
+    'calculationMeta',
+    coalesce(statement.statement_payload -> 'calculationMeta', '{}'::jsonb)
+      || jsonb_build_object(
+        'paySourceRevision',
+        private.operator_pay_time_source_revision(
+          statement.operator_profile_id,
+          '2026-07-31'
+        )
+      )
+  ),
+  statement_generated_at = '2026-09-01 00:00:00+00'
 where statement.operator_profile_id = 'a6000000-0000-0000-0000-000000000002'
   and statement.status = 'issued'
   and exists (
@@ -1906,7 +1908,20 @@ where statement.operator_profile_id = 'a6000000-0000-0000-0000-000000000002'
       and period.period_end_date = '2026-07-31'
   );
 
-reset role;
+create temporary table automatic_sales_statement_baseline as
+select statement.id, statement.statement_payload
+from public.pay_statements statement
+join public.payout_runs run on run.id = statement.payout_run_id
+join public.payout_periods period on period.id = run.payout_period_id
+where statement.operator_profile_id = 'a6000000-0000-0000-0000-000000000002'
+  and statement.status = 'issued'
+  and period.period_start_date = '2026-07-01'
+  and period.period_end_date = '2026-07-31'
+order by statement.version desc, statement.issued_at desc nulls last, statement.created_at desc
+limit 1;
+
+grant select on automatic_sales_statement_baseline to authenticated;
+
 insert into public.machine_sales_facts (
   id, reporting_machine_id, reporting_location_id, sale_date, payment_method,
   net_sales_cents, transaction_count, source, source_row_hash
@@ -1923,74 +1938,6 @@ select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003
 create temporary table automatic_sales_published_report as
 select public.get_current_technician_pay_report_context('2026-07-01') as payload;
 
-reset role;
-select diag(jsonb_build_object(
-  'issuedStatements', (
-    select jsonb_agg(jsonb_build_object(
-      'id', statement.id,
-      'version', statement.version,
-      'issuedAt', statement.issued_at,
-      'generatedAt', statement.statement_generated_at,
-      'sourceRevision', statement.statement_payload #>> '{calculationMeta,paySourceRevision}',
-      'periodStart', period.period_start_date,
-      'periodEnd', period.period_end_date
-    ) order by statement.version desc, statement.issued_at desc nulls last, statement.created_at desc)
-    from public.pay_statements statement
-    join public.payout_runs run on run.id = statement.payout_run_id
-    join public.payout_periods period on period.id = run.payout_period_id
-    where statement.operator_profile_id = 'a6000000-0000-0000-0000-000000000002'
-      and statement.status = 'issued'
-  ),
-  'snapshot', (
-    select jsonb_build_object(
-      'id', snapshot.id,
-      'generatedAt', snapshot.generated_at,
-      'regeneratedAt', snapshot.regenerated_at
-    )
-    from public.payout_period_machine_revenue_snapshots snapshot
-    where snapshot.payout_period_id = 'a7000000-0000-0000-0000-000000000001'
-      and snapshot.reporting_machine_id = 'a4000000-0000-0000-0000-000000000002'
-      and snapshot.status <> 'voided'
-  ),
-  'audit', (
-    select jsonb_build_object('action', audit.action, 'createdAt', audit.created_at)
-    from public.admin_audit_log audit
-    where audit.entity_type = 'payout_period_machine_revenue_snapshot'
-      and audit.entity_id = 'aa000000-0000-0000-0000-000000000002'
-    order by audit.created_at desc
-    limit 1
-  ),
-  'regenerationRequired', private.operator_pay_stub_regeneration_required(
-    'a6000000-0000-0000-0000-000000000002',
-    '2026-07-01',
-    '2026-07-31'
-  ),
-  'timeSourceRevision', private.operator_pay_time_source_revision(
-    'a6000000-0000-0000-0000-000000000002',
-    '2026-07-31'
-  ),
-  'salesFreshnessExists', exists (
-    select 1
-    from public.payout_period_machine_revenue_snapshots snapshot
-    where snapshot.account_id = 'a2000000-0000-0000-0000-000000000001'
-      and snapshot.period_start_date = '2026-07-01'
-      and snapshot.period_end_date = '2026-07-31'
-      and snapshot.status <> 'voided'
-      and snapshot.regenerated_at >= '2026-09-01 00:00:00+00'::timestamptz
-      and exists (
-        select 1
-        from public.operator_machine_assignments assignment
-        where assignment.operator_profile_id = 'a6000000-0000-0000-0000-000000000002'
-          and assignment.account_id = 'a2000000-0000-0000-0000-000000000001'
-          and assignment.reporting_machine_id = snapshot.reporting_machine_id
-          and assignment.effective_start_date <= '2026-07-31'
-          and coalesce(assignment.effective_end_date, 'infinity'::date) >= '2026-07-01'
-      )
-  )
-)::text);
-
-set local role authenticated;
-select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
 with technician as (
   select technician.item
   from automatic_sales_published_report report
