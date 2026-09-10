@@ -14,6 +14,9 @@ select extensions.dblink_connect('receipt_auto_xid_writer','host=db port='||curr
   ' dbname='||current_database()||' user=postgres password=postgres sslmode=disable application_name=receipt_auto_xid_writer');
 
 begin;
+-- The concurrency fixture must not enqueue external HTTP even when local Vault
+-- configuration exists. Exact/generic delivery races are exercised directly.
+alter table public.refund_case_messages disable trigger refund_completion_outbox_postcommit_wakeup;
 create schema refund_receipt_auto_race_test;
 create table refund_receipt_auto_race_test.results(lane text primary key,payload jsonb);
 create table refund_receipt_auto_race_test.contact_before as select * from public.refund_customer_contact_settings;
@@ -156,6 +159,27 @@ select is((select count(*)::integer from public.refund_receipt_completion_intent
 select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id='cd400000-0000-4000-8000-000000000001' and template_version='refund_receipt_completion_v1'),1,
   'Concurrent coordinators preserve exactly one outbox message');
+select extensions.dblink_send_query('receipt_auto_race_a',$q$
+  select count(*)::integer from public.service_claim_refund_manual_message_deliveries(
+    (select id from public.refund_case_messages
+      where refund_case_id='cd400000-0000-4000-8000-000000000001'
+        and template_version='refund_receipt_completion_v1'),1)
+$q$);
+select extensions.dblink_send_query('receipt_auto_race_b',$q$
+  select count(*)::integer from public.service_claim_refund_manual_message_deliveries(null,10)
+$q$);
+create table refund_receipt_auto_race_test.delivery_claims(lane text,claim_count integer);
+insert into refund_receipt_auto_race_test.delivery_claims
+select 'exact',claim_count from extensions.dblink_get_result('receipt_auto_race_a') as x(claim_count integer);
+insert into refund_receipt_auto_race_test.delivery_claims
+select 'generic',claim_count from extensions.dblink_get_result('receipt_auto_race_b') as x(claim_count integer);
+select is((select sum(claim_count)::integer from refund_receipt_auto_race_test.delivery_claims),1,
+  'Exact and generic concurrent drains claim the canonical completion once');
+select is((select count(*)::integer from public.refund_case_messages
+  where refund_case_id='cd400000-0000-4000-8000-000000000001'
+    and manual_delivery_state='claimed' and manual_delivery_attempt_count=1
+    and manual_delivery_provider_attempted_at is null and provider_message_id is null),1,
+  'Exact versus generic claim race creates no provider effect before the shared transport boundary');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
   where refund_case_id='cd400000-0000-4000-8000-000000000001'),0,
   'The coordinator race never creates a provider attempt');
@@ -195,6 +219,7 @@ alter table public.refund_receipt_completion_automation_authorities
 alter table public.refund_receipt_completion_intents enable trigger refund_receipt_completion_intents_immutable;
 alter table public.refund_case_messages enable trigger aa_refund_receipt_completion_identity;
 alter table public.refund_authoritative_receipts enable trigger refund_authoritative_receipts_immutable;
+alter table public.refund_case_messages enable trigger refund_completion_outbox_postcommit_wakeup;
 delete from public.refund_cases
 where id in ('cd400000-0000-4000-8000-000000000001','cd400000-0000-4000-8000-000000000002');
 delete from public.reporting_machines where id='cd300000-0000-4000-8000-000000000001';

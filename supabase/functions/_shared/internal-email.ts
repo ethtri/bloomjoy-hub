@@ -22,6 +22,7 @@ export const getInternalNotificationRecipients = (): string[] => {
 export type InternalEmailInput = {
   subject: string;
   text: string;
+  idempotencyKey?: string | null;
 };
 
 export type TransactionalEmailInput = {
@@ -190,7 +191,11 @@ export async function sendTransactionalEmail({
   }
 }
 
-export async function sendInternalEmail({ subject, text }: InternalEmailInput) {
+export async function sendInternalEmail({
+  subject,
+  text,
+  idempotencyKey,
+}: InternalEmailInput) {
   const recipients = getInternalNotificationRecipients();
 
   if (!recipients.length) {
@@ -201,5 +206,6 @@ export async function sendInternalEmail({ subject, text }: InternalEmailInput) {
     to: recipients,
     subject,
     text,
+    idempotencyKey,
   });
 }
