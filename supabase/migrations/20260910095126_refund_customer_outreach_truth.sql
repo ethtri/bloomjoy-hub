@@ -16,6 +16,10 @@ as $$
 declare
   normalized_reason text := lower(btrim(coalesce(p_reason, '')));
   cycle_row public.refund_follow_up_cycles%rowtype;
+  case_row public.refund_cases%rowtype;
+  settings_row public.refund_customer_contact_settings%rowtype;
+  thread_paused boolean := false;
+  current_correctable_fields text[] := '{}'::text[];
   settled_at timestamptz := statement_timestamp();
   expected_failure_code text;
 begin
@@ -31,16 +35,8 @@ begin
     raise exception 'Exact refund case and follow-up cycle are required';
   end if;
 
-  perform pg_advisory_xact_lock(
-    hashtextextended('refund_follow_up_cycle:' || p_refund_case_id::text, 0)
-  );
-
-  perform 1
-  from public.refund_cases refund_case
-  where refund_case.id = p_refund_case_id
-  for update;
-  if not found then raise exception 'Refund case not found'; end if;
-
+  -- Match the automatic-message guard: exact cycle first, then its case. This
+  -- makes a concurrent real message insert and suppression mutually exclusive.
   select cycle.* into cycle_row
   from public.refund_follow_up_cycles cycle
   where cycle.id = p_cycle_id
@@ -49,6 +45,52 @@ begin
   if cycle_row.id is null then
     raise exception 'Exact refund follow-up cycle not found';
   end if;
+
+  select refund_case.* into case_row
+  from public.refund_cases refund_case
+  where refund_case.id = p_refund_case_id
+  for update;
+  if case_row.id is null then raise exception 'Refund case not found'; end if;
+
+  select settings.* into settings_row
+  from public.refund_customer_contact_settings settings
+  where settings.singleton
+  for share;
+  if settings_row.singleton is null then
+    raise exception 'Durable customer-contact policy is unavailable';
+  end if;
+
+  perform 1
+  from public.refund_gmail_threads thread
+  where thread.refund_case_id = p_refund_case_id
+  order by thread.id
+  for share;
+  thread_paused := exists (
+    select 1 from public.refund_gmail_threads thread
+    where thread.refund_case_id = p_refund_case_id
+      and thread.automatic_customer_contact_paused_at is not null
+  );
+
+  -- These durable rows feed refund_purchase_correction_request_fields. Lock
+  -- them after cycle/case so the no-correctable assertion cannot race a new
+  -- candidate, payment effect, or correction context.
+  perform 1 from public.refund_nayax_lookup_candidates candidate
+  where candidate.refund_case_id = p_refund_case_id
+  order by candidate.id for share;
+  perform 1 from public.refund_authoritative_receipts receipt
+  where receipt.refund_case_id = p_refund_case_id
+  order by receipt.id for share;
+  perform 1 from public.refund_case_nayax_refund_attempts attempt
+  where attempt.refund_case_id = p_refund_case_id
+  order by attempt.id for share;
+  perform 1 from public.refund_wallet_correction_contexts correction
+  where correction.refund_case_id = p_refund_case_id
+  order by correction.id for share;
+
+  current_correctable_fields := coalesce(
+    public.refund_purchase_correction_request_fields(p_refund_case_id),
+    '{}'::text[]
+  );
 
   expected_failure_code := 'pre_message_suppressed:' || normalized_reason;
 
@@ -71,9 +113,22 @@ begin
     raise exception 'Only an exact still-claimed pre-message cycle can be settled';
   end if;
 
-  if normalized_reason = 'no_customer_correctable_fact'
-    and cycle_row.reason_code <> 'no_safe_match' then
-    raise exception 'No-customer-correctable settlement requires a no-safe-match cycle';
+  if cycle_row.case_fact_version <> case_row.deterministic_fact_version then
+    raise exception 'Current follow-up facts are required for suppression settlement';
+  end if;
+
+  if normalized_reason = 'automatic_customer_contact_disabled'
+    and coalesce(settings_row.automatic_customer_contact_enabled, false) then
+    raise exception 'Automatic customer contact is not durably disabled';
+  elsif normalized_reason = 'automatic_customer_contact_paused'
+    and not thread_paused then
+    raise exception 'Automatic customer contact is not durably paused for this case';
+  elsif normalized_reason = 'no_customer_correctable_fact'
+    and (
+      cycle_row.reason_code <> 'no_safe_match'
+      or cardinality(current_correctable_fields) <> 0
+    ) then
+    raise exception 'Current durable facts still expose a customer-correctable field';
   end if;
 
   update public.refund_follow_up_cycles cycle
@@ -148,6 +203,8 @@ declare
   request_row public.refund_case_messages%rowtype;
   correction_row public.refund_wallet_correction_contexts%rowtype;
   action_row public.refund_automation_actions%rowtype;
+  workflow_kind text;
+  workflow_id uuid;
   contact_enabled boolean := false;
   thread_paused boolean := false;
   gmail_delivered boolean := false;
@@ -161,8 +218,6 @@ declare
   manual_fallback_eligible boolean := false;
   reason_code text;
   failure_code text;
-  cycle_count integer := 0;
-  correction_count integer := 0;
   clarification_count integer := 0;
   recheck_started_at timestamptz;
 begin
@@ -191,56 +246,65 @@ begin
     '{}'::text[]
   );
 
-  select count(*)::integer, coalesce(max(cycle.cycle_number), 0)::integer
-  into cycle_count, clarification_count
-  from public.refund_follow_up_cycles cycle
-  where cycle.refund_case_id = case_row.id;
-
-  select count(*)::integer
-  into correction_count
-  from public.refund_wallet_correction_contexts correction
-  where correction.refund_case_id = case_row.id
-    and correction.correction_kind = 'purchase'
-    and not exists (
-      select 1
-      from public.refund_case_messages failed_message
-      where failed_message.id = correction.correction_message_id
-        and failed_message.status = 'failed'
-        and failed_message.sent_at is null
-        and failed_message.provider_message_id is null
-        and failed_message.manual_delivery_provider_attempted_at is null
-        and failed_message.delivery_transport is null
-        and not exists (
-          select 1
-          from public.refund_gmail_messages gmail_message
-          where gmail_message.refund_case_message_id = failed_message.id
-        )
-    );
-  clarification_count := greatest(
-    clarification_count,
-    least(correction_count, 2)
-  );
-
-  select cycle.* into cycle_row
-  from public.refund_follow_up_cycles cycle
-  where cycle.refund_case_id = case_row.id
-  order by cycle.cycle_number desc, cycle.created_at desc, cycle.id desc
+  -- Pick one causal workflow. Fact version wins; time and id only break ties.
+  -- Never splice a cycle's status/message together with an unrelated purchase
+  -- correction's reply or recheck state.
+  select candidate.kind, candidate.id
+  into workflow_kind, workflow_id
+  from (
+    select 'cycle'::text as kind, cycle.id,
+      cycle.case_fact_version as fact_version, cycle.created_at as started_at
+    from public.refund_follow_up_cycles cycle
+    where cycle.refund_case_id = case_row.id
+    union all
+    select 'correction'::text, correction.id,
+      coalesce(
+        correction.correction_resulting_fact_version,
+        correction.correction_fact_version,
+        0
+      ), correction.issued_at
+    from public.refund_wallet_correction_contexts correction
+    where correction.refund_case_id = case_row.id
+      and correction.correction_kind = 'purchase'
+      and correction.status in ('pending', 'submitted')
+  ) candidate
+  order by candidate.fact_version desc, candidate.started_at desc,
+    candidate.kind desc, candidate.id desc
   limit 1;
 
-  select correction.* into correction_row
-  from public.refund_wallet_correction_contexts correction
-  where correction.refund_case_id = case_row.id
-    and correction.correction_kind = 'purchase'
-  order by correction.issued_at desc, correction.id desc
-  limit 1;
+  if workflow_kind = 'cycle' then
+    select cycle.* into cycle_row
+    from public.refund_follow_up_cycles cycle
+    where cycle.id = workflow_id;
+    clarification_count := coalesce(cycle_row.cycle_number, 0);
+  elsif workflow_kind = 'correction' then
+    select correction.* into correction_row
+    from public.refund_wallet_correction_contexts correction
+    where correction.id = workflow_id;
+    select least(count(*)::integer, 2)
+    into clarification_count
+    from public.refund_wallet_correction_contexts correction
+    where correction.refund_case_id = case_row.id
+      and correction.correction_kind = 'purchase'
+      and correction.status in ('pending', 'submitted')
+      and coalesce(
+        correction.correction_resulting_fact_version,
+        correction.correction_fact_version,
+        0
+      ) <= coalesce(
+        correction_row.correction_resulting_fact_version,
+        correction_row.correction_fact_version,
+        0
+      );
+  end if;
 
   select action.* into action_row
   from public.refund_automation_actions action
   where action.refund_case_id = case_row.id
-    and action.action_type in (
-      'customer_more_info', 'customer_information_received',
-      'customer_reply_recheck', 'provider_exception', 'internal_escalation'
-    )
+    and workflow_kind = 'cycle'
+    and action.action_type = 'customer_reply_recheck'
+    and action.action_key like '%' || cycle_row.id::text || '%'
+    and action.attempted_at >= cycle_row.created_at
   order by action.attempted_at desc, action.id desc
   limit 1;
 
@@ -405,7 +469,7 @@ begin
     reason_code := 'contact_limit_reached';
   elsif not contact_enabled or thread_paused then
     if cardinality(current_fields) > 0
-      or coalesce(cycle_count, 0) > 0
+      or workflow_id is not null
       or case_row.status = 'waiting_on_customer'
       or case_row.automation_state = 'more_info_needed' then
       state := 'policy_suppressed';
@@ -416,27 +480,6 @@ begin
         else 'automatic_customer_contact_disabled'
       end;
     end if;
-  elsif action_row.action_type = 'internal_escalation'
-    and action_row.status = 'completed'
-    and action_row.reason_category in ('follow_up_manual_review', 'customer_reply_review')
-    -- A generic internal escalation is not authority to contact a customer.
-    -- Manual fallback must be deliberately classified in the durable action.
-    and action_row.metadata ->> 'customer_outreach_manual_fallback' = 'true'
-    and case_row.reporting_machine_id is not null
-    and case_row.reporting_location_id is not null
-    and cardinality(current_fields) > 0
-    and not exists (
-      select 1
-      from public.refund_case_events event
-      where event.refund_case_id = case_row.id
-        and event.event_type = 'automatic_customer_contact_limit_reached'
-    ) then
-    state := 'manual_fallback';
-    owner_name := 'Machine Manager';
-    next_action := 'request_details';
-    manual_fallback_eligible := true;
-    requested_fields := current_fields;
-    reason_code := 'discretionary_customer_follow_up';
   elsif cycle_row.status = 'manual_review'
     and cycle_row.failure_code in (
       'pre_message_suppressed:automatic_customer_contact_disabled',
@@ -529,14 +572,12 @@ begin
     when 'waiting_for_customer' then 'Waiting for customer'
     when 'customer_replied' then 'Customer replied · recheck queued'
     when 'rechecking' then 'Rechecking customer information'
-    when 'manual_fallback' then 'Customer details need manager request'
     else 'Needs Refund Operations'
   end;
 
   result := result || jsonb_build_object(
     'managerAction', jsonb_build_object(
       'action', case
-        when outreach_state = 'manual_fallback' then 'request_details'
         when outreach_owner = 'Refund Operations' then 'refund_operations'
         else 'none'
       end,
@@ -548,7 +589,6 @@ begin
     'managerQueue', coalesce(result -> 'managerQueue', '{}'::jsonb)
       || jsonb_build_object(
         'bucket', case
-          when outreach_state = 'manual_fallback' then 'needs_action'
           when outreach_owner = 'Refund Operations' then 'provider_hold'
           else 'in_progress'
         end,
