@@ -184,11 +184,19 @@ as $$
         or exists (
           select 1
           from public.payout_period_machine_revenue_snapshots snapshot
+          join public.admin_audit_log audit
+            on audit.entity_type = 'payout_period_machine_revenue_snapshot'
+           and audit.entity_id = snapshot.id::text
+           and audit.action in (
+             'operator_payout_revenue_snapshot.created',
+             'operator_payout_revenue_snapshot.regenerated',
+             'operator_payout_revenue_snapshot.overridden'
+           )
           where snapshot.account_id = latest.account_id
             and snapshot.period_start_date = p_period_start
             and snapshot.period_end_date = p_period_end
             and snapshot.status <> 'voided'
-            and coalesce(snapshot.regenerated_at, snapshot.generated_at, snapshot.updated_at) > latest.generated_at
+            and audit.created_at > latest.generated_at
             and exists (
               select 1
               from public.operator_machine_assignments assignment

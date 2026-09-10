@@ -1840,6 +1840,8 @@ select count(*)::integer as audit_count
 from public.admin_audit_log audit
 where audit.action = 'operator_payout_revenue_snapshot.regenerated';
 
+grant select on automatic_sales_mismatch_baseline to authenticated;
+
 set local role authenticated;
 select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
 create temporary table automatic_sales_current_report as
