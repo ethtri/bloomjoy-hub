@@ -147,14 +147,17 @@ test('forward owner slice preserves support adopter, lifecycle and complete rece
   assert.match(buildReceiptWrapperParityTest(process.cwd()), /select plan\(25\)/);
 });
 test('actual manager summary records customer-notice evidence without claiming provider verification', () => {
+  const contact = load('src/lib/refundCompletionContact.ts');
   const manager = load('src/lib/refundManagerState.ts', {
     './refundCustomerOutreach.ts': outreach,
+    './refundCompletionContact.ts': contact,
   });
   const result = manager.getRefundManagerState({ status: 'card_refund_pending', paymentMethod: 'card',
     correlationStatus: 'matched', providerHold: true, lifecycle: { schemaVersion: 'refund_lifecycle_v2',
-      stage: 'customer_notified', reasonCode: 'settlement_time_unknown', paymentState: 'confirmed' } });
-  assert.equal(result.label, 'Refund confirmed · customer updated');
-  assert.match(result.explanation, /existing customer notice is recorded for this claim/);
+      stage: 'customer_notified', reasonCode: 'settlement_time_unknown', paymentState: 'confirmed',
+      messageState: { state: 'sent', payloadRedacted: true } } });
+  assert.equal(result.label, 'Refund confirmed · update sent');
+  assert.match(result.explanation, /provider accepted the saved customer update/);
   assert.doesNotMatch(result.explanation, /verified/);
   assert.match(result.nextStep, /Do not retry payment or resend/);
 });

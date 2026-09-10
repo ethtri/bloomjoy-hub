@@ -5,7 +5,7 @@ import ts from 'typescript';
 const source=fs.readFileSync(new URL('../../src/lib/refundReadPolling.ts',import.meta.url),'utf8');
 const compiled=ts.transpile(source,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022});
 const {createRefundReadPolling,refundOverviewPollingInterval,refundAvailabilityIsTerminal,refundOverviewReadMessage,
- REFUND_OVERVIEW_INITIAL_LOAD_ERROR,REFUND_OVERVIEW_UPDATE_DELAYED,REFUND_OVERVIEW_RECOVERED}=await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+ mergeRefundOverviewContactTruth,REFUND_OVERVIEW_INITIAL_LOAD_ERROR,REFUND_OVERVIEW_UPDATE_DELAYED,REFUND_OVERVIEW_RECOVERED}=await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
 // QueryObserver only schedules browser intervals when a window exists at import.
 globalThis.window={};
 const {QueryClient,QueryObserver,focusManager,onlineManager}=await import('@tanstack/query-core');
@@ -126,4 +126,15 @@ test('read announcements preserve initial failure but suppress one cached pollin
  assert.equal(recovered,REFUND_OVERVIEW_RECOVERED);
  assert.equal(refundOverviewReadMessage(recovered,'success',{hasSnapshot:true,consecutiveFailures:0}),recovered);
  assert.equal(refundOverviewReadMessage(recovered,'error',firstCachedFailure),'');
+});
+
+test('late overview responses cannot regress per-case completion contact truth',()=>{
+ const lifecycle=(version,state,at)=>({version,lastUpdatedAt:at,messageState:{state,lastUpdatedAt:at},terminal:false,refreshAfterSeconds:5});
+ const sent={cases:[{id:'a',subject:'new',lifecycle:lifecycle(7,'sent','2026-09-10T12:00:00Z')}]};
+ const lateQueued={cases:[{id:'a',subject:'old',lifecycle:lifecycle(7,'pending','2026-09-10T11:59:00Z')}]};
+ const merged=mergeRefundOverviewContactTruth(sent,lateQueued);
+ assert.equal(merged.cases[0].subject,'new');
+ assert.equal(merged.cases[0].lifecycle.messageState.state,'sent');
+ const callback={cases:[{id:'a',subject:'callback',lifecycle:lifecycle(8,'bounced','2026-09-10T12:01:00Z')}]};
+ assert.equal(mergeRefundOverviewContactTruth(merged,callback).cases[0].lifecycle.messageState.state,'bounced');
 });

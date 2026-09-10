@@ -8,7 +8,7 @@ const milestones = [
   { label: 'Reviewing', rank: 20 },
   { label: 'Initiated', rank: 40 },
   { label: 'Confirmed', rank: 70 },
-  { label: 'Customer updated', rank: 80 },
+  { label: 'Update sent', rank: 80 },
 ] as const;
 
 type RefundLifecycleProgressProps = {

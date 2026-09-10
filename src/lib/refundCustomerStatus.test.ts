@@ -204,7 +204,7 @@ Deno.test('confirmed copy distinguishes Nayax approval from bank posting', () =>
   const copy = getRefundCustomerStatusCopy(
     requireRefundCustomerLifecycle(lifecycle('refund_confirmed', 70)),
   );
-  assertEquals(copy.detail, 'Nayax has approved your refund. Your bank may take up to 4 business days to show it on your account.');
+  assertEquals(copy.detail.startsWith('Nayax has approved your refund. Your bank may take up to 4 business days to show it on your account.'), true);
 });
 
 Deno.test('receipt notice exceptions keep refreshing while accounting details stay private', () => {

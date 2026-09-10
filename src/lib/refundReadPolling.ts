@@ -26,6 +26,54 @@ export const refundOverviewPollingInterval = (cases: Array<{lifecycle?: {termina
   return active.length ? Math.min(...active) : false;
 };
 
+type ContactLifecycle = {
+  version: number;
+  lastUpdatedAt: string;
+  messageState: { state: string; lastUpdatedAt?: string | null };
+};
+type ContactCase = { id: string; lifecycle?: ContactLifecycle | null };
+
+const contactStateRank = (state: string) => ({
+  none: 0, pending: 1, queued: 1, claimed: 1, failed: 2,
+  delivery_unconfirmed: 2, sent: 3, delivered: 4, bounced: 5, complained: 6,
+}[state] ?? 0);
+
+const contactEvidenceTime = (lifecycle: ContactLifecycle) => Date.parse(
+  lifecycle.messageState.lastUpdatedAt ?? lifecycle.lastUpdatedAt,
+);
+
+/** Retain newer per-case contact evidence when polling responses finish out of order. */
+export const mergeRefundOverviewContactTruth = <T extends {
+  cases: ContactCase[];
+  internalTestCases?: ContactCase[];
+}>(previous: T | undefined, incoming: T): T => {
+  if (!previous) return incoming;
+  const mergeCases = (prior: ContactCase[] | undefined, next: ContactCase[] | undefined) => {
+    const byId = new Map((prior ?? []).map((item) => [item.id, item]));
+    return (next ?? []).map((item) => {
+      const older = byId.get(item.id);
+      const oldLifecycle = older?.lifecycle;
+      const newLifecycle = item.lifecycle;
+      if (!oldLifecycle || !newLifecycle) return item;
+      if (oldLifecycle.version > newLifecycle.version) return older!;
+      if (oldLifecycle.version < newLifecycle.version) return item;
+      const oldTime = contactEvidenceTime(oldLifecycle);
+      const newTime = contactEvidenceTime(newLifecycle);
+      if (Number.isFinite(oldTime) && Number.isFinite(newTime) && oldTime > newTime) return older!;
+      if (oldTime === newTime && contactStateRank(oldLifecycle.messageState.state) >
+        contactStateRank(newLifecycle.messageState.state)) return older!;
+      return item;
+    });
+  };
+  return {
+    ...incoming,
+    cases: mergeCases(previous.cases, incoming.cases),
+    ...(incoming.internalTestCases
+      ? { internalTestCases: mergeCases(previous.internalTestCases, incoming.internalTestCases) }
+      : {}),
+  } as T;
+};
+
 export const refundAvailabilityIsTerminal = (
   overview: {cases: Array<{id: string; lifecycle?: {terminal: boolean} | null}>;
     internalTestCases?: Array<{id: string; lifecycle?: {terminal: boolean} | null}>;

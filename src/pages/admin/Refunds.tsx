@@ -6,7 +6,9 @@ import {
   refundAvailabilityIsTerminal,
   refundOverviewPollingInterval,
   refundOverviewReadMessage,
+  mergeRefundOverviewContactTruth,
 } from '@/lib/refundReadPolling';
+import { getRefundCompletionContactPresentation } from '@/lib/refundCompletionContact';
 import { formatRefundMachineLocation } from '@/lib/refundMachineLabel';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { collectCorrectionResponseNotices, type CorrectionNoticeState } from '@/lib/refundCorrectionContinuity';
@@ -844,6 +846,9 @@ const hasPendingDenialAppeal = (refundCase: RefundCaseRecord) =>
   getLatestCustomerMessage(refundCase)?.messageType === 'appeal_received';
 
 const getCustomerCommunicationLabel = (refundCase: RefundCaseRecord) => {
+  if (refundCase.lifecycle?.paymentState === 'confirmed') {
+    return getRefundCompletionContactPresentation(refundCase.lifecycle).progressLabel;
+  }
   if (acknowledgementExceptionNeedsAttention(refundCase)) {
     return 'Acknowledgement needs review';
   }
@@ -2687,6 +2692,7 @@ export default function AdminRefundsPage() {
 
   const [overviewReadMessage, setOverviewReadMessage] = useState('');
   const overviewPolling = useMemo(createRefundReadPolling, [selectedId]);
+  const overviewTruthRef = useRef<RefundOperationsOverview>();
   const availabilityPolling = useMemo(createRefundReadPolling, [selectedId]);
   const {
     data: liveOverviewSnapshot,
@@ -2697,7 +2703,12 @@ export default function AdminRefundsPage() {
     status: overviewReadStatus,
   } = useQuery({
     queryKey: ['admin-refund-operations-overview'],
-    queryFn: () => overviewPolling.read(fetchRefundOperationsOverview),
+    queryFn: () => overviewPolling.read(async () => {
+      const incoming = await fetchRefundOperationsOverview();
+      const merged = mergeRefundOverviewContactTruth(overviewTruthRef.current, incoming);
+      overviewTruthRef.current = merged;
+      return merged;
+    }),
     retry: false,
     enabled: !forceDemoData,
     staleTime: 1000 * 30,
@@ -8749,6 +8760,11 @@ export default function AdminRefundsPage() {
                         <span className="flex items-center gap-2">
                           <Clock3 className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                           Activity and messages
+                          {selectedCase.lifecycle?.paymentState === 'confirmed' && (
+                            <span className="font-normal text-muted-foreground">
+                              · {getRefundCompletionContactPresentation(selectedCase.lifecycle).progressLabel}
+                            </span>
+                          )}
                         </span>
                         <span className="flex items-center gap-2 text-xs font-normal text-muted-foreground">
                           {selectedCase.events.length + selectedCase.messages.length} records

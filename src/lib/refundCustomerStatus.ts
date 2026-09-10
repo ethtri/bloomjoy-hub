@@ -302,18 +302,24 @@ export const getRefundCustomerStatusCopy = (
       };
     case 'refund_confirmed':
     case 'customer_notified':
-      if (lifecycle.reasonCode === 'settlement_time_unknown') return {
+      if (lifecycle.reasonCode === 'settlement_time_unknown') {
+        const contact = getRefundCompletionContactPresentation(lifecycle);
+        return {
         title: 'Refund confirmed',
-        detail: 'Nayax confirms that the full refund was completed. The exact processing date is not available.',
-        nextExpectation: 'No new refund request is needed. Reply to your existing Bloomjoy email if the credit is not visible.',
+        detail: `Nayax confirms that the full refund was completed. The exact processing date is not available. ${contact.detail}`,
+        nextExpectation: contact.nextAction,
         milestone: 'confirmed',
-      };
+        };
+      }
+      {
+        const contact = getRefundCompletionContactPresentation(lifecycle);
       return {
         title: 'Refund confirmed',
-        detail: 'Nayax has approved your refund. Your bank may take up to 4 business days to show it on your account.',
-        nextExpectation: 'If the credit is not visible after 4 business days, reply to your Bloomjoy email for help.',
+        detail: `Nayax has approved your refund. Your bank may take up to 4 business days to show it on your account. ${contact.detail}`,
+        nextExpectation: contact.nextAction,
         milestone: 'confirmed',
       };
+      }
     case 'denied':
       return {
         title: 'Review complete',
@@ -343,3 +349,4 @@ export const getRefundCustomerRefreshMs = (lifecycle: RefundCustomerLifecycle) =
   if (lifecycle.terminal) return false as const;
   return Math.min(15_000, Math.max(1_000, (lifecycle.refreshAfterSeconds ?? 5) * 1_000));
 };
+import { getRefundCompletionContactPresentation } from './refundCompletionContact.ts';
