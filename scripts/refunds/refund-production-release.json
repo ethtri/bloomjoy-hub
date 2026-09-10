@@ -183,7 +183,8 @@
     "20260909165105_refund_preflight_transaction_conflicts.sql",
     "20260909193000_refund_report_health_contract.sql",
     "20260909221439_refund_queue_integrity.sql",
-    "20260910035559_refund_server_owned_nayax_lookup_recovery.sql"
+    "20260910035559_refund_server_owned_nayax_lookup_recovery.sql",
+    "20260910095126_refund_customer_outreach_truth.sql"
   ],
   "migrationFilesSha256": "5e0d9df761a648addd6025194b6734a24d8eb7ed4c2c6dbbc8f44073d09fc3e1",
   "migrationVersionSetSha256": "5e362501dd9389d465bede19c3a8fc5fddb0d446c05bece25b7f3f79210f9c7f",
