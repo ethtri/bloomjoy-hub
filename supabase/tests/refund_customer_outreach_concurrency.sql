@@ -60,8 +60,14 @@ select ok((select (status='claimed' and request_message_id='b8900000-0000-4000-8
     or (status='manual_review' and request_message_id is null)
   from public.refund_follow_up_cycles where id=(select cycle_id from refund_outreach_race_test.fixture)),
   'Cycle truth agrees with the winning writer');
-select ok(public.refund_customer_outreach_contract('b8900000-0000-4000-8000-000000000010')->>'state' in('queued','policy_suppressed'),
-  'Projection reports the winning durable state');
+select is(
+  public.refund_customer_outreach_contract('b8900000-0000-4000-8000-000000000010')->>'state',
+  case when exists(
+    select 1 from public.refund_case_messages
+    where id='b8900000-0000-4000-8000-000000000020'
+  ) then 'queued' else 'policy_suppressed' end,
+  'Projection reports the exact winning durable state'
+);
 select is((select count(*)::integer from public.refund_case_messages where refund_case_id='b8900000-0000-4000-8000-000000000010'),
   (select count(*)::integer from public.refund_case_messages where id='b8900000-0000-4000-8000-000000000020'),'No unrelated message is created');
 select is((select count(*)::integer from public.refund_case_events where refund_case_id='b8900000-0000-4000-8000-000000000010'

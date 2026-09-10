@@ -703,6 +703,49 @@ grant execute on function public.refund_lifecycle_contract(uuid)
 comment on function public.refund_lifecycle_contract(uuid) is
   'Canonical lifecycle with exact durable customer-outreach state and ownership.';
 
+-- Keep the authenticated detail boundary authoritative even when a later
+-- forward-only migration replaces the canonical lifecycle implementation.
+-- The wrapped reader still owns authentication, case scope, schema checks,
+-- and receipt redaction; this outer layer adds the same outreach projection
+-- and operations-only failure detail as the overview boundary.
+alter function public.get_refund_lifecycle_for_manager(uuid)
+  rename to get_refund_lifecycle_for_manager_pre_customer_outreach_v1;
+revoke all on function public.get_refund_lifecycle_for_manager_pre_customer_outreach_v1(uuid)
+  from public, anon, authenticated, service_role;
+
+create function public.get_refund_lifecycle_for_manager(
+  p_refund_case_id uuid
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  base jsonb := public.get_refund_lifecycle_for_manager_pre_customer_outreach_v1(
+    p_refund_case_id
+  );
+  outreach jsonb := public.refund_customer_outreach_contract(p_refund_case_id);
+  has_operations_access boolean := auth.uid() is not null
+    and public.is_super_admin(auth.uid()) is true;
+begin
+  if outreach is null then return base; end if;
+  if not has_operations_access then
+    outreach := jsonb_set(outreach, '{failureCode}', 'null'::jsonb, true);
+  end if;
+  return public.refund_apply_customer_outreach_to_lifecycle(base, outreach);
+end;
+$$;
+
+revoke all on function public.get_refund_lifecycle_for_manager(uuid)
+  from public, anon, service_role;
+grant execute on function public.get_refund_lifecycle_for_manager(uuid)
+  to authenticated;
+
+comment on function public.get_refund_lifecycle_for_manager(uuid) is
+  'Actor-scoped lifecycle detail with role-safe durable customer-outreach truth.';
+
 create function public.refund_project_customer_outreach_cases_for_manager(
   p_cases jsonb,
   p_has_operations_access boolean

@@ -64,7 +64,11 @@ create function pg_temp.queue_request(cid uuid,cycle_id uuid,mid uuid) returns v
 begin
   insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,content_source,delivery_kind,
     reason_code,template_version,follow_up_cycle_id,requested_fields)
-  select mid,cid,'more_info','pending',c.customer_email,'Please update your request','[Secure refund correction link included at delivery]',
+  select mid,cid,'more_info','pending',c.customer_email,'Please update your request',case
+      when cid='b8800000-0000-4000-8001-000000000007'::uuid
+        then 'Safe email-reply fixture without a correction link'
+      else '[Secure refund correction link included at delivery]'
+    end,
     'deterministic_template','automatic',
     cycle.reason_code,cycle.template_version,cycle.id,cycle.requested_fields
   from public.refund_follow_up_cycles cycle join public.refund_cases c on c.id=cycle.refund_case_id where cycle.id=cycle_id and c.id=cid;
@@ -80,6 +84,8 @@ insert into fixture select n,('b8800000-0000-4000-8001-'||lpad(n::text,12,'0')):
 select is(public.refund_customer_outreach_contract((select cid from fixture where case_no=1))->>'state','preparing','Supported cycle claim projects preparing');
 select pg_temp.queue_request(cid,cycle_id,mid) from fixture where case_no between 2 and 7;
 select is(public.refund_customer_outreach_contract((select cid from fixture where case_no=2))->>'state','queued','Real guarded message insert projects queued');
+select public.service_issue_refund_purchase_correction(mid,encode(extensions.digest('outreach-scope-'||case_no,'sha256'),'hex'),
+  (select deterministic_fact_version from public.refund_cases where id=cid)) from fixture where case_no in(3,4,6);
 select public.service_mark_refund_transactional_delivery_attempt(mid) from fixture where case_no in(3,4,6);
 select public.service_bind_refund_transactional_delivery(mid,'outreachprovider'||case_no,statement_timestamp()) from fixture where case_no in(3,4,6);
 update public.refund_case_messages set status='sent',sent_at=statement_timestamp() where id in(select mid from fixture where case_no in(3,4,6));

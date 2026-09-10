@@ -186,11 +186,13 @@ create temp table current_overview as
 select public.admin_get_refund_operations_overview() value;
 
 select ok(
-  position('refund_purchase_correction_request_fields' in pg_get_functiondef(
+  position('refund_project_customer_outreach_cases_for_manager' in pg_get_functiondef(
     'public.admin_get_refund_operations_overview()'::regprocedure))>0
+  and position('refund_purchase_correction_request_fields' in pg_get_functiondef(
+    'public.admin_get_refund_operations_overview_pre_customer_outreach_v1()'::regprocedure))>0
   and position('internalTestCases' in pg_get_functiondef(
-    'public.admin_get_refund_operations_overview()'::regprocedure))>0,
-  'The outermost overview explicitly binds both case arrays to the current helper');
+    'public.admin_get_refund_operations_overview_pre_customer_outreach_v1()'::regprocedure))>0,
+  'The composed outer overview binds outreach after correction scope for both case arrays');
 
 select is((select item->'customerCorrectionFields'
   from current_overview, lateral jsonb_array_elements(value->'cases') item
@@ -206,9 +208,9 @@ select is((select item->'customerCorrectionFields'
     'd9140000-0000-4000-8000-000000000002')),
   'The Internal/test case also exposes the direct current-helper result');
 
-select is((select value-'cases'-'internalTestCases' from current_overview),
+select is((select value-'cases'-'internalTestCases'-'customerOutreachContractVersion' from current_overview),
   (select value-'cases'-'internalTestCases' from predecessor_overview),
-  'The outer wrapper preserves every top-level overview value');
+  'The outer wrapper preserves every preceding top-level overview value');
 
 select is((select jsonb_agg(item-'customerCorrectionFields' order by ordinality)
   from current_overview, lateral jsonb_array_elements(value->'cases') with ordinality entries(item,ordinality)),
