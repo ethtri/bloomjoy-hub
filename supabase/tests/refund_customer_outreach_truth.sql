@@ -117,8 +117,9 @@ select public.service_claim_refund_automation_action((select(value->>'runId')::u
   'customer_reply_recheck:'||(select cycle_id from fixture where case_no=7)::text,'customer_reply_recheck','draft',null);
 select is(public.refund_customer_outreach_contract((select cid from fixture where case_no=7))->>'state','rechecking','Exact cycle-bound action claim projects rechecking');
 
-select like(pg_temp.capture_error(format($q$select public.service_settle_refund_follow_up_pre_message_suppression(%L,%L,'automatic_customer_contact_disabled')$q$,
-  (select cid from fixture where case_no=1),(select cycle_id from fixture where case_no=1))),'P0001:%not durably disabled%','Enabled policy rejects a false disabled assertion');
+select ok(pg_temp.capture_error(format($q$select public.service_settle_refund_follow_up_pre_message_suppression(%L,%L,'automatic_customer_contact_disabled')$q$,
+  (select cid from fixture where case_no=1),(select cycle_id from fixture where case_no=1))) like 'P0001:%not durably disabled%',
+  'Enabled policy rejects a false disabled assertion');
 update public.refund_customer_contact_settings set automatic_customer_contact_enabled=false where singleton;
 select is((public.service_settle_refund_follow_up_pre_message_suppression((select cid from fixture where case_no=1),(select cycle_id from fixture where case_no=1),
   'automatic_customer_contact_disabled')->>'settled')::boolean,true,'Durably disabled policy settles the exact still-claimed cycle');

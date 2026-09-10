@@ -305,7 +305,6 @@ begin
     and workflow_kind = 'cycle'
     and action.action_type = 'customer_reply_recheck'
     and action.action_key like '%' || cycle_row.id::text || '%'
-    and action.attempted_at >= cycle_row.created_at
   order by action.attempted_at desc, action.id desc
   limit 1;
 
@@ -408,7 +407,15 @@ begin
   elsif request_row.id is not null
     and (
       request_row.manual_delivery_state = 'delivery_unknown'
-      or effective_delivery_state in ('unknown', 'deferred')
+      or effective_delivery_state = 'deferred'
+      or (
+        effective_delivery_state = 'unknown'
+        and (
+          request_row.status = 'sent'
+          or request_row.provider_message_id is not null
+          or request_row.manual_delivery_provider_attempted_at is not null
+        )
+      )
       or (
         request_row.status = 'failed'
         and (
