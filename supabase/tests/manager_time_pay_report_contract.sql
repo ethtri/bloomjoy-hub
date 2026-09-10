@@ -1021,17 +1021,19 @@ select ok(
 );
 
 update public.pay_statements statement
-set statement_payload = statement.statement_payload || jsonb_build_object(
-  'calculationMeta',
-  coalesce(statement.statement_payload -> 'calculationMeta', '{}'::jsonb)
-    || jsonb_build_object(
-      'paySourceRevision',
-      private.operator_pay_time_source_revision(
-        statement.operator_profile_id,
-        '2026-07-31'
+set
+  statement_payload = statement.statement_payload || jsonb_build_object(
+    'calculationMeta',
+    coalesce(statement.statement_payload -> 'calculationMeta', '{}'::jsonb)
+      || jsonb_build_object(
+        'paySourceRevision',
+        private.operator_pay_time_source_revision(
+          statement.operator_profile_id,
+          '2026-07-31'
+        )
       )
-    )
-)
+  ),
+  statement_generated_at = clock_timestamp()
 where statement.id = 'ac300000-0000-0000-0000-000000000001';
 
 select ok(
@@ -1052,17 +1054,19 @@ select ok(
 );
 
 update public.pay_statements statement
-set statement_payload = statement.statement_payload || jsonb_build_object(
-  'calculationMeta',
-  coalesce(statement.statement_payload -> 'calculationMeta', '{}'::jsonb)
-    || jsonb_build_object(
-      'paySourceRevision',
-      private.operator_pay_time_source_revision(
-        statement.operator_profile_id,
-        '2026-08-31'
+set
+  statement_payload = statement.statement_payload || jsonb_build_object(
+    'calculationMeta',
+    coalesce(statement.statement_payload -> 'calculationMeta', '{}'::jsonb)
+      || jsonb_build_object(
+        'paySourceRevision',
+        private.operator_pay_time_source_revision(
+          statement.operator_profile_id,
+          '2026-08-31'
+        )
       )
-    )
-)
+  ),
+  statement_generated_at = clock_timestamp()
 where statement.id = 'ac300000-0000-0000-0000-000000000002';
 
 select ok(
@@ -1875,6 +1879,7 @@ where statement.operator_profile_id = 'a6000000-0000-0000-0000-000000000001'
 order by statement.version desc, statement.created_at desc
 limit 1;
 
+reset role;
 update public.pay_statements statement
 set statement_generated_at = '2026-09-01 00:00:00+00'
 from automatic_sales_statement_baseline baseline
