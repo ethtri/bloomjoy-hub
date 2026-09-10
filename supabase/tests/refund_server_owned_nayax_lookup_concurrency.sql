@@ -93,7 +93,7 @@ select is((public.service_finish_refund_nayax_lookup_recovery(
 select is((select jsonb_build_object('factVersion',deterministic_fact_version,
     'lookupGeneration',nayax_lookup_generation,'lookupStatus',nayax_lookup_status)
   from public.refund_cases where id='a8800000-0000-4000-8000-000000000010'),
-  jsonb_build_object('factVersion',2,'lookupGeneration',7,'lookupStatus','not_started'),
+  jsonb_build_object('factVersion',2,'lookupGeneration',7,'lookupStatus','no_match'),
   'The late worker leaves the newer fact version and its completed lookup evidence unchanged');
 
 select extensions.dblink_disconnect('lookup_recovery_a');
