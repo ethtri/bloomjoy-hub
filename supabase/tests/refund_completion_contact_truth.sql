@@ -17,16 +17,52 @@ select ('c6230000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-CONTACT-'||n
   'contact-'||n||'@example.invalid','Synthetic completion contact',statement_timestamp()-interval '1 day',
   'card',500,'needs_review','matched' from generate_series(1,8) n;
 
-insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,sent_at,
+-- Completion messages for card refunds are owned by committed settlements.
+-- Seed that terminal truth rather than bypassing the production guard.
+insert into public.sales_adjustment_facts(
+  id,reporting_machine_id,reporting_location_id,adjustment_date,adjustment_type,
+  amount_cents,complaint_count,source,source_row_hash,source_reference,
+  source_row_reference,refund_case_id,match_status,match_confidence,notes,raw_payload
+)
+select ('c6250000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
+  'c6220000-0000-4000-8000-000000000001','c6210000-0000-4000-8000-000000000001',
+  current_date,'refund',500,1,'refund_case','contact-adjustment-'||n,'refund_cases',
+  'RF-CONTACT-'||n,('c6230000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
+  'applied',1,'Synthetic committed contact truth',jsonb_build_object('payload_redacted',true)
+from generate_series(2,8) n;
+
+update public.refund_cases c set
+  status='completed',decision='approved',refund_completed_at=statement_timestamp(),
+  automation_state='completed',nayax_refund_execution_status='approved',
+  nayax_match_execution_eligible=false,reporting_adjustment_id=a.id
+from public.sales_adjustment_facts a
+where a.refund_case_id=c.id and c.public_reference like 'RF-CONTACT-%';
+
+insert into public.refund_case_nayax_refund_attempts(
+  id,refund_case_id,execution_mode,status,idempotency_key,amount_cents,
+  provider_reference,provider_status,sanitized_response,provider_outcome,
+  provider_outcome_recorded_at,reconciliation_required,reporting_adjustment_id,
+  case_finalization_committed_at,completed_at
+)
+select ('c6260000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
+  ('c6230000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
+  'request_and_approve','succeeded','contact-settlement-'||n,500,
+  'CONTACT-PROVIDER-'||n,'approved',jsonb_build_object('provider_outcome','success','payload_redacted',true),
+  'success',statement_timestamp(),false,
+  ('c6250000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
+  statement_timestamp(),statement_timestamp()
+from generate_series(2,8) n;
+
+insert into public.refund_case_messages(id,refund_case_id,nayax_refund_attempt_id,message_type,status,recipient_email,subject,body,sent_at,
   delivery_transport,provider_message_id,delivery_state,delivery_state_updated_at)
 values
-('c6240000-0000-4000-8000-000000000001','c6230000-0000-4000-8000-000000000002','completed','pending','contact-2@example.invalid','Queued','Synthetic',null,null,null,'unknown',null),
-('c6240000-0000-4000-8000-000000000002','c6230000-0000-4000-8000-000000000003','completed','sent','contact-3@example.invalid','Missing identity','Synthetic',statement_timestamp(),null,null,'unknown',statement_timestamp()),
-('c6240000-0000-4000-8000-000000000003','c6230000-0000-4000-8000-000000000004','completed','sent','contact-4@example.invalid','Sent','Synthetic',statement_timestamp(),'resend','contactsent4','delivered',statement_timestamp()),
-('c6240000-0000-4000-8000-000000000004','c6230000-0000-4000-8000-000000000005','completed','sent','contact-5@example.invalid','Delivered','Synthetic',statement_timestamp(),'resend','contactdeliver5','delivered',statement_timestamp()),
-('c6240000-0000-4000-8000-000000000005','c6230000-0000-4000-8000-000000000006','completed','failed','contact-6@example.invalid','Failed','Synthetic',null,null,null,'unknown',statement_timestamp()),
-('c6240000-0000-4000-8000-000000000006','c6230000-0000-4000-8000-000000000007','completed','failed','contact-7@example.invalid','Bounced','Synthetic',statement_timestamp(),'resend','contactbounce7','bounced',statement_timestamp()),
-('c6240000-0000-4000-8000-000000000007','c6230000-0000-4000-8000-000000000008','completed','failed','contact-8@example.invalid','Complained','Synthetic',statement_timestamp(),'resend','contactcomplaint8','complained',statement_timestamp());
+('c6240000-0000-4000-8000-000000000001','c6230000-0000-4000-8000-000000000002','c6260000-0000-4000-8000-000000000002','completed','pending','contact-2@example.invalid','Queued','Synthetic',null,null,null,'unknown',null),
+('c6240000-0000-4000-8000-000000000002','c6230000-0000-4000-8000-000000000003','c6260000-0000-4000-8000-000000000003','completed','sent','contact-3@example.invalid','Missing identity','Synthetic',statement_timestamp(),null,null,'unknown',statement_timestamp()),
+('c6240000-0000-4000-8000-000000000003','c6230000-0000-4000-8000-000000000004','c6260000-0000-4000-8000-000000000004','completed','sent','contact-4@example.invalid','Sent','Synthetic',statement_timestamp(),'resend','contactsent4','delivered',statement_timestamp()),
+('c6240000-0000-4000-8000-000000000004','c6230000-0000-4000-8000-000000000005','c6260000-0000-4000-8000-000000000005','completed','sent','contact-5@example.invalid','Delivered','Synthetic',statement_timestamp(),'resend','contactdeliver5','delivered',statement_timestamp()),
+('c6240000-0000-4000-8000-000000000005','c6230000-0000-4000-8000-000000000006','c6260000-0000-4000-8000-000000000006','completed','failed','contact-6@example.invalid','Failed','Synthetic',null,null,null,'unknown',statement_timestamp()),
+('c6240000-0000-4000-8000-000000000006','c6230000-0000-4000-8000-000000000007','c6260000-0000-4000-8000-000000000007','completed','failed','contact-7@example.invalid','Bounced','Synthetic',statement_timestamp(),'resend','contactbounce7','bounced',statement_timestamp()),
+('c6240000-0000-4000-8000-000000000007','c6230000-0000-4000-8000-000000000008','c6260000-0000-4000-8000-000000000008','completed','failed','contact-8@example.invalid','Complained','Synthetic',statement_timestamp(),'resend','contactcomplaint8','complained',statement_timestamp());
 
 insert into public.refund_transactional_delivery_events(event_key_digest,provider_message_id,delivery_state,event_at,
   matched_refund_case_message_id,applied_at)
@@ -54,8 +90,8 @@ select is((public.refund_apply_completion_contact_to_lifecycle('{"paymentState":
   '{"state":"delivery_unconfirmed","messageType":"completed","lastUpdatedAt":"2026-09-10T00:00:00Z","payloadRedacted":true}'::jsonb)#>>'{managerAction,action}'),'review_delivery_no_resend','Unknown outcome forbids blind resend');
 select is((public.refund_apply_completion_contact_to_lifecycle('{"paymentState":"confirmed"}'::jsonb,
   '{"state":"bounced","messageType":"completed","lastUpdatedAt":"2026-09-10T00:00:00Z","payloadRedacted":true}'::jsonb)#>>'{managerQueue,bucket}'),'provider_hold','Bounce routes contact review without reopening payment');
-select is((select count(*)::integer from public.refund_case_nayax_refund_attempts where refund_case_id::text like 'c6230000%'),0,'Projection creates no payment attempt');
-select is((select count(*)::integer from public.sales_adjustment_facts where refund_case_id::text like 'c6230000%'),0,'Projection creates no accounting adjustment');
+select is((select count(*)::integer from public.refund_case_nayax_refund_attempts where refund_case_id::text like 'c6230000%'),7,'Projection creates no payment attempt beyond the seven fixture settlements');
+select is((select count(*)::integer from public.sales_adjustment_facts where refund_case_id::text like 'c6230000%'),7,'Projection creates no accounting adjustment beyond the seven fixture settlements');
 select is((select count(*)::integer from public.refund_case_messages where refund_case_id::text like 'c6230000%'),7,'Projection creates no customer message');
 select * from finish();
 rollback;

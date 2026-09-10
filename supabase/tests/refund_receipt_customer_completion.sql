@@ -131,7 +131,9 @@ select is((select count(*)::integer from public.service_claim_refund_manual_mess
   (select refund_case_message_id from rc_accepted_claim),1)),0,'Interrupted accepted delivery is reconciled without another transport claim');
 select is(pg_temp.queue_completion(3)->>'outboxState','sent','Durable provider acceptance finishes the same message');
 select is(public.refund_lifecycle_contract('cf400000-0000-4000-8000-000000000003')#>>'{messageState,state}',
-  'delivery_unconfirmed','Provider acceptance is not labeled customer delivery');
+  'sent','Provider acceptance with sent time and provider identity is proved sent, not delivered');
+select isnt(public.refund_lifecycle_contract('cf400000-0000-4000-8000-000000000003')#>>'{messageState,state}',
+  'delivered','Provider acceptance cannot claim callback-confirmed delivery');
 select is(public.admin_get_refund_authoritative_receipt_overview('cf400000-0000-4000-8000-000000000003')->'completionNotice'->>'deliveryState',
   'accepted','Private view preserves the exact accepted state');
 

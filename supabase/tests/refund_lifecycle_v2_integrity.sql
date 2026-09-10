@@ -275,22 +275,48 @@ select lifecycle_revision
 from public.refund_cases
 where id = 'e4000000-0000-4000-8000-000000000001';
 
+insert into public.sales_adjustment_facts (
+  id, reporting_machine_id, reporting_location_id, adjustment_date,
+  adjustment_type, amount_cents, complaint_count, source, source_row_hash,
+  source_reference, source_row_reference, refund_case_id, match_status,
+  match_confidence, notes, raw_payload
+) values (
+  'e6500000-0000-4000-8000-000000000001',
+  'e3000000-0000-4000-8000-000000000001',
+  'e2000000-0000-4000-8000-000000000001', current_date,
+  'refund', 700, 1, 'refund_case', 'lifecycle-v2-completed-adjustment',
+  'refund_cases', 'RF-LIFECYCLE-V2-NORMAL',
+  'e4000000-0000-4000-8000-000000000001', 'applied', 1,
+  'Synthetic committed lifecycle settlement', jsonb_build_object('payload_redacted', true)
+);
+update public.refund_cases set
+  status = 'completed', decision = 'approved', refund_completed_at = statement_timestamp(),
+  automation_state = 'completed', nayax_refund_execution_status = 'approved',
+  nayax_match_execution_eligible = false,
+  reporting_adjustment_id = 'e6500000-0000-4000-8000-000000000001'
+where id = 'e4000000-0000-4000-8000-000000000001';
 insert into public.refund_case_nayax_refund_attempts (
   id, refund_case_id, execution_mode, status, idempotency_key, amount_cents,
-  provider_outcome
+  provider_reference, provider_status, sanitized_response, provider_outcome,
+  provider_outcome_recorded_at, reconciliation_required, reporting_adjustment_id,
+  case_finalization_committed_at, completed_at
 ) values (
   'e6000000-0000-4000-8000-000000000002',
   'e4000000-0000-4000-8000-000000000001',
   'request_and_approve', 'succeeded', 'lifecycle-v2-completed-attempt', 700,
-  'success'
+  'LIFECYCLE-PROVIDER-SUCCESS', 'approved',
+  jsonb_build_object('provider_outcome', 'success', 'payload_redacted', true),
+  'success', statement_timestamp(), false,
+  'e6500000-0000-4000-8000-000000000001', statement_timestamp(), statement_timestamp()
 );
 insert into public.refund_case_messages (
-  refund_case_id, message_type, status, recipient_email, subject, body,
+  refund_case_id, nayax_refund_attempt_id, message_type, status, recipient_email, subject, body,
   template_key, delivery_transport, delivery_state, delivery_state_updated_at
 ) values (
-  'e4000000-0000-4000-8000-000000000001', 'status_update', 'failed',
+  'e4000000-0000-4000-8000-000000000001',
+  'e6000000-0000-4000-8000-000000000002', 'completed', 'failed',
   'lifecycle-normal@example.invalid', 'Status update', 'Redacted status update',
-  'refund_status_update_v2_test', 'resend', 'failed', statement_timestamp()
+  'refund_completed_v2_test', 'resend', 'failed', statement_timestamp()
 );
 
 select ok(
