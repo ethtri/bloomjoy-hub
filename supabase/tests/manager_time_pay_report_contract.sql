@@ -9,7 +9,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(119);
+select plan(122);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -1646,11 +1646,95 @@ select is(
   'the legacy statement payload builder executes against the current account schema'
 );
 
+reset role;
+
+with normalized as (
+  select private.normalize_technician_pay_report_status(
+    jsonb_build_object(
+      'blockers', jsonb_build_array(
+        jsonb_build_object('code', 'stale_commission_sales_facts', 'severity', 'blocker', 'machineId', 'machine-a'),
+        jsonb_build_object('code', 'stale_sales_source', 'severity', 'blocker', 'machineId', 'machine-a')
+      ),
+      'warnings', '[]'::jsonb,
+      'machines', jsonb_build_array(jsonb_build_object(
+        'machineId', 'machine-a',
+        'sourceLatestSaleDate', '2026-09-09'
+      )),
+      'currentTotalCents', 7850,
+      'publishable', true,
+      'calculationMeta', '{}'::jsonb
+    ),
+    '2026-09-01',
+    '2026-09-30',
+    '2026-09-10'
+  ) as report
+)
+select is(
+  concat(
+    jsonb_array_length(report -> 'blockers'), ':',
+    report ->> 'publishable', ':',
+    report #>> '{warnings,0,code}', ':',
+    report #>> '{calculationMeta,salesThroughDate}'
+  ),
+  '0:false:current_period_sales_through:2026-09-09',
+  'an open month removes impossible future freshness blockers and remains non-publishable'
+)
+from normalized;
+
+with normalized as (
+  select private.normalize_technician_pay_report_status(
+    jsonb_build_object(
+      'blockers', jsonb_build_array(
+        jsonb_build_object('code', 'stale_commission_sales_facts', 'severity', 'blocker', 'machineId', 'machine-a'),
+        jsonb_build_object('code', 'stale_sales_source', 'severity', 'blocker', 'machineId', 'machine-a')
+      ),
+      'warnings', '[]'::jsonb,
+      'machines', jsonb_build_array(jsonb_build_object(
+        'machineId', 'machine-a',
+        'sourceLatestSaleDate', '2026-08-30'
+      )),
+      'currentTotalCents', 7850,
+      'publishable', false,
+      'calculationMeta', '{}'::jsonb
+    ),
+    '2026-08-01',
+    '2026-08-31',
+    '2026-09-10'
+  ) as report
+)
+select is(
+  concat(
+    jsonb_array_length(report -> 'blockers'), ':',
+    report #>> '{blockers,0,code}', ':',
+    report ->> 'publishable'
+  ),
+  '1:stale_commission_sales_facts:false',
+  'a closed month retains one actionable freshness blocker per machine'
+)
+from normalized;
+
 update public.payout_runs
 set status = 'finalized'
 where id = 'ac000000-0000-0000-0000-000000000001';
 set local role authenticated;
 select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
+
+with report as (
+  select public.get_technician_pay_report_context('2026-07-01') as payload
+)
+select is(
+  concat(
+    payload #>> '{technicians,0,assignments,0,assignmentId}', ':',
+    payload #>> '{technicians,0,assignments,0,effectiveStartDate}', ':',
+    payload #>> '{technicians,0,assignments,0,effectiveEndDate}', ':',
+    payload #>> '{technicians,0,assignments,0,overlapsSelectedPeriod}', ':',
+    payload #>> '{technicians,0,assignments,0,selectedPeriodGrossSalesCents}'
+  ),
+  'a6100000-0000-0000-0000-000000000001:2026-01-01:2026-12-31:true:10000',
+  'the pay report exposes effective assignment history to an account pay manager'
+)
+from report;
+
 select is(
   public.admin_issue_pay_statements(
     'ac000000-0000-0000-0000-000000000001',

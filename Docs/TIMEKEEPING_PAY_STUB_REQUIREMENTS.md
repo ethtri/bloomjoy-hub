@@ -66,6 +66,7 @@ The MVP is a lightweight timekeeping and contractor-statement product. It is not
 
 - The manager completes one setup form after the Technician has accepted the portal invitation and signed in once.
 - The manager chooses the Technician, effective start date, and every machine where the Technician may record time, then answers what rate and commission the Technician receives for each selected machine.
+- After setup, the Technician Pay Report keeps machine assignment dates visible and editable separately from effective-dated pay and commission rates. Changing one does not silently change the other.
 - The first machine's complete pay terms can be copied to all selected machines; the manager then changes only machines with different terms.
 - Commission choices prioritize the common cases: no commission, 3% after three months, or a custom percentage and start date. The calculated three-month date is visible before activation.
 - Worker classification defaults to independent contractor for the current population while remaining editable under optional details.
@@ -110,6 +111,8 @@ The MVP is a lightweight timekeeping and contractor-statement product. It is not
   - any missing or stale input that prevents accurate publication.
 - The report provides a machine breakdown of actual time, paid shifts, sales, refunds, estimated sales tax, commissionable sales, and commission contribution. Commissionable sales equal `sales - refunds - estimated sales tax`; commission equals that nonnegative basis multiplied by the Technician's effective commission rate. Sales tax uses the effective machine tax rate on each sale date and rounds to cents per machine/day. A missing tax rate on a date with sales blocks publication, while an explicit `0%` rate is valid.
 - Managers correct source time or compensation inputs from the report context. There is no per-entry or monthly approval action.
+- The open calendar month is a non-publishable estimate through the latest imported sales-fact date. A future month-end freshness gap is informational while the month is open; a closed month keeps one actionable source-freshness blocker per affected machine.
+- A historical month with no overlapping machine assignment is not presented as ready. The report explains why sales are not attributed and provides an audited assignment-date correction path.
 - Publishing a Pay Stub does not mark a person paid and requires no proof of payment.
 
 ## Pay Stub generation and content

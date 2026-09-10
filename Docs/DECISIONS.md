@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-09-10 - Open Technician pay months are estimates and assignment dates remain explicit
+
+The Technician Pay Report treats the current calendar month as work in progress. It may show calculated time, imported Commissionable Sales, commission, and an estimated total through the latest available sales-fact date, but it cannot publish a Pay Stub until the Technician edit window closes. A source date before a future month end is informational during the open month, not a blocker an operator is asked to fix. Closed months still require complete source evidence, and overlapping freshness checks collapse into one actionable finding per machine.
+
+Machine assignment dates and compensation-rate dates are separate inputs. The report exposes every effective payout assignment to an account pay manager and uses the existing audited assignment RPC for date corrections. Backdating a rate never backdates the machine assignment. When a selected historical month has no overlapping assignment, the report is not publishable and explains that the machine's sales are not attributed to the Technician; it offers an explicit assignment-date correction without changing pay or commission rates.
+
 ## 2026-09-08 - Email-based, agent-prepared refunds with one final manager decision
 
 New public refund requests must provide a valid email address, enforced by both

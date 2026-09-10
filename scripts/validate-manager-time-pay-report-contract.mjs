@@ -45,6 +45,12 @@ const files = {
     'migrations',
     '20260909172137_per_machine_compensation_arrangements.sql'
   ),
+  assignmentClarityMigration: path.join(
+    repoRoot,
+    'supabase',
+    'migrations',
+    '20260910154826_technician_pay_report_assignment_clarity.sql'
+  ),
   pgTap: path.join(repoRoot, 'supabase', 'tests', 'manager_time_pay_report_contract.sql'),
   concurrencyPgTap: path.join(
     repoRoot,
@@ -173,6 +179,24 @@ for (const snippet of [
   expect(arrangementMigration, snippet, 'per-machine compensation migration');
 }
 
+const assignmentClarityMigration = readText(files.assignmentClarityMigration);
+for (const snippet of [
+  'private.normalize_technician_pay_report_status',
+  "'current_period_sales_through'",
+  "'periodInProgress'",
+  "'hasAssignmentInPeriod'",
+  "'freshnessPolicy'",
+  'get_technician_pay_report_context_without_assignment_clarity',
+  "'assignments'",
+  "'assignmentId'",
+  "'overlapsSelectedPeriod'",
+  "'selectedPeriodGrossSalesCents'",
+  "timezone('America/Los_Angeles', now())::date",
+  'grant execute on function public.get_technician_pay_report_context(date) to authenticated',
+]) {
+  expect(assignmentClarityMigration, snippet, 'Technician Pay Report assignment clarity migration');
+}
+
 const missedTimeMigration = readText(files.missedTimeMigration);
 for (const snippet of [
   'create or replace function public.get_my_time_review_entry_options',
@@ -250,6 +274,7 @@ for (const snippet of [
   'TechnicianPayReportEntry',
   'TechnicianPayReportShiftRateLine',
   'TechnicianPayReportMachine',
+  'TechnicianPayReportAssignment',
   'TechnicianPayReportOtherEarning',
   'TechnicianPayReportTechnician',
   'TechnicianPayReportContext',
@@ -261,6 +286,7 @@ for (const snippet of [
   "`${month}-01`",
   'supersedeOperatorCompensationRateAdmin',
   'refreshTechnicianPayReportSalesAdmin',
+  'upsertEffectiveOperatorMachineAssignmentAdmin',
   "'get_technician_pay_report_context'",
 ]) {
   if (!helper.includes(snippet)) {
@@ -290,6 +316,12 @@ for (const snippet of [
   'separate Pay Stubs',
   'Activate Timekeeping',
   'Invite Technician',
+  'Assignment dates',
+  'Backdate assignment',
+  'Save assignment dates',
+  'Month in progress',
+  'Sales through',
+  'Assignment dates were not changed',
 ]) {
   if (!payReportPage.includes(snippet)) {
     fail(`Technician Pay Report page missing ${snippet}`);
@@ -364,6 +396,9 @@ for (const marker of [
   'after-three-months commission resolves to zero before its start and three percent on its start',
   'pay report retains machine-aware started-hour rate lines for Pay Stub detail',
   'a user without account pay authority cannot read Timekeeping setup choices',
+  'an open month removes impossible future freshness blockers and remains non-publishable',
+  'a closed month retains one actionable freshness blocker per machine',
+  'the pay report exposes effective assignment history to an account pay manager',
 ]) {
   if (!pgTap.includes(marker)) {
     fail(`pgTAP coverage missing marker: ${marker}`);
