@@ -51,6 +51,12 @@ const files = {
     'migrations',
     '20260910154826_technician_pay_report_assignment_clarity.sql'
   ),
+  assignmentRefreshMigration: path.join(
+    repoRoot,
+    'supabase',
+    'migrations',
+    '20260910173236_payout_assignment_sales_refresh.sql'
+  ),
   pgTap: path.join(repoRoot, 'supabase', 'tests', 'manager_time_pay_report_contract.sql'),
   concurrencyPgTap: path.join(
     repoRoot,
@@ -197,6 +203,18 @@ for (const snippet of [
   expect(assignmentClarityMigration, snippet, 'Technician Pay Report assignment clarity migration');
 }
 
+const assignmentRefreshMigration = readText(files.assignmentRefreshMigration);
+for (const snippet of [
+  'private.normalize_technician_pay_report_status',
+  'public.admin_refresh_technician_pay_report_sales',
+  'public.ensure_operator_payout_period_for_date',
+  "'revenueSnapshotId'",
+  "'snapshotMatchesFacts'",
+  'a zero-sales final day is valid',
+]) {
+  expect(snippet === "'revenueSnapshotId'" || snippet === "'snapshotMatchesFacts'" ? readText(files.pgTap) : assignmentRefreshMigration, snippet, 'assignment sales refresh regression');
+}
+
 const missedTimeMigration = readText(files.missedTimeMigration);
 for (const snippet of [
   'create or replace function public.get_my_time_review_entry_options',
@@ -322,6 +340,7 @@ for (const snippet of [
   'Month in progress',
   'Sales through',
   'Assignment dates were not changed',
+  'sales were recalculated',
 ]) {
   if (!payReportPage.includes(snippet)) {
     fail(`Technician Pay Report page missing ${snippet}`);
@@ -397,7 +416,8 @@ for (const marker of [
   'pay report retains machine-aware started-hour rate lines for Pay Stub detail',
   'a user without account pay authority cannot read Timekeeping setup choices',
   'an open month removes impossible future freshness blockers and remains non-publishable',
-  'a closed month retains one actionable freshness blocker per machine',
+  'a closed month accepts a refreshed matching snapshot when the final day had no sales',
+  'sales refresh creates a missing monthly period after a historical assignment change',
   'the pay report exposes effective assignment history to an account pay manager',
 ]) {
   if (!pgTap.includes(marker)) {
