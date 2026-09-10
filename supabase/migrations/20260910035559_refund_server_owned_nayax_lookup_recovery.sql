@@ -33,6 +33,79 @@ create index refund_nayax_lookup_recoveries_due_idx
   on public.refund_nayax_lookup_recoveries (next_attempt_at, created_at, refund_case_id)
   where status = 'scheduled';
 
+create function public.service_enqueue_refund_nayax_lookup(
+  p_refund_case_id uuid,
+  p_expected_fact_version bigint
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  c public.refund_cases%rowtype;
+  inserted_count integer := 0;
+begin
+  select * into c
+  from public.refund_cases
+  where id = p_refund_case_id
+  for update;
+  if not found then
+    return jsonb_build_object('status','not_ready','payloadRedacted',true);
+  end if;
+  if c.deterministic_fact_version is distinct from p_expected_fact_version then
+    return jsonb_build_object('status','stale','payloadRedacted',true);
+  end if;
+  if c.payment_method is distinct from 'card'
+    or coalesce(c.status,'') not in ('submitted','needs_review','correlated')
+    or c.decision is not null
+    or c.nayax_lookup_status is distinct from 'not_started'
+    or c.reporting_location_id is null
+    or (c.reporting_machine_id is null and not (
+      c.intake_selection_kind = 'livermore_pair'
+      and c.intake_selection_key is not null
+      and coalesce(array_length(c.intake_selection_machine_ids, 1), 0) = 2
+    ))
+    or c.incident_at is null
+    or c.incident_time_resolution is null
+    or coalesce(c.payment_amount_cents,0) <= 0
+    or (not coalesce(c.card_wallet_used,false)
+      and coalesce(c.card_last4,'') !~ '^[0-9]{4}$')
+    or c.matched_nayax_transaction_id is not null
+    or c.nayax_refund_execution_status is distinct from 'not_requested'
+    or c.refund_completed_at is not null
+    or c.reporting_adjustment_id is not null
+    or c.manual_refund_reference is not null
+    or c.duplicate_of_refund_case_id is not null
+    or public.refund_case_has_unresolved_reconciliation(c.id)
+    or exists(select 1 from public.refund_authoritative_receipts receipt
+      where receipt.refund_case_id=c.id)
+    or exists(select 1 from public.refund_case_nayax_refund_attempts attempt
+      where attempt.refund_case_id=c.id) then
+    return jsonb_build_object('status','not_ready','payloadRedacted',true);
+  end if;
+
+  insert into public.refund_nayax_lookup_recoveries(
+    refund_case_id,deterministic_fact_version,recovery_generation,attempt_ordinal,
+    status,next_attempt_at)
+  values(c.id,c.deterministic_fact_version,0,0,'scheduled',statement_timestamp())
+  on conflict (refund_case_id,deterministic_fact_version,recovery_generation,attempt_ordinal)
+  do nothing;
+  get diagnostics inserted_count = row_count;
+  return jsonb_build_object(
+    'status',case when inserted_count=1 then 'scheduled' else 'deduplicated' end,
+    'payloadRedacted',true);
+end;
+$$;
+
+revoke all on function public.service_enqueue_refund_nayax_lookup(uuid,bigint)
+  from public,anon,authenticated;
+grant execute on function public.service_enqueue_refund_nayax_lookup(uuid,bigint)
+  to service_role;
+
+comment on function public.service_enqueue_refund_nayax_lookup(uuid,bigint) is
+  'Event-side readiness boundary that only enqueues the exact initial server-owned lookup attempt; it never begins or reads a provider.';
+
 create or replace function public.service_claim_refund_nayax_lookup_recoveries(
   p_limit integer default 10
 )
@@ -70,6 +143,12 @@ begin
       and c.nayax_lookup_status in ('match_found','multiple_matches','no_match','manual_exception','setup_needed')
       then 'completed' else 'failed' end,
       claim_token = null, finished_at = statement_timestamp(), claim_expires_at = null,
+      next_attempt_at = case when recovery.lookup_generation is not null
+        and recovery.lookup_generation=c.nayax_lookup_generation
+        and c.nayax_lookup_status in ('match_found','multiple_matches','no_match','manual_exception','setup_needed')
+        then recovery.next_attempt_at
+        when recovery.attempt_ordinal=0 then statement_timestamp()+interval '2 minutes'
+        else recovery.next_attempt_at end,
       failure_class = case when recovery.lookup_generation is not null
       and recovery.lookup_generation=c.nayax_lookup_generation
       and c.nayax_lookup_status in ('match_found','multiple_matches','no_match','manual_exception','setup_needed')
@@ -121,10 +200,11 @@ begin
     status, next_attempt_at
   )
   select c.id, c.deterministic_fact_version, prior.recovery_generation, 1,
-    'scheduled', coalesce(c.nayax_lookup_finished_at, prior.finished_at) + interval '2 minutes'
+    'scheduled', prior.next_attempt_at
   from public.refund_cases c
   join lateral (
-    select r.recovery_generation, r.attempt_ordinal, r.status, r.failure_class, r.finished_at
+    select r.recovery_generation, r.attempt_ordinal, r.status, r.failure_class,
+      r.finished_at, r.next_attempt_at
     from public.refund_nayax_lookup_recoveries r
     where r.refund_case_id = c.id
       and r.deterministic_fact_version = c.deterministic_fact_version
@@ -134,7 +214,10 @@ begin
   where prior.attempt_ordinal = 0
     and prior.status = 'failed'
     and (
-      prior.failure_class = 'worker_interrupted'
+      (prior.failure_class = 'worker_interrupted' and (
+        prior.recovery_generation > 0
+        or c.nayax_lookup_status in ('lookup_failed','lookup_timed_out')
+      ))
       or (
         c.nayax_lookup_status in ('lookup_failed','lookup_timed_out')
         and c.nayax_lookup_safe_retry_eligible
@@ -360,6 +443,12 @@ begin
   update public.refund_nayax_lookup_recoveries
   set status = case when p_succeeded then 'completed' else 'failed' end,
     lookup_generation = p_lookup_generation, failure_class = normalized_failure,
+    next_attempt_at = case
+      when not p_succeeded and recovery.attempt_ordinal=0
+        and (normalized_failure='worker_interrupted'
+          or coalesce(current_case.nayax_lookup_safe_retry_eligible,false))
+      then statement_timestamp()+interval '2 minutes'
+      else recovery.next_attempt_at end,
     finished_at = statement_timestamp(), claim_token = null, claim_expires_at = null
   where id = recovery.id;
   insert into public.refund_case_events(refund_case_id,actor_user_id,event_type,message,metadata)
@@ -388,12 +477,10 @@ comment on function public.service_claim_refund_nayax_lookup_recoveries(integer)
 comment on function public.service_finish_refund_nayax_lookup_recovery(uuid,uuid,bigint,boolean,text) is
   'Finishes only the exact claimed case/fact/recovery lease and rejects stale or late results.';
 
-alter function public.admin_get_refund_operations_overview()
-  rename to admin_get_refund_operations_overview_pre_lookup_recovery_v1;
-revoke all on function public.admin_get_refund_operations_overview_pre_lookup_recovery_v1()
-  from public, anon, authenticated, service_role;
-
-create function public.admin_get_refund_operations_overview()
+create function public.refund_project_nayax_lookup_recovery_cases_for_manager(
+  p_cases jsonb,
+  p_has_operations_access boolean
+)
 returns jsonb
 language plpgsql
 stable
@@ -401,15 +488,13 @@ security definer
 set search_path = ''
 as $$
 declare
-  base jsonb := public.admin_get_refund_operations_overview_pre_lookup_recovery_v1();
-  has_operations_access boolean := coalesce((base ->> 'refundOperationsAccess')::boolean, false);
   projected_cases jsonb := '[]'::jsonb;
   item jsonb;
   case_row public.refund_cases%rowtype;
   recovery public.refund_nayax_lookup_recoveries%rowtype;
   recovery_owner text;
 begin
-  for item in select value from jsonb_array_elements(coalesce(base -> 'cases','[]'::jsonb)) loop
+  for item in select value from jsonb_array_elements(coalesce(p_cases,'[]'::jsonb)) loop
     case_row := null; recovery := null; recovery_owner := null;
     select c.* into case_row from public.refund_cases c
       where c.id=nullif(item->>'id','')::uuid;
@@ -424,7 +509,10 @@ begin
           or (recovery.status='failed' and not coalesce(case_row.nayax_lookup_safe_retry_eligible,false))
         then 'refund_operations'
         when recovery.status in ('scheduled','claimed')
-          or (recovery.status='failed' and recovery.attempt_ordinal=0)
+          or (recovery.status='failed' and recovery.attempt_ordinal=0 and (
+            recovery.recovery_generation>0
+            or case_row.nayax_lookup_status in ('lookup_failed','lookup_timed_out')
+          ))
         then 'system' else null end;
       item := item || jsonb_build_object('nayaxLookupRecovery',jsonb_build_object(
         'state',coalesce(recovery_owner,'complete'),
@@ -456,12 +544,56 @@ begin
         item:=jsonb_set(item,'{lifecycle,lookup,safeRetryEligible}','false'::jsonb,true);
       end if;
     end if;
-    if not has_operations_access then
+    if not p_has_operations_access then
       item:=jsonb_set(item,'{nayaxLookupSummary,safeRetryEligible}','false'::jsonb,true);
     end if;
     projected_cases:=projected_cases || jsonb_build_array(item);
   end loop;
-  return jsonb_set(base, '{cases}', projected_cases, true);
+  return projected_cases;
+end;
+$$;
+
+revoke all on function public.refund_project_nayax_lookup_recovery_cases_for_manager(jsonb,boolean)
+  from public,anon,authenticated;
+grant execute on function public.refund_project_nayax_lookup_recovery_cases_for_manager(jsonb,boolean)
+  to service_role;
+
+alter function public.admin_get_refund_operations_overview()
+  rename to admin_get_refund_operations_overview_pre_lookup_recovery_v1;
+revoke all on function public.admin_get_refund_operations_overview_pre_lookup_recovery_v1()
+  from public, anon, authenticated, service_role;
+
+create function public.admin_get_refund_operations_overview()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  base jsonb := public.admin_get_refund_operations_overview_pre_lookup_recovery_v1();
+  has_operations_access boolean := coalesce((base ->> 'refundOperationsAccess')::boolean, false);
+  projected jsonb;
+begin
+  if jsonb_typeof(base->'cases')='array' then
+    select coalesce(jsonb_agg(jsonb_set(item.value,'{customerCorrectionFields}',
+      to_jsonb(public.refund_purchase_correction_request_fields((item.value->>'id')::uuid)),true)
+      order by item.ordinality),'[]'::jsonb)
+    into projected from jsonb_array_elements(base->'cases') with ordinality item;
+    base:=jsonb_set(base,'{cases}',
+      public.refund_project_nayax_lookup_recovery_cases_for_manager(
+        projected,has_operations_access),true);
+  end if;
+  if jsonb_typeof(base->'internalTestCases')='array' then
+    select coalesce(jsonb_agg(jsonb_set(item.value,'{customerCorrectionFields}',
+      to_jsonb(public.refund_purchase_correction_request_fields((item.value->>'id')::uuid)),true)
+      order by item.ordinality),'[]'::jsonb)
+    into projected from jsonb_array_elements(base->'internalTestCases') with ordinality item;
+    base:=jsonb_set(base,'{internalTestCases}',
+      public.refund_project_nayax_lookup_recovery_cases_for_manager(
+        projected,has_operations_access),true);
+  end if;
+  return base;
 end;
 $$;
 

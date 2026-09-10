@@ -6,8 +6,8 @@ import ts from 'typescript';
 
 const root = new URL('../../', import.meta.url);
 const read = (path) => readFileSync(new URL(path, root), 'utf8');
-// Execute the real handler and coordinator, not a copied approximation. The
-// isolated context has no network, credentials, Deno, payment or email client.
+// Execute the real handler and enqueue coordinator, not a copied approximation.
+// The isolated context has no network, credentials, provider, payment or email client.
 function execute(source, globals = {}, imports = {}) {
   const exports = {};
   const code = ts.transpileModule(source, {
@@ -105,6 +105,23 @@ function harness() {
       }
       return { outcome: 'applied', ...entry };
     }
+    if (name === 'service_enqueue_refund_nayax_lookup') {
+      assert.equal(args.p_expected_fact_version, state.current.deterministic_fact_version);
+      if (state.receiptBeforeLookupClaim) {
+        // The database enqueue RPC rechecks payment/receipt safety under the
+        // case lock immediately before creating durable work.
+        state.authoritativeReceipt = true;
+        state.current.decision = 'approved';
+        state.current.status = 'card_refund_pending';
+        state.suppressedLookupClaims++;
+        return { status: 'not_ready', payloadRedacted: true };
+      }
+      const key = `${args.p_refund_case_id}:v${args.p_expected_fact_version}:r0:a0`;
+      const scheduled = !state.actions.has(key);
+      state.actions.add(key);
+      if (scheduled) state.lookups++;
+      return { status: scheduled ? 'scheduled' : 'deduplicated', payloadRedacted: true };
+    }
     if (name === 'service_start_refund_automation_run') return { runId: 'synthetic-run' };
     if (name === 'service_claim_refund_automation_action') {
       if (state.receiptBeforeLookupClaim) {
@@ -166,7 +183,7 @@ function harness() {
   return { state, run, apply };
 }
 
-test('actual handler recovers committed facts once; settled and concurrent replay never rerank twice', async () => {
+test('actual handler recovers committed facts once; settled and concurrent replay never enqueue twice', async () => {
   const { state, run } = harness();
   state.breakAfterCommit = true;
   await assert.rejects(run(), /interruption/);
@@ -181,7 +198,7 @@ test('actual handler recovers committed facts once; settled and concurrent repla
   assert.equal(state.actions.size, 1);
 });
 
-test('fresh application and unchanged arbitrary reply do not duplicate lookup', async () => {
+test('fresh application and unchanged arbitrary reply do not duplicate lookup work', async () => {
   const { state, run } = harness();
   await run();
   await run('different-message');
@@ -191,7 +208,7 @@ test('fresh application and unchanged arbitrary reply do not duplicate lookup', 
   assert.equal(state.applications, 1);
 });
 
-test('Spanish card-type reply persists on the same case and reranks exactly once on replay', async () => {
+test('Spanish card-type reply persists on the same case and enqueues exactly once on replay', async () => {
   const { state, run } = harness();
   await run('verified-spanish-message', 'Tipo de tarjeta: Visa');
   await run('verified-spanish-message', 'Tipo de tarjeta: Visa');
@@ -202,7 +219,7 @@ test('Spanish card-type reply persists on the same case and reranks exactly once
   assert.equal(state.lookups, 1);
 });
 
-test('old applied reply cannot overwrite or rerank newer facts', async () => {
+test('old applied reply cannot overwrite or enqueue work for newer facts', async () => {
   const { state, run } = harness();
   await run();
   state.current.card_network = 'mastercard';
@@ -264,7 +281,7 @@ test('receipt committed after initial read is a normal no-effect SQL skip', asyn
   assert.equal(state.applications + state.events + state.lookups, 0);
 });
 
-test('receipt between accepted facts/readiness and central claim prevents actual coordinator provider lookup', async () => {
+test('receipt between accepted facts/readiness and durable enqueue prevents lookup work', async () => {
   const { state, run } = harness();
   state.receiptBeforeLookupClaim = true;
   await run();
