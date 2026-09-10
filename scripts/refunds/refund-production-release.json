@@ -185,7 +185,8 @@
     "20260909221439_refund_queue_integrity.sql",
     "20260910035559_refund_server_owned_nayax_lookup_recovery.sql",
     "20260910095126_refund_customer_outreach_truth.sql",
-    "20260910153000_refund_inactive_published_intake_retirement.sql"
+    "20260910153000_refund_inactive_published_intake_retirement.sql",
+    "20260910163221_refund_completion_contact_truth.sql"
   ],
   "migrationFilesSha256": "cefd27db6307340cf134e205c1d5eda2dd7598508e34f76033c9ebb140635f96",
   "migrationVersionSetSha256": "3b6f262433199935b27c41d6f9ae7551fc7e5ed7b096eca5ecec20df4eeb5296",
