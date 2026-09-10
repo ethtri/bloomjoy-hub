@@ -182,7 +182,8 @@
     "20260909034000_refund_journal_recovery_lifecycle_order.sql",
     "20260909165105_refund_preflight_transaction_conflicts.sql",
     "20260909193000_refund_report_health_contract.sql",
-    "20260909221439_refund_queue_integrity.sql"
+    "20260909221439_refund_queue_integrity.sql",
+    "20260910035559_refund_server_owned_nayax_lookup_recovery.sql"
   ],
   "migrationFilesSha256": "4c89620a072030bf5bd274a5079dc6dedd4450acaaa6c176ab385f6dde6d195d",
   "migrationVersionSetSha256": "9c68ebd4dd324d6680cff5de02b6adaf3b43868fe3a1c276b5127f71a34524d9",
