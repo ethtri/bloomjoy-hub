@@ -4039,11 +4039,16 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     'Selected card match keeps candidate chooser out of the normal path',
     (await page.getByText('Choose the matching card sale').count()) === 0
   );
-  const selectedRefundActions = page.getByTestId('refund-run-nayax-refund');
+  const selectedRefundActionSnapshot = await page.waitForFunction(() => {
+    const actions = [...document.querySelectorAll('[data-testid="refund-run-nayax-refund"]')];
+    const label = (actions[0]?.textContent ?? '').trim();
+    return actions.length === 1 && label === 'Refund $7.00'
+      ? { refundActionCount: actions.length, refundActionLabel: label }
+      : null;
+  }, undefined, { timeout: 10000 }).then((snapshot) => snapshot.jsonValue());
   const selectedActionDiagnostics = {
     policyCopyCount: await page.getByText(/transaction evidence, not a refund decision/i).count(),
-    refundActionCount: await selectedRefundActions.count(),
-    refundActionLabel: (await selectedRefundActions.innerText()).trim(),
+    ...selectedRefundActionSnapshot,
   };
   recorder.assert(
     'Selected match keeps one manager-owned action without policy copy',
