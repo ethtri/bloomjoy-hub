@@ -11,6 +11,11 @@ drop schema if exists refund_outreach_race_test cascade;
 create schema refund_outreach_race_test;
 create table refund_outreach_race_test.fixture(cycle_id uuid primary key);
 create table refund_outreach_race_test.results(lane text primary key,payload jsonb not null);
+create table refund_outreach_race_test.settings(original_contact_enabled boolean not null);
+insert into refund_outreach_race_test.settings
+select automatic_customer_contact_enabled
+from public.refund_customer_contact_settings
+where singleton;
 insert into public.customer_accounts(id,name,account_type) values('b8900000-0000-4000-8000-000000000001','Outreach race','customer');
 insert into public.reporting_locations(id,account_id,name,timezone,status) values('b8900000-0000-4000-8000-000000000002','b8900000-0000-4000-8000-000000000001','Race place','America/Los_Angeles','active');
 insert into public.reporting_machines(id,account_id,location_id,machine_label,machine_type,status,refund_intake_enabled,refund_public_display_label)
@@ -79,6 +84,11 @@ select extensions.dblink_disconnect('outreach_message');
 select extensions.dblink_disconnect('outreach_settle');
 select * from finish();
 begin;
+update public.refund_customer_contact_settings
+set automatic_customer_contact_enabled=(
+  select original_contact_enabled from refund_outreach_race_test.settings
+)
+where singleton;
 delete from public.refund_cases where id='b8900000-0000-4000-8000-000000000010';
 delete from public.reporting_machines where id='b8900000-0000-4000-8000-000000000003';
 delete from public.reporting_locations where id='b8900000-0000-4000-8000-000000000002';

@@ -250,7 +250,7 @@ select ok((select
     item->'nayaxLookupRecovery'->>'state'='system'
     and item->'lifecycle'->'lookup'->>'status'='checking'
     and item->'lifecycle'->'customerOutreach'->>'state'='delivery_failed'
-    and item->'lifecycle'->'customerOutreach'->>'failureCode'='customer_message_failed'
+    and item->'lifecycle'->'customerOutreach'->>'failureCode'='more_info_failed'
   from jsonb_array_elements(public.admin_get_refund_operations_overview()->'cases') item
   where item->>'id'='b8800000-0000-4000-8001-000000000005'),
   'Final Operations overview coexists with #1290 and retains redacted-class failure detail');
