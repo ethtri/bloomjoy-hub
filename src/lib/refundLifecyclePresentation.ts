@@ -1,4 +1,5 @@
 import type { RefundLifecycleContract, RefundLifecycleStage } from './refundLifecycle.ts';
+import { getRefundCompletionContactPresentation } from './refundCompletionContact.ts';
 
 export const refundLifecycleStageLabels: Record<RefundLifecycleStage, string> = {
   matching: 'Matching the purchase',
@@ -9,7 +10,7 @@ export const refundLifecycleStageLabels: Record<RefundLifecycleStage, string> = 
   refund_initiated: 'Refund initiated',
   confirming_with_nayax: 'Confirming the refund',
   refund_confirmed: 'Refund confirmed',
-  customer_notified: 'Customer updated',
+  customer_notified: 'Update status recorded',
   duplicate_resolved: 'Duplicate resolved',
   needs_refund_operations: 'Refund Operations review',
   integrity_hold: 'Payment status needs review',
@@ -27,9 +28,16 @@ const nonPaymentProgressNotes: Partial<Record<RefundLifecycleStage, string>> = {
 };
 
 export const getRefundLifecycleProgressPresentation = (
-  lifecycle: Pick<RefundLifecycleContract, 'stage'>,
-) => ({
-  label: refundLifecycleStageLabels[lifecycle.stage],
-  note: nonPaymentProgressNotes[lifecycle.stage] ?? null,
-  showMilestones: !nonPaymentProgressNotes[lifecycle.stage],
-});
+  lifecycle: Pick<RefundLifecycleContract, 'stage'> &
+    Partial<Pick<RefundLifecycleContract, 'paymentState' | 'messageState'>>,
+) => {
+  const contact = lifecycle.paymentState === 'confirmed'
+    ? getRefundCompletionContactPresentation(lifecycle)
+    : null;
+  return {
+    label: contact?.progressLabel ?? refundLifecycleStageLabels[lifecycle.stage],
+    note: nonPaymentProgressNotes[lifecycle.stage] ?? null,
+    showMilestones: !nonPaymentProgressNotes[lifecycle.stage],
+    contact,
+  };
+};

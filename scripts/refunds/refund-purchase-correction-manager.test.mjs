@@ -13,6 +13,11 @@ function load(name,dependencies){
 }
 const managerModule = { exports: {} };
 const outreachModule = { exports: {} };
+const completionContactModule = { exports: {} };
+vm.runInNewContext(
+ ts.transpileModule(fs.readFileSync(new URL('../../src/lib/refundCompletionContact.ts',import.meta.url),'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
+ completionContactModule,
+);
 vm.runInNewContext(
  ts.transpileModule(fs.readFileSync(new URL('../../src/lib/refundCustomerOutreach.ts',import.meta.url),'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
  outreachModule,
@@ -24,7 +29,8 @@ const {
 vm.runInNewContext(
  ts.transpileModule(fs.readFileSync(new URL('../../src/lib/refundManagerState.ts',import.meta.url),'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
  {...managerModule,require:specifier=>{
-  if(specifier==='./refundCustomerOutreach.ts') return {getRefundCustomerOutreachPresentation};
+ if(specifier==='./refundCustomerOutreach.ts') return {getRefundCustomerOutreachPresentation};
+  if(specifier==='./refundCompletionContact.ts') return completionContactModule.exports;
   throw new Error(`Unexpected refund manager dependency: ${specifier}`);
  }},
 );

@@ -379,11 +379,11 @@ export const isRefundLifecycleContract = (
     accountingState?.payloadRedacted === true;
   const appliedNoticeState = String(messageState?.state);
   const appliedNoticeComplete = ["sent", "delivered"].includes(appliedNoticeState);
-  const appliedNoticeReview = ["failed", "delivery_unconfirmed"].includes(appliedNoticeState);
+  const appliedNoticeReview = ["failed", "delivery_unconfirmed", "bounced", "complained"].includes(appliedNoticeState);
   const appliedNoticePending = appliedNoticeState === "pending";
   const appliedExpectedReason = appliedNoticeComplete
     ? "completion_sent"
-    : appliedNoticeState === "failed"
+    : ["failed", "bounced", "complained"].includes(appliedNoticeState)
     ? "completion_delivery_failed"
     : appliedNoticeState === "delivery_unconfirmed"
     ? "completion_delivery_unconfirmed"
@@ -431,7 +431,7 @@ export const isRefundLifecycleContract = (
     contract.safeRetryEligible === false &&
     lookup?.safeRetryEligible === false &&
     (appliedNoticeComplete || appliedNoticeReview || appliedNoticePending) &&
-    contract.stage === (appliedNoticeComplete || appliedNoticeState === "delivery_unconfirmed"
+    contract.stage === (appliedNoticeComplete || ["delivery_unconfirmed", "bounced", "complained"].includes(appliedNoticeState)
       ? "customer_notified"
       : "refund_confirmed") &&
     contract.reasonCode === appliedExpectedReason &&
