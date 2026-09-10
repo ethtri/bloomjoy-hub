@@ -203,6 +203,7 @@ declare
   request_row public.refund_case_messages%rowtype;
   correction_row public.refund_wallet_correction_contexts%rowtype;
   action_row public.refund_automation_actions%rowtype;
+  fallback_action_row public.refund_automation_actions%rowtype;
   workflow_kind text;
   workflow_id uuid;
   contact_enabled boolean := false;
@@ -306,6 +307,20 @@ begin
     and action.action_key like '%' || cycle_row.id::text || '%'
     and action.attempted_at >= cycle_row.created_at
   order by action.attempted_at desc, action.id desc
+  limit 1;
+
+  -- The scheduler's existing action journal is the only authority for this
+  -- narrow manager handoff. The exact key binds the completed review to this
+  -- case and its current deterministic facts; no free-form metadata grants it.
+  select action.* into fallback_action_row
+  from public.refund_automation_actions action
+  where action.refund_case_id = case_row.id
+    and action.action_type = 'internal_escalation'
+    and action.status = 'completed'
+    and action.action_key = 'follow_up_review:' || case_row.id::text
+      || ':cash-no-match-incomplete:'
+      || case_row.deterministic_fact_version::text
+  order by action.completed_at desc, action.id desc
   limit 1;
 
   if cycle_row.request_message_id is not null then
@@ -480,6 +495,37 @@ begin
         else 'automatic_customer_contact_disabled'
       end;
     end if;
+  elsif fallback_action_row.id is not null
+    and case_row.payment_method = 'cash'
+    and case_row.correlation_status = 'no_match'
+    and case_row.correlation_source = 'sunze'
+    and nullif(btrim(coalesce(case_row.correlation_summary, '')), '') is not null
+    and case_row.cash_match_evaluated_fact_version = case_row.deterministic_fact_version
+    and case_row.matched_sales_fact_id is null
+    and cardinality(current_fields) > 0
+    and clarification_count < 2
+    and not exists (
+      select 1 from public.refund_follow_up_cycles current_cycle
+      where current_cycle.refund_case_id = case_row.id
+        and current_cycle.case_fact_version = case_row.deterministic_fact_version
+    )
+    and not exists (
+      select 1 from public.refund_wallet_correction_contexts current_correction
+      where current_correction.refund_case_id = case_row.id
+        and current_correction.correction_kind = 'purchase'
+        and current_correction.status in ('pending', 'submitted')
+        and coalesce(
+          current_correction.correction_resulting_fact_version,
+          current_correction.correction_fact_version,
+          0
+        ) = case_row.deterministic_fact_version
+    ) then
+    state := 'manual_fallback';
+    owner_name := 'Machine Manager';
+    next_action := 'request_details';
+    manual_fallback_eligible := true;
+    requested_fields := current_fields;
+    reason_code := 'cash_no_match_incomplete_review_completed';
   elsif cycle_row.status = 'manual_review'
     and cycle_row.failure_code in (
       'pre_message_suppressed:automatic_customer_contact_disabled',
@@ -572,12 +618,14 @@ begin
     when 'waiting_for_customer' then 'Waiting for customer'
     when 'customer_replied' then 'Customer replied · recheck queued'
     when 'rechecking' then 'Rechecking customer information'
+    when 'manual_fallback' then 'Customer details need manager request'
     else 'Needs Refund Operations'
   end;
 
   result := result || jsonb_build_object(
     'managerAction', jsonb_build_object(
       'action', case
+        when outreach_state = 'manual_fallback' then 'request_details'
         when outreach_owner = 'Refund Operations' then 'refund_operations'
         else 'none'
       end,
@@ -589,6 +637,7 @@ begin
     'managerQueue', coalesce(result -> 'managerQueue', '{}'::jsonb)
       || jsonb_build_object(
         'bucket', case
+          when outreach_state = 'manual_fallback' then 'needs_action'
           when outreach_owner = 'Refund Operations' then 'provider_hold'
           else 'in_progress'
         end,

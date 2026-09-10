@@ -1,10 +1,19 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(27);
+select plan(35);
 
 create function pg_temp.capture_error(statement text) returns text language plpgsql as $$
 begin execute statement; return null; exception when others then return sqlstate||':'||sqlerrm; end; $$;
+
+create function pg_temp.set_auth_claims(p_user_id uuid) returns void language plpgsql as $$
+begin
+  perform set_config('request.jwt.claim.sub',p_user_id::text,true);
+  perform set_config('request.jwt.claim.role','authenticated',true);
+  perform set_config('request.jwt.claims',jsonb_build_object(
+    'sub',p_user_id,'role','authenticated','is_anonymous',false
+  )::text,true);
+end; $$;
 
 select has_function('public','refund_customer_outreach_contract',array['uuid'],'Outreach contract exists');
 select ok(has_function_privilege('service_role','public.refund_customer_outreach_contract(uuid)','execute')
@@ -16,6 +25,14 @@ insert into public.customer_accounts(id,name,account_type) values('b8800000-0000
 insert into public.reporting_locations(id,account_id,name,timezone,status) values('b8800000-0000-4000-8000-000000000002','b8800000-0000-4000-8000-000000000001','Outreach place','America/Los_Angeles','active');
 insert into public.reporting_machines(id,account_id,location_id,machine_label,machine_type,status,refund_intake_enabled,refund_public_display_label)
 values('b8800000-0000-4000-8000-000000000003','b8800000-0000-4000-8000-000000000001','b8800000-0000-4000-8000-000000000002','Outreach machine','commercial','active',true,'Outreach machine');
+insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
+values
+  ('00000000-0000-0000-0000-000000000000','b8800000-0000-4000-8005-000000000001','authenticated','authenticated','outreach-manager@example.invalid','',now(),'{}','{}',now(),now()),
+  ('00000000-0000-0000-0000-000000000000','b8800000-0000-4000-8005-000000000002','authenticated','authenticated','outreach-operations@example.invalid','',now(),'{}','{}',now(),now());
+insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
+values('b8800000-0000-4000-8000-000000000003','b8800000-0000-4000-8005-000000000001','outreach-manager@example.invalid','Outreach overview fixture');
+insert into public.admin_roles(user_id,role,active)
+values('b8800000-0000-4000-8005-000000000002','super_admin',true);
 update public.refund_customer_contact_settings set automatic_customer_contact_enabled=true,correction_links_enabled=true where singleton;
 
 create function pg_temp.make_case(n integer,mapped boolean default false) returns uuid language plpgsql as $$
@@ -53,7 +70,7 @@ begin
   from public.refund_follow_up_cycles cycle join public.refund_cases c on c.id=cycle.refund_case_id where cycle.id=cycle_id and c.id=cid;
 end; $$;
 
-select pg_temp.make_case(n,false) from generate_series(1,9)n;
+select pg_temp.make_case(n,n=5) from generate_series(1,9)n;
 select pg_temp.make_case(10,true);
 create temp table fixture(case_no integer primary key,cid uuid,cycle_id uuid,mid uuid);
 insert into fixture select n,('b8800000-0000-4000-8001-'||lpad(n::text,12,'0'))::uuid,
@@ -141,6 +158,55 @@ select ok(
   'Two supported settled cycles project exhausted with Refund Operations ownership'
 );
 
+update public.refund_cases
+set payment_method='cash',payment_interaction='cash',correlation_status='no_match',correlation_source='sunze',
+  correlation_summary='No matching local cash sale.'
+where id='b8800000-0000-4000-8001-000000000009';
+update public.refund_cases
+set cash_match_evaluated_fact_version=deterministic_fact_version
+where id='b8800000-0000-4000-8001-000000000009';
+create temp table fallback_run as
+select public.service_start_refund_automation_run('outreach:truth:fallback','manual',null) value;
+create temp table stale_fallback_action as
+select public.service_claim_refund_automation_action(
+  (select(value->>'runId')::uuid from fallback_run),'b8800000-0000-4000-8001-000000000009',
+  'follow_up_review:b8800000-0000-4000-8001-000000000009:cash-no-match-incomplete:' ||
+    (select deterministic_fact_version::text from public.refund_cases where id='b8800000-0000-4000-8001-000000000009'),
+  'internal_escalation','needs_review',null
+) value;
+select ok(public.service_finish_refund_automation_action(
+  (select(value->>'actionId')::uuid from stale_fallback_action),'completed','cash_no_match_incomplete',null
+),'Existing service claim/finish writers durably complete the bounded escalation');
+update public.refund_cases set payment_amount_cents=700
+where id='b8800000-0000-4000-8001-000000000009';
+update public.refund_cases set cash_match_evaluated_fact_version=deterministic_fact_version
+where id='b8800000-0000-4000-8001-000000000009';
+select is(public.refund_customer_outreach_contract('b8800000-0000-4000-8001-000000000009')->>'state','none',
+  'A completed escalation for a stale fact version grants no manual fallback');
+create temp table current_fallback_action as
+select public.service_claim_refund_automation_action(
+  (select(value->>'runId')::uuid from fallback_run),'b8800000-0000-4000-8001-000000000009',
+  'follow_up_review:b8800000-0000-4000-8001-000000000009:cash-no-match-incomplete:' ||
+    (select deterministic_fact_version::text from public.refund_cases where id='b8800000-0000-4000-8001-000000000009'),
+  'internal_escalation','needs_review',null
+) value;
+select ok(public.service_finish_refund_automation_action(
+  (select(value->>'actionId')::uuid from current_fallback_action),'completed','cash_no_match_incomplete',null
+),'Current exact escalation completes through the same production writer');
+select ok(
+  public.refund_customer_outreach_contract('b8800000-0000-4000-8001-000000000009')->>'state'='manual_fallback'
+  and public.refund_customer_outreach_contract('b8800000-0000-4000-8001-000000000009')->>'owner'='Machine Manager'
+  and (public.refund_customer_outreach_contract('b8800000-0000-4000-8001-000000000009')->>'manualFallbackEligible')::boolean
+  and public.refund_customer_outreach_contract('b8800000-0000-4000-8001-000000000009')->'requestedFields'=
+    to_jsonb(public.refund_purchase_correction_request_fields('b8800000-0000-4000-8001-000000000009')),
+  'Exact current cash review exposes only current useful fields to the Machine Manager'
+);
+insert into fixture values(9,'b8800000-0000-4000-8001-000000000009',
+  pg_temp.claim_cycle('b8800000-0000-4000-8001-000000000009','outreach-9-current'),
+  'b8800000-0000-4000-8002-000000000009');
+select is(public.refund_customer_outreach_contract('b8800000-0000-4000-8001-000000000009')->>'state','preparing',
+  'A current outreach cycle preempts the otherwise eligible manual fallback');
+
 select is((public.refund_customer_outreach_contract((select cid from fixture where case_no=2))->>'manualFallbackEligible')::boolean,false,'No unsupported writer grants manager outreach authority');
 select ok(pg_get_functiondef('public.refund_customer_outreach_contract(uuid)'::regprocedure) not like '%customer_outreach_manual_fallback%',
   'Projection has no unsupported manual-fallback authority');
@@ -154,6 +220,34 @@ select ok(public.refund_customer_outreach_contract((select cid from fixture wher
   array['state','owner','nextAction','requestedFields','clarificationAttemptCount','clarificationLimit','payloadRedacted'],'Strict redacted contract retains retry bounds and ownership');
 select is((public.refund_customer_outreach_contract((select cid from fixture where case_no=3))->>'clarificationLimit')::integer,2,'Existing two-attempt bound remains explicit');
 select is((public.refund_customer_outreach_contract((select cid from fixture where case_no=3))->>'payloadRedacted')::boolean,true,'Projection is explicitly redacted');
+
+update public.refund_cases
+set payment_amount_cents=700,status='needs_review'
+where id=(select cid from fixture where case_no=5);
+select ok(public.service_enqueue_refund_nayax_lookup(
+  (select cid from fixture where case_no=5),
+  (select deterministic_fact_version from public.refund_cases where id=(select cid from fixture where case_no=5))
+)->>'status' in ('scheduled','deduplicated'),'Real failed-outreach case enters the #1290 server lookup path');
+set local role authenticated;
+select pg_temp.set_auth_claims('b8800000-0000-4000-8005-000000000001');
+select ok((select
+    item->'nayaxLookupRecovery'->>'state'='system'
+    and item->'lifecycle'->'lookup'->>'status'='checking'
+    and item->'lifecycle'->'customerOutreach'->>'state'='delivery_failed'
+    and item->'lifecycle'->'customerOutreach'->'failureCode'='null'::jsonb
+  from jsonb_array_elements(public.admin_get_refund_operations_overview()->'cases') item
+  where item->>'id'='b8800000-0000-4000-8001-000000000005'),
+  'Final ordinary overview coexists with #1290 and redacts outreach failure detail');
+select pg_temp.set_auth_claims('b8800000-0000-4000-8005-000000000002');
+select ok((select
+    item->'nayaxLookupRecovery'->>'state'='system'
+    and item->'lifecycle'->'lookup'->>'status'='checking'
+    and item->'lifecycle'->'customerOutreach'->>'state'='delivery_failed'
+    and item->'lifecycle'->'customerOutreach'->>'failureCode'='customer_message_failed'
+  from jsonb_array_elements(public.admin_get_refund_operations_overview()->'cases') item
+  where item->>'id'='b8800000-0000-4000-8001-000000000005'),
+  'Final Operations overview coexists with #1290 and retains redacted-class failure detail');
+reset role;
 
 select * from finish();
 rollback;
