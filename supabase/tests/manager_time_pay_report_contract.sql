@@ -1931,6 +1931,7 @@ select diag(jsonb_build_object(
       'version', statement.version,
       'issuedAt', statement.issued_at,
       'generatedAt', statement.statement_generated_at,
+      'sourceRevision', statement.statement_payload #>> '{calculationMeta,paySourceRevision}',
       'periodStart', period.period_start_date,
       'periodEnd', period.period_end_date
     ) order by statement.version desc, statement.issued_at desc nulls last, statement.created_at desc)
@@ -1963,6 +1964,28 @@ select diag(jsonb_build_object(
     'a6000000-0000-0000-0000-000000000002',
     '2026-07-01',
     '2026-07-31'
+  ),
+  'timeSourceRevision', private.operator_pay_time_source_revision(
+    'a6000000-0000-0000-0000-000000000002',
+    '2026-07-31'
+  ),
+  'salesFreshnessExists', exists (
+    select 1
+    from public.payout_period_machine_revenue_snapshots snapshot
+    where snapshot.account_id = 'a2000000-0000-0000-0000-000000000001'
+      and snapshot.period_start_date = '2026-07-01'
+      and snapshot.period_end_date = '2026-07-31'
+      and snapshot.status <> 'voided'
+      and snapshot.regenerated_at >= '2026-09-01 00:00:00+00'::timestamptz
+      and exists (
+        select 1
+        from public.operator_machine_assignments assignment
+        where assignment.operator_profile_id = 'a6000000-0000-0000-0000-000000000002'
+          and assignment.account_id = 'a2000000-0000-0000-0000-000000000001'
+          and assignment.reporting_machine_id = snapshot.reporting_machine_id
+          and assignment.effective_start_date <= '2026-07-31'
+          and coalesce(assignment.effective_end_date, 'infinity'::date) >= '2026-07-01'
+      )
   )
 )::text);
 
