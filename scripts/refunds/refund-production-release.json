@@ -183,7 +183,7 @@
     "20260909165105_refund_preflight_transaction_conflicts.sql",
     "20260909193000_refund_report_health_contract.sql",
     "20260909221439_refund_queue_integrity.sql",
-    "20260910000410_refund_manager_notification_policy.sql",
+    "20260910230500_refund_manager_notification_policy.sql",
     "20260910035559_refund_server_owned_nayax_lookup_recovery.sql",
     "20260910095126_refund_customer_outreach_truth.sql",
     "20260910153000_refund_inactive_published_intake_retirement.sql",
