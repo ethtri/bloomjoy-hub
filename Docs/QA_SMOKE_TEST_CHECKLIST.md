@@ -1052,6 +1052,13 @@ Historical controlled-pilot regression evidence remains the **ten-function/51-mi
 - [ ] Super-admin can grant and revoke super-admin role with reason metadata
 - [ ] Audit log view supports filtering and shows role + operational actions (support, orders, machine inventory)
 - [ ] Signed-in super-admin can reach `/admin` from visible navigation without typing the URL manually
+
+### Refund customer outreach
+- [ ] Refund manager shows truthful preparing, queued, sent-unconfirmed, and waiting-for-customer outreach states from server data
+- [ ] `Request details` is available only for the explicit cash/no-match manual-fallback condition; routine delivery failures and unknown delivery remain owned by Refund Operations
+- [ ] A failed or unknown delivery is never described as customer-contacted, while a received customer reply advances automatically to rechecking
+- [ ] Ordinary admin and Refund Operations views preserve the same workflow state while sensitive failure detail remains role-restricted
+- [ ] Outreach controls and status copy remain usable by keyboard at 390px width and 200% text zoom
 ## Reviewed legacy machine correction (`#971`, `#628`)
 
 - [ ] In a disposable synthetic environment, open an eligible legacy case through the authenticated `/admin/refunds` workbench as a current Super Admin mapped to both machines. Open the inline different-machine review; compare original and corrected machine, exact provider account/ID, numeric machine number (including leading zeroes), unchanged original, and full amount/status 62. No SQL, actor impersonation, payment or send action is part of the user workflow.
