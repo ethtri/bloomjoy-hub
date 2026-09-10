@@ -80,10 +80,76 @@ revoke all on function public.service_ensure_refund_receipt_automatic_completion
 grant execute on function public.service_ensure_refund_receipt_automatic_completions(integer)
   to service_role;
 
+-- pg_net begins requests only after the surrounding transaction commits. This
+-- makes the canonical outbox insert the durable source of truth: a rollback
+-- emits no wakeup, while a lost HTTP request leaves the queued row for the
+-- existing scheduled sweep. Every direct API, terminal report, and supported
+-- recovery producer converges on this exact automatic message insert.
+create function public.service_dispatch_refund_completion_wakeup(p_message_id uuid)
+returns jsonb language plpgsql security definer
+set search_path='public','extensions','net','vault','pg_catalog' as $$
+declare
+  endpoint text;
+  scheduler_secret text;
+  endpoint_count integer;
+  secret_count integer;
+  request_id bigint;
+begin
+  if p_message_id is null
+    or not public.is_refund_receipt_automatic_completion_message(p_message_id) then
+    return jsonb_build_object('status','not_eligible','dispatched',false,'payloadRedacted',true);
+  end if;
+  select count(*),max(decrypted_secret) into endpoint_count,endpoint
+  from vault.decrypted_secrets where name='refund_automation_scheduler_url';
+  select count(*),max(decrypted_secret) into secret_count,scheduler_secret
+  from vault.decrypted_secrets where name='refund_automation_scheduler_secret';
+  if endpoint_count<>1 or secret_count<>1
+    or endpoint !~ '^https://[a-z0-9]{20}\.supabase\.co/functions/v1/refund-case-automation-sweep$'
+    or length(scheduler_secret) not between 32 and 255 then
+    return jsonb_build_object('status','configuration_unavailable','dispatched',false,'payloadRedacted',true);
+  end if;
+  request_id:=net.http_post(
+    url:=endpoint,
+    headers:=jsonb_build_object('Authorization','Bearer '||scheduler_secret,
+      'Content-Type','application/json'),
+    body:=jsonb_build_object('mode','completion_wakeup','messageId',p_message_id),
+    timeout_milliseconds:=15000);
+  return jsonb_build_object('status','dispatched','dispatched',true,
+    'requestRecorded',request_id is not null,'payloadRedacted',true);
+exception when others then
+  -- Delivery wakeup is secondary to immutable payment/receipt/outbox truth.
+  -- The scheduled worker owns recovery and the health contract exposes aging.
+  return jsonb_build_object('status','dispatch_unavailable','dispatched',false,'payloadRedacted',true);
+end;
+$$;
+revoke all on function public.service_dispatch_refund_completion_wakeup(uuid)
+  from public,anon,authenticated,service_role;
+
+create function public.refund_completion_outbox_postcommit_wakeup()
+returns trigger language plpgsql security definer
+set search_path='' as $$
+begin
+  if new.delivery_kind='automatic'
+    and new.template_version='refund_receipt_completion_v1'
+    and new.manual_delivery_state='queued'
+    and public.is_refund_receipt_automatic_completion_message(new.id) then
+    perform public.service_dispatch_refund_completion_wakeup(new.id);
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public.refund_completion_outbox_postcommit_wakeup()
+  from public,anon,authenticated,service_role;
+create trigger refund_completion_outbox_postcommit_wakeup
+  after insert on public.refund_case_messages for each row
+  execute function public.refund_completion_outbox_postcommit_wakeup();
+
 create table public.refund_completion_outbox_incidents (
   id uuid primary key default gen_random_uuid(),
   status text not null default 'open' check (status in ('open','resolved')),
   health_signature text not null check (health_signature ~ '^[0-9a-f]{32}$'),
+  last_notified_signature text check (last_notified_signature is null
+    or last_notified_signature ~ '^[0-9a-f]{32}$'),
   observed_health jsonb not null check (
     observed_health->>'payloadRedacted'='true'
     and not (observed_health ?| array['messageIds','caseIds','emails','recipients'])
@@ -91,14 +157,24 @@ create table public.refund_completion_outbox_incidents (
   opened_at timestamptz not null default now(),
   last_observed_at timestamptz not null default now(),
   healthy_since timestamptz,
-  last_notification_claimed_at timestamptz not null default now(),
-  notification_sequence integer not null default 1 check (notification_sequence>=1),
+  initial_notification_sent_at timestamptz,
+  last_notification_sent_at timestamptz,
+  last_material_change_sent_at timestamptz,
+  notification_sequence integer not null default 0 check (notification_sequence>=0),
+  pending_notification_type text check (pending_notification_type is null
+    or pending_notification_type in ('initial','changed','reminder','recovery')),
+  notification_claim_token uuid,
+  notification_claimed_at timestamptz,
   recovered_at timestamptz,
-  recovery_notification_claimed_at timestamptz,
+  recovery_notification_sent_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   check ((status='open' and recovered_at is null)
-    or (status='resolved' and recovered_at is not null))
+    or (status='resolved' and recovered_at is not null)),
+  check ((pending_notification_type is null and notification_claim_token is null
+      and notification_claimed_at is null)
+    or (pending_notification_type is not null and notification_claim_token is not null
+      and notification_claimed_at is not null))
 );
 create unique index refund_completion_outbox_incidents_one_open_idx
   on public.refund_completion_outbox_incidents ((status)) where status='open';
@@ -108,16 +184,23 @@ alter table public.refund_completion_outbox_incidents enable row level security;
 revoke all on table public.refund_completion_outbox_incidents
   from public,anon,authenticated,service_role;
 
-create function public.service_get_refund_completion_outbox_health(p_mailbox_identities text[])
+create function public.service_get_refund_completion_outbox_health(
+  p_mailbox_identities text[],p_automation_enabled boolean,
+  p_automatic_contact_enabled boolean,p_manual_outbox_enabled boolean
+)
 returns jsonb language plpgsql stable security definer set search_path='' as $$
 declare
   result jsonb;
-  automatic_contact_enabled boolean:=false;
+  database_contact_enabled boolean:=false;
+  all_runtime_delivery_enabled boolean:=coalesce(p_automation_enabled,false)
+    and coalesce(p_automatic_contact_enabled,false)
+    and coalesce(p_manual_outbox_enabled,false);
   mailbox_identities text[]:=public.normalize_refund_mailbox_identities(p_mailbox_identities);
 begin
   select coalesce(settings.automatic_customer_contact_enabled,false)
-    into automatic_contact_enabled
+    into database_contact_enabled
   from public.refund_customer_contact_settings settings where settings.singleton;
+  database_contact_enabled:=coalesce(database_contact_enabled,false);
 
   with completion as (
     select m.*,c.reporting_machine_id
@@ -150,7 +233,8 @@ begin
       count(*) filter(where manual_delivery_state='queued' and created_at<now()-interval '60 seconds')>0
       or count(*) filter(where manual_delivery_state='claimed' and manual_delivery_claimed_at<now()-interval '10 minutes')>0
       or count(*) filter(where manual_delivery_state in ('failed','delivery_unknown'))>0
-      or count(*) filter(where manual_delivery_state='queued' and not automatic_contact_enabled)>0
+      or count(*) filter(where manual_delivery_state='queued'
+        and not (database_contact_enabled and all_runtime_delivery_enabled))>0
       or (select count(*) from route where active_count not between 1 and 4
           or distinct_count<>active_count or valid_count<>distinct_count
           or mailbox_collision_count>0)>0
@@ -164,7 +248,12 @@ begin
     'staleClaimedCount',count(*) filter(where manual_delivery_state='claimed' and manual_delivery_claimed_at<now()-interval '10 minutes'),
     'definiteFailedCount',count(*) filter(where manual_delivery_state='failed'),
     'deliveryUnknownCount',count(*) filter(where manual_delivery_state='delivery_unknown'),
-    'disabledContactDeferralCount',count(*) filter(where manual_delivery_state='queued' and not automatic_contact_enabled),
+    'disabledContactDeferralCount',count(*) filter(where manual_delivery_state='queued'
+      and not (database_contact_enabled and all_runtime_delivery_enabled)),
+    'databaseAutomaticContactEnabled',database_contact_enabled,
+    'runtimeAutomationEnabled',coalesce(p_automation_enabled,false),
+    'runtimeAutomaticContactEnabled',coalesce(p_automatic_contact_enabled,false),
+    'runtimeManualOutboxEnabled',coalesce(p_manual_outbox_enabled,false),
     'missingRouteCount',(select count(*) from route where active_count not between 1 and 4
       or distinct_count<>active_count or valid_count<>distinct_count
       or mailbox_collision_count>0),
@@ -173,9 +262,9 @@ begin
   return result;
 end;
 $$;
-revoke all on function public.service_get_refund_completion_outbox_health(text[])
+revoke all on function public.service_get_refund_completion_outbox_health(text[],boolean,boolean,boolean)
   from public,anon,authenticated,service_role;
-grant execute on function public.service_get_refund_completion_outbox_health(text[]) to service_role;
+grant execute on function public.service_get_refund_completion_outbox_health(text[],boolean,boolean,boolean) to service_role;
 
 create function public.service_claim_refund_completion_outbox_notification(p_health jsonb)
 returns jsonb language plpgsql security definer set search_path='' as $$
@@ -183,7 +272,9 @@ declare
   incident public.refund_completion_outbox_incidents%rowtype;
   now_at timestamptz:=clock_timestamp();
   signature text;
-  sequence integer;
+  next_type text;
+  action_key text;
+  claim_token uuid;
   actionable boolean;
 begin
   if p_health is null or p_health->>'payloadRedacted'<>'true'
@@ -200,28 +291,27 @@ begin
 
   if actionable and incident.id is null then
     insert into public.refund_completion_outbox_incidents(
-      health_signature,observed_health,opened_at,last_observed_at,last_notification_claimed_at)
-    values(signature,p_health,now_at,now_at,now_at) returning * into incident;
-    return jsonb_build_object('notificationType','initial','incidentId',incident.id,
-      'actionKey','ops_alert:completion_outbox:'||incident.id||':initial','payloadRedacted',true);
+      health_signature,observed_health,opened_at,last_observed_at)
+    values(signature,p_health,now_at,now_at) returning * into incident;
   elsif actionable then
-    update public.refund_completion_outbox_incidents set health_signature=signature,
-      observed_health=p_health,last_observed_at=now_at,healthy_since=null,updated_at=now_at
-      where id=incident.id returning * into incident;
-    if incident.last_notification_claimed_at<=now_at-interval '24 hours' then
-      sequence:=incident.notification_sequence+1;
-      update public.refund_completion_outbox_incidents set notification_sequence=sequence,
-        last_notification_claimed_at=now_at,updated_at=now_at where id=incident.id;
-      return jsonb_build_object('notificationType','reminder','incidentId',incident.id,
-        'actionKey','ops_alert:completion_outbox:'||incident.id||':reminder:'||sequence,
-        'payloadRedacted',true);
+    if incident.notification_claim_token is not null
+      and incident.notification_claimed_at>now_at-interval '5 minutes' then
+      return jsonb_build_object('notificationType','none','incidentId',incident.id,'payloadRedacted',true);
     end if;
-    return jsonb_build_object('notificationType','none','incidentId',incident.id,'payloadRedacted',true);
+    update public.refund_completion_outbox_incidents set health_signature=signature,
+      observed_health=p_health,last_observed_at=now_at,healthy_since=null,
+      pending_notification_type=null,notification_claim_token=null,notification_claimed_at=null,
+      updated_at=now_at
+      where id=incident.id returning * into incident;
   elsif incident.id is null then
     return jsonb_build_object('notificationType','none','payloadRedacted',true);
+  elsif incident.notification_claim_token is not null
+    and incident.notification_claimed_at>now_at-interval '5 minutes' then
+    return jsonb_build_object('notificationType','none','incidentId',incident.id,'payloadRedacted',true);
   elsif incident.healthy_since is null then
     update public.refund_completion_outbox_incidents set healthy_since=now_at,
-      last_observed_at=now_at,updated_at=now_at where id=incident.id;
+      last_observed_at=now_at,pending_notification_type=null,
+      notification_claim_token=null,notification_claimed_at=null,updated_at=now_at where id=incident.id;
     return jsonb_build_object('notificationType','none','incidentId',incident.id,'payloadRedacted',true);
   elsif incident.healthy_since>now_at-interval '60 minutes' then
     update public.refund_completion_outbox_incidents set last_observed_at=now_at,updated_at=now_at
@@ -229,22 +319,85 @@ begin
     return jsonb_build_object('notificationType','none','incidentId',incident.id,'payloadRedacted',true);
   end if;
 
-  sequence:=incident.notification_sequence+1;
-  update public.refund_completion_outbox_incidents set status='resolved',
-    notification_sequence=sequence,last_observed_at=now_at,last_notification_claimed_at=now_at,
-    recovered_at=now_at,recovery_notification_claimed_at=now_at,updated_at=now_at
+  next_type:='recovery';
+
+  if actionable then
+    next_type:=case
+      when incident.initial_notification_sent_at is null then 'initial'
+      when incident.last_notified_signature is distinct from signature
+        and (incident.last_material_change_sent_at is null
+          or incident.last_material_change_sent_at<=now_at-interval '15 minutes') then 'changed'
+      when incident.last_notification_sent_at<=now_at-interval '24 hours' then 'reminder'
+      else null end;
+  end if;
+  if next_type is null then
+    return jsonb_build_object('notificationType','none','incidentId',incident.id,'payloadRedacted',true);
+  end if;
+  claim_token:=gen_random_uuid();
+  action_key:='ops_alert:completion_outbox:'||incident.id||':'||case next_type
+    when 'changed' then 'changed:'||signature
+    when 'reminder' then 'reminder:'||(incident.notification_sequence+1)::text
+    else next_type end;
+  update public.refund_completion_outbox_incidents set pending_notification_type=next_type,
+    notification_claim_token=claim_token,notification_claimed_at=now_at,updated_at=now_at
     where id=incident.id;
-  return jsonb_build_object('notificationType','recovery','incidentId',incident.id,
-    'actionKey','ops_alert:completion_outbox:'||incident.id||':recovery','payloadRedacted',true);
+  return jsonb_build_object('notificationType',next_type,'incidentId',incident.id,
+    'claimToken',claim_token,'actionKey',action_key,'payloadRedacted',true);
 end;
 $$;
 revoke all on function public.service_claim_refund_completion_outbox_notification(jsonb)
   from public,anon,authenticated,service_role;
 grant execute on function public.service_claim_refund_completion_outbox_notification(jsonb) to service_role;
 
+create function public.service_settle_refund_completion_outbox_notification(
+  p_incident_id uuid,p_claim_token uuid,p_outcome text
+)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare incident public.refund_completion_outbox_incidents%rowtype;
+  now_at timestamptz:=clock_timestamp();
+begin
+  if p_incident_id is null or p_claim_token is null
+    or p_outcome not in ('sent','failed') then
+    raise exception 'Exact completion outbox notification settlement required';
+  end if;
+  select * into incident from public.refund_completion_outbox_incidents
+    where id=p_incident_id for update;
+  if incident.id is null or incident.notification_claim_token is distinct from p_claim_token
+    or incident.pending_notification_type is null then
+    return jsonb_build_object('settled',false,'reason','claim_changed','payloadRedacted',true);
+  end if;
+  if p_outcome='failed' then
+    update public.refund_completion_outbox_incidents set pending_notification_type=null,
+      notification_claim_token=null,notification_claimed_at=null,updated_at=now_at
+      where id=incident.id;
+    return jsonb_build_object('settled',true,'outcome','failed','payloadRedacted',true);
+  end if;
+  update public.refund_completion_outbox_incidents set
+    status=case when incident.pending_notification_type='recovery' then 'resolved' else status end,
+    initial_notification_sent_at=case when incident.pending_notification_type='initial'
+      then now_at else initial_notification_sent_at end,
+    last_notification_sent_at=now_at,
+    last_material_change_sent_at=case when incident.pending_notification_type='changed'
+      then now_at else last_material_change_sent_at end,
+    last_notified_signature=case when incident.pending_notification_type<>'recovery'
+      then health_signature else last_notified_signature end,
+    notification_sequence=notification_sequence+1,
+    recovered_at=case when incident.pending_notification_type='recovery' then now_at else recovered_at end,
+    recovery_notification_sent_at=case when incident.pending_notification_type='recovery'
+      then now_at else recovery_notification_sent_at end,
+    pending_notification_type=null,notification_claim_token=null,notification_claimed_at=null,
+    updated_at=now_at where id=incident.id;
+  return jsonb_build_object('settled',true,'outcome','sent','payloadRedacted',true);
+end;
+$$;
+revoke all on function public.service_settle_refund_completion_outbox_notification(uuid,uuid,text)
+  from public,anon,authenticated,service_role;
+grant execute on function public.service_settle_refund_completion_outbox_notification(uuid,uuid,text)
+  to service_role;
+
 comment on function public.service_ensure_refund_receipt_automatic_completions(integer) is
   'Returns redacted counts plus only newly-created canonical completion message UUIDs so the caller can exact-drain them before generic recovery work.';
-comment on function public.service_get_refund_completion_outbox_health(text[]) is
+comment on function public.service_get_refund_completion_outbox_health(text[],boolean,boolean,boolean) is
   'Returns private PII-free completion-outbox latency and actionable state aggregates; it exposes no message, case, or recipient identities.';
 comment on table public.refund_completion_outbox_incidents is
   'Private coalesced Operations incident ledger for completion-outbox aging, failures, unknown outcomes, disabled-contact deferrals, and missing routes.';

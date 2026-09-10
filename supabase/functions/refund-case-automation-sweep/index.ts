@@ -64,7 +64,10 @@ import {
   getRefundGmailMailboxIdentities,
   RefundGmailError,
 } from "../_shared/refund-gmail.ts";
-import { drainRefundManualMessageOutbox } from "../_shared/refund-manual-message-outbox.ts";
+import {
+  drainRefundManualMessageOutbox,
+  refundManualMessageOutboxEnabled,
+} from "../_shared/refund-manual-message-outbox.ts";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -483,6 +486,10 @@ type CompletionOutboxHealth = {
   deliveryUnknownCount: number;
   disabledContactDeferralCount: number;
   missingRouteCount: number;
+  databaseAutomaticContactEnabled: boolean;
+  runtimeAutomationEnabled: boolean;
+  runtimeAutomaticContactEnabled: boolean;
+  runtimeManualOutboxEnabled: boolean;
   payloadRedacted: true;
 };
 
@@ -490,7 +497,12 @@ const completionOutboxHealth = async (): Promise<CompletionOutboxHealth> => {
   if (!supabase) throw new Error("Refund automation is not configured.");
   const { data, error } = await supabase.rpc(
     "service_get_refund_completion_outbox_health",
-    { p_mailbox_identities: getRefundGmailMailboxIdentities() },
+    {
+      p_mailbox_identities: getRefundGmailMailboxIdentities(),
+      p_automation_enabled: automationEnabled,
+      p_automatic_contact_enabled: automaticCustomerContactEnabled,
+      p_manual_outbox_enabled: refundManualMessageOutboxEnabled(),
+    },
   );
   if (error) throw error;
   const value = data && typeof data === "object" && !Array.isArray(data)
@@ -505,12 +517,18 @@ const completionOutboxHealth = async (): Promise<CompletionOutboxHealth> => {
     "disabledContactDeferralCount",
     "missingRouteCount",
   ] as const;
+  const booleanKeys = [
+    "databaseAutomaticContactEnabled",
+    "runtimeAutomationEnabled",
+    "runtimeAutomaticContactEnabled",
+    "runtimeManualOutboxEnabled",
+  ] as const;
   if (
     value.payloadRedacted !== true ||
     !["healthy", "action_needed"].includes(String(value.status)) ||
     countKeys.some((key) =>
       !Number.isSafeInteger(value[key]) || Number(value[key]) < 0
-    )
+    ) || booleanKeys.some((key) => typeof value[key] !== "boolean")
   ) {
     throw new Error("Completion outbox health contract is invalid.");
   }
@@ -519,7 +537,8 @@ const completionOutboxHealth = async (): Promise<CompletionOutboxHealth> => {
 
 const sendCompletionOutboxHealthAlert = async (
   health: CompletionOutboxHealth,
-  notificationType: "initial" | "reminder" | "recovery",
+  notificationType: "initial" | "changed" | "reminder" | "recovery",
+  idempotencyKey: string,
 ) => {
   const recovered = notificationType === "recovery";
   await sendInternalEmail({
@@ -527,6 +546,8 @@ const sendCompletionOutboxHealthAlert = async (
       ? "[Recovered] Refund completion outbox healthy"
       : notificationType === "reminder"
       ? "[Reminder] Refund completion outbox needs attention"
+      : notificationType === "changed"
+      ? "[Updated] Refund completion outbox needs attention"
       : "[Action needed] Refund completion outbox needs attention",
     text: [
       recovered
@@ -539,19 +560,22 @@ const sendCompletionOutboxHealthAlert = async (
       `Delivery unknown: ${health.deliveryUnknownCount}`,
       `Disabled-contact deferrals: ${health.disabledContactDeferralCount}`,
       `Missing routes: ${health.missingRouteCount}`,
+      `Database automatic contact enabled: ${health.databaseAutomaticContactEnabled}`,
+      `Runtime automation enabled: ${health.runtimeAutomationEnabled}`,
+      `Runtime automatic contact enabled: ${health.runtimeAutomaticContactEnabled}`,
+      `Runtime manual outbox enabled: ${health.runtimeManualOutboxEnabled}`,
       `Latency samples: ${health.sampleCount}`,
       `Queue-to-provider median seconds: ${health.queueToFirstProviderAttemptMedianSeconds ?? "not available"}`,
       `Queue-to-provider p95 seconds: ${health.queueToFirstProviderAttemptP95Seconds ?? "not available"}`,
       "",
       "No customer names, email addresses, payment details, message IDs, case IDs, or provider payloads are included.",
     ].join("\n"),
+    idempotencyKey,
   });
 };
 
 const runCompletionOutboxHealthNotification = async (
-  runId: string,
   counters: SweepCounters,
-  policyWindowStart: string,
 ) => {
   if (!supabase) return;
   const health = await completionOutboxHealth();
@@ -563,40 +587,47 @@ const runCompletionOutboxHealthNotification = async (
   const claim = data && typeof data === "object" && !Array.isArray(data)
     ? data as Record<string, unknown>
     : {};
-  const notificationType = ["initial", "reminder", "recovery"].includes(
+  const notificationType = ["initial", "changed", "reminder", "recovery"].includes(
       String(claim.notificationType),
     )
-    ? claim.notificationType as "initial" | "reminder" | "recovery"
+    ? claim.notificationType as "initial" | "changed" | "reminder" | "recovery"
     : null;
   const actionKey = typeof claim.actionKey === "string" ? claim.actionKey : null;
-  if (!notificationType || !actionKey) return;
-  const action = await claimAction(
-    runId,
-    null,
-    actionKey,
-    "ops_alert",
-    null,
-    policyWindowStart,
-    counters,
-  );
-  if (!action.claimed) return;
+  const incidentId = typeof claim.incidentId === "string" &&
+      UUID_PATTERN.test(claim.incidentId)
+    ? claim.incidentId
+    : null;
+  const claimToken = typeof claim.claimToken === "string" &&
+      UUID_PATTERN.test(claim.claimToken)
+    ? claim.claimToken
+    : null;
+  if (!notificationType || !actionKey || !incidentId || !claimToken) return;
+  counters.actionsAttempted += 1;
   try {
-    await sendCompletionOutboxHealthAlert(health, notificationType);
-    await finishAction(
-      action,
-      "completed",
-      `completion_outbox_${notificationType}_sent`,
-      null,
-      counters,
+    const providerIdempotencyKey = actionKey.replaceAll(":", "_")
+      .replaceAll("-", "");
+    await sendCompletionOutboxHealthAlert(
+      health,
+      notificationType,
+      providerIdempotencyKey,
     );
+    const { data: settled, error: settleError } = await supabase.rpc(
+      "service_settle_refund_completion_outbox_notification",
+      { p_incident_id: incidentId, p_claim_token: claimToken, p_outcome: "sent" },
+    );
+    if (settleError || settled?.settled !== true) {
+      throw new Error("Completion outbox alert settlement failed.");
+    }
+    counters.actionsSucceeded += 1;
+    addReason(counters, `completion_outbox_${notificationType}_sent`);
   } catch (error) {
-    await finishAction(
-      action,
-      "failed",
-      "completion_outbox_alert_delivery_failed",
-      null,
-      counters,
-    );
+    await supabase.rpc("service_settle_refund_completion_outbox_notification", {
+      p_incident_id: incidentId,
+      p_claim_token: claimToken,
+      p_outcome: "failed",
+    });
+    counters.actionsFailed += 1;
+    addReason(counters, "completion_outbox_alert_delivery_failed");
     throw error;
   }
 };
@@ -4206,7 +4237,34 @@ serve(async (req) => {
     }
 
     const body = await req.json().catch(() => ({} as Record<string, unknown>));
-    const mode = body?.mode === "health_check" || body?.mode === "failure_test" ? body.mode : "run";
+    const mode = body?.mode === "health_check" ||
+        body?.mode === "failure_test" || body?.mode === "completion_wakeup"
+      ? body.mode
+      : "run";
+    if (mode === "completion_wakeup") {
+      const messageId = typeof body.messageId === "string" &&
+          UUID_PATTERN.test(body.messageId)
+        ? body.messageId
+        : null;
+      if (!messageId) {
+        return jsonResponse({ error: "Valid completion wakeup required." }, 400);
+      }
+      failureStage = "completion_wakeup_exact_drain";
+      const results = await drainRefundManualMessageOutbox({
+        supabase,
+        messageId,
+        limit: 1,
+      });
+      const outcome = results.length === 0
+        ? "already_claimed_or_deferred"
+        : results[0].outcome;
+      return jsonResponse({
+        status: "completion_wakeup_processed",
+        outcome,
+        claimedCount: results.length,
+        payloadRedacted: true,
+      });
+    }
     const now = new Date();
     const scheduledAtCandidate = typeof body?.scheduledAt === "string" ? new Date(body.scheduledAt) : now;
     const scheduledAt = Number.isFinite(scheduledAtCandidate.getTime()) ? scheduledAtCandidate : now;
@@ -4291,9 +4349,7 @@ serve(async (req) => {
     await runManualMessageOutboxSweep(counters);
     failureStage = "completion_outbox_health";
     await runCompletionOutboxHealthNotification(
-      runId,
       counters,
-      policyWindowStart,
     );
     if (counters.actionsFailed > 0) {
       throw new RefundAutomationActionFailure();

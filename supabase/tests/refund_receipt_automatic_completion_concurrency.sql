@@ -14,6 +14,9 @@ select extensions.dblink_connect('receipt_auto_xid_writer','host=db port='||curr
   ' dbname='||current_database()||' user=postgres password=postgres sslmode=disable application_name=receipt_auto_xid_writer');
 
 begin;
+-- The concurrency fixture must not enqueue external HTTP even when local Vault
+-- configuration exists. Exact/generic delivery races are exercised directly.
+alter table public.refund_case_messages disable trigger refund_completion_outbox_postcommit_wakeup;
 create schema refund_receipt_auto_race_test;
 create table refund_receipt_auto_race_test.results(lane text primary key,payload jsonb);
 create table refund_receipt_auto_race_test.contact_before as select * from public.refund_customer_contact_settings;
@@ -216,6 +219,7 @@ alter table public.refund_receipt_completion_automation_authorities
 alter table public.refund_receipt_completion_intents enable trigger refund_receipt_completion_intents_immutable;
 alter table public.refund_case_messages enable trigger aa_refund_receipt_completion_identity;
 alter table public.refund_authoritative_receipts enable trigger refund_authoritative_receipts_immutable;
+alter table public.refund_case_messages enable trigger refund_completion_outbox_postcommit_wakeup;
 delete from public.refund_cases
 where id in ('cd400000-0000-4000-8000-000000000001','cd400000-0000-4000-8000-000000000002');
 delete from public.reporting_machines where id='cd300000-0000-4000-8000-000000000001';

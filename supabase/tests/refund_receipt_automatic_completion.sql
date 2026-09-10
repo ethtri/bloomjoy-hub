@@ -12,6 +12,9 @@ select ok(position('refund_receipt_completion_v1' in (select pg_get_constraintde
     from pg_catalog.pg_constraint where conrelid='public.refund_case_messages'::regclass
       and conname='refund_case_messages_safe_evidence_shape'))>0,
   'The shared message evidence allowlist includes the exact receipt completion template');
+-- Synthetic inserts exercise database contracts only; never enqueue pg_net HTTP
+-- from a test database even if a developer happens to have local Vault values.
+alter table public.refund_case_messages disable trigger refund_completion_outbox_postcommit_wakeup;
 
 insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
@@ -49,7 +52,7 @@ select ('ce400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-RC-AUTO-'||n
   'ce300000-0000-4000-8000-000000000001','ce200000-0000-4000-8000-000000000001',
   'receipt-auto-customer@example.invalid','Synthetic receipt automatic completion',now()-interval '3 days','card',900,900,
   '4242','card_refund_pending','matched','nayax',1,'approved',(923456780+n)::text,900,'USD',now()-interval '3 days',
-  'hold','card_payment_state_without_attempt',now()-interval '1 day' from generate_series(1,6) n;
+  'hold','card_payment_state_without_attempt',now()-interval '1 day' from generate_series(1,12) n;
 
 select set_config('request.jwt.claim.sub','ce000000-0000-4000-8000-000000000001',true);
 select set_config('request.jwt.claim.role','authenticated',true);
@@ -60,7 +63,10 @@ select public.admin_record_refund_authoritative_receipt(c.id,null,c.official_act
 from public.refund_cases c where c.id in (
   'ce400000-0000-4000-8000-000000000001','ce400000-0000-4000-8000-000000000002',
   'ce400000-0000-4000-8000-000000000003','ce400000-0000-4000-8000-000000000005',
-  'ce400000-0000-4000-8000-000000000006');
+  'ce400000-0000-4000-8000-000000000006','ce400000-0000-4000-8000-000000000007',
+  'ce400000-0000-4000-8000-000000000008','ce400000-0000-4000-8000-000000000009',
+  'ce400000-0000-4000-8000-000000000010','ce400000-0000-4000-8000-000000000011',
+  'ce400000-0000-4000-8000-000000000012');
 
 create function pg_temp.capture_error(statement text) returns text language plpgsql as $$
 begin execute statement; return null; exception when others then return sqlstate; end; $$;
@@ -114,6 +120,12 @@ select ok(has_function_privilege('service_role',
 select ok(has_function_privilege('service_role',
   'public.service_ensure_refund_receipt_automatic_completions(integer)','execute'),
   'The bounded service scheduler can consume authority rows');
+select ok(not has_function_privilege('authenticated',
+  'public.service_dispatch_refund_completion_wakeup(uuid)','execute'),
+  'Authenticated callers cannot dispatch completion wakeups');
+select ok(not has_function_privilege('service_role',
+  'public.service_dispatch_refund_completion_wakeup(uuid)','execute'),
+  'The wakeup dispatcher is reachable only through its canonical insert trigger');
 select ok(not has_function_privilege('authenticated',
   'public.service_defer_refund_automatic_completion_delivery(uuid,uuid,text)','execute'),
   'Authenticated users cannot defer an automatic completion claim');
@@ -431,6 +443,73 @@ select ok((select bool_and(c.refund_completed_at is null and c.reporting_adjustm
   from public.refund_cases c where c.public_reference like 'RF-RC-AUTO-%'),
   'Message coordination never fabricates payment completion or accounting time');
 
+-- Seed exact outbox states to verify aggregate latency, strict thresholds,
+-- runtime/database stops, and route collisions without invoking transport.
+select pg_temp.authorize(n) from generate_series(7,12) n;
+set local role service_role;
+select pg_temp.ensure(n) from generate_series(7,12) n;
+reset role;
+alter table public.refund_case_messages disable trigger user;
+update public.refund_case_messages set status='pending',manual_delivery_state='claimed',
+  manual_delivery_claim_token='ce900000-0000-4000-8000-000000000007',
+  manual_delivery_claimed_at=now()-interval '10 minutes',manual_delivery_attempt_count=1,
+  manual_delivery_provider_attempted_at=created_at+interval '10 seconds'
+where refund_case_id='ce400000-0000-4000-8000-000000000007';
+update public.refund_case_messages set status='pending',manual_delivery_state='claimed',
+  manual_delivery_claim_token='ce900000-0000-4000-8000-000000000008',
+  manual_delivery_claimed_at=now()-interval '11 minutes',manual_delivery_attempt_count=1,
+  manual_delivery_provider_attempted_at=created_at+interval '20 seconds'
+where refund_case_id='ce400000-0000-4000-8000-000000000008';
+update public.refund_case_messages set status='failed',manual_delivery_state='failed',
+  manual_delivery_claim_token=null,manual_delivery_claimed_at=null,manual_delivery_attempt_count=1,
+  manual_delivery_provider_attempted_at=created_at+interval '30 seconds'
+where refund_case_id='ce400000-0000-4000-8000-000000000009';
+update public.refund_case_messages set status='failed',manual_delivery_state='delivery_unknown',
+  manual_delivery_claim_token=null,manual_delivery_claimed_at=null,manual_delivery_attempt_count=1,
+  manual_delivery_provider_attempted_at=created_at+interval '100 seconds'
+where refund_case_id='ce400000-0000-4000-8000-000000000010';
+update public.refund_case_messages set created_at=now()-interval '61 seconds'
+where refund_case_id='ce400000-0000-4000-8000-000000000011';
+update public.refund_case_messages set created_at=now()-interval '60 seconds'
+where refund_case_id='ce400000-0000-4000-8000-000000000012';
+alter table public.refund_case_messages enable trigger user;
+
+create temp table receipt_auto_health as select
+  public.service_get_refund_completion_outbox_health('{}'::text[],true,true,true) payload;
+select is((select (payload->>'sampleCount')::integer from receipt_auto_health),4,
+  'Seeded completion health counts queue-to-first-provider samples');
+select is((select (payload->>'queueToFirstProviderAttemptMedianSeconds')::numeric from receipt_auto_health),25.000,
+  'Seeded completion health calculates exact median latency');
+select is((select (payload->>'queueToFirstProviderAttemptP95Seconds')::numeric from receipt_auto_health),89.500,
+  'Seeded completion health calculates exact p95 latency');
+select is((select (payload->>'agingQueuedCount')::integer from receipt_auto_health),1,
+  'The 60-second boundary is healthy while an older queued completion is aging');
+select is((select (payload->>'staleClaimedCount')::integer from receipt_auto_health),1,
+  'The 10-minute boundary is healthy while an older claim is stale');
+select is((select (payload->>'definiteFailedCount')::integer from receipt_auto_health),2,
+  'Seeded completion health counts definite failures');
+select is((select (payload->>'deliveryUnknownCount')::integer from receipt_auto_health),1,
+  'Seeded completion health keeps unknown delivery separate');
+select is((select (payload->>'missingRouteCount')::integer from receipt_auto_health),0,
+  'A valid current manager route is not an exception');
+select is((public.service_get_refund_completion_outbox_health(
+    array['receipt-auto-manager@example.invalid'],true,true,true)->>'missingRouteCount')::integer,4,
+  'Mailbox collisions make every current queued or claimed route explicit');
+select is((public.service_get_refund_completion_outbox_health('{}'::text[],false,true,true)
+    ->>'disabledContactDeferralCount')::integer,2,
+  'Runtime automation shutdown exposes queued completion deferrals');
+select is((public.service_get_refund_completion_outbox_health('{}'::text[],true,false,true)
+    ->>'disabledContactDeferralCount')::integer,2,
+  'Runtime automatic-contact shutdown exposes queued completion deferrals');
+select is((public.service_get_refund_completion_outbox_health('{}'::text[],true,true,false)
+    ->>'disabledContactDeferralCount')::integer,2,
+  'Runtime manual-outbox shutdown exposes queued completion deferrals');
+update public.refund_customer_contact_settings set automatic_customer_contact_enabled=false where singleton;
+select is((public.service_get_refund_completion_outbox_health('{}'::text[],true,true,true)
+    ->>'disabledContactDeferralCount')::integer,2,
+  'Database automatic-contact shutdown exposes queued completion deferrals');
+update public.refund_customer_contact_settings set automatic_customer_contact_enabled=true where singleton;
+
 -- Refund Operations visibility is decided server-side for both list/search and
 -- direct/deep-link reads. The existing case-scope predicate remains authoritative.
 set local role service_role;
@@ -549,4 +628,5 @@ select ok(exists(select 1 from receipt_auto_priority_claims claimed
 reset role;
 
 select * from finish();
+alter table public.refund_case_messages enable trigger refund_completion_outbox_postcommit_wakeup;
 rollback;
