@@ -38,6 +38,15 @@ type RefundManagerDisplayAction = {
   mode?: string;
 };
 
+type ResolvedDuplicateFacts = {
+  confirmedDuplicate?: boolean;
+  lifecycle?: Pick<RefundLifecycleContract, 'stage'> | null;
+};
+
+/** Treat both current lifecycle projections and legacy duplicate flags as terminal. */
+export const isResolvedDuplicateRefundCase = (refundCase: ResolvedDuplicateFacts | null | undefined) =>
+  refundCase?.lifecycle?.stage === 'duplicate_resolved' || refundCase?.confirmedDuplicate === true;
+
 /** Keep the displayed instruction aligned with an available customer-detail action. */
 export const getDisplayedRefundManagerNextStep = (
   managerState: RefundManagerState,
