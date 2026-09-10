@@ -38,9 +38,21 @@ const contactStateRank = (state: string) => ({
   delivery_unconfirmed: 2, sent: 3, delivered: 4, bounced: 5, complained: 6,
 }[state] ?? 0);
 
-const contactEvidenceTime = (lifecycle: ContactLifecycle) => Date.parse(
-  lifecycle.messageState.lastUpdatedAt ?? lifecycle.lastUpdatedAt,
-);
+const contactEvidenceTime = (lifecycle: ContactLifecycle) =>
+  lifecycle.messageState.lastUpdatedAt
+    ? Date.parse(lifecycle.messageState.lastUpdatedAt)
+    : Number.NEGATIVE_INFINITY;
+
+const caseEvidenceTime = (lifecycle: ContactLifecycle) => Date.parse(lifecycle.lastUpdatedAt);
+
+const newerMessageState = (first: ContactLifecycle, second: ContactLifecycle) => {
+  const firstTime = contactEvidenceTime(first);
+  const secondTime = contactEvidenceTime(second);
+  if (firstTime !== secondTime) return firstTime > secondTime ? first.messageState : second.messageState;
+  return contactStateRank(first.messageState.state) > contactStateRank(second.messageState.state)
+    ? first.messageState
+    : second.messageState;
+};
 
 /** Retain newer per-case contact evidence when polling responses finish out of order. */
 export const mergeRefundOverviewContactTruth = <T extends {
@@ -55,14 +67,21 @@ export const mergeRefundOverviewContactTruth = <T extends {
       const oldLifecycle = older?.lifecycle;
       const newLifecycle = item.lifecycle;
       if (!oldLifecycle || !newLifecycle) return item;
-      if (oldLifecycle.version > newLifecycle.version) return older!;
-      if (oldLifecycle.version < newLifecycle.version) return item;
-      const oldTime = contactEvidenceTime(oldLifecycle);
-      const newTime = contactEvidenceTime(newLifecycle);
-      if (Number.isFinite(oldTime) && Number.isFinite(newTime) && oldTime > newTime) return older!;
-      if (oldTime === newTime && contactStateRank(oldLifecycle.messageState.state) >
-        contactStateRank(newLifecycle.messageState.state)) return older!;
-      return item;
+      const base = oldLifecycle.version > newLifecycle.version
+        ? older!
+        : oldLifecycle.version < newLifecycle.version
+          ? item
+          : caseEvidenceTime(oldLifecycle) > caseEvidenceTime(newLifecycle)
+            ? older!
+            : item;
+      const baseLifecycle = base.lifecycle!;
+      return {
+        ...base,
+        lifecycle: {
+          ...baseLifecycle,
+          messageState: newerMessageState(oldLifecycle, newLifecycle),
+        },
+      };
     });
   };
   return {

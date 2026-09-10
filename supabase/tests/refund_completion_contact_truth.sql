@@ -22,7 +22,7 @@ insert into public.refund_case_messages(id,refund_case_id,message_type,status,re
 values
 ('c6240000-0000-4000-8000-000000000001','c6230000-0000-4000-8000-000000000002','completed','pending','contact-2@example.invalid','Queued','Synthetic',null,null,null,'unknown',null),
 ('c6240000-0000-4000-8000-000000000002','c6230000-0000-4000-8000-000000000003','completed','sent','contact-3@example.invalid','Missing identity','Synthetic',statement_timestamp(),null,null,'unknown',statement_timestamp()),
-('c6240000-0000-4000-8000-000000000003','c6230000-0000-4000-8000-000000000004','completed','sent','contact-4@example.invalid','Sent','Synthetic',statement_timestamp(),'resend','contactsent4','accepted',statement_timestamp()),
+('c6240000-0000-4000-8000-000000000003','c6230000-0000-4000-8000-000000000004','completed','sent','contact-4@example.invalid','Sent','Synthetic',statement_timestamp(),'resend','contactsent4','delivered',statement_timestamp()),
 ('c6240000-0000-4000-8000-000000000004','c6230000-0000-4000-8000-000000000005','completed','sent','contact-5@example.invalid','Delivered','Synthetic',statement_timestamp(),'resend','contactdeliver5','delivered',statement_timestamp()),
 ('c6240000-0000-4000-8000-000000000005','c6230000-0000-4000-8000-000000000006','completed','failed','contact-6@example.invalid','Failed','Synthetic',null,null,null,'unknown',statement_timestamp()),
 ('c6240000-0000-4000-8000-000000000006','c6230000-0000-4000-8000-000000000007','completed','failed','contact-7@example.invalid','Bounced','Synthetic',statement_timestamp(),'resend','contactbounce7','bounced',statement_timestamp()),
@@ -31,6 +31,7 @@ values
 insert into public.refund_transactional_delivery_events(event_key_digest,provider_message_id,delivery_state,event_at,
   matched_refund_case_message_id,applied_at)
 values
+(repeat('4',64),'contactsent4','delivered',statement_timestamp(),'c6240000-0000-4000-8000-000000000004',statement_timestamp()),
 (repeat('5',64),'contactdeliver5','delivered',statement_timestamp(),'c6240000-0000-4000-8000-000000000004',statement_timestamp()),
 (repeat('7',64),'contactbounce7','bounced',statement_timestamp(),'c6240000-0000-4000-8000-000000000006',statement_timestamp()),
 (repeat('8',64),'contactcomplaint8','complained',statement_timestamp(),'c6240000-0000-4000-8000-000000000007',statement_timestamp());
@@ -38,7 +39,7 @@ values
 select is(public.refund_completion_contact_contract('c6230000-0000-4000-8000-000000000001')->>'state','none','No intent stays none');
 select is(public.refund_completion_contact_contract('c6230000-0000-4000-8000-000000000002')->>'state','pending','Queued intent stays pending');
 select is(public.refund_completion_contact_contract('c6230000-0000-4000-8000-000000000003')->>'state','delivery_unconfirmed','Sent timestamp without provider identity is not sent proof');
-select is(public.refund_completion_contact_contract('c6230000-0000-4000-8000-000000000004')->>'state','sent','Sent requires timestamp and provider identity');
+select is(public.refund_completion_contact_contract('c6230000-0000-4000-8000-000000000004')->>'state','sent','An unmatched webhook cannot upgrade timestamp and provider identity to delivered');
 select is(public.refund_completion_contact_contract('c6230000-0000-4000-8000-000000000005')->>'state','delivered','Delivered requires callback evidence');
 select is(public.refund_completion_contact_contract('c6230000-0000-4000-8000-000000000006')->>'state','failed','Definite failure stays failed');
 select is(public.refund_completion_contact_contract('c6230000-0000-4000-8000-000000000007')->>'state','bounced','Bounce callback is durable');

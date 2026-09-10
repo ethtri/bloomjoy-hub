@@ -62,6 +62,7 @@ begin
         into callback_state, callback_at
         from public.refund_transactional_delivery_events event
         where event.provider_message_id = message_row.provider_message_id
+          and event.matched_refund_case_message_id = message_row.id
           and event.delivery_state in ('delivered', 'failed', 'bounced', 'complained')
         order by public.refund_transactional_delivery_state_rank(event.delivery_state) desc,
           event.event_at desc, event.event_key_digest desc

@@ -30,10 +30,14 @@ const nonPaymentProgressNotes: Partial<Record<RefundLifecycleStage, string>> = {
 export const getRefundLifecycleProgressPresentation = (
   lifecycle: Pick<RefundLifecycleContract, 'stage'> &
     Partial<Pick<RefundLifecycleContract, 'paymentState' | 'messageState'>>,
-) => ({
-  label: lifecycle.paymentState === 'confirmed'
-    ? getRefundCompletionContactPresentation(lifecycle).progressLabel
-    : refundLifecycleStageLabels[lifecycle.stage],
-  note: nonPaymentProgressNotes[lifecycle.stage] ?? null,
-  showMilestones: !nonPaymentProgressNotes[lifecycle.stage],
-});
+) => {
+  const contact = lifecycle.paymentState === 'confirmed'
+    ? getRefundCompletionContactPresentation(lifecycle)
+    : null;
+  return {
+    label: contact?.progressLabel ?? refundLifecycleStageLabels[lifecycle.stage],
+    note: nonPaymentProgressNotes[lifecycle.stage] ?? null,
+    showMilestones: !nonPaymentProgressNotes[lifecycle.stage],
+    contact,
+  };
+};

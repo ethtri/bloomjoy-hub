@@ -137,4 +137,13 @@ test('late overview responses cannot regress per-case completion contact truth',
  assert.equal(merged.cases[0].lifecycle.messageState.state,'sent');
  const callback={cases:[{id:'a',subject:'callback',lifecycle:lifecycle(8,'bounced','2026-09-10T12:01:00Z')}]};
  assert.equal(mergeRefundOverviewContactTruth(merged,callback).cases[0].lifecycle.messageState.state,'bounced');
+ const higherCaseVersionOlderContact={cases:[{id:'a',subject:'newer case fields',lifecycle:lifecycle(9,'pending','2026-09-10T11:58:00Z')}]};
+ const independent=mergeRefundOverviewContactTruth(callback,higherCaseVersionOlderContact);
+ assert.equal(independent.cases[0].subject,'newer case fields','higher case version keeps newer overall object');
+ assert.equal(independent.cases[0].lifecycle.version,9);
+ assert.equal(independent.cases[0].lifecycle.messageState.state,'bounced','older contact cannot replace newer callback');
+ const sameVersionCallback={cases:[{id:'a',subject:'callback response',lifecycle:lifecycle(9,'complained','2026-09-10T12:02:00Z')}]};
+ const sameVersionMerged=mergeRefundOverviewContactTruth(independent,sameVersionCallback);
+ assert.equal(sameVersionMerged.cases[0].subject,'callback response');
+ assert.equal(sameVersionMerged.cases[0].lifecycle.messageState.state,'complained','callback advances without version bump');
 });

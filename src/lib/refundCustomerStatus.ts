@@ -307,7 +307,7 @@ export const getRefundCustomerStatusCopy = (
         return {
         title: 'Refund confirmed',
         detail: `Nayax confirms that the full refund was completed. The exact processing date is not available. ${contact.detail}`,
-        nextExpectation: contact.nextAction,
+        nextExpectation: 'No new refund request is needed. Reply to your existing Bloomjoy email if the credit is not visible.',
         milestone: 'confirmed',
         };
       }
@@ -316,7 +316,7 @@ export const getRefundCustomerStatusCopy = (
       return {
         title: 'Refund confirmed',
         detail: `Nayax has approved your refund. Your bank may take up to 4 business days to show it on your account. ${contact.detail}`,
-        nextExpectation: contact.nextAction,
+        nextExpectation: 'If the credit is not visible after 4 business days, reply to your Bloomjoy email for help.',
         milestone: 'confirmed',
       };
       }

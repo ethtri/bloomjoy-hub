@@ -37,3 +37,18 @@ test('source surfaces do not retain the overstated customer-updated phrase', () 
     assert.doesNotMatch(fs.readFileSync(new URL(file, import.meta.url), 'utf8'), /customer updated/i);
   }
 });
+
+test('progress and completion history cannot present review states as proved sent', () => {
+  const progress = fs.readFileSync(
+    new URL('../../src/components/refunds/RefundLifecycleProgress.tsx', import.meta.url),
+    'utf8',
+  );
+  assert.match(progress, /contactComplete[\s\S]*state === 'sent'[\s\S]*state === 'delivered'/);
+  assert.match(progress, /presentation\.contact\?\.tone === 'warning'/);
+
+  const history = fs.readFileSync(new URL('../../src/pages/admin/Refunds.tsx', import.meta.url), 'utf8');
+  assert.match(history, /completionContact\?\.progressLabel/);
+  assert.match(history, /selectedCase\.lifecycle\?\.messageState\.lastUpdatedAt/);
+  assert.match(history, /completionContact\.state === 'bounced'/);
+  assert.match(history, /completionContact\.state === 'complained'/);
+});
