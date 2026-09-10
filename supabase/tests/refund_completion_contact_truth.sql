@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(20);
+select plan(23);
 
 insert into public.customer_accounts(id,name,account_type)
 values('c6200000-0000-4000-8000-000000000001','Completion contact truth','internal');
@@ -130,6 +130,28 @@ select is((public.refund_apply_completion_contact_to_lifecycle('{"paymentState":
   '{"state":"delivery_unconfirmed","messageType":"completed","lastUpdatedAt":"2026-09-10T00:00:00Z","payloadRedacted":true}'::jsonb)#>>'{managerAction,action}'),'review_delivery_no_resend','Unknown outcome forbids blind resend');
 select is((public.refund_apply_completion_contact_to_lifecycle('{"paymentState":"confirmed"}'::jsonb,
   '{"state":"bounced","messageType":"completed","lastUpdatedAt":"2026-09-10T00:00:00Z","payloadRedacted":true}'::jsonb)#>>'{managerQueue,bucket}'),'provider_hold','Bounce routes contact review without reopening payment');
+select is((public.refund_apply_completion_contact_to_lifecycle('{"paymentState":"confirmed"}'::jsonb,
+  '{"state":"bounced","messageType":"completed","lastUpdatedAt":"2026-09-10T00:00:00Z","payloadRedacted":true}'::jsonb)#>>'{operations,required}'),'true','Missing base operations become explicit delivery work');
+select ok((
+  public.refund_apply_completion_contact_to_lifecycle(
+    '{"paymentState":"confirmed","managerQueue":{"existingQueueField":"preserved"},"operations":{"existingOperationsField":"preserved"}}'::jsonb,
+    '{"state":"failed","messageType":"completed","lastUpdatedAt":"2026-09-10T00:00:00Z","payloadRedacted":true}'::jsonb
+  ) #>> '{managerQueue,existingQueueField}' = 'preserved'
+  and public.refund_apply_completion_contact_to_lifecycle(
+    '{"paymentState":"confirmed","managerQueue":{"existingQueueField":"preserved"},"operations":{"existingOperationsField":"preserved"}}'::jsonb,
+    '{"state":"failed","messageType":"completed","lastUpdatedAt":"2026-09-10T00:00:00Z","payloadRedacted":true}'::jsonb
+  ) #>> '{operations,existingOperationsField}' = 'preserved'
+), 'Populated canonical queue and operations fields survive the contact overlay');
+select ok((
+  public.refund_apply_completion_contact_to_lifecycle(
+    '{"paymentState":"confirmed","managerQueue":null,"operations":"invalid"}'::jsonb,
+    '{"state":"complained","messageType":"completed","lastUpdatedAt":"2026-09-10T00:00:00Z","payloadRedacted":true}'::jsonb
+  ) #>> '{managerQueue,bucket}' = 'provider_hold'
+  and public.refund_apply_completion_contact_to_lifecycle(
+    '{"paymentState":"confirmed","managerQueue":null,"operations":"invalid"}'::jsonb,
+    '{"state":"complained","messageType":"completed","lastUpdatedAt":"2026-09-10T00:00:00Z","payloadRedacted":true}'::jsonb
+  ) #>> '{operations,failureClass}' = 'customer_delivery_exception'
+), 'Null and non-object nested values fail safe to explicit contact-owned objects');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts where refund_case_id::text like 'c6230000%'),7,'Projection creates no payment attempt beyond the seven fixture settlements');
 select is((select count(*)::integer from public.sales_adjustment_facts where refund_case_id::text like 'c6230000%'),7,'Projection creates no accounting adjustment beyond the seven fixture settlements');
 select is((select count(*)::integer from public.refund_case_messages where refund_case_id::text like 'c6230000%'),7,'Projection creates no customer message');

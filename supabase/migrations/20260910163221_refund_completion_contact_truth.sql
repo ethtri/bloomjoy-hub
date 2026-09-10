@@ -151,11 +151,17 @@ begin
         'action', 'review_delivery_no_resend', 'owner', 'Refund Operations',
         'safeRetryEligible', false, 'payloadRedacted', true
       ),
-      'managerQueue', (result -> 'managerQueue') || jsonb_build_object(
+      'managerQueue', (case
+        when jsonb_typeof(result -> 'managerQueue') = 'object' then result -> 'managerQueue'
+        else '{}'::jsonb
+      end) || jsonb_build_object(
         'bucket', 'provider_hold', 'label', 'Needs Refund Operations',
         'nextAction', 'review_delivery_no_resend', 'safeRetryEligible', false
       ),
-      'operations', (result -> 'operations') || jsonb_build_object(
+      'operations', (case
+        when jsonb_typeof(result -> 'operations') = 'object' then result -> 'operations'
+        else '{}'::jsonb
+      end) || jsonb_build_object(
         'required', true, 'owner', 'Refund Operations',
         'failureClass', 'customer_delivery_exception'
       ),
