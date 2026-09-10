@@ -122,7 +122,7 @@ declare
     || jsonb_build_object('messageState', p_contact);
   contact_state text := p_contact ->> 'state';
 begin
-  if p_lifecycle ->> 'paymentState' <> 'confirmed' then return result; end if;
+  if p_lifecycle ->> 'paymentState' <> 'confirmed' then return p_lifecycle; end if;
 
   -- Unknown-date accounting remains a separate Refund Operations queue. Only
   -- its contact truth and polling terminality change here.
