@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(18);
+select plan(20);
 
 insert into public.customer_accounts(id,name,account_type)
 values('c6200000-0000-4000-8000-000000000001','Completion contact truth','internal');
@@ -14,7 +14,8 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
   issue_summary,incident_at,payment_method,payment_amount_cents,status,correlation_status)
 select ('c6230000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'RF-CONTACT-'||n,
   'c6220000-0000-4000-8000-000000000001','c6210000-0000-4000-8000-000000000001',
-  'contact-'||n||'@example.invalid','Synthetic completion contact',statement_timestamp()-interval '1 day',
+  'contact-'||n||'@example.invalid','Synthetic completion contact',
+  (date '2017-01-01' + n + time '12:00')::timestamp,
   'card',500,'needs_review','matched' from generate_series(1,8) n;
 
 -- Completion messages for card refunds are owned by committed settlements.
@@ -30,6 +31,24 @@ select ('c6250000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
   'RF-CONTACT-'||n,('c6230000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
   'applied',1,'Synthetic committed contact truth',jsonb_build_object('payload_redacted',true)
 from generate_series(2,8) n;
+
+select is(
+  (select count(distinct refund_business_fingerprint)::integer
+   from public.refund_cases
+   where id::text like 'c6230000%' and id <> 'c6230000-0000-4000-8000-000000000001'),
+  7,
+  'Settlement fixtures have seven distinct machine/date/amount business fingerprints'
+);
+select ok(
+  not exists(
+    select 1
+    from public.sales_adjustment_facts adjustment
+    join public.refund_cases refund_case on refund_case.id = adjustment.refund_case_id
+    where refund_case.id::text like 'c6230000%'
+      and adjustment.refund_business_fingerprint is distinct from refund_case.refund_business_fingerprint
+  ),
+  'Each settlement adjustment retains the exact linked case business fingerprint'
+);
 
 update public.refund_cases c set
   status='completed',decision='approved',refund_completed_at=statement_timestamp(),

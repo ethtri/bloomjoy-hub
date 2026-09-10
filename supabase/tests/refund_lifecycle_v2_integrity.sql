@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(36);
+select plan(37);
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -58,7 +58,7 @@ insert into public.refund_cases (
     'customer-selection-e1', 'exact_machine',
     array['e3000000-0000-4000-8000-000000000001'::uuid],
     'lifecycle-normal@example.invalid', 'Lifecycle normal fixture',
-    statement_timestamp() - interval '30 minutes', 'America/Los_Angeles',
+    timestamp '2017-02-01 12:00:00', 'America/Los_Angeles',
     'card', 700, 700, '4242', 'needs_review', 'matched', 'nayax', 1,
     'under_review'
   ),
@@ -288,6 +288,23 @@ insert into public.sales_adjustment_facts (
   'refund_cases', 'RF-LIFECYCLE-V2-NORMAL',
   'e4000000-0000-4000-8000-000000000001', 'applied', 1,
   'Synthetic committed lifecycle settlement', jsonb_build_object('payload_redacted', true)
+);
+select ok(
+  (
+    select adjustment.refund_business_fingerprint is not null
+      and adjustment.refund_business_fingerprint = refund_case.refund_business_fingerprint
+      and not exists (
+        select 1
+        from public.refund_cases sibling
+        where sibling.id <> refund_case.id
+          and sibling.status not in ('denied', 'closed')
+          and sibling.refund_business_fingerprint = adjustment.refund_business_fingerprint
+      )
+    from public.sales_adjustment_facts adjustment
+    join public.refund_cases refund_case on refund_case.id = adjustment.refund_case_id
+    where adjustment.id = 'e6500000-0000-4000-8000-000000000001'
+  ),
+  'Completion settlement has one exact, noncolliding case business fingerprint'
 );
 update public.refund_cases set
   status = 'completed', decision = 'approved', refund_completed_at = statement_timestamp(),
