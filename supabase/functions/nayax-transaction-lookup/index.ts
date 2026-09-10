@@ -46,6 +46,9 @@ serve(async (req) => {
   let actorUserIdForAudit = "";
   let expectedFactVersionForAudit: number | null = null;
   let lookupGenerationForAudit: number | null = null;
+  let recoveryIdForAudit = "";
+  let recoveryClaimTokenForAudit = "";
+  let lookupPersistedForAudit = false;
 
   try {
     if (req.method !== "POST") {
@@ -78,17 +81,17 @@ serve(async (req) => {
       return jsonResponse({ error: "Refund case is required." }, 400);
     }
 
-    const { data: canManageCase, error: accessError } = await supabase.rpc(
-      "can_manage_refund_case",
-      { p_user_id: user.id, p_refund_case_id: caseId },
+    const { data: isRefundOperations, error: accessError } = await supabase.rpc(
+      "is_super_admin",
+      { uid: user.id },
     );
 
     if (accessError) {
       throw accessError;
     }
 
-    if (!canManageCase) {
-      return jsonResponse({ error: "Refund case access required." }, 403);
+    if (isRefundOperations !== true) {
+      return jsonResponse({ error: "Refund Operations access required." }, 403);
     }
 
     const { data: lookupCase, error: lookupCaseError } = await supabase
@@ -102,6 +105,16 @@ serve(async (req) => {
       throw new Error("Refund case matching evidence version is unavailable.");
     }
     expectedFactVersionForAudit = expectedFactVersion;
+    const { data: recoveryClaim, error: recoveryClaimError } = await supabase.rpc(
+      "service_claim_refund_nayax_lookup_operations_recovery",
+      { p_refund_case_id: caseId, p_expected_fact_version: expectedFactVersion, p_actor_user_id: user.id },
+    );
+    if (recoveryClaimError) throw recoveryClaimError;
+    recoveryIdForAudit = sanitizeText(recoveryClaim?.recoveryId, 80);
+    recoveryClaimTokenForAudit = sanitizeText(recoveryClaim?.claimToken, 80);
+    if (!isUuid(recoveryIdForAudit) || !isUuid(recoveryClaimTokenForAudit)) {
+      throw new Error("Refund Operations recovery claim failed.");
+    }
     const lookupGeneration = await beginNayaxLookup({
       supabase,
       caseId,
@@ -110,6 +123,11 @@ serve(async (req) => {
       trigger: "manual",
     });
     lookupGenerationForAudit = lookupGeneration;
+    const { data: recoveryBound, error: recoveryBindError } = await supabase.rpc(
+      "service_mark_refund_nayax_lookup_recovery_started",
+      { p_recovery_id: recoveryIdForAudit, p_claim_token: recoveryClaimTokenForAudit, p_lookup_generation: lookupGeneration },
+    );
+    if (recoveryBindError || recoveryBound !== true) throw recoveryBindError ?? new Error("Recovery start was not bound.");
 
     const result = await lookupNayaxCandidatesForRefundCase({
       supabase,
@@ -128,6 +146,13 @@ serve(async (req) => {
       expectedFactVersion,
       lookupGeneration,
     });
+    lookupPersistedForAudit = true;
+    const { error: recoveryFinishError } = await supabase.rpc(
+      "service_finish_refund_nayax_lookup_recovery",
+      { p_recovery_id: recoveryIdForAudit, p_claim_token: recoveryClaimTokenForAudit,
+        p_lookup_generation: lookupGeneration, p_succeeded: true, p_failure_class: null },
+    );
+    if (recoveryFinishError) console.error("operations lookup recovery bookkeeping pending", { errorType: recoveryFinishError.name });
 
     const { data: caseVersion, error: caseVersionError } = await supabase
       .from("refund_cases")
@@ -168,10 +193,11 @@ serve(async (req) => {
     if (
       supabase && isUuid(caseIdForAudit) &&
       expectedFactVersionForAudit !== null &&
-      lookupGenerationForAudit !== null
+      lookupGenerationForAudit !== null &&
+      !lookupPersistedForAudit
     ) {
       try {
-        await failNayaxLookup({
+        const failure = await failNayaxLookup({
           supabase,
           caseId: caseIdForAudit,
           actorUserId: actorUserIdForAudit || null,
@@ -180,6 +206,13 @@ serve(async (req) => {
           trigger: "manual",
           error,
         });
+        if (isUuid(recoveryIdForAudit) && isUuid(recoveryClaimTokenForAudit)) {
+          await supabase.rpc("service_finish_refund_nayax_lookup_recovery", {
+            p_recovery_id: recoveryIdForAudit, p_claim_token: recoveryClaimTokenForAudit,
+            p_lookup_generation: lookupGenerationForAudit, p_succeeded: false,
+            p_failure_class: failure.failureClass,
+          });
+        }
       } catch (auditError) {
         console.error("nayax-transaction-lookup audit insert failed", {
           errorType: auditError instanceof Error

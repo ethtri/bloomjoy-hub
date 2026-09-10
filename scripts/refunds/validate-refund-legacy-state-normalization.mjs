@@ -117,7 +117,8 @@ assert(
     portal.includes('data-testid="refund-manager-state"') &&
     portal.includes('data-testid="refund-manager-next-step"') &&
     portal.includes("return 'Fresh check needed'") &&
-    portal.includes("label: 'Refresh transaction results'") &&
+    portal.includes("label: 'Transaction evidence needs review'") &&
+    !portal.includes("label: 'Refresh transaction results'") &&
     portal.includes('refund-legacy-state-review-banner') &&
     portal.includes('refund-legacy-state-freeze') &&
     portal.includes('const effectiveCandidates = selectedCase.legacyStateReviewRequired ? [] : nayaxCandidates') &&

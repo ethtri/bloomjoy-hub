@@ -1593,7 +1593,7 @@ const nayaxNextActionText = (
         : 'Next: Refund Operations must repair the machine/account scope. Do not ask the customer to repeat details.';
     case 'lookup_failed':
       return summary.safeRetryEligible
-        ? 'Next: Refund Operations can select Refresh transaction results once. No refund has been issued.'
+        ? 'Next: Bloomjoy will retry the read-only transaction check automatically. No refund has been issued.'
         : 'Next: Refund Operations must use the internal fallback. No refund has been issued.';
     case 'not_applicable':
     default:
@@ -1748,8 +1748,8 @@ const primaryActionConfig = (
   const definitiveNoRefundRetryReady = isDefinitiveNoRefundRetryReady(refundCase);
   if (refundCase.legacyStateReviewRequired) {
     return {
-      label: 'Refresh transaction results',
-      helper: 'No refund is recorded. Refresh the transaction results before making a new decision.',
+      label: 'Transaction evidence needs review',
+      helper: 'No refund is recorded. Refund Operations is handling the stale transaction evidence.',
       disabled: true,
     };
   }
@@ -1966,7 +1966,9 @@ const primaryActionConfig = (
   if (refundCase.paymentMethod === 'card' && refundCase.nayaxLookupSummary?.lookupStatus === 'lookup_failed') {
     return {
       label: 'Transaction check failed',
-      helper: 'Open Transaction search details and select Refresh transaction results.',
+      helper: refundCase.nayaxLookupSummary.safeRetryEligible
+        ? 'Bloomjoy will run the next safe read-only check automatically.'
+        : 'Refund Operations is handling the transaction-search problem.',
       disabled: true,
     };
   }
@@ -4475,42 +4477,6 @@ export default function AdminRefundsPage() {
   };
 
   useEffect(() => {
-    if (
-      !selectedCase ||
-      selectedCase.paymentMethod !== 'card' ||
-      selectedCase.manualNayaxPortalEnabled ||
-      selectedCase.hasMatchedNayaxTransaction ||
-      selectedCase.lifecycle?.stage !== 'matching' ||
-      selectedCase.lifecycle.lookup.status !== 'not_started' ||
-      derivePortalRefundMissingFields(selectedCase).length > 0 ||
-      isUsingDemoData
-    ) {
-      return;
-    }
-
-    const evidenceVersion = selectedCase.nayaxLookupSummary?.evidenceVersion ?? 0;
-    const lookupKey = `${selectedCase.id}:${evidenceVersion}`;
-    if (autoLookupAttemptedRef.current.has(lookupKey)) return;
-    autoLookupAttemptedRef.current.add(lookupKey);
-
-    const timer = window.setTimeout(() => {
-      void handleNayaxLookup({ silent: true });
-    }, 0);
-    return () => window.clearTimeout(timer);
-    // handleNayaxLookup intentionally uses the selected case from this render.
-    // The request sequence guard discards any response after a case switch.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    isUsingDemoData,
-    selectedCase?.hasMatchedNayaxTransaction,
-    selectedCase?.id,
-    selectedCase?.lifecycle?.lookup.status,
-    selectedCase?.lifecycle?.stage,
-    selectedCase?.manualNayaxPortalEnabled,
-    selectedCase?.nayaxLookupSummary?.evidenceVersion,
-  ]);
-
-  useEffect(() => {
     if (overview.cases.length === 0 && internalTestCases.length === 0) return;
     if (typeof window === 'undefined') return;
 
@@ -5262,12 +5228,11 @@ export default function AdminRefundsPage() {
       !hasSelectedMatch &&
       selectedCase.lifecycle?.managerQueue.safeRetryEligible === true &&
       selectedCase.lifecycle.managerQueue.nextAction === 'retry_read_only_lookup';
-    const lookupRefreshAllowed = ![
-      'lookup_failed',
-      'lookup_timed_out',
-      'response_limited',
-    ].includes(selectedNayaxSummary?.lookupStatus ?? '') ||
-      selectedNayaxSummary?.safeRetryEligible === true;
+    const showRefundOperationsRecovery =
+      refundOperationsAccess &&
+      selectedCase.nayaxLookupRecovery?.state === 'refund_operations' &&
+      !automaticLookupPending &&
+      !hasSelectedMatch;
     const needsDisagreementReason = Boolean(selectedCandidate && selectedCandidate.isRecommended !== true);
     const selectCandidate = (candidate: NayaxLookupCandidate) => {
       if (!caseAllowsCandidateSelection || candidate.selectionAllowed === false) return;
@@ -5404,24 +5369,6 @@ export default function AdminRefundsPage() {
         {nayaxLookupNotice && !selectedCase.hasMatchedNayaxTransaction && (
           <div data-testid="nayax-lookup-notice" className={nayaxLookupNoticeClass(nayaxLookupNotice.tone)}>
             {managerNayaxLookupNotice(nayaxLookupNotice, selectedNayaxSummary)}
-            {showVisibleLookupRetry && (
-              <Button
-                data-testid="nayax-refresh-expired-results"
-                type="button"
-                size="sm"
-                variant="outline"
-                className="mt-2 min-h-11 bg-background"
-                onClick={() => void handleNayaxLookup()}
-                disabled={isLookingUpNayax}
-              >
-                {isLookingUpNayax ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                )}
-                Refresh transactions
-              </Button>
-            )}
           </div>
         )}
         {!nayaxLookupNotice &&
@@ -5437,23 +5384,8 @@ export default function AdminRefundsPage() {
         {showVisibleLookupRetry && !nayaxLookupNotice && (
           <div data-testid="nayax-lookup-retry" className={nayaxLookupNoticeClass('warning')}>
             <p>
-              Bloomjoy could not finish the read-only transaction check. No refund was issued.
+              Bloomjoy could not finish the read-only transaction check. No refund was issued. The next safe check runs automatically; you do not need to keep this page open.
             </p>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="mt-2 min-h-11 bg-background"
-              onClick={() => void handleNayaxLookup()}
-              disabled={isLookingUpNayax}
-            >
-              {isLookingUpNayax ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="mr-2 h-4 w-4" />
-              )}
-              Refresh transactions
-            </Button>
           </div>
         )}
         {!selectedCase.hasMatchedNayaxTransaction && !editor.clearNayaxMatch && effectiveCandidates.length > 0 && (
@@ -5555,12 +5487,12 @@ export default function AdminRefundsPage() {
           </summary>
           <div className="mt-3 space-y-2">
             <p className="text-xs leading-5 text-muted-foreground">
-              Use these options only if the selected transaction looks wrong or out of date.
+              Transaction research is read-only here. Bloomjoy runs new checks and safe recovery on the server.
             </p>
             <div className="flex flex-wrap gap-2">
-              {!automaticLookupPending && !showVisibleLookupRetry && lookupRefreshAllowed && (
+              {showRefundOperationsRecovery && (
                 <Button
-                  data-testid="nayax-check-transaction"
+                  data-testid="nayax-operations-recovery"
                   type="button"
                   variant="outline"
                   size="sm"
@@ -5572,7 +5504,7 @@ export default function AdminRefundsPage() {
                   ) : (
                     <RefreshCw className="mr-2 h-4 w-4" />
                   )}
-                  Refresh transaction results
+                  Recover transaction check
                 </Button>
               )}
               {hasSelectedMatch && (

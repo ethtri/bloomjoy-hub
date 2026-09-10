@@ -255,7 +255,7 @@ Deno.test('expired completed lookup results never render as an active search', (
   assertEquals(result.label, 'Transaction results expired', 'expired lookup label');
   assertEquals(
     result.nextStep,
-    'Select Refresh transaction results once. No refund has been issued.',
+    'Bloomjoy will refresh the read-only transaction evidence automatically. No refund has been issued.',
     'expired lookup action',
   );
 });
@@ -681,7 +681,7 @@ Deno.test('canonical operations hold gives routine managers no technical action'
   );
 });
 
-Deno.test('canonical lookup failure exposes only the read-only refresh action', () => {
+Deno.test('canonical lookup failure exposes automatic server recovery without manager authority', () => {
   const failedLifecycle = lifecycle('matching', 10);
   failedLifecycle.lookup.status = 'lookup_timed_out';
   failedLifecycle.lookup.safeRetryEligible = true;
@@ -693,8 +693,8 @@ Deno.test('canonical lookup failure exposes only the read-only refresh action', 
   assertEquals(result.id, 'match_attention', 'failed lookup state');
   assertEquals(
     result.nextStep,
-    'Select Refresh transactions. No refund has been issued.',
-    'safe retry copy'
+    'Bloomjoy will run the next safe read-only check automatically. No refund has been issued.',
+    'server recovery copy'
   );
 });
 

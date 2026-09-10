@@ -689,11 +689,13 @@ assert(
     refundReadPolling.includes('lifecycle.refreshAfterSeconds') &&
     refundReadPolling.includes('!lifecycle.terminal') &&
     refundOperationsUi.includes('lookupRequestSequenceRef') &&
-    refundOperationsUi.includes('Refresh transactions') &&
+    !refundOperationsUi.includes('Refresh transactions') &&
+    !refundOperationsUi.includes('Refresh transaction results') &&
+    refundOperationsUi.includes('runs new checks and safe recovery on the server') &&
     refundOperationsUi.includes('refundOperationsAccess') &&
     refundOperationsUi.includes('Needs Refund Operations') &&
     refundOperationsUi.includes('60-minute SLA'),
-  'The manager UI must consume the canonical lifecycle, discard stale lookups, expose safe refresh, and keep technical reconciliation in Refund Operations.'
+  'The manager UI must consume the canonical lifecycle, remain read-only for lookup recovery, and keep technical reconciliation in Refund Operations.'
 );
 assert(
   nayaxRecommendationMigration.includes('nayaxLookupCandidates') &&

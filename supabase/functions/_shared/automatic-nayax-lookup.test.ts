@@ -4,6 +4,7 @@ import {
   coordinateAutomaticNayaxLookup,
 } from "./automatic-nayax-lookup.ts";
 import type { NayaxLookupResult } from "./nayax-lookup.ts";
+import { classifyNayaxLookupFailure } from "./nayax-lookup-persistence.ts";
 
 const assert = (condition: unknown, message: string) => {
   if (!condition) throw new Error(message);
@@ -321,4 +322,31 @@ Deno.test("lookup failure records retry state and never invokes a refund path", 
     test.calls.persisted.length === 0,
     "failure must not persist a guessed result or refund attempt",
   );
+});
+
+Deno.test("only proved-safe read failures enter automatic recovery", () => {
+  for (const error of [
+    Object.assign(new Error("timed out"), { name: "NayaxLookupTimeoutError" }),
+    Object.assign(new Error("malformed"), { name: "NayaxLookupMalformedResponseError" }),
+    Object.assign(new Error("unavailable"), { name: "NayaxLookupRequestError", status: 503 }),
+    new Error("transport interrupted"),
+  ]) {
+    assert(
+      classifyNayaxLookupFailure(error).safeRetryEligible,
+      `${error.name} must be safe for one read-only retry`,
+    );
+  }
+});
+
+Deno.test("response limits, stale evidence, and nonretryable provider responses go to operations", () => {
+  for (const error of [
+    Object.assign(new Error("response too large"), { name: "NayaxLookupResponseLimitError" }),
+    Object.assign(new Error("evidence changed"), { name: "NayaxLookupEvidenceChangedError" }),
+    Object.assign(new Error("forbidden"), { name: "NayaxLookupRequestError", status: 403 }),
+  ]) {
+    assert(
+      !classifyNayaxLookupFailure(error).safeRetryEligible,
+      `${error.name} must never enter automatic retry`,
+    );
+  }
 });

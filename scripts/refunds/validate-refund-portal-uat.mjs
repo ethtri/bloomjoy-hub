@@ -4546,10 +4546,10 @@ const runLegacyStateNormalizationChecks = async ({ browser, appUrl, artifactDir,
     'Normalized legacy case explains the truthful manager task in plain language',
     await page.getByText('Historical payment review', { exact: true }).isVisible() &&
       await page.getByText('Manager review needed', { exact: true }).last().isVisible() &&
-      await page.getByText('Refresh transaction results', { exact: true }).isVisible() &&
+      await page.getByText('Transaction evidence needs review', { exact: true }).isVisible() &&
       await page.getByText('Fresh check needed', { exact: true }).last().isVisible() &&
       await page.getByText(
-        'Refresh the transaction results before making any decision.',
+        'Refund Operations is handling the stale transaction evidence.',
         { exact: true }
       ).isVisible()
   );
@@ -4560,8 +4560,8 @@ const runLegacyStateNormalizationChecks = async ({ browser, appUrl, artifactDir,
       await page.getByTestId('refund-legacy-state-freeze').isVisible()
   );
   recorder.assert(
-    'Normalized legacy case keeps only the read-only transaction check available',
-    await page.getByTestId('nayax-check-transaction').isVisible() &&
+    'Normalized legacy case keeps provider research server-owned',
+    (await page.getByTestId('nayax-check-transaction').count()) === 0 &&
       (await page.getByTestId('nayax-candidate-option').count()) === 0 &&
       await page.getByText('Waiting for a fresh transaction check', { exact: true }).isVisible() &&
       (await page.getByText('Transaction selected', { exact: true }).count()) === 0 &&
@@ -6664,7 +6664,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedStatus: 'Needs attention',
       expectedManagerNotice: 'Bloomjoy could not finish checking transactions.',
       expectedDescription: /bounded transaction search did not finish/i,
-      expectedAction: 'Select Refresh transaction results.',
+      expectedAction: 'Bloomjoy will run the next safe read-only check automatically.',
       expectedBadge: 'Check failed',
     },
     {
