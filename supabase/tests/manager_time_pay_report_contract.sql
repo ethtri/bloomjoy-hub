@@ -1923,6 +1923,51 @@ select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003
 create temporary table automatic_sales_published_report as
 select public.get_current_technician_pay_report_context('2026-07-01') as payload;
 
+reset role;
+select diag(jsonb_build_object(
+  'issuedStatements', (
+    select jsonb_agg(jsonb_build_object(
+      'id', statement.id,
+      'version', statement.version,
+      'issuedAt', statement.issued_at,
+      'generatedAt', statement.statement_generated_at,
+      'periodStart', period.period_start_date,
+      'periodEnd', period.period_end_date
+    ) order by statement.version desc, statement.issued_at desc nulls last, statement.created_at desc)
+    from public.pay_statements statement
+    join public.payout_runs run on run.id = statement.payout_run_id
+    join public.payout_periods period on period.id = run.payout_period_id
+    where statement.operator_profile_id = 'a6000000-0000-0000-0000-000000000002'
+      and statement.status = 'issued'
+  ),
+  'snapshot', (
+    select jsonb_build_object(
+      'id', snapshot.id,
+      'generatedAt', snapshot.generated_at,
+      'regeneratedAt', snapshot.regenerated_at
+    )
+    from public.payout_period_machine_revenue_snapshots snapshot
+    where snapshot.payout_period_id = 'a7000000-0000-0000-0000-000000000001'
+      and snapshot.reporting_machine_id = 'a4000000-0000-0000-0000-000000000002'
+      and snapshot.status <> 'voided'
+  ),
+  'audit', (
+    select jsonb_build_object('action', audit.action, 'createdAt', audit.created_at)
+    from public.admin_audit_log audit
+    where audit.entity_type = 'payout_period_machine_revenue_snapshot'
+      and audit.entity_id = 'aa000000-0000-0000-0000-000000000002'
+    order by audit.created_at desc
+    limit 1
+  ),
+  'regenerationRequired', private.operator_pay_stub_regeneration_required(
+    'a6000000-0000-0000-0000-000000000002',
+    '2026-07-01',
+    '2026-07-31'
+  )
+)::text);
+
+set local role authenticated;
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
 with technician as (
   select technician.item
   from automatic_sales_published_report report
