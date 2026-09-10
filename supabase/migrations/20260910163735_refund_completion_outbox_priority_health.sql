@@ -233,7 +233,7 @@ begin
     where completion.manual_delivery_state in ('queued','claimed')
       or (completion.manual_delivery_state='failed' and completion.error_message in
         ('manager_cc_required','manager_cc_resolution_invalid'))
-    group by completion.id
+    group by completion.id,completion.manual_delivery_state,completion.error_message
   )
   select jsonb_build_object(
     'status',case when

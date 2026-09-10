@@ -177,8 +177,8 @@ select is((select sum(claim_count)::integer from refund_receipt_auto_race_test.d
   'Exact and generic concurrent drains claim the canonical completion once');
 select is((select count(*)::integer from public.refund_case_messages
   where refund_case_id='cd400000-0000-4000-8000-000000000001'
-    and manual_delivery_state='claimed' and manual_delivery_attempt_count=0
-    and manual_delivery_provider_attempted_at is null),1,
+    and manual_delivery_state='claimed' and manual_delivery_attempt_count=1
+    and manual_delivery_provider_attempted_at is null and provider_message_id is null),1,
   'Exact versus generic claim race creates no provider effect before the shared transport boundary');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
   where refund_case_id='cd400000-0000-4000-8000-000000000001'),0,
