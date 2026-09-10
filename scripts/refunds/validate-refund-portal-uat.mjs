@@ -7914,16 +7914,11 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
     await page.getByRole('button', { name: /^Action needed \d+$/ }).click();
     await queueCase(page, 'RF-UAT-CORRECTION').click();
     await page.getByRole('heading', { name: 'RF-UAT-CORRECTION', exact: true }).waitFor({ timeout: 10000 });
-    await page.getByTestId('refund-save-case').click();
-    await page.getByRole('heading', { name: 'Request customer correction', exact: true }).waitFor({ timeout: 10000 });
     recorder.assert(
-      `${scenario.name} receives one focused correction choice before sending`,
-      await page.getByText('Amount charged (USD)', { exact: true }).isVisible() &&
-        await page.getByRole('button', { name: 'Send correction request', exact: true }).isEnabled()
+      `${scenario.name} cannot manually send a correction without server-owned fallback authority`,
+      (await page.getByTestId('refund-save-case').count()) === 0 &&
+        (await page.getByRole('button', { name: 'Request details', exact: true }).count()) === 0
     );
-    await page.getByRole('button', { name: 'Send correction request', exact: true }).click();
-    await page.getByRole('heading', { name: 'Request customer correction', exact: true })
-      .waitFor({ state: 'hidden', timeout: 10000 });
     await page.getByRole('button', { name: /^Ready to refund \d+$/ }).click();
     await queueCase(page, 'RF-UAT-ALT-CARD').click();
     await page.getByRole('heading', { name: 'RF-UAT-ALT-CARD', exact: true }).waitFor({ timeout: 10000 });
@@ -7932,11 +7927,8 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
       entry.body?.caseId === 'case-card-correction'
     );
     recorder.assert(
-      `${scenario.name} clean canonical correction sends once and allows warning-free navigation`,
-      correctionCalls.length === 1 &&
-        correctionCalls[0].body?.messageType === 'more_info' &&
-        correctionCalls[0].body?.subject == null &&
-        correctionCalls[0].body?.body == null &&
+      `${scenario.name} server-owned correction remains customer-silent and allows warning-free navigation`,
+      correctionCalls.length === 0 &&
         (await page.getByTestId('refund-unsaved-text-dialog').count()) === 0,
       JSON.stringify(correctionCalls)
     );
