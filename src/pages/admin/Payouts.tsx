@@ -904,10 +904,23 @@ export default function AdminPayoutsPage() {
     },
     onSuccess: async (_result, draft) => {
       const assignment = getAssignmentById(draft.technician, draft.assignmentId);
+      let salesRefreshFailed = false;
+      try {
+        const refreshedSales = await refreshTechnicianPayReportSalesAdmin(
+          `${month}-01`,
+          draft.technician.accountId
+        );
+        salesRefreshFailed = refreshedSales.periodCount === 0;
+      } catch {
+        salesRefreshFailed = true;
+      }
       await queryClient.invalidateQueries({ queryKey: ['technician-pay-report'] });
       setAssignmentInputDraft(null);
       setAssignmentInputError(null);
-      toast.success(`${assignment?.machineLabel ?? 'Machine'} assignment saved: ${formatAssignmentRange(draft.effectiveStartDate, draft.effectiveEndDate || null)}. Pay and commission rates were not changed.`);
+      toast.success(`${assignment?.machineLabel ?? 'Machine'} assignment saved: ${formatAssignmentRange(draft.effectiveStartDate, draft.effectiveEndDate || null)}. Pay and commission rates were not changed.${salesRefreshFailed ? '' : ` ${formatMonth(month)} sales were recalculated.`}`);
+      if (salesRefreshFailed) {
+        toast.error(`Assignment dates were saved, but ${formatMonth(month)} sales could not be recalculated. Use Refresh sales and try again.`);
+      }
     },
     onError: (saveError) => {
       setAssignmentInputError(saveError instanceof Error ? saveError.message : 'Unable to save assignment dates.');

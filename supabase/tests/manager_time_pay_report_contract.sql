@@ -9,7 +9,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(122);
+select plan(123);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -1691,7 +1691,9 @@ with normalized as (
       'warnings', '[]'::jsonb,
       'machines', jsonb_build_array(jsonb_build_object(
         'machineId', 'machine-a',
-        'sourceLatestSaleDate', '2026-08-30'
+        'sourceLatestSaleDate', '2026-08-30',
+        'revenueSnapshotId', 'snapshot-a',
+        'snapshotMatchesFacts', true
       )),
       'currentTotalCents', 7850,
       'publishable', false,
@@ -1705,11 +1707,10 @@ with normalized as (
 select is(
   concat(
     jsonb_array_length(report -> 'blockers'), ':',
-    report #>> '{blockers,0,code}', ':',
     report ->> 'publishable'
   ),
-  '1:stale_commission_sales_facts:false',
-  'a closed month retains one actionable freshness blocker per machine'
+  '0:true',
+  'a closed month accepts a refreshed matching snapshot when the final day had no sales'
 )
 from normalized;
 
@@ -1744,6 +1745,20 @@ select is(
   'the pay report exposes effective assignment history to an account pay manager'
 )
 from assignment;
+
+select is(
+  (
+    select concat(result ->> 'periodCount', ':', result ->> 'snapshotCount')
+    from (
+      select public.admin_refresh_technician_pay_report_sales(
+        '2026-08-01',
+        'a2000000-0000-0000-0000-000000000001'
+      ) as result
+    ) refreshed
+  ),
+  '1:1',
+  'sales refresh creates a missing monthly period after a historical assignment change'
+);
 
 select is(
   public.admin_issue_pay_statements(
