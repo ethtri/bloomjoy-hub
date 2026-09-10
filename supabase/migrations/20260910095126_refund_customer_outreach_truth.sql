@@ -76,7 +76,7 @@ begin
   -- candidate, payment effect, or correction context.
   perform 1 from public.refund_nayax_lookup_candidates candidate
   where candidate.refund_case_id = p_refund_case_id
-  order by candidate.id for share;
+  order by candidate.token for share;
   perform 1 from public.refund_authoritative_receipts receipt
   where receipt.refund_case_id = p_refund_case_id
   order by receipt.id for share;
