@@ -3810,6 +3810,8 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   );
 
   await queueCase(page, 'RF-UAT-CARD').click();
+  await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
+  await page.getByTestId('refund-card-workbench').waitFor({ timeout: 10000 });
   recorder.assert(
     'Case detail opens selected card case',
     await page.getByRole('heading', { name: 'RF-UAT-CARD' }).isVisible()
