@@ -69,8 +69,7 @@ update public.refund_nayax_lookup_recoveries
 set claim_expires_at=statement_timestamp()-interval '1 second'
 where refund_case_id='a8800000-0000-4000-8000-000000000010';
 update public.refund_cases
-set deterministic_fact_version=deterministic_fact_version+1,
-  nayax_lookup_status='no_match',nayax_lookup_generation=7,
+set card_last4='4243',nayax_lookup_status='no_match',nayax_lookup_generation=7,
   nayax_recommendation_state='no_safe_match',
   nayax_recommendation_evaluated_at=statement_timestamp()
 where id='a8800000-0000-4000-8000-000000000010';
