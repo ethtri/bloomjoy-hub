@@ -1311,6 +1311,54 @@ const buildPendingNayaxRefundOverview = () => {
   return overview;
 };
 
+const buildAdamManualNayaxRefundOverview = () => {
+  const overview = buildPendingNayaxRefundOverview();
+  overview.refundOperationsAccess = true;
+  overview.machines = [{
+    id: 'machine-adam-manual',
+    machineLabel: 'Mall of Louisiana',
+    locationName: 'Mall of Louisiana',
+    nayaxLookupConfigured: false,
+  }];
+  overview.managerAssignments = [{
+    reportingMachineId: 'machine-adam-manual',
+    managerEmail: mockUser.email,
+  }];
+  overview.cases = [{
+    ...overview.cases[0],
+    id: 'case-adam-manual',
+    publicReference: 'RF-UAT-ADAM-MANUAL',
+    correlationStatus: 'nayax_not_configured',
+    correlationSummary: 'Use Adam’s Nayax portal to find the exact transaction.',
+    machineLabel: 'Mall of Louisiana',
+    locationName: 'Mall of Louisiana',
+    customerEmail: 'adam-case-customer@example.test',
+    customerName: 'Adam Case Customer',
+    customerPhone: '555-0142',
+    issueSummary: 'Card was charged but no cotton candy was dispensed. Customer also reported that the machine display restarted twice.',
+    incidentAt: isoHoursAgo(2),
+    incidentTimeResolution: 'approximate',
+    paymentAmountCents: 3300,
+    cardLast4: '6768',
+    cardLast4Provenance: 'physical_card',
+    cardNetwork: 'mastercard',
+    cardWalletUsed: false,
+    paymentInteraction: 'tap_card',
+    issueCategory: 'charged_no_product',
+    productDescription: 'Cotton candy',
+    manualNayaxPortalEnabled: true,
+    manualNayaxEvidenceSelected: false,
+    manualNayaxLocationTimezone: 'America/Chicago',
+    reviewedNayaxPortalFallbackKind: 'legacy_manual_evidence',
+    nayaxLookupCandidates: [],
+    assignedManagerEmail: mockUser.email,
+    refundAmountCents: 3300,
+    createdAt: isoHoursAgo(3),
+    updatedAt: isoHoursAgo(1),
+  }];
+  return overview;
+};
+
 const buildNavigationOnlyPendingOverview = () => {
   const overview = buildPendingNayaxRefundOverview();
   overview.cases = overview.cases.map((refundCase) => ({
@@ -3772,6 +3820,15 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       await page.getByTestId('refund-request-summary').isVisible() &&
       await page.getByTestId('nayax-result-card').isVisible()
   );
+  recorder.assert(
+    'Manager case evidence is visible without opening another control',
+    await page.getByTestId('refund-customer-payment-details').isVisible() &&
+      await page.getByTestId('refund-customer-payment-details').getByText('Card ending', { exact: true }).isVisible() &&
+      await page.getByTestId('refund-customer-payment-details').getByText('Visa', { exact: true }).isVisible() &&
+      await page.getByTestId('refund-customer-comments').isVisible() &&
+      (await page.getByTestId('refund-customer-comments').innerText()).includes('Machine spun') &&
+      (await page.getByRole('button', { name: /^Internal\/test archive/ }).count()) === 0
+  );
   await settleRefundPortalPage(page);
   const requestBox = await page.getByTestId('refund-request-summary').boundingBox();
   const matchBox = await page.getByTestId('nayax-result-card').boundingBox();
@@ -3839,7 +3896,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   const purchaseComparisonBox = await purchaseComparison.boundingBox();
   const transactionEvidenceDetailsBox = await transactionEvidenceDetails.boundingBox();
   recorder.assert(
-    'Selected purchase summary and comparison are visible before technical evidence',
+    'Selected purchase summary and comparison follow case evidence and stay before technical evidence',
       await selectedTransactionEvidence.isVisible() &&
       await selectedTransactionEvidence.getByText('$7.00 USD', { exact: false }).first().isVisible() &&
       await purchaseComparison.isVisible() &&
@@ -3849,7 +3906,6 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       Boolean(
         selectedPurchaseBox && purchaseComparisonBox && transactionEvidenceDetailsBox &&
         selectedPurchaseBox.y < purchaseComparisonBox.y &&
-        purchaseComparisonBox.y < 1000 &&
         purchaseComparisonBox.y < transactionEvidenceDetailsBox.y
       ),
     JSON.stringify({ selectedPurchaseBox, purchaseComparisonBox, transactionEvidenceDetailsBox })
@@ -3920,19 +3976,11 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   const selectedActionDiagnostics = {
     policyCopyCount: await page.getByText(/transaction evidence, not a refund decision/i).count(),
     refundActionCount: await selectedRefundActions.count(),
-    visibleRefundActionCount: await selectedRefundActions.evaluateAll((buttons) =>
-      buttons.filter((button) => {
-        const box = button.getBoundingClientRect();
-        const style = window.getComputedStyle(button);
-        return box.width > 0 && box.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
-      }).length
-    ),
   };
   recorder.assert(
     'Selected match keeps one manager-owned action without policy copy',
     selectedActionDiagnostics.policyCopyCount === 0 &&
-      selectedActionDiagnostics.refundActionCount === 1 &&
-      selectedActionDiagnostics.visibleRefundActionCount === 1,
+      selectedActionDiagnostics.refundActionCount === 1,
     JSON.stringify(selectedActionDiagnostics)
   );
   recorder.assert(
@@ -3953,9 +4001,27 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       (await page.getByText('Open Nayax and refund the matched card sale.').count()) === 0 &&
       (await page.getByText('Card refund confirmation/reference').count()) === 0
   );
+  const activityHistory = page.getByTestId('refund-activity-history');
+  const activityHistorySummary = page.getByTestId('refund-activity-history-summary');
   recorder.assert(
-    'History stays behind progressive disclosure',
-    await page.getByText(/Event timeline \(2\)/).isVisible() &&
+    'Activity and messages stay behind one progressive disclosure',
+    await activityHistorySummary.getByText('Activity and messages', { exact: true }).isVisible() &&
+      await activityHistorySummary.getByText('3 records', { exact: true }).isVisible() &&
+      await activityHistory.evaluate((element) => element.open === false)
+  );
+  await activityHistorySummary.focus();
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  const activityHistorySummaryIsTabbed = await activityHistorySummary.evaluate(
+    (element) => document.activeElement === element && element.tabIndex >= 0
+  );
+  await page.keyboard.press('Enter');
+  recorder.assert(
+    'Activity and messages stays in the shared-shell Tab order and Enter opens it',
+    activityHistorySummaryIsTabbed &&
+      await activityHistory.evaluate((element) => element.open === true) &&
+      await activityHistorySummary.evaluate((element) => document.activeElement === element) &&
+      await page.getByText(/Event timeline \(2\)/).isVisible() &&
       await page.getByText(/Customer messages \(1\)/).isVisible()
   );
   const ordinaryMessageHistory = page.getByTestId('refund-customer-messages');
@@ -3968,11 +4034,13 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   );
   await page.keyboard.press('Enter');
   recorder.assert(
-    'Ordinary-case Customer messages stays in the shared-shell Tab order and Enter opens it',
+    'Nested Customer messages stays in the shared-shell Tab order and Enter opens it',
     ordinaryMessageSummaryIsTabbed &&
       await ordinaryMessageHistory.evaluate((element) => element.open === true) &&
       await ordinaryMessageHistorySummary.evaluate((element) => document.activeElement === element)
   );
+  await page.keyboard.press('Enter');
+  await activityHistorySummary.focus();
   await page.keyboard.press('Enter');
   recorder.assert(
     'Unselected provider transaction IDs remain absent from the workflow body',
@@ -4817,6 +4885,8 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     JSON.stringify(discardSignals)
   );
   await page.getByTestId('refund-gpt-draft-body').waitFor({ timeout: 10000 });
+  await page.getByTestId('refund-activity-history-summary').click();
+  await page.getByTestId('refund-gmail-open-recovery').waitFor({ timeout: 10000 });
   recorder.assert(
     'Incomplete Gmail draft cannot expose payment execution controls',
     (await page.getByTestId('refund-card-workbench').count()) === 0 &&
@@ -4921,6 +4991,8 @@ const runGmailDraftChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   await page.getByRole('button', { name: /RF-UAT-GMAIL/ }).click();
   await page.getByTestId('refund-gmail-draft-workbench').waitFor({ timeout: 10000 });
   await settleRefundPortalPage(page);
+  await page.getByTestId('refund-activity-history-summary').click();
+  await page.getByTestId('refund-gmail-open-recovery').waitFor({ timeout: 10000 });
   const overflow = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
     bodyScrollWidth: document.body.scrollWidth,
@@ -5419,6 +5491,14 @@ const runManualExternalCashWorkflowChecks = async ({ browser, appUrl, artifactDi
   await queueCase(page, 'RF-UAT-CASH-NO-MATCH').click();
   await page.getByTestId('refund-cash-workbench').waitFor({ timeout: 10000 });
 
+  recorder.assert(
+    'Cash review keeps customer identity, refund path, and full comments visible',
+    await page.getByText('Cash Review Customer', { exact: false }).first().isVisible() &&
+      await page.getByTestId('refund-cash-request-summary').getByText('Cash payment · external reimbursement', { exact: true }).isVisible() &&
+      await page.getByTestId('refund-customer-comments').isVisible() &&
+      (await page.getByTestId('refund-customer-comments').innerText()).includes('machine stopped before dispensing')
+  );
+
   await page.getByText('Preview customer email', { exact: true }).click();
   recorder.assert(
     'Cash completion preview is channel-neutral and explicit',
@@ -5654,12 +5734,14 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
     (name) => name === 'nayax-transaction-lookup'
   ).length;
   recorder.assert(
-    'Ready case explains that Bloomjoy starts the initial lookup automatically',
-    await page.getByText('Automatic transaction check', { exact: true }).isVisible() &&
-      await page.getByText(/starts this read-only check automatically/i).isVisible() &&
-      (await page.getByRole('button', { name: 'Check Nayax transaction' }).count()) === 0
+    'Unavailable transaction search stays read-only without manual provider controls',
+    await page.getByTestId('refund-manager-state').getByText('Transaction search unavailable', { exact: true }).isVisible() &&
+      (await page.getByTestId('manual-nayax-evidence-form').count()) === 0 &&
+      (await page.getByText('Transaction search details', { exact: true }).count()) === 0 &&
+      (await page.getByRole('button', { name: 'Check Nayax transaction' }).count()) === 0 &&
+      (await page.getByRole('button', { name: 'Refresh transaction results' }).count()) === 0
   );
-  const automaticLookupGuidance = page.getByText('Automatic transaction check', { exact: true });
+  const automaticLookupGuidance = page.getByTestId('refund-manager-state');
   await automaticLookupGuidance.scrollIntoViewIfNeeded();
   await page.screenshot({
     path: path.join(artifactDir, 'refund-automatic-nayax-ready-desktop.png'),
@@ -5676,43 +5758,35 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
     fullPage: false,
   });
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.getByText('Transaction search details', { exact: true }).click();
-  recorder.assert(
-    'Manual Refresh transaction results remains available as an operational fallback',
-    await page.getByRole('button', { name: 'Refresh transaction results' }).isVisible()
-  );
-  await page.getByTestId('nayax-check-transaction').click();
-  await page.getByTestId('nayax-result-card').getByText('This machine\'s separate Nayax account scope is not connected for read-only lookup.').first().waitFor({
-    timeout: 10000,
-  });
   evidence.primaryCheckLookupCallCountAfter = functionCalls.filter(
     (name) => name === 'nayax-transaction-lookup'
   ).length;
 
   recorder.assert(
-    'Explicit manager fallback runs Nayax lookup once when evidence is pending',
+    'Unavailable provider setup performs no manager-triggered lookup',
     evidence.primaryCheckLookupCallCountBefore === 0 &&
-      evidence.primaryCheckLookupCallCountAfter === 1,
+      evidence.primaryCheckLookupCallCountAfter === 0,
     functionCalls.join(', ')
   );
   recorder.assert(
-    'Unavailable transaction search is visible in the manager workbench',
-    await page.getByTestId('nayax-result-card').getByText('This machine\'s separate Nayax account scope is not connected for read-only lookup.').first().isVisible()
+    'Unavailable transaction search is visible without exposing provider setup detail',
+    await page.getByTestId('nayax-result-card').getByText('Automatic match unavailable', { exact: true }).isVisible() &&
+      await page.getByTestId('nayax-internal-setup-owner').getByText(/Refund Operations owns the connection/).isVisible() &&
+      (await page.getByText('Nashville Nayax account scope', { exact: false }).count()) === 0
   );
   recorder.assert(
     'Provider setup state stays manager-only and cannot trigger customer correction copy',
-    (await page.getByText('Transaction search unavailable', { exact: true }).count()) >= 1 &&
       (await page.getByText('Ask customer for details', { exact: true }).count()) === 0 &&
-      await page.getByTestId('nayax-internal-setup-owner').getByText('Refund Operations', { exact: true }).isVisible() &&
-      await page.getByTestId('nayax-internal-setup-owner').getByText('Nashville Nayax account scope', { exact: true }).isVisible() &&
-      await page.getByTestId('nayax-internal-setup-owner').getByText(/Customer action: none/).isVisible()
+      (await page.getByText('Ask for missing details', { exact: true }).count()) === 0 &&
+      (await page.getByTestId('refund-manager-next-step').innerText()).includes('No customer follow-up is needed') &&
+      await page.getByTestId('nayax-internal-setup-owner').getByText(/Refund Operations owns the connection/).isVisible() &&
+      await page.getByTestId('nayax-internal-setup-owner').getByText(/No customer follow-up is needed\./).isVisible()
   );
   recorder.assert(
     'Pending transaction result explains the unavailable state',
-    await page.getByTestId('refund-primary-action').getByText('Transaction search unavailable', { exact: true }).isVisible() &&
-      await page.getByTestId('nayax-result-card').getByText('Transaction search is unavailable', { exact: true }).isVisible() &&
-      await page.getByTestId('nayax-result-card').getByText('Needs attention', { exact: true }).isVisible() &&
-      await page.getByTestId('nayax-result-card').getByText('This machine\'s separate Nayax account scope is not connected for read-only lookup.').first().isVisible()
+    await page.getByTestId('refund-manager-state').getByText('Transaction search unavailable', { exact: true }).isVisible() &&
+      await page.getByTestId('nayax-result-card').getByText('Automatic match unavailable', { exact: true }).isVisible() &&
+      await page.getByTestId('nayax-result-card').getByText(/Managers may review this case directly in Nayax only if needed/).isVisible()
   );
   recorder.assert(
     'Nayax setup notice does not expose raw provider IDs',
@@ -5763,6 +5837,80 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
   await page.screenshot({
     path: path.join(artifactDir, 'refund-portal-uat-routine-manager-mobile.png'),
     fullPage: false,
+  });
+
+  await closeRefundPortalContext(context);
+};
+
+const runAdamManualCaseEvidenceChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
+  const functionCalls = [];
+  const rpcCalls = [];
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await installMockSupabaseRoutes(context, {
+    refundOverview: buildAdamManualNayaxRefundOverview,
+    functionCalls,
+    rpcCalls,
+  });
+  const page = await context.newPage();
+  await signInRefundUser(page, appUrl);
+  await page.getByRole('button', { name: /^Action needed 1$/ }).click();
+  await waitForQueueCount(page, 1);
+  await queueCase(page, 'RF-UAT-ADAM-MANUAL').click();
+
+  const comments = page.getByTestId('refund-customer-comments');
+  const paymentDetails = page.getByTestId('refund-customer-payment-details');
+  const setupSummary = page.getByTestId('nayax-internal-setup-owner');
+  await setupSummary.waitFor({ state: 'visible', timeout: 10000 });
+  recorder.assert(
+    'Adam-managed API-pending case shows complete customer and payment evidence',
+    await page.getByText('Adam Case Customer · adam-case-customer@example.test · 555-0142', { exact: true }).isVisible() &&
+      (await comments.innerText()).includes('machine display restarted twice') &&
+      await paymentDetails.getByText('6768', { exact: true }).isVisible() &&
+      await paymentDetails.getByText('Mastercard', { exact: true }).isVisible() &&
+      await paymentDetails.getByText('Tapped a physical card', { exact: true }).isVisible() &&
+      await page.getByText('Mall of Louisiana · $33.00', { exact: true }).isVisible()
+  );
+  recorder.assert(
+    'Adam-managed API-pending case removes portal transcription and keeps the blocker internal',
+    await page.getByTestId('nayax-decision-heading').getByText('Automatic match unavailable', { exact: true }).isVisible() &&
+      await setupSummary.getByText(/review this case directly in Nayax only if needed/).isVisible() &&
+      await setupSummary.getByText(/No customer follow-up is needed\./).isVisible() &&
+      (await page.getByTestId('refund-manager-next-step').innerText()).includes('No customer follow-up is needed') &&
+      (await page.getByText('Ask for missing details', { exact: true }).count()) === 0 &&
+      (await page.getByTestId('manual-nayax-evidence-form').count()) === 0 &&
+      (await page.getByLabel('Transaction reference').count()) === 0 &&
+      functionCalls.length === 0 &&
+      !rpcCalls.includes('admin_create_refund_manual_nayax_candidate')
+  );
+  await page.getByText('Signed in. Redirecting...', { exact: true })
+    .waitFor({ state: 'hidden', timeout: 5000 })
+    .catch(() => undefined);
+  await page.evaluate(() => {
+    const selectedCasePanel = document.querySelector('[aria-label="Selected refund case"]');
+    if (selectedCasePanel instanceof HTMLElement) {
+      selectedCasePanel.style.maxHeight = 'none';
+      selectedCasePanel.style.overflow = 'visible';
+    }
+    window.scrollTo(0, 0);
+  });
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-adam-api-pending-case-desktop.png'),
+    fullPage: true,
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  recorder.assert(
+    'Adam-managed case evidence and compact fallback remain usable on mobile',
+    await comments.isVisible() &&
+      await paymentDetails.isVisible() &&
+      await setupSummary.isVisible() &&
+      (await page.getByTestId('manual-nayax-evidence-form').count()) === 0 &&
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-adam-api-pending-case-mobile.png'),
+    fullPage: true,
   });
 
   await closeRefundPortalContext(context);
@@ -6674,12 +6822,20 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       );
     } else if (scenario.queueView === 'Waiting') {
       recorder.assert(
-        `Opening the ${scenario.name} case does not repeat a lookup without the canonical lifecycle trigger`,
-        functionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 0,
+        `Opening the ${scenario.name} case preserves the customer wait without exposing transaction-search controls`,
+        functionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 0 &&
+          (await page.getByText('Transaction search details', { exact: true }).count()) === 0 &&
+          (await page.getByTestId('nayax-check-transaction').count()) === 0 &&
+          await page.getByTestId('refund-manager-state').getByText('Waiting on customer', { exact: true }).isVisible() &&
+          (await page.getByTestId('refund-manager-next-step').innerText()).includes('Wait for the customer to reply'),
         functionCalls.join(', ')
       );
-      await page.getByText('Transaction search details', { exact: true }).click();
-      await page.getByTestId('nayax-check-transaction').click();
+      await page.screenshot({
+        path: path.join(artifactDir, 'refund-portal-uat-wallet-waiting-on-customer.png'),
+        fullPage: false,
+      });
+      await closeRefundPortalContext(context);
+      continue;
     } else {
       await page.getByTestId('nayax-result-card').getByText(scenario.expectedStatus, { exact: true })
         .waitFor({ timeout: 10000 });
@@ -6854,8 +7010,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       if (scenario.expectedReviewableMismatch) {
         const candidateOption = page.getByTestId('nayax-candidate-option').first();
         const requestSummary = page.getByTestId('refund-request-summary');
-        await requestSummary.locator('summary').click();
-        const physicalCardSource = requestSummary.getByText('Last four from physical card', { exact: true });
+        const physicalCardSource = requestSummary.getByText('physical card', { exact: true });
         const mismatchExplanation = candidateOption.getByText(
           /Card ending differs; wallet, contactless, or source differences may explain it/
         );
@@ -7002,6 +7157,12 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       !(await page.locator('body').innerText()).includes('providerTransactionId')
     );
     if (scenario.simpleJourney) {
+      await page.getByRole('status', { name: 'Refund temporarily unavailable', exact: true })
+        .waitFor({ state: 'visible', timeout: 10000 });
+      await page.getByText(
+        'Card refunds are not enabled for this machine. An administrator needs to enable them.',
+        { exact: true }
+      ).first().waitFor({ state: 'visible', timeout: 10000 });
       recorder.assert(
         'Confirmed disabled machine names one exact activation reason and no generic dead end',
         (await page.getByRole('button', { name: /^Refund \$7\.00$/i }).count()) === 0 &&
@@ -7231,7 +7392,6 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
   await queueCase(blockedPage, 'RF-UAT-CARD').click();
   await blockedPage.getByRole('button', { name: 'Approve refund for Nayax portal', exact: true }).waitFor({ timeout: 10000 });
   const blockedRequestSummary = blockedPage.getByTestId('refund-request-summary');
-  await blockedRequestSummary.locator('summary').click();
   recorder.assert(
     'Released rejection offers the reviewed portal fallback when the direct API is unavailable',
     (await blockedPage.getByRole('button', { name: /^Refund \$/i }).count()) === 0 &&
@@ -7383,6 +7543,7 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
       JSON.stringify({ functionCalls, functionBodies })
     );
 
+    await page.getByText('Other decisions', { exact: true }).click();
     recorder.assert(
       `${scenario.name} can choose denial after exact transaction confirmation`,
       await page.getByTestId('refund-deny-instead').isVisible() &&
@@ -7833,10 +7994,9 @@ const runAcknowledgementRecoveryChecks = async ({ browser, appUrl, artifactDir, 
   const exception = page.getByTestId('refund-acknowledgement-delivery-exception');
   const disposition = page.getByTestId('refund-record-later-contact-disposition');
   recorder.assert(
-    'A later message cannot hide the skipped initial acknowledgement',
+    'A later message cannot hide the single skipped-acknowledgement recovery panel',
     await exception.isVisible() &&
-      await page.getByLabel('Selected refund case')
-        .getByText('Acknowledgement needs review', { exact: true }).isVisible() &&
+      await exception.getByText('Customer acknowledgement was skipped', { exact: true }).isVisible() &&
       await disposition.isVisible()
   );
   recorder.assert(
@@ -7944,7 +8104,7 @@ const runCustomerLocaleCorrectionChecks = async ({ browser, appUrl, artifactDir,
         );
       })
   );
-  await administration.locator('summary').click();
+  await administration.locator(':scope > summary').click();
   recorder.assert(
     'An existing case without persisted locale is visibly manager-owned',
     await localeSection.isVisible() &&
@@ -8011,6 +8171,7 @@ const runCustomerLocaleCorrectionChecks = async ({ browser, appUrl, artifactDir,
     fullPage: false,
   });
 
+  await page.getByTestId('refund-activity-history-summary').click();
   const messageHistory = page.getByText('Customer messages (1)', { exact: true });
   await messageHistory.click();
   recorder.assert(
@@ -8060,11 +8221,17 @@ const runInternalTestDispositionChecks = async ({ browser, appUrl, artifactDir, 
       !(await disposition.isVisible()) &&
       await page.getByText('Current state', { exact: true }).isVisible()
   );
-  await administration.locator('summary').click();
+  await administration.locator(':scope > summary').click();
   recorder.assert(
-    'Refund Operations sees a non-denial Internal/test disposition with a required reason',
+    'Refund Operations sees archived-test handling only as a secondary administration option',
     await disposition.isVisible() &&
-      (await disposition.innerText()).includes('This is not a denial and sends no customer message') &&
+      (await disposition.locator(':scope > summary').innerText()).includes('Archive a non-customer test record') &&
+      !(await page.getByTestId('refund-open-internal-test-confirmation').isVisible())
+  );
+  await disposition.locator('summary').click();
+  recorder.assert(
+    'Opening archived-test handling reveals the required reason without changing the customer case',
+    await page.getByTestId('refund-open-internal-test-confirmation').isVisible() &&
       await page.getByTestId('refund-open-internal-test-confirmation').isDisabled()
   );
 
@@ -8189,8 +8356,10 @@ const runInternalTestDispositionChecks = async ({ browser, appUrl, artifactDir, 
     fullPage: false,
   });
   await page.getByTestId('refund-confirm-internal-test-classification').click();
-  await page.getByRole('button', { name: /^Internal\/test archive 1$/ })
-    .waitFor({ timeout: 10000 });
+  await page.getByText('Operations status', { exact: true }).click();
+  const archiveButton = page.getByRole('button', { name: /^View archive 1$/ });
+  await archiveButton.waitFor({ timeout: 10000 });
+  await archiveButton.click();
   await waitForQueueCount(page, 1);
   await queueCase(page, 'RF-UAT-CARD').click();
 
@@ -10268,12 +10437,13 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
         await demoRefundAction.isDisabled() &&
         (await page.getByTestId('refund-confirmation-dialog').count()) === 0
     );
+    await page.getByText('Other decisions', { exact: true }).click();
     recorder.assert(
       'Confirmed demo transaction keeps Deny request visible as a secondary action',
       await page.getByTestId('refund-deny-instead').isVisible()
     );
     const demoRequestSummary = page.getByTestId('refund-request-summary');
-    await demoRequestSummary.locator('summary').click();
+    await demoRequestSummary.getByText('Case evidence source', { exact: true }).click();
     const customerFactEvidence = page.getByTestId('refund-customer-fact-evidence');
     recorder.assert(
       'Customer correction evidence shows source, time, provenance, and one fact version',
@@ -10407,6 +10577,12 @@ const run = async () => {
       });
     } else if (args.managerQueueOnly) {
       await runRefundOnlyChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
+      });
+      await runAdamManualCaseEvidenceChecks({
         browser,
         appUrl: args.appUrl,
         artifactDir: args.artifactDir,
@@ -10546,6 +10722,12 @@ const run = async () => {
       recorder,
     });
     await runRefundOnlyChecks({
+      browser,
+      appUrl: args.appUrl,
+      artifactDir: args.artifactDir,
+      recorder,
+    });
+    await runAdamManualCaseEvidenceChecks({
       browser,
       appUrl: args.appUrl,
       artifactDir: args.artifactDir,
@@ -10834,7 +11016,7 @@ const run = async () => {
         evidence.navigationStepUpCallCount === 0 &&
         evidence.navigationMutatingRpcCallCount === 0 &&
         evidence.primaryCheckLookupCallCountBefore === 0 &&
-        evidence.primaryCheckLookupCallCountAfter === 1 &&
+        evidence.primaryCheckLookupCallCountAfter === 0 &&
         evidence.providerSuccessStateCount === 1 &&
         evidence.providerNonSuccessStateCount === 5 &&
         evidence.intakeAvailable === true &&

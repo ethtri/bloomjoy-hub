@@ -112,7 +112,7 @@ const machineFixtures = {
     navigationStepUpCallCount: 0,
     navigationMutatingRpcCallCount: 0,
     primaryCheckLookupCallCountBefore: 0,
-    primaryCheckLookupCallCountAfter: 1,
+    primaryCheckLookupCallCountAfter: 0,
     providerSuccessStateCount: 1,
     providerNonSuccessStateCount: 5,
     intakeAvailable: true,
@@ -324,7 +324,12 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 93, 'Evidence must enumerate all 93 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 95, 'Evidence must enumerate all 95 reviewed screenshots');
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-adam-api-pending-case-desktop.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-adam-api-pending-case-mobile.png'),
+    'Evidence must include the streamlined Adam-managed API-pending case on desktop and mobile'
+  );
   assert(
     EXPECTED_SCREENSHOTS.includes('machine-refunds-valley-product-unverified-desktop.png') &&
       EXPECTED_SCREENSHOTS.includes('machine-refunds-valley-product-unverified-mobile.png'),

@@ -43,6 +43,7 @@ assert.deepEqual(overviewFixtureBuilders, [
   'buildCashRefundReviewOverview',
   'buildCashRefundVariantsOverview',
   'buildPendingNayaxRefundOverview',
+  'buildAdamManualNayaxRefundOverview',
   'buildNavigationOnlyPendingOverview',
   'buildSimpleCardRefundJourneyOverview',
   'buildGroupedLivermorePendingOverview',
@@ -79,6 +80,10 @@ assert.match(
 );
 assert.match(
   portalSource,
+  /const buildAdamManualNayaxRefundOverview = [\s\S]*?publicReference: 'RF-UAT-ADAM-MANUAL'[\s\S]*?manualNayaxPortalEnabled: true[\s\S]*?reviewedNayaxPortalFallbackKind: 'legacy_manual_evidence'/
+);
+assert.match(
+  portalSource,
   /const buildManagerClarityRefundOverview = [\s\S]*?status: 'draft'[\s\S]*?lifecycle: buildLifecycleFixture\('needs_transaction_selection', 20, 'select_transaction'\)[\s\S]*?status: 'waiting_on_customer'[\s\S]*?lifecycle: buildLifecycleFixture\('waiting_on_customer', 15, 'wait_for_customer_reply'\)/
 );
 assert.match(
@@ -107,7 +112,7 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /scenario\.queueView === 'Waiting'[\s\S]*?does not repeat a lookup without the canonical lifecycle trigger[\s\S]*?else \{[\s\S]*?starts one automatic read-only lookup from the matching lifecycle/
+  /scenario\.queueView === 'Waiting'[\s\S]*?preserves the customer wait without exposing transaction-search controls[\s\S]*?continue;[\s\S]*?else \{[\s\S]*?starts one automatic read-only lookup from the matching lifecycle/
 );
 assert.equal(
   [...portalSource.matchAll(/url\.includes\('\/admin_get_refund_operations_overview'\)/g)].length,

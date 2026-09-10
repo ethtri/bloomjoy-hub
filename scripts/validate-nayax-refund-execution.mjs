@@ -683,7 +683,8 @@ assert(
   'The manager UI must show safe candidates, provide no editable normal amount, and preserve the reviewed manual portal fallback while direct execution is blocked.'
 );
 assert(
-  refundOperationsUi.includes('RefundLifecycleProgress') &&
+  refundOperationsUi.includes('getRefundManagerState(') &&
+    refundOperationsUi.includes('selectedCase.lifecycle?.stage') &&
     refundOperationsUi.includes('overviewPolling.interval(refundOverviewPollingInterval(') &&
     refundReadPolling.includes('lifecycle.refreshAfterSeconds') &&
     refundReadPolling.includes('!lifecycle.terminal') &&

@@ -65,7 +65,7 @@ assert(
 );
 assert(
   portal.includes('data-testid="nayax-internal-setup-owner"') &&
-    portal.includes("Customer action: none") &&
+    portal.includes("No customer follow-up is needed.") &&
     !portal.includes("Try again or ask the customer for more details."),
   "mapping and account failures must be manager-owned without customer repetition"
 );
