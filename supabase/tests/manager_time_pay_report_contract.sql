@@ -1721,19 +1721,29 @@ select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003
 
 with report as (
   select public.get_technician_pay_report_context('2026-07-01') as payload
+), technician as (
+  select technician.item
+  from report
+  cross join lateral jsonb_array_elements(payload -> 'technicians') technician(item)
+  where technician.item ->> 'operatorProfileId' = 'a6000000-0000-0000-0000-000000000001'
+), assignment as (
+  select assignment.item
+  from technician
+  cross join lateral jsonb_array_elements(technician.item -> 'assignments') assignment(item)
+  where assignment.item ->> 'assignmentId' = 'a6100000-0000-0000-0000-000000000001'
 )
 select is(
   concat(
-    payload #>> '{technicians,0,assignments,0,assignmentId}', ':',
-    payload #>> '{technicians,0,assignments,0,effectiveStartDate}', ':',
-    payload #>> '{technicians,0,assignments,0,effectiveEndDate}', ':',
-    payload #>> '{technicians,0,assignments,0,overlapsSelectedPeriod}', ':',
-    payload #>> '{technicians,0,assignments,0,selectedPeriodGrossSalesCents}'
+    item ->> 'assignmentId', ':',
+    item ->> 'effectiveStartDate', ':',
+    item ->> 'effectiveEndDate', ':',
+    item ->> 'overlapsSelectedPeriod', ':',
+    item ->> 'selectedPeriodGrossSalesCents'
   ),
   'a6100000-0000-0000-0000-000000000001:2026-01-01:2026-12-31:true:10000',
   'the pay report exposes effective assignment history to an account pay manager'
 )
-from report;
+from assignment;
 
 select is(
   public.admin_issue_pay_statements(
