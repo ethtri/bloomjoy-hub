@@ -96,7 +96,9 @@ select is((select count(*)::integer from public.refund_nayax_lookup_recoveries
   'Event and sweep share one case/fact/generation/attempt owner');
 select is(jsonb_array_length(public.service_claim_refund_nayax_lookup_recoveries(1)),1,
   'Initial ready case claims once without a browser');
-update public.refund_nayax_lookup_recoveries set claim_expires_at=statement_timestamp()-interval '1 second'
+update public.refund_nayax_lookup_recoveries
+set claimed_at=statement_timestamp()-interval '2 minutes',
+  claim_expires_at=statement_timestamp()-interval '1 second'
 where refund_case_id='a8700000-0000-4000-8000-000000000010';
 select is(jsonb_array_length(public.service_claim_refund_nayax_lookup_recoveries(1)),0,
   'Crash before begin consumes attempt zero and observes backoff');
@@ -110,7 +112,9 @@ update public.refund_nayax_lookup_recoveries set next_attempt_at=statement_times
 where refund_case_id='a8700000-0000-4000-8000-000000000010' and attempt_ordinal=1;
 select is((public.service_claim_refund_nayax_lookup_recoveries(1)->0->>'attemptOrdinal')::integer,1,
   'Only the one bounded safe retry is claimed');
-update public.refund_nayax_lookup_recoveries set claim_expires_at=statement_timestamp()-interval '1 second'
+update public.refund_nayax_lookup_recoveries
+set claimed_at=statement_timestamp()-interval '2 minutes',
+  claim_expires_at=statement_timestamp()-interval '1 second'
 where refund_case_id='a8700000-0000-4000-8000-000000000010' and attempt_ordinal=1;
 select public.service_claim_refund_nayax_lookup_recoveries(1) is not null;
 select is((select status from public.refund_nayax_lookup_recoveries where refund_case_id='a8700000-0000-4000-8000-000000000010' and attempt_ordinal=1),'exhausted',
@@ -138,7 +142,9 @@ update public.refund_nayax_lookup_recoveries set status='completed',claim_token=
 where refund_case_id='a8700000-0000-4000-8000-000000000011' and recovery_generation=1;
 select is((public.service_claim_refund_nayax_lookup_recoveries(1)->0->>'recoveryGeneration')::integer,2,
   'A later expiry can create a second independent refresh generation');
-update public.refund_nayax_lookup_recoveries set claim_expires_at=statement_timestamp()-interval '1 second'
+update public.refund_nayax_lookup_recoveries
+set claimed_at=statement_timestamp()-interval '2 minutes',
+  claim_expires_at=statement_timestamp()-interval '1 second'
 where refund_case_id='a8700000-0000-4000-8000-000000000011' and recovery_generation=2 and attempt_ordinal=0;
 select public.service_claim_refund_nayax_lookup_recoveries(1) is not null;
 select is((select status from public.refund_nayax_lookup_recoveries

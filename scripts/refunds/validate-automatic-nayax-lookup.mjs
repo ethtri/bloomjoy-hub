@@ -90,7 +90,7 @@ assert(
   recoveryConcurrency.includes("dblink_send_query('lookup_recovery_a'") &&
     recoveryConcurrency.includes("dblink_send_query('lookup_recovery_b'") &&
     recoveryConcurrency.includes("Competing sweep sessions obtain exactly one active provider-read claim") &&
-    recoveryConcurrency.includes("The late worker leaves newer fact and completed lookup evidence unchanged"),
+    recoveryConcurrency.includes("The late worker leaves the newer fact version and its completed lookup evidence unchanged"),
   "disposable database coverage must prove competing claims and late-lease stale protection",
 );
 assert(

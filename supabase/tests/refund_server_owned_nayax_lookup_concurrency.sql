@@ -66,10 +66,14 @@ select is(jsonb_array_length(public.service_claim_refund_nayax_lookup_recoveries
   'A repeated sweep cannot claim the active exact attempt again');
 
 update public.refund_nayax_lookup_recoveries
-set claim_expires_at=statement_timestamp()-interval '1 second'
+set claimed_at=statement_timestamp()-interval '2 minutes',
+  claim_expires_at=statement_timestamp()-interval '1 second'
 where refund_case_id='a8800000-0000-4000-8000-000000000010';
 update public.refund_cases
-set card_last4='4243',nayax_lookup_status='no_match',nayax_lookup_generation=7,
+set card_last4='4243',nayax_lookup_generation=7
+where id='a8800000-0000-4000-8000-000000000010';
+update public.refund_cases
+set nayax_lookup_status='no_match',
   nayax_recommendation_state='no_safe_match',
   nayax_recommendation_evaluated_at=statement_timestamp()
 where id='a8800000-0000-4000-8000-000000000010';
@@ -89,9 +93,21 @@ select is((public.service_finish_refund_nayax_lookup_recovery(
 select is((select jsonb_build_object('factVersion',deterministic_fact_version,
     'lookupGeneration',nayax_lookup_generation,'lookupStatus',nayax_lookup_status)
   from public.refund_cases where id='a8800000-0000-4000-8000-000000000010'),
-  jsonb_build_object('factVersion',2,'lookupGeneration',7,'lookupStatus','no_match'),
-  'The late worker leaves newer fact and completed lookup evidence unchanged');
+  jsonb_build_object('factVersion',2,'lookupGeneration',7,'lookupStatus','not_started'),
+  'The late worker leaves the newer fact version and its completed lookup evidence unchanged');
 
 select extensions.dblink_disconnect('lookup_recovery_a');
 select extensions.dblink_disconnect('lookup_recovery_b');
 select * from finish();
+
+begin;
+delete from public.refund_cases
+where id='a8800000-0000-4000-8000-000000000010';
+delete from public.reporting_machines
+where id='a8800000-0000-4000-8000-000000000003';
+delete from public.reporting_locations
+where id='a8800000-0000-4000-8000-000000000002';
+delete from public.customer_accounts
+where id='a8800000-0000-4000-8000-000000000001';
+drop schema refund_lookup_recovery_race_test cascade;
+commit;
