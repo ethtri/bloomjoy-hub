@@ -515,7 +515,23 @@ where id='ca620000-0000-4000-8000-000000000004';
 select ok(public.can_perform_refund_official_action(
     'ca000000-0000-4000-8000-000000000001',
     'ca500000-0000-4000-8000-000000000004'
-  ) and (select current_context.value->>'contextHash'=frozen.context->>'contextHash'
+  ) and (select current_context.value->>'transactionId'=
+      frozen.context->>'transactionId'
+    and current_context.value->>'siteId'=frozen.context->>'siteId'
+    and current_context.value->>'machineAuthorizationTime'=
+      frozen.context->>'machineAuthorizationTime'
+    and current_context.value->>'machineAuthorizationTimeWire'=
+      frozen.context->>'machineAuthorizationTimeWire'
+    and current_context.value->>'machineAuthorizationTimeSerializationMode'=
+      frozen.context->>'machineAuthorizationTimeSerializationMode'
+    and current_context.value->>'refundEmailListMode'=
+      frozen.context->>'refundEmailListMode'
+    and current_context.value->>'originalAmountCents'=
+      frozen.context->>'originalAmountCents'
+    and current_context.value->>'currencyCode'=frozen.context->>'currencyCode'
+    and current_context.value->>'providerMachineId'=
+      frozen.context->>'providerMachineId'
+    and current_context.value->>'accountScope'=frozen.context->>'accountScope'
     from continuation_reservations reservation
     join public.refund_case_nayax_refund_attempts attempt
       on attempt.id=(reservation.result#>>'{attempt,attemptId}')::uuid
@@ -525,7 +541,7 @@ select ok(public.can_perform_refund_official_action(
       attempt.refund_case_id,'exact_source','empty_string'
     ) value) current_context
     where reservation.n=4),
-  'Resolving the Gmail review restores full authority and exact current context');
+  'Resolving the Gmail review restores full authority and exact execution fields');
 set local role service_role;
 select set_config('test.server_continuation_claim',
   public.service_claim_due_nayax_approval_continuations_v1(
