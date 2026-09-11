@@ -125,8 +125,13 @@ select ok(not has_function_privilege('authenticated',
   and has_function_privilege('service_role',
   'public.service_begin_refund_nayax_operations_lookup(uuid,bigint,uuid)','execute'),
   'The deliberate Operations check is server-only');
-select ok(pg_get_functiondef('public.service_begin_refund_nayax_operations_lookup(uuid,bigint,uuid)'::regprocedure)
-  like '%is_super_admin(p_actor_user_id)%Automatic transaction checks must be exhausted first%refund_authoritative_receipts%',
+select ok(
+  pg_get_functiondef('public.service_begin_refund_nayax_operations_lookup(uuid,bigint,uuid)'::regprocedure)
+    like '%is_super_admin(p_actor_user_id)%'
+  and pg_get_functiondef('public.service_begin_refund_nayax_operations_lookup(uuid,bigint,uuid)'::regprocedure)
+    like '%Automatic transaction checks must be exhausted first%'
+  and pg_get_functiondef('public.service_begin_refund_nayax_operations_lookup(uuid,bigint,uuid)'::regprocedure)
+    like '%refund_authoritative_receipts%',
   'Operations checks require current authority, automatic exhaustion, and no payment evidence');
 
 select * from finish();
