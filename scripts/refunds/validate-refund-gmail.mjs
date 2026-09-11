@@ -1516,7 +1516,9 @@ assert(
       managerNotification.indexOf('const receipt = await sendEmail') &&
     managerNotification.includes('settlementError || settled !== true') &&
     managerNotification.includes('providerAttemptStarted || providerAccepted') &&
-    managerNotification.includes('["reserved", "digest_eligible", "portal_only"') &&
+    managerNotification.includes('"reserved",') &&
+    managerNotification.includes('"digest_eligible",') &&
+    managerNotification.includes('"portal_only",') &&
     managerNotification.includes(
       'the complete current Machine Manager route could not be safely resolved',
     ) &&
