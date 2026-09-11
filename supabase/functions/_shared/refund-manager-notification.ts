@@ -5,6 +5,10 @@ import {
   TransactionalEmailDeliveryUnknownError,
 } from "./internal-email.ts";
 import { getRefundGmailMailboxIdentities } from "./refund-gmail.ts";
+import {
+  buildRefundManagerActionEmail,
+  parseRefundManagerActionEmailContext,
+} from "./refund-manager-email.ts";
 
 const EMAIL_PATTERN = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
 const MAX_MANAGER_CC_RECIPIENTS = 4;
@@ -50,6 +54,8 @@ const getPortalBaseUrl = () =>
 
 export const getRefundManagerCaseUrl = (refundCaseId: string) =>
   `${getPortalBaseUrl()}/refunds?case=${encodeURIComponent(refundCaseId)}`;
+
+export const getRefundManagerQueueUrl = () => `${getPortalBaseUrl()}/refunds`;
 
 export type RefundManagerNoticeResult = {
   managerRecipientCount: number;
@@ -313,8 +319,6 @@ export const sendRefundManagerActionNotice = async ({
   refundCaseId,
   customerEmail,
   noticeReason,
-  subject,
-  summaryText,
   resolvedRouting,
   sendEmail = sendTransactionalEmail,
 }: {
@@ -322,8 +326,6 @@ export const sendRefundManagerActionNotice = async ({
   refundCaseId: string;
   customerEmail: string;
   noticeReason: RefundManagerNotificationReason;
-  subject: string;
-  summaryText: string;
   resolvedRouting?: RefundManagerNoticeRouting;
   sendEmail?: typeof sendTransactionalEmail;
 }): Promise<RefundManagerNoticeResult> => {
@@ -414,6 +416,23 @@ export const sendRefundManagerActionNotice = async ({
   let providerAttemptStarted = false;
   let providerAccepted = false;
   try {
+    const { data: rawEmailContext, error: emailContextError } = await supabase
+      .rpc(
+        "service_get_refund_manager_action_email_context",
+        {
+          p_refund_case_id: refundCaseId,
+          p_notice_reason: noticeReason,
+        },
+      );
+    if (emailContextError) throw emailContextError;
+    const emailContext = parseRefundManagerActionEmailContext(rawEmailContext);
+    const rendered = buildRefundManagerActionEmail({
+      context: emailContext,
+      noticeReason,
+      caseUrl: getRefundManagerCaseUrl(refundCaseId),
+      queueUrl: getRefundManagerQueueUrl(),
+      routingNote,
+    });
     if (actionId && claimToken) {
       const { data: marked, error: markError } = await supabase.rpc(
         "service_mark_refund_manager_notification_provider_started",
@@ -432,15 +451,9 @@ export const sendRefundManagerActionNotice = async ({
     }
     const receipt = await sendEmail({
       to: routing.recipients,
-      subject,
-      text: [
-        summaryText.trim(),
-        "",
-        `Open the case: ${getRefundManagerCaseUrl(refundCaseId)}`,
-        "",
-        routingNote,
-        "Customer PII, payment details, complaint text, and provider payloads are intentionally omitted.",
-      ].join("\n"),
+      subject: rendered.subject,
+      text: rendered.text,
+      html: rendered.html,
       ...(actionId
         ? { idempotencyKey: `refund_manager_${actionId.replaceAll("-", "")}` }
         : {}),
@@ -470,10 +483,10 @@ export const sendRefundManagerActionNotice = async ({
       const { data: settled, error: settlementError } = await supabase.rpc(
         "service_complete_refund_manager_notification",
         {
-        p_action_id: actionId,
-        p_claim_token: claimToken,
-        p_outcome: outcome,
-        p_provider_message_id: null,
+          p_action_id: actionId,
+          p_claim_token: claimToken,
+          p_outcome: outcome,
+          p_provider_message_id: null,
         },
       );
       if (settlementError || settled !== true) {

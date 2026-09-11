@@ -1,6 +1,7 @@
 import { buildRefundCustomerEmail } from "../../supabase/functions/_shared/refund-email.ts";
 import { buildRefundFirstContactEmail } from "../../supabase/functions/_shared/refund-first-contact.ts";
 import { buildNayaxCustomerCorrectionEmail } from "../../supabase/functions/_shared/refund-nayax-customer-correction.ts";
+import { buildRefundManagerActionEmail } from "../../supabase/functions/_shared/refund-manager-email.ts";
 
 const outputDirectory = "output/playwright/refund-email-samples";
 await Deno.mkdir(outputDirectory, { recursive: true });
@@ -54,6 +55,54 @@ const samples = {
     paymentMethod: "card",
     refundAmountCents: 1090,
     missingFields: ["card_last4"],
+  }),
+  "manager-action-ready": buildRefundManagerActionEmail({
+    context: {
+      schemaVersion: "refund_manager_action_email_v1",
+      publicReference: "RF-MANAGER1",
+      amountCents: 700,
+      currencyCode: "USD",
+      machineLabel: "Snapcase 03",
+      locationName: "Great Mall",
+      ageMinutes: 185,
+      paymentMethodCategory: "card",
+      queueLabel: "Ready to refund",
+      actionCode: "refund",
+      actionOwner: "Machine Manager",
+      lifecycleActor: "system",
+      whatChanged:
+        "The server recorded one high-confidence transaction match after corrected wallet details.",
+      payloadRedacted: true,
+    },
+    noticeReason: "wallet_match_ready",
+    caseUrl: "https://app.bloomjoyusa.com/refunds?case=synthetic-manager-case",
+    queueUrl: "https://app.bloomjoyusa.com/refunds",
+    routingNote:
+      "This action notice was routed only to the currently assigned Machine Managers.",
+  }),
+  "manager-provider-exception": buildRefundManagerActionEmail({
+    context: {
+      schemaVersion: "refund_manager_action_email_v1",
+      publicReference: "RF-MANAGER2",
+      amountCents: null,
+      currencyCode: null,
+      machineLabel: "Machine not recorded",
+      locationName: "Location not recorded",
+      ageMinutes: 2_880,
+      paymentMethodCategory: "not_recorded",
+      queueLabel: "Needs Refund Operations",
+      actionCode: "refund_operations",
+      actionOwner: "Refund Operations",
+      lifecycleActor: "system",
+      whatChanged:
+        "The server recorded an inconclusive payment-provider result.",
+      payloadRedacted: true,
+    },
+    noticeReason: "provider_unknown",
+    caseUrl: "https://app.bloomjoyusa.com/refunds?case=synthetic-provider-case",
+    queueUrl: "https://app.bloomjoyusa.com/refunds",
+    routingNote:
+      "Routing exception: Bloomjoy operations is receiving this action notice.",
   }),
 };
 

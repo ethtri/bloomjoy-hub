@@ -17,6 +17,7 @@ const agingTemplate = read('supabase/functions/_shared/refund-manager-aging.ts')
 const agingTest = read('supabase/functions/_shared/refund-manager-aging.test.ts');
 const agingKillFragment = read('scripts/refunds/build-refund-manager-aging-kill-fragment.ts');
 const managerNotification = read('supabase/functions/_shared/refund-manager-notification.ts');
+const managerEmail = read('supabase/functions/_shared/refund-manager-email.ts');
 const portalUi = read('src/pages/admin/Refunds.tsx');
 const environmentExample = read('.env.example');
 const portalUat = read('scripts/refunds/validate-refund-portal-uat.mjs');
@@ -197,9 +198,11 @@ check(
 check(
   'Manager notice content is deterministic, redacted, action-bounded, and versioned',
   agingTemplate.includes('REFUND_MANAGER_AGING_TEMPLATE_VERSION = "refund_manager_aging_v1"') &&
-    agingTemplate.includes('Only the current mapped Machine Manager may perform an official refund action') &&
-    agingTemplate.includes('Opening the case link is navigation only') &&
-    managerNotification.includes('Customer PII, payment details, complaint text, and provider payloads are intentionally omitted') &&
+    managerNotification.includes('service_get_refund_manager_action_email_context') &&
+    managerNotification.includes('buildRefundManagerActionEmail') &&
+    managerEmail.includes('REFUND_MANAGER_ACTION_EMAIL_TEMPLATE_VERSION') &&
+    managerEmail.includes('Opening these links is navigation only') &&
+    managerEmail.includes('provider payloads, and diagnostics are intentionally omitted') &&
     migration.includes("'payload_redacted', true")
 );
 
