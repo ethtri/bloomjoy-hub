@@ -40,6 +40,12 @@ values
 ('a8700000-0000-4000-8000-000000000011','RF-INCONCLUSIVE','a8700000-0000-4000-8000-000000000003','a8700000-0000-4000-8000-000000000002','inconclusive@example.invalid','Incomplete provider history',statement_timestamp()-interval '2 hours','America/Los_Angeles','exact','card',700,'4242','needs_review','no_match','nayax'),
 ('a8700000-0000-4000-8000-000000000012','RF-OPERATIONS','a8700000-0000-4000-8000-000000000003','a8700000-0000-4000-8000-000000000002','operations@example.invalid','Exhausted retry',statement_timestamp()-interval '3 hours','America/Los_Angeles','exact','card',700,'4242','needs_review','needs_nayax','nayax');
 
+update public.refund_cases set nayax_lookup_status='no_match'
+where id='a8700000-0000-4000-8000-000000000011';
+update public.refund_cases set nayax_lookup_status='response_limited',
+  nayax_lookup_safe_retry_eligible=false
+where id='a8700000-0000-4000-8000-000000000012';
+
 select is(jsonb_array_length(public.service_claim_due_refund_nayax_lookups(1)),1,
   'A ready case is claimed directly');
 select is((select nayax_lookup_status from public.refund_cases where id='a8700000-0000-4000-8000-000000000010'),'checking',

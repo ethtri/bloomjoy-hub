@@ -212,17 +212,17 @@ select is((select value-'cases'-'internalTestCases'-'customerOutreachContractVer
   (select value-'cases'-'internalTestCases' from predecessor_overview),
   'The outer wrapper preserves every preceding top-level overview value');
 
-select is((select jsonb_agg(item-'customerCorrectionFields' order by ordinality)
+select is((select jsonb_agg(item-'customerCorrectionFields'-'nayaxLookupWork' order by ordinality)
   from current_overview, lateral jsonb_array_elements(value->'cases') with ordinality entries(item,ordinality)),
   (select jsonb_agg(item-'customerCorrectionFields' order by ordinality)
   from predecessor_overview, lateral jsonb_array_elements(value->'cases') with ordinality entries(item,ordinality)),
-  'Ordinary case order and every non-correction field remain unchanged');
+  'Ordinary case order and every unrelated field remain unchanged');
 
-select is((select jsonb_agg(item-'customerCorrectionFields' order by ordinality)
+select is((select jsonb_agg(item-'customerCorrectionFields'-'nayaxLookupWork' order by ordinality)
   from current_overview, lateral jsonb_array_elements(value->'internalTestCases') with ordinality entries(item,ordinality)),
   (select jsonb_agg(item-'customerCorrectionFields' order by ordinality)
   from predecessor_overview, lateral jsonb_array_elements(value->'internalTestCases') with ordinality entries(item,ordinality)),
-  'Internal/test order and every non-correction field remain unchanged');
+  'Internal/test order and every unrelated field remain unchanged');
 
 select ok(not exists(select 1 from case_rows_before before
   join public.refund_cases current using(id)
