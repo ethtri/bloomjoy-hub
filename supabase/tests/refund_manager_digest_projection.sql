@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(27);
+select plan(43);
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -115,6 +115,24 @@ select set_config(
   '{"sub":"12810000-0000-4000-8000-000000000001","role":"authenticated","is_anonymous":false}',
   true
 );
+select ok(
+  has_function_privilege('service_role',
+    'public.refund_manager_work_projection_for(uuid,timestamptz)', 'execute'),
+  'Service role can execute the internal projection used by digest claims'
+);
+select ok(
+  not has_function_privilege('authenticated',
+    'public.refund_manager_work_projection_for(uuid,timestamptz)', 'execute'),
+  'Authenticated callers cannot bypass the mapped browser projection'
+);
+set local role service_role;
+select lives_ok(
+  $$ select public.refund_manager_work_projection_for(
+    '12810000-0000-4000-8000-000000000001', '2026-09-10T15:00:00Z'
+  ) $$,
+  'A real service-role digest claim can execute the shared internal projection'
+);
+reset role;
 create temporary table manager_projection as
 select public.get_refund_manager_work_projection('2026-09-10T15:00:00Z') as value;
 
@@ -175,6 +193,21 @@ select is(
     (select value ->> 'recipient' from first_claim)
   ), true, 'Current mapping and items authorize one provider boundary'
 );
+select throws_ok(
+  $$ select public.service_complete_refund_manager_digest(
+    (select (value ->> 'batchId')::uuid from first_claim),
+    (select (value ->> 'claimToken')::uuid from first_claim),
+    'sent', '   '
+  ) $$,
+  'P0001', null, 'Sent settlement requires a nonblank provider message id'
+);
+select is(
+  public.service_complete_refund_manager_digest(
+    (select (value ->> 'batchId')::uuid from first_claim),
+    (select (value ->> 'claimToken')::uuid from first_claim),
+    'delivery_unknown', null
+  ), true, 'Provider-started delivery-unknown settlement is idempotent'
+);
 select is(
   public.service_complete_refund_manager_digest(
     (select (value ->> 'batchId')::uuid from first_claim),
@@ -183,9 +216,101 @@ select is(
   ), true, 'Provider acceptance settles the one daily batch'
 );
 select is(
+  public.service_complete_refund_manager_digest(
+    (select (value ->> 'batchId')::uuid from first_claim),
+    (select (value ->> 'claimToken')::uuid from first_claim),
+    'sent', 'synthetic-provider-id'
+  ), true, 'Exact terminal sent settlement replay is idempotent'
+);
+select throws_ok(
+  $$ select public.service_complete_refund_manager_digest(
+    (select (value ->> 'batchId')::uuid from first_claim),
+    (select (value ->> 'claimToken')::uuid from first_claim),
+    'delivery_unknown', null
+  ) $$,
+  'P0001', null, 'Sent settlement cannot be downgraded'
+);
+select throws_ok(
+  $$ select public.service_complete_refund_manager_digest(
+    (select (value ->> 'batchId')::uuid from first_claim),
+    (select (value ->> 'claimToken')::uuid from first_claim),
+    'sent', 'different-provider-id'
+  ) $$,
+  'P0001', null, 'Sent settlement cannot mutate its provider evidence'
+);
+insert into public.refund_manager_digest_batches (
+  id, manager_user_id, digest_local_date, digest_timezone, status, claim_token,
+  mapping_fingerprint, recipient_fingerprint
+) values (
+  '12816000-0000-4000-8000-000000000001',
+  '12810000-0000-4000-8000-000000000001',
+  '2026-09-09', 'America/Los_Angeles', 'reserved',
+  '12817000-0000-4000-8000-000000000001', repeat('a', 64), repeat('b', 64)
+);
+select is(
+  public.service_complete_refund_manager_digest(
+    '12816000-0000-4000-8000-000000000001',
+    '12817000-0000-4000-8000-000000000001',
+    'known_not_sent', null
+  ), true, 'An unstarted reservation can settle known-not-sent'
+);
+select is(
+  public.service_complete_refund_manager_digest(
+    '12816000-0000-4000-8000-000000000001',
+    '12817000-0000-4000-8000-000000000001',
+    'known_not_sent', null
+  ), true, 'Exact known-not-sent terminal replay is idempotent'
+);
+select throws_ok(
+  $$ select public.service_complete_refund_manager_digest(
+    '12816000-0000-4000-8000-000000000001',
+    '12817000-0000-4000-8000-000000000001',
+    'sent', 'late-provider-id'
+  ) $$,
+  'P0001', null, 'Known-not-sent settlement cannot be upgraded after release'
+);
+select is(
   (public.service_begin_next_refund_manager_digest('2026-09-11T15:00:00Z') ->> 'claimed'),
   'false', 'Unchanged attention version is not repeated on the next day'
 );
+
+-- A routine digest event and an urgent immediate event may coexist for one
+-- attention version in either arrival order. The digest item stays eligible,
+-- while the urgent state is independently visible and never changes its copy.
+select public.service_begin_refund_manager_notification(
+  '12815000-0000-4000-8000-000000000001', 'hard_bounce',
+  'private-customer@example.invalid', array['refunds@example.invalid'],
+  array['ops@example.invalid']
+);
+select public.service_begin_refund_manager_notification(
+  '12815000-0000-4000-8000-000000000002', 'customer_reply',
+  'other-customer@example.invalid', array['refunds@example.invalid'],
+  array['ops@example.invalid']
+);
+create temporary table mixed_action_projection as
+select public.refund_manager_work_projection_for(
+  '12810000-0000-4000-8000-000000000001', '2026-09-11T15:00:00Z'
+) as value;
+select is((
+  select item ->> 'digestEligible'
+  from mixed_action_projection, jsonb_array_elements(value -> 'items') item
+  where item ->> 'caseId' = '12815000-0000-4000-8000-000000000001'
+), 'true', 'Routine-first work remains digest eligible after a later urgent event');
+select is((
+  select item ->> 'urgentNoticeState'
+  from mixed_action_projection, jsonb_array_elements(value -> 'items') item
+  where item ->> 'caseId' = '12815000-0000-4000-8000-000000000001'
+), 'immediate_unresolved', 'Routine-first work retains its independent urgent label');
+select is((
+  select item ->> 'digestEligible'
+  from mixed_action_projection, jsonb_array_elements(value -> 'items') item
+  where item ->> 'caseId' = '12815000-0000-4000-8000-000000000002'
+), 'true', 'Urgent-first work remains eligible after a later routine event');
+select is((
+  select item ->> 'urgentNoticeState'
+  from mixed_action_projection, jsonb_array_elements(value -> 'items') item
+  where item ->> 'caseId' = '12815000-0000-4000-8000-000000000002'
+), 'immediate_unresolved', 'Urgent-first work retains its independent urgent label');
 
 update public.refund_manager_attention_states
 set attention_version = 2, updated_at = '2026-09-11T16:00:00Z'
@@ -203,6 +328,12 @@ select is(
     '12810000-0000-4000-8000-000000000001', '2026-09-11T16:00:00Z'
   ) -> 'items')::text,
   '0', 'Removed mapping disappears from the next server projection'
+);
+select is(
+  jsonb_array_length(public.get_refund_manager_work_projection(
+    '2026-09-11T16:00:00Z'
+  ) -> 'items')::text,
+  '0', 'An authenticated elevated user without a machine mapping receives an empty projection'
 );
 select ok(
   not has_function_privilege('anon',

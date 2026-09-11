@@ -281,7 +281,15 @@ begin
     from public.refund_manager_notification_actions action
     where action.refund_case_id = case_record.id
       and action.attention_version = attention_version_value
-    order by action.created_at desc, action.id desc
+    order by
+      case
+        when action.channel = 'daily_digest'
+          and action.delivery_state = 'digest_eligible'
+          and action.notice_reason in ('customer_reply', 'manager_reminder') then 0
+        else 1
+      end,
+      action.created_at desc,
+      action.id desc
     limit 1;
 
     digest_eligible_value := action_record.id is not null
@@ -437,6 +445,8 @@ $$;
 
 revoke all on function public.refund_manager_work_projection_for(uuid, timestamptz)
   from public, anon, authenticated, service_role;
+grant execute on function public.refund_manager_work_projection_for(uuid, timestamptz)
+  to service_role;
 
 create function public.get_refund_manager_work_projection(
   p_observed_at timestamptz default statement_timestamp()
@@ -459,7 +469,29 @@ begin
       and mapping.status = 'active'
       and mapping.revoked_at is null
   ) then
-    raise exception 'Current Machine Manager mapping required' using errcode = '42501';
+    return jsonb_build_object(
+      'schemaVersion', 'refund_manager_work_v1',
+      'observedAt', p_observed_at,
+      'bucketCounts', jsonb_build_object(
+        'needs_action', 0, 'ready_to_pay', 0, 'in_progress', 0,
+        'provider_hold', 0, 'waiting_on_customer', 0, 'completed', 0
+      ),
+      'digestCounts', jsonb_build_object(
+        'needsDecision', 0, 'newInformation', 0,
+        'aging', 0, 'exceptionsBeingHandled', 0
+      ),
+      'oldestActionableAgeMinutes', null,
+      'recentMaterialChangeCount', 0,
+      'items', '[]'::jsonb,
+      'metrics', jsonb_build_object(
+        'emailsSentToday', 0, 'digestEligibleCount', 0,
+        'duplicatesSuppressedToday', 0,
+        'oldestActionableAgeMinutes', null,
+        'oldestDecisionAgeMinutes', null,
+        'payloadRedacted', true
+      ),
+      'payloadRedacted', true
+    );
   end if;
   return public.refund_manager_work_projection_for(manager_user_id, p_observed_at);
 end;
@@ -735,10 +767,29 @@ declare
   current_recipient text;
   current_recipient_count integer;
   current_item_count integer;
+  machine_id_value uuid;
 begin
   select * into batch_row from public.refund_manager_digest_batches
   where id = p_batch_id and claim_token = p_claim_token for update;
   if batch_row.id is null or batch_row.status <> 'reserved' then return false; end if;
+
+  -- Serialize the final authority check with the canonical manager-assignment
+  -- mutation. The shared advisory lock is acquired before the same machine row
+  -- lock, in stable order, so a concurrent revoke/reassignment commits before
+  -- this function re-reads the mapping or waits until provider-start is durable.
+  for machine_id_value in
+    select distinct refund_case.reporting_machine_id
+    from public.refund_manager_digest_items item
+    join public.refund_cases refund_case on refund_case.id = item.refund_case_id
+    where item.batch_id = batch_row.id and item.item_state = 'included'
+      and refund_case.reporting_machine_id is not null
+    order by refund_case.reporting_machine_id
+  loop
+    perform pg_advisory_xact_lock(hashtext('machine_manager:' || machine_id_value::text));
+    perform 1 from public.reporting_machines machine
+    where machine.id = machine_id_value
+    for update;
+  end loop;
 
   select min(lower(btrim(mapping.manager_email))),
     count(distinct lower(btrim(mapping.manager_email))),
@@ -813,25 +864,54 @@ set search_path = public
 as $$
 declare
   batch_row public.refund_manager_digest_batches;
+  provider_message_id_value text := nullif(btrim(coalesce(p_provider_message_id, '')), '');
+  provider_message_id_digest_value text;
 begin
   if p_outcome not in ('sent', 'delivery_unknown', 'known_not_sent') then
     raise exception 'Unsupported manager digest outcome';
   end if;
+  if p_outcome = 'sent' and provider_message_id_value is null then
+    raise exception 'Sent manager digest requires a provider message id';
+  end if;
+  if p_outcome <> 'sent' and provider_message_id_value is not null then
+    raise exception 'Only sent manager digests may record a provider message id';
+  end if;
+  provider_message_id_digest_value := case when provider_message_id_value is null then null
+    else encode(extensions.digest(convert_to(provider_message_id_value, 'UTF8'), 'sha256'), 'hex') end;
   select * into batch_row from public.refund_manager_digest_batches
   where id = p_batch_id and claim_token = p_claim_token for update;
   if batch_row.id is null then return false; end if;
-  if p_outcome = 'known_not_sent' and batch_row.provider_attempt_started_at is not null then
-    raise exception 'Started manager digest delivery cannot settle known-not-sent';
+
+  if batch_row.status = 'sent' then
+    if p_outcome = 'sent'
+      and batch_row.provider_message_id_digest = provider_message_id_digest_value then
+      return true;
+    end if;
+    raise exception 'Sent manager digest settlement is immutable';
   end if;
-  if p_outcome in ('sent', 'delivery_unknown') and batch_row.provider_attempt_started_at is null then
-    raise exception 'Manager digest provider-start evidence is required';
+  if batch_row.status = 'known_not_sent' then
+    if p_outcome = 'known_not_sent' then return true; end if;
+    raise exception 'Known-not-sent manager digest settlement is immutable';
   end if;
+
+  if p_outcome = 'known_not_sent' then
+    if batch_row.status <> 'reserved' or batch_row.provider_attempt_started_at is not null then
+      raise exception 'Only an unstarted reservation may settle known-not-sent';
+    end if;
+  elsif batch_row.status <> 'delivery_unknown'
+    or batch_row.provider_attempt_started_at is null then
+    raise exception 'Manager digest must be delivery-unknown after provider start';
+  elsif p_outcome = 'delivery_unknown' then
+    return true;
+  end if;
+
   update public.refund_manager_digest_batches
   set status = p_outcome,
-      provider_message_id_digest = case when p_provider_message_id is null then null
-        else encode(extensions.digest(convert_to(p_provider_message_id, 'UTF8'), 'sha256'), 'hex') end,
+      provider_message_id_digest = provider_message_id_digest_value,
       settled_at = statement_timestamp(), updated_at = statement_timestamp()
-  where id = batch_row.id;
+  where id = batch_row.id
+    and status = case when p_outcome = 'known_not_sent' then 'reserved' else 'delivery_unknown' end;
+  if not found then raise exception 'Manager digest settlement state changed'; end if;
   return true;
 end;
 $$;

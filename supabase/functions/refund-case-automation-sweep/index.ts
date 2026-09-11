@@ -4147,18 +4147,18 @@ const runManagerDigestSweep = async (observedAt: Date, counters: SweepCounters) 
     const recipient = textValue(claim.recipient).toLowerCase();
     const mappingFingerprint = textValue(claim.mappingFingerprint);
     const localDate = textValue(claim.digestLocalDate);
-    const projection = parseRefundManagerWorkProjection(claim.projection);
-    if (!UUID_PATTERN.test(batchId) || !UUID_PATTERN.test(claimToken) || !recipient ||
-      !/^[a-f0-9]{64}$/.test(mappingFingerprint) || !/^\d{4}-\d{2}-\d{2}$/.test(localDate) ||
-      claim.payloadRedacted !== true) throw new Error("manager_digest_claim_invalid");
-    const message = buildRefundManagerDigestEmail({
-      projection,
-      caseUrl: getRefundManagerCaseUrl,
-      queueUrl: getRefundManagerQueueUrl(),
-      localDate,
-    });
     let providerStarted = false;
     try {
+      if (!UUID_PATTERN.test(batchId) || !UUID_PATTERN.test(claimToken) || !recipient ||
+        !/^[a-f0-9]{64}$/.test(mappingFingerprint) || !/^\d{4}-\d{2}-\d{2}$/.test(localDate) ||
+        claim.payloadRedacted !== true) throw new Error("manager_digest_claim_invalid");
+      const projection = parseRefundManagerWorkProjection(claim.projection);
+      const message = buildRefundManagerDigestEmail({
+        projection,
+        caseUrl: getRefundManagerCaseUrl,
+        queueUrl: getRefundManagerQueueUrl(),
+        localDate,
+      });
       const { data: started, error: startError } = await supabase.rpc(
         "service_mark_refund_manager_digest_provider_started",
         { p_batch_id: batchId, p_claim_token: claimToken, p_mapping_fingerprint: mappingFingerprint, p_recipient: recipient },
@@ -4185,14 +4185,22 @@ const runManagerDigestSweep = async (observedAt: Date, counters: SweepCounters) 
       addReason(counters, "manager_digest_sent");
     } catch (sendError) {
       counters.managerNoticesFailed += 1;
-      try {
-        await supabase.rpc("service_complete_refund_manager_digest", {
-          p_batch_id: batchId, p_claim_token: claimToken,
-          p_outcome: providerStarted ? "delivery_unknown" : "known_not_sent",
-          p_provider_message_id: null,
-        });
-      } catch {
-        // Provider-start evidence remains a durable no-retry hold.
+      if (UUID_PATTERN.test(batchId) && UUID_PATTERN.test(claimToken)) {
+        try {
+          const { data: settled, error: settlementError } = await supabase.rpc(
+            "service_complete_refund_manager_digest",
+            {
+              p_batch_id: batchId, p_claim_token: claimToken,
+              p_outcome: providerStarted ? "delivery_unknown" : "known_not_sent",
+              p_provider_message_id: null,
+            },
+          );
+          if (settlementError || settled !== true) {
+            throw settlementError ?? new Error("manager_digest_failure_settlement_rejected");
+          }
+        } catch {
+          // Provider-start evidence remains a durable no-retry hold.
+        }
       }
       throw sendError;
     }

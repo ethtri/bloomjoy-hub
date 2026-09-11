@@ -7060,6 +7060,12 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       })
     );
     if (scenario.expectedOperationsRecoveryControl) {
+      recorder.assert(
+        'Unmapped elevated Refund Operations keeps the full workbench with an empty manager summary',
+        await page.getByTestId('refund-manager-work-summary').isVisible() &&
+          await page.getByText('You’re caught up.', { exact: true }).isVisible() &&
+          await page.getByTestId('nayax-result-card').isVisible()
+      );
       await page.getByText('Transaction search details', { exact: true }).click();
       const operationsRecovery = page.getByTestId('nayax-operations-recovery');
       recorder.assert(
