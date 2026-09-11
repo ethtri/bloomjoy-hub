@@ -285,8 +285,11 @@ begin
       case
         when action.channel = 'daily_digest'
           and action.delivery_state = 'digest_eligible'
-          and action.notice_reason in ('customer_reply', 'manager_reminder') then 0
-        else 1
+          and action.notice_reason = 'customer_reply' then 0
+        when action.channel = 'daily_digest'
+          and action.delivery_state = 'digest_eligible'
+          and action.notice_reason = 'manager_reminder' then 1
+        else 2
       end,
       action.created_at desc,
       action.id desc

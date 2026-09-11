@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(43);
+select plan(45);
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -283,6 +283,16 @@ select public.service_begin_refund_manager_notification(
   array['ops@example.invalid']
 );
 select public.service_begin_refund_manager_notification(
+  '12815000-0000-4000-8000-000000000001', 'manager_reminder',
+  'private-customer@example.invalid', array['refunds@example.invalid'],
+  array['ops@example.invalid']
+);
+select public.service_begin_refund_manager_notification(
+  '12815000-0000-4000-8000-000000000002', 'manager_reminder',
+  'other-customer@example.invalid', array['refunds@example.invalid'],
+  array['ops@example.invalid']
+);
+select public.service_begin_refund_manager_notification(
   '12815000-0000-4000-8000-000000000002', 'customer_reply',
   'other-customer@example.invalid', array['refunds@example.invalid'],
   array['ops@example.invalid']
@@ -311,6 +321,16 @@ select is((
   from mixed_action_projection, jsonb_array_elements(value -> 'items') item
   where item ->> 'caseId' = '12815000-0000-4000-8000-000000000002'
 ), 'immediate_unresolved', 'Urgent-first work retains its independent urgent label');
+select is((
+  select item ->> 'noticeReason'
+  from mixed_action_projection, jsonb_array_elements(value -> 'items') item
+  where item ->> 'caseId' = '12815000-0000-4000-8000-000000000001'
+), 'customer_reply', 'Reply-first routine work keeps the canonical new-information action');
+select is((
+  select item ->> 'noticeReason'
+  from mixed_action_projection, jsonb_array_elements(value -> 'items') item
+  where item ->> 'caseId' = '12815000-0000-4000-8000-000000000002'
+), 'customer_reply', 'Reminder-first routine work still selects the canonical new-information action');
 
 update public.refund_manager_attention_states
 set attention_version = 2, updated_at = '2026-09-11T16:00:00Z'
