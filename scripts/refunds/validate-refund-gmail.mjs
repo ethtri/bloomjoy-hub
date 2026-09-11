@@ -1343,8 +1343,8 @@ assert(
   managerNotification.includes('customer_reply: "daily_digest"') &&
     managerNotification.includes('manager_reminder: "daily_digest"') &&
     managerDigestMigration.includes("p_notice_reason not in ('customer_reply', 'manager_reminder')") &&
-    managerDigestMigration.includes("'channel', 'daily_digest'") &&
-    managerDigestMigration.includes("'deliveryState', 'digest_eligible'") &&
+    managerDigestMigration.includes("p_notice_reason, 'daily_digest'") &&
+    managerDigestMigration.includes("'routine', 'digest_eligible', statement_timestamp()") &&
     notificationPolicyMigration.includes("when 'customer_reply' then 'immediate'") &&
     notificationPolicyMigration.includes("when 'manager_reminder' then 'immediate'") &&
     notificationPolicyMigration.includes("interval '10 minutes'") &&
