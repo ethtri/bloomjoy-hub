@@ -3,7 +3,7 @@ create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 \ir fixtures/refund_transaction_authority.inc
 select pg_temp.refund_reset_authority_markers();
-select plan(122);
+select plan(133);
 select ok(
   array_length(pg_temp.refund_authority_marker_names(), 1) = 10
     and pg_temp.refund_authority_markers_match('{}'::text[]),
@@ -261,6 +261,20 @@ select ok(not has_table_privilege('service_role','public.refund_nayax_provider_b
 select ok(not has_table_privilege('service_role','public.refund_nayax_attempt_approval_continuations','select')
   and not has_table_privilege('authenticated','public.refund_nayax_attempt_approval_continuations','select'),
   'Continuation claims have no service or browser read grant');
+select ok(not has_table_privilege('service_role',
+  'public.refund_nayax_server_approval_continuation_claims','select')
+  and not has_table_privilege('authenticated',
+  'public.refund_nayax_server_approval_continuation_claims','select')
+  and not has_table_privilege('anon',
+  'public.refund_nayax_server_approval_continuation_claims','select'),
+  'Server continuation audit claims are private even from direct service reads');
+select ok(has_function_privilege('service_role',
+  'public.service_claim_due_nayax_approval_continuations_v1(text,text,integer)','execute')
+  and not has_function_privilege('authenticated',
+  'public.service_claim_due_nayax_approval_continuations_v1(text,text,integer)','execute')
+  and not has_function_privilege('anon',
+  'public.service_claim_due_nayax_approval_continuations_v1(text,text,integer)','execute'),
+  'Only the assertion-protected service worker can claim due continuations');
 select ok((select relrowsecurity from pg_class where oid='public.refund_nayax_provider_business_outcomes'::regclass)
   and (select relrowsecurity from pg_class where oid='public.refund_nayax_attempt_approval_continuations'::regclass)
   and (select relrowsecurity from pg_class where oid='public.refund_nayax_provider_response_diagnostics'::regclass),
@@ -439,6 +453,43 @@ select throws_ok($$select pg_temp.continue_attempt(4,0)$$,'P4628',null,
 select is((select count(*) from public.refund_nayax_attempt_approval_continuations c
   join continuation_reservations r on (r.result#>>'{attempt,attemptId}')::uuid=c.nayax_refund_attempt_id where r.n=4),
   0::bigint,'Stale-version rejection creates no continuation claim');
+set local role service_role;
+select set_config('test.server_continuation_claim',
+  public.service_claim_due_nayax_approval_continuations_v1(
+    'continuation-executor','CONTINUATION-ACCOUNT',1)::text,true);
+reset role;
+select is(current_setting('test.server_continuation_claim')::jsonb->>'claimedCount','1',
+  'A later sweep restarts the expired, already-authorized attempt without a browser');
+select is(current_setting('test.server_continuation_claim')::jsonb
+    #>>'{claims,0,attempt,executionPlan}','approval_continuation',
+  'The service restart receives approval-only execution and cannot repeat request');
+select is((select count(*) from public.refund_nayax_provider_stage_journal j
+  join continuation_reservations r
+    on (r.result#>>'{attempt,attemptId}')::uuid=j.nayax_refund_attempt_id
+  where r.n=4 and j.stage='request'),2::bigint,
+  'Service claiming preserves the one existing request start/result pair');
+select ok((select claim.official_action_authorization_id=
+      attempt.official_action_authorization_id
+    and claim.execution_context_hash=frozen.context->>'contextHash'
+  from continuation_reservations reservation
+  join public.refund_case_nayax_refund_attempts attempt
+    on attempt.id=(reservation.result#>>'{attempt,attemptId}')::uuid
+  join public.refund_nayax_execution_contexts frozen on frozen.attempt_id=attempt.id
+  join public.refund_nayax_server_approval_continuation_claims claim
+    on claim.nayax_refund_attempt_id=attempt.id
+  where reservation.n=4),
+  'Claim binds the existing approval and exact immutable execution context');
+set local role service_role;
+select set_config('test.server_continuation_second_worker',
+  public.service_claim_due_nayax_approval_continuations_v1(
+    'continuation-executor','CONTINUATION-ACCOUNT',1)::text,true);
+reset role;
+select is(current_setting('test.server_continuation_second_worker')::jsonb
+    ->>'claimedCount','0',
+  'A coalesced second worker cannot claim the same attempt');
+select throws_ok($$update public.refund_nayax_server_approval_continuation_claims
+  set current_manager_mapping_version=current_manager_mapping_version+1$$,
+  'P0001',null,'Server continuation claim evidence is immutable');
 select pg_temp.record_request(6,'accepted',true,true,'FixtureResult','FixtureStatus');
 select throws_ok($$update public.refund_cases set refund_amount_cents=700
   where id='ca500000-0000-4000-8000-000000000006'$$,'P0001',null,
@@ -1438,6 +1489,31 @@ insert into public.reporting_machine_refund_managers(id,reporting_machine_id,man
 values('ca400000-0000-4000-8000-000000000002','ca300000-0000-4000-8000-000000000001',
   'ca000000-0000-4000-8000-000000000002','handoff-manager@example.test',
   'Synthetic unchanged-machine handoff');
+set local role service_role;
+select set_config('test.server_handoff_claim',
+  public.service_claim_due_nayax_approval_continuations_v1(
+    'continuation-executor','CONTINUATION-ACCOUNT',1)::text,true);
+reset role;
+select is(current_setting('test.server_handoff_claim')::jsonb->>'claimedCount','1',
+  'Service continuation survives a manager handoff on the unchanged machine');
+select ok((select claim.current_manager_mapping_id=
+      'ca400000-0000-4000-8000-000000000002'::uuid
+    and claim.official_action_authorization_id=attempt.official_action_authorization_id
+    and attempt.actor_user_id='ca000000-0000-4000-8000-000000000001'::uuid
+  from continuation_reservations reservation
+  join public.refund_case_nayax_refund_attempts attempt
+    on attempt.id=(reservation.result#>>'{attempt,attemptId}')::uuid
+  join public.refund_nayax_server_approval_continuation_claims claim
+    on claim.nayax_refund_attempt_id=attempt.id
+  where reservation.n=6),
+  'Handoff freezes the current mapping while retaining the original approver');
+select ok(current_setting('test.server_handoff_claim')::jsonb
+    #>>'{claims,0,executionContext,transactionId}'='823456786'
+  and current_setting('test.server_handoff_claim')::jsonb
+    #>>'{claims,0,executionContext,originalAmountCents}'='800'
+  and current_setting('test.server_handoff_claim')::jsonb
+    #>>'{claims,0,accountKey}'='CONTINUATION-ACCOUNT',
+  'Handoff claim returns only the frozen exact transaction, amount, and account');
 select is(public.refund_case_nayax_manager_readiness(
   'ca000000-0000-4000-8000-000000000002',
   'ca500000-0000-4000-8000-000000000005')#>>'{approvalContinuationReady}',
