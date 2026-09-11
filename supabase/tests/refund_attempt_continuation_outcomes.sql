@@ -3,7 +3,7 @@ create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 \ir fixtures/refund_transaction_authority.inc
 select pg_temp.refund_reset_authority_markers();
-select plan(122);
+select plan(137);
 select ok(
   array_length(pg_temp.refund_authority_marker_names(), 1) = 10
     and pg_temp.refund_authority_markers_match('{}'::text[]),
@@ -33,7 +33,7 @@ insert into public.reporting_machines(id,account_id,location_id,machine_label,st
   nayax_account_key,nayax_refunds_enabled,nayax_refund_max_amount_cents)
 values('ca300000-0000-4000-8000-000000000001','ca100000-0000-4000-8000-000000000001',
   'ca200000-0000-4000-8000-000000000001','Continuation fixture','active',
-  'CONTINUATION-MACHINE','CONTINUATION-ACCOUNT',true,2500);
+  'CONTINUATION-MACHINE','CONTINUATION_ACCOUNT',true,2500);
 insert into public.reporting_machine_refund_managers(id,reporting_machine_id,manager_user_id,
   manager_email,grant_reason)
 values('ca400000-0000-4000-8000-000000000001','ca300000-0000-4000-8000-000000000001',
@@ -171,7 +171,7 @@ select n,(context->>'caseVersion')::bigint,
     (context->>'caseVersion')::bigint,'nayax-refund-'||repeat(n::text,64),800,null,null,'USD',
     'nayax-production-account-contract-v2','nayax-provider-journal-v3',context->>'contextHash',
     'source_with_bound_offset')
-  when n=7 then public.service_reserve_nayax_refund_manager_action_v5('continuation-executor',
+  when n in (4,6,7) then public.service_reserve_nayax_refund_manager_action_v5('continuation-executor',
     'ca000000-0000-4000-8000-000000000001',
     ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
     (context->>'caseVersion')::bigint,'nayax-refund-'||repeat(n::text,64),800,null,null,'USD',
@@ -187,7 +187,7 @@ cross join lateral (
   select case when n=1 then public.service_get_refund_nayax_execution_context_v2('continuation-executor',
     'ca000000-0000-4000-8000-000000000001',
     ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'source_with_bound_offset')
-  when n=7 then public.service_get_refund_nayax_execution_context_v3('continuation-executor',
+  when n in (4,6,7) then public.service_get_refund_nayax_execution_context_v3('continuation-executor',
     'ca000000-0000-4000-8000-000000000001',
     ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'exact_source','empty_string')
   else public.service_get_refund_nayax_execution_context('continuation-executor',
@@ -261,6 +261,20 @@ select ok(not has_table_privilege('service_role','public.refund_nayax_provider_b
 select ok(not has_table_privilege('service_role','public.refund_nayax_attempt_approval_continuations','select')
   and not has_table_privilege('authenticated','public.refund_nayax_attempt_approval_continuations','select'),
   'Continuation claims have no service or browser read grant');
+select ok(not has_table_privilege('service_role',
+  'public.refund_nayax_server_approval_continuation_claims','select')
+  and not has_table_privilege('authenticated',
+  'public.refund_nayax_server_approval_continuation_claims','select')
+  and not has_table_privilege('anon',
+  'public.refund_nayax_server_approval_continuation_claims','select'),
+  'Server continuation audit claims are private even from direct service reads');
+select ok(has_function_privilege('service_role',
+  'public.service_claim_due_nayax_approval_continuations_v1(text,text,integer)','execute')
+  and not has_function_privilege('authenticated',
+  'public.service_claim_due_nayax_approval_continuations_v1(text,text,integer)','execute')
+  and not has_function_privilege('anon',
+  'public.service_claim_due_nayax_approval_continuations_v1(text,text,integer)','execute'),
+  'Only the assertion-protected service worker can claim due continuations');
 select ok((select relrowsecurity from pg_class where oid='public.refund_nayax_provider_business_outcomes'::regclass)
   and (select relrowsecurity from pg_class where oid='public.refund_nayax_attempt_approval_continuations'::regclass)
   and (select relrowsecurity from pg_class where oid='public.refund_nayax_provider_response_diagnostics'::regclass),
@@ -439,6 +453,132 @@ select throws_ok($$select pg_temp.continue_attempt(4,0)$$,'P4628',null,
 select is((select count(*) from public.refund_nayax_attempt_approval_continuations c
   join continuation_reservations r on (r.result#>>'{attempt,attemptId}')::uuid=c.nayax_refund_attempt_id where r.n=4),
   0::bigint,'Stale-version rejection creates no continuation claim');
+
+insert into public.refund_gmail_intake_contacts(
+  id,mailbox_hash,provider_thread_id,customer_email,thread_subject,
+  first_message_at,latest_message_at,retention_expires_at,status
+) values (
+  'ca600000-0000-4000-8000-000000000004',repeat('4',64),
+  'server-continuation-blocked-review','fixture-4@example.test',
+  'Synthetic ambiguous existing-case link',now(),now(),now()+interval '30 days',
+  'link_review'
+);
+insert into public.refund_gmail_intake_contact_messages(
+  id,contact_id,provider_message_id,direction,status,sender_email,
+  participant_role,participant_trust,subject,plain_body,received_at,
+  retention_expires_at
+) values (
+  'ca610000-0000-4000-8000-000000000004',
+  'ca600000-0000-4000-8000-000000000004','blocked-review-message',
+  'inbound','received','fixture-4@example.test','customer','verified',
+  'Synthetic ambiguous existing-case link','Synthetic redacted fixture',now(),
+  now()+interval '30 days'
+);
+insert into public.refund_gmail_case_link_reviews(
+  id,contact_id,source_message_id,status,match_basis,candidate_count
+) values (
+  'ca620000-0000-4000-8000-000000000004',
+  'ca600000-0000-4000-8000-000000000004',
+  'ca610000-0000-4000-8000-000000000004','pending',
+  'normalized_sender_recent_open_cases',1
+);
+insert into public.refund_gmail_case_link_review_candidates(
+  review_id,refund_case_id,evidence
+) values (
+  'ca620000-0000-4000-8000-000000000004',
+  'ca500000-0000-4000-8000-000000000004',
+  '{"payloadRedacted":true}'::jsonb
+);
+set local role service_role;
+select set_config('test.server_continuation_blocked_review',
+  public.service_claim_due_nayax_approval_continuations_v1(
+    'continuation-executor','CONTINUATION_ACCOUNT',1)::text,true);
+reset role;
+select ok(current_setting('test.server_continuation_blocked_review')::jsonb
+    ->>'claimedCount'='0'
+  and not exists (
+    select 1
+    from public.refund_nayax_attempt_approval_continuations continuation
+    join continuation_reservations reservation
+      on (reservation.result#>>'{attempt,attemptId}')::uuid =
+        continuation.nayax_refund_attempt_id
+    where reservation.n=4
+  ),
+  'A pending Gmail case-link review blocks authority before any immutable claim');
+update public.refund_gmail_case_link_reviews
+set status='resolved',
+    primary_refund_case_id='ca500000-0000-4000-8000-000000000004',
+    resolution_reason='primary_with_related_cases',
+    resolved_by='ca000000-0000-4000-8000-000000000001',
+    resolved_at=now()
+where id='ca620000-0000-4000-8000-000000000004';
+select ok(public.can_perform_refund_official_action(
+    'ca000000-0000-4000-8000-000000000001',
+    'ca500000-0000-4000-8000-000000000004'
+  ) and (select current_context.value->>'transactionId'=
+      frozen.context->>'transactionId'
+    and current_context.value->>'siteId'=frozen.context->>'siteId'
+    and current_context.value->>'machineAuthorizationTime'=
+      frozen.context->>'machineAuthorizationTime'
+    and current_context.value->>'machineAuthorizationTimeWire'=
+      frozen.context->>'machineAuthorizationTimeWire'
+    and current_context.value->>'machineAuthorizationTimeSerializationMode'=
+      frozen.context->>'machineAuthorizationTimeSerializationMode'
+    and current_context.value->>'refundEmailListMode'=
+      frozen.context->>'refundEmailListMode'
+    and current_context.value->>'originalAmountCents'=
+      frozen.context->>'originalAmountCents'
+    and current_context.value->>'currencyCode'=frozen.context->>'currencyCode'
+    and current_context.value->>'providerMachineId'=
+      frozen.context->>'providerMachineId'
+    and current_context.value->>'accountScope'=frozen.context->>'accountScope'
+    from continuation_reservations reservation
+    join public.refund_case_nayax_refund_attempts attempt
+      on attempt.id=(reservation.result#>>'{attempt,attemptId}')::uuid
+    join public.refund_nayax_execution_contexts frozen
+      on frozen.attempt_id=attempt.id
+    cross join lateral (select public.refund_nayax_selected_execution_context_v3(
+      attempt.refund_case_id,'exact_source','empty_string'
+    ) value) current_context
+    where reservation.n=4),
+  'Resolving the Gmail review restores full authority and exact execution fields');
+set local role service_role;
+select set_config('test.server_continuation_claim',
+  public.service_claim_due_nayax_approval_continuations_v1(
+    'continuation-executor','CONTINUATION_ACCOUNT',1)::text,true);
+reset role;
+select is(current_setting('test.server_continuation_claim')::jsonb->>'claimedCount','1',
+  'A later sweep restarts the expired, already-authorized attempt without a browser');
+select is(current_setting('test.server_continuation_claim')::jsonb
+    #>>'{claims,0,attempt,executionPlan}','approval_continuation',
+  'The service restart receives approval-only execution and cannot repeat request');
+select is((select count(*) from public.refund_nayax_provider_stage_journal j
+  join continuation_reservations r
+    on (r.result#>>'{attempt,attemptId}')::uuid=j.nayax_refund_attempt_id
+  where r.n=4 and j.stage='request'),2::bigint,
+  'Service claiming preserves the one existing request start/result pair');
+select ok((select claim.official_action_authorization_id=
+      attempt.official_action_authorization_id
+    and claim.execution_context_hash=frozen.context->>'contextHash'
+  from continuation_reservations reservation
+  join public.refund_case_nayax_refund_attempts attempt
+    on attempt.id=(reservation.result#>>'{attempt,attemptId}')::uuid
+  join public.refund_nayax_execution_contexts frozen on frozen.attempt_id=attempt.id
+  join public.refund_nayax_server_approval_continuation_claims claim
+    on claim.nayax_refund_attempt_id=attempt.id
+  where reservation.n=4),
+  'Claim binds the existing approval and exact immutable execution context');
+set local role service_role;
+select set_config('test.server_continuation_second_worker',
+  public.service_claim_due_nayax_approval_continuations_v1(
+    'continuation-executor','CONTINUATION_ACCOUNT',1)::text,true);
+reset role;
+select is(current_setting('test.server_continuation_second_worker')::jsonb
+    ->>'claimedCount','0',
+  'A coalesced second worker cannot claim the same attempt');
+select throws_ok($$update public.refund_nayax_server_approval_continuation_claims
+  set current_manager_mapping_version=current_manager_mapping_version+1$$,
+  'P0001',null,'Server continuation claim evidence is immutable');
 select pg_temp.record_request(6,'accepted',true,true,'FixtureResult','FixtureStatus');
 select throws_ok($$update public.refund_cases set refund_amount_cents=700
   where id='ca500000-0000-4000-8000-000000000006'$$,'P0001',null,
@@ -1438,6 +1578,60 @@ insert into public.reporting_machine_refund_managers(id,reporting_machine_id,man
 values('ca400000-0000-4000-8000-000000000002','ca300000-0000-4000-8000-000000000001',
   'ca000000-0000-4000-8000-000000000002','handoff-manager@example.test',
   'Synthetic unchanged-machine handoff');
+set local role service_role;
+select set_config('test.server_handoff_claim',
+  public.service_claim_due_nayax_approval_continuations_v1(
+    'continuation-executor','CONTINUATION_ACCOUNT',1)::text,true);
+reset role;
+select is(current_setting('test.server_handoff_claim')::jsonb->>'claimedCount','1',
+  'Service continuation survives a manager handoff on the unchanged machine');
+select ok((select claim.current_manager_mapping_id=
+      'ca400000-0000-4000-8000-000000000002'::uuid
+    and claim.official_action_authorization_id=attempt.official_action_authorization_id
+    and attempt.actor_user_id='ca000000-0000-4000-8000-000000000001'::uuid
+  from continuation_reservations reservation
+  join public.refund_case_nayax_refund_attempts attempt
+    on attempt.id=(reservation.result#>>'{attempt,attemptId}')::uuid
+  join public.refund_nayax_server_approval_continuation_claims claim
+    on claim.nayax_refund_attempt_id=attempt.id
+  where reservation.n=6),
+  'Handoff freezes the current mapping while retaining the original approver');
+select ok(current_setting('test.server_handoff_claim')::jsonb
+    #>>'{claims,0,executionContext,transactionId}'='823456786'
+  and current_setting('test.server_handoff_claim')::jsonb
+    #>>'{claims,0,executionContext,originalAmountCents}'='800'
+  and current_setting('test.server_handoff_claim')::jsonb
+    #>>'{claims,0,accountKey}'='CONTINUATION_ACCOUNT',
+  'Handoff claim returns only the frozen exact transaction, amount, and account');
+set local role service_role;
+select lives_ok($$select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
+  'continuation-executor',
+  (current_setting('test.server_handoff_claim')::jsonb
+    #>>'{claims,0,attempt,attemptId}')::uuid,
+  current_setting('test.server_handoff_claim')::jsonb
+    #>>'{claims,0,providerClaimToken}',
+  'approve','started',null,null,null,null,repeat('6',64),
+  'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  null,null,null,null,null,null,null,null,null,null,null,null,null,null,false,
+  null,null,false,null,null,null,null,null,null)$$,
+  'A reassigned server claim reaches the approval journal before any provider call');
+reset role;
+select ok((select attempt.actor_user_id=
+      'ca000000-0000-4000-8000-000000000001'::uuid
+    and continuation.actor_user_id=
+      'ca000000-0000-4000-8000-000000000002'::uuid
+    and count(journal.id)=1
+  from continuation_reservations reservation
+  join public.refund_case_nayax_refund_attempts attempt
+    on attempt.id=(reservation.result#>>'{attempt,attemptId}')::uuid
+  join public.refund_nayax_attempt_approval_continuations continuation
+    on continuation.nayax_refund_attempt_id=attempt.id
+  left join public.refund_nayax_provider_stage_journal journal
+    on journal.nayax_refund_attempt_id=attempt.id
+    and journal.stage='approve' and journal.event='started'
+  where reservation.n=6
+  group by attempt.actor_user_id,continuation.actor_user_id),
+  'Handoff execution preserves the original audit actor and journals the current executor');
 select is(public.refund_case_nayax_manager_readiness(
   'ca000000-0000-4000-8000-000000000002',
   'ca500000-0000-4000-8000-000000000005')#>>'{approvalContinuationReady}',

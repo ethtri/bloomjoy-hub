@@ -1241,7 +1241,7 @@ serve(async (req) => {
           ? []
           : ["official_actions_disabled"]),
         ...preflightBlocks,
-        ...duplicateTransactionBlocks,
+        ...transactionPreflight.blocks,
         ...executionConfig.blocks,
         ...(!normalAccountKey ? ["machine_account_key_missing"] : []),
         ...(!normalWriteCredentials.requestToken

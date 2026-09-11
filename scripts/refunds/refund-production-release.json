@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "67712639647b193bd65261de39d61886e27c8580",
+  "sourceGitCommit": "679b396175cd6544d8a7464936ce870c911cded0",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -190,10 +190,11 @@
     "20260910163735_refund_completion_outbox_priority_health.sql",
     "20260910230500_refund_manager_notification_policy.sql",
     "20260910235500_refund_submission_identity_atomicity.sql",
-    "20260911001500_refund_manager_action_email_context.sql"
+    "20260911001500_refund_manager_action_email_context.sql",
+    "20260911001848_refund_server_approval_continuation.sql"
   ],
-  "migrationFilesSha256": "1a2c1ae5a46785a0d93b7964f72c4f2364bc4650f56ba47e76591ba65ca84078",
-  "migrationVersionSetSha256": "02d2997edad70f73382edc4e29b58fb4798af25e6dfe45643ef1c14eca13818c",
+  "migrationFilesSha256": "2b87f1ca49a541a5494c0d07a6802a9fc7c063eabcc987e5a6ce3d7886ef3f60",
+  "migrationVersionSetSha256": "ef02093801c11b21c27c25c25f86bc7b2856f8ded8bdd92a004c2a973bf303ed",
   "preMigrationCompatibility": {
     "releaseId": "refund-ops-2026-08-14-pre-controlled-nayax-pilot",
     "sourceGitCommit": "71eb076bc3ad95ccabd0c591b8140820bed6c393",
@@ -301,7 +302,7 @@
     {
       "slug": "refund-case-automation-sweep",
       "verifyJwt": false,
-      "sourceSha256": "4391939a369002b25fc591ebfa8dcf91fc10fb2bc92a9887264e25e6625feda1",
+      "sourceSha256": "3096ccaffd0544813475ab716a7746e4af12266b4ab61fc315b2ef6f2f0ea29f",
       "production": {
         "version": 139,
         "ezbrSha256": "0f21369d014450f45d477ff9db24db0f9ac8d5c89b46311f5ee5ae4fb5486f77",
@@ -334,7 +335,7 @@
     {
       "slug": "nayax-card-refund",
       "verifyJwt": false,
-      "sourceSha256": "60e501d9f8306703e85287840fb8a5ec15c71ae156104d42116f742cd4a84ff6",
+      "sourceSha256": "ff241f7adef4684d137bd714d770104a4ebe341d8ad6ebaaaac1c9eac530e386",
       "production": {
         "version": 135,
         "ezbrSha256": "827476f8d69968113083b28f143aea9b2da4740b1c77c6e226fe762eee83f421",
