@@ -74,8 +74,8 @@ begin
       refund_case.official_action_version,
       refund_case.nayax_refund_attempt_generation,
       refund_case.reporting_machine_id,
-      authorization.actor_user_id as approving_actor_user_id,
-      authorization.expected_case_version as authorization_case_version,
+      authz.actor_user_id as approving_actor_user_id,
+      authz.expected_case_version as authorization_case_version,
       original_mapping.id as original_mapping_id,
       original_mapping.mapping_version as original_mapping_version,
       current_mapping.id as current_mapping_id,
@@ -87,10 +87,10 @@ begin
     from public.refund_case_nayax_refund_attempts attempt
     join public.refund_cases refund_case
       on refund_case.id = attempt.refund_case_id
-    join public.refund_case_official_action_authorizations authorization
-      on authorization.id = attempt.official_action_authorization_id
+    join public.refund_case_official_action_authorizations authz
+      on authz.id = attempt.official_action_authorization_id
     join public.reporting_machine_refund_managers original_mapping
-      on original_mapping.id = authorization.manager_mapping_id
+      on original_mapping.id = authz.manager_mapping_id
     join public.reporting_machines machine
       on machine.id = refund_case.reporting_machine_id
     join public.refund_nayax_execution_contexts frozen
@@ -124,18 +124,18 @@ begin
       and refund_case.matched_nayax_amount_cents = attempt.amount_cents
       and refund_case.matched_nayax_currency_code = attempt.currency_code
       and attempt.currency_code = 'USD'
-      and authorization.refund_case_id = refund_case.id
-      and authorization.actor_user_id = attempt.actor_user_id
-      and authorization.action = 'nayax_execute'
-      and authorization.status = 'consumed'
-      and authorization.consumed_at is not null
-      and authorization.expected_case_version =
+      and authz.refund_case_id = refund_case.id
+      and authz.actor_user_id = attempt.actor_user_id
+      and authz.action = 'nayax_execute'
+      and authz.status = 'consumed'
+      and authz.consumed_at is not null
+      and authz.expected_case_version =
         (frozen.context ->> 'caseVersion')::bigint + 1
       and refund_case.official_action_version =
-        authorization.expected_case_version + 1
+        authz.expected_case_version + 1
       and original_mapping.reporting_machine_id = refund_case.reporting_machine_id
-      and original_mapping.manager_user_id = authorization.actor_user_id
-      and original_mapping.mapping_version >= authorization.manager_mapping_version
+      and original_mapping.manager_user_id = authz.actor_user_id
+      and original_mapping.mapping_version >= authz.manager_mapping_version
       and machine.status = 'active'
       and machine.nayax_refunds_enabled is true
       and machine.nayax_account_key = p_account_key

@@ -11,7 +11,7 @@ const [migration, sweep, worker, tests] = await Promise.all([
 
 assert.match(migration, /for update of attempt, refund_case skip locked/i);
 assert.match(migration, /attempt\.provider_claim_expires_at <= statement_timestamp\(\)/i);
-assert.match(migration, /authorization\.status = 'consumed'/i);
+assert.match(migration, /authz\.status = 'consumed'/i);
 assert.match(migration, /not exists \([\s\S]*refund_authoritative_receipts/i);
 assert.match(migration, /request_result\.approval_authorized is true/i);
 assert.match(migration, /request_result\.stage = 'request'/i);
