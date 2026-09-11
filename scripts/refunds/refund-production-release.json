@@ -194,7 +194,8 @@
     "20260911001848_refund_server_approval_continuation.sql",
     "20260911005752_refund_manager_digest_projection.sql",
     "20260911164704_refund_overview_lifecycle_reuse.sql",
-    "20260911174609_refund_lifecycle_accounting_outreach_precedence.sql"
+    "20260911174609_refund_lifecycle_accounting_outreach_precedence.sql",
+    "20260911210036_simplify_refund_nayax_lookup.sql"
   ],
   "migrationFilesSha256": "552b99184f01418aca4265d2825b95bb2b2496e742015772c9eb22a43dbe9295",
   "migrationVersionSetSha256": "b215a991f47334b9724364adc5a6eb23ded7ca5551c0d5f426e6035a9930138e",
