@@ -2,9 +2,15 @@
 
 This runbook defines the customer communication boundary for Refund Operations v1. It is a launch checklist, not authorization to activate production.
 
+## Channel contract
+
+- A customer may first text the Bloomjoy number. Staff manually replies with the Bloomjoy hosted refund-form link; the Hub does not send or ingest SMS.
+- The hosted form requires a valid customer email address. Submitting it—not the initial text or email—creates the refund case.
+- After form submission, every request receipt, clarification, status update, confirmation, denial or appeal, and delivery-recovery message uses email. There is no post-form SMS, SMS fallback, SMS completion notice, or SMS provider dependency.
+
 ## Case creation and ownership
 
-- Customer contact alone does not create an operational refund case. The first reply directs the customer to the Bloomjoy hosted form.
+- Customer contact alone does not create an operational refund case. An eligible email may receive the existing email acknowledgement; staff manually answers an initial text with the Bloomjoy hosted-form link.
 - Form submission creates the case. If the form was opened from the private email link, it completes that one draft context rather than creating a second case.
 - Form submission creates the case exactly once; subsequent customer replies update the same case.
 - The email assistant may collect only an explicit missing or disputed purchase fact and rerun the existing read-only transaction match. A Nayax mismatch asks for only the one conflicting fact (last four, amount, or time); it never asks the customer to reconfirm fields already present and agreed by the case evidence. It cannot choose a transaction, decide a refund, or issue a payment.
@@ -14,7 +20,7 @@ This runbook defines the customer communication boundary for Refund Operations v
 
 | Moment | Customer message | Required boundary |
 | --- | --- | --- |
-| Contact before form | Warm first response with one Bloomjoy form link | No case decision and no Google Form link |
+| Contact before form | Eligible email receives the email acknowledgement; staff manually answers a text with one Bloomjoy form link | No case decision, no Google Form link, and no automated SMS |
 | Form submitted | Request received | Receipt only; no approval promise |
 | Missing facts | More information / one reminder | Ask only for named safe fields; never request full card or wallet secrets |
 | Facts received | Information received | Rerun read-only matching; no decision promise |
@@ -98,7 +104,8 @@ The initial disposition is one-way. If a record was classified incorrectly, do n
 
 - Duplicate-payment protections remain mandatory: provider idempotency, one-attempt settlement, case/reconciliation guards, and existing reporting adjustment uniqueness are unchanged.
 - All Gmail and transactional sends still require the current mapped Machine Manager route in visible CC where that existing policy applies.
-- GPT is not required for any pilot customer message. TOTP, operator ceremony, QR codes, Kexiazhan reporting, cash fallback, and a new SMS platform are not pilot launch requirements.
+- SMS automation is out of scope, not a deferred launch requirement. Do not add a text provider, automated responder, SMS reply ingestion, post-form SMS, or SMS delivery recovery.
+- GPT is not required for any pilot customer message. TOTP, operator ceremony, QR codes, Kexiazhan reporting, and cash fallback are not pilot launch requirements.
 - Internal notes, risk scores, provider/API errors, credentials, database details, raw identifiers, and internal case links never enter customer copy.
 - No production activation occurs from merging this slice. First run isolated local/preview checks, database tests, email screenshots, manager UAT, and the owner-approved monitored cutover checklist.
 

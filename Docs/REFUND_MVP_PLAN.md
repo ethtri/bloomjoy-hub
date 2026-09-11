@@ -1,6 +1,6 @@
 # Refund MVP delivery plan
 
-Product direction confirmed September 5, 2026. [Issue #628](https://github.com/ethtri/bloomjoy-hub/issues/628) is the delivery checklist; linked issues own current progress. This document defines the experience and implementation boundaries, not another backlog.
+Product direction confirmed September 5, 2026, with the refund communication channel clarified September 10 by [issue #704](https://github.com/ethtri/bloomjoy-hub/issues/704). [Issue #628](https://github.com/ethtri/bloomjoy-hub/issues/628) is the delivery checklist; linked issues own current progress. This document defines the experience and implementation boundaries, not another backlog.
 
 ## Execution reset and customer remediation
 
@@ -37,9 +37,13 @@ Use existing message/case references for private tracking, and record only
 aggregate coverage and unresolved exceptions in GitHub. Customer silence does not
 require repeated reminders or prevent closing successfully delivered outreach.
 
-Remediation outreach does not wait for #1202, first API proof, automatic reporting,
-SMS cutover, whole-backlog closure or the observation. Its preparation and useful
-engineering can proceed independently. This communication authority does not grant
+The September 5 plan treated SMS cutover as work that remediation did not need to
+wait for. The September 10 `#704` direction retires that work: staff manually sends
+the hosted-form link in response to an initial text, the form requires email, and
+all subsequent communication uses email. Remediation outreach does not wait for
+#1202, first API proof, automatic reporting, whole-backlog closure or the
+observation. Its preparation and useful engineering can proceed independently.
+This communication authority does not grant
 refund approval, payment promises, account changes or new platforms. The normal
 transaction protections and specifically sourced decision/routing boundaries
 remain; they are not blanket prohibitions on factual customer recovery.

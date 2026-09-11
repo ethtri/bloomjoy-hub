@@ -32,7 +32,7 @@ The assistant is not a refund approver and is not a payment operator. The target
 - Gmail is the customer conversation transport.
 - Bloomjoy Hub is the system of record for the refund case, status, matching evidence, manager decision, provider attempt, reporting adjustment, and audit history.
 - Nayax/Lynx is the card-transaction and refund provider, subject to the account-specific production gate in `#430`.
-- The legacy Google Form response must be removed from the eligible email and existing EasyText/SMS response population before activation. Both channels send customers to the Bloomjoy hosted refund form. The pilot does not add a new SMS platform, and customer contact alone never creates a Hub case.
+- The Bloomjoy hosted form is the only refund-intake path and requires a valid email address. Staff may manually send its link when a customer first texts the Bloomjoy number. The Hub has no automated SMS response, SMS ingestion, post-form SMS, or SMS provider dependency; all communication after submission uses email, and customer contact alone never creates a Hub case.
 - Agents use the owner-approved direct OAuth/delegated connection to the production customer-service mailbox, `info@bloomjoysweets.com`; they do not receive a forwarded copy in a personal inbox. That connection may let an authorized agent read, search, label, and prepare drafts within the approved refund scope, but it does not configure or enable the production Hub Gmail integration in `#634`.
 - The verified Info/Support/Refunds send-as identities route through and remain identities of that designated mailbox. Treat one as Bloomjoy-mailbox-origin only when the approved mailbox configuration and provider `SENT`-label evidence agree for the message and every existing delivery gate passes; an address string alone is not proof.
 - Sending from an alias requires the mailbox owner to configure and verify that Gmail send-as identity. Agents may prepare approved drafts, but they do not add or self-verify aliases or treat browser sign-in as production OAuth proof.
@@ -337,7 +337,7 @@ The evidence finalizer rejects stale, missing, extra, malformed, duplicate-image
 5. Nayax execution contract and duplicate/unknown-outcome protections: `#430`.
 6. Synthetic shadow pilot, quick-disable proof, staffed monitoring, and owner go/no-go before production activation.
 
-GPT, TOTP, operator ceremonies, QR-code flows, Kexiazhan reporting, cash fallback, and a new SMS platform are not Refund Operations v1 pilot dependencies.
+GPT, TOTP, operator ceremonies, QR-code flows, Kexiazhan reporting, and cash fallback are not Refund Operations v1 pilot dependencies. SMS automation is retired from the refund product rather than deferred pilot work.
 
 ## Success measures
 
