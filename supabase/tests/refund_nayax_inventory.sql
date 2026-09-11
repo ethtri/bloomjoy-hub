@@ -1,9 +1,17 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
+create extension if not exists plpgsql_check with schema extensions;
 set local search_path = public, extensions;
 
-select plan(18);
+select plan(19);
+
+select is_empty(
+  $$ select * from extensions.plpgsql_check_function(
+    'public.service_sync_refund_nayax_inventory(text,text,jsonb,boolean,text)'::regprocedure
+  ) $$,
+  'The final inventory sync function passes plpgsql_check without relation errors'
+);
 
 select ok(
   has_function_privilege('service_role', 'public.service_sync_refund_nayax_inventory(text,text,jsonb,boolean,text)', 'execute'),
