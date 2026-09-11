@@ -29,6 +29,7 @@ const intake = read('supabase/functions/refund-case-intake/index.ts');
 const deterministicFollowUp = read('supabase/functions/_shared/refund-deterministic-follow-up.ts');
 const gmailTransport = read('supabase/functions/_shared/refund-gmail-transport.ts');
 const managerNotification = read('supabase/functions/_shared/refund-manager-notification.ts');
+const managerEmail = read('supabase/functions/_shared/refund-manager-email.ts');
 const schedulerWorkflow = read('.github/workflows/refund-automation-sweep.yml');
 const healthWorkflow = read('.github/workflows/refund-automation-health.yml');
 
@@ -121,7 +122,10 @@ check(
 check(
   'Provider exceptions are redacted manager-only actions',
   sweep.includes('service_claim_refund_provider_exception_action') &&
-    sweep.includes('No customer or payment action was taken by this notice.') &&
+    sweep.includes('sendRefundManagerActionNotice') &&
+    !sweep.includes('summaryText: [') &&
+    managerNotification.includes('service_get_refund_manager_action_email_context') &&
+    managerEmail.includes('Customer contact details, complaint text, payment identifiers, provider payloads, and diagnostics are intentionally omitted.') &&
     followUpMigration.includes("'provider_exception'") &&
     followUpMigration.includes("'payload_redacted', true")
 );
@@ -198,7 +202,7 @@ check(
   'The response and alert paths expose aggregate redacted fields only',
   sweep.includes('payloadRedacted: true') &&
     sweep.includes('reasonCounts') &&
-    managerNotification.includes('Customer PII, payment details, complaint text, and provider payloads are intentionally omitted')
+    managerEmail.includes('Customer contact details, complaint text, payment identifiers, provider payloads, and diagnostics are intentionally omitted.')
 );
 check(
   'A safe failure-test mode exercises the ops alert without customer actions',

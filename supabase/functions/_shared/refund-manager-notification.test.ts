@@ -1,19 +1,23 @@
 import {
   REFUND_MANAGER_NOTIFICATION_POLICY,
-  sendRefundManagerActionNotice,
   type RefundManagerNotificationReason,
+  sendRefundManagerActionNotice,
 } from "./refund-manager-notification.ts";
 import { TransactionalEmailDeliveryUnknownError } from "./internal-email.ts";
 
 const assertEquals = (actual: unknown, expected: unknown, message: string) => {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error(`${message}: expected ${JSON.stringify(expected)}, received ${JSON.stringify(actual)}`);
+    throw new Error(
+      `${message}: expected ${JSON.stringify(expected)}, received ${
+        JSON.stringify(actual)
+      }`,
+    );
   }
 };
 
 Deno.test("manager notification policy classifies every supported event", () => {
-  const reasons = Object.keys(REFUND_MANAGER_NOTIFICATION_POLICY).sort() as
-    RefundManagerNotificationReason[];
+  const reasons = Object.keys(REFUND_MANAGER_NOTIFICATION_POLICY)
+    .sort() as RefundManagerNotificationReason[];
   assertEquals(reasons, [
     "customer_completion_copy",
     "customer_reply",
@@ -32,15 +36,51 @@ Deno.test("manager notification policy classifies every supported event", () => 
     "wallet_match_ready",
   ], "policy event inventory");
 
-  assertEquals(REFUND_MANAGER_NOTIFICATION_POLICY.intake_created, "portal_only", "intake");
-  assertEquals(REFUND_MANAGER_NOTIFICATION_POLICY.customer_reply, "immediate", "reply compatibility");
-  assertEquals(REFUND_MANAGER_NOTIFICATION_POLICY.manager_reminder, "immediate", "reminder compatibility");
-  assertEquals(REFUND_MANAGER_NOTIFICATION_POLICY.manager_escalation, "immediate", "escalation");
-  assertEquals(REFUND_MANAGER_NOTIFICATION_POLICY.hard_bounce, "immediate", "hard bounce");
-  assertEquals(REFUND_MANAGER_NOTIFICATION_POLICY.wallet_match_ready, "immediate", "ready action");
-  assertEquals(REFUND_MANAGER_NOTIFICATION_POLICY.routine_customer_message, "portal_only", "automated customer copy");
-  assertEquals(REFUND_MANAGER_NOTIFICATION_POLICY.manager_authored_conversation, "portal_only", "manager-authored CC path");
-  assertEquals(REFUND_MANAGER_NOTIFICATION_POLICY.customer_completion_copy, "portal_only", "completion copy");
+  assertEquals(
+    REFUND_MANAGER_NOTIFICATION_POLICY.intake_created,
+    "portal_only",
+    "intake",
+  );
+  assertEquals(
+    REFUND_MANAGER_NOTIFICATION_POLICY.customer_reply,
+    "immediate",
+    "reply compatibility",
+  );
+  assertEquals(
+    REFUND_MANAGER_NOTIFICATION_POLICY.manager_reminder,
+    "immediate",
+    "reminder compatibility",
+  );
+  assertEquals(
+    REFUND_MANAGER_NOTIFICATION_POLICY.manager_escalation,
+    "immediate",
+    "escalation",
+  );
+  assertEquals(
+    REFUND_MANAGER_NOTIFICATION_POLICY.hard_bounce,
+    "immediate",
+    "hard bounce",
+  );
+  assertEquals(
+    REFUND_MANAGER_NOTIFICATION_POLICY.wallet_match_ready,
+    "immediate",
+    "ready action",
+  );
+  assertEquals(
+    REFUND_MANAGER_NOTIFICATION_POLICY.routine_customer_message,
+    "portal_only",
+    "automated customer copy",
+  );
+  assertEquals(
+    REFUND_MANAGER_NOTIFICATION_POLICY.manager_authored_conversation,
+    "portal_only",
+    "manager-authored CC path",
+  );
+  assertEquals(
+    REFUND_MANAGER_NOTIFICATION_POLICY.customer_completion_copy,
+    "portal_only",
+    "completion copy",
+  );
 });
 
 const reservation = {
@@ -64,8 +104,24 @@ const noticeInput = {
   refundCaseId: "92500000-0000-4000-8000-000000000001",
   customerEmail: "notice-customer@example.test",
   noticeReason: "customer_reply" as const,
-  subject: "Synthetic manager notice",
-  summaryText: "Synthetic action needed.",
+};
+
+const emailContext = {
+  schemaVersion: "refund_manager_action_email_v1",
+  publicReference: "RF-NOTICE-TEST",
+  amountCents: 500,
+  currencyCode: "USD",
+  machineLabel: "Lobby machine",
+  locationName: "Synthetic notification location",
+  ageMinutes: 15,
+  paymentMethodCategory: "card",
+  queueLabel: "Action needed",
+  actionCode: "select_transaction",
+  actionOwner: "Machine Manager",
+  lifecycleActor: "system",
+  whatChanged:
+    "The server recorded a verified customer reply on the linked case.",
+  payloadRedacted: true,
 };
 
 Deno.test("manager notice marks provider access before send and validates settlement", async () => {
@@ -76,7 +132,12 @@ Deno.test("manager notice marks provider access before send and validates settle
       if (name === "service_begin_refund_manager_notification") {
         return { data: reservation, error: null };
       }
-      if (name === "service_mark_refund_manager_notification_provider_started") {
+      if (name === "service_get_refund_manager_action_email_context") {
+        return { data: emailContext, error: null };
+      }
+      if (
+        name === "service_mark_refund_manager_notification_provider_started"
+      ) {
         return { data: true, error: null };
       }
       if (name === "service_complete_refund_manager_notification") {
@@ -99,6 +160,7 @@ Deno.test("manager notice marks provider access before send and validates settle
   });
   assertEquals(calls, [
     "service_begin_refund_manager_notification",
+    "service_get_refund_manager_action_email_context",
     "service_mark_refund_manager_notification_provider_started",
     "provider_send",
     "service_complete_refund_manager_notification",
@@ -114,7 +176,12 @@ Deno.test("manager notice never reaches provider when the start marker fails", a
       if (name === "service_begin_refund_manager_notification") {
         return { data: reservation, error: null };
       }
-      if (name === "service_mark_refund_manager_notification_provider_started") {
+      if (name === "service_get_refund_manager_action_email_context") {
+        return { data: emailContext, error: null };
+      }
+      if (
+        name === "service_mark_refund_manager_notification_provider_started"
+      ) {
         return { data: false, error: null };
       }
       if (name === "service_complete_refund_manager_notification") {
@@ -142,6 +209,49 @@ Deno.test("manager notice never reaches provider when the start marker fails", a
   assertEquals(outcomes, ["known_not_sent"], "safe pre-provider settlement");
 });
 
+Deno.test("manager notice settles known-not-sent when safe context cannot be loaded", async () => {
+  const calls: string[] = [];
+  const outcomes: unknown[] = [];
+  const supabase = {
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      calls.push(name);
+      if (name === "service_begin_refund_manager_notification") {
+        return { data: reservation, error: null };
+      }
+      if (name === "service_get_refund_manager_action_email_context") {
+        return { data: null, error: new Error("synthetic context failure") };
+      }
+      if (name === "service_complete_refund_manager_notification") {
+        outcomes.push(args.p_outcome);
+        return { data: true, error: null };
+      }
+      throw new Error(`Unexpected RPC: ${name}`);
+    },
+  };
+  let providerCalls = 0;
+  let rejected = false;
+  try {
+    await sendRefundManagerActionNotice({
+      ...noticeInput,
+      supabase: supabase as never,
+      sendEmail: async () => {
+        providerCalls += 1;
+        throw new Error("provider must not run");
+      },
+    });
+  } catch {
+    rejected = true;
+  }
+  assertEquals(rejected, true, "context failure rejects delivery");
+  assertEquals(providerCalls, 0, "provider call count");
+  assertEquals(outcomes, ["known_not_sent"], "safe context settlement");
+  assertEquals(calls, [
+    "service_begin_refund_manager_notification",
+    "service_get_refund_manager_action_email_context",
+    "service_complete_refund_manager_notification",
+  ], "context failure never marks provider start");
+});
+
 Deno.test("manager notice holds provider and settlement uncertainty without resend", async () => {
   let completionCalls = 0;
   const outcomes: unknown[] = [];
@@ -150,7 +260,12 @@ Deno.test("manager notice holds provider and settlement uncertainty without rese
       if (name === "service_begin_refund_manager_notification") {
         return { data: reservation, error: null };
       }
-      if (name === "service_mark_refund_manager_notification_provider_started") {
+      if (name === "service_get_refund_manager_action_email_context") {
+        return { data: emailContext, error: null };
+      }
+      if (
+        name === "service_mark_refund_manager_notification_provider_started"
+      ) {
         return { data: true, error: null };
       }
       if (name === "service_complete_refund_manager_notification") {
@@ -182,5 +297,9 @@ Deno.test("manager notice holds provider and settlement uncertainty without rese
     true,
     "settlement uncertainty is surfaced",
   );
-  assertEquals(outcomes, ["sent", "delivery_unknown"], "uncertain settlement outcomes");
+  assertEquals(
+    outcomes,
+    ["sent", "delivery_unknown"],
+    "uncertain settlement outcomes",
+  );
 });

@@ -373,57 +373,21 @@ const decodeBase64 = (value: string) => {
   }
 };
 
-const buildManagerNotificationSummary = ({
-  publicReference,
-  machineLabel,
-  locationName,
-  status,
-}: {
-  publicReference: string;
-  machineLabel: string;
-  locationName: string;
-  status: string;
-}) => [
-  "A new Bloomjoy refund request is ready for manager review.",
-  "",
-  `Reference: ${publicReference}`,
-  `Machine: ${machineLabel}`,
-  `Location: ${locationName}`,
-  `Current status: ${status}`,
-].join("\n");
-
 const sendManagerIntakeNotification = async ({
   refundCaseId,
-  publicReference,
   customerEmail,
-  machineLabel,
-  locationName,
-  status,
 }: {
   refundCaseId: string;
-  publicReference: string;
   customerEmail: string;
-  machineLabel: string;
-  locationName: string;
-  status: string;
 }) => {
   if (!supabase) return;
 
   try {
-    const summaryText = buildManagerNotificationSummary({
-      publicReference,
-      machineLabel,
-      locationName,
-      status,
-    });
-
     const notice = await sendRefundManagerActionNotice({
       supabase,
       refundCaseId,
       customerEmail,
       noticeReason: "intake_created",
-      subject: `New Bloomjoy refund request ${publicReference}`,
-      summaryText,
     });
 
     await supabase.from("refund_case_events").insert({
@@ -900,17 +864,11 @@ const inspectWalletCorrection = async (
 
 const sendWalletMatchReadyNotification = async ({
   refundCaseId,
-  publicReference,
   customerEmail,
-  machineLabel,
-  locationName,
   confidenceClass,
 }: {
   refundCaseId: string;
-  publicReference: string;
   customerEmail: string;
-  machineLabel: string;
-  locationName: string;
   confidenceClass: string;
 }) => {
   if (!supabase) return;
@@ -919,14 +877,6 @@ const sendWalletMatchReadyNotification = async ({
     refundCaseId,
     customerEmail,
     noticeReason: "wallet_match_ready",
-    subject: `Refund transaction ready for approval: ${publicReference}`,
-    summaryText: [
-      "Bloomjoy automatically re-checked corrected mobile-wallet details and found one high-confidence transaction.",
-      "",
-      `Reference: ${publicReference}`,
-      `Machine: ${machineLabel}`,
-      `Location: ${locationName}`,
-    ].join("\n"),
   });
 
   await supabase.from("refund_case_events").insert({
@@ -1234,10 +1184,7 @@ const submitWalletCorrection = async (
         .single();
       await sendWalletMatchReadyNotification({
         refundCaseId,
-        publicReference,
         customerEmail: sanitizeEmail(caseContext?.customer_email),
-        machineLabel: lookupResult.refundCase.machineLabel ?? "Bloomjoy machine",
-        locationName: lookupResult.refundCase.locationName ?? "Bloomjoy location",
         confidenceClass: lookupResult.confidenceClass,
       });
     } catch (notificationError) {
@@ -2253,11 +2200,7 @@ serve(async (req) => {
 
     await sendManagerIntakeNotification({
       refundCaseId: refundCase.id,
-      publicReference: refundCase.public_reference,
       customerEmail,
-      machineLabel: publicLabels.machineLabel,
-      locationName: publicLabels.locationName,
-      status,
     });
 
     const statusCapability = await issueStatusCapability(refundCase.id);

@@ -1389,13 +1389,11 @@ const applyUnreceiptedCustomerReplyFacts = async ({
 const sendGmailCaseActionNotice = async ({
   refundCaseId,
   sourceMessageId,
-  publicReference,
   reason,
   counters,
 }: {
   refundCaseId: string;
   sourceMessageId: string;
-  publicReference: string;
   reason: "customer_message" | "hard_bounce";
   counters: { managerNoticeShadowed: number; managerNoticeSentEvents: number };
 }) => {
@@ -1416,21 +1414,6 @@ const sendGmailCaseActionNotice = async ({
       refundCaseId,
       customerEmail,
       noticeReason: isHardBounce ? "hard_bounce" : "customer_reply",
-      subject: isHardBounce
-        ? `Refund delivery exception needs attention: ${publicReference}`
-        : `Refund email needs attention: ${publicReference}`,
-      summaryText: [
-        isHardBounce
-          ? "Gmail reported a trusted hard delivery failure for this refund customer. Automatic customer contact is paused for review."
-          : "A verified customer message arrived in the linked refund Gmail thread and needs review.",
-        "",
-        `Reference: ${publicReference}`,
-        `Reason: ${
-          isHardBounce
-            ? "customer delivery exception"
-            : "new verified customer correspondence"
-        }`,
-      ].join("\n"),
     });
 
     await supabase.from("refund_case_events").insert({
@@ -2406,7 +2389,6 @@ serve(async (request) => {
                 await sendGmailCaseActionNotice({
                   refundCaseId: caseId,
                   sourceMessageId: internalMessageId,
-                  publicReference,
                   reason: automaticContactPaused
                     ? "hard_bounce"
                     : "customer_message",

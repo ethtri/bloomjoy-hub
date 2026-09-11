@@ -31,6 +31,7 @@ const [
   syntheticProofHelper,
   refundEmail,
   managerNotification,
+  managerEmail,
   notificationPolicyMigration,
   syncFunction,
   sendFunction,
@@ -77,6 +78,7 @@ const [
     read('supabase/functions/_shared/refund-synthetic-gmail-proof.ts'),
     read('supabase/functions/_shared/refund-email.ts'),
     read('supabase/functions/_shared/refund-manager-notification.ts'),
+    read('supabase/functions/_shared/refund-manager-email.ts'),
     read('supabase/migrations/20260910230500_refund_manager_notification_policy.sql'),
     read('supabase/functions/refund-gmail-sync/index.ts'),
     read('supabase/functions/refund-case-message-send/index.ts'),
@@ -1568,33 +1570,35 @@ assert(
     syncFunction.includes('participantRole === "customer" || automaticContactPaused'),
   'New intake, Gmail action-needed work, delivery exceptions, and aging cases must emit the separate canonical-link notice',
 );
-const intakeManagerSummary = intakeFunction.slice(
-  intakeFunction.indexOf('const buildManagerNotificationSummary'),
-  intakeFunction.indexOf('const sendManagerIntakeNotification')
-);
 assert(
-  intakeManagerSummary.includes('`Reference: ${publicReference}`') &&
-    intakeManagerSummary.includes('`Machine: ${machineLabel}`') &&
-    intakeManagerSummary.includes('`Location: ${locationName}`') &&
-    intakeManagerSummary.includes('`Current status: ${status}`') &&
-    !intakeManagerSummary.includes('Reported amount:') &&
-    !intakeManagerSummary.includes('Incident time:') &&
-    !intakeManagerSummary.includes('Payment method:'),
-  'Intake action notices must keep payment amount, incident timestamp, and payment method behind the authenticated portal link',
+  managerNotification.includes('service_get_refund_manager_action_email_context') &&
+    managerNotification.includes('buildRefundManagerActionEmail') &&
+    managerNotification.includes('html: rendered.html') &&
+    managerEmail.includes('Current action') &&
+    managerEmail.includes('Last changed by') &&
+    managerEmail.includes('Opening these links is navigation only') &&
+    managerEmail.includes('provider payloads, and diagnostics are intentionally omitted') &&
+    !managerEmail.includes('customerEmail') &&
+    !managerEmail.includes('cardLast4') &&
+    !managerEmail.includes('providerTransactionId'),
+  'Immediate manager mail must use one privacy-safe HTML/text renderer with server-owned action context and navigation-only links',
 );
 const walletReadyManagerNotice = intakeFunction.slice(
   intakeFunction.indexOf('const sendWalletMatchReadyNotification'),
   intakeFunction.indexOf('const persistWalletCorrectionLookup')
 );
 assert(
-  walletReadyManagerNotice.includes('found one high-confidence transaction') &&
-    !walletReadyManagerNotice.includes('Confidence class:'),
-  'Wallet-ready action notices must keep the raw confidence class behind the authenticated portal link',
+  walletReadyManagerNotice.includes('noticeReason: "wallet_match_ready"') &&
+    !walletReadyManagerNotice.includes('Confidence class:') &&
+    !walletReadyManagerNotice.includes('summaryText:') &&
+    !walletReadyManagerNotice.includes('subject:'),
+  'Wallet-ready transport must supply only the canonical reason and keep caller-composed context out of manager email',
 );
 assert(
   qaChecklist.includes("appear in the assigned manager's portal queue without a separate intake email") &&
-    qaChecklist.includes('Amount, incident time, payment method, raw confidence, and customer evidence remain in the authenticated portal') &&
-    qaChecklist.includes('an incomplete or invalid manager route remains an internal routing-repair exception') &&
+    qaChecklist.includes('Customer contact details, complaint text, card digits, provider identifiers/payloads, diagnostics, and attachments are absent') &&
+    qaChecklist.includes('Opening either link is navigation-only') &&
+    qaChecklist.includes('An incomplete or invalid manager route remains an internal routing-repair exception') &&
     qaChecklist.includes('routine automatic acknowledgements, follow-ups, reminders, corrections, and status messages have the customer as sole To and no manager CC') &&
     qaChecklist.includes('A manager-authored conversation reply retains every other current active, non-revoked mapped Machine Manager exactly once in visible CC') &&
     qaChecklist.includes('Provider-confirmation receipts retain their existing audited manager-copy exception') &&
