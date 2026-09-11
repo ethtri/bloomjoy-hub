@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (...parts) => fs.readFileSync(path.join(repoRoot, ...parts), 'utf8');
 const migration = read('supabase', 'migrations', '20260821091000_refund_nayax_inventory.sql');
+const lintFix = read('supabase', 'migrations', '20260911030748_resolve_refund_inventory_temp_lint.sql');
 const recipientRouteV2 = read('supabase', 'migrations', '20260825231621_refund_manager_recipient_route_v2.sql');
 const portfolioCorrection = read('supabase', 'migrations', '20260822190000_refund_portfolio_intake_inventory_correction.sql');
 const edge = read('supabase', 'functions', 'refund-nayax-inventory-sync', 'index.ts');
@@ -22,6 +23,19 @@ const checks = [
   ['browser roles cannot execute inventory sync', /revoke execute on function public\.service_sync_refund_nayax_inventory[\s\S]*from public, anon, authenticated/i.test(migration)],
   ['only service role receives inventory sync', /grant execute on function public\.service_sync_refund_nayax_inventory[\s\S]*to service_role/i.test(migration)],
   ['run keys are unique and replayed', /run_key text not null unique/i.test(migration) && /'replayed', true/i.test(migration)],
+  ['lint fix replaces the inventory function without a runtime-created staging relation',
+    /create or replace function public\.service_sync_refund_nayax_inventory/i.test(lintFix)
+      && !/create temporary table|refund_nayax_snapshot_stage/i.test(lintFix)],
+  ['lint fix preserves inline snapshot validation and parsing',
+    /snapshot contains duplicate or missing immutable machine IDs/i.test(lintFix)
+      && (lintFix.match(/jsonb_array_elements\(coalesce\(p_snapshot, '\[\]'::jsonb\)\)/g) ?? []).length >= 4],
+  ['lint fix preserves account serialization, atomic upsert, and two-miss removal',
+    /pg_advisory_xact_lock/i.test(lintFix)
+      && /on conflict \(account_key, nayax_machine_id\) do update set/i.test(lintFix)
+      && /missing_successful_snapshots \+ 1 >= 2/i.test(lintFix)],
+  ['lint fix preserves least-privilege execution grants',
+    /revoke execute on function public\.service_sync_refund_nayax_inventory[\s\S]*from public, anon, authenticated/i.test(lintFix)
+      && /grant execute on function public\.service_sync_refund_nayax_inventory[\s\S]*to service_role/i.test(lintFix)],
   ['failed sync is recorded before snapshot processing', migration.indexOf('if not coalesce(p_succeeded, false)') < migration.indexOf('create temporary table')],
   ['two successful misses are required for inactive state', /missing_successful_snapshots \+ 1 >= 2/i.test(migration)],
   ['public intake remains independent of automatic Nayax readiness', !/refund_intake_enabled/i.test(

@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(16);
+select plan(18);
 
 select ok(
   has_function_privilege('service_role', 'public.service_sync_refund_nayax_inventory(text,text,jsonb,boolean,text)', 'execute'),
@@ -36,6 +36,18 @@ select is(
   (select count(*)::integer from public.refund_nayax_machine_inventory where account_key = 'TEST_ACCOUNT'),
   2,
   'One durable row is created per account and immutable machine ID'
+);
+
+select is(
+  (select discovered_count from public.refund_nayax_inventory_runs where run_key = 'inventory-test-run-1'),
+  2,
+  'Inline snapshot parsing records the complete discovered count'
+);
+
+select is(
+  (select active_count from public.refund_nayax_inventory_runs where run_key = 'inventory-test-run-1'),
+  1,
+  'Inline snapshot parsing records only active provider machines'
 );
 
 select is(
