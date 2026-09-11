@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-10
 
-> Historical review packet. Its SMS-to-Google-Form assumption was superseded on 2026-09-10 by `#704`: staff manually answers an initial text with the Bloomjoy hosted-form link, and all communication after the required-email form is submitted uses email. SMS automation is not deferred work.
+> Historical review packet. Its SMS-to-Google-Form assumptions were superseded on 2026-09-10 by `#704`: the existing one-way link handoff supplies the Bloomjoy hosted form outside the Hub, and existing guarded automation carries routine supported email after the required-email form is submitted. Hub SMS conversation or continuation is not deferred work.
 
 ## What this review is for
 
