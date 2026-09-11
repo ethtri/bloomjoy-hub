@@ -324,7 +324,7 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 109, 'Evidence must enumerate all 109 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 111, 'Evidence must enumerate all 111 reviewed screenshots');
   assert(
     EXPECTED_SCREENSHOTS.includes('refund-adam-api-pending-case-desktop.png') &&
       EXPECTED_SCREENSHOTS.includes('refund-adam-api-pending-case-mobile.png'),
@@ -383,12 +383,17 @@ try {
   );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-manager-')).length,
-    10,
-    'Evidence must include confirmed ready/blocked, stale-evidence, action-clarity, responsive, cached-read, and long-queue manager states'
+    12,
+    'Evidence must include confirmed ready/blocked, stale-evidence, action-clarity, responsive, cached-read, long-queue, and manager-work states'
   );
   assert(
     EXPECTED_SCREENSHOTS.includes('refund-manager-long-queue-desktop.png'),
     'Evidence must include the reviewed bounded long-queue manager state'
+  );
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-manager-work-desktop.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-manager-work-mobile-200-percent.png'),
+    'Evidence must include the shared manager-work projection on desktop and at mobile 200% zoom'
   );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('machine-refunds-')).length,
