@@ -24,135 +24,44 @@ const readyCase = (version = 1): AutomaticNayaxLookupCase => ({
   deterministic_fact_version: version,
 });
 
-const durableQueueHarness = () => {
-  const scheduled = new Set<string>();
-  const claimed = new Set<string>();
-  let providerReads = 0;
-  const enqueue = async (
-    { caseId, factVersion }: { caseId: string; factVersion: number },
-  ) => {
-    const key = `${caseId}:v${factVersion}:r0:a0`;
-    if (scheduled.has(key)) return { status: "deduplicated" as const };
-    scheduled.add(key);
-    return { status: "scheduled" as const };
-  };
-  const runSweep = async () => {
-    const key = [...scheduled].find((candidate) => !claimed.has(candidate));
-    if (!key) return "deduplicated" as const;
-    claimed.add(key);
-    providerReads += 1;
-    return "completed" as const;
-  };
-  return {
-    enqueue,
-    runSweep,
-    scheduled,
-    get providerReads() {
-      return providerReads;
-    },
-  };
-};
-
-Deno.test("not-ready card case creates no durable work", async () => {
-  const queue = durableQueueHarness();
-  const outcome = await coordinateAutomaticNayaxLookup({
+Deno.test("not-ready card case is not due", () => {
+  const outcome = coordinateAutomaticNayaxLookup({
     refundCase: { ...readyCase(), payment_amount_cents: null },
     source: "hosted_intake",
-    dependencies: { enqueue: queue.enqueue },
   });
   assert(
     outcome.status === "not_ready",
     "incomplete facts must remain not ready",
   );
-  assert(
-    queue.scheduled.size === 0,
-    "incomplete facts must not enqueue provider work",
-  );
 });
 
-Deno.test("ready event enqueues once and unchanged repeats deduplicate", async () => {
-  const queue = durableQueueHarness();
-  const first = await coordinateAutomaticNayaxLookup({
+Deno.test("ready case is due and active lookup deduplicates", () => {
+  const first = coordinateAutomaticNayaxLookup({
     refundCase: readyCase(),
     source: "hosted_intake",
-    dependencies: { enqueue: queue.enqueue },
   });
-  const repeated = await coordinateAutomaticNayaxLookup({
-    refundCase: readyCase(),
+  const repeated = coordinateAutomaticNayaxLookup({
+    refundCase: { ...readyCase(), nayax_lookup_status: "checking" },
     source: "hosted_intake",
-    dependencies: { enqueue: queue.enqueue },
   });
   assert(
     first.status === "scheduled",
-    "ready transition must schedule durable work",
+    "ready case must be due",
   );
   assert(
     repeated.status === "deduplicated",
-    "unchanged event must deduplicate",
-  );
-  assert(
-    queue.providerReads === 0,
-    "event handler must never read the provider",
+    "active case work must deduplicate",
   );
 });
 
-Deno.test("material evidence version schedules one independent lookup", async () => {
-  const queue = durableQueueHarness();
-  for (const version of [1, 2, 2]) {
-    await coordinateAutomaticNayaxLookup({
-      refundCase: readyCase(version),
-      source: "linked_customer_update",
-      dependencies: { enqueue: queue.enqueue },
-    });
-  }
-  assert(
-    queue.scheduled.size === 2,
-    "each fact version must have exactly one generation-zero row",
-  );
-});
-
-Deno.test("customer reply completing facts schedules server work without provider access", async () => {
-  const queue = durableQueueHarness();
-  const outcome = await coordinateAutomaticNayaxLookup({
+Deno.test("customer reply completing facts makes the case due", () => {
+  const outcome = coordinateAutomaticNayaxLookup({
     refundCase: readyCase(2),
     source: "customer_reply_recheck",
-    dependencies: { enqueue: queue.enqueue },
   });
   assert(
     outcome.status === "scheduled",
     "accepted customer facts must schedule a lookup",
-  );
-  assert(
-    queue.providerReads === 0,
-    "Gmail/event processing must not own the provider read",
-  );
-});
-
-Deno.test("event plus concurrent and repeated sweeps produce one provider read", async () => {
-  const queue = durableQueueHarness();
-  await Promise.all(
-    Array.from({ length: 8 }, () =>
-      coordinateAutomaticNayaxLookup({
-        refundCase: readyCase(),
-        source: "hosted_intake",
-        dependencies: { enqueue: queue.enqueue },
-      })),
-  );
-  const outcomes = await Promise.all(
-    Array.from({ length: 8 }, () => queue.runSweep()),
-  );
-  await queue.runSweep();
-  assert(
-    queue.scheduled.size === 1,
-    "concurrent event delivery must create one queue row",
-  );
-  assert(
-    queue.providerReads === 1,
-    "only one claimed sweep may read the provider",
-  );
-  assert(
-    outcomes.filter((outcome) => outcome === "completed").length === 1,
-    "one sweep must own the exact attempt",
   );
 });
 

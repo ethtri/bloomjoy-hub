@@ -1988,7 +1988,7 @@ const installMockSupabaseRoutes = async (
     functionBodies = [],
     nayaxLookupResponse = null,
     persistedNayaxLookupResponse = null,
-    persistedNayaxLookupRecovery = null,
+    persistedNayaxLookupWork = null,
     nayaxCardRefundResponse = null,
     nayaxCardRefundAvailabilityResponse = null,
     nayaxCardRefundAvailabilityResolver = null,
@@ -2310,12 +2310,12 @@ const installMockSupabaseRoutes = async (
           : {}),
       };
       const queueProjectedCase = withManagerQueueProjection(projectedCase);
-      const activeLookupRecovery = persistedNayaxLookupRecovery;
+      const activeLookupRecovery = persistedNayaxLookupWork;
       if (activeLookupRecovery?.state === 'system') {
         return {
           ...queueProjectedCase,
           canSelectNayaxCandidate: false,
-          nayaxLookupRecovery: activeLookupRecovery,
+          nayaxLookupWork: activeLookupRecovery,
           nayaxLookupSummary: {
             ...queueProjectedCase.nayaxLookupSummary,
             lookupStatus: 'checking',
@@ -2341,7 +2341,7 @@ const installMockSupabaseRoutes = async (
       if (activeLookupRecovery?.state === 'refund_operations') {
         return {
           ...queueProjectedCase,
-          nayaxLookupRecovery: activeLookupRecovery,
+          nayaxLookupWork: activeLookupRecovery,
           lifecycle: {
             ...queueProjectedCase.lifecycle,
             managerNextAction: 'refund_operations',
@@ -6364,6 +6364,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         policyVersion: '2026-07-26.v2',
         oneClickEligible: false,
         lastCheckedAt: now.toISOString(),
+        historicalCoverage: 'complete',
         providerRecordCount: 3,
         providerParseableRecordCount: 3,
         providerWindowRecordCount: 1,
@@ -6377,6 +6378,32 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedStatus: 'Needs attention',
       expectedDescription: /none matched enough customer details/i,
       expectedAction: 'Do not select a transaction unless you can clearly identify it.',
+    },
+    {
+      name: 'incomplete transaction history',
+      response: {
+        configured: true,
+        lookupStatus: 'inconclusive',
+        recommendationState: 'no_safe_match',
+        confidenceClass: 'ambiguous_manual',
+        reasonCodes: ['insufficient_evidence'],
+        policyVersion: '2026-09-11.v1',
+        oneClickEligible: false,
+        lastCheckedAt: now.toISOString(),
+        historicalCoverage: 'unknown',
+        providerRecordCount: 18,
+        providerParseableRecordCount: 18,
+        providerWindowRecordCount: 0,
+        candidateCount: 0,
+        windowHours: 6,
+        summary: 'Nayax did not provide enough historical coverage to confirm whether a matching transaction exists.',
+        recommendedAction: 'Keep the case open for internal review.',
+        candidates: [],
+      },
+      expectedHeading: 'Transaction history is incomplete',
+      expectedStatus: 'Needs attention',
+      expectedDescription: /18 transactions were returned, but none covered the reported purchase window/i,
+      expectedAction: 'Keep the case open. Refund Operations can run a deliberate follow-up check if needed.',
     },
     {
       name: 'multiple candidates',
@@ -6796,7 +6823,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         candidates: [],
       },
       recovery: {
-        state: 'system', recoveryGeneration: 0, attemptOrdinal: 1,
+        state: 'system', automaticRetriesUsed: 0,
         nextAttemptAt: new Date(now.getTime() + 2 * 60 * 1000).toISOString(),
         failureClass: null, payloadRedacted: true,
       },
@@ -6830,7 +6857,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         candidates: [],
       },
       recovery: {
-        state: 'refund_operations', recoveryGeneration: 0, attemptOrdinal: 1,
+        state: 'refund_operations', automaticRetriesUsed: 1,
         nextAttemptAt: null, failureClass: 'response_limit', payloadRedacted: true,
       },
       operationsAccess: true,
@@ -6933,7 +6960,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       functionBodies,
       nayaxLookupResponse: scenario.response,
       persistedNayaxLookupResponse: scenario.queueView === 'Waiting' ? null : scenario.response,
-      persistedNayaxLookupRecovery: scenario.recovery ?? null,
+      persistedNayaxLookupWork: scenario.recovery ?? null,
       adminAccessContext: scenario.adminAccessContext ?? null,
       adminUpdateDelayMs: scenario.simpleJourney || scenario.name === 'unique QR wallet recommendation' ? 500 : 0,
       nayaxCardRefundAvailabilityResponse: scenario.simpleJourney
@@ -7523,8 +7550,8 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       recommendedAction: 'Do not send correction or success copy based on a provider failure.',
       candidates: [],
     },
-    persistedNayaxLookupRecovery: {
-      state: 'refund_operations', recoveryGeneration: 0, attemptOrdinal: 1,
+    persistedNayaxLookupWork: {
+      state: 'refund_operations', automaticRetriesUsed: 1,
       nextAttemptAt: null, failureClass: 'response_limit', payloadRedacted: true,
     },
   });
@@ -7548,9 +7575,13 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
 
   const staleContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const staleFunctionCalls = [];
-  const retainedExpiredCandidate = buildMockRefundOverview().cases[0].nayaxLookupCandidates[0];
+  const retainedCandidate = buildMockRefundOverview().cases[0].nayaxLookupCandidates[0];
   await installMockSupabaseRoutes(staleContext, {
-    refundOverview: buildPendingNayaxRefundOverview,
+    refundOverview: () => {
+      const overview = buildPendingNayaxRefundOverview();
+      overview.cases = [overview.cases[0]];
+      return overview;
+    },
     functionCalls: staleFunctionCalls,
     persistedNayaxLookupResponse: {
       configured: true,
@@ -7564,27 +7595,27 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       providerWindowRecordCount: 1,
       candidateCount: 1,
       windowHours: 6,
-      summary: 'One prior valid transaction remains visible during automatic refresh.',
-      candidates: [retainedExpiredCandidate],
+      summary: 'Completed transaction evidence remains available for manager review.',
+      candidates: [retainedCandidate],
     },
-    persistedNayaxLookupRecovery: {
-      state: 'system', recoveryGeneration: 2, attemptOrdinal: 0,
-      nextAttemptAt: new Date(now.getTime() + 2 * 60 * 1000).toISOString(),
+    persistedNayaxLookupWork: {
+      state: 'complete', automaticRetriesUsed: 0,
+      nextAttemptAt: null,
       failureClass: null, payloadRedacted: true,
     },
   });
   const stalePage = await staleContext.newPage();
   await signInRefundUser(stalePage, appUrl);
-  const stalePendingRow = queueCase(stalePage, 'RF-UAT-PENDING')
-    .filter({ hasNotText: 'RF-UAT-PENDING-ALT' });
-  await stalePendingRow.click();
-  await stalePage.getByTestId('nayax-automatic-lookup-pending').waitFor({ timeout: 10000 });
+  await stalePage.getByRole('button', { name: /^Action needed \d+$/ }).click();
+  await waitForQueueCount(stalePage, 1);
+  await queueCase(stalePage, 'RF-UAT-PENDING').click();
+  await stalePage.getByTestId('nayax-candidate-option').waitFor({ timeout: 10000 });
   recorder.assert(
-    'Expired transaction evidence refreshes automatically while retaining prior valid evidence',
-    await stalePage.getByTestId('nayax-automatic-lookup-pending').isVisible() &&
+    'Completed transaction evidence remains reviewable without an expiry refresh loop',
+    (await stalePage.getByTestId('nayax-automatic-lookup-pending').count()) === 0 &&
       (await stalePage.getByTestId('nayax-candidate-option').count()) === 1 &&
-      await stalePage.getByTestId('nayax-candidate-option')
-        .locator('input[type="radio"]').isDisabled() &&
+      !(await stalePage.getByTestId('nayax-candidate-option')
+        .locator('input[type="radio"]').isDisabled()) &&
       (await stalePage.getByTestId('nayax-check-transaction').count()) === 0 &&
       (await stalePage.getByTestId('nayax-refresh-expired-results').count()) === 0 &&
       staleFunctionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 0 &&
@@ -7600,7 +7631,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
   });
   await stalePage.setViewportSize({ width: 390, height: 844 });
   recorder.assert(
-    'Expired transaction evidence recovery remains usable on mobile',
+    'Durable transaction evidence remains usable on mobile',
     await stalePage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
   );
   await stalePage.screenshot({

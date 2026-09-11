@@ -321,6 +321,7 @@ export type RefundNayaxLookupStatus =
   | 'match_found'
   | 'multiple_matches'
   | 'no_match'
+  | 'inconclusive'
   | 'manual_exception'
   | 'setup_needed'
   | 'lookup_failed'
@@ -332,6 +333,9 @@ export type RefundNayaxLookupSummary = {
   lastCheckedAt: string | null;
   windowHours: number | null;
   providerWindowRecordCount: number | null;
+  providerRecordCount?: number | null;
+  providerParseableRecordCount?: number | null;
+  historicalCoverage?: 'unknown' | 'complete';
   excludedAfterRequestCount?: number;
   uncertainRequestTimeCandidateCount?: number;
   candidateCount: number;
@@ -857,10 +861,9 @@ export type RefundCaseRecord = {
   customerLocale?: RefundCustomerLocaleContract | null;
   internalTest?: RefundInternalTestContract | null;
   nayaxLookupSummary?: RefundNayaxLookupSummary | null;
-  nayaxLookupRecovery?: {
+  nayaxLookupWork?: {
     state: 'system' | 'refund_operations' | 'complete';
-    recoveryGeneration: number;
-    attemptOrdinal: 0 | 1;
+    automaticRetriesUsed: number;
     nextAttemptAt: string | null;
     failureClass: string | null;
     payloadRedacted: true;

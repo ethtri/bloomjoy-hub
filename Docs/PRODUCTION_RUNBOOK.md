@@ -91,7 +91,6 @@ Set the following values before launch.
 | `NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED` | Server-only | `nayax-card-refund` | `true` only after the intended Core/API identity and account contract are independently confirmed | Technical owner |
 | `NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED` | Server-only | `nayax-card-refund` | `true` only after readback proves the dedicated approval credential has the intended account scope | Technical owner |
 | `NAYAX_LOOKUP_WINDOW_HOURS` | Server-only | `nayax-transaction-lookup`, `refund-case-automation-sweep` | Default `6`; conservative card lookup window around reported incident time | Release owner |
-| `REFUND_NAYAX_CANDIDATE_TTL_HOURS` | Server-only | `nayax-transaction-lookup`, `refund-case-automation-sweep` | Default `24`; tokenized evidence review window | Release owner |
 | `REFUND_REPLY_TO_EMAIL` | Server-only | Refund customer email functions | Default `info@bloomjoysweets.com`; customer replies during pilot | Release owner |
 | `NAYAX_REFUND_EXECUTION_ENABLED` | Server-only | `nayax-card-refund`, `refund-case-automation-sweep` | Preserve `true` for normal qualified operations through compatible deployments; disable only for a demonstrated release incompatibility, incident or rollback | Release owner |
 | `NAYAX_REFUND_EXECUTION_DRY_RUN` | Server-only | `nayax-card-refund`, `refund-case-automation-sweep` | Preserve `false` for normal qualified operations through compatible deployments; use `true` only for explicitly isolated validation or a justified incident/release pause | Release owner |

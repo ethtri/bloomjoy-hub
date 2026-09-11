@@ -61,7 +61,7 @@ Deno.test('saved response records durable lookup scheduling without claiming suc
 });
 Deno.test('an already-running fact-version lookup retains recovery without another claim', async () => {
   let written:Record<string,unknown>|undefined;let count=0;
-  const query={eq(){return this;},order(){return this;},limit(){return this;},maybeSingle:async()=>({data:{status:'claimed'},error:null}),then(resolve:(v:unknown)=>unknown){return Promise.resolve({error:null}).then(resolve);}};
+  const query={eq(){return this;},maybeSingle:async()=>({data:{nayax_lookup_status:'checking',deterministic_fact_version:2},error:null}),then(resolve:(v:unknown)=>unknown){return Promise.resolve({error:null}).then(resolve);}};
   const client={from:()=>({select:()=>query,update:(value:Record<string,unknown>)=>{written=value;return query;}})};
   await recheckSavedPurchaseCorrection(client as never,'request','case',2,async()=>{count++;return {status:'deduplicated'};});
   assert(count===1 && written?.correction_recheck_state==='in_progress' && written?.correction_next_action==='recheck');

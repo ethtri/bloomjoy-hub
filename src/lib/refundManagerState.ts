@@ -109,6 +109,7 @@ type RefundManagerCaseFacts = {
       | 'match_found'
       | 'multiple_matches'
       | 'no_match'
+      | 'inconclusive'
       | 'manual_exception'
       | 'setup_needed'
       | 'lookup_failed'
@@ -385,6 +386,18 @@ export const getRefundManagerState = (
         );
       }
       case 'matching':
+        if (
+          refundCase.nayaxLookupSummary?.lookupStatus === 'inconclusive' ||
+          lifecycle.lookup.status === 'inconclusive'
+        ) {
+          return state(
+            'match_attention',
+            'Transaction history incomplete',
+            'Nayax did not provide enough historical coverage to confirm whether a matching transaction exists.',
+            'Keep the case open. Refund Operations can run a deliberate follow-up check if needed.',
+            'warning'
+          );
+        }
         if (
           lifecycle.reasonCode === 'lookup_results_expired' ||
           lifecycle.lookup.status === 'results_expired'
@@ -800,11 +813,21 @@ export const getRefundManagerState = (
     refundCase.correlationStatus === 'nayax_not_configured' ||
     refundCase.correlationStatus === 'manual_review' ||
     lookupStatus === 'multiple_matches' ||
+    lookupStatus === 'inconclusive' ||
     lookupStatus === 'no_match' ||
     lookupStatus === 'manual_exception' ||
     lookupStatus === 'setup_needed' ||
     lookupStatus === 'lookup_failed'
   ) {
+    if (lookupStatus === 'inconclusive') {
+      return state(
+        'match_attention',
+        'Transaction history incomplete',
+        'Nayax did not provide enough historical coverage to confirm whether a matching transaction exists.',
+        'Keep the case open. Refund Operations can run a deliberate follow-up check if needed.',
+        'warning'
+      );
+    }
     if (lookupStatus === 'lookup_failed') {
       return state(
         'match_attention',

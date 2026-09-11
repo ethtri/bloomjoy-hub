@@ -69,7 +69,6 @@ function harness() {
     breakAfterCommit: false, receiptOverride: undefined, driftAfterReceipt: false,
     authoritativeReceipt: false, lifecycleOverride: undefined, lifecycleReads: 0,
     receiptAtApply: false, routingError: null, receiptAtRouting: false, routingUpdates: 0,
-    receiptBeforeLookupClaim: false, suppressedLookupClaims: 0,
   };
   async function rpc(name, args) {
     if (name === 'refund_lifecycle_contract') {
@@ -105,35 +104,8 @@ function harness() {
       }
       return { outcome: 'applied', ...entry };
     }
-    if (name === 'service_enqueue_refund_nayax_lookup') {
-      assert.equal(args.p_expected_fact_version, state.current.deterministic_fact_version);
-      if (state.receiptBeforeLookupClaim) {
-        // The database enqueue RPC rechecks payment/receipt safety under the
-        // case lock immediately before creating durable work.
-        state.authoritativeReceipt = true;
-        state.current.decision = 'approved';
-        state.current.status = 'card_refund_pending';
-        state.suppressedLookupClaims++;
-        return { status: 'not_ready', payloadRedacted: true };
-      }
-      const key = `${args.p_refund_case_id}:v${args.p_expected_fact_version}:r0:a0`;
-      const scheduled = !state.actions.has(key);
-      state.actions.add(key);
-      if (scheduled) state.lookups++;
-      return { status: scheduled ? 'scheduled' : 'deduplicated', payloadRedacted: true };
-    }
     if (name === 'service_start_refund_automation_run') return { runId: 'synthetic-run' };
     if (name === 'service_claim_refund_automation_action') {
-      if (state.receiptBeforeLookupClaim) {
-        // Exact forward automation-eligibility contract. Its SQL race is tested
-        // independently; execute the real caller's behavior here as well.
-        assert.equal(args.p_action_type, 'nayax_lookup');
-        state.authoritativeReceipt = true;
-        state.current.decision = 'approved';
-        state.current.status = 'card_refund_pending';
-        state.suppressedLookupClaims++;
-        return { actionId: null, claimed: false, status: 'not_eligible', reasonCategory: 'authoritative_refund_receipt' };
-      }
       const claimed = !state.actions.has(args.p_action_key);
       state.actions.add(args.p_action_key);
       return { claimed, actionId: 'synthetic-action' };
@@ -183,7 +155,7 @@ function harness() {
   return { state, run, apply };
 }
 
-test('actual handler recovers committed facts once; settled and concurrent replay never enqueue twice', async () => {
+test('actual handler recovers committed facts without creating a second work record', async () => {
   const { state, run } = harness();
   state.breakAfterCommit = true;
   await assert.rejects(run(), /interruption/);
@@ -194,21 +166,21 @@ test('actual handler recovers committed facts once; settled and concurrent repla
   await run();
   assert.equal(state.applications, 1);
   assert.equal(state.events, 1);
-  assert.equal(state.lookups, 1);
-  assert.equal(state.actions.size, 1);
+  assert.equal(state.lookups, 0);
+  assert.equal(state.actions.size, 0);
 });
 
-test('fresh application and unchanged arbitrary reply do not duplicate lookup work', async () => {
+test('fresh application and unchanged arbitrary reply leave work on the case', async () => {
   const { state, run } = harness();
   await run();
   await run('different-message');
   await run('unstructured-message', 'Thank you');
   assert.equal(state.events, 1);
-  assert.equal(state.lookups, 1);
+  assert.equal(state.lookups, 0);
   assert.equal(state.applications, 1);
 });
 
-test('Spanish card-type reply persists on the same case and enqueues exactly once on replay', async () => {
+test('Spanish card-type reply persists on the same case without a queue write', async () => {
   const { state, run } = harness();
   await run('verified-spanish-message', 'Tipo de tarjeta: Visa');
   await run('verified-spanish-message', 'Tipo de tarjeta: Visa');
@@ -216,7 +188,7 @@ test('Spanish card-type reply persists on the same case and enqueues exactly onc
   assert.equal(state.current.deterministic_fact_version, 2);
   assert.equal(state.events, 1);
   assert.equal(state.applications, 1);
-  assert.equal(state.lookups, 1);
+  assert.equal(state.lookups, 0);
 });
 
 test('old applied reply cannot overwrite or enqueue work for newer facts', async () => {
@@ -227,7 +199,7 @@ test('old applied reply cannot overwrite or enqueue work for newer facts', async
   const result = await run();
   assert.equal(result.allowRoutineContact, false);
   assert.equal(state.current.card_network, 'mastercard');
-  assert.equal(state.lookups, 1);
+  assert.equal(state.lookups, 0);
   assert.equal(state.applications, 1);
 });
 
@@ -279,19 +251,6 @@ test('receipt committed after initial read is a normal no-effect SQL skip', asyn
   assert.equal((await run()).allowRoutineContact, false);
   assert.equal(JSON.stringify(state.current), before);
   assert.equal(state.applications + state.events + state.lookups, 0);
-});
-
-test('receipt between accepted facts/readiness and durable enqueue prevents lookup work', async () => {
-  const { state, run } = harness();
-  state.receiptBeforeLookupClaim = true;
-  await run();
-  assert.equal(state.applications, 1);
-  assert.equal(state.events, 1);
-  assert.equal(state.suppressedLookupClaims, 1);
-  assert.equal(state.lookups, 0);
-  assert.equal(state.actions.size, 0);
-  assert.equal(state.current.card_network, 'visa');
-  assert.equal(state.current.decision, 'approved');
 });
 
 test('receipt wins direct routing race without turning preserved incoming mail into failure', async () => {
