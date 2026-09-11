@@ -50,7 +50,7 @@ Never use `VITE_` for any setting below.
 - `REFUND_GMAIL_FIRST_CONTACT_REFUND_URL`
 - `REFUND_GMAIL_FIRST_CONTACT_SUPPORT_URL`
 
-The isolated label must differ from the production refund label, and the isolated sender allowlist must contain only owner-controlled synthetic addresses. An owner address such as `etrifari@bloomjoysweets.com` or one of its plus-addresses may be a synthetic sender or recipient for this bounded test, but it must never replace `info@bloomjoysweets.com` as the production refund-assistant mailbox. Both URLs must use approved Bloomjoy public HTTPS hosts. Email customers receive one refund CTA: the Bloomjoy hosted request form. EasyText/SMS may continue using the Google Form outside this pilot, but the email template must never include it.
+The isolated label must differ from the production refund label, and the isolated sender allowlist must contain only owner-controlled synthetic addresses. An owner address such as `etrifari@bloomjoysweets.com` or one of its plus-addresses may be a synthetic sender or recipient for this bounded test, but it must never replace `info@bloomjoysweets.com` as the production refund-assistant mailbox. Both URLs must use approved Bloomjoy public HTTPS hosts. Email customers receive one refund CTA: the Bloomjoy hosted request form. SMS automation is not another intake or continuation channel: staff manually supplies the same form link when a customer first texts, and all communication after form submission uses email.
 
 ## Inventory the legacy sender
 

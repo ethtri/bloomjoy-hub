@@ -22,6 +22,9 @@ const [
   portal,
   envExample,
   emailRunbook,
+  customerMessagesRunbook,
+  gmailCutoverRunbook,
+  smokeChecklist,
   decisions,
 ] = await Promise.all([
   read('supabase/migrations/202608050001_refund_email_pilot_linkage.sql'),
@@ -42,6 +45,9 @@ const [
   read('src/pages/admin/Refunds.tsx'),
   read('.env.example'),
   read('Docs/REFUND_EMAIL_ASSISTANT_RUNBOOK.md'),
+  read('Docs/REFUND_CUSTOMER_MESSAGES_RUNBOOK.md'),
+  read('Docs/REFUND_GMAIL_FIRST_CONTACT_CUTOVER.md'),
+  read('Docs/QA_SMOKE_TEST_CHECKLIST.md'),
   read('Docs/DECISIONS.md'),
 ]);
 
@@ -111,6 +117,13 @@ assert(
     !publicForm.includes('docs.google.com/forms') &&
     !publicForm.includes('current customer service form'),
   'The public form must keep email-linked failures in the original thread, remove every old Google Form fallback, and explain that customer contact alone does not submit a refund request.',
+);
+assert(
+  publicForm.includes("/^\\S+@\\S+\\.\\S+$/.test(form.customerEmail.trim())") &&
+    publicForm.includes("errors.customerEmail = 'Enter a valid email address.'") &&
+    intake.includes('if (!customerEmail || !isEmail(customerEmail))') &&
+    intake.includes('Please enter a valid email address.'),
+  'The hosted refund form and server intake must both require a valid customer email address.',
 );
 assert(
   gmailSync.includes('const refundEmailPilotAttachmentsEnabled = false') &&
@@ -200,14 +213,25 @@ assert(
   'The email runbook must preserve zero-case pre-form contact, distinguish internal notices, and record the completed case-specific proof.',
 );
 assert(
-  decisions.includes('Customer contact points to the Bloomjoy form; submission creates the case (`#889`)') &&
-    decisions.includes('EasyText/SMS response population use the Bloomjoy hosted `/refunds/request` form') &&
+  decisions.includes('Customer contact points to the Bloomjoy form; submission creates the case (`#889`, clarified by `#704` on 2026-09-10)') &&
+    decisions.includes('staff manually replies with the hosted-form link') &&
+    decisions.includes('does not automate that text response') &&
     decisions.includes('creates no `refund_cases` row') &&
-    decisions.includes('changes only the response link') &&
+    decisions.includes('every request acknowledgement, clarification, status update, confirmation, denial or appeal, and delivery-recovery message uses email') &&
+    decisions.includes('There is no post-form SMS, SMS reply ingestion, SMS completion notice, or SMS fallback') &&
+    decisions.includes('does not depend on EasyText, Twilio, an SMS plan, text-platform access, or an SMS activation/cutover') &&
     decisions.includes('supersedes the 2026-07-21 Gmail draft-on-contact rule') &&
-    decisions.includes('no SMS provider or text-message ingestion path') &&
-    decisions.includes('does not add TOTP/operator ceremony, GPT, QR-code rollout, Kexiazhan reporting, cash fallback, or a new SMS platform'),
-  'The authoritative decisions must supersede the old draft-on-contact and Google-Form response rules without adding a new SMS platform or parked pilot scope.',
+    decisions.includes('earlier 2026-08-21 plan to change the link in an automated EasyText/SMS response population'),
+  'The authoritative decision must require a manual text-to-form handoff and email-only continuation without an SMS automation dependency.',
+);
+assert(
+  emailRunbook.includes('The Hub has no automated SMS response, SMS ingestion, post-form SMS, or SMS provider dependency') &&
+    customerMessagesRunbook.includes('Staff manually replies with the Bloomjoy hosted refund-form link') &&
+    customerMessagesRunbook.includes('every request receipt, clarification, status update, confirmation, denial or appeal, and delivery-recovery message uses email') &&
+    gmailCutoverRunbook.includes('SMS automation is not another intake or continuation channel') &&
+    smokeChecklist.includes('hosted refund-form link only through a manual staff reply') &&
+    smokeChecklist.includes('No automated SMS response, ingestion, continuation, completion notice, fallback, or provider dependency exists'),
+  'Active refund communication runbooks must preserve the manual text-link handoff and email-only continuation contract.',
 );
 
-console.log('Refund email pilot validation passed: zero-case pre-form contact, exactly-once hosted-form case creation, attachment-off intake, duplicate guards, and manager queue signals are present with production switches off.');
+console.log('Refund email pilot validation passed: manual text-link handoff, required-email form submission, email-only continuation, zero-case pre-form contact, duplicate guards, and production-off switches are present.');

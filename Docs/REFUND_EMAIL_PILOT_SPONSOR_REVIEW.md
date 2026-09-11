@@ -2,6 +2,8 @@
 
 Last updated: 2026-08-10
 
+> Historical review packet. Its SMS-to-Google-Form assumption was superseded on 2026-09-10 by `#704`: staff manually answers an initial text with the Bloomjoy hosted-form link, and all communication after the required-email form is submitted uses email. SMS automation is not deferred work.
+
 ## What this review is for
 
 You are deciding whether the proposed customer and Machine Manager experience feels right—and whether the team may run one isolated test using fake customer information.
@@ -49,9 +51,9 @@ The assistant cannot approve, decline, select a Nayax transaction, execute a ref
 | No clean transaction match exists | The case remains open and goes to a manager; the customer is not promised a refund. |
 | A case is waiting too long | The assigned manager receives a reminder with the exact case link. |
 
-## What stays unchanged during the pilot
+## What stayed unchanged during this historical pilot review
 
-- EasyText and the SMS-to-Google-Form experience are not changed.
+- At the time of this review, EasyText and the SMS-to-Google-Form experience were not changed. That is historical context, not current scope.
 - The existing email auto-responder remains until a separate no-overlap cutover is approved.
 - Website intake and manual portal work remain available if email automation is stopped.
 - Support mail is not forwarded into a personal inbox.
