@@ -307,7 +307,12 @@ assert(
   currentStatus.includes('Historical Gmail proof checkpoint (superseded for current channel scope)') &&
     currentStatus.includes('existing guarded automation carries routine supported email after submission') &&
     mvpPlan.includes('preserving the existing one-way link handoff outside the Hub') &&
-    mvpPlan.includes('automation carries routine supported email after submission'),
+    mvpPlan.includes('automation carries routine supported email after submission') &&
+    mvpPlan.includes('The existing one-way text-to-link handoff remains outside the Hub and supplies the hosted form') &&
+    mvpPlan.includes('After required-email submission, existing guarded automation handles routine supported email') &&
+    mvpPlan.includes('`#889` is complete') &&
+    !mvpPlan.includes('Complete the remaining existing-channel cutover in #889') &&
+    !mvpPlan.includes('text-account access'),
   'Current status and delivery planning must preserve the one-way link handoff and automated email continuation.',
 );
 assert(
