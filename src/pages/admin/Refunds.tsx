@@ -80,6 +80,7 @@ import {
   fetchRefundNayaxReliabilityHealth,
   fetchRefundNayaxResolutionReadiness,
   fetchRefundOperationsOverview,
+  fetchRefundOperationsSupplements,
   isLocalUatDemoForced,
   lookupNayaxTransactions,
   recoverRefundGmailCustomerContact,
@@ -138,6 +139,7 @@ import {
   canRequestRefundCustomerDetailsManually,
   getRefundCustomerOutreachPresentation,
 } from '@/lib/refundCustomerOutreach';
+import { mergeRefundOperationsSupplements } from '@/lib/refundOperationsSupplements';
 
 const refundSearchViewLabel = (refundCase: RefundCaseRecord) => ({
   needs_action: 'Action needed', ready_to_pay: 'Ready to refund', in_progress: 'In progress',
@@ -2732,10 +2734,23 @@ export default function AdminRefundsPage() {
     retry: false,
     refetchOnWindowFocus: false,
   });
+  const { data: liveSupplements } = useQuery({
+    queryKey: ['refund-operations-supplements'],
+    queryFn: fetchRefundOperationsSupplements,
+    enabled: !forceDemoData && overviewReadStatus === 'success',
+    staleTime: 1000 * 30,
+    retry: false,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+  });
   const liveOverview = useMemo<RefundOperationsOverview>(() => ({
-    ...(liveOverviewSnapshot ?? { cases: [], machines: [], managerAssignments: [] }),
+    ...mergeRefundOperationsSupplements(
+      liveOverviewSnapshot ?? { cases: [], machines: [], managerAssignments: [] },
+      liveSupplements,
+    ),
     managerWork: liveManagerWork ?? null,
-  }), [liveManagerWork, liveOverviewSnapshot]);
+  }), [liveManagerWork, liveOverviewSnapshot, liveSupplements]);
 
   const availabilityCaseIsTerminal = refundAvailabilityIsTerminal(liveOverview, selectedId);
 
@@ -2781,6 +2796,7 @@ export default function AdminRefundsPage() {
     await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['refund-manager-work-projection'] }),
+      queryClient.invalidateQueries({ queryKey: ['refund-operations-supplements'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-gmail-case-context'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-gmail-health'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-nayax-reliability-health'] }),
@@ -7234,6 +7250,16 @@ export default function AdminRefundsPage() {
                 : 'mt-4 text-sm text-muted-foreground' : 'sr-only'}>
             {overviewReadMessage}
           </div>
+
+          {Boolean(liveSupplements?.unavailableSources.length) && (
+            <div
+              data-testid="refund-supplement-read-status"
+              role="status"
+              className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950"
+            >
+              The refund queue is current. Some email or payment-support details are still loading, so related actions stay unavailable until the next refresh.
+            </div>
+          )}
 
           {isUsingDemoData && (
             <div className="mt-4 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">

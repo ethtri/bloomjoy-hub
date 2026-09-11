@@ -2529,24 +2529,9 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
 };
 
 export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsOverview> => {
-  const [overviewResult, gmailDraftResult, queueStateResult, manualNayaxResult] = await Promise.all([
-    supabaseClient.rpc('admin_get_refund_operations_overview'),
-    supabaseClient.rpc('admin_get_refund_gmail_draft_cases'),
-    supabaseClient.rpc('admin_get_refund_email_queue_states'),
-    supabaseClient.rpc('admin_get_refund_manual_nayax_context'),
-  ]);
-
+  const overviewResult = await supabaseClient.rpc('admin_get_refund_operations_overview');
   if (overviewResult.error) {
     throw new Error(overviewResult.error.message || 'Unable to load refund operations.');
-  }
-  if (gmailDraftResult.error) {
-    throw new Error(gmailDraftResult.error.message || 'Unable to load Gmail refund drafts.');
-  }
-  if (queueStateResult.error) {
-    throw new Error(queueStateResult.error.message || 'Unable to load refund queue state.');
-  }
-  if (manualNayaxResult.error) {
-    throw new Error(manualNayaxResult.error.message || 'Unable to load manual Nayax readiness.');
   }
 
   const overview = {
@@ -2616,37 +2601,11 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
   ) {
     throw new Error('Unsupported refund customer outreach response.');
   }
-  const internalTestCaseIds = new Set(internalTestCases.map((refundCase) => refundCase.id));
-  const gmailDrafts = Array.isArray(gmailDraftResult.data)
-    ? (gmailDraftResult.data as RefundCaseRecord[])
-        .filter((refundCase) => !internalTestCaseIds.has(refundCase.id))
-    : [];
-  const queueStates = Array.isArray(queueStateResult.data)
-    ? (queueStateResult.data as RefundEmailQueueState[])
-    : [];
-  const queueStateByCaseId = new Map(
-    queueStates.map((state) => [state.caseId, state] as const)
-  );
-  const manualNayaxContexts = Array.isArray(manualNayaxResult.data)
-    ? (manualNayaxResult.data as Array<{
-        caseId: string;
-        manualNayaxPortalEnabled: boolean;
-        manualNayaxEvidenceSelected: boolean;
-        manualNayaxLocationTimezone: string | null;
-        reviewedNayaxPortalFallbackKind?: 'legacy_manual_evidence' | 'ordinary_exact_match';
-      }>)
-    : [];
-  const manualNayaxByCaseId = new Map(
-    manualNayaxContexts.map((context) => [context.caseId, context] as const)
-  );
-  const cases = [...gmailDrafts, ...overview.cases].map((rawRefundCase) => {
+  const cases = overview.cases.map((rawRefundCase) => {
     const refundCase = overview.transactionalDeliveryContractVersion ===
-        'refund_transactional_delivery_v1' &&
-        !gmailDrafts.includes(rawRefundCase)
+        'refund_transactional_delivery_v1'
       ? requireRefundTransactionalDeliveryCase(rawRefundCase)
       : rawRefundCase;
-    const state = queueStateByCaseId.get(refundCase.id);
-    const manualNayax = manualNayaxByCaseId.get(refundCase.id);
     const selectedNayaxTransaction = refundCase.selectedNayaxTransaction
       ? requireRefundSelectedNayaxTransaction(refundCase.selectedNayaxTransaction)
       : null;
@@ -2658,34 +2617,12 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
         'refund_gmail_case_link_review_v1'
       ? requireRefundGmailCaseLinkReview(refundCase.inboundLinkReview)
       : null;
-    if (!state && !manualNayax) {
-      return { ...refundCase, lifecycle, selectedNayaxTransaction, inboundLinkReview, machineCorrection };
-    }
     return {
       ...refundCase,
       lifecycle,
       selectedNayaxTransaction,
       inboundLinkReview,
       machineCorrection,
-      ...(state ? {
-        intakeSource: state.intakeSource,
-        exactCasePath: state.exactCasePath,
-        missingInformation: state.missingInformation,
-        possibleDuplicate: state.possibleDuplicate,
-        confirmedDuplicate: state.confirmedDuplicate,
-        duplicateOfCaseId: state.duplicateOfCaseId,
-        aging: state.aging,
-        providerHold: state.providerHold,
-        providerOutcome: state.providerOutcome,
-        legacyStateReviewRequired: state.legacyStateReviewRequired,
-        reconciliationActionBlocked: state.actionBlocked,
-      } : {}),
-      ...(manualNayax ? {
-        manualNayaxPortalEnabled: manualNayax.manualNayaxPortalEnabled,
-        manualNayaxEvidenceSelected: manualNayax.manualNayaxEvidenceSelected,
-        manualNayaxLocationTimezone: manualNayax.manualNayaxLocationTimezone,
-        reviewedNayaxPortalFallbackKind: manualNayax.reviewedNayaxPortalFallbackKind,
-      } : {}),
     };
   });
   if (
@@ -2699,6 +2636,55 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
     ...overview,
     cases,
     internalTestCases,
+  };
+};
+
+type RefundManualNayaxContext = {
+  caseId: string;
+  manualNayaxPortalEnabled: boolean;
+  manualNayaxEvidenceSelected: boolean;
+  manualNayaxLocationTimezone: string | null;
+  reviewedNayaxPortalFallbackKind?: 'legacy_manual_evidence' | 'ordinary_exact_match';
+};
+
+export type RefundOperationsSupplements = {
+  gmailDrafts: RefundCaseRecord[];
+  queueStates: RefundEmailQueueState[];
+  manualNayaxContexts: RefundManualNayaxContext[];
+  unavailableSources: Array<'gmail_drafts' | 'email_queue_states' | 'manual_nayax_context'>;
+};
+
+export const fetchRefundOperationsSupplements = async (): Promise<RefundOperationsSupplements> => {
+  const [gmailDraftSettled, queueStateSettled, manualNayaxSettled] = await Promise.allSettled([
+    supabaseClient.rpc('admin_get_refund_gmail_draft_cases'),
+    supabaseClient.rpc('admin_get_refund_email_queue_states'),
+    supabaseClient.rpc('admin_get_refund_manual_nayax_context'),
+  ]);
+  const gmailDraftResult = gmailDraftSettled.status === 'fulfilled'
+    ? gmailDraftSettled.value
+    : null;
+  const queueStateResult = queueStateSettled.status === 'fulfilled'
+    ? queueStateSettled.value
+    : null;
+  const manualNayaxResult = manualNayaxSettled.status === 'fulfilled'
+    ? manualNayaxSettled.value
+    : null;
+  const unavailableSources: RefundOperationsSupplements['unavailableSources'] = [];
+  if (!gmailDraftResult || gmailDraftResult.error) unavailableSources.push('gmail_drafts');
+  if (!queueStateResult || queueStateResult.error) unavailableSources.push('email_queue_states');
+  if (!manualNayaxResult || manualNayaxResult.error) unavailableSources.push('manual_nayax_context');
+
+  return {
+    gmailDrafts: gmailDraftResult && !gmailDraftResult.error && Array.isArray(gmailDraftResult.data)
+      ? gmailDraftResult.data as RefundCaseRecord[]
+      : [],
+    queueStates: queueStateResult && !queueStateResult.error && Array.isArray(queueStateResult.data)
+      ? queueStateResult.data as RefundEmailQueueState[]
+      : [],
+    manualNayaxContexts: manualNayaxResult && !manualNayaxResult.error && Array.isArray(manualNayaxResult.data)
+      ? manualNayaxResult.data as RefundManualNayaxContext[]
+      : [],
+    unavailableSources,
   };
 };
 
