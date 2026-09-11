@@ -13,9 +13,9 @@ import {
 } from '@/lib/refundSelectedNayaxEvidence';
 import {
   REFUND_LIFECYCLE_SCHEMA_VERSION,
-  requireRefundLifecycleContract,
   type RefundLifecycleContract,
 } from '@/lib/refundLifecycle';
+import { applyRefundLifecycleSafety } from '@/lib/refundOperationsLifecycleSafety';
 import {
   requireRefundCustomerLifecycle,
   type RefundCustomerLifecycle,
@@ -902,6 +902,7 @@ export type RefundOperationsOverview = {
   inboundLinkReviewContractVersion?: 'refund_gmail_case_link_review_v1';
   refundOperationsAccess?: boolean;
   managerWork?: RefundManagerWorkProjection | null;
+  lifecycleValidationFailureCount?: number;
 };
 
 export type RefundEmailQueueState = {
@@ -2586,13 +2587,16 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
   ) {
     throw new Error('Unsupported inbound email linking review response.');
   }
+  let lifecycleValidationFailureCount = 0;
+  const applyLifecycleSafety = <T extends RefundCaseRecord>(refundCase: T): T => {
+    const result = applyRefundLifecycleSafety(refundCase);
+    if (result.invalidLifecycle) lifecycleValidationFailureCount += 1;
+    return result.refundCase as T;
+  };
   const internalTestCases = Array.isArray(overview.internalTestCases)
-    ? overview.internalTestCases.map((refundCase) => ({
+    ? overview.internalTestCases.map((refundCase) => applyLifecycleSafety({
         ...refundCase,
         internalTest: requireRefundInternalTestContract(refundCase.internalTest),
-        lifecycle: refundCase.lifecycle
-          ? requireRefundLifecycleContract(refundCase.lifecycle)
-          : null,
       }))
     : [];
   if (
@@ -2609,16 +2613,15 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
     const selectedNayaxTransaction = refundCase.selectedNayaxTransaction
       ? requireRefundSelectedNayaxTransaction(refundCase.selectedNayaxTransaction)
       : null;
-    const lifecycle = refundCase.lifecycle
-      ? requireRefundLifecycleContract(refundCase.lifecycle)
-      : null;
+    const safeRefundCase = applyLifecycleSafety(refundCase);
+    const lifecycle = safeRefundCase.lifecycle;
     const machineCorrection = parseRefundMachineCorrectionEvidence(refundCase.machineCorrection);
     const inboundLinkReview = overview.inboundLinkReviewContractVersion ===
         'refund_gmail_case_link_review_v1'
       ? requireRefundGmailCaseLinkReview(refundCase.inboundLinkReview)
       : null;
     return {
-      ...refundCase,
+      ...safeRefundCase,
       lifecycle,
       selectedNayaxTransaction,
       inboundLinkReview,
@@ -2636,6 +2639,7 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
     ...overview,
     cases,
     internalTestCases,
+    lifecycleValidationFailureCount,
   };
 };
 

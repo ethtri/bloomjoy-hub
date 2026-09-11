@@ -14,9 +14,20 @@ const supplementSource = fs.readFileSync(
   new URL('../../src/lib/refundOperationsSupplements.ts', import.meta.url),
   'utf8',
 );
+const lifecycleSafetySource = fs.readFileSync(
+  new URL('../../src/lib/refundOperationsLifecycleSafety.ts', import.meta.url),
+  'utf8',
+);
 const migrationSource = fs.readFileSync(
   new URL(
     '../../supabase/migrations/20260911164704_refund_overview_lifecycle_reuse.sql',
+    import.meta.url,
+  ),
+  'utf8',
+);
+const lifecyclePrecedenceMigrationSource = fs.readFileSync(
+  new URL(
+    '../../supabase/migrations/20260911174609_refund_lifecycle_accounting_outreach_precedence.sql',
     import.meta.url,
   ),
   'utf8',
@@ -123,5 +134,30 @@ test('manager queue projection reuses the delegated lifecycle without an N+1 cal
   assert.match(
     migrationSource,
     /revoke all on function\s+public\.admin_get_refund_operations_overview_pre_customer_correction_v1\(\)/,
+  );
+});
+
+test('one malformed lifecycle cannot discard the otherwise healthy queue', () => {
+  assert.match(operationsSource, /applyRefundLifecycleSafety/);
+  assert.match(operationsSource, /lifecycleValidationFailureCount/);
+  assert.match(lifecycleSafetySource, /canPerformOfficialAction: false/);
+  assert.match(lifecycleSafetySource, /canSelectNayaxCandidate: false/);
+  assert.match(lifecycleSafetySource, /officialActionBlockReason: 'official_actions_disabled'/);
+  assert.match(pageSource, /data-testid="refund-lifecycle-read-status"/);
+});
+
+test('pending accounting ownership wins over historical outreach state', () => {
+  const accountingGuard = lifecyclePrecedenceMigrationSource.indexOf(
+    "if p_lifecycle #>> '{accountingState,state}' = 'pending' then",
+  );
+  const outreachQueueOverride = lifecyclePrecedenceMigrationSource.indexOf(
+    "'managerAction', jsonb_build_object(",
+  );
+  assert.ok(accountingGuard >= 0);
+  assert.ok(outreachQueueOverride > accountingGuard);
+  assert.match(lifecyclePrecedenceMigrationSource, /return result;/);
+  assert.match(
+    lifecyclePrecedenceMigrationSource,
+    /revoke all on function public\.refund_apply_customer_outreach_to_lifecycle\(jsonb, jsonb\)/,
   );
 });
