@@ -192,7 +192,8 @@
     "20260910235500_refund_submission_identity_atomicity.sql",
     "20260911001500_refund_manager_action_email_context.sql",
     "20260911001848_refund_server_approval_continuation.sql",
-    "20260911005752_refund_manager_digest_projection.sql"
+    "20260911005752_refund_manager_digest_projection.sql",
+    "20260911030748_resolve_refund_inventory_temp_lint.sql"
   ],
   "migrationFilesSha256": "23a3d20916255f6c6c13e33a28efacca385f281f36c1ade1f73f57a2cb5a6fe6",
   "migrationVersionSetSha256": "8992af016b36ac623731082af00d274cdc0ed8b1133e33a5fcfe4ae138477cdd",
