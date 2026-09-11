@@ -1758,3 +1758,12 @@ These choices supersede earlier refund pilot, mandatory TOTP/approval ceremonies
 The existing Refunds page remains the only manager inbox. One current-mapping, privacy-safe server projection supplies its six queue counts, prioritized items, age, next action and change reason; the daily email consumes selected versions of those same items and links back to the exact cases. Customer replies and reminder milestones are digest work, while urgent failures and escalations remain immediate and are only labeled as unresolved when that is current truth.
 
 A digest is unique per manager, local date and configured timezone. Its items are unique per manager, case and attention version, resolve when mapping or attention changes, and do not resolve on read. Provider-start evidence is committed before transport; uncertain delivery cannot retry. Runtime and database digest switches are independent and default off. The digest contains only approved public labels, public reference, amount/currency, age, action/change copy and portal links; no customer fields, provider diagnostics or raw recipient evidence are stored or rendered.
+
+## 2026-09-11 - Refund manager work stays in one queue (`#1322`)
+
+The server-owned manager-work projection remains the shared source for the existing Refunds queue counts and the daily digest. The portal does not render a separate Daily focus summary, repeated bucket controls, or a second prioritized case-card grid above the working queue.
+
+**Why this choice**
+- The existing queue already exposes the same statuses, cases, ordering, and navigation.
+- Repeating that information consumes the first viewport and delays the manager's actual review work.
+- Keeping the projection behind the existing queue preserves server-owned truth and digest consistency without duplicating the interface.
