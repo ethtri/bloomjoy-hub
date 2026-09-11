@@ -10671,19 +10671,19 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
     await page.screenshot({ path: path.join(artifactDir, 'refund-manager-work-mobile-200-percent.png'), fullPage: true });
     await page.evaluate(() => { document.documentElement.style.zoom = ''; });
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await page.goto(`${appUrl}/refunds?demo=on&manager-work=zero`, { waitUntil: 'networkidle' });
+    await navigateRefundPortalPage(page, `${appUrl}/refunds?demo=on&manager-work=zero`, { waitUntil: 'networkidle' });
     recorder.assert(
       'Manager work zero state is explicit and non-actionable',
       await page.getByText('You’re caught up.', { exact: true }).isVisible() &&
         (await page.getByTestId('refund-manager-work-summary').getByText(/^RF-UAT-/).count()) === 0
     );
-    await page.goto(`${appUrl}/refunds?demo=on&manager-work=one`, { waitUntil: 'networkidle' });
+    await navigateRefundPortalPage(page, `${appUrl}/refunds?demo=on&manager-work=one`, { waitUntil: 'networkidle' });
     recorder.assert(
       'Manager work one-item state preserves exact count and case selection',
       await page.getByRole('button', { name: /^My refund work bucket needs action: 1$/ }).isVisible() &&
         (await page.getByTestId('refund-manager-work-summary').getByText(/^RF-UAT-/).count()) === 1
     );
-    await page.goto(`${appUrl}/refunds?demo=on`, { waitUntil: 'networkidle' });
+    await navigateRefundPortalPage(page, `${appUrl}/refunds?demo=on`, { waitUntil: 'networkidle' });
 
     recorder.assert(
       'Explicit local demo mode starts with a distinct empty action-needed queue',
