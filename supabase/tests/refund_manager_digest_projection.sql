@@ -341,7 +341,8 @@ select is((select item_state from public.refund_manager_digest_items),
   'resolved', 'Resolved digest state needs no mark-read chore');
 
 update public.reporting_machine_refund_managers
-set status = 'revoked', revoked_at = '2026-09-11T16:00:00Z'
+set status = 'revoked', revoked_at = '2026-09-11T16:00:00Z',
+    revoke_reason = 'Synthetic digest projection removal'
 where manager_user_id = '12810000-0000-4000-8000-000000000001';
 select is(
   jsonb_array_length(public.refund_manager_work_projection_for(
