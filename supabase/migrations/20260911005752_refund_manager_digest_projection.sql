@@ -458,14 +458,14 @@ security definer
 set search_path = ''
 as $$
 declare
-  manager_user_id uuid := auth.uid();
+  current_manager_user_id uuid := auth.uid();
 begin
-  if manager_user_id is null then
+  if current_manager_user_id is null then
     raise exception 'Authentication required' using errcode = '42501';
   end if;
   if not exists (
     select 1 from public.reporting_machine_refund_managers mapping
-    where mapping.manager_user_id = manager_user_id
+    where mapping.manager_user_id = current_manager_user_id
       and mapping.status = 'active'
       and mapping.revoked_at is null
   ) then
@@ -493,7 +493,7 @@ begin
       'payloadRedacted', true
     );
   end if;
-  return public.refund_manager_work_projection_for(manager_user_id, p_observed_at);
+  return public.refund_manager_work_projection_for(current_manager_user_id, p_observed_at);
 end;
 $$;
 
