@@ -189,7 +189,8 @@
     "20260910163221_refund_completion_contact_truth.sql",
     "20260910163735_refund_completion_outbox_priority_health.sql",
     "20260910230500_refund_manager_notification_policy.sql",
-    "20260910235500_refund_submission_identity_atomicity.sql"
+    "20260910235500_refund_submission_identity_atomicity.sql",
+    "20260911001500_refund_manager_action_email_context.sql"
   ],
   "migrationFilesSha256": "7951596ba66e2a877f14f21d89a698a4040d5a710f59635bf37ef90adc98a33b",
   "migrationVersionSetSha256": "9ff928347dd77de4d48d60dd3a018e76f7ce165c8d720742ff52d8854666e285",
