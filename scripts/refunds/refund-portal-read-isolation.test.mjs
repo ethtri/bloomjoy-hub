@@ -10,6 +10,10 @@ const pageSource = fs.readFileSync(
   new URL('../../src/pages/admin/Refunds.tsx', import.meta.url),
   'utf8',
 );
+const supplementSource = fs.readFileSync(
+  new URL('../../src/lib/refundOperationsSupplements.ts', import.meta.url),
+  'utf8',
+);
 const migrationSource = fs.readFileSync(
   new URL(
     '../../supabase/migrations/20260911164704_refund_overview_lifecycle_reuse.sql',
@@ -41,12 +45,15 @@ test('optional reads cannot fail the critical refund overview read', () => {
   const supplementRead = functionBody(
     operationsSource,
     'export const fetchRefundOperationsSupplements',
-    'export const mergeRefundOperationsSupplements',
+    'export const fetchRefundManagerWorkProjection',
   );
   assert.match(supplementRead, /admin_get_refund_gmail_draft_cases/);
   assert.match(supplementRead, /admin_get_refund_email_queue_states/);
   assert.match(supplementRead, /admin_get_refund_manual_nayax_context/);
   assert.match(supplementRead, /unavailableSources/);
+  assert.match(supplementSource, /officialActionBlockReason: 'official_actions_disabled'/);
+  assert.match(supplementSource, /canPerformOfficialAction: false/);
+  assert.match(supplementSource, /canSelectNayaxCandidate: false/);
 
   const managerRead = functionBody(
     operationsSource,

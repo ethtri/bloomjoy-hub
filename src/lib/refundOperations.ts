@@ -2688,55 +2688,6 @@ export const fetchRefundOperationsSupplements = async (): Promise<RefundOperatio
   };
 };
 
-export const mergeRefundOperationsSupplements = (
-  overview: RefundOperationsOverview,
-  supplements: RefundOperationsSupplements | undefined,
-): RefundOperationsOverview => {
-  if (!supplements) return overview;
-
-  const internalTestCaseIds = new Set(
-    (overview.internalTestCases ?? []).map((refundCase) => refundCase.id),
-  );
-  const gmailDrafts = supplements.gmailDrafts.filter(
-    (refundCase) => !internalTestCaseIds.has(refundCase.id),
-  );
-  const queueStateByCaseId = new Map(
-    supplements.queueStates.map((state) => [state.caseId, state] as const),
-  );
-  const manualNayaxByCaseId = new Map(
-    supplements.manualNayaxContexts.map((context) => [context.caseId, context] as const),
-  );
-  const cases = [...gmailDrafts, ...overview.cases].map((refundCase) => {
-    const state = queueStateByCaseId.get(refundCase.id);
-    const manualNayax = manualNayaxByCaseId.get(refundCase.id);
-    if (!state && !manualNayax) return refundCase;
-    return {
-      ...refundCase,
-      ...(state ? {
-        intakeSource: state.intakeSource,
-        exactCasePath: state.exactCasePath,
-        missingInformation: state.missingInformation,
-        possibleDuplicate: state.possibleDuplicate,
-        confirmedDuplicate: state.confirmedDuplicate,
-        duplicateOfCaseId: state.duplicateOfCaseId,
-        aging: state.aging,
-        providerHold: state.providerHold,
-        providerOutcome: state.providerOutcome,
-        legacyStateReviewRequired: state.legacyStateReviewRequired,
-        reconciliationActionBlocked: state.actionBlocked,
-      } : {}),
-      ...(manualNayax ? {
-        manualNayaxPortalEnabled: manualNayax.manualNayaxPortalEnabled,
-        manualNayaxEvidenceSelected: manualNayax.manualNayaxEvidenceSelected,
-        manualNayaxLocationTimezone: manualNayax.manualNayaxLocationTimezone,
-        reviewedNayaxPortalFallbackKind: manualNayax.reviewedNayaxPortalFallbackKind,
-      } : {}),
-    };
-  });
-
-  return { ...overview, cases };
-};
-
 export const fetchRefundManagerWorkProjection = async (): Promise<RefundManagerWorkProjection | null> => {
   const result = await supabaseClient.rpc('get_refund_manager_work_projection', {
     p_observed_at: new Date().toISOString(),

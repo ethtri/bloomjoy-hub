@@ -83,7 +83,6 @@ import {
   fetchRefundOperationsSupplements,
   isLocalUatDemoForced,
   lookupNayaxTransactions,
-  mergeRefundOperationsSupplements,
   recoverRefundGmailCustomerContact,
   recoverRefundNayaxCompletion,
   rejectRefundGptTriage,
@@ -140,6 +139,7 @@ import {
   canRequestRefundCustomerDetailsManually,
   getRefundCustomerOutreachPresentation,
 } from '@/lib/refundCustomerOutreach';
+import { mergeRefundOperationsSupplements } from '@/lib/refundOperationsSupplements';
 
 const refundSearchViewLabel = (refundCase: RefundCaseRecord) => ({
   needs_action: 'Action needed', ready_to_pay: 'Ready to refund', in_progress: 'In progress',
