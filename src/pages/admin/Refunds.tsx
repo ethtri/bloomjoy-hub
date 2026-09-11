@@ -76,6 +76,7 @@ import {
   fetchRefundCaseReconciliation,
   fetchRefundGmailCaseContext,
   fetchRefundGmailHealth,
+  fetchRefundManagerWorkProjection,
   fetchRefundNayaxReliabilityHealth,
   fetchRefundNayaxResolutionReadiness,
   fetchRefundOperationsOverview,
@@ -2723,7 +2724,18 @@ export default function AdminRefundsPage() {
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
-  const liveOverview = liveOverviewSnapshot ?? { cases: [], machines: [], managerAssignments: [] };
+  const { data: liveManagerWork } = useQuery({
+    queryKey: ['refund-manager-work-projection'],
+    queryFn: fetchRefundManagerWorkProjection,
+    enabled: !forceDemoData && overviewReadStatus === 'success',
+    staleTime: 1000 * 30,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+  const liveOverview = useMemo<RefundOperationsOverview>(() => ({
+    ...(liveOverviewSnapshot ?? { cases: [], machines: [], managerAssignments: [] }),
+    managerWork: liveManagerWork ?? null,
+  }), [liveManagerWork, liveOverviewSnapshot]);
 
   const availabilityCaseIsTerminal = refundAvailabilityIsTerminal(liveOverview, selectedId);
 
@@ -2766,8 +2778,9 @@ export default function AdminRefundsPage() {
     gmailHealth?.status === 'revoked';
   const gmailRecoveryActive = gmailHealth?.status === 'recovering';
   const refresh = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] }),
+      queryClient.invalidateQueries({ queryKey: ['refund-manager-work-projection'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-gmail-case-context'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-gmail-health'] }),
       queryClient.invalidateQueries({ queryKey: ['refund-nayax-reliability-health'] }),

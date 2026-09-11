@@ -2529,12 +2529,11 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
 };
 
 export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsOverview> => {
-  const [overviewResult, gmailDraftResult, queueStateResult, manualNayaxResult, managerWorkResult] = await Promise.all([
+  const [overviewResult, gmailDraftResult, queueStateResult, manualNayaxResult] = await Promise.all([
     supabaseClient.rpc('admin_get_refund_operations_overview'),
     supabaseClient.rpc('admin_get_refund_gmail_draft_cases'),
     supabaseClient.rpc('admin_get_refund_email_queue_states'),
     supabaseClient.rpc('admin_get_refund_manual_nayax_context'),
-    supabaseClient.rpc('get_refund_manager_work_projection', { p_observed_at: new Date().toISOString() }),
   ]);
 
   if (overviewResult.error) {
@@ -2548,13 +2547,6 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
   }
   if (manualNayaxResult.error) {
     throw new Error(manualNayaxResult.error.message || 'Unable to load manual Nayax readiness.');
-  }
-  const missingManagerWorkRpc = managerWorkResult.error && (
-    managerWorkResult.error.code === 'PGRST202' ||
-    managerWorkResult.error.message?.includes('get_refund_manager_work_projection')
-  );
-  if (managerWorkResult.error && !missingManagerWorkRpc) {
-    throw new Error(managerWorkResult.error.message || 'Unable to load manager refund work.');
   }
 
   const overview = {
@@ -2707,8 +2699,22 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
     ...overview,
     cases,
     internalTestCases,
-    managerWork: managerWorkResult.error ? null : parseRefundManagerWorkProjection(managerWorkResult.data),
   };
+};
+
+export const fetchRefundManagerWorkProjection = async (): Promise<RefundManagerWorkProjection | null> => {
+  const result = await supabaseClient.rpc('get_refund_manager_work_projection', {
+    p_observed_at: new Date().toISOString(),
+  });
+  const missingRpc = result.error && (
+    result.error.code === 'PGRST202' ||
+    result.error.message?.includes('get_refund_manager_work_projection')
+  );
+  if (missingRpc) return null;
+  if (result.error) {
+    throw new Error(result.error.message || 'Unable to load manager refund work.');
+  }
+  return parseRefundManagerWorkProjection(result.data);
 };
 
 export const fetchRefundCaseReconciliation = async (
