@@ -67,7 +67,16 @@ begin
 
   select
     coalesce(nullif(btrim(machine.refund_public_display_label), ''), 'Machine not recorded'),
-    coalesce(nullif(btrim(location.name), ''), 'Location not recorded')
+    case
+      when lower(btrim(location.name)) like 'unmapped %'
+        or lower(btrim(location.name)) like 'unknown %'
+        or lower(btrim(location.name)) in ('unmapped', 'unknown')
+      then coalesce(
+        nullif(btrim(machine.refund_public_display_label), ''),
+        'Bloomjoy location'
+      )
+      else coalesce(nullif(btrim(location.name), ''), 'Location not recorded')
+    end
   into public_machine_label, public_location_name
   from public.reporting_machines machine
   join public.reporting_locations location on location.id = case_row.reporting_location_id

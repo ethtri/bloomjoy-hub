@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(8);
+select plan(9);
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -21,7 +21,7 @@ insert into public.reporting_locations (id, account_id, name, timezone)
 values (
   '12820000-0000-4000-8000-000000000001',
   '12810000-0000-4000-8000-000000000001',
-  'Safe sample venue', 'America/Los_Angeles'
+  'Unmapped internal inventory', 'America/Los_Angeles'
 );
 
 insert into public.reporting_machines (
@@ -73,8 +73,10 @@ select is((
   select jsonb_agg(key order by key)
   from manager_email_context
   cross join lateral jsonb_object_keys(value) as keys(key)
-), '["actionCode","actionOwner","ageMinutes","amountCents","currencyCode","lifecycleActor","locationName","machineLabel","paymentMethodCategory","payloadRedacted","publicReference","queueLabel","schemaVersion","whatChanged"]'::jsonb,
+), '["actionCode","actionOwner","ageMinutes","amountCents","currencyCode","lifecycleActor","locationName","machineLabel","payloadRedacted","paymentMethodCategory","publicReference","queueLabel","schemaVersion","whatChanged"]'::jsonb,
   'Email context exposes only the fixed allowlist');
+select is((select value ->> 'locationName' from manager_email_context),
+  'Lobby treats', 'Internal location placeholders use the approved public label');
 
 select set_config(
   'request.jwt.claims',
@@ -98,7 +100,8 @@ select is(
 select ok(
   not ((select value::text from manager_email_context) like any (array[
     '%customer-private@example.invalid%', '%Private Customer%',
-    '%Private complaint%', '%4242%', '%Private provider machine label%'
+    '%Private complaint%', '%4242%', '%Private provider machine label%',
+    '%Unmapped internal inventory%'
   ])),
   'Email context omits customer, complaint, card, and private provider fields'
 );
