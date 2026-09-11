@@ -85,6 +85,7 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-portal-uat-customer-outreach-sent_unconfirmed.png',
   'refund-portal-uat-customer-outreach-waiting_for_customer.png',
   'refund-portal-uat-desktop.png',
+  'refund-portal-uat-incomplete-transaction-history.png',
   'refund-portal-uat-lookup-failed.png',
   'refund-portal-uat-unsafe-or-exhausted-lookup-failure.png',
   'refund-portal-uat-mapped-scoped-admin-mapped-manager-session.png',
