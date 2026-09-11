@@ -193,7 +193,8 @@
     "20260911001500_refund_manager_action_email_context.sql",
     "20260911001848_refund_server_approval_continuation.sql",
     "20260911005752_refund_manager_digest_projection.sql",
-    "20260911164704_refund_overview_lifecycle_reuse.sql"
+    "20260911164704_refund_overview_lifecycle_reuse.sql",
+    "20260911174609_refund_lifecycle_accounting_outreach_precedence.sql"
   ],
   "migrationFilesSha256": "61d407efd684af68d23ee8c2ba05f5e748db5abbf36d1df0596676a97427776b",
   "migrationVersionSetSha256": "705e8765a9215f68cf62b0cfe9e2cb25d84ff0f1467ac530fb57bab0281f19c9",

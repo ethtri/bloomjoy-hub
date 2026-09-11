@@ -7261,6 +7261,18 @@ export default function AdminRefundsPage() {
             </div>
           )}
 
+          {Boolean(liveOverview.lifecycleValidationFailureCount) && (
+            <div
+              data-testid="refund-lifecycle-read-status"
+              role="status"
+              className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950"
+            >
+              The refund queue is available, but {liveOverview.lifecycleValidationFailureCount}{' '}
+              {liveOverview.lifecycleValidationFailureCount === 1 ? 'case needs' : 'cases need'} a data review.
+              Official actions for {liveOverview.lifecycleValidationFailureCount === 1 ? 'that case are' : 'those cases are'} disabled.
+            </div>
+          )}
+
           {isUsingDemoData && (
             <div className="mt-4 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
               Demo cases are for visual review only. Changes, transaction checks, emails, and refunds are disabled.
