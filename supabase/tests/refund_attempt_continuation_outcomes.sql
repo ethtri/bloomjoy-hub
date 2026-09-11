@@ -3,7 +3,7 @@ create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 \ir fixtures/refund_transaction_authority.inc
 select pg_temp.refund_reset_authority_markers();
-select plan(136);
+select plan(137);
 select ok(
   array_length(pg_temp.refund_authority_marker_names(), 1) = 10
     and pg_temp.refund_authority_markers_match('{}'::text[]),
@@ -512,6 +512,20 @@ set status='resolved',
     resolved_by='ca000000-0000-4000-8000-000000000001',
     resolved_at=now()
 where id='ca620000-0000-4000-8000-000000000004';
+select ok(public.can_perform_refund_official_action(
+    'ca000000-0000-4000-8000-000000000001',
+    'ca500000-0000-4000-8000-000000000004'
+  ) and (select current_context.value->>'contextHash'=frozen.context->>'contextHash'
+    from continuation_reservations reservation
+    join public.refund_case_nayax_refund_attempts attempt
+      on attempt.id=(reservation.result#>>'{attempt,attemptId}')::uuid
+    join public.refund_nayax_execution_contexts frozen
+      on frozen.attempt_id=attempt.id
+    cross join lateral (select public.refund_nayax_selected_execution_context_v3(
+      attempt.refund_case_id,'exact_source','empty_string'
+    ) value) current_context
+    where reservation.n=4),
+  'Resolving the Gmail review restores full authority and exact current context');
 set local role service_role;
 select set_config('test.server_continuation_claim',
   public.service_claim_due_nayax_approval_continuations_v1(
