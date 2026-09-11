@@ -7088,9 +7088,8 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
     );
     if (scenario.expectedOperationsRecoveryControl) {
       recorder.assert(
-        'Unmapped elevated Refund Operations keeps the full workbench with an empty manager summary',
-        await page.getByTestId('refund-manager-work-summary').isVisible() &&
-          await page.getByText('You’re caught up.', { exact: true }).isVisible() &&
+        'Unmapped elevated Refund Operations keeps the full workbench without a duplicate manager summary',
+        (await page.getByTestId('refund-manager-work-summary').count()) === 0 &&
           await page.getByTestId('nayax-result-card').isVisible()
       );
       await page.getByText('Transaction search details', { exact: true }).click();
@@ -10684,43 +10683,40 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
   await withRefundPortalContext(createDemoContext, async (context) => {
     const rpcCalls = [];
     const page = await openSignedInDemoPage(context, rpcCalls, '/refunds?demo=on');
-    await page.getByText('Demo cases are for visual review only.', { exact: false })
+    await page.getByRole('button', { name: /^Action needed 1$/ })
       .waitFor({ timeout: 10000 });
 
-    const managerWork = page.getByTestId('refund-manager-work-summary');
-    await managerWork.waitFor({ timeout: 10000 });
     recorder.assert(
-      'Manager work summary exposes the shared six-bucket projection and prioritized items',
-      (await managerWork.getByRole('button').count()) >= 8 &&
-        await managerWork.getByRole('heading', { name: 'My refund work' }).isVisible() &&
-        await managerWork.getByText('RF-UAT-NC-MANUAL', { exact: true }).isVisible() &&
-        await managerWork.getByText('RF-UAT-CARD', { exact: true }).isVisible()
+      'Refunds opens directly into one queue surface with shared server-owned counts',
+      (await page.getByTestId('refund-manager-work-summary').count()) === 0 &&
+        (await page.getByText('Daily focus', { exact: true }).count()) === 0 &&
+        (await page.getByText('Prioritized work', { exact: true }).count()) === 0 &&
+        (await page.getByText('Demo cases are for visual review only.', { exact: false }).count()) === 0 &&
+        await page.getByRole('button', { name: /^Action needed 1$/ }).isVisible() &&
+        await page.getByRole('button', { name: /^Ready to refund 1$/ }).isVisible() &&
+        await page.getByRole('button', { name: /^Waiting 1$/ }).isVisible() &&
+        await page.getByRole('button', { name: /^Done 1$/ }).isVisible()
     );
-    await page.screenshot({ path: path.join(artifactDir, 'refund-manager-work-desktop.png'), fullPage: true });
+    await page.screenshot({ path: path.join(artifactDir, 'refund-manager-queue-desktop.png'), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.evaluate(() => { document.documentElement.style.zoom = '2'; });
+    const mobileActionNeededFilter = page.getByRole('button', { name: /^Action needed 1$/ });
+    await mobileActionNeededFilter.scrollIntoViewIfNeeded();
+    const mobileQueueSignals = {
+      summaryCount: await page.getByTestId('refund-manager-work-summary').count(),
+      actionNeededVisible: await mobileActionNeededFilter.isVisible(),
+      queuePanelCount: await page.locator('#refund-queue-panel').count(),
+    };
     recorder.assert(
-      'Manager work remains operable at 390px and 200 percent zoom with named controls',
-      await managerWork.isVisible() &&
-        await managerWork.getByRole('button', { name: /^My refund work bucket needs action: 1$/ }).isVisible() &&
-        await managerWork.getByRole('button', { name: /RF-UAT-NC-MANUAL/ }).isVisible()
+      'The single refund queue remains operable at 390px and 200 percent zoom',
+      mobileQueueSignals.summaryCount === 0 &&
+        mobileQueueSignals.actionNeededVisible &&
+        mobileQueueSignals.queuePanelCount === 1,
+      JSON.stringify(mobileQueueSignals)
     );
-    await page.screenshot({ path: path.join(artifactDir, 'refund-manager-work-mobile-200-percent.png'), fullPage: true });
+    await page.screenshot({ path: path.join(artifactDir, 'refund-manager-queue-mobile-200-percent.png'), fullPage: true });
     await page.evaluate(() => { document.documentElement.style.zoom = ''; });
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await navigateRefundPortalPage(page, `${appUrl}/refunds?demo=on&manager-work=zero`, { waitUntil: 'networkidle' });
-    recorder.assert(
-      'Manager work zero state is explicit and non-actionable',
-      await page.getByText('You’re caught up.', { exact: true }).isVisible() &&
-        (await page.getByTestId('refund-manager-work-summary').getByText(/^RF-UAT-/).count()) === 0
-    );
-    await navigateRefundPortalPage(page, `${appUrl}/refunds?demo=on&manager-work=one`, { waitUntil: 'networkidle' });
-    recorder.assert(
-      'Manager work one-item state preserves exact count and case selection',
-      await page.getByRole('button', { name: /^My refund work bucket needs action: 1$/ }).isVisible() &&
-        (await page.getByTestId('refund-manager-work-summary').getByText(/^RF-UAT-/).count()) === 1
-    );
-    await navigateRefundPortalPage(page, `${appUrl}/refunds?demo=on`, { waitUntil: 'networkidle' });
 
     recorder.assert(
       'Explicit local demo mode starts with a distinct empty action-needed queue',

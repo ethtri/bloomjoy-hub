@@ -1766,3 +1766,12 @@ The refund case is the only durable owner of automatic Nayax lookup state. The a
 Completed transaction candidates are evidence and remain visible for the current deterministic fact version and lookup generation. A manager selection is separately authorized against current mapping, case version, candidate generation, deterministic facts, duplicate use, and payment/receipt state. Case fact changes still invalidate the old generation. Evidence retention therefore does not weaken selection or refund safeguards.
 
 The Nayax recent-sales response does not prove historical completeness. When diagnostics say historical coverage is unknown, a zero-candidate result is **inconclusive** and the manager UI says **Transaction history incomplete**. It must not claim that no matching transaction exists. This decision supersedes the 24-hour candidate-expiry refresh loop and the parallel recovery-queue design; it does not change exact transaction matching, one-manager payment approval, provider idempotency, receipts, or reconciliation requirements.
+
+## 2026-09-11 - Refund manager work stays in one queue (`#1322`)
+
+The server-owned manager-work projection remains the shared source for the existing Refunds queue counts and the daily digest. The portal does not render a separate Daily focus summary, repeated bucket controls, a second prioritized case-card grid, or a page-level demo banner above the working queue. Demo safety remains enforced by disabled actions and blocked live calls rather than persistent explanatory chrome.
+
+**Why this choice**
+- The existing queue already exposes the same statuses, cases, ordering, and navigation.
+- Repeating that information consumes the first viewport and delays the manager's actual review work.
+- Keeping the projection behind the existing queue preserves server-owned truth and digest consistency without duplicating the interface.
