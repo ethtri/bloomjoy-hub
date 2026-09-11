@@ -3,10 +3,13 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
 import { correctionLinkRequested, getCurrentRefundCorrectionFields, issueRefundCorrectionForMessage, refundCorrectionLinksEnabled, STORED_CORRECTION_LINK_MARKER } from "../_shared/refund-correction-delivery.ts";
 import { recheckSavedPurchaseCorrection } from "../_shared/refund-purchase-correction-handler.ts";
-import { sendInternalEmail } from "../_shared/internal-email.ts";
+import { sendInternalEmail, sendTransactionalEmail } from "../_shared/internal-email.ts";
+import { buildRefundManagerDigestEmail, parseRefundManagerWorkProjection } from "../_shared/refund-manager-digest.ts";
 import {
   bindRefundManagerNoticeReservationRouting,
+  getRefundManagerCaseUrl,
   getRefundManagerNoticeReservationRouteInputs,
+  getRefundManagerQueueUrl,
   sendRefundManagerActionNotice,
 } from "../_shared/refund-manager-notification.ts";
 import {
@@ -101,6 +104,8 @@ const automaticCustomerContactEnabled = automaticRefundCustomerContactEnabled();
 const managerAgingNoticesEnabled =
   (Deno.env.get("REFUND_MANAGER_AGING_NOTICES_ENABLED") || "false")
     .toLowerCase() === "true";
+const managerDigestEnabled =
+  (Deno.env.get("REFUND_MANAGER_DIGEST_ENABLED") || "false").toLowerCase() === "true";
 const managerReminderBusinessDays = Number(
   Deno.env.get("REFUND_MANAGER_REMINDER_BUSINESS_DAYS") || 2,
 );
@@ -317,6 +322,8 @@ type SweepCounters = {
   managerRemindersSent: number;
   managerRoutingExceptionsSent: number;
   managerNoticesFailed: number;
+  managerDigestsSent: number;
+  managerDigestItemsSent: number;
   customerStatusUpdatesSent: number;
   customerStatusUpdatesFailed: number;
   nayaxApprovalContinuationsClaimed: number;
@@ -380,6 +387,8 @@ const createCounters = (): SweepCounters => ({
   managerRemindersSent: 0,
   managerRoutingExceptionsSent: 0,
   managerNoticesFailed: 0,
+  managerDigestsSent: 0,
+  managerDigestItemsSent: 0,
   customerStatusUpdatesSent: 0,
   customerStatusUpdatesFailed: 0,
   nayaxApprovalContinuationsClaimed: 0,
@@ -419,6 +428,8 @@ const redactedSummary = (counters: SweepCounters) => ({
   managerRemindersSent: counters.managerRemindersSent,
   managerRoutingExceptionsSent: counters.managerRoutingExceptionsSent,
   managerNoticesFailed: counters.managerNoticesFailed,
+  managerDigestsSent: counters.managerDigestsSent,
+  managerDigestItemsSent: counters.managerDigestItemsSent,
   customerStatusUpdatesSent: counters.customerStatusUpdatesSent,
   customerStatusUpdatesFailed: counters.customerStatusUpdatesFailed,
   nayaxApprovalContinuationsClaimed:
@@ -3970,6 +3981,30 @@ const runEnabledManagerAgingSweep = async (
     let beginRequested = false;
     let attemptReserved = false;
     try {
+      if (milestone === "reminder") {
+        const notice = await sendRefundManagerActionNotice({
+          supabase,
+          refundCaseId: refundCase.id,
+          customerEmail: refundCase.customer_email,
+          noticeReason: "manager_reminder",
+        });
+        if (notice.deliveryState !== "digest_eligible" || !notice.actionId || notice.attentionVersion !== attentionVersion) {
+          throw new Error("manager_reminder_digest_contract_invalid");
+        }
+        const { data: marked, error: markError } = await supabase.rpc(
+          "service_mark_refund_manager_reminder_digest_eligible",
+          {
+            p_refund_case_id: refundCase.id,
+            p_attention_version: attentionVersion,
+            p_notification_action_id: notice.actionId,
+          },
+        );
+        if (markError) throw markError;
+        if (marked !== true) throw new Error("manager_reminder_digest_state_changed");
+        counters.managerRemindersSent += 1;
+        await finishAction(action, "completed", "manager_reminder_digest_eligible", null, counters);
+        continue;
+      }
       const reservationRouteInputs =
         getRefundManagerNoticeReservationRouteInputs({
           customerEmail: refundCase.customer_email,
@@ -4019,9 +4054,7 @@ const runEnabledManagerAgingSweep = async (
         supabase,
         refundCaseId: refundCase.id,
         customerEmail: refundCase.customer_email,
-        noticeReason: milestone === "reminder"
-          ? "manager_reminder"
-          : "manager_escalation",
+        noticeReason: "manager_escalation",
         resolvedRouting: reservedRouting,
       });
       const outcome = notice.usedOpsFallback ? "operations_exception" : "delivered";
@@ -4091,6 +4124,88 @@ const runEnabledManagerAgingSweep = async (
       );
     }
   }
+};
+
+const runManagerDigestSweep = async (observedAt: Date, counters: SweepCounters) => {
+  if (!supabase) return;
+  if (!managerDigestEnabled) {
+    addReason(counters, "manager_digest_disabled");
+    return;
+  }
+  for (let index = 0; index < 25; index += 1) {
+    const { data, error } = await supabase.rpc("service_begin_next_refund_manager_digest", {
+      p_observed_at: observedAt.toISOString(),
+    });
+    if (error) throw error;
+    const claim = data && typeof data === "object" ? data as Record<string, unknown> : {};
+    if (claim.claimed !== true) {
+      addReason(counters, `manager_digest_${textValue(claim.reason) || "empty"}`);
+      return;
+    }
+    const batchId = textValue(claim.batchId);
+    const claimToken = textValue(claim.claimToken);
+    const recipient = textValue(claim.recipient).toLowerCase();
+    const mappingFingerprint = textValue(claim.mappingFingerprint);
+    const localDate = textValue(claim.digestLocalDate);
+    let providerStarted = false;
+    try {
+      if (!UUID_PATTERN.test(batchId) || !UUID_PATTERN.test(claimToken) || !recipient ||
+        !/^[a-f0-9]{64}$/.test(mappingFingerprint) || !/^\d{4}-\d{2}-\d{2}$/.test(localDate) ||
+        claim.payloadRedacted !== true) throw new Error("manager_digest_claim_invalid");
+      const projection = parseRefundManagerWorkProjection(claim.projection);
+      const message = buildRefundManagerDigestEmail({
+        projection,
+        caseUrl: getRefundManagerCaseUrl,
+        queueUrl: getRefundManagerQueueUrl(),
+        localDate,
+      });
+      const { data: started, error: startError } = await supabase.rpc(
+        "service_mark_refund_manager_digest_provider_started",
+        { p_batch_id: batchId, p_claim_token: claimToken, p_mapping_fingerprint: mappingFingerprint, p_recipient: recipient },
+      );
+      if (startError) throw startError;
+      if (started !== true) {
+        addReason(counters, "manager_digest_current_mapping_changed");
+        continue;
+      }
+      providerStarted = true;
+      const receipt = await sendTransactionalEmail({
+        to: [recipient], subject: message.subject, text: message.text, html: message.html,
+        senderName: "Bloomjoy Refunds",
+        idempotencyKey: `refund_manager_digest_${batchId.replaceAll("-", "")}`,
+      });
+      const { data: completed, error: completionError } = await supabase.rpc(
+        "service_complete_refund_manager_digest",
+        { p_batch_id: batchId, p_claim_token: claimToken, p_outcome: "sent", p_provider_message_id: receipt.providerMessageId },
+      );
+      if (completionError) throw completionError;
+      if (completed !== true) throw new Error("manager_digest_settlement_rejected");
+      counters.managerDigestsSent += 1;
+      counters.managerDigestItemsSent += message.itemCount;
+      addReason(counters, "manager_digest_sent");
+    } catch (sendError) {
+      counters.managerNoticesFailed += 1;
+      if (UUID_PATTERN.test(batchId) && UUID_PATTERN.test(claimToken)) {
+        try {
+          const { data: settled, error: settlementError } = await supabase.rpc(
+            "service_complete_refund_manager_digest",
+            {
+              p_batch_id: batchId, p_claim_token: claimToken,
+              p_outcome: providerStarted ? "delivery_unknown" : "known_not_sent",
+              p_provider_message_id: null,
+            },
+          );
+          if (settlementError || settled !== true) {
+            throw settlementError ?? new Error("manager_digest_failure_settlement_rejected");
+          }
+        } catch {
+          // Provider-start evidence remains a durable no-retry hold.
+        }
+      }
+      throw sendError;
+    }
+  }
+  addReason(counters, "manager_digest_drain_limit_reached");
 };
 
 const runManagerAgingSweep = async (
@@ -4660,6 +4775,10 @@ serve(async (req) => {
     if (counters.actionsFailed > 0) {
       throw new RefundAutomationActionFailure();
     }
+
+    // Manager digests have independent environment and database kill switches.
+    failureStage = "manager_digest";
+    await runManagerDigestSweep(scheduledAt, counters);
 
     if (!automationEnabled) {
       failureStage = "automation_gate";

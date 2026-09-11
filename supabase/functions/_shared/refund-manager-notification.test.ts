@@ -43,13 +43,13 @@ Deno.test("manager notification policy classifies every supported event", () => 
   );
   assertEquals(
     REFUND_MANAGER_NOTIFICATION_POLICY.customer_reply,
-    "immediate",
-    "reply compatibility",
+    "daily_digest",
+    "reply digest classification",
   );
   assertEquals(
     REFUND_MANAGER_NOTIFICATION_POLICY.manager_reminder,
-    "immediate",
-    "reminder compatibility",
+    "daily_digest",
+    "reminder digest classification",
   );
   assertEquals(
     REFUND_MANAGER_NOTIFICATION_POLICY.manager_escalation,
@@ -103,7 +103,7 @@ const reservation = {
 const noticeInput = {
   refundCaseId: "92500000-0000-4000-8000-000000000001",
   customerEmail: "notice-customer@example.test",
-  noticeReason: "customer_reply" as const,
+  noticeReason: "hard_bounce" as const,
 };
 
 const emailContext = {

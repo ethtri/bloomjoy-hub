@@ -55,6 +55,7 @@ const [
   envExample,
   qaChecklist,
   canonicalThreadMigration,
+  managerDigestMigration,
 ] =
   await Promise.all([
     read('supabase/migrations/202607210006_refund_gmail_thread_linkage.sql'),
@@ -102,6 +103,7 @@ const [
     read('.env.example'),
     read('Docs/QA_SMOKE_TEST_CHECKLIST.md'),
     read('supabase/migrations/20260907221500_refund_gmail_canonical_threading.sql'),
+    read('supabase/migrations/20260911005752_refund_manager_digest_projection.sql'),
   ]);
 
 const requiredTables = [
@@ -1338,14 +1340,17 @@ assert(
   'The final database authorization and ledger constraint must backfill valid legacy routes, keep the rolling v2 writer complete, allow automatic portal-only evidence, and preserve exact manual manager CC',
 );
 assert(
-  managerNotification.includes('customer_reply: "immediate"') &&
-    managerNotification.includes('manager_reminder: "immediate"') &&
+  managerNotification.includes('customer_reply: "daily_digest"') &&
+    managerNotification.includes('manager_reminder: "daily_digest"') &&
+    managerDigestMigration.includes("p_notice_reason not in ('customer_reply', 'manager_reminder')") &&
+    managerDigestMigration.includes("p_notice_reason, 'daily_digest'") &&
+    managerDigestMigration.includes("'routine', 'digest_eligible', statement_timestamp()") &&
     notificationPolicyMigration.includes("when 'customer_reply' then 'immediate'") &&
     notificationPolicyMigration.includes("when 'manager_reminder' then 'immediate'") &&
     notificationPolicyMigration.includes("interval '10 minutes'") &&
     notificationPolicyMigration.includes('provider_attempt_started_at is null') &&
     notificationPolicyMigration.includes('service_mark_refund_manager_notification_provider_started'),
-  'Digest candidates must remain immediate until #1281 exists, while stale pre-provider reservations recover without retrying provider-unknown delivery',
+  'The #1281 consumer must classify digest candidates without weakening legacy rolling compatibility or provider-unknown holds',
 );
 assert(
   !adminUpdate.includes('managerCcEmails: [] as string[]') &&
@@ -1511,7 +1516,9 @@ assert(
       managerNotification.indexOf('const receipt = await sendEmail') &&
     managerNotification.includes('settlementError || settled !== true') &&
     managerNotification.includes('providerAttemptStarted || providerAccepted') &&
-    managerNotification.includes('["reserved", "digest_eligible", "portal_only"') &&
+    managerNotification.includes('"reserved",') &&
+    managerNotification.includes('"digest_eligible",') &&
+    managerNotification.includes('"portal_only",') &&
     managerNotification.includes(
       'the complete current Machine Manager route could not be safely resolved',
     ) &&

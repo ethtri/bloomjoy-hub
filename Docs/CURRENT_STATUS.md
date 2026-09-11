@@ -219,3 +219,5 @@ The detailed refund bullets below retain supporting design and audit context. Wh
 ## Safety
 
 - Never paste secrets, raw customer data, payment IDs, vendor exports, or free-text complaint content into docs, issues, PRs, or chat.
+
+- **Refund manager daily work (`#1281`):** the backend now owns one privacy-safe projection for the six current Refunds buckets, digest classification, current assignment, ordering, age, next action, and material-change copy. The Refunds page reads that projection for “My refund work,” and a durable manager/local-date digest consumer sends only selected nonempty work with exact case links. Customer replies and two-business-day reminders enter the digest; urgent notices and escalations remain immediate. Both runtime and database digest switches default off, and no rollout or live send is authorized by this implementation.

@@ -58,6 +58,7 @@ const NAVIGATION_READ_ONLY_RPCS = new Set([
   'admin_get_refund_gpt_triage',
   'admin_get_refund_operations_overview',
   'admin_get_refund_manual_nayax_context',
+  'get_refund_manager_work_projection',
 ]);
 
 const isReadOnlyNavigationActivity = ({ functionCalls, rpcCalls }) =>
@@ -3144,6 +3145,16 @@ const installMockSupabaseRoutes = async (
       return route.fulfill(jsonResponse(withOfficialActionState(settledOverview)));
     }
 
+    if (url.includes('/get_refund_manager_work_projection')) {
+      return route.fulfill(jsonResponse({
+        schemaVersion: 'refund_manager_work_v1', observedAt: now.toISOString(),
+        bucketCounts: { needs_action: 0, ready_to_pay: 0, in_progress: 0, provider_hold: 0, waiting_on_customer: 0, completed: 0 },
+        digestCounts: { needsDecision: 0, newInformation: 0, aging: 0, exceptionsBeingHandled: 0 },
+        oldestActionableAgeMinutes: null, recentMaterialChangeCount: 0, items: [],
+        metrics: { emailsSentToday: 0, digestEligibleCount: 0, duplicatesSuppressedToday: 0, oldestActionableAgeMinutes: null, oldestDecisionAgeMinutes: null, payloadRedacted: true }, payloadRedacted: true,
+      }));
+    }
+
     if (url.includes('/admin_dispose_refund_acknowledgement_exception')) {
       const requestBody = request.postDataJSON();
       const response = acknowledgementDispositionHandler
@@ -4575,7 +4586,7 @@ const runEmailPilotDuplicateChecks = async ({ browser, appUrl, artifactDir, reco
     'Email pilot queue keeps advanced operational filters out of the manager workflow',
     (await page.getByLabel('Filter refund cases by status').count()) === 0 &&
       await page.getByRole('button', { name: /Action needed/ }).isVisible() &&
-      await page.getByRole('button', { name: /Waiting/ }).isVisible() &&
+      await page.getByRole('button', { name: /^Waiting \d+$/ }).isVisible() &&
       await page.getByRole('button', { name: /Done/ }).isVisible()
   );
   recorder.assert(
@@ -7049,6 +7060,12 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       })
     );
     if (scenario.expectedOperationsRecoveryControl) {
+      recorder.assert(
+        'Unmapped elevated Refund Operations keeps the full workbench with an empty manager summary',
+        await page.getByTestId('refund-manager-work-summary').isVisible() &&
+          await page.getByText('You’re caught up.', { exact: true }).isVisible() &&
+          await page.getByTestId('nayax-result-card').isVisible()
+      );
       await page.getByText('Transaction search details', { exact: true }).click();
       const operationsRecovery = page.getByTestId('nayax-operations-recovery');
       recorder.assert(
@@ -10639,6 +10656,41 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
     await page.getByText('Demo cases are for visual review only.', { exact: false })
       .waitFor({ timeout: 10000 });
 
+    const managerWork = page.getByTestId('refund-manager-work-summary');
+    await managerWork.waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Manager work summary exposes the shared six-bucket projection and prioritized items',
+      (await managerWork.getByRole('button').count()) >= 8 &&
+        await managerWork.getByRole('heading', { name: 'My refund work' }).isVisible() &&
+        await managerWork.getByText('RF-UAT-NC-MANUAL', { exact: true }).isVisible() &&
+        await managerWork.getByText('RF-UAT-CARD', { exact: true }).isVisible()
+    );
+    await page.screenshot({ path: path.join(artifactDir, 'refund-manager-work-desktop.png'), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.evaluate(() => { document.documentElement.style.zoom = '2'; });
+    recorder.assert(
+      'Manager work remains operable at 390px and 200 percent zoom with named controls',
+      await managerWork.isVisible() &&
+        await managerWork.getByRole('button', { name: /^My refund work bucket needs action: 1$/ }).isVisible() &&
+        await managerWork.getByRole('button', { name: /RF-UAT-NC-MANUAL/ }).isVisible()
+    );
+    await page.screenshot({ path: path.join(artifactDir, 'refund-manager-work-mobile-200-percent.png'), fullPage: true });
+    await page.evaluate(() => { document.documentElement.style.zoom = ''; });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await navigateRefundPortalPage(page, `${appUrl}/refunds?demo=on&manager-work=zero`, { waitUntil: 'networkidle' });
+    recorder.assert(
+      'Manager work zero state is explicit and non-actionable',
+      await page.getByText('You’re caught up.', { exact: true }).isVisible() &&
+        (await page.getByTestId('refund-manager-work-summary').getByText(/^RF-UAT-/).count()) === 0
+    );
+    await navigateRefundPortalPage(page, `${appUrl}/refunds?demo=on&manager-work=one`, { waitUntil: 'networkidle' });
+    recorder.assert(
+      'Manager work one-item state preserves exact count and case selection',
+      await page.getByRole('button', { name: /^My refund work bucket needs action: 1$/ }).isVisible() &&
+        (await page.getByTestId('refund-manager-work-summary').getByText(/^RF-UAT-/).count()) === 1
+    );
+    await navigateRefundPortalPage(page, `${appUrl}/refunds?demo=on`, { waitUntil: 'networkidle' });
+
     recorder.assert(
       'Explicit local demo mode starts with a distinct empty action-needed queue',
       (await page.getByTestId('refund-queue-count').innerText()) === '0 cases'
@@ -10647,18 +10699,17 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
     await waitForQueueCount(page, 1);
     recorder.assert(
       'Demo visual review keeps ready, waiting, and operations cases distinct',
-      (await page.getByText('RF-UAT-CARD').count()) > 0 &&
-        (await page.getByText('RF-UAT-WAIT').count()) === 0 &&
-        (await page.getByText('RF-UAT-NC-MANUAL').count()) === 0 &&
-        (await page.getByRole('button', { name: /Needs Refund Operations/ }).count()) === 0
+      (await queueCase(page, 'RF-UAT-CARD').count()) === 1 &&
+        (await queueCase(page, 'RF-UAT-WAIT').count()) === 0 &&
+        (await queueCase(page, 'RF-UAT-NC-MANUAL').count()) === 0
     );
 
-    await page.getByRole('button', { name: /Waiting/ }).click();
+    await page.getByRole('button', { name: /^Waiting \d+$/ }).click();
     await waitForQueueCount(page, 1);
     recorder.assert(
       'Demo visual review shows waiting cases in their dedicated queue',
-      (await page.getByText('RF-UAT-WAIT').count()) > 0 &&
-        (await page.getByText('RF-UAT-CARD').count()) === 0
+      (await queueCase(page, 'RF-UAT-WAIT').count()) === 1 &&
+        (await queueCase(page, 'RF-UAT-CARD').count()) === 0
     );
     await page.getByRole('button', { name: /^Ready to refund \d+$/ }).click();
     await waitForQueueCount(page, 1);
