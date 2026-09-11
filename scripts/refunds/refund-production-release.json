@@ -191,7 +191,8 @@
     "20260910230500_refund_manager_notification_policy.sql",
     "20260910235500_refund_submission_identity_atomicity.sql",
     "20260911001500_refund_manager_action_email_context.sql",
-    "20260911001848_refund_server_approval_continuation.sql"
+    "20260911001848_refund_server_approval_continuation.sql",
+    "20260911005752_refund_manager_digest_projection.sql"
   ],
   "migrationFilesSha256": "2b87f1ca49a541a5494c0d07a6802a9fc7c063eabcc987e5a6ce3d7886ef3f60",
   "migrationVersionSetSha256": "ef02093801c11b21c27c25c25f86bc7b2856f8ded8bdd92a004c2a973bf303ed",
