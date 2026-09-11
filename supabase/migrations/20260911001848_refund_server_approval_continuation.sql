@@ -136,6 +136,10 @@ begin
       and original_mapping.reporting_machine_id = refund_case.reporting_machine_id
       and original_mapping.manager_user_id = authz.actor_user_id
       and original_mapping.mapping_version >= authz.manager_mapping_version
+      and public.can_perform_refund_official_action(
+        current_mapping.manager_user_id,
+        refund_case.id
+      )
       and machine.status = 'active'
       and machine.nayax_refunds_enabled is true
       and machine.nayax_account_key = p_account_key
@@ -323,6 +327,138 @@ begin
     'claimedCount', jsonb_array_length(claims),
     'payloadRedacted', true
   );
+end;
+$$;
+
+-- The immutable attempt continues to identify the manager who approved and
+-- reserved it. Approval-stage execution after a reassignment is instead
+-- authorized by the immutable continuation row and, for this service path,
+-- its exact current-mapping claim. Never rewrite the original audit actor.
+create or replace function public.guard_refund_nayax_execution_context_stage()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  attempt_row public.refund_case_nayax_refund_attempts%rowtype;
+  case_row public.refund_cases%rowtype;
+  machine_row public.reporting_machines%rowtype;
+  execution_context jsonb;
+  current_execution_authorized boolean := false;
+begin
+  select * into strict attempt_row
+  from public.refund_case_nayax_refund_attempts
+  where id = new.nayax_refund_attempt_id;
+  select context into execution_context
+  from public.refund_nayax_execution_contexts
+  where attempt_id = attempt_row.id;
+  if execution_context is not null
+    and new.journal_contract_version is distinct from
+      'nayax-provider-journal-v3' then
+    raise exception 'Execution context requires the current provider journal contract'
+      using errcode = 'P4620';
+  end if;
+  if new.event <> 'started'
+    or new.journal_contract_version is distinct from
+      'nayax-provider-journal-v3' then
+    return new;
+  end if;
+
+  select * into strict case_row
+  from public.refund_cases
+  where id = attempt_row.refund_case_id
+  for share;
+  select * into strict machine_row
+  from public.reporting_machines
+  where id = case_row.reporting_machine_id
+  for share;
+
+  current_execution_authorized := public.can_perform_refund_official_action(
+    attempt_row.actor_user_id,
+    case_row.id
+  );
+  if new.stage = 'approve' then
+    current_execution_authorized := current_execution_authorized or exists (
+      select 1
+      from public.refund_nayax_attempt_approval_continuations continuation
+      join public.reporting_machine_refund_managers current_mapping
+        on current_mapping.reporting_machine_id = case_row.reporting_machine_id
+        and current_mapping.manager_user_id = continuation.actor_user_id
+        and current_mapping.status = 'active'
+        and current_mapping.revoked_at is null
+      where continuation.nayax_refund_attempt_id = attempt_row.id
+        and continuation.refund_case_id = case_row.id
+        and continuation.official_action_authorization_id =
+          attempt_row.official_action_authorization_id
+        and continuation.attempt_generation =
+          case_row.nayax_refund_attempt_generation
+        and continuation.execution_context_hash =
+          execution_context ->> 'contextHash'
+        and continuation.provider_claim_digest =
+          attempt_row.provider_claim_digest
+        and continuation.provider_claim_expires_at =
+          attempt_row.provider_claim_expires_at
+        and public.can_perform_refund_official_action(
+          continuation.actor_user_id,
+          case_row.id
+        )
+        and (
+          not exists (
+            select 1
+            from public.refund_nayax_server_approval_continuation_claims
+              server_claim
+            where server_claim.nayax_refund_attempt_id = attempt_row.id
+          )
+          or exists (
+            select 1
+            from public.refund_nayax_server_approval_continuation_claims
+              server_claim
+            where server_claim.nayax_refund_attempt_id = attempt_row.id
+              and server_claim.refund_case_id = case_row.id
+              and server_claim.approval_continuation_attempt_id =
+                continuation.nayax_refund_attempt_id
+              and server_claim.official_action_authorization_id =
+                continuation.official_action_authorization_id
+              and server_claim.current_manager_mapping_id = current_mapping.id
+              and server_claim.current_manager_mapping_version =
+                current_mapping.mapping_version
+              and server_claim.execution_context_hash =
+                continuation.execution_context_hash
+              and server_claim.provider_claim_digest =
+                continuation.provider_claim_digest
+          )
+        )
+    );
+  end if;
+
+  if execution_context is null
+    or execution_context ->> 'caseId' is distinct from case_row.id::text
+    or execution_context ->> 'reportingMachineId' is distinct from
+      machine_row.id::text
+    or execution_context ->> 'accountScope' is distinct from
+      machine_row.nayax_account_key
+    or execution_context ->> 'providerMachineId' is distinct from
+      machine_row.nayax_machine_id
+    or execution_context ->> 'transactionId' is distinct from
+      case_row.matched_nayax_transaction_id
+    or (execution_context ->> 'siteId')::integer is distinct from
+      case_row.matched_nayax_site_id
+    or (execution_context ->> 'attemptGeneration')::integer is distinct from
+      case_row.nayax_refund_attempt_generation
+    or (execution_context ->> 'originalAmountCents')::integer is distinct from
+      case_row.matched_nayax_amount_cents
+    or (execution_context ->> 'originalAmountCents')::integer is distinct from
+      attempt_row.amount_cents
+    or execution_context ->> 'currencyCode' is distinct from
+      attempt_row.currency_code
+    or machine_row.status <> 'active'
+    or machine_row.nayax_refunds_enabled is distinct from true
+    or not current_execution_authorized then
+    raise exception 'Selected Nayax purchase or manager authority changed'
+      using errcode = 'P4620';
+  end if;
+  return new;
 end;
 $$;
 

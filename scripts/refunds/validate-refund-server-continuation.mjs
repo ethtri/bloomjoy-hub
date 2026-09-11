@@ -18,6 +18,18 @@ assert.match(migration, /request_result\.stage = 'request'/i);
 assert.match(migration, /not exists \([\s\S]*approval_stage\.stage = 'approve'/i);
 assert.match(migration, /machine\.nayax_account_key = p_account_key/i);
 assert.match(migration, /current_manager_mapping_version/i);
+assert.match(
+  migration,
+  /public\.can_perform_refund_official_action\(\s*current_mapping\.manager_user_id,\s*refund_case\.id\s*\)/i,
+);
+assert.match(
+  migration,
+  /server_claim\.current_manager_mapping_id = current_mapping\.id/i,
+);
+assert.match(
+  migration,
+  /continuation\.provider_claim_digest =\s*attempt_row\.provider_claim_digest/i,
+);
 assert.match(worker, /executionPlan !== "approval_continuation"/);
 assert.doesNotMatch(worker, /requestToken|executeNayaxRefundRequest/i);
 assert.match(sweep, /NAYAX_REFUND_SERVER_CONTINUATION_ENABLED/);
@@ -26,6 +38,9 @@ assert.match(sweep, /executeNayaxRefundApprovalOnly/);
 assert.match(sweep, /limit: 2/);
 assert.match(tests, /coalesced second worker cannot claim/i);
 assert.match(tests, /survives a manager handoff/i);
+assert.match(tests, /pending Gmail case-link review blocks authority before any immutable claim/i);
+assert.match(tests, /reassigned server claim reaches the approval journal/i);
+assert.doesNotMatch(tests, /CONTINUATION-ACCOUNT/);
 assert.match(tests, /Stale-version rejection creates no continuation claim/i);
 
 console.log("Refund server approval continuation validation passed.");
