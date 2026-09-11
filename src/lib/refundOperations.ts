@@ -20,6 +20,7 @@ import {
   requireRefundCustomerLifecycle,
   type RefundCustomerLifecycle,
 } from '@/lib/refundCustomerStatus';
+import { parseRefundManagerWorkProjection, type RefundManagerWorkProjection } from '@/lib/refundManagerWork';
 
 export type RefundPaymentMethod = 'card' | 'cash' | 'unknown';
 export type RefundPaymentInteraction =
@@ -900,6 +901,7 @@ export type RefundOperationsOverview = {
   transactionalDeliveryContractVersion?: 'refund_transactional_delivery_v1';
   inboundLinkReviewContractVersion?: 'refund_gmail_case_link_review_v1';
   refundOperationsAccess?: boolean;
+  managerWork?: RefundManagerWorkProjection | null;
 };
 
 export type RefundEmailQueueState = {
@@ -2016,6 +2018,9 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
   const correctionDemo = isLocalUatDemoForced() ? new URLSearchParams(window.location.search).get('correction') : null;
   const showInboundLinkReview = typeof window !== 'undefined' &&
     new URLSearchParams(window.location.search).get('inbound-link') === 'on';
+  const managerWorkMode = typeof window === 'undefined'
+    ? 'many'
+    : new URLSearchParams(window.location.search).get('manager-work') ?? 'many';
 
   return {
     lifecycleContractVersion: REFUND_LIFECYCLE_SCHEMA_VERSION,
@@ -2026,6 +2031,27 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
       ? { inboundLinkReviewContractVersion: 'refund_gmail_case_link_review_v1' as const }
       : {}),
     refundOperationsAccess: false,
+    managerWork: {
+      schemaVersion: 'refund_manager_work_v1', observedAt: new Date().toISOString(),
+      bucketCounts: managerWorkMode === 'zero'
+        ? { needs_action: 0, ready_to_pay: 0, in_progress: 0, provider_hold: 0, waiting_on_customer: 0, completed: 0 }
+        : managerWorkMode === 'one'
+        ? { needs_action: 1, ready_to_pay: 0, in_progress: 0, provider_hold: 0, waiting_on_customer: 0, completed: 0 }
+        : { needs_action: 1, ready_to_pay: 1, in_progress: 0, provider_hold: 0, waiting_on_customer: 1, completed: 1 },
+      digestCounts: managerWorkMode === 'zero'
+        ? { needsDecision: 0, newInformation: 0, aging: 0, exceptionsBeingHandled: 0 }
+        : managerWorkMode === 'one'
+        ? { needsDecision: 1, newInformation: 1, aging: 0, exceptionsBeingHandled: 0 }
+        : { needsDecision: 2, newInformation: 1, aging: 1, exceptionsBeingHandled: 0 },
+      oldestActionableAgeMinutes: managerWorkMode === 'zero' ? null : 180,
+      recentMaterialChangeCount: managerWorkMode === 'zero' ? 0 : managerWorkMode === 'one' ? 1 : 2,
+      items: (managerWorkMode === 'zero' ? [] : [
+        { caseId: 'demo-nc-manual', publicReference: 'RF-UAT-NC-MANUAL', amountCents: 700, currencyCode: 'USD', machineLabel: 'Carolina Place — Phone cases with an intentionally long public label', locationName: 'Carolina Place', ageMinutes: 180, queueBucket: 'needs_action', queueLabel: 'Action needed', actionCode: 'select_transaction', actionOwner: 'manager', lifecycleActor: 'system', whatChanged: 'The server recorded a verified customer reply on the linked case.', noticeReason: 'customer_reply', attentionVersion: 2, digestEligible: true, urgentNoticeState: 'none', payloadRedacted: true },
+        { caseId: 'demo-card-match', publicReference: 'RF-UAT-CARD', amountCents: 650, currencyCode: 'USD', machineLabel: 'Cotton Candy 01', locationName: 'Mall Atrium', ageMinutes: 95, queueBucket: 'ready_to_pay', queueLabel: 'Ready to refund', actionCode: 'refund', actionOwner: 'manager', lifecycleActor: 'system', whatChanged: 'The confirmed payment evidence is ready for the current official action.', noticeReason: 'manager_reminder', attentionVersion: 1, digestEligible: true, urgentNoticeState: 'immediate_sent', payloadRedacted: true },
+        { caseId: 'demo-cash-waiting', publicReference: 'RF-UAT-CASH', amountCents: 500, currencyCode: 'USD', machineLabel: 'Cotton Candy 02', locationName: 'Arcade Hall', ageMinutes: 60, queueBucket: 'waiting_on_customer', queueLabel: 'Waiting', actionCode: 'wait_for_customer_reply', actionOwner: 'customer', lifecycleActor: 'system', whatChanged: 'The current server-owned queue state is Waiting.', noticeReason: null, attentionVersion: 1, digestEligible: false, urgentNoticeState: 'none', payloadRedacted: true },
+      ]).slice(0, managerWorkMode === 'one' ? 1 : undefined),
+      metrics: { emailsSentToday: 0, digestEligibleCount: managerWorkMode === 'zero' ? 0 : managerWorkMode === 'one' ? 1 : 2, duplicatesSuppressedToday: 0, oldestActionableAgeMinutes: managerWorkMode === 'zero' ? null : 180, oldestDecisionAgeMinutes: managerWorkMode === 'zero' ? null : 180, payloadRedacted: true }, payloadRedacted: true,
+    },
     machines: [
       {
         id: 'demo-machine-card',
@@ -2503,11 +2529,12 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
 };
 
 export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsOverview> => {
-  const [overviewResult, gmailDraftResult, queueStateResult, manualNayaxResult] = await Promise.all([
+  const [overviewResult, gmailDraftResult, queueStateResult, manualNayaxResult, managerWorkResult] = await Promise.all([
     supabaseClient.rpc('admin_get_refund_operations_overview'),
     supabaseClient.rpc('admin_get_refund_gmail_draft_cases'),
     supabaseClient.rpc('admin_get_refund_email_queue_states'),
     supabaseClient.rpc('admin_get_refund_manual_nayax_context'),
+    supabaseClient.rpc('get_refund_manager_work_projection', { p_observed_at: new Date().toISOString() }),
   ]);
 
   if (overviewResult.error) {
@@ -2521,6 +2548,13 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
   }
   if (manualNayaxResult.error) {
     throw new Error(manualNayaxResult.error.message || 'Unable to load manual Nayax readiness.');
+  }
+  const missingManagerWorkRpc = managerWorkResult.error && (
+    managerWorkResult.error.code === 'PGRST202' ||
+    managerWorkResult.error.message?.includes('get_refund_manager_work_projection')
+  );
+  if (managerWorkResult.error && !missingManagerWorkRpc) {
+    throw new Error(managerWorkResult.error.message || 'Unable to load manager refund work.');
   }
 
   const overview = {
@@ -2673,6 +2707,7 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
     ...overview,
     cases,
     internalTestCases,
+    managerWork: managerWorkResult.error ? null : parseRefundManagerWorkProjection(managerWorkResult.data),
   };
 };
 

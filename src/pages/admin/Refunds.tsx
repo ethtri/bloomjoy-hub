@@ -41,6 +41,7 @@ import { RefundAuthoritativeReceiptPanel } from '@/components/refunds/RefundAuth
 import { RefundExternalRecoveryPanel } from '@/components/refunds/RefundExternalRecoveryPanel';
 import { RefundLifecycleProgress } from '@/components/refunds/RefundLifecycleProgress';
 import { RefundOwnerNonrefundResolution } from '@/components/refunds/RefundOwnerNonrefundResolution';
+import { RefundManagerWorkSummary } from '@/components/refunds/RefundManagerWorkSummary';
 import { hasConfirmedRefundReceipt } from '@/lib/refundAuthoritativeReceipt';
 import {
   AlertDialog,
@@ -131,6 +132,7 @@ import {
   type RefundQueueFilter as QueueFilter,
 } from '@/lib/refundQueue';
 import { cn } from '@/lib/utils';
+import type { RefundManagerWorkBucket } from '@/lib/refundManagerWork';
 import {
   canRequestRefundCustomerDetailsManually,
   getRefundCustomerOutreachPresentation,
@@ -2871,7 +2873,22 @@ export default function AdminRefundsPage() {
       : 0,
     completed: overview.cases.filter(isDoneCase).length,
     internal_test: refundOperationsAccess ? internalTestCases.length : 0,
-  }), [internalTestCases, overview.cases, refundOperationsAccess]);
+    ...(overview.managerWork && (
+      overview.cases.length === 0 ||
+      Object.values(overview.managerWork.bucketCounts).some((count) => count > 0)
+    ) ? overview.managerWork.bucketCounts : {}),
+  }), [internalTestCases, overview.cases, overview.managerWork, refundOperationsAccess]);
+
+  const selectManagerWorkCase = (caseId: string) => {
+    const refundCase = overview.cases.find((candidate) => candidate.id === caseId);
+    if (refundCase) handleSelectCase(refundCase);
+  };
+  const selectManagerWorkBucket = (bucket: RefundManagerWorkBucket) => {
+    if (bucket === 'provider_hold' && !refundOperationsAccess) return;
+    setSearch('');
+    setStatusFilter(bucket);
+    requestAnimationFrame(() => document.getElementById('refund-queue-panel')?.focus());
+  };
 
   const hasAnyCases = overview.cases.length + internalTestCases.length > 0;
   const isSearching = search.trim().length > 0;
@@ -7209,6 +7226,14 @@ export default function AdminRefundsPage() {
             <div className="mt-4 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
               Demo cases are for visual review only. Changes, transaction checks, emails, and refunds are disabled.
             </div>
+          )}
+
+          {overview.managerWork && (
+            <RefundManagerWorkSummary
+              projection={overview.managerWork}
+              onSelectCase={selectManagerWorkCase}
+              onSelectBucket={selectManagerWorkBucket}
+            />
           )}
 
           {refundActionReceipt && (

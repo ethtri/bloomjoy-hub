@@ -58,6 +58,7 @@ const NAVIGATION_READ_ONLY_RPCS = new Set([
   'admin_get_refund_gpt_triage',
   'admin_get_refund_operations_overview',
   'admin_get_refund_manual_nayax_context',
+  'get_refund_manager_work_projection',
 ]);
 
 const isReadOnlyNavigationActivity = ({ functionCalls, rpcCalls }) =>
@@ -3142,6 +3143,16 @@ const installMockSupabaseRoutes = async (
           }
         : currentOverview;
       return route.fulfill(jsonResponse(withOfficialActionState(settledOverview)));
+    }
+
+    if (url.includes('/get_refund_manager_work_projection')) {
+      return route.fulfill(jsonResponse({
+        schemaVersion: 'refund_manager_work_v1', observedAt: now.toISOString(),
+        bucketCounts: { needs_action: 0, ready_to_pay: 0, in_progress: 0, provider_hold: 0, waiting_on_customer: 0, completed: 0 },
+        digestCounts: { needsDecision: 0, newInformation: 0, aging: 0, exceptionsBeingHandled: 0 },
+        oldestActionableAgeMinutes: null, recentMaterialChangeCount: 0, items: [],
+        metrics: { emailsSentToday: 0, digestEligibleCount: 0, duplicatesSuppressedToday: 0, oldestActionableAgeMinutes: null, oldestDecisionAgeMinutes: null, payloadRedacted: true }, payloadRedacted: true,
+      }));
     }
 
     if (url.includes('/admin_dispose_refund_acknowledgement_exception')) {
@@ -10638,6 +10649,41 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
     const page = await openSignedInDemoPage(context, rpcCalls, '/refunds?demo=on');
     await page.getByText('Demo cases are for visual review only.', { exact: false })
       .waitFor({ timeout: 10000 });
+
+    const managerWork = page.getByTestId('refund-manager-work-summary');
+    await managerWork.waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Manager work summary exposes the shared six-bucket projection and prioritized items',
+      (await managerWork.getByRole('button').count()) >= 8 &&
+        await managerWork.getByRole('heading', { name: 'My refund work' }).isVisible() &&
+        await managerWork.getByText('RF-UAT-NC-MANUAL', { exact: true }).isVisible() &&
+        await managerWork.getByText('RF-UAT-CARD', { exact: true }).isVisible()
+    );
+    await page.screenshot({ path: path.join(artifactDir, 'refund-manager-work-desktop.png'), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.evaluate(() => { document.documentElement.style.zoom = '2'; });
+    recorder.assert(
+      'Manager work remains operable at 390px and 200 percent zoom with named controls',
+      await managerWork.isVisible() &&
+        await managerWork.getByRole('button', { name: /^My refund work bucket needs action: 1$/ }).isVisible() &&
+        await managerWork.getByRole('button', { name: /RF-UAT-NC-MANUAL/ }).isVisible()
+    );
+    await page.screenshot({ path: path.join(artifactDir, 'refund-manager-work-mobile-200-percent.png'), fullPage: true });
+    await page.evaluate(() => { document.documentElement.style.zoom = ''; });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto(`${appUrl}/refunds?demo=on&manager-work=zero`, { waitUntil: 'networkidle' });
+    recorder.assert(
+      'Manager work zero state is explicit and non-actionable',
+      await page.getByText('You’re caught up.', { exact: true }).isVisible() &&
+        (await page.getByTestId('refund-manager-work-summary').getByText(/^RF-UAT-/).count()) === 0
+    );
+    await page.goto(`${appUrl}/refunds?demo=on&manager-work=one`, { waitUntil: 'networkidle' });
+    recorder.assert(
+      'Manager work one-item state preserves exact count and case selection',
+      await page.getByRole('button', { name: /^My refund work bucket needs action: 1$/ }).isVisible() &&
+        (await page.getByTestId('refund-manager-work-summary').getByText(/^RF-UAT-/).count()) === 1
+    );
+    await page.goto(`${appUrl}/refunds?demo=on`, { waitUntil: 'networkidle' });
 
     recorder.assert(
       'Explicit local demo mode starts with a distinct empty action-needed queue',

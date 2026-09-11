@@ -254,6 +254,10 @@ const nextActionCopy: Record<string, string> = {
     "Review the current case record in the portal; no official refund action is due.",
 };
 
+export const getRefundManagerNextActionCopy = (actionCode: string) =>
+  nextActionCopy[actionCode] ??
+    "Open the case and follow the current server-owned action shown in the portal.";
+
 const escapeHtml = (value: string) =>
   value.replaceAll("&", "&amp;").replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;").replaceAll('"', "&quot;")
@@ -302,8 +306,7 @@ export const buildRefundManagerActionEmail = ({
 }) => {
   const reason = reasonCopy[noticeReason];
   const amount = formatAmount(context.amountCents, context.currencyCode);
-  const nextStep = nextActionCopy[context.actionCode] ??
-    "Open the case and follow the current server-owned action shown in the portal.";
+  const nextStep = getRefundManagerNextActionCopy(context.actionCode);
   const subject =
     `[${reason.subjectLead}] Refund ${amount} · ${context.locationName} · ${context.publicReference}`;
   const details = [
