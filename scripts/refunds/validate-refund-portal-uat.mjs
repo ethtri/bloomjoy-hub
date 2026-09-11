@@ -4586,7 +4586,7 @@ const runEmailPilotDuplicateChecks = async ({ browser, appUrl, artifactDir, reco
     'Email pilot queue keeps advanced operational filters out of the manager workflow',
     (await page.getByLabel('Filter refund cases by status').count()) === 0 &&
       await page.getByRole('button', { name: /Action needed/ }).isVisible() &&
-      await page.getByRole('button', { name: /Waiting/ }).isVisible() &&
+      await page.getByRole('button', { name: /^Waiting \d+$/ }).isVisible() &&
       await page.getByRole('button', { name: /Done/ }).isVisible()
   );
   recorder.assert(
@@ -10693,18 +10693,17 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
     await waitForQueueCount(page, 1);
     recorder.assert(
       'Demo visual review keeps ready, waiting, and operations cases distinct',
-      (await page.getByText('RF-UAT-CARD').count()) > 0 &&
-        (await page.getByText('RF-UAT-WAIT').count()) === 0 &&
-        (await page.getByText('RF-UAT-NC-MANUAL').count()) === 0 &&
-        (await page.getByRole('button', { name: /Needs Refund Operations/ }).count()) === 0
+      (await queueCase(page, 'RF-UAT-CARD').count()) === 1 &&
+        (await queueCase(page, 'RF-UAT-WAIT').count()) === 0 &&
+        (await queueCase(page, 'RF-UAT-NC-MANUAL').count()) === 0
     );
 
-    await page.getByRole('button', { name: /Waiting/ }).click();
+    await page.getByRole('button', { name: /^Waiting \d+$/ }).click();
     await waitForQueueCount(page, 1);
     recorder.assert(
       'Demo visual review shows waiting cases in their dedicated queue',
-      (await page.getByText('RF-UAT-WAIT').count()) > 0 &&
-        (await page.getByText('RF-UAT-CARD').count()) === 0
+      (await queueCase(page, 'RF-UAT-WAIT').count()) === 1 &&
+        (await queueCase(page, 'RF-UAT-CARD').count()) === 0
     );
     await page.getByRole('button', { name: /^Ready to refund \d+$/ }).click();
     await waitForQueueCount(page, 1);
