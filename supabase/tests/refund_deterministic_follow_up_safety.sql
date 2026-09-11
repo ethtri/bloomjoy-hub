@@ -1844,7 +1844,8 @@ insert into public.refund_gmail_messages (
   provider_message_id, provider_message_header, operation_key,
   direction, message_kind, status, sender_email, recipient_email,
   recipient_cc_emails, recipient_cc_count, recipient_resolution_status,
-  delivery_kind, participant_role, participant_trust, subject, plain_body,
+  delivery_kind, recipient_manager_overlap, recipient_manager_count,
+  participant_role, participant_trust, subject, plain_body,
   received_at, sent_at, retention_expires_at
 ) values
   (
@@ -1855,7 +1856,7 @@ insert into public.refund_gmail_messages (
     'known-sent-provider-id', '<known-sent-provider@example.test>',
     'known-sent-operation', 'outbound', 'message', 'sent',
     'info@bloomjoysweets.com', 'known-sent@example.test',
-    array['manager@example.test'], 1, 'resolved', 'automatic',
+    array['manager@example.test'], 1, 'resolved', 'automatic', false, 1,
     'mailbox', 'verified', 'Known sent reconciliation',
     'Provider-confirmed synthetic follow-up.',
     statement_timestamp() - interval '2 hours',
@@ -1871,7 +1872,7 @@ insert into public.refund_gmail_messages (
     'known-receipt-operation', 'outbound', 'message', 'sent',
     'info@bloomjoysweets.com',
     'known-receipt-stale-recheck@example.test',
-    array['manager@example.test'], 1, 'resolved', 'automatic',
+    array['manager@example.test'], 1, 'resolved', 'automatic', false, 1,
     'mailbox', 'verified', 'Known receipt with abandoned recheck',
     'Provider-confirmed synthetic information-received receipt.',
     statement_timestamp() - interval '2 hours',

@@ -1329,8 +1329,11 @@ assert(
     notificationPolicyMigration.includes('delivery_kind is null') &&
     notificationPolicyMigration.includes('recipient_cc_count = 0') &&
     notificationPolicyMigration.includes('cardinality(recipient_cc_emails) = recipient_cc_count') &&
+    notificationPolicyMigration.includes('set recipient_manager_count = recipient_cc_count') &&
+    notificationPolicyMigration.includes("'public.service_claim_refund_gmail_outbound_v2(uuid,uuid,text,text,text,text,text[],text)'::regprocedure") &&
+    notificationPolicyMigration.includes('manager_recipient_count := coalesce') &&
     notificationPolicyMigration.includes('recipient_manager_count = recipient_cc_count +'),
-  'The final database authorization and ledger constraint must allow automatic portal-only evidence while preserving exact manual manager CC',
+  'The final database authorization and ledger constraint must backfill valid legacy routes, keep the rolling v2 writer complete, allow automatic portal-only evidence, and preserve exact manual manager CC',
 );
 assert(
   managerNotification.includes('customer_reply: "immediate"') &&

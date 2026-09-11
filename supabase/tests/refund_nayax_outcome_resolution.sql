@@ -1550,7 +1550,8 @@ insert into public.refund_gmail_messages (
   gmail_thread_id, refund_case_id, refund_case_message_id, operation_key,
   direction, message_kind, status, sender_email, recipient_email,
   recipient_cc_emails, recipient_cc_count, recipient_resolution_status,
-  delivery_kind, participant_role, participant_trust, subject, plain_body,
+  delivery_kind, recipient_manager_overlap, recipient_manager_count,
+  participant_role, participant_trust, subject, plain_body,
   received_at, retention_expires_at
 )
 select
@@ -1560,7 +1561,7 @@ select
   'refund-case-message:' || attempt.completion_message_id::text,
   'outbound', 'message', 'pending_send', 'info@bloomjoysweets.com',
   message.recipient_email, array['manager@example.test'], 1, 'resolved',
-  'manual', 'mailbox', 'verified', message.subject, message.body,
+  'manual', false, 1, 'mailbox', 'verified', message.subject, message.body,
   statement_timestamp() - interval '6 minutes',
   statement_timestamp() + interval '180 days'
 from public.refund_case_nayax_refund_attempts attempt

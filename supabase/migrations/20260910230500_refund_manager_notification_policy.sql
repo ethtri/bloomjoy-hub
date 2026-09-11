@@ -703,6 +703,63 @@ grant execute on function public.service_authorize_refund_customer_outbound(
 comment on function public.service_authorize_refund_customer_outbound(uuid, text, text[], text) is
   'Service-only customer-send authorization. Automatic messages require a current mapped-manager route but return no CC recipients; manual manager-authored replies retain exact current CC routing.';
 
+-- Normalize any valid resolved rows written after the earlier route-v2
+-- backfill, then keep the still-callable v2 claim compatible during a rolling
+-- Edge deployment by making it persist the complete resolved route evidence.
+update public.refund_gmail_messages
+set recipient_manager_count = recipient_cc_count
+  + case when recipient_manager_overlap then 1 else 0 end
+where direction = 'outbound'
+  and recipient_resolution_status = 'resolved'
+  and recipient_manager_count = 0
+  and delivery_kind in ('manual', 'automatic')
+  and recipient_cc_count between 1 and 4
+  and cardinality(recipient_cc_emails) = recipient_cc_count
+  and recipient_cc_count + case when recipient_manager_overlap then 1 else 0 end
+    between 1 and 4;
+
+do $$
+declare
+  definition text := pg_get_functiondef(
+    'public.service_claim_refund_gmail_outbound_v2(uuid,uuid,text,text,text,text,text[],text)'::regprocedure
+  );
+  revised text;
+begin
+  definition := replace(definition, E'\r\n', E'\n');
+  revised := replace(
+    definition,
+    'manager_cc_emails text[] := ''{}''::text[];',
+    E'manager_cc_emails text[] := ''{}''::text[];\n  manager_recipient_overlap boolean := false;\n  manager_recipient_count integer := 0;'
+  );
+  revised := replace(
+    revised,
+    E'from jsonb_array_elements_text(recipient_resolution -> ''managerCcEmails'') value;\n\n  -- Customer contact',
+    E'from jsonb_array_elements_text(recipient_resolution -> ''managerCcEmails'') value;\n  manager_recipient_overlap := coalesce((recipient_resolution ->> ''managerRecipientOverlap'')::boolean, false);\n  manager_recipient_count := coalesce((recipient_resolution ->> ''managerRecipientCount'')::integer, 0);\n\n  -- Customer contact'
+  );
+  revised := replace(
+    revised,
+    E'recipient_resolution_status,\n    delivery_kind,',
+    E'recipient_resolution_status,\n    recipient_manager_overlap,\n    recipient_manager_count,\n    delivery_kind,'
+  );
+  revised := replace(
+    revised,
+    E'recipient_resolution ->> ''status'',\n    normalized_delivery_kind,',
+    E'recipient_resolution ->> ''status'',\n    manager_recipient_overlap,\n    manager_recipient_count,\n    normalized_delivery_kind,'
+  );
+  revised := replace(
+    revised,
+    E'''managerCcCount'', cardinality(manager_cc_emails),\n    ''recipientResolutionStatus'',',
+    E'''managerCcCount'', cardinality(manager_cc_emails),\n    ''managerRecipientOverlap'', manager_recipient_overlap,\n    ''managerRecipientCount'', manager_recipient_count,\n    ''recipientResolutionStatus'','
+  );
+  if revised = definition
+    or position('recipient_manager_count' in revised) = 0
+    or position('managerRecipientCount' in revised) = 0 then
+    raise exception 'Expected Gmail outbound v2 route contract';
+  end if;
+  execute revised;
+end;
+$$;
+
 -- The Gmail ledger records both the number of mapped managers that authorized
 -- an automatic send and the number actually copied. Portal-only automatic mail
 -- therefore has a positive manager count with zero CC; manual mail continues to
