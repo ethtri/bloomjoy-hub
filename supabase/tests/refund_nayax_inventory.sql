@@ -4,7 +4,7 @@ create extension if not exists pgtap with schema extensions;
 create extension if not exists plpgsql_check with schema extensions;
 set local search_path = public, extensions;
 
-select plan(19);
+select plan(22);
 
 select is_empty(
   $$ select * from extensions.plpgsql_check_function(
@@ -115,6 +115,32 @@ select is(
   (select missing_successful_snapshots from public.refund_nayax_machine_inventory where account_key = 'TEST_ACCOUNT' and nayax_machine_id = 'ACTIVE-1'),
   1,
   'Failed sync does not advance missing-snapshot counters'
+);
+
+select lives_ok(
+  $$ select public.service_sync_refund_nayax_inventory(
+    'inventory-test-run-3', 'test_account',
+    '[{"machineId":"INACTIVE-1","machineName":"Inactive","statusBit":2,"active":false}]'::jsonb,
+    true, null
+  ) $$,
+  'The second complete snapshot missing an active machine is accepted'
+);
+
+select ok(
+  (select missing_successful_snapshots = 2
+      and not provider_is_active
+      and reconciliation_state = 'needs_setup'
+      and setup_reason = 'missing_from_two_successful_snapshots'
+   from public.refund_nayax_machine_inventory
+   where account_key = 'TEST_ACCOUNT' and nayax_machine_id = 'ACTIVE-1'),
+  'Two successful misses inactivate the previously active machine with the exact transition reason'
+);
+
+select ok(
+  (select not provider_is_active and missing_successful_snapshots = 0
+   from public.refund_nayax_machine_inventory
+   where account_key = 'TEST_ACCOUNT' and nayax_machine_id = 'INACTIVE-1'),
+  'An explicitly inactive provider row stays inactive without accumulating absence misses'
 );
 
 select throws_ok(
