@@ -502,7 +502,9 @@ Deno.test("started automatic delivery reaches Gmail sent or unknown reconciliati
                     reconciled: status === "sent",
                     status,
                     subject: "Your refund is confirmed",
-                    managerCcEmails: ["manager@example.invalid"],
+                    managerCcEmails: status === "sent"
+                      ? ["manager@example.invalid"]
+                      : [],
                     managerRecipientOverlap: false,
                     managerRecipientCount: 1,
                     recipientResolutionStatus: "resolved",
@@ -653,7 +655,7 @@ Deno.test("mark-only automatic fallback cannot start transactional provider acce
               data: {
                 allowed: true,
                 recipientResolutionStatus: "resolved",
-                managerCcEmails: ["manager@example.invalid"],
+                managerCcEmails: [],
                 managerRecipientOverlap: false,
                 managerRecipientCount: 1,
               },

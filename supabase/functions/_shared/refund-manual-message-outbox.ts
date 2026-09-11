@@ -490,6 +490,9 @@ export const deliverRefundManualMessageClaim = async ({
       const receipt = await sendRefundTransactionalEmail({
         to: [message.recipient_email],
         cc: gmailDelivery.managerCcEmails,
+        managerCopyPolicy: message.delivery_kind === "automatic"
+          ? "automatic_portal_only"
+          : "manager_cc_required",
         subject: email.subject,
         text: email.text,
         html: email.html,

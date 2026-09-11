@@ -202,7 +202,8 @@ insert into public.refund_gmail_messages (
   provider_message_id, provider_message_header, operation_key,
   direction, message_kind, status, sender_email, recipient_email,
   recipient_cc_emails, recipient_cc_count, recipient_resolution_status,
-  delivery_kind, participant_role, participant_trust, subject, plain_body,
+  delivery_kind, recipient_manager_overlap, recipient_manager_count,
+  participant_role, participant_trust, subject, plain_body,
   received_at, sent_at, retention_expires_at
 ) select
   'c1650000-0000-4000-8000-000000000001',
@@ -211,7 +212,7 @@ insert into public.refund_gmail_messages (
   'payout-request-provider-1', '<payout-request-1@example.invalid>',
   'payout-request-operation-1', 'outbound', 'message', 'sent',
   'refunds@example.invalid', 'payout-customer@example.invalid',
-  array['payout-manager@example.invalid'], 1, 'resolved', 'manual',
+  array['payout-manager@example.invalid'], 1, 'resolved', 'manual', false, 1,
   'mailbox', 'verified', message.subject, message.body,
   message.sent_at, message.sent_at, statement_timestamp() + interval '30 days'
 from public.refund_case_messages message
@@ -415,7 +416,8 @@ insert into public.refund_gmail_messages (
   provider_message_id, provider_message_header, operation_key,
   direction, message_kind, status, sender_email, recipient_email,
   recipient_cc_emails, recipient_cc_count, recipient_resolution_status,
-  delivery_kind, participant_role, participant_trust, subject, plain_body,
+  delivery_kind, recipient_manager_overlap, recipient_manager_count,
+  participant_role, participant_trust, subject, plain_body,
   received_at, sent_at, retention_expires_at
 ) select
   'c1650000-0000-4000-8000-000000000002',
@@ -425,7 +427,7 @@ insert into public.refund_gmail_messages (
   'payout-reminder-provider-1', '<payout-reminder-1@example.invalid>',
   'payout-reminder-operation-1', 'outbound', 'message', 'sent',
   'refunds@example.invalid', 'payout-customer@example.invalid',
-  array['payout-manager@example.invalid'], 1, 'resolved', 'automatic',
+  array['payout-manager@example.invalid'], 1, 'resolved', 'automatic', false, 1,
   'mailbox', 'verified', 'Payout destination reminder',
   'Zelle email or phone number:', statement_timestamp(), statement_timestamp(),
   statement_timestamp() + interval '30 days'
@@ -881,14 +883,15 @@ begin
       provider_message_id, provider_message_header, operation_key,
       direction, message_kind, status, sender_email, recipient_email,
       recipient_cc_emails, recipient_cc_count, recipient_resolution_status,
-      delivery_kind, participant_role, participant_trust, subject, plain_body,
+      delivery_kind, recipient_manager_overlap, recipient_manager_count,
+      participant_role, participant_trust, subject, plain_body,
       received_at, sent_at, retention_expires_at
     ) values (
       thread_id, case_id, request_id, 'payout-race-original-' || transport,
       '<payout-race-original-' || transport || '@example.invalid>',
       'payout-race-original-' || transport, 'outbound', 'message', 'sent',
       'refunds@example.invalid', recipient, array['payout-manager@example.invalid'],
-      1, 'resolved', 'manual', 'mailbox', 'verified',
+      1, 'resolved', 'manual', false, 1, 'mailbox', 'verified',
       'Original payout thread subject', 'Zelle email or phone number:',
       statement_timestamp() - interval '2 hours', statement_timestamp() - interval '2 hours',
       statement_timestamp() + interval '30 days'
@@ -905,14 +908,15 @@ begin
         provider_message_id, provider_message_header, operation_key,
         direction, message_kind, status, sender_email, recipient_email,
         recipient_cc_emails, recipient_cc_count, recipient_resolution_status,
-        delivery_kind, participant_role, participant_trust, subject, plain_body,
+        delivery_kind, recipient_manager_overlap, recipient_manager_count,
+        participant_role, participant_trust, subject, plain_body,
         received_at, sent_at, retention_expires_at
       ) values (
         thread_id, case_id, (reminder ->> 'messageId')::uuid,
         'payout-race-reminder-gmail', '<payout-race-reminder-gmail@example.invalid>',
         'payout-race-reminder-gmail', 'outbound', 'message', 'sent',
         'refunds@example.invalid', recipient, array['payout-manager@example.invalid'],
-        1, 'resolved', 'automatic', 'mailbox', 'verified',
+        1, 'resolved', 'automatic', false, 1, 'mailbox', 'verified',
         'Original payout thread subject', 'Zelle email or phone number:',
         statement_timestamp(), statement_timestamp(), statement_timestamp() + interval '30 days'
       );

@@ -209,6 +209,7 @@ export const sendNayaxCustomerCorrectionEmail = async (
     input.customerEmail,
     input.managerRecipientOverlap,
     input.managerRecipientCount,
+    input.managerCopyPolicy,
   );
   const delivery = await sendRefundTransactionalEmail({
     to: [input.customerEmail],
@@ -217,6 +218,7 @@ export const sendNayaxCustomerCorrectionEmail = async (
     text: email.text,
     html: email.html,
     idempotencyKey: input.idempotencyKey,
+    managerCopyPolicy: input.managerCopyPolicy,
   });
   return { ...email, delivery };
 };

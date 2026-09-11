@@ -42,8 +42,9 @@ function harness(transport, { bounceAfterPending = false, bounceAfterProviderAcc
   const state = { requestDelivery: 'delivered', pending: null, marks: 0, claims: 0,
     transactionalSenderCalls: 0, gmailProviderCalls: 0, transactionalProviderCalls: 0,
     binds: 0, finishes: 0, scopes: 0, updates: [], sequence: [], acceptanceBinding: null };
-  const route = { recipientResolutionStatus: 'resolved', managerCcEmails: ['manager@example.invalid'],
-    managerRecipientOverlap: false, managerRecipientCount: 1 };
+  const route = { recipientResolutionStatus: 'resolved', managerCcEmails: [],
+    managerRecipientOverlap: false, managerRecipientCount: 1,
+    managerCopyPolicy: 'automatic_portal_only' };
   const supabase = {
     from(table) {
       let value;

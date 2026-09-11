@@ -2,6 +2,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.48.1
 import {
   getInternalNotificationRecipients,
   sendTransactionalEmail,
+  TransactionalEmailDeliveryUnknownError,
 } from "./internal-email.ts";
 import { getRefundGmailMailboxIdentities } from "./refund-gmail.ts";
 
@@ -55,12 +56,72 @@ export type RefundManagerNoticeResult = {
   recipientCount: number;
   resolutionStatus: string;
   usedOpsFallback: boolean;
+  actionId?: string;
+  attentionVersion?: number;
+  channel: RefundManagerNotificationChannel;
+  deliveryState: RefundManagerNotificationDeliveryState;
+  noticeReason: RefundManagerNotificationReason;
 };
 
-export type RefundManagerNoticeRouting = RefundManagerNoticeResult & {
+export type RefundManagerNotificationChannel =
+  | "immediate"
+  | "daily_digest"
+  | "portal_only";
+
+export type RefundManagerNotificationDeliveryState =
+  | "reserved"
+  | "sent"
+  | "delivery_unknown"
+  | "known_not_sent"
+  | "digest_eligible"
+  | "portal_only";
+
+export type RefundManagerNotificationReason =
+  | "intake_created"
+  | "wallet_match_ready"
+  | "customer_reply"
+  | "hard_bounce"
+  | "provider_setup"
+  | "provider_outage"
+  | "provider_rejection"
+  | "provider_timeout"
+  | "provider_unknown"
+  | "follow_up_manual_review"
+  | "manager_reminder"
+  | "manager_escalation"
+  | "routine_customer_message"
+  | "manager_authored_conversation"
+  | "customer_completion_copy";
+
+export const REFUND_MANAGER_NOTIFICATION_POLICY: Readonly<
+  Record<RefundManagerNotificationReason, RefundManagerNotificationChannel>
+> = {
+  intake_created: "portal_only",
+  wallet_match_ready: "immediate",
+  // #1281 will enable digest routing only after its durable consumer exists.
+  customer_reply: "immediate",
+  hard_bounce: "immediate",
+  provider_setup: "immediate",
+  provider_outage: "immediate",
+  provider_rejection: "immediate",
+  provider_timeout: "immediate",
+  provider_unknown: "immediate",
+  follow_up_manual_review: "immediate",
+  manager_reminder: "immediate",
+  manager_escalation: "immediate",
+  routine_customer_message: "portal_only",
+  manager_authored_conversation: "portal_only",
+  customer_completion_copy: "portal_only",
+};
+
+export type RefundManagerNoticeRouting = {
   refundCaseId: string;
   customerEmail: string;
   recipients: string[];
+  managerRecipientCount: number;
+  recipientCount: number;
+  resolutionStatus: string;
+  usedOpsFallback: boolean;
   mappingFingerprint?: string;
 };
 
@@ -251,24 +312,94 @@ export const sendRefundManagerActionNotice = async ({
   supabase,
   refundCaseId,
   customerEmail,
+  noticeReason,
   subject,
   summaryText,
   resolvedRouting,
+  sendEmail = sendTransactionalEmail,
 }: {
   supabase: SupabaseClient;
   refundCaseId: string;
   customerEmail: string;
+  noticeReason: RefundManagerNotificationReason;
   subject: string;
   summaryText: string;
   resolvedRouting?: RefundManagerNoticeRouting;
+  sendEmail?: typeof sendTransactionalEmail;
 }): Promise<RefundManagerNoticeResult> => {
   const normalizedCustomerEmail = customerEmail.trim().toLowerCase();
-  const routing = resolvedRouting ??
-    await resolveRefundManagerActionNoticeRouting({
-      supabase,
-      refundCaseId,
+  let actionId: string | undefined;
+  let attentionVersion: number | undefined;
+  let channel: RefundManagerNotificationChannel = "immediate";
+  let claimToken: string | undefined;
+  let routing = resolvedRouting;
+
+  if (!resolvedRouting) {
+    const routeInputs = getRefundManagerNoticeReservationRouteInputs({
       customerEmail: normalizedCustomerEmail,
     });
+    const { data, error } = await supabase.rpc(
+      "service_begin_refund_manager_notification",
+      {
+        p_refund_case_id: refundCaseId,
+        p_notice_reason: noticeReason,
+        p_customer_email: normalizedCustomerEmail,
+        p_mailbox_identities: routeInputs.mailboxIdentities,
+        p_ops_fallback_recipients: routeInputs.opsFallbackRecipients,
+      },
+    );
+    if (error) throw error;
+    const reservation = data && typeof data === "object"
+      ? data as Record<string, unknown>
+      : {};
+    actionId = typeof reservation.actionId === "string"
+      ? reservation.actionId
+      : undefined;
+    attentionVersion = typeof reservation.attentionVersion === "number"
+      ? reservation.attentionVersion
+      : undefined;
+    channel = reservation.channel as RefundManagerNotificationChannel;
+    const deliveryState = reservation.deliveryState as
+      | RefundManagerNotificationDeliveryState
+      | "reserved";
+    if (reservation.claimed !== true) {
+      if (
+        !actionId || !Number.isInteger(attentionVersion) ||
+        !["daily_digest", "portal_only", "immediate"].includes(channel) ||
+        !["reserved", "digest_eligible", "portal_only", "sent", "delivery_unknown", "known_not_sent"]
+          .includes(deliveryState)
+      ) {
+        throw new Error("Refund manager notification policy result is invalid.");
+      }
+      return {
+        actionId,
+        attentionVersion,
+        channel,
+        deliveryState: deliveryState as RefundManagerNotificationDeliveryState,
+        noticeReason,
+        managerRecipientCount: 0,
+        recipientCount: 0,
+        resolutionStatus: "policy_suppressed",
+        usedOpsFallback: false,
+      };
+    }
+    claimToken = typeof reservation.claimToken === "string"
+      ? reservation.claimToken
+      : undefined;
+    if (!actionId || !claimToken || deliveryState !== "reserved") {
+      throw new Error("Refund manager notification reservation is invalid.");
+    }
+    routing = bindRefundManagerNoticeReservationRouting({
+      refundCaseId,
+      customerEmail: normalizedCustomerEmail,
+      mailboxIdentities: routeInputs.mailboxIdentities,
+      reservation,
+    });
+  }
+
+  if (!routing) {
+    throw new Error("Refund manager notification routing is unavailable.");
+  }
   if (
     routing.refundCaseId !== refundCaseId ||
     routing.customerEmail !== normalizedCustomerEmail
@@ -280,20 +411,84 @@ export const sendRefundManagerActionNotice = async ({
     ? "Routing exception: the complete current Machine Manager route could not be safely resolved, so Bloomjoy operations is receiving this action notice."
     : "This action notice was routed only to the currently assigned Machine Managers.";
 
-  await sendTransactionalEmail({
-    to: routing.recipients,
-    subject,
-    text: [
-      summaryText.trim(),
-      "",
-      `Open the case: ${getRefundManagerCaseUrl(refundCaseId)}`,
-      "",
-      routingNote,
-      "Customer PII, payment details, complaint text, and provider payloads are intentionally omitted.",
-    ].join("\n"),
-  });
+  let providerAttemptStarted = false;
+  let providerAccepted = false;
+  try {
+    if (actionId && claimToken) {
+      const { data: marked, error: markError } = await supabase.rpc(
+        "service_mark_refund_manager_notification_provider_started",
+        {
+          p_action_id: actionId,
+          p_claim_token: claimToken,
+        },
+      );
+      if (markError) throw markError;
+      if (marked !== true) {
+        throw new Error(
+          "Refund manager notification provider-start marker was not accepted.",
+        );
+      }
+      providerAttemptStarted = true;
+    }
+    const receipt = await sendEmail({
+      to: routing.recipients,
+      subject,
+      text: [
+        summaryText.trim(),
+        "",
+        `Open the case: ${getRefundManagerCaseUrl(refundCaseId)}`,
+        "",
+        routingNote,
+        "Customer PII, payment details, complaint text, and provider payloads are intentionally omitted.",
+      ].join("\n"),
+      ...(actionId
+        ? { idempotencyKey: `refund_manager_${actionId.replaceAll("-", "")}` }
+        : {}),
+    });
+    providerAccepted = true;
+    if (actionId && claimToken) {
+      const { data: settled, error: settlementError } = await supabase.rpc(
+        "service_complete_refund_manager_notification",
+        {
+          p_action_id: actionId,
+          p_claim_token: claimToken,
+          p_outcome: "sent",
+          p_provider_message_id: receipt.providerMessageId,
+        },
+      );
+      if (settlementError) throw settlementError;
+      if (settled !== true) {
+        throw new TransactionalEmailDeliveryUnknownError();
+      }
+    }
+  } catch (error) {
+    if (actionId && claimToken) {
+      const outcome = providerAttemptStarted || providerAccepted ||
+          error instanceof TransactionalEmailDeliveryUnknownError
+        ? "delivery_unknown"
+        : "known_not_sent";
+      const { data: settled, error: settlementError } = await supabase.rpc(
+        "service_complete_refund_manager_notification",
+        {
+        p_action_id: actionId,
+        p_claim_token: claimToken,
+        p_outcome: outcome,
+        p_provider_message_id: null,
+        },
+      );
+      if (settlementError || settled !== true) {
+        throw new TransactionalEmailDeliveryUnknownError();
+      }
+    }
+    throw error;
+  }
 
   return {
+    actionId,
+    attentionVersion,
+    channel,
+    deliveryState: "sent",
+    noticeReason,
     managerRecipientCount: routing.managerRecipientCount,
     recipientCount: routing.recipientCount,
     resolutionStatus: routing.resolutionStatus,

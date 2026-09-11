@@ -59,9 +59,14 @@ assert(
   'First contact must use a private context and the explicit no-CC pre-mapping exception.',
 );
 assert(
-  gmailTransport.includes('recipientPolicy?: "manager_cc_required" | "premapping_acknowledgement"') &&
-    gmailTransport.includes('operationKey.startsWith("refund-contact-first-response:")'),
-  'The no-CC transport exception must be structurally limited to automatic first contact.',
+  gmailTransport.includes('| "automatic_portal_only"') &&
+    gmailTransport.includes('| "premapping_acknowledgement"') &&
+    gmailTransport.includes('operationKey.startsWith("refund-contact-first-response:")') &&
+    gmailTransport.includes('operationKey.startsWith("refund-case-message:")') &&
+    gmailTransport.includes('effectiveDeliveryKind === "automatic"') &&
+    gmailTransport.includes('normalizedCc.length === 0') &&
+    gmailTransport.includes('managerRecipientCount! <= 4'),
+  'No-CC transport must stay limited to automatic pre-mapping contact or authorized refund-case messages.',
 );
 assert(
   formOnlyMigration.includes('create table if not exists public.refund_gmail_intake_contacts') &&

@@ -755,16 +755,12 @@ Deno.test("synthetic proof rejects a changed manager route after claim and befor
   );
 });
 
-Deno.test("enabled linked delivery preserves exact thread, customer To, two manager CCs, and automatic reply MIME", async () => {
+Deno.test("enabled automatic linked delivery preserves the exact thread and suppresses manager CC", async () => {
   await withEnvironment(
     { ...SYNTHETIC_ENV, REFUND_GMAIL_ENABLED: "true" },
     async () => {
       const providerThreadId = "synthetic-provider-thread";
       const customerEmail = "first-contact-customer@example.test";
-      const managers = [
-        "first-contact-manager-a@example.test",
-        "first-contact-manager-b@example.test",
-      ];
       const rpcCalls: string[] = [];
       let oauthCalls = 0;
       let gmailCalls = 0;
@@ -788,7 +784,7 @@ Deno.test("enabled linked delivery preserves exact thread, customer To, two mana
                 references:
                   "<synthetic-prior@example.test> <synthetic-source@example.test>",
                 recipientResolutionStatus: "resolved",
-                managerCcEmails: managers,
+                managerCcEmails: [],
                 managerRecipientOverlap: false,
                 managerRecipientCount: 2,
               },
@@ -847,7 +843,7 @@ Deno.test("enabled linked delivery preserves exact thread, customer To, two mana
             gmailThreadId: "synthetic-link",
           });
           assertEquals(result.usedGmail, true);
-          assertEquals(result.managerCcCount, 2);
+          assertEquals(result.managerCcCount, 0);
           assertEquals(result.managerRecipientOverlap, false);
           assertEquals(result.managerRecipientCount, 2);
         },
@@ -859,10 +855,7 @@ Deno.test("enabled linked delivery preserves exact thread, customer To, two mana
       const mime = decodeRawMime(raw);
       assertEquals(providerRequest.threadId, providerThreadId);
       assertMatch(mime, /^To: first-contact-customer@example\.test$/m);
-      assertMatch(
-        mime,
-        /^Cc: first-contact-manager-a@example\.test, first-contact-manager-b@example\.test$/m,
-      );
+      assert(!/^Cc:/m.test(mime));
       assertMatch(mime, /^In-Reply-To: <synthetic-source@example\.test>$/m);
       assertMatch(
         mime,

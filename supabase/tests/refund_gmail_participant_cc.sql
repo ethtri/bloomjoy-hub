@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(99);
+select plan(100);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -543,6 +543,11 @@ select is(
   (select recipient_cc_emails from public.refund_gmail_messages where operation_key = 'participant-cc-operation-1'),
   array['manager-one@example.test', 'manager-two@example.test'],
   'The service-only claim stores the exact mapped-manager CC set'
+);
+select is(
+  (select recipient_manager_count from public.refund_gmail_messages where operation_key = 'participant-cc-operation-1'),
+  2,
+  'The rolling v2 claim stores the complete resolved manager route count'
 );
 select ok(
   pg_temp.capture_error(format(

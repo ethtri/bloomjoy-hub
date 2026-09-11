@@ -1145,6 +1145,7 @@ const sendDeterministicFollowUpMessage = async (
         managerCcEmails: gmailDelivery.managerCcEmails,
         managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
         managerRecipientCount: gmailDelivery.managerRecipientCount,
+        managerCopyPolicy: "automatic_portal_only" as const,
         idempotencyKey: `refund-message-${messageId}`,
       };
       const sentEmail = customerCorrectionFields.length > 0
@@ -1308,6 +1309,7 @@ const sendCustomerStatusUpdate = async (
         managerCcEmails: gmailDelivery.managerCcEmails,
         managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
         managerRecipientCount: gmailDelivery.managerRecipientCount,
+        managerCopyPolicy: "automatic_portal_only",
         idempotencyKey: `refund-message-${messageId}`,
       });
       await bindRefundTransactionalDelivery({
@@ -1520,6 +1522,9 @@ const sendFollowUpManagerNotice = async ({
     supabase,
     refundCaseId: refundCase.id,
     customerEmail: refundCase.customer_email,
+    noticeReason: noticeKind === "customer_reply_review"
+      ? "customer_reply"
+      : noticeKind,
     subject: `Refund case needs attention: ${refundCase.public_reference}`,
     summaryText: [
       summary,
@@ -1531,11 +1536,18 @@ const sendFollowUpManagerNotice = async ({
   });
   const { error: eventError } = await supabase.from("refund_case_events").insert({
     refund_case_id: refundCase.id,
-    event_type: noticeKind.startsWith("provider_")
+    event_type: notice.deliveryState !== "sent"
+      ? "refund_manager_notification_policy_recorded"
+      : noticeKind.startsWith("provider_")
       ? "refund_provider_exception_notice_sent"
       : "refund_follow_up_manager_notice_sent",
     message: summary,
     metadata: {
+      notification_action_id: notice.actionId,
+      attention_version: notice.attentionVersion,
+      notice_reason: notice.noticeReason,
+      notification_channel: notice.channel,
+      delivery_state: notice.deliveryState,
       notice_kind: noticeKind,
       recipient_count: notice.recipientCount,
       machine_manager_recipient_count: notice.managerRecipientCount,
@@ -1872,6 +1884,7 @@ const sendWalletCorrectionMessage = async (
         managerCcEmails: gmailDelivery.managerCcEmails,
         managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
         managerRecipientCount: gmailDelivery.managerRecipientCount,
+        managerCopyPolicy: "automatic_portal_only",
         idempotencyKey: `refund-message-${messageId}`,
       });
       await bindRefundTransactionalDelivery({
@@ -3565,6 +3578,7 @@ const sendPayoutDestinationReminder = async (
         managerCcEmails: gmailDelivery.managerCcEmails,
         managerRecipientOverlap: gmailDelivery.managerRecipientOverlap,
         managerRecipientCount: gmailDelivery.managerRecipientCount,
+        managerCopyPolicy: "automatic_portal_only",
         idempotencyKey: `refund-message-${messageId}`,
       });
       await bindRefundTransactionalDelivery({
@@ -4004,6 +4018,9 @@ const runEnabledManagerAgingSweep = async (
         supabase,
         refundCaseId: refundCase.id,
         customerEmail: refundCase.customer_email,
+        noticeReason: milestone === "reminder"
+          ? "manager_reminder"
+          : "manager_escalation",
         subject: message.subject,
         summaryText: message.summaryText,
         resolvedRouting: reservedRouting,
@@ -4028,7 +4045,6 @@ const runEnabledManagerAgingSweep = async (
         );
         continue;
       }
-      if (milestone === "reminder") counters.managerRemindersSent += 1;
       if (milestone === "escalation") counters.escalationsSent += 1;
       if (notice.usedOpsFallback) counters.managerRoutingExceptionsSent += 1;
       await finishAction(

@@ -46,6 +46,10 @@ export type RefundCustomerMessageType =
   | "appeal_received"
   | "completed";
 
+export type RefundManagerCopyPolicy =
+  | "manager_cc_required"
+  | "automatic_portal_only";
+
 export type RefundCustomerEmailInput = {
   messageType: RefundCustomerMessageType;
   publicReference: string;
@@ -66,6 +70,7 @@ export type RefundCustomerEmailInput = {
   managerCcEmails?: string[];
   managerRecipientOverlap?: boolean;
   managerRecipientCount?: number;
+  managerCopyPolicy?: RefundManagerCopyPolicy;
   statusUrl?: string | null;
   correctionUrl?: string | null;
   idempotencyKey?: string | null;
@@ -160,6 +165,7 @@ export const requireRefundManagerCcEmailsForSend = (
   customerEmail: string,
   managerRecipientOverlap = false,
   managerRecipientCount?: number,
+  managerCopyPolicy: RefundManagerCopyPolicy = "manager_cc_required",
 ) => {
   if (!Array.isArray(managerCcEmails)) {
     throw new Error(
@@ -172,12 +178,15 @@ export const requireRefundManagerCcEmailsForSend = (
     customerEmail.trim().toLowerCase(),
     ...getRefundGmailMailboxIdentities(),
   ]);
+  const automaticPortalOnly = managerCopyPolicy === "automatic_portal_only";
   if (
     !Number.isSafeInteger(managerRecipientCount) ||
     managerRecipientCount! < 1 ||
     managerRecipientCount! > 4 ||
-    normalized.length + (managerRecipientOverlap ? 1 : 0) !==
-      managerRecipientCount ||
+    (automaticPortalOnly
+      ? normalized.length !== 0 || managerRecipientOverlap
+      : normalized.length + (managerRecipientOverlap ? 1 : 0) !==
+        managerRecipientCount) ||
     new Set(normalized).size !== normalized.length ||
     normalized.some((email) =>
       email.length > 320 ||
@@ -205,13 +214,28 @@ export const getRefundReplyToEmail = () => {
 };
 
 export const sendRefundTransactionalEmail = async (
-  input: Omit<TransactionalEmailInput, "replyTo" | "senderName">,
-) =>
-  await sendTransactionalEmail({
-    ...input,
+  input: Omit<TransactionalEmailInput, "replyTo" | "senderName"> & {
+    managerCopyPolicy?: RefundManagerCopyPolicy;
+  },
+) => {
+  const {
+    managerCopyPolicy = "manager_cc_required",
+    ...transactionalInput
+  } = input;
+  if (
+    managerCopyPolicy === "automatic_portal_only" &&
+    (transactionalInput.cc?.length ?? 0) !== 0
+  ) {
+    throw new Error(
+      "Automatic refund customer email cannot include manager CC recipients.",
+    );
+  }
+  return await sendTransactionalEmail({
+    ...transactionalInput,
     replyTo: getRefundReplyToEmail(),
     senderName: REFUND_CUSTOMER_SENDER_NAME,
   });
+};
 
 export const sanitizeRefundMessageType = (
   value: unknown,
@@ -815,6 +839,7 @@ export const sendRefundCustomerEmail = async (
     input.customerEmail,
     input.managerRecipientOverlap,
     input.managerRecipientCount,
+    input.managerCopyPolicy,
   );
   const delivery = await sendRefundTransactionalEmail({
     to: [input.customerEmail],
@@ -823,6 +848,7 @@ export const sendRefundCustomerEmail = async (
     text: email.text,
     html: email.html,
     idempotencyKey: input.idempotencyKey,
+    managerCopyPolicy: input.managerCopyPolicy,
   });
 
   return { ...email, delivery };
@@ -842,6 +868,7 @@ export type RefundWalletCorrectionEmailInput = {
   managerCcEmails?: string[];
   managerRecipientOverlap?: boolean;
   managerRecipientCount?: number;
+  managerCopyPolicy?: RefundManagerCopyPolicy;
   idempotencyKey?: string | null;
 };
 
@@ -917,6 +944,7 @@ export const sendRefundWalletCorrectionEmail = async (
     input.customerEmail,
     input.managerRecipientOverlap,
     input.managerRecipientCount,
+    input.managerCopyPolicy,
   );
   const delivery = await sendRefundTransactionalEmail({
     to: [input.customerEmail],
@@ -925,6 +953,7 @@ export const sendRefundWalletCorrectionEmail = async (
     text: email.text,
     html: email.html,
     idempotencyKey: input.idempotencyKey,
+    managerCopyPolicy: input.managerCopyPolicy,
   });
 
   return { ...email, delivery };
