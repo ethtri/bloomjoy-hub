@@ -20,7 +20,9 @@ const databaseTests = read('supabase/tests/refund_legacy_card_state_normalizatio
 const concurrencyTests = read(
   'supabase/tests/refund_legacy_card_state_normalization_concurrency.sql'
 );
-const operations = read('src/lib/refundOperations.ts');
+const operations = `${read('src/lib/refundOperations.ts')}\n${read(
+  'src/lib/refundOperationsSupplements.ts'
+)}`;
 const portal = read('src/pages/admin/Refunds.tsx');
 const managerState = read('src/lib/refundManagerState.ts');
 const portalUat = read('scripts/refunds/validate-refund-portal-uat.mjs');
