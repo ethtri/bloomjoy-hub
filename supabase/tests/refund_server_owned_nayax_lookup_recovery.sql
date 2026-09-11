@@ -54,14 +54,18 @@ select is(jsonb_array_length(public.service_claim_due_refund_nayax_lookups(1)),0
   'A repeated sweep cannot claim an active case');
 
 update public.refund_cases set
-  nayax_lookup_status='lookup_failed',nayax_lookup_finished_at=statement_timestamp()-interval '3 minutes',
+  nayax_lookup_status='lookup_failed',
+  nayax_lookup_started_at=statement_timestamp()-interval '4 minutes',
+  nayax_lookup_finished_at=statement_timestamp()-interval '3 minutes',
   nayax_lookup_failure_class='transport_error',nayax_lookup_safe_retry_eligible=true,
   nayax_lookup_retry_count=0,nayax_lookup_retry_fact_version=deterministic_fact_version
 where id='a8700000-0000-4000-8000-000000000010';
 select is((public.service_claim_due_refund_nayax_lookups(1)->0->>'retryCount')::integer,1,
   'One classified-safe retry is claimed');
 update public.refund_cases set
-  nayax_lookup_status='lookup_failed',nayax_lookup_finished_at=statement_timestamp()-interval '3 minutes',
+  nayax_lookup_status='lookup_failed',
+  nayax_lookup_started_at=statement_timestamp()-interval '4 minutes',
+  nayax_lookup_finished_at=statement_timestamp()-interval '3 minutes',
   nayax_lookup_failure_class='transport_error',nayax_lookup_safe_retry_eligible=true
 where id='a8700000-0000-4000-8000-000000000010';
 select is(jsonb_array_length(public.service_claim_due_refund_nayax_lookups(1)),0,
