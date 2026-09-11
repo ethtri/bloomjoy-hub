@@ -7260,12 +7260,6 @@ export default function AdminRefundsPage() {
             </div>
           )}
 
-          {isUsingDemoData && (
-            <div className="mt-4 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
-              Demo cases are for visual review only. Changes, transaction checks, emails, and refunds are disabled.
-            </div>
-          )}
-
           {refundActionReceipt && (
             <div
               data-testid="refund-action-receipt"

@@ -10652,7 +10652,7 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
   await withRefundPortalContext(createDemoContext, async (context) => {
     const rpcCalls = [];
     const page = await openSignedInDemoPage(context, rpcCalls, '/refunds?demo=on');
-    await page.getByText('Demo cases are for visual review only.', { exact: false })
+    await page.getByRole('button', { name: /^Action needed 1$/ })
       .waitFor({ timeout: 10000 });
 
     recorder.assert(
@@ -10660,6 +10660,7 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
       (await page.getByTestId('refund-manager-work-summary').count()) === 0 &&
         (await page.getByText('Daily focus', { exact: true }).count()) === 0 &&
         (await page.getByText('Prioritized work', { exact: true }).count()) === 0 &&
+        (await page.getByText('Demo cases are for visual review only.', { exact: false }).count()) === 0 &&
         await page.getByRole('button', { name: /^Action needed 1$/ }).isVisible() &&
         await page.getByRole('button', { name: /^Ready to refund 1$/ }).isVisible() &&
         await page.getByRole('button', { name: /^Waiting 1$/ }).isVisible() &&

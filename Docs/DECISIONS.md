@@ -1761,7 +1761,7 @@ A digest is unique per manager, local date and configured timezone. Its items ar
 
 ## 2026-09-11 - Refund manager work stays in one queue (`#1322`)
 
-The server-owned manager-work projection remains the shared source for the existing Refunds queue counts and the daily digest. The portal does not render a separate Daily focus summary, repeated bucket controls, or a second prioritized case-card grid above the working queue.
+The server-owned manager-work projection remains the shared source for the existing Refunds queue counts and the daily digest. The portal does not render a separate Daily focus summary, repeated bucket controls, a second prioritized case-card grid, or a page-level demo banner above the working queue. Demo safety remains enforced by disabled actions and blocked live calls rather than persistent explanatory chrome.
 
 **Why this choice**
 - The existing queue already exposes the same statuses, cases, ordering, and navigation.
