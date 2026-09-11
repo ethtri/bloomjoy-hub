@@ -171,7 +171,7 @@ select n,(context->>'caseVersion')::bigint,
     (context->>'caseVersion')::bigint,'nayax-refund-'||repeat(n::text,64),800,null,null,'USD',
     'nayax-production-account-contract-v2','nayax-provider-journal-v3',context->>'contextHash',
     'source_with_bound_offset')
-  when n=7 then public.service_reserve_nayax_refund_manager_action_v5('continuation-executor',
+  when n in (4,6,7) then public.service_reserve_nayax_refund_manager_action_v5('continuation-executor',
     'ca000000-0000-4000-8000-000000000001',
     ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
     (context->>'caseVersion')::bigint,'nayax-refund-'||repeat(n::text,64),800,null,null,'USD',
@@ -187,7 +187,7 @@ cross join lateral (
   select case when n=1 then public.service_get_refund_nayax_execution_context_v2('continuation-executor',
     'ca000000-0000-4000-8000-000000000001',
     ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'source_with_bound_offset')
-  when n=7 then public.service_get_refund_nayax_execution_context_v3('continuation-executor',
+  when n in (4,6,7) then public.service_get_refund_nayax_execution_context_v3('continuation-executor',
     'ca000000-0000-4000-8000-000000000001',
     ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'exact_source','empty_string')
   else public.service_get_refund_nayax_execution_context('continuation-executor',
