@@ -6,10 +6,12 @@ the original payment transaction is.
 
 The [MVP delivery plan](./REFUND_MVP_PLAN.md) defines the simple manager/customer experience and the remaining API/report/completion work. Current progress belongs to #628 and its linked issues.
 
-Start with [the agent operating procedure](./REFUND_AGENT_OPERATIONS.md) and the
-current #628/#990 issue bodies. The September 3 API release is deployed and
-enabled; one attributable request → approval → independently confirmed real
-refund remains to be proved through ordinary approved customer operations.
+Start with [the agent operating procedure](./REFUND_AGENT_OPERATIONS.md) and
+[CURRENT_STATUS.md](./CURRENT_STATUS.md). The working request → approval contract
+and attributable real refunds were proved on September 8. Current remaining
+acceptance concerns reliable automatic completion and ordinary queue operation;
+do not replay a completed payment to produce more evidence. Use #628/#990 issue
+bodies only for case-specific release history.
 
 ## Normal card-refund path
 

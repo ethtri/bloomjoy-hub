@@ -279,14 +279,63 @@ export function summarizeCasePacket(packet) {
   return {
     caseId: packet.caseId,
     publicReference: packet.publicReference,
+    providerAccountKey: packet.mapping?.providerAccountKey ?? null,
+    manualNayaxPortalEnabled: packet.manualContext?.manualNayaxPortalEnabled === true,
     stage: packet.lifecycle?.stage ?? 'unknown',
+    queue: packet.lifecycle?.managerQueue?.bucket ?? 'unknown',
     paymentState: packet.lifecycle?.paymentState ?? 'unknown',
     nextAction: packet.nextAction,
+    operationsDueAt: packet.lifecycle?.operations?.dueAt ?? null,
     contradictions: packet.contradictions,
     approval: packet.approval.decision,
     approvalContinuity: packet.approval.continuity,
     noticeEvidence: packet.closeout.noticeEvidence,
     incompleteCloseout: packet.closeout.incomplete,
+  };
+}
+
+export const refundReviewCohorts = Object.freeze({
+  all: Object.freeze({ providerAccountKey: null, excludeManualNayaxPortal: false }),
+  'bloomjoy-non-nc': Object.freeze({
+    providerAccountKey: 'TGPACI_USA_DB',
+    excludeManualNayaxPortal: true,
+  }),
+});
+
+/**
+ * Select a named, review-only operating cohort from already-authorized packets.
+ * Missing ownership evidence is excluded and counted; it is never guessed.
+ */
+export function selectReviewPackets(packets, cohort = 'all') {
+  const rule = refundReviewCohorts[cohort];
+  if (!rule) fail('unknown_review_cohort');
+  const selected = [];
+  const excluded = { manualNayaxPortal: 0, differentProviderAccount: 0, missingProviderAccount: 0 };
+  for (const packet of packets) {
+    if (rule.excludeManualNayaxPortal && packet.manualContext?.manualNayaxPortalEnabled === true) {
+      excluded.manualNayaxPortal += 1;
+      continue;
+    }
+    const providerAccountKey = packet.mapping?.providerAccountKey ?? null;
+    if (rule.providerAccountKey && !providerAccountKey) {
+      excluded.missingProviderAccount += 1;
+      continue;
+    }
+    if (rule.providerAccountKey && providerAccountKey !== rule.providerAccountKey) {
+      excluded.differentProviderAccount += 1;
+      continue;
+    }
+    selected.push(packet);
+  }
+  return {
+    packets: selected,
+    selection: {
+      cohort,
+      totalAuthorized: packets.length,
+      selected: selected.length,
+      excluded,
+      complete: excluded.missingProviderAccount === 0,
+    },
   };
 }
 

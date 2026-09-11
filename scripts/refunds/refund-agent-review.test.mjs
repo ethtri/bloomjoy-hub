@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { createReadClient, readPopulation, readCasePacket, readReportHealth, compareReview, paginate, summarizeCasePacket, ReviewError } from './refund-agent-review.mjs';
+import { createReadClient, readPopulation, readCasePacket, readReportHealth, compareReview, paginate, summarizeCasePacket, selectReviewPackets, ReviewError } from './refund-agent-review.mjs';
 
+const repoRoot = new URL('../../', import.meta.url);
+const readRepoFile = filePath => readFile(new URL(filePath, repoRoot), 'utf8');
 const id = n => `a1111111-1111-4111-8111-${String(n).padStart(12, '0')}`;
 const now = new Date('2026-09-04T12:00:00Z');
 const lifecycle = (stage = 'transaction_confirmed') => ({
@@ -99,6 +102,81 @@ test('packet preserves canonical lifecycle and existing approval while stripping
   assert.equal(p.versions.currentDeterministicFactVersion, null, 'Last customer fact evidence is not necessarily current fact version');
   assert.equal(p.versions.lastAppliedCustomerFactVersion, 2);
   assert.doesNotMatch(JSON.stringify(p), /SECRET_|private@example|Do not export|Private approved purpose/);
+});
+
+test('daily non-NC cohort is exact, excludes the manual portal, and never guesses missing ownership', async () => {
+  const eligible = await packet(fixture([row(1)]));
+  eligible.mapping.providerAccountKey = 'TGPACI_USA_DB';
+  const manual = structuredClone(eligible);
+  manual.caseId = id(2);
+  manual.manualContext = { manualNayaxPortalEnabled: true };
+  const other = structuredClone(eligible);
+  other.caseId = id(3);
+  other.mapping.providerAccountKey = 'OTHER_ACCOUNT';
+  const unknown = structuredClone(eligible);
+  unknown.caseId = id(4);
+  unknown.mapping.providerAccountKey = null;
+
+  const result = selectReviewPackets([eligible, manual, other, unknown], 'bloomjoy-non-nc');
+  assert.deepEqual(result.packets.map(item => item.caseId), [id(1)]);
+  assert.deepEqual(result.selection, {
+    cohort: 'bloomjoy-non-nc', totalAuthorized: 4, selected: 1,
+    excluded: { manualNayaxPortal: 1, differentProviderAccount: 1, missingProviderAccount: 1 },
+    complete: false,
+  });
+  assert.throws(() => selectReviewPackets([], 'invented'), /unknown_review_cohort/);
+});
+
+test('compact daily summary includes safe scope, queue, owner, and existing due time', async () => {
+  const value = await packet(fixture());
+  value.mapping.providerAccountKey = 'TGPACI_USA_DB';
+  value.lifecycle.operations.dueAt = '2026-09-04T13:00:00Z';
+  const summary = summarizeCasePacket(value);
+  assert.equal(summary.providerAccountKey, 'TGPACI_USA_DB');
+  assert.equal(summary.manualNayaxPortalEnabled, false);
+  assert.equal(summary.queue, 'ready_to_pay');
+  assert.equal(summary.nextAction.owner, 'manager');
+  assert.equal(summary.operationsDueAt, '2026-09-04T13:00:00Z');
+  assert.doesNotMatch(JSON.stringify(summary), /private@example|4242|SECRET_/);
+});
+
+test('refund procedure is portal-first, profile-specific, fail-closed, and linear', async () => {
+  const procedure = await readRepoFile('Docs/REFUND_AGENT_OPERATIONS.md');
+  const orderedSteps = Array.from({ length: 8 }, (_, index) => `## Step ${index}`);
+  let previous = -1;
+  for (const step of orderedSteps) {
+    const position = procedure.indexOf(step);
+    assert(position > previous, `${step} must exist in order`);
+    previous = position;
+  }
+  for (const required of [
+    'https://app.bloomjoyusa.com/refunds', 'bloomjoysweets.com',
+    'etrifari@bloomjoysweets.com', 'The latest refund information could not be loaded',
+    'Do not use the displayed counts', '--all --cohort bloomjoy-non-nc',
+    'Ready to refund', 'Action needed', 'Needs Refund Operations', 'In progress',
+    'Waiting', 'Done', 'Internal/test archive', 'No due time supplied',
+    'three calendar days',
+  ]) assert.match(procedure, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+});
+
+test('daily report contract has every deterministic case and population field', async () => {
+  const procedure = await readRepoFile('Docs/REFUND_AGENT_OPERATIONS.md');
+  for (const field of [
+    'Case:', 'Scope:', 'Age:', 'Status:', 'Communication:', 'Next action:',
+    'Owner:', 'Due:', 'Customer action:', 'included case count',
+    'excluded Adam/manual-portal count', 'missing-ownership count',
+  ]) assert(procedure.includes(field), `missing report field: ${field}`);
+});
+
+test('policy and repo instructions point agents at current status and the correct browser', async () => {
+  const [policy, agents] = await Promise.all([
+    readRepoFile('Docs/REFUND_PRODUCTION_POLICY.md'),
+    readRepoFile('AGENTS.md'),
+  ]);
+  assert(policy.includes('[CURRENT_STATUS.md](./CURRENT_STATUS.md)'));
+  assert.doesNotMatch(policy, /one attributable request.*remains to be proved/s);
+  assert.match(agents, /etrifari@bloomjoysweets\.com/);
+  assert.match(agents, /failed portal population is unavailable/);
 });
 
 test('approval continuity requires the exact selected purchase amount and card purpose', async () => {

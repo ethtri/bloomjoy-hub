@@ -165,6 +165,17 @@ The `blocked` label blocks merge until resolved, but it is not owner approval by
 - Track priorities in GitHub Issues labeled `P0` through `P3` and use the Bloomjoy Project board.
 - Keep personal notes local. Do not commit them.
 - Keep repo docs durable and compact; use issue and PR comments for task-level chronology.
+
+## Bloomjoy Browser Profile
+
+- All Chrome activity for this repository must use the existing
+  `etrifari@bloomjoysweets.com` profile, shown in Chrome as `bloomjoysweets.com`.
+- If that profile is not open, open it explicitly. Never use the personal `Ethan`
+  profile for Bloomjoy Hub, Nayax, Gmail, or other repository operations.
+- Refund work starts at `https://app.bloomjoyusa.com/refunds` and follows
+  `Docs/REFUND_AGENT_OPERATIONS.md`. A failed portal population is unavailable
+  data, never proof of zero refund cases.
+
 # Nayax refund implementation baseline
 
 Before any Nayax refund implementation, diagnosis or support escalation, read
