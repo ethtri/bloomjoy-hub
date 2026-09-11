@@ -38,9 +38,11 @@ aggregate coverage and unresolved exceptions in GitHub. Customer silence does no
 require repeated reminders or prevent closing successfully delivered outreach.
 
 The September 5 plan treated SMS cutover as work that remediation did not need to
-wait for. The September 10 `#704` direction retires that work: staff manually sends
-the hosted-form link in response to an initial text, the form requires email, and
-all subsequent communication uses email. Remediation outreach does not wait for
+wait for. The September 10 `#704` direction retires Hub SMS cutover work while
+preserving the existing one-way link handoff outside the Hub: the handoff supplies
+the hosted form after an initial text, the form requires email, and existing guarded
+automation carries routine supported email after submission. Managers or humans
+make the final business decision and handle named exceptions. Remediation outreach does not wait for
 #1202, first API proof, automatic reporting, whole-backlog closure or the
 observation. Its preparation and useful engineering can proceed independently.
 This communication authority does not grant

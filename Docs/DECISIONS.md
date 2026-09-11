@@ -1,5 +1,13 @@
 # Decisions
 
+## 2026-09-10 - Existing one-way link handoff starts a required-email refund flow (`#704`)
+
+When a customer texts the Bloomjoy number, the existing one-way link handoff supplies the Bloomjoy hosted `/refunds/request` form. This initial link delivery remains outside the Hub refund conversation: it is not assigned to a staff/manual text reply, and the Hub does not add a new SMS provider, send or ingest SMS, or continue the case by text. The text alone creates no `refund_cases` row.
+
+The hosted form requires a valid customer email address. Submission creates the case, and customer communication after submission uses email. Existing guarded system automation sends request receipts, clarification requests and reply receipts, status updates, completion notices, and other routine customer emails wherever those paths are already supported. Managers or humans make the final business decision and handle only named exception paths; routine supported email is not reassigned to manual work.
+
+There is no post-form SMS, SMS reply ingestion, SMS case continuation, SMS status or completion notice, SMS delivery recovery, or new SMS provider integration. This corrects the staff/manual-text wording added in the September 10 clarification below without restoring the older SMS cutover or Hub SMS automation plan.
+
 ## 2026-09-10 - Open Technician pay months are estimates and assignment dates remain explicit
 
 The Technician Pay Report treats the current calendar month as work in progress. It may show calculated time, imported Commissionable Sales, commission, and an estimated total through the latest available sales-fact date, but it cannot publish a Pay Stub until the Technician edit window closes. A source date before a future month end is informational during the open month, not a blocker an operator is asked to fix. Closed months still require complete source evidence, and overlapping freshness checks collapse into one actionable finding per machine.
@@ -9,9 +17,9 @@ Machine assignment dates and compensation-rate dates are separate inputs. The re
 ## 2026-09-08 - Email-based, agent-prepared refunds with one final manager decision
 
 New public refund requests must provide a valid email address, enforced by both
-the form and server. Email carries clarification and completion updates. SMS
-replies are outside the current workflow; this supersedes the earlier manual-SMS
-and deferred paid-automation direction. Preserve existing legacy records and
+the form and server. Existing automation carries supported routine email after
+submission. The initial text-to-link handoff remains one-way and outside the Hub;
+SMS replies and case continuation are outside the current workflow. Preserve existing legacy records and
 contact history without inventing missing addresses. Verification is tracked in
 `#1238`; `#889` now covers email/form closeout only.
 
@@ -548,13 +556,13 @@ Refund Operations v1 discovers every machine from each configured production Nay
 This supersedes earlier Commercial/Mini-only and Snapcase-out language only for refund intake eligibility and Nayax matching. It does not add Kexiazhan reporting, payroll reporting, QR codes, cash fallback, TOTP/operator ceremony, GPT, or a new SMS platform to the pilot.
 ## 2026-08-21 - Customer contact points to the Bloomjoy form; submission creates the case (`#889`, clarified by `#704` on 2026-09-10)
 
-The Bloomjoy hosted `/refunds/request` form is the only refund-intake path and requires a valid customer email address. If a customer first texts the Bloomjoy number, staff manually replies with the hosted-form link. Bloomjoy Hub does not automate that text response. An email or text contact by itself is not a refund request and creates no `refund_cases` row.
+The Bloomjoy hosted `/refunds/request` form is the only refund-intake path and requires a valid customer email address. If a customer first texts the Bloomjoy number, the existing one-way link handoff supplies the hosted-form link outside the Hub refund conversation. The Hub does not assign a staff/manual text reply or implement that handoff. An email or text contact by itself is not a refund request and creates no `refund_cases` row.
 
 - Gmail may record one private, replay-safe pre-form contact and send one warm hosted-form link in the original thread. The one-time private form context creates exactly one Email-sourced case only when the customer submits the Bloomjoy form; a direct website submission creates one Website-sourced case.
 - After submission, the deterministic email assistant asks only for missing safe information in the original thread. A verified customer reply updates the same case and permits one automatic matching rerun only when material matching facts change.
 - Email-linked and direct-form cases use the same manager queue, matching, duplicate reconciliation, transaction-confirmation, separate approval/denial, provider, reporting, and customer-message safeguards.
-- After form submission, every request acknowledgement, clarification, status update, confirmation, denial or appeal, and delivery-recovery message uses email. There is no post-form SMS, SMS reply ingestion, SMS completion notice, or SMS fallback.
-- Refund Operations has no SMS provider integration or automated text responder and does not depend on EasyText, Twilio, an SMS plan, text-platform access, or an SMS activation/cutover. Any historical SMS automation plan is retired rather than deferred launch work.
+- After form submission, every request acknowledgement, clarification, status update, confirmation, denial or appeal, and delivery-recovery message uses email. Existing guarded system automation sends routine supported email, including receipts, clarification requests and reply receipts, status, and completion; managers or humans remain responsible for the final business decision and named exceptions. There is no post-form SMS, SMS reply ingestion, SMS completion notice, or SMS fallback.
+- Refund Operations has no SMS provider integration, reply ingestion, or ongoing text conversation and does not depend on EasyText, Twilio, an SMS plan, text-platform access, or an SMS activation/cutover. The existing one-way link handoff remains outside the Hub; historical plans to add Hub SMS automation are retired rather than deferred launch work.
 
 This supersedes the 2026-07-21 Gmail draft-on-contact rule, the 2026-08-11 EasyText/Google-Form-unchanged rule, and the earlier 2026-08-21 plan to change the link in an automated EasyText/SMS response population. Their applicable email mailbox isolation, minimal OAuth, replay, privacy, retention, routing, and transport safeguards remain in force. It does not add TOTP/operator ceremony, GPT, QR-code rollout, Kexiazhan reporting, or cash fallback as a pilot requirement.
 

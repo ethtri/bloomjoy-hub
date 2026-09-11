@@ -50,7 +50,7 @@ Never use `VITE_` for any setting below.
 - `REFUND_GMAIL_FIRST_CONTACT_REFUND_URL`
 - `REFUND_GMAIL_FIRST_CONTACT_SUPPORT_URL`
 
-The isolated label must differ from the production refund label, and the isolated sender allowlist must contain only owner-controlled synthetic addresses. An owner address such as `etrifari@bloomjoysweets.com` or one of its plus-addresses may be a synthetic sender or recipient for this bounded test, but it must never replace `info@bloomjoysweets.com` as the production refund-assistant mailbox. Both URLs must use approved Bloomjoy public HTTPS hosts. Email customers receive one refund CTA: the Bloomjoy hosted request form. SMS automation is not another intake or continuation channel: staff manually supplies the same form link when a customer first texts, and all communication after form submission uses email.
+The isolated label must differ from the production refund label, and the isolated sender allowlist must contain only owner-controlled synthetic addresses. An owner address such as `etrifari@bloomjoysweets.com` or one of its plus-addresses may be a synthetic sender or recipient for this bounded test, but it must never replace `info@bloomjoysweets.com` as the production refund-assistant mailbox. Both URLs must use approved Bloomjoy public HTTPS hosts. Email customers receive one refund CTA: the Bloomjoy hosted request form. A customer who texts receives that form through the existing one-way link handoff outside the Hub, not a staff/manual text step. After submission, existing guarded automation carries routine supported customer email; the Hub adds no SMS reply ingestion, case continuation, status/completion, delivery recovery, or provider integration.
 
 ## Inventory the legacy sender
 

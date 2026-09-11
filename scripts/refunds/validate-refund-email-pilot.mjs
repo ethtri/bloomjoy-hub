@@ -264,39 +264,59 @@ assert(
   'The email runbook must preserve zero-case pre-form contact, distinguish internal notices, and record the completed case-specific proof.',
 );
 assert(
-  decisions.includes('Customer contact points to the Bloomjoy form; submission creates the case (`#889`, clarified by `#704` on 2026-09-10)') &&
-    decisions.includes('staff manually replies with the hosted-form link') &&
-    decisions.includes('does not automate that text response') &&
+  decisions.includes('Existing one-way link handoff starts a required-email refund flow (`#704`)') &&
+    decisions.includes('the existing one-way link handoff supplies the Bloomjoy hosted `/refunds/request` form') &&
+    decisions.includes('it is not assigned to a staff/manual text reply') &&
     decisions.includes('creates no `refund_cases` row') &&
-    decisions.includes('every request acknowledgement, clarification, status update, confirmation, denial or appeal, and delivery-recovery message uses email') &&
+    decisions.includes('Existing guarded system automation sends request receipts, clarification requests and reply receipts, status updates, completion notices') &&
+    decisions.includes('Managers or humans make the final business decision and handle only named exception paths') &&
     decisions.includes('There is no post-form SMS, SMS reply ingestion, SMS completion notice, or SMS fallback') &&
     decisions.includes('does not depend on EasyText, Twilio, an SMS plan, text-platform access, or an SMS activation/cutover') &&
     decisions.includes('supersedes the 2026-07-21 Gmail draft-on-contact rule') &&
     decisions.includes('earlier 2026-08-21 plan to change the link in an automated EasyText/SMS response population'),
-  'The authoritative decision must require a manual text-to-form handoff and email-only continuation without an SMS automation dependency.',
+  'The authoritative decision must preserve the existing one-way link handoff and automated routine email continuation without a Hub SMS dependency.',
 );
 assert(
-  emailRunbook.includes('The Hub has no automated SMS response, SMS ingestion, post-form SMS, or SMS provider dependency') &&
-    customerMessagesRunbook.includes('Staff manually replies with the Bloomjoy hosted refund-form link') &&
-    customerMessagesRunbook.includes('every request receipt, clarification, status update, confirmation, denial or appeal, and delivery-recovery message uses email') &&
-    gmailCutoverRunbook.includes('SMS automation is not another intake or continuation channel') &&
-    smokeChecklist.includes('hosted refund-form link only through a manual staff reply') &&
-    smokeChecklist.includes('No automated SMS response, ingestion, continuation, completion notice, fallback, or provider dependency exists'),
-  'Active refund communication runbooks must preserve the manual text-link handoff and email-only continuation contract.',
+  emailRunbook.includes('the existing one-way link handoff supplies the form outside the Hub') &&
+    emailRunbook.includes('existing guarded automation sends routine supported customer email') &&
+    customerMessagesRunbook.includes('The existing one-way link handoff supplies the Bloomjoy hosted refund-form link outside the Hub') &&
+    customerMessagesRunbook.includes('Existing guarded automation sends routine supported email') &&
+    gmailCutoverRunbook.includes('existing one-way link handoff outside the Hub') &&
+    smokeChecklist.includes('existing one-way link handoff outside the Hub') &&
+    smokeChecklist.includes('existing guarded automation sends routine supported email receipts') &&
+    smokeChecklist.includes('No Hub SMS provider, reply ingestion, case continuation, status/completion, delivery recovery, or fallback exists'),
+  'Active refund communication runbooks must preserve the existing one-way link handoff and automated routine email continuation contract.',
 );
+for (const [path, content] of [
+  ['Docs/DECISIONS.md', decisions],
+  ['Docs/CURRENT_STATUS.md', currentStatus],
+  ['Docs/REFUND_MVP_PLAN.md', mvpPlan],
+  ['Docs/REFUND_CUSTOMER_MESSAGES_RUNBOOK.md', customerMessagesRunbook],
+  ['Docs/REFUND_EMAIL_ASSISTANT_RUNBOOK.md', emailRunbook],
+  ['Docs/REFUND_GMAIL_FIRST_CONTACT_CUTOVER.md', gmailCutoverRunbook],
+  ['Docs/QA_SMOKE_TEST_CHECKLIST.md', smokeChecklist],
+  ['Docs/REFUND_EMAIL_PILOT_SPONSOR_REVIEW.md', sponsorReview],
+  ['Docs/REFUND_EMAIL_PILOT_DEMO_PACKET.md', demoPacket],
+]) {
+  assert(
+    !/(?:staff manually (?:repl(?:y|ies)|answers?|sends?|supplies?|provides?)|manual staff reply|staff may manually send)/i.test(content),
+    `The current link handoff must not be assigned to staff/manual texting in ${path}.`,
+  );
+}
 assert(
   currentStatus.includes('Historical Gmail proof checkpoint (superseded for current channel scope)') &&
-    currentStatus.includes('EasyText/SMS activation and cutover are not current or deferred refund work') &&
-    mvpPlan.includes('The September 10 `#704` direction retires that work') &&
-    mvpPlan.includes('all subsequent communication uses email'),
-  'Current status and delivery planning must retire SMS cutover as active or deferred refund work.',
+    currentStatus.includes('existing guarded automation carries routine supported email after submission') &&
+    mvpPlan.includes('preserving the existing one-way link handoff outside the Hub') &&
+    mvpPlan.includes('automation carries routine supported email after submission'),
+  'Current status and delivery planning must preserve the one-way link handoff and automated email continuation.',
 );
 assert(
   sponsorReview.includes('Historical review packet') &&
-    sponsorReview.includes('SMS automation is not deferred work') &&
+    sponsorReview.includes('Hub SMS conversation or continuation is not deferred work') &&
     demoPacket.includes('Historical pilot packet') &&
-    demoPacket.includes('SMS/EasyText/Twilio items are now retired, not deferred'),
-  'Historical SMS pilot packets must be explicitly labeled and state that SMS automation is retired, not deferred.',
+    demoPacket.includes('Hub SMS importer, conversation, and provider-integration work is now retired, not deferred') &&
+    demoPacket.includes('existing one-way link handoff remains external to the Hub'),
+  'Historical SMS pilot packets must be explicitly labeled, preserve the one-way link handoff, and retire Hub SMS continuation work.',
 );
 
-console.log('Refund email pilot validation passed: manual text-link handoff, required-email form submission, email-only continuation, zero-case pre-form contact, duplicate guards, and production-off switches are present.');
+console.log('Refund email pilot validation passed: existing one-way link handoff, required-email form submission, automated routine email continuation, zero-case pre-form contact, duplicate guards, and production-off switches are present.');

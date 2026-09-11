@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-10
 
-> Historical pilot packet. Its deferred SMS/EasyText items were retired from the refund product by `#704` on 2026-09-10. Current handling is a manual staff reply with the hosted-form link, followed by email-only communication after the required-email form is submitted.
+> Historical pilot packet. Its deferred Hub SMS/EasyText build items were retired from the refund product by `#704` on 2026-09-10. The existing one-way link handoff remains outside the Hub, followed by automated routine email wherever supported after the required-email form is submitted.
 
 For the short, [plain-English sponsor review](REFUND_EMAIL_PILOT_SPONSOR_REVIEW.md), start there. This packet remains the detailed technical and operational evidence companion.
 
@@ -11,7 +11,7 @@ Purpose: give the sponsor one review surface for the email-only pilot candidate.
 ## Scope and current disposition
 
 - In scope: designated Support/Info email, one Bloomjoy hosted form, Gmail-to-case linkage, triage, customer clarification drafts, manager routing, duplicate review, aging cues, exact case links, and safety/rollback evidence.
-- Historical deferred list at the time: EasyText, SMS, the SMS Google Form importer, Twilio, attachments, production GPT processing, live Nayax calls, and production cutover. The SMS/EasyText/Twilio items are now retired, not deferred.
+- Historical deferred list at the time: EasyText, SMS, the SMS Google Form importer, Twilio, attachments, production GPT processing, live Nayax calls, and production cutover. Hub SMS importer, conversation, and provider-integration work is now retired, not deferred; the existing one-way link handoff remains external to the Hub.
 - Current responder behavior: scheduled every ten minutes when enabled, plus workflow startup time. It is prompt but not instantaneous.
 - Current decision: synthetic sponsor review may proceed after integrated evidence is regenerated. Controlled-inbox and production stages remain no-go until their gates below are explicitly approved.
 
