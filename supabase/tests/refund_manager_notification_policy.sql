@@ -232,7 +232,7 @@ select is(
 
 create temporary table customer_reply_claim as
 select public.service_begin_refund_manager_notification(
-  '92500000-0000-4000-8000-000000000001', 'customer_reply',
+  '92500000-0000-4000-8000-000000000001', 'hard_bounce',
   'notice-customer@example.test', array['mailbox@example.test'],
   array['ops@example.test']
 ) as value;
@@ -240,7 +240,7 @@ select public.service_begin_refund_manager_notification(
 select is(
   (select value ->> 'channel' from customer_reply_claim),
   'immediate',
-  'customer reply remains immediate until the durable digest consumer is deployed'
+  'urgent delivery exceptions remain immediate after the digest consumer is deployed'
 );
 
 update public.refund_manager_notification_actions
@@ -249,7 +249,7 @@ where id = (select (value ->> 'actionId')::uuid from customer_reply_claim);
 
 create temporary table reclaimed_customer_reply as
 select public.service_begin_refund_manager_notification(
-  '92500000-0000-4000-8000-000000000001', 'customer_reply',
+  '92500000-0000-4000-8000-000000000001', 'hard_bounce',
   'notice-customer@example.test', array['mailbox@example.test'],
   array['ops@example.test']
 ) as value;
@@ -279,7 +279,7 @@ select is(
 select is(
   (
     public.service_begin_refund_manager_notification(
-      '92500000-0000-4000-8000-000000000001', 'customer_reply',
+      '92500000-0000-4000-8000-000000000001', 'hard_bounce',
       'notice-customer@example.test', array['mailbox@example.test'],
       array['ops@example.test']
     ) ->> 'claimed'
@@ -361,8 +361,8 @@ select is(
     'manager_reminder', 'notice-customer@example.test',
     array['mailbox@example.test'], array['ops@example.test']
   ) ->> 'channel',
-  'immediate',
-  'two-business-day reminder remains immediate until digest delivery exists'
+  'daily_digest',
+  'two-business-day reminder is eligible for the quiet daily digest'
 );
 
 select * from finish();

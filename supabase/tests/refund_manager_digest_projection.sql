@@ -70,7 +70,13 @@ insert into public.refund_manager_attention_states (
   ('12815000-0000-4000-8000-000000000001', 1, '2026-09-08T12:00:00Z',
    'needs_review', 'pending', 1),
   ('12815000-0000-4000-8000-000000000002', 1, '2026-09-09T12:00:00Z',
-   'needs_review', 'pending', 1);
+   'needs_review', 'pending', 1)
+on conflict (refund_case_id) do update
+set attention_version = excluded.attention_version,
+    attention_started_at = excluded.attention_started_at,
+    case_status = excluded.case_status,
+    correlation_status = excluded.correlation_status,
+    deterministic_fact_version = excluded.deterministic_fact_version;
 
 select is(
   (select delivery_enabled from public.refund_manager_digest_settings where singleton),
