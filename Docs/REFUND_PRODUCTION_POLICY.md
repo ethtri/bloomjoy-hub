@@ -40,13 +40,13 @@ the selected original identity, duplicate protection and a durable attempt journ
 The global kill switch remains incident control. Unknown outcomes require
 reconciliation and cannot authorize another request.
 
-Refund Operations may approve one reviewed portal fallback for the legacy
+The assigned Machine Manager may approve one reviewed portal fallback for the legacy
 manual-evidence cohort or an ordinary exact match with original-bound definitive
 rejection or an audited no-refund release. That approval
 creates one provider-free unknown-result hold; it does not move money, change
 reporting, or contact the customer. The fallback is not shown for a kill
 switch, duplicate, reconciliation, authority, or other block reason. After the
-portal action, Refund Operations must verify that Nayax shows a completed
+portal action, the assigned Machine Manager must verify that Nayax shows a completed
 refund equal to the full selected transaction amount. A smaller or partial
 refund stays on hold and is escalated; it cannot be recorded as completed.
 

@@ -1,17 +1,17 @@
 import { readFile, writeFile, mkdir, lstat, rename } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { schemaVersion, createReadClient, readPopulation, readCasePacket, readReportHealth, compareReview, paginate, summarizeCasePacket, selectReviewPackets, ReviewError, digest } from './refund-agent-review.mjs';
+import { schemaVersion, createReadClient, readPopulation, readCasePacket, readReportHealth, compareReview, paginate, summarizeCasePacket, ReviewError, digest } from './refund-agent-review.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const directory = path.join(root, '.local', 'refund-agent-review');
 const args = process.argv.slice(2);
 const help = `Read-only refund review (#1089).
-node scripts/refunds/refund-agent-review-cli.mjs [--all] [--cohort all|bloomjoy-non-nc] [--case UUID] [--page-size 25]
+node scripts/refunds/refund-agent-review-cli.mjs [--all] [--case UUID] [--page-size 25]
 Environment: SUPABASE_URL, SUPABASE_ANON_KEY (or publishable key), REFUND_REVIEW_ACCESS_TOKEN.
 Use an explicitly provided ordinary authenticated user session; no credential discovery or refresh.
-The default emits changed cases. --all emits the complete selected cohort.
-The bloomjoy-non-nc cohort requires TGPACI_USA_DB ownership evidence and excludes the Adam-managed manual-portal cohort.
+The default emits changed cases. --all emits the complete authorized population.
+Use the machine's assigned Machine Manager in Bloomjoy Hub for ownership scope; never infer ownership from a provider account.
 --case writes one restricted normalized packet under .local.
 No payment, send, case write, provider lookup, or forced ingestion is available.`;
 
@@ -31,12 +31,11 @@ async function save(file, value) {
 
 async function main() {
   if (args.includes('--help')) { console.log(help); return; }
-  let caseId; let pageSize = 25; let cohort = 'all'; let emitAll = false;
+  let caseId; let pageSize = 25; let emitAll = false;
   for (let i = 0; i < args.length; i += 1) {
     if (args[i] === '--all') emitAll = true;
     else if (args[i] === '--case') caseId = args[++i];
     else if (args[i] === '--page-size') pageSize = Number(args[++i]);
-    else if (args[i] === '--cohort') cohort = args[++i];
     else throw new ReviewError('unknown_argument');
   }
   paginate([], 1, pageSize);
@@ -57,16 +56,12 @@ async function main() {
     row.lifecycle?.managerQueue, row.lifecycle?.locationEvidence, queue]).sort());
   if (populationPin(population) !== populationPin(finalPopulation)) throw new ReviewError('population_changed_during_read');
   packets.sort((a, b) => a.caseId.localeCompare(b.caseId));
-  const selected = selectReviewPackets(packets, cohort);
-  const selectedIds = new Set(selected.packets.map(packet => packet.caseId));
-  if (caseId && !selectedIds.has(caseId)) throw new ReviewError('case_outside_selected_cohort');
   await safeDirectory(directory);
-  const reviewScope = `${client.scope}:${cohort}`;
-  const snapshotFile = path.join(directory, `${client.scope}.${cohort}.json`);
+  const snapshotFile = path.join(directory, `${client.scope}.json`);
   let previous = null;
   try { previous = JSON.parse(await readFile(snapshotFile, 'utf8')); }
   catch (error) { if (error.code !== 'ENOENT') throw new ReviewError('snapshot_unreadable'); }
-  const review = compareReview(selected.packets, previous, reviewScope);
+  const review = compareReview(packets, previous, client.scope);
   const reportFingerprint = digest({ available: reportHealth.available, reason: reportHealth.reason,
     importerStatus: reportHealth.importer?.status, delivery: reportHealth.delivery });
   const reportChanged = previous?.reportFingerprint !== reportFingerprint;
@@ -77,14 +72,14 @@ async function main() {
     await save(packetFile, packets.find(packet => packet.caseId === caseId));
   }
   await save(snapshotFile, review.snapshot);
-  const changedSelected = review.changed;
-  const summaries = (emitAll ? selected.packets : changedSelected).map(summarizeCasePacket);
+  const changed = review.changed;
+  const summaries = (emitAll ? packets : changed).map(summarizeCasePacket);
   const pages = Array.from({ length: Math.ceil(summaries.length / pageSize) }, (_, i) => paginate(summaries, i + 1, pageSize));
   console.log(JSON.stringify({ schemaVersion, status: emitAll
     ? 'complete'
     : (summaries.length || review.removedCount || reportChanged ? 'changed' : 'unchanged'),
-    mode: emitAll ? 'full' : 'changes', selection: selected.selection,
-    population: population.population, changedCount: changedSelected.length,
+    mode: emitAll ? 'full' : 'changes',
+    population: population.population, changedCount: changed.length,
     emittedCount: summaries.length, unchangedCount: review.unchangedCount,
     noLongerVisibleCount: review.removedCount, ...(pages.length ? { pages } : {}), ...(packetFile ? { packetFile } : {}),
     ...(reportChanged ? { reportHealth } : {}),
