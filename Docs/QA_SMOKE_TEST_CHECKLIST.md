@@ -1,6 +1,7 @@
 # QA Smoke Test Checklist
 
 - [ ] Signed-in refund queue recovery (`#1317`): open the deployed `/refunds` page as Refund Operations and confirm the real queue counts and case list load without the overview retry banner. Verify that a failed or unavailable optional manager-work projection does not clear the queue, and that **Refresh** reloads the overview before optional manager and case-detail reads. Perform this check without selecting a payment action, issuing a refund, contacting a customer, or changing provider data.
+- [ ] Orphaned automatic lookup evidence: for a synthetic `match_found`, `multiple_matches`, and candidate-backed `manual_exception` case whose current-generation candidates are missing, confirm the next sweep performs one ordinary read-only refresh and the case leaves **Transaction results expired**. A live durable candidate, valid zero-candidate `no_match`, manual-portal machine, decision, receipt, refund attempt, reconciliation hold, or completed payment must not be reclaimed. Verify desktop and `390x844` mobile without issuing a refund or sending a customer message.
 
 - [ ] As Refund Operations, confirm ordinary Nayax report silence and an authenticated Empty provider run show no manager-workflow warning; a real report ingest/provider failure shows one internal advisory with an unresolved-case count and explicitly says missing report data cannot confirm a refund or authorize another payment.
 
