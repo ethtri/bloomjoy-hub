@@ -324,7 +324,24 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 115, 'Evidence must enumerate all 115 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 125, 'Evidence must enumerate all 125 reviewed screenshots');
+  for (const recoveryScreenshot of [
+    'refund-cash-message-delivery-refresh-desktop.png',
+    'refund-cash-message-delivery-refresh-mobile.png',
+    'refund-incomplete-history-fallback-mobile.png',
+    'refund-incomplete-history-refresh-desktop.png',
+    'refund-original-delivery-refresh-desktop.png',
+    'refund-original-delivery-refresh-mobile.png',
+    'refund-portal-uat-incomplete-transaction-history-after-refresh.png',
+    'refund-portal-uat-server-persisted-manager-preparation.png',
+    'refund-prepare-manager-review-desktop.png',
+    'refund-prepare-manager-review-mobile.png',
+  ]) {
+    assert(
+      EXPECTED_SCREENSHOTS.includes(recoveryScreenshot),
+      `Evidence must include reviewed refund recovery screenshot ${recoveryScreenshot}`
+    );
+  }
   assert(
     EXPECTED_SCREENSHOTS.includes('machine-type-snapcase-saved-desktop.png') &&
       EXPECTED_SCREENSHOTS.includes('machine-type-snapcase-saved-mobile.png'),
