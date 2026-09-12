@@ -661,6 +661,10 @@ const login = async (page, user) => {
   await page.fill('#email-password', user.email);
   await page.fill('#password', 'mock-password');
   await page.getByRole('button', { name: /sign in/i }).click();
+  await page.waitForURL(
+    (url) => url.pathname !== '/login',
+    { timeout: 10000 }
+  );
 };
 
 const openPathAsUser = async (page, args, user, pathName) => {
@@ -677,7 +681,6 @@ const assertScopedAdminAccessRoute = async ({
   pathName,
   label,
   expectLauncher = false,
-  expectActivity = false,
 }) => {
   await openPathAsUser(page, args, user, pathName);
   const primaryLocator = expectLauncher
@@ -723,14 +726,6 @@ const assertScopedAdminAccessRoute = async ({
     );
   }
 
-  if (expectActivity) {
-    await page.getByRole('heading', { name: 'Global activity' }).waitFor({ timeout: 10000 });
-    recorder.assert(
-      `${label} preserves audit activity focus`,
-      url.searchParams.get('tab') === 'audit',
-      page.url()
-    );
-  }
 };
 
 const directRpcProbe = async (page, rpcName, payload) =>
@@ -894,6 +889,10 @@ const run = async () => {
           label: 'Scoped Admin /admin landing',
           expectLauncher: true,
         });
+        await page.screenshot({
+          path: path.join(args.artifactDir, 'scoped-admin-admin-landing.png'),
+          fullPage: true,
+        });
         await assertScopedAdminAccessRoute({
           page,
           args,
@@ -920,15 +919,18 @@ const run = async () => {
           label: 'Scoped Admin explicit Technician launcher',
           expectLauncher: true,
         });
-        await assertScopedAdminAccessRoute({
-          page,
-          args,
-          recorder,
-          user: state.user,
-          pathName: '/admin/audit',
-          label: 'Scoped Admin audit shortcut',
-          expectActivity: true,
-        });
+        await openPathAsUser(page, args, state.user, '/admin/audit');
+        await page
+          .getByRole('heading', { name: 'Admin Access Required' })
+          .waitFor({ timeout: 10000 });
+        recorder.assert(
+          'Scoped Admin audit route remains fail-closed',
+          new URL(page.url()).pathname === '/admin/audit'
+        );
+        recorder.assert(
+          'Scoped Admin audit route hides global activity',
+          !(await page.getByRole('heading', { name: 'Global activity' }).isVisible().catch(() => false))
+        );
 
         await openTechnicianLauncher(page, args, state.user);
         await page.locator('p').filter({ hasText: /^Scoped Admin machine scope$/ }).waitFor({ timeout: 10000 });

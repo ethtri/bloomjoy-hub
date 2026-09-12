@@ -3,7 +3,12 @@ import { ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PortalLayout } from '@/components/portal/PortalLayout';
 import { useAuth } from '@/contexts/auth-context';
-import type { AdminSurface } from '@/components/layout/authenticatedNavigation';
+import {
+  getVisibleAdminDestinations,
+  type AdminSurface,
+} from '@/components/layout/authenticatedNavigation';
+
+const scopedAdminAccessLanding = '/admin/access?action=add-access&preset=technician';
 
 const adminSurfaceByPath: Array<{ test: (pathname: string) => boolean; surface: AdminSurface }> = [
   { test: (pathname) => pathname === '/admin', surface: 'overview' },
@@ -41,8 +46,24 @@ export function AdminRoute() {
     return <Outlet />;
   }
 
-  if (location.pathname === '/admin' && !canAccessSurface('overview') && canAccessSurface('refunds')) {
-    return <Navigate to="/refunds" replace />;
+  if (location.pathname === '/admin' && !canAccessSurface('overview')) {
+    if (canAccessSurface('refunds')) {
+      return <Navigate to="/refunds" replace />;
+    }
+
+    const firstAllowedAdminDestination = getVisibleAdminDestinations({
+      adminAccess,
+      isSuperAdmin,
+    }).find((destination) => destination.href !== '/admin');
+
+    if (firstAllowedAdminDestination) {
+      const redirectTarget =
+        isScopedAdmin && firstAllowedAdminDestination.surface === 'access'
+          ? scopedAdminAccessLanding
+          : firstAllowedAdminDestination.href;
+
+      return <Navigate to={redirectTarget} replace />;
+    }
   }
 
   if (adminSurface && canAccessSurface(adminSurface)) {
