@@ -8294,7 +8294,9 @@ const runCustomerCommsFailureChecks = async ({ browser, appUrl, recorder }) => {
     'Premature approval email is not retried while the unpaid refund retains current server readiness',
     await page.getByTestId('refund-run-nayax-refund').isEnabled() &&
       await page.getByTestId('refund-secondary-delivery-review').isVisible() &&
-      (await page.getByTestId('refund-secondary-delivery-review').innerText()).includes('Do not resend it blindly') &&
+      (await page.getByTestId('refund-secondary-delivery-review').innerText()).includes(
+        'Check the original customer email thread and the saved delivery record before sending anything again.'
+      ) &&
       (await page.getByRole('button', { name: 'Approval email blocked' }).count()) === 0
   );
   recorder.assert(
@@ -10691,7 +10693,7 @@ const runNayaxExecutionOutcomeChecks = async ({
             (await caseRow.getByText('Ready to approve', { exact: true }).count()) === 0 &&
             await page.getByRole('status', { name: 'Refund temporarily unavailable', exact: true }).isVisible() &&
             await page.getByText(
-              'Card refunds are temporarily paused. Operations needs to resume the service.',
+              'Card refunds are temporarily paused. A manager with admin access needs to resume them.',
               { exact: true }
             ).first().isVisible()
         );
