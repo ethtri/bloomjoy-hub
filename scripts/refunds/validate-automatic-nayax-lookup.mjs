@@ -100,6 +100,30 @@ assert(
     lookup.includes('expires_at: durableCandidateExpiry'),
   "lookup work must stay read-only and preserve completed evidence",
 );
+const immutableGuardDefinition = recoveryMigration.indexOf(
+  "create or replace function public.reject_refund_nayax_candidate_update()",
+);
+const durableEvidenceBackfill = recoveryMigration.indexOf(
+  "update public.refund_nayax_lookup_candidates",
+);
+assert(
+  immutableGuardDefinition >= 0 &&
+    immutableGuardDefinition < durableEvidenceBackfill &&
+    recoveryMigration.includes("facts_unchanged") &&
+    recoveryMigration.includes("durable_transition") &&
+    recoveryMigration.includes("actor_binding_transition") &&
+    recoveryMigration.includes("old.actor_user_id is null") &&
+    recoveryMigration.includes("candidate_row.actor_user_id is not null"),
+  "the production backfill must retain immutable transaction facts and allow only one-way durability and manager binding metadata",
+);
+assert(
+  recoverySql.includes("Automatic lookup metadata can make immutable evidence durable") &&
+    recoverySql.includes("An unclaimed automatic candidate can bind to one manager") &&
+    recoverySql.includes("Transaction evidence cannot be rewritten during a metadata transition") &&
+    recoverySql.includes("A candidate cannot be rebound to another manager") &&
+    recoverySql.includes("Manual portal evidence keeps its reviewed expiry boundary"),
+  "database coverage must exercise both permitted metadata transitions and reject fact mutation, rebinding, and manual evidence extension",
+);
 assert(
   recoveryMigration.includes("'{canSelectNayaxCandidate}','false'::jsonb") &&
     recoverySql.includes('Unknown historical coverage is not presented as a proved no-match') &&

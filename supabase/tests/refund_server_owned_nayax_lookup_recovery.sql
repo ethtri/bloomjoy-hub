@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(20);
+select plan(26);
 
 select ok(to_regclass('public.refund_nayax_lookup_recoveries') is null,
   'The duplicate lookup recovery table is removed');
@@ -115,8 +115,62 @@ select ok(not has_function_privilege('authenticated',
   'public.service_bind_refund_nayax_candidate_to_actor(uuid,uuid,uuid)','execute'),
   'Durable candidate binding is server-only');
 select ok(pg_get_functiondef('public.service_bind_refund_nayax_candidate_to_actor(uuid,uuid,uuid)'::regprocedure)
-  like '%candidate_row.lookup_generation <> case_row.nayax_lookup_generation%customer_fact_version%',
+  like '%candidate_row.lookup_generation <> case_row.nayax_lookup_generation%candidate_row.actor_user_id is not null%customer_fact_version%',
   'Candidate binding revalidates current generation and deterministic facts');
+select ok(
+  pg_get_functiondef('public.reject_refund_nayax_candidate_update()'::regprocedure)
+    like '%durable_transition%actor_binding_transition%facts_unchanged%'
+  and pg_get_functiondef('public.reject_refund_nayax_candidate_update()'::regprocedure)
+    like '%old.actor_user_id is null%new.actor_user_id is not null%'
+  and pg_get_functiondef('public.reject_refund_nayax_candidate_update()'::regprocedure)
+    like '%manual_nayax_portal%',
+  'The immutable-evidence trigger permits only durable automatic evidence and one-time actor binding');
+
+create temporary table candidate_update_guard_fixture (
+  actor_user_id uuid,
+  expires_at timestamptz not null,
+  evidence_summary jsonb not null,
+  provider_transaction_id text not null
+);
+create trigger candidate_update_guard_fixture_immutable
+before update on candidate_update_guard_fixture
+for each row execute function public.reject_refund_nayax_candidate_update();
+insert into candidate_update_guard_fixture
+  (actor_user_id,expires_at,evidence_summary,provider_transaction_id)
+values
+  (null,statement_timestamp()+interval '30 minutes','{"source":"automatic_nayax_lookup"}'::jsonb,'automatic-durable'),
+  (null,statement_timestamp()+interval '30 minutes','{"source":"automatic_nayax_lookup"}'::jsonb,'automatic-bind'),
+  (null,statement_timestamp()+interval '30 minutes','{"source":"manual_nayax_portal"}'::jsonb,'manual-expiring');
+
+select lives_ok($$
+  update candidate_update_guard_fixture
+  set expires_at='9999-12-31 23:59:59.999999+00'::timestamptz
+  where provider_transaction_id='automatic-durable'
+$$,'Automatic lookup metadata can make immutable evidence durable');
+select lives_ok($$
+  update candidate_update_guard_fixture
+  set actor_user_id='a8700000-0000-4000-8000-000000000099'::uuid
+  where provider_transaction_id='automatic-bind'
+$$,'An unclaimed automatic candidate can bind to one manager');
+select throws_like($$
+  update candidate_update_guard_fixture
+  set provider_transaction_id='rewritten-transaction'
+  where provider_transaction_id='automatic-durable'
+$$,'%Nayax candidate evidence is immutable%',
+  'Transaction evidence cannot be rewritten during a metadata transition');
+select throws_like($$
+  update candidate_update_guard_fixture
+  set actor_user_id='a8700000-0000-4000-8000-000000000098'::uuid
+  where provider_transaction_id='automatic-bind'
+$$,'%Nayax candidate evidence is immutable%',
+  'A candidate cannot be rebound to another manager');
+select throws_like($$
+  update candidate_update_guard_fixture
+  set expires_at='9999-12-31 23:59:59.999999+00'::timestamptz
+  where provider_transaction_id='manual-expiring'
+$$,'%Nayax candidate evidence is immutable%',
+  'Manual portal evidence keeps its reviewed expiry boundary');
+
 select ok(pg_get_functiondef('public.refund_project_nayax_lookup_recovery_cases_for_manager(jsonb,boolean)'::regprocedure)
   not like '%refund_nayax_lookup_recoveries%',
   'Manager projection derives lookup work from the refund case');
