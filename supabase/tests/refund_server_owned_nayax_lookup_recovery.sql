@@ -228,7 +228,7 @@ insert into public.refund_cases(
 ('a8800000-0000-4000-8000-000000000016','RF-PAYMENT-BLOCK','a8800000-0000-4000-8000-000000000003','a8800000-0000-4000-8000-000000000002','payment-block@example.invalid','Payment state blocks lookup',statement_timestamp()-interval '8 hours','America/Los_Angeles','exact','card',700,'4242','needs_review','multiple_candidates','nayax',3,'multiple_matches',statement_timestamp()-interval '1 hour','ambiguous');
 
 update public.refund_cases
-set nayax_refund_execution_status='succeeded'
+set nayax_refund_execution_status='requested'
 where id='a8800000-0000-4000-8000-000000000016';
 
 insert into public.refund_case_events(refund_case_id,event_type,message,metadata)
