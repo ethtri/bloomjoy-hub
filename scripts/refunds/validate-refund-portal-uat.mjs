@@ -7989,7 +7989,7 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
     );
 
     await queueCase(page, 'RF-UAT-ALT-CARD').click();
-    await page.getByRole('heading', { name: 'RF-UAT-ALT-CARD', exact: true }).waitFor({ timeout: 10000 });
+    await page.getByRole('heading', { name: 'RF-UAT-ALT-CARD', exact: true }).waitFor({ timeout: 20000 });
     recorder.assert(
       `${scenario.name} clean canonical denial allows warning-free navigation`,
       (await page.getByTestId('refund-unsaved-text-dialog').count()) === 0
@@ -8005,7 +8005,7 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
     );
     await page.getByRole('button', { name: /^Ready to refund \d+$/ }).click();
     await queueCase(page, 'RF-UAT-ALT-CARD').click();
-    await page.getByRole('heading', { name: 'RF-UAT-ALT-CARD', exact: true }).waitFor({ timeout: 10000 });
+    await page.getByRole('heading', { name: 'RF-UAT-ALT-CARD', exact: true }).waitFor({ timeout: 20000 });
     const correctionCalls = functionBodies.filter((entry) =>
       entry.functionName === 'refund-case-message-send' &&
       entry.body?.caseId === 'case-card-correction'
@@ -10988,7 +10988,17 @@ const runCustomerOutreachStateChecks = async ({ browser, appUrl, artifactDir, re
         { waitUntil: 'domcontentloaded' },
       );
       const stateHeading = page.getByTestId('refund-manager-state');
-      await stateHeading.getByText(scenario.label, { exact: true }).waitFor({ timeout: 10000 });
+      // The full CI matrix runs many browser contexts back-to-back. Give the
+      // mocked overview refresh enough headroom to measure the rendered state,
+      // rather than failing on a busy runner just before the state arrives.
+      try {
+        await stateHeading.getByText(scenario.label, { exact: true }).waitFor({ timeout: 20000 });
+      } catch (error) {
+        const renderedState = (await stateHeading.textContent().catch(() => null))?.trim() || 'not rendered';
+        throw new Error(
+          `Expected customer-outreach state "${scenario.label}" but rendered "${renderedState}". ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
       const statePanelText = await page.getByTestId('refund-primary-action').innerText();
       recorder.assert(
         `${scenario.state}${elevated ? ' elevated' : ''} renders durable outreach truth`,

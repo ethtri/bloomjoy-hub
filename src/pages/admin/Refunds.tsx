@@ -5670,9 +5670,13 @@ export default function AdminRefundsPage() {
     const selectedCandidateRefundUnavailable =
       hasUnsavedTransactionChoice &&
       typeof selectedRefundReadiness?.approvalPendingExecution !== 'boolean';
+    const hasActiveCustomerOutreach =
+      selectedCase.lifecycle?.customerOutreach != null &&
+      selectedCase.lifecycle.customerOutreach.state !== 'none';
     const transactionDecisionPending =
       !hasSelectedMatch &&
       !waitingOnCustomer &&
+      !hasActiveCustomerOutreach &&
       ['checking', 'unavailable', 'waiting'].includes(transactionView.kind);
     const managerState: RefundManagerState = hasConfirmedRefundReceipt(selectedCase) ||
       (hasProtectedRefundLifecycle(selectedCase) && !selectedCaseApprovalContinuationReady) ||
