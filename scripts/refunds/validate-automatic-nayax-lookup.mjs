@@ -117,6 +117,14 @@ assert(
   "the production backfill must retain immutable transaction facts and allow only one-way durability and manager binding metadata",
 );
 assert(
+  recoverySql.includes("Automatic lookup metadata can make immutable evidence durable") &&
+    recoverySql.includes("An unclaimed automatic candidate can bind to one manager") &&
+    recoverySql.includes("Transaction evidence cannot be rewritten during a metadata transition") &&
+    recoverySql.includes("A candidate cannot be rebound to another manager") &&
+    recoverySql.includes("Manual portal evidence keeps its reviewed expiry boundary"),
+  "database coverage must exercise both permitted metadata transitions and reject fact mutation, rebinding, and manual evidence extension",
+);
+assert(
   recoveryMigration.includes("'{canSelectNayaxCandidate}','false'::jsonb") &&
     recoverySql.includes('Unknown historical coverage is not presented as a proved no-match') &&
     recoverySql.includes('An exhausted automatic retry routes to Refund Operations'),
