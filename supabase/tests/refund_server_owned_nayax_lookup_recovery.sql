@@ -207,10 +207,10 @@ insert into public.reporting_locations(id,account_id,name,timezone)
 values('a8800000-0000-4000-8000-000000000002','a8800000-0000-4000-8000-000000000001','Orphan place','America/Los_Angeles');
 insert into public.reporting_machines(
   id,account_id,location_id,machine_label,status,nayax_machine_id,nayax_account_key,
-  nayax_manual_portal_enabled
+  nayax_refunds_enabled,nayax_manual_portal_enabled,nayax_manual_account_scope
 ) values
-('a8800000-0000-4000-8000-000000000003','a8800000-0000-4000-8000-000000000001','a8800000-0000-4000-8000-000000000002','Automatic machine','active','orphan-auto','default',false),
-('a8800000-0000-4000-8000-000000000004','a8800000-0000-4000-8000-000000000001','a8800000-0000-4000-8000-000000000002','Manual portal machine','active','orphan-manual','default',true);
+('a8800000-0000-4000-8000-000000000003','a8800000-0000-4000-8000-000000000001','a8800000-0000-4000-8000-000000000002','Automatic machine','active','orphan-auto','default',true,false,null),
+('a8800000-0000-4000-8000-000000000004','a8800000-0000-4000-8000-000000000001','a8800000-0000-4000-8000-000000000002','Manual portal machine','active',null,null,false,true,'manual-fixture');
 
 insert into public.refund_cases(
   id,public_reference,reporting_machine_id,reporting_location_id,customer_email,
@@ -228,7 +228,7 @@ insert into public.refund_cases(
 ('a8800000-0000-4000-8000-000000000016','RF-PAYMENT-BLOCK','a8800000-0000-4000-8000-000000000003','a8800000-0000-4000-8000-000000000002','payment-block@example.invalid','Payment state blocks lookup',statement_timestamp()-interval '8 hours','America/Los_Angeles','exact','card',700,'4242','needs_review','multiple_candidates','nayax',3,'multiple_matches',statement_timestamp()-interval '1 hour','ambiguous');
 
 update public.refund_cases
-set nayax_refund_execution_status='succeeded'
+set nayax_refund_execution_status='requested'
 where id='a8800000-0000-4000-8000-000000000016';
 
 insert into public.refund_case_events(refund_case_id,event_type,message,metadata)
