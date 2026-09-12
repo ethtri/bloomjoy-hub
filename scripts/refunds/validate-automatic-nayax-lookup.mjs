@@ -54,9 +54,10 @@ assert(
 assert(sweep.includes('source: "customer_reply_recheck"'), "customer reply recheck must trigger lookup readiness");
 assert(
   sweep.includes('"service_claim_due_refund_nayax_lookups"') &&
+    sweep.includes("{ p_limit: 4 }") &&
     sweep.includes("nayax_lookup:${refundCase.id}:v${refundCase.deterministic_fact_version}:g${lookupGeneration}") &&
     sweep.includes("lookupNayaxCandidatesForRefundCase"),
-  "sweep must be the sole provider-read owner for the final-schema exact recovery claim",
+  "sweep must be the sole provider-read owner and keep each sequential production batch CPU-bounded",
 );
 const automationGate = sweep.indexOf('if (!automationEnabled)');
 const readOnlyLookupCall = sweep.indexOf('await runCardNayaxLookupSweep(runId, counters, policyWindowStart)', automationGate);

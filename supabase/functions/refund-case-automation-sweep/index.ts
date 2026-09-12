@@ -2573,7 +2573,10 @@ const runCardNayaxLookupSweep = async (
   if (!supabase) return;
   const { data: lookupClaimData, error: lookupClaimError } = await supabase.rpc(
     "service_claim_due_refund_nayax_lookups",
-    { p_limit: 10 },
+    // Provider reads are intentionally sequential. Four keeps one invocation
+    // comfortably below the production Edge CPU ceiling even when every
+    // result includes the maximum candidate set.
+    { p_limit: 4 },
   );
   if (lookupClaimError) throw lookupClaimError;
   const lookupClaims = Array.isArray(lookupClaimData)
