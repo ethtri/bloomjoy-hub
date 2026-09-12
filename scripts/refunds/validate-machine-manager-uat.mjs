@@ -127,14 +127,14 @@ const accountSummary = (userId, customerEmail) => ({
   last_machine_update_at: null,
 });
 
-const buildMockSetup = () => ({
+const buildMockSetup = (state) => ({
   partners: [],
   partnerships: [],
   machines: [
     {
       id: machineId,
       machine_label: 'Cotton Candy 01',
-      machine_type: 'commercial',
+      machine_type: state.machineType,
       sunze_machine_id: 'SUNZE-CC-001',
       status: 'active',
       account_name: 'Bloomjoy UAT',
@@ -379,7 +379,7 @@ const installMockSupabaseRoutes = async (context, state) => {
     }
 
     if (url.includes('/admin_get_partnership_reporting_setup')) {
-      return route.fulfill(jsonResponse(buildMockSetup()));
+      return route.fulfill(jsonResponse(buildMockSetup(state)));
     }
 
     if (url.includes('/admin_get_refund_manager_setup')) {
@@ -469,6 +469,7 @@ const installMockSupabaseRoutes = async (context, state) => {
     if (url.includes('/admin_upsert_reporting_machine')) {
       const body = route.request().postDataJSON();
       state.machineSavePayload = body;
+      state.machineType = body?.p_machine_type ?? state.machineType;
       return route.fulfill(
         jsonResponse({
           id: body?.p_machine_id ?? machineId,
@@ -606,6 +607,7 @@ const run = async () => {
   const args = parseArgs(process.argv.slice(2));
   const recorder = createRecorder();
   const state = {
+    machineType: 'commercial',
     managerEmails: [firstManagerEmail],
     savePayload: null,
     machineSavePayload: null,
@@ -766,6 +768,73 @@ const run = async () => {
       'Manage opens the task named by the primary attention reason',
       await page.getByRole('heading', { name: 'Customer refunds' }).isVisible()
     );
+    await page.getByRole('button', { name: 'Overview', exact: true }).click();
+    const machineTypeSelector = page.getByLabel('Machine type');
+    const machineTypeLabels = await machineTypeSelector.locator('option').allTextContents();
+    recorder.assert(
+      'Machine type selector offers exactly the four approved labels',
+      JSON.stringify(machineTypeLabels) === JSON.stringify([
+        'Cotton Candy - Commercial',
+        'Cotton Candy - Mini',
+        'Cotton Candy Micro',
+        'Snapcase',
+      ]),
+      JSON.stringify(machineTypeLabels)
+    );
+    recorder.assert(
+      'Existing Commercial storage displays with its approved customer-facing label',
+      await machineTypeSelector.locator('option:checked').textContent() === 'Cotton Candy - Commercial'
+    );
+    await machineTypeSelector.selectOption('snapcase');
+    await page.getByRole('button', { name: 'Save changes' }).click();
+    await page.getByText('Machine updated.').waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Snapcase save sends the canonical storage value',
+      state.machineSavePayload?.p_machine_id === machineId
+        && state.machineSavePayload?.p_machine_type === 'snapcase',
+      JSON.stringify(state.machineSavePayload)
+    );
+
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByRole('heading', { name: 'Cotton Candy 01' }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Saved Snapcase value remains selected and displayed after reload',
+      await page.getByLabel('Machine type').inputValue() === 'snapcase'
+        && await page.getByText('Snapcase', { exact: true }).first().isVisible()
+    );
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'machine-type-snapcase-saved-desktop.png'),
+      fullPage: true,
+    });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    const machineTypeMobileLayout = await page.evaluate(() => ({
+      viewportWidth: window.innerWidth,
+      documentWidth: document.documentElement.scrollWidth,
+    }));
+    recorder.assert(
+      'Snapcase saved state remains readable without overflow at 390x844',
+      await page.getByLabel('Machine type').inputValue() === 'snapcase'
+        && machineTypeMobileLayout.documentWidth <= machineTypeMobileLayout.viewportWidth
+    );
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'machine-type-snapcase-saved-mobile.png'),
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+
+    await page.getByRole('link', { name: 'Back to machines' }).click();
+    await page.getByText('Filters', { exact: true }).click();
+    await page.locator('#machine-type-filter').selectOption('snapcase');
+    recorder.assert(
+      'Snapcase is accepted by the machine type filter',
+      await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).isVisible()
+        && await page.getByText('Type: Snapcase', { exact: true }).isVisible()
+    );
+    await page.getByRole('button', { name: 'Remove Type: Snapcase filter' }).click();
+    state.machineSavePayload = null;
+    await page.locator('div[role="row"]', { hasText: 'Cotton Candy 01' }).getByRole('button', { name: 'Manage' }).click();
+    await page.getByRole('heading', { name: 'Cotton Candy 01' }).waitFor({ timeout: 10000 });
     await page.getByRole('button', { name: /Managers/ }).click();
     await page.getByRole('heading', { name: 'Machine Managers' }).waitFor({ timeout: 10000 });
     const machineDialog = page.locator('main');

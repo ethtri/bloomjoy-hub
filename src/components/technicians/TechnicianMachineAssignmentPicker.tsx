@@ -5,6 +5,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { pluralizeTechnicianMachine } from '@/components/technicians/technicianMachineAssignmentCopy';
+import { formatMachineType } from '@/lib/machineTypes';
 import { cn } from '@/lib/utils';
 
 export type TechnicianAssignableMachine = {
@@ -48,7 +49,11 @@ const getMachineLocationName = (machine: TechnicianAssignableMachine) =>
   machine.locationName || 'Unassigned location';
 
 const getMachineMeta = (machine: TechnicianAssignableMachine) =>
-  [machine.locationName, machine.machineType, machine.status].filter(Boolean).join(' / ');
+  [
+    machine.locationName,
+    machine.machineType ? formatMachineType(machine.machineType) : null,
+    machine.status,
+  ].filter(Boolean).join(' / ');
 
 export function TechnicianMachineAssignmentPicker<TMachine extends TechnicianAssignableMachine>({
   idPrefix,
@@ -74,6 +79,7 @@ export function TechnicianMachineAssignmentPicker<TMachine extends TechnicianAss
       [
         machine.machineLabel,
         machine.machineType,
+        machine.machineType ? formatMachineType(machine.machineType) : null,
         machine.locationName,
         machine.status,
       ]
