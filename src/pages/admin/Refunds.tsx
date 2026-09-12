@@ -3403,6 +3403,12 @@ export default function AdminRefundsPage() {
     if (acknowledgementExceptionNeedsAttention(refundCase)) {
       return { label: 'Acknowledgement needs review', tone: 'warning' };
     }
+    if (
+      refundCase.lifecycle?.customerOutreach != null &&
+      refundCase.lifecycle.customerOutreach.state !== 'none'
+    ) {
+      return null;
+    }
     if (refundCase.id !== selectedCase?.id || refundCase.hasMatchedNayaxTransaction || !editor) return null;
     if (editor.matchedNayaxCandidateToken.trim()) {
       return { label: 'Ready to refund', tone: 'info' };
