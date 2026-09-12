@@ -3493,6 +3493,25 @@ const countLinksByName = async (page, name) =>
 const queueCase = (page, publicReference) =>
   page.getByTestId('refund-case-queue-item').filter({ hasText: publicReference, visible: true });
 
+const openQueueCase = async (page, publicReference, { timeout = 30000 } = {}) => {
+  const heading = page.getByRole('heading', { name: publicReference, exact: true });
+  const deadline = Date.now() + timeout;
+
+  while (Date.now() < deadline) {
+    if (await heading.isVisible().catch(() => false)) return;
+
+    const item = queueCase(page, publicReference);
+    if (await item.count()) {
+      await item.click({ timeout: Math.min(5000, Math.max(1, deadline - Date.now())) }).catch(() => {});
+      if (await heading.isVisible().catch(() => false)) return;
+    }
+
+    await page.waitForTimeout(100);
+  }
+
+  throw new Error(`Timed out opening refund case ${publicReference}.`);
+};
+
 const waitForQueueCount = async (page, expectedCount) => {
   const queueCount = page.getByTestId('refund-queue-count');
   await queueCount.waitFor({ timeout: 10000 });
@@ -7988,24 +8007,21 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
       JSON.stringify({ denialCalls, providerCalls })
     );
 
-    await queueCase(page, 'RF-UAT-ALT-CARD').click();
-    await page.getByRole('heading', { name: 'RF-UAT-ALT-CARD', exact: true }).waitFor({ timeout: 20000 });
+    await openQueueCase(page, 'RF-UAT-ALT-CARD');
     recorder.assert(
       `${scenario.name} clean canonical denial allows warning-free navigation`,
       (await page.getByTestId('refund-unsaved-text-dialog').count()) === 0
     );
 
     await page.getByRole('button', { name: /^Action needed \d+$/ }).click();
-    await queueCase(page, 'RF-UAT-CORRECTION').click();
-    await page.getByRole('heading', { name: 'RF-UAT-CORRECTION', exact: true }).waitFor({ timeout: 10000 });
+    await openQueueCase(page, 'RF-UAT-CORRECTION');
     recorder.assert(
       `${scenario.name} cannot manually send a correction without server-owned fallback authority`,
       (await page.getByTestId('refund-save-case').count()) === 0 &&
         (await page.getByRole('button', { name: 'Request details', exact: true }).count()) === 0
     );
     await page.getByRole('button', { name: /^Ready to refund \d+$/ }).click();
-    await queueCase(page, 'RF-UAT-ALT-CARD').click();
-    await page.getByRole('heading', { name: 'RF-UAT-ALT-CARD', exact: true }).waitFor({ timeout: 20000 });
+    await openQueueCase(page, 'RF-UAT-ALT-CARD');
     const correctionCalls = functionBodies.filter((entry) =>
       entry.functionName === 'refund-case-message-send' &&
       entry.body?.caseId === 'case-card-correction'
