@@ -18,7 +18,7 @@ declare
   result jsonb;
 begin
   if public.is_super_admin(p_actor_user_id) is distinct from true then
-    raise exception 'Refund Operations access required' using errcode='42501';
+    raise exception 'Authorized manager access required' using errcode='42501';
   end if;
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
     'refund-nayax-lookup-v1|' || p_refund_case_id::text, 0

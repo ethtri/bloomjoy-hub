@@ -7914,7 +7914,7 @@ export default function AdminRefundsPage() {
                           {selectedCase.lifecycle?.paymentState === 'confirmed'
                             ? 'Payment remains confirmed.'
                             : 'This delivery record does not change the refund or payment state.'}{' '}
-                          Refund Operations owns delivery review. Do not resend it blindly.
+                          The assigned machine manager reviews delivery. Do not resend it blindly.
                         </p>
                         {customerOutreachDeliveryMessage && (
                           <p className="mt-2 leading-6">

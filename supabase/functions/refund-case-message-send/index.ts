@@ -312,7 +312,7 @@ serve(async (req) => {
       if (operationsAccessError) throw operationsAccessError;
       if (hasOperationsAccess !== true) {
         return jsonResponse({
-          error: "Refund Operations access required.",
+          error: "Authorized manager access required.",
         }, 403);
       }
 

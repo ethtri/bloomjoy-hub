@@ -102,7 +102,7 @@ select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
       'lookup','{}'::jsonb,'operations','{}'::jsonb),
     'nayaxLookupSummary',jsonb_build_object('lookupStatus','no_match'))),true)
   ->0->'nayaxLookupWork'->>'state'),'refund_operations',
-  'Incomplete provider history is actionable Refund Operations work');
+  'Incomplete provider history is actionable internal manager work');
 select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
   jsonb_build_array(jsonb_build_object('id','a8700000-0000-4000-8000-000000000011',
     'lifecycle',jsonb_build_object('managerAction','{}'::jsonb,'managerQueue','{}'::jsonb,
@@ -128,7 +128,7 @@ select public.service_begin_refund_nayax_operations_lookup(
 );
 select ok((select result ->> 'status' = 'checking'
     and (result ->> 'safeRetryConsumed')::boolean from incomplete_refresh_result),
-  'Refund Operations can begin the one read-only incomplete-history refresh');
+  'An authorized manager can begin the one read-only incomplete-history refresh');
 select is((select nayax_lookup_retry_count::integer from public.refund_cases
   where id='a8700000-0000-4000-8000-000000000011'),1,
   'The incomplete-history refresh consumes the current fact-version allowance');
