@@ -75,17 +75,17 @@ export function RefundAuthoritativeReceiptPanel({ caseId, demo = false, machineC
       setFeedback('Evidence was not confirmed. Reload and review the current case and source proof before trying again.');
     } finally { setBusy(false); }
   }
-  if (!demo && query.isLoading) return <p role="status" className="mt-4 text-sm">Loading reconciliation evidence…</p>;
+  if (!demo && query.isLoading) return <p role="status" className="mt-4 text-sm">Loading saved refund details…</p>;
   if (!demo && query.isError) return <div className="mt-4 space-y-2 text-sm" role="alert">
     <p>Receipt review is unavailable. No payment or message was created.</p>
     <Button variant="outline" className="min-h-11" onClick={() => void query.refetch()}>Reload receipt review</Button>
   </div>;
   if (!v?.visible) return null;
   const amount = new Intl.NumberFormat('en-US', { style: 'currency', currency: v.currencyCode }).format(v.originalAmountCents / 100);
-  return <section data-testid="refund-authoritative-receipt-panel" className="mt-4 space-y-4 border-t border-border pt-4 text-foreground" aria-label="Authoritative refund evidence">
+  return <section data-testid="refund-authoritative-receipt-panel" className="mt-4 space-y-4 border-t border-border pt-4 text-foreground" aria-label="Confirmed Nayax refund details">
     <div>
       <h3 className="font-semibold text-balance">{v.receipt ? 'Refund confirmed · accounting date unknown' : 'Nayax confirms a full refund, but no settlement date?'}</h3>
-      <p className="mt-1 text-sm leading-6 text-pretty">{v.receipt ? 'The saved observation confirms the payment. Review customer communication below while Refund Operations checks the accounting date.' : 'Record an observation without inventing a processing date, creating an accounting adjustment, sending money or contacting the customer.'}</p>
+      <p className="mt-1 text-sm leading-6 text-pretty">{v.receipt ? 'The saved observation confirms the payment. Review the customer update below, then check and record the accounting date.' : 'Record an observation without inventing a processing date, creating an accounting adjustment, sending money or contacting the customer.'}</p>
     </div>
     <dl className="grid gap-3 rounded-lg bg-muted/30 p-3 text-sm sm:grid-cols-2">
       <div><dt className="text-muted-foreground">Exact claim</dt><dd className="break-words font-medium">{v.caseReference}</dd></div>
@@ -117,7 +117,7 @@ export function RefundAuthoritativeReceiptPanel({ caseId, demo = false, machineC
       </label>
       <Button className="min-h-11 w-full whitespace-normal sm:w-auto" disabled={busy || !v.canRecord || !reviewedPayment || reference !== `DTM:NAYAX-${v.originalTransactionId}`} onClick={() => void save('record')}>{busy ? 'Saving evidence…' : 'Record full-refund observation only'}</Button>
     </div>) : <div className="space-y-3">
-      <p className="text-sm text-pretty">Observed {new Date(v.receipt.observedAt).toLocaleString()}. This is not the settlement time. Accounting-date review stays with Refund Operations; do not retry payment.</p>
+      <p className="text-sm text-pretty">Observed {new Date(v.receipt.observedAt).toLocaleString()}. This is not the settlement time. The Machine Manager should check and record the accounting date; do not retry payment.</p>
       {v.receipt.noticeAdopted || historicalSavedCaseId === v.caseId ? <div className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-950" role="status">
         <p className="font-medium">{v.receipt.noticeSource === 'current_operator_mailbox' ? 'Customer notified · sent email reviewed in operator mailbox; managers copied'
           : v.receipt.noticeSource === 'historical_owner_mailbox' || historicalSavedCaseId === v.caseId ? historicalOwnerNoticeRecordedLabel : 'Customer already updated · existing notice verified'}</p>

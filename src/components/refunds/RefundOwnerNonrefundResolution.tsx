@@ -51,7 +51,7 @@ export function RefundOwnerNonrefundResolution({ caseId, onSaved }: { caseId: st
           <div><dt className="text-muted-foreground">Case</dt><dd className="font-medium">{contextQuery.data.caseReference}</dd></div>
           <div className="min-w-0"><dt className="text-muted-foreground">Customer</dt><dd className="truncate font-medium">{contextQuery.data.recipientEmail}</dd></div>
           <div className="min-w-0"><dt className="text-muted-foreground">Your verified mailbox</dt><dd className="truncate font-medium">{contextQuery.data.ownerMailboxEmail}</dd></div>
-        </dl> : <p role="alert" className="text-sm text-destructive">Current Refund Operations access or an eligible undecided case is required.</p>}
+        </dl> : <p role="alert" className="text-sm text-destructive">Current manager access or an eligible undecided case is required.</p>}
       <div className="grid min-w-0 gap-4 sm:grid-cols-2">
         {([['providerMessageId','Sent message reference','Lowercase Gmail message ID from the retained source evidence'],
           ['providerThreadId','Sent conversation reference','Lowercase Gmail thread ID from the retained source evidence'],

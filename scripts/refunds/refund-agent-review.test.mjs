@@ -127,25 +127,24 @@ test('refund procedure follows the lean assistant-manager flow', async () => {
   for (const required of [
     'https://app.bloomjoyusa.com/refunds', 'bloomjoysweets.com',
     'etrifari@bloomjoysweets.com', 'The latest refund information could not be loaded',
-    'portal candidate list is the first transaction-research step',
-    'Machine Manager assignment as the ownership source',
-    'Recommend refund', 'Recommend rejection', 'Nayax portal',
-    'Ask the customer only when information is genuinely missing',
-    'The Machine Manager makes the final rejection decision',
-    'performs the manual cash refund',
-    'legacy label **Needs Refund Operations**',
-    'three calendar days',
+    'portal candidates are the first research step',
+    "machine's existing Machine Manager assignment",
+    'READY TO APPROVE REFUND', 'WAITING ON CUSTOMER', 'RECOMMEND REJECT',
+    'Nayax portal', 'Nayax API', 'one missing fact',
+    'Machine Manager approves the decision', 'sends any cash refund',
+    '30 calendar days', 'GitHub issues', 'one-off customer email',
+    'two to three calendar days',
   ]) assert.match(procedure, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-  assert(procedure.indexOf('API-backed search') < procedure.indexOf('use the Nayax portal'));
-  assert.doesNotMatch(procedure, /owner:\s*<[^>]*Refund Operations|Route to Refund Operations|assign Refund Operations/iu);
+  assert(procedure.indexOf('API-backed transaction search') < procedure.indexOf('search the same machine and a'));
+  assert.doesNotMatch(procedure, /Refund Operations|safe stopping point|Route to Refund Operations|assign Refund Operations/iu);
 });
 
 test('daily report contract has every deterministic case and population field', async () => {
   const procedure = await readRepoFile('Docs/REFUND_AGENT_OPERATIONS.md');
   for (const field of [
-    'Case:', 'Age:', 'Machine:', 'Current status:', 'Research completed:',
-    'Recommendation:', 'Next step:', 'Owner:', 'cases reviewed',
-    'recommend refund', 'recommend rejection', 'waiting for customer',
+    'Case:', 'Age:', 'Machine:', 'Outcome:', 'Evidence:', 'Action taken:',
+    'Manager action:', 'Engineering issue:', 'cases reviewed',
+    'ready to approve refund', 'recommend reject', 'waiting on customer',
   ]) assert(procedure.includes(field), `missing report field: ${field}`);
 });
 

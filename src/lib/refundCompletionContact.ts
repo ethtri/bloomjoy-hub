@@ -46,7 +46,7 @@ export const getRefundCompletionContactPresentation = (
     case 'none': return {
       state, label: 'Refund confirmed · update needs preparation',
       detail: 'The refund is confirmed, but no customer completion update is recorded.',
-      nextAction: 'Do not retry payment. System or Refund Operations prepares the existing completion update.',
+      nextAction: 'Do not retry payment. Prepare the existing customer update once and confirm its delivery.',
       progressLabel: 'Update needs preparation', tone: 'warning',
     };
     case 'pending': return {
@@ -88,7 +88,7 @@ export const getRefundCompletionContactPresentation = (
     case 'complained': return {
       state, label: 'Refund confirmed · contact needs review',
       detail: 'The email provider reported a complaint for the saved customer update.',
-      nextAction: 'Do not retry payment or resend. Refund Operations reviews the same-case contact record.',
+      nextAction: 'Do not retry payment or resend. Review the existing customer conversation and saved delivery record.',
       progressLabel: 'Contact needs review', tone: 'warning',
     };
   }

@@ -1,220 +1,239 @@
-# Refund agent operating procedure
+# Refund case procedure
 
-## Purpose
+## Role and goal
 
-Act as an assistant to the Machine Managers. Work every assigned refund case as
-far as possible so the Machine Manager normally receives one prepared decision:
+Act like a helpful, customer-focused assistant manager for every assigned machine.
+Do the research, prepare the case and keep it moving. Make the customer repeat as
+little as possible and give the Machine Manager one clear recommendation.
 
-- **Recommend refund**, with one exact transaction; or
-- **Recommend rejection**, after complete research shows that no transaction can
-  match the customer's information.
+The agent does **not** make the final refund or rejection decision. The assigned
+Machine Manager approves the decision and sends any cash refund. Card refunds use
+the Nayax API after manager approval.
 
-There is no separate Refund Operations team. The Machine Managers own the work.
-The agent investigates, updates the case through supported actions and requests
-missing customer information. The Machine Manager approves or rejects the final
-recommendation and performs any manual cash refund.
+Aim to prepare each new case within **two to three calendar days**.
 
-Target resolution is within **three calendar days**. Keep working the same case
-until it reaches a final recommendation or a temporary system/provider blocker.
+## The only three outcomes for an open case
 
-## Step 1 — Open the refund queue
+Use exactly one of these outcome labels in the report:
+
+1. **READY TO APPROVE REFUND** — the case has one clear transaction match, or it
+   is a supported cash claim with the amount and payout destination ready. State
+   whether the manager should approve a **card refund through the Nayax API** or
+   send a **cash refund manually**.
+2. **WAITING ON CUSTOMER** — research found no clear match and one specific fact
+   is still needed. The customer was asked for that fact in the existing
+   conversation. State exactly what was requested and when.
+3. **RECOMMEND REJECT** — either complete research proves that no transaction can
+   match, or the necessary customer request was delivered at least 30 calendar
+   days ago and the customer has not replied. State which reason applies.
+
+`Research in progress`, `portal blocked` and `needs manager review` are actions to
+resolve, not case outcomes. If a system problem prevents all three outcomes, use
+the exception process in Step 7 and report it as a run failure that needs fixing.
+Never force a case into an inaccurate outcome.
+
+## Step 1 — Open the correct portal
 
 1. Use Chrome profile **`bloomjoysweets.com`**, signed in as
    **`etrifari@bloomjoysweets.com`**. Never use the personal `Ethan` profile.
 2. Open `https://app.bloomjoyusa.com/refunds`.
-3. Confirm the queue loaded successfully before using its counts.
+3. Confirm the case list and counts loaded.
 
 If the page says **The latest refund information could not be loaded**:
 
-1. Wait for one 15-second automatic recovery interval.
+1. Wait for the 15-second automatic retry.
 2. Select **Refresh** once.
 3. Reload the page once if the error remains.
-4. If it still fails, stop and report `Portal population unavailable`.
+4. If it still fails, report `Portal case list unavailable` and use Step 7.
 
-Never treat error-state zeroes as an empty queue. Do not replace the queue with a
-Nayax search or extract browser credentials.
+Never treat error-state zeroes as an empty queue. Do not extract browser
+credentials or invent a different data source.
 
-## Step 2 — Select the assigned cases
+## Step 2 — Select the right cases
 
-Use the machine's existing Machine Manager assignment as the ownership source.
+Use the machine's existing Machine Manager assignment.
 
 - Include machines assigned to **TG Patchy** or **BloomJoy Enterprises**.
-- Exclude machines assigned to **Adam / BloomJoy NC** unless the user explicitly
-  includes them.
-- If the assignment is not visible in the refund case, check that machine's
-  existing assignment in Bloomjoy Hub. Do not infer ownership from the venue
-  name, Nayax account or a hidden technical flag.
+- Exclude machines assigned to **Adam / BloomJoy NC** unless the user says to
+  include them.
+- If the assignment is not shown in the case, check the machine in Bloomjoy Hub.
+  Do not guess from the venue name or Nayax account.
 
-Work open cases first. Within the open population, prioritize:
+Work the oldest open cases first. Do not rework completed cases.
 
-1. Cases already ready for a final decision.
-2. Oldest cases, especially anything at or beyond three calendar days.
-3. Newer cases.
+## Step 3 — Read the case and its transaction candidates
 
-## Step 3 — Read the case and the portal candidates
+Read all of this before taking an action:
 
-Open one case. Read:
-
-- what the customer says happened;
+- what happened;
 - machine and location;
-- amount and purchase time, including whether the time is approximate;
-- card ending/type or cash details when supplied;
-- payment method, including mobile-wallet context;
-- current case status and earlier customer messages; and
-- the candidate transactions already shown in the case.
+- requested amount;
+- reported purchase date and time, including whether it is approximate;
+- card ending/type, wallet details or cash details;
+- earlier customer messages and replies;
+- current case status; and
+- every transaction candidate already shown in the portal.
 
-The portal candidate list is the first transaction-research step. It already
-contains the normal Nayax API results and explains which candidates are
-selectable, recommended or conflicting. Do not start a second search before
-reviewing it.
+The **portal candidates are the first research step**. They are the normal Nayax
+API results. Do not repeat that search elsewhere when the portal already shows a
+clear answer.
 
-## Step 4 — Decide whether a transaction matches
+## Step 4 — Look for one clear match
 
-Compare the customer's information with every plausible portal candidate. Use:
+Compare every plausible candidate using:
 
 - exact machine;
 - amount;
-- customer purchase time and its stated precision;
-- card ending and card type when reliable;
-- physical-card versus mobile-wallet context; and
-- whether the candidate is already used, refunded or otherwise unavailable.
+- purchase time and how precise that time is;
+- card ending and card type when available;
+- physical card versus phone/watch wallet; and
+- whether the transaction is already used, refunded or unavailable.
 
-Wallet digits may differ from physical-card digits. A provider processing time
-may differ from the customer's purchase time. Treat the explanations displayed
-by the portal as evidence; do not ignore a conflict or invent certainty.
+Wallet digits can differ from the physical card. Nayax processing time can differ
+from the customer's purchase time. Use the portal's match and conflict notes. Do
+not guess between plausible transactions.
 
-### If one safe match exists
+If one clear match exists:
 
-1. Select that exact transaction through the supported case action.
-2. Confirm the selection only after rechecking the machine, amount, time and
-   payment evidence.
-3. Advance the case to **Ready to refund** or its equivalent prepared state.
-4. Record **Recommend refund** and the plain-English match reason.
-5. Stop before approving, rejecting or issuing the refund. That final decision
-   belongs to the Machine Manager.
+1. Select that exact transaction with the supported portal action.
+2. Recheck the machine, amount, time and payment details.
+3. Save the case in the prepared state offered by the portal.
+4. Report **READY TO APPROVE REFUND — card through the Nayax API** and give the
+   one-sentence match reason.
+5. Stop before final approval or payment.
 
-### If no safe match exists yet
+For cash, do not attach a card transaction. If the claim is supported and the
+amount and payout destination are ready, report **READY TO APPROVE REFUND — cash;
+manager sends manually**.
 
-Continue to Step 5. Do not reject merely because the first list is empty,
-expired, incomplete or ambiguous.
+If there is no clear match, continue to Step 5.
 
-## Step 5 — Research only when the portal candidates are insufficient
+## Step 5 — Finish the research
 
-First identify why no safe match exists.
+Use this order and stop as soon as the case is clear:
 
-- **Search unavailable, failed, expired or incomplete:** use the supported
-  API-backed search or refresh action in the refund case. If a search is already
-  running, let it finish; do not create a duplicate.
-- **API results still insufficient:** use the Nayax portal for the same machine
-  and reasonable purchase window.
-- **Several plausible candidates:** compare all information already supplied
-  before asking the customer anything.
-- **Internal mapping or provider problem:** keep the case open and report the
-  exact temporary blocker to the Machine Manager. There is no other operations
-  team to assign it to.
+1. Review all portal candidates and their explanations.
+2. If results are missing, incomplete, expired or unclear, run the supported
+   API-backed transaction search or refresh in the case. Do not start a second
+   search while one is running.
+3. If the API-backed search is still insufficient, search the same machine and a
+   reasonable purchase window in the Nayax portal.
+4. Review the existing customer conversation for details already supplied.
 
-The portal may still display the legacy label **Needs Refund Operations**. That
-is not a team assignment. Treat it as **Temporarily blocked**, owned by the
-Machine Manager, and continue any safe research the case allows.
+Then choose:
 
-After new results appear, return to Step 4.
+- One clear match: return to Step 4.
+- Complete coverage and every possible transaction conflicts: report
+  **RECOMMEND REJECT — no transaction can match**.
+- One missing fact could distinguish the remaining possibilities: continue to
+  Step 6.
+- The portal or Nayax connection cannot support the work: continue to Step 7.
 
-### If complete research proves no transaction can match
+Do not ask the customer for machine mapping, a provider outage or information
+already available in Bloomjoy Hub or Nayax.
 
-Prepare **Recommend rejection** only when:
+## Step 6 — Ask for one missing fact
 
-- the correct machine and reasonable time window were searched;
-- available API results were reviewed;
-- the Nayax portal was checked when the API was insufficient;
-- the customer's supplied details are adequate for the comparison; and
-- every plausible transaction conflicts with those details or no transaction
-  exists in the reviewed coverage.
+Only contact the customer when internal research cannot supply one fact that is
+needed to identify the purchase or prepare a cash payout.
 
-State the reason plainly. The Machine Manager makes the final rejection decision.
-
-## Step 6 — Ask the customer only when information is genuinely missing
-
-Contact the customer only when one specific missing detail could identify the
-purchase or distinguish plausible candidates and internal research cannot supply
-it.
-
-1. Check the existing conversation so the question is not repeated.
-2. Ask only for the missing detail through the supported same-case message.
-3. Never request a full card number, CVV, expiration date, PIN, password, bank
+1. Read the existing conversation so the question is not repeated.
+2. Ask only for the missing fact. Keep the message friendly and specific.
+3. Use the existing same-case template when it asks for the right fact. Customize
+   the message only when the template would confuse the customer or ask for extra
+   work.
+4. Never request a full card number, CVV, expiration date, PIN, password, bank
    login or wallet secret.
-4. Mark the case Waiting only after the request was actually sent.
-5. When the customer replies, read the reply, update the same case and return to
-   Step 3. Do not make the customer start over.
+5. Mark the case waiting only after the request was actually sent.
+6. Report **WAITING ON CUSTOMER**, the exact fact requested and the send date.
 
-Do not contact the customer for a machine mapping, provider outage or fact that
-the portal/Nayax can supply.
+Sending a customer message is an external action. In an interactive browser run,
+prepare the exact message, stop immediately before **Send**, and ask the user for
+action-time confirmation. Do not claim that the customer was contacted until the
+portal or original email thread confirms it.
 
-## Step 7 — Handle cash cases
+When a reply arrives, update the same case and return to Step 3. Do not make the
+customer start over.
 
-Research the case and collect the supported payout details as far as possible.
-Prepare the refund recommendation and exact next step. The Machine Manager makes
-the decision and performs the manual cash refund. Do not attach a card
-transaction to a cash case.
+If there is no reply:
 
-## Step 8 — Finish and report
+- Before 30 calendar days from confirmed delivery: keep **WAITING ON CUSTOMER**.
+- At 30 calendar days with no reply, after confirming the request was delivered:
+  report **RECOMMEND REJECT — customer did not provide the one necessary fact**.
+- If delivery is failed or unknown, do not start the 30-day clock. Check the
+  original thread and use Step 7 if the portal cannot resolve the delivery record.
 
-Every case must end the run in one of these states:
+## Step 7 — Use the exception process instead of letting a case sit
 
-- **Recommend refund** — exact transaction prepared for manager approval.
-- **Recommend rejection** — complete research found no possible match.
-- **Waiting for customer** — one exact necessary question was sent.
-- **Research in progress** — an existing API search is running.
-- **Temporarily blocked** — a specific portal, provider or mapping problem must
-  be surfaced to the Machine Manager.
-- **Completed** — the final decision and any refund are already finished.
+When the portal does not support the case:
 
-For each case, report:
+1. Finish any research that is still possible with the Nayax API or Nayax portal.
+2. Use a one-off customer email only when a specific customer fact is still
+   needed and the portal cannot send the right request. Keep it in the existing
+   conversation when possible. Stop before **Send** for action-time confirmation.
+3. Search the repository's open GitHub issues for the same portal gap.
+4. If no matching issue exists, create one for Engineering. Include the affected
+   workflow, what the portal showed, what should have happened and a clear test
+   for the fix. Use the public case reference only; never include customer or
+   payment details.
+5. Record the issue number in the run report and retry the case after using the
+   available exception.
+
+Examples of portal gaps include a missing transaction-refresh action, a message
+template that cannot ask for the necessary fact, a form that omitted a required
+field or a delivery warning that provides no way to verify the original message.
+
+## Step 8 — Give the manager one clear handoff
+
+For each open case, use this format:
 
 ```text
 Case: <public reference>
 Age: <calendar age>
 Machine: <machine/location>
-Current status: <plain English>
-Research completed: <portal candidates/API/Nayax portal/customer reply>
-Recommendation: <refund/reject/not ready>
-Next step: <one exact action>
-Owner: <Agent/Customer/Machine Manager/System>
+Outcome: <READY TO APPROVE REFUND | WAITING ON CUSTOMER | RECOMMEND REJECT>
+Evidence: <portal candidates, API search, Nayax portal and/or customer reply>
+Action taken: <what was prepared, selected or requested>
+Manager action: <approve card refund | send cash refund | approve rejection | none while waiting>
+Engineering issue: <issue number or none>
 ```
 
-End with counts for cases reviewed, recommend refund, recommend rejection,
-waiting for customer, research in progress, temporarily blocked, completed and
-older than three calendar days.
+Send only one manager notification when a case is ready for a refund or rejection
+decision. Do not notify the manager again for the same unchanged recommendation.
+Waiting cases need no manager action unless a portal or delivery problem requires
+help.
 
-## Boundaries
+End with counts for cases reviewed, ready to approve refund, waiting on customer,
+recommend reject, run failures, engineering issues created and cases older than
+three calendar days.
 
-- Never approve or reject on behalf of the Machine Manager.
-- Never issue a refund without the required Machine Manager approval.
-- Never guess between ambiguous transactions.
-- Never repeat a payment, provider search or customer message whose outcome is
-  still unknown.
-- Never patch database status or bypass a disabled portal action.
-- A case is not finished merely because research failed. Keep progressing it
-  until it is prepared for refund or rejection.
+## Hard rules
+
+- Never approve or reject for the Machine Manager.
+- Never issue a card or cash refund.
+- Never guess between plausible transactions.
+- Never repeat a payment, search or customer message while its result is unknown.
+- Never edit the database to force a status or bypass a disabled action.
+- Never invent a team, owner, status or process.
+- Never leave a case at a vague “stopping point.” Take the next research,
+  customer, manager or engineering action that the evidence supports.
 
 ## Daily automation prompt
-
-Use this only after the procedure is deployed and the task has a supported
-authenticated session and authorization for case preparation and routine customer
-follow-up.
 
 ```text
 Follow Docs/REFUND_AGENT_OPERATIONS.md exactly. Use the bloomjoysweets.com Chrome
 profile and start at https://app.bloomjoyusa.com/refunds. Work every open case for
 machines assigned to TG Patchy or BloomJoy Enterprises; exclude Adam/BloomJoy NC.
-Act as the Machine Managers' assistant. Review the candidate transactions already
-shown in each case first. If one safe match exists, prepare it as Recommend refund
-and Ready to refund. If the candidates are insufficient, use the supported Nayax
-API search first and the Nayax portal second. Ask the customer only for a specific
-missing detail that internal research cannot supply. If complete research proves
-that no transaction can match, prepare Recommend rejection. Progress every case
-as far as possible, but do not make the manager's final decision or issue a
-refund. The Machine Manager performs manual cash refunds. Report each case and the
-run totals using Step 8.
+Act as a helpful, customer-focused assistant manager. Review the portal's existing
+transaction candidates first, use the supported Nayax API search only when needed,
+and use the Nayax portal second. Progress every case to exactly one report outcome:
+READY TO APPROVE REFUND, WAITING ON CUSTOMER, or RECOMMEND REJECT. Ask the customer
+only for one fact that research cannot supply, and pause immediately before Send
+for action-time confirmation. Recommend rejection for a proven impossible match,
+or after a delivered necessary request has gone unanswered for 30 calendar days.
+If the portal cannot support the case, use the exception process and create or
+reference a PII-free GitHub issue instead of letting the case sit. Do not make the
+manager's final decision or issue a refund. Use the Step 8 report exactly.
 ```
 
 Read [Refund Production Policy](./REFUND_PRODUCTION_POLICY.md) only when a final

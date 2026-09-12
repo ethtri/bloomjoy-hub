@@ -314,10 +314,10 @@ assert(
     portal.includes('Complete case & notify customer') &&
     portal.includes('No second payment was attempted') &&
     portal.includes('refundOperationsAccess &&') &&
-    portal.includes('<p className="font-semibold">Refund Operations</p>') &&
+    portal.includes('<p className="font-semibold">Manager payment review</p>') &&
     !portal.includes('Any active Machine Manager for this machine can save this result.') &&
     !portal.includes('Only the assigned Machine Manager can save this result.'),
-  'The Refund Operations-only form must contain only result, source, reference, conditional time, and one clear action.'
+  'The manager-only form must contain only result, source, reference, conditional time, and one clear action.'
 );
 
 const evidenceOnlyStartButton = portal.match(

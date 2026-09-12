@@ -691,11 +691,11 @@ assert(
     refundOperationsUi.includes('lookupRequestSequenceRef') &&
     !refundOperationsUi.includes('Refresh transactions') &&
     !refundOperationsUi.includes('Refresh transaction results') &&
-    refundOperationsUi.includes('Bloomjoy runs one automatic check and, after a temporary failure, one safe retry') &&
+    refundOperationsUi.includes('Bloomjoy runs one automatic check and one retry after a temporary failure') &&
     refundOperationsUi.includes('refundOperationsAccess') &&
-    refundOperationsUi.includes('Needs Refund Operations') &&
-    refundOperationsUi.includes('60-minute SLA'),
-  'The manager UI must consume the canonical lifecycle, remain read-only for lookup recovery, and keep technical reconciliation in Refund Operations.'
+    refundOperationsUi.includes('Needs manager review') &&
+    refundOperationsUi.includes('Review within'),
+  'The manager UI must consume the canonical lifecycle, remain read-only for lookup recovery, and keep unclear payment results in manager review.'
 );
 assert(
   nayaxRecommendationMigration.includes('nayaxLookupCandidates') &&

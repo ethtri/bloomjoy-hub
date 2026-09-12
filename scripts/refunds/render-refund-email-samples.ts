@@ -90,9 +90,9 @@ const samples = {
       locationName: "Location not recorded",
       ageMinutes: 2_880,
       paymentMethodCategory: "not_recorded",
-      queueLabel: "Needs Refund Operations",
+      queueLabel: "Needs manager review",
       actionCode: "refund_operations",
-      actionOwner: "Refund Operations",
+      actionOwner: "Machine Manager",
       lifecycleActor: "system",
       whatChanged:
         "The server recorded an inconclusive payment-provider result.",
@@ -102,7 +102,7 @@ const samples = {
     caseUrl: "https://app.bloomjoyusa.com/refunds?case=synthetic-provider-case",
     queueUrl: "https://app.bloomjoyusa.com/refunds",
     routingNote:
-      "Routing exception: Bloomjoy operations is receiving this action notice.",
+      "This action notice was routed to the assigned Machine Manager.",
   }),
 };
 

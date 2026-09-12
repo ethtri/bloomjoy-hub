@@ -116,7 +116,7 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /interruptionPage\.getByRole\('button', \{ name: 'In progress 1'[\s\S]*?uncertainPage\.getByRole\('button', \{ name: 'In progress 1'/
+  /interruptionPage\.getByRole\('button', \{ name: 'Refund in progress 1'[\s\S]*?uncertainPage\.getByRole\('button', \{ name: 'Refund in progress 1'/
 );
 assert.match(
   portalSource,
@@ -124,7 +124,7 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /scenario\.queueView === 'Waiting'[\s\S]*?preserves the customer wait without exposing transaction-search controls[\s\S]*?continue;[\s\S]*?else \{[\s\S]*?renders durable server lookup evidence without a browser lookup/
+  /scenario\.queueView === 'Waiting for customer'[\s\S]*?preserves the customer wait without exposing transaction-search controls[\s\S]*?continue;[\s\S]*?else \{[\s\S]*?renders durable server lookup evidence without a browser lookup/
 );
 assert.equal(
   [...portalSource.matchAll(/url\.includes\('\/admin_get_refund_operations_overview'\)/g)].length,

@@ -19,10 +19,10 @@ export function RefundReportFreshnessAdvisory({ freshness }: { freshness: Refund
       <p className="mt-1">
         {freshness.lastReceivedAt ? <>Last received {new Date(freshness.lastReceivedAt).toLocaleString()}. </> : null}
         {healthV2
-          ? <>Refund Operations owns this report issue{freshness.affectedCaseCount ? <> for {freshness.affectedCaseCount} unresolved {freshness.affectedCaseCount === 1 ? 'case' : 'cases'}</> : null}.</>
+          ? <>This report issue affects{freshness.affectedCaseCount ? <> {freshness.affectedCaseCount} unresolved {freshness.affectedCaseCount === 1 ? 'case' : 'cases'}</> : ' the refund queue'}.</>
           : <>The report is configured hourly. Bloomjoy flags a two-hour gap for internal review; the provider’s exact delivery timing is not confirmed.</>}
       </p>
-      <p className="mt-2">Refund Operations: review the mailbox and saved report evidence. Missing report data never confirms a refund or authorizes another payment.</p>
+      <p className="mt-2">Check the mailbox and saved Nayax report. Missing report data never confirms a refund or authorizes another payment.</p>
     </aside>
   );
 }

@@ -2051,8 +2051,8 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
       recentMaterialChangeCount: managerWorkMode === 'zero' ? 0 : managerWorkMode === 'one' ? 1 : 2,
       items: (managerWorkMode === 'zero' ? [] : [
         { caseId: 'demo-nc-manual', publicReference: 'RF-UAT-NC-MANUAL', amountCents: 700, currencyCode: 'USD', machineLabel: 'Carolina Place — Phone cases with an intentionally long public label', locationName: 'Carolina Place', ageMinutes: 180, queueBucket: 'needs_action', queueLabel: 'Action needed', actionCode: 'select_transaction', actionOwner: 'manager', lifecycleActor: 'system', whatChanged: 'The server recorded a verified customer reply on the linked case.', noticeReason: 'customer_reply', attentionVersion: 2, digestEligible: true, urgentNoticeState: 'none', payloadRedacted: true },
-        { caseId: 'demo-card-match', publicReference: 'RF-UAT-CARD', amountCents: 650, currencyCode: 'USD', machineLabel: 'Cotton Candy 01', locationName: 'Mall Atrium', ageMinutes: 95, queueBucket: 'ready_to_pay', queueLabel: 'Ready to refund', actionCode: 'refund', actionOwner: 'manager', lifecycleActor: 'system', whatChanged: 'The confirmed payment evidence is ready for the current official action.', noticeReason: 'manager_reminder', attentionVersion: 1, digestEligible: true, urgentNoticeState: 'immediate_sent', payloadRedacted: true },
-        { caseId: 'demo-cash-waiting', publicReference: 'RF-UAT-CASH', amountCents: 500, currencyCode: 'USD', machineLabel: 'Cotton Candy 02', locationName: 'Arcade Hall', ageMinutes: 60, queueBucket: 'waiting_on_customer', queueLabel: 'Waiting', actionCode: 'wait_for_customer_reply', actionOwner: 'customer', lifecycleActor: 'system', whatChanged: 'The current server-owned queue state is Waiting.', noticeReason: null, attentionVersion: 1, digestEligible: false, urgentNoticeState: 'none', payloadRedacted: true },
+        { caseId: 'demo-card-match', publicReference: 'RF-UAT-CARD', amountCents: 650, currencyCode: 'USD', machineLabel: 'Cotton Candy 01', locationName: 'Mall Atrium', ageMinutes: 95, queueBucket: 'ready_to_pay', queueLabel: 'Ready to approve', actionCode: 'refund', actionOwner: 'manager', lifecycleActor: 'system', whatChanged: 'The confirmed payment evidence is ready for the current official action.', noticeReason: 'manager_reminder', attentionVersion: 1, digestEligible: true, urgentNoticeState: 'immediate_sent', payloadRedacted: true },
+        { caseId: 'demo-cash-waiting', publicReference: 'RF-UAT-CASH', amountCents: 500, currencyCode: 'USD', machineLabel: 'Cotton Candy 02', locationName: 'Arcade Hall', ageMinutes: 60, queueBucket: 'waiting_on_customer', queueLabel: 'Waiting for customer', actionCode: 'wait_for_customer_reply', actionOwner: 'customer', lifecycleActor: 'system', whatChanged: 'The current server-owned queue state is Waiting for customer.', noticeReason: null, attentionVersion: 1, digestEligible: false, urgentNoticeState: 'none', payloadRedacted: true },
       ]).slice(0, managerWorkMode === 'one' ? 1 : undefined),
       metrics: { emailsSentToday: 0, digestEligibleCount: managerWorkMode === 'zero' ? 0 : managerWorkMode === 'one' ? 1 : 2, duplicatesSuppressedToday: 0, oldestActionableAgeMinutes: managerWorkMode === 'zero' ? null : 180, oldestDecisionAgeMinutes: managerWorkMode === 'zero' ? null : 180, payloadRedacted: true }, payloadRedacted: true,
     },
@@ -2535,7 +2535,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
 export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsOverview> => {
   const overviewResult = await supabaseClient.rpc('admin_get_refund_operations_overview');
   if (overviewResult.error) {
-    throw new Error(overviewResult.error.message || 'Unable to load refund operations.');
+    throw new Error(overviewResult.error.message || 'Unable to load refund cases.');
   }
 
   const overview = {
@@ -2872,7 +2872,7 @@ export const fetchRefundNayaxReliabilityHealth = async (): Promise<RefundNayaxRe
       Number.isFinite(Number(health.averageApprovalStartLatencyMs))
         ? Number(health.averageApprovalStartLatencyMs)
         : null,
-    ownerLabel: typeof health.ownerLabel === 'string' ? health.ownerLabel : 'Refund Operations',
+    ownerLabel: typeof health.ownerLabel === 'string' ? health.ownerLabel : 'Machine Manager',
     escalationSlaMinutes: Number(health.escalationSlaMinutes ?? 60),
     escalationDueAt: typeof health.escalationDueAt === 'string' ? health.escalationDueAt : null,
     payloadRedacted: health.payloadRedacted === true,
