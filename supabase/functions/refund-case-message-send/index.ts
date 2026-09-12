@@ -39,6 +39,7 @@ import {
   bindRefundTransactionalDelivery,
   markRefundTransactionalDeliveryAttempt,
   parseRefundTransactionalDeliveryWebhook,
+  retrieveRefundTransactionalDelivery,
   sha256Hex,
 } from "../_shared/refund-transactional-delivery.ts";
 
@@ -289,6 +290,109 @@ serve(async (req) => {
           "Customer messages are suppressed for this Internal/test archive record.",
         errorCode: "internal_test_customer_contact_suppressed",
       }, 409);
+    }
+
+    const deliveryRefreshMessageId = sanitizeText(
+      body?.deliveryRefreshMessageId,
+      80,
+    );
+    if (body?.deliveryRefreshMessageId !== undefined) {
+      if (
+        !isUuid(deliveryRefreshMessageId) ||
+        Object.keys(body ?? {}).some((key) =>
+          !["caseId", "deliveryRefreshMessageId"].includes(key)
+        )
+      ) {
+        return jsonResponse({
+          error: "Choose the exact customer message to review.",
+        }, 400);
+      }
+      const { data: hasOperationsAccess, error: operationsAccessError } =
+        await supabase.rpc("is_super_admin", { uid: user.id });
+      if (operationsAccessError) throw operationsAccessError;
+      if (hasOperationsAccess !== true) {
+        return jsonResponse({
+          error: "Refund Operations access required.",
+        }, 403);
+      }
+
+      const { data: message, error: messageError } = await supabase
+        .from("refund_case_messages")
+        .select(
+          "id,refund_case_id,delivery_transport,delivery_state,provider_message_id",
+        )
+        .eq("id", deliveryRefreshMessageId)
+        .eq("refund_case_id", caseId)
+        .maybeSingle();
+      if (messageError) throw messageError;
+      if (!message) {
+        return jsonResponse({ error: "Customer message not found." }, 404);
+      }
+      if (
+        message.delivery_transport !== "resend" ||
+        typeof message.provider_message_id !== "string" ||
+        !["unknown", "accepted", "deferred"].includes(
+          message.delivery_state ?? "",
+        )
+      ) {
+        return jsonResponse({
+          error: "This customer message does not need a provider refresh.",
+        }, 409);
+      }
+
+      const resendApiKey = (Deno.env.get("RESEND_API_KEY") ?? "").trim();
+      let delivery;
+      try {
+        delivery = await retrieveRefundTransactionalDelivery({
+          providerMessageId: message.provider_message_id,
+          apiKey: resendApiKey,
+        });
+      } catch (deliveryError) {
+        console.error("refund delivery refresh failed", {
+          errorType: deliveryError instanceof Error
+            ? deliveryError.name
+            : typeof deliveryError,
+          payloadRedacted: true,
+        });
+        return jsonResponse({
+          error:
+            "The delivery provider could not confirm this message. Keep it in delivery review and do not send a replacement.",
+          errorCode: "delivery_provider_record_unavailable",
+        }, 502);
+      }
+
+      if (delivery.state !== "accepted") {
+        const eventAt = new Date().toISOString();
+        const { data: recorded, error: recordError } = await supabase.rpc(
+          "service_record_refund_transactional_delivery_event",
+          {
+            p_event_key_digest: await sha256Hex(
+              `resend-refresh|${delivery.providerMessageId}|${delivery.state}`,
+            ),
+            p_provider_message_id: delivery.providerMessageId,
+            p_delivery_state: delivery.state,
+            p_event_at: eventAt,
+          },
+        );
+        const result = recorded && typeof recorded === "object"
+          ? recorded as Record<string, unknown>
+          : null;
+        if (recordError || result?.payloadRedacted !== true) {
+          throw new Error("Transactional delivery refresh could not be recorded.");
+        }
+      }
+
+      return jsonResponse({
+        deliveryRefresh: {
+          messageId: deliveryRefreshMessageId,
+          state: delivery.state,
+          resolved: delivery.terminal,
+          providerCallKind: "read_only",
+          customerMessageSent: false,
+          paymentActionTaken: false,
+          payloadRedacted: true,
+        },
+      });
     }
 
     const nayaxCompletionMessageId = sanitizeText(

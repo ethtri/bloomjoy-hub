@@ -44,6 +44,9 @@ assert.ok(
 );
 
 assert.ok(shared.includes('sha256Hex') && shared.includes('payloadRedacted'));
+assert.ok(shared.includes('retrieveRefundTransactionalDelivery'));
+assert.ok(shared.includes('method: "GET"'));
+assert.ok(shared.includes('opened: "delivered"'));
 assert.ok(messageSend.includes('new Webhook(secret).verify(rawBody'));
 assert.ok(messageSend.includes('service_record_refund_transactional_delivery_event'));
 const webhookHandler = messageSend.slice(
@@ -52,6 +55,15 @@ const webhookHandler = messageSend.slice(
 );
 assert.ok(!webhookHandler.includes('sendRefundTransactionalEmail('));
 assert.ok(!webhookHandler.includes('nayax-card-refund'));
+const deliveryRefreshHandler = messageSend.slice(
+  messageSend.indexOf('const deliveryRefreshMessageId'),
+  messageSend.indexOf('const nayaxCompletionMessageId')
+);
+assert.ok(deliveryRefreshHandler.includes('retrieveRefundTransactionalDelivery'));
+assert.ok(deliveryRefreshHandler.includes('customerMessageSent: false'));
+assert.ok(deliveryRefreshHandler.includes('paymentActionTaken: false'));
+assert.ok(!deliveryRefreshHandler.includes('sendRefundTransactionalEmail('));
+assert.ok(!deliveryRefreshHandler.includes('executeNayax'));
 
 // Exercise the actual HTTP handler with the installed signature library. Svix
 // 2.2 verifies signatures without returning the decoded JSON payload.
@@ -125,6 +137,7 @@ assert.deepEqual(JSON.parse(JSON.stringify(rpcCalls[0].args)), {
 
 assert.ok(operations.includes("transactionalDeliveryContractVersion?: 'refund_transactional_delivery_v1'"));
 assert.ok(operations.includes('requireRefundTransactionalDeliveryCase'));
+assert.ok(operations.includes('refreshRefundTransactionalDelivery'));
 for (const label of [
   'Accepted by provider',
   'Delivered',
@@ -137,6 +150,8 @@ for (const label of [
 }
 assert.ok(refundsPage.includes('isNeedsActionCase'));
 assert.ok(refundsPage.includes('do not resend the message or retry a payment blindly'));
+assert.ok(refundsPage.includes('Refresh original request delivery'));
+assert.ok(refundsPage.includes('A later delivered update does not prove that request arrived.'));
 
 assert.ok(databaseTest.includes('select plan(20)'));
 assert.ok(databaseTest.includes('Webhook-before-bind evidence is retained'));

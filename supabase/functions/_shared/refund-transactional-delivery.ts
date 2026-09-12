@@ -46,6 +46,88 @@ const RESEND_EVENT_STATES: Record<string, RefundTransactionalDeliveryState> = {
   "email.suppressed": "failed",
 };
 
+const RESEND_RETRIEVED_STATES: Record<string, RefundTransactionalDeliveryState> = {
+  sent: "accepted",
+  scheduled: "accepted",
+  queued: "accepted",
+  delivery_delayed: "deferred",
+  delivered: "delivered",
+  opened: "delivered",
+  clicked: "delivered",
+  failed: "failed",
+  canceled: "failed",
+  suppressed: "failed",
+  bounced: "bounced",
+  complained: "complained",
+};
+
+export type RefundTransactionalDeliveryRefresh = {
+  providerMessageId: string;
+  state: RefundTransactionalDeliveryState;
+  terminal: boolean;
+  payloadRedacted: true;
+};
+
+export const parseRefundTransactionalDeliveryRefresh = (
+  value: unknown,
+  expectedProviderMessageId: string,
+): RefundTransactionalDeliveryRefresh => {
+  if (!PROVIDER_MESSAGE_ID_PATTERN.test(expectedProviderMessageId)) {
+    throw new Error("Transactional delivery reference is invalid.");
+  }
+  const payload = value && typeof value === "object"
+    ? value as Record<string, unknown>
+    : null;
+  const providerMessageId = typeof payload?.id === "string"
+    ? payload.id.trim()
+    : "";
+  const lastEvent = typeof payload?.last_event === "string"
+    ? payload.last_event.trim().toLowerCase()
+    : "";
+  const state = RESEND_RETRIEVED_STATES[lastEvent];
+  if (providerMessageId !== expectedProviderMessageId || !state) {
+    throw new Error("Transactional delivery evidence is invalid.");
+  }
+  return {
+    providerMessageId,
+    state,
+    terminal: !["accepted", "deferred"].includes(state),
+    payloadRedacted: true,
+  };
+};
+
+export const retrieveRefundTransactionalDelivery = async ({
+  providerMessageId,
+  apiKey,
+  fetchImpl = fetch,
+}: {
+  providerMessageId: string;
+  apiKey: string;
+  fetchImpl?: typeof fetch;
+}): Promise<RefundTransactionalDeliveryRefresh> => {
+  if (!PROVIDER_MESSAGE_ID_PATTERN.test(providerMessageId) || !apiKey.trim()) {
+    throw new Error("Transactional delivery lookup is not configured.");
+  }
+  const response = await fetchImpl(
+    `https://api.resend.com/emails/${encodeURIComponent(providerMessageId)}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        Accept: "application/json",
+      },
+      signal: AbortSignal.timeout(10_000),
+    },
+  );
+  if (!response.ok) {
+    throw new Error("Transactional delivery provider record is unavailable.");
+  }
+  return parseRefundTransactionalDeliveryRefresh(
+    await response.json(),
+    providerMessageId,
+  );
+};
+
 export const parseRefundTransactionalDeliveryWebhook = (
   value: unknown,
 ): RefundTransactionalDeliveryWebhook | null => {

@@ -3593,6 +3593,46 @@ export const sendRefundCaseMessage = async (input: SendRefundCaseMessageInput) =
   return data.message;
 };
 
+export type RefundTransactionalDeliveryRefreshResult = {
+  messageId: string;
+  state: Exclude<RefundTransactionalDeliveryState, 'unknown'>;
+  resolved: boolean;
+  providerCallKind: 'read_only';
+  customerMessageSent: false;
+  paymentActionTaken: false;
+  payloadRedacted: true;
+};
+
+export const refreshRefundTransactionalDelivery = async (
+  caseId: string,
+  deliveryRefreshMessageId: string
+): Promise<RefundTransactionalDeliveryRefreshResult> => {
+  const data = await invokeEdgeFunction<{
+    error?: string;
+    deliveryRefresh?: RefundTransactionalDeliveryRefreshResult;
+  }>('refund-case-message-send', {
+    caseId,
+    deliveryRefreshMessageId,
+  }, {
+    requireUserAuth: true,
+    authErrorMessage: 'Log in to review customer-message delivery.',
+  });
+  const result = data.deliveryRefresh;
+  if (
+    !result ||
+    result.messageId !== deliveryRefreshMessageId ||
+    !['accepted', 'deferred', 'delivered', 'failed', 'bounced', 'complained'].includes(result.state) ||
+    typeof result.resolved !== 'boolean' ||
+    result.providerCallKind !== 'read_only' ||
+    result.customerMessageSent !== false ||
+    result.paymentActionTaken !== false ||
+    result.payloadRedacted !== true
+  ) {
+    throw new Error(data.error || 'Unable to confirm customer-message delivery.');
+  }
+  return result;
+};
+
 export type RefundNayaxCompletionRecoveryResult = {
   recovered: true;
   status: 'sent' | 'already_sent' | 'failed' | 'delivery_unknown';
