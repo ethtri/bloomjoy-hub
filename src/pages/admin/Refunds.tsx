@@ -3409,6 +3409,7 @@ export default function AdminRefundsPage() {
     ) {
       return null;
     }
+    if (isWaitingCase(refundCase, refundOperationsAccess)) return null;
     if (refundCase.id !== selectedCase?.id || refundCase.hasMatchedNayaxTransaction || !editor) return null;
     if (editor.matchedNayaxCandidateToken.trim()) {
       return { label: 'Ready to refund', tone: 'info' };
