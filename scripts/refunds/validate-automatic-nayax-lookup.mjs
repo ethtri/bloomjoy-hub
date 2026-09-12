@@ -6,6 +6,7 @@ const intake = read("supabase/functions/refund-case-intake/index.ts");
 const gmailSync = read("supabase/functions/refund-gmail-sync/index.ts");
 const sweep = read("supabase/functions/refund-case-automation-sweep/index.ts");
 const portal = read("src/pages/admin/Refunds.tsx");
+const transactionViewState = read("src/lib/refundTransactionViewState.ts");
 const lookupEndpoint = read("supabase/functions/nayax-transaction-lookup/index.ts");
 const recoveryMigration = read("supabase/migrations/20260911210036_simplify_refund_nayax_lookup.sql");
 const recoveryConcurrency = read("supabase/tests/refund_server_owned_nayax_lookup_concurrency.sql");
@@ -56,6 +57,34 @@ assert(
     sweep.includes("nayax_lookup:${refundCase.id}:v${refundCase.deterministic_fact_version}:g${lookupGeneration}") &&
     sweep.includes("lookupNayaxCandidatesForRefundCase"),
   "sweep must be the sole provider-read owner for the final-schema exact recovery claim",
+);
+const automationGate = sweep.indexOf('if (!automationEnabled)');
+const readOnlyLookupCall = sweep.indexOf('await runCardNayaxLookupSweep(runId, counters, policyWindowStart)', automationGate);
+const customerContactWindowGate = sweep.indexOf('if (!policyWindowIsOpen(scheduledAt))', automationGate);
+const customerContactSweep = sweep.indexOf('await runMissingInformationSweep', customerContactWindowGate);
+const persistedCustomerCorrectionSweep = sweep.indexOf(
+  'await runPersistedNayaxCustomerCorrectionSweep',
+  customerContactWindowGate,
+);
+const readOnlyLookupDefinition = sweep.slice(
+  sweep.indexOf('const runCardNayaxLookupSweep'),
+  sweep.indexOf('const runPersistedNayaxCustomerCorrectionSweep'),
+);
+assert(
+  automationGate >= 0 &&
+    readOnlyLookupCall > automationGate &&
+    customerContactWindowGate > readOnlyLookupCall &&
+    customerContactSweep > customerContactWindowGate &&
+    persistedCustomerCorrectionSweep > customerContactWindowGate,
+  "read-only transaction discovery must run before the customer-contact window while customer work remains gated",
+);
+assert(
+  !readOnlyLookupDefinition.includes('sendWalletCorrectionMessage') &&
+    !readOnlyLookupDefinition.includes('sendDeterministicFollowUpMessage') &&
+    !readOnlyLookupDefinition.includes('claimFollowUpCycle') &&
+    !readOnlyLookupDefinition.includes('routeFollowUpManualReview') &&
+    !readOnlyLookupDefinition.includes('routeProviderException'),
+  "the pre-window transaction sweep must only read provider data and persist internal results",
 );
 assert(migration.includes("action.action_key ="), "manager state must resolve the current fact-version lookup operation");
 assert(
@@ -144,8 +173,8 @@ assert(
   "only the elevated Refund Operations projection exposes deliberate recovery",
 );
 assert(
-  portal.includes('data-testid="nayax-internal-setup-owner"') &&
-    portal.includes("No customer follow-up is needed.") &&
+  transactionViewState.includes('Refund Operations owns the machine connection.') &&
+    transactionViewState.includes('the customer does not need to repeat details.') &&
     !portal.includes("Try again or ask the customer for more details."),
   "mapping and account failures must be manager-owned without customer repetition"
 );

@@ -94,6 +94,7 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-portal-uat-mapped-super-admin-mapped-manager-session.png',
   'refund-portal-uat-mobile.png',
   'refund-portal-uat-multiple-candidates.png',
+  'refund-portal-uat-stale-multiple-match-summary-without-current-rows.png',
   'refund-portal-uat-rough-same-card-competing-purchases.png',
   'refund-portal-uat-nc-manual-desktop.png',
   'refund-portal-uat-nc-manual-mobile.png',
