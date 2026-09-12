@@ -134,9 +134,12 @@ test('refund procedure follows the lean assistant-manager flow', async () => {
     'Machine Manager approves the decision', 'sends any cash refund',
     '30 calendar days', 'GitHub issues', 'one-off customer email',
     'two to three calendar days',
+    'separate manager approval is not required',
+    'verify the send before reporting WAITING ON CUSTOMER',
   ]) assert.match(procedure, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert(procedure.indexOf('API-backed transaction search') < procedure.indexOf('search the same machine and a'));
   assert.doesNotMatch(procedure, /Refund Operations|safe stopping point|Route to Refund Operations|assign Refund Operations/iu);
+  assert.doesNotMatch(procedure, /action-time confirmation|stop immediately before \*\*Send\*\*/iu);
 });
 
 test('daily report contract has every deterministic case and population field', async () => {

@@ -175,6 +175,9 @@ The `blocked` label blocks merge until resolved, but it is not owner approval by
 - Refund work starts at `https://app.bloomjoyusa.com/refunds` and follows
   `Docs/REFUND_AGENT_OPERATIONS.md`. A failed portal population is unavailable
   data, never proof of zero refund cases.
+- That procedure grants authority for one specific, deduplicated customer
+  information request when internal research cannot supply the needed fact. It
+  does not grant authority to approve, reject or issue a refund.
 
 # Nayax refund implementation baseline
 

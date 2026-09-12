@@ -142,15 +142,18 @@ needed to identify the purchase or prepare a cash payout.
 3. Use the existing same-case template when it asks for the right fact. Customize
    the message only when the template would confuse the customer or ask for extra
    work.
-4. Never request a full card number, CVV, expiration date, PIN, password, bank
+4. Confirm the same request is not already sent, queued or in delivery review.
+5. Never request a full card number, CVV, expiration date, PIN, password, bank
    login or wallet secret.
-5. Mark the case waiting only after the request was actually sent.
-6. Report **WAITING ON CUSTOMER**, the exact fact requested and the send date.
+6. Send one request in the existing conversation. This procedure authorizes that
+   routine information request; separate manager approval is not required.
+7. Verify the portal or original email thread recorded the send. If delivery is
+   failed or unknown, do not mark the case waiting; use Step 7.
+8. Report **WAITING ON CUSTOMER**, the exact fact requested and the send date.
 
-Sending a customer message is an external action. In an interactive browser run,
-prepare the exact message, stop immediately before **Send**, and ask the user for
-action-time confirmation. Do not claim that the customer was contacted until the
-portal or original email thread confirms it.
+Do not claim that the customer was contacted until the portal or original email
+thread confirms the send. Never send a second request while the first request is
+queued or its delivery is unknown.
 
 When a reply arrives, update the same case and return to Step 3. Do not make the
 customer start over.
@@ -170,7 +173,9 @@ When the portal does not support the case:
 1. Finish any research that is still possible with the Nayax API or Nayax portal.
 2. Use a one-off customer email only when a specific customer fact is still
    needed and the portal cannot send the right request. Keep it in the existing
-   conversation when possible. Stop before **Send** for action-time confirmation.
+   conversation when possible, follow the Bloomjoy correspondence guides named in
+   `AGENTS.md`, send it once and verify the send. This routine exception request
+   does not require separate manager approval.
 3. Search the repository's open GitHub issues for the same portal gap.
 4. If no matching issue exists, create one for Engineering. Include the affected
    workflow, what the portal showed, what should have happened and a clear test
@@ -228,9 +233,11 @@ Act as a helpful, customer-focused assistant manager. Review the portal's existi
 transaction candidates first, use the supported Nayax API search only when needed,
 and use the Nayax portal second. Progress every case to exactly one report outcome:
 READY TO APPROVE REFUND, WAITING ON CUSTOMER, or RECOMMEND REJECT. Ask the customer
-only for one fact that research cannot supply, and pause immediately before Send
-for action-time confirmation. Recommend rejection for a proven impossible match,
-or after a delivered necessary request has gone unanswered for 30 calendar days.
+only for one fact that research cannot supply. You are authorized to send one
+specific, deduplicated information request in the existing conversation without
+separate manager approval; verify the send before reporting WAITING ON CUSTOMER.
+Recommend rejection for a proven impossible match, or after a delivered necessary
+request has gone unanswered for 30 calendar days.
 If the portal cannot support the case, use the exception process and create or
 reference a PII-free GitHub issue instead of letting the case sit. Do not make the
 manager's final decision or issue a refund. Use the Step 8 report exactly.
