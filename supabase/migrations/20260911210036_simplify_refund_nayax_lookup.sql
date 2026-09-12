@@ -2,6 +2,46 @@
 -- Completed evidence remains reviewable; a short-lived worker queue is not a
 -- second source of truth for whether the lookup happened.
 
+-- Candidate facts remain immutable. The only permitted updates are narrow,
+-- one-way metadata transitions: automatic evidence can become durable, and an
+-- unclaimed automatic result can be bound once to the manager reviewing it.
+-- Keeping these rules in the trigger lets the production backfill pass without
+-- dropping the evidence guard, while every transaction fact stays locked.
+create or replace function public.reject_refund_nayax_candidate_update()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+declare
+  durable_boundary constant timestamptz :=
+    '9999-12-31 23:59:59.999999+00'::timestamptz;
+  facts_unchanged boolean :=
+    pg_catalog.to_jsonb(new) - 'actor_user_id' - 'expires_at'
+      is not distinct from
+    pg_catalog.to_jsonb(old) - 'actor_user_id' - 'expires_at';
+  durable_transition boolean;
+  actor_binding_transition boolean;
+begin
+  durable_transition := facts_unchanged
+    and new.actor_user_id is not distinct from old.actor_user_id
+    and old.expires_at < '9999-01-01 00:00:00+00'::timestamptz
+    and new.expires_at = durable_boundary
+    and old.evidence_summary ->> 'source' is distinct from 'manual_nayax_portal';
+
+  actor_binding_transition := facts_unchanged
+    and new.expires_at is not distinct from old.expires_at
+    and old.actor_user_id is null
+    and new.actor_user_id is not null
+    and old.evidence_summary ->> 'source' is distinct from 'manual_nayax_portal';
+
+  if durable_transition or actor_binding_transition then
+    return new;
+  end if;
+
+  raise exception 'Nayax candidate evidence is immutable; create a new lookup token';
+end;
+$$;
+
 update public.refund_nayax_lookup_candidates
 set expires_at = '9999-12-31 23:59:59.999999+00'::timestamptz
 where expires_at < '9999-01-01 00:00:00+00'::timestamptz
@@ -179,6 +219,7 @@ begin
   if not found
     or candidate_row.lookup_generation <> case_row.nayax_lookup_generation
     or candidate_row.expires_at <= statement_timestamp()
+    or candidate_row.actor_user_id is not null
     or candidate_row.evidence_summary ->> 'source' = 'manual_nayax_portal'
     or (candidate_row.evidence_summary ->> 'customer_fact_version')::bigint
       is distinct from case_row.deterministic_fact_version then

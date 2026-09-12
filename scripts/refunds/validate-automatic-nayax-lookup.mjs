@@ -100,6 +100,22 @@ assert(
     lookup.includes('expires_at: durableCandidateExpiry'),
   "lookup work must stay read-only and preserve completed evidence",
 );
+const immutableGuardDefinition = recoveryMigration.indexOf(
+  "create or replace function public.reject_refund_nayax_candidate_update()",
+);
+const durableEvidenceBackfill = recoveryMigration.indexOf(
+  "update public.refund_nayax_lookup_candidates",
+);
+assert(
+  immutableGuardDefinition >= 0 &&
+    immutableGuardDefinition < durableEvidenceBackfill &&
+    recoveryMigration.includes("facts_unchanged") &&
+    recoveryMigration.includes("durable_transition") &&
+    recoveryMigration.includes("actor_binding_transition") &&
+    recoveryMigration.includes("old.actor_user_id is null") &&
+    recoveryMigration.includes("candidate_row.actor_user_id is not null"),
+  "the production backfill must retain immutable transaction facts and allow only one-way durability and manager binding metadata",
+);
 assert(
   recoveryMigration.includes("'{canSelectNayaxCandidate}','false'::jsonb") &&
     recoverySql.includes('Unknown historical coverage is not presented as a proved no-match') &&

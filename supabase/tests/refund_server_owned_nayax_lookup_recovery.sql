@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(20);
+select plan(21);
 
 select ok(to_regclass('public.refund_nayax_lookup_recoveries') is null,
   'The duplicate lookup recovery table is removed');
@@ -115,8 +115,16 @@ select ok(not has_function_privilege('authenticated',
   'public.service_bind_refund_nayax_candidate_to_actor(uuid,uuid,uuid)','execute'),
   'Durable candidate binding is server-only');
 select ok(pg_get_functiondef('public.service_bind_refund_nayax_candidate_to_actor(uuid,uuid,uuid)'::regprocedure)
-  like '%candidate_row.lookup_generation <> case_row.nayax_lookup_generation%customer_fact_version%',
+  like '%candidate_row.lookup_generation <> case_row.nayax_lookup_generation%candidate_row.actor_user_id is not null%customer_fact_version%',
   'Candidate binding revalidates current generation and deterministic facts');
+select ok(
+  pg_get_functiondef('public.reject_refund_nayax_candidate_update()'::regprocedure)
+    like '%durable_transition%actor_binding_transition%facts_unchanged%'
+  and pg_get_functiondef('public.reject_refund_nayax_candidate_update()'::regprocedure)
+    like '%old.actor_user_id is null%new.actor_user_id is not null%'
+  and pg_get_functiondef('public.reject_refund_nayax_candidate_update()'::regprocedure)
+    like '%manual_nayax_portal%',
+  'The immutable-evidence trigger permits only durable automatic evidence and one-time actor binding');
 select ok(pg_get_functiondef('public.refund_project_nayax_lookup_recovery_cases_for_manager(jsonb,boolean)'::regprocedure)
   not like '%refund_nayax_lookup_recoveries%',
   'Manager projection derives lookup work from the refund case');
