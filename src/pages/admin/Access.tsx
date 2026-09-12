@@ -66,6 +66,7 @@ import {
   type ReportingAccessLevel,
 } from '@/lib/reporting';
 import { trackEvent } from '@/lib/analytics';
+import { formatMachineType } from '@/lib/machineTypes';
 import { cn } from '@/lib/utils';
 import { AdminPersonAccessConsole } from './accessPersonConsole';
 
@@ -950,7 +951,7 @@ function ScopedMachineTaxRatesPanel() {
               <div className="min-w-0">
                 <div className="font-medium text-foreground">{row.machine.machineLabel}</div>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  <Badge variant="outline">{row.machine.machineType.replaceAll('_', ' ')}</Badge>
+                  <Badge variant="outline">{formatMachineType(row.machine.machineType)}</Badge>
                   <Badge variant={statusVariant}>{status}</Badge>
                 </div>
                 <p className="mt-2 text-xs text-muted-foreground">

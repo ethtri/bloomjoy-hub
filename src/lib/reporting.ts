@@ -1,10 +1,12 @@
 import { invokeEdgeFunction } from '@/lib/edgeFunctions';
+import type { ReportingMachineType } from '@/lib/machineTypes';
 import { supabaseClient } from '@/lib/supabaseClient';
+
+export type { ReportingMachineType } from '@/lib/machineTypes';
 
 export type ReportGrain = 'day' | 'week' | 'month';
 export type PaymentMethod = 'cash' | 'credit' | 'other' | 'unknown';
 export type ReportingAccessLevel = 'viewer' | 'report_manager';
-export type ReportingMachineType = 'commercial' | 'mini' | 'micro' | 'unknown';
 
 export type ReportingAccessContext = {
   hasReportingAccess: boolean;

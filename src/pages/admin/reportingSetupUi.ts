@@ -2,6 +2,8 @@ import type {
   PartnershipReportingSetup,
   ReportingMachineTaxRate,
 } from '@/lib/partnershipReporting';
+import { machineTypeOptions } from '@/lib/machineTypes';
+export { formatMachineType, machineTypeOptions } from '@/lib/machineTypes';
 
 export const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -38,7 +40,7 @@ export const participantRoles = [
 ];
 
 export const assignmentRoles = ['primary_reporting', 'venue', 'event', 'platform', 'internal'];
-export const machineTypes = ['commercial', 'mini', 'micro', 'unknown'] as const;
+export const machineTypes = machineTypeOptions.map(({ value }) => value);
 
 export const calculationModels = [
   'gross_split',
