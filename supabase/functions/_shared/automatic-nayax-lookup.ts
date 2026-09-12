@@ -23,16 +23,7 @@ export type AutomaticNayaxLookupCase = {
   card_network: string | null;
   card_wallet_used: boolean | null;
   deterministic_fact_version: number;
-};
-
-type AutomaticLookupDependencies = {
-  enqueue: (input: {
-    caseId: string;
-    factVersion: number;
-    source: AutomaticNayaxLookupSource;
-  }) => Promise<{
-    status: "scheduled" | "deduplicated" | "not_ready" | "stale";
-  }>;
+  nayax_lookup_status?: string | null;
 };
 
 const terminalStatuses = new Set(["approved", "denied", "completed", "closed"]);
@@ -68,26 +59,23 @@ export const isRefundCaseReadyForAutomaticNayaxLookup = (
   }).missingFields.length === 0;
 };
 
-// Event handlers only create the durable generation-zero queue row. The sweep is
-// the single owner of begin/read/persist, so event and scheduled work cannot race
-// into separate provider reads. The sweep also backfills a missed event enqueue.
-export const coordinateAutomaticNayaxLookup = async ({
+// The refund case is the durable work item. Event handlers only report whether
+// its current facts make it due; the sweep atomically claims the case itself.
+export const coordinateAutomaticNayaxLookup = ({
   refundCase,
-  source,
-  dependencies,
 }: {
   refundCase: AutomaticNayaxLookupCase;
   source: AutomaticNayaxLookupSource;
-  dependencies: AutomaticLookupDependencies;
 }) => {
   if (!isRefundCaseReadyForAutomaticNayaxLookup(refundCase)) {
     return { status: "not_ready" as const };
   }
-  return await dependencies.enqueue({
-    caseId: refundCase.id,
-    factVersion: refundCase.deterministic_fact_version,
-    source,
-  });
+  return {
+    status: !refundCase.nayax_lookup_status ||
+        refundCase.nayax_lookup_status === "not_started"
+      ? "scheduled" as const
+      : "deduplicated" as const,
+  };
 };
 
 export const runAutomaticNayaxLookupIfReady = async ({
@@ -105,7 +93,7 @@ export const runAutomaticNayaxLookupIfReady = async ({
     id,status,decision,reporting_machine_id,reporting_location_id,
     intake_selection_key,intake_selection_kind,intake_selection_machine_ids,incident_at,
     incident_time_resolution,payment_method,payment_amount_cents,card_last4,card_network,
-    card_wallet_used,deterministic_fact_version
+    card_wallet_used,deterministic_fact_version,nayax_lookup_status
   `).eq("id", caseId).maybeSingle();
   if (error) throw error;
   if (!data) return { status: "not_ready" as const };
@@ -115,35 +103,8 @@ export const runAutomaticNayaxLookupIfReady = async ({
     refundCase.deterministic_fact_version !== expectedFactVersion
   ) return { status: "stale" as const };
 
-  return await coordinateAutomaticNayaxLookup({
+  return coordinateAutomaticNayaxLookup({
     refundCase,
     source,
-    dependencies: {
-      enqueue: async ({ caseId: currentCaseId, factVersion }) => {
-        const { data: enqueueData, error: enqueueError } = await supabase.rpc(
-          "service_enqueue_refund_nayax_lookup",
-          {
-            p_refund_case_id: currentCaseId,
-            p_expected_fact_version: factVersion,
-          },
-        );
-        if (enqueueError) throw enqueueError;
-        const status = String(enqueueData?.status ?? "");
-        if (
-          !["scheduled", "deduplicated", "not_ready", "stale"].includes(status)
-        ) {
-          throw new Error(
-            "Automatic Nayax lookup enqueue returned an invalid status.",
-          );
-        }
-        return {
-          status: status as
-            | "scheduled"
-            | "deduplicated"
-            | "not_ready"
-            | "stale",
-        };
-      },
-    },
   });
 };

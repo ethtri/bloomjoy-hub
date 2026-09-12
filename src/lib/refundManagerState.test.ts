@@ -798,6 +798,25 @@ Deno.test('canonical matching lifecycle preserves a completed no-match result', 
   );
 });
 
+Deno.test('unknown provider coverage is presented as inconclusive, not no-match', () => {
+  const incompleteLifecycle = lifecycle('matching', 10);
+  incompleteLifecycle.lookup.status = 'inconclusive';
+  const result = getRefundManagerState({
+    ...baseCase,
+    correlationStatus: 'no_match',
+    lifecycle: incompleteLifecycle,
+    nayaxLookupSummary: { lookupStatus: 'inconclusive' },
+  });
+
+  assertEquals(result.id, 'match_attention', 'inconclusive state');
+  assertEquals(result.label, 'Transaction history incomplete', 'truthful coverage label');
+  assertEquals(
+    result.explanation,
+    'Nayax did not provide enough historical coverage to confirm whether a matching transaction exists.',
+    'coverage explanation'
+  );
+});
+
 Deno.test('canonical selection lifecycle preserves ambiguous comparison guidance', () => {
   const result = getRefundManagerState({
     ...baseCase,

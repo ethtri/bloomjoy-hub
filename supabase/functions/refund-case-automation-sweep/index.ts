@@ -91,7 +91,6 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 import { runAutomaticNayaxLookupIfReady } from "../_shared/automatic-nayax-lookup.ts";
 import {
-  beginNayaxLookup,
   failNayaxLookup,
   persistNayaxLookupResult,
 } from "../_shared/nayax-lookup-persistence.ts";
@@ -2570,15 +2569,15 @@ const runCardNayaxLookupSweep = async (
   policyWindowStart: string,
 ) => {
   if (!supabase) return;
-  const { data: recoveryData, error: recoveryError } = await supabase.rpc(
-    "service_claim_refund_nayax_lookup_recoveries",
+  const { data: lookupClaimData, error: lookupClaimError } = await supabase.rpc(
+    "service_claim_due_refund_nayax_lookups",
     { p_limit: 10 },
   );
-  if (recoveryError) throw recoveryError;
-  const recoveryClaims = Array.isArray(recoveryData)
-    ? recoveryData as Array<Record<string, unknown>>
+  if (lookupClaimError) throw lookupClaimError;
+  const lookupClaims = Array.isArray(lookupClaimData)
+    ? lookupClaimData as Array<Record<string, unknown>>
     : [];
-  const claimedCaseIds = recoveryClaims.map((claim) => textValue(claim.caseId))
+  const claimedCaseIds = lookupClaims.map((claim) => textValue(claim.caseId))
     .filter(Boolean);
   if (claimedCaseIds.length === 0) return;
 
@@ -2595,15 +2594,13 @@ const runCardNayaxLookupSweep = async (
     ]),
   );
 
-  for (const recoveryClaim of recoveryClaims) {
-    const recoveryId = textValue(recoveryClaim.recoveryId);
-    const claimToken = textValue(recoveryClaim.claimToken);
-    const recoveryGeneration = Number(recoveryClaim.recoveryGeneration);
-    const attemptOrdinal = Number(recoveryClaim.attemptOrdinal);
-    const claimedCaseId = textValue(recoveryClaim.caseId);
+  for (const lookupClaim of lookupClaims) {
+    const lookupGeneration = Number(lookupClaim.lookupGeneration);
+    const retryCount = Number(lookupClaim.retryCount);
+    const claimedCaseId = textValue(lookupClaim.caseId);
     const rawRefundCase = casesById.get(claimedCaseId);
-    if (!rawRefundCase || !recoveryId || !claimToken ||
-      !Number.isSafeInteger(recoveryGeneration) || !Number.isSafeInteger(attemptOrdinal)) {
+    if (!rawRefundCase || !Number.isSafeInteger(lookupGeneration) ||
+      !Number.isSafeInteger(retryCount)) {
       continue;
     }
     const refundCase = normalizeRefundSweepCase(rawRefundCase);
@@ -2611,35 +2608,17 @@ const runCardNayaxLookupSweep = async (
     const action = await claimAction(
       runId,
       refundCase.id,
-      `nayax_lookup:${refundCase.id}:v${refundCase.deterministic_fact_version}:r${recoveryGeneration}:a${attemptOrdinal}`,
+      `nayax_lookup:${refundCase.id}:v${refundCase.deterministic_fact_version}:g${lookupGeneration}`,
       "nayax_lookup",
       refundCase.status,
       policyWindowStart,
       counters,
     );
     if (!action.claimed) counters.nayaxDuplicateAttemptsSuppressed += 1;
-    let lookupGeneration: number | null = null;
     let lookupPersisted = false;
     try {
-      lookupGeneration = await beginNayaxLookup({
-        supabase,
-        caseId: refundCase.id,
-        actorUserId: null,
-        expectedFactVersion: refundCase.deterministic_fact_version,
-        trigger: "scheduled",
-      });
-      const { data: recoveryBound, error: recoveryBindError } = await supabase.rpc(
-        "service_mark_refund_nayax_lookup_recovery_started",
-        {
-          p_recovery_id: recoveryId,
-          p_claim_token: claimToken,
-          p_lookup_generation: lookupGeneration,
-        },
-      );
-      if (recoveryBindError) throw recoveryBindError;
-      if (recoveryBound !== true) throw new Error("Lookup recovery generation binding failed.");
       counters.nayaxAutomaticStarts += 1;
-      if (recoveryGeneration > 0 || attemptOrdinal > 0) counters.nayaxAutomaticRecoveries += 1;
+      if (retryCount > 0) counters.nayaxAutomaticRecoveries += 1;
       const lookupResult = await lookupNayaxCandidatesForRefundCase({
         supabase,
         caseId: refundCase.id,
@@ -2657,21 +2636,6 @@ const runCardNayaxLookupSweep = async (
         lookupGeneration,
       });
       lookupPersisted = true;
-      const { error: recoveryFinishError } = await supabase.rpc(
-        "service_finish_refund_nayax_lookup_recovery",
-        {
-          p_recovery_id: recoveryId,
-          p_claim_token: claimToken,
-          p_lookup_generation: lookupGeneration,
-          p_succeeded: true,
-          p_failure_class: null,
-        },
-      );
-      if (recoveryFinishError) {
-        console.error("persisted Nayax lookup recovery bookkeeping is pending", {
-          errorType: recoveryFinishError.name,
-        });
-      }
       counters.nayaxLookupsRun += 1;
 
       if (!lookupResult.configured) {
@@ -3047,7 +3011,7 @@ const runCardNayaxLookupSweep = async (
       });
       let failureClass = "worker_interrupted";
       let safeRetryEligible = true;
-      if (lookupGeneration !== null && !lookupPersisted) {
+      if (!lookupPersisted) {
         try {
           const failure = await failNayaxLookup({
             supabase,
@@ -3069,23 +3033,8 @@ const runCardNayaxLookupSweep = async (
           });
         }
       }
-      try {
-        await supabase.rpc("service_finish_refund_nayax_lookup_recovery", {
-          p_recovery_id: recoveryId,
-          p_claim_token: claimToken,
-          p_lookup_generation: lookupGeneration,
-          p_succeeded: lookupPersisted,
-          p_failure_class: lookupPersisted ? null : failureClass,
-        });
-      } catch (recoveryFinishError) {
-        console.error("scheduled Nayax recovery claim could not be finished", {
-          errorType: recoveryFinishError instanceof Error
-            ? recoveryFinishError.name
-            : typeof recoveryFinishError,
-        });
-      }
-      if (!lookupPersisted && (!safeRetryEligible || attemptOrdinal >= 1)) {
-        if (attemptOrdinal >= 1) counters.nayaxRecoveryExhausted += 1;
+      if (!lookupPersisted && (!safeRetryEligible || retryCount >= 1)) {
+        if (retryCount >= 1) counters.nayaxRecoveryExhausted += 1;
         try {
           await routeProviderException({
             runId,

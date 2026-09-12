@@ -14,7 +14,7 @@ export { extractNayaxRecords, NAYAX_RECOMMENDATION_POLICY };
 const defaultNayaxBaseUrl = "https://lynx.nayax.com/operational/v1";
 const defaultNayaxAccountKey = "TGPACI_USA_DB";
 const defaultLookupWindowHours = 6;
-const defaultCandidateTtlHours = 24;
+const durableCandidateExpiry = "9999-12-31T23:59:59.999Z";
 const defaultLookupTimeoutMs = 8_000;
 const defaultLookupResponseBytes = 512 * 1024;
 const defaultLookupRecordLimit = 200;
@@ -37,9 +37,6 @@ export const getNayaxBaseUrl = () =>
 
 export const getNayaxLookupWindowHours = () =>
   parseNumberEnv(Deno.env.get("NAYAX_LOOKUP_WINDOW_HOURS"), defaultLookupWindowHours, 1, 24);
-
-const getNayaxCandidateTtlHours = () =>
-  parseNumberEnv(Deno.env.get("REFUND_NAYAX_CANDIDATE_TTL_HOURS"), defaultCandidateTtlHours, 1, 72);
 
 export const getNayaxLookupTimeoutMs = () =>
   parseNumberEnv(Deno.env.get("NAYAX_LOOKUP_TIMEOUT_MS"), defaultLookupTimeoutMs, 1_000, 15_000);
@@ -441,15 +438,6 @@ export const persistNayaxLookupCandidates = async ({
   candidates: NayaxProviderCandidate[];
   lookupScopes: Array<{ reportingMachineId: string; accountKey: string; nayaxMachineId: string }>;
 }): Promise<NayaxResponseCandidate[]> => {
-  const nowIso = new Date().toISOString();
-  const expiresAt = new Date(Date.now() + getNayaxCandidateTtlHours() * 60 * 60 * 1000).toISOString();
-
-  const { error: cleanupError } = await supabase
-    .from("refund_nayax_lookup_candidates")
-    .delete()
-    .lt("expires_at", nowIso);
-  if (cleanupError) throw cleanupError;
-
   const { error: generationClearError } = await supabase
     .from("refund_nayax_lookup_candidates")
     .delete()
@@ -545,7 +533,9 @@ export const persistNayaxLookupCandidates = async ({
         machine_display_label: candidate.machineDisplayLabel ?? null,
         provider_payload_redacted: true,
       },
-      expires_at: expiresAt,
+      // Lookup evidence is a durable result. Current case version, generation,
+      // duplicate, and payment safeguards still authorize any later selection.
+      expires_at: durableCandidateExpiry,
     })),
   );
   if (error) throw error;

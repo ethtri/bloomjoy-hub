@@ -218,11 +218,11 @@ select is((public.refund_customer_outreach_contract((select cid from fixture whe
 select ok(pg_get_functiondef('public.refund_customer_outreach_contract(uuid)'::regprocedure) not like '%customer_outreach_manual_fallback%',
   'Projection has no unsupported manual-fallback authority');
 select is((public.refund_project_customer_outreach_cases_for_manager(jsonb_build_array(jsonb_build_object('id','b8800000-0000-4000-8001-000000000009',
-  'nayaxLookupRecovery',jsonb_build_object('state','system'),'lifecycle',jsonb_build_object('lookup',jsonb_build_object('status','automatic_recovery')))),false)
-  ->0->'nayaxLookupRecovery'->>'state'),'system','#1290 top-level lookup recovery survives outreach projection');
+  'nayaxLookupWork',jsonb_build_object('state','system'),'lifecycle',jsonb_build_object('lookup',jsonb_build_object('status','checking')))),false)
+  ->0->'nayaxLookupWork'->>'state'),'system','Case-owned lookup work survives outreach projection');
 select is((public.refund_project_customer_outreach_cases_for_manager(jsonb_build_array(jsonb_build_object('id','b8800000-0000-4000-8001-000000000009',
-  'nayaxLookupRecovery',jsonb_build_object('state','system'),'lifecycle',jsonb_build_object('lookup',jsonb_build_object('status','automatic_recovery')))),false)
-  ->0->'lifecycle'->'lookup'->>'status'),'automatic_recovery','#1290 lifecycle lookup truth is not recomputed away');
+  'nayaxLookupWork',jsonb_build_object('state','system'),'lifecycle',jsonb_build_object('lookup',jsonb_build_object('status','checking')))),false)
+  ->0->'lifecycle'->'lookup'->>'status'),'checking','Lifecycle lookup truth is not recomputed away');
 select ok(public.refund_customer_outreach_contract((select cid from fixture where case_no=3)) ?&
   array['state','owner','nextAction','requestedFields','clarificationAttemptCount','clarificationLimit','payloadRedacted'],'Strict redacted contract retains retry bounds and ownership');
 select is((public.refund_customer_outreach_contract((select cid from fixture where case_no=3))->>'clarificationLimit')::integer,2,'Existing two-attempt bound remains explicit');
@@ -231,14 +231,13 @@ select is((public.refund_customer_outreach_contract((select cid from fixture whe
 update public.refund_cases
 set payment_amount_cents=700,status='needs_review'
 where id=(select cid from fixture where case_no=5);
-select ok(public.service_enqueue_refund_nayax_lookup(
-  (select cid from fixture where case_no=5),
-  (select deterministic_fact_version from public.refund_cases where id=(select cid from fixture where case_no=5))
-)->>'status' in ('scheduled','deduplicated'),'Real failed-outreach case enters the #1290 server lookup path');
+select ok((select nayax_lookup_status='not_started' from public.refund_cases
+  where id=(select cid from fixture where case_no=5)),
+  'A ready failed-outreach case is itself the server lookup work item');
 set local role authenticated;
 select pg_temp.set_auth_claims('b8800000-0000-4000-8005-000000000001');
 select ok((select
-    item->'nayaxLookupRecovery'->>'state'='system'
+    item->'nayaxLookupWork'->>'state'='system'
     and item->'lifecycle'->'lookup'->>'status'='checking'
     and item->'lifecycle'->'customerOutreach'->>'state'='delivery_failed'
     and item->'lifecycle'->'customerOutreach'->'failureCode'='null'::jsonb
@@ -247,7 +246,7 @@ select ok((select
   'Final ordinary overview coexists with #1290 and redacts outreach failure detail');
 select pg_temp.set_auth_claims('b8800000-0000-4000-8005-000000000002');
 select ok((select
-    item->'nayaxLookupRecovery'->>'state'='system'
+    item->'nayaxLookupWork'->>'state'='system'
     and item->'lifecycle'->'lookup'->>'status'='checking'
     and item->'lifecycle'->'customerOutreach'->>'state'='delivery_failed'
     and item->'lifecycle'->'customerOutreach'->>'failureCode'='more_info_failed'

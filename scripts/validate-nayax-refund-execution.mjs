@@ -691,7 +691,7 @@ assert(
     refundOperationsUi.includes('lookupRequestSequenceRef') &&
     !refundOperationsUi.includes('Refresh transactions') &&
     !refundOperationsUi.includes('Refresh transaction results') &&
-    refundOperationsUi.includes('runs new checks and safe recovery on the server') &&
+    refundOperationsUi.includes('Bloomjoy runs one automatic check and, after a temporary failure, one safe retry') &&
     refundOperationsUi.includes('refundOperationsAccess') &&
     refundOperationsUi.includes('Needs Refund Operations') &&
     refundOperationsUi.includes('60-minute SLA'),

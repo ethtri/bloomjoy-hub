@@ -819,6 +819,8 @@ const managerNayaxLookupNotice = (
       return 'Bloomjoy could not finish checking transactions.';
     case 'no_match':
       return 'No matching transaction was found.';
+    case 'inconclusive':
+      return 'Nayax did not provide enough history to confirm a match.';
     case 'multiple_matches':
       return `${summary.candidateCount || 'Several'} possible transactions were found.`;
     case 'match_found':
@@ -973,6 +975,7 @@ const isBlockedCase = (refundCase: RefundCaseRecord) => {
     refundCase.correlationStatus === 'needs_nayax' ||
     lookupStatus === 'setup_needed' ||
     lookupStatus === 'lookup_failed' ||
+    lookupStatus === 'inconclusive' ||
     (refundCase.paymentMethod === 'card' && refundCase.correlationStatus === 'no_match')
   );
 };
@@ -1025,6 +1028,11 @@ const getOperationalSignals = (refundCase: RefundCaseRecord) => {
     signals.push({ label: 'Email request', className: 'border-sky-200 bg-sky-50 text-sky-800' });
   }
   if (
+    refundCase.paymentMethod === 'card' &&
+    refundCase.nayaxLookupSummary?.lookupStatus === 'inconclusive'
+  ) {
+    signals.push({ label: 'Transaction history incomplete', className: 'border-orange-200 bg-orange-50 text-orange-900' });
+  } else if (
     refundCase.paymentMethod === 'card' &&
     (refundCase.correlationStatus === 'no_match' || refundCase.nayaxLookupSummary?.lookupStatus === 'no_match')
   ) {
@@ -1305,6 +1313,7 @@ const nayaxDecisionHeading = (
   if (summary?.lookupStatus === 'checking') return 'In progress';
   if (summary?.lookupStatus === 'setup_needed') return 'Transaction search is unavailable';
   if (summary?.lookupStatus === 'lookup_failed') return 'The transaction check did not finish';
+  if (summary?.lookupStatus === 'inconclusive') return 'Transaction history is incomplete';
   if (candidate && !hasSelectableCandidate) return 'No transaction is safe to select';
   if (candidate && waitingOnCustomer) return 'Transactions found; waiting for customer';
   if (summary?.recommendationState === 'ambiguous' || summary?.lookupStatus === 'multiple_matches') {
@@ -1339,6 +1348,12 @@ const transactionSearchDescription = (summary: RefundNayaxLookupSummary | null) 
         : summary.providerWindowRecordCount === 0
           ? 'The returned recent sales contain no usable transactions in the purchase time window. Historical coverage is unknown.'
           : 'No usable transaction was found. Coverage of the purchase time is not recorded.';
+    case 'inconclusive':
+      return summary.providerRecordCount === 0
+        ? 'Nayax returned no transactions for this search, but it did not confirm that the full purchase period was covered.'
+        : summary.providerWindowRecordCount === 0 && typeof summary.providerRecordCount === 'number'
+          ? `${summary.providerRecordCount} transaction${summary.providerRecordCount === 1 ? ' was' : 's were'} returned, but none covered the reported purchase window. Nayax did not confirm the full history.`
+          : 'Nayax did not provide enough historical coverage to confirm whether a matching transaction exists.';
     case 'multiple_matches':
       return `${summary.candidateCount || 'Several'} possible transactions were found. Compare the available options in Machine transaction.`;
     case 'not_started':
@@ -1514,6 +1529,8 @@ const nayaxStatusLabel = (status: RefundNayaxLookupStatus) => {
       return 'Multiple possible matches';
     case 'no_match':
       return 'No match found';
+    case 'inconclusive':
+      return 'History incomplete';
     case 'manual_exception':
       return 'Needs comparison';
     case 'setup_needed':
@@ -1535,6 +1552,7 @@ const nayaxStatusClass = (status: RefundNayaxLookupStatus, hasSelectedMatch = fa
       (hasSelectedMatch ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-sky-200 bg-sky-50 text-sky-700'),
     status === 'multiple_matches' && 'border-sky-200 bg-sky-50 text-sky-700',
     status === 'no_match' && 'border-orange-200 bg-orange-50 text-orange-900',
+    status === 'inconclusive' && 'border-orange-200 bg-orange-50 text-orange-900',
     status === 'setup_needed' && 'border-orange-200 bg-orange-50 text-orange-900',
     status === 'lookup_failed' && 'border-destructive/30 bg-destructive/10 text-destructive',
     (status === 'checking' || status === 'not_started' || status === 'not_applicable') &&
@@ -1572,6 +1590,7 @@ const nayaxResultTitle = (
     return 'Review possible transaction';
   }
   if (summary.lookupStatus === 'no_match') return 'No matching transaction';
+  if (summary.lookupStatus === 'inconclusive') return 'Transaction history incomplete';
   if (summary.lookupStatus === 'setup_needed') return 'Transaction search unavailable';
   if (summary.lookupStatus === 'lookup_failed') return 'Transaction check failed';
   if (summary.lookupStatus === 'checking') return 'Checking transactions';
@@ -1602,6 +1621,8 @@ const nayaxNextActionText = (
         : 'Next: Compare the possible transactions. Select one only if it is clearly the customer\'s purchase.';
     case 'no_match':
       return 'Next: Keep the case open. Do not choose a transaction unless you can clearly identify it.';
+    case 'inconclusive':
+      return 'Next: Keep the case open. Nayax did not provide enough history to rule a matching transaction in or out.';
     case 'setup_needed':
       return summary.responsibleOwner === 'refund_operations' && summary.customerActionRequired === false
         ? `Next: ${summary.recommendedAction}`
@@ -1632,6 +1653,7 @@ const matchResultLabel = (
     const lookupStatus = refundCase.nayaxLookupSummary?.lookupStatus;
     if (hasSelectedCardEvidence(refundCase, editor)) return 'Transaction found';
     if (candidates.length > 0) return 'Transaction to review';
+    if (lookupStatus === 'inconclusive') return 'History incomplete';
     if (lookupStatus === 'no_match' || refundCase.correlationStatus === 'no_match') return 'No match';
     if (lookupStatus === 'setup_needed' || refundCase.correlationStatus === 'nayax_not_configured') {
       return 'Search unavailable';
@@ -5310,7 +5332,7 @@ export default function AdminRefundsPage() {
       selectedCase.lifecycle.managerQueue.nextAction === 'retry_read_only_lookup';
     const showRefundOperationsRecovery =
       refundOperationsAccess &&
-      selectedCase.nayaxLookupRecovery?.state === 'refund_operations' &&
+      selectedCase.nayaxLookupWork?.state === 'refund_operations' &&
       !automaticLookupPending &&
       !hasSelectedMatch;
     const needsDisagreementReason = Boolean(selectedCandidate && selectedCandidate.isRecommended !== true);
@@ -5464,7 +5486,7 @@ export default function AdminRefundsPage() {
         {showVisibleLookupRetry && !nayaxLookupNotice && (
           <div data-testid="nayax-lookup-retry" className={nayaxLookupNoticeClass('warning')}>
             <p>
-              Bloomjoy could not finish the read-only transaction check. No refund was issued. The next safe check runs automatically; you do not need to keep this page open.
+              The transaction check hit a temporary problem. Bloomjoy will try once more automatically. No refund was issued.
             </p>
           </div>
         )}
@@ -5567,7 +5589,7 @@ export default function AdminRefundsPage() {
           </summary>
           <div className="mt-3 space-y-2">
             <p className="text-xs leading-5 text-muted-foreground">
-              Transaction research is read-only here. Bloomjoy runs new checks and safe recovery on the server.
+              Transaction research is read-only here. Bloomjoy runs one automatic check and, after a temporary failure, one safe retry.
             </p>
             <div className="flex flex-wrap gap-2">
               {showRefundOperationsRecovery && (
@@ -5584,7 +5606,7 @@ export default function AdminRefundsPage() {
                   ) : (
                     <RefreshCw className="mr-2 h-4 w-4" />
                   )}
-                  Recover transaction check
+                  Run an operations transaction check
                 </Button>
               )}
               {hasSelectedMatch && (

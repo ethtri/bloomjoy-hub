@@ -135,6 +135,7 @@ type RefundCaseRow = {
 };
 
 type NayaxLookupCandidateRow = {
+  actor_user_id: string | null;
   provider_transaction_id: string;
   site_id: number | null;
   machine_authorization_time: string;
@@ -382,7 +383,7 @@ const getNayaxLookupCandidate = async (
   const { data, error } = await supabase
     .from("refund_nayax_lookup_candidates")
     .select(
-      "provider_transaction_id, site_id, machine_authorization_time, amount_cents, card_last4, currency_code, evidence_summary",
+      "actor_user_id, provider_transaction_id, site_id, machine_authorization_time, amount_cents, card_last4, currency_code, evidence_summary",
     )
     .eq("token", candidateToken)
     .eq("refund_case_id", caseId)
@@ -900,8 +901,29 @@ serve(async (req) => {
 
     if (!clearNayaxMatch && nayaxCandidateToken && !nayaxCandidate) {
       return jsonResponse({
-        error: "Nayax lookup evidence expired. Run lookup again.",
+        error: "Nayax lookup evidence is no longer available for this case.",
       }, 400);
+    }
+    if (
+      nayaxCandidate &&
+      nayaxCandidate.evidence_summary?.source !== "manual_nayax_portal" &&
+      nayaxCandidate.actor_user_id !== user.id
+    ) {
+      const { data: evidenceBound, error: evidenceBindError } = await supabase.rpc(
+        "service_bind_refund_nayax_candidate_to_actor",
+        {
+          p_actor_user_id: user.id,
+          p_case_id: caseId,
+          p_candidate_token: nayaxCandidateToken,
+        },
+      );
+      if (evidenceBindError) throw evidenceBindError;
+      if (evidenceBound !== true) {
+        return jsonResponse({
+          error: "The case or transaction evidence changed. Refresh before selecting it.",
+          errorCode: "stale_review_evidence",
+        }, 409);
+      }
     }
     if (
       nayaxCandidate &&
