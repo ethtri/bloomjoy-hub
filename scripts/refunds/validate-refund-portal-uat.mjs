@@ -1783,7 +1783,9 @@ const buildTransactionalDeliveryTruthOverview = ({
   accountingReview = false,
   gmailUncertain = false,
   customerRequestDelivery = false,
+  activeOutreachMessageId = 'delivery-message-1',
   exactEvidenceCardinality = 'one',
+  providerEvidenceAvailable = true,
 } = {}) => {
   const overview = buildMockRefundOverview();
   const refundCase = overview.cases[0];
@@ -1811,13 +1813,13 @@ const buildTransactionalDeliveryTruthOverview = ({
         nextAction: 'refund_operations',
         failureCode: 'delivery_unconfirmed',
       }),
-      requestMessageId: 'delivery-message-1',
+      requestMessageId: activeOutreachMessageId,
       deliveryState: 'unknown',
       deliveryStateUpdatedAt: isoHoursAgo(0.5),
     };
   }
   const exceptionOccurredAt = isoHoursAgo(0.5);
-  if (customerRequestDelivery) overview.refundOperationsAccess = true;
+  if (['unknown', 'deferred'].includes(deliveryState)) overview.refundOperationsAccess = true;
   overview.transactionalDeliveryContractVersion =
     'refund_transactional_delivery_v1';
   overview.cases = [{
@@ -1874,7 +1876,7 @@ const buildTransactionalDeliveryTruthOverview = ({
         deliveryStateUpdatedAt: exactEvidenceCardinality === 'zero'
           ? isoHoursAgo(1.5)
           : exceptionOccurredAt,
-        providerEvidenceAvailable: true,
+        providerEvidenceAvailable,
       },
       ...(exactEvidenceCardinality === 'multiple' ? [{
         id: 'delivery-message-duplicate',
@@ -1892,6 +1894,38 @@ const buildTransactionalDeliveryTruthOverview = ({
         deliveryStateUpdatedAt: exceptionOccurredAt,
         providerEvidenceAvailable: true,
       }] : []),
+      ...(activeOutreachMessageId !== 'delivery-message-1' ? [{
+        id: activeOutreachMessageId,
+        messageType: 'more_info',
+        status: 'sent',
+        recipientEmail: 'delivery-customer@example.test',
+        subject: 'A different active customer request',
+        body: 'A lifecycle pointer cannot replace the message identified by the saved exception.',
+        sentAt: isoHoursAgo(0.25),
+        errorMessage: 'transactional_delivery_unknown',
+        createdAt: isoHoursAgo(0.25),
+        deliveryKind: 'automatic',
+        deliveryTransport: 'resend',
+        deliveryState: 'unknown',
+        deliveryStateUpdatedAt: isoHoursAgo(0.25),
+        providerEvidenceAvailable: true,
+      }] : []),
+      {
+        id: 'delivery-message-later-delivered',
+        messageType: 'status_update',
+        status: 'sent',
+        recipientEmail: 'delivery-customer@example.test',
+        subject: 'Later customer status update',
+        body: 'A later delivered message must not prove the selected delivery record.',
+        sentAt: isoHoursAgo(0.1),
+        errorMessage: null,
+        createdAt: isoHoursAgo(0.1),
+        deliveryKind: 'automatic',
+        deliveryTransport: 'resend',
+        deliveryState: 'delivered',
+        deliveryStateUpdatedAt: isoHoursAgo(0.05),
+        providerEvidenceAvailable: true,
+      },
       {
         id: 'delivery-message-competing',
         messageType: confirmedPayment ? 'completed' : 'status_update',
@@ -9086,6 +9120,7 @@ const runTransactionalDeliveryTruthChecks = async ({
   const scenarios = [
     { state: 'unknown', label: 'Delivery unknown', confirmedPayment: true, accountingReview: true },
     { state: 'unknown', label: 'Delivery unknown', name: 'Original request delivery unknown', confirmedPayment: false, accountingReview: false, customerRequestDelivery: true },
+    { state: 'unknown', label: 'Delivery unknown', name: 'Cash status update delivery unknown', confirmedPayment: false, accountingReview: false },
     { state: 'deferred', label: 'Delivery delayed', confirmedPayment: false, accountingReview: false },
     { state: 'failed', label: 'Delivery failed', confirmedPayment: false, accountingReview: false },
     { state: 'bounced', label: 'Bounced', confirmedPayment: true, accountingReview: false },
@@ -9094,6 +9129,8 @@ const runTransactionalDeliveryTruthChecks = async ({
   ];
   for (const scenario of scenarios) {
   const scenarioName = scenario.name ?? scenario.label;
+  const deliveryRefreshExpected = ['unknown', 'deferred'].includes(scenario.state);
+  const originalRequestRefresh = scenario.customerRequestDelivery === true;
   const expectedDeliverySubject = scenario.confirmedPayment
     ? 'Your Bloomjoy refund is on its way'
     : scenario.customerRequestDelivery
@@ -9133,12 +9170,13 @@ const runTransactionalDeliveryTruthChecks = async ({
   const messageHistorySummary = page.getByTestId('refund-customer-messages-summary');
   const focusedDeliveryRecord = page.getByTestId('refund-focused-delivery-record');
   const competingDeliveryRecord = page.locator('[data-refund-message-id="delivery-message-competing"]');
+  const laterDeliveredRecord = page.locator('[data-refund-message-id="delivery-message-later-delivered"]');
   recorder.assert(
     `${scenarioName} names the saved outcome beside the supported evidence actions`,
     (await review.getByText(`Saved delivery outcome: ${scenario.label}.`, { exact: false }).isVisible()) &&
       (await reviewAction.count()) === 1 &&
       await reviewAction.isVisible() &&
-      (scenario.customerRequestDelivery
+      (deliveryRefreshExpected
         ? (await refreshAction.count()) === 1 && await refreshAction.isEnabled()
         : (await refreshAction.count()) === 0)
   );
@@ -9159,17 +9197,26 @@ const runTransactionalDeliveryTruthChecks = async ({
     await page.getByText('Resolve uncertain Gmail delivery', { exact: true }).isVisible() &&
       await reviewAction.isVisible()
   );
-  if (scenario.customerRequestDelivery) {
+  if (deliveryRefreshExpected) {
     const refreshCallSnapshot = functionCalls.length;
+    await refreshAction.getByText(
+      originalRequestRefresh
+        ? 'Refresh original request delivery'
+        : 'Refresh customer message delivery',
+      { exact: true }
+    ).waitFor({ state: 'visible' });
     await refreshAction.click();
-    await page.getByText('Original customer request delivered', { exact: true })
+    await page.getByText(
+      originalRequestRefresh ? 'Original customer request delivered' : 'Customer message delivered',
+      { exact: true }
+    )
       .waitFor({ state: 'visible', timeout: 10000 });
     const deliveryRefreshBodies = functionBodies.filter(
       (entry) => entry.functionName === 'refund-case-message-send' &&
         entry.body?.deliveryRefreshMessageId
     );
     recorder.assert(
-      'Original-request recovery refreshes only the exact saved Resend message and reports no send or payment',
+      `${scenarioName} refreshes only the exact saved Resend message and reports no send or payment`,
       functionCalls.length === refreshCallSnapshot + 1 &&
         deliveryRefreshBodies.length === 1 &&
         deliveryRefreshBodies[0].body?.caseId === 'case-card-1' &&
@@ -9180,10 +9227,17 @@ const runTransactionalDeliveryTruthChecks = async ({
         !functionCalls.includes('refund-case-admin-update'),
       JSON.stringify({ functionCalls, deliveryRefreshBodies })
     );
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-original-delivery-refresh-desktop.png'),
-      fullPage: true,
-    });
+    if (originalRequestRefresh || scenarioName === 'Cash status update delivery unknown') {
+      await page.screenshot({
+        path: path.join(
+          artifactDir,
+          originalRequestRefresh
+            ? 'refund-original-delivery-refresh-desktop.png'
+            : 'refund-cash-message-delivery-refresh-desktop.png'
+        ),
+        fullPage: true,
+      });
+    }
   }
   const desktopCallSnapshot = {
     functions: functionCalls.length,
@@ -9208,7 +9262,8 @@ const runTransactionalDeliveryTruthChecks = async ({
       (await focusedDeliveryRecord.count()) === 1 &&
       await focusedDeliveryRecord.getByText(expectedDeliverySubject, { exact: true }).isVisible() &&
       await competingDeliveryRecord.evaluate((element) => document.activeElement !== element) &&
-      await messageHistorySummary.getByText(`Customer messages (${scenario.gmailUncertain ? 3 : 2})`, { exact: true }).isVisible() &&
+      await laterDeliveredRecord.evaluate((element) => document.activeElement !== element) &&
+      await messageHistorySummary.getByText(`Customer messages (${scenario.gmailUncertain ? 4 : 3})`, { exact: true }).isVisible() &&
       await page.getByTestId('refund-message-delivery-delivery-message-1')
         .getByText(scenario.label, { exact: true }).isVisible(),
     JSON.stringify({ desktopEvidenceBox })
@@ -9240,7 +9295,7 @@ const runTransactionalDeliveryTruthChecks = async ({
     mutations: rpcCalls.filter((name) => !NAVIGATION_READ_ONLY_RPCS.has(name)).length,
   };
   const mobileActionBox = await reviewAction.boundingBox();
-  const mobileRefreshBox = scenario.customerRequestDelivery
+  const mobileRefreshBox = deliveryRefreshExpected
     ? await refreshAction.boundingBox()
     : null;
   await reviewAction.focus();
@@ -9270,20 +9325,28 @@ const runTransactionalDeliveryTruthChecks = async ({
       (await focusedDeliveryRecord.count()) === 1 &&
       await focusedDeliveryRecord.getByText(expectedDeliverySubject, { exact: true }).isVisible() &&
       await competingDeliveryRecord.evaluate((element) => document.activeElement !== element) &&
+      await laterDeliveredRecord.evaluate((element) => document.activeElement !== element) &&
       await page.getByTestId('refund-message-delivery-delivery-message-1')
         .getByText(scenario.label, { exact: true }).isVisible(),
     JSON.stringify({ mobileActionBox, mobileRefreshBox, mobileEvidenceBox })
   );
-  if (scenario.customerRequestDelivery) {
+  if (deliveryRefreshExpected) {
     recorder.assert(
-      'Original-request delivery refresh remains readable and at least 44px tall on mobile',
+      `${scenarioName} delivery refresh remains readable and at least 44px tall on mobile`,
       Boolean(mobileRefreshBox && mobileRefreshBox.height >= 44 && mobileRefreshBox.width > 0) &&
         mobileLayout.documentWidth <= mobileLayout.viewportWidth + 1
     );
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-original-delivery-refresh-mobile.png'),
-      fullPage: true,
-    });
+    if (originalRequestRefresh || scenarioName === 'Cash status update delivery unknown') {
+      await page.screenshot({
+        path: path.join(
+          artifactDir,
+          originalRequestRefresh
+            ? 'refund-original-delivery-refresh-mobile.png'
+            : 'refund-cash-message-delivery-refresh-mobile.png'
+        ),
+        fullPage: true,
+      });
+    }
   }
   recorder.assert(
     `${scenarioName} review remains read-only without mobile horizontal overflow`,
@@ -9299,6 +9362,101 @@ const runTransactionalDeliveryTruthChecks = async ({
   });
 
   await closeRefundPortalContext(context);
+  }
+
+  {
+    const functionCalls = [];
+    const functionBodies = [];
+    const rpcCalls = [];
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    await installMockSupabaseRoutes(context, {
+      refundOverview: () => buildTransactionalDeliveryTruthOverview({
+        deliveryState: 'unknown',
+        confirmedPayment: false,
+        customerRequestDelivery: true,
+        activeOutreachMessageId: 'delivery-message-active-competing',
+      }),
+      functionCalls,
+      functionBodies,
+      rpcCalls,
+    });
+
+    const page = await context.newPage();
+    await signInRefundUser(page, appUrl);
+    await page.getByRole('heading', { name: /^Refunds$/i }).last()
+      .waitFor({ timeout: 10000 });
+    await page.getByText('Signed in. Redirecting...', { exact: true })
+      .waitFor({ state: 'hidden', timeout: 5000 })
+      .catch(() => undefined);
+    await waitForQueueCount(page, 1);
+    await queueCase(page, 'RF-UAT-DELIVERY-UNKNOWN').click();
+
+    const refreshAction = page.getByTestId('refund-refresh-delivery-status');
+    await refreshAction.getByText('Refresh customer message delivery', { exact: true })
+      .waitFor({ state: 'visible' });
+    await refreshAction.click();
+    await page.getByText('Customer message delivered', { exact: true })
+      .waitFor({ state: 'visible', timeout: 10000 });
+    const deliveryRefreshBodies = functionBodies.filter(
+      (entry) => entry.functionName === 'refund-case-message-send' &&
+        entry.body?.deliveryRefreshMessageId
+    );
+    recorder.assert(
+      'A competing active-request pointer cannot replace the exact saved delivery-exception message',
+      deliveryRefreshBodies.length === 1 &&
+        deliveryRefreshBodies[0].body?.deliveryRefreshMessageId === 'delivery-message-1' &&
+        deliveryRefreshBodies[0].body?.deliveryRefreshMessageId !== 'delivery-message-active-competing' &&
+        !functionCalls.includes('nayax-card-refund') &&
+        !functionCalls.includes('refund-case-admin-update') &&
+        rpcCalls.filter((name) => !NAVIGATION_READ_ONLY_RPCS.has(name)).length === 0,
+      JSON.stringify({ functionCalls, deliveryRefreshBodies, rpcCalls })
+    );
+
+    await closeRefundPortalContext(context);
+  }
+
+  for (const recoveryBlock of [
+    { name: 'zero exact messages', exactEvidenceCardinality: 'zero', providerEvidenceAvailable: true },
+    { name: 'multiple exact messages', exactEvidenceCardinality: 'multiple', providerEvidenceAvailable: true },
+    { name: 'missing provider evidence', exactEvidenceCardinality: 'one', providerEvidenceAvailable: false },
+  ]) {
+    const functionCalls = [];
+    const rpcCalls = [];
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    await installMockSupabaseRoutes(context, {
+      refundOverview: () => buildTransactionalDeliveryTruthOverview({
+        deliveryState: 'unknown',
+        confirmedPayment: false,
+        exactEvidenceCardinality: recoveryBlock.exactEvidenceCardinality,
+        providerEvidenceAvailable: recoveryBlock.providerEvidenceAvailable,
+      }),
+      functionCalls,
+      rpcCalls,
+    });
+
+    const page = await context.newPage();
+    await signInRefundUser(page, appUrl);
+    await page.getByRole('heading', { name: /^Refunds$/i }).last()
+      .waitFor({ timeout: 10000 });
+    await page.getByText('Signed in. Redirecting...', { exact: true })
+      .waitFor({ state: 'hidden', timeout: 5000 })
+      .catch(() => undefined);
+    await waitForQueueCount(page, 1);
+    await queueCase(page, 'RF-UAT-DELIVERY-UNKNOWN').click();
+
+    recorder.assert(
+      `Delivery refresh fails closed with ${recoveryBlock.name}`,
+      (await page.getByTestId('refund-refresh-delivery-status').count()) === 0 &&
+        await page.getByTestId('refund-delivery-recovery-fallback').isVisible() &&
+        await page.getByTestId('refund-delivery-recovery-fallback')
+          .getByText(/do not resend this saved message until its delivery is clear/i)
+          .isVisible() &&
+        functionCalls.length === 0 &&
+        rpcCalls.filter((name) => !NAVIGATION_READ_ONLY_RPCS.has(name)).length === 0,
+      JSON.stringify({ functionCalls, rpcCalls })
+    );
+
+    await closeRefundPortalContext(context);
   }
 
   for (const exactEvidenceCardinality of ['zero', 'multiple']) {

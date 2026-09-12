@@ -149,9 +149,13 @@ for (const label of [
   assert.ok(refundsPage.includes(label), `Manager UI is missing ${label}.`);
 }
 assert.ok(refundsPage.includes('isNeedsActionCase'));
-assert.ok(refundsPage.includes('do not resend the message or retry a payment blindly'));
+assert.ok(refundsPage.includes('The assigned machine manager must review the saved delivery record'));
+assert.ok(refundsPage.includes('do not retry a payment from delivery evidence'));
 assert.ok(refundsPage.includes('Refresh original request delivery'));
+assert.ok(refundsPage.includes('Refresh customer message delivery'));
 assert.ok(refundsPage.includes('A later delivered update does not prove that request arrived.'));
+assert.ok(refundsPage.includes('A different or later delivered message does not prove this one arrived.'));
+assert.ok(refundsPage.includes('do not resend this saved message until its delivery is clear'));
 
 assert.ok(databaseTest.includes('select plan(20)'));
 assert.ok(databaseTest.includes('Webhook-before-bind evidence is retained'));

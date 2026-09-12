@@ -1777,7 +1777,7 @@ const primaryActionConfig = (
     );
     return {
       label: 'Delivery needs review',
-      helper: `${stateLabel}. Refund Operations must review provider evidence. Delivery evidence does not establish a refund result; do not resend the message or retry a payment blindly.`,
+      helper: `${stateLabel}. The assigned machine manager must review the saved delivery record and choose the supported next step. Delivery evidence does not establish a refund result. Do not resend this saved message until its delivery is clear, and do not retry a payment from delivery evidence.`,
       disabled: true,
     };
   }
@@ -3121,17 +3121,42 @@ export default function AdminRefundsPage() {
   const customerDeliveryNeedsReconciliation = Boolean(
     selectedCase && isRefundCustomerDeliveryUncertain(getLatestCustomerMessage(selectedCase)?.errorMessage)
   );
-  const customerOutreachDeliveryMessage = selectedCase?.lifecycle?.customerOutreach?.state === 'delivery_unknown'
+  const selectedDeliveryEvidenceMessageId = selectedCase
+    ? getRefundDeliveryEvidenceMessageId(
+        selectedCase.messages,
+        selectedCase.customerDeliveryException
+      )
+    : null;
+  const activeCustomerOutreachDeliveryMessage = selectedCase?.lifecycle?.customerOutreach?.state === 'delivery_unknown'
     ? selectedCase.messages.find(
         (message) => message.id === selectedCase.lifecycle?.customerOutreach?.requestMessageId
       ) ?? null
     : null;
-  const canRefreshCustomerOutreachDelivery = Boolean(
-    refundOperationsAccess &&
-      customerOutreachDeliveryMessage?.deliveryTransport === 'resend' &&
-      customerOutreachDeliveryMessage.providerEvidenceAvailable === true &&
+  const verifiedActiveCustomerOutreachDeliveryMessage =
+    activeCustomerOutreachDeliveryMessage &&
+      selectedCase?.customerDeliveryException &&
+      activeCustomerOutreachDeliveryMessage.id === selectedDeliveryEvidenceMessageId &&
+      activeCustomerOutreachDeliveryMessage.messageType === selectedCase.customerDeliveryException.messageType &&
       ['unknown', 'accepted', 'deferred'].includes(
-        customerOutreachDeliveryMessage.deliveryState ?? ''
+        activeCustomerOutreachDeliveryMessage.deliveryState ?? ''
+      )
+      ? activeCustomerOutreachDeliveryMessage
+      : null;
+  const customerDeliveryRefreshMessage = verifiedActiveCustomerOutreachDeliveryMessage ?? (
+    selectedDeliveryEvidenceMessageId
+      ? selectedCase?.messages.find((message) => message.id === selectedDeliveryEvidenceMessageId) ?? null
+      : null
+  );
+  const customerDeliveryRefreshIsOriginalRequest = Boolean(
+    customerDeliveryRefreshMessage &&
+      verifiedActiveCustomerOutreachDeliveryMessage?.id === customerDeliveryRefreshMessage.id
+  );
+  const canRefreshCustomerDelivery = Boolean(
+    refundOperationsAccess &&
+      customerDeliveryRefreshMessage?.deliveryTransport === 'resend' &&
+      customerDeliveryRefreshMessage.providerEvidenceAvailable === true &&
+      ['unknown', 'accepted', 'deferred'].includes(
+        customerDeliveryRefreshMessage.deliveryState ?? ''
       )
   );
   const latestNayaxCompletionMessage = selectedCase?.messages
@@ -4385,8 +4410,8 @@ export default function AdminRefundsPage() {
   const handleRefreshCustomerDelivery = async () => {
     if (
       !selectedCase ||
-      !customerOutreachDeliveryMessage ||
-      !canRefreshCustomerOutreachDelivery ||
+      !customerDeliveryRefreshMessage ||
+      !canRefreshCustomerDelivery ||
       isRefreshingCustomerDelivery
     ) return;
     if (isUsingDemoData) {
@@ -4398,19 +4423,25 @@ export default function AdminRefundsPage() {
     try {
       const result = await refreshRefundTransactionalDelivery(
         selectedCase.id,
-        customerOutreachDeliveryMessage.id
+        customerDeliveryRefreshMessage.id
       );
+      const deliverySubject = customerDeliveryRefreshIsOriginalRequest
+        ? 'original customer request'
+        : 'customer message';
+      const deliverySubjectTitle = customerDeliveryRefreshIsOriginalRequest
+        ? 'Original customer request'
+        : 'Customer message';
       if (result.state === 'delivered') {
         setRefundActionReceipt({
           tone: 'success',
-          title: 'Original customer request delivered',
-          message: 'The provider confirms the original request reached the recipient mail server. No new message or refund was sent.',
+          title: `${deliverySubjectTitle} delivered`,
+          message: `The provider confirms this ${deliverySubject} reached the recipient mail server. No new message or refund was sent.`,
         });
-        toast.success('Original customer request delivery confirmed.');
+        toast.success(`${deliverySubjectTitle} delivery confirmed.`);
       } else if (result.resolved) {
         setRefundActionReceipt({
           tone: 'warning',
-          title: 'Original customer request was not delivered',
+          title: `${deliverySubjectTitle} was not delivered`,
           message: 'The provider recorded a delivery failure. The case will show the supported customer-contact recovery; no replacement was sent automatically.',
         });
         toast.warning('The provider recorded a delivery failure. Review the supported contact recovery.');
@@ -4418,9 +4449,9 @@ export default function AdminRefundsPage() {
         setRefundActionReceipt({
           tone: 'warning',
           title: 'Delivery still unconfirmed',
-          message: 'The provider still cannot confirm delivery of the original request. Keep the case in delivery review and do not send a replacement.',
+          message: `The provider still cannot confirm delivery of this ${deliverySubject}. Keep the case in delivery review and do not resend this saved message until its delivery is clear.`,
         });
-        toast.warning('Delivery is still unconfirmed. Do not send a replacement.');
+        toast.warning('Delivery is still unconfirmed. Do not resend this saved message yet.');
       }
       await refresh();
     } catch (deliveryError) {
@@ -4430,7 +4461,7 @@ export default function AdminRefundsPage() {
       setRefundActionReceipt({
         tone: 'warning',
         title: 'Delivery record unavailable',
-        message: `${message} Keep the case in delivery review and do not send a replacement.`,
+        message: `${message} Keep the case in delivery review and do not resend this saved message until its delivery is clear.`,
       });
       toast.error(message);
       await refresh();
@@ -5754,12 +5785,6 @@ export default function AdminRefundsPage() {
     selectedCase && editor && primaryAction?.messageType
       ? getCustomerMessageDraft(selectedCase, primaryAction.messageType, editor)
       : null;
-  const selectedDeliveryEvidenceMessageId = selectedCase
-    ? getRefundDeliveryEvidenceMessageId(
-        selectedCase.messages,
-        selectedCase.customerDeliveryException
-      )
-    : null;
   const availableCustomerMessageOptions = customerMessageOptions.filter((option) => {
     if (selectedCase?.paymentMethod === 'card' && option.value === 'approved') return false;
     if (option.value === 'completed' && selectedCase?.status !== 'completed') return false;
@@ -7914,15 +7939,23 @@ export default function AdminRefundsPage() {
                           {selectedCase.lifecycle?.paymentState === 'confirmed'
                             ? 'Payment remains confirmed.'
                             : 'This delivery record does not change the refund or payment state.'}{' '}
-                          The assigned machine manager reviews delivery. Do not resend it blindly.
+                          The assigned machine manager reviews delivery. Do not resend this saved message until its delivery is clear.
                         </p>
-                        {customerOutreachDeliveryMessage && (
+                        {customerDeliveryRefreshIsOriginalRequest ? (
                           <p className="mt-2 leading-6">
                             The active customer request is the record that must be reconciled. A later delivered update does not prove that request arrived.
                           </p>
+                        ) : customerDeliveryRefreshMessage ? (
+                          <p className="mt-2 leading-6">
+                            This specific customer message is the record that must be reconciled. A different or later delivered message does not prove this one arrived.
+                          </p>
+                        ) : (
+                          <p className="mt-2 leading-6">
+                            Bloomjoy could not identify exactly one message for this delivery record. Keep it blocked for manager review.
+                          </p>
                         )}
                         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                          {canRefreshCustomerOutreachDelivery && (
+                          {canRefreshCustomerDelivery && (
                             <Button
                               data-testid="refund-refresh-delivery-status"
                               type="button"
@@ -7936,7 +7969,9 @@ export default function AdminRefundsPage() {
                               ) : (
                                 <RefreshCw className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
                               )}
-                              Refresh original request delivery
+                              {customerDeliveryRefreshIsOriginalRequest
+                                ? 'Refresh original request delivery'
+                                : 'Refresh customer message delivery'}
                             </Button>
                           )}
                           <Button
@@ -7952,9 +7987,9 @@ export default function AdminRefundsPage() {
                             Review delivery record
                           </Button>
                         </div>
-                        {customerOutreachDeliveryMessage && !canRefreshCustomerOutreachDelivery && (
+                        {!canRefreshCustomerDelivery && (
                           <p data-testid="refund-delivery-recovery-fallback" className="mt-3 text-xs leading-5">
-                            The provider record cannot be refreshed here. Keep delivery blocked and escalate this exact message record; do not create another request.
+                            The exact provider record cannot be refreshed here. Keep delivery blocked and do not resend this saved message until its delivery is clear. A different specific request may still follow the documented case procedure.
                           </p>
                         )}
                       </section>
