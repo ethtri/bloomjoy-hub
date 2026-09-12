@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "e6b57448695c0aaae46c3eb8eefa9b21d2bb3d03",
+  "sourceGitCommit": "a9646c95b70444dd13fe71214d868ba5a25e6286",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
