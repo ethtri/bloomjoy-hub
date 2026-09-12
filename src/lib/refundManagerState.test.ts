@@ -1,5 +1,7 @@
 /// <reference lib="deno.ns" />
 
+import './refundTransactionViewState.test.ts';
+
 import {
   canConfirmRefundCandidate,
   getDisplayedRefundManagerNextStep,

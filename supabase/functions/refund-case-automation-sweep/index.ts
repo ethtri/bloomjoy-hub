@@ -2524,7 +2524,9 @@ const getPersistedNayaxCorrectionEvidence = async (
 ): Promise<PersistedNayaxCorrectionEvidence[]> => {
   if (!supabase) return [];
   if (
-    !["no_match", "manual_exception"].includes(refundCase.nayax_lookup_status) ||
+    !["no_match", "manual_exception", "multiple_matches"].includes(
+      refundCase.nayax_lookup_status,
+    ) ||
     !Number.isSafeInteger(refundCase.nayax_lookup_generation) ||
     refundCase.nayax_lookup_generation < 1 ||
     !refundCase.nayax_recommendation_evaluated_at ||
@@ -2668,12 +2670,6 @@ const runCardNayaxLookupSweep = async (
           },
         });
         if (eventError) throw eventError;
-        await routeProviderException({
-          runId,
-          refundCase,
-          reasonCategory: "provider_setup",
-          counters,
-        });
         await finishAction(action, "completed", "nayax_setup_needed", null, counters);
         continue;
       }
@@ -2770,149 +2766,18 @@ const runCardNayaxLookupSweep = async (
         continue;
       }
 
-      if (
-        walletCorrectionUseful &&
-        !["sent", "received", "fallback_eligible"].includes(
-          refundCase.wallet_correction_state,
-        )
-      ) {
-        if (!(await automaticCustomerContactAllowed())) {
-          await routeFollowUpManualReview({
-            runId,
-            refundCase,
-            actionKeySuffix: `wallet-contact-disabled:${refundCase.wallet_correction_version}`,
-            noticeKind: "follow_up_manual_review",
-            policyWindowStart,
-            counters,
-          });
-          await finishAction(
-            action,
-            "completed",
-            "automatic_customer_contact_disabled",
-            null,
-            counters,
-          );
-          continue;
-        }
-        const correctionAction = await claimAction(
-          runId,
-          refundCase.id,
-          `wallet_correction:${refundCase.id}:${refundCase.wallet_correction_version + 1}`,
-          "wallet_correction_request",
-          refundCase.status,
-          policyWindowStart,
-          counters,
-        );
-        if (!correctionAction.claimed) {
-          await finishAction(
-            action,
-            "suppressed",
-            "wallet_correction_already_requested",
-            null,
-            counters,
-          );
-          continue;
-        }
-
-        const correctionResult = await sendWalletCorrectionMessage(
-          refundCase,
-          false,
-        );
-        if (correctionResult.status === "sent") {
-          const { error: updateError } = await supabase.from("refund_cases")
-            .update({
-              correlation_status: "no_match",
-              correlation_source: "nayax",
-              correlation_confidence: 0,
-              correlation_summary:
-                `${lookupResult.summary} A secure wallet-detail correction was requested automatically.`,
-              nayax_recommendation_state: lookupResult.recommendationState,
-              nayax_recommendation_policy_version: lookupResult.policyVersion,
-              nayax_recommendation_evaluated_at: lookupResult.lastCheckedAt,
-              nayax_match_execution_eligible: false,
-            })
-            .eq("id", refundCase.id);
-          if (updateError) throw updateError;
-
-          await finishAction(
-            correctionAction,
-            "completed",
-            "wallet_correction_sent",
-            correctionResult.messageId,
-            counters,
-          );
-          await finishAction(
-            action,
-            "completed",
-            "nayax_no_match_wallet_correction_sent",
-            correctionResult.messageId,
-            counters,
-          );
-        } else if (correctionResult.status === "suppressed") {
-          await finishAction(
-            correctionAction,
-            "suppressed",
-            "automatic_customer_contact_disabled",
-            null,
-            counters,
-          );
-          await routeFollowUpManualReview({
-            runId,
-            refundCase,
-            actionKeySuffix: `wallet-contact-disabled:${refundCase.wallet_correction_version}`,
-            noticeKind: "follow_up_manual_review",
-            policyWindowStart,
-            counters,
-          });
-          await finishAction(
-            action,
-            "completed",
-            "automatic_customer_contact_disabled",
-            null,
-            counters,
-          );
-        } else {
-          await finishAction(
-            correctionAction,
-            "failed",
-            "customer_email_failed",
-            correctionResult.messageId,
-            counters,
-          );
-          await finishAction(
-            action,
-            "failed",
-            "wallet_correction_email_failed",
-            correctionResult.messageId,
-            counters,
-          );
-        }
-        continue;
-      }
-
-      if (walletCorrectionUseful) {
-        await routeFollowUpManualReview({
-          runId,
-          refundCase,
-          actionKeySuffix: `wallet:${refundCase.wallet_correction_version}`,
-          noticeKind: "follow_up_manual_review",
-          policyWindowStart,
-          counters,
-        });
-        await finishAction(action, "completed", "wallet_correction_pending_or_exhausted", null, counters);
-        continue;
-      }
-
       const { error: noMatchUpdateError } = await supabase.from("refund_cases")
         .update({
           status: "needs_review",
           correlation_status: "no_match",
           correlation_source: "nayax",
           correlation_confidence: 0,
-          correlation_summary: customerCorrectionFields.length > 0
-            ? `${lookupResult.summary} Bloomjoy requested the smallest customer correction needed for another safe check.`
-            : `${lookupResult.summary} No deterministic customer correction has been assumed.`,
-          automation_state: "under_review",
+          correlation_summary: walletCorrectionUseful
+            ? `${lookupResult.summary} A secure wallet-detail correction is needed before another safe check.`
+            : customerCorrectionFields.length > 0
+              ? `${lookupResult.summary} Bloomjoy identified the smallest customer correction needed for another safe check.`
+              : `${lookupResult.summary} No deterministic customer correction has been assumed.`,
+          automation_state: walletCorrectionUseful ? "wallet_correction_needed" : "under_review",
           nayax_recommendation_state: "no_safe_match",
           nayax_recommendation_policy_version: lookupResult.policyVersion,
           nayax_recommendation_evaluated_at: lookupResult.lastCheckedAt,
@@ -2922,88 +2787,38 @@ const runCardNayaxLookupSweep = async (
         .eq("id", refundCase.id);
       if (noMatchUpdateError) throw noMatchUpdateError;
 
-      const noMatchCase = {
-        ...refundCase,
-        status: "needs_review",
-        automation_state: "under_review",
-      };
-      const sourceCustomerMessageId = await getLatestVerifiedCustomerMessageId(
-        refundCase.id,
-      );
-      const cycleClaim = await claimFollowUpCycle({
-        refundCase: noMatchCase,
-        reasonCode: "no_safe_match",
-        sourceCustomerMessageId,
-        requestedFields: customerCorrectionFields,
+      const { error: eventError } = await supabase.from("refund_case_events").insert({
+        refund_case_id: refundCase.id,
+        event_type: "nayax_auto_lookup_customer_action_deferred",
+        message:
+          "The read-only transaction result was saved. Any eligible customer action remains in the contact-window lane.",
+        metadata: {
+          window_hours: lookupResult.windowHours,
+          candidate_count: lookupResult.candidates.length,
+          recommendation_state: lookupResult.recommendationState,
+          confidence_class: lookupResult.confidenceClass,
+          reason_codes: lookupResult.reasonCodes,
+          customer_correction_fields: customerCorrectionFields,
+          wallet_correction_needed: walletCorrectionUseful,
+          policy_version: lookupResult.policyVersion,
+          provider_record_count: lookupResult.providerRecordCount ?? null,
+          provider_window_record_count: lookupResult.providerWindowRecordCount ?? null,
+          qr_claim_evidence_status: lookupResult.qrClaimEvidenceStatus,
+          payload_redacted: true,
+        },
       });
-
-      if (!cycleClaim.claimed || !cycleClaim.cycle) {
-        await routeFollowUpManualReview({
-          runId,
-          refundCase: noMatchCase,
-          actionKeySuffix: `no-safe-match:${refundCase.deterministic_fact_version}:${cycleClaim.reason ?? "not-claimed"}`,
-          noticeKind: "follow_up_manual_review",
-          policyWindowStart,
-          counters,
-        });
-        await finishAction(
-          action,
-          "completed",
-          cycleClaim.reason ?? "no_safe_match_manual_review",
-          null,
-          counters,
-        );
-        continue;
-      }
-
-      const noMatchResult = await sendDeterministicFollowUpMessage(
-        noMatchCase,
-        cycleClaim.cycle,
-        "request",
-        customerCorrectionFields,
+      if (eventError) throw eventError;
+      await finishAction(
+        action,
+        "completed",
+        walletCorrectionUseful
+          ? "nayax_wallet_correction_deferred"
+          : customerCorrectionFields.length > 0
+            ? "nayax_customer_correction_deferred"
+            : "nayax_no_safe_match_review_ready",
+        null,
+        counters,
       );
-      if (noMatchResult.status === "sent") {
-        counters.nayaxNoMatchMovedToWaiting += 1;
-        counters.noSafeMatchRequestsSent += 1;
-        const { error: eventError } = await supabase.from("refund_case_events").insert({
-          refund_case_id: refundCase.id,
-          event_type: "nayax_auto_lookup_no_safe_match_contacted",
-          message: "A provider no-safe-match or customer-correctable conflict triggered one versioned customer message.",
-          metadata: {
-            follow_up_cycle_id: cycleClaim.cycle.id,
-            template_version: cycleClaim.cycle.templateVersion,
-            window_hours: lookupResult.windowHours,
-            candidate_count: lookupResult.candidates.length,
-            recommendation_state: lookupResult.recommendationState,
-            confidence_class: lookupResult.confidenceClass,
-            reason_codes: lookupResult.reasonCodes,
-            customer_correction_fields: customerCorrectionFields,
-            policy_version: lookupResult.policyVersion,
-            provider_record_count: lookupResult.providerRecordCount ?? null,
-            provider_window_record_count: lookupResult.providerWindowRecordCount ?? null,
-            qr_claim_evidence_status: lookupResult.qrClaimEvidenceStatus,
-            payload_redacted: true,
-          },
-        });
-        if (eventError) throw eventError;
-        await finishAction(
-          action,
-          "completed",
-          "nayax_no_safe_match_customer_contacted",
-          noMatchResult.messageId,
-          counters,
-        );
-      } else {
-        await finishAction(
-          action,
-          "failed",
-          noMatchResult.status === "suppressed"
-            ? "automatic_customer_contact_disabled"
-            : "customer_email_failed",
-          noMatchResult.messageId,
-          counters,
-        );
-      }
     } catch (error) {
       counters.nayaxLookupFailures += 1;
       console.error("refund-case-automation-sweep Nayax lookup failed", {
@@ -3035,18 +2850,7 @@ const runCardNayaxLookupSweep = async (
       }
       if (!lookupPersisted && (!safeRetryEligible || retryCount >= 1)) {
         if (retryCount >= 1) counters.nayaxRecoveryExhausted += 1;
-        try {
-          await routeProviderException({
-            runId,
-            refundCase,
-            reasonCategory: classifyProviderException(error),
-            counters,
-          });
-        } catch (noticeError) {
-          console.error("refund provider exception notice failed", {
-            errorType: noticeError instanceof Error ? noticeError.name : typeof noticeError,
-          });
-        }
+        addReason(counters, classifyProviderException(error));
       }
       await finishAction(action, "failed", sanitizeFailureCategory(error), null, counters);
     }
@@ -3063,7 +2867,6 @@ const runPersistedNayaxCustomerCorrectionSweep = async (
     .from("refund_cases")
     .select(caseSelect)
     .eq("payment_method", "card")
-    .eq("card_wallet_used", false)
     .eq("status", "needs_review")
     .in("nayax_recommendation_state", ["no_safe_match", "manual_exception"])
     .limit(25);
@@ -3084,6 +2887,90 @@ const runPersistedNayaxCustomerCorrectionSweep = async (
         incidentTimeSource: refundCase.incident_time_source,
         candidates: evidence,
       });
+    if (refundCase.card_wallet_used) {
+      if (["sent", "received", "fallback_eligible"].includes(refundCase.wallet_correction_state)) {
+        continue;
+      }
+      counters.evaluatedCaseIds.add(refundCase.id);
+      if (!(await automaticCustomerContactAllowed())) {
+        await routeFollowUpManualReview({
+          runId,
+          refundCase,
+          actionKeySuffix: `wallet-contact-disabled:${refundCase.wallet_correction_version}`,
+          noticeKind: "follow_up_manual_review",
+          policyWindowStart,
+          counters,
+        });
+        continue;
+      }
+      const correctionAction = await claimAction(
+        runId,
+        refundCase.id,
+        `wallet_correction:${refundCase.id}:${refundCase.wallet_correction_version + 1}`,
+        "wallet_correction_request",
+        refundCase.status,
+        policyWindowStart,
+        counters,
+      );
+      if (!correctionAction.claimed) continue;
+
+      try {
+        const correctionResult = await sendWalletCorrectionMessage(refundCase, false);
+        if (correctionResult.status === "sent") {
+          const { error: updateError } = await supabase.from("refund_cases")
+            .update({
+              correlation_status: "no_match",
+              correlation_source: "nayax",
+              correlation_confidence: 0,
+              correlation_summary:
+                "A secure wallet-detail correction was requested after the saved read-only transaction check.",
+              nayax_match_execution_eligible: false,
+            })
+            .eq("id", refundCase.id);
+          if (updateError) throw updateError;
+          await finishAction(
+            correctionAction,
+            "completed",
+            "wallet_correction_sent",
+            correctionResult.messageId,
+            counters,
+          );
+        } else if (correctionResult.status === "suppressed") {
+          await finishAction(
+            correctionAction,
+            "suppressed",
+            "automatic_customer_contact_disabled",
+            null,
+            counters,
+          );
+          await routeFollowUpManualReview({
+            runId,
+            refundCase,
+            actionKeySuffix: `wallet-contact-disabled:${refundCase.wallet_correction_version}`,
+            noticeKind: "follow_up_manual_review",
+            policyWindowStart,
+            counters,
+          });
+        } else {
+          await finishAction(
+            correctionAction,
+            "failed",
+            "customer_email_failed",
+            correctionResult.messageId,
+            counters,
+          );
+        }
+      } catch (error) {
+        await finishAction(
+          correctionAction,
+          "failed",
+          sanitizeFailureCategory(error),
+          null,
+          counters,
+        );
+      }
+      continue;
+    }
     if (customerCorrectionFields.length === 0) {
       // Zero provider candidates and internal exceptions give the customer no
       // useful task. Reuse the internal notice ledger, including on replay.
@@ -4741,6 +4628,13 @@ serve(async (req) => {
       });
     }
 
+    // Transaction discovery is a bounded read-only provider check. Run it
+    // whenever automation is enabled so candidate recovery does not wait for
+    // the customer-contact clock. Refund execution and every customer-facing
+    // action remain in their existing guarded lanes below.
+    failureStage = "card_nayax_lookup";
+    await runCardNayaxLookupSweep(runId, counters, policyWindowStart);
+
     if (!policyWindowIsOpen(scheduledAt)) {
       failureStage = "policy_window";
       counters.actionsSuppressed += 1;
@@ -4781,8 +4675,6 @@ serve(async (req) => {
     await runMissingInformationSweep(runId, counters, policyWindowStart);
     failureStage = "cash_no_safe_match";
     await runCashNoSafeMatchSweep(runId, counters, policyWindowStart);
-    failureStage = "card_nayax_lookup";
-    await runCardNayaxLookupSweep(runId, counters, policyWindowStart);
     failureStage = "persisted_nayax_correction";
     await runPersistedNayaxCustomerCorrectionSweep(
       runId,

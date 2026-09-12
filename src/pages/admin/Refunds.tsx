@@ -126,6 +126,7 @@ import {
   type RefundManagerState,
   type RefundManagerStateTone,
 } from '@/lib/refundManagerState';
+import { deriveRefundTransactionViewState } from '@/lib/refundTransactionViewState';
 import {
   findRefundDeepLinkedCase,
   getRefundManagerQueueBucket,
@@ -805,35 +806,6 @@ const managerStateBadgeClass = (tone: RefundManagerStateTone) =>
     tone === 'danger' && 'border-destructive/30 bg-destructive/10 text-destructive'
   );
 
-const managerNayaxLookupNotice = (
-  notice: NayaxLookupNotice,
-  summary: RefundNayaxLookupSummary | null
-) => {
-  if (notice.title === 'Transaction results expired') return notice.message;
-  switch (summary?.lookupStatus) {
-    case 'setup_needed':
-      return summary.responsibleOwner === 'refund_operations' && summary.customerActionRequired === false
-        ? summary.summary
-        : 'Transaction search needs internal machine/account setup.';
-    case 'lookup_failed':
-      return 'Bloomjoy could not finish checking transactions.';
-    case 'no_match':
-      return 'No matching transaction was found.';
-    case 'inconclusive':
-      return 'Nayax did not provide enough history to confirm a match.';
-    case 'multiple_matches':
-      return `${summary.candidateCount || 'Several'} possible transactions were found.`;
-    case 'match_found':
-      return 'Transaction results updated.';
-    case 'checking':
-      return 'Checking recent transactions...';
-    default:
-      return notice.tone === 'error'
-        ? 'Bloomjoy could not update the transaction results.'
-        : 'Transaction results updated.';
-  }
-};
-
 const taskBadgeClass = (refundCase: RefundCaseRecord) =>
   managerStateBadgeClass(getRefundManagerState(refundCase).tone);
 
@@ -1302,32 +1274,6 @@ const candidateUnavailableReason = (
     : 'This transaction conflicts with a required detail or is already in use.';
 };
 
-const nayaxDecisionHeading = (
-  summary: RefundNayaxLookupSummary | null,
-  candidate: NayaxLookupCandidate | null,
-  hasSelectedMatch: boolean,
-  hasSelectableCandidate: boolean,
-  waitingOnCustomer: boolean
-) => {
-  if (hasSelectedMatch) return 'Transaction selected';
-  if (summary?.lookupStatus === 'checking') return 'In progress';
-  if (summary?.lookupStatus === 'setup_needed') return 'Transaction search is unavailable';
-  if (summary?.lookupStatus === 'lookup_failed') return 'The transaction check did not finish';
-  if (summary?.lookupStatus === 'inconclusive') return 'Transaction history is incomplete';
-  if (candidate && !hasSelectableCandidate) return 'No transaction is safe to select';
-  if (candidate && waitingOnCustomer) return 'Transactions found; waiting for customer';
-  if (summary?.recommendationState === 'ambiguous' || summary?.lookupStatus === 'multiple_matches') {
-    return 'More than one transaction could match';
-  }
-  if (summary?.recommendationState === 'no_safe_match' || summary?.lookupStatus === 'no_match') {
-    return 'No clear transaction was found';
-  }
-  if (candidate?.identifierReviewState === 'reviewable_uncertainty') return 'One transaction needs manager review';
-  if (candidate?.isRecommended) return 'One likely transaction was found';
-  if (candidate) return 'A possible transaction needs comparison';
-  return 'Waiting for transaction search';
-};
-
 const transactionSearchDescription = (summary: RefundNayaxLookupSummary | null) => {
   if (!summary) return 'No transaction has been returned yet.';
 
@@ -1361,22 +1307,6 @@ const transactionSearchDescription = (summary: RefundNayaxLookupSummary | null) 
     default:
       return 'Review the customer details and machine transaction before deciding.';
   }
-};
-
-const nayaxDecisionStatusLabel = (
-  summary: RefundNayaxLookupSummary | null,
-  candidate: NayaxLookupCandidate | null,
-  hasSelectedMatch: boolean,
-  hasSelectableCandidate: boolean,
-  waitingOnCustomer: boolean
-) => {
-  if (hasSelectedMatch) return 'Selected';
-  if (candidate && !hasSelectableCandidate) return 'No selectable transaction';
-  if (candidate && waitingOnCustomer) return 'Waiting on customer';
-  if (candidate?.isRecommended) return 'Likely match';
-  if (candidate) return 'Compare details';
-  if (summary?.lookupStatus === 'checking' || summary?.lookupStatus === 'not_started') return 'Checking';
-  return 'Needs attention';
 };
 
 const formatCardSaleLine = (
@@ -3411,6 +3341,24 @@ export default function AdminRefundsPage() {
         : null,
     [isLookingUpNayax, nayaxCandidates, nayaxLookupNotice, nayaxLookupSummary, selectedCase]
   );
+  const selectedTransactionView = selectedCase
+    ? deriveRefundTransactionViewState({
+        summary: selectedNayaxSummary,
+        candidateCount: selectedCase.legacyStateReviewRequired ? 0 : nayaxCandidates.length,
+        selectableCandidateCount: selectedCase.legacyStateReviewRequired
+          ? 0
+          : nayaxCandidates.filter((candidate) => candidate.selectionAllowed !== false).length,
+        hasSelectedMatch:
+          selectedCase.legacyStateReviewRequired !== true &&
+          selectedCase.hasMatchedNayaxTransaction &&
+          editor?.clearNayaxMatch !== true,
+        isLookingUp: isLookingUpNayax,
+        legacyStateReviewRequired: selectedCase.legacyStateReviewRequired === true,
+        lifecycleLookupStatus: selectedCase.lifecycle?.lookup.status,
+        lifecycleReasonCode: selectedCase.lifecycle?.reasonCode,
+        waitingOnCustomer: isWaitingCase(selectedCase, refundOperationsAccess),
+      })
+    : null;
   const primaryAction = useMemo(
     () => (selectedCase && editor
       ? primaryActionConfig(
@@ -3461,6 +3409,15 @@ export default function AdminRefundsPage() {
     }
     if (nayaxCandidates.length > 0 && selectedNayaxSummary?.recommendationState === 'high_confidence') {
       return { label: 'Review likely transaction', tone: 'info' };
+    }
+    if (
+      selectedTransactionView &&
+      ['checking', 'unavailable', 'waiting'].includes(selectedTransactionView.kind)
+    ) {
+      return {
+        label: selectedTransactionView.heading,
+        tone: selectedTransactionView.tone === 'neutral' ? 'neutral' : selectedTransactionView.tone,
+      };
     }
     return null;
   };
@@ -5295,18 +5252,13 @@ export default function AdminRefundsPage() {
     const hasSelectedMatch = selectedCase.legacyStateReviewRequired
       ? false
       : hasSelectedCardEvidence(selectedCase, editor);
-    const recommendedCandidate = effectiveCandidates.find((candidate) => candidate.isRecommended === true) ?? null;
-    const leadCandidate = recommendedCandidate ?? effectiveCandidates[0] ?? null;
+    const hasPersistedSelectedMatch = selectedCase.legacyStateReviewRequired
+      ? false
+      : selectedCase.hasMatchedNayaxTransaction && !editor.clearNayaxMatch;
     const selectableCandidates = effectiveCandidates.filter(
       (candidate) => candidate.selectionAllowed !== false
     );
-    const unavailableCandidates = effectiveCandidates.filter(
-      (candidate) => candidate.selectionAllowed === false
-    );
     const selectableCandidateCount = selectableCandidates.length;
-    const unavailableCandidateSummary = unavailableCandidates.length === 1
-      ? candidateUnavailableReason(unavailableCandidates[0], selectedCase)
-      : 'Provider evidence or purchase details do not meet the selection safeguards.';
     const waitingOnCustomer = isWaitingCase(selectedCase, refundOperationsAccess);
     const caseAllowsCandidateSelection = canConfirmRefundCandidate({
       persistedStatus: selectedCase.status,
@@ -5316,23 +5268,27 @@ export default function AdminRefundsPage() {
         (selectedCase.canSelectNayaxCandidate ?? selectedCase.canPerformOfficialAction) !== false,
     });
     const selectedCandidate = selectedNayaxCandidate(editor, effectiveCandidates);
-    const hasLookupResult = !selectedCase.legacyStateReviewRequired && Boolean(
-      selectedCase.hasMatchedNayaxTransaction ||
-      selectedCase.nayaxLookupSummary ||
-      nayaxLookupSummary ||
-      effectiveCandidates.length > 0 ||
-      (nayaxLookupNotice && !isLookingUpNayax)
-    );
-    const showPrimaryTransactionCheck = !selectedCase.manualNayaxPortalEnabled && !hasSelectedMatch && !hasLookupResult;
-    const automaticLookupPending = selectedNayaxSummary?.lookupStatus === 'checking';
-    const showVisibleLookupRetry =
-      !automaticLookupPending &&
-      !hasSelectedMatch &&
-      selectedCase.lifecycle?.managerQueue.safeRetryEligible === true &&
-      selectedCase.lifecycle.managerQueue.nextAction === 'retry_read_only_lookup';
+    const transactionView = selectedTransactionView ?? deriveRefundTransactionViewState({
+      summary: selectedNayaxSummary,
+      candidateCount: effectiveCandidates.length,
+      selectableCandidateCount,
+      hasSelectedMatch: hasPersistedSelectedMatch,
+      isLookingUp: isLookingUpNayax,
+      legacyStateReviewRequired: selectedCase.legacyStateReviewRequired === true,
+      lifecycleLookupStatus: selectedCase.lifecycle?.lookup.status,
+      lifecycleReasonCode: selectedCase.lifecycle?.reasonCode,
+      waitingOnCustomer,
+    });
+    const automaticLookupPending = transactionView.kind === 'checking';
     const showRefundOperationsRecovery =
       refundOperationsAccess &&
-      selectedCase.nayaxLookupWork?.state === 'refund_operations' &&
+      (
+        selectedCase.nayaxLookupWork?.state === 'refund_operations' ||
+        (
+          selectedCase.lifecycle?.managerQueue.safeRetryEligible === true &&
+          selectedCase.lifecycle.managerQueue.nextAction === 'retry_read_only_lookup'
+        )
+      ) &&
       !automaticLookupPending &&
       !hasSelectedMatch;
     const needsDisagreementReason = Boolean(selectedCandidate && selectedCandidate.isRecommended !== true);
@@ -5455,42 +5411,23 @@ export default function AdminRefundsPage() {
 
     return (
       <div className="mt-3 space-y-3">
-        {showPrimaryTransactionCheck && (
-          <div className="rounded-md border border-sky-200 bg-sky-50 p-3">
-            <p className="text-sm font-medium text-sky-950">Automatic transaction check</p>
-            <p className="mt-1 text-xs leading-5 text-sky-800">
-              Bloomjoy starts this read-only check automatically when the customer details are complete. Checking never issues a refund.
-            </p>
+        {!hasPersistedSelectedMatch && (
+          <div
+            data-testid="nayax-transaction-status"
+            role="status"
+            aria-live="polite"
+            className={nayaxLookupNoticeClass(
+              transactionView.tone === 'success'
+                ? 'success'
+                : transactionView.tone === 'warning'
+                  ? 'warning'
+                  : 'info'
+            )}
+          >
+            {transactionView.description}
           </div>
         )}
-        {automaticLookupPending && (
-          <div data-testid="nayax-automatic-lookup-pending" className={nayaxLookupNoticeClass('info')}>
-            Checking recent transactions...
-          </div>
-        )}
-        {nayaxLookupNotice && !selectedCase.hasMatchedNayaxTransaction && (
-          <div data-testid="nayax-lookup-notice" className={nayaxLookupNoticeClass(nayaxLookupNotice.tone)}>
-            {managerNayaxLookupNotice(nayaxLookupNotice, selectedNayaxSummary)}
-          </div>
-        )}
-        {!nayaxLookupNotice &&
-          !selectedCase.hasMatchedNayaxTransaction &&
-          selectedNayaxSummary?.summary &&
-          (effectiveCandidates.length === 0 ||
-            (selectedNayaxSummary.excludedAfterRequestCount ?? 0) > 0 ||
-            (selectedNayaxSummary.uncertainRequestTimeCandidateCount ?? 0) > 0) && (
-          <div data-testid="nayax-request-time-explanation" className={nayaxLookupNoticeClass('info')}>
-            {selectedNayaxSummary.summary}
-          </div>
-        )}
-        {showVisibleLookupRetry && !nayaxLookupNotice && (
-          <div data-testid="nayax-lookup-retry" className={nayaxLookupNoticeClass('warning')}>
-            <p>
-              The transaction check hit a temporary problem. Bloomjoy will try once more automatically. No refund was issued.
-            </p>
-          </div>
-        )}
-        {!selectedCase.hasMatchedNayaxTransaction && !editor.clearNayaxMatch && effectiveCandidates.length > 0 && (
+        {!selectedCase.hasMatchedNayaxTransaction && !editor.clearNayaxMatch && transactionView.showCandidates && (
           <div className="border-t border-border pt-3">
             {isUsingDemoData && (
               <InfoHint>
@@ -5499,62 +5436,26 @@ export default function AdminRefundsPage() {
             )}
             <div data-testid="nayax-candidate-availability" className="mb-3">
               <p className="text-sm font-semibold text-foreground">
-                {selectableCandidateCount === 0
-                  ? '0 transactions available to select'
-                  : waitingOnCustomer
-                    ? `${selectableCandidateCount} possible transaction${selectableCandidateCount === 1 ? '' : 's'} found`
-                    : selectableCandidateCount === 1 && leadCandidate?.identifierReviewState === 'reviewable_uncertainty'
-                      ? '1 transaction available to select'
-                    : `${selectableCandidateCount} transaction${selectableCandidateCount === 1 ? '' : 's'} available to compare`}
+                {effectiveCandidates.length} current transaction result{effectiveCandidates.length === 1 ? '' : 's'}
               </p>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                {selectableCandidateCount === 0 && leadCandidate
-                  ? `The closest result cannot be selected. ${candidateUnavailableReason(leadCandidate, selectedCase)}`
+                {selectableCandidateCount === 0
+                  ? 'Every current result is listed here, but none can be selected.'
                   : waitingOnCustomer
                     ? 'These are the current search results. Selection stays paused until the customer replies and the assistant runs the search again.'
-                    : "Choose one only when the machine, amount comparison, and available customer and payment evidence identify the same purchase. The refund uses the selected provider transaction's full amount."}
+                    : `${selectableCandidateCount} ${selectableCandidateCount === 1 ? 'result is' : 'results are'} selectable. Choose one only when the machine, amount, time, and payment evidence identify the same purchase.`}
               </p>
             </div>
-            {selectableCandidates.length > 0 && (
-              <div
-                data-testid="nayax-transaction-comparison"
-                role="radiogroup"
-                aria-label="Customer and transaction comparison"
-                className="space-y-2"
-              >
-                {selectableCandidates.map((candidate, index) =>
-                  candidateOption(candidate, `Transaction ${index + 1}`)
-                )}
-              </div>
-            )}
-            {unavailableCandidates.length > 0 && (
-              <details
-                data-testid="nayax-unavailable-candidates"
-                className="group mt-3 rounded-lg border border-border bg-muted/15"
-              >
-                <summary className="flex min-h-11 cursor-pointer list-none flex-col justify-center gap-1 rounded-lg px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:flex-row sm:items-center sm:justify-between">
-                  <span className="text-sm font-semibold text-foreground">
-                    {unavailableCandidates.length} unavailable transaction{unavailableCandidates.length === 1 ? '' : 's'}
-                  </span>
-                  <span className="flex items-center gap-2 text-xs leading-5 text-muted-foreground sm:max-w-[65%] sm:text-right">
-                    <span>{unavailableCandidateSummary}</span>
-                    <ChevronDown
-                      className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180"
-                      aria-hidden="true"
-                    />
-                  </span>
-                </summary>
-                <div
-                  role="group"
-                  aria-label="Unavailable transactions and reasons"
-                  className="space-y-2 border-t border-border p-3"
-                >
-                  {unavailableCandidates.map((candidate, index) =>
-                    candidateOption(candidate, `Unavailable transaction ${index + 1}`)
-                  )}
-                </div>
-              </details>
-            )}
+            <div
+              data-testid="nayax-transaction-comparison"
+              role="radiogroup"
+              aria-label={`${effectiveCandidates.length} current transaction result${effectiveCandidates.length === 1 ? '' : 's'}`}
+              className="space-y-2"
+            >
+              {effectiveCandidates.map((candidate, index) =>
+                candidateOption(candidate, `Transaction ${index + 1}`)
+              )}
+            </div>
             {needsDisagreementReason && (
               <div className="mt-3 space-y-1.5">
                 <Label htmlFor="nayax-disagreement-reason">Why is this the right transaction?</Label>
@@ -5583,7 +5484,7 @@ export default function AdminRefundsPage() {
           </div>
         )}
 
-        {(!selectedCase.manualNayaxPortalEnabled || !refundOperationsAccess) && <details className="rounded-md border border-border bg-background p-2">
+        {(showRefundOperationsRecovery || hasSelectedMatch) && <details className="rounded-md border border-border bg-background p-2">
           <summary className="cursor-pointer text-xs font-medium text-foreground">
             Transaction search details
           </summary>
@@ -5710,6 +5611,17 @@ export default function AdminRefundsPage() {
       (candidate) => candidate.selectionAllowed !== false
     );
     const waitingOnCustomer = isWaitingCase(selectedCase, refundOperationsAccess);
+    const transactionView = selectedTransactionView ?? deriveRefundTransactionViewState({
+      summary: selectedNayaxSummary,
+      candidateCount: effectiveCandidates.length,
+      selectableCandidateCount: effectiveCandidates.filter((candidate) => candidate.selectionAllowed !== false).length,
+      hasSelectedMatch: hasPersistedSelectedMatch,
+      isLookingUp: isLookingUpNayax,
+      legacyStateReviewRequired: selectedCase.legacyStateReviewRequired === true,
+      lifecycleLookupStatus: selectedCase.lifecycle?.lookup.status,
+      lifecycleReasonCode: selectedCase.lifecycle?.reasonCode,
+      waitingOnCustomer,
+    });
     const cardAmountCents = selectedCase.legacyStateReviewRequired
       ? selectedCase.paymentAmountCents
       : matchedCardSaleAmountCents ?? selectedCase.paymentAmountCents;
@@ -5758,10 +5670,28 @@ export default function AdminRefundsPage() {
     const selectedCandidateRefundUnavailable =
       hasUnsavedTransactionChoice &&
       typeof selectedRefundReadiness?.approvalPendingExecution !== 'boolean';
+    const transactionDecisionPending =
+      !hasSelectedMatch &&
+      !waitingOnCustomer &&
+      ['checking', 'unavailable', 'waiting'].includes(transactionView.kind);
     const managerState: RefundManagerState = hasConfirmedRefundReceipt(selectedCase) ||
       (hasProtectedRefundLifecycle(selectedCase) && !selectedCaseApprovalContinuationReady) ||
       (selectedCase.customerDeliveryException && !hasUnpaidRefundReview(selectedCase))
       ? baseManagerState
+      : transactionDecisionPending
+      ? {
+          id: transactionView.kind === 'checking' ? 'checking_nayax' : 'match_attention',
+          label: transactionView.heading,
+          explanation: transactionView.description,
+          nextStep: transactionView.kind === 'checking'
+            ? 'Wait for the read-only check to finish. No refund has been issued.'
+            : transactionView.kind === 'waiting'
+              ? 'Wait for Bloomjoy to start the read-only check. No refund has been issued.'
+              : transactionView.heading === 'Transaction search is unavailable'
+                ? 'Refund Operations owns the machine connection. No customer follow-up is needed.'
+              : 'Wait for Bloomjoy or Refund Operations to refresh the transaction results. No refund has been issued.',
+          tone: transactionView.kind === 'checking' ? 'info' : 'warning',
+        }
       : paymentActionNeedsOperations
       ? {
           id: 'needs_refund_operations',
@@ -5916,7 +5846,7 @@ export default function AdminRefundsPage() {
                 Next: {displayedManagerNextStep}
               </p>
             </div>
-            <div className="flex flex-col gap-2 sm:items-end">
+            {!transactionDecisionPending && <div className="flex flex-col gap-2 sm:items-end">
               {showDisabledActionStatus ? (
                 <div
                   data-testid="refund-action-status"
@@ -5961,7 +5891,7 @@ export default function AdminRefundsPage() {
                   {topActionLabel}
                 </Button>
               ) : null}
-            </div>
+            </div>}
           </div>
 
           {!selectedCaseIsResolvedDuplicate && (
@@ -6073,17 +6003,7 @@ export default function AdminRefundsPage() {
                     Machine transaction
                   </p>
                   <h4 data-testid="nayax-decision-heading" className="mt-1 text-base font-semibold text-foreground">
-                    {selectedCase.legacyStateReviewRequired
-                      ? 'Waiting for a fresh transaction check'
-                      : selectedNayaxSummary?.lookupStatus === 'setup_needed'
-                        ? 'Automatic match unavailable'
-                      : nayaxDecisionHeading(
-                          selectedNayaxSummary,
-                          comparisonCandidate,
-                          hasSelectedMatch,
-                          hasSelectableCandidate,
-                          waitingOnCustomer
-                        )}
+                    {transactionView.heading}
                   </h4>
                   {selectedTransactionEvidence && (
                     <p
@@ -6098,30 +6018,10 @@ export default function AdminRefundsPage() {
                     </p>
                   )}
                 </div>
-                {selectedNayaxSummary?.lookupStatus !== 'setup_needed' && (
-                  <Badge className="w-fit border-border bg-background text-foreground">
-                    {selectedCase.legacyStateReviewRequired
-                      ? 'Fresh check needed'
-                      : nayaxDecisionStatusLabel(
-                          selectedNayaxSummary,
-                          comparisonCandidate,
-                          hasSelectedMatch,
-                          hasSelectableCandidate,
-                          waitingOnCustomer
-                        )}
-                  </Badge>
-                )}
+                <Badge className="w-fit border-border bg-background text-foreground">
+                  {transactionView.badge}
+                </Badge>
               </div>
-
-              {selectedNayaxSummary?.lookupStatus === 'setup_needed' && (
-                <section
-                  data-testid="nayax-internal-setup-owner"
-                  className="mt-2 text-sm leading-6 text-muted-foreground"
-                  aria-label="Internal Nayax setup owner"
-                >
-                  Refund Operations owns the connection. Managers may review this case directly in Nayax only if needed. No customer follow-up is needed.
-                </section>
-              )}
 
               {selectedTransactionEvidence ? (
                 <section
@@ -6348,13 +6248,8 @@ export default function AdminRefundsPage() {
 
                   <div className="mt-3">{renderCardSaleCandidates()}</div>
                 </>
-              ) : selectedNayaxSummary?.lookupStatus === 'setup_needed' ? null : (
+              ) : (
                 <div className="mt-3">
-                  <p className="text-sm leading-6 text-foreground">
-                    {selectedCase.legacyStateReviewRequired
-                      ? 'Refresh the transaction results before making any decision.'
-                      : transactionSearchDescription(selectedNayaxSummary)}
-                  </p>
                   <div>{renderCardSaleCandidates()}</div>
                 </div>
               )}
@@ -6737,7 +6632,7 @@ export default function AdminRefundsPage() {
                 </div>
               )}
             </>
-          ) : (
+          ) : transactionDecisionPending ? null : (
           <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
             <details className="text-sm">
               <summary className="cursor-pointer font-medium text-foreground">Preview customer email</summary>
