@@ -331,8 +331,8 @@ export const getRefundManagerState = (
         'Refund confirmed · delivery review',
         `The payment provider confirmed the full refund. ${deliveryLabel}.`,
         accountingReview
-          ? 'Refund Operations owns the message-delivery and accounting-date review. Do not retry payment or resend the message blindly.'
-          : 'Refund Operations owns the message-delivery review. Do not retry payment or resend the message blindly.',
+          ? 'The assigned machine manager reviews message delivery and the accounting date. Do not retry the payment. Do not resend this saved message until its delivery is clear.'
+          : 'The assigned machine manager reviews message delivery. Do not retry the payment. Do not resend this saved message until its delivery is clear.',
         'warning'
       );
     }
@@ -340,7 +340,7 @@ export const getRefundManagerState = (
       'needs_refund_operations',
       'Delivery needs review',
       `${deliveryLabel}. The refund and payment state have not been changed.`,
-      'Refund Operations must review provider evidence and choose a safe disposition. Do not resend the message or retry a payment blindly.',
+      'The assigned machine manager reviews the saved delivery record and chooses the supported next step. Do not resend this saved message until its delivery is clear, and do not retry a payment from delivery evidence.',
       'warning'
     );
   }
