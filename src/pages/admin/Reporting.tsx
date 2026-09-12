@@ -45,15 +45,15 @@ import {
   type AdminReportingPartnershipOption,
   type AdminSunzeMachineQueueItem,
   type MapSourceMachineToPartnershipResult,
-  type ReportingMachineType,
 } from '@/lib/reporting';
 import { trackEvent } from '@/lib/analytics';
+import type { CanonicalMachineType } from '@/lib/machineTypes';
 import {
   closeReservedSignedExportWindow,
   openSignedExportUrl,
   reserveSignedExportWindow,
 } from '@/lib/signedExportWindow';
-import { formatLabel, machineTypes } from '@/pages/admin/reportingSetupUi';
+import { formatMachineType, machineTypes } from '@/pages/admin/reportingSetupUi';
 
 const sunzeStaleHours = 30;
 const importedMachineSetupReason = 'Imported source machine setup';
@@ -62,7 +62,7 @@ type ImportedMachineSetupForm = {
   partnershipId: string;
   machineLabel: string;
   locationName: string;
-  machineType: ReportingMachineType;
+  machineType: CanonicalMachineType;
   taxRatePercent: string;
 };
 
@@ -1092,13 +1092,13 @@ function ImportedMachineSetupDialog({
                 id="imported-machine-type"
                 value={form.machineType}
                 onChange={(event) =>
-                  setForm({ ...form, machineType: event.target.value as ReportingMachineType })
+                  setForm({ ...form, machineType: event.target.value as CanonicalMachineType })
                 }
                 className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
               >
                 {machineTypes.map((machineType) => (
                   <option key={machineType} value={machineType}>
-                    {formatLabel(machineType)}
+                    {formatMachineType(machineType)}
                   </option>
                 ))}
               </select>

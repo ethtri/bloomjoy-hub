@@ -20,8 +20,11 @@ const databaseTests = read('supabase/tests/refund_legacy_card_state_normalizatio
 const concurrencyTests = read(
   'supabase/tests/refund_legacy_card_state_normalization_concurrency.sql'
 );
-const operations = read('src/lib/refundOperations.ts');
+const operations = `${read('src/lib/refundOperations.ts')}\n${read(
+  'src/lib/refundOperationsSupplements.ts'
+)}`;
 const portal = read('src/pages/admin/Refunds.tsx');
+const transactionViewState = read('src/lib/refundTransactionViewState.ts');
 const managerState = read('src/lib/refundManagerState.ts');
 const portalUat = read('scripts/refunds/validate-refund-portal-uat.mjs');
 const runbook = read('Docs/PRODUCTION_RUNBOOK.md');
@@ -122,7 +125,8 @@ assert(
     portal.includes('refund-legacy-state-review-banner') &&
     portal.includes('refund-legacy-state-freeze') &&
     portal.includes('const effectiveCandidates = selectedCase.legacyStateReviewRequired ? [] : nayaxCandidates') &&
-    portal.includes("? 'Waiting for a fresh transaction check'") &&
+    transactionViewState.includes("heading: 'Transaction results expired'") &&
+    transactionViewState.includes('legacyStateReviewRequired ||') &&
     portal.includes('!selectedCase.legacyStateReviewRequired') &&
     portal.includes('Earlier approval sent') &&
     portal.includes('No refund is recorded.') &&

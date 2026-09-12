@@ -6,8 +6,9 @@ const intake = read("supabase/functions/refund-case-intake/index.ts");
 const gmailSync = read("supabase/functions/refund-gmail-sync/index.ts");
 const sweep = read("supabase/functions/refund-case-automation-sweep/index.ts");
 const portal = read("src/pages/admin/Refunds.tsx");
+const transactionViewState = read("src/lib/refundTransactionViewState.ts");
 const lookupEndpoint = read("supabase/functions/nayax-transaction-lookup/index.ts");
-const recoveryMigration = read("supabase/migrations/20260910035559_refund_server_owned_nayax_lookup_recovery.sql");
+const recoveryMigration = read("supabase/migrations/20260911210036_simplify_refund_nayax_lookup.sql");
 const recoveryConcurrency = read("supabase/tests/refund_server_owned_nayax_lookup_concurrency.sql");
 const recoverySql = read("supabase/tests/refund_server_owned_nayax_lookup_recovery.sql");
 const migration = read("supabase/migrations/202608150001_refund_automatic_nayax_lookup.sql");
@@ -26,11 +27,12 @@ assert(
 
 assert(automatic.includes("deriveRefundMissingFields"), "automatic trigger must reuse the canonical readiness helper");
 assert(
-  automatic.includes('"service_enqueue_refund_nayax_lookup"') &&
+  !automatic.includes('"service_enqueue_refund_nayax_lookup"') &&
+    automatic.includes("The refund case is the durable work item") &&
     !automatic.includes("lookupNayaxCandidatesForRefundCase") &&
     !automatic.includes("beginNayaxLookup") &&
     !automatic.includes("persistNayaxLookupResult"),
-  "event triggers must durably enqueue only and must never own provider research",
+  "event triggers must make the case due without owning provider research",
 );
 assert(!automatic.includes("nayax-card-refund"), "automatic lookup must not invoke the refund adapter");
 assert(intake.includes("runAutomaticNayaxLookupIfReady"), "hosted intake must trigger the ready-case lookup");
@@ -51,10 +53,39 @@ assert(
 );
 assert(sweep.includes('source: "customer_reply_recheck"'), "customer reply recheck must trigger lookup readiness");
 assert(
-  sweep.includes('"service_claim_refund_nayax_lookup_recoveries"') &&
-    sweep.includes("nayax_lookup:${refundCase.id}:v${refundCase.deterministic_fact_version}:r${recoveryGeneration}:a${attemptOrdinal}") &&
+  sweep.includes('"service_claim_due_refund_nayax_lookups"') &&
+    sweep.includes("{ p_limit: 4 }") &&
+    sweep.includes("nayax_lookup:${refundCase.id}:v${refundCase.deterministic_fact_version}:g${lookupGeneration}") &&
     sweep.includes("lookupNayaxCandidatesForRefundCase"),
-  "sweep must be the sole provider-read owner for the final-schema exact recovery claim",
+  "sweep must be the sole provider-read owner and keep each sequential production batch CPU-bounded",
+);
+const automationGate = sweep.indexOf('if (!automationEnabled)');
+const readOnlyLookupCall = sweep.indexOf('await runCardNayaxLookupSweep(runId, counters, policyWindowStart)', automationGate);
+const customerContactWindowGate = sweep.indexOf('if (!policyWindowIsOpen(scheduledAt))', automationGate);
+const customerContactSweep = sweep.indexOf('await runMissingInformationSweep', customerContactWindowGate);
+const persistedCustomerCorrectionSweep = sweep.indexOf(
+  'await runPersistedNayaxCustomerCorrectionSweep',
+  customerContactWindowGate,
+);
+const readOnlyLookupDefinition = sweep.slice(
+  sweep.indexOf('const runCardNayaxLookupSweep'),
+  sweep.indexOf('const runPersistedNayaxCustomerCorrectionSweep'),
+);
+assert(
+  automationGate >= 0 &&
+    readOnlyLookupCall > automationGate &&
+    customerContactWindowGate > readOnlyLookupCall &&
+    customerContactSweep > customerContactWindowGate &&
+    persistedCustomerCorrectionSweep > customerContactWindowGate,
+  "read-only transaction discovery must run before the customer-contact window while customer work remains gated",
+);
+assert(
+  !readOnlyLookupDefinition.includes('sendWalletCorrectionMessage') &&
+    !readOnlyLookupDefinition.includes('sendDeterministicFollowUpMessage') &&
+    !readOnlyLookupDefinition.includes('claimFollowUpCycle') &&
+    !readOnlyLookupDefinition.includes('routeFollowUpManualReview') &&
+    !readOnlyLookupDefinition.includes('routeProviderException'),
+  "the pre-window transaction sweep must only read provider data and persist internal results",
 );
 assert(migration.includes("action.action_key ="), "manager state must resolve the current fact-version lookup operation");
 assert(
@@ -77,53 +108,74 @@ assert(
   "a separate Nayax account must never borrow the default credential"
 );
 assert(
-  recoveryMigration.includes("attempt_ordinal between 0 and 1") &&
-    recoveryMigration.includes("recovery_generation between 0 and 1000000") &&
+  recoveryMigration.includes("nayax_lookup_retry_count < 1") &&
     recoveryMigration.includes("interval '2 minutes'") &&
-    recoveryMigration.includes("for update of recovery skip locked") &&
-    recoveryMigration.includes("order by recovery.next_attempt_at, recovery.created_at, recovery.refund_case_id") &&
-    recoveryMigration.includes("service_mark_refund_nayax_lookup_recovery_started") &&
-    recoveryMigration.includes("service_enqueue_refund_nayax_lookup") &&
-    recoveryMigration.includes("unique (refund_case_id, deterministic_fact_version, recovery_generation, attempt_ordinal)"),
-  "final schema must bound retries and fairly claim one exact lookup generation",
+    recoveryMigration.includes("pg_try_advisory_xact_lock") &&
+    recoveryMigration.includes("for update of c skip locked") &&
+    recoveryMigration.includes("service_claim_due_refund_nayax_lookups") &&
+    recoveryMigration.includes("drop table if exists public.refund_nayax_lookup_recoveries"),
+  "final schema must bound retries and fairly claim the case without a second queue",
 );
 assert(
-  recoveryConcurrency.includes("dblink_send_query('lookup_recovery_a'") &&
-    recoveryConcurrency.includes("dblink_send_query('lookup_recovery_b'") &&
-    recoveryConcurrency.includes("Competing sweep sessions obtain exactly one active provider-read claim") &&
-    recoveryConcurrency.includes("The late worker leaves the newer fact version and its completed lookup evidence unchanged"),
-  "disposable database coverage must prove competing claims and late-lease stale protection",
+  recoveryConcurrency.includes("dblink_send_query('lookup_work_a'") &&
+    recoveryConcurrency.includes("dblink_send_query('lookup_work_b'") &&
+    recoveryConcurrency.includes("Competing sweeps obtain exactly one case-owned lookup claim"),
+  "disposable database coverage must prove competing case claims",
 );
 assert(
   recoveryMigration.includes("refund_authoritative_receipts") &&
     recoveryMigration.includes("refund_case_nayax_refund_attempts") &&
     recoveryMigration.includes("nayax_refund_execution_status = 'not_requested'") &&
-    recoveryMigration.includes("previous candidate") &&
-    recoveryMigration.includes("expired.expired_at <= statement_timestamp()"),
-  "recovery must stay read-only, preserve prior evidence, and refresh expiry automatically",
+    recoveryMigration.includes("9999-12-31") &&
+    lookup.includes('expires_at: durableCandidateExpiry'),
+  "lookup work must stay read-only and preserve completed evidence",
+);
+const immutableGuardDefinition = recoveryMigration.indexOf(
+  "create or replace function public.reject_refund_nayax_candidate_update()",
+);
+const durableEvidenceBackfill = recoveryMigration.indexOf(
+  "update public.refund_nayax_lookup_candidates",
+);
+assert(
+  immutableGuardDefinition >= 0 &&
+    immutableGuardDefinition < durableEvidenceBackfill &&
+    recoveryMigration.includes("facts_unchanged") &&
+    recoveryMigration.includes("durable_transition") &&
+    recoveryMigration.includes("actor_binding_transition") &&
+    recoveryMigration.includes("old.actor_user_id is null") &&
+    recoveryMigration.includes("candidate_row.actor_user_id is not null"),
+  "the production backfill must retain immutable transaction facts and allow only one-way durability and manager binding metadata",
+);
+assert(
+  recoverySql.includes("Automatic lookup metadata can make immutable evidence durable") &&
+    recoverySql.includes("An unclaimed automatic candidate can bind to one manager") &&
+    recoverySql.includes("Transaction evidence cannot be rewritten during a metadata transition") &&
+    recoverySql.includes("A candidate cannot be rebound to another manager") &&
+    recoverySql.includes("Manual portal evidence keeps its reviewed expiry boundary"),
+  "database coverage must exercise both permitted metadata transitions and reject fact mutation, rebinding, and manual evidence extension",
 );
 assert(
   recoveryMigration.includes("'{canSelectNayaxCandidate}','false'::jsonb") &&
-    recoverySql.includes('Final customer-case overview disables retained evidence selection during System recovery') &&
-    recoverySql.includes('Final Internal/test overview disables retained evidence selection during System recovery') &&
-    recoverySql.includes('Completed non-System evidence preserves its existing selection projection'),
-  "System recovery must disable retained selection in both final overview arrays without broadening completed behavior",
+    recoverySql.includes('Unknown historical coverage is not presented as a proved no-match') &&
+    recoverySql.includes('An exhausted automatic retry routes to Refund Operations'),
+  "case-owned work must disable selection while active and distinguish inconclusive history",
 );
 assert(
   lookupEndpoint.includes('"is_super_admin"') &&
     lookupEndpoint.includes('"Refund Operations access required."') &&
+    lookupEndpoint.includes('"service_begin_refund_nayax_operations_lookup"') &&
     !lookupEndpoint.includes('"can_manage_refund_case"'),
   "the narrow manual endpoint must reject an ordinary mapped manager",
 );
 assert(
-  portal.includes("selectedCase.nayaxLookupRecovery?.state === 'refund_operations'") &&
+  portal.includes("selectedCase.nayaxLookupWork?.state === 'refund_operations'") &&
     portal.includes('data-testid="nayax-operations-recovery"') &&
-    portal.includes('Recover transaction check'),
+    portal.includes('Run an operations transaction check'),
   "only the elevated Refund Operations projection exposes deliberate recovery",
 );
 assert(
-  portal.includes('data-testid="nayax-internal-setup-owner"') &&
-    portal.includes("No customer follow-up is needed.") &&
+  transactionViewState.includes('Refund Operations owns the machine connection.') &&
+    transactionViewState.includes('the customer does not need to repeat details.') &&
     !portal.includes("Try again or ask the customer for more details."),
   "mapping and account failures must be manager-owned without customer repetition"
 );

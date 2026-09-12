@@ -82,11 +82,12 @@ import {
 } from '@/lib/refundOperations';
 import {
   lookupReportingUserByEmailAdmin,
-  type ReportingMachineType,
   upsertReportingMachineAdmin,
 } from '@/lib/reporting';
+import { normalizeMachineType, type CanonicalMachineType } from '@/lib/machineTypes';
 import { cn } from '@/lib/utils';
 import {
+  formatMachineType,
   formatLabel,
   formatDate,
   getActiveMachineAssignments,
@@ -100,7 +101,7 @@ import {
 
 type MachineTaxFilter = 'all' | TaxStatus;
 type MachineAssignmentFilter = 'all' | 'unassigned' | 'overlap';
-type MachineTypeFilter = 'all' | ReportingMachineType;
+type MachineTypeFilter = 'all' | CanonicalMachineType;
 type MachineRefundFilter = 'all' | 'ready' | 'direct_blocked' | 'setup' | 'paused';
 type MachineActivityFilter = 'all' | 'recent' | 'no_sales';
 type MachineSort = 'status' | 'machine' | 'latest_sale';
@@ -286,7 +287,7 @@ const emptyMachineForm = {
   accountName: '',
   locationName: '',
   machineLabel: '',
-  machineType: 'unknown' as ReportingMachineType,
+  machineType: 'commercial' as CanonicalMachineType | '',
   sunzeMachineId: '',
 };
 
@@ -313,8 +314,8 @@ const parseMachineView = (value: string | null): MachineView => {
 };
 
 const parseMachineTypeFilter = (value: string | null): MachineTypeFilter =>
-  value && machineTypes.includes(value as ReportingMachineType)
-    ? (value as ReportingMachineType)
+  value && machineTypes.includes(value as CanonicalMachineType)
+    ? (value as CanonicalMachineType)
     : 'all';
 
 const parseRefundFilter = (value: string | null): MachineRefundFilter => {
@@ -764,7 +765,11 @@ export default function AdminMachinesPage() {
           )
         );
       })
-      .filter((row) => machineTypeFilter === 'all' || row.machine.machine_type === machineTypeFilter)
+      .filter(
+        (row) =>
+          machineTypeFilter === 'all' ||
+          normalizeMachineType(row.machine.machine_type) === machineTypeFilter
+      )
       .filter((row) => {
         if (refundFilter === 'all') return true;
         if (refundFilter === 'paused') return refundManagerSetup.globalRefunds.paused;
@@ -1417,7 +1422,7 @@ export default function AdminMachinesPage() {
                       className="mt-1 h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                     >
                       <option value="all">All machine types</option>
-                      {machineTypes.map((type) => <option key={type} value={type}>{formatLabel(type)}</option>)}
+                      {machineTypes.map((type) => <option key={type} value={type}>{formatMachineType(type)}</option>)}
                     </select>
                   </div>
                   <div>
@@ -1500,7 +1505,7 @@ export default function AdminMachinesPage() {
 
           {(taxFilter !== 'all' || assignmentFilter !== 'all' || machineTypeFilter !== 'all' || refundFilter !== 'all' || activityFilter !== 'all') && (
             <div className="mt-3 flex flex-wrap items-center gap-2" aria-label="Active filters">
-              {machineTypeFilter !== 'all' && <ActiveFilterChip label={`Type: ${formatLabel(machineTypeFilter)}`} onRemove={() => updateMachineTypeFilter('all')} />}
+              {machineTypeFilter !== 'all' && <ActiveFilterChip label={`Type: ${formatMachineType(machineTypeFilter)}`} onRemove={() => updateMachineTypeFilter('all')} />}
               {refundFilter !== 'all' && <ActiveFilterChip label={`Refunds: ${formatLabel(refundFilter)}`} onRemove={() => updateRefundFilter('all')} />}
               {activityFilter !== 'all' && <ActiveFilterChip label={`Activity: ${activityFilter === 'recent' ? 'Recent sale' : 'No sales'}`} onRemove={() => updateActivityFilter('all')} />}
               {taxFilter !== 'all' && <ActiveFilterChip label={`Tax: ${formatLabel(taxFilter)}`} onRemove={() => updateTaxFilter('all')} />}
@@ -1697,7 +1702,7 @@ function MachinePortfolioRow({
         <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
           <span className="truncate">{machine.location_name || machine.account_name || 'Location not set'}</span>
           <span aria-hidden="true">·</span>
-          <span className="shrink-0">{formatLabel(machine.machine_type)}</span>
+          <span className="shrink-0">{formatMachineType(machine.machine_type)}</span>
         </div>
       </div>
 
@@ -2519,7 +2524,7 @@ function MachineDialog({
       accountName: machine.account_name || hiddenManualMachineAccountName,
       locationName: machine.location_name,
       machineLabel: machine.machine_label,
-      machineType: machine.machine_type,
+      machineType: normalizeMachineType(machine.machine_type) ?? '',
       sunzeMachineId: machine.sunze_machine_id ?? '',
     });
   }, [machine, open]);
@@ -2561,6 +2566,11 @@ function MachineDialog({
 
     if (shouldSaveIdentity && !form.machineLabel.trim()) {
       toast.error('Machine label is required.');
+      return;
+    }
+
+    if (shouldSaveIdentity && !form.machineType) {
+      toast.error('Choose a machine type before saving.');
       return;
     }
 
@@ -2831,7 +2841,7 @@ function MachineDialog({
   const machineIdentityHasChanges = Boolean(machine) && (
     form.machineLabel.trim() !== machine.machine_label ||
     form.accountName.trim() !== (machine.account_name || hiddenManualMachineAccountName) ||
-    form.machineType !== machine.machine_type ||
+    form.machineType !== (normalizeMachineType(machine.machine_type) ?? '') ||
     form.sunzeMachineId.trim() !== (machine.sunze_machine_id ?? '')
   );
 
@@ -2844,7 +2854,7 @@ function MachineDialog({
       accountName: machine.account_name || hiddenManualMachineAccountName,
       locationName: machine.location_name,
       machineLabel: machine.machine_label,
-      machineType: machine.machine_type,
+      machineType: normalizeMachineType(machine.machine_type) ?? '',
       sunzeMachineId: machine.sunze_machine_id ?? '',
     });
   }, [machine]);
@@ -2964,7 +2974,7 @@ function MachineDialog({
               <h1 className="truncate text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
                 {machine.machine_label}
               </h1>
-              <Badge variant="outline">{formatLabel(machine.machine_type)}</Badge>
+              <Badge variant="outline">{formatMachineType(machine.machine_type)}</Badge>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
               {machine.location_name || machine.account_name || 'Location not set'}
@@ -3035,9 +3045,10 @@ function MachineDialog({
                   </div>
                   <div>
                     <Label htmlFor="page-machine-type">Machine type</Label>
-                    <select id="page-machine-type" value={form.machineType} onChange={(event) => setForm({ ...form, machineType: event.target.value as ReportingMachineType })} className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm">
-                      {machineTypes.map((machineType) => <option key={machineType} value={machineType}>{formatLabel(machineType)}</option>)}
+                    <select id="page-machine-type" value={form.machineType} onChange={(event) => setForm({ ...form, machineType: event.target.value as CanonicalMachineType })} className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm">
+                      {machineTypes.map((machineType) => <option key={machineType} value={machineType}>{formatMachineType(machineType)}</option>)}
                     </select>
+                    {!form.machineType && <p className="mt-1 text-xs text-amber-700">This legacy record is unverified. Choose its correct type before saving.</p>}
                   </div>
                   <div>
                     <Label htmlFor="page-machine-location">Location</Label>
@@ -3046,7 +3057,7 @@ function MachineDialog({
                 </div>
                 <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-border pt-4">
                   <Button variant="outline" onClick={cancelMachineIdentityChanges} disabled={!machineIdentityHasChanges || isSavingMachineChanges}>Cancel</Button>
-                  <Button onClick={() => void saveMachine('identity')} disabled={isSavingMachineChanges || !machineIdentityHasChanges || isLocalDemoMode}>
+                  <Button onClick={() => void saveMachine('identity')} disabled={isSavingMachineChanges || !machineIdentityHasChanges || !form.machineType || isLocalDemoMode}>
                     {isSavingMachineChanges && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Save changes
                   </Button>
@@ -3056,7 +3067,7 @@ function MachineDialog({
               <dl className="max-w-3xl divide-y divide-border rounded-md border border-border text-sm">
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Machine label</dt><dd className="text-right font-medium">{machine.machine_label}</dd></div>
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Reporting account</dt><dd className="text-right font-medium">{machine.account_name || 'Not set'}</dd></div>
-                <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Machine type</dt><dd className="font-medium">{formatLabel(machine.machine_type)}</dd></div>
+                <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Machine type</dt><dd className="font-medium">{formatMachineType(machine.machine_type)}</dd></div>
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Location</dt><dd className="text-right font-medium">{machine.location_name || 'Not set'}</dd></div>
               </dl>
             )}
@@ -3310,13 +3321,13 @@ function MachineDialog({
             <select
               id="machine-type"
               value={form.machineType}
-              onChange={(event) => setForm({ ...form, machineType: event.target.value as ReportingMachineType })}
+              onChange={(event) => setForm({ ...form, machineType: event.target.value as CanonicalMachineType })}
               disabled={!canEditMachineIdentity}
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
             >
               {machineTypes.map((machineType) => (
                 <option key={machineType} value={machineType}>
-                  {formatLabel(machineType)}
+                  {formatMachineType(machineType)}
                 </option>
               ))}
             </select>
@@ -3704,7 +3715,7 @@ function MachineDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={() => void saveMachine('all')} disabled={isSavingMachineChanges || isLocalDemoMode}>
+          <Button onClick={() => void saveMachine('all')} disabled={isSavingMachineChanges || !form.machineType || isLocalDemoMode}>
             {isSavingMachineChanges ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
