@@ -15,6 +15,7 @@ for (const expected of [
   'All machines',
   'Edit access',
   'Technician pay setup',
+  'sm:max-w-lg',
   'Advanced details',
 ]) assert.ok(consoleSource.includes(expected), `missing people workspace contract: ${expected}`);
 
