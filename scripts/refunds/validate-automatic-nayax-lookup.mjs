@@ -170,12 +170,12 @@ assert(
 assert(
   portal.includes("selectedCase.nayaxLookupWork?.state === 'refund_operations'") &&
     portal.includes('data-testid="nayax-operations-recovery"') &&
-    portal.includes('Run an operations transaction check'),
-  "only the elevated Refund Operations projection exposes deliberate recovery",
+    portal.includes('Run transaction check'),
+  "only the elevated manager projection exposes deliberate recovery",
 );
 assert(
-  transactionViewState.includes('Refund Operations owns the machine connection.') &&
-    transactionViewState.includes('the customer does not need to repeat details.') &&
+  transactionViewState.includes('Use Nayax directly if Bloomjoy Hub still cannot search.') &&
+    transactionViewState.includes('The customer does not need to repeat details.') &&
     !portal.includes("Try again or ask the customer for more details."),
   "mapping and account failures must be manager-owned without customer repetition"
 );

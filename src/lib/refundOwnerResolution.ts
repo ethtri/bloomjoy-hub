@@ -17,7 +17,7 @@ export const parseOwnerResolutionContext = (data: unknown): OwnerResolutionConte
 };
 export async function fetchOwnerResolutionContext(caseId: string) {
   const { data, error } = await supabaseClient.rpc('admin_get_refund_owner_resolution_context', { p_case_id: caseId });
-  if (error) throw new Error('This resolution needs current Refund Operations access.');
+  if (error) throw new Error('This resolution needs current manager access.');
   const parsed = parseOwnerResolutionContext(data);
   if (!parsed) throw new Error('Reload the current case before recording this resolution.');
   return parsed;

@@ -141,7 +141,7 @@ export const deriveRefundTransactionViewState = ({
     const historicalCoverageComplete = summary.historicalCoverage === 'complete';
     const description = historicalCoverageComplete
       ? 'Bloomjoy checked the recorded purchase period and found no matching transaction.'
-      : 'No usable transaction was returned, but the provider did not confirm complete coverage of the purchase period. Refund Operations owns the next internal check.';
+      : 'No usable transaction was returned, and Nayax did not confirm complete coverage of the purchase period. Run the available transaction check or search the same machine in Nayax.';
     return {
       ...base,
       kind: historicalCoverageComplete ? 'no_match' : 'unavailable',
@@ -183,12 +183,12 @@ export const deriveRefundTransactionViewState = ({
             ? 'Retry pending'
             : 'Needs attention',
       description: setupNeeded
-        ? 'Refund Operations owns the machine connection. No transaction results are available to show, and the customer does not need to repeat details.'
+        ? 'Check the machine\'s Nayax connection. Use Nayax directly if Bloomjoy Hub still cannot search. The customer does not need to repeat details.'
         : historyIncomplete
           ? incompleteDescription
         : retryAvailable
-          ? 'Bloomjoy does not have current transaction results to show. It will run one safe read-only retry automatically. No refund was issued.'
-          : 'Bloomjoy does not have current transaction results to show. Refund Operations owns the next internal check. No refund was issued.',
+          ? 'Bloomjoy does not have current transaction results to show. It will run one more read-only check automatically. No refund was issued.'
+          : 'Bloomjoy does not have current transaction results to show. Search the same machine in Nayax and report the missing portal fallback. No refund was issued.',
       tone: 'warning',
       showCandidates: false,
     };

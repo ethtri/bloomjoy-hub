@@ -1101,7 +1101,7 @@ export default function RefundRequestPage() {
                           ? qrClaim
                             ? `QR confirmed: ${selectedMachine.displayLabel}`
                             : `Selected: ${selectedMachine.displayLabel}`
-                          : 'Your request goes to the Bloomjoy operations team.'}
+                          : 'Your request goes to the manager responsible for that machine.'}
                       </span>
                     </div>
                     <Button

@@ -35,10 +35,10 @@ vm.runInNewContext(
  }},
 );
 const dependencies={...managerModule.exports,canRequestRefundCustomerDetailsManually,hasConfirmedRefundReceipt:c=>c.receipt===true,getLatestCustomerMessage:()=>null,isDefinitiveNoRefundRetryReady:()=>false,transactionalDeliveryLabel:state=>state,hasTransactionMatch:c=>Boolean(c.matched),derivePortalRefundMissingFields:()=>[],isWaitingCase:()=>true,activeNayaxCandidate:()=>null,hasSelectedCardEvidence:()=>true,formatCurrency:amount=>`$${(amount/100).toFixed(2)}`};
-test('actual workbench maps accounting review into the protected Refund Operations view',()=>{
+test('actual workbench maps accounting review into the manager-review view',()=>{
  const refundCase={lifecycle:{managerQueue:{bucket:'accounting_review'}}};
  const bucket=caseValue=>caseValue.lifecycle.managerQueue.bucket;
- assert.equal(load('refundSearchViewLabel',{getRefundManagerQueueBucket:bucket})(refundCase),'Needs Refund Operations');
+ assert.equal(load('refundSearchViewLabel',{getRefundManagerQueueBucket:bucket})(refundCase),'Needs manager review');
  assert.equal(load('isRefundOperationsCase',{canonicalQueueBucket:bucket})(refundCase),true);
 });
 test('actual manager action respects current scope, delivery holds and terminal truth',()=>{
@@ -397,7 +397,7 @@ test('actual action gives payment holds, pending and terminal truth priority ove
  const action=load('primaryActionConfig',dependencies);
  const editor={status:'needs_review',decision:null,matchedNayaxCandidateToken:''};
  const base={status:'needs_review',paymentMethod:'card',customerDeliveryException:{state:'bounced'}};
- for(const [stage,paymentState,label] of [['refund_initiated','submitted_pending','Refund initiated'],['confirming_with_nayax','submitted_pending','Confirming refund'],['needs_refund_operations','outcome_unknown','Needs Refund Operations'],['integrity_hold','integrity_unknown','Lifecycle evidence needs review'],['denied','not_issued','Denied']]) {
+ for(const [stage,paymentState,label] of [['refund_initiated','submitted_pending','Refund initiated'],['confirming_with_nayax','submitted_pending','Confirming refund'],['needs_refund_operations','outcome_unknown','Needs manager review'],['integrity_hold','integrity_unknown','Lifecycle evidence needs review'],['denied','not_issued','Denied']]) {
   const result=action({...base,lifecycle:{stage,paymentState,terminal:stage==='denied',managerQueue:{bucket:'needs_action'}}},editor,[],{canIssueCardRefund:true});
   assert.equal(result.disabled,true,stage);assert.equal(result.label,label,stage);
   assert.equal(result.mode,undefined,stage);

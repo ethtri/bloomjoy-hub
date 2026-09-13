@@ -7,10 +7,12 @@ const root = fileURLToPath(new URL('../../', import.meta.url));
 const directory = path.join(root, '.local', 'refund-agent-review');
 const args = process.argv.slice(2);
 const help = `Read-only refund review (#1089).
-node scripts/refunds/refund-agent-review-cli.mjs [--case UUID] [--page-size 25]
+node scripts/refunds/refund-agent-review-cli.mjs [--all] [--case UUID] [--page-size 25]
 Environment: SUPABASE_URL, SUPABASE_ANON_KEY (or publishable key), REFUND_REVIEW_ACCESS_TOKEN.
 Use an explicitly provided ordinary authenticated user session; no credential discovery or refresh.
-All changed queue pages are emitted. --case writes one restricted normalized packet under .local.
+The default emits changed cases. --all emits the complete authorized population.
+Use the machine's assigned Machine Manager in Bloomjoy Hub for ownership scope; never infer ownership from a provider account.
+--case writes one restricted normalized packet under .local.
 No payment, send, case write, provider lookup, or forced ingestion is available.`;
 
 async function safeDirectory(dir) {
@@ -29,10 +31,11 @@ async function save(file, value) {
 
 async function main() {
   if (args.includes('--help')) { console.log(help); return; }
-  let caseId; let pageSize = 25;
-  for (let i = 0; i < args.length; i += 2) {
-    if (args[i] === '--case') caseId = args[i + 1];
-    else if (args[i] === '--page-size') pageSize = Number(args[i + 1]);
+  let caseId; let pageSize = 25; let emitAll = false;
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i] === '--all') emitAll = true;
+    else if (args[i] === '--case') caseId = args[++i];
+    else if (args[i] === '--page-size') pageSize = Number(args[++i]);
     else throw new ReviewError('unknown_argument');
   }
   paginate([], 1, pageSize);
@@ -69,10 +72,15 @@ async function main() {
     await save(packetFile, packets.find(packet => packet.caseId === caseId));
   }
   await save(snapshotFile, review.snapshot);
-  const summaries = review.changed.map(summarizeCasePacket);
+  const changed = review.changed;
+  const summaries = (emitAll ? packets : changed).map(summarizeCasePacket);
   const pages = Array.from({ length: Math.ceil(summaries.length / pageSize) }, (_, i) => paginate(summaries, i + 1, pageSize));
-  console.log(JSON.stringify({ schemaVersion, status: summaries.length || review.removedCount || reportChanged ? 'changed' : 'unchanged',
-    population: population.population, changedCount: summaries.length, unchangedCount: review.unchangedCount,
+  console.log(JSON.stringify({ schemaVersion, status: emitAll
+    ? 'complete'
+    : (summaries.length || review.removedCount || reportChanged ? 'changed' : 'unchanged'),
+    mode: emitAll ? 'full' : 'changes',
+    population: population.population, changedCount: changed.length,
+    emittedCount: summaries.length, unchangedCount: review.unchangedCount,
     noLongerVisibleCount: review.removedCount, ...(pages.length ? { pages } : {}), ...(packetFile ? { packetFile } : {}),
     ...(reportChanged ? { reportHealth } : {}),
     limitations: 'Initial adapter: attempt history, allocation and per-case report coverage require a scoped read extension. Unknown report or balance does not block a qualified approved first attempt.',

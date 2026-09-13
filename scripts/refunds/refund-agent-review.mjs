@@ -13,6 +13,8 @@ const array = value => Array.isArray(value) ? value : [];
 const pick = (value, keys) => Object.fromEntries(keys.filter(key => value?.[key] !== undefined).map(key => [key, value[key]]));
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
   ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+const machineManagerOwner = value => ['operations', 'Refund Operations'].includes(value)
+  ? 'Machine Manager' : value ?? 'Machine Manager';
 export const digest = value => createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
 const unique = rows => [...new Map(rows.map(row => [row.id, row])).values()].sort((a, b) => String(a.id).localeCompare(String(b.id)));
 const bloomjoyProjectOrigin = 'https://ygbzkgxktzqsiygjlqyg.supabase.co';
@@ -132,13 +134,15 @@ async function readReceiptEvidence(client, args) {
 
 export async function readReportHealth(client) {
   const data = await client.rpc('get_refund_gmail_health', {});
+  const delivery = data?.reportFreshness ? pick(data.reportFreshness,
+    ['schemaVersion', 'status', 'deliveryState', 'ingestState', 'coverageState', 'coverageReason',
+      'attentionRequired', 'attentionReason', 'affectedCaseCount', 'lastReceivedAt', 'lastRecordedAt', 'lastProviderRunAt',
+      'reviewAfter', 'configuredCadenceMinutes', 'reviewGraceMinutes', 'schedulePhaseKnown', 'ownerLabel',
+      'absenceIsNoRefundEvidence', 'paymentRetryAuthorized']) : null;
+  if (delivery?.ownerLabel) delivery.ownerLabel = machineManagerOwner(delivery.ownerLabel);
   return { available: true, reason: null,
     importer: pick(data, ['status', 'lastRunAt', 'lastSuccessAt', 'lastRunStatus']),
-    delivery: data?.reportFreshness ? pick(data.reportFreshness,
-      ['schemaVersion', 'status', 'deliveryState', 'ingestState', 'coverageState', 'coverageReason',
-        'attentionRequired', 'attentionReason', 'affectedCaseCount', 'lastReceivedAt', 'lastRecordedAt', 'lastProviderRunAt',
-        'reviewAfter', 'configuredCadenceMinutes', 'reviewGraceMinutes', 'schedulePhaseKnown', 'ownerLabel',
-        'absenceIsNoRefundEvidence', 'paymentRetryAuthorized']) : null,
+    delivery,
     limits: 'Stored Gmail receipt time; receiver-header provenance, per-case coverage and provider refund-status semantics are not established by this health signal. Local grace is not a vendor SLA or payment gate.' };
 }
 
@@ -247,10 +251,11 @@ export async function readCasePacket(client, population, caseId, now = new Date(
       canonicalCount: c.nayaxLookupSummary?.candidateCount ?? null },
     lifecycle: lifecycle ? { ...pick(lifecycle, ['schemaVersion', 'version', 'stage', 'reasonCode', 'paymentState', 'terminal', 'evidenceState']),
       customerAction: pick(lifecycle.customerAction, ['action', 'required', 'requestedFields']),
-      managerAction: pick(lifecycle.managerAction, ['action', 'owner', 'safeRetryEligible']),
+      managerAction: { ...pick(lifecycle.managerAction, ['action', 'safeRetryEligible']), owner: machineManagerOwner(lifecycle.managerAction.owner) },
       managerQueue: pick(lifecycle.managerQueue, ['schemaVersion', 'bucket', 'nextAction', 'safeRetryEligible', 'customerActionFields']),
       lookup: pick(lifecycle.lookup, ['status', 'safeRetryEligible', 'failureClass', 'lastUpdatedAt']),
-      operations: { ...pick(lifecycle.operations, ['required', 'owner', 'dueAt', 'safeStage', 'failureClass', 'nextStep']), overdue: due ? Date.parse(due) <= now.getTime() : null },
+      operations: { ...pick(lifecycle.operations, ['required', 'dueAt', 'safeStage', 'failureClass', 'nextStep']),
+        owner: machineManagerOwner(lifecycle.operations.owner), overdue: due ? Date.parse(due) <= now.getTime() : null },
     } : null,
     queueEvidence: pick(entry.queue, ['providerHold', 'providerOutcome', 'actionBlocked', 'possibleDuplicate', 'confirmedDuplicate', 'legacyStateReviewRequired']),
     manualContext: pick(entry.manual, ['manualNayaxPortalEnabled', 'manualNayaxEvidenceSelected', 'manualNayaxLocationTimezone', 'reviewedNayaxPortalFallbackKind']),
@@ -267,7 +272,7 @@ export async function readCasePacket(client, population, caseId, now = new Date(
     events: unique(array(c.events).map(e => pick(e, ['id', 'eventType', 'createdAt']))),
     attachments: unique(array(c.attachments).map(a => pick(a, ['id', 'contentType', 'byteSize', 'uploadedAt']))),
     closeout: { paymentConfirmed, noticeEvidence, complete: paymentConfirmed && !incompleteCloseout, incomplete: incompleteCloseout },
-    nextAction: { action: nextAction, owner: lifecycle?.managerAction.owner ?? 'Refund Operations', blocked: evidenceBlocked || operationalBlocked,
+    nextAction: { action: nextAction, owner: machineManagerOwner(lifecycle?.managerAction.owner), blocked: evidenceBlocked || operationalBlocked,
       customerAction: validWaiting ? { action: 'reply_to_existing_request', fields } : { action: 'none', fields: [] },
       executionAuthority: 'read_only_packet_never_authorizes_or_executes_a_payment' },
     contradictions,
@@ -280,8 +285,10 @@ export function summarizeCasePacket(packet) {
     caseId: packet.caseId,
     publicReference: packet.publicReference,
     stage: packet.lifecycle?.stage ?? 'unknown',
+    queue: packet.lifecycle?.managerQueue?.bucket ?? 'unknown',
     paymentState: packet.lifecycle?.paymentState ?? 'unknown',
     nextAction: packet.nextAction,
+    operationsDueAt: packet.lifecycle?.operations?.dueAt ?? null,
     contradictions: packet.contradictions,
     approval: packet.approval.decision,
     approvalContinuity: packet.approval.continuity,

@@ -126,7 +126,7 @@ const run = async () => {
       "latestMessage?.status === 'failed'",
       "latestMessage?.status === 'skipped'",
       'Customer was not notified',
-      'Send a safe customer acknowledgement',
+      'Send customer acknowledgement',
       'Retry customer email',
       'Resolve uncertain Gmail delivery',
       'getLatestCustomerMessage',

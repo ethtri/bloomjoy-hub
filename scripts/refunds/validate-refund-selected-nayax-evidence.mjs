@@ -52,7 +52,7 @@ for (const label of [
   'Provider-confirmed sale',
   'Customer-reported time',
   'Provider machine-local time',
-  'Safe card and wallet context',
+  'Card or wallet details',
   'Why this transaction was selected',
 ]) {
   assert(managerUi.includes(label), `Manager evidence card must render ${label}`);

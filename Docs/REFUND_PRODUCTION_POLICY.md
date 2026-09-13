@@ -6,10 +6,12 @@ the original payment transaction is.
 
 The [MVP delivery plan](./REFUND_MVP_PLAN.md) defines the simple manager/customer experience and the remaining API/report/completion work. Current progress belongs to #628 and its linked issues.
 
-Start with [the agent operating procedure](./REFUND_AGENT_OPERATIONS.md) and the
-current #628/#990 issue bodies. The September 3 API release is deployed and
-enabled; one attributable request → approval → independently confirmed real
-refund remains to be proved through ordinary approved customer operations.
+Start with [the agent operating procedure](./REFUND_AGENT_OPERATIONS.md) and
+[CURRENT_STATUS.md](./CURRENT_STATUS.md). The working request → approval contract
+and attributable real refunds were proved on September 8. Current remaining
+acceptance concerns reliable automatic completion and ordinary queue operation;
+do not replay a completed payment to produce more evidence. Use #628/#990 issue
+bodies only for case-specific release history.
 
 ## Normal card-refund path
 
@@ -38,13 +40,13 @@ the selected original identity, duplicate protection and a durable attempt journ
 The global kill switch remains incident control. Unknown outcomes require
 reconciliation and cannot authorize another request.
 
-Refund Operations may approve one reviewed portal fallback for the legacy
+The assigned Machine Manager may approve one reviewed portal fallback for the legacy
 manual-evidence cohort or an ordinary exact match with original-bound definitive
 rejection or an audited no-refund release. That approval
 creates one provider-free unknown-result hold; it does not move money, change
 reporting, or contact the customer. The fallback is not shown for a kill
 switch, duplicate, reconciliation, authority, or other block reason. After the
-portal action, Refund Operations must verify that Nayax shows a completed
+portal action, the assigned Machine Manager must verify that Nayax shows a completed
 refund equal to the full selected transaction amount. A smaller or partial
 refund stays on hold and is escalated; it cannot be recorded as completed.
 

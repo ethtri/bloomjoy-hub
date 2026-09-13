@@ -136,7 +136,7 @@ for (const label of [
   assert.ok(refundsPage.includes(label), `Manager UI is missing ${label}.`);
 }
 assert.ok(refundsPage.includes('isNeedsActionCase'));
-assert.ok(refundsPage.includes('do not resend the message or retry a payment blindly'));
+assert.ok(refundsPage.includes('Check the original customer email thread and the saved delivery record before sending anything again.'));
 
 assert.ok(databaseTest.includes('select plan(20)'));
 assert.ok(databaseTest.includes('Webhook-before-bind evidence is retained'));
