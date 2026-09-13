@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(34);
+select plan(40);
 
 select ok(to_regclass('public.refund_nayax_lookup_recoveries') is null,
   'The duplicate lookup recovery table is removed');
@@ -28,6 +28,11 @@ select ok(
 
 insert into public.customer_accounts(id,name,account_type)
 values('a8700000-0000-4000-8000-000000000001','Lookup work fixture','internal');
+insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
+values('a8700000-0000-4000-8000-000000000009','authenticated','authenticated',
+  'lookup-operations@example.invalid','{}','{}');
+insert into public.admin_roles(user_id,role,active)
+values('a8700000-0000-4000-8000-000000000009','super_admin',true);
 insert into public.reporting_locations(id,account_id,name,timezone)
 values('a8700000-0000-4000-8000-000000000002','a8700000-0000-4000-8000-000000000001','Lookup place','America/Los_Angeles');
 insert into public.reporting_machines(id,account_id,location_id,machine_label,status,nayax_machine_id,nayax_account_key)
@@ -91,6 +96,54 @@ select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
     'nayaxLookupSummary',jsonb_build_object('lookupStatus','no_match'))),false)
   ->0->'nayaxLookupSummary'->>'providerRecordCount'),'18',
   'Managers receive bounded provider counts without raw transaction data');
+select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
+  jsonb_build_array(jsonb_build_object('id','a8700000-0000-4000-8000-000000000011',
+    'lifecycle',jsonb_build_object('managerAction','{}'::jsonb,'managerQueue','{}'::jsonb,
+      'lookup','{}'::jsonb,'operations','{}'::jsonb),
+    'nayaxLookupSummary',jsonb_build_object('lookupStatus','no_match'))),true)
+  ->0->'nayaxLookupWork'->>'state'),'refund_operations',
+  'Incomplete provider history is actionable internal manager work');
+select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
+  jsonb_build_array(jsonb_build_object('id','a8700000-0000-4000-8000-000000000011',
+    'lifecycle',jsonb_build_object('managerAction','{}'::jsonb,'managerQueue','{}'::jsonb,
+      'lookup','{}'::jsonb,'operations','{}'::jsonb),
+    'nayaxLookupSummary',jsonb_build_object('lookupStatus','no_match'))),true)
+  ->0->'nayaxLookupWork'->>'automaticRetriesUsed'),'0',
+  'Incomplete history exposes the unused single refresh');
+select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
+  jsonb_build_array(jsonb_build_object('id','a8700000-0000-4000-8000-000000000011',
+    'lifecycle',jsonb_build_object('managerAction','{}'::jsonb,'managerQueue','{}'::jsonb,
+      'lookup','{}'::jsonb,'operations','{}'::jsonb),
+    'nayaxLookupSummary',jsonb_build_object('lookupStatus','no_match'))),true)
+  ->0->'nayaxLookupWork'->>'failureClass'),'incomplete_history',
+  'Incomplete history has a stable redacted recovery reason');
+
+create temporary table incomplete_refresh_result(result jsonb not null);
+insert into incomplete_refresh_result
+select public.service_begin_refund_nayax_operations_lookup(
+  'a8700000-0000-4000-8000-000000000011',
+  (select deterministic_fact_version from public.refund_cases
+    where id='a8700000-0000-4000-8000-000000000011'),
+  'a8700000-0000-4000-8000-000000000009'
+);
+select ok((select result ->> 'status' = 'checking'
+    and (result ->> 'safeRetryConsumed')::boolean from incomplete_refresh_result),
+  'An authorized manager can begin the one read-only incomplete-history refresh');
+select is((select nayax_lookup_retry_count::integer from public.refund_cases
+  where id='a8700000-0000-4000-8000-000000000011'),1,
+  'The incomplete-history refresh consumes the current fact-version allowance');
+update public.refund_cases
+set nayax_lookup_status='no_match',nayax_lookup_finished_at=statement_timestamp()
+where id='a8700000-0000-4000-8000-000000000011';
+select throws_like($$
+  select public.service_begin_refund_nayax_operations_lookup(
+    'a8700000-0000-4000-8000-000000000011',
+    (select deterministic_fact_version from public.refund_cases
+      where id='a8700000-0000-4000-8000-000000000011'),
+    'a8700000-0000-4000-8000-000000000009'
+  )
+$$,'%Automatic transaction checks must be exhausted first%',
+  'A second incomplete-history refresh is blocked');
 
 update public.refund_cases set nayax_lookup_status='lookup_failed',
   nayax_lookup_finished_at=statement_timestamp(),nayax_lookup_failure_class='transport_error',

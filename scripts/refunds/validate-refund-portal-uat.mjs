@@ -1782,7 +1782,10 @@ const buildTransactionalDeliveryTruthOverview = ({
   confirmedPayment = true,
   accountingReview = false,
   gmailUncertain = false,
+  customerRequestDelivery = false,
+  activeOutreachMessageId = 'delivery-message-1',
   exactEvidenceCardinality = 'one',
+  providerEvidenceAvailable = true,
 } = {}) => {
   const overview = buildMockRefundOverview();
   const refundCase = overview.cases[0];
@@ -1802,7 +1805,21 @@ const buildTransactionalDeliveryTruthOverview = ({
     nextAction: 'review_customer_delivery',
     safeRetryEligible: false,
   };
+  if (customerRequestDelivery) {
+    lifecycle.customerOutreach = {
+      ...buildCustomerOutreachFixture({
+        state: 'delivery_unknown',
+        owner: 'Refund Operations',
+        nextAction: 'refund_operations',
+        failureCode: 'delivery_unconfirmed',
+      }),
+      requestMessageId: activeOutreachMessageId,
+      deliveryState: 'unknown',
+      deliveryStateUpdatedAt: isoHoursAgo(0.5),
+    };
+  }
   const exceptionOccurredAt = isoHoursAgo(0.5);
+  if (['unknown', 'deferred'].includes(deliveryState)) overview.refundOperationsAccess = true;
   overview.transactionalDeliveryContractVersion =
     'refund_transactional_delivery_v1';
   overview.cases = [{
@@ -1816,7 +1833,7 @@ const buildTransactionalDeliveryTruthOverview = ({
     customerDeliveryException: {
       schemaVersion: 'refund_transactional_delivery_v1',
       state: deliveryState,
-      messageType: confirmedPayment ? 'completed' : 'status_update',
+      messageType: customerRequestDelivery ? 'more_info' : confirmedPayment ? 'completed' : 'status_update',
       occurredAt: exceptionOccurredAt,
       recoveryOwner: 'refund_operations',
       nextAction: 'review_delivery_no_resend',
@@ -1843,10 +1860,12 @@ const buildTransactionalDeliveryTruthOverview = ({
       }] : []),
       {
         id: 'delivery-message-1',
-        messageType: confirmedPayment ? 'completed' : 'status_update',
+        messageType: customerRequestDelivery ? 'more_info' : confirmedPayment ? 'completed' : 'status_update',
         status: deliveryState === 'unknown' || deliveryState === 'deferred' ? 'sent' : 'failed',
         recipientEmail: 'delivery-customer@example.test',
-        subject: confirmedPayment ? 'Your Bloomjoy refund is on its way' : 'Your refund request was submitted',
+        subject: customerRequestDelivery
+          ? 'A quick question about your Bloomjoy refund request'
+          : confirmedPayment ? 'Your Bloomjoy refund is on its way' : 'Your refund request was submitted',
         body: confirmedPayment ? 'Synthetic completion message for visual verification.' : 'The request was submitted and confirmation is pending.',
         sentAt: isoHoursAgo(1),
         errorMessage: `transactional_delivery_${deliveryState}`,
@@ -1857,7 +1876,7 @@ const buildTransactionalDeliveryTruthOverview = ({
         deliveryStateUpdatedAt: exactEvidenceCardinality === 'zero'
           ? isoHoursAgo(1.5)
           : exceptionOccurredAt,
-        providerEvidenceAvailable: true,
+        providerEvidenceAvailable,
       },
       ...(exactEvidenceCardinality === 'multiple' ? [{
         id: 'delivery-message-duplicate',
@@ -1875,6 +1894,38 @@ const buildTransactionalDeliveryTruthOverview = ({
         deliveryStateUpdatedAt: exceptionOccurredAt,
         providerEvidenceAvailable: true,
       }] : []),
+      ...(activeOutreachMessageId !== 'delivery-message-1' ? [{
+        id: activeOutreachMessageId,
+        messageType: 'more_info',
+        status: 'sent',
+        recipientEmail: 'delivery-customer@example.test',
+        subject: 'A different active customer request',
+        body: 'A lifecycle pointer cannot replace the message identified by the saved exception.',
+        sentAt: isoHoursAgo(0.25),
+        errorMessage: 'transactional_delivery_unknown',
+        createdAt: isoHoursAgo(0.25),
+        deliveryKind: 'automatic',
+        deliveryTransport: 'resend',
+        deliveryState: 'unknown',
+        deliveryStateUpdatedAt: isoHoursAgo(0.25),
+        providerEvidenceAvailable: true,
+      }] : []),
+      {
+        id: 'delivery-message-later-delivered',
+        messageType: 'status_update',
+        status: 'sent',
+        recipientEmail: 'delivery-customer@example.test',
+        subject: 'Later customer status update',
+        body: 'A later delivered message must not prove the selected delivery record.',
+        sentAt: isoHoursAgo(0.1),
+        errorMessage: null,
+        createdAt: isoHoursAgo(0.1),
+        deliveryKind: 'automatic',
+        deliveryTransport: 'resend',
+        deliveryState: 'delivered',
+        deliveryStateUpdatedAt: isoHoursAgo(0.05),
+        providerEvidenceAvailable: true,
+      },
       {
         id: 'delivery-message-competing',
         messageType: confirmedPayment ? 'completed' : 'status_update',
@@ -2469,6 +2520,19 @@ const installMockSupabaseRoutes = async (
     }
 
     if (functionName === 'refund-case-message-send') {
+      if (requestBody?.deliveryRefreshMessageId) {
+        return route.fulfill(jsonResponse({
+          deliveryRefresh: {
+            messageId: requestBody.deliveryRefreshMessageId,
+            state: 'delivered',
+            resolved: true,
+            providerCallKind: 'read_only',
+            customerMessageSent: false,
+            paymentActionTaken: false,
+            payloadRedacted: true,
+          },
+        }));
+      }
       return route.fulfill(
         jsonResponse({
           message: {
@@ -2508,7 +2572,8 @@ const installMockSupabaseRoutes = async (
               blockReason: transactionConfirmed
                 ? currentNayaxCardRefundAvailability.blockReason
                 : 'transaction_not_confirmed',
-              refundAmountCents: refundCase?.refundAmountCents ?? refundCase?.paymentAmountCents ?? null,
+              refundAmountCents: confirmedSelections.get(caseId)?.refundAmountCents ??
+                refundCase?.refundAmountCents ?? refundCase?.paymentAmountCents ?? null,
               machineLimitCents: 1200,
               caseVersion: nayaxCardRefundAvailabilityVersionOverride ??
                 officialActionVersions.get(caseId) ?? refundCase?.officialActionVersion ?? 1,
@@ -2655,13 +2720,42 @@ const installMockSupabaseRoutes = async (
         staleEvidenceCaseIds.add(caseId);
       }
       const isEvidenceSelection = Boolean(requestBody?.matchedNayaxCandidateToken);
+      let selectedCandidateFixture = null;
       if (isEvidenceSelection && adminUpdateStatus < 400) {
+        const selectedCaseFixture = refundOverview().cases.find(
+          (candidate) => candidate.id === caseId
+        );
+        selectedCandidateFixture = lookupResponsesByCaseId.get(caseId)?.candidates?.find(
+          (candidate) => candidate.candidateToken === requestBody.matchedNayaxCandidateToken
+        );
         confirmedCaseIds.add(caseId);
         confirmedSelections.set(caseId, {
+          refundAmountCents: selectedCandidateFixture?.amountCents ?? 700,
           matchedNayaxMachineAuthTime: requestBody.matchedNayaxMachineAuthTime,
           matchedNayaxAmountCents: requestBody.matchedNayaxAmountCents,
           matchedNayaxCardLast4: requestBody.matchedNayaxCardLast4,
           matchedNayaxCurrencyCode: requestBody.matchedNayaxCurrencyCode,
+          selectedNayaxTransaction: {
+            schemaVersion: 'refund_selected_nayax_transaction_v1',
+            transactionId: 'NAYAX-UAT-PREPARED-1',
+            saleAmountCents: selectedCandidateFixture?.amountCents ?? 700,
+            currencyCode: selectedCandidateFixture?.currencyCode ?? 'USD',
+            machineLabel: selectedCandidateFixture?.machineDisplayLabel ?? 'Synthetic machine',
+            locationName: 'Synthetic location',
+            customerReportedAt: selectedCaseFixture?.incidentAt ?? isoHoursAgo(3),
+            providerAuthorizedAt: selectedCandidateFixture?.machineAuthorizationTime ?? isoHoursAgo(3),
+            machineTimezone: selectedCaseFixture?.incidentTimezone ?? 'America/Los_Angeles',
+            providerTimeResolution: 'exact',
+            cardLast4: selectedCandidateFixture?.cardLast4 ?? null,
+            cardNetwork: 'visa',
+            recognitionMethod: selectedCandidateFixture?.recognitionMethod ?? null,
+            paymentInteraction: selectedCaseFixture?.paymentInteraction ?? 'tap_card',
+            walletProvider: selectedCaseFixture?.walletProvider ?? null,
+            matchExplanation: selectedCandidateFixture?.matchReason ?? 'Selected from current read-only provider evidence.',
+            matchFactors: selectedCandidateFixture?.matchFactors ?? [],
+            evidenceSource: 'nayax_last_sales',
+            payloadRedacted: true,
+          },
         });
         if (
           requestBody?.status === 'card_refund_pending' &&
@@ -2696,7 +2790,7 @@ const installMockSupabaseRoutes = async (
                 transactionConfirmed: true,
                 canIssueCardRefund: currentNayaxCardRefundAvailability.available === true,
                 blockReason: currentNayaxCardRefundAvailability.blockReason,
-                refundAmountCents: 700,
+                refundAmountCents: selectedCandidateFixture?.amountCents ?? 700,
                 machineLimitCents: 1200,
                 caseVersion: nextOfficialActionVersion,
                 approvalPendingExecution: approvedPendingExecutionCaseIds.has(caseId),
@@ -4163,12 +4257,46 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     'Customer completion email is previewable before execution',
     await page.getByText('Preview customer email').isVisible()
   );
+  const inAppRefundAction = page
+    .getByTestId('refund-primary-action')
+    .getByTestId('refund-run-nayax-refund');
+  await inAppRefundAction.waitFor({ state: 'visible', timeout: 10000 });
+  const inAppExecutionDiagnostics = await inAppRefundAction.evaluate((action) => {
+    const managerState = document.querySelector('[data-testid="refund-manager-state"]');
+    const primaryAction = document.querySelector('[data-testid="refund-primary-action"]');
+    const forbiddenCopy = [
+      'Action happens outside Bloomjoy Hub.',
+      'Open Nayax and refund the matched card sale.',
+      'Card refund confirmation/reference',
+    ];
+    const visibleText = document.body.innerText;
+    const actionBox = action.getBoundingClientRect();
+    const actionStyle = window.getComputedStyle(action);
+    return {
+      actionCount: document.querySelectorAll('[data-testid="refund-run-nayax-refund"]').length,
+      actionLabel: action.textContent?.trim() ?? '',
+      actionVisible:
+        actionBox.width > 0 &&
+        actionBox.height > 0 &&
+        actionStyle.display !== 'none' &&
+        actionStyle.visibility !== 'hidden',
+      actionDisabled: action instanceof HTMLButtonElement ? action.disabled : null,
+      managerState: managerState?.textContent?.trim() ?? '',
+      primaryActionText: primaryAction?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+      forbiddenCopyMatches: forbiddenCopy.filter((copy) => visibleText.includes(copy)),
+    };
+  });
   recorder.assert(
     'Card completion is an in-app Nayax execution flow',
-    await page.getByTestId('refund-run-nayax-refund').isVisible() &&
-      (await page.getByText('Action happens outside Bloomjoy Hub.').count()) === 0 &&
-      (await page.getByText('Open Nayax and refund the matched card sale.').count()) === 0 &&
-      (await page.getByText('Card refund confirmation/reference').count()) === 0
+    inAppExecutionDiagnostics.actionCount === 1 &&
+      inAppExecutionDiagnostics.actionLabel === 'Refund $7.00' &&
+      inAppExecutionDiagnostics.actionVisible &&
+      inAppExecutionDiagnostics.actionDisabled === false &&
+      inAppExecutionDiagnostics.managerState === 'Ready to approve' &&
+      inAppExecutionDiagnostics.primaryActionText.includes('Transaction confirmed') &&
+      inAppExecutionDiagnostics.primaryActionText.includes('Payment: Not issued') &&
+      inAppExecutionDiagnostics.forbiddenCopyMatches.length === 0,
+    JSON.stringify(inAppExecutionDiagnostics)
   );
   const activityHistory = page.getByTestId('refund-activity-history');
   const activityHistorySummary = page.getByTestId('refund-activity-history-summary');
@@ -6423,6 +6551,20 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       expectedStatus: 'History incomplete',
       expectedDescription: /18 transactions were returned, but none covered the reported purchase window/i,
       expectedAction: 'Run the available transaction check. If no check is available, search the same machine in Nayax and report the portal gap. No refund has been issued.',
+      recovery: {
+        state: 'refund_operations', automaticRetriesUsed: 0,
+        nextAttemptAt: null, failureClass: 'incomplete_history', payloadRedacted: true,
+      },
+      operationsAccess: true,
+      queueView: 'Needs manager review',
+      adminAccessContext: {
+        isSuperAdmin: true,
+        isScopedAdmin: false,
+        canAccessAdmin: true,
+        allowedSurfaces: ['refunds'],
+        scopedMachineIds: [],
+      },
+      expectedIncompleteHistoryRefresh: true,
     },
     {
       name: 'stale multiple-match summary without current rows',
@@ -6989,7 +7131,54 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
     },
   ];
 
-  for (const scenario of scenarios) {
+  const incompleteHistoryScenario = scenarios.find(
+    (scenario) => scenario.name === 'incomplete transaction history'
+  );
+  scenarios.splice(2, 0, {
+    ...incompleteHistoryScenario,
+    name: 'incomplete transaction history after refresh',
+    recovery: {
+      ...incompleteHistoryScenario.recovery,
+      automaticRetriesUsed: 1,
+    },
+    expectedIncompleteHistoryRefresh: false,
+    expectedIncompleteHistoryFallback: true,
+  });
+  const uniqueQrScenario = scenarios.find(
+    (scenario) => scenario.name === 'unique QR wallet recommendation'
+  );
+  const preparedCandidate = {
+    ...uniqueQrScenario.response.candidates[0],
+    amountCents: 790,
+    amountDeltaCents: 90,
+    matchReason: 'Exact machine and unique QR timing; provider amount differs by 90 cents.',
+    matchFactors: uniqueQrScenario.response.candidates[0].matchFactors.map((factor) =>
+      factor.key === 'amount'
+        ? { ...factor, outcome: 'manual', label: 'Transaction amount differs by $0.90' }
+        : factor
+    ),
+  };
+  scenarios.splice(scenarios.indexOf(uniqueQrScenario) + 1, 0, {
+    ...uniqueQrScenario,
+    name: 'server-persisted manager preparation',
+    confirmCandidate: false,
+    prepareCandidateOnly: true,
+    response: {
+      ...uniqueQrScenario.response,
+      candidates: [preparedCandidate],
+    },
+    expectedAmountMismatch: '$0.90',
+  });
+
+  const selectedScenarios = process.argv.includes('--refund-gap-only')
+    ? scenarios.filter((scenario) => [
+        'incomplete transaction history',
+        'incomplete transaction history after refresh',
+        'server-persisted manager preparation',
+      ].includes(scenario.name))
+    : scenarios;
+
+  for (const scenario of selectedScenarios) {
     const context = await browser.newContext({
       viewport: { width: 1440, height: 1000 },
     });
@@ -7162,6 +7351,65 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
           ].includes(name)),
         JSON.stringify({ functionCalls, lookupBodies })
       );
+    }
+    if (scenario.expectedIncompleteHistoryRefresh) {
+      const recovery = page.getByTestId('nayax-incomplete-history-recovery');
+      const refreshHistory = page.getByTestId('nayax-incomplete-history-refresh');
+      recorder.assert(
+        'Incomplete provider history exposes one direct read-only in-portal refresh before the fallback',
+        await recovery.isVisible() &&
+          await refreshHistory.isEnabled() &&
+          (await page.getByTestId('nayax-incomplete-history-fallback').count()) === 0 &&
+          (await page.getByRole('link', { name: 'Open Nayax portal', exact: true }).count()) === 0
+      );
+      await refreshHistory.click();
+      await page.waitForTimeout(100);
+      const lookupBodies = functionBodies.filter(
+        ({ functionName }) => functionName === 'nayax-transaction-lookup'
+      );
+      recorder.assert(
+        'Incomplete-history refresh makes one exact case lookup and no payment, selection, or message call',
+        lookupBodies.length === 1 &&
+          JSON.stringify(lookupBodies[0].body) === JSON.stringify({ caseId: 'case-card-pending' }) &&
+          !functionCalls.some((name) => [
+            'nayax-card-refund', 'refund-case-admin-update', 'refund-case-message-send',
+          ].includes(name)),
+        JSON.stringify({ functionCalls, lookupBodies })
+      );
+      await page.screenshot({
+        path: path.join(artifactDir, 'refund-incomplete-history-refresh-desktop.png'),
+        fullPage: true,
+      });
+    }
+    if (scenario.expectedIncompleteHistoryFallback) {
+      const fallback = page.getByTestId('nayax-incomplete-history-fallback');
+      const portalLink = page.getByRole('link', { name: 'Open Nayax portal', exact: true });
+      recorder.assert(
+        'After the one refresh, incomplete history exposes Nayax only as the explicit fallback',
+        await fallback.isVisible() &&
+          (await page.getByTestId('nayax-incomplete-history-refresh').count()) === 0 &&
+          await portalLink.isVisible() &&
+          await portalLink.getAttribute('href') === 'https://my.nayax.com'
+      );
+      await page.setViewportSize({ width: 390, height: 844 });
+      await fallback.scrollIntoViewIfNeeded();
+      const fallbackBox = await fallback.boundingBox();
+      const portalLinkBox = await portalLink.boundingBox();
+      const layout = await page.evaluate(() => ({
+        documentWidth: document.documentElement.scrollWidth,
+        viewportWidth: window.innerWidth,
+      }));
+      recorder.assert(
+        'Incomplete-history fallback stays readable and actionable on mobile',
+        Boolean(fallbackBox && fallbackBox.width > 0) &&
+          Boolean(portalLinkBox && portalLinkBox.height >= 44) &&
+          layout.documentWidth <= layout.viewportWidth + 1,
+        JSON.stringify({ fallbackBox, portalLinkBox, layout })
+      );
+      await page.screenshot({
+        path: path.join(artifactDir, 'refund-incomplete-history-fallback-mobile.png'),
+        fullPage: true,
+      });
     }
     if (scenario.expectedEmptyCandidateState) {
       const selectedQueueRow = queueCase(page, 'RF-UAT-PENDING')
@@ -7376,6 +7624,77 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
           await page.getByText('Card ending differs; wallet, contactless, or source differences may explain it', { exact: true }).first().isVisible()
         );
       }
+      if (scenario.prepareCandidateOnly) {
+        await page.getByTestId('nayax-candidate-option').first().click();
+        const preparation = page.getByTestId('refund-prepare-transaction-panel');
+        const saveForReview = page.getByTestId('refund-save-transaction-for-review');
+        recorder.assert(
+          'A selected transaction exposes a separate server-persisted manager-review action with the amount discrepancy visible',
+          await preparation.isVisible() &&
+            await saveForReview.isEnabled() &&
+            await page.getByTestId('refund-prepare-amount-comparison')
+              .getByText(/Customer requested \$7\.00\. Selected transaction: \$7\.90 \(\$0\.90 difference\)\./)
+              .isVisible() &&
+            await preparation.getByText(/does not approve or issue a refund/i).isVisible()
+        );
+        await page.screenshot({
+          path: path.join(artifactDir, 'refund-prepare-manager-review-desktop.png'),
+          fullPage: true,
+        });
+        await page.setViewportSize({ width: 390, height: 844 });
+        await preparation.scrollIntoViewIfNeeded();
+        const mobilePreparationBox = await preparation.boundingBox();
+        const mobileSaveBox = await saveForReview.boundingBox();
+        recorder.assert(
+          'Manager-review preparation is usable on mobile without horizontal overflow',
+          Boolean(mobilePreparationBox && mobilePreparationBox.width > 0) &&
+            Boolean(mobileSaveBox && mobileSaveBox.height >= 44) &&
+            await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+        );
+        await page.screenshot({
+          path: path.join(artifactDir, 'refund-prepare-manager-review-mobile.png'),
+          fullPage: true,
+        });
+        await page.setViewportSize({ width: 1440, height: 1000 });
+        await saveForReview.click();
+        await page.getByText('Transaction saved for manager review', { exact: true })
+          .waitFor({ state: 'visible', timeout: 10000 });
+        const prepareBodies = functionBodies.filter(
+          (entry) => entry.functionName === 'refund-case-admin-update'
+        );
+        recorder.assert(
+          'Preparation persists the exact candidate without approval, refund, or customer message',
+          prepareBodies.length === 1 &&
+            prepareBodies[0].body?.status === 'needs_review' &&
+            prepareBodies[0].body?.decision == null &&
+            prepareBodies[0].body?.matchedNayaxCandidateToken === preparedCandidate.candidateToken &&
+            prepareBodies[0].body?.customerMessageType == null &&
+            !functionCalls.includes('nayax-card-refund') &&
+            !functionCalls.includes('refund-case-message-send'),
+          JSON.stringify({ functionCalls, prepareBodies })
+        );
+        await navigateRefundPortalPage(
+          page,
+          `${appUrl}/refunds?case=${encodeURIComponent('case-card-pending')}`,
+          { waitUntil: 'domcontentloaded' }
+        );
+        await page.getByTestId('selected-nayax-transaction-evidence')
+          .waitFor({ state: 'visible', timeout: 10000 });
+        await page.getByRole('button', { name: /^Refund \$7\.90$/i })
+          .waitFor({ state: 'visible', timeout: 10000 });
+        const persistedEvidenceText = await page.getByTestId('selected-nayax-transaction-evidence').innerText();
+        recorder.assert(
+          'Prepared selection survives reopen and remains ready for a manager decision',
+          persistedEvidenceText.includes('$7.90') &&
+            (await page.getByTestId('nayax-candidate-option').count()) === 0 &&
+            (await page.getByRole('button', { name: /^Refund \$7\.90$/i }).count()) === 1,
+          JSON.stringify({
+            persistedEvidenceText,
+            candidateCount: await page.getByTestId('nayax-candidate-option').count(),
+            refundActionCount: await page.getByRole('button', { name: /^Refund \$7\.90$/i }).count(),
+          })
+        );
+      }
       if (scenario.confirmCandidate) {
         await page.getByTestId('nayax-candidate-option').first().click();
         await page.getByText('Preview customer email', { exact: true }).click();
@@ -7533,6 +7852,12 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
           (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0,
         JSON.stringify({ functionCalls })
       );
+    } else if (scenario.prepareCandidateOnly) {
+      recorder.assert(
+        'Prepared server-owned evidence exposes one manager refund decision after reopen',
+        (await page.getByRole('button', { name: /^Refund \$7\.90$/i }).count()) === 1 &&
+          await page.getByRole('button', { name: /^Refund \$7\.90$/i }).isEnabled()
+      );
     } else {
       const unresolvedCompetingSelection = scenario.name === 'multiple candidates';
       const reviewableExactSelection = scenario.expectedReviewableMismatch === true;
@@ -7557,6 +7882,9 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         : scenario.confirmCandidate
           ? await page.getByTestId('refund-action-receipt').isVisible() &&
             (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0
+          : scenario.prepareCandidateOnly
+            ? (await page.getByTestId('nayax-candidate-option').count()) === 0 &&
+              (await page.getByRole('button', { name: /^Refund \$7\.90$/i }).count()) === 1
           : scenario.expectedCandidateCount
             ? (await page.getByTestId('nayax-candidate-option').count()) === scenario.expectedCandidateCount &&
               (scenario.name === 'multiple candidates'
@@ -7579,6 +7907,8 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
 
     await closeRefundPortalContext(context);
   }
+
+  if (process.argv.includes('--refund-gap-only')) return;
 
   const ordinaryRecoveryContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const ordinaryRecoveryFunctionCalls = [];
@@ -8825,6 +9155,8 @@ const runTransactionalDeliveryTruthChecks = async ({
 }) => {
   const scenarios = [
     { state: 'unknown', label: 'Delivery unknown', confirmedPayment: true, accountingReview: true },
+    { state: 'unknown', label: 'Delivery unknown', name: 'Original request delivery unknown', confirmedPayment: false, accountingReview: false, customerRequestDelivery: true },
+    { state: 'unknown', label: 'Delivery unknown', name: 'Cash status update delivery unknown', confirmedPayment: false, accountingReview: false },
     { state: 'deferred', label: 'Delivery delayed', confirmedPayment: false, accountingReview: false },
     { state: 'failed', label: 'Delivery failed', confirmedPayment: false, accountingReview: false },
     { state: 'bounced', label: 'Bounced', confirmedPayment: true, accountingReview: false },
@@ -8833,10 +9165,15 @@ const runTransactionalDeliveryTruthChecks = async ({
   ];
   for (const scenario of scenarios) {
   const scenarioName = scenario.name ?? scenario.label;
+  const deliveryRefreshExpected = ['unknown', 'deferred'].includes(scenario.state);
+  const originalRequestRefresh = scenario.customerRequestDelivery === true;
   const expectedDeliverySubject = scenario.confirmedPayment
     ? 'Your Bloomjoy refund is on its way'
+    : scenario.customerRequestDelivery
+      ? 'A quick question about your Bloomjoy refund request'
     : 'Your refund request was submitted';
   const functionCalls = [];
+  const functionBodies = [];
   const rpcCalls = [];
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   await installMockSupabaseRoutes(context, {
@@ -8845,8 +9182,10 @@ const runTransactionalDeliveryTruthChecks = async ({
       confirmedPayment: scenario.confirmedPayment,
       accountingReview: scenario.accountingReview,
       gmailUncertain: scenario.gmailUncertain,
+      customerRequestDelivery: scenario.customerRequestDelivery,
     }),
     functionCalls,
+    functionBodies,
     rpcCalls,
   });
 
@@ -8862,15 +9201,20 @@ const runTransactionalDeliveryTruthChecks = async ({
 
   const review = page.getByTestId('refund-secondary-delivery-review');
   const reviewAction = page.getByTestId('refund-review-delivery-record');
+  const refreshAction = page.getByTestId('refund-refresh-delivery-status');
   const messageHistory = page.getByTestId('refund-customer-messages');
   const messageHistorySummary = page.getByTestId('refund-customer-messages-summary');
   const focusedDeliveryRecord = page.getByTestId('refund-focused-delivery-record');
   const competingDeliveryRecord = page.locator('[data-refund-message-id="delivery-message-competing"]');
+  const laterDeliveredRecord = page.locator('[data-refund-message-id="delivery-message-later-delivered"]');
   recorder.assert(
-    `${scenarioName} names the saved outcome beside exactly one evidence action`,
+    `${scenarioName} names the saved outcome beside the supported evidence actions`,
     (await review.getByText(`Saved delivery outcome: ${scenario.label}.`, { exact: false }).isVisible()) &&
       (await reviewAction.count()) === 1 &&
-      await reviewAction.isVisible()
+      await reviewAction.isVisible() &&
+      (deliveryRefreshExpected
+        ? (await refreshAction.count()) === 1 && await refreshAction.isEnabled()
+        : (await refreshAction.count()) === 0)
   );
   recorder.assert(
     `${scenarioName} keeps the manager payment state explicit`,
@@ -8879,13 +9223,58 @@ const runTransactionalDeliveryTruthChecks = async ({
         await review.getByText('Payment remains confirmed.', { exact: false }).isVisible()
       : scenario.gmailUncertain
         ? await review.getByText('This delivery record does not change the refund or payment state.', { exact: false }).isVisible()
-        : await page.getByTestId('refund-manager-state').getByText('Delivery needs review', { exact: true }).isVisible()
+        : await page.getByTestId('refund-manager-state').getByText(
+            scenario.customerRequestDelivery ? 'Customer request delivery unknown' : 'Delivery needs review',
+            { exact: true }
+          ).isVisible()
   );
   if (scenario.gmailUncertain) recorder.assert(
     'Exact Gmail uncertainty resolution remains available alongside delivery-record review',
     await page.getByText('Resolve uncertain Gmail delivery', { exact: true }).isVisible() &&
       await reviewAction.isVisible()
   );
+  if (deliveryRefreshExpected) {
+    const refreshCallSnapshot = functionCalls.length;
+    await refreshAction.getByText(
+      originalRequestRefresh
+        ? 'Refresh original request delivery'
+        : 'Refresh customer message delivery',
+      { exact: true }
+    ).waitFor({ state: 'visible' });
+    await refreshAction.click();
+    await page.getByText(
+      originalRequestRefresh ? 'Original customer request delivered' : 'Customer message delivered',
+      { exact: true }
+    )
+      .waitFor({ state: 'visible', timeout: 10000 });
+    const deliveryRefreshBodies = functionBodies.filter(
+      (entry) => entry.functionName === 'refund-case-message-send' &&
+        entry.body?.deliveryRefreshMessageId
+    );
+    recorder.assert(
+      `${scenarioName} refreshes only the exact saved Resend message and reports no send or payment`,
+      functionCalls.length === refreshCallSnapshot + 1 &&
+        deliveryRefreshBodies.length === 1 &&
+        deliveryRefreshBodies[0].body?.caseId === 'case-card-1' &&
+        deliveryRefreshBodies[0].body?.deliveryRefreshMessageId === 'delivery-message-1' &&
+        JSON.stringify(Object.keys(deliveryRefreshBodies[0].body ?? {}).sort()) ===
+          JSON.stringify(['caseId', 'deliveryRefreshMessageId']) &&
+        !functionCalls.includes('nayax-card-refund') &&
+        !functionCalls.includes('refund-case-admin-update'),
+      JSON.stringify({ functionCalls, deliveryRefreshBodies })
+    );
+    if (originalRequestRefresh || scenarioName === 'Cash status update delivery unknown') {
+      await page.screenshot({
+        path: path.join(
+          artifactDir,
+          originalRequestRefresh
+            ? 'refund-original-delivery-refresh-desktop.png'
+            : 'refund-cash-message-delivery-refresh-desktop.png'
+        ),
+        fullPage: true,
+      });
+    }
+  }
   const desktopCallSnapshot = {
     functions: functionCalls.length,
     mutations: rpcCalls.filter((name) => !NAVIGATION_READ_ONLY_RPCS.has(name)).length,
@@ -8909,7 +9298,8 @@ const runTransactionalDeliveryTruthChecks = async ({
       (await focusedDeliveryRecord.count()) === 1 &&
       await focusedDeliveryRecord.getByText(expectedDeliverySubject, { exact: true }).isVisible() &&
       await competingDeliveryRecord.evaluate((element) => document.activeElement !== element) &&
-      await messageHistorySummary.getByText(`Customer messages (${scenario.gmailUncertain ? 3 : 2})`, { exact: true }).isVisible() &&
+      await laterDeliveredRecord.evaluate((element) => document.activeElement !== element) &&
+      await messageHistorySummary.getByText(`Customer messages (${scenario.gmailUncertain ? 4 : 3})`, { exact: true }).isVisible() &&
       await page.getByTestId('refund-message-delivery-delivery-message-1')
         .getByText(scenario.label, { exact: true }).isVisible(),
     JSON.stringify({ desktopEvidenceBox })
@@ -8941,6 +9331,9 @@ const runTransactionalDeliveryTruthChecks = async ({
     mutations: rpcCalls.filter((name) => !NAVIGATION_READ_ONLY_RPCS.has(name)).length,
   };
   const mobileActionBox = await reviewAction.boundingBox();
+  const mobileRefreshBox = deliveryRefreshExpected
+    ? await refreshAction.boundingBox()
+    : null;
   await reviewAction.focus();
   await page.keyboard.press('Enter');
   await page.waitForFunction(() =>
@@ -8968,10 +9361,29 @@ const runTransactionalDeliveryTruthChecks = async ({
       (await focusedDeliveryRecord.count()) === 1 &&
       await focusedDeliveryRecord.getByText(expectedDeliverySubject, { exact: true }).isVisible() &&
       await competingDeliveryRecord.evaluate((element) => document.activeElement !== element) &&
+      await laterDeliveredRecord.evaluate((element) => document.activeElement !== element) &&
       await page.getByTestId('refund-message-delivery-delivery-message-1')
         .getByText(scenario.label, { exact: true }).isVisible(),
-    JSON.stringify({ mobileActionBox, mobileEvidenceBox })
+    JSON.stringify({ mobileActionBox, mobileRefreshBox, mobileEvidenceBox })
   );
+  if (deliveryRefreshExpected) {
+    recorder.assert(
+      `${scenarioName} delivery refresh remains readable and at least 44px tall on mobile`,
+      Boolean(mobileRefreshBox && mobileRefreshBox.height >= 44 && mobileRefreshBox.width > 0) &&
+        mobileLayout.documentWidth <= mobileLayout.viewportWidth + 1
+    );
+    if (originalRequestRefresh || scenarioName === 'Cash status update delivery unknown') {
+      await page.screenshot({
+        path: path.join(
+          artifactDir,
+          originalRequestRefresh
+            ? 'refund-original-delivery-refresh-mobile.png'
+            : 'refund-cash-message-delivery-refresh-mobile.png'
+        ),
+        fullPage: true,
+      });
+    }
+  }
   recorder.assert(
     `${scenarioName} review remains read-only without mobile horizontal overflow`,
     mobileLayout.documentWidth <= mobileLayout.viewportWidth + 1 &&
@@ -8986,6 +9398,101 @@ const runTransactionalDeliveryTruthChecks = async ({
   });
 
   await closeRefundPortalContext(context);
+  }
+
+  {
+    const functionCalls = [];
+    const functionBodies = [];
+    const rpcCalls = [];
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    await installMockSupabaseRoutes(context, {
+      refundOverview: () => buildTransactionalDeliveryTruthOverview({
+        deliveryState: 'unknown',
+        confirmedPayment: false,
+        customerRequestDelivery: true,
+        activeOutreachMessageId: 'delivery-message-active-competing',
+      }),
+      functionCalls,
+      functionBodies,
+      rpcCalls,
+    });
+
+    const page = await context.newPage();
+    await signInRefundUser(page, appUrl);
+    await page.getByRole('heading', { name: /^Refunds$/i }).last()
+      .waitFor({ timeout: 10000 });
+    await page.getByText('Signed in. Redirecting...', { exact: true })
+      .waitFor({ state: 'hidden', timeout: 5000 })
+      .catch(() => undefined);
+    await waitForQueueCount(page, 1);
+    await queueCase(page, 'RF-UAT-DELIVERY-UNKNOWN').click();
+
+    const refreshAction = page.getByTestId('refund-refresh-delivery-status');
+    await refreshAction.getByText('Refresh customer message delivery', { exact: true })
+      .waitFor({ state: 'visible' });
+    await refreshAction.click();
+    await page.getByText('Customer message delivered', { exact: true })
+      .waitFor({ state: 'visible', timeout: 10000 });
+    const deliveryRefreshBodies = functionBodies.filter(
+      (entry) => entry.functionName === 'refund-case-message-send' &&
+        entry.body?.deliveryRefreshMessageId
+    );
+    recorder.assert(
+      'A competing active-request pointer cannot replace the exact saved delivery-exception message',
+      deliveryRefreshBodies.length === 1 &&
+        deliveryRefreshBodies[0].body?.deliveryRefreshMessageId === 'delivery-message-1' &&
+        deliveryRefreshBodies[0].body?.deliveryRefreshMessageId !== 'delivery-message-active-competing' &&
+        !functionCalls.includes('nayax-card-refund') &&
+        !functionCalls.includes('refund-case-admin-update') &&
+        rpcCalls.filter((name) => !NAVIGATION_READ_ONLY_RPCS.has(name)).length === 0,
+      JSON.stringify({ functionCalls, deliveryRefreshBodies, rpcCalls })
+    );
+
+    await closeRefundPortalContext(context);
+  }
+
+  for (const recoveryBlock of [
+    { name: 'zero exact messages', exactEvidenceCardinality: 'zero', providerEvidenceAvailable: true },
+    { name: 'multiple exact messages', exactEvidenceCardinality: 'multiple', providerEvidenceAvailable: true },
+    { name: 'missing provider evidence', exactEvidenceCardinality: 'one', providerEvidenceAvailable: false },
+  ]) {
+    const functionCalls = [];
+    const rpcCalls = [];
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    await installMockSupabaseRoutes(context, {
+      refundOverview: () => buildTransactionalDeliveryTruthOverview({
+        deliveryState: 'unknown',
+        confirmedPayment: false,
+        exactEvidenceCardinality: recoveryBlock.exactEvidenceCardinality,
+        providerEvidenceAvailable: recoveryBlock.providerEvidenceAvailable,
+      }),
+      functionCalls,
+      rpcCalls,
+    });
+
+    const page = await context.newPage();
+    await signInRefundUser(page, appUrl);
+    await page.getByRole('heading', { name: /^Refunds$/i }).last()
+      .waitFor({ timeout: 10000 });
+    await page.getByText('Signed in. Redirecting...', { exact: true })
+      .waitFor({ state: 'hidden', timeout: 5000 })
+      .catch(() => undefined);
+    await waitForQueueCount(page, 1);
+    await queueCase(page, 'RF-UAT-DELIVERY-UNKNOWN').click();
+
+    recorder.assert(
+      `Delivery refresh fails closed with ${recoveryBlock.name}`,
+      (await page.getByTestId('refund-refresh-delivery-status').count()) === 0 &&
+        await page.getByTestId('refund-delivery-recovery-fallback').isVisible() &&
+        await page.getByTestId('refund-delivery-recovery-fallback')
+          .getByText(/do not resend this saved message until its delivery is clear/i)
+          .isVisible() &&
+        functionCalls.length === 0 &&
+        rpcCalls.filter((name) => !NAVIGATION_READ_ONLY_RPCS.has(name)).length === 0,
+      JSON.stringify({ functionCalls, rpcCalls })
+    );
+
+    await closeRefundPortalContext(context);
   }
 
   for (const exactEvidenceCardinality of ['zero', 'multiple']) {

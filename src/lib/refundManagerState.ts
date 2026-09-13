@@ -331,8 +331,8 @@ export const getRefundManagerState = (
         'Refund confirmed · delivery review',
         `The payment provider confirmed the full refund. ${deliveryLabel}.`,
         accountingReview
-          ? 'Check the original customer email thread, the saved delivery record and the missing accounting date. Do not retry payment or resend the message while the earlier results are unclear.'
-          : 'Check the original customer email thread and the saved delivery record. Do not retry payment or resend the message while the earlier results are unclear.',
+          ? 'The assigned machine manager reviews the original customer email thread, saved delivery record and missing accounting date. Do not retry the payment. Do not resend this saved message until its delivery is clear.'
+          : 'The assigned machine manager reviews the original customer email thread and saved delivery record. Do not retry the payment. Do not resend this saved message until its delivery is clear.',
         'warning'
       );
     }
@@ -340,7 +340,7 @@ export const getRefundManagerState = (
       'needs_refund_operations',
       'Delivery needs review',
       `${deliveryLabel}. The refund and payment state have not been changed.`,
-      'Check the original customer email thread and the saved delivery record. Do not resend the message or retry a payment while the earlier results are unclear.',
+      'The assigned machine manager reviews the original customer email thread and saved delivery record, then chooses the supported next step. Do not resend this saved message until its delivery is clear, and do not retry a payment from delivery evidence.',
       'warning'
     );
   }

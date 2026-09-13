@@ -84,6 +84,7 @@ import {
   lookupNayaxTransactions,
   recoverRefundGmailCustomerContact,
   recoverRefundNayaxCompletion,
+  refreshRefundTransactionalDelivery,
   rejectRefundGptTriage,
   resolveRefundNayaxOutcome,
   resolveRefundGmailDeliveryNotFound,
@@ -1772,7 +1773,7 @@ const primaryActionConfig = (
     );
     return {
       label: 'Delivery needs review',
-      helper: `${stateLabel}. Check the original customer email thread and the saved delivery record. Do not resend the message or retry a payment unless the earlier result is clear.`,
+      helper: `${stateLabel}. The assigned machine manager must review the original customer email thread and saved delivery record, then choose the supported next step. Delivery evidence does not establish a refund result. Do not resend this saved message until its delivery is clear, and do not retry a payment from delivery evidence.`,
       disabled: true,
     };
   }
@@ -2563,6 +2564,7 @@ export default function AdminRefundsPage() {
   const [isCashConfirmationOpen, setIsCashConfirmationOpen] = useState(false);
   const [isGmailResolutionOpen, setIsGmailResolutionOpen] = useState(false);
   const [isResolvingGmailDelivery, setIsResolvingGmailDelivery] = useState(false);
+  const [isRefreshingCustomerDelivery, setIsRefreshingCustomerDelivery] = useState(false);
   const [isCashCompletionSubmitting, setIsCashCompletionSubmitting] = useState(false);
   const [refundActionReceipt, setRefundActionReceipt] = useState<RefundActionReceipt | null>(null);
   const [refundOperationsBlockedCaseIds, setRefundOperationsBlockedCaseIds] = useState<Set<string>>(
@@ -2633,6 +2635,7 @@ export default function AdminRefundsPage() {
       isPreparingNayaxResolution ||
       isStartingNayaxEvidenceOnly ||
       isResolvingGmailDelivery ||
+      isRefreshingCustomerDelivery ||
       isRejectingTriage ||
       isRecoveringGmailContact ||
       isResolvingReconciliation ||
@@ -3113,6 +3116,44 @@ export default function AdminRefundsPage() {
   });
   const customerDeliveryNeedsReconciliation = Boolean(
     selectedCase && isRefundCustomerDeliveryUncertain(getLatestCustomerMessage(selectedCase)?.errorMessage)
+  );
+  const selectedDeliveryEvidenceMessageId = selectedCase
+    ? getRefundDeliveryEvidenceMessageId(
+        selectedCase.messages,
+        selectedCase.customerDeliveryException
+      )
+    : null;
+  const activeCustomerOutreachDeliveryMessage = selectedCase?.lifecycle?.customerOutreach?.state === 'delivery_unknown'
+    ? selectedCase.messages.find(
+        (message) => message.id === selectedCase.lifecycle?.customerOutreach?.requestMessageId
+      ) ?? null
+    : null;
+  const verifiedActiveCustomerOutreachDeliveryMessage =
+    activeCustomerOutreachDeliveryMessage &&
+      selectedCase?.customerDeliveryException &&
+      activeCustomerOutreachDeliveryMessage.id === selectedDeliveryEvidenceMessageId &&
+      activeCustomerOutreachDeliveryMessage.messageType === selectedCase.customerDeliveryException.messageType &&
+      ['unknown', 'accepted', 'deferred'].includes(
+        activeCustomerOutreachDeliveryMessage.deliveryState ?? ''
+      )
+      ? activeCustomerOutreachDeliveryMessage
+      : null;
+  const customerDeliveryRefreshMessage = verifiedActiveCustomerOutreachDeliveryMessage ?? (
+    selectedDeliveryEvidenceMessageId
+      ? selectedCase?.messages.find((message) => message.id === selectedDeliveryEvidenceMessageId) ?? null
+      : null
+  );
+  const customerDeliveryRefreshIsOriginalRequest = Boolean(
+    customerDeliveryRefreshMessage &&
+      verifiedActiveCustomerOutreachDeliveryMessage?.id === customerDeliveryRefreshMessage.id
+  );
+  const canRefreshCustomerDelivery = Boolean(
+    refundOperationsAccess &&
+      customerDeliveryRefreshMessage?.deliveryTransport === 'resend' &&
+      customerDeliveryRefreshMessage.providerEvidenceAvailable === true &&
+      ['unknown', 'accepted', 'deferred'].includes(
+        customerDeliveryRefreshMessage.deliveryState ?? ''
+      )
   );
   const latestNayaxCompletionMessage = selectedCase?.messages
     .filter((message) =>
@@ -3743,6 +3784,29 @@ export default function AdminRefundsPage() {
     }
   };
 
+  const handlePrepareNayaxSelection = async () => {
+    if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return;
+    const candidate = selectedNayaxCandidate(editor, nayaxCandidates);
+    if (!candidate) return;
+    const prepared = await handleSaveCase(
+      {
+        ...editor,
+        status: 'needs_review',
+        decision: null,
+        decisionReason: '',
+      },
+      null,
+      { quietTransactionConfirmation: true }
+    );
+    if (!prepared || prepared === 'step_up_pending' || prepared.updateApplied !== true) return;
+    setRefundActionReceipt({
+      tone: 'success',
+      title: 'Transaction saved for manager review',
+      message: `The selected ${formatCurrency(candidate.amountCents)} transaction is saved on this case. No refund, approval, or customer message was sent.`,
+    });
+    toast.success('Transaction saved for manager review. No refund was sent.');
+  };
+
   const applyNayaxExecutionResult = async (
     result: NayaxCardRefundExecutionResponse
   ) => {
@@ -4344,6 +4408,69 @@ export default function AdminRefundsPage() {
         focusTarget.scrollIntoView({ behavior: 'auto', block: 'center' });
       });
     });
+  };
+
+  const handleRefreshCustomerDelivery = async () => {
+    if (
+      !selectedCase ||
+      !customerDeliveryRefreshMessage ||
+      !canRefreshCustomerDelivery ||
+      isRefreshingCustomerDelivery
+    ) return;
+    if (isUsingDemoData) {
+      toast.info('Demo cases are read-only. Delivery status is not refreshed.');
+      return;
+    }
+
+    setIsRefreshingCustomerDelivery(true);
+    try {
+      const result = await refreshRefundTransactionalDelivery(
+        selectedCase.id,
+        customerDeliveryRefreshMessage.id
+      );
+      const deliverySubject = customerDeliveryRefreshIsOriginalRequest
+        ? 'original customer request'
+        : 'customer message';
+      const deliverySubjectTitle = customerDeliveryRefreshIsOriginalRequest
+        ? 'Original customer request'
+        : 'Customer message';
+      if (result.state === 'delivered') {
+        setRefundActionReceipt({
+          tone: 'success',
+          title: `${deliverySubjectTitle} delivered`,
+          message: `The provider confirms this ${deliverySubject} reached the recipient mail server. No new message or refund was sent.`,
+        });
+        toast.success(`${deliverySubjectTitle} delivery confirmed.`);
+      } else if (result.resolved) {
+        setRefundActionReceipt({
+          tone: 'warning',
+          title: `${deliverySubjectTitle} was not delivered`,
+          message: 'The provider recorded a delivery failure. The case will show the supported customer-contact recovery; no replacement was sent automatically.',
+        });
+        toast.warning('The provider recorded a delivery failure. Review the supported contact recovery.');
+      } else {
+        setRefundActionReceipt({
+          tone: 'warning',
+          title: 'Delivery still unconfirmed',
+          message: `The provider still cannot confirm delivery of this ${deliverySubject}. Keep the case in delivery review and do not resend this saved message until its delivery is clear.`,
+        });
+        toast.warning('Delivery is still unconfirmed. Do not resend this saved message yet.');
+      }
+      await refresh();
+    } catch (deliveryError) {
+      const message = deliveryError instanceof Error
+        ? deliveryError.message
+        : 'Unable to confirm customer-message delivery.';
+      setRefundActionReceipt({
+        tone: 'warning',
+        title: 'Delivery record unavailable',
+        message: `${message} Keep the case in delivery review and do not resend this saved message until its delivery is clear.`,
+      });
+      toast.error(message);
+      await refresh();
+    } finally {
+      setIsRefreshingCustomerDelivery(false);
+    }
   };
 
 
@@ -5290,6 +5417,21 @@ export default function AdminRefundsPage() {
       waitingOnCustomer,
     });
     const automaticLookupPending = transactionView.kind === 'checking';
+    const incompleteHistory = selectedNayaxSummary?.lookupStatus === 'inconclusive';
+    const incompleteHistoryRefreshAvailable = Boolean(
+      refundOperationsAccess &&
+        incompleteHistory &&
+        (selectedCase.nayaxLookupWork?.automaticRetriesUsed ?? 0) < 1 &&
+        !automaticLookupPending &&
+        !hasSelectedMatch
+    );
+    const incompleteHistoryRefreshExhausted = Boolean(
+      refundOperationsAccess &&
+        incompleteHistory &&
+        (selectedCase.nayaxLookupWork?.automaticRetriesUsed ?? 0) >= 1 &&
+        !automaticLookupPending &&
+        !hasSelectedMatch
+    );
     const showRefundOperationsRecovery =
       refundOperationsAccess &&
       (
@@ -5299,6 +5441,7 @@ export default function AdminRefundsPage() {
           selectedCase.lifecycle.managerQueue.nextAction === 'retry_read_only_lookup'
         )
       ) &&
+      !incompleteHistory &&
       !automaticLookupPending &&
       !hasSelectedMatch;
     const needsDisagreementReason = Boolean(selectedCandidate && selectedCandidate.isRecommended !== true);
@@ -5437,6 +5580,49 @@ export default function AdminRefundsPage() {
             {transactionView.description}
           </div>
         )}
+        {incompleteHistoryRefreshAvailable && (
+          <section
+            data-testid="nayax-incomplete-history-recovery"
+            className="rounded-lg border border-orange-300 bg-orange-50 p-3 text-sm text-orange-950"
+          >
+            <p className="font-semibold">Refresh the incomplete transaction history once</p>
+            <p className="mt-1 leading-6">
+              Bloomjoy will ask the Nayax API for this case again using the saved facts. This is read-only and cannot issue a refund or contact the customer.
+            </p>
+            <Button
+              data-testid="nayax-incomplete-history-refresh"
+              type="button"
+              variant="outline"
+              className="mt-3 h-auto min-h-11 w-full whitespace-normal border-orange-300 bg-white py-2 text-center leading-5 text-orange-950 hover:bg-orange-100 sm:w-auto"
+              onClick={() => void handleNayaxLookup()}
+              disabled={isLookingUpNayax || isUsingDemoData}
+            >
+              {isLookingUpNayax ? (
+                <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
+              )}
+              Refresh transaction history
+            </Button>
+          </section>
+        )}
+        {incompleteHistoryRefreshExhausted && (
+          <section
+            data-testid="nayax-incomplete-history-fallback"
+            className="rounded-lg border border-orange-300 bg-orange-50 p-3 text-sm text-orange-950"
+          >
+            <p className="font-semibold">Use the Nayax portal fallback</p>
+            <p className="mt-1 leading-6">
+              The one in-portal refresh still did not return complete history. Search the saved machine, amount, and time in Nayax; do not guess a transaction or ask the customer to repeat facts already on this case.
+            </p>
+            <Button asChild variant="outline" className="mt-3 h-auto min-h-11 w-full whitespace-normal border-orange-300 bg-white py-2 text-center leading-5 text-orange-950 hover:bg-orange-100 sm:w-auto">
+              <a href="https://my.nayax.com" target="_blank" rel="noreferrer">
+                <ExternalLink className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
+                Open Nayax portal
+              </a>
+            </Button>
+          </section>
+        )}
         {!selectedCase.hasMatchedNayaxTransaction && !editor.clearNayaxMatch && transactionView.showCandidates && (
           <div className="border-t border-border pt-3">
             {isUsingDemoData && (
@@ -5489,6 +5675,43 @@ export default function AdminRefundsPage() {
                   <option value="provider_data_issue">Transaction data appears incorrect</option>
                   <option value="other_review_reason">Another reason</option>
                 </select>
+              </div>
+            )}
+            {selectedCandidate && (
+              <div
+                data-testid="refund-prepare-transaction-panel"
+                className="mt-3 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950"
+              >
+                <p className="font-semibold">Prepare this transaction for manager review</p>
+                <p data-testid="refund-prepare-amount-comparison" className="mt-1 leading-6">
+                  Customer requested {formatCurrency(selectedCase.paymentAmountCents)}. Selected transaction: {formatCurrency(selectedCandidate.amountCents)}
+                  {selectedCandidate.amountDeltaCents === 0
+                    ? ' (same amount).'
+                    : ` (${formatCurrency(Math.abs(selectedCandidate.amountDeltaCents))} difference).`}
+                </p>
+                <p className="mt-1 text-xs leading-5">
+                  Saving records the exact provider transaction and review evidence on this case. It does not approve or issue a refund, and it sends no customer message.
+                </p>
+                <Button
+                  data-testid="refund-save-transaction-for-review"
+                  type="button"
+                  variant="outline"
+                  className="mt-3 h-auto min-h-11 w-full whitespace-normal border-sky-300 bg-white py-2 text-center leading-5 text-sky-950 hover:bg-sky-100 sm:w-auto"
+                  onClick={() => void handlePrepareNayaxSelection()}
+                  disabled={
+                    isSaving ||
+                    isUsingDemoData ||
+                    !caseAllowsCandidateSelection ||
+                    (needsDisagreementReason && !editor.nayaxDisagreementReason)
+                  }
+                >
+                  {isSaving ? (
+                    <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <ShieldCheck className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
+                  )}
+                  Save for manager review — no refund
+                </Button>
               </div>
             )}
           </div>
@@ -5565,12 +5788,6 @@ export default function AdminRefundsPage() {
     selectedCase && editor && primaryAction?.messageType
       ? getCustomerMessageDraft(selectedCase, primaryAction.messageType, editor)
       : null;
-  const selectedDeliveryEvidenceMessageId = selectedCase
-    ? getRefundDeliveryEvidenceMessageId(
-        selectedCase.messages,
-        selectedCase.customerDeliveryException
-      )
-    : null;
   const availableCustomerMessageOptions = customerMessageOptions.filter((option) => {
     if (selectedCase?.paymentMethod === 'card' && option.value === 'approved') return false;
     if (option.value === 'completed' && selectedCase?.status !== 'completed') return false;
@@ -7724,20 +7941,59 @@ export default function AdminRefundsPage() {
                           {selectedCase.lifecycle?.paymentState === 'confirmed'
                             ? 'Payment remains confirmed.'
                             : 'This delivery record does not change the refund or payment state.'}{' '}
-                          Check the original customer email thread and the saved delivery record before sending anything again.
+                          The assigned machine manager reviews the original customer email thread and saved delivery record. Do not resend this saved message until its delivery is clear.
                         </p>
-                        <Button
-                          data-testid="refund-review-delivery-record"
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="mt-3 h-auto min-h-11 w-full whitespace-normal border-amber-400 bg-white py-2 text-center leading-5 text-amber-950 hover:bg-amber-100 sm:w-auto"
-                          aria-label={`Review delivery record: ${transactionalDeliveryLabel(selectedCase.customerDeliveryException.state)}`}
-                          onClick={handleReviewDeliveryRecord}
-                        >
-                          <Mail className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
-                          Review delivery record
-                        </Button>
+                        {customerDeliveryRefreshIsOriginalRequest ? (
+                          <p className="mt-2 leading-6">
+                            The active customer request is the record that must be reconciled. A later delivered update does not prove that request arrived.
+                          </p>
+                        ) : customerDeliveryRefreshMessage ? (
+                          <p className="mt-2 leading-6">
+                            This specific customer message is the record that must be reconciled. A different or later delivered message does not prove this one arrived.
+                          </p>
+                        ) : (
+                          <p className="mt-2 leading-6">
+                            Bloomjoy could not identify exactly one message for this delivery record. Keep it blocked for manager review.
+                          </p>
+                        )}
+                        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                          {canRefreshCustomerDelivery && (
+                            <Button
+                              data-testid="refund-refresh-delivery-status"
+                              type="button"
+                              size="sm"
+                              className="h-auto min-h-11 w-full whitespace-normal py-2 text-center leading-5 sm:w-auto"
+                              onClick={() => void handleRefreshCustomerDelivery()}
+                              disabled={isRefreshingCustomerDelivery || isUsingDemoData}
+                            >
+                              {isRefreshingCustomerDelivery ? (
+                                <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
+                              ) : (
+                                <RefreshCw className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
+                              )}
+                              {customerDeliveryRefreshIsOriginalRequest
+                                ? 'Refresh original request delivery'
+                                : 'Refresh customer message delivery'}
+                            </Button>
+                          )}
+                          <Button
+                            data-testid="refund-review-delivery-record"
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-auto min-h-11 w-full whitespace-normal border-amber-400 bg-white py-2 text-center leading-5 text-amber-950 hover:bg-amber-100 sm:w-auto"
+                            aria-label={`Review delivery record: ${transactionalDeliveryLabel(selectedCase.customerDeliveryException.state)}`}
+                            onClick={handleReviewDeliveryRecord}
+                          >
+                            <Mail className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
+                            Review delivery record
+                          </Button>
+                        </div>
+                        {!canRefreshCustomerDelivery && (
+                          <p data-testid="refund-delivery-recovery-fallback" className="mt-3 text-xs leading-5">
+                            The exact provider record cannot be refreshed here. Keep delivery blocked and do not resend this saved message until its delivery is clear. A different specific request may still follow the documented case procedure.
+                          </p>
+                        )}
                       </section>
                     )}
 

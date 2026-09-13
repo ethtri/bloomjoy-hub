@@ -366,6 +366,11 @@ Deno.test('manager state surfaces a direct-email bounce without changing payment
     'The customer address bounced. The refund and payment state have not been changed.',
     'payment truth remains separate'
   );
+  assertEquals(
+    result.nextStep,
+    'The assigned machine manager reviews the original customer email thread and saved delivery record, then chooses the supported next step. Do not resend this saved message until its delivery is clear, and do not retry a payment from delivery evidence.',
+    'delivery recovery uses plain manager language'
+  );
 });
 
 Deno.test('confirmed receipt stays explicit alongside historical and current message exceptions', () => {
@@ -389,7 +394,12 @@ Deno.test('confirmed receipt stays explicit alongside historical and current mes
       assertEquals(result.explanation.startsWith('The payment provider confirmed the full refund.'), true, 'Payment evidence stays first');
       assertEquals(result.nextStep.includes('original customer email thread'), true, 'Delivery review remains visible');
       assertEquals(result.nextStep.includes('missing accounting date'), true, 'Accounting review remains visible');
-      assertEquals(result.nextStep.includes('Do not retry payment or resend'), true, 'No new financial or message action');
+      assertEquals(
+        result.nextStep.includes('Do not retry the payment.') &&
+          result.nextStep.includes('Do not resend this saved message'),
+        true,
+        'No new financial or duplicate-message action'
+      );
       assertEquals(result.tone, 'warning', 'Delivery exception is not hidden');
     }
   }

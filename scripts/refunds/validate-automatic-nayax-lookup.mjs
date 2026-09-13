@@ -9,6 +9,7 @@ const portal = read("src/pages/admin/Refunds.tsx");
 const transactionViewState = read("src/lib/refundTransactionViewState.ts");
 const lookupEndpoint = read("supabase/functions/nayax-transaction-lookup/index.ts");
 const recoveryMigration = read("supabase/migrations/20260911210036_simplify_refund_nayax_lookup.sql");
+const gapRecoveryMigration = read("supabase/migrations/20260912205646_refund_gap_recovery_paths.sql");
 const recoveryConcurrency = read("supabase/tests/refund_server_owned_nayax_lookup_concurrency.sql");
 const recoverySql = read("supabase/tests/refund_server_owned_nayax_lookup_recovery.sql");
 const migration = read("supabase/migrations/202608150001_refund_automatic_nayax_lookup.sql");
@@ -172,6 +173,17 @@ assert(
     portal.includes('data-testid="nayax-operations-recovery"') &&
     portal.includes('Run transaction check'),
   "only the elevated manager projection exposes deliberate recovery",
+);
+assert(
+  gapRecoveryMigration.includes("incomplete_history") &&
+    gapRecoveryMigration.includes("nayax_lookup_retry_count >= 1") &&
+    gapRecoveryMigration.includes("'safeRetryConsumed', true") &&
+    gapRecoveryMigration.includes("refund_authoritative_receipts") &&
+    gapRecoveryMigration.includes("refund_case_nayax_refund_attempts") &&
+    portal.includes('data-testid="nayax-incomplete-history-refresh"') &&
+    portal.includes('data-testid="nayax-incomplete-history-fallback"') &&
+    portal.includes('href="https://my.nayax.com"'),
+  "incomplete provider history must get one guarded read-only refresh before the explicit portal fallback",
 );
 assert(
   transactionViewState.includes('Use Nayax directly if Bloomjoy Hub still cannot search.') &&
