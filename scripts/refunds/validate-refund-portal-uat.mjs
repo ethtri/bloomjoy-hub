@@ -7654,6 +7654,8 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
           await preparation.isVisible() &&
             await saveForReview.isEnabled() &&
             (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0 &&
+            await page.getByText('Save selected transaction', { exact: true }).isVisible() &&
+            await page.getByText(/save it for manager review\. Saving does not issue a refund\./i).isVisible() &&
             await page.getByTestId('refund-prepare-amount-comparison')
               .getByText(/Customer requested \$7\.00\. Selected transaction: \$7\.90 \(\$0\.90 difference\)\./)
               .isVisible() &&

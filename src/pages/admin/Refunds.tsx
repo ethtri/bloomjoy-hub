@@ -6002,9 +6002,9 @@ export default function AdminRefundsPage() {
       : hasUnsavedTransactionChoice
       ? {
           id: 'match_attention',
-          label: 'Confirm transaction',
+          label: 'Save selected transaction',
           explanation: 'You selected a possible transaction for this customer.',
-          nextStep: `Review the selected sale and confirm ${formatCurrency(cardAmountCents)} once to issue the refund.`,
+          nextStep: `Review the selected ${formatCurrency(cardAmountCents)} sale, then save it for manager review. Saving does not issue a refund.`,
           tone: 'info',
         }
       : !hasSelectedMatch &&
