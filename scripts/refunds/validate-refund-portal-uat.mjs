@@ -28,6 +28,7 @@ const DEFAULT_FRAGMENT_DIR = 'output/refund-uat-fragments';
 const EXPECTED_PORTAL_ERROR_HEADER = 'x-bloomjoy-uat-expected-error';
 const execFileAsync = promisify(execFile);
 const fixtureOwnedPortalRpcLabels = new WeakMap();
+const fixtureOwnedSelectionSaveFailures = new WeakSet();
 const fixtureOwnedPortalFailureDiagnostics = [];
 const simpleJourneyFixture = JSON.parse(await readFile(
   new URL('./fixtures/simple-card-refund-journey.json', import.meta.url),
@@ -2091,6 +2092,7 @@ const installMockSupabaseRoutes = async (
     adminUpdateDelayMs = 0,
     adminUpdateResponse = null,
     adminUpdateStatus = 200,
+    adminUpdateTransportOutcome = 'respond',
     gmailDraftCases = [],
     gmailHealth = null,
     nayaxReliabilityHealth = null,
@@ -2766,11 +2768,13 @@ const installMockSupabaseRoutes = async (
         }
       }
       const submittedVersion = Number(requestBody?.expectedOfficialActionVersion ?? 1);
-      const nextOfficialActionVersion = Math.max(
-        officialActionVersions.get(caseId) ?? 1,
-        submittedVersion
-      ) + 1;
-      officialActionVersions.set(caseId, nextOfficialActionVersion);
+      const currentOfficialActionVersion = officialActionVersions.get(caseId) ?? 1;
+      const nextOfficialActionVersion = adminUpdateStatus < 400
+        ? Math.max(currentOfficialActionVersion, submittedVersion) + 1
+        : currentOfficialActionVersion;
+      if (adminUpdateStatus < 400) {
+        officialActionVersions.set(caseId, nextOfficialActionVersion);
+      }
       const response = resolvedAdminUpdateResponse ?? {
         refundCase: {
           id: caseId,
@@ -2798,6 +2802,17 @@ const installMockSupabaseRoutes = async (
             }
           : {}),
       };
+      if (adminUpdateTransportOutcome === 'commit_then_504') {
+        return route.fulfill({
+          status: 504,
+          contentType: 'application/json',
+          headers: { [EXPECTED_PORTAL_ERROR_HEADER]: 'admin-update-result' },
+          body: JSON.stringify({
+            error: 'Synthetic response was lost after the server committed the save.',
+            errorCode: 'synthetic_response_lost',
+          }),
+        });
+      }
       return route.fulfill({
         ...jsonResponse({
           ...response,
@@ -3499,7 +3514,7 @@ const isExpectedPortalUatResponse = (response) => {
   }
 
   if (
-    status === 409 &&
+    [409, 500, 504].includes(status) &&
     marker === 'admin-update-result' &&
     path === '/functions/v1/refund-case-admin-update' &&
     typeof body?.caseId === 'string' &&
@@ -3551,6 +3566,12 @@ const isExpectedPortalUatResponse = (response) => {
 };
 
 const isExpectedPortalUatRequestFailure = (request) => {
+  if (fixtureOwnedSelectionSaveFailures.has(request)) {
+    return request.method() === 'POST' &&
+      request.resourceType() === 'fetch' &&
+      requestPath(request) === '/functions/v1/refund-case-admin-update' &&
+      request.failure()?.errorText === 'net::ERR_CONNECTION_RESET';
+  }
   const fixtureRpcLabel = fixtureOwnedPortalRpcLabels.get(request);
   if (NAVIGATION_READ_ONLY_RPCS.has(fixtureRpcLabel)) {
     let pageState = 'unknown';
@@ -7632,6 +7653,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
           'A selected transaction exposes a separate server-persisted manager-review action with the amount discrepancy visible',
           await preparation.isVisible() &&
             await saveForReview.isEnabled() &&
+            (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0 &&
             await page.getByTestId('refund-prepare-amount-comparison')
               .getByText(/Customer requested \$7\.00\. Selected transaction: \$7\.90 \(\$0\.90 difference\)\./)
               .isVisible() &&
@@ -7693,6 +7715,13 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
             candidateCount: await page.getByTestId('nayax-candidate-option').count(),
             refundActionCount: await page.getByRole('button', { name: /^Refund \$7\.90$/i }).count(),
           })
+        );
+        recorder.assert(
+          'Repeated navigation does not duplicate the saved selection or call the provider',
+          prepareBodies.length === 1 &&
+            !functionCalls.includes('nayax-card-refund') &&
+            !functionCalls.includes('refund-case-message-send'),
+          JSON.stringify({ functionCalls, prepareBodies })
         );
       }
       if (scenario.confirmCandidate) {
@@ -7905,6 +7934,105 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
       fullPage: false,
     });
 
+    await closeRefundPortalContext(context);
+  }
+
+  const selectionSaveFailures = [
+    {
+      name: 'request never sent',
+      interceptBeforeServer: true,
+      expectedPersisted: false,
+      expectedAdminCalls: 0,
+    },
+    {
+      name: 'HTTP 500 before commit',
+      adminUpdateStatus: 500,
+      adminUpdateResponse: { error: 'Synthetic pre-commit failure.', errorCode: 'synthetic_failure' },
+      expectedPersisted: false,
+      expectedAdminCalls: 1,
+    },
+    {
+      name: 'HTTP 504 before commit',
+      adminUpdateStatus: 504,
+      adminUpdateResponse: { error: 'Synthetic gateway timeout.', errorCode: 'synthetic_timeout' },
+      expectedPersisted: false,
+      expectedAdminCalls: 1,
+    },
+    {
+      name: 'stale case version',
+      adminUpdateStatus: 409,
+      adminUpdateResponse: { error: 'Synthetic stale review.', errorCode: 'stale_review_evidence' },
+      expectedPersisted: false,
+      expectedAdminCalls: 1,
+    },
+    {
+      name: 'response lost after commit',
+      adminUpdateTransportOutcome: 'commit_then_504',
+      expectedPersisted: true,
+      expectedAdminCalls: 1,
+    },
+  ];
+
+  for (const failure of selectionSaveFailures) {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    const functionCalls = [];
+    const functionBodies = [];
+    await installMockSupabaseRoutes(context, {
+      refundOverview: buildPendingNayaxRefundOverview,
+      functionCalls,
+      functionBodies,
+      persistedNayaxLookupResponse: uniqueQrScenario.response,
+      adminUpdateStatus: failure.adminUpdateStatus,
+      adminUpdateResponse: failure.adminUpdateResponse,
+      adminUpdateTransportOutcome: failure.adminUpdateTransportOutcome,
+    });
+    const page = await context.newPage();
+    if (failure.interceptBeforeServer) {
+      await page.route('**/functions/v1/refund-case-admin-update', (route) => {
+        fixtureOwnedSelectionSaveFailures.add(route.request());
+        return route.abort('connectionreset');
+      });
+    }
+    await signInRefundUser(page, appUrl);
+    const pendingRow = queueCase(page, 'RF-UAT-PENDING')
+      .filter({ hasNotText: 'RF-UAT-PENDING-ALT' });
+    await pendingRow.waitFor({ state: 'visible', timeout: 10000 });
+    await pendingRow.click();
+    await page.getByTestId('nayax-candidate-option').first().click();
+    recorder.assert(
+      `Selection save ${failure.name} cannot expose Refund before server confirmation`,
+      (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0
+    );
+    await page.getByTestId('refund-save-transaction-for-review').click();
+    if (failure.expectedPersisted) {
+      // The transport result is deliberately unknowable. Do not infer success
+      // from this page; reopen the case and rely only on the next server read.
+      await page.waitForTimeout(500);
+    } else {
+      await page.getByTestId('refund-action-receipt')
+        .waitFor({ state: 'visible', timeout: 10000 });
+    }
+    await navigateRefundPortalPage(
+      page,
+      `${appUrl}/refunds?case=${encodeURIComponent('case-card-pending')}`,
+      { waitUntil: 'domcontentloaded' }
+    );
+    await page.getByRole('heading', { name: 'RF-UAT-PENDING' }).waitFor({ timeout: 10000 });
+    const refundAction = page.getByRole('button', { name: /^Refund \$7\.00$/i });
+    if (failure.expectedPersisted) {
+      await refundAction.waitFor({ state: 'visible', timeout: 10000 });
+    }
+    recorder.assert(
+      `Selection save ${failure.name} reconciles from fresh server truth without a provider action`,
+      functionCalls.filter((name) => name === 'refund-case-admin-update').length ===
+          failure.expectedAdminCalls &&
+        functionCalls.filter((name) => name === 'nayax-card-refund').length === 0 &&
+        !functionCalls.includes('refund-case-message-send') &&
+        (failure.expectedPersisted
+          ? (await refundAction.count()) === 1 && await refundAction.isEnabled()
+          : (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0),
+      JSON.stringify({ functionCalls, functionBodies })
+    );
     await closeRefundPortalContext(context);
   }
 
@@ -11815,6 +11943,13 @@ const run = async () => {
         artifactDir: args.artifactDir,
         recorder,
       });
+    } else if (process.argv.includes('--refund-gap-only')) {
+      await runNayaxLookupStatusMatrixChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
+      });
     } else {
     await runUnauthenticatedChecks({
       browser,
@@ -12126,6 +12261,18 @@ const run = async () => {
     }
     console.log('\nRefund owner TOTP UAT passed.');
     console.log(`Safe screenshots written to ${args.artifactDir}`);
+    return;
+  }
+
+  if (process.argv.includes('--refund-gap-only')) {
+    const focusedFailures = recorder.failed();
+    if (focusedFailures.length > 0) {
+      console.error(`\nRefund save-gate UAT failed: ${focusedFailures.length} check(s).`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log('\nRefund save-gate UAT passed.');
+    console.log(`Screenshots written to ${args.artifactDir}`);
     return;
   }
 

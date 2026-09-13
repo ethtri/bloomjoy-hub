@@ -141,6 +141,9 @@ test('refund procedure follows the lean assistant-manager flow', async () => {
     "provider total is within $3 of the customer's estimate",
     'difference under 15% is especially ordinary',
     'Do not ask the customer to choose between the two amounts',
+    'customer appears in the final **To/CC** recipient list',
+    'refresh and reconcile the case',
+    'Never repeat a provider action or customer message',
   ]) assert.match(procedure, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert(procedure.indexOf('API-backed transaction search') < procedure.indexOf('search the same machine and a'));
   assert.doesNotMatch(procedure, /Refund Operations|safe stopping point|Route to Refund Operations|assign Refund Operations/iu);

@@ -33,6 +33,67 @@ export type RefundManagerState = {
   tone: RefundManagerStateTone;
 };
 
+type PersistedNayaxSelection = {
+  saleAmountCents: number;
+  currencyCode: string;
+  providerAuthorizedAt: string;
+  cardLast4: string | null;
+};
+
+type NayaxCandidateSelection = {
+  amountCents: number | null;
+  currencyCode: string;
+  authorizedAt: string;
+  cardLast4: string;
+};
+
+type PersistedNayaxSelectionCase = {
+  hasMatchedNayaxTransaction: boolean;
+  officialActionVersion?: number | null;
+  selectedNayaxTransaction?: PersistedNayaxSelection | null;
+};
+
+type PersistedNayaxSelectionReadiness = {
+  transactionConfirmed: boolean;
+  caseVersion: number | null;
+};
+
+const sameInstant = (left: string, right: string) => {
+  const leftTime = Date.parse(left);
+  const rightTime = Date.parse(right);
+  return Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime === rightTime;
+};
+
+/**
+ * A browser choice is not refund authority. The selected provider transaction and
+ * the current case version must both have come back from the server.
+ */
+export const hasFreshPersistedNayaxSelection = (
+  refundCase: PersistedNayaxSelectionCase | null | undefined,
+  readiness: PersistedNayaxSelectionReadiness | null | undefined,
+) => Boolean(
+  refundCase?.hasMatchedNayaxTransaction === true &&
+    refundCase.selectedNayaxTransaction &&
+    readiness?.transactionConfirmed === true &&
+    typeof refundCase.officialActionVersion === 'number' &&
+    refundCase.officialActionVersion > 0 &&
+    readiness.caseVersion === refundCase.officialActionVersion
+);
+
+/** Confirm that a fresh server-selected transaction is the browser choice being saved. */
+export const persistedNayaxSelectionMatchesCandidate = (
+  selection: PersistedNayaxSelection | null | undefined,
+  candidate: NayaxCandidateSelection | null | undefined,
+) => Boolean(
+  selection &&
+    candidate &&
+    typeof candidate.amountCents === 'number' &&
+    selection.saleAmountCents === candidate.amountCents &&
+    selection.currencyCode.trim().toUpperCase() === candidate.currencyCode.trim().toUpperCase() &&
+    sameInstant(selection.providerAuthorizedAt, candidate.authorizedAt) &&
+    (selection.cardLast4 ?? '') === candidate.cardLast4
+);
+
 type RefundManagerDisplayAction = {
   disabled?: boolean;
   helper?: string;
