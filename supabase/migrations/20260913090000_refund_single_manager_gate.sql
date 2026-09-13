@@ -700,8 +700,8 @@ begin
     null,null,null,p_refund_amount_cents,null,null,false,null,null);
 
   select * into authorization_row
-  from public.refund_case_official_action_authorizations authorization
-  where authorization.id=p_authorization_id for update;
+  from public.refund_case_official_action_authorizations receipt_row
+  where receipt_row.id=p_authorization_id for update;
   select * into refund_case from public.refund_cases
   where id=p_case_id for update;
   select * into nayax_machine from public.reporting_machines
