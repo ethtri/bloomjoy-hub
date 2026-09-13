@@ -17,6 +17,9 @@ const refundOperations = await readFile(new URL('src/lib/refundOperations.ts', r
 const journalRecoveryMigration = await readFile(new URL(
   'supabase/migrations/20260908221526_refund_same_source_duplicate_settlement_recovery.sql', root
 ), 'utf8');
+const providerOrchestrationDbTest = await readFile(new URL(
+  'supabase/tests/refund_nayax_provider_orchestration.sql', root
+), 'utf8');
 
 test('one normalized authority resolver feeds one canonical authorization path', () => {
   assert.match(migration, /create or replace function public\.refund_official_action_authority/);
@@ -106,6 +109,14 @@ test('normal manager confirmation creates one receipt and no step-up artifact', 
     );
   assert.doesNotMatch(transformedJournalFunction, /intent\.|refund_manager_action_step_up_intents/);
   assert.match(transformedJournalFunction, /authz\.authorization_method = 'manager_session'/);
+  assert.match(providerOrchestrationDbTest, /if p_legacy_step_up then/);
+  assert.match(providerOrchestrationDbTest, /evidence_hash, 'manager_session'/);
+  assert.match(providerOrchestrationDbTest, /series = 6/);
+  assert.equal(
+    (providerOrchestrationDbTest.match(/insert into public\.refund_manager_action_step_up_intents/g) ?? []).length,
+    1,
+    'only the dedicated legacy fixture creates a step-up row',
+  );
 });
 
 test('the four execution protections remain explicit and customer mail stays success-only', () => {
