@@ -879,8 +879,10 @@ function AdminPersonAccessConsoleInner({
     if (page > 1) next.set('page', String(page));
     if (selectedDirectoryPerson) next.set('person', selectedDirectoryPerson.personKey);
     else if (requestedPersonKey) next.set('person', requestedPersonKey);
-    setSearchParams(next, { replace: true });
-  }, [accountId, machineId, page, requestedPersonKey, role, search, selectedDirectoryPerson, setSearchParams, status, view]);
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [accountId, machineId, page, requestedPersonKey, role, search, searchParams, selectedDirectoryPerson, setSearchParams, status, view]);
 
   useEffect(() => {
     if (initialLauncher?.open) setIsAccessLauncherOpen(true);
