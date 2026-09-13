@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "4a93bf3941722d8a01f95de881a50dbd7ec16880",
+  "sourceGitCommit": "370b2c0897e1ed706d6708b0c0b2495715d2403f",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -264,7 +264,7 @@
     {
       "slug": "refund-case-intake",
       "verifyJwt": false,
-      "sourceSha256": "5062e31a83ac85a3deeab381e9e9442c01e2851f1687526844275256b82dfaff",
+      "sourceSha256": "c307dadd0a6908488446a3dfe919159b0af50c1cd6d4dc88a7a988844280a6c6",
       "production": {
         "version": 138,
         "ezbrSha256": "ff82da1950390027973f51431fe7e492572fae0ec961ba23ec3eef8d1df88c0c",
@@ -275,7 +275,7 @@
     {
       "slug": "nayax-transaction-lookup",
       "verifyJwt": false,
-      "sourceSha256": "377168a9094524f70bf2b28c13259ead88126158bbb413fcac5ec5193a11ad89",
+      "sourceSha256": "582ce812ba3aa923e37a85fba112c3fa74fa354d166998a4b7bfb089e41cef8b",
       "production": {
         "version": 128,
         "ezbrSha256": "f15cfdfb49d34d5ceb232e5d75edce29ebef31b48bcf5143e26f0fdac83f58a5",
@@ -286,7 +286,7 @@
     {
       "slug": "refund-case-admin-update",
       "verifyJwt": false,
-      "sourceSha256": "274fc3f3c8b39a80d8ba375b6938dc3b902d46cca0f90d3d752465c287f4dbd2",
+      "sourceSha256": "f8365c28cbb26f657300c321940417220dc93bec8421efeb57655bcb815382da",
       "production": {
         "version": 136,
         "ezbrSha256": "a600e7f7eb68fba327262aee5368e0255fec92d41580ce12056f5f81be2437e7",
@@ -297,7 +297,7 @@
     {
       "slug": "refund-case-message-send",
       "verifyJwt": false,
-      "sourceSha256": "a59a2ef3674382218d5134c9dae2ef8bec84e07af55a1f51b4209b9cb9ad4f13",
+      "sourceSha256": "91168218dc02663e86e143f47ac923b36f30b6cd9f8a517ae4c7361b85febdba",
       "production": {
         "version": 129,
         "ezbrSha256": "768e4c5f405a819bbd57313004ce6ece4b5cd3922b7ebe51c1b5d2382a60cc38",
@@ -308,7 +308,7 @@
     {
       "slug": "refund-case-automation-sweep",
       "verifyJwt": false,
-      "sourceSha256": "819e8536aaa80bd120b4a40a2a97472b84034fb884aef5b1341343b0717d828f",
+      "sourceSha256": "6bb1b222ebe9d584eee31251d1f2bbc4608e6adbef4a49d5889d5fe78e29f33a",
       "production": {
         "version": 143,
         "ezbrSha256": "a9be2c455ccb76891de53192c1c10c77568f5333809482e96916ba9dbdfca3d1",
@@ -319,7 +319,7 @@
     {
       "slug": "refund-gmail-sync",
       "verifyJwt": false,
-      "sourceSha256": "5ba44939b51f4af69af8377fef52b610f1c65a2a57bef9183f804ba97b40de5c",
+      "sourceSha256": "da9abb9e8ab892b5ae02cbd7538ceaf050404189b33cdf58585d9b37b55bfa01",
       "production": {
         "version": 135,
         "ezbrSha256": "236f7e3e916d1bc10d63d997be601ff32e9bd6e267dd5d873a5e1b4ac98291fc",
@@ -341,7 +341,7 @@
     {
       "slug": "nayax-card-refund",
       "verifyJwt": false,
-      "sourceSha256": "1b3ec431e34cd0daf849062613edefec47f178f65a38d59c764324463cfdd3fa",
+      "sourceSha256": "3cf53d02c8069e3a36cee96a912264725f103a624790ed582b4ddd9242f428a8",
       "production": {
         "version": 136,
         "ezbrSha256": "acf93f4dd469f9469bdf3c1a9565c881354bbff2a1d09a818d0ef2bcf74c8da1",
@@ -352,7 +352,7 @@
     {
       "slug": "refund-manager-action-step-up",
       "verifyJwt": false,
-      "sourceSha256": "8bf5d9c8806982e5d1d828e2e3045113bdadfc91533bd37d59c8b24c5fe83ecd",
+      "sourceSha256": "34b2efe8e42a788efda7ca1da6cde96f6bb80e88530dfcf0179fb36027f41fe9",
       "production": {
         "version": 117,
         "ezbrSha256": "cf3e7f4c6fe1c9a9c69fff75c6a2938c6c26d1f8516450bdc40962ac104775b3",
@@ -374,7 +374,7 @@
     {
       "slug": "refund-nayax-outcome-resolve",
       "verifyJwt": false,
-      "sourceSha256": "ee006bbf9ad084a4468b5852422e2d7b89cc898cbc0280e82ede8346623f4122",
+      "sourceSha256": "911050bd62b32570029f83ad4a2c7ce1a85cf34a3b3edd1b369cb48d112dad1c",
       "production": {
         "version": 70,
         "ezbrSha256": "276e510e0ffa0b44c2fc36ac02355c7dd3c77a906426066caeb6cd444a943422",
