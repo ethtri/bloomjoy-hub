@@ -987,6 +987,8 @@ assert(
 assert(
   packageJson.includes('"refunds:evidence-gmail"') &&
     packageJson.includes('generate-refund-gmail-evidence.ts') &&
+    packageJson.includes('--allow-env=GMAIL_SUPPORT_CLIENT_ID') &&
+    packageJson.includes('REFUND_REPLY_TO_EMAIL,REFUND_CUSTOMER_FROM_EMAIL,INTERNAL_NOTIFICATION_FROM_EMAIL') &&
     packageJson.includes('--allow-write') &&
     evidenceHarness.includes('refund-gmail-kill-fragment.json') &&
     !evidenceHarness.includes('refund-kill-switches.json'),
