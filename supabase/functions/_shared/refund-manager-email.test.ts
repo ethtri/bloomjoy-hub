@@ -96,7 +96,7 @@ Deno.test("manager action email labels unknown amount and context honestly", () 
       paymentMethodCategory: "not_recorded",
       queueLabel: "State not recorded",
       actionCode: "future_server_action",
-      actionOwner: "Refund Operations",
+      actionOwner: "Machine Manager",
     },
     noticeReason: "provider_unknown",
     caseUrl: "https://app.example.test/refunds?case=unknown",
@@ -118,6 +118,27 @@ Deno.test("manager action email labels unknown amount and context honestly", () 
   assert(
     rendered.text.includes("follow the current server-owned action"),
     "unknown action fallback",
+  );
+});
+
+Deno.test("legacy queued owner is accepted but rendered as the assigned Manager", () => {
+  const legacy = parseRefundManagerActionEmailContext({
+    ...context,
+    actionOwner: ["Refund", "Operations"].join(" "),
+    actionCode: "refund_operations",
+  });
+  assertEquals(legacy.actionOwner, "Machine Manager", "normalized owner");
+  const rendered = buildRefundManagerActionEmail({
+    context: legacy,
+    noticeReason: "provider_unknown",
+    caseUrl: "https://app.example.test/refunds?case=legacy",
+    queueUrl: "https://app.example.test/refunds",
+    routingNote: "Safe route.",
+  });
+  assert(rendered.text.includes("assigned Manager"), "specific current owner");
+  assert(
+    !rendered.text.includes(["Refund", "Operations"].join(" ")),
+    "retired owner hidden",
   );
 });
 
