@@ -15,7 +15,7 @@ The production implementation retains the approved Option 1 composition: existin
 
 ## Focused drawer comparison evidence
 
-Chelsea's production drawer shows identity, active status, primary Edit access action, Technician Pay handoff, combined access summary, TGPaci scope, two machines, pay readiness, activity access, and collapsed Advanced details. This covers the approved drawer hierarchy. The source-specific edit forms appear only after Edit access, which is an intentional safety and density adaptation because the real forms contain required reasons, machine scope, invite state, and revocation controls.
+Chelsea's production drawer shows identity, active status, primary Edit access action, Technician Pay handoff, combined access summary, TGPaci scope, two machines, pay readiness, recent activity by default, and collapsed Advanced details. This covers the approved drawer hierarchy. The source-specific edit forms appear only after Edit access, which is an intentional safety and density adaptation because the real forms contain required reasons, machine scope, invite state, and revocation controls.
 
 ## Required fidelity surfaces
 
@@ -29,7 +29,6 @@ Chelsea's production drawer shows identity, active status, primary Edit access a
 
 No actionable P0, P1, or P2 visual issues remain after the drawer-width correction.
 
-- P3: The concept displays recent activity inline, while production exposes it through the Activity button to keep the default drawer concise. This is an intentional product tradeoff and remains one click away.
 - P3: The concept includes illustrative tab counts. Production omits counts because the read model currently returns the selected view total rather than three independent counts; showing invented or extra-query counts would be less trustworthy.
 
 ## Comparison history
