@@ -20,6 +20,7 @@ const files = {
   dailyReadinessUsageMigration: 'supabase/migrations/20260824224813_refund_nayax_daily_readiness_usage.sql',
   productionSimplificationMigration: 'supabase/migrations/20260830202234_refund_production_simplification.sql',
   oneManagerDecisionMigration: 'supabase/migrations/20260906230000_refund_one_manager_decision.sql',
+  singleManagerGateMigration: 'supabase/migrations/20260913090000_refund_single_manager_gate.sql',
   boundOffsetMigration: 'supabase/migrations/20260908033000_refund_nayax_bound_offset_time.sql',
   providerOrchestration: 'supabase/functions/_shared/nayax-refund-orchestration.ts',
   providerGates: 'supabase/functions/_shared/nayax-refund-gates.ts',
@@ -73,6 +74,7 @@ const pendingApprovalRecoveryMigration = read(files.pendingApprovalRecoveryMigra
 const dailyReadinessUsageMigration = read(files.dailyReadinessUsageMigration);
 const productionSimplificationMigration = read(files.productionSimplificationMigration);
 const oneManagerDecisionMigration = read(files.oneManagerDecisionMigration);
+const singleManagerGateMigration = read(files.singleManagerGateMigration);
 const boundOffsetMigration = read(files.boundOffsetMigration);
 const executionContextMigration = read('supabase/migrations/20260903134847_refund_selected_nayax_execution_context.sql');
 const emailModeMigration = read('supabase/migrations/20260908061500_refund_nayax_email_mode_binding.sql');
@@ -309,25 +311,19 @@ assert(
   'Focused tests must prove original-amount selection, invalid amount rejection, and cross-case exact-transaction uniqueness.'
 );
 assert(
-  productionSimplificationMigration.includes('create or replace function public.refund_nayax_direct_api_execution_hard_disabled()') &&
-    productionSimplificationMigration.includes('create or replace function public.admin_begin_refund_manual_nayax_portal_pre_ops_v1(') &&
-    productionSimplificationMigration.includes("'reviewedNayaxPortalFallbackKind', case") &&
-    productionSimplificationMigration.includes("else 'ordinary_exact_match'") &&
-    productionSimplificationMigration.includes("refund_case.nayax_recommendation_state = 'high_confidence',\n            false") &&
-    productionSimplificationMigration.includes('then machine.nayax_manual_portal_timezone') &&
-    productionSimplificationMigration.includes('machine.nayax_manual_portal_enabled is true\n      or (') &&
-    productionSimplificationMigration.includes('case_row.card_wallet_used is true') &&
-    productionSimplificationMigration.includes('case_row.nayax_match_execution_eligible is false') &&
-    productionSimplificationMigration.includes("'provider_call_made', false") &&
-    productionSimplificationMigration.includes("'customer_message_created', false") &&
+  singleManagerGateMigration.includes('revoke execute on function public.admin_begin_refund_manual_nayax_portal(uuid,bigint)') &&
+    singleManagerGateMigration.includes("'nayax_execute' then") &&
+    singleManagerGateMigration.includes('Nayax execution authorization is created only by the atomic refund reservation') &&
+    singleManagerGateMigration.includes("evidence_hash,'manager_session'") &&
+    singleManagerGateMigration.includes('step_up_intent_id,verified_totp_at') &&
+    singleManagerGateMigration.includes("'authorized',authorized_at+interval '30 seconds',null,null") &&
+    singleManagerGateMigration.includes('service_reserve_and_consume_nayax_refund_attempt_v2') &&
     manualPortalTest.includes('An unattempted ordinary match cannot bypass the API') &&
-    manualPortalTest.includes('Legacy portal work is discoverable before evidence') &&
-    manualPortalTest.includes('legacy context becomes selected after the guarded evidence-selection boundary') &&
-    manualPortalTest.includes('The server enforces the same rejection requirement') &&
-    executionContextMigration.includes('refund_nayax_original_portal_fallback_ready') &&
-    refundPortalUat.includes('Ordinary portal fallback cannot bypass') &&
-    refundPortalUat.includes('Manual portal completion requires explicit verification of the full selected amount'),
-  'Reviewed portal fallback must be rejection-bound, wallet-capable, provider-free on approval, and full-amount evidenced on completion.'
+    manualPortalTest.includes('An authenticated manager cannot start the retired manual execution lane') &&
+    manualPortalTest.includes('Historical manual-portal evidence remains readable without reopening the lane') &&
+    refundPortalUat.includes("legacyRefundCount: await page.getByTestId('legacy-refund-run-nayax-refund').count()") &&
+    refundPortalUat.includes("blockedRpcCalls.filter((name) => name === 'admin_begin_refund_manual_nayax_portal').length === 0"),
+  'The ordinary path must use one manager-session receipt and keep the retired manual execution lane unavailable.'
 );
 assert(
   providerOrchestration.includes('provider_execution_not_yet_enabled') &&
