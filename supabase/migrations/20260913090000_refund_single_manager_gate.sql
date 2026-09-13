@@ -637,7 +637,7 @@ $old$;
     raise exception 'Exact journal recovery intent join required';
   end if;
   body:=replace(body,anchor,'');
-  anchor:=$old$      and authz.actor_user_id = attempt.actor_user_id
+  anchor:=$old$      and attempt.actor_user_id = authz.actor_user_id
 $old$;
   replacement:=anchor||$new$      and authz.authorization_method = 'manager_session'
       and authz.step_up_intent_id is null
@@ -958,5 +958,10 @@ comment on function public.service_reserve_nayax_refund_approval_continuation_v1
   'Lets an authorized Machine Manager or Super-admin continue only the approval stage of one unchanged, already-approved Nayax attempt. It never creates or repeats the refund request.';
 comment on table public.refund_nayax_server_approval_continuation_claims is
   'Immutable System claim for finishing only the approval stage of one already-approved Nayax attempt. The claim is bound to the original receipt and cannot repeat the refund request.';
+
+-- Historical manual-portal attempts remain readable for audit evidence, but the
+-- former second approval lane is no longer executable by any application role.
+revoke execute on function public.admin_begin_refund_manual_nayax_portal(uuid,bigint)
+  from public,anon,authenticated,service_role;
 
 select pg_notify('pgrst','reload schema');

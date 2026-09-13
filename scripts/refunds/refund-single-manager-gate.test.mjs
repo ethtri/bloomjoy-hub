@@ -13,6 +13,10 @@ const orchestration = await readFile(new URL(
   'supabase/functions/_shared/nayax-refund-orchestration.ts', root
 ), 'utf8');
 const portal = await readFile(new URL('src/pages/admin/Refunds.tsx', root), 'utf8');
+const refundOperations = await readFile(new URL('src/lib/refundOperations.ts', root), 'utf8');
+const journalRecoveryMigration = await readFile(new URL(
+  'supabase/migrations/20260908221526_refund_same_source_duplicate_settlement_recovery.sql', root
+), 'utf8');
 
 test('one normalized authority resolver feeds one canonical authorization path', () => {
   assert.match(migration, /create or replace function public\.refund_official_action_authority/);
@@ -41,11 +45,38 @@ test('normal manager confirmation creates one receipt and no step-up artifact', 
   assert.match(migration, /'authorized'.*null,null,evidence_hash,'manager_session'/s);
   assert.match(migration, /receipt\.step_up_intent_id is not null or receipt\.verified_totp_at is not null/);
   assert.match(orchestration, /authorizationMethod === "manager_session" && action\.stepUpIntentId != null/);
-  assert.doesNotMatch(portal, /manual_nayax_approval|handleApproveManualNayaxRefund|Approve refund for Nayax portal/);
+  assert.doesNotMatch(portal, /manual_nayax_approval|handleApproveManualNayaxRefund|Approve refund for Nayax portal|technicalRefundOperationsAction/);
+  assert.match(
+    migration,
+    /revoke execute on function public\.admin_begin_refund_manual_nayax_portal\(uuid,bigint\)\s+from public,anon,authenticated,service_role;/,
+    'no application role can create a current manual-portal attempt',
+  );
+  assert.doesNotMatch(refundOperations, /beginRefundManualNayaxPortal|admin_begin_refund_manual_nayax_portal/);
+  assert.doesNotMatch(portal, /legacy-refund-run-nayax-refund/);
+  assert.equal(
+    (portal.match(/onClick=\{\(\) => void handleRunNayaxRefund\(\)\}/g) ?? []).length,
+    1,
+    'only the confirmation dialog calls the refund handler directly',
+  );
+  assert.equal(
+    (portal.match(/hasReadyRefund \? 'refund-run-nayax-refund'/g) ?? []).length,
+    1,
+    'ready card cases render one primary refund action',
+  );
   assert.match(
     migration,
     /service_settle_nayax_refund_attempt_pre_definitive_retry_v1\(text,uuid,uuid,uuid,text,integer,text,text,text,text,text,text\)/,
     'the receipt predicate is rewritten in the deepest settlement implementation, not a later wrapper',
+  );
+  assert.match(
+    journalRecoveryMigration,
+    /and attempt\.actor_user_id = authz\.actor_user_id/,
+    'the journal receipt predicate anchor comes from the real canonical definition',
+  );
+  assert.match(
+    migration,
+    /anchor:=\$old\$      and attempt\.actor_user_id = authz\.actor_user_id/,
+    'the journal receipt predicate uses the canonical operand order',
   );
 });
 

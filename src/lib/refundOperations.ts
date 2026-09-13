@@ -1300,16 +1300,6 @@ export type CreateRefundManualNayaxCandidateResponse = {
   customerMessageCreated: false;
 };
 
-export type BeginRefundManualNayaxPortalResponse = {
-  attemptId: string;
-  created: boolean;
-  status: 'manual_review';
-  providerOutcome: 'unknown';
-  expectedCaseVersion: number;
-  providerCallMade: false;
-  customerMessageCreated: false;
-};
-
 export type BeginRefundNayaxEvidenceOnlyResponse = {
   attemptId: string;
   created: boolean;
@@ -1798,7 +1788,7 @@ const demoLifecycle = (
   },
   managerAction: {
     action: managerNextAction,
-    owner: operationsRequired ? 'Refund Operations' : 'Machine Manager',
+    owner: 'Machine Manager',
     safeRetryEligible: managerNextAction === 'retry_read_only_lookup',
     payloadRedacted: true,
   },
@@ -1893,8 +1883,8 @@ const demoLifecycle = (
   },
   operations: {
     required: operationsRequired,
-    queue: 'Refund Operations',
-    owner: 'Refund Operations',
+    queue: 'Manager review',
+    owner: 'Machine Manager',
     slaMinutes: 60,
     ageMinutes: operationsRequired ? 12 : null,
     dueAt: operationsRequired ? demoIsoHoursAgo(-0.8) : null,
@@ -3290,23 +3280,6 @@ export const createRefundManualNayaxCandidate = async (
     throw new Error(error?.message || 'Unable to save the Nayax portal transaction.');
   }
   return data as CreateRefundManualNayaxCandidateResponse;
-};
-
-export const beginRefundManualNayaxPortal = async (
-  caseId: string,
-  expectedCaseVersion: number
-): Promise<BeginRefundManualNayaxPortalResponse> => {
-  const { data, error } = await supabaseClient.rpc(
-    'admin_begin_refund_manual_nayax_portal',
-    {
-      p_case_id: caseId,
-      p_expected_case_version: expectedCaseVersion,
-    }
-  );
-  if (error || !data || typeof data !== 'object') {
-    throw new Error(error?.message || 'Unable to approve this refund for the Nayax portal.');
-  }
-  return data as BeginRefundManualNayaxPortalResponse;
 };
 
 export const beginRefundNayaxEvidenceOnlyReconciliation = async (

@@ -5998,7 +5998,7 @@ export default function AdminRefundsPage() {
       : baseManagerState;
     const displayedManagerNextStep = getDisplayedRefundManagerNextStep(managerState, primaryAction);
     const showDisabledActionStatus =
-      (primaryAction?.disabled === true || technicalRefundOperationsAction || paymentActionNeedsOperations) &&
+      (primaryAction?.disabled === true || paymentActionNeedsOperations) &&
       !selectedCaseIsTerminal &&
       managerState.id !== 'match_attention' &&
       managerState.id !== 'check_nayax_result';
@@ -6008,7 +6008,6 @@ export default function AdminRefundsPage() {
       isRunningNayaxRefund ||
       isUsingDemoData ||
       !primaryAction ||
-      technicalRefundOperationsAction ||
       paymentActionNeedsOperations ||
       primaryAction.disabled === true ||
       (primaryActionNeedsOfficialAccess && (selectedCaseIsReviewOnly || officialActionVersion <= 0)) ||
@@ -8538,28 +8537,6 @@ export default function AdminRefundsPage() {
                                   Bloomjoy records the result and emails the customer only after the payment service confirms the refund.
                                 </p>
                               </div>
-                              <Button
-                                data-testid="legacy-refund-run-nayax-refund"
-                                type="button"
-                                onClick={() => void handleRunNayaxRefund()}
-                                disabled={
-                                  isSaving ||
-                                  isRunningNayaxRefund ||
-                                  isUsingDemoData ||
-                                  !primaryAction ||
-                                  primaryAction.disabled ||
-                                  primaryActionIssues.length > 0 ||
-                                  selectedCaseIsReviewOnly ||
-                                  officialActionVersion <= 0
-                                }
-                              >
-                                {isRunningNayaxRefund ? (
-                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                ) : (
-                                  <CheckCircle2 className="mr-2 h-4 w-4" />
-                                )}
-                                Refund card payment
-                              </Button>
                             </div>
                             {isUsingDemoData && (
                               <InfoHint>

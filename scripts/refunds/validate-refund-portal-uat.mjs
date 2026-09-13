@@ -1591,7 +1591,11 @@ const buildManagerStepUpRefundOverview = () => {
 
 const buildManagerDraftNavigationOverview = () => {
   const overview = buildManagerStepUpRefundOverview();
-  const readyCase = overview.cases[0];
+  const readyCase = {
+    ...overview.cases[0],
+    canPerformOfficialAction: true,
+    officialActionBlockReason: null,
+  };
   overview.cases = [
     readyCase,
     {
@@ -8575,17 +8579,46 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
     });
 
     const page = await context.newPage();
+    const consoleErrors = [];
+    page.on('console', (message) => {
+      if (message.type() === 'error') consoleErrors.push(message.text());
+    });
+    page.on('pageerror', (error) => consoleErrors.push(error.message));
     await signInRefundUser(page, appUrl);
     await page.getByRole('button', { name: /^Ready to approve \d+$/ }).click();
     await waitForQueueCount(page, 2);
-    await queueCase(page, 'RF-UAT-CARD').click();
+    await openQueueCase(page, 'RF-UAT-CARD').catch(async (error) => {
+      throw new Error(`${error.message} Queue: ${JSON.stringify(
+        await page.getByTestId('refund-case-queue-item').allInnerTexts()
+      )} Body: ${JSON.stringify((await page.locator('body').innerText()).slice(0, 2000))} Errors: ${JSON.stringify(
+        getUatPageFailures(page, consoleErrors)
+      )}`);
+    });
+    await page.getByTestId('refund-run-nayax-refund').waitFor({ timeout: 10000 });
 
+    const approvalActionDiagnostics = {
+      primaryRefundCount: await page.getByTestId('refund-run-nayax-refund').count(),
+      primaryRefundLabel: await page.getByTestId('refund-run-nayax-refund').allInnerTexts(),
+      namedRefundCount: await page.getByRole('button', { name: /^Refund \$/i }).count(),
+      legacyRefundCount: await page.getByTestId('legacy-refund-run-nayax-refund').count(),
+      confirmationCount: await page.getByTestId('refund-confirm-nayax-refund').count(),
+      stepUpDialogCount: await page.getByTestId('refund-manager-step-up-dialog').count(),
+      authenticatorCopyCount: await page.getByText(/authenticator/i).count(),
+      reviewOnlyCount: await page.getByTestId('refund-review-only-banner').count(),
+      managerState: await page.getByTestId('refund-manager-state').allInnerTexts(),
+      primaryAction: await page.getByTestId('refund-primary-action').allInnerTexts(),
+    };
     recorder.assert(
       `${scenario.name} reaches the one manager approval action`,
-      await page.getByTestId('refund-run-nayax-refund').isEnabled() &&
-        (await page.getByTestId('refund-manager-step-up-dialog').count()) === 0 &&
-        (await page.getByText(/authenticator/i).count()) === 0 &&
-        (await page.getByTestId('refund-review-only-banner').count()) === 0
+      approvalActionDiagnostics.primaryRefundCount === 1 &&
+        await page.getByTestId('refund-run-nayax-refund').isEnabled() &&
+        approvalActionDiagnostics.namedRefundCount === 1 &&
+        approvalActionDiagnostics.legacyRefundCount === 0 &&
+        approvalActionDiagnostics.confirmationCount === 0 &&
+        approvalActionDiagnostics.stepUpDialogCount === 0 &&
+        approvalActionDiagnostics.authenticatorCopyCount === 0 &&
+        approvalActionDiagnostics.reviewOnlyCount === 0,
+      JSON.stringify(approvalActionDiagnostics)
     );
     recorder.assert(
       `${scenario.name} review performs no payment action`,
@@ -8738,6 +8771,13 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
     ).length;
     await page.getByTestId('refund-run-nayax-refund').click();
     await page.getByTestId('refund-confirmation-dialog').waitFor({ timeout: 10000 });
+    recorder.assert(
+      `${scenario.name} opens one confirmation without a second refund action`,
+      (await page.getByTestId('refund-run-nayax-refund').count()) === 1 &&
+        (await page.getByTestId('refund-confirm-nayax-refund').count()) === 1 &&
+        await page.getByTestId('refund-confirm-nayax-refund').isVisible() &&
+        (await page.getByTestId('legacy-refund-run-nayax-refund').count()) === 0
+    );
     await page.getByTestId('refund-confirm-nayax-refund').click();
     await page.getByTestId('refund-action-receipt')
       .getByText('Refund completed', { exact: true })
@@ -8759,6 +8799,11 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
       path: path.join(artifactDir, `refund-portal-uat-${scenario.slug}-single-manager-confirmation.png`),
       fullPage: true,
     });
+    recorder.assert(
+      `${scenario.name} single-manager flow reports no browser errors`,
+      getUatPageFailures(page, consoleErrors).length === 0,
+      getUatPageFailures(page, consoleErrors).slice(0, 3).join(' | ')
+    );
     await closeRefundPortalContext(context);
   }
 };

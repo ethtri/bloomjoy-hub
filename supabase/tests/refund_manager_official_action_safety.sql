@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(70);
+select plan(72);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -525,6 +525,46 @@ select ok(
   ),
   'Only an authenticated browser session can mint an official-action receipt'
 );
+
+select ok(
+  not has_function_privilege(
+    'authenticated',
+    'public.admin_begin_refund_manual_nayax_portal(uuid,bigint)',
+    'execute'
+  )
+  and not has_function_privilege(
+    'anon',
+    'public.admin_begin_refund_manual_nayax_portal(uuid,bigint)',
+    'execute'
+  )
+  and not has_function_privilege(
+    'service_role',
+    'public.admin_begin_refund_manual_nayax_portal(uuid,bigint)',
+    'execute'
+  ),
+  'No application role can create a new manual Nayax portal attempt'
+);
+
+set local role authenticated;
+select pg_temp.set_auth_claims(
+  '79000000-0000-4000-8000-000000000002',
+  'aal1',
+  'password',
+  extract(epoch from statement_timestamp())
+);
+select like(
+  pg_temp.capture_error($sql$
+    select public.admin_begin_refund_manual_nayax_portal(
+      '79600000-0000-4000-8000-000000000007',
+      (select official_action_version
+       from public.refund_cases
+       where id='79600000-0000-4000-8000-000000000007')
+    )
+  $sql$),
+  '%permission denied%',
+  'A signed-in Super-admin cannot invoke the retired manual portal lane'
+);
+reset role;
 
 select ok(
   has_function_privilege(
