@@ -6522,7 +6522,7 @@ const runNayaxLookupStatusMatrixChecks = async ({ browser, appUrl, artifactDir, 
         nextAttemptAt: null, failureClass: 'incomplete_history', payloadRedacted: true,
       },
       operationsAccess: true,
-      queueView: 'Needs Refund Operations',
+      queueView: 'Needs manager review',
       adminAccessContext: {
         isSuperAdmin: true,
         isScopedAdmin: false,
