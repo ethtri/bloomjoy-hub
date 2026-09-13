@@ -770,5 +770,9 @@ Deno.test("provider success with a late accounting collision remains terminal an
   assert(result.paymentTerminal && result.accountingException, "accounting must stay separate");
   assert(result.reportingAdjustmentPresent === false, "no adjustment may be invented");
   assert(result.errorCode === "accounting_reconciliation_required", "owned accounting work must be explicit");
+  assert(
+    result.message === "The refund is confirmed and the customer was notified. The machine Manager must record the accounting date.",
+    "the terminal result must name the exact Manager action",
+  );
   assert(providerCalls === 1 && noticeCalls === 1, "one payment and one notice only");
 });

@@ -426,7 +426,7 @@ export const orchestrateNayaxRefund = async ({
       customerCompletion,
       message: completionNeedsReconciliation(customerCompletion)
         ? "The refund is confirmed and cannot be retried. Accounting and the customer notice need follow-up."
-        : "The refund is confirmed and the customer was notified. Refund Operations owns the separate accounting review.",
+        : "The refund is confirmed and the customer was notified. The machine Manager must record the accounting date.",
     };
   }
 

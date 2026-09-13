@@ -360,7 +360,7 @@ export const getRefundManagerState = (
         ? 'waiting_on_customer'
         : customerOutreach.state === 'customer_replied' || customerOutreach.state === 'rechecking'
         ? 'checking_nayax'
-        : customerOutreach.owner === 'Refund Operations'
+        : customerOutreach.nextAction === 'refund_operations'
         ? 'needs_refund_operations'
         : 'needs_information',
       presentation.label,
