@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(68);
+select plan(70);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -817,7 +817,7 @@ select ok(
     '79000000-0000-4000-8000-000000000002',
     '79600000-0000-4000-8000-000000000001'
   ),
-  'A mapped Super Admin receives official-action authority only from the exact Machine Manager mapping'
+  'An active Super-admin uses the same official-action authority even when a mapping also exists'
 );
 
 select ok(
@@ -829,7 +829,7 @@ select ok(
     '79000000-0000-4000-8000-000000000003',
     '79600000-0000-4000-8000-000000000001'
   ),
-  'A mapped Scoped Admin receives official-action authority only from the exact Machine Manager mapping'
+  'An assigned machine Manager can use official-action authority regardless of separate admin access'
 );
 
 select ok(
@@ -837,11 +837,11 @@ select ok(
     '79000000-0000-4000-8000-000000000004',
     '79600000-0000-4000-8000-000000000001'
   )
-  and not public.can_perform_refund_official_action(
+  and public.can_perform_refund_official_action(
     '79000000-0000-4000-8000-000000000004',
     '79600000-0000-4000-8000-000000000001'
   ),
-  'Admin access can review but cannot perform an official action without an exact Machine Manager mapping'
+  'An active Super-admin can perform the same official action without a fabricated machine assignment'
 );
 
 set local role service_role;
@@ -1170,8 +1170,43 @@ $sql$
       'cash_zelle_pending', 'approved', null, null, null, 600, null, null, false, null, null
     )
 $sql$,
-  'A mapped Super Admin can mint a Machine Manager receipt after the same owner-approved step-up'
+  'A Super-admin can mint the same short-lived manager-session receipt'
 );
+
+select pg_temp.set_auth_claims(
+  '79000000-0000-4000-8000-000000000004', 'aal1', 'password',
+  extract(epoch from statement_timestamp())
+);
+insert into pg_temp.official_action_test_receipts (receipt_key, authorization_id)
+select 'unmapped_super_admin',
+  (public.admin_authorize_refund_official_action(
+    '79600000-0000-4000-8000-000000000002', 'approve',
+    (select official_action_version from public.refund_cases where id='79600000-0000-4000-8000-000000000002'),
+    'cash_zelle_pending','approved',null,null,null,600,null,null,false,null,null
+  )->>'authorizationId')::uuid;
+reset role;
+
+select ok(
+  exists(
+    select 1 from public.refund_case_official_action_authorizations receipt
+    where receipt.id=(select authorization_id from pg_temp.official_action_test_receipts
+      where receipt_key='unmapped_super_admin')
+      and receipt.authority_kind='super_admin'
+      and receipt.super_admin_role_id='79400000-0000-4000-8000-000000000006'
+      and receipt.manager_mapping_id is null
+      and receipt.manager_mapping_version is null
+      and receipt.authorization_method='manager_session'
+      and receipt.step_up_intent_id is null
+      and receipt.verified_totp_at is null
+  ) and not exists(
+    select 1 from public.refund_manager_action_step_up_intents intent
+    where intent.refund_case_id='79600000-0000-4000-8000-000000000002'
+      and intent.actor_user_id='79000000-0000-4000-8000-000000000004'
+  ),
+  'An unmapped Super-admin confirmation creates one role-bound receipt and zero step-up or TOTP rows'
+);
+
+set local role authenticated;
 
 select pg_temp.set_auth_claims(
   '79000000-0000-4000-8000-000000000003', 'aal2', 'totp',
@@ -1618,11 +1653,11 @@ select ok(
     '79000000-0000-4000-8000-000000000003',
     '79600000-0000-4000-8000-000000000007'
   )
-  and not public.can_prepare_nayax_refund_execution(
+  and public.can_prepare_nayax_refund_execution(
     '79000000-0000-4000-8000-000000000004',
     '79600000-0000-4000-8000-000000000007'
   ),
-  'Nayax preparation follows exact Machine Manager mapping, regardless of separate admin access'
+  'Nayax preparation accepts an assigned manager or Super-admin through the same authority check'
 );
 
 set local role authenticated;
@@ -1630,14 +1665,16 @@ select pg_temp.set_auth_claims(
   '79000000-0000-4000-8000-000000000001', 'aal2', 'totp',
   extract(epoch from statement_timestamp())
 );
-insert into pg_temp.official_action_test_receipts (receipt_key, authorization_id)
-select
-  'nayax_execute',
-  (public.admin_authorize_refund_official_action(
+select ok(
+  pg_temp.capture_error($sql$
+  select public.admin_authorize_refund_official_action(
     '79600000-0000-4000-8000-000000000007', 'nayax_execute',
     (select official_action_version from public.refund_cases where id = '79600000-0000-4000-8000-000000000007'),
     'card_refund_pending', 'approved', null, null, null, 500, null, null, false, null, null
-  ) ->> 'authorizationId')::uuid;
+  )
+  $sql$) like '%created only by the atomic refund reservation%',
+  'The generic browser authorization RPC cannot mint a Nayax execution receipt'
+);
 reset role;
 
 set local role service_role;
@@ -1652,16 +1689,16 @@ select ok(
 reset role;
 
 select ok(
-  (
-    select refund_case.status = 'card_refund_pending'
+  (select refund_case.status = 'card_refund_pending'
       and refund_case.decision = 'approved'
       and refund_case.refund_completed_at is null
       and refund_case.reporting_adjustment_id is null
-      and action_authorization.status = 'authorized'
     from public.refund_cases refund_case
-    join public.refund_case_official_action_authorizations action_authorization
-      on action_authorization.id = (select authorization_id from pg_temp.official_action_test_receipts where receipt_key = 'nayax_execute')
-    where refund_case.id = '79600000-0000-4000-8000-000000000007'
+    where refund_case.id = '79600000-0000-4000-8000-000000000007')
+  and not exists (
+    select 1 from public.refund_case_official_action_authorizations authorization
+    where authorization.refund_case_id='79600000-0000-4000-8000-000000000007'
+      and authorization.action='nayax_execute'
   )
   and not exists (
     select 1
@@ -1673,7 +1710,7 @@ select ok(
         'refund_completed'
       )
   ),
-  'Denied legacy consumption leaves manager authority and card case untouched'
+  'Denied generic Nayax authorization leaves the card case and receipt ledger untouched'
 );
 
 set local role authenticated;

@@ -684,11 +684,12 @@ assert(
     refundOperationsUi.includes("refundCase.reviewedNayaxPortalFallbackKind === 'ordinary_exact_match'") &&
     !refundOperationsUi.includes("refundReadiness?.blockReason === 'provider_remaining_value_unverified'") &&
     refundOperationsUi.includes("refundCase.reviewedNayaxPortalFallbackKind === 'legacy_manual_evidence'") &&
-    refundOperationsUi.includes('Approve refund for Nayax portal') &&
+    refundOperationsUi.includes('Nayax API unavailable') &&
+    !refundOperationsUi.includes('Approve refund for Nayax portal') &&
     !refundOperationsUi.includes('data-testid="legacy-refund-amount-input"') &&
     !refundOperationsUi.includes('Match strength:') &&
     !refundOperationsUi.includes('Card details agree'),
-  'The manager UI must show safe candidates, provide no editable normal amount, and preserve the reviewed manual portal fallback while direct execution is blocked.'
+  'The manager UI must show safe candidates, provide no editable normal amount, and avoid a second approval lane when the API is unavailable.'
 );
 assert(
   refundOperationsUi.includes('getRefundManagerState(') &&

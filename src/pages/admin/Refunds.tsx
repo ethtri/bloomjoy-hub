@@ -68,7 +68,6 @@ import {
   correctRefundCustomerLocale,
   createRefundAttachmentSignedUrl,
   disposeRefundAcknowledgementException,
-  beginRefundManualNayaxPortal,
   beginRefundNayaxEvidenceOnlyReconciliation,
   executeNayaxCardRefund,
   fetchNayaxCardRefundAvailability,
@@ -145,9 +144,9 @@ import { mergeRefundOperationsSupplements } from '@/lib/refundOperationsSuppleme
 
 const refundSearchViewLabel = (refundCase: RefundCaseRecord) => ({
   needs_action: 'Action needed', ready_to_pay: 'Ready to approve', in_progress: 'Refund in progress',
-  waiting_on_customer: 'Waiting for customer', provider_hold: 'Needs manager review',
-  accounting_review: 'Needs manager review',
-  integrity_hold: 'Needs manager review', completed: 'Done', internal_archive: 'Internal/test archive',
+  waiting_on_customer: 'Waiting for customer', provider_hold: 'Check Nayax refund status',
+  accounting_review: 'Fix refund accounting',
+  integrity_hold: 'Fix payment record', completed: 'Done', internal_archive: 'Internal/test archive',
 })[getRefundManagerQueueBucket(refundCase)];
 
 const statusDecisionMap: Partial<Record<RefundCaseStatus, Exclude<RefundDecision, null>>> = {
@@ -219,17 +218,17 @@ const nayaxResolutionEvidenceOptions: Record<
 > = {
   provider_confirmed_success: [
     { value: 'nayax_dtm_transaction', label: 'Transaction record' },
-    { value: 'nayax_support_ticket', label: 'Payment support confirmation' },
+    { value: 'nayax_support_ticket', label: 'Nayax support confirmation' },
   ],
   provider_confirmed_retry_safe: [
     { value: 'nayax_dtm_transaction', label: 'Transaction record' },
-    { value: 'nayax_support_ticket', label: 'Payment support confirmation' },
+    { value: 'nayax_support_ticket', label: 'Nayax support confirmation' },
   ],
   documented_manual_completion: [
     { value: 'documented_manual_refund', label: 'Documented manual refund' },
   ],
   remain_on_hold: [
-    { value: 'nayax_support_ticket', label: 'Payment support confirmation' },
+    { value: 'nayax_support_ticket', label: 'Nayax support confirmation' },
     { value: 'nayax_dtm_transaction', label: 'Transaction record' },
   ],
 };
@@ -240,11 +239,11 @@ const nayaxResolutionReasonOptions: Record<
 > = {
   provider_confirmed_success: [
     { value: 'nayax_dtm_settled', label: 'The transaction record shows the refund completed' },
-    { value: 'nayax_support_confirmed_success', label: 'Payment support confirms success' },
+    { value: 'nayax_support_confirmed_success', label: 'Nayax support confirms success' },
   ],
   provider_confirmed_retry_safe: [
     { value: 'nayax_dtm_not_refunded', label: 'The transaction record confirms no refund was made' },
-    { value: 'nayax_support_retry_safe', label: 'Payment support confirms a fresh review is safe' },
+    { value: 'nayax_support_retry_safe', label: 'Nayax support confirms a fresh review is safe' },
   ],
   documented_manual_completion: [
     { value: 'manual_nayax_completion', label: 'The documented manual refund is complete' },
@@ -418,7 +417,7 @@ type PrimaryActionConfig = {
   targetStatus?: RefundCaseStatus;
   targetDecision?: RefundDecision;
   messageType?: RefundCustomerPortalMessageType;
-  mode?: 'case_update' | 'retry_message' | 'nayax_refund_execution' | 'manual_nayax_approval' | 'resolve_delivery_not_found' | 'review_transaction_evidence';
+  mode?: 'case_update' | 'retry_message' | 'nayax_refund_execution' | 'resolve_delivery_not_found' | 'review_transaction_evidence';
   disabled?: boolean;
 };
 
@@ -763,7 +762,7 @@ const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxL
   }
 
   if (refundCase.providerHold) {
-    return 'The refund result is unclear. Do not try again until payment support confirms what happened.';
+    return 'The refund result is unclear. Do not retry. The machine Manager must check the transaction in Nayax and record the result.';
   }
 
   if (
@@ -1722,8 +1721,8 @@ const primaryActionConfig = (
   }
   if (refundCase.providerHold && refundReadiness?.approvalContinuationReady !== true) {
     return {
-      label: 'Refund status not confirmed',
-      helper: 'The refund result is unclear. Do not try again until payment support confirms what happened.',
+      label: 'Check refund status in Nayax',
+      helper: 'The System could not confirm the result. Do not retry. The machine Manager must check this transaction in Nayax and record the result.',
       disabled: true,
     };
   }
@@ -1787,7 +1786,7 @@ const primaryActionConfig = (
   ) {
     return {
       label: 'Refund was rejected',
-      helper: 'No refund was sent. Keep the case open for payment support.',
+      helper: 'No refund was sent. The machine Manager must check the exact transaction in Nayax.',
       disabled: true,
     };
   }
@@ -2090,11 +2089,9 @@ const primaryActionConfig = (
       }
       if (reviewedPortalFallbackAvailable) {
         return {
-          label: 'Approve refund for Nayax portal',
-          helper: 'Approve this exact refund, then finish it in Nayax and record the confirmation. This step sends no money or customer email.',
-          targetStatus: 'card_refund_pending',
-          targetDecision: 'approved',
-          mode: 'manual_nayax_approval',
+          label: 'Nayax API unavailable',
+          helper: 'Do not create a second approval path. The machine Manager must check the Nayax connection and use the documented exception only if the System cannot execute the saved refund.',
+          disabled: true,
         };
       }
       return {
@@ -2550,7 +2547,6 @@ export default function AdminRefundsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isLookingUpNayax, setIsLookingUpNayax] = useState(false);
   const [isRunningNayaxRefund, setIsRunningNayaxRefund] = useState(false);
-  const [isApprovingManualNayaxRefund, setIsApprovingManualNayaxRefund] = useState(false);
   const [isRefundConfirmationOpen, setIsRefundConfirmationOpen] = useState(false);
   const [isCashConfirmationOpen, setIsCashConfirmationOpen] = useState(false);
   const [isGmailResolutionOpen, setIsGmailResolutionOpen] = useState(false);
@@ -2618,7 +2614,6 @@ export default function AdminRefundsPage() {
       isSaving ||
       isSendingCustomerMessage ||
       isRunningNayaxRefund ||
-      isApprovingManualNayaxRefund ||
       isCashCompletionSubmitting ||
       isDisposingAcknowledgementException ||
       isCorrectingCustomerLocale ||
@@ -3998,7 +3993,7 @@ export default function AdminRefundsPage() {
       tone: 'warning',
       title: receiptTitle,
       message: ambiguous
-        ? `${message} Do not try the refund again until payment support confirms what happened. The customer was not emailed.`
+        ? `${message} Do not try the refund again. The machine Manager must check the exact transaction in Nayax. The customer was not emailed.`
         : rejected
           ? safeRetryEligible
             ? 'Bloomjoy confirmed that no refund was sent. The case is still open, and the normal Refund action is available again. The customer was not emailed.'
@@ -4145,14 +4140,14 @@ export default function AdminRefundsPage() {
           next.add(selectedCase.id);
           return next;
         });
-        const message = 'A manager with the required access must check the saved authorization result. No refund or customer completion email was sent.';
+        const message = 'Only the assigned machine Manager or a Super-admin can approve this refund. If this signed-in user has one of those roles, report a configuration defect. No refund or customer completion email was sent.';
         setNayaxExecutionNotice({ tone: 'warning', message });
         setRefundActionReceipt({
           tone: 'warning',
-          title: 'Needs manager review',
+          title: 'Approval permission mismatch',
           message,
         });
-        toast.error('No refund was sent. A manager with the required access must check the case.');
+        toast.error('No refund was sent. Only the assigned machine Manager or a Super-admin can approve.');
       } else if (response) {
         await applyNayaxExecutionResult(response);
       } else {
@@ -4162,8 +4157,8 @@ export default function AdminRefundsPage() {
         setNayaxExecutionNotice({ tone: 'warning', message });
         setRefundActionReceipt({
           tone: 'warning',
-          title: 'Refund status not confirmed',
-          message: `${message} Do not try again until payment support confirms what happened. The customer was not emailed.`,
+          title: 'Check Nayax refund status',
+          message: `${message} Do not try again. The machine Manager must check the exact transaction in Nayax. The customer was not emailed.`,
         });
         toast.error('Bloomjoy could not confirm whether the refund was sent. Do not try again.');
       }
@@ -4388,38 +4383,6 @@ export default function AdminRefundsPage() {
     }
   };
 
-  const handleApproveManualNayaxRefund = async () => {
-    if (!selectedCase || !selectedCase.manualNayaxPortalEnabled) return;
-    setIsApprovingManualNayaxRefund(true);
-    try {
-      const result = await beginRefundManualNayaxPortal(
-        selectedCase.id,
-        officialActionVersion
-      );
-      setNayaxExecutionNotice({
-        tone: 'warning',
-        message: 'Approved. Finish this exact refund in Nayax, then record the Nayax confirmation here. Do not send a second refund.',
-      });
-      setRefundActionReceipt({
-        tone: 'warning',
-        title: result.created ? 'Approved for Nayax portal' : 'Approval already recorded',
-        message: 'No provider call or customer email was sent. Complete the refund once in Nayax, then record its exact confirmation.',
-        reference: result.attemptId,
-      });
-      setIsRefundConfirmationOpen(false);
-      toast.success('Refund approved for manual Nayax completion. No money or email was sent.');
-      await refresh();
-    } catch (manualApprovalError) {
-      toast.error(
-        manualApprovalError instanceof Error
-          ? manualApprovalError.message
-          : 'Unable to approve this refund for the Nayax portal.'
-      );
-    } finally {
-      setIsApprovingManualNayaxRefund(false);
-    }
-  };
-
   const handlePrimaryAction = async () => {
     if (!editor || !primaryAction || !primaryActionEditor) return;
     if (primaryAction.mode === 'resolve_delivery_not_found') {
@@ -4434,10 +4397,6 @@ export default function AdminRefundsPage() {
     }
     if (primaryAction.mode === 'retry_message') {
       await handleSendCustomerMessage(primaryAction.messageType);
-      return;
-    }
-    if (primaryAction.mode === 'manual_nayax_approval') {
-      setIsRefundConfirmationOpen(true);
       return;
     }
     if (
@@ -5930,12 +5889,7 @@ export default function AdminRefundsPage() {
       primaryAction?.mode === 'nayax_refund_execution' &&
       primaryAction.disabled !== true &&
       !paymentActionNeedsOperations;
-    const technicalRefundOperationsAction =
-      !refundOperationsAccess &&
-      primaryAction?.mode === 'manual_nayax_approval';
     const topActionLabel = paymentActionNeedsOperations
-      ? 'Manager review required'
-      : technicalRefundOperationsAction
       ? 'Manager review required'
       : hasReadyRefund
         ? actionLabel
@@ -5987,9 +5941,9 @@ export default function AdminRefundsPage() {
       : paymentActionNeedsOperations
       ? {
           id: 'needs_refund_operations',
-          label: 'Needs manager review',
-          explanation: 'Bloomjoy did not send a refund. The case needs a manager with the required access.',
-          nextStep: 'Check the saved authorization result. Do not try the refund again.',
+          label: 'Approval permission mismatch',
+          explanation: 'Bloomjoy did not send a refund. Only the assigned machine Manager or a Super-admin can approve.',
+          nextStep: 'If this signed-in user has one of those roles, report a configuration defect. Do not try the refund again.',
           tone: 'warning',
         }
       : selectedCandidateRefundUnavailable
@@ -6824,7 +6778,7 @@ export default function AdminRefundsPage() {
                           data-testid="refund-nayax-resolution-reference"
                           value={nayaxResolutionEvidenceReference}
                           onChange={(event) => setNayaxResolutionEvidenceReference(event.target.value)}
-                          placeholder="Payment support reference"
+                          placeholder="Nayax evidence reference"
                           aria-describedby="refund-nayax-resolution-reference-help"
                           autoComplete="off"
                           className="mt-2 bg-background"
@@ -6888,7 +6842,7 @@ export default function AdminRefundsPage() {
 
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-xs leading-5 text-muted-foreground">
-                          Only a manager with the required access can save a confirmed Nayax result.
+                          Only the assigned machine Manager or a Super-admin can save a confirmed Nayax result. If this signed-in user has one of those roles, report a configuration defect.
                         </p>
                         <Button
                           type="button"
@@ -6989,20 +6943,16 @@ export default function AdminRefundsPage() {
         <AlertDialog
           open={isRefundConfirmationOpen}
           onOpenChange={(open) => {
-            if (!isRunningNayaxRefund && !isApprovingManualNayaxRefund) setIsRefundConfirmationOpen(open);
+            if (!isRunningNayaxRefund) setIsRefundConfirmationOpen(open);
           }}
         >
           <AlertDialogContent data-testid="refund-confirmation-dialog" className="max-w-xl">
             <AlertDialogHeader>
               <AlertDialogTitle>
-                {primaryAction?.mode === 'manual_nayax_approval'
-                  ? `Approve ${formatCurrency(cardAmountCents)} for the Nayax portal?`
-                  : `Confirm ${formatCurrency(cardAmountCents)} card refund`}
+                {`Confirm ${formatCurrency(cardAmountCents)} card refund`}
               </AlertDialogTitle>
               <AlertDialogDescription>
-                {primaryAction?.mode === 'manual_nayax_approval'
-                  ? 'This records approval only. It does not send money or email the customer. Finish the exact refund once in Nayax, then record the Nayax confirmation.'
-                  : 'Check every detail. The customer email sends only after the card refund succeeds.'}
+                Check every detail. The customer email sends only after the card refund succeeds.
               </AlertDialogDescription>
             </AlertDialogHeader>
 
@@ -7021,7 +6971,7 @@ export default function AdminRefundsPage() {
               </div>
             </div>
 
-            {nextCustomerDraft && primaryAction?.mode !== 'manual_nayax_approval' && (
+            {nextCustomerDraft && (
               <details className="rounded-lg border border-border p-3 text-sm">
                 <summary className="cursor-pointer font-medium text-foreground">Review completion email</summary>
                 <div className="mt-3 max-h-52 overflow-y-auto rounded-md bg-muted/30 p-3">
@@ -7036,26 +6986,20 @@ export default function AdminRefundsPage() {
             )}
 
             <AlertDialogFooter>
-              <AlertDialogCancel disabled={isRunningNayaxRefund || isApprovingManualNayaxRefund}>Go back</AlertDialogCancel>
+              <AlertDialogCancel disabled={isRunningNayaxRefund}>Go back</AlertDialogCancel>
               <Button
                 data-testid="refund-confirm-nayax-refund"
                 type="button"
-                onClick={() => void (
-                  primaryAction?.mode === 'manual_nayax_approval'
-                    ? handleApproveManualNayaxRefund()
-                    : handleRunNayaxRefund()
-                )}
-                disabled={isActionDisabled || isApprovingManualNayaxRefund}
+                onClick={() => void handleRunNayaxRefund()}
+                disabled={isActionDisabled}
                 className="bg-foreground text-background hover:bg-foreground/90"
               >
-                {isRunningNayaxRefund || isApprovingManualNayaxRefund ? (
+                {isRunningNayaxRefund ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
                   <CheckCircle2 className="mr-2 h-4 w-4" />
                 )}
-                {primaryAction?.mode === 'manual_nayax_approval'
-                  ? 'Approve for Nayax portal'
-                  : 'Confirm refund & send email'}
+                Confirm refund &amp; send email
               </Button>
             </AlertDialogFooter>
           </AlertDialogContent>

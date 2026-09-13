@@ -40,7 +40,8 @@ export type RefundOfficialActionAuthorization = {
   authorizationId: string;
   action: RefundOfficialAction;
   expectedCaseVersion: number;
-  mappingVersion: number;
+  authorityKind: "machine_manager" | "super_admin";
+  authorityVersion: number;
   expiresAt: string;
   pilotReservation?: {
     attempt?: { attemptId?: string };
@@ -87,6 +88,27 @@ export class RefundOfficialActionAuthorizationError extends Error {
 
 const safeErrorMessage = (value: unknown) =>
   typeof value === "string" ? value.trim().slice(0, 240) : "";
+
+export const normalizeRefundAuthorizationAuthority = (value: {
+  authorityKind?: unknown;
+  authorityVersion?: unknown;
+  mappingVersion?: unknown;
+}) => {
+  const legacyManager = value.authorityKind == null &&
+    Number.isSafeInteger(Number(value.mappingVersion));
+  const authorityKind = legacyManager ? "machine_manager" : value.authorityKind;
+  const authorityVersion = Number(
+    value.authorityVersion ?? value.mappingVersion,
+  );
+  if (
+    !new Set(["machine_manager", "super_admin"]).has(String(authorityKind)) ||
+    !Number.isSafeInteger(authorityVersion) || authorityVersion <= 0
+  ) return null;
+  return {
+    authorityKind: authorityKind as "machine_manager" | "super_admin",
+    authorityVersion,
+  };
+};
 
 const classifyAuthorizationError = (message: string) => {
   const normalized = message.toLowerCase();
@@ -224,13 +246,16 @@ export const authorizeRefundOfficialAction = async ({
       action: RefundOfficialAction;
       expectedCaseVersion: number;
       mappingVersion: number;
+      authorityKind: "machine_manager" | "super_admin";
+      authorityVersion: number;
       expiresAt: string;
     }>;
+    const authority = normalizeRefundAuthorizationAuthority(authorization);
     if (
       typeof authorization.authorizationId !== "string" ||
       authorization.action !== context.action ||
       !Number.isSafeInteger(Number(authorization.expectedCaseVersion)) ||
-      !Number.isSafeInteger(Number(authorization.mappingVersion)) ||
+      !authority ||
       typeof authorization.expiresAt !== "string"
     ) {
       throw new RefundOfficialActionAuthorizationError(
@@ -244,7 +269,7 @@ export const authorizeRefundOfficialAction = async ({
       authorizationId: authorization.authorizationId,
       action: authorization.action,
       expectedCaseVersion: Number(authorization.expectedCaseVersion),
-      mappingVersion: Number(authorization.mappingVersion),
+      ...authority,
       expiresAt: authorization.expiresAt,
     };
   }
@@ -287,12 +312,15 @@ export const authorizeRefundOfficialAction = async ({
     throw classifyAuthorizationError(safeErrorMessage(error?.message));
   }
 
-  const authorization = data as Partial<RefundOfficialActionAuthorization>;
+  const authorization = data as Partial<RefundOfficialActionAuthorization> & {
+    mappingVersion?: number;
+  };
+  const authority = normalizeRefundAuthorizationAuthority(authorization);
   if (
     typeof authorization.authorizationId !== "string" ||
     authorization.action !== context.action ||
     !Number.isSafeInteger(Number(authorization.expectedCaseVersion)) ||
-    !Number.isSafeInteger(Number(authorization.mappingVersion)) ||
+    !authority ||
     typeof authorization.expiresAt !== "string"
   ) {
     throw new RefundOfficialActionAuthorizationError(
@@ -323,7 +351,7 @@ export const authorizeRefundOfficialAction = async ({
     authorizationId: authorization.authorizationId,
     action: authorization.action,
     expectedCaseVersion: Number(authorization.expectedCaseVersion),
-    mappingVersion: Number(authorization.mappingVersion),
+    ...authority,
     expiresAt: authorization.expiresAt,
     ...(controlledPilot
       ? { pilotReservation }

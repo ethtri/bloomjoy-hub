@@ -328,6 +328,8 @@ Deno.test("authenticated manager-session authorization can drive the same bounde
       managerAction: {
         ...reservation.managerAction,
         authorizationMethod: "manager_session",
+        authorityKind: "super_admin",
+        stepUpIntentId: null,
         authorizedAt: "2026-08-16T18:00:01.000Z",
         verifiedTotpAt: null,
       },

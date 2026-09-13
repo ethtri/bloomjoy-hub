@@ -7107,7 +7107,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
       expectedHeading: 'Transaction results are unavailable',
       expectedStatus: 'Needs attention',
       expectedDescription: /does not have current transaction results to show/i,
-      expectedAction: 'A manager with the required access must check the saved payment result. Do not try the payment again.',
+      expectedAction: 'The assigned machine Manager or a Super-admin should check the saved Nayax result in the portal. Do not retry payment.',
     },
     {
       name: 'wallet waiting on customer',
@@ -8406,6 +8406,11 @@ const runNayaxLookupStatusMatrixChecks = async ({
       overview.cases[0].cardWalletUsed = true;
       overview.cases[0].paymentInteraction = 'phone_watch_wallet';
       overview.cases[0].walletProvider = 'apple_pay';
+      overview.cases[0].refundReadiness = {
+        ...overview.cases[0].refundReadiness,
+        canIssueCardRefund: false,
+        blockReason: 'provider_temporarily_unavailable',
+      };
       return overview;
     },
     nayaxCardRefundAvailabilityResponse: {
@@ -8423,12 +8428,16 @@ const runNayaxLookupStatusMatrixChecks = async ({
   await blockedPage.getByRole('button', { name: /^Action needed \d+$/ }).click();
   await waitForQueueCount(blockedPage, 1);
   await queueCase(blockedPage, 'RF-UAT-CARD').click();
-  await blockedPage.getByRole('button', { name: 'Approve refund for Nayax portal', exact: true }).waitFor({ timeout: 10000 });
+  const unavailableAction = blockedPage.getByRole('button', {
+    name: /^(Nayax API unavailable|Refund temporarily unavailable)$/,
+  });
+  await unavailableAction.waitFor({ timeout: 10000 });
   const blockedRequestSummary = blockedPage.getByTestId('refund-request-summary');
   recorder.assert(
-    'Released rejection offers the reviewed portal fallback when the direct API is unavailable',
+    'API unavailability does not create a second manager approval path',
     (await blockedPage.getByRole('button', { name: /^Refund \$/i }).count()) === 0 &&
-      await blockedPage.getByRole('button', { name: 'Approve refund for Nayax portal', exact: true }).isVisible() &&
+      (await blockedPage.getByRole('button', { name: 'Approve refund for Nayax portal', exact: true }).count()) === 0 &&
+      await unavailableAction.isVisible() &&
       await blockedRequestSummary.getByText('Apple Pay on a phone or watch', { exact: true }).isVisible() &&
       (await blockedPage.getByTestId('refund-primary-action').innerText()).includes('Payment: Not issued'),
     JSON.stringify({
@@ -8451,22 +8460,14 @@ const runNayaxLookupStatusMatrixChecks = async ({
     path: path.join(artifactDir, 'refund-manager-confirmed-blocked-mobile.png'),
     fullPage: false,
   });
-  await blockedPage.setViewportSize({ width: 1440, height: 1000 });
-  await blockedPage.getByRole('button', { name: 'Approve refund for Nayax portal', exact: true }).click();
-  await blockedPage.getByTestId('refund-confirmation-dialog').waitFor({ timeout: 10000 });
-  await blockedPage.getByTestId('refund-confirm-nayax-refund').click();
-  await blockedPage.getByTestId('refund-action-receipt')
-    .getByText('Approved for Nayax portal', { exact: true })
-    .waitFor({ timeout: 10000 });
   recorder.assert(
-    'Reviewed portal approval records one provider-free hold and no customer message',
-    blockedRpcCalls.filter((name) => name === 'admin_begin_refund_manual_nayax_portal').length === 1 &&
+    'Unavailable API state makes no approval, provider, or customer call',
+    blockedRpcCalls.filter((name) => name === 'admin_begin_refund_manual_nayax_portal').length === 0 &&
       blockedFunctionBodies.filter((entry) =>
         entry.functionName === 'nayax-card-refund' && entry.body?.operation !== 'availability'
       ).length === 0 &&
       !blockedFunctionCalls.includes('refund-case-message-send') &&
-      !blockedFunctionCalls.includes('refund-nayax-outcome-resolve') &&
-      await blockedPage.getByTestId('refund-action-receipt').getByText(/No provider call or customer email was sent/).isVisible(),
+      !blockedFunctionCalls.includes('refund-nayax-outcome-resolve'),
     JSON.stringify({ blockedRpcCalls, blockedFunctionCalls })
   );
   await closeRefundPortalContext(blockedContext);
@@ -8514,8 +8515,8 @@ const runNayaxLookupStatusMatrixChecks = async ({
 const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
   const scenarios = [
     {
-      name: 'mapped Super Admin',
-      slug: 'mapped-super-admin',
+      name: 'unmapped Super-admin',
+      slug: 'unmapped-super-admin',
       adminAccessContext: {
         isSuperAdmin: true,
         isScopedAdmin: false,
@@ -8525,8 +8526,8 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
       },
     },
     {
-      name: 'mapped Scoped Admin',
-      slug: 'mapped-scoped-admin',
+      name: 'assigned machine Manager',
+      slug: 'assigned-machine-manager',
       adminAccessContext: {
         isSuperAdmin: false,
         isScopedAdmin: true,
@@ -8551,6 +8552,26 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
       rpcCalls,
       adminAccessContext: scenario.adminAccessContext,
       requireManagerStepUp: false,
+      nayaxCardRefundStatus: 200,
+      nayaxCardRefundResponse: {
+        executed: true,
+        status: 'succeeded',
+        providerReference: `SINGLE-MANAGER-${scenario.slug}`,
+        providerAttempted: true,
+        replayed: false,
+        reconciliationRequired: false,
+        fallbackIssued: false,
+        reportingAdjustmentPresent: true,
+        customerCompletion: {
+          status: 'sent',
+          transport: 'gmail_thread',
+          managerCcCount: 1,
+          originalThread: true,
+          operationApplied: true,
+          managerCompletionNoticeSent: false,
+        },
+        message: 'The refund was confirmed and the customer completion was sent.',
+      },
     });
 
     const page = await context.newPage();
@@ -8560,7 +8581,7 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
     await queueCase(page, 'RF-UAT-CARD').click();
 
     recorder.assert(
-      `${scenario.name} reaches the mapped-manager action instead of a review-only dead end`,
+      `${scenario.name} reaches the one manager approval action`,
       await page.getByTestId('refund-run-nayax-refund').isEnabled() &&
         (await page.getByTestId('refund-manager-step-up-dialog').count()) === 0 &&
         (await page.getByText(/authenticator/i).count()) === 0 &&
@@ -8706,8 +8727,36 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
       JSON.stringify(correctionCalls)
     );
 
+    const executionCallsBeforeApproval = functionBodies.filter((entry) =>
+      entry.functionName === 'nayax-card-refund' && entry.body?.operation !== 'availability'
+    ).length;
+    const adminUpdatesBeforeApproval = functionCalls.filter(
+      (name) => name === 'refund-case-admin-update'
+    ).length;
+    const stepUpsBeforeApproval = functionCalls.filter(
+      (name) => name === 'refund-manager-action-step-up'
+    ).length;
+    await page.getByTestId('refund-run-nayax-refund').click();
+    await page.getByTestId('refund-confirmation-dialog').waitFor({ timeout: 10000 });
+    await page.getByTestId('refund-confirm-nayax-refund').click();
+    await page.getByTestId('refund-action-receipt')
+      .getByText('Refund completed', { exact: true })
+      .waitFor({ timeout: 10000 });
+    const executionCallsAfterApproval = functionBodies.filter((entry) =>
+      entry.functionName === 'nayax-card-refund' && entry.body?.operation !== 'availability'
+    );
+    recorder.assert(
+      `${scenario.name} confirms once and the System executes exactly one refund`,
+      executionCallsAfterApproval.length === executionCallsBeforeApproval + 1 &&
+        functionCalls.filter((name) => name === 'refund-manager-action-step-up').length === stepUpsBeforeApproval &&
+        functionCalls.filter((name) => name === 'refund-case-admin-update').length === adminUpdatesBeforeApproval &&
+        executionCallsAfterApproval.at(-1)?.body?.caseId === 'case-card-alternate' &&
+        executionCallsAfterApproval.at(-1)?.body?.expectedOfficialActionVersion === 1,
+      JSON.stringify({ functionCalls, executionCallsAfterApproval })
+    );
+
     await page.screenshot({
-      path: path.join(artifactDir, `refund-portal-uat-${scenario.slug}-mapped-manager-session.png`),
+      path: path.join(artifactDir, `refund-portal-uat-${scenario.slug}-single-manager-confirmation.png`),
       fullPage: true,
     });
     await closeRefundPortalContext(context);

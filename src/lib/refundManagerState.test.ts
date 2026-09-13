@@ -901,7 +901,7 @@ Deno.test('payment hold gives routine managers plain next steps without exposing
   assertEquals(routine.id, 'needs_refund_operations', 'routine hold state');
   assertEquals(
     routine.nextStep,
-    'A manager with the required access must check the saved payment result. Do not try the payment again.',
+    'The assigned machine Manager or a Super-admin must check the saved payment result. Do not try the payment again.',
     'routine guidance'
   );
   assertEquals(

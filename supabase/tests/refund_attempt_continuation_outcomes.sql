@@ -3,7 +3,7 @@ create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 \ir fixtures/refund_transaction_authority.inc
 select pg_temp.refund_reset_authority_markers();
-select plan(137);
+select plan(138);
 select ok(
   array_length(pg_temp.refund_authority_marker_names(), 1) = 10
     and pg_temp.refund_authority_markers_match('{}'::text[]),
@@ -194,6 +194,19 @@ cross join lateral (
     'ca000000-0000-4000-8000-000000000001',
     ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid) end as context
 ) execution;
+
+select ok(
+  (select count(*)=7 from public.refund_case_official_action_authorizations authz
+    join public.refund_case_nayax_refund_attempts attempt
+      on attempt.official_action_authorization_id=authz.id
+    where attempt.refund_case_id::text like 'ca500000-%'
+      and authz.authorization_method='manager_session'
+      and authz.step_up_intent_id is null and authz.verified_totp_at is null)
+  and not exists(select 1 from public.refund_case_nayax_refund_attempts attempt
+    where attempt.refund_case_id::text like 'ca500000-%'
+      and attempt.step_up_intent_id is not null),
+  'Each manager confirmation creates one authorization receipt and zero step-up or TOTP rows'
+);
 
 select ok((select authz.expected_case_version=reservation.expected_version
     and refund_case.official_action_version=authz.expected_case_version+1
@@ -496,6 +509,10 @@ select set_config('test.server_continuation_blocked_review',
 reset role;
 select ok(current_setting('test.server_continuation_blocked_review')::jsonb
     ->>'claimedCount'='0'
+  and public.can_perform_refund_official_action(
+    'ca000000-0000-4000-8000-000000000001',
+    'ca500000-0000-4000-8000-000000000004'
+  )
   and not exists (
     select 1
     from public.refund_nayax_attempt_approval_continuations continuation
@@ -504,7 +521,7 @@ select ok(current_setting('test.server_continuation_blocked_review')::jsonb
         continuation.nayax_refund_attempt_id
     where reservation.n=4
   ),
-  'A pending Gmail case-link review blocks authority before any immutable claim');
+  'A pending Gmail case-link review blocks readiness, not manager identity, before any immutable claim');
 update public.refund_gmail_case_link_reviews
 set status='resolved',
     primary_refund_case_id='ca500000-0000-4000-8000-000000000004',
@@ -893,10 +910,14 @@ select ok(not has_function_privilege('authenticated',
   and has_function_privilege('service_role',
   'public.service_recover_proved_nayax_api_success_with_duplicate(uuid,uuid,uuid)','execute'),
   'Only service role can invoke journal-proved settlement recovery');
-select is((select status from public.refund_case_reconciliation_reviews
-  where 'ca500000-0000-4000-8000-000000000107' in
-    (left_refund_case_id,right_refund_case_id)), 'pending',
-  'A same-source possible duplicate receives an ordinary pending manager review');
+select ok((select status='pending' from public.refund_case_reconciliation_reviews
+    where 'ca500000-0000-4000-8000-000000000107' in
+      (left_refund_case_id,right_refund_case_id))
+  and public.can_perform_refund_official_action(
+    'ca000000-0000-4000-8000-000000000001',
+    'ca500000-0000-4000-8000-000000000007'
+  ),
+  'A reconciliation review blocks case readiness without being misreported as missing manager access');
 select throws_ok($$insert into public.sales_adjustment_facts(
   reporting_machine_id,reporting_location_id,adjustment_date,adjustment_type,
   amount_cents,complaint_count,source,source_row_hash,source_reference,
@@ -1295,19 +1316,19 @@ select ok(
      and trigger_row.tgname = 'refund_nayax_execution_context_immutable'),
   'The corruption-only immutable-context trigger disable is rolled back and restored before later scenarios'
 );
-select throws_ok($cmd$do $broken_authorization_intent$
+select throws_ok($cmd$do $broken_authorization_receipt$
 begin
-  update public.refund_manager_action_step_up_intents intent
+  update public.refund_case_official_action_authorizations authorization
   set nayax_execution_evidence_hash=repeat('0',64)
   from public.refund_case_nayax_refund_attempts attempt
   where attempt.id=current_setting('test.recovery_attempt_id')::uuid
-    and intent.id=attempt.step_up_intent_id;
+    and authorization.id=attempt.official_action_authorization_id;
   perform public.service_recover_proved_nayax_api_success_with_duplicate(
     'ca500000-0000-4000-8000-000000000007',
     current_setting('test.recovery_attempt_id')::uuid,
     'ca500000-0000-4000-8000-000000000107');
-end $broken_authorization_intent$$cmd$,'P4674',null,
-  'Recovery rejects a broken authorization-to-intent evidence chain and rolls the mutation back');
+end $broken_authorization_receipt$$cmd$,'P4674',null,
+  'Recovery rejects a broken one-receipt execution-evidence chain and rolls the mutation back');
 select throws_ok($cmd$do $malformed_recovery_adjustment$
 begin
   perform set_config('bloomjoy.nayax_journal_recovery_attempt_id',
