@@ -32,7 +32,7 @@ export function buildSettledCompletionDeliveryTest(orchestrationTest) {
   if (boundary < 0 || !normalized.slice(0, boundary).includes("'completion-claim-replay'")) {
     throw new Error('Exact settled orchestration fixture boundary is required.');
   }
-  const prefix = normalized.slice(0, boundary).replace('select plan(61);', 'select no_plan();');
+  const prefix = normalized.slice(0, boundary).replace(/select plan\(\d+\);/u, 'select no_plan();');
   if (/select plan\(/u.test(prefix) || /session_replication_role|disable\s+trigger/iu.test(prefix)) {
     throw new Error('Settled orchestration fixture must retain all enabled guards and use a dynamic plan.');
   }

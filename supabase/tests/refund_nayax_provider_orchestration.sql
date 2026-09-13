@@ -12,7 +12,7 @@ $$;
 revoke all on function pg_temp.historical_reserve_v2(text,uuid,uuid,text,integer,integer,integer,text) from public,anon,authenticated,service_role;
 grant execute on function pg_temp.historical_reserve_v2(text,uuid,uuid,text,integer,integer,integer,text) to service_role;
 
-select plan(61);
+select plan(62);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -91,18 +91,31 @@ declare
   case_row public.refund_cases%rowtype;
   machine_row public.reporting_machines%rowtype;
   mapping_row public.reporting_machine_refund_managers%rowtype;
+  confirmed_case_version bigint;
   evidence_hash text;
   context_hash text;
   factor_time timestamptz := statement_timestamp() - interval '20 seconds'
     + make_interval(secs => get_byte(uuid_send(p_intent_id), 15));
 begin
   select * into case_row from public.refund_cases where id = p_case_id;
+  confirmed_case_version := case_row.official_action_version;
   select * into machine_row from public.reporting_machines where id = case_row.reporting_machine_id;
   select * into mapping_row
   from public.reporting_machine_refund_managers
   where reporting_machine_id = case_row.reporting_machine_id
     and status = 'active' and revoked_at is null
   order by id limit 1;
+
+  -- Mirror the atomic manager action: the receipt preserves the exact version
+  -- the manager reviewed, while provider continuation sees only the one
+  -- authorized approval transition that follows it.
+  update public.refund_cases
+  set status = 'card_refund_pending',
+      decision = 'approved',
+      decided_by = mapping_row.manager_user_id,
+      decided_at = statement_timestamp()
+  where id = p_case_id
+  returning * into case_row;
 
   evidence_hash := public.refund_nayax_execution_evidence_hash(case_row, machine_row);
   context_hash := public.refund_official_action_context_hash(
@@ -122,7 +135,7 @@ begin
     ) values (
       p_intent_id, mapping_row.manager_user_id, p_case_id,
       'nayax_execute', 'nayax-card-refund', mapping_row.id,
-      mapping_row.mapping_version, 1, case_row.official_action_version,
+      mapping_row.mapping_version, 1, confirmed_case_version,
       context_hash, evidence_hash, 'pending',
       statement_timestamp() - interval '30 seconds',
       statement_timestamp() + interval '60 seconds', null, null, null
@@ -136,7 +149,7 @@ begin
     ) values (
       p_authorization_id, p_case_id, 'nayax_execute', mapping_row.manager_user_id,
       mapping_row.id, mapping_row.mapping_version, 'machine_manager',
-      case_row.official_action_version, context_hash, 'authorized',
+      confirmed_case_version, context_hash, 'authorized',
       statement_timestamp() + interval '5 minutes', p_intent_id, factor_time,
       evidence_hash, 'totp'
     );
@@ -149,7 +162,7 @@ begin
     ) values (
       p_authorization_id, p_case_id, 'nayax_execute', mapping_row.manager_user_id,
       mapping_row.id, mapping_row.mapping_version, 'machine_manager',
-      case_row.official_action_version, context_hash, 'authorized',
+      confirmed_case_version, context_hash, 'authorized',
       statement_timestamp() + interval '5 minutes', null, null,
       evidence_hash, 'manager_session'
     );
@@ -230,9 +243,8 @@ select
   'provider-customer-' || series || '@example.test',
   'Synthetic provider outcome ' || series,
   statement_timestamp() - make_interval(days => series),
-  'card', 700, 700, 'card_refund_pending', 'approved',
-  '9a000000-0000-4000-8000-000000000001'::uuid,
-  statement_timestamp() - interval '20 minutes',
+  'card', 700, 700, 'needs_review', null,
+  null, null,
   '4242', false, 'matched', 'nayax', 1,
   'PROVIDER-TX-' || lpad(series::text, 3, '0'),
   900 + series,
@@ -248,6 +260,22 @@ select pg_temp.seed_nayax_authorization(
   series = 6
 )
 from generate_series(1, 6) series;
+
+select ok(
+  not exists (
+    select 1
+    from public.refund_case_official_action_authorizations receipt
+    join public.refund_cases refund_case on refund_case.id = receipt.refund_case_id
+    where receipt.id::text like '9a800000-0000-4000-8000-%'
+      and (
+        refund_case.official_action_version <> receipt.expected_case_version + 1
+        or refund_case.status <> 'card_refund_pending'
+        or refund_case.decision <> 'approved'
+        or refund_case.decided_by is distinct from receipt.actor_user_id
+      )
+  ),
+  'Provider fixtures preserve the confirmed version and exact approval transition'
+);
 
 insert into public.refund_gmail_threads (
   id, refund_case_id, mailbox_hash, provider_thread_id, thread_subject,
