@@ -1089,6 +1089,15 @@ Historical controlled-pilot regression evidence remains the **ten-function/51-mi
 - [ ] A Scoped Admin sees only people whose account or machine access intersects their assigned machines; a non-admin cannot call the directory RPC.
 - [ ] At 1440px desktop and 390px mobile, the list has no horizontal page overflow and the drawer becomes a usable full-width detail surface with 44px primary controls.
 
+### People & Permissions detail workspace (`#1349`)
+
+- [ ] Selecting Chelsea opens a wide detail workspace with her current machine names, account/source, and assignment dates visible before access controls; no Customer context card is shown.
+- [ ] The expand control switches the same person to full screen and back without losing the selected person or URL state; mobile remains full width and the layout is usable at 200% zoom.
+- [ ] Active permissions appear before inactive options. `Add access type` reveals the source editors, while inactive forms do not clutter the default view.
+- [ ] Technician actions expose Manage machines, Renew access, and Revoke Technician access. Manage machines shows one assignment picker with current assignments preselected; renewal and revocation each show a focused reason form.
+- [ ] Revocation clearly states that Technician training and Technician-sourced reporting are removed, preserves unrelated sources, requires a reason, and uses a destructive confirmation action. Canceling or closing performs no write.
+- [ ] Activity is collapsed by default and does not load until expanded. Pay report still opens with the selected Technician preserved.
+
 ### Refund customer outreach
 - [ ] Refund manager shows truthful preparing, queued, sent-unconfirmed, and waiting-for-customer outreach states from server data
 - [ ] `Request details` is available only for the explicit cash/no-match manual-fallback condition; routine delivery failures and unknown delivery remain owned by Refund Operations

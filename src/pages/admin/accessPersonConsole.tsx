@@ -14,6 +14,11 @@ import {
   Globe2,
   Loader2,
   Mail,
+  Maximize2,
+  Minimize2,
+  MoreHorizontal,
+  MonitorCog,
+  Plus,
   RefreshCw,
   Search,
   Send,
@@ -38,6 +43,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -141,6 +152,13 @@ type SelectedAccessPerson = {
   email: string | null;
   userId: string | null;
   label: string;
+};
+
+type TechnicianEditorAction = 'manage-machines' | 'renew' | 'revoke';
+
+type TechnicianActionRequest = {
+  action: TechnicianEditorAction;
+  nonce: number;
 };
 
 type PlusAccessSourceRecord = {
@@ -855,6 +873,8 @@ function AdminPersonAccessConsoleInner({
   const [showEditor, setShowEditor] = useState(false);
   const [showActivity, setShowActivity] = useState(initialShowActivity);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [isDetailExpanded, setIsDetailExpanded] = useState(searchParams.get('layout') === 'full');
+  const [technicianActionRequest, setTechnicianActionRequest] = useState<TechnicianActionRequest | null>(null);
   const [isAccessLauncherOpen, setIsAccessLauncherOpen] = useState(Boolean(initialLauncher?.open));
   const [launcherPresetOverride, setLauncherPresetOverride] = useState<string | undefined>(initialLauncher?.preset);
   const pageSize = 25;
@@ -879,10 +899,11 @@ function AdminPersonAccessConsoleInner({
     if (page > 1) next.set('page', String(page));
     if (selectedDirectoryPerson) next.set('person', selectedDirectoryPerson.personKey);
     else if (requestedPersonKey) next.set('person', requestedPersonKey);
+    if (selectedDirectoryPerson && isDetailExpanded) next.set('layout', 'full');
     if (next.toString() !== searchParams.toString()) {
       setSearchParams(next, { replace: true });
     }
-  }, [accountId, machineId, page, requestedPersonKey, role, search, searchParams, selectedDirectoryPerson, setSearchParams, status, view]);
+  }, [accountId, isDetailExpanded, machineId, page, requestedPersonKey, role, search, searchParams, selectedDirectoryPerson, setSearchParams, status, view]);
 
   useEffect(() => {
     if (initialLauncher?.open) setIsAccessLauncherOpen(true);
@@ -907,9 +928,19 @@ function AdminPersonAccessConsoleInner({
     const match = directoryQuery.data.items.find((person) => person.personKey === requestedPersonKey);
     if (match) {
       setSelectedDirectoryPerson(match);
-      setShowActivity(true);
+      setShowActivity(initialShowActivity);
     }
-  }, [directoryQuery.data, requestedPersonKey, selectedDirectoryPerson]);
+  }, [directoryQuery.data, initialShowActivity, requestedPersonKey, selectedDirectoryPerson]);
+
+  useEffect(() => {
+    if (!selectedDirectoryPerson || !directoryQuery.data) return;
+    const refreshedPerson = directoryQuery.data.items.find(
+      (person) => person.personKey === selectedDirectoryPerson.personKey
+    );
+    if (refreshedPerson && refreshedPerson.updatedAt !== selectedDirectoryPerson.updatedAt) {
+      setSelectedDirectoryPerson(refreshedPerson);
+    }
+  }, [directoryQuery.data, selectedDirectoryPerson]);
 
   const selectedPerson = useMemo<SelectedAccessPerson | null>(() => selectedDirectoryPerson ? ({
     email: selectedDirectoryPerson.email,
@@ -940,6 +971,28 @@ function AdminPersonAccessConsoleInner({
     () => selectedPerson ? buildIdentity(selectedPerson, selectedAccount, effectiveAccessQuery.data ?? null) : null,
     [effectiveAccessQuery.data, selectedAccount, selectedPerson]
   );
+  const technicianContextQuery = useQuery({
+    queryKey: ['admin-technician-access-context', identity?.email],
+    queryFn: () => fetchAdminTechnicianAccessContext(identity?.email as string),
+    enabled: Boolean(identity?.email),
+    staleTime: 20_000,
+  });
+  const activeTechnicianGrants = useMemo(
+    () => (technicianContextQuery.data?.grants ?? []).filter((grant) => grant.isActive && !grant.revokedAt),
+    [technicianContextQuery.data]
+  );
+  const activeMachineAssignments = useMemo(() => {
+    const seen = new Set<string>();
+    return activeTechnicianGrants.flatMap((grant) => grant.machines
+      .filter((machine) => machine.isActive && !machine.revokedAt)
+      .filter((machine) => {
+        const key = `${grant.grantId}:${machine.machineId}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((machine) => ({ grant, machine })));
+  }, [activeTechnicianGrants]);
   const payMonth = new Date().toISOString().slice(0, 7);
   const payQuery = useQuery({
     queryKey: ['technician-pay-report', payMonth],
@@ -970,13 +1023,25 @@ function AdminPersonAccessConsoleInner({
   const openPerson = (person: AdminAccessPerson) => {
     setSelectedDirectoryPerson(person);
     setShowEditor(false);
-    setShowActivity(true);
+    setShowActivity(initialShowActivity);
     setAdvancedOpen(false);
+    setIsDetailExpanded(false);
+    setTechnicianActionRequest(null);
   };
   const closePerson = () => {
     setSelectedDirectoryPerson(null);
     setRequestedPersonKey(null);
     setShowEditor(false);
+    setShowActivity(initialShowActivity);
+    setIsDetailExpanded(false);
+    setTechnicianActionRequest(null);
+  };
+  const openTechnicianEditor = (action: TechnicianEditorAction) => {
+    setShowEditor(true);
+    setTechnicianActionRequest({ action, nonce: Date.now() });
+    window.requestAnimationFrame(() => {
+      document.getElementById('permission-editor')?.focus({ preventScroll: false });
+    });
   };
   const openAccessLauncher = (preset?: AccessLauncherPreset) => {
     setLauncherPresetOverride(preset);
@@ -1108,31 +1173,92 @@ function AdminPersonAccessConsoleInner({
       </section>
 
       <Sheet open={Boolean(selectedDirectoryPerson)} onOpenChange={(open) => { if (!open) closePerson(); }}>
-        <SheetContent className="w-full overflow-y-auto p-0 sm:max-w-lg">
+        <SheetContent className={cn(
+          'w-full overflow-y-auto p-0 transition-[max-width] duration-300',
+          isDetailExpanded ? 'sm:max-w-none' : 'sm:max-w-[clamp(720px,60vw,900px)]'
+        )}>
           {selectedDirectoryPerson && identity && (
             <div className="min-h-full">
-              <SheetHeader className="border-b border-border p-5 text-left">
-                <div className="flex items-start gap-3 pr-8">
+              <SheetHeader className="relative border-b border-border p-5 text-left">
+                <div className="flex items-start gap-3 pr-24">
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 font-semibold text-primary">{getPersonInitials(selectedDirectoryPerson)}</div>
                   <div className="min-w-0"><SheetTitle className="break-words font-display text-xl">{selectedDirectoryPerson.displayName}</SheetTitle><SheetDescription className="mt-1 break-all">{selectedDirectoryPerson.email ?? selectedDirectoryPerson.userId ?? 'Invitation pending'}</SheetDescription><div className="mt-2"><PersonStatusBadge status={selectedDirectoryPerson.status} /></div></div>
                 </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-14 top-3 hidden h-11 w-11 sm:inline-flex"
+                  aria-label={isDetailExpanded ? 'Exit full screen' : 'Open full screen'}
+                  title={isDetailExpanded ? 'Exit full screen' : 'Open full screen'}
+                  onClick={() => setIsDetailExpanded((value) => !value)}
+                >
+                  {isDetailExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                </Button>
               </SheetHeader>
 
               <div className="space-y-5 p-5">
                 <div className="flex flex-wrap gap-2">
-                  <Button onClick={() => setShowEditor((value) => !value)}>{showEditor ? 'Close editor' : 'Edit access'}</Button>
+                  <Button onClick={() => { setShowEditor((value) => !value); setTechnicianActionRequest(null); }}>{showEditor ? 'Close editor' : 'Edit permissions'}</Button>
                   {selectedDirectoryPerson.operatorProfileId && (
                     <Button variant="outline" asChild><Link to={`/admin/payouts?technician=${selectedDirectoryPerson.operatorProfileId}`}><Banknote className="mr-2 h-4 w-4" />Pay report</Link></Button>
                   )}
-                  <Button variant="ghost" onClick={() => setShowActivity((value) => !value)}><FileClock className="mr-2 h-4 w-4" />Activity</Button>
                 </div>
 
                 {selectedDirectoryPerson.attentionReason && <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"><AlertTriangle className="mr-2 inline h-4 w-4" />{selectedDirectoryPerson.attentionReason}</div>}
                 {effectiveAccessQuery.error && <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{getErrorMessage(effectiveAccessQuery.error, 'Unable to load effective access.')}</div>}
 
-                <section className="rounded-lg border border-border p-4">
-                  <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Access summary</p><h3 className="mt-1 font-semibold text-foreground">{selectedDirectoryPerson.roles.join(', ') || 'Invitation pending'}</h3></div><ShieldCheck className="h-5 w-5 text-primary" /></div>
-                  <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2"><div><dt className="text-muted-foreground">Account / scope</dt><dd className="mt-1 font-medium text-foreground">{selectedDirectoryPerson.accountNames.join(', ') || 'Global or source-based'}</dd></div><div><dt className="text-muted-foreground">Machines</dt><dd className="mt-1 font-medium text-foreground">{pluralize(selectedDirectoryPerson.machineCount, 'machine')}</dd></div></dl>
+                <section className="overflow-hidden rounded-xl border border-border bg-card">
+                  <div className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Machine assignments</p><h3 className="mt-1 font-display text-lg font-semibold text-foreground">{pluralize(activeMachineAssignments.length, 'current machine')}</h3></div>
+                    <Button variant="outline" onClick={() => openTechnicianEditor('manage-machines')}><MonitorCog className="mr-2 h-4 w-4" />Manage machines</Button>
+                  </div>
+                  {technicianContextQuery.isLoading ? (
+                    <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading machine assignments…</div>
+                  ) : technicianContextQuery.error ? (
+                    <div className="m-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{getErrorMessage(technicianContextQuery.error, 'Unable to load machine assignments.')}</div>
+                  ) : activeMachineAssignments.length === 0 ? (
+                    <div className="p-4 text-sm text-muted-foreground">No machines are currently assigned through Technician access.</div>
+                  ) : (
+                    <div className="divide-y divide-border">
+                      {activeMachineAssignments.map(({ grant, machine }) => (
+                        <div key={`${grant.grantId}:${machine.machineId}`} className="grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_auto] sm:items-center">
+                          <div className="min-w-0"><p className="font-medium text-foreground">{machine.machineLabel}</p><p className="mt-0.5 truncate text-xs text-muted-foreground">{machine.locationName ?? grant.accountName}</p></div>
+                          <div className="text-sm"><p className="text-foreground">{grant.accountName}</p><p className="mt-0.5 text-xs text-muted-foreground">Technician access</p></div>
+                          <div className="text-sm sm:text-right"><p className="text-foreground">Since {formatDate(machine.startsAt || grant.startsAt)}</p>{machine.expiresAt && <p className="mt-0.5 text-xs text-muted-foreground">Ends {formatDate(machine.expiresAt)}</p>}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <section className="overflow-hidden rounded-xl border border-border bg-card">
+                  <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-4">
+                    <div><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Active permissions</p><p className="mt-1 text-sm text-muted-foreground">Only active access sources are shown here.</p></div>
+                    <Button variant="outline" onClick={() => { setShowEditor(true); setTechnicianActionRequest(null); }}><Plus className="mr-2 h-4 w-4" />Add access type</Button>
+                  </div>
+                  <div className="divide-y divide-border">
+                    {(selectedDirectoryPerson.roles.length ? selectedDirectoryPerson.roles : ['Invitation pending']).map((roleLabel) => {
+                      const isTechnicianRole = roleLabel.toLowerCase().includes('technician');
+                      return (
+                        <div key={roleLabel} className="flex min-h-16 items-center justify-between gap-3 px-4 py-3">
+                          <div className="flex min-w-0 items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">{isTechnicianRole ? <Wrench className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}</span><div className="min-w-0"><p className="font-medium text-foreground">{roleLabel}</p><p className="truncate text-xs text-muted-foreground">{selectedDirectoryPerson.accountNames.join(', ') || 'Source-based access'}</p></div></div>
+                          {isTechnicianRole ? (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-11 w-11" aria-label="Technician permission actions"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-52">
+                                <DropdownMenuItem onSelect={() => openTechnicianEditor('manage-machines')}>Manage machines</DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => openTechnicianEditor('renew')}>Renew access</DropdownMenuItem>
+                                <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => openTechnicianEditor('revoke')}>Revoke Technician access</DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          ) : (
+                            <Button variant="ghost" onClick={() => { setShowEditor(true); setTechnicianActionRequest(null); }}>Edit</Button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </section>
 
                 {selectedDirectoryPerson.operatorProfileId && (
@@ -1143,25 +1269,27 @@ function AdminPersonAccessConsoleInner({
                 )}
 
                 {showEditor && (
-                  <div className="space-y-5 border-t border-border pt-5">
-                    <WorkspaceSectionHeader eyebrow="Edit access" title="Access sources" description="Changes here use the existing permission checks, required reasons, and audit trail." />
-                    {isSuperAdmin && <PlusCustomerAccessCard identity={identity} account={selectedAccount} effectiveAccess={effectiveAccessQuery.data ?? null} onChanged={refreshWorkspace} />}
-                    {isSuperAdmin && <CorporatePartnerAccessCard identity={identity} effectiveAccess={effectiveAccessQuery.data ?? null} onChanged={refreshWorkspace} />}
-                    <TechnicianAccessCard identity={identity} effectiveAccess={effectiveAccessQuery.data ?? null} onChanged={refreshWorkspace} />
-                    <ManualReportingAccessCard identity={identity} onChanged={refreshWorkspace} />
+                  <div id="permission-editor" tabIndex={-1} className="space-y-5 border-t border-border pt-5 outline-none">
+                    <WorkspaceSectionHeader eyebrow="Edit permissions" title={technicianActionRequest ? 'Technician access' : 'Access sources'} description="Changes use the existing permission checks, required reasons, and audit trail." />
+                    {!technicianActionRequest && isSuperAdmin && <PlusCustomerAccessCard identity={identity} account={selectedAccount} effectiveAccess={effectiveAccessQuery.data ?? null} onChanged={refreshWorkspace} />}
+                    {!technicianActionRequest && isSuperAdmin && <CorporatePartnerAccessCard identity={identity} effectiveAccess={effectiveAccessQuery.data ?? null} onChanged={refreshWorkspace} />}
+                    <TechnicianAccessCard identity={identity} effectiveAccess={effectiveAccessQuery.data ?? null} actionRequest={technicianActionRequest} onChanged={refreshWorkspace} />
+                    {!technicianActionRequest && <ManualReportingAccessCard identity={identity} onChanged={refreshWorkspace} />}
                   </div>
                 )}
 
-                {showActivity && <PersonActivityPanel identity={identity} />}
-
                 <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen} className="border-t border-border pt-3">
-                  <CollapsibleTrigger asChild><Button variant="ghost" className="w-full justify-between">Advanced details <ChevronRight className={cn('h-4 w-4 transition-transform', advancedOpen && 'rotate-90')} /></Button></CollapsibleTrigger>
+                  <CollapsibleTrigger asChild><Button variant="ghost" className="w-full justify-between">Additional access details <ChevronRight className={cn('h-4 w-4 transition-transform', advancedOpen && 'rotate-90')} /></Button></CollapsibleTrigger>
                   <CollapsibleContent className="space-y-5 pt-4">
-                    {isSuperAdmin && <CustomerContextCard identity={identity} account={selectedAccount} onChanged={refreshWorkspace} />}
                     <ScopeBreakdownCard identity={identity} effectiveAccess={effectiveAccessQuery.data ?? null} />
                     {isSuperAdmin && <ScopedAdminAccessCard identity={identity} onChanged={refreshWorkspace} />}
                     {isSuperAdmin && <SuperAdminAccessCard identity={identity} onChanged={refreshWorkspace} />}
                   </CollapsibleContent>
+                </Collapsible>
+
+                <Collapsible open={showActivity} onOpenChange={setShowActivity} className="border-t border-border pt-3">
+                  <CollapsibleTrigger asChild><Button variant="ghost" className="w-full justify-between"><span className="flex items-center"><FileClock className="mr-2 h-4 w-4" />Activity</span><ChevronRight className={cn('h-4 w-4 transition-transform', showActivity && 'rotate-90')} /></Button></CollapsibleTrigger>
+                  <CollapsibleContent className="pt-4">{showActivity && <PersonActivityPanel identity={identity} />}</CollapsibleContent>
                 </Collapsible>
               </div>
             </div>
@@ -4465,10 +4593,12 @@ function PartnerPortalAccessControls({
 function TechnicianAccessCard({
   identity,
   effectiveAccess,
+  actionRequest,
   onChanged,
 }: {
   identity: AccessWorkspaceIdentity;
   effectiveAccess: EffectiveAccessContext | null;
+  actionRequest?: TechnicianActionRequest | null;
   onChanged: () => Promise<void>;
 }) {
   const queryClient = useQueryClient();
@@ -4487,6 +4617,7 @@ function TechnicianAccessCard({
   const [savingScopeGrantId, setSavingScopeGrantId] = useState<string | null>(null);
   const [renewingGrantId, setRenewingGrantId] = useState<string | null>(null);
   const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
+  const [focusedActions, setFocusedActions] = useState<Record<string, TechnicianEditorAction | null>>({});
 
   const {
     data: technicianContext = emptyTechnicianAccessContext,
@@ -4550,7 +4681,16 @@ function TechnicianAccessCard({
     setScopeReasons({});
     setRenewReasons({});
     setRevokeReasons({});
+    setFocusedActions({});
   }, [accounts, grants, identity.email, identity.userId]);
+
+  const actionRequestNonce = actionRequest?.nonce;
+  const requestedTechnicianAction = actionRequest?.action;
+  const requestedTechnicianGrantId = activeGrants[0]?.grantId;
+  useEffect(() => {
+    if (!requestedTechnicianAction || !requestedTechnicianGrantId) return;
+    setFocusedActions({ [requestedTechnicianGrantId]: requestedTechnicianAction });
+  }, [actionRequestNonce, requestedTechnicianAction, requestedTechnicianGrantId]);
 
   useEffect(() => {
     if (!selectedAccountId) return;
@@ -4862,7 +5002,7 @@ function TechnicianAccessCard({
             />
           </div>
 
-          <div className="rounded-md border border-border p-3">
+          {activeGrants.length === 0 && <div className="rounded-md border border-border p-3">
             <div className="grid gap-3 md:grid-cols-[0.32fr_0.28fr_0.4fr]">
               <div>
                 <Label htmlFor="admin-technician-account">Account</Label>
@@ -4965,7 +5105,7 @@ function TechnicianAccessCard({
               {isSavingGrant ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
               Save and send Technician invite
             </Button>
-          </div>
+          </div>}
 
           {grants.length === 0 ? (
             <div className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
@@ -4979,6 +5119,7 @@ function TechnicianAccessCard({
                 const draftMachineIds = scopeDrafts[grant.grantId] ?? getGrantMachineScopeIds(grant);
                 const inviteDelivery = latestTechnicianInviteBySourceId.get(grant.grantId);
                 const managementNotice = getTechnicianGrantManagementNotice(grant);
+                const focusedAction = focusedActions[grant.grantId] ?? null;
 
                 return (
                   <div key={grant.grantId} className="rounded-md border border-border p-3">
@@ -4999,6 +5140,14 @@ function TechnicianAccessCard({
                       <SummaryMetric label="Grant reason" value={grant.grantReason || 'Technician access'} />
                     </div>
 
+                    {!grant.revokedAt && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button type="button" variant={focusedAction === 'manage-machines' ? 'secondary' : 'outline'} onClick={() => setFocusedActions({ [grant.grantId]: 'manage-machines' })}>Manage machines</Button>
+                        <Button type="button" variant={focusedAction === 'renew' ? 'secondary' : 'outline'} onClick={() => setFocusedActions({ [grant.grantId]: 'renew' })}>Renew access</Button>
+                        <Button type="button" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setFocusedActions({ [grant.grantId]: 'revoke' })}>Revoke access</Button>
+                      </div>
+                    )}
+
                     {managementNotice && (
                       <div className="mt-3 rounded-md border border-amber/40 bg-amber/10 p-3 text-sm">
                         <div className="flex items-start gap-2">
@@ -5010,7 +5159,7 @@ function TechnicianAccessCard({
 
                     {!grant.revokedAt && (
                       <div className="mt-3 space-y-3">
-                        <div className="rounded-md border border-border bg-muted/20 p-3">
+                        {!focusedAction && <div className="rounded-md border border-border bg-muted/20 p-3">
                           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                             <div className="min-w-0">
                               <p className="text-sm font-semibold text-foreground">Invite recovery</p>
@@ -5068,7 +5217,8 @@ function TechnicianAccessCard({
                               Copy login link
                             </Button>
                           </div>
-                        </div>
+                        </div>}
+                        {focusedAction === 'manage-machines' && <>
                         <PreviewBox>
                           Scope changes renew the Technician grant and replace only this
                           Technician source's assigned reporting machines. Manual reporting grants and other
@@ -5081,6 +5231,7 @@ function TechnicianAccessCard({
                               machines={accountMachines}
                               selectedMachineIds={draftMachineIds}
                               label="Scope after save"
+                              selectedFirst
                               disabled={!grant.canManage}
                               onSelectedMachineIdsChange={(machineIds) =>
                                 setScopeDrafts((current) => ({
@@ -5105,7 +5256,8 @@ function TechnicianAccessCard({
                               placeholder="Required for machine changes"
                             />
                           </div>
-                          <div className="flex items-end">
+                          <div className="flex flex-col justify-end gap-2">
+                            <Button type="button" variant="ghost" onClick={() => setFocusedActions({})}>Cancel</Button>
                             <Button
                               className="w-full"
                               variant="outline"
@@ -5130,8 +5282,11 @@ function TechnicianAccessCard({
                             : 'training-only access'}{' '}
                           after save.
                         </p>
+                        </>}
 
-                        <div className="grid gap-3 lg:grid-cols-[0.7fr_0.3fr]">
+                        {focusedAction === 'renew' && <div className="rounded-lg border border-border bg-muted/20 p-4">
+                          <p className="mb-3 text-sm text-muted-foreground">Renewing extends this Technician source with its current machine assignments. A reason is required for the audit trail.</p>
+                          <div className="grid gap-3 lg:grid-cols-[0.7fr_0.3fr]">
                           <div>
                             <Label htmlFor={`technician-renew-reason-${grant.grantId}`}>Renewal reason</Label>
                             <Input
@@ -5166,9 +5321,13 @@ function TechnicianAccessCard({
                               Renew
                             </Button>
                           </div>
-                        </div>
+                          </div>
+                        </div>}
 
-                        <div className="grid gap-3 lg:grid-cols-[0.7fr_0.3fr]">
+                        {focusedAction === 'revoke' && <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                          <p className="font-semibold text-foreground">Revoke Technician access?</p>
+                          <p className="mt-1 text-sm text-muted-foreground">This removes Technician training access and reporting granted by this Technician source. Other access sources remain unchanged. A reason is required and the change is recorded.</p>
+                          <div className="mt-4 grid gap-3 lg:grid-cols-[0.7fr_0.3fr]">
                           <div>
                             <Label htmlFor={`technician-revoke-reason-${grant.grantId}`}>Revoke reason</Label>
                             <Input
@@ -5184,10 +5343,11 @@ function TechnicianAccessCard({
                               placeholder="Required to revoke"
                             />
                           </div>
-                          <div className="flex items-end">
+                          <div className="flex flex-col justify-end gap-2">
+                            <Button type="button" variant="ghost" onClick={() => setFocusedActions({})}>Cancel</Button>
                             <Button
                               className="w-full"
-                              variant="outline"
+                              variant="destructive"
                               onClick={() => void handleRevokeGrant(grant)}
                               disabled={
                                 !grant.canManage ||
@@ -5198,10 +5358,11 @@ function TechnicianAccessCard({
                               {revokingGrantId === grant.grantId ? (
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                               ) : null}
-                              Revoke
+                              Revoke Technician access
                             </Button>
                           </div>
-                        </div>
+                          </div>
+                        </div>}
                       </div>
                     )}
                   </div>
