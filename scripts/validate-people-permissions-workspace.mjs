@@ -19,6 +19,7 @@ for (const expected of [
 ]) assert.ok(consoleSource.includes(expected), `missing people workspace contract: ${expected}`);
 
 assert.ok(!consoleSource.slice(consoleSource.indexOf('function AdminPersonAccessConsoleInner'), consoleSource.indexOf('function LegacyAdminPersonAccessConsoleInner')).includes('RefreshCw'), 'new workspace must not expose a manual refresh');
+assert.match(consoleSource, /next\.toString\(\) !== searchParams\.toString\(\)/, 'directory URL state must not restart unchanged reads');
 assert.match(payoutSource, /searchParams\.get\('technician'\)/, 'pay report must accept technician deep links');
 assert.match(directorySource, /admin_list_access_people/, 'directory client must use the scoped roster RPC');
 assert.match(migrationSource, /security definer[\s\S]*set search_path = ''/, 'directory definer must use an empty search path');
