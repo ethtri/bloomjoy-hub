@@ -7358,13 +7358,11 @@ export default function AdminRefundsPage() {
 
   return (
     <AppLayout>
-      <section className="py-4 sm:py-6">
+      <section className="py-3 sm:py-4">
         <div className="mx-auto w-full max-w-[1600px] px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-foreground lg:sr-only">Refunds</h1>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground lg:sr-only">Refunds</h1>
+            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
               {gmailNeedsAttention && (
                 <span
                   data-testid="refund-gmail-health"
@@ -7392,6 +7390,37 @@ export default function AdminRefundsPage() {
                   Some card refunds need attention
                 </span>
               )}
+              {refundOperationsAccess && !isUsingDemoData && (
+                <details className="group relative">
+                  <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-md px-3 text-xs font-medium text-muted-foreground hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                    <span>System details</span>
+                    <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
+                  </summary>
+                  <div className="absolute right-0 z-30 mt-2 w-[min(48rem,calc(100vw-2rem))] space-y-3 rounded-xl border border-border bg-card p-3 shadow-[var(--shadow-lg)]">
+                    <RefundReportFreshnessAdvisory freshness={gmailHealth?.reportFreshness} />
+                    <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">Archived test records</p>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                          Employee, setup, provider, and synthetic records are kept outside the manager refund queue.
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="min-h-11 shrink-0"
+                        aria-pressed={statusFilter === 'internal_test'}
+                        onClick={() => setStatusFilter('internal_test')}
+                      >
+                        View archive
+                        <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs tabular-nums text-foreground">
+                          {primaryQueueCounts.internal_test}
+                        </span>
+                      </Button>
+                    </div>
+                  </div>
+                </details>
+              )}
               <Button variant="outline" onClick={() => void refresh()} disabled={pageIsFetching || isUsingDemoData}>
                 {pageIsFetching ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -7402,40 +7431,6 @@ export default function AdminRefundsPage() {
               </Button>
             </div>
           </div>
-
-          {refundOperationsAccess && !isUsingDemoData && (
-            <details className="group mt-2">
-              <summary className="ml-auto flex min-h-11 w-fit cursor-pointer list-none items-center gap-2 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
-                <span>System details</span>
-                <span className="flex items-center gap-2 text-xs font-normal text-muted-foreground">
-                  <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
-                </span>
-              </summary>
-              <div className="mt-2 space-y-3 rounded-lg border border-border bg-card p-3">
-                <RefundReportFreshnessAdvisory freshness={gmailHealth?.reportFreshness} />
-                <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">Archived test records</p>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      Employee, setup, provider, and synthetic records are kept outside the manager refund queue.
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="min-h-11 shrink-0"
-                    aria-pressed={statusFilter === 'internal_test'}
-                    onClick={() => setStatusFilter('internal_test')}
-                  >
-                    View archive
-                    <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs text-foreground">
-                      {primaryQueueCounts.internal_test}
-                    </span>
-                  </Button>
-                </div>
-              </div>
-            </details>
-          )}
 
           <div data-testid="refund-overview-read-status" role="status" aria-live="polite" aria-atomic="true"
             className={overviewReadMessage ? overviewReadMessage === REFUND_OVERVIEW_INITIAL_LOAD_ERROR
@@ -7497,7 +7492,8 @@ export default function AdminRefundsPage() {
           )}
 
           <div className="mt-3 border-b border-border pb-3">
-            <div className="flex flex-nowrap gap-1 overflow-x-auto pb-1" aria-label="Refund case views">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex min-w-0 flex-nowrap gap-1 overflow-x-auto pb-1" aria-label="Refund case views">
             {([
               ['needs_action', 'Action needed'],
               ['ready_to_pay', 'Ready to approve'],
@@ -7524,32 +7520,33 @@ export default function AdminRefundsPage() {
                 onClick={() => setStatusFilter(value)}
               >
                 {label}
-                <span className="ml-2 rounded-full bg-background/80 px-2 py-0.5 text-xs text-foreground">
+                <span className="ml-2 rounded-full bg-background/80 px-2 py-0.5 text-xs tabular-nums text-foreground">
                   {primaryQueueCounts[value]}
                 </span>
               </Button>
             ))}
-          </div>
+              </div>
 
-          <div className="mt-3 max-w-xl">
-            <Label htmlFor="refund-case-search" className="sr-only">Search {searchScope}</Label>
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input
-                id="refund-case-search"
-                aria-label="Search refund cases"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Reference, customer, machine, or location"
-                aria-describedby="refund-search-scope"
-                className="pl-9"
-              />
+              <div className="w-full xl:max-w-sm xl:shrink-0">
+                <Label htmlFor="refund-case-search" className="sr-only">Search {searchScope}</Label>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="refund-case-search"
+                    aria-label="Search refund cases"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Reference, customer, machine, or location"
+                    aria-describedby="refund-search-scope"
+                    className="pl-9"
+                  />
+                </div>
+              </div>
             </div>
-          </div>
 
-          <div id="refund-search-scope" className={cn('mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground', !isSearching && 'sr-only')}>
-            <p>{isSearching ? `Searching ${searchScope}, regardless of status.` : 'Search across statuses. Clear the search to return to your selected queue.'}</p>
-            {isSearching && <Button type="button" variant="outline" className="min-h-11" onClick={() => { setSearch(''); document.getElementById('refund-case-search')?.focus(); }}>Clear search</Button>}
+            <div id="refund-search-scope" className={cn('mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground', !isSearching && 'sr-only')}>
+              <p>{isSearching ? `Searching ${searchScope}, regardless of status.` : 'Search across statuses. Clear the search to return to your selected queue.'}</p>
+              {isSearching && <Button type="button" variant="outline" className="min-h-11" onClick={() => { setSearch(''); document.getElementById('refund-case-search')?.focus(); }}>Clear search</Button>}
             </div>
           </div>
 
@@ -7558,7 +7555,7 @@ export default function AdminRefundsPage() {
               id="refund-queue-panel"
               tabIndex={-1}
               className={cn(
-                'scroll-mt-20 min-w-0 overflow-hidden rounded-xl border border-border bg-card outline-none focus-visible:ring-2 focus-visible:ring-ring lg:sticky lg:top-4 lg:flex lg:h-[calc(100dvh-20rem)] lg:min-h-[28rem] lg:max-h-[52rem] lg:flex-col',
+                'scroll-mt-20 min-w-0 overflow-hidden rounded-xl border border-border bg-card outline-none focus-visible:ring-2 focus-visible:ring-ring lg:sticky lg:top-4 lg:flex lg:h-[calc(100dvh-15rem)] lg:min-h-[28rem] lg:max-h-[52rem] lg:flex-col',
                 selectedCase && !isMobileQueueExpanded && 'hidden lg:flex'
               )}
             >
@@ -7605,7 +7602,7 @@ export default function AdminRefundsPage() {
                       onClick={() => handleSelectCase(refundCase)}
                       className={cn(
                         'block w-full min-w-0 p-4 text-left transition-colors hover:bg-muted/40',
-                        refundCase.id === selectedId && 'bg-muted/50'
+                        refundCase.id === selectedId && 'bg-primary/5 shadow-[inset_3px_0_0_hsl(var(--primary))]'
                       )}
                     >
                       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -7669,7 +7666,7 @@ export default function AdminRefundsPage() {
                     onClick={() => handleSelectCase(refundCase)}
                     className={cn(
                       'block min-h-20 w-full px-4 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
-                      refundCase.id === selectedId && 'bg-muted/60'
+                      refundCase.id === selectedId && 'bg-primary/5 shadow-[inset_3px_0_0_hsl(var(--primary))]'
                     )}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -7710,7 +7707,7 @@ export default function AdminRefundsPage() {
               ref={detailPanelRef}
               tabIndex={-1}
               aria-label="Selected refund case"
-              className="scroll-mt-28 min-w-0 space-y-5 outline-none lg:h-[calc(100dvh-20rem)] lg:min-h-[28rem] lg:max-h-[52rem] lg:overflow-y-auto lg:overscroll-contain lg:pr-2 lg:scroll-mt-4"
+              className="scroll-mt-28 min-w-0 space-y-5 outline-none lg:h-[calc(100dvh-15rem)] lg:min-h-[28rem] lg:max-h-[52rem] lg:overflow-y-auto lg:overscroll-contain lg:pr-2 lg:scroll-mt-4"
             >
               <div className="min-w-0 rounded-xl border border-border bg-card p-4 sm:p-5">
                 {!selectedCase || !editor ? (
