@@ -8,6 +8,7 @@ export type RefundReadinessBlockReason =
   | "reconciliation_hold"
   | "duplicate_transaction"
   | "case_not_refundable"
+  | "system_finishing"
   | "machine_not_enabled"
   | "globally_paused"
   | "provider_remaining_value_unverified"
@@ -32,6 +33,7 @@ const knownBlockReasons = new Set<RefundReadinessBlockReason>([
   "reconciliation_hold",
   "duplicate_transaction",
   "case_not_refundable",
+  "system_finishing",
   "machine_not_enabled",
   "globally_paused",
   "provider_remaining_value_unverified",

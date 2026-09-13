@@ -1016,8 +1016,8 @@ select ok(
     where refund_case_id = '79600000-0000-4000-8000-000000000001'
       and event_type = 'official_action_committed'
       and actor_user_id = '79000000-0000-4000-8000-000000000001'
-      and metadata ->> 'manager_mapping_id' = '79400000-0000-4000-8000-000000000001'
-      and (metadata ->> 'manager_mapping_version')::bigint > 0
+      and metadata ->> 'authority_kind' = 'machine_manager'
+      and metadata ->> 'authority_record_id' = '79400000-0000-4000-8000-000000000001'
       and metadata ->> 'payload_redacted' = 'true'
       and not (metadata ? 'authorization_id')
       and not (metadata ? 'authorizationId')
@@ -1029,7 +1029,7 @@ select ok(
       and metadata::text not like '%approve-customer@example.test%'
       and metadata::text not like '%SAFE-TXN%'
   ),
-  'Official audit evidence records actor and mapping revision without customer or provider payloads'
+  'Official audit evidence records actor and immutable authority without customer or provider payloads'
 );
 
 set local role service_role;
@@ -1342,8 +1342,14 @@ select ok(
       '79600000-0000-4000-8000-000000000003', 'approve', 'cash_zelle_pending',
       null, 'approved', null, null, 650, null, null, null
     )
-  $sql$) like '%mapping changed%',
-  'A mapping revision between authorization and mutation invalidates the receipt'
+  $sql$) is null
+  and (select status='consumed' and consumed_at is not null
+    from public.refund_case_official_action_authorizations
+    where id=(select authorization_id from pg_temp.official_action_test_receipts
+      where receipt_key='mapping_changed'))
+  and (select status='cash_zelle_pending' and decision='approved'
+    from public.refund_cases where id='79600000-0000-4000-8000-000000000003'),
+  'A valid immutable receipt survives a mapping revision after manager confirmation'
 );
 reset role;
 
@@ -1407,7 +1413,7 @@ select ok(
       1,
       'cash_zelle_pending', 'approved', null, null, null, 675, null, null, false, null, null
     )
-  $sql$) like '%Active Machine Manager mapping required%',
+  $sql$) like '%active assigned manager or Super-admin is required%',
   'A revoked manager cannot mint a new receipt'
 );
 reset role;

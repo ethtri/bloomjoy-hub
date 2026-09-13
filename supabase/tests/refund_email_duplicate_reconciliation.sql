@@ -213,10 +213,10 @@ select ok(
   'A pending review blocks an official case decision'
 );
 select ok(
-  public.can_perform_refund_official_action(
+  public.refund_official_action_authority(
     '93000000-0000-4000-8000-000000000001',
     '94000000-0000-4000-8000-000000000001'
-  ),
+  ) is not null,
   'The duplicate review does not masquerade as a manager access failure'
 );
 select ok(

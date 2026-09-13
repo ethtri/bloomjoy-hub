@@ -45,8 +45,12 @@ const nayaxCardRefundUrl = new URL(
   '../../supabase/functions/nayax-card-refund/index.ts',
   import.meta.url,
 );
+const automationSweepUrl = new URL(
+  '../../supabase/functions/refund-case-automation-sweep/index.ts',
+  import.meta.url,
+);
 
-const [migration, test, legacyRecoveryTest, productionSimplification, continuationMigration, continuationReadinessMigration, continuationHandoffMigration, continuationTest, restrictedScalarMigration, independentDiagnosticsMigration, nayaxCardRefund] = await Promise.all([
+const [migration, test, legacyRecoveryTest, productionSimplification, continuationMigration, continuationReadinessMigration, continuationHandoffMigration, continuationTest, restrictedScalarMigration, independentDiagnosticsMigration, nayaxCardRefund, automationSweep] = await Promise.all([
   readFile(migrationUrl, 'utf8'),
   readFile(testUrl, 'utf8'),
   readFile(legacyRecoveryTestUrl, 'utf8'),
@@ -58,6 +62,7 @@ const [migration, test, legacyRecoveryTest, productionSimplification, continuati
   readFile(restrictedScalarMigrationUrl, 'utf8'),
   readFile(independentDiagnosticsMigrationUrl, 'utf8'),
   readFile(nayaxCardRefundUrl, 'utf8'),
+  readFile(automationSweepUrl, 'utf8'),
 ]);
 
 const exactMarkers = [
@@ -300,7 +305,7 @@ for (const marker of [
 ]) {
   assert.match(restrictedScalarMigration, new RegExp(marker), `restricted scalar migration must publish ${marker}`);
   if (marker !== 'service_record_nayax_refund_provider_stage_v3_diagnostics') {
-    assert.match(nayaxCardRefund, new RegExp(marker.replaceAll('_', '.*'), 'i'), `normal executor must use ${marker}`);
+    assert.match(automationSweep, new RegExp(marker.replaceAll('_', '.*'), 'i'), `System executor must use ${marker}`);
   }
 }
 for (const marker of [
@@ -315,8 +320,8 @@ for (const marker of [
     assert.match(continuationTest, new RegExp(marker), `continuation pgTAP must verify ${marker}`);
   }
 }
-assert.match(nayaxCardRefund, /service_record_nayax_refund_provider_stage_v4_diagnostics/u);
-assert.match(nayaxCardRefund, /nayax-restricted-response-diagnostics-v2/u);
+assert.match(automationSweep, /service_record_nayax_refund_provider_stage_v4_diagnostics/u);
+assert.match(automationSweep, /nayax-restricted-response-diagnostics-v2/u);
 assert.match(continuationTest, /service_record_nayax_refund_provider_stage_v4_diagnostics/u);
 assert.match(continuationTest, /Unknown request scalars are captured without changing their unknown outcome/u);
 assert.match(continuationTest, /Browser roles cannot write restricted provider response scalars/u);

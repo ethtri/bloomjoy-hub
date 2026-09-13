@@ -61,9 +61,12 @@ test('actual manager action respects current scope, delivery holds and terminal 
  const editor={status:'needs_review',decision:null,matchedNayaxCandidateToken:''};
  assert.equal(action(base,editor,[],null).label,'Waiting for customer response');
  assert.equal(action({...base,customerCorrection:{...base.customerCorrection,isActive:false,isUsable:false}},editor,[],null).label,'Manager review required');
- assert.equal(action({...base,...freshPersistedSelection,matched:true,customerCorrection:{state:'pending',isActive:false,isUsable:false},lifecycle:{managerQueue:{bucket:'waiting_on_customer'}}},editor,[],freshAvailability).mode,'nayax_refund_execution');
+ const readyAction=action({...base,...freshPersistedSelection,matched:true,customerCorrection:{state:'pending',isActive:false,isUsable:false},lifecycle:{managerQueue:{bucket:'waiting_on_customer'}}},editor,[],freshAvailability);
+ assert.equal(readyAction.mode,'nayax_refund_execution');
+ assert.equal(readyAction.label,'Refund $7.00');
+ assert.notEqual(readyAction.label,'Customer follow-up unavailable');
  assert.equal(action({...base,customerDeliveryException:{state:'bounced'}},editor,[],null).label,'Delivery needs review');
- assert.equal(action({...base,providerHold:true},editor,[],null).label,'Check refund status in Nayax');
+ assert.equal(action({...base,providerHold:true},editor,[],null).label,'Check the exact transaction in Nayax');
  assert.equal(action({...base,status:'completed'},editor,[],null).label,'Case complete');
  assert.equal(action({...base,status:'denied'},editor,[],null).label,'Request denied');
  for(const messageState of ['none','pending','failed','delivery_unconfirmed','sent']) {
@@ -72,6 +75,28 @@ test('actual manager action respects current scope, delivery holds and terminal 
   assert.equal(receiptAction.mode,undefined,messageState);
   assert.equal(receiptAction.label,'Refund confirmed · accounting review',messageState);
  }
+});
+test('RF-423906B2 shape keeps one visible refund action despite optional intake metadata',()=>{
+ const action=load('primaryActionConfig',{
+  ...dependencies,
+  derivePortalRefundMissingFields:()=>['incident_time_source'],
+  isWaitingCase:()=>false,
+ });
+ const refundCase={
+  status:'needs_review',paymentMethod:'card',matched:true,
+  paymentAmountCents:1000,refundAmountCents:1090,cardLast4:'4242',
+  incidentAt:'2026-09-12T18:28:00Z',
+  hasMatchedNayaxTransaction:true,officialActionVersion:11,
+  selectedNayaxTransaction:{saleAmountCents:1090,currencyCode:'USD',
+   providerAuthorizedAt:'2026-09-12T18:30:00Z',cardLast4:'4242'},
+ };
+ const editor={status:'needs_review',decision:null,matchedNayaxCandidateToken:''};
+ const readiness={transactionConfirmed:true,caseVersion:11,
+  canIssueCardRefund:true,refundAmountCents:1090};
+ const result=action(refundCase,editor,[],readiness);
+ assert.equal(result.mode,'nayax_refund_execution');
+ assert.equal(result.label,'Refund $10.90');
+ assert.equal(result.disabled,undefined);
 });
 test('selected candidate exposes one ordinary refund decision and direct API takes priority over wallet portal routing',()=>{
  const action=load('primaryActionConfig',{
@@ -416,7 +441,7 @@ test('actual action gives payment holds, pending and terminal truth priority ove
   assert.equal(result.disabled,true,stage);assert.equal(result.label,label,stage);
   assert.equal(result.mode,undefined,stage);
  }
- assert.equal(action({...base,providerHold:true},editor,[],{canIssueCardRefund:true}).label,'Check refund status in Nayax');
+ assert.equal(action({...base,providerHold:true},editor,[],{canIssueCardRefund:true}).label,'Check the exact transaction in Nayax');
 });
 
 test('actual action keeps explicit no-refund release independent of delivery-only review and current availability',()=>{

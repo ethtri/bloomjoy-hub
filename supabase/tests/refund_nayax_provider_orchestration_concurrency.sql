@@ -68,25 +68,33 @@ insert into public.refund_cases (
   '9b200000-0000-4000-8000-000000000001',
   'provider-race-customer@example.test', 'Synthetic reserve race',
   statement_timestamp() - interval '3 days', 'card', 700, 700,
-  'card_refund_pending', 'approved', '9b000000-0000-4000-8000-000000000001',
-  statement_timestamp() - interval '10 minutes', '4242', false,
+  'needs_review', null, null,
+  null, '4242', false,
   'matched', 'nayax', 1, 'PROVIDER-RACE-TX-001', 951,
   statement_timestamp() - interval '3 days', 700, '4242', 'USD',
   'high_confidence', 'provider-race-v1', statement_timestamp(), true,
-  'hold', 'card_payment_state_without_attempt', statement_timestamp()
+  'ok', null, null
 );
 
 do $$
 declare
   case_row public.refund_cases%rowtype;
   machine_row public.reporting_machines%rowtype;
+  confirmed_case_version bigint;
   evidence_hash text;
   context_hash text;
 begin
   select * into case_row from public.refund_cases
   where id = '9b600000-0000-4000-8000-000000000001';
+  confirmed_case_version := case_row.official_action_version;
   select * into machine_row from public.reporting_machines
   where id = case_row.reporting_machine_id;
+  update public.refund_cases
+  set status='card_refund_pending', decision='approved',
+      decided_by='9b000000-0000-4000-8000-000000000001',
+      decided_at=statement_timestamp()
+  where id=case_row.id
+  returning * into case_row;
   evidence_hash := public.refund_nayax_execution_evidence_hash(case_row, machine_row);
   context_hash := public.refund_official_action_context_hash(
     'nayax_execute', 'card_refund_pending', 'approved', null, null, null,
@@ -102,7 +110,7 @@ begin
     '9b800000-0000-4000-8000-000000000001', case_row.id, 'nayax_execute',
     '9b000000-0000-4000-8000-000000000001',
     '9b400000-0000-4000-8000-000000000001', 1,
-    'machine_manager', case_row.official_action_version, context_hash,
+    'machine_manager', confirmed_case_version, context_hash,
     'authorized', statement_timestamp() + interval '5 minutes',
     null, null, evidence_hash, 'manager_session'
   );

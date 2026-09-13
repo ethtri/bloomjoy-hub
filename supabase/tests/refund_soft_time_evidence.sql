@@ -574,20 +574,20 @@ select ok((select count(*)=1 and bool_and(metadata->>'schema_version'='nayax-sel
   from public.refund_case_events where refund_case_id='fb150000-0000-4000-8000-000000000001'
     and event_type='nayax_refund_execution_authorized'),
   'One immutable marker records the manager-approved exact execution state');
-select ok(public.refund_nayax_current_manager_approval_pending(
-  'fb110000-0000-4000-8000-000000000001','fb150000-0000-4000-8000-000000000001'),
-  'The same manager approval is resumable before any provider attempt');
-select ok(public.refund_nayax_current_manager_approval_pending(
-  'fb110000-0000-4000-8000-000000000002','fb150000-0000-4000-8000-000000000001'),
-  'A different currently mapped manager can continue the same exact business approval after handoff');
+select ok(public.refund_nayax_system_saved_approval_evidence_ready_v1(
+  'fb150000-0000-4000-8000-000000000001'),
+  'The exact saved approval is ready for the System before any provider attempt');
+select ok(public.refund_nayax_system_saved_approval_evidence_ready_v1(
+  'fb150000-0000-4000-8000-000000000001'),
+  'System readiness does not depend on which manager happens to be viewing the case');
 update public.reporting_machine_refund_managers
 set status='revoked',revoked_at=statement_timestamp(),
   revoke_reason='Synthetic authority-revocation regression'
 where reporting_machine_id='fb140000-0000-4000-8000-000000000001'
   and manager_user_id='fb110000-0000-4000-8000-000000000002';
-select is(public.refund_nayax_current_manager_approval_pending(
-  'fb110000-0000-4000-8000-000000000002','fb150000-0000-4000-8000-000000000001'),false,
-  'A manager whose current authority was revoked cannot continue the payment action');
+select ok(public.refund_nayax_system_saved_approval_evidence_ready_v1(
+  'fb150000-0000-4000-8000-000000000001'),
+  'A valid immutable approval survives later manager assignment removal');
 update public.reporting_machine_refund_managers
 set status='active',revoked_at=null,revoke_reason=null
 where reporting_machine_id='fb140000-0000-4000-8000-000000000001'
@@ -603,8 +603,8 @@ set metadata=jsonb_set(metadata,'{machine_authorization_time}',to_jsonb('not-a-t
 where refund_case_id='fb150000-0000-4000-8000-000000000001'
   and event_type='nayax_refund_execution_authorized';
 set local session_replication_role=origin;
-select is(public.refund_nayax_current_manager_approval_pending(
-  'fb110000-0000-4000-8000-000000000001','fb150000-0000-4000-8000-000000000001'),false,
+select is(public.refund_nayax_system_saved_approval_evidence_ready_v1(
+  'fb150000-0000-4000-8000-000000000001'),false,
   'A malformed saved approval timestamp fails closed instead of raising an error');
 select is((public.refund_case_nayax_manager_readiness(
   'fb110000-0000-4000-8000-000000000001','fb150000-0000-4000-8000-000000000001'
@@ -625,8 +625,8 @@ set metadata=jsonb_set(metadata,'{case_version}',to_jsonb(0))
 where refund_case_id='fb150000-0000-4000-8000-000000000001'
   and event_type='nayax_refund_execution_authorized';
 set local session_replication_role=origin;
-select is(public.refund_nayax_current_manager_approval_pending(
-  'fb110000-0000-4000-8000-000000000001','fb150000-0000-4000-8000-000000000001'),false,
+select is(public.refund_nayax_system_saved_approval_evidence_ready_v1(
+  'fb150000-0000-4000-8000-000000000001'),false,
   'A stale marker cannot auto-resume a refund');
 set local session_replication_role=replica;
 update public.refund_case_events marker
@@ -636,8 +636,8 @@ where marker.refund_case_id=refund_case.id
   and marker.refund_case_id='fb150000-0000-4000-8000-000000000001'
   and marker.event_type='nayax_refund_execution_authorized';
 set local session_replication_role=origin;
-select ok(public.refund_nayax_current_manager_approval_pending(
-  'fb110000-0000-4000-8000-000000000001','fb150000-0000-4000-8000-000000000001'),
+select ok(public.refund_nayax_system_saved_approval_evidence_ready_v1(
+  'fb150000-0000-4000-8000-000000000001'),
   'Only the unchanged exact approval becomes resumable again');
 
 insert into public.refund_nayax_provider_callers(caller_id,assertion_digest,status)
@@ -653,9 +653,7 @@ update public.refund_cases set card_network='visa'
 where id='fb150000-0000-4000-8000-000000000001';
 select ok((select refund_case.official_action_version=prior.official_action_version
     and refund_case.deterministic_fact_version=prior.deterministic_fact_version+1
-    and not public.refund_nayax_current_manager_approval_pending(
-      'fb110000-0000-4000-8000-000000000001',refund_case.id
-    )
+    and not public.refund_nayax_system_saved_approval_evidence_ready_v1(refund_case.id)
   from public.refund_cases refund_case cross join pg_temp.soft_time_fact_change_before prior
   where refund_case.id='fb150000-0000-4000-8000-000000000001'),
   'A matching-fact-only change invalidates the saved approval without relying on case-version drift');
@@ -678,8 +676,8 @@ set card_network=null,
 from pg_temp.soft_time_fact_change_before prior
 where refund_case.id='fb150000-0000-4000-8000-000000000001';
 set local session_replication_role=origin;
-select ok(public.refund_nayax_current_manager_approval_pending(
-  'fb110000-0000-4000-8000-000000000001','fb150000-0000-4000-8000-000000000001'),
+select ok(public.refund_nayax_system_saved_approval_evidence_ready_v1(
+  'fb150000-0000-4000-8000-000000000001'),
   'Restoring the unchanged matching facts restores only the same exact saved approval');
 
 select is(public.refund_nayax_machine_authorization_raw_at(
@@ -831,8 +829,8 @@ select ok((select count(*)=1
   from public.refund_case_nayax_refund_attempts
   where refund_case_id='fb150000-0000-4000-8000-000000000002'),
   'The durable attempt records the current executor without rewriting the business decision');
-select is(public.refund_nayax_current_manager_approval_pending(
-  'fb110000-0000-4000-8000-000000000002','fb150000-0000-4000-8000-000000000002'),false,
+select is(public.refund_nayax_system_saved_approval_evidence_ready_v1(
+  'fb150000-0000-4000-8000-000000000002'),false,
   'A created attempt ends automatic approval resumption and moves the case to outcome inspection');
 
 select ok((select execution_authorization.expected_case_version=

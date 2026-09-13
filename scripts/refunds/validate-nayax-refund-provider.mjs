@@ -1512,6 +1512,10 @@ const handler = fs.readFileSync(
   path.join(repoRoot, 'supabase/functions/nayax-card-refund/index.ts'),
   'utf8',
 );
+const systemWorker = fs.readFileSync(
+  path.join(repoRoot, 'supabase/functions/refund-case-automation-sweep/index.ts'),
+  'utf8',
+);
 const officialAction = fs.readFileSync(
   path.join(repoRoot, 'supabase/functions/_shared/refund-official-action.ts'),
   'utf8',
@@ -1594,30 +1598,31 @@ check(
   handler.includes('NAYAX_REFUND_MANAGER_CONTRACT_JSON') &&
     handler.includes('NAYAX_REFUND_MACHINE_AUTHORIZATION_TIME_MODE') &&
     !handler.includes('DEFAULT_NAYAX_MANAGER_CONTRACT') &&
-    handler.includes('NAYAX_REFUND_REQUEST_WRITE_TOKEN_${accountKey}') &&
-    handler.includes('NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}') &&
+    handler.includes('admin_approve_selected_nayax_refund_for_system_v1') &&
+    handler.includes('status: "system_finishing"') &&
+    handler.includes('providerAttempted: false') &&
+    !handler.includes('orchestrateNayaxRefund') &&
+    !handler.includes('createNayaxRefundProviderAdapter') &&
+    systemWorker.includes('NAYAX_REFUND_REQUEST_WRITE_TOKEN_${accountKey}') &&
+    systemWorker.includes('NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}') &&
     !handler.includes('NAYAX_LYNX_API_TOKEN_${normalAccountKey}') &&
-    handler.includes('provider,') &&
-    handler.includes('service_reserve_nayax_refund_manager_action_v5') &&
-    handler.includes('service_record_nayax_refund_provider_stage_v4_diagnostics') &&
-    handler.includes('nayax-restricted-response-diagnostics-v2') &&
-    handler.includes('service_get_nayax_refund_provider_journal_capability_v3') &&
-    handler.includes('p_media_type_class:') &&
-    handler.includes('p_body_kind:') &&
-    handler.includes('p_semantic_pair_matched:') &&
+    systemWorker.includes('service_claim_due_nayax_system_saved_approvals_v1') &&
+    systemWorker.includes('service_record_nayax_refund_provider_stage_v4_diagnostics') &&
+    systemWorker.includes('service_settle_nayax_system_saved_approval_v1') &&
+    systemWorker.includes('p_media_type_class:') &&
+    systemWorker.includes('p_body_kind:') &&
+    systemWorker.includes('p_semantic_pair_matched:') &&
     handler.includes('db-authoritative-exact-200-json-v1') &&
     handler.includes('nayax-response-envelope-v1') &&
-    handler.includes('approvalAuthorized: decision.approvalAuthorized === true') &&
-    handler.includes('productionScope: "manager_approved_original_transaction"') &&
+    systemWorker.includes('approvalAuthorized: decision.approvalAuthorized === true') &&
     !gates.includes('remainingValueVerified') &&
     handler.includes('service_get_refund_nayax_execution_context_v3') &&
-    handler.includes('p_execution_context_hash: refundCase.executionContext!.contextHash') &&
     !gates.includes('provider_remaining_value_unverified') &&
     !gates.includes('NAYAX_REFUND_BROAD_REOPEN_APPROVED') &&
     !gates.includes('NAYAX_REFUND_CANARY_CASE_ID') &&
     !handler.includes('resolveNayaxRefundCaseExecutionConfig') &&
     !handler.includes('provider: disabledNayaxProviderAdapter'),
-  'The reviewed provider contract binds the automatic exact selected purchase at the existing reservation boundary.',
+  'The manager request saves approval only; the scheduled System worker binds and executes the exact selected purchase.',
 );
 check(
   authoritativeJournalMigration.includes('service_record_nayax_refund_provider_stage_v2') &&
@@ -1646,7 +1651,6 @@ check(
     handler.includes('...executionConfig.blocks') &&
     handler.includes('NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}') &&
     handler.includes('NAYAX_REFUND_PRODUCTION_BASE_URL') &&
-    handler.includes('provider_contract_host_invalid') &&
     handler.includes('areNayaxRefundWriteCredentialsReady') &&
     handler.includes('approval_contract_version_invalid') &&
     handler.includes('Unsupported operation.') &&
@@ -1678,28 +1682,17 @@ check(
   'The manager-session bridge reuses mapped-manager authority and the existing atomic reservation without making provider calls in SQL.',
 );
 check(
-  handler.includes('machine.nayax_refunds_enabled !== true') &&
-    handler.includes('machine.nayax_refund_max_amount_cents !== amountCents') &&
-    handler.includes('service_validate_nayax_controlled_pilot_postarm') &&
-    handler.indexOf('service_validate_nayax_controlled_pilot_postarm') <
-      handler.indexOf('authorizeRefundOfficialAction({') &&
-    pilotMigration.includes(
-      'machine.nayax_refunds_enabled is distinct from true',
-    ) &&
-    pilotMigration.includes(
-      'machine.nayax_refund_max_amount_cents is distinct from pilot.amount_cents',
-    ),
-  'The pilot requires its exact authorization-bound post-arm machine and cap before TOTP.',
+  !handler.includes('controlled_owner_pilot') &&
+    !handler.includes('service_validate_nayax_controlled_pilot_postarm') &&
+    !handler.includes('service_record_nayax_controlled_pilot_stage') &&
+    !handler.includes('service_settle_nayax_controlled_pilot_attempt'),
+  'The live Edge function has no retired controlled-owner pilot provider path.',
 );
 check(
   officialAction.includes('admin_consume_refund_nayax_controlled_pilot_intent') &&
-    pilotMigration.includes(
-      'reservation := public.service_reserve_and_consume_nayax_controlled_pilot_attempt(',
-    ) &&
-    !handler.includes('service_reserve_and_consume_nayax_controlled_pilot_attempt') &&
-    handler.includes('service_record_nayax_controlled_pilot_stage') &&
-    handler.includes('service_settle_nayax_controlled_pilot_attempt'),
-  'The custom TOTP RPC atomically reserves; Edge has no separate reservation gap.',
+    pilotMigration.includes('service_reserve_and_consume_nayax_controlled_pilot_attempt') &&
+    !handler.includes('service_reserve_and_consume_nayax_controlled_pilot_attempt'),
+  'Historical pilot evidence remains readable while live execution is absent.',
 );
 check(
   pilotMigration.includes("'request_started', 'request_result', 'approve_started', 'approve_result'") &&

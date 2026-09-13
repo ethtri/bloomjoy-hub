@@ -872,19 +872,11 @@ const getCustomerContactAgeLabel = (refundCase: RefundCaseRecord) => {
 
 const hasCardRefundAuthority = (
   refundCase: RefundCaseRecord,
-  refundReadiness: RefundReadiness | null | undefined = refundCase.refundReadiness
+  _refundReadiness: RefundReadiness | null | undefined = refundCase.refundReadiness
 ) =>
   Number(refundCase.officialActionVersion ?? 0) > 0 &&
-  (
-    refundReadiness?.approvalContinuationReady === true ||
-    (
-      (
-        refundCase.canPerformOfficialAction === true ||
-        refundCase.officialActionBlockReason === 'manager_verification_required'
-      ) &&
-      refundCase.reconciliationActionBlocked !== true
-    )
-  );
+  refundCase.canPerformOfficialAction === true &&
+  refundCase.reconciliationActionBlocked !== true;
 
 const canonicalQueueBucket = (refundCase: RefundCaseRecord) =>
   getRefundManagerQueueBucket(refundCase);
@@ -1710,19 +1702,30 @@ const primaryActionConfig = (
       disabled: true,
     };
   }
+  if (refundCase.providerHold) {
+    return {
+      label: 'Check the exact transaction in Nayax',
+      helper: 'The refund result is unknown. Do not retry it. Check this exact transaction in Nayax and record what happened.',
+      disabled: true,
+    };
+  }
+  if (
+    refundCase.paymentMethod === 'card' &&
+    refundCase.status === 'card_refund_pending' &&
+    refundCase.decision === 'approved'
+  ) {
+    return {
+      label: 'System is finishing this approved refund',
+      helper: 'No action is needed. Do not try the refund again.',
+      disabled: true,
+    };
+  }
   const latestMessage = getLatestCustomerMessage(refundCase);
   const definitiveNoRefundRetryReady = isDefinitiveNoRefundRetryReady(refundCase);
   if (refundCase.legacyStateReviewRequired) {
     return {
       label: 'Transaction evidence needs review',
       helper: 'No refund is recorded. Review the saved transaction details and refresh the case before making a decision.',
-      disabled: true,
-    };
-  }
-  if (refundCase.providerHold && refundReadiness?.approvalContinuationReady !== true) {
-    return {
-      label: 'Check refund status in Nayax',
-      helper: 'The System could not confirm the result. Do not retry. The machine Manager must check this transaction in Nayax and record the result.',
       disabled: true,
     };
   }
@@ -1792,11 +1795,12 @@ const primaryActionConfig = (
   }
   if (
     derivePortalRefundMissingFields(refundCase).length > 0 &&
+    refundReadiness?.canIssueCardRefund !== true &&
     !canRequestRefundCustomerDetailsManually(customerOutreach)
   ) {
     return {
       label: 'Customer follow-up unavailable',
-      helper: 'Bloomjoy has not assigned a manual customer request for this case. Follow the server-owned case state above.',
+      helper: 'This case is not ready for a customer request. Follow the next step shown above.',
       disabled: true,
     };
   }
@@ -2080,7 +2084,7 @@ const primaryActionConfig = (
       if (refundReadiness.canIssueCardRefund) {
         return {
           label: `Refund ${formatCurrency(refundReadiness.refundAmountCents ?? refundCase.refundAmountCents ?? refundCase.paymentAmountCents)}`,
-          helper: 'This issues the card refund. The customer is emailed only after it succeeds.',
+          helper: 'Approve this refund once. Bloomjoy will finish it automatically and email the customer only after Nayax confirms it.',
           targetStatus: 'completed',
           targetDecision: 'approved',
           messageType: 'completed',
@@ -2531,8 +2535,6 @@ export default function AdminRefundsPage() {
   } | null>(null);
   const cashCompletionInFlightRef = useRef(false);
   const nayaxRefundInFlightRef = useRef(false);
-  const nayaxApprovedExecutionRequestRef = useRef<() => void>(() => {});
-  const nayaxApprovedExecutionAttemptedRef = useRef(new Set<string>());
   const nayaxLookupInFlightCaseRef = useRef<string | null>(null);
   const lookupRequestSequenceRef = useRef(0);
   const autoLookupAttemptedRef = useRef(new Set<string>());
@@ -2875,6 +2877,7 @@ export default function AdminRefundsPage() {
     setNayaxLookupNotice(null);
     setNayaxLookupSummary(null);
     setIsRefundConfirmationOpen(false);
+
     setIsCashConfirmationOpen(false);
     setMessageSubject('');
     setMessageBody('');
@@ -3182,20 +3185,13 @@ export default function AdminRefundsPage() {
     (selectedCase?.canPerformOfficialAction !== true ? 'manager_mapping_required' : null);
   const selectedCaseIsTerminal = selectedCase ? doneStatuses.has(selectedCase.status) : false;
   const selectedCaseIsResolvedDuplicate = isResolvedDuplicateRefundCase(selectedCase);
-  const selectedCaseApprovalContinuationReady =
-    selectedRefundReadiness?.approvalContinuationReady === true;
   const selectedCaseIsReviewOnly = selectedCaseIsTerminal ||
-    (selectedCase?.reconciliationActionBlocked === true &&
-      !selectedCaseApprovalContinuationReady) ||
-    (selectedCase?.canPerformOfficialAction !== true &&
-      selectedCaseOfficialActionBlockReason !== 'manager_verification_required' &&
-      !selectedCaseApprovalContinuationReady);
+    selectedCase?.reconciliationActionBlocked === true ||
+    selectedCase?.canPerformOfficialAction !== true;
   const selectedCaseOfficialActionBlockMessage = selectedCase?.legacyStateReviewRequired === true
     ? 'Run a fresh transaction check before approving, declining, completing, issuing a refund, or contacting the customer.'
     : selectedCase?.reconciliationActionBlocked === true
     ? 'Resolve the possible duplicate review before approving, declining, completing, or issuing this refund.'
-    : selectedCaseOfficialActionBlockReason === 'manager_verification_required'
-    ? 'Your manager session needs to be refreshed before you can take this action.'
     : selectedCaseOfficialActionBlockReason === 'inbound_link_review_required'
     ? 'Link the verified support conversation to one primary case before taking an official action.'
     : selectedCaseOfficialActionBlockReason === 'official_actions_disabled'
@@ -3890,6 +3886,23 @@ export default function AdminRefundsPage() {
 
     setIsRefundConfirmationOpen(false);
 
+    if (
+      result.status === 'system_finishing' &&
+      result.providerAttempted === false
+    ) {
+      setNayaxExecutionNotice(null);
+      setRefundActionReceipt({
+        tone: 'success',
+        title: 'Refund approved',
+        message:
+          'Your approval was saved. Bloomjoy is finishing the refund automatically and will email the customer after Nayax confirms it. Do not try the refund again.',
+      });
+      toast.success('Refund approved. Bloomjoy is finishing it automatically.');
+      await refresh();
+      await availabilityRefresh;
+      return;
+    }
+
     if (hasPaidAccountingException) {
       const deliverySucceeded = completion?.status === 'sent' || completion?.status === 'already_sent';
       setNayaxExecutionNotice(null);
@@ -4125,9 +4138,6 @@ export default function AdminRefundsPage() {
         caseId: selectedCase.id,
         expectedOfficialActionVersion: executionVersion,
       };
-      nayaxApprovedExecutionAttemptedRef.current.add(
-        `${selectedCase.id}:${executionVersion}`
-      );
       const result = await executeNayaxCardRefund(executionInput);
       await applyNayaxExecutionResult(result);
     } catch (executionError) {
@@ -4167,60 +4177,11 @@ export default function AdminRefundsPage() {
       setIsRunningNayaxRefund(false);
     }
   };
-  nayaxApprovedExecutionRequestRef.current = () => {
-    void handleRunNayaxRefund();
-  };
-
-  useEffect(() => {
-    const approvalPendingExecution =
-      selectedRefundReadiness?.approvalPendingExecution === true;
-    const approvalContinuationReady =
-      selectedRefundReadiness?.approvalContinuationReady === true;
-    const approvalAutoResumeReady =
-      approvalPendingExecution || approvalContinuationReady;
-    if (
-      isUsingDemoData ||
-      isRunningNayaxRefund ||
-      nayaxRefundInFlightRef.current ||
-      !selectedCase ||
-      !editor ||
-      selectedCaseIsReviewOnly ||
-      selectedCase.paymentMethod !== 'card' ||
-      selectedCase.status !== 'card_refund_pending' ||
-      selectedCase.decision !== 'approved' ||
-      (selectedCase.providerHold && !approvalContinuationReady) ||
-      (selectedCase.canPerformOfficialAction !== true && !approvalContinuationReady) ||
-      hasConfirmedRefundReceipt(selectedCase) ||
-      !approvalAutoResumeReady ||
-      selectedRefundReadiness.canIssueCardRefund !== true ||
-      selectedRefundReadiness.caseVersion !== officialActionVersion ||
-      officialActionVersion <= 0
-    ) return;
-
-    const resumeKey = `${selectedCase.id}:${officialActionVersion}`;
-    if (nayaxApprovedExecutionAttemptedRef.current.has(resumeKey)) return;
-    setIsRefundConfirmationOpen(false);
-    setNayaxExecutionNotice({
-      tone: 'info',
-      message: approvalContinuationReady
-        ? 'Continuing the refund you already approved at Nayax’s approval step. No additional manager decision or refund request is needed.'
-        : 'Continuing the refund you already approved. No additional manager decision is needed.',
-    });
-    queueMicrotask(() => nayaxApprovedExecutionRequestRef.current());
-  }, [
-    editor,
-    isUsingDemoData,
-    isRunningNayaxRefund,
-    officialActionVersion,
-    selectedCase,
-    selectedCaseIsReviewOnly,
-    selectedRefundReadiness,
-  ]);
-
   const handlePrepareNayaxResolution = async () => {
     if (
       !selectedCase ||
-      !nayaxResolutionReadiness?.available ||
+      (!nayaxResolutionReadiness?.available &&
+        nayaxResolutionReadiness?.systemOutcomeEvidenceAvailable !== true) ||
       !nayaxResolutionReadiness.attemptId ||
       officialActionVersion <= 0 ||
       isPreparingNayaxResolution
@@ -4283,6 +4244,8 @@ export default function AdminRefundsPage() {
         evidenceOccurredAt: evidenceOccurredAtValue?.toISOString() ?? null,
         reasonCode: nayaxResolutionReason,
         expectedCaseVersion: officialActionVersion,
+        systemSavedApprovalEvidence:
+          nayaxResolutionReadiness.systemOutcomeEvidenceAvailable === true,
       });
       await refresh();
       const completion = result.customerCompletion ?? null;
@@ -5921,7 +5884,7 @@ export default function AdminRefundsPage() {
       !hasActiveCustomerOutreach &&
       ['checking', 'unavailable', 'waiting'].includes(transactionView.kind);
     const managerState: RefundManagerState = hasConfirmedRefundReceipt(selectedCase) ||
-      (hasProtectedRefundLifecycle(selectedCase) && !selectedCaseApprovalContinuationReady) ||
+      hasProtectedRefundLifecycle(selectedCase) ||
       (selectedCase.customerDeliveryException && !hasUnpaidRefundReview(selectedCase))
       ? baseManagerState
       : transactionDecisionPending
@@ -6116,11 +6079,6 @@ export default function AdminRefundsPage() {
                     if (hasReadyRefund) {
                       setNayaxExecutionNotice(null);
                       setRefundActionReceipt(null);
-                      if (selectedCaseApprovalContinuationReady) {
-                        setIsRefundConfirmationOpen(false);
-                        void handleRunNayaxRefund();
-                        return;
-                      }
                       setIsRefundConfirmationOpen(true);
                       return;
                     }
@@ -6612,7 +6570,9 @@ export default function AdminRefundsPage() {
               </div>
 
               {!selectedCase.legacyStateReviewRequired &&
-              refundOperationsAccess &&
+              (refundOperationsAccess ||
+                (selectedCase.canPerformOfficialAction === true &&
+                  nayaxResolutionReadiness?.systemOutcomeEvidenceAvailable === true)) &&
               nayaxResolutionReadiness?.visible && (
                 <div
                   data-testid="refund-nayax-resolution-panel"
@@ -6659,7 +6619,8 @@ export default function AdminRefundsPage() {
                     </div>
                   )}
 
-                  {!nayaxResolutionReadiness.available ? (
+                  {!nayaxResolutionReadiness.available &&
+                  nayaxResolutionReadiness.systemOutcomeEvidenceAvailable !== true ? (
                     <div
                       data-testid="refund-nayax-resolution-blocked"
                       className="rounded-md border border-border bg-muted/30 p-3 text-sm"
@@ -6693,6 +6654,8 @@ export default function AdminRefundsPage() {
                           <p className="mt-1 text-muted-foreground">
                             {nayaxResolutionReadiness.blockReason === 'already_resolved'
                               ? 'The final payment result is already recorded.'
+                              : nayaxResolutionReadiness.blockReason === 'system_provider_hold_no_retry'
+                                ? 'Check this exact transaction in Nayax and record what happened. Do not retry the refund.'
                               : nayaxResolutionReadiness.blockReason === 'exact_attempt_required'
                                 ? 'Bloomjoy could not identify the exact refund attempt.'
                                 : nayaxResolutionReadiness.blockReason === 'manager_access_required'
@@ -6948,10 +6911,10 @@ export default function AdminRefundsPage() {
           <AlertDialogContent data-testid="refund-confirmation-dialog" className="max-w-xl">
             <AlertDialogHeader>
               <AlertDialogTitle>
-                {`Confirm ${formatCurrency(cardAmountCents)} card refund`}
+                {`Approve ${formatCurrency(cardAmountCents)} card refund`}
               </AlertDialogTitle>
               <AlertDialogDescription>
-                Check every detail. The customer email sends only after the card refund succeeds.
+                This records your approval once. Bloomjoy will finish the refund automatically and email the customer only after Nayax confirms it.
               </AlertDialogDescription>
             </AlertDialogHeader>
 
@@ -6998,7 +6961,7 @@ export default function AdminRefundsPage() {
                 ) : (
                   <CheckCircle2 className="mr-2 h-4 w-4" />
                 )}
-                Confirm refund &amp; send email
+                Approve refund
               </Button>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -7336,7 +7299,7 @@ export default function AdminRefundsPage() {
               {refundOperationsAccess && !isUsingDemoData && (
                 <details className="group relative">
                   <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-md px-3 text-xs font-medium text-muted-foreground hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
-                    <span>System details</span>
+                    <span>More details</span>
                     <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
                   </summary>
                   <div className="absolute right-0 z-30 mt-2 w-[min(48rem,calc(100vw-2rem))] space-y-3 rounded-xl border border-border bg-card p-3 shadow-[var(--shadow-lg)]">
@@ -7402,7 +7365,7 @@ export default function AdminRefundsPage() {
             >
               The refund queue is available, but {liveOverview.lifecycleValidationFailureCount}{' '}
               {liveOverview.lifecycleValidationFailureCount === 1 ? 'case needs' : 'cases need'} a data review.
-              Official actions for {liveOverview.lifecycleValidationFailureCount === 1 ? 'that case are' : 'those cases are'} disabled.
+              Refund decisions are temporarily unavailable for {liveOverview.lifecycleValidationFailureCount === 1 ? 'that case' : 'those cases'}.
             </div>
           )}
 
@@ -7793,8 +7756,6 @@ export default function AdminRefundsPage() {
                         data-testid={
                           selectedCase.legacyStateReviewRequired
                             ? 'refund-legacy-state-review-banner'
-                            : selectedCaseOfficialActionBlockReason === 'manager_verification_required'
-                            ? 'refund-manager-verification-banner'
                             : 'refund-review-only-banner'
                         }
                         className="border-b border-border pb-4 text-sm text-muted-foreground"
@@ -7803,8 +7764,6 @@ export default function AdminRefundsPage() {
                             <p className="font-medium text-foreground">
                               {selectedCase.legacyStateReviewRequired
                                 ? 'Historical payment review'
-                                : selectedCaseOfficialActionBlockReason === 'manager_verification_required'
-                                ? 'Manager verification required'
                                 : selectedCaseOfficialActionBlockReason === 'official_actions_disabled'
                                   ? 'Refund actions unavailable'
                                   : selectedCaseOfficialActionBlockReason === 'exact_machine_required'

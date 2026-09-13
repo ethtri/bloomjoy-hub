@@ -74,12 +74,17 @@ import {
   drainNayaxServerApprovalContinuations,
   type NayaxServerApprovalContinuationClaim,
 } from "../_shared/nayax-server-approval-continuation.ts";
+import {
+  drainNayaxSystemSavedApprovals,
+  type NayaxSystemSavedApprovalClaim,
+} from "../_shared/nayax-system-saved-approval.ts";
 import { deliverNayaxRefundCustomerCompletion } from "../_shared/nayax-refund-completion-delivery.ts";
 import { resolveNayaxRefundExecutionConfig } from "../_shared/nayax-refund-gates.ts";
 import type { NayaxAttemptSettlement } from "../_shared/nayax-refund-orchestration.ts";
 // @deno-types="../_shared/nayax-refund-provider.d.ts"
 import {
   buildRedactedNayaxStageDigest,
+  createNayaxRefundProviderAdapter,
   executeNayaxRefundApprovalOnly,
   mapNayaxRefundExecutionOutcome,
   NAYAX_REFUND_PRODUCTION_BASE_URL,
@@ -4177,6 +4182,11 @@ const runFailureTest = async (
 const normalizeNayaxAccountKey = (value: string) =>
   value.trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
 
+const sha256Text = async (value: string) => {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+};
+
 const parseServerContinuationContract = () => {
   const raw = Deno.env.get("NAYAX_REFUND_MANAGER_CONTRACT_JSON")?.trim() ?? "";
   const timeMode = Deno.env.get("NAYAX_REFUND_MACHINE_AUTHORIZATION_TIME_MODE")
@@ -4199,6 +4209,258 @@ const parseServerContinuationContract = () => {
     };
   } catch {
     return null;
+  }
+};
+
+const runNayaxSystemSavedApprovalSweep = async (counters: SweepCounters) => {
+  if (!automationEnabled || !nayaxServerContinuationEnabled || !supabase) {
+    addReason(counters, "nayax_system_saved_approval_disabled");
+    return;
+  }
+  const executionConfig = resolveNayaxRefundExecutionConfig((name) => Deno.env.get(name));
+  const contract = parseServerContinuationContract();
+  const accountKey = normalizeNayaxAccountKey(
+    Deno.env.get("NAYAX_REFUND_SERVER_CONTINUATION_ACCOUNT_KEY") ?? "",
+  );
+  const requestToken = accountKey
+    ? Deno.env.get(`NAYAX_REFUND_REQUEST_WRITE_TOKEN_${accountKey}`)?.trim() ?? ""
+    : "";
+  const approveToken = accountKey
+    ? Deno.env.get(`NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}`)?.trim() ?? ""
+    : "";
+  if (executionConfig.blocks.length > 0 || executionConfig.dryRun ||
+    executionConfig.killSwitchActive || !executionConfig.executorAssertion ||
+    !executionConfig.idempotencySecret || !contract || !accountKey ||
+    !requestToken || !approveToken || contract.baseUrl !== NAYAX_REFUND_PRODUCTION_BASE_URL) {
+    counters.actionsSuppressed += 1;
+    addReason(counters, "nayax_system_saved_approval_not_ready");
+    return;
+  }
+  const { data: capability, error: capabilityError } = await supabase.rpc(
+    "service_get_nayax_refund_provider_journal_capability_v3",
+    { p_executor_assertion: executionConfig.executorAssertion },
+  );
+  const capabilityEnvelope = capability && typeof capability === "object"
+    ? capability as Record<string, unknown>
+    : null;
+  if (capabilityError ||
+    capabilityEnvelope?.journalContractVersion !== NAYAX_REFUND_JOURNAL_CONTRACT_VERSION ||
+    capabilityEnvelope?.approvalPolicyVersion !== NAYAX_REFUND_APPROVAL_POLICY_VERSION ||
+    capabilityEnvelope?.responseEnvelopeVersion !== NAYAX_REFUND_RESPONSE_ENVELOPE_VERSION) {
+    counters.actionsSuppressed += 1;
+    addReason(counters, "nayax_system_saved_approval_journal_unavailable");
+    return;
+  }
+  const accountScopeDigest = await sha256Text(accountKey);
+  const output = await drainNayaxSystemSavedApprovals({
+    limit: 2,
+    claimOne: async () => {
+      const { data: reclaimed, error: reclaimError } = await supabase.rpc(
+        "service_reclaim_nayax_system_saved_approval_no_call_v1",
+        { p_executor_assertion: executionConfig.executorAssertion, p_account_key: accountKey },
+      );
+      if (reclaimError) throw reclaimError;
+      const reclaimEnvelope = reclaimed && typeof reclaimed === "object"
+        ? reclaimed as Record<string, unknown>
+        : null;
+      if (reclaimEnvelope?.claim && typeof reclaimEnvelope.claim === "object") {
+        return reclaimEnvelope.claim;
+      }
+      const { data, error } = await supabase.rpc(
+        "service_claim_due_nayax_system_saved_approvals_v1",
+        {
+          p_executor_assertion: executionConfig.executorAssertion,
+          p_account_key: accountKey,
+          p_serialization_mode: contract.machineAuthorizationTimeMode,
+          p_refund_email_list_mode: contract.refundEmailListMode,
+          p_limit: 1,
+        },
+      );
+      const envelope = data && typeof data === "object"
+        ? data as Record<string, unknown>
+        : null;
+      if (error || envelope?.schemaVersion !== "nayax-system-saved-approval-v1" ||
+        envelope.payloadRedacted !== true || !Array.isArray(envelope.claims)) {
+        throw error ?? new Error("nayax_system_saved_approval_claim_failed");
+      }
+      return envelope.claims[0] ?? null;
+    },
+    executeProvider: async (claim: NayaxSystemSavedApprovalClaim) => {
+      if (claim.wire.accountScopeDigest !== accountScopeDigest ||
+        claim.wire.providerContractVersion !== contract.contractVersion ||
+        claim.wire.journalContractVersion !== NAYAX_REFUND_JOURNAL_CONTRACT_VERSION) {
+        throw new Error("nayax_system_saved_approval_frozen_context_mismatch");
+      }
+      const claimContract = {
+        ...contract,
+        machineAuthorizationTimeMode: claim.wire.machineAuthorizationTimeSerializationMode,
+        refundEmailListMode: claim.wire.refundEmailListMode,
+      };
+      const provider = createNayaxRefundProviderAdapter({
+        contract: claimContract,
+        requestToken,
+        approveToken,
+        evidence: {
+          caseId: claim.caseId,
+          amountCents: claim.wire.originalAmountCents,
+          currencyCode: "USD",
+          transactionId: claim.wire.transactionId,
+          siteId: claim.wire.siteId,
+          machineAuthorizationTime: claim.wire.machineAuthorizationTime,
+          machineAuthorizationTimeInstant: claim.wire.machineAuthorizationTimeInstant,
+          machineAuthorizationTimeWire: claim.wire.machineAuthorizationTimeWire,
+          refundEmailListMode: claim.wire.refundEmailListMode,
+        },
+        onStageEvent: async (stageEvent) => {
+          const result = "result" in stageEvent && stageEvent.result
+            ? stageEvent.result as unknown as Record<string, unknown>
+            : {};
+          const classificationDigest = await buildRedactedNayaxStageDigest({
+            journalSecret: executionConfig.idempotencySecret!,
+            attemptId: claim.attemptId,
+            contractVersion: claimContract.contractVersion,
+            stageEvent,
+          });
+          const { data, error } = await supabase.rpc(
+            "service_record_nayax_refund_provider_stage_v4_diagnostics",
+            {
+              p_executor_assertion: executionConfig.executorAssertion,
+              p_attempt_id: claim.attemptId,
+              p_provider_claim_token: claim.providerClaimToken,
+              p_stage: stageEvent.stage,
+              p_event: stageEvent.event,
+              p_http_status: Number.isInteger(result.httpStatus) ? result.httpStatus : null,
+              p_outcome: sanitizeNayaxText(result.outcome, 40) || null,
+              p_contract_matched: typeof result.contractMatched === "boolean" ? result.contractMatched : null,
+              p_failure_type: sanitizeNayaxText(result.failureType, 20) || null,
+              p_classification_digest: classificationDigest,
+              p_provider_contract_version: claim.wire.providerContractVersion,
+              p_journal_contract_version: claim.wire.journalContractVersion,
+              p_http_accepted: typeof result.httpAccepted === "boolean" ? result.httpAccepted : null,
+              p_media_type_class: sanitizeNayaxText(result.mediaTypeClass, 40) || null,
+              p_body_kind: sanitizeNayaxText(result.bodyKind, 40) || null,
+              p_body_length_bucket: sanitizeNayaxText(result.bodyLengthBucket, 40) || null,
+              p_json_parsed: typeof result.jsonParsed === "boolean" ? result.jsonParsed : null,
+              p_json_object: typeof result.jsonObject === "boolean" ? result.jsonObject : null,
+              p_schema_matched: typeof result.schemaMatched === "boolean" ? result.schemaMatched : null,
+              p_result_key_present: typeof result.resultKeyPresent === "boolean" ? result.resultKeyPresent : null,
+              p_status_key_present: typeof result.statusKeyPresent === "boolean" ? result.statusKeyPresent : null,
+              p_result_value_type: sanitizeNayaxText(result.resultValueType, 40) || null,
+              p_status_value_type: sanitizeNayaxText(result.statusValueType, 40) || null,
+              p_semantic_pair_matched: typeof result.semanticPairMatched === "boolean" ? result.semanticPairMatched : null,
+              p_business_result: result.businessPairRetained === true
+                ? sanitizeNayaxText(result.businessResult, 80) || null : null,
+              p_business_status: result.businessPairRetained === true
+                ? sanitizeNayaxText(result.businessStatus, 80) || null : null,
+              p_business_pair_retained: stageEvent.event === "result" && result.businessPairRetained === true,
+              p_observed_result_scalar: result.observedScalarPairRetained === true
+                ? result.observedResultScalar : null,
+              p_observed_status_scalar: result.observedScalarPairRetained === true
+                ? result.observedStatusScalar : null,
+              p_observed_scalar_pair_retained: stageEvent.event === "result" && result.observedScalarPairRetained === true,
+              p_result_diagnostic_text: typeof result.observedResultDiagnosticText === "string"
+                ? result.observedResultDiagnosticText : null,
+              p_result_diagnostic_disposition: sanitizeNayaxText(
+                result.observedResultDiagnosticDisposition, 40,
+              ) || null,
+              p_result_diagnostic_length_bucket: sanitizeNayaxText(
+                result.observedResultDiagnosticLengthBucket, 40,
+              ) || null,
+              p_status_diagnostic_text: typeof result.observedStatusDiagnosticText === "string"
+                ? result.observedStatusDiagnosticText : null,
+              p_status_diagnostic_disposition: sanitizeNayaxText(
+                result.observedStatusDiagnosticDisposition, 40,
+              ) || null,
+              p_status_diagnostic_length_bucket: sanitizeNayaxText(
+                result.observedStatusDiagnosticLengthBucket, 40,
+              ) || null,
+            },
+          );
+          if (error || !data || typeof data !== "object") {
+            throw new Error("nayax_system_saved_approval_journal_failed");
+          }
+          const decision = data as Record<string, unknown>;
+          if (
+            decision.recorded !== true ||
+            decision.journalContractVersion !== claim.wire.journalContractVersion ||
+            decision.providerContractVersion !== claim.wire.providerContractVersion ||
+            decision.approvalPolicyVersion !== NAYAX_REFUND_APPROVAL_POLICY_VERSION ||
+            decision.responseEnvelopeVersion !== NAYAX_REFUND_RESPONSE_ENVELOPE_VERSION ||
+            decision.businessOutcomeRecordVersion !== "nayax-business-outcome-v2" ||
+            decision.restrictedScalarEvidenceVersion !==
+              "nayax-restricted-response-scalars-v1" ||
+            decision.restrictedScalarDiagnosticVersion !==
+              "nayax-restricted-response-diagnostics-v2" ||
+            decision.payloadRedacted !== true
+          ) {
+            throw new Error("nayax_system_saved_approval_journal_version_mismatch");
+          }
+          return {
+            approvalAuthorized: decision.approvalAuthorized === true,
+            approvalPolicyVersion: NAYAX_REFUND_APPROVAL_POLICY_VERSION,
+            responseEnvelopeVersion: NAYAX_REFUND_RESPONSE_ENVELOPE_VERSION,
+            journalContractVersion: claim.wire.journalContractVersion,
+            providerContractVersion: claim.wire.providerContractVersion,
+            payloadRedacted: true as const,
+          };
+        },
+      });
+      try {
+        return await provider.execute({
+          caseId: claim.caseId,
+          idempotencyKey: claim.wire.idempotencyKey,
+          amountCents: claim.wire.originalAmountCents,
+          currencyCode: "USD",
+        }, "request_and_approve");
+      } catch {
+        return { kind: "unknown" as const, providerReference: null,
+          providerStatus: null, errorCode: "provider_stage_or_transport_unknown" };
+      }
+    },
+    settle: async (claim, outcome) => {
+      const { data, error } = await supabase.rpc(
+        "service_settle_nayax_system_saved_approval_v1",
+        {
+          p_executor_assertion: executionConfig.executorAssertion,
+          p_attempt_id: claim.attemptId,
+          p_system_saved_approval_receipt_id: claim.receiptId,
+          p_case_id: claim.caseId,
+          p_idempotency_key: claim.wire.idempotencyKey,
+          p_amount_cents: claim.wire.originalAmountCents,
+          p_currency_code: "USD",
+          p_provider_claim_token: claim.providerClaimToken,
+          p_provider_outcome: outcome.kind,
+          p_provider_reference: outcome.providerReference ?? null,
+          p_provider_status: outcome.providerStatus ?? null,
+          p_error_code: outcome.errorCode ?? null,
+        },
+      );
+      if (error || !data || typeof data !== "object") {
+        throw error ?? new Error("nayax_system_saved_approval_settlement_failed");
+      }
+      const attempt = (data as Record<string, unknown>).attempt;
+      const settledAttempt = attempt && typeof attempt === "object"
+        ? attempt as Record<string, unknown>
+        : null;
+      return { succeeded: settledAttempt?.status === "succeeded" && settledAttempt.providerOutcome === "success" };
+    },
+    deliverCompletion: async (claim) => {
+      await deliverNayaxRefundCustomerCompletion({
+        supabase,
+        executorAssertion: executionConfig.executorAssertion!,
+        attemptId: claim.attemptId,
+        caseId: claim.caseId,
+      });
+    },
+  });
+  counters.nayaxApprovalContinuationsClaimed += output.claimedCount;
+  counters.nayaxApprovalContinuationsCompleted += output.results.filter((item) => item.executed).length;
+  counters.nayaxApprovalContinuationsHeld += output.invalidCount + output.results.filter((item) => !item.executed).length;
+  counters.actionsAttempted += output.processedCount;
+  counters.actionsSucceeded += output.results.filter((item) => item.executed).length;
+  counters.actionsFailed += output.results.filter((item) => !item.executed).length;
+  if (output.results.some((item) => item.completionErrorCode !== null)) {
+    addReason(counters, "nayax_system_saved_approval_completion_deferred");
   }
 };
 
@@ -4576,6 +4838,11 @@ serve(async (req) => {
         ...redactedSummary(counters),
       }, alertStatus === "sent" ? 200 : 502);
     }
+
+    // System first finishes an exact saved approval that has not reached the
+    // provider. Each database claim is one case and one account at a time.
+    failureStage = "nayax_system_saved_approval";
+    await runNayaxSystemSavedApprovalSweep(counters);
 
     // This bounded service lane resumes only the approval stage of an already
     // consumed manager authorization. The database claim is claim-once and

@@ -33,6 +33,8 @@ const files = {
   officialActionHelper: 'supabase/functions/_shared/refund-official-action.ts',
   refundReadiness: 'supabase/functions/_shared/refund-readiness.ts',
   function: 'supabase/functions/nayax-card-refund/index.ts',
+  automationSweep: 'supabase/functions/refund-case-automation-sweep/index.ts',
+  systemBoundaryMigration: 'supabase/migrations/20260913153000_refund_system_saved_approval_boundary.sql',
   config: 'supabase/config.toml',
   envExample: '.env.example',
   commercePreflight: 'scripts/commerce-preflight.mjs',
@@ -98,6 +100,8 @@ const providerOrchestrationDatabaseTest = read(files.providerOrchestrationDataba
 const officialActionHelper = read(files.officialActionHelper);
 const refundReadiness = read(files.refundReadiness);
 const fn = read(files.function);
+const automationSweep = read(files.automationSweep);
+const systemBoundaryMigration = read(files.systemBoundaryMigration);
 const normalPreflight = fn.slice(
   fn.indexOf('const getPreflightBlocks'),
   fn.indexOf('const getDuplicateTransactionBlocks'),
@@ -182,33 +186,33 @@ assert(
     providerGates.includes('NAYAX_REFUND_EXECUTOR_ASSERTION') &&
     providerGates.includes('NAYAX_REFUND_IDEMPOTENCY_SECRET') &&
     !providerGates.includes('remainingValueVerified') &&
-  fn.includes('service_get_refund_nayax_execution_context_v3') &&
-    fn.includes('p_execution_context_hash: refundCase.executionContext!.contextHash'),
-  'The HTTP boundary retains ordinary gates and binds the automatic exact selected purchase.'
+    fn.includes('service_get_refund_nayax_execution_context_v3') &&
+    systemBoundaryMigration.includes('execution_context_hash'),
+  'The HTTP boundary retains ordinary gates while the approval is bound to the exact selected purchase.'
 );
 assert(
   fn.includes('can_perform_refund_official_action') &&
-    fn.includes('createNayaxRefundProviderAdapter') &&
-  fn.includes('service_reserve_nayax_refund_manager_action_v5') &&
-    fn.includes('service_record_nayax_refund_provider_stage_v4_diagnostics') &&
-    fn.includes('service_get_nayax_refund_provider_journal_capability_v3') &&
-    fn.includes('orchestrateNayaxRefund') &&
-    fn.includes('authorizeRefundOfficialAction') &&
-    fn.includes('service_settle_nayax_refund_attempt') &&
+    fn.includes('admin_approve_selected_nayax_refund_for_system_v1') &&
+    fn.includes('status: "system_finishing"') &&
+    fn.includes('providerAttempted: false') &&
+    !fn.includes('createNayaxRefundProviderAdapter') &&
+    !fn.includes('service_reserve_nayax_refund_manager_action_v5') &&
+    !fn.includes('orchestrateNayaxRefund') &&
+    !fn.includes('service_settle_nayax_refund_attempt') &&
+    automationSweep.includes('createNayaxRefundProviderAdapter') &&
+    automationSweep.includes('service_claim_due_nayax_system_saved_approvals_v1') &&
+    automationSweep.includes('service_record_nayax_refund_provider_stage_v4_diagnostics') &&
+    automationSweep.includes('service_settle_nayax_system_saved_approval_v1') &&
+    systemBoundaryMigration.includes('admin_approve_selected_nayax_refund_for_system_v1') &&
     !fn.includes('service_consume_nayax_refund_official_action') &&
     !fn.includes('can_manage_refund_case') &&
     !fn.includes('actorIsSuperAdmin'),
-  'The HTTP function must use mapped-manager authorization for the normal path while retaining atomic reservation and settlement.'
+  'The HTTP function records one manager approval and only the scheduled System worker executes or settles it.'
 );
 const operationAllowlist = fn.slice(
   fn.indexOf('!new Set(['),
   fn.indexOf('const executionConfig = resolveNayaxRefundExecutionConfig'),
 );
-const normalExecutionGate = fn.indexOf('if (preExecutionBlocks.length > 0)');
-const normalIdempotency = fn.lastIndexOf(
-  'const idempotencyKey = await buildNayaxRefundIdempotencyKey',
-);
-const normalOrchestration = fn.indexOf('await orchestrateNayaxRefund', normalIdempotency);
 assert(
   fn.includes('resolveNayaxRefundExecutionConfig') &&
     fn.indexOf('if (authError || !user)') <
@@ -221,8 +225,8 @@ assert(
     !fn.includes('preExecutionBlocks.includes("provider_remaining_value_unverified")') &&
     fn.includes('NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_SUPPORTED = false') &&
     fn.includes('pending_approval_recovery_retired') &&
-    normalIdempotency > normalExecutionGate &&
-    normalOrchestration > normalIdempotency &&
+    fn.includes('admin_approve_selected_nayax_refund_for_system_v1') &&
+    !fn.includes('await orchestrateNayaxRefund') &&
     providerGates.includes('NAYAX_REFUND_EXECUTOR_ASSERTION') &&
     providerGates.includes('NAYAX_REFUND_IDEMPOTENCY_SECRET') &&
     !providerGates.includes('NAYAX_REFUND_DAILY_AMOUNT_CAP_CENTS') &&
@@ -232,7 +236,7 @@ assert(
     providerGatesTest.includes('normal amount uses the selected original purchase without inventing a remaining balance') &&
     managerSessionMigration.includes('pg_catalog.pg_advisory_xact_lock') &&
     providerGatesTest.includes('preserves runtime and credential gates'),
-  'Production execute/availability and the retired forensic route retain their contracts, while normal execution retains scoped gates before idempotency and provider orchestration.'
+  'Production execute records approval without provider work; availability and the retired forensic route retain their contracts.'
 );
 assert(
   fn.includes('operation === "availability" && !requestedCaseId') &&
@@ -254,13 +258,11 @@ assert(
     fn.lastIndexOf('if (operation === "availability")', fn.indexOf('if (operation === "approve_pending_request")')) <
       fn.indexOf('if (operation === "approve_pending_request")') &&
     fn.indexOf('if (operation === "availability")') <
-      fn.indexOf('const idempotencyKey = await buildNayaxRefundIdempotencyKey') &&
-    fn.indexOf('if (operation === "availability")') <
-      fn.indexOf('await orchestrateNayaxRefund') &&
+      fn.indexOf('admin_approve_selected_nayax_refund_for_system_v1') &&
     providerGates.includes('payloadRedacted: true') &&
     providerGates.includes('NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED = true') &&
     providerGatesTest.includes('performs zero execution side effects'),
-  'Authenticated availability must keep the legacy global check read-only and make case-specific readiness return before HMAC, reservation, provider execution, orchestration, or mutation.'
+  'Authenticated availability stays read-only and returns before the one-click approval mutation.'
 );
 assert(
   providerGates.includes('official_actions_disabled') &&
@@ -329,8 +331,9 @@ assert(
 assert(
   providerOrchestration.includes('provider_execution_not_yet_enabled') &&
     fn.includes('NAYAX_REFUND_MANAGER_CONTRACT_JSON') &&
-    fn.includes('service_record_nayax_refund_provider_stage') &&
-    fn.includes('provider,') &&
+    fn.includes('admin_approve_selected_nayax_refund_for_system_v1') &&
+    automationSweep.includes('service_record_nayax_refund_provider_stage') &&
+    automationSweep.includes('const provider = createNayaxRefundProviderAdapter') &&
     !fn.includes('contractVersion: "nayax-production-manager-v1"') &&
     !fn.includes('provider: disabledNayaxProviderAdapter') &&
     !fn.includes('mode: "synthetic"') &&
@@ -374,8 +377,8 @@ assert(
   providerAdapter.includes('source_with_bound_offset') &&
     providerAdapter.includes('machineAuthorizationTimeWire') &&
     fn.includes('service_get_refund_nayax_execution_context_v3') &&
-    fn.includes('service_reserve_nayax_refund_manager_action_v5') &&
-    fn.includes('p_machine_authorization_time_mode:') &&
+    automationSweep.includes('service_claim_due_nayax_system_saved_approvals_v1') &&
+    automationSweep.includes('machineAuthorizationTimeWire: claim.wire.machineAuthorizationTimeWire') &&
     boundOffsetMigration.includes('selected_normalized_instant') &&
     boundOffsetMigration.includes('refund_nayax_machine_authorization_wire_value') &&
     boundOffsetMigration.includes('refund_nayax_selected_execution_context_v2') &&
@@ -483,8 +486,8 @@ assert(
 );
 assert(
   fn.includes('card_wallet_used') &&
-    fn.includes('manual_review'),
-  'Wallet/Apple Pay last-four mismatch must stay manual-review for v1 execution.'
+    systemBoundaryMigration.includes('refund_nayax_candidate_identifier_evidence_state'),
+  'Wallet/Apple Pay identifier uncertainty remains bound to validated selected evidence before System execution.'
 );
 assert(
   config.includes('[functions.nayax-card-refund]') &&
@@ -511,12 +514,12 @@ assert(
   'Commerce preflight must validate active v3 refund configuration rather than the retired pilot assertion.'
 );
 assert(
-  fn.includes('NAYAX_REFUND_PRODUCTION_BASE_URL') &&
-    fn.includes('provider_contract_host_invalid') &&
+  automationSweep.includes('NAYAX_REFUND_PRODUCTION_BASE_URL') &&
+    automationSweep.includes('createNayaxRefundProviderAdapter') &&
     fn.includes('areNayaxRefundWriteCredentialsReady') &&
     refundAdminUpdate.includes('NAYAX_REFUND_PRODUCTION_BASE_URL') &&
     refundAdminUpdate.includes('areNayaxRefundWriteCredentialsReady'),
-  'Normal execution and both readiness paths must require the exact production host and adapter-valid write credentials.'
+  'System execution and both readiness paths require the exact production host and adapter-valid write credentials.'
 );
 assert(
   nayaxLookup.includes('lookupNayaxCandidatesForRefundCase') &&
@@ -651,16 +654,15 @@ assert(
     refundOperationsUi.includes('const executionVersion = freshCase.officialActionVersion') &&
     refundOperationsUi.includes('approvalPendingExecution') &&
     refundOperationsUi.includes('approvalContinuationReady') &&
-    refundOperationsUi.includes('approvalAutoResumeReady') &&
-    refundOperationsUi.includes('(selectedCase.providerHold && !approvalContinuationReady)') &&
     refundOperationsUi.includes('selectedCaseIsReviewOnly') &&
     refundOperationsUi.includes('setIsRefundConfirmationOpen(false)') &&
     refundOperationsUi.includes('isRunningNayaxRefund ||') &&
-    refundOperationsUi.includes('nayaxApprovedExecutionAttemptedRef.current.add(') &&
-    refundOperationsUi.includes('Continuing the refund you already approved') &&
+    refundOperationsUi.includes('System is finishing this approved refund') &&
+    !refundOperationsUi.includes('nayaxApprovedExecutionAttemptedRef') &&
+    !refundOperationsUi.includes('Continuing the refund you already approved') &&
     !refundOperationsUi.includes("mode: 'nayax_evidence_selection'") &&
     !refundOperationsUi.includes("label: 'Confirm this card sale'"),
-  'The manager UI must save and freshly re-read exact transaction evidence before Refund is available, then resume only a still-current prior approval.'
+  'The manager UI saves and freshly re-reads exact transaction evidence before Refund, then becomes read-only while System finishes the approved payment.'
 );
 assert(
   refundOperationsUi.includes('candidateOption(') &&

@@ -387,6 +387,7 @@ export type RefundReadinessBlockReason =
   | 'reconciliation_hold'
   | 'duplicate_transaction'
   | 'case_not_refundable'
+  | 'system_finishing'
   | 'machine_not_enabled'
   | 'globally_paused'
   | 'provider_remaining_value_unverified'
@@ -765,7 +766,7 @@ export type RefundCaseRecord = {
   canSelectNayaxCandidate?: boolean;
   officialActionBlockReason?:
     | 'manager_mapping_required'
-    | 'manager_verification_required'
+    | 'manager_access_required'
     | 'exact_machine_required'
     | 'official_actions_disabled'
     | 'inbound_link_review_required'
@@ -1227,18 +1228,6 @@ export type UpdateRefundCaseInput = {
   customerMissingFields?: RefundMissingField[];
 };
 
-export type RefundOfficialActionName =
-  | 'approve'
-  | 'decline'
-  | 'cash_complete'
-  | 'nayax_execute'
-  | 'nayax_resolve';
-
-export type RefundOfficialActionTarget =
-  | 'refund-case-admin-update'
-  | 'nayax-card-refund'
-  | 'refund-nayax-outcome-resolve';
-
 export type RefundNayaxResolutionResult =
   | 'provider_confirmed_success'
   | 'provider_confirmed_retry_safe'
@@ -1272,8 +1261,10 @@ export type RefundNayaxResolutionReadiness = {
     | 'provider_hold_required'
     | 'manager_access_required'
     | 'refund_operations_access_required'
+    | 'system_provider_hold_no_retry'
     | null;
   canStartEvidenceOnlyReconciliation?: boolean;
+  systemOutcomeEvidenceAvailable?: boolean;
   attemptId?: string | null;
   providerOutcome?: 'rejected' | 'timeout' | 'unknown' | null;
   manualPortalAttempt?: boolean;
@@ -1320,6 +1311,7 @@ export type ResolveRefundNayaxOutcomeInput = {
   evidenceOccurredAt: string | null;
   reasonCode: RefundNayaxResolutionReason;
   expectedCaseVersion: number;
+  systemSavedApprovalEvidence?: boolean;
 };
 
 export type ResolveRefundNayaxOutcomeResponse = {
@@ -1332,26 +1324,6 @@ export type ResolveRefundNayaxOutcomeResponse = {
   customerMessageCreated: boolean;
   customerCompletion?: NayaxCustomerCompletionResult | null;
   payloadRedacted: true;
-};
-
-export type RefundManagerStepUpRequest = {
-  intentId: string;
-  expiresAt: string;
-  action: RefundOfficialActionName;
-  targetFunction: RefundOfficialActionTarget;
-  frozenPayload:
-    | UpdateRefundCaseInput
-    | ExecuteNayaxCardRefundInput
-    | ResolveRefundNayaxOutcomeInput;
-};
-
-type RefundManagerStepUpRequiredResponse = {
-  error?: string;
-  errorCode?: string;
-  stepUpIntentId?: string | null;
-  stepUpExpiresAt?: string | null;
-  officialAction?: RefundOfficialActionName | null;
-  targetFunction?: RefundOfficialActionTarget | null;
 };
 
 export type NayaxDisagreementReason =
@@ -1509,6 +1481,7 @@ export type NayaxCardRefundExecutionResponse = {
   error?: string;
   errorCode?: NayaxCardRefundExecutionErrorCode;
   message?: string;
+  approved?: boolean;
   executed?: boolean;
   status?: NayaxCardRefundExecutionStatus;
   blocks?: NayaxCardRefundExecutionBlock[];
@@ -1530,6 +1503,7 @@ export type NayaxCardRefundExecutionResponse = {
   customerCompletion?: NayaxCustomerCompletionResult | null;
   safeRetryEligible?: boolean;
   definitiveNoRefund?: boolean;
+  payloadRedacted?: boolean;
 };
 
 export type NayaxCardRefundAvailabilityResponse = {
@@ -3314,46 +3288,6 @@ export const fetchRefundNayaxResolutionReadiness = async (
   return data as RefundNayaxResolutionReadiness;
 };
 
-export const prepareRefundNayaxOutcomeResolution = async (
-  input: ResolveRefundNayaxOutcomeInput
-): Promise<RefundManagerStepUpRequest> => {
-  const { data, error } = await supabaseClient.rpc(
-    'admin_prepare_refund_nayax_resolution_intent',
-    {
-      p_case_id: input.caseId,
-      p_attempt_id: input.attemptId,
-      p_resolution_result: input.resolutionResult,
-      p_evidence_type: input.evidenceType,
-      p_evidence_reference: input.evidenceReference,
-      p_evidence_occurred_at: input.evidenceOccurredAt,
-      p_reason_code: input.reasonCode,
-      p_expected_case_version: input.expectedCaseVersion,
-    }
-  );
-  if (
-    error ||
-    !data ||
-    typeof data !== 'object' ||
-    typeof (data as { intentId?: unknown }).intentId !== 'string' ||
-    typeof (data as { expiresAt?: unknown }).expiresAt !== 'string' ||
-    (data as { action?: unknown }).action !== 'nayax_resolve' ||
-    (data as { targetFunction?: unknown }).targetFunction !==
-      'refund-nayax-outcome-resolve'
-  ) {
-    throw new Error(
-      error?.message ||
-        'The provider hold could not be prepared for payment-support review.'
-    );
-  }
-  return {
-    intentId: (data as { intentId: string }).intentId,
-    expiresAt: (data as { expiresAt: string }).expiresAt,
-    action: 'nayax_resolve',
-    targetFunction: 'refund-nayax-outcome-resolve',
-    frozenPayload: input,
-  };
-};
-
 export const resolveRefundNayaxOutcome = async (
   input: ResolveRefundNayaxOutcomeInput
 ): Promise<ResolveRefundNayaxOutcomeResponse> =>
@@ -3363,184 +3297,6 @@ export const resolveRefundNayaxOutcome = async (
     {
       requireUserAuth: true,
       authErrorMessage: 'Log in again before confirming this payment result.',
-    }
-  );
-
-export const getRefundManagerStepUpRequest = (
-  error: unknown,
-  frozenPayload: UpdateRefundCaseInput | ExecuteNayaxCardRefundInput
-): RefundManagerStepUpRequest | null => {
-  if (!isEdgeFunctionError<RefundManagerStepUpRequiredResponse>(error)) return null;
-  const data = error.data;
-  if (
-    error.status !== 428 ||
-    data?.errorCode !== 'manager_step_up_required' ||
-    typeof data.stepUpIntentId !== 'string' ||
-    typeof data.stepUpExpiresAt !== 'string' ||
-    !['approve', 'decline', 'cash_complete', 'nayax_execute'].includes(
-      String(data.officialAction)
-    ) ||
-    !['refund-case-admin-update', 'nayax-card-refund'].includes(
-      String(data.targetFunction)
-    )
-  ) {
-    return null;
-  }
-  return {
-    intentId: data.stepUpIntentId,
-    expiresAt: data.stepUpExpiresAt,
-    action: data.officialAction as RefundOfficialActionName,
-    targetFunction: data.targetFunction as RefundOfficialActionTarget,
-    frozenPayload,
-  };
-};
-
-const completeRefundManagerStepUp = async <T extends { error?: string }>({
-  request,
-  code,
-}: {
-  request: RefundManagerStepUpRequest;
-  code: string;
-}) =>
-  invokeEdgeFunction<T>(
-    'refund-manager-action-step-up',
-    {
-      intentId: request.intentId,
-      targetFunction: request.targetFunction,
-      frozenPayload: request.frozenPayload,
-      code,
-    },
-    {
-      requireUserAuth: true,
-      authErrorMessage: 'Sign in again before authorizing this official action.',
-    }
-  );
-
-export const completeRefundCaseAdminStepUp = async (
-  request: RefundManagerStepUpRequest,
-  code: string
-) => requireUpdatedRefundCase(
-  await completeRefundManagerStepUp<UpdateRefundCaseResponse>({ request, code })
-);
-
-export const completeNayaxRefundStepUp = (
-  request: RefundManagerStepUpRequest,
-  code: string
-) => completeRefundManagerStepUp<NayaxCardRefundExecutionResponse>({ request, code });
-
-export const completeRefundNayaxResolutionStepUp = (
-  request: RefundManagerStepUpRequest,
-  code: string
-) =>
-  completeRefundManagerStepUp<ResolveRefundNayaxOutcomeResponse>({ request, code });
-
-export const cancelRefundManagerStepUp = async (
-  intentId: string,
-  targetFunction?: RefundOfficialActionTarget
-) => {
-  const { error } = await supabaseClient.rpc(
-    targetFunction === 'refund-nayax-outcome-resolve'
-      ? 'admin_cancel_refund_nayax_resolution_intent'
-      : 'admin_cancel_refund_action_step_up_intent',
-    { p_intent_id: intentId }
-  );
-  if (error) {
-    throw new Error('Unable to cancel the verification request. It will expire automatically.');
-  }
-};
-
-export type RefundManagerTotpEnrollmentReadiness = {
-  eligible: boolean;
-  enrolled: boolean;
-  windowOpen: boolean;
-  windowExpiresAt: string | null;
-};
-
-const parseRefundManagerTotpEnrollmentReadiness = (
-  value: unknown
-): RefundManagerTotpEnrollmentReadiness => {
-  const data = value && typeof value === 'object'
-    ? value as Record<string, unknown>
-    : {};
-  return {
-    eligible: data.eligible === true,
-    enrolled: data.enrolled === true,
-    windowOpen: data.windowOpen === true,
-    windowExpiresAt: typeof data.windowExpiresAt === 'string'
-      ? data.windowExpiresAt
-      : null,
-  };
-};
-
-export const fetchRefundManagerTotpEnrollmentReadiness = async () => {
-  const { data, error } = await supabaseClient.rpc(
-    'get_refund_manager_totp_enrollment_readiness_current_user'
-  );
-  if (error) {
-    throw new Error('Unable to check refund authenticator readiness.');
-  }
-  return parseRefundManagerTotpEnrollmentReadiness(data);
-};
-
-export const openRefundManagerTotpEnrollmentWindow = async () => {
-  const { data, error } = await supabaseClient.rpc(
-    'open_refund_manager_totp_enrollment_window_current_user'
-  );
-  if (error || !data || typeof data !== 'object') {
-    throw new Error('Refund authenticator setup is not available for this account.');
-  }
-  const result = data as Record<string, unknown>;
-  return {
-    opened: result.opened === true,
-    status: typeof result.status === 'string' ? result.status : 'unavailable',
-    windowOpen: result.windowOpen === true,
-    windowExpiresAt: typeof result.windowExpiresAt === 'string'
-      ? result.windowExpiresAt
-      : null,
-  };
-};
-
-export const closeRefundManagerTotpEnrollmentWindow = async () => {
-  const { data, error } = await supabaseClient.rpc(
-    'close_refund_manager_totp_enrollment_window_current_user'
-  );
-  if (error || !data || typeof data !== 'object') {
-    throw new Error('Unable to close the refund authenticator setup window.');
-  }
-  const result = data as Record<string, unknown>;
-  return {
-    closed: result.closed === true,
-    status: typeof result.status === 'string' ? result.status : 'unavailable',
-  };
-};
-
-export const beginRefundManagerTotpEnrollment = () =>
-  invokeEdgeFunction<{ error?: string; qrCode?: string; instructions?: string }>(
-    'refund-manager-totp-enrollment',
-    { operation: 'start' },
-    {
-      requireUserAuth: true,
-      authErrorMessage: 'Sign in before supervised authenticator enrollment.',
-    }
-  );
-
-export const cancelRefundManagerTotpEnrollment = () =>
-  invokeEdgeFunction<{ error?: string; cancelled?: boolean }>(
-    'refund-manager-totp-enrollment',
-    { operation: 'cancel' },
-    {
-      requireUserAuth: true,
-      authErrorMessage: 'Sign in before cancelling authenticator enrollment.',
-    }
-  );
-
-export const verifyRefundManagerTotpEnrollment = (code: string) =>
-  invokeEdgeFunction<{ error?: string; enrolled?: boolean }>(
-    'refund-manager-totp-enrollment',
-    { operation: 'verify', code },
-    {
-      requireUserAuth: true,
-      authErrorMessage: 'Sign in before supervised authenticator enrollment.',
     }
   );
 

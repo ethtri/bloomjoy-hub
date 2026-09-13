@@ -13,6 +13,10 @@ const migration = read('supabase/migrations/20260821035000_refund_manager_sessio
 const sharedAuthorizer = read('supabase/functions/_shared/refund-official-action.ts');
 const adminUpdate = read('supabase/functions/refund-case-admin-update/index.ts');
 const nayaxRefund = read('supabase/functions/nayax-card-refund/index.ts');
+const systemApprovalMigration = read(
+  'supabase/migrations/20260913153000_refund_system_saved_approval_boundary.sql',
+);
+const automationSweep = read('supabase/functions/refund-case-automation-sweep/index.ts');
 const operations = read('src/lib/refundOperations.ts');
 const portal = read('src/pages/admin/Refunds.tsx');
 const databaseTests = read('supabase/tests/refund_manager_official_action_safety.sql');
@@ -75,9 +79,14 @@ assert(
   adminUpdate.includes('authorizeRefundOfficialAction') &&
     adminUpdate.includes('service_apply_refund_official_case_update') &&
     adminUpdate.includes('service_complete_cash_refund_official') &&
-    nayaxRefund.includes('service_reserve_nayax_refund_manager_action') &&
-    nayaxRefund.includes('expectedOfficialActionVersion'),
-  'Case updates and Nayax execution must continue consuming exact server-side authorization and reservation controls.'
+    nayaxRefund.includes('admin_approve_selected_nayax_refund_for_system_v1') &&
+    nayaxRefund.includes('expectedOfficialActionVersion') &&
+    !nayaxRefund.includes('service_reserve_nayax_refund_manager_action_v5') &&
+    systemApprovalMigration.includes('admin_authorize_refund_official_action') &&
+    systemApprovalMigration.includes('service_apply_persisted_nayax_approval_for_system_v1') &&
+    automationSweep.includes('service_claim_due_nayax_system_saved_approvals_v1') &&
+    automationSweep.includes('service_settle_nayax_system_saved_approval_v1'),
+  'Case updates must use exact server authorization; card approval must stop before provider work, which belongs only to the System sweep.'
 );
 
 assert(

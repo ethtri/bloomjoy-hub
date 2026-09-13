@@ -158,7 +158,7 @@ select ok(
     '99210000-0000-4000-8000-000000000001',
     '99220000-0000-4000-8000-000000000001',
     'succeeded', 'provider_receipt', 'SAFE-REFERENCE', now(), 'confirmed', 1
-  )$$) like '42501:Refund Operations administrator required%',
+  )$$) like '42501:Super-admin access is required to record reconciled provider evidence%',
   'A routine manager cannot record an authoritative provider resolution'
 );
 

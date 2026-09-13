@@ -10,7 +10,9 @@ const read = (path) => readFileSync(
 const orchestration = read(
   'supabase/migrations/202608040004_refund_nayax_provider_orchestration.sql',
 );
-const handler = read('supabase/functions/nayax-card-refund/index.ts');
+const completionDelivery = read(
+  'supabase/functions/_shared/nayax-refund-completion-delivery.ts',
+);
 const duplicateRecovery = read(
   'supabase/migrations/20260908221526_refund_same_source_duplicate_settlement_recovery.sql',
 );
@@ -27,10 +29,11 @@ test('normal claimed v2 completion is dispatched with its stored manual kind', (
     /'deterministic_template',\s*'manual',\s*'refund_nayax_completion_v2'/,
   );
 
-  const deliveryStart = handler.indexOf('deliverCustomerCompletion: async');
-  const deliveryEnd = handler.indexOf('\n        },\n      },', deliveryStart);
-  assert.ok(deliveryStart >= 0 && deliveryEnd > deliveryStart);
-  const delivery = handler.slice(deliveryStart, deliveryEnd);
+  const deliveryStart = completionDelivery.indexOf(
+    'export const deliverNayaxRefundCustomerCompletion',
+  );
+  assert.ok(deliveryStart >= 0);
+  const delivery = completionDelivery.slice(deliveryStart);
   assert.match(delivery, /deliveryKind: "manual"/);
   assert.doesNotMatch(delivery, /deliveryKind: "automatic"/);
   assert.match(delivery, /service_prepare_nayax_completion_retry/);
@@ -71,9 +74,11 @@ test('form completion uses the receipt-bound outbox claim instead of a Gmail thr
     /return public\.refund_claim_nayax_refund_completion_pre_form_receipt_v1\(\s*p_executor_assertion,\s*p_attempt_id\s*\)/,
   );
 
-  const deliveryStart = handler.indexOf('deliverCustomerCompletion: async');
-  const deliveryEnd = handler.indexOf('\n        },\n      },', deliveryStart);
-  const delivery = handler.slice(deliveryStart, deliveryEnd);
+  const deliveryStart = completionDelivery.indexOf(
+    'export const deliverNayaxRefundCustomerCompletion',
+  );
+  assert.ok(deliveryStart >= 0);
+  const delivery = completionDelivery.slice(deliveryStart);
   assert.match(delivery, /parseNayaxFormReceiptClaim\(claim, caseId\)/);
   assert.match(delivery, /deliverNayaxFormReceiptCompletion/);
   assert.match(delivery, /drainRefundManualMessageOutbox\(\{/);

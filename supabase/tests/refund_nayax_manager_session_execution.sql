@@ -277,6 +277,12 @@ select ok(
   'A stale case version creates no receipt or provider attempt'
 );
 
+update public.refund_cases
+set status='card_refund_pending',decision='approved',
+  decided_by='b1000000-0000-4000-8000-000000000001',
+  decided_at=statement_timestamp()
+where id='b1600000-0000-4000-8000-000000000006';
+
 insert into public.refund_case_official_action_authorizations(
   refund_case_id,action,actor_user_id,manager_mapping_id,manager_mapping_version,
   authority_kind,expected_case_version,action_context_hash,status,created_at,expires_at,
@@ -284,7 +290,8 @@ insert into public.refund_case_official_action_authorizations(
 )
 select refund_case.id,'nayax_execute','b1000000-0000-4000-8000-000000000001',
   manager_mapping.id,manager_mapping.mapping_version,'machine_manager',
-  refund_case.official_action_version,
+  case when refund_case.id='b1600000-0000-4000-8000-000000000006'
+    then refund_case.official_action_version-1 else refund_case.official_action_version end,
   public.refund_official_action_context_hash('nayax_execute','card_refund_pending',
     'approved',null,null,null,refund_case.refund_amount_cents,null,null,false,null,null,null),
   'authorized',
@@ -302,12 +309,6 @@ where refund_case.id in (
   'b1600000-0000-4000-8000-000000000005',
   'b1600000-0000-4000-8000-000000000006'
 );
-
-update public.refund_cases
-set status='card_refund_pending',decision='approved',
-  decided_by='b1000000-0000-4000-8000-000000000001',
-  decided_at=statement_timestamp()
-where id='b1600000-0000-4000-8000-000000000006';
 
 select ok(
   pg_temp.capture_error($sql$
@@ -363,6 +364,12 @@ select ok(
   'A consumed manager-session receipt cannot be reused and creates no provider attempt by itself'
 );
 
+update public.refund_cases
+set status='card_refund_pending',decision='approved',
+  decided_by='b1000000-0000-4000-8000-000000000001',
+  decided_at=statement_timestamp()
+where id='b1600000-0000-4000-8000-000000000004';
+
 insert into public.refund_case_official_action_authorizations(
   refund_case_id,action,actor_user_id,manager_mapping_id,manager_mapping_version,
   authority_kind,expected_case_version,action_context_hash,status,expires_at,
@@ -370,7 +377,7 @@ insert into public.refund_case_official_action_authorizations(
 )
 select refund_case.id,'nayax_execute','b1000000-0000-4000-8000-000000000001',
   manager_mapping.id,manager_mapping.mapping_version,'machine_manager',
-  refund_case.official_action_version,
+  refund_case.official_action_version-1,
   public.refund_official_action_context_hash('nayax_execute','card_refund_pending',
     'approved',null,null,null,650,null,null,false,null,null,null),
   'authorized',statement_timestamp()+interval '5 minutes',null,null,
@@ -381,12 +388,6 @@ join public.reporting_machine_refund_managers manager_mapping
   on manager_mapping.reporting_machine_id=machine.id
   and manager_mapping.manager_user_id='b1000000-0000-4000-8000-000000000001'
 where refund_case.id='b1600000-0000-4000-8000-000000000004';
-
-update public.refund_cases
-set status='card_refund_pending',decision='approved',
-  decided_by='b1000000-0000-4000-8000-000000000001',
-  decided_at=statement_timestamp()
-where id='b1600000-0000-4000-8000-000000000004';
 
 update public.reporting_machine_refund_managers
 set status='revoked',revoked_at=statement_timestamp(),

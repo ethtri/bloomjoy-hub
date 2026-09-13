@@ -11,7 +11,10 @@ import {
   getRefundGmailMailboxIdentities,
   RefundGmailError,
 } from "../_shared/refund-gmail.ts";
-import { deliverPreparedNayaxCompletionOnce } from "../_shared/nayax-resolution-completion.ts";
+import {
+  deliverPreparedNayaxCompletionOnce,
+  type NayaxCompletionDeliveryStatus,
+} from "../_shared/nayax-resolution-completion.ts";
 import { tryIssueRefundStatusCapabilityForMessage } from "../_shared/refund-status-capability.ts";
 import {
   bindRefundTransactionalDelivery,
@@ -134,6 +137,7 @@ serve(async (req) => {
       ? body.reasonCode.trim()
       : "";
     const expectedCaseVersion = Number(body?.expectedCaseVersion);
+    const systemSavedApprovalEvidence = body?.systemSavedApprovalEvidence === true;
 
     if (
       !isUuid(caseId) || !isUuid(attemptId) ||
@@ -148,6 +152,20 @@ serve(async (req) => {
       return jsonResponse({
         error: "Review the exact payment result again.",
         errorCode: "invalid_request",
+      }, 400);
+    }
+
+    if (
+      systemSavedApprovalEvidence &&
+      ![
+        "provider_confirmed_success",
+        "provider_confirmed_retry_safe",
+        "remain_on_hold",
+      ].includes(resolutionResult)
+    ) {
+      return jsonResponse({
+        error: "Record the exact Nayax result without issuing or retrying a refund.",
+        errorCode: "invalid_system_evidence_result",
       }, 400);
     }
 
@@ -171,7 +189,9 @@ serve(async (req) => {
     }
 
     const { data: resolution, error: resolutionError } = await userClient.rpc(
-      "admin_resolve_refund_nayax_outcome_manager_session",
+      systemSavedApprovalEvidence
+        ? "admin_record_nayax_system_outcome_evidence_v1"
+        : "admin_resolve_refund_nayax_outcome_manager_session",
       {
         p_case_id: caseId,
         p_attempt_id: attemptId,
@@ -211,8 +231,18 @@ serve(async (req) => {
     let formManagerCcCount = 0;
     let formManagerRecipientOverlap = false;
     const finishCompletion = async (
-      status: "sent" | "failed" | "delivery_unknown",
+      status: NayaxCompletionDeliveryStatus,
     ) => {
+      if (status === "deferred") {
+        return {
+          status,
+          transport: null,
+          managerCcCount: 0,
+          originalThread: completionTransport === "gmail_thread",
+          operationApplied: false,
+          managerCompletionNoticeSent: false,
+        };
+      }
       const { data: finished, error: finishError } = await serviceClient.rpc(
         completionTransport === "gmail_thread"
           ? "service_finish_nayax_refund_completion"
@@ -233,7 +263,7 @@ serve(async (req) => {
         throw new Error("completion_settlement_failed");
       }
       return finished as Record<string, unknown> & {
-        status: "sent" | "failed" | "delivery_unknown" | "already_sent";
+        status: NayaxCompletionDeliveryStatus | "already_sent";
       };
     };
 

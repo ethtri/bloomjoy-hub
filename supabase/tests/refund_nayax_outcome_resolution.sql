@@ -102,6 +102,7 @@ declare
   case_row public.refund_cases%rowtype;
   machine_row public.reporting_machines%rowtype;
   mapping_row public.reporting_machine_refund_managers%rowtype;
+  confirmed_case_version bigint;
   evidence_hash text;
   context_hash text;
   factor_time timestamptz := statement_timestamp() - interval '20 seconds';
@@ -114,6 +115,22 @@ begin
   where reporting_machine_id = case_row.reporting_machine_id
     and manager_user_id = 'b1000000-0000-4000-8000-000000000001'
     and status = 'active' and revoked_at is null;
+
+  confirmed_case_version := case_row.official_action_version;
+  -- Retry-safe historical cases use card_refund_pending as their review UI
+  -- state even though there is no current approval receipt. Model the new
+  -- confirmation as one real review-to-approved transition without letting
+  -- the test-only normalization itself advance production versions.
+  perform pg_catalog.set_config('session_replication_role','replica',true);
+  update public.refund_cases
+  set status='needs_review',decision=null,decided_by=null,decided_at=null
+  where id=p_case_id;
+  perform pg_catalog.set_config('session_replication_role','origin',true);
+  update public.refund_cases
+  set status='card_refund_pending',decision='approved',
+      decided_by=mapping_row.manager_user_id,decided_at=statement_timestamp()
+  where id=p_case_id
+  returning * into case_row;
 
   evidence_hash := public.refund_nayax_execution_evidence_hash(
     case_row,
@@ -136,7 +153,7 @@ begin
     ) values (
       p_intent_id, mapping_row.manager_user_id, p_case_id,
       'nayax_execute', 'nayax-card-refund', mapping_row.id,
-      mapping_row.mapping_version, 1, case_row.official_action_version,
+      mapping_row.mapping_version, 1, confirmed_case_version,
       context_hash, evidence_hash, 'consumed',
       statement_timestamp() - interval '30 seconds',
       statement_timestamp() + interval '60 seconds',
@@ -152,7 +169,7 @@ begin
   ) values (
     p_authorization_id, p_case_id, 'nayax_execute', mapping_row.manager_user_id,
     mapping_row.id, mapping_row.mapping_version, 'machine_manager',
-    case_row.official_action_version, context_hash, 'authorized',
+    confirmed_case_version, context_hash, 'authorized',
     statement_timestamp() + interval '5 minutes',
     case when p_legacy_step_up then p_intent_id else null end,
     case when p_legacy_step_up then factor_time else null end,

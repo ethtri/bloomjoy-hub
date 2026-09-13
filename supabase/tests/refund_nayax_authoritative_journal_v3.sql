@@ -171,13 +171,20 @@ select
   '9f200000-0000-4000-8000-000000000001'::uuid,
   'journal-v3-' || series || '@example.test', 'Journal v3 matrix ' || series,
   statement_timestamp() - interval '1 day', 'card', 700, 700,
-  'card_refund_pending', 'approved',
-  '9f000000-0000-4000-8000-000000000001'::uuid,
-  statement_timestamp() - interval '5 minutes', '4242', false,
+  'needs_review', null,
+  null,
+  null, '4242', false,
   'matched', 'nayax', 1, 'JOURNAL-V3-TX-' || series, 900 + series,
   statement_timestamp() - interval '1 day', 700, '4242', 'USD',
-  'high_confidence', 'journal-v3-test', statement_timestamp(), false, 'requested'
+  'high_confidence', 'journal-v3-test', statement_timestamp(), false, 'not_requested'
 from generate_series(1, 15) series;
+
+-- Model the one exact manager-confirmed transition before provider work.
+update public.refund_cases
+set status='card_refund_pending', decision='approved',
+    decided_by='9f000000-0000-4000-8000-000000000001',
+    decided_at=statement_timestamp(), nayax_refund_execution_status='requested'
+where id::text like '9f500000-0000-4000-8000-%';
 
 insert into public.refund_cases (
   id, public_reference, reporting_machine_id, reporting_location_id,
@@ -210,12 +217,41 @@ insert into public.refund_case_events (
   '{"selected_recommended":true,"payload_redacted":true}'::jsonb
 );
 
+insert into public.refund_case_official_action_authorizations (
+  id, refund_case_id, action, actor_user_id, manager_mapping_id,
+  manager_mapping_version, authority_kind, expected_case_version,
+  action_context_hash, status, created_at, expires_at, consumed_at,
+  step_up_intent_id, verified_totp_at, nayax_execution_evidence_hash,
+  authorization_method
+)
+select
+  ('9f800000-0000-4000-8000-' || lpad(series::text, 12, '0'))::uuid,
+  refund_case.id, 'nayax_execute',
+  '9f000000-0000-4000-8000-000000000001'::uuid,
+  '9f400000-0000-4000-8000-000000000001'::uuid,
+  manager_mapping.mapping_version, 'machine_manager',
+  refund_case.official_action_version-1,
+  public.refund_official_action_context_hash(
+    'nayax_execute','card_refund_pending','approved',null,null,null,
+    refund_case.refund_amount_cents,null,null,false,null,null,null
+  ),
+  'consumed',statement_timestamp()-interval '1 minute',
+  statement_timestamp()+interval '5 minutes',statement_timestamp(),
+  null,null,public.refund_nayax_execution_evidence_hash(refund_case,machine),
+  'manager_session'
+from generate_series(1,12) series
+join public.refund_cases refund_case
+  on refund_case.id=('9f500000-0000-4000-8000-' || lpad(series::text,12,'0'))::uuid
+join public.reporting_machines machine on machine.id=refund_case.reporting_machine_id
+join public.reporting_machine_refund_managers manager_mapping
+  on manager_mapping.id='9f400000-0000-4000-8000-000000000001';
+
 insert into public.refund_case_nayax_refund_attempts (
   id, refund_case_id, actor_user_id, execution_mode, status,
   idempotency_key, amount_cents, transaction_id_present, site_id_present,
   machine_auth_time_present, sanitized_request, sanitized_response,
   currency_code, provider_claim_digest, provider_claim_expires_at,
-  reconciliation_required
+  reconciliation_required, official_action_authorization_id
 )
 select
   ('9f600000-0000-4000-8000-' || lpad(series::text, 12, '0'))::uuid,
@@ -227,7 +263,8 @@ select
   encode(extensions.digest(
     convert_to('journal-v3-claim-' || series, 'UTF8'), 'sha256'
   ), 'hex'),
-  statement_timestamp() + interval '15 minutes', true
+  statement_timestamp() + interval '15 minutes', true,
+  ('9f800000-0000-4000-8000-' || lpad(series::text, 12, '0'))::uuid
 from generate_series(1, 12) series;
 
 -- Owner-only identity fixtures for classifier/journal tests; actual reservation is tested below.
