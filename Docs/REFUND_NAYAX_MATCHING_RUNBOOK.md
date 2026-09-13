@@ -18,7 +18,7 @@ Run `npm run refunds:validate-nayax-matching` to verify the implementation.
 
 ## Policy version
 
-Current implementation: `2026-09-05.v11`.
+Current implementation: `2026-09-13.v12`.
 
 Internal ranking points order otherwise-safe candidates. Never show the point
 total as a percentage or describe it as statistical confidence. Read exact
@@ -53,6 +53,14 @@ manager approves the refund. Do not request customer confirmation solely because
 the portal accepted a small difference as likely tax or rounding. Agents use the
 single Step 4 rule in `REFUND_AGENT_OPERATIONS.md`; Engineering changes numeric
 controls only in the source constant and its tests.
+
+When one unlabelled base-price record and one product-labelled provider-total
+record meet the implementation's narrow pairing conditions, the matcher keeps
+both distinct provider IDs visible and selectable. It prefers the richer full
+charge for preparation without calling the rows duplicates. The manager still
+reviews, selects and saves the exact provider transaction before approval. A
+same-minute timestamp by itself is never sufficient; the source policy requires
+the exact raw authorization time or its tightly bounded parsed-time delta.
 
 Customer time confidence is separate from time-zone resolution. `exact` and `within_15_minutes` may support the existing deterministic rule. `within_1_hour` and `rough` remain useful comparison evidence, but they make the result manager-review-only. Existing records without the field retain their legacy behavior.
 

@@ -1,4 +1,7 @@
-import { formatRefundCustomerSender } from "./refund-customer-transport.ts";
+import {
+  formatRefundCustomerSender,
+  requireRefundOfficialSender,
+} from "./refund-customer-transport.ts";
 
 const GMAIL_API_ROOT = "https://gmail.googleapis.com/gmail/v1/users/me";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -78,6 +81,17 @@ export const requireRefundGmailEnabled = (
   }
 };
 
+export const requireRefundOfficialGmailSender = (mailbox: string) => {
+  try {
+    return requireRefundOfficialSender(mailbox);
+  } catch {
+    throw new RefundGmailError(
+      "official_sender_required",
+      "Refund customer email requires the approved Bloomjoy support sender.",
+    );
+  }
+};
+
 export const claimRefundGmailDeliveryWhenEnabled = async <T>(
   claimDelivery: () => Promise<T>,
 ) => {
@@ -109,6 +123,7 @@ const configuredMailboxIdentities = () => {
     cleanEnv("GMAIL_SUPPORT_MAILBOX", 320),
     ...cleanEnv("GMAIL_SUPPORT_SEND_AS_ALIASES", 4096).split(","),
     cleanEnv("REFUND_REPLY_TO_EMAIL", 320),
+    cleanEnv("REFUND_CUSTOMER_FROM_EMAIL", 320),
     cleanEnv("INTERNAL_NOTIFICATION_FROM_EMAIL", 320),
   ];
   return Array.from(
@@ -938,6 +953,7 @@ export const sendRefundGmailReply = async ({
     | "premapping_acknowledgement";
 }) => {
   requireRefundGmailEnabled();
+  requireRefundOfficialGmailSender(config.mailbox);
   const effectiveDeliveryKind = automatic ? "automatic" : deliveryKind;
   if (!isEmail(recipientEmail.toLowerCase())) {
     throw new RefundGmailError(

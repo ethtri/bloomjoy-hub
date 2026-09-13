@@ -19,7 +19,7 @@ const SYNTHETIC_ENV = {
   GMAIL_SUPPORT_CLIENT_ID: "synthetic-client-id",
   GMAIL_SUPPORT_CLIENT_SECRET: "synthetic-client-secret",
   GMAIL_SUPPORT_REFRESH_TOKEN: "synthetic-refresh-token",
-  GMAIL_SUPPORT_MAILBOX: "mailbox@example.test",
+  GMAIL_SUPPORT_MAILBOX: "info@bloomjoysweets.com",
   GMAIL_SUPPORT_SEND_AS_ALIASES: "support@example.test",
   GMAIL_REFUND_LABEL_ID: "Label_Synthetic",
   REFUND_AUTOMATION_ENABLED: "true",
@@ -289,6 +289,54 @@ Deno.test("Gmail kill switch blocks linked delivery before claim, OAuth, or prov
       assertEquals(claimCalls, 0);
       assertEquals(firstContactClaimCalls, 0);
       assertEquals(fetchCalls, 0);
+    },
+  );
+});
+
+Deno.test("personal Gmail sender configuration fails before claim, OAuth, or provider access", async () => {
+  await withEnvironment(
+    {
+      ...SYNTHETIC_ENV,
+      GMAIL_SUPPORT_MAILBOX: "personal@example.test",
+      REFUND_GMAIL_ENABLED: "true",
+    },
+    async () => {
+      let claimCalls = 0;
+      let providerCalls = 0;
+      const personalMailboxHash = await sha256Hex("personal@example.test");
+      const supabase = fakeSupabase({
+        link: { id: "synthetic-link", mailbox_hash: personalMailboxHash },
+        rpc: async (name) => {
+          if (name === "service_claim_refund_gmail_outbound_v3") claimCalls += 1;
+          return { data: null, error: null };
+        },
+      });
+
+      await withFetch(async () => {
+        providerCalls += 1;
+        throw new Error("Personal sender must never reach OAuth or Gmail.");
+      }, async () => {
+        let caught: unknown = null;
+        try {
+          await dispatchRefundCaseGmailReply({
+            supabase: supabase as never,
+            refundCaseId: "79850000-0000-4000-8000-000000000001",
+            refundCaseMessageId: "79860000-0000-4000-8000-000000000001",
+            recipientEmail: "customer@example.test",
+            email,
+            deliveryKind: "manual",
+            gmailThreadId: "synthetic-link",
+          });
+        } catch (error) {
+          caught = error;
+        }
+        assert(caught instanceof RefundGmailError);
+        assertEquals(caught.code, "official_sender_required");
+        assertEquals(caught.deliveryUncertain, false);
+      });
+
+      assertEquals(claimCalls, 0);
+      assertEquals(providerCalls, 0);
     },
   );
 });

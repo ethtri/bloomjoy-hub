@@ -4,6 +4,7 @@ import {
   REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE,
   RefundGmailError,
   requireRefundGmailEnabled,
+  requireRefundOfficialGmailSender,
   sendRefundGmailReply,
   sha256Hex,
 } from "./refund-gmail.ts";
@@ -256,6 +257,7 @@ export const dispatchRefundCaseGmailReply = async ({
       "Gmail reply transport is not configured.",
     );
   }
+  requireRefundOfficialGmailSender(config.mailbox);
   if (
     syntheticProof.required &&
     config.mailbox.trim().toLowerCase() !== "info@bloomjoysweets.com"

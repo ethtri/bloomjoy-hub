@@ -30,6 +30,8 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-acknowledgement-recovery-resolved.png',
   'refund-customer-locale-correction-mobile.png',
   'refund-customer-locale-correction-saved.png',
+  'refund-customer-message-official-sender-desktop.png',
+  'refund-customer-message-official-sender-mobile.png',
   'refund-internal-test-disposition-mobile.png',
   'refund-internal-test-confirmation-desktop.png',
   'refund-internal-test-archive-desktop.png',

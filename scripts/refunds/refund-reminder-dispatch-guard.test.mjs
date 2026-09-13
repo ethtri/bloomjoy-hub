@@ -118,8 +118,9 @@ function harness(transport, { bounceAfterPending = false, bounceAfterProviderAcc
   }, {
     './refund-gmail.ts': {
       RefundGmailError,
-      getRefundGmailConfig: () => ({ mailbox: 'mailbox@example.invalid', mailboxIdentities: ['mailbox@example.invalid'] }),
-      getRefundGmailMailboxIdentities: () => ['mailbox@example.invalid'],
+      getRefundGmailConfig: () => ({ mailbox: 'info@bloomjoysweets.com', mailboxIdentities: ['info@bloomjoysweets.com'] }),
+      getRefundGmailMailboxIdentities: () => ['info@bloomjoysweets.com'],
+      requireRefundOfficialGmailSender: () => 'info@bloomjoysweets.com',
       requireRefundGmailEnabled() {}, sha256Hex: async () => 'synthetic-mailbox-hash',
       sendRefundGmailReply: async () => { state.gmailProviderCalls++; return { providerMessageId: 'synthetic-provider-message' }; },
     },

@@ -18,6 +18,7 @@ import {
 import {
   REFUND_CUSTOMER_SENDER_NAME,
   REFUND_MONITORED_REPLY_TO_EMAIL,
+  requireRefundOfficialSender,
 } from "./refund-customer-transport.ts";
 import {
   sanitizeRefundCustomerLocale,
@@ -230,10 +231,14 @@ export const sendRefundTransactionalEmail = async (
       "Automatic refund customer email cannot include manager CC recipients.",
     );
   }
+  const refundSenderEmail = requireRefundOfficialSender(
+    Deno.env.get("REFUND_CUSTOMER_FROM_EMAIL") ?? "",
+  );
   return await sendTransactionalEmail({
     ...transactionalInput,
     replyTo: getRefundReplyToEmail(),
     senderName: REFUND_CUSTOMER_SENDER_NAME,
+    senderEmail: refundSenderEmail,
   });
 };
 

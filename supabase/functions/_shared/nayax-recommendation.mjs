@@ -12,12 +12,13 @@ import {
 // API expose advisory words (strong evidence, compare candidates, manual review)
 // instead of presenting these points as a percentage.
 export const NAYAX_RECOMMENDATION_POLICY = Object.freeze({
-  version: "2026-09-05.v11",
+  version: "2026-09-13.v12",
   candidateLimit: 10,
   lookupWindowHours: 6,
   highConfidenceMinimumPoints: 80,
   maximumOneClickTimeDeltaMinutes: 60,
   maximumStrongCardAmountDeltaCents: 300,
+  maximumProviderRepresentationDeltaSeconds: 5,
   maximumUniqueQrLagMinutes: 30,
   maximumUniqueQrIncidentDeltaMinutes: 180,
   weights: Object.freeze({
@@ -37,6 +38,152 @@ export const NAYAX_RECOMMENDATION_POLICY = Object.freeze({
     approvedProviderStatus: 5,
   }),
 });
+
+const formatUsdCents = (value) => `$${(value / 100).toFixed(2)}`;
+
+const providerRepresentationTimesAlign = (left, right, policy) => {
+  if (
+    left.machineAuthorizationTimeRaw &&
+    left.machineAuthorizationTimeRaw === right.machineAuthorizationTimeRaw
+  ) return true;
+  const leftMs = Date.parse(left.machineAuthorizationTime ?? "");
+  const rightMs = Date.parse(right.machineAuthorizationTime ?? "");
+  return Number.isFinite(leftMs) && Number.isFinite(rightMs) &&
+    Math.abs(leftMs - rightMs) <= policy.maximumProviderRepresentationDeltaSeconds * 1_000;
+};
+
+const isClearSelectableProviderSale = (candidate) =>
+  candidate.selectionAllowed === true &&
+  candidate.providerRefundState === "clear" &&
+  candidate.paymentStatus === "approved" &&
+  candidate.duplicateProviderRecord !== true &&
+  candidate.hardExclusions.length === 0;
+
+const isBaseAndProviderTotalPair = ({
+  baseCandidate,
+  totalCandidate,
+  request,
+  policy,
+}) => {
+  if (
+    !isClearSelectableProviderSale(baseCandidate) ||
+    !isClearSelectableProviderSale(totalCandidate) ||
+    baseCandidate.strongCardEligible !== true ||
+    totalCandidate.strongCardEligible !== true ||
+    baseCandidate.productCode || baseCandidate.productLabel ||
+    (!totalCandidate.productCode && !totalCandidate.productLabel) ||
+    !baseCandidate.providerMachineId ||
+    baseCandidate.providerMachineId !== totalCandidate.providerMachineId ||
+    baseCandidate.siteId === null ||
+    baseCandidate.siteId !== totalCandidate.siteId ||
+    !baseCandidate.cardLast4 ||
+    baseCandidate.cardLast4 !== totalCandidate.cardLast4 ||
+    !baseCandidate.currencyCode ||
+    baseCandidate.currencyCode !== totalCandidate.currencyCode ||
+    (baseCandidate.cardNetwork && totalCandidate.cardNetwork &&
+      baseCandidate.cardNetwork !== totalCandidate.cardNetwork) ||
+    (baseCandidate.recognitionMethod && totalCandidate.recognitionMethod &&
+      baseCandidate.recognitionMethod !== totalCandidate.recognitionMethod) ||
+    !providerRepresentationTimesAlign(baseCandidate, totalCandidate, policy) ||
+    !Number.isSafeInteger(baseCandidate.amountCents) ||
+    !Number.isSafeInteger(totalCandidate.amountCents) ||
+    !Number.isSafeInteger(request.amountCents) ||
+    baseCandidate.amountCents !== request.amountCents ||
+    totalCandidate.amountCents <= baseCandidate.amountCents ||
+    request.nearbyAttemptCount === "multiple"
+  ) return false;
+
+  const amountDifference = totalCandidate.amountCents - baseCandidate.amountCents;
+  const withinDollarTolerance =
+    amountDifference <= policy.maximumStrongCardAmountDeltaCents;
+  const withinPercentageTolerance =
+    amountDifference / baseCandidate.amountCents <= 0.15;
+  return withinDollarTolerance && withinPercentageTolerance;
+};
+
+const applyProviderTotalPreference = ({ candidates, request, policy }) => {
+  const pairings = [];
+  for (const baseCandidate of candidates) {
+    const totals = candidates.filter((totalCandidate) =>
+      totalCandidate !== baseCandidate && isBaseAndProviderTotalPair({
+        baseCandidate,
+        totalCandidate,
+        request,
+        policy,
+      })
+    );
+    if (totals.length === 1) {
+      pairings.push({ baseCandidate, totalCandidate: totals[0] });
+    }
+  }
+
+  const uniquePairs = pairings.filter(({ baseCandidate, totalCandidate }) =>
+    pairings.filter((pair) => pair.baseCandidate === baseCandidate).length === 1 &&
+    pairings.filter((pair) => pair.totalCandidate === totalCandidate).length === 1
+  );
+  const baseToTotal = new Map(
+    uniquePairs.map(({ baseCandidate, totalCandidate }) => [baseCandidate, totalCandidate]),
+  );
+  const totalToBase = new Map(
+    uniquePairs.map(({ baseCandidate, totalCandidate }) => [totalCandidate, baseCandidate]),
+  );
+
+  return candidates
+    .map((candidate) => {
+      const totalCandidate = baseToTotal.get(candidate);
+      if (totalCandidate) {
+        const representationFactor = factor(
+          "provider_total",
+          "neutral",
+          `This ${formatUsdCents(candidate.amountCents)} unlabelled base-price record stays visible for audit. Nayax also returned a product-labelled ${formatUsdCents(totalCandidate.amountCents)} full charge within ${policy.maximumProviderRepresentationDeltaSeconds} seconds; the records are not treated as duplicates`,
+        );
+        const matchFactors = [...candidate.matchFactors, representationFactor];
+        return {
+          ...candidate,
+          strongCardEligible: false,
+          uniqueQrTimeEligible: false,
+          providerTotalPreference: "base_alternate",
+          reasonCodes: [
+            ...new Set([
+              ...candidate.reasonCodes,
+              "base_price_record_retained_for_review",
+            ]),
+          ],
+          matchFactors,
+          matchReason: matchFactors.map((item) => item.label).join("; "),
+        };
+      }
+      const baseCandidate = totalToBase.get(candidate);
+      if (!baseCandidate) return candidate;
+      const representationFactor = factor(
+        "provider_total",
+        "match",
+        `Prefer this product-labelled ${formatUsdCents(candidate.amountCents)} full provider charge. A separate ${formatUsdCents(baseCandidate.amountCents)} unlabelled base-price record within ${policy.maximumProviderRepresentationDeltaSeconds} seconds remains visible for manager review; no duplicate linkage is claimed`,
+      );
+      const amountFactorIndex = candidate.matchFactors.findIndex((item) =>
+        item.key === "amount"
+      );
+      const matchFactors = [...candidate.matchFactors];
+      matchFactors.splice(amountFactorIndex >= 0 ? amountFactorIndex + 1 : 0, 0, representationFactor);
+      return {
+        ...candidate,
+        providerTotalPreference: "preferred_total",
+        reasonCodes: [
+          ...new Set([
+            ...candidate.reasonCodes,
+            "provider_total_preferred_over_base_representation",
+          ]),
+        ],
+        matchFactors,
+        matchReason: matchFactors.map((item) => item.label).join("; "),
+      };
+    })
+    .map((candidate, index) => ({
+      ...candidate,
+      recommendationRank: index + 1,
+      isTopRanked: index === 0,
+    }));
+};
 
 const purchaseOccurrenceMinuteRange = (candidate) => {
   if (
@@ -1128,6 +1275,12 @@ export const buildNayaxRecommendation = ({
       left.transactionId.localeCompare(right.transactionId))
     .map((candidate, index) => ({ ...candidate, recommendationRank: index + 1, isTopRanked: index === 0 }));
 
+  candidates = applyProviderTotalPreference({
+    candidates,
+    request,
+    policy,
+  });
+
   const customerTimeSupportsManagerSelection =
     ["exact", "legacy_absolute"].includes(request.incidentTimeResolution) &&
     request.incidentTimeConfidence !== "rough";
@@ -1191,6 +1344,9 @@ export const buildNayaxRecommendation = ({
   const qrTimeCandidates = candidates.filter((candidate) => candidate.uniqueQrTimeEligible);
   const evidenceAwareCandidates = candidates.filter((candidate) => candidate.evidenceAwareReviewEligible);
   const managerSelectableCandidates = candidates.filter((candidate) => candidate.selectionAllowed);
+  const hasProviderTotalPreference = candidates.some((candidate) =>
+    candidate.providerTotalPreference === "preferred_total"
+  );
   const candidatesNeedingDistinguishingCustomerFacts = candidates.filter((candidate) =>
     candidate.hardExclusions.length === 0 &&
     candidate.selectionAllowed === false &&
@@ -1292,7 +1448,12 @@ export const buildNayaxRecommendation = ({
     .slice(0, policy.candidateLimit);
 
   const copy = {
-    high_confidence: confidenceClass === "unique_qr_time"
+    high_confidence: hasProviderTotalPreference
+      ? {
+          summary: `Nayax returned two separate provider records within ${policy.maximumProviderRepresentationDeltaSeconds} seconds. The product-labelled full charge is preferred under the small-variance rule; both records remain visible and are not treated as duplicates.`,
+          recommendedAction: "Review both provider records, then select and save the exact product-labelled full charge for manager approval. No customer outreach is needed for the small amount difference.",
+        }
+      : confidenceClass === "unique_qr_time"
       ? {
           summary: "Nayax found exactly one sale supported by the machine, amount, QR start, and timing.",
           recommendedAction: "Review and select the exact sale. The normal guarded refund action becomes available after manager selection.",
