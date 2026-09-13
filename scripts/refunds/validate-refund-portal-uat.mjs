@@ -4288,8 +4288,9 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   const inAppRefundAction = page
     .getByTestId('refund-primary-action')
     .getByTestId('refund-run-nayax-refund');
-  await inAppRefundAction.waitFor({ state: 'visible', timeout: 10000 });
-  const inAppExecutionDiagnostics = await inAppRefundAction.evaluate((action) => {
+  const inAppExecutionDiagnostics = await page.waitForFunction(() => {
+    const actions = [...document.querySelectorAll('[data-testid="refund-run-nayax-refund"]')];
+    const action = actions[0];
     const managerState = document.querySelector('[data-testid="refund-manager-state"]');
     const primaryAction = document.querySelector('[data-testid="refund-primary-action"]');
     const forbiddenCopy = [
@@ -4298,22 +4299,33 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       'Card refund confirmation/reference',
     ];
     const visibleText = document.body.innerText;
-    const actionBox = action.getBoundingClientRect();
-    const actionStyle = window.getComputedStyle(action);
-    return {
-      actionCount: document.querySelectorAll('[data-testid="refund-run-nayax-refund"]').length,
-      actionLabel: action.textContent?.trim() ?? '',
+    const actionBox = action?.getBoundingClientRect();
+    const actionStyle = action ? window.getComputedStyle(action) : null;
+    const diagnostics = {
+      actionCount: actions.length,
+      actionLabel: action?.textContent?.trim() ?? '',
       actionVisible:
+        Boolean(actionBox) &&
         actionBox.width > 0 &&
         actionBox.height > 0 &&
-        actionStyle.display !== 'none' &&
-        actionStyle.visibility !== 'hidden',
+        actionStyle?.display !== 'none' &&
+        actionStyle?.visibility !== 'hidden',
       actionDisabled: action instanceof HTMLButtonElement ? action.disabled : null,
       managerState: managerState?.textContent?.trim() ?? '',
       primaryActionText: primaryAction?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
       forbiddenCopyMatches: forbiddenCopy.filter((copy) => visibleText.includes(copy)),
     };
-  });
+    return diagnostics.actionCount === 1 &&
+        diagnostics.actionLabel === 'Refund $7.00' &&
+        diagnostics.actionVisible &&
+        diagnostics.actionDisabled === false &&
+        diagnostics.managerState === 'Ready to approve' &&
+        diagnostics.primaryActionText.includes('Transaction confirmed') &&
+        diagnostics.primaryActionText.includes('Payment: Not issued') &&
+        diagnostics.forbiddenCopyMatches.length === 0
+      ? diagnostics
+      : null;
+  }, undefined, { timeout: 10000 }).then((snapshot) => snapshot.jsonValue());
   recorder.assert(
     'Card completion is an in-app Nayax execution flow',
     inAppExecutionDiagnostics.actionCount === 1 &&
