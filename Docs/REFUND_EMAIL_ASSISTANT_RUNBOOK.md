@@ -1,8 +1,15 @@
 # Refund Email Assistant Operating Runbook
 
+> **Historical email-system and release reference — not a live case-triage
+> playbook.** Agents working refund cases follow only
+> [REFUND_AGENT_OPERATIONS.md](./REFUND_AGENT_OPERATIONS.md). Nothing in this
+> file may add a matching requirement, customer question or approval step to
+> that procedure.
+
 Last updated: 2026-08-21
 
-Status: Refund Operations v1 pilot implementation is in review and remains default-off. The pilot uses form-only case creation, deterministic email follow-up, automatic read-only transaction matching, and separate manager confirmation and refund decisions. Production Gmail schedules, automatic customer contact, official manager actions, and live Nayax execution remain disabled until the monitored-pilot release gates pass.
+Status: historical August 2026 implementation and release snapshot. It does not
+describe the current live case workflow or operating authority.
 
 Tracking epic: [#683 Refund Email Assistant and Manager Communications](https://github.com/ethtri/bloomjoy-hub/issues/683)
 
@@ -141,7 +148,12 @@ Reply interruption recovery checks the private same-message application receipt 
 
 ### Strong physical-card path
 
-One transaction may be recommended only when the versioned matching policy leaves exactly one safe candidate for the mapped machine, exact amount, resolved time window, and matching last four. The match supports the manager decision; it does not prove a vend failure.
+This email subsystem does not define transaction-matching criteria. It uses the
+result returned by the deployed matcher. Agents interpret that result only under
+Step 4 of `REFUND_AGENT_OPERATIONS.md`, including its allowed sales-tax or
+rounding difference. A match supports the manager decision; it does not prove a
+vend failure. Never ask the customer about an amount difference solely because
+this older email design once described exact-amount matching.
 
 ### Mobile-wallet/contactless path
 
@@ -314,7 +326,10 @@ Before this candidate can be considered release-ready, the same fresh workflow r
 
 The evidence finalizer rejects stale, missing, extra, malformed, duplicate-image, PII-bearing, identifier-bearing, URL-bearing, or free-text-bearing artifacts. Database migration/test-file totals and the release SHA must always be derived from the final integrated tree rather than copied from an older run. The provider artifact proves local synthetic success, rejection, timeout, and unknown outcomes with zero provider retry on replay; the portal artifact proves navigation-only behavior does not issue a refund or mutate a decision while the automatic read-only lookup remains fact-version idempotent. Synthetic evidence is not a live Nayax or production Gmail smoke.
 
-## Agent procedure
+## Email-system safety checklist
+
+This checklist is for maintaining or verifying the email subsystem. It is not a
+second procedure for agents triaging cases.
 
 1. Verify the connected mailbox identity is the designated support mailbox before reading or drafting.
 2. Work only threads in the approved refund label or a case explicitly supplied by an authorized user.

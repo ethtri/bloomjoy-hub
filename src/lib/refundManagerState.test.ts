@@ -211,7 +211,7 @@ Deno.test('durable customer outreach truth takes precedence over lookup and lega
     ['delivery_unknown', 'Refund Operations', 'refund_operations', 'Customer request delivery unknown'],
     ['customer_replied', 'System', 'recheck_customer_reply', 'New information received'],
     ['rechecking', 'System', 'recheck_customer_reply', 'Rechecking the purchase'],
-    ['clarification_exhausted', 'Refund Operations', 'refund_operations', 'Clarification limit reached'],
+    ['clarification_exhausted', 'Refund Operations', 'refund_operations', 'Customer follow-up needs a decision'],
     ['policy_suppressed', 'Refund Operations', 'refund_operations', 'Customer request suppressed'],
     ['manual_fallback', 'Machine Manager', 'request_details', 'Customer details needed'],
   ] as const;
@@ -368,7 +368,7 @@ Deno.test('manager state surfaces a direct-email bounce without changing payment
   );
   assertEquals(
     result.nextStep,
-    'The assigned machine manager reviews the saved delivery record and chooses the supported next step. Do not resend this saved message until its delivery is clear, and do not retry a payment from delivery evidence.',
+    'The assigned machine manager reviews the original customer email thread and saved delivery record, then chooses the supported next step. Do not resend this saved message until its delivery is clear, and do not retry a payment from delivery evidence.',
     'delivery recovery uses plain manager language'
   );
 });
@@ -392,7 +392,8 @@ Deno.test('confirmed receipt stays explicit alongside historical and current mes
       });
       assertEquals(result.label, 'Refund confirmed · delivery review', `${messageType}/${deliveryState} label`);
       assertEquals(result.explanation.startsWith('The payment provider confirmed the full refund.'), true, 'Payment evidence stays first');
-      assertEquals(result.nextStep.includes('reviews message delivery and the accounting date'), true, 'Both manager reviews remain visible');
+      assertEquals(result.nextStep.includes('original customer email thread'), true, 'Delivery review remains visible');
+      assertEquals(result.nextStep.includes('missing accounting date'), true, 'Accounting review remains visible');
       assertEquals(
         result.nextStep.includes('Do not retry the payment.') &&
           result.nextStep.includes('Do not resend this saved message'),
@@ -565,7 +566,7 @@ Deno.test('authoritative no-refund rejection restores the normal manager action'
     lifecycle: releasedLifecycle,
   };
 
-  assertEquals(getRefundManagerState(releasedCase).label, 'Ready to refund', 'released rejection label');
+  assertEquals(getRefundManagerState(releasedCase).label, 'Ready to approve', 'released rejection label');
   assertEquals(getRefundPaymentStateLabel(releasedCase), 'Not issued', 'released rejection payment label');
 });
 
@@ -632,7 +633,7 @@ Deno.test('receipt manager state keeps every customer-notice outcome observable 
     };
     const result = getRefundManagerState({ ...baseCase, lifecycle: contract });
     assertEquals(result.label, label, `${messageState} label`);
-    assertEquals(result.nextStep.includes('Refund Operations'), true, `${messageState} operations owner`);
+    assertEquals(result.nextStep.includes('Machine Manager'), true, `${messageState} manager owner`);
     assertEquals(result.nextStep.includes('Do not retry payment'), true, `${messageState} payment remains closed`);
   }
 });
@@ -754,7 +755,7 @@ Deno.test('transaction-confirmed detail cannot overrule blocked canonical queue 
   }
 });
 
-Deno.test('canonical operations hold gives routine managers no technical action', () => {
+Deno.test('payment hold gives routine managers plain next steps without exposing technical roles', () => {
   const heldCase = {
     ...baseCase,
     lifecycle: lifecycle('needs_refund_operations', 60, 'refund_operations'),
@@ -765,12 +766,12 @@ Deno.test('canonical operations hold gives routine managers no technical action'
   assertEquals(routine.id, 'needs_refund_operations', 'routine hold state');
   assertEquals(
     routine.nextStep,
-    'Refund Operations owns the next step. No action is needed, and the payment will not be tried again.',
+    'A manager with the required access must check the saved payment result. Do not try the payment again.',
     'routine guidance'
   );
   assertEquals(
     operations.nextStep,
-    'Use the Refund Operations panel below to record authoritative evidence. Never retry the payment.',
+    'Use the Manager payment review panel below to record the confirmed Nayax result. Never retry the payment while the result is unclear.',
     'operations guidance'
   );
 });
@@ -787,7 +788,7 @@ Deno.test('canonical lookup failure exposes automatic server recovery without ma
   assertEquals(result.id, 'match_attention', 'failed lookup state');
   assertEquals(
     result.nextStep,
-    'Bloomjoy will run the next safe read-only check automatically. No refund has been issued.',
+    'Bloomjoy will run one more read-only check automatically. No refund has been issued.',
     'server recovery copy'
   );
 });
@@ -899,7 +900,7 @@ Deno.test('confirmed transaction takes precedence over an older manual-review re
   });
 
   assertEquals(result.id, 'ready_to_refund', 'confirmed state');
-  assertEquals(result.label, 'Ready to refund', 'confirmed label');
+  assertEquals(result.label, 'Ready to approve', 'confirmed label');
   assertEquals(result.explanation, 'Transaction confirmed. Payment: Not issued.', 'payment clarity');
 });
 

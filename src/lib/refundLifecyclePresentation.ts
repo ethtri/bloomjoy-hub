@@ -12,7 +12,7 @@ export const refundLifecycleStageLabels: Record<RefundLifecycleStage, string> = 
   refund_confirmed: 'Refund confirmed',
   customer_notified: 'Update status recorded',
   duplicate_resolved: 'Duplicate resolved',
-  needs_refund_operations: 'Refund Operations review',
+  needs_refund_operations: 'Manager payment review',
   integrity_hold: 'Payment status needs review',
   denied: 'Request denied',
   unable_to_complete: 'Unable to complete the refund',
@@ -24,7 +24,7 @@ const nonPaymentProgressNotes: Partial<Record<RefundLifecycleStage, string>> = {
   unable_to_complete: 'Closed without a completed refund.',
   internal_test_archived: 'Customer contact and refund actions are suppressed.',
   duplicate_resolved: 'This request is linked to a completed case. No separate refund was issued.',
-  integrity_hold: 'Refund Operations must reconcile the payment evidence. Do not retry the refund.',
+  integrity_hold: 'Check and correct the saved payment record. Do not retry the refund.',
 };
 
 export const getRefundLifecycleProgressPresentation = (

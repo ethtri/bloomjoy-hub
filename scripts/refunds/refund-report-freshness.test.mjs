@@ -56,13 +56,13 @@ test('report health hides malformed or absent private data instead of inventing 
   assert.equal(parseRefundReportFreshness({ ...v2, status: 'recent', attentionRequired: true,
     attentionReason: 'provider_run_failed', deliveryState: 'provider_failed', lastProviderRunAt: '2026-09-03T19:00:00Z' }), null);
 });
-test('one readable advisory names internal owner and local grace without send or payment controls', () => {
+test('one readable advisory gives a plain next step without send or payment controls', () => {
   const html = render(overdue);
   assert.equal((html.match(/<aside/g) ?? []).length, 1);
   assert.match(html, /Scheduled report needs review/);
   assert.match(html, /two-hour gap for internal review/);
   assert.match(html, /exact delivery timing is not confirmed/);
-  assert.match(html, /Refund Operations: review the mailbox/);
+  assert.match(html, /Check the mailbox and saved Nayax report/);
   assert.doesNotMatch(html, /<button|role="alert"|<input/);
   assert.equal(render({ ...overdue, status: 'recent' }), '');
   assert.equal(render(null), '');

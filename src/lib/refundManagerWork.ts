@@ -54,12 +54,12 @@ export const refundManagerNextActionCopy = (actionCode: string) => ({
   review_inbound_case_link: 'Review the proposed inbound-message case link in the portal.',
   review_delivery_no_resend: 'Review delivery evidence in the portal. Do not resend or repeat payment from this email.',
   recover_customer_delivery: 'Review customer delivery evidence in the portal before choosing a recovery step.',
-  refund_operations: 'Refund Operations should review the provider evidence in the portal. Do not retry payment.',
-  reconcile_lifecycle_integrity: 'Refund Operations should reconcile the durable case evidence. Do not retry payment.',
+  refund_operations: 'A manager with the required access should check the saved Nayax result in the portal. Do not retry payment.',
+  reconcile_lifecycle_integrity: 'A manager with the required access should check and correct the saved payment record. Do not retry payment.',
   request_payout_destination: 'Review the case and request the missing payout destination through the approved portal flow.',
   resolve_manager_access: 'Resolve the current Machine Manager assignment before any official refund action.',
   wait_for_customer_reply: 'No manager action is due now; review the current waiting state in the portal.',
   wait_for_customer_notification: 'No payment action is due; review the pending customer notification state in the portal.',
   wait: 'Review the current state in the portal; do not repeat an in-progress action.',
   none: 'Review the current case record in the portal; no official refund action is due.',
-} as Record<string, string>)[actionCode] ?? 'Open the case and follow the current server-owned action shown in the portal.';
+} as Record<string, string>)[actionCode] ?? 'Open the case and follow the next action shown in the portal.';

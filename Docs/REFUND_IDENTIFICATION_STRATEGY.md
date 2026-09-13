@@ -1,8 +1,15 @@
 # Refund Identification Strategy
 
+> **Historical design reference — not a live case-triage playbook.** Its rollout
+> status and recommendation table are snapshots from August 2026. Agents use
+> only [REFUND_AGENT_OPERATIONS.md](./REFUND_AGENT_OPERATIONS.md); the deployed
+> matcher in `supabase/functions/_shared/nayax-recommendation.mjs` is the source
+> of exact numeric controls.
+
 Last updated: 2026-08-11
 
-Status: approved direction; identification is partially implemented, while automatic correction and live refund execution are not yet enabled.
+Status: historical August 2026 design snapshot. It does not describe current
+production availability or operating authority.
 
 ## Plain-English summary
 
@@ -35,7 +42,9 @@ A high-confidence recommendation does not prove the product failed to dispense o
 | Delivery evidence | No reliable machine signal says whether the product was delivered. | Transaction matching cannot establish that a vend failed. The manager still decides the customer-service outcome. |
 | Alternative compensation | Cash currently follows the manual cash/Zelle path. | Issue `#666` is a P0 decision for the terminal unmatched/contactless and cash path. The provider and business rules remain TBD. |
 
-The versioned rules in `Docs/REFUND_NAYAX_MATCHING_RUNBOOK.md` are authoritative for source behavior. Production must not be treated as QR-aware until the migration and related Edge Functions are deployed and the shadow pilot in `#665` passes.
+This document does not describe current operating authority. Current workflow is
+in `Docs/REFUND_AGENT_OPERATIONS.md`; current implementation is in the deployed
+matcher and its tests.
 
 ## Target customer flow
 
@@ -53,11 +62,11 @@ The versioned rules in `Docs/REFUND_NAYAX_MATCHING_RUNBOOK.md` are authoritative
 
 The direct form remains available for customers who did not scan a QR code, but those cases will not have trusted QR timing evidence.
 
-## Recommendation rules
+## Historical recommendation design
 
 | Result | Meaning | Manager action |
 | --- | --- | --- |
-| Strong card evidence | The approved machine, amount, timing, and submitted last four agree with one safe Nayax candidate. | Decide **Approve refund** or **Decline**. After approval and the `#430` release gate, Bloomjoy executes the refund and sends both confirmations automatically. |
+| Strong card evidence | The deployed matcher identifies one safe candidate. See the current agent procedure; this historical table does not define amount or time tolerances. | Decide **Approve refund** or **Decline**. After approval and the `#430` release gate, Bloomjoy executes the refund and sends both confirmations automatically. |
 | Unique QR/time evidence | The machine, exact amount, customer-reported time, and server-recorded QR time leave exactly one plausible Nayax candidate. Wallet evidence does not leave another plausible transaction. | Make the same one-approval decision. Once the tested `#674` eligibility and `#430` provider gates pass, the manager does not need to process the transaction in Nayax. |
 | Correctable wallet details | The customer may have entered the physical-card last four instead of the virtual/device last four, and corrected evidence could safely resolve the case. | Bloomjoy automatically sends the secure correction request in `#673`, receives the limited update, and re-runs matching without manager correspondence. |
 | Ambiguous or no safe match | More than one candidate could fit, the scan was too late to be useful, required evidence is missing, the provider response is unsafe, or no candidate fits. | Do not guess or execute a card refund. Run any useful bounded correction step, then offer the approved `#666` fallback only when the case is terminally unmatched. |

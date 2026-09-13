@@ -142,10 +142,10 @@ import {
 import { mergeRefundOperationsSupplements } from '@/lib/refundOperationsSupplements';
 
 const refundSearchViewLabel = (refundCase: RefundCaseRecord) => ({
-  needs_action: 'Action needed', ready_to_pay: 'Ready to refund', in_progress: 'In progress',
-  waiting_on_customer: 'Waiting', provider_hold: 'Needs Refund Operations',
-  accounting_review: 'Needs Refund Operations',
-  integrity_hold: 'Needs Refund Operations', completed: 'Done', internal_archive: 'Internal/test archive',
+  needs_action: 'Action needed', ready_to_pay: 'Ready to approve', in_progress: 'Refund in progress',
+  waiting_on_customer: 'Waiting for customer', provider_hold: 'Needs manager review',
+  accounting_review: 'Needs manager review',
+  integrity_hold: 'Needs manager review', completed: 'Done', internal_archive: 'Internal/test archive',
 })[getRefundManagerQueueBucket(refundCase)];
 
 const statusDecisionMap: Partial<Record<RefundCaseStatus, Exclude<RefundDecision, null>>> = {
@@ -746,7 +746,7 @@ const getRefundReferenceLabel = (_refundCase: RefundCaseRecord) => 'External ref
 
 const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxLookupCandidate[]) => {
   if (hasConfirmedRefundReceipt(refundCase)) {
-    return 'Refund confirmed. Refund Operations must resolve the accounting date internally. Do not retry payment or send another customer notice.';
+    return 'Refund confirmed. Check and record the missing accounting date. Do not retry payment or send another customer notice.';
   }
   if (refundCase.status === 'draft') {
     return 'Review the Gmail message, then ask for the missing location, purchase time, payment method, and transaction details.';
@@ -768,7 +768,7 @@ const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxL
     ['approved', 'card_refund_pending'].includes(refundCase.status) &&
     refundCase.nayaxMatchExecutionEligible !== true
   ) {
-    return 'This card payment is not ready to refund. Review the transaction result and choose a safe next step. No refund has been confirmed.';
+    return 'This card payment is not ready to refund. Review the transaction result and choose the next step. No refund has been confirmed.';
   }
 
   if (refundCase.paymentMethod === 'card' && !refundCase.hasMatchedNayaxTransaction) {
@@ -1030,7 +1030,7 @@ const getOperationalSignals = (refundCase: RefundCaseRecord) => {
     signals.push({ label: 'Waiting on customer', className: 'border-orange-200 bg-orange-50 text-orange-900' });
   }
   if (isReadyToPayCase(refundCase)) {
-    signals.push({ label: 'Ready to refund', className: 'border-sky-200 bg-sky-50 text-sky-700' });
+    signals.push({ label: 'Ready to approve', className: 'border-sky-200 bg-sky-50 text-sky-700' });
   }
   return signals.slice(0, 3);
 };
@@ -1282,13 +1282,11 @@ const transactionSearchDescription = (summary: RefundNayaxLookupSummary | null) 
     case 'checking':
       return 'Checking transactions near the time the customer provided.';
     case 'setup_needed':
-      return summary.responsibleOwner === 'refund_operations' && summary.customerActionRequired === false
-        ? summary.summary
-        : 'Bloomjoy needs internal machine/account setup before it can check this machine. Do not ask the customer to repeat details Bloomjoy owns.';
+      return 'Bloomjoy needs the machine\'s Nayax connection fixed before it can search. Do not ask the customer to repeat details Bloomjoy owns.';
     case 'lookup_failed':
       return summary.safeRetryEligible
         ? 'The bounded transaction search did not finish. A fresh read-only check is available; no customer correction is needed.'
-        : 'The bounded transaction search did not finish. Refund Operations owns the internal fallback; do not ask the customer to repeat purchase details.';
+        : 'The transaction search did not finish. Search the same machine in Nayax and report the missing portal fallback to Engineering. Do not ask the customer to repeat purchase details.';
     case 'no_match':
       return summary.providerWindowRecordCount && summary.providerWindowRecordCount > 0
         ? `${summary.providerWindowRecordCount} transaction${summary.providerWindowRecordCount === 1 ? ' was' : 's were'} checked, but none matched enough customer details.`
@@ -1555,13 +1553,11 @@ const nayaxNextActionText = (
     case 'inconclusive':
       return 'Next: Keep the case open. Nayax did not provide enough history to rule a matching transaction in or out.';
     case 'setup_needed':
-      return summary.responsibleOwner === 'refund_operations' && summary.customerActionRequired === false
-        ? `Next: ${summary.recommendedAction}`
-        : 'Next: Refund Operations must repair the machine/account scope. Do not ask the customer to repeat details.';
+      return 'Next: Check the machine\'s Nayax connection. If the portal still cannot search, use Nayax directly and report the portal gap. Do not ask the customer to repeat details.';
     case 'lookup_failed':
       return summary.safeRetryEligible
         ? 'Next: Bloomjoy will retry the read-only transaction check automatically. No refund has been issued.'
-        : 'Next: Refund Operations must use the internal fallback. No refund has been issued.';
+        : 'Next: Search the same machine in Nayax and report the missing portal fallback. No refund has been issued.';
     case 'not_applicable':
     default:
       return 'Next: Review the customer and payment details before continuing.';
@@ -1701,7 +1697,7 @@ const primaryActionConfig = (
       label: 'Duplicate resolved',
       helper: refundCase.lifecycle?.duplicateOfPublicReference
         ? `This request is linked to completed case ${refundCase.lifecycle.duplicateOfPublicReference}. No further action is needed.`
-        : 'This request is linked to its canonical case. No further action is needed.',
+        : 'This request is linked to the original case. No further action is needed.',
       disabled: true,
     };
   }
@@ -1717,7 +1713,7 @@ const primaryActionConfig = (
   if (refundCase.legacyStateReviewRequired) {
     return {
       label: 'Transaction evidence needs review',
-      helper: 'No refund is recorded. Refund Operations is handling the stale transaction evidence.',
+      helper: 'No refund is recorded. Review the saved transaction details and refresh the case before making a decision.',
       disabled: true,
     };
   }
@@ -1777,7 +1773,7 @@ const primaryActionConfig = (
     );
     return {
       label: 'Delivery needs review',
-      helper: `${stateLabel}. The assigned machine manager must review the saved delivery record and choose the supported next step. Delivery evidence does not establish a refund result. Do not resend this saved message until its delivery is clear, and do not retry a payment from delivery evidence.`,
+      helper: `${stateLabel}. The assigned machine manager must review the original customer email thread and saved delivery record, then choose the supported next step. Delivery evidence does not establish a refund result. Do not resend this saved message until its delivery is clear, and do not retry a payment from delivery evidence.`,
       disabled: true,
     };
   }
@@ -1804,7 +1800,7 @@ const primaryActionConfig = (
   }
   if (latestMessage?.status === 'skipped' && !canContinueReview) {
     return {
-      label: 'Send a safe customer acknowledgement',
+      label: 'Send customer acknowledgement',
       helper: 'The automated message was skipped, so the customer has not been notified. Review and send one status update before treating this case as contacted.',
       messageType: 'status_update',
       mode: 'retry_message',
@@ -1827,7 +1823,7 @@ const primaryActionConfig = (
     }
     if (latestMessage.messageType === 'confirmation') {
       return {
-        label: 'Send a safe customer follow-up',
+        label: 'Send customer follow-up',
         helper: 'The first acknowledgement has a confirmed send failure. Review and send a status update in the original Gmail thread.',
         messageType: 'status_update',
         mode: 'retry_message',
@@ -1964,8 +1960,8 @@ const primaryActionConfig = (
     return {
       label: 'Transaction check failed',
       helper: refundCase.nayaxLookupSummary.safeRetryEligible
-        ? 'Bloomjoy will run the next safe read-only check automatically.'
-        : 'Refund Operations is handling the transaction-search problem.',
+        ? 'Bloomjoy will run one more read-only check automatically.'
+        : 'Search the same machine in Nayax and report the missing portal fallback to Engineering.',
       disabled: true,
     };
   }
@@ -1979,7 +1975,7 @@ const primaryActionConfig = (
   ) {
     return {
       label: 'No customer action needed',
-      helper: 'Refund Operations owns the Nayax connection. Managers can review the case in Nayax outside Bloomjoy Hub.',
+      helper: 'Check the machine\'s Nayax connection. Use the Nayax portal for this case if Bloomjoy Hub cannot search it, and report the portal gap.',
       disabled: true,
     };
   }
@@ -2003,7 +1999,7 @@ const primaryActionConfig = (
   ) {
     return {
       label: 'Review transaction evidence',
-      helper: 'These purchases cannot be separated by the available provider times. Refund Operations owns the next review; do not ask the customer for the same detail again.',
+      helper: 'These purchases still cannot be separated after the customer correction. Search the same machine in Nayax. Do not ask the customer for the same detail again.',
       mode: 'review_transaction_evidence',
     };
   }
@@ -2320,7 +2316,7 @@ const nayaxExecutionBlockLabel = (block: string) => {
 
 const formatNayaxExecutionBlockedMessage = (result: NayaxCardRefundExecutionResponse) => {
   if (result.conflictReason === 'exact_transaction_allocated') {
-    return 'This exact Nayax transaction is already reserved by another refund case. Review the canonical case before taking another payment action.';
+    return 'This exact Nayax transaction is already reserved by another refund case. Review the original case before taking another payment action.';
   }
   if (result.conflictReason === 'payment_already_confirmed') {
     return 'This payment is already confirmed. Review this case’s payment history; do not issue another refund.';
@@ -3453,7 +3449,7 @@ export default function AdminRefundsPage() {
     if (isWaitingCase(refundCase, refundOperationsAccess)) return null;
     if (refundCase.id !== selectedCase?.id || refundCase.hasMatchedNayaxTransaction || !editor) return null;
     if (editor.matchedNayaxCandidateToken.trim()) {
-      return { label: 'Ready to refund', tone: 'info' };
+      return { label: 'Ready to approve', tone: 'info' };
     }
     if (nayaxCandidates.length > 0 && selectedNayaxSummary?.recommendationState === 'high_confidence') {
       return { label: 'Review likely transaction', tone: 'info' };
@@ -3625,6 +3621,13 @@ export default function AdminRefundsPage() {
       window.requestAnimationFrame(() => {
         const queuePanel = document.getElementById('refund-queue-panel');
         queuePanel?.scrollIntoView({ behavior: 'auto', block: 'start' });
+        if (queuePanel) {
+          const headerBottom = document.querySelector('header')?.getBoundingClientRect().bottom ?? 0;
+          const queueTop = queuePanel.getBoundingClientRect().top;
+          if (queueTop < headerBottom) {
+            window.scrollBy({ top: queueTop - headerBottom - 8, behavior: 'auto' });
+          }
+        }
         queuePanel?.focus({ preventScroll: true });
       });
     });
@@ -3835,8 +3838,8 @@ export default function AdminRefundsPage() {
         tone: 'warning',
         title: 'Refund confirmed · accounting review',
         message: deliverySucceeded
-          ? 'Nayax confirmed the refund and the customer was notified. Do not retry the payment. Refund Operations owns the separate accounting conflict.'
-          : 'Nayax confirmed the refund. Do not retry the payment. Refund Operations owns the accounting conflict, and the single customer notice remains queued for controlled delivery.',
+          ? 'Nayax confirmed the refund and the customer was notified. Do not retry the payment. The Machine Manager should check and record the missing accounting date.'
+          : 'Nayax confirmed the refund. Do not retry the payment. The Machine Manager should check and record the missing accounting date; the one customer notice is still queued.',
         reference,
       });
       toast.success('The refund is confirmed. Accounting review is queued; do not retry it.');
@@ -4081,14 +4084,14 @@ export default function AdminRefundsPage() {
           next.add(selectedCase.id);
           return next;
         });
-        const message = 'Refund Operations owns the next step. No refund was sent, and no customer completion email was sent.';
+        const message = 'A manager with the required access must check the saved authorization result. No refund or customer completion email was sent.';
         setNayaxExecutionNotice({ tone: 'warning', message });
         setRefundActionReceipt({
           tone: 'warning',
-          title: 'Needs Refund Operations',
+          title: 'Needs manager review',
           message,
         });
-        toast.error('No refund was sent. Refund Operations owns the next step.');
+        toast.error('No refund was sent. A manager with the required access must check the case.');
       } else if (response) {
         await applyNayaxExecutionResult(response);
       } else {
@@ -4509,7 +4512,7 @@ export default function AdminRefundsPage() {
           tone: 'warning',
           title: 'Payment sent; case update needs attention',
           message:
-            'Bloomjoy Hub could not confirm the completion record. Do not send another payment. Reconcile the case, then retry only the case update or customer follow-up.',
+            'Bloomjoy Hub could not confirm the completion record. Do not send another payment. Check and correct the case record, then retry only the case update or customer follow-up.',
         });
         return;
       }
@@ -4622,7 +4625,7 @@ export default function AdminRefundsPage() {
             ? nextSummary.summary
             : providerWindowRecordCount > 0
             ? `${providerWindowRecordCount} transactions were checked, but none matched the customer details closely enough. Keep the case open and do not choose a transaction unless it is clear.`
-            : `${transactionSearchDescription(nextSummary)} Keep the case open for Refund Operations review.`;
+            : `${transactionSearchDescription(nextSummary)} Search the same machine in Nayax and keep the case open until the research is complete.`;
         setNayaxLookupNotice({
           tone: 'info',
           message: noMatchMessage,
@@ -4782,8 +4785,8 @@ export default function AdminRefundsPage() {
                 {triageDraftReady
                   ? 'The assistant organized the missing details and prepared wording. Check every line before sending it in the original thread.'
                   : triageNeedsHuman
-                    ? 'The assistant could not safely prepare a reply, so it stopped without drafting or sending anything.'
-                    : 'This request is safely linked to its Gmail conversation, but it is not ready for transaction matching or a refund decision yet.'}
+                    ? 'The assistant could not prepare a suitable reply, so it stopped without drafting or sending anything.'
+                    : 'This request is linked to its Gmail conversation, but it is not ready for transaction matching or a refund decision yet.'}
               </p>
             </div>
             {!triageNeedsHuman && !triageDraftReady && missingDetails.length > 0 && (
@@ -5254,7 +5257,7 @@ export default function AdminRefundsPage() {
       return;
     }
     if (!refundOperationsAccess || officialActionVersion <= 0) {
-      toast.error('Refund Operations access and a current case version are required.');
+      toast.error('Manager access and a current case version are required.');
       return;
     }
 
@@ -5287,7 +5290,7 @@ export default function AdminRefundsPage() {
   const handleRetryNayaxCompletionMessage = async () => {
     if (!selectedCase || !failedNayaxCompletionMessage) return;
     if (customerDeliveryNeedsReconciliation) {
-      toast.error('Gmail delivery is uncertain. Reconcile the original thread before any retry.');
+      toast.error('Gmail delivery is uncertain. Check the original thread before sending anything again.');
       return;
     }
     if (isUsingDemoData) {
@@ -5720,7 +5723,7 @@ export default function AdminRefundsPage() {
           </summary>
           <div className="mt-3 space-y-2">
             <p className="text-xs leading-5 text-muted-foreground">
-              Transaction research is read-only here. Bloomjoy runs one automatic check and, after a temporary failure, one safe retry.
+              Transaction research is read-only here. Bloomjoy runs one automatic check and one retry after a temporary failure.
             </p>
             <div className="flex flex-wrap gap-2">
               {showRefundOperationsRecovery && (
@@ -5737,7 +5740,7 @@ export default function AdminRefundsPage() {
                   ) : (
                     <RefreshCw className="mr-2 h-4 w-4" />
                   )}
-                  Run an operations transaction check
+                  Run transaction check
                 </Button>
               )}
               {hasSelectedMatch && (
@@ -5870,9 +5873,9 @@ export default function AdminRefundsPage() {
       !refundOperationsAccess &&
       primaryAction?.mode === 'manual_nayax_approval';
     const topActionLabel = paymentActionNeedsOperations
-      ? 'Refund Operations review required'
+      ? 'Manager review required'
       : technicalRefundOperationsAction
-      ? 'Refund Operations review required'
+      ? 'Manager review required'
       : hasReadyRefund
         ? actionLabel
         : primaryAction?.label ?? 'Review this request';
@@ -5916,16 +5919,16 @@ export default function AdminRefundsPage() {
             : transactionView.kind === 'waiting'
               ? 'Wait for Bloomjoy to start the read-only check. No refund has been issued.'
               : transactionView.heading === 'Transaction search is unavailable'
-                ? 'Refund Operations owns the machine connection. No customer follow-up is needed.'
-              : 'Wait for Bloomjoy or Refund Operations to refresh the transaction results. No refund has been issued.',
+                ? 'Check the machine\'s Nayax connection, then use Nayax directly if the portal still cannot search. No customer follow-up is needed.'
+              : 'Run the available transaction check. If no check is available, search the same machine in Nayax and report the portal gap. No refund has been issued.',
           tone: transactionView.kind === 'checking' ? 'info' : 'warning',
         }
       : paymentActionNeedsOperations
       ? {
           id: 'needs_refund_operations',
-          label: 'Needs Refund Operations',
-          explanation: 'Bloomjoy did not send a refund. A permissioned specialist owns this case now.',
-          nextStep: 'Refund Operations will review the authorization state. Do not try the refund again.',
+          label: 'Needs manager review',
+          explanation: 'Bloomjoy did not send a refund. The case needs a manager with the required access.',
+          nextStep: 'Check the saved authorization result. Do not try the refund again.',
           tone: 'warning',
         }
       : selectedCandidateRefundUnavailable
@@ -6134,7 +6137,7 @@ export default function AdminRefundsPage() {
           {!selectedCase.customerDeliveryException && ['failed', 'skipped'].includes(getLatestCustomerMessage(selectedCase)?.status ?? '') && (
             <div data-testid="refund-secondary-delivery-review" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
               <p className="font-semibold">Customer message needs review</p>
-              <p className="mt-1">The latest customer message was not sent. Refund Operations owns delivery review. Do not resend it blindly. The refund status and next step are shown above.</p>
+              <p className="mt-1">The latest customer message was not sent. Check the original customer email thread and the saved delivery record before sending anything again. The refund status and next step are shown above.</p>
             </div>
           )}
           <CustomerCorrectionSummary refundCase={selectedCase} onReview={(trigger) => { correctionDialogTriggerRef.current={caseId:selectedCase.id,element:trigger}; setCorrectionSelection({caseId:selectedCase.id,version:officialActionVersion,fields:[...(selectedCase.customerCorrection?.requestedFields ?? [])],requestId:selectedCase.customerCorrection?.requestId,editing:false}); }} />
@@ -6336,7 +6339,7 @@ export default function AdminRefundsPage() {
                       </dd>
                     </div>
                     <div className="sm:col-span-2">
-                      <dt className="text-xs text-muted-foreground">Safe card and wallet context</dt>
+                      <dt className="text-xs text-muted-foreground">Card or wallet details</dt>
                       <dd className="mt-1 font-medium text-foreground">
                         Nayax: {cardNetworkLabel(selectedTransactionEvidence.cardNetwork)}
                         {' · '}ending {selectedTransactionEvidence.cardLast4 || 'n/a'}
@@ -6364,7 +6367,7 @@ export default function AdminRefundsPage() {
                   className="mt-3 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm leading-6 text-orange-950"
                   role="status"
                 >
-                  The selected transaction evidence needs an internal Refund Operations repair. Do not ask the customer to repeat purchase details.
+                  Bloomjoy Hub cannot show the saved transaction details. Check the same machine in Nayax and report the portal gap. Do not ask the customer to repeat purchase details.
                 </div>
               ) : null}
 
@@ -6604,7 +6607,7 @@ export default function AdminRefundsPage() {
                   <div className="flex items-start gap-3">
                     <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
                     <div>
-                      <p className="font-semibold">Refund Operations</p>
+                      <p className="font-semibold">Manager payment review</p>
                       <p className="mt-1 text-sm leading-6">
                         {nayaxResolutionReadiness?.manualPortalAttempt
                           ? `Before recording success, verify Nayax shows a completed refund of ${formatCurrency(cardAmountCents)}—the full selected transaction amount. If Nayax shows a smaller or partial refund, keep the case waiting and escalate. Bloomjoy will not call Nayax or send a second refund.`
@@ -6621,24 +6624,23 @@ export default function AdminRefundsPage() {
                     >
                       <div>
                         <p className="text-xs text-muted-foreground">Owner</p>
-                        <p className="mt-1 font-medium">{selectedCase.lifecycle.operations.owner}</p>
+                        <p className="mt-1 font-medium">Machine Manager</p>
                       </div>
                       <div>
-                        <p className="text-xs text-muted-foreground">60-minute SLA</p>
+                        <p className="text-xs text-muted-foreground">Review within</p>
                         <p className="mt-1 font-medium">
                           {selectedCase.lifecycle.operations.slaMinutes} minutes
                           {selectedCase.lifecycle.operations.slaBreached ? ', overdue' : ''}
                         </p>
                       </div>
                       <div>
-                        <p className="text-xs text-muted-foreground">Safe stage</p>
+                        <p className="text-xs text-muted-foreground">Recorded payment step</p>
                         <p className="mt-1 font-medium">
                           {statusLabel(selectedCase.lifecycle.operations.safeStage)}
                         </p>
                       </div>
                       <p className="sm:col-span-3">
-                        {selectedCase.lifecycle.operations.nextStep ??
-                          'Confirm the authoritative payment result. Never retry the payment.'}
+                        Check and record the confirmed Nayax result. Never retry the payment while its result is unknown.
                       </p>
                     </div>
                   )}
@@ -6825,7 +6827,7 @@ export default function AdminRefundsPage() {
 
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-xs leading-5 text-muted-foreground">
-                          Only Refund Operations can save authoritative payment evidence.
+                          Only a manager with the required access can save a confirmed Nayax result.
                         </p>
                         <Button
                           type="button"
@@ -7324,7 +7326,7 @@ export default function AdminRefundsPage() {
                 <span
                   data-testid="refund-payment-health"
                   className="text-sm font-medium text-amber-800"
-                  title={`Some card refunds need reconciliation. ${nayaxReliabilityHealth.ownerLabel} owns follow-up; other eligible refunds remain available.`}
+                  title="Some card refunds need their saved payment result checked. Open each affected case for its next step; other eligible refunds remain available."
                 >
                   Some card refunds need attention
                 </span>
@@ -7343,7 +7345,7 @@ export default function AdminRefundsPage() {
           {refundOperationsAccess && !isUsingDemoData && (
             <details className="group mt-2">
               <summary className="ml-auto flex min-h-11 w-fit cursor-pointer list-none items-center gap-2 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
-                <span>Operations status</span>
+                <span>System details</span>
                 <span className="flex items-center gap-2 text-xs font-normal text-muted-foreground">
                   <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
                 </span>
@@ -7437,10 +7439,10 @@ export default function AdminRefundsPage() {
             <div className="flex flex-nowrap gap-1 overflow-x-auto pb-1" aria-label="Refund case views">
             {([
               ['needs_action', 'Action needed'],
-              ['ready_to_pay', 'Ready to refund'],
-              ['in_progress', 'In progress'],
-              ['provider_hold', 'Needs Refund Operations'],
-              ['waiting_on_customer', 'Waiting'],
+              ['ready_to_pay', 'Ready to approve'],
+              ['in_progress', 'Refund in progress'],
+              ['provider_hold', 'Needs manager review'],
+              ['waiting_on_customer', 'Waiting for customer'],
               ['completed', 'Done'],
             ] as const)
               .filter(([value]) =>
@@ -7855,7 +7857,7 @@ export default function AdminRefundsPage() {
                               </>
                             ) : (
                               <p className="mt-1 leading-6">
-                                No later customer message is confirmed. Review the safe acknowledgement action below. If Gmail delivery is uncertain, reconcile the original thread before sending anything.
+                                No later customer message is confirmed. Review the customer acknowledgement action below. If Gmail delivery is uncertain, check the original thread before sending anything.
                               </p>
                             )}
                           </div>
@@ -7939,7 +7941,7 @@ export default function AdminRefundsPage() {
                           {selectedCase.lifecycle?.paymentState === 'confirmed'
                             ? 'Payment remains confirmed.'
                             : 'This delivery record does not change the refund or payment state.'}{' '}
-                          The assigned machine manager reviews delivery. Do not resend this saved message until its delivery is clear.
+                          The assigned machine manager reviews the original customer email thread and saved delivery record. Do not resend this saved message until its delivery is clear.
                         </p>
                         {customerDeliveryRefreshIsOriginalRequest ? (
                           <p className="mt-2 leading-6">
@@ -8080,7 +8082,7 @@ export default function AdminRefundsPage() {
                           <div>
                             <p className="font-semibold">Customer completion retry is exhausted</p>
                             <p className="mt-1 leading-6">
-                              Do not send another completion message or repeat the payment. Reconcile the original Gmail thread and escalate the delivery record for support review.
+                              Do not send another completion message or repeat the payment. Check the original Gmail thread, then report the delivery record if the result is still unclear.
                             </p>
                           </div>
                         ) : null}

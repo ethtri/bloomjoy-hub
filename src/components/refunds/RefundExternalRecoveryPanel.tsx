@@ -65,7 +65,7 @@ export function RefundExternalRecoveryPanel({ caseId, onReviewChange }: { caseId
       {query.isLoading ? <p role="status" className="text-sm">Loading current case and machine choices…</p> : query.isError ? <div role="alert" className="space-y-2 text-sm">
         <p>Recovery review is unavailable. Check your current machine access and reload.</p>
         <Button variant="outline" onClick={() => void query.refetch()}>Reload review</Button>
-      </div> : !v?.available ? <p className="text-sm">This case is not eligible for this recovery. Review its existing payment and machine evidence in Refund Operations.</p> : <>
+      </div> : !v?.available ? <p className="text-sm">This case is not eligible for this recovery. Review its saved payment and machine details in the case.</p> : <>
         <p className="text-sm font-medium">{v.caseReference} · {v.customerEmail}</p>
         <div className="space-y-1.5"><Label htmlFor="external-refund-machine">Verified purchase machine</Label>
           <select id="external-refund-machine" className="min-h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"

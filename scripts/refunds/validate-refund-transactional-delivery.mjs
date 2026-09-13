@@ -149,7 +149,7 @@ for (const label of [
   assert.ok(refundsPage.includes(label), `Manager UI is missing ${label}.`);
 }
 assert.ok(refundsPage.includes('isNeedsActionCase'));
-assert.ok(refundsPage.includes('The assigned machine manager must review the saved delivery record'));
+assert.ok(refundsPage.includes('The assigned machine manager must review the original customer email thread and saved delivery record'));
 assert.ok(refundsPage.includes('do not retry a payment from delivery evidence'));
 assert.ok(refundsPage.includes('Refresh original request delivery'));
 assert.ok(refundsPage.includes('Refresh customer message delivery'));

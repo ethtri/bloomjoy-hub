@@ -1,5 +1,39 @@
 # Decisions
 
+## 2026-09-12 - Refund agents use one operating playbook
+
+`Docs/REFUND_AGENT_OPERATIONS.md` is the only procedure for agents triaging live
+refund cases. Historical email, pilot, rollout, identification and matching
+documents may explain implementation or past decisions, but they cannot add a
+case outcome, blocker, approval step or customer question.
+
+The deployed `NAYAX_RECOMMENDATION_POLICY` constant and its tests are the source
+of exact numeric matching controls. The live agent procedure gives the one
+plain-English interpretation agents follow, and an automated test keeps its
+amount and time boundaries aligned with the implementation. A supporting
+document must link to that procedure instead of restating independent operating
+criteria.
+
+This separation prevents stale rollout history from becoming live policy while
+preserving technical evidence and decision history.
+
+## 2026-09-12 - Routine refund research outreach is agent-operated
+
+Refund agents may independently send one specific information request when the
+portal and Nayax research cannot supply a fact needed to identify the purchase or
+prepare a cash payout. The request uses the existing case conversation, asks only
+for the missing fact, is not repeated while queued or delivery is unknown, and is
+verified before the case is reported as waiting on the customer. When the portal
+cannot send the right request, the agent may use the documented one-off email
+exception and record a privacy-safe Engineering issue for the infrastructure gap.
+
+This is routine case progression, not a refund or rejection decision, and it does
+not require separate manager approval. The assigned Machine Manager still makes
+the final refund or rejection decision and sends cash refunds. This decision is
+the explicit sponsor authorization anticipated by the July 21 GPT-triage decision
+and supersedes its blanket manual-approval rule only for the bounded information
+requests in `Docs/REFUND_AGENT_OPERATIONS.md`.
+
 ## 2026-09-10 - Existing one-way link handoff starts a required-email refund flow (`#704`)
 
 When a customer texts the Bloomjoy number, the existing one-way link handoff supplies the Bloomjoy hosted `/refunds/request` form. This initial link delivery remains outside the Hub refund conversation: it is not assigned to a staff/manual text reply, and the Hub does not add a new SMS provider, send or ingest SMS, or continue the case by text. The text alone creates no `refund_cases` row.

@@ -224,7 +224,7 @@ const receiptAccountingManagerState = (
   return state(
     'refund_confirmed', contact.label,
     `${contact.detail} The settlement date remains unknown.`,
-    `${contact.nextAction} Refund Operations owns the accounting-date review.`,
+    `${contact.nextAction} The Machine Manager should check and record the accounting date.`,
     contact.tone,
   );
 };
@@ -244,17 +244,17 @@ export const refundReadinessBlockMessage = (blockReason: string | null | undefin
     case 'machine_not_enabled':
       return 'Card refunds are not enabled for this machine. An administrator needs to enable them.';
     case 'globally_paused':
-      return 'Card refunds are temporarily paused. Operations needs to resume the service.';
+      return 'Card refunds are temporarily paused. A manager with admin access needs to resume them.';
     case 'provider_remaining_value_unverified':
       return 'Refresh the case to load the current refund availability.';
     case 'provider_unavailable':
-      return 'The payment connection is temporarily unavailable. Try again later or contact Operations.';
+      return 'The payment connection is temporarily unavailable. Try again later. If it keeps failing, report the connection problem.';
     case 'transaction_not_confirmed':
       return 'Confirm the customer\'s transaction before issuing a refund.';
     case 'case_not_found':
       return 'This refund case could not be loaded. Refresh the page and try again.';
     default:
-      return 'Refund availability could not be confirmed. Refresh the page or contact Operations.';
+      return 'Refund availability could not be confirmed. Refresh the page once. If it still fails, report the portal problem.';
   }
 };
 
@@ -331,8 +331,8 @@ export const getRefundManagerState = (
         'Refund confirmed · delivery review',
         `The payment provider confirmed the full refund. ${deliveryLabel}.`,
         accountingReview
-          ? 'The assigned machine manager reviews message delivery and the accounting date. Do not retry the payment. Do not resend this saved message until its delivery is clear.'
-          : 'The assigned machine manager reviews message delivery. Do not retry the payment. Do not resend this saved message until its delivery is clear.',
+          ? 'The assigned machine manager reviews the original customer email thread, saved delivery record and missing accounting date. Do not retry the payment. Do not resend this saved message until its delivery is clear.'
+          : 'The assigned machine manager reviews the original customer email thread and saved delivery record. Do not retry the payment. Do not resend this saved message until its delivery is clear.',
         'warning'
       );
     }
@@ -340,7 +340,7 @@ export const getRefundManagerState = (
       'needs_refund_operations',
       'Delivery needs review',
       `${deliveryLabel}. The refund and payment state have not been changed.`,
-      'The assigned machine manager reviews the saved delivery record and chooses the supported next step. Do not resend this saved message until its delivery is clear, and do not retry a payment from delivery evidence.',
+      'The assigned machine manager reviews the original customer email thread and saved delivery record, then chooses the supported next step. Do not resend this saved message until its delivery is clear, and do not retry a payment from delivery evidence.',
       'warning'
     );
   }
@@ -394,7 +394,7 @@ export const getRefundManagerState = (
             'match_attention',
             'Transaction history incomplete',
             'Nayax did not provide enough historical coverage to confirm whether a matching transaction exists.',
-            'Keep the case open. Refund Operations can run a deliberate follow-up check if needed.',
+            'Run the available transaction check. If no check is available, search the same machine in Nayax and report the portal gap.',
             'warning'
           );
         }
@@ -417,7 +417,7 @@ export const getRefundManagerState = (
           return state(
             'match_attention',
             'More than one possible match',
-            'The completed transaction check could not identify one safe purchase.',
+            'The completed transaction check could not identify one clear purchase.',
             'Review the returned evidence. Ask only for a specific missing detail that can distinguish the purchases.',
             'warning'
           );
@@ -442,7 +442,7 @@ export const getRefundManagerState = (
             'match_attention',
             'Transaction search unavailable',
             'Bloomjoy cannot check this machine\'s transactions right now.',
-            'No customer follow-up is needed. Refund Operations owns the connection; review the case directly in Nayax only if necessary.',
+            'Check the machine\'s Nayax connection. Use Nayax directly if Bloomjoy Hub still cannot search, and report the portal gap. No customer follow-up is needed.',
             'warning'
           );
         }
@@ -455,8 +455,8 @@ export const getRefundManagerState = (
             'Transaction check failed',
             'Bloomjoy could not finish checking transactions.',
             lifecycle.lookup.safeRetryEligible
-              ? 'Bloomjoy will run the next safe read-only check automatically. No refund has been issued.'
-              : 'Refund Operations is handling the transaction-search problem. No refund has been issued.',
+              ? 'Bloomjoy will run one more read-only check automatically. No refund has been issued.'
+              : 'Search the same machine in Nayax and report the missing portal fallback. No refund has been issued.',
             'warning'
           );
         }
@@ -478,7 +478,7 @@ export const getRefundManagerState = (
               'match_attention',
               'Transaction check needs attention',
               'Bloomjoy could not finish the read-only transaction check.',
-              'Bloomjoy will run the next safe read-only check automatically. No refund has been issued.',
+              'Bloomjoy will run one more read-only check automatically. No refund has been issued.',
               'warning'
             )
           : state(
@@ -512,7 +512,7 @@ export const getRefundManagerState = (
         if (lifecycle.managerQueue.bucket === 'ready_to_pay') {
           return state(
             'ready_to_refund',
-            'Ready to refund',
+            'Ready to approve',
             'Transaction confirmed. Payment: Not issued.',
             'Select Refund once to issue the exact amount.',
             'success'
@@ -608,11 +608,11 @@ export const getRefundManagerState = (
       case 'needs_refund_operations':
         return state(
           'needs_refund_operations',
-          'Needs Refund Operations',
-          'The final payment result needs a specialist review.',
+          'Needs manager review',
+          'The final payment result is unclear and needs a manager with the required access.',
           options.canResolveHeldResult
-            ? 'Use the Refund Operations panel below to record authoritative evidence. Never retry the payment.'
-            : 'Refund Operations owns the next step. No action is needed, and the payment will not be tried again.',
+            ? 'Use the Manager payment review panel below to record the confirmed Nayax result. Never retry the payment while the result is unclear.'
+            : 'A manager with the required access must check the saved payment result. Do not try the payment again.',
           'warning'
         );
       case 'integrity_hold':
@@ -620,7 +620,7 @@ export const getRefundManagerState = (
           'integrity_hold',
           'Lifecycle evidence needs review',
           'The case payment state does not have the durable attempt evidence required to prove what happened.',
-          'Refund Operations must reconcile the existing evidence. Do not retry payment or contact the customer from a separate thread.',
+          'Check and correct the existing payment record. Do not retry payment or contact the customer from a separate thread.',
           'danger'
         );
       case 'unable_to_complete':
@@ -746,7 +746,7 @@ export const getRefundManagerState = (
     if (refundCase.refundReadiness?.canIssueCardRefund === true) {
       return state(
         'ready_to_refund',
-        'Ready to refund',
+        'Ready to approve',
         'Transaction confirmed. Payment: Not issued.',
         'Select Refund to issue the card refund.',
         'success'
@@ -824,7 +824,7 @@ export const getRefundManagerState = (
         'match_attention',
         'Transaction history incomplete',
         'Nayax did not provide enough historical coverage to confirm whether a matching transaction exists.',
-        'Keep the case open. Refund Operations can run a deliberate follow-up check if needed.',
+        'Run the available transaction check. If no check is available, search the same machine in Nayax and report the portal gap.',
         'warning'
       );
     }
@@ -843,7 +843,7 @@ export const getRefundManagerState = (
         'match_attention',
         'Transaction search unavailable',
         'Bloomjoy cannot check this machine\'s transactions right now.',
-        'No customer follow-up is needed. Refund Operations owns the connection; review the case directly in Nayax only if necessary.',
+        'Check the machine\'s Nayax connection. Use Nayax directly if Bloomjoy Hub still cannot search, and report the portal gap. No customer follow-up is needed.',
         'warning'
       );
     }

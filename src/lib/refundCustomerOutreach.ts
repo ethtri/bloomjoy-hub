@@ -47,13 +47,13 @@ const copy: Record<RefundCustomerOutreachState, Omit<RefundCustomerOutreachPrese
   delivery_failed: {
     label: 'Customer request not delivered',
     explanation: 'The saved request has a confirmed delivery failure. The customer is not treated as contacted.',
-    nextStep: 'Refund Operations owns delivery recovery. Do not resend the request blindly.',
+    nextStep: 'Check the original customer email thread and the saved delivery record before sending anything again.',
     tone: 'warning',
   },
   delivery_unknown: {
     label: 'Customer request delivery unknown',
     explanation: 'Bloomjoy cannot confirm whether the saved request reached the customer.',
-    nextStep: 'Refund Operations must reconcile delivery evidence before any new request.',
+    nextStep: 'Check the original customer email thread and confirm what happened before sending a new request.',
     tone: 'warning',
   },
   customer_replied: {
@@ -69,9 +69,9 @@ const copy: Record<RefundCustomerOutreachState, Omit<RefundCustomerOutreachPrese
     tone: 'info',
   },
   clarification_exhausted: {
-    label: 'Clarification limit reached',
-    explanation: 'Bloomjoy has completed the allowed customer clarification attempts without resolving the case.',
-    nextStep: 'Refund Operations owns the exception. Do not send another automatic request.',
+    label: 'Customer follow-up needs a decision',
+    explanation: 'The existing customer requests did not resolve the case.',
+    nextStep: 'Review the original conversation. If the last necessary request was delivered 30 days ago and there is no reply, recommend rejection. Otherwise ask only for a still-missing fact.',
     tone: 'warning',
   },
   policy_suppressed: {
@@ -82,7 +82,7 @@ const copy: Record<RefundCustomerOutreachState, Omit<RefundCustomerOutreachPrese
   },
   manual_fallback: {
     label: 'Customer details needed',
-    explanation: 'Automatic outreach stopped safely. A manager may request only the still-useful purchase details.',
+    explanation: 'The automatic message was not sent. A manager may request only the purchase details still needed.',
     nextStep: 'Select Request details once to continue in the existing customer conversation.',
     tone: 'warning',
   },
