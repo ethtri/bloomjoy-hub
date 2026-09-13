@@ -905,7 +905,10 @@ function AdminPersonAccessConsoleInner({
   useEffect(() => {
     if (!requestedPersonKey || selectedDirectoryPerson || !directoryQuery.data) return;
     const match = directoryQuery.data.items.find((person) => person.personKey === requestedPersonKey);
-    if (match) setSelectedDirectoryPerson(match);
+    if (match) {
+      setSelectedDirectoryPerson(match);
+      setShowActivity(true);
+    }
   }, [directoryQuery.data, requestedPersonKey, selectedDirectoryPerson]);
 
   const selectedPerson = useMemo<SelectedAccessPerson | null>(() => selectedDirectoryPerson ? ({
@@ -967,7 +970,7 @@ function AdminPersonAccessConsoleInner({
   const openPerson = (person: AdminAccessPerson) => {
     setSelectedDirectoryPerson(person);
     setShowEditor(false);
-    setShowActivity(false);
+    setShowActivity(true);
     setAdvancedOpen(false);
   };
   const closePerson = () => {
@@ -1105,7 +1108,7 @@ function AdminPersonAccessConsoleInner({
       </section>
 
       <Sheet open={Boolean(selectedDirectoryPerson)} onOpenChange={(open) => { if (!open) closePerson(); }}>
-        <SheetContent className="w-full overflow-y-auto p-0 sm:max-w-xl lg:max-w-2xl">
+        <SheetContent className="w-full overflow-y-auto p-0 sm:max-w-lg">
           {selectedDirectoryPerson && identity && (
             <div className="min-h-full">
               <SheetHeader className="border-b border-border p-5 text-left">
