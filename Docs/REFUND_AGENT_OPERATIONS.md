@@ -175,8 +175,10 @@ needed to identify the purchase or prepare a cash payout.
    login or wallet secret.
 6. Send one request in the existing conversation. This procedure authorizes that
    routine information request; separate manager approval is not required.
-7. Verify the portal or original email thread recorded the send. If delivery is
-   failed or unknown, do not mark the case waiting; use Step 7.
+7. Verify the portal or original email thread recorded the send, and confirm the
+   customer appears in the final **To/CC** recipient list. If the customer is
+   missing, or delivery is failed or unknown, do not mark the case waiting; use
+   Step 7.
 8. Report **WAITING ON CUSTOMER**, the exact fact requested and the send date.
 
 Do not claim that the customer was contacted until the portal or original email
@@ -209,8 +211,9 @@ When the portal does not support the case:
    workflow, what the portal showed, what should have happened and a clear test
    for the fix. Use the public case reference only; never include customer or
    payment details.
-5. Record the issue number in the run report and retry the case after using the
-   available exception.
+5. Record the issue number in the run report, then refresh and reconcile the case
+   using read-only evidence. Never repeat a provider action or customer message
+   when its result is unknown.
 
 Examples of portal gaps include a missing transaction-refresh action, a message
 template that cannot ask for the necessary fact, a form that omitted a required

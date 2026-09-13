@@ -119,10 +119,12 @@ import {
   canConfirmRefundCandidate,
   getDisplayedRefundManagerNextStep,
   getRefundManagerState,
+  hasFreshPersistedNayaxSelection,
   hasUnpaidRefundReview,
   hasProtectedRefundLifecycle,
   isDefinitiveNoRefundRetryReady,
   isResolvedDuplicateRefundCase,
+  persistedNayaxSelectionMatchesCandidate,
   refundReadinessBlockMessage,
   type RefundManagerState,
   type RefundManagerStateTone,
@@ -2049,22 +2051,10 @@ const primaryActionConfig = (
 
     const hasUnsavedCandidate = Boolean(editor.matchedNayaxCandidateToken.trim());
     if (hasUnsavedCandidate && selectedCandidate) {
-      if (typeof refundReadiness?.approvalPendingExecution !== 'boolean') {
-        return {
-          label: refundReadiness ? 'Refund temporarily unavailable' : 'Checking refund availability',
-          helper: refundReadiness
-            ? refundReadinessBlockMessage(null)
-            : 'Checking that the guarded refund service is ready for this transaction.',
-          disabled: true,
-        };
-      }
       return {
-        label: `Refund ${formatCurrency(selectedCandidate.amountCents)}`,
-        helper: 'Confirm this exact transaction and refund its full provider amount in one decision. The customer is emailed only after the refund succeeds.',
-        targetStatus: 'completed',
-        targetDecision: 'approved',
-        messageType: 'completed',
-        mode: 'nayax_refund_execution',
+        label: 'Save transaction before refunding',
+        helper: 'Save this transaction and wait for Bloomjoy to confirm it from the server. No refund or approval is submitted by the save.',
+        disabled: true,
       };
     }
 
@@ -2080,10 +2070,10 @@ const primaryActionConfig = (
             !['unauthorized', 'duplicate_transaction', 'reconciliation_hold', 'globally_paused', 'kill_switch', 'kill_switch_active'].includes(refundReadiness.blockReason ?? '')
           )
         );
-      if (!refundReadiness) {
+      if (!hasFreshPersistedNayaxSelection(refundCase, refundReadiness)) {
         return {
           label: 'Checking refund availability',
-          helper: 'Transaction confirmed. Payment: Not issued.',
+          helper: 'Checking the exact saved transaction and current case version. Payment: Not issued.',
           disabled: true,
         };
       }
@@ -2650,6 +2640,15 @@ export default function AdminRefundsPage() {
   const [overviewReadMessage, setOverviewReadMessage] = useState('');
   const overviewPolling = useMemo(createRefundReadPolling, [selectedId]);
   const overviewTruthRef = useRef<RefundOperationsOverview>();
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
+  const readFreshRefundOverview = async () => {
+    const incoming = await fetchRefundOperationsOverview();
+    const merged = mergeRefundOverviewContactTruth(overviewTruthRef.current, incoming);
+    overviewTruthRef.current = merged;
+    queryClient.setQueryData(['admin-refund-operations-overview'], merged);
+    return merged;
+  };
   const availabilityPolling = useMemo(createRefundReadPolling, [selectedId]);
   const {
     data: liveOverviewSnapshot,
@@ -3472,30 +3471,54 @@ export default function AdminRefundsPage() {
     return override ? managerStateBadgeClass(override.tone) : taskBadgeClass(managerDisplayCase(refundCase));
   };
 
+  const readFreshNayaxSelection = async (
+    caseId: string,
+    candidate?: NayaxLookupCandidate | null,
+  ) => {
+    const freshOverview = await readFreshRefundOverview();
+    const freshCase = freshOverview.cases.find((refundCase) => refundCase.id === caseId) ?? null;
+    const freshReadiness = await fetchNayaxCardRefundAvailability(caseId);
+    queryClient.setQueryData(['nayax-card-refund-availability', caseId], freshReadiness);
+    const exactCandidateSaved = candidate
+      ? persistedNayaxSelectionMatchesCandidate(freshCase?.selectedNayaxTransaction, candidate)
+      : true;
+    return {
+      freshCase,
+      freshReadiness,
+      confirmed:
+        exactCandidateSaved &&
+        hasFreshPersistedNayaxSelection(freshCase, freshReadiness),
+    };
+  };
+
   const applyCaseUpdateResponse = async (
     result: UpdateRefundCaseResponse,
+    targetCase: RefundCaseRecord,
     options: { quietTransactionConfirmation?: boolean } = {}
   ): Promise<CaseSaveSuccess> => {
     const nextOfficialActionVersion = Number(result.refundCase?.officialActionVersion ?? 0);
-    setOfficialActionVersion(nextOfficialActionVersion > 0 ? nextOfficialActionVersion : 0);
-    if (result.transactionConfirmed === true && selectedCase) {
+    const targetStillSelected = selectedIdRef.current === targetCase.id;
+    if (targetStillSelected) {
+      setOfficialActionVersion(nextOfficialActionVersion > 0 ? nextOfficialActionVersion : 0);
+    }
+    if (result.transactionConfirmed === true) {
       const readiness = result.refundReadiness ?? {
         transactionConfirmed: true,
         canIssueCardRefund: false,
         blockReason: 'provider_unavailable' as const,
-        refundAmountCents: selectedCase.refundAmountCents ?? selectedCase.matchedNayaxAmountCents,
+        refundAmountCents: targetCase.refundAmountCents ?? targetCase.matchedNayaxAmountCents,
         machineLimitCents: null,
         caseVersion: nextOfficialActionVersion || null,
       };
       const confirmedCase: RefundCaseRecord = {
-        ...selectedCase,
-        status: result.refundCase?.status ?? selectedCase.status,
-        decision: result.refundCase?.decision ?? selectedCase.decision,
-        officialActionVersion: nextOfficialActionVersion || selectedCase.officialActionVersion,
+        ...targetCase,
+        status: result.refundCase?.status ?? targetCase.status,
+        decision: result.refundCase?.decision ?? targetCase.decision,
+        officialActionVersion: nextOfficialActionVersion || targetCase.officialActionVersion,
         correlationStatus: 'matched',
         correlationSource: 'nayax',
         hasMatchedNayaxTransaction: true,
-        refundAmountCents: readiness.refundAmountCents ?? selectedCase.refundAmountCents,
+        refundAmountCents: readiness.refundAmountCents ?? targetCase.refundAmountCents,
         refundReadiness: readiness,
       };
       queryClient.setQueryData<RefundOperationsOverview>(
@@ -3510,12 +3533,12 @@ export default function AdminRefundsPage() {
           : current
       );
       queryClient.setQueryData(
-        ['nayax-card-refund-availability', selectedCase.id],
+        ['nayax-card-refund-availability', targetCase.id],
         {
           available: readiness.canIssueCardRefund,
           status: readiness.canIssueCardRefund ? 'available' : 'unavailable',
           blockReason: readiness.blockReason,
-          caseId: selectedCase.id,
+          caseId: targetCase.id,
           ...readiness,
           payloadRedacted: true,
         }
@@ -3523,22 +3546,22 @@ export default function AdminRefundsPage() {
       // Keep the detail mounted while the authoritative overview decides its
       // post-confirmation queue. Otherwise the old filter can clear selection
       // in the same render that receives the new server projection.
-      setStatusFilter('all');
+      if (targetStillSelected) setStatusFilter('all');
       await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
       const authoritativeCase = queryClient
         .getQueryData<RefundOperationsOverview>(['admin-refund-operations-overview'])
         ?.cases.find((refundCase) => refundCase.id === confirmedCase.id);
-      if (authoritativeCase) {
+      if (targetStillSelected && authoritativeCase) {
         // A confirmed transaction can change queues. Keep the selected detail
         // attached to the server-owned queue instead of deriving readiness
         // from this mutation response or clearing it under the old filter.
         setStatusFilter(getRefundQueueFilterForCase(authoritativeCase, refundOperationsAccess));
         setEditor(toEditorState(authoritativeCase));
-      } else {
+      } else if (targetStillSelected) {
         setEditor(toEditorState(confirmedCase));
       }
-      setNayaxCandidates([]);
-      if (!options.quietTransactionConfirmation) {
+      if (targetStillSelected) setNayaxCandidates([]);
+      if (targetStillSelected && !options.quietTransactionConfirmation) {
         setNayaxLookupNotice({
           tone: 'success',
           title: 'Transaction confirmed',
@@ -3546,14 +3569,14 @@ export default function AdminRefundsPage() {
         });
         toast.success('Transaction confirmed. No refund has been issued.');
       }
-    } else if (result.customerMessage?.status === 'failed') {
+    } else if (targetStillSelected && result.customerMessage?.status === 'failed') {
       toast.error('Case updated, but the customer email failed. Retry before treating the customer as contacted.');
-    } else if (result.customerMessage?.status === 'sent') {
+    } else if (targetStillSelected && result.customerMessage?.status === 'sent') {
       toast.success('Refund case updated and customer email sent.');
-    } else {
+    } else if (targetStillSelected) {
       toast.success('Refund case updated.');
     }
-    if (result.updateApplied !== false) setIsInternalNoteDirty(false);
+    if (targetStillSelected && result.updateApplied !== false) setIsInternalNoteDirty(false);
     await refresh();
     return {
       customerMessage: result.customerMessage ?? null,
@@ -3668,9 +3691,14 @@ export default function AdminRefundsPage() {
   const handleSaveCase = async (
     editorOverride?: EditorState,
     customerMessageType?: RefundCustomerPortalMessageType | null,
-    options: { quietTransactionConfirmation?: boolean } = {}
+    options: {
+      quietTransactionConfirmation?: boolean;
+      reconcileSelectionFailure?: boolean;
+    } = {}
   ): Promise<CaseSaveResult> => {
     if (!selectedCase || !editor) return null;
+    const targetCase = selectedCase;
+    const targetOfficialActionVersion = officialActionVersion;
     const nextEditor = editorOverride ?? editor;
     if (editorRequiresOfficialAction(nextEditor) && selectedCaseIsReviewOnly) {
       toast.error(selectedCaseOfficialActionBlockMessage);
@@ -3691,7 +3719,7 @@ export default function AdminRefundsPage() {
       return null;
     }
 
-    const issues = getCaseSaveIssues(selectedCase, nextEditor);
+    const issues = getCaseSaveIssues(targetCase, nextEditor);
     if (issues.length > 0) {
       toast.error(issues[0]);
       return null;
@@ -3711,10 +3739,10 @@ export default function AdminRefundsPage() {
       const clearNayaxMatch = nextEditor.clearNayaxMatch;
       const nayaxAmountCents = centsFromCurrency(nextEditor.matchedNayaxAmount);
       const isManualExternalCashCompletion =
-        selectedCase.paymentMethod !== 'card' && nextEditor.status === 'completed';
+        targetCase.paymentMethod !== 'card' && nextEditor.status === 'completed';
       const updateInput = {
-        caseId: selectedCase.id,
-        expectedOfficialActionVersion: officialActionVersion,
+        caseId: targetCase.id,
+        expectedOfficialActionVersion: targetOfficialActionVersion,
         status: clearNayaxMatch ? 'needs_review' : nextEditor.status,
         assignedManagerEmail: nextEditor.assignedManagerEmail.trim() || null,
         decision: clearNayaxMatch ? null : nextEditor.decision,
@@ -3737,47 +3765,51 @@ export default function AdminRefundsPage() {
         nayaxDisagreementReason: nextEditor.nayaxDisagreementReason || null,
         customerMessageType,
         customerMissingFields: customerMessageType === 'more_info'
-          ? derivePortalRefundMissingFields(selectedCase)
+          ? derivePortalRefundMissingFields(targetCase)
           : [],
       } as const;
       const result = await updateRefundCaseAdmin(updateInput);
-      const applied = await applyCaseUpdateResponse(result, options);
+      const applied = await applyCaseUpdateResponse(result, targetCase, options);
       return applied;
     } catch (saveError) {
       if (
         isRefundCaseUpdateError(saveError) &&
         saveError.data?.errorCode === 'stale_review_evidence'
       ) {
-        setIsRefundConfirmationOpen(false);
-        setEditor((current) => current
-          ? {
-              ...current,
-              matchedNayaxCandidateToken: '',
-              nayaxDisagreementReason: '',
-            }
-          : current
-        );
-        setNayaxCandidates([]);
-        setNayaxLookupSummary({
-          lookupStatus: 'lookup_failed',
-          lastCheckedAt: new Date().toISOString(),
-          windowHours: selectedNayaxSummary?.windowHours ?? null,
-          providerWindowRecordCount: null,
-          candidateCount: 0,
-          summary: 'The previous transaction results expired.',
-          recommendedAction: 'Refresh the transaction results and select the transaction again.',
-        });
-        setNayaxLookupNotice({
-          tone: 'warning',
-          title: 'Transaction results expired',
-          message: 'Refresh the transaction results and select the transaction again. No refund has been issued.',
-        });
-        toast.error('Transaction results expired. Refresh the results and select the transaction again.');
+        if (selectedIdRef.current === targetCase.id) {
+          setIsRefundConfirmationOpen(false);
+          setEditor((current) => current
+            ? {
+                ...current,
+                matchedNayaxCandidateToken: '',
+                nayaxDisagreementReason: '',
+              }
+            : current
+          );
+          setNayaxCandidates([]);
+          setNayaxLookupSummary({
+            lookupStatus: 'lookup_failed',
+            lastCheckedAt: new Date().toISOString(),
+            windowHours: selectedNayaxSummary?.windowHours ?? null,
+            providerWindowRecordCount: null,
+            candidateCount: 0,
+            summary: 'The previous transaction results expired.',
+            recommendedAction: 'Refresh the transaction results and select the transaction again.',
+          });
+          setNayaxLookupNotice({
+            tone: 'warning',
+            title: 'Transaction results expired',
+            message: 'Refresh the transaction results and select the transaction again. No refund has been issued.',
+          });
+          toast.error('Transaction results expired. Refresh the results and select the transaction again.');
+        }
         await refresh();
         return null;
       }
       const message = saveError instanceof Error ? saveError.message : 'Unable to update refund case.';
-      toast.error(message);
+      if (!options.reconcileSelectionFailure && selectedIdRef.current === targetCase.id) {
+        toast.error(message);
+      }
       return null;
     } finally {
       setIsSaving(false);
@@ -3786,6 +3818,7 @@ export default function AdminRefundsPage() {
 
   const handlePrepareNayaxSelection = async () => {
     if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return;
+    const targetCaseId = selectedCase.id;
     const candidate = selectedNayaxCandidate(editor, nayaxCandidates);
     if (!candidate) return;
     const prepared = await handleSaveCase(
@@ -3796,9 +3829,39 @@ export default function AdminRefundsPage() {
         decisionReason: '',
       },
       null,
-      { quietTransactionConfirmation: true }
+      {
+        quietTransactionConfirmation: true,
+        reconcileSelectionFailure: true,
+      }
     );
-    if (!prepared || prepared === 'step_up_pending' || prepared.updateApplied !== true) return;
+    if (prepared === 'step_up_pending') return;
+    try {
+      const reconciliation = await readFreshNayaxSelection(targetCaseId, candidate);
+      if (selectedIdRef.current !== targetCaseId) return;
+      if (!reconciliation.confirmed) {
+        setRefundActionReceipt({
+          tone: 'warning',
+          title: 'Transaction was not saved',
+          message: 'No refund, approval, or customer message was submitted. Select the transaction and save it again.',
+        });
+        toast.error('Transaction was not saved. No refund was submitted.');
+        return;
+      }
+      if (reconciliation.freshCase) {
+        setOfficialActionVersion(reconciliation.freshCase.officialActionVersion ?? 0);
+        setEditor(toEditorState(reconciliation.freshCase));
+        setNayaxCandidates([]);
+      }
+    } catch {
+      if (selectedIdRef.current !== targetCaseId) return;
+      setRefundActionReceipt({
+        tone: 'warning',
+        title: 'Transaction save could not be confirmed',
+        message: 'No refund, approval, or customer message was submitted. Reload this case to check whether the transaction selection was saved.',
+      });
+      toast.error('No refund was submitted. Reload to check the transaction selection.');
+      return;
+    }
     setRefundActionReceipt({
       tone: 'success',
       title: 'Transaction saved for manager review',
@@ -3979,7 +4042,16 @@ export default function AdminRefundsPage() {
     }
 
     const candidateBeingSelected = selectedNayaxCandidate(editor, nayaxCandidates);
-    const refundAmountCents = candidateBeingSelected?.amountCents ?? selectedCase.matchedNayaxAmountCents;
+    if (candidateBeingSelected) {
+      setIsRefundConfirmationOpen(false);
+      setNayaxExecutionNotice({
+        tone: 'warning',
+        message: 'Save this transaction and wait for Bloomjoy to confirm it before issuing the refund. No refund was submitted.',
+      });
+      return;
+    }
+    const expectedSelection = selectedCase.selectedNayaxTransaction;
+    const refundAmountCents = selectedCase.matchedNayaxAmountCents;
     if (typeof refundAmountCents !== 'number' || refundAmountCents <= 0) {
       setNayaxExecutionNotice({
         tone: 'warning',
@@ -4008,63 +4080,51 @@ export default function AdminRefundsPage() {
     setNayaxExecutionNotice(null);
     setRefundActionReceipt(null);
     try {
-      let executionVersion = officialActionVersion;
-      if (candidateBeingSelected) {
-        const selectionEditor: EditorState = {
-          ...editor,
-          status: 'card_refund_pending',
-          decision: 'approved',
-        };
-        const approvalResult = await handleSaveCase(
-          selectionEditor,
-          null,
-          { quietTransactionConfirmation: true }
-        );
-        if (!approvalResult || approvalResult === 'step_up_pending') return;
-        if (
-          approvalResult.updateApplied !== true ||
-          approvalResult.officialActionVersion <= 0
-        ) {
-          setIsRefundConfirmationOpen(false);
+      let freshSelection: Awaited<ReturnType<typeof readFreshNayaxSelection>>;
+      try {
+        freshSelection = await readFreshNayaxSelection(selectedCase.id);
+      } catch {
+        setIsRefundConfirmationOpen(false);
+        setNayaxExecutionNotice({
+          tone: 'warning',
+          message: 'Bloomjoy could not recheck the saved transaction. No refund was submitted. Reload the case before continuing.',
+        });
+        toast.error('No refund was submitted. Reload the case and check the saved transaction.');
+        return;
+      }
+      const freshCase = freshSelection.freshCase;
+      const freshReadiness = freshSelection.freshReadiness;
+      const sameSelection = expectedSelection
+        ? persistedNayaxSelectionMatchesCandidate(
+            freshCase?.selectedNayaxTransaction,
+            {
+              amountCents: expectedSelection.saleAmountCents,
+              currencyCode: expectedSelection.currencyCode,
+              authorizedAt: expectedSelection.providerAuthorizedAt,
+              cardLast4: expectedSelection.cardLast4 ?? '',
+            },
+          )
+        : false;
+      if (
+        selectedIdRef.current !== selectedCase.id ||
+        !freshSelection.confirmed ||
+        !sameSelection ||
+        freshCase?.officialActionVersion !== officialActionVersion ||
+        freshReadiness.canIssueCardRefund !== true
+      ) {
+        setIsRefundConfirmationOpen(false);
+        if (selectedIdRef.current === selectedCase.id) {
           setNayaxExecutionNotice({
             tone: 'warning',
-            message: 'Bloomjoy could not retain this refund approval. Reload the current case before continuing.',
+            message: freshReadiness.blockReason
+              ? `${refundReadinessBlockMessage(freshReadiness.blockReason)} No refund was submitted.`
+              : 'The saved transaction or case version changed. No refund was submitted. Review the refreshed case before continuing.',
           });
-          return;
+          toast.error('No refund was submitted. Review the refreshed case before continuing.');
         }
-        executionVersion = approvalResult.officialActionVersion;
-        let approvedReadiness: Awaited<ReturnType<typeof fetchNayaxCardRefundAvailability>>;
-        try {
-          approvedReadiness = await fetchNayaxCardRefundAvailability(selectedCase.id);
-        } catch {
-          setIsRefundConfirmationOpen(false);
-          setNayaxExecutionNotice({
-            tone: 'info',
-            message: 'Your refund approval was saved. Bloomjoy will continue the guarded refund when availability can be checked again.',
-          });
-          await refresh();
-          return;
-        }
-        queryClient.setQueryData(
-          ['nayax-card-refund-availability', selectedCase.id],
-          approvedReadiness
-        );
-        if (
-          approvedReadiness.transactionConfirmed !== true ||
-          approvedReadiness.canIssueCardRefund !== true ||
-          approvedReadiness.caseVersion !== executionVersion
-        ) {
-          setIsRefundConfirmationOpen(false);
-          setNayaxExecutionNotice({
-            tone: 'info',
-            message: approvedReadiness.blockReason
-              ? `Your refund approval was saved. ${refundReadinessBlockMessage(approvedReadiness.blockReason)}`
-              : 'Your refund approval was saved. Bloomjoy will continue the guarded refund when it becomes available.',
-          });
-          await refresh();
-          return;
-        }
+        return;
       }
+      const executionVersion = freshCase.officialActionVersion;
       const executionInput = {
         caseId: selectedCase.id,
         expectedOfficialActionVersion: executionVersion,
@@ -5942,9 +6002,9 @@ export default function AdminRefundsPage() {
       : hasUnsavedTransactionChoice
       ? {
           id: 'match_attention',
-          label: 'Confirm transaction',
+          label: 'Save selected transaction',
           explanation: 'You selected a possible transaction for this customer.',
-          nextStep: `Review the selected sale and confirm ${formatCurrency(cardAmountCents)} once to issue the refund.`,
+          nextStep: `Review the selected ${formatCurrency(cardAmountCents)} sale, then save it for manager review. Saving does not issue a refund.`,
           tone: 'info',
         }
       : !hasSelectedMatch &&

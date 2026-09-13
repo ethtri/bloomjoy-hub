@@ -9,6 +9,8 @@ import {
   isResolvedDuplicateRefundCase,
   getRefundPaymentStateLabel,
   hasUnpaidRefundReview,
+  hasFreshPersistedNayaxSelection,
+  persistedNayaxSelectionMatchesCandidate,
 } from './refundManagerState.ts';
 import type {
   RefundCustomerOutreachContract,
@@ -27,6 +29,139 @@ const baseCase = {
   providerOutcome: 'not_attempted' as const,
   nayaxRecommendationState: 'high_confidence' as const,
 };
+
+Deno.test('refund selection requires the exact current server version', () => {
+  const refundCase = {
+    hasMatchedNayaxTransaction: true,
+    officialActionVersion: 7,
+    selectedNayaxTransaction: {
+      saleAmountCents: 1090,
+      currencyCode: 'USD',
+      providerAuthorizedAt: '2026-09-12T18:30:00.000Z',
+      cardLast4: '6172',
+    },
+  };
+
+  assertEquals(
+    hasFreshPersistedNayaxSelection(refundCase, {
+      transactionConfirmed: true,
+      caseVersion: 7,
+    }),
+    true,
+    'matching server selection and readiness version should pass',
+  );
+  assertEquals(
+    hasFreshPersistedNayaxSelection(refundCase, {
+      transactionConfirmed: true,
+      caseVersion: 6,
+    }),
+    false,
+    'stale readiness must fail closed',
+  );
+  assertEquals(
+    hasFreshPersistedNayaxSelection(
+      { ...refundCase, selectedNayaxTransaction: null },
+      { transactionConfirmed: true, caseVersion: 7 },
+    ),
+    false,
+    'legacy match flags without selected transaction evidence must fail closed',
+  );
+});
+
+Deno.test('fresh saved evidence must match the browser candidate exactly', () => {
+  const selection = {
+    saleAmountCents: 1090,
+    currencyCode: 'USD',
+    providerAuthorizedAt: '2026-09-12T18:30:00.000Z',
+    cardLast4: '6172',
+  };
+  const candidate = {
+    amountCents: 1090,
+    currencyCode: 'usd',
+    authorizedAt: '2026-09-12T18:30:00Z',
+    cardLast4: '6172',
+  };
+
+  assertEquals(
+    persistedNayaxSelectionMatchesCandidate(selection, candidate),
+    true,
+    'equivalent timestamps and normalized currency should match',
+  );
+  assertEquals(
+    persistedNayaxSelectionMatchesCandidate(selection, { ...candidate, amountCents: 1000 }),
+    false,
+    'a different amount must fail closed',
+  );
+  assertEquals(
+    persistedNayaxSelectionMatchesCandidate(selection, { ...candidate, authorizedAt: '2026-09-12T18:31:00Z' }),
+    false,
+    'a different provider authorization must fail closed',
+  );
+  assertEquals(
+    persistedNayaxSelectionMatchesCandidate(selection, { ...candidate, cardLast4: '0000' }),
+    false,
+    'a different card suffix must fail closed',
+  );
+  assertEquals(
+    persistedNayaxSelectionMatchesCandidate(selection, { ...candidate, currencyCode: 'CAD' }),
+    false,
+    'a different currency must fail closed',
+  );
+});
+
+Deno.test('interrupted selection saves never become refund authority without fresh server proof', () => {
+  const unavailableServerSelection = {
+    hasMatchedNayaxTransaction: false,
+    officialActionVersion: 7,
+    selectedNayaxTransaction: null,
+  };
+  const freshReadiness = { transactionConfirmed: false, caseVersion: 7 };
+
+  for (const failure of [
+    'request never sent',
+    'transport interrupted before commit',
+    'HTTP 500',
+    'HTTP 504',
+    'late response after navigation',
+    'reload before commit',
+  ]) {
+    assertEquals(
+      hasFreshPersistedNayaxSelection(unavailableServerSelection, freshReadiness),
+      false,
+      `${failure} must leave refund disabled`,
+    );
+  }
+});
+
+Deno.test('a lost save response is recoverable only from the exact fresh committed selection', () => {
+  const committedSelection = {
+    hasMatchedNayaxTransaction: true,
+    officialActionVersion: 8,
+    selectedNayaxTransaction: {
+      saleAmountCents: 1090,
+      currencyCode: 'USD',
+      providerAuthorizedAt: '2026-09-12T18:30:00.000Z',
+      cardLast4: '6172',
+    },
+  };
+
+  assertEquals(
+    hasFreshPersistedNayaxSelection(committedSelection, {
+      transactionConfirmed: true,
+      caseVersion: 8,
+    }),
+    true,
+    'fresh read after a lost response may recover the committed save',
+  );
+  assertEquals(
+    hasFreshPersistedNayaxSelection(committedSelection, {
+      transactionConfirmed: true,
+      caseVersion: 7,
+    }),
+    false,
+    'stale or duplicate browser state cannot reuse the committed save',
+  );
+});
 
 Deno.test('displayed manager next step follows an available ask-for-details action', () => {
   const managerState = getRefundManagerState({

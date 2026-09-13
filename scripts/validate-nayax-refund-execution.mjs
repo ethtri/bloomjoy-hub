@@ -279,7 +279,9 @@ assert(
 );
 assert(
   officialActionHelper.includes('p_expected_case_version: context.expectedCaseVersion') &&
-    refundOperationsUi.includes('expectedOfficialActionVersion: officialActionVersion') &&
+    refundOperationsUi.includes('const executionVersion = freshCase.officialActionVersion') &&
+    refundOperationsUi.includes('expectedOfficialActionVersion: executionVersion') &&
+    refundOperationsUi.includes('freshCase?.officialActionVersion !== officialActionVersion') &&
     officialActionMigration.includes('authorization_row.expected_case_version') &&
     officialActionMigration.includes("authorization_row.status <> 'authorized'") &&
     officialActionMigration.includes('authorization_row.expires_at <= statement_timestamp()') &&
@@ -639,13 +641,17 @@ assert(
   'The refund admin endpoint must permit only the exact combined selection approval while rejecting other premature card approvals.'
 );
 assert(
-  refundOperationsUi.includes('label: `Refund ${formatCurrency(selectedCandidate.amountCents)}`') &&
-    refundOperationsUi.includes('Confirm this exact transaction and refund its full provider amount in one decision.') &&
+  refundOperationsUi.includes("label: 'Save transaction before refunding'") &&
+    refundOperationsUi.includes('No refund or approval is submitted by the save.') &&
+    refundOperationsUi.includes('handlePrepareNayaxSelection') &&
+    refundOperationsUi.includes('readFreshNayaxSelection') &&
+    refundOperationsUi.includes('persistedNayaxSelectionMatchesCandidate') &&
+    refundOperationsUi.includes('hasFreshPersistedNayaxSelection') &&
     refundOperationsUi.includes("mode: 'nayax_refund_execution'") &&
     refundOperationsUi.includes('quietTransactionConfirmation: true') &&
-    refundOperationsUi.includes("status: 'card_refund_pending'") &&
-    refundOperationsUi.includes("decision: 'approved'") &&
-    refundOperationsUi.includes('approvalResult.officialActionVersion') &&
+    refundOperationsUi.includes("status: 'needs_review'") &&
+    refundOperationsUi.includes("decision: null") &&
+    refundOperationsUi.includes('const executionVersion = freshCase.officialActionVersion') &&
     refundOperationsUi.includes('approvalPendingExecution') &&
     refundOperationsUi.includes('approvalContinuationReady') &&
     refundOperationsUi.includes('approvalAutoResumeReady') &&
@@ -657,7 +663,7 @@ assert(
     refundOperationsUi.includes('Continuing the refund you already approved') &&
     !refundOperationsUi.includes("mode: 'nayax_evidence_selection'") &&
     !refundOperationsUi.includes("label: 'Confirm this card sale'"),
-  'The manager UI must durably fold exact transaction binding into one ordinary refund decision and resume only its still-current approval.'
+  'The manager UI must save and freshly re-read exact transaction evidence before Refund is available, then resume only a still-current prior approval.'
 );
 assert(
   refundOperationsUi.includes('candidateOption(') &&
@@ -671,7 +677,9 @@ assert(
     refundOperationsUi.includes('if (!caseAllowsCandidateSelection || candidate.selectionAllowed === false) return;') &&
     refundOperationsUi.includes('refundAmount:') &&
     refundOperationsUi.includes('(candidate.amountCents / 100).toFixed(2)') &&
-    refundOperationsUi.includes('const refundAmountCents = candidateBeingSelected?.amountCents ?? selectedCase.matchedNayaxAmountCents') &&
+    refundOperationsUi.includes('if (candidateBeingSelected) {') &&
+    refundOperationsUi.includes('Save this transaction and wait for Bloomjoy to confirm it before issuing the refund.') &&
+    refundOperationsUi.includes('const refundAmountCents = selectedCase.matchedNayaxAmountCents') &&
     refundOperationsUi.includes('The full selected Nayax transaction amount is set automatically') &&
     refundOperationsUi.includes("refundCase.reviewedNayaxPortalFallbackKind === 'ordinary_exact_match'") &&
     !refundOperationsUi.includes("refundReadiness?.blockReason === 'provider_remaining_value_unverified'") &&
