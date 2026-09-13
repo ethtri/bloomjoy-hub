@@ -147,13 +147,17 @@ test('approval continuation preserves the original receipt without a second mana
     /create or replace function public\.refund_official_action_receipt_authority_valid\([\s\S]*?revoke all on function public\.refund_official_action_receipt_authority_valid/
   )?.[0] ?? '';
   const systemConsumer = migration.match(
-    /create or replace function public\.service_consume_nayax_refund_official_action\([\s\S]*?grant execute on function public\.service_consume_nayax_refund_official_action/
+    /create or replace function public\.service_consume_nayax_refund_official_action\([\s\S]*?revoke execute on function public\.service_consume_nayax_refund_official_action/
   )?.[0] ?? '';
   assert.match(migration, /refund_official_action_receipt_authority_valid/);
   assert.doesNotMatch(receiptConsumer, /refund_official_action_authority|reporting_machine_refund_managers|admin_roles/);
   assert.doesNotMatch(receiptAuthority, /reporting_machine_refund_managers|admin_roles|can_perform_refund_official_action/);
   assert.doesNotMatch(systemConsumer, /can_prepare_nayax_refund_execution|can_perform_refund_official_action|reporting_machine_refund_managers|admin_roles/);
   assert.match(systemConsumer, /nayax_execution_evidence_hash/);
+  assert.doesNotMatch(
+    migration,
+    /grant execute on function public\.service_consume_nayax_refund_official_action\([\s\S]*?to service_role/,
+  );
   assert.match(migration, /drop column current_manager_mapping_id/);
   assert.match(migration, /candidate\.approving_actor_user_id/);
   assert.match(migration, /body:=replace\(body,E'      ''currentManagerMappingId''/);

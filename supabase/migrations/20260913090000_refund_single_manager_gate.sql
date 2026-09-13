@@ -738,9 +738,6 @@ $$;
 revoke execute on function public.service_consume_nayax_refund_official_action(
   uuid,uuid,text,text,integer,uuid
 ) from public,anon,authenticated,service_role;
-grant execute on function public.service_consume_nayax_refund_official_action(
-  uuid,uuid,text,text,integer,uuid
-) to service_role;
 
 create or replace function public.refund_receipt_verified_api_attempt(
   p_case_id uuid,p_attempt_id uuid
@@ -1020,6 +1017,66 @@ comment on table public.refund_nayax_server_approval_continuation_claims is
 -- Historical step-up rows remain readable as audit evidence.  The former TOTP
 -- preparation/consumption endpoints are retired so no caller can accidentally
 -- re-enter the second-approval workflow.
+create or replace function public.admin_prepare_refund_action_step_up_intent(
+  p_case_id uuid,p_action text,p_target_function text,p_expected_case_version bigint,
+  p_target_status text default null,p_target_decision text default null,
+  p_assigned_manager_email text default null,p_decision_reason text default null,
+  p_internal_note text default null,p_refund_amount_cents integer default null,
+  p_manual_refund_reference text default null,p_cash_payout_sent_at timestamptz default null,
+  p_cash_payment_confirmed boolean default false,
+  p_matched_nayax_candidate_token uuid default null,
+  p_nayax_disagreement_reason text default null
+)
+returns jsonb language plpgsql security definer set search_path='' as $$
+begin
+  raise exception 'The refund TOTP approval lane is retired' using errcode='42501';
+end;
+$$;
+create or replace function public.admin_get_refund_action_step_up_intent(p_intent_id uuid)
+returns jsonb language plpgsql security definer set search_path='' as $$
+begin
+  raise exception 'The refund TOTP approval lane is retired' using errcode='42501';
+end;
+$$;
+create or replace function public.admin_cancel_refund_action_step_up_intent(p_intent_id uuid)
+returns jsonb language plpgsql security definer set search_path='' as $$
+begin
+  raise exception 'The refund TOTP approval lane is retired' using errcode='42501';
+end;
+$$;
+create or replace function public.admin_refund_manager_step_up_factor_is_approved(
+  p_intent_id uuid,p_factor_binding_hash text
+)
+returns boolean language plpgsql stable security definer set search_path='' as $$
+begin
+  raise exception 'The refund TOTP approval lane is retired' using errcode='42501';
+end;
+$$;
+create or replace function public.admin_consume_refund_action_step_up_intent(
+  p_intent_id uuid,p_case_id uuid,p_action text,p_target_function text,
+  p_expected_case_version bigint,p_target_status text default null,
+  p_target_decision text default null,p_assigned_manager_email text default null,
+  p_decision_reason text default null,p_internal_note text default null,
+  p_refund_amount_cents integer default null,p_manual_refund_reference text default null,
+  p_cash_payout_sent_at timestamptz default null,
+  p_cash_payment_confirmed boolean default false,
+  p_matched_nayax_candidate_token uuid default null,
+  p_nayax_disagreement_reason text default null,
+  p_factor_verification_proof text default null
+)
+returns jsonb language plpgsql security definer set search_path='' as $$
+begin
+  raise exception 'The refund TOTP approval lane is retired' using errcode='42501';
+end;
+$$;
+create or replace function public.service_mark_refund_manager_step_up_factor_verified(
+  p_actor_user_id uuid,p_intent_id uuid,p_factor_binding_hash text
+)
+returns jsonb language plpgsql security definer set search_path='' as $$
+begin
+  raise exception 'The refund TOTP approval lane is retired' using errcode='42501';
+end;
+$$;
 revoke execute on function public.admin_prepare_refund_action_step_up_intent(
   uuid,text,text,bigint,text,text,text,text,text,integer,text,
   timestamptz,boolean,uuid,text

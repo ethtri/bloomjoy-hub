@@ -594,7 +594,7 @@ select is(current_setting('test.server_continuation_second_worker')::jsonb
     ->>'claimedCount','0',
   'A coalesced second worker cannot claim the same attempt');
 select throws_ok($$update public.refund_nayax_server_approval_continuation_claims
-  set current_manager_mapping_version=current_manager_mapping_version+1$$,
+  set execution_context_hash=repeat('f',64)$$,
   'P0001',null,'Server continuation claim evidence is immutable');
 select pg_temp.record_request(6,'accepted',true,true,'FixtureResult','FixtureStatus');
 select throws_ok($$update public.refund_cases set refund_amount_cents=700
@@ -1606,9 +1606,7 @@ select set_config('test.server_handoff_claim',
 reset role;
 select is(current_setting('test.server_handoff_claim')::jsonb->>'claimedCount','1',
   'Service continuation survives a manager handoff on the unchanged machine');
-select ok((select claim.current_manager_mapping_id=
-      'ca400000-0000-4000-8000-000000000002'::uuid
-    and claim.official_action_authorization_id=attempt.official_action_authorization_id
+select ok((select claim.official_action_authorization_id=attempt.official_action_authorization_id
     and attempt.actor_user_id='ca000000-0000-4000-8000-000000000001'::uuid
   from continuation_reservations reservation
   join public.refund_case_nayax_refund_attempts attempt
@@ -1616,7 +1614,7 @@ select ok((select claim.current_manager_mapping_id=
   join public.refund_nayax_server_approval_continuation_claims claim
     on claim.nayax_refund_attempt_id=attempt.id
   where reservation.n=6),
-  'Handoff freezes the current mapping while retaining the original approver');
+  'Handoff retains the immutable original approval without storing a live manager mapping');
 select ok(current_setting('test.server_handoff_claim')::jsonb
     #>>'{claims,0,executionContext,transactionId}'='823456786'
   and current_setting('test.server_handoff_claim')::jsonb

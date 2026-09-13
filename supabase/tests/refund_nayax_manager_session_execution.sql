@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(16);
+select plan(20);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -122,6 +122,28 @@ insert into public.refund_cases (
   'MANAGER-SESSION-TX-004', 901, statement_timestamp() - interval '4 days',
   650, '4242', 'USD', 'high_confidence', 'manager-session-test-v1',
   statement_timestamp(), true
+),
+(
+  'b1600000-0000-4000-8000-000000000005', 'RF-MANAGER-SESSION-EXPIRED',
+  'b1300000-0000-4000-8000-000000000001',
+  'b1200000-0000-4000-8000-000000000001',
+  'customer-expired@example.test', 'Expired immutable receipt check',
+  statement_timestamp() - interval '5 days', 'card', 600, 600,
+  'needs_review', null, '4242', false, 'matched', 'nayax', 1,
+  'MANAGER-SESSION-TX-005', 901, statement_timestamp() - interval '5 days',
+  600, '4242', 'USD', 'high_confidence', 'manager-session-test-v1',
+  statement_timestamp(), true
+),
+(
+  'b1600000-0000-4000-8000-000000000006', 'RF-MANAGER-SESSION-BINDING',
+  'b1300000-0000-4000-8000-000000000001',
+  'b1200000-0000-4000-8000-000000000001',
+  'customer-binding@example.test', 'Exact immutable receipt binding check',
+  statement_timestamp() - interval '6 days', 'card', 550, 550,
+  'needs_review', null, '4242', false, 'matched', 'nayax', 1,
+  'MANAGER-SESSION-TX-006', 901, statement_timestamp() - interval '6 days',
+  550, '4242', 'USD', 'high_confidence', 'manager-session-test-v1',
+  statement_timestamp(), true
 );
 
 insert into public.refund_case_events (
@@ -143,6 +165,18 @@ insert into public.refund_case_events (
   'b1600000-0000-4000-8000-000000000004',
   'b1000000-0000-4000-8000-000000000001',
   'nayax_match_selected', 'Manager selected the drift-check transaction.',
+  '{"selected_recommended":true,"payload_redacted":true}'::jsonb
+),
+(
+  'b1600000-0000-4000-8000-000000000005',
+  'b1000000-0000-4000-8000-000000000001',
+  'nayax_match_selected', 'Manager selected the expiry-check transaction.',
+  '{"selected_recommended":true,"payload_redacted":true}'::jsonb
+),
+(
+  'b1600000-0000-4000-8000-000000000006',
+  'b1000000-0000-4000-8000-000000000001',
+  'nayax_match_selected', 'Manager selected the binding-check transaction.',
   '{"selected_recommended":true,"payload_redacted":true}'::jsonb
 );
 
@@ -241,6 +275,86 @@ select ok(
   and not exists(select 1 from public.refund_case_nayax_refund_attempts
     where refund_case_id='b1600000-0000-4000-8000-000000000004'),
   'A stale case version creates no receipt or provider attempt'
+);
+
+insert into public.refund_case_official_action_authorizations(
+  refund_case_id,action,actor_user_id,manager_mapping_id,manager_mapping_version,
+  authority_kind,expected_case_version,action_context_hash,status,created_at,expires_at,
+  step_up_intent_id,verified_totp_at,nayax_execution_evidence_hash,authorization_method
+)
+select refund_case.id,'nayax_execute','b1000000-0000-4000-8000-000000000001',
+  manager_mapping.id,manager_mapping.mapping_version,'machine_manager',
+  refund_case.official_action_version,
+  public.refund_official_action_context_hash('nayax_execute','card_refund_pending',
+    'approved',null,null,null,refund_case.refund_amount_cents,null,null,false,null,null,null),
+  'authorized',
+  case when refund_case.id='b1600000-0000-4000-8000-000000000005'
+    then statement_timestamp()-interval '10 minutes' else statement_timestamp() end,
+  case when refund_case.id='b1600000-0000-4000-8000-000000000005'
+    then statement_timestamp()-interval '5 minutes' else statement_timestamp()+interval '5 minutes' end,
+  null,null,public.refund_nayax_execution_evidence_hash(refund_case,machine),'manager_session'
+from public.refund_cases refund_case
+join public.reporting_machines machine on machine.id=refund_case.reporting_machine_id
+join public.reporting_machine_refund_managers manager_mapping
+  on manager_mapping.reporting_machine_id=machine.id
+  and manager_mapping.manager_user_id='b1000000-0000-4000-8000-000000000001'
+where refund_case.id in (
+  'b1600000-0000-4000-8000-000000000005',
+  'b1600000-0000-4000-8000-000000000006'
+);
+
+select ok(
+  pg_temp.capture_error($sql$
+    select public.service_consume_nayax_refund_official_action(
+      (select id from public.refund_case_official_action_authorizations
+       where refund_case_id='b1600000-0000-4000-8000-000000000005'),
+      'b1600000-0000-4000-8000-000000000005',
+      'card_refund_pending','approved',600,null)
+  $sql$) like '%authorization expired%'
+  and (select status='authorized' and consumed_at is null
+    from public.refund_case_official_action_authorizations
+    where refund_case_id='b1600000-0000-4000-8000-000000000005')
+  and not exists(select 1 from public.refund_case_nayax_refund_attempts
+    where refund_case_id='b1600000-0000-4000-8000-000000000005'),
+  'An expired manager-session receipt fails before consumption or provider reservation'
+);
+
+select ok(
+  pg_temp.capture_error($sql$
+    select public.service_consume_nayax_refund_official_action(
+      (select id from public.refund_case_official_action_authorizations
+       where refund_case_id='b1600000-0000-4000-8000-000000000006'),
+      'b1600000-0000-4000-8000-000000000004',
+      'card_refund_pending','approved',550,null)
+  $sql$) like '%does not match this request%'
+  and (select status='authorized' and consumed_at is null
+    from public.refund_case_official_action_authorizations
+    where refund_case_id='b1600000-0000-4000-8000-000000000006'),
+  'A manager-session receipt cannot be consumed for a different case'
+);
+
+select lives_ok($sql$
+  select public.service_consume_nayax_refund_official_action(
+    (select id from public.refund_case_official_action_authorizations
+     where refund_case_id='b1600000-0000-4000-8000-000000000006'),
+    'b1600000-0000-4000-8000-000000000006',
+    'card_refund_pending','approved',550,null)
+$sql$, 'The exact case, version, amount, actor, and evidence binding consumes once');
+
+select ok(
+  pg_temp.capture_error($sql$
+    select public.service_consume_nayax_refund_official_action(
+      (select id from public.refund_case_official_action_authorizations
+       where refund_case_id='b1600000-0000-4000-8000-000000000006'),
+      'b1600000-0000-4000-8000-000000000006',
+      'card_refund_pending','approved',550,null)
+  $sql$) like '%already used%'
+  and (select status='consumed' and consumed_at is not null
+    from public.refund_case_official_action_authorizations
+    where refund_case_id='b1600000-0000-4000-8000-000000000006')
+  and not exists(select 1 from public.refund_case_nayax_refund_attempts
+    where refund_case_id='b1600000-0000-4000-8000-000000000006'),
+  'A consumed manager-session receipt cannot be reused and creates no provider attempt by itself'
 );
 
 insert into public.refund_case_official_action_authorizations(
