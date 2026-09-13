@@ -1671,60 +1671,16 @@ immutable
 set search_path = public
 as $$ select true; $$;
 
-set local role authenticated;
-select pg_temp.set_auth_claims(
-  'b1000000-0000-4000-8000-000000000001',
-  'aal1',
-  jsonb_build_array(jsonb_build_object(
-    'method', 'password',
-    'timestamp', extract(epoch from statement_timestamp())
-  ))
-);
-insert into pg_temp.nayax_resolution_test_intents (
-  intent_key,
-  intent_id,
-  evidence_occurred_at
-)
-select
-  'retry-step-up',
-  (public.admin_prepare_refund_action_step_up_intent(
-    'b1600000-0000-4000-8000-000000000002',
-    'nayax_execute',
-    'nayax-card-refund',
-    (select official_action_version
-      from public.refund_cases
-      where id = 'b1600000-0000-4000-8000-000000000002'),
-    'card_refund_pending',
-    'approved',
-    null,
-    null,
-    null,
-    702,
-    null,
-    null,
-    false,
-    null,
-    null
-  ) ->> 'intentId')::uuid,
-  null;
-reset role;
 select ok((
-  select
-    refund_case.nayax_refund_attempt_generation = 1
-    and intent.expected_case_version = refund_case.official_action_version
-    and intent.nayax_execution_evidence_hash =
-      public.refund_nayax_execution_evidence_hash(refund_case, machine)
-  from public.refund_manager_action_step_up_intents intent
-  join public.refund_cases refund_case
-    on refund_case.id = intent.refund_case_id
-  join public.reporting_machines machine
-    on machine.id = refund_case.reporting_machine_id
-  where intent.id = (
-    select intent_id
-    from pg_temp.nayax_resolution_test_intents
-    where intent_key = 'retry-step-up'
-  )
-), 'Retry-safe returns through the real manager step-up preparation path with generation one frozen');
+  select refund_case.nayax_refund_attempt_generation = 1
+    and public.refund_nayax_execution_evidence_hash(refund_case,machine)~'^[a-f0-9]{64}$'
+  from public.refund_cases refund_case
+  join public.reporting_machines machine on machine.id=refund_case.reporting_machine_id
+  where refund_case.id='b1600000-0000-4000-8000-000000000002'
+) and not has_function_privilege('authenticated',
+  'public.admin_prepare_refund_action_step_up_intent(uuid,text,text,bigint,text,text,text,text,text,integer,text,timestamp with time zone,boolean,uuid,text)',
+  'execute'),
+  'Retry-safe returns with generation one frozen and cannot reopen the retired TOTP path');
 
 select pg_temp.seed_fresh_nayax_authorization(
   'b1600000-0000-4000-8000-000000000002',

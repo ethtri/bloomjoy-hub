@@ -54,6 +54,15 @@ test('normal manager confirmation creates one receipt and no step-up artifact', 
     /revoke execute on function public\.admin_begin_refund_manual_nayax_portal\(uuid,bigint\)\s+from public,anon,authenticated,service_role;/,
     'no application role can create a current manual-portal attempt',
   );
+  assert.match(migration, /raise exception 'The manual Nayax portal refund lane is retired'\s+using errcode='42501'/);
+  assert.match(
+    migration,
+    /revoke execute on function public\.admin_prepare_refund_action_step_up_intent\([\s\S]*?from public,anon,authenticated,service_role;/,
+  );
+  assert.match(
+    migration,
+    /revoke execute on function public\.admin_consume_refund_action_step_up_intent\([\s\S]*?from public,anon,authenticated,service_role;/,
+  );
   assert.doesNotMatch(refundOperations, /beginRefundManualNayaxPortal|admin_begin_refund_manual_nayax_portal/);
   assert.doesNotMatch(portal, /legacy-refund-run-nayax-refund/);
   assert.equal(
@@ -131,7 +140,20 @@ test('the four execution protections remain explicit and customer mail stays suc
 });
 
 test('approval continuation preserves the original receipt without a second manager gate', () => {
+  const receiptConsumer = migration.match(
+    /create or replace function public\.consume_refund_official_action_authorization\([\s\S]*?revoke all on function public\.consume_refund_official_action_authorization/
+  )?.[0] ?? '';
+  const receiptAuthority = migration.match(
+    /create or replace function public\.refund_official_action_receipt_authority_valid\([\s\S]*?revoke all on function public\.refund_official_action_receipt_authority_valid/
+  )?.[0] ?? '';
+  const systemConsumer = migration.match(
+    /create or replace function public\.service_consume_nayax_refund_official_action\([\s\S]*?grant execute on function public\.service_consume_nayax_refund_official_action/
+  )?.[0] ?? '';
   assert.match(migration, /refund_official_action_receipt_authority_valid/);
+  assert.doesNotMatch(receiptConsumer, /refund_official_action_authority|reporting_machine_refund_managers|admin_roles/);
+  assert.doesNotMatch(receiptAuthority, /reporting_machine_refund_managers|admin_roles|can_perform_refund_official_action/);
+  assert.doesNotMatch(systemConsumer, /can_prepare_nayax_refund_execution|can_perform_refund_official_action|reporting_machine_refund_managers|admin_roles/);
+  assert.match(systemConsumer, /nayax_execution_evidence_hash/);
   assert.match(migration, /drop column current_manager_mapping_id/);
   assert.match(migration, /candidate\.approving_actor_user_id/);
   assert.match(migration, /body:=replace\(body,E'      ''currentManagerMappingId''/);

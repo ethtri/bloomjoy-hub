@@ -84,7 +84,7 @@ create or replace function public.admin_authorize_refund_official_action(
 )
 returns jsonb language plpgsql security definer set search_path='' as $$
 declare
-  actor_user_id uuid:=auth.uid();
+  authenticated_actor_user_id uuid:=auth.uid();
   c public.refund_cases%rowtype;
   candidate public.refund_nayax_lookup_candidates%rowtype;
   receipt public.refund_case_official_action_authorizations%rowtype;
@@ -95,7 +95,7 @@ declare
   candidate_hash text;
   context_hash text;
 begin
-  if actor_user_id is null then
+  if authenticated_actor_user_id is null then
     raise exception 'Authenticated manager or Super-admin session required';
   end if;
   perform public.assert_refund_official_action_payload_shape(normalized_action,
@@ -104,10 +104,10 @@ begin
     p_cash_payout_sent_at,p_cash_payment_confirmed,p_matched_nayax_candidate_token,
     p_nayax_disagreement_reason);
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
-    'refund-manager-action-v2|'||actor_user_id::text||'|'||p_case_id::text,0));
+    'refund-manager-action-v2|'||authenticated_actor_user_id::text||'|'||p_case_id::text,0));
   select * into c from public.refund_cases where id=p_case_id for update;
   if not found then raise exception 'Refund case not found'; end if;
-  authority:=public.refund_official_action_authority(actor_user_id,c.id);
+  authority:=public.refund_official_action_authority(authenticated_actor_user_id,c.id);
   if authority is null then
     raise exception 'An active assigned manager or Super-admin is required for this machine';
   end if;
@@ -115,12 +115,12 @@ begin
     perform 1 from public.reporting_machine_refund_managers mapping
     where mapping.id=(authority->>'recordId')::uuid
       and mapping.reporting_machine_id=c.reporting_machine_id
-      and mapping.manager_user_id=actor_user_id
+      and mapping.manager_user_id=authenticated_actor_user_id
       and mapping.mapping_version=(authority->>'version')::bigint
       and mapping.status='active' and mapping.revoked_at is null for share;
   else
     perform 1 from public.admin_roles role_row
-    where role_row.id=(authority->>'recordId')::uuid and role_row.user_id=actor_user_id
+    where role_row.id=(authority->>'recordId')::uuid and role_row.user_id=authenticated_actor_user_id
       and role_row.role='super_admin' and role_row.active is true for share;
   end if;
   if not found then raise exception 'Manager authority changed before confirmation'; end if;
@@ -158,9 +158,13 @@ begin
       or normalized_status<>'card_refund_pending' then
       raise exception 'Nayax candidate selection is available only during card approval';
     end if;
-    select * into candidate from public.refund_nayax_lookup_candidates
-    where token=p_matched_nayax_candidate_token and refund_case_id=c.id
-      and actor_user_id=actor_user_id and expires_at>statement_timestamp() for share;
+    select lookup_candidate.* into candidate
+    from public.refund_nayax_lookup_candidates lookup_candidate
+    where lookup_candidate.token=p_matched_nayax_candidate_token
+      and lookup_candidate.refund_case_id=c.id
+      and lookup_candidate.actor_user_id=authenticated_actor_user_id
+      and lookup_candidate.expires_at>statement_timestamp()
+    for share;
     if not found then
       raise exception 'Nayax lookup evidence expired or belongs to another review session';
     end if;
@@ -177,14 +181,14 @@ begin
   insert into public.refund_case_official_action_authorizations(refund_case_id,
     action,actor_user_id,manager_mapping_id,manager_mapping_version,authority_kind,
     super_admin_role_id,expected_case_version,action_context_hash,authorization_method,expires_at)
-  values(c.id,normalized_action,actor_user_id,
+  values(c.id,normalized_action,authenticated_actor_user_id,
     case when authority->>'kind'='machine_manager' then (authority->>'recordId')::uuid end,
     case when authority->>'kind'='machine_manager' then (authority->>'version')::bigint end,
     authority->>'kind',case when authority->>'kind'='super_admin'
       then (authority->>'recordId')::uuid end,c.official_action_version,context_hash,
     'manager_session',statement_timestamp()+interval '90 seconds') returning * into receipt;
   insert into public.refund_case_events(refund_case_id,actor_user_id,event_type,message,metadata)
-  values(c.id,actor_user_id,'official_action_authorized',
+  values(c.id,authenticated_actor_user_id,'official_action_authorized',
     'An authorized manager confirmed this exact action.',jsonb_build_object(
       'action',normalized_action,'authority_kind',authority->>'kind',
       'authority_record_id',authority->>'recordId','payload_redacted',true));
@@ -213,7 +217,6 @@ declare
   receipt public.refund_case_official_action_authorizations%rowtype;
   c public.refund_cases%rowtype;
   candidate public.refund_nayax_lookup_candidates%rowtype;
-  authority jsonb;
   normalized_action text:=lower(btrim(coalesce(p_action,'')));
   candidate_hash text;
   expected_hash text;
@@ -236,26 +239,10 @@ begin
   if not found or c.official_action_version is distinct from receipt.expected_case_version then
     raise exception 'Refund case changed since authorization; reload before taking an official action';
   end if;
-  authority:=public.refund_official_action_authority(receipt.actor_user_id,c.id);
-  if authority is null or authority->>'kind' is distinct from receipt.authority_kind
-    or (authority->>'recordId')::uuid is distinct from coalesce(
-      receipt.manager_mapping_id,receipt.super_admin_role_id)
-    or (receipt.authority_kind='machine_manager' and
-      (authority->>'version')::bigint is distinct from receipt.manager_mapping_version) then
-    raise exception 'Manager authority changed before the official action';
-  end if;
-  if receipt.authority_kind='machine_manager' then
-    perform 1 from public.reporting_machine_refund_managers mapping
-    where mapping.id=receipt.manager_mapping_id and mapping.reporting_machine_id=c.reporting_machine_id
-      and mapping.manager_user_id=receipt.actor_user_id
-      and mapping.mapping_version=receipt.manager_mapping_version
-      and mapping.status='active' and mapping.revoked_at is null for share;
-  else
-    perform 1 from public.admin_roles role_row where role_row.id=receipt.super_admin_role_id
-      and role_row.user_id=receipt.actor_user_id and role_row.role='super_admin'
-      and role_row.active is true for share;
-  end if;
-  if not found then raise exception 'Manager authority changed before the official action'; end if;
+  -- Authority is checked once, when this immutable receipt is created.  From
+  -- here onward the System validates the receipt's exact case, version, actor,
+  -- payload, transaction evidence and single-use state without consulting a
+  -- live assignment, role or browser session again.
   if p_matched_nayax_candidate_token is not null then
     select * into candidate from public.refund_nayax_lookup_candidates
     where token=p_matched_nayax_candidate_token and refund_case_id=p_case_id
@@ -659,6 +646,102 @@ $new$;
 end;
 $$;
 
+-- Once approval is recorded, validity is intrinsic to the immutable receipt.
+-- Do not make System completion depend on a later assignment, role or session.
+create or replace function public.refund_official_action_receipt_authority_valid(
+  p_authorization_id uuid,p_reporting_machine_id uuid
+)
+returns boolean language sql stable security definer set search_path='' as $$
+  select exists(
+    select 1
+    from public.refund_case_official_action_authorizations receipt
+    join public.refund_cases refund_case on refund_case.id=receipt.refund_case_id
+    where receipt.id=p_authorization_id
+      and refund_case.reporting_machine_id=p_reporting_machine_id
+      and receipt.actor_user_id is not null
+      and receipt.action='nayax_execute'
+      and receipt.authorization_method='manager_session'
+      and receipt.status='consumed'
+      and receipt.consumed_at is not null
+      and receipt.step_up_intent_id is null
+      and receipt.verified_totp_at is null
+      and receipt.nayax_execution_evidence_hash~'^[a-f0-9]{64}$'
+      and ((receipt.authority_kind='machine_manager'
+        and receipt.manager_mapping_id is not null
+        and receipt.manager_mapping_version>0
+        and receipt.super_admin_role_id is null)
+        or (receipt.authority_kind='super_admin'
+          and receipt.manager_mapping_id is null
+          and receipt.manager_mapping_version is null
+          and receipt.super_admin_role_id is not null))
+  );
+$$;
+revoke all on function public.refund_official_action_receipt_authority_valid(uuid,uuid)
+  from public,anon,authenticated,service_role;
+
+create or replace function public.service_consume_nayax_refund_official_action(
+  p_authorization_id uuid,p_case_id uuid,p_status text,p_decision text,
+  p_refund_amount_cents integer,p_matched_nayax_candidate_token uuid default null
+)
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare
+  authorization_context jsonb;
+  authorization_row public.refund_case_official_action_authorizations%rowtype;
+  refund_case public.refund_cases%rowtype;
+  nayax_machine public.reporting_machines%rowtype;
+  current_execution_evidence_hash text;
+begin
+  if p_matched_nayax_candidate_token is not null then
+    raise exception 'Nayax execution uses the persisted approved match and does not accept a candidate token';
+  end if;
+
+  authorization_context:=public.consume_refund_official_action_authorization(
+    p_authorization_id,p_case_id,'nayax_execute',p_status,p_decision,
+    null,null,null,p_refund_amount_cents,null,null,false,null,null);
+
+  select * into authorization_row
+  from public.refund_case_official_action_authorizations authorization
+  where authorization.id=p_authorization_id for update;
+  select * into refund_case from public.refund_cases
+  where id=p_case_id for update;
+  select * into nayax_machine from public.reporting_machines
+  where id=refund_case.reporting_machine_id for share;
+  if not found then
+    raise exception 'Nayax machine configuration changed after manager confirmation';
+  end if;
+
+  current_execution_evidence_hash:=public.refund_nayax_execution_evidence_hash(
+    refund_case,nayax_machine);
+  if authorization_row.nayax_execution_evidence_hash is distinct from
+      current_execution_evidence_hash then
+    raise exception 'Nayax execution evidence changed after manager confirmation; review again';
+  end if;
+  if not public.refund_official_action_receipt_authority_valid(
+    authorization_row.id,refund_case.reporting_machine_id
+  ) then
+    raise exception 'Immutable manager confirmation receipt is invalid';
+  end if;
+
+  insert into public.refund_case_events(
+    refund_case_id,actor_user_id,event_type,message,metadata)
+  values(p_case_id,authorization_row.actor_user_id,
+    'nayax_official_action_revalidated',
+    'The System validated the exact manager confirmation and frozen transaction evidence before Nayax preparation.',
+    jsonb_build_object('action','nayax_execute',
+      'authority_kind',authorization_row.authority_kind,
+      'authority_record_id',coalesce(authorization_row.manager_mapping_id,
+        authorization_row.super_admin_role_id),
+      'payload_redacted',true));
+  return authorization_context;
+end;
+$$;
+revoke execute on function public.service_consume_nayax_refund_official_action(
+  uuid,uuid,text,text,integer,uuid
+) from public,anon,authenticated,service_role;
+grant execute on function public.service_consume_nayax_refund_official_action(
+  uuid,uuid,text,text,integer,uuid
+) to service_role;
+
 create or replace function public.refund_receipt_verified_api_attempt(
   p_case_id uuid,p_attempt_id uuid
 )
@@ -696,15 +779,7 @@ returns boolean language sql stable security definer set search_path='' as $$
       and receipt.status='consumed' and receipt.actor_user_id=attempt.actor_user_id
       and receipt.authorization_method='manager_session'
       and receipt.step_up_intent_id is null and receipt.verified_totp_at is null
-      and ((receipt.authority_kind='machine_manager' and exists(
-        select 1 from public.reporting_machine_refund_managers mapping
-        where mapping.id=receipt.manager_mapping_id
-          and mapping.reporting_machine_id=machine.id
-          and mapping.manager_user_id=receipt.actor_user_id))
-        or (receipt.authority_kind='super_admin' and exists(
-          select 1 from public.admin_roles role_row
-          where role_row.id=receipt.super_admin_role_id
-            and role_row.user_id=receipt.actor_user_id and role_row.role='super_admin')))
+      and public.refund_official_action_receipt_authority_valid(receipt.id,machine.id)
       and attempt.step_up_intent_id is null
       and attempt.request_fingerprint=public.refund_nayax_attempt_request_fingerprint(
         receipt.id,c.id,attempt.idempotency_key,attempt.amount_cents,
@@ -714,32 +789,6 @@ returns boolean language sql stable security definer set search_path='' as $$
           and journal.stage='request' and journal.event='started'));
 $$;
 revoke all on function public.refund_receipt_verified_api_attempt(uuid,uuid)
-  from public,anon,authenticated,service_role;
-
--- Recovery continues the immutable attempt that the manager already approved.
--- Validate the exact authority record stored on that receipt; do not ask a
--- second manager to approve or fabricate a replacement mapping.
-create or replace function public.refund_official_action_receipt_authority_valid(
-  p_authorization_id uuid,p_reporting_machine_id uuid
-)
-returns boolean language sql stable security definer set search_path='' as $$
-  select exists(
-    select 1 from public.refund_case_official_action_authorizations receipt
-    where receipt.id=p_authorization_id
-      and ((receipt.authority_kind='machine_manager' and exists(
-        select 1 from public.reporting_machine_refund_managers mapping
-        where mapping.id=receipt.manager_mapping_id
-          and mapping.reporting_machine_id=p_reporting_machine_id
-          and mapping.manager_user_id=receipt.actor_user_id
-          and mapping.mapping_version>=receipt.manager_mapping_version))
-        or (receipt.authority_kind='super_admin' and exists(
-          select 1 from public.admin_roles role_row
-          where role_row.id=receipt.super_admin_role_id
-            and role_row.user_id=receipt.actor_user_id
-            and role_row.role='super_admin')))
-  );
-$$;
-revoke all on function public.refund_official_action_receipt_authority_valid(uuid,uuid)
   from public,anon,authenticated,service_role;
 
 -- The interactive continuation is still available to either currently
@@ -968,8 +1017,38 @@ comment on function public.service_reserve_nayax_refund_approval_continuation_v1
 comment on table public.refund_nayax_server_approval_continuation_claims is
   'Immutable System claim for finishing only the approval stage of one already-approved Nayax attempt. The claim is bound to the original receipt and cannot repeat the refund request.';
 
--- Historical manual-portal attempts remain readable for audit evidence, but the
--- former second approval lane is no longer executable by any application role.
+-- Historical step-up rows remain readable as audit evidence.  The former TOTP
+-- preparation/consumption endpoints are retired so no caller can accidentally
+-- re-enter the second-approval workflow.
+revoke execute on function public.admin_prepare_refund_action_step_up_intent(
+  uuid,text,text,bigint,text,text,text,text,text,integer,text,
+  timestamptz,boolean,uuid,text
+) from public,anon,authenticated,service_role;
+revoke execute on function public.admin_get_refund_action_step_up_intent(uuid)
+  from public,anon,authenticated,service_role;
+revoke execute on function public.admin_cancel_refund_action_step_up_intent(uuid)
+  from public,anon,authenticated,service_role;
+revoke execute on function public.admin_refund_manager_step_up_factor_is_approved(uuid,text)
+  from public,anon,authenticated,service_role;
+revoke execute on function public.admin_consume_refund_action_step_up_intent(
+  uuid,uuid,text,text,bigint,text,text,text,text,text,integer,text,
+  timestamptz,boolean,uuid,text,text
+) from public,anon,authenticated,service_role;
+revoke execute on function public.service_mark_refund_manager_step_up_factor_verified(uuid,uuid,text)
+  from public,anon,authenticated,service_role;
+
+-- Historical manual-portal attempts remain readable for audit evidence.  Make
+-- the retired entry point fail before any lifecycle or attempt write, including
+-- when it is called by a database-owner or service context.
+create or replace function public.admin_begin_refund_manual_nayax_portal(
+  p_case_id uuid,p_expected_case_version bigint
+)
+returns jsonb language plpgsql security definer set search_path='' as $$
+begin
+  raise exception 'The manual Nayax portal refund lane is retired'
+    using errcode='42501';
+end;
+$$;
 revoke execute on function public.admin_begin_refund_manual_nayax_portal(uuid,bigint)
   from public,anon,authenticated,service_role;
 

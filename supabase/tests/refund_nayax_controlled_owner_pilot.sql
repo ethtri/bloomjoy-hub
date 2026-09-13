@@ -424,9 +424,8 @@ select throws_ok($sql$
     'nayax-card-refund', 1, 'card_refund_pending', 'approved',
     null, null, null, 700, null, null, false, null, null
   )
-$sql$, 'P0001',
-  'Official refund actions are disabled pending owner approval and controlled UAT',
-  'The portal-facing general official-action surface remains unavailable');
+$sql$, '42501', null,
+  'The retired TOTP approval surface is unavailable before it can write anything');
 reset role;
 
 update public.refund_manager_action_step_up_intents

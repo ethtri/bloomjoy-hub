@@ -62,7 +62,7 @@ set status='card_refund_pending',decision='approved',correlation_status='matched
   correlation_source='nayax',correlation_confidence=1,automation_state='approved',
   matched_nayax_transaction_id='223456782',matched_nayax_amount_cents=700,
   matched_nayax_currency_code='USD',matched_nayax_machine_auth_time=incident_at,
-  nayax_refund_execution_status='unknown',lifecycle_integrity_status='hold',
+  nayax_refund_execution_status='manual_review',lifecycle_integrity_status='hold',
   lifecycle_integrity_code='card_payment_state_without_attempt',
   lifecycle_integrity_detected_at=statement_timestamp()
 where id='af400000-0000-4000-8000-000000000002';

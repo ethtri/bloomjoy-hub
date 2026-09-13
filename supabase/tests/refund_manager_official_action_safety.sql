@@ -690,15 +690,15 @@ select pg_temp.set_auth_claims(
 );
 select ok(
   pg_temp.capture_error($sql$
-    select public.admin_prepare_refund_action_step_up_intent(
-      '79600000-0000-4000-8000-000000000001', 'approve', 'refund-case-admin-update',
+    select public.admin_authorize_refund_official_action(
+      '79600000-0000-4000-8000-000000000001', 'approve',
       (select official_action_version from public.refund_cases where id = '79600000-0000-4000-8000-000000000001'),
       'card_refund_pending', 'approved', null, null, null, 700, null, null, false, null, null
     )
   $sql$) like '%Cash approval must enter the cash refund pending state%'
   and pg_temp.capture_error($sql$
-    select public.admin_prepare_refund_action_step_up_intent(
-      '79600000-0000-4000-8000-000000000009', 'approve', 'refund-case-admin-update',
+    select public.admin_authorize_refund_official_action(
+      '79600000-0000-4000-8000-000000000009', 'approve',
       (select official_action_version from public.refund_cases where id = '79600000-0000-4000-8000-000000000009'),
       'cash_zelle_pending', 'approved', null, null, null, 450, null, null, false, null, null
     )
@@ -708,136 +708,20 @@ select ok(
 
 select ok(
   pg_temp.capture_error($sql$
-    select public.admin_prepare_refund_action_step_up_intent(
-      '79600000-0000-4000-8000-000000000001', 'approve', 'refund-case-admin-update', 1,
+    select public.admin_authorize_refund_official_action(
+      '79600000-0000-4000-8000-000000000001', 'approve', 1,
       'cash_zelle_pending', 'approved', null, null, null, 0, null, null, false, null, null
     )
   $sql$) like '%positive reviewed refund amount%'
   and pg_temp.capture_error($sql$
-    select public.admin_prepare_refund_action_step_up_intent(
-      '79600000-0000-4000-8000-000000000001', 'approve', 'refund-case-admin-update', 1,
+    select public.admin_authorize_refund_official_action(
+      '79600000-0000-4000-8000-000000000001', 'approve', 1,
       'cash_zelle_pending', 'approved', null, null, null, null, null, null, false, null, null
     )
   $sql$) like '%positive reviewed refund amount%',
   'Approve receipts require an exact positive reviewed refund amount'
 );
 reset role;
-
-insert into public.refund_manager_totp_enrollments (
-  actor_user_id,
-  approved_factor_binding_hash,
-  owner_approved_by_user_id,
-  owner_approval_version,
-  enrollment_version
-) values
-  (
-    '79000000-0000-4000-8000-000000000001',
-    repeat('c', 64),
-    '79000000-0000-4000-8000-000000000002',
-    1,
-    1
-  ),
-  (
-    '79000000-0000-4000-8000-000000000002',
-    repeat('c', 64),
-    '79000000-0000-4000-8000-000000000002',
-    2,
-    1
-  ),
-  (
-    '79000000-0000-4000-8000-000000000003',
-    repeat('c', 64),
-    '79000000-0000-4000-8000-000000000002',
-    3,
-    1
-  );
-
--- The remaining #689 regression assertions need receipts. Route their legacy
--- test helper through the new #692 prepare/verify/consume protocol. This
--- transaction-local replacement rolls back with the test.
-create or replace function public.admin_authorize_refund_official_action(
-  p_case_id uuid,
-  p_action text,
-  p_expected_case_version bigint,
-  p_target_status text default null,
-  p_target_decision text default null,
-  p_assigned_manager_email text default null,
-  p_decision_reason text default null,
-  p_internal_note text default null,
-  p_refund_amount_cents integer default null,
-  p_manual_refund_reference text default null,
-  p_cash_payout_sent_at timestamptz default null,
-  p_cash_payment_confirmed boolean default false,
-  p_matched_nayax_candidate_token uuid default null,
-  p_nayax_disagreement_reason text default null
-)
-returns jsonb
-language plpgsql
-security definer
-set search_path = public, auth, pg_temp
-as $$
-declare
-  actor_user_id uuid := auth.uid();
-  intent jsonb;
-  factor_marker jsonb;
-  target_function text := case
-    when lower(btrim(coalesce(p_action, ''))) = 'nayax_execute'
-      then 'nayax-card-refund'
-    else 'refund-case-admin-update'
-  end;
-begin
-  intent := public.admin_prepare_refund_action_step_up_intent(
-    p_case_id,
-    p_action,
-    target_function,
-    p_expected_case_version,
-    p_target_status,
-    p_target_decision,
-    p_assigned_manager_email,
-    p_decision_reason,
-    p_internal_note,
-    p_refund_amount_cents,
-    p_manual_refund_reference,
-    p_cash_payout_sent_at,
-    p_cash_payment_confirmed,
-    p_matched_nayax_candidate_token,
-    p_nayax_disagreement_reason
-  );
-  perform set_config('request.jwt.claim.sub', '', true);
-  perform set_config('request.jwt.claim.role', 'service_role', true);
-  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
-  factor_marker := public.service_mark_refund_manager_step_up_factor_verified(
-    actor_user_id,
-    (intent ->> 'intentId')::uuid,
-    repeat('c', 64)
-  );
-  perform pg_temp.set_auth_claims(
-    actor_user_id,
-    'aal2',
-    'totp',
-    extract(epoch from statement_timestamp() + interval '1 second')
-  );
-  return public.admin_consume_refund_action_step_up_intent(
-    (intent ->> 'intentId')::uuid,
-    p_case_id,
-    p_action,
-    target_function,
-    p_expected_case_version,
-    p_target_status,
-    p_target_decision,
-    p_assigned_manager_email,
-    p_decision_reason,
-    p_internal_note,
-    p_refund_amount_cents,
-    p_manual_refund_reference,
-    p_cash_payout_sent_at,
-    p_cash_payment_confirmed,
-    p_matched_nayax_candidate_token,
-    p_nayax_disagreement_reason,
-    factor_marker ->> 'factorVerificationProof'
-  );
-end;
-$$;
 
 select ok(
   public.can_perform_refund_official_action(

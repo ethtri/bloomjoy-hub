@@ -57,7 +57,7 @@ set status='card_refund_pending',decision='approved',correlation_status='matched
   correlation_source='nayax',correlation_confidence=1,automation_state='approved',
   matched_nayax_transaction_id='123456782',matched_nayax_amount_cents=700,
   matched_nayax_currency_code='USD',matched_nayax_machine_auth_time=incident_at,
-  nayax_refund_execution_status='unknown',refund_operations_due_at=statement_timestamp()-interval '1 hour',
+  nayax_refund_execution_status='manual_review',
   lifecycle_integrity_status='hold',
   lifecycle_integrity_code='card_payment_state_without_attempt',
   lifecycle_integrity_detected_at=statement_timestamp()
@@ -67,11 +67,12 @@ with inserted as (
     refund_case_id,actor_user_id,execution_mode,status,idempotency_key,
     amount_cents,provider_reference,provider_status,request_fingerprint,
     currency_code,provider_outcome,reconciliation_required,safe_transport_stage,
-    safe_failure_class,created_at)
+    safe_failure_class,refund_operations_due_at,created_at)
   select c.id,'ad000000-0000-4000-8000-000000000001','manual_portal','manual_review',
     'manual-nayax-portal-20260901-'||c.public_reference,700,c.matched_nayax_transaction_id,
     'request_accepted',encode(extensions.digest(convert_to(c.id::text||'|'||c.matched_nayax_transaction_id||'|700','UTF8'),'sha256'),'hex'),
-    'USD','unknown',true,'confirmation_hold','provider_unknown','2026-09-01 18:00:00+00'
+    'USD','unknown',true,'confirmation_hold','provider_unknown',
+    statement_timestamp()-interval '1 hour','2026-09-01 18:00:00+00'
   from public.refund_cases c where c.id='ad400000-0000-4000-8000-000000000002'
   returning id,refund_case_id,actor_user_id,created_at
 )

@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(14);
+select plan(16);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -111,6 +111,17 @@ insert into public.refund_cases (
   'MANAGER-SESSION-TX-003', 901, statement_timestamp() - interval '3 days',
   1090, '8992', 'USD', 'manual_exception', 'manager-session-test-v1',
   statement_timestamp(), false
+),
+(
+  'b1600000-0000-4000-8000-000000000004', 'RF-MANAGER-SESSION-DRIFT',
+  'b1300000-0000-4000-8000-000000000001',
+  'b1200000-0000-4000-8000-000000000001',
+  'customer-drift@example.test', 'Immutable receipt drift check',
+  statement_timestamp() - interval '4 days', 'card', 650, 650,
+  'needs_review', null, '4242', false, 'matched', 'nayax', 1,
+  'MANAGER-SESSION-TX-004', 901, statement_timestamp() - interval '4 days',
+  650, '4242', 'USD', 'high_confidence', 'manager-session-test-v1',
+  statement_timestamp(), true
 );
 
 insert into public.refund_case_events (
@@ -127,6 +138,12 @@ insert into public.refund_case_events (
   'b1000000-0000-4000-8000-000000000001',
   'nayax_match_selected', 'Manager selected the wallet transaction.',
   '{"selected_recommended":false,"disagreement_reason_code":"closer_time","payload_redacted":true}'::jsonb
+),
+(
+  'b1600000-0000-4000-8000-000000000004',
+  'b1000000-0000-4000-8000-000000000001',
+  'nayax_match_selected', 'Manager selected the drift-check transaction.',
+  '{"selected_recommended":true,"payload_redacted":true}'::jsonb
 );
 
 insert into public.refund_nayax_provider_callers (caller_id, assertion_digest)
@@ -212,6 +229,68 @@ select ok(
   ),
   'A not-ready case creates zero provider attempts'
 );
+
+select ok(
+  pg_temp.capture_error($sql$
+    select public.service_reserve_nayax_refund_manager_action(
+      'manager-session-executor','b1000000-0000-4000-8000-000000000001',
+      'b1600000-0000-4000-8000-000000000004',999,
+      'nayax-refund-6666666666666666666666666666666666666666666666666666666666666666',
+      650,100000,100,'USD')
+  $sql$) like '%changed since review%'
+  and not exists(select 1 from public.refund_case_nayax_refund_attempts
+    where refund_case_id='b1600000-0000-4000-8000-000000000004'),
+  'A stale case version creates no receipt or provider attempt'
+);
+
+insert into public.refund_case_official_action_authorizations(
+  refund_case_id,action,actor_user_id,manager_mapping_id,manager_mapping_version,
+  authority_kind,expected_case_version,action_context_hash,status,expires_at,
+  step_up_intent_id,verified_totp_at,nayax_execution_evidence_hash,authorization_method
+)
+select refund_case.id,'nayax_execute','b1000000-0000-4000-8000-000000000001',
+  manager_mapping.id,manager_mapping.mapping_version,'machine_manager',
+  refund_case.official_action_version,
+  public.refund_official_action_context_hash('nayax_execute','card_refund_pending',
+    'approved',null,null,null,650,null,null,false,null,null,null),
+  'authorized',statement_timestamp()+interval '5 minutes',null,null,
+  public.refund_nayax_execution_evidence_hash(refund_case,machine),'manager_session'
+from public.refund_cases refund_case
+join public.reporting_machines machine on machine.id=refund_case.reporting_machine_id
+join public.reporting_machine_refund_managers manager_mapping
+  on manager_mapping.reporting_machine_id=machine.id
+  and manager_mapping.manager_user_id='b1000000-0000-4000-8000-000000000001'
+where refund_case.id='b1600000-0000-4000-8000-000000000004';
+
+update public.reporting_machine_refund_managers
+set status='revoked',revoked_at=statement_timestamp()
+where id='b1400000-0000-4000-8000-000000000001';
+update public.reporting_machines set nayax_account_key='MANAGER_SESSION_ACCOUNT_CHANGED'
+where id='b1300000-0000-4000-8000-000000000001';
+
+select ok(
+  pg_temp.capture_error($sql$
+    select public.service_consume_nayax_refund_official_action(
+      (select id from public.refund_case_official_action_authorizations
+       where refund_case_id='b1600000-0000-4000-8000-000000000004'
+         and action='nayax_execute'),
+      'b1600000-0000-4000-8000-000000000004',
+      'card_refund_pending','approved',650,null)
+  $sql$) like '%execution evidence changed%'
+  and (select status='authorized' and consumed_at is null
+    from public.refund_case_official_action_authorizations
+    where refund_case_id='b1600000-0000-4000-8000-000000000004'
+      and action='nayax_execute')
+  and not exists(select 1 from public.refund_case_nayax_refund_attempts
+    where refund_case_id='b1600000-0000-4000-8000-000000000004'),
+  'Post-approval System work ignores live role changes, rejects evidence drift, rolls back receipt use, and creates no provider attempt'
+);
+
+update public.reporting_machines set nayax_account_key='MANAGER_SESSION_ACCOUNT'
+where id='b1300000-0000-4000-8000-000000000001';
+update public.reporting_machine_refund_managers
+set status='active',revoked_at=null
+where id='b1400000-0000-4000-8000-000000000001';
 
 insert into pg_temp.manager_session_results (result_key, result)
 select 'first', public.service_reserve_nayax_refund_manager_action(
