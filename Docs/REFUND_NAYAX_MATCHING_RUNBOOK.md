@@ -1,33 +1,34 @@
-# Refund Nayax Matching Runbook
+# Refund Nayax Matching Implementation Reference
+
+> **Not an agent case procedure.** Agents triaging live cases use only
+> [REFUND_AGENT_OPERATIONS.md](./REFUND_AGENT_OPERATIONS.md). This file explains
+> the matcher for Engineering and release verification; it must not create an
+> extra blocker or customer question.
 
 ## Purpose
 
-This runbook defines the deterministic, manager-confirmed card-transaction recommendation used by Refund Operations. It is advisory matching, not a probability score and not permission to issue a refund.
+This reference explains the deterministic, manager-confirmed card-transaction
+recommendation implemented by Bloomjoy Hub. It is advisory matching, not a
+probability score and not permission to issue a refund.
 
-This document governs transaction matching only. Its former statement that the production adapter was statically disabled described a pre-`#430` release and is superseded. Current refund execution authority, account identity, response-contract blocker, and safety gates are recorded in `Docs/DECISIONS.md`, `Docs/CURRENT_STATUS.md`, and `Docs/PRODUCTION_RUNBOOK.md`.
+The execution source of truth is `NAYAX_RECOMMENDATION_POLICY` in
+`supabase/functions/_shared/nayax-recommendation.mjs`, together with its tests.
+Do not maintain a separate set of numeric matching rules in this document.
+Run `npm run refunds:validate-nayax-matching` to verify the implementation.
 
 ## Policy version
 
-Current policy: `2026-08-11.v3`.
+Current implementation: `2026-09-05.v11`.
 
-Internal ranking points order otherwise-safe candidates. Never show the point total as a percentage or describe it as statistical confidence.
-
-| Evidence | Ranking points |
-| --- | ---: |
-| Exact mapped machine and location | 40 |
-| Exact amount | 25 |
-| Amount within 50 cents | 8 |
-| Time within 15 minutes | 25 |
-| Time within 60 minutes | 18 |
-| Time within 3 hours | 8 |
-| Time within 6-hour lookup window | 2 |
-| Exact card last four | 20 |
-| USD currency | 5 |
-| Explicit approved provider status | 5 |
+Internal ranking points order otherwise-safe candidates. Never show the point
+total as a percentage or describe it as statistical confidence. Read exact
+values from the source constant above; do not copy them into another playbook.
 
 ## Confidence classes
 
-- `strong_card`: exactly one otherwise-safe sale has the mapped machine, exact amount, exact resolved customer-reported time within 60 minutes, and correlating card last four. This is the only class that may become one-click eligible after manager confirmation, and only for a non-wallet transaction. A manager may still select an otherwise-safe transaction outside this class when the current evidence identifies one purchase.
+- `strong_card`: the deployed matcher found exactly one otherwise-safe sale under
+  its current strong-card rule. The agent follows the portal result and the
+  plain-English interpretation in Step 4 of the live case procedure.
 - `unique_qr_time`: exactly one otherwise-safe sale has the mapped machine, exact amount, exact resolved provider/customer times, occurs no more than 30 minutes before the verified server-recorded QR open, and has no plausible runner-up. It may guide a manager when wallet or contactless digits do not correlate, but it is never selected automatically.
 - `ambiguous_manual`: the available evidence does not meet either rule. This includes close-together candidates, a missing/invalid/replayed QR claim, a QR opened more than 30 minutes after the sale, uncertain amount, a customer time that may be off by an hour or is only rough, non-exact time resolution, or provider trouble.
 
@@ -46,7 +47,12 @@ Contactless and wallet last four is supporting evidence, not an identity key. A 
 
 QR open time and customer-reported incident time are stored, evaluated, and displayed separately. QR evidence must be a consumed, single-use claim bound to the same machine. Missing, invalid, replayed, future, or late QR evidence never supports `unique_qr_time`.
 
-Exact amount is mandatory for one-click eligibility. An amount mismatch may remain visible as review evidence but cannot be recommended for one-click execution.
+Exact amount is not mandatory when the deployed strong-card estimate rule
+applies. Keep both amounts visible and use the provider's full sale amount if the
+manager approves the refund. Do not request customer confirmation solely because
+the portal accepted a small difference as likely tax or rounding. Agents use the
+single Step 4 rule in `REFUND_AGENT_OPERATIONS.md`; Engineering changes numeric
+controls only in the source constant and its tests.
 
 Customer time confidence is separate from time-zone resolution. `exact` and `within_15_minutes` may support the existing deterministic rule. `within_1_hour` and `rough` remain useful comparison evidence, but they make the result manager-review-only. Existing records without the field retain their legacy behavior.
 
@@ -88,7 +94,7 @@ npm run refunds:validate-nayax-execution
 npm run db:validate-migrations
 ```
 
-Verify strong-card, unique QR/time, two close-together sales, missing QR, late QR, replay attempt, wrong/uncertain amount, lookup failure, duplicate, already-refunded, wallet mismatch, and both DST edge cases. Automatic recommendation remains limited to the strongest evidence class. Any manager-selected transaction must pass the current exact-binding, duplicate, retry-safety, durable-attempt, and unknown-result controls before provider execution.
+Verify strong-card estimated totals (including likely tax or rounding), unique QR/time, two close-together sales, missing QR, late QR, replay attempt, amount outside tolerance, lookup failure, duplicate, already-refunded, wallet mismatch, and both DST edge cases. Automatic recommendation remains limited to the strongest evidence class. Any manager-selected transaction must pass the current exact-binding, duplicate, retry-safety, durable-attempt, and unknown-result controls before provider execution.
 
 ## Rollback
 

@@ -1,5 +1,19 @@
 # Refund case procedure
 
+## One operating procedure
+
+This is the only playbook an agent should use to triage live refund cases.
+Do not combine it with older email-pilot, rollout, identification-strategy or
+matching-design documents. Those files describe implementation history or
+technical controls; they do not add steps, blockers or customer questions to
+this procedure.
+
+The portal applies the deployed transaction-matching rules and shows the
+eligible candidates. The exact numeric controls in code are checked against the
+plain-English rule in Step 4 by automated tests. If the portal and this procedure
+appear to disagree, do not substitute a rule from another document. Finish any
+safe research, use Step 7 and report the discrepancy for Engineering.
+
 ## Role and goal
 
 Act like a helpful, customer-focused assistant manager for every assigned machine.
@@ -92,6 +106,20 @@ Compare every plausible candidate using:
 Wallet digits can differ from the physical card. Nayax processing time can differ
 from the customer's purchase time. Use the portal's match and conflict notes. Do
 not guess between plausible transactions.
+
+A small amount difference is not a blocker by itself. Treat one otherwise-safe
+transaction as a clear match when it is the only plausible sale on the correct
+machine, the card or wallet ending matches, the time is within 60 minutes, and
+the provider total is within $3 of the customer's estimate. Differences in this
+range may be sales tax or rounding; a difference under 15% is especially ordinary.
+Keep the customer's estimate and the provider total visible, and prepare the
+provider's full sale amount for the manager.
+Do not ask the customer to choose between the two amounts when these matching facts already resolve the purchase.
+
+Example: a customer estimates **$10.00** and the portal shows one **$10.90** sale
+on the same machine, with the same card or wallet ending and a time two minutes
+away. That is a clear match. Prepare the $10.90 provider sale for approval; do
+not ask the customer about the 90-cent difference.
 
 If one clear match exists:
 
@@ -229,6 +257,7 @@ three calendar days.
 Follow Docs/REFUND_AGENT_OPERATIONS.md exactly. Use the bloomjoysweets.com Chrome
 profile and start at https://app.bloomjoyusa.com/refunds. Work every open case for
 machines assigned to TG Patchy or BloomJoy Enterprises; exclude Adam/BloomJoy NC.
+Do not use any other refund document as a second case-triage playbook.
 Act as a helpful, customer-focused assistant manager. Review the portal's existing
 transaction candidates first, use the supported Nayax API search only when needed,
 and use the Nayax portal second. Progress every case to exactly one report outcome:

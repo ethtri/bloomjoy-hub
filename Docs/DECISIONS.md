@@ -1,5 +1,22 @@
 # Decisions
 
+## 2026-09-12 - Refund agents use one operating playbook
+
+`Docs/REFUND_AGENT_OPERATIONS.md` is the only procedure for agents triaging live
+refund cases. Historical email, pilot, rollout, identification and matching
+documents may explain implementation or past decisions, but they cannot add a
+case outcome, blocker, approval step or customer question.
+
+The deployed `NAYAX_RECOMMENDATION_POLICY` constant and its tests are the source
+of exact numeric matching controls. The live agent procedure gives the one
+plain-English interpretation agents follow, and an automated test keeps its
+amount and time boundaries aligned with the implementation. A supporting
+document must link to that procedure instead of restating independent operating
+criteria.
+
+This separation prevents stale rollout history from becoming live policy while
+preserving technical evidence and decision history.
+
 ## 2026-09-12 - Routine refund research outreach is agent-operated
 
 Refund agents may independently send one specific information request when the

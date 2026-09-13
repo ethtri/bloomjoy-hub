@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { createReadClient, readPopulation, readCasePacket, readReportHealth, compareReview, paginate, summarizeCasePacket, ReviewError } from './refund-agent-review.mjs';
+import { NAYAX_RECOMMENDATION_POLICY } from '../../supabase/functions/_shared/nayax-recommendation.mjs';
 
 const repoRoot = new URL('../../', import.meta.url);
 const readRepoFile = filePath => readFile(new URL(filePath, repoRoot), 'utf8');
@@ -136,10 +137,42 @@ test('refund procedure follows the lean assistant-manager flow', async () => {
     'two to three calendar days',
     'separate manager approval is not required',
     'verify the send before reporting WAITING ON CUSTOMER',
+    'only playbook an agent should use to triage live refund cases',
+    "provider total is within $3 of the customer's estimate",
+    'difference under 15% is especially ordinary',
+    'Do not ask the customer to choose between the two amounts',
   ]) assert.match(procedure, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert(procedure.indexOf('API-backed transaction search') < procedure.indexOf('search the same machine and a'));
   assert.doesNotMatch(procedure, /Refund Operations|safe stopping point|Route to Refund Operations|assign Refund Operations/iu);
   assert.doesNotMatch(procedure, /action-time confirmation|stop immediately before \*\*Send\*\*/iu);
+});
+
+test('one live agent playbook matches the implemented amount and time controls', async () => {
+  const procedure = await readRepoFile('Docs/REFUND_AGENT_OPERATIONS.md');
+  assert.equal(NAYAX_RECOMMENDATION_POLICY.maximumStrongCardAmountDeltaCents, 300);
+  assert.equal(NAYAX_RECOMMENDATION_POLICY.maximumOneClickTimeDeltaMinutes, 60);
+  assert.match(procedure, new RegExp(`within \\$${NAYAX_RECOMMENDATION_POLICY.maximumStrongCardAmountDeltaCents / 100} of`));
+  assert.match(procedure, new RegExp(`time is within ${NAYAX_RECOMMENDATION_POLICY.maximumOneClickTimeDeltaMinutes} minutes`));
+});
+
+test('supporting refund documents cannot masquerade as competing agent playbooks', async () => {
+  const [matching, email, identification, decisions, production] = await Promise.all([
+    readRepoFile('Docs/REFUND_NAYAX_MATCHING_RUNBOOK.md'),
+    readRepoFile('Docs/REFUND_EMAIL_ASSISTANT_RUNBOOK.md'),
+    readRepoFile('Docs/REFUND_IDENTIFICATION_STRATEGY.md'),
+    readRepoFile('Docs/DECISIONS.md'),
+    readRepoFile('Docs/PRODUCTION_RUNBOOK.md'),
+  ]);
+  assert.match(matching, /Not an agent case procedure/);
+  assert(matching.includes(`Current implementation: \`${NAYAX_RECOMMENDATION_POLICY.version}\`.`));
+  assert.match(email, /Historical email-system and release reference/);
+  assert.match(email, /file may add a matching requirement, customer question or approval step/);
+  assert.match(identification, /Historical design reference — not a live case-triage playbook/);
+  assert.doesNotMatch(email, /mapped machine, exact amount, resolved time window, and matching last four/);
+  assert.doesNotMatch(email, /^## Agent procedure$/m);
+  assert.doesNotMatch(matching, /Exact amount is mandatory for one-click eligibility/);
+  assert.match(decisions, /REFUND_AGENT_OPERATIONS\.md` is the only procedure for agents triaging live/);
+  assert.doesNotMatch(production, /assign it to \*\*Refund Operations\*\*/);
 });
 
 test('daily report contract has every deterministic case and population field', async () => {
