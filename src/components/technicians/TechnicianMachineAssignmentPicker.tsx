@@ -29,6 +29,7 @@ type TechnicianMachineAssignmentPickerProps<TMachine extends TechnicianAssignabl
   clearLabel?: string;
   searchThreshold?: number;
   groupByLocation?: boolean;
+  selectedFirst?: boolean;
   className?: string;
 };
 
@@ -67,6 +68,7 @@ export function TechnicianMachineAssignmentPicker<TMachine extends TechnicianAss
   clearLabel = 'Clear',
   searchThreshold = 6,
   groupByLocation = true,
+  selectedFirst = false,
   className,
 }: TechnicianMachineAssignmentPickerProps<TMachine>) {
   const selectedIdSet = useMemo(() => new Set(selectedMachineIds), [selectedMachineIds]);
@@ -89,6 +91,15 @@ export function TechnicianMachineAssignmentPicker<TMachine extends TechnicianAss
     );
   }, [machines, normalizedMachineSearch]);
   const groupedMachines = useMemo(() => {
+    if (selectedFirst) {
+      const assignedMachines = filteredMachines.filter((machine) => selectedIdSet.has(machine.machineId));
+      const availableMachines = filteredMachines.filter((machine) => !selectedIdSet.has(machine.machineId));
+      return [
+        ...(assignedMachines.length > 0 ? [{ key: 'assigned', locationName: 'Current assignments', machines: assignedMachines }] : []),
+        ...(availableMachines.length > 0 ? [{ key: 'available', locationName: 'Available machines', machines: availableMachines }] : []),
+      ];
+    }
+
     if (!groupByLocation) {
       return [
         {
@@ -118,7 +129,7 @@ export function TechnicianMachineAssignmentPicker<TMachine extends TechnicianAss
     return Array.from(groups.values()).sort((left, right) =>
       left.locationName.localeCompare(right.locationName)
     );
-  }, [filteredMachines, groupByLocation]);
+  }, [filteredMachines, groupByLocation, selectedFirst, selectedIdSet]);
 
   if (machines.length === 0) {
     return (
@@ -175,7 +186,7 @@ export function TechnicianMachineAssignmentPicker<TMachine extends TechnicianAss
         ) : (
           groupedMachines.map((group) => (
             <div key={group.key} className="border-b border-border last:border-b-0">
-              {groupByLocation && (
+              {(groupByLocation || selectedFirst) && (
                 <div className="bg-muted/40 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   {group.locationName}
                 </div>
