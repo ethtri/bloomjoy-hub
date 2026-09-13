@@ -210,12 +210,12 @@ export default function AdminAccessPage() {
                 Admin
               </p>
               <h1 className="mt-2 font-display text-3xl font-bold text-foreground">
-                Access
+                People &amp; Permissions
               </h1>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
                 {isSuperAdmin
-                  ? 'Find a person, review their effective access, then grant, change, or revoke source-specific access with a required reason.'
-                  : 'Find a person, grant Technician access for assigned machines, and manage reporting visibility inside your scoped admin grant.'}
+                  ? 'See who has access, understand why, and make changes without hunting through separate tools.'
+                  : 'See people in your scope, grant Technician access for assigned machines, and manage reporting visibility.'}
               </p>
               {isScopedAdmin && !isSuperAdmin && (
                 <Badge className="mt-3" variant="secondary">

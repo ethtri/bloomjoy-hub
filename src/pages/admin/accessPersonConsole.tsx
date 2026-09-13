@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
+  ArrowRight,
+  Banknote,
   Building2,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   Copy,
   FileClock,
@@ -14,6 +19,8 @@ import {
   Send,
   ShieldAlert,
   ShieldCheck,
+  SlidersHorizontal,
+  Users,
   UserPlus,
   UserRound,
   Wrench,
@@ -33,6 +40,25 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import { Textarea } from '@/components/ui/textarea';
 import { TechnicianMachineAssignmentPicker } from '@/components/technicians/TechnicianMachineAssignmentPicker';
 import { useAuth } from '@/contexts/auth-context';
@@ -103,6 +129,12 @@ import {
   type ReportingPartner,
 } from '@/lib/partnershipReporting';
 import { trackEvent } from '@/lib/analytics';
+import {
+  fetchAdminPeopleDirectory,
+  type AdminAccessPerson,
+  type AdminAccessPersonStatus,
+} from '@/lib/adminPeopleDirectory';
+import { fetchTechnicianPayReportContext } from '@/lib/operatorPayouts';
 import { cn } from '@/lib/utils';
 
 type SelectedAccessPerson = {
@@ -804,6 +836,366 @@ function AdminPersonAccessConsoleBoundary() {
 }
 
 function AdminPersonAccessConsoleInner({
+  initialShowActivity = false,
+  initialLauncher,
+}: AdminPersonAccessConsoleProps) {
+  const { isSuperAdmin } = useAuth();
+  const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchDraft, setSearchDraft] = useState(searchParams.get('q') ?? '');
+  const [search, setSearch] = useState(searchParams.get('q') ?? '');
+  const [view, setView] = useState(searchParams.get('view') ?? 'all');
+  const [role, setRole] = useState(searchParams.get('role') ?? 'all');
+  const [accountId, setAccountId] = useState(searchParams.get('account') ?? 'all');
+  const [status, setStatus] = useState(searchParams.get('status') ?? 'all');
+  const [machineId, setMachineId] = useState(searchParams.get('machine') ?? 'all');
+  const [page, setPage] = useState(Math.max(1, Number(searchParams.get('page') ?? '1') || 1));
+  const [requestedPersonKey, setRequestedPersonKey] = useState(searchParams.get('person'));
+  const [selectedDirectoryPerson, setSelectedDirectoryPerson] = useState<AdminAccessPerson | null>(null);
+  const [showEditor, setShowEditor] = useState(false);
+  const [showActivity, setShowActivity] = useState(initialShowActivity);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [isAccessLauncherOpen, setIsAccessLauncherOpen] = useState(Boolean(initialLauncher?.open));
+  const [launcherPresetOverride, setLauncherPresetOverride] = useState<string | undefined>(initialLauncher?.preset);
+  const pageSize = 25;
+  const effectiveStatus = view === 'needs_attention' ? 'needs_attention' : view === 'invited' ? 'invited' : status;
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSearch(searchDraft.trim());
+      setPage(1);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [searchDraft]);
+
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (search) next.set('q', search);
+    if (view !== 'all') next.set('view', view);
+    if (role !== 'all') next.set('role', role);
+    if (accountId !== 'all') next.set('account', accountId);
+    if (status !== 'all') next.set('status', status);
+    if (machineId !== 'all') next.set('machine', machineId);
+    if (page > 1) next.set('page', String(page));
+    if (selectedDirectoryPerson) next.set('person', selectedDirectoryPerson.personKey);
+    else if (requestedPersonKey) next.set('person', requestedPersonKey);
+    setSearchParams(next, { replace: true });
+  }, [accountId, machineId, page, requestedPersonKey, role, search, selectedDirectoryPerson, setSearchParams, status, view]);
+
+  useEffect(() => {
+    if (initialLauncher?.open) setIsAccessLauncherOpen(true);
+  }, [initialLauncher]);
+
+  const directoryQuery = useQuery({
+    queryKey: ['admin-people-directory', search, role, accountId, effectiveStatus, machineId, page],
+    queryFn: () => fetchAdminPeopleDirectory({
+      search,
+      role: role === 'all' ? undefined : role,
+      accountId: accountId === 'all' ? undefined : accountId,
+      status: effectiveStatus === 'all' ? undefined : effectiveStatus as AdminAccessPersonStatus,
+      machineId: machineId === 'all' ? undefined : machineId,
+      limit: pageSize,
+      offset: (page - 1) * pageSize,
+    }),
+    staleTime: 30_000,
+  });
+
+  useEffect(() => {
+    if (!requestedPersonKey || selectedDirectoryPerson || !directoryQuery.data) return;
+    const match = directoryQuery.data.items.find((person) => person.personKey === requestedPersonKey);
+    if (match) setSelectedDirectoryPerson(match);
+  }, [directoryQuery.data, requestedPersonKey, selectedDirectoryPerson]);
+
+  const selectedPerson = useMemo<SelectedAccessPerson | null>(() => selectedDirectoryPerson ? ({
+    email: selectedDirectoryPerson.email,
+    userId: selectedDirectoryPerson.userId,
+    label: selectedDirectoryPerson.displayName,
+  }) : null, [selectedDirectoryPerson]);
+  const accountSearchKey = selectedPerson?.userId ?? selectedPerson?.email ?? '';
+  const selectedAccountQuery = useQuery({
+    queryKey: ['admin-person-selected-account', accountSearchKey],
+    queryFn: () => fetchAdminAccountSummaries(accountSearchKey),
+    enabled: Boolean(accountSearchKey),
+    staleTime: 30_000,
+  });
+  const selectedAccount = useMemo(() => {
+    if (!selectedPerson) return null;
+    return selectedAccountQuery.data?.find((item) => item.user_id === selectedPerson.userId)
+      ?? selectedAccountQuery.data?.find((item) => Boolean(selectedPerson.email && item.customer_email && normalizeSearch(item.customer_email) === normalizeSearch(selectedPerson.email)))
+      ?? null;
+  }, [selectedAccountQuery.data, selectedPerson]);
+  const effectiveAccessEmail = selectedPerson?.email ?? selectedAccount?.customer_email ?? '';
+  const effectiveAccessQuery = useQuery({
+    queryKey: ['admin-effective-access-context', effectiveAccessEmail],
+    queryFn: () => fetchAdminEffectiveAccessContext(effectiveAccessEmail),
+    enabled: Boolean(effectiveAccessEmail),
+    staleTime: 20_000,
+  });
+  const identity = useMemo(
+    () => selectedPerson ? buildIdentity(selectedPerson, selectedAccount, effectiveAccessQuery.data ?? null) : null,
+    [effectiveAccessQuery.data, selectedAccount, selectedPerson]
+  );
+  const payMonth = new Date().toISOString().slice(0, 7);
+  const payQuery = useQuery({
+    queryKey: ['technician-pay-report', payMonth],
+    queryFn: () => fetchTechnicianPayReportContext(payMonth),
+    enabled: Boolean(selectedDirectoryPerson?.operatorProfileId),
+    staleTime: 20_000,
+    retry: false,
+  });
+  const payTechnician = payQuery.data?.technicians.find(
+    (technician) => technician.operatorProfileId === selectedDirectoryPerson?.operatorProfileId
+  );
+
+  const refreshWorkspace = useCallback(async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['admin-people-directory'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-effective-access-context'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-person-selected-account'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-account-machine-inventory'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-reporting-access-matrix'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-scoped-admin-grants'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-governance-roles'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-corporate-partner-access-options'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-technician-access-context'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-person-audit'] }),
+    ]);
+  }, [queryClient]);
+
+  const openPerson = (person: AdminAccessPerson) => {
+    setSelectedDirectoryPerson(person);
+    setShowEditor(false);
+    setShowActivity(false);
+    setAdvancedOpen(false);
+  };
+  const closePerson = () => {
+    setSelectedDirectoryPerson(null);
+    setRequestedPersonKey(null);
+    setShowEditor(false);
+  };
+  const openAccessLauncher = (preset?: AccessLauncherPreset) => {
+    setLauncherPresetOverride(preset);
+    setIsAccessLauncherOpen(true);
+  };
+  const pageCount = Math.max(1, Math.ceil((directoryQuery.data?.totalCount ?? 0) / pageSize));
+  const updatedLabel = directoryQuery.dataUpdatedAt
+    ? new Intl.RelativeTimeFormat('en', { numeric: 'auto' }).format(
+        -Math.max(0, Math.round((Date.now() - directoryQuery.dataUpdatedAt) / 60_000)),
+        'minute'
+      )
+    : 'just now';
+
+  return (
+    <div className="space-y-5">
+      <AccessLauncher
+        open={isAccessLauncherOpen}
+        onOpenChange={setIsAccessLauncherOpen}
+        initialPreset={launcherPresetOverride}
+        initialEmail={initialLauncher?.email}
+        initialPartnerId={initialLauncher?.partnerId}
+        initialAccountId={initialLauncher?.accountId}
+        onOpenWorkspace={(person) => {
+          setSelectedDirectoryPerson({
+            personKey: person.userId ? `user:${person.userId}` : `email:${person.email}`,
+            userId: person.userId,
+            email: person.email,
+            displayName: person.label,
+            roles: [],
+            accountNames: [],
+            machineCount: 0,
+            status: 'active',
+            attentionReason: null,
+            operatorProfileId: null,
+            updatedAt: new Date().toISOString(),
+          });
+        }}
+        onChanged={refreshWorkspace}
+      />
+
+      <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <div className="border-b border-border p-4 sm:p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h2 className="font-display text-2xl font-semibold text-foreground">People</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Everyone with Bloomjoy access, in one place.</p>
+            </div>
+            <Button className="min-h-11" onClick={() => openAccessLauncher()}>
+              <UserPlus className="mr-2 h-4 w-4" /> Add person
+            </Button>
+          </div>
+
+          <div className="mt-5 flex flex-col gap-3 xl:flex-row xl:items-center">
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                aria-label="Search people"
+                value={searchDraft}
+                onChange={(event) => setSearchDraft(event.target.value)}
+                placeholder="Search by name or email"
+                className="h-11 pl-9"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:flex">
+              <Select value={role} onValueChange={(value) => { setRole(value); setPage(1); }}>
+                <SelectTrigger className="min-h-11 min-w-36" aria-label="Filter by role"><SelectValue placeholder="Role" /></SelectTrigger>
+                <SelectContent><SelectItem value="all">All roles</SelectItem>{directoryQuery.data?.roles.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent>
+              </Select>
+              <Select value={accountId} onValueChange={(value) => { setAccountId(value); setPage(1); }}>
+                <SelectTrigger className="min-h-11 min-w-36" aria-label="Filter by account"><SelectValue placeholder="Account" /></SelectTrigger>
+                <SelectContent><SelectItem value="all">All accounts</SelectItem>{directoryQuery.data?.accounts.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
+              </Select>
+              <Select value={status} onValueChange={(value) => { setStatus(value); setView('all'); setPage(1); }}>
+                <SelectTrigger className="min-h-11 min-w-36" aria-label="Filter by status"><SelectValue placeholder="Status" /></SelectTrigger>
+                <SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="active">Active</SelectItem><SelectItem value="needs_attention">Needs attention</SelectItem><SelectItem value="invited">Invited</SelectItem><SelectItem value="inactive">Inactive</SelectItem></SelectContent>
+              </Select>
+              <Select value={machineId} onValueChange={(value) => { setMachineId(value); setPage(1); }}>
+                <SelectTrigger className="col-span-2 min-h-11 min-w-40 sm:col-span-1" aria-label="More filters"><SlidersHorizontal className="mr-2 h-4 w-4" /><SelectValue placeholder="More filters" /></SelectTrigger>
+                <SelectContent><SelectItem value="all">All machines</SelectItem>{directoryQuery.data?.machines.map((item) => <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <div className="flex gap-1 rounded-lg bg-muted/50 p-1" aria-label="People views">
+              {[['all', 'All'], ['needs_attention', 'Needs attention'], ['invited', 'Invited']].map(([value, label]) => (
+                <Button key={value} type="button" size="sm" variant={view === value ? 'secondary' : 'ghost'} onClick={() => { setView(value); setPage(1); }} className="h-9">{label}</Button>
+              ))}
+            </div>
+            <span className="hidden text-xs text-muted-foreground sm:block">Updated {updatedLabel}</span>
+          </div>
+        </div>
+
+        {directoryQuery.isLoading ? (
+          <div className="p-10 text-center text-sm text-muted-foreground"><Loader2 className="mx-auto mb-3 h-5 w-5 animate-spin" />Loading people…</div>
+        ) : directoryQuery.error ? (
+          <div className="m-4 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+            <p className="font-medium">People could not be loaded.</p>
+            <p className="mt-1">{getErrorMessage(directoryQuery.error, 'Please try again in a moment.')}</p>
+          </div>
+        ) : directoryQuery.data?.items.length === 0 ? (
+          <div className="p-10 text-center"><Users className="mx-auto h-6 w-6 text-muted-foreground" /><p className="mt-3 font-medium text-foreground">No people match these filters.</p><p className="mt-1 text-sm text-muted-foreground">Clear a filter or add a person.</p></div>
+        ) : (
+          <>
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full text-left text-sm">
+                <thead className="border-b border-border bg-muted/30 text-xs uppercase tracking-wide text-muted-foreground">
+                  <tr><th className="px-5 py-3 font-medium">Person</th><th className="px-4 py-3 font-medium">Access</th><th className="px-4 py-3 font-medium">Account / scope</th><th className="px-4 py-3 font-medium">Machines</th><th className="px-4 py-3 font-medium">Status</th><th className="px-4 py-3 font-medium">Updated</th></tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {directoryQuery.data?.items.map((person) => <PersonDirectoryRow key={person.personKey} person={person} onOpen={() => openPerson(person)} />)}
+                </tbody>
+              </table>
+            </div>
+            <div className="divide-y divide-border md:hidden">
+              {directoryQuery.data?.items.map((person) => <PersonDirectoryCard key={person.personKey} person={person} onOpen={() => openPerson(person)} />)}
+            </div>
+          </>
+        )}
+
+        <div className="flex items-center justify-between border-t border-border px-4 py-3 sm:px-5">
+          <p className="text-sm text-muted-foreground">{directoryQuery.data?.totalCount ?? 0} people</p>
+          <div className="flex items-center gap-2">
+            <Button size="icon" variant="outline" className="h-9 w-9" aria-label="Previous page" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft className="h-4 w-4" /></Button>
+            <span className="text-sm text-muted-foreground">{page} of {pageCount}</span>
+            <Button size="icon" variant="outline" className="h-9 w-9" aria-label="Next page" disabled={page >= pageCount} onClick={() => setPage((value) => value + 1)}><ChevronRight className="h-4 w-4" /></Button>
+          </div>
+        </div>
+      </section>
+
+      <Sheet open={Boolean(selectedDirectoryPerson)} onOpenChange={(open) => { if (!open) closePerson(); }}>
+        <SheetContent className="w-full overflow-y-auto p-0 sm:max-w-xl lg:max-w-2xl">
+          {selectedDirectoryPerson && identity && (
+            <div className="min-h-full">
+              <SheetHeader className="border-b border-border p-5 text-left">
+                <div className="flex items-start gap-3 pr-8">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 font-semibold text-primary">{getPersonInitials(selectedDirectoryPerson)}</div>
+                  <div className="min-w-0"><SheetTitle className="break-words font-display text-xl">{selectedDirectoryPerson.displayName}</SheetTitle><SheetDescription className="mt-1 break-all">{selectedDirectoryPerson.email ?? selectedDirectoryPerson.userId ?? 'Invitation pending'}</SheetDescription><div className="mt-2"><PersonStatusBadge status={selectedDirectoryPerson.status} /></div></div>
+                </div>
+              </SheetHeader>
+
+              <div className="space-y-5 p-5">
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={() => setShowEditor((value) => !value)}>{showEditor ? 'Close editor' : 'Edit access'}</Button>
+                  {selectedDirectoryPerson.operatorProfileId && (
+                    <Button variant="outline" asChild><Link to={`/admin/payouts?technician=${selectedDirectoryPerson.operatorProfileId}`}><Banknote className="mr-2 h-4 w-4" />Pay report</Link></Button>
+                  )}
+                  <Button variant="ghost" onClick={() => setShowActivity((value) => !value)}><FileClock className="mr-2 h-4 w-4" />Activity</Button>
+                </div>
+
+                {selectedDirectoryPerson.attentionReason && <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"><AlertTriangle className="mr-2 inline h-4 w-4" />{selectedDirectoryPerson.attentionReason}</div>}
+                {effectiveAccessQuery.error && <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{getErrorMessage(effectiveAccessQuery.error, 'Unable to load effective access.')}</div>}
+
+                <section className="rounded-lg border border-border p-4">
+                  <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Access summary</p><h3 className="mt-1 font-semibold text-foreground">{selectedDirectoryPerson.roles.join(', ') || 'Invitation pending'}</h3></div><ShieldCheck className="h-5 w-5 text-primary" /></div>
+                  <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2"><div><dt className="text-muted-foreground">Account / scope</dt><dd className="mt-1 font-medium text-foreground">{selectedDirectoryPerson.accountNames.join(', ') || 'Global or source-based'}</dd></div><div><dt className="text-muted-foreground">Machines</dt><dd className="mt-1 font-medium text-foreground">{pluralize(selectedDirectoryPerson.machineCount, 'machine')}</dd></div></dl>
+                </section>
+
+                {selectedDirectoryPerson.operatorProfileId && (
+                  <section className="rounded-lg border border-border p-4">
+                    <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Technician pay setup</p><h3 className="mt-1 font-semibold text-foreground">{payQuery.isLoading ? 'Checking…' : payTechnician ? (payTechnician.blockers.length ? `${pluralize(payTechnician.blockers.length, 'blocker')} to resolve` : 'Ready for this month') : 'Open pay report to finish setup'}</h3></div>{payTechnician && payTechnician.blockers.length === 0 ? <CheckCircle2 className="h-5 w-5 text-emerald-600" /> : <ArrowRight className="h-5 w-5 text-muted-foreground" />}</div>
+                    <Button variant="link" className="mt-2 h-auto p-0" asChild><Link to={`/admin/payouts?technician=${selectedDirectoryPerson.operatorProfileId}`}>Open Technician Pay Report</Link></Button>
+                  </section>
+                )}
+
+                {showEditor && (
+                  <div className="space-y-5 border-t border-border pt-5">
+                    <WorkspaceSectionHeader eyebrow="Edit access" title="Access sources" description="Changes here use the existing permission checks, required reasons, and audit trail." />
+                    {isSuperAdmin && <PlusCustomerAccessCard identity={identity} account={selectedAccount} effectiveAccess={effectiveAccessQuery.data ?? null} onChanged={refreshWorkspace} />}
+                    {isSuperAdmin && <CorporatePartnerAccessCard identity={identity} effectiveAccess={effectiveAccessQuery.data ?? null} onChanged={refreshWorkspace} />}
+                    <TechnicianAccessCard identity={identity} effectiveAccess={effectiveAccessQuery.data ?? null} onChanged={refreshWorkspace} />
+                    <ManualReportingAccessCard identity={identity} onChanged={refreshWorkspace} />
+                  </div>
+                )}
+
+                {showActivity && <PersonActivityPanel identity={identity} />}
+
+                <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen} className="border-t border-border pt-3">
+                  <CollapsibleTrigger asChild><Button variant="ghost" className="w-full justify-between">Advanced details <ChevronRight className={cn('h-4 w-4 transition-transform', advancedOpen && 'rotate-90')} /></Button></CollapsibleTrigger>
+                  <CollapsibleContent className="space-y-5 pt-4">
+                    {isSuperAdmin && <CustomerContextCard identity={identity} account={selectedAccount} onChanged={refreshWorkspace} />}
+                    <ScopeBreakdownCard identity={identity} effectiveAccess={effectiveAccessQuery.data ?? null} />
+                    {isSuperAdmin && <ScopedAdminAccessCard identity={identity} onChanged={refreshWorkspace} />}
+                    {isSuperAdmin && <SuperAdminAccessCard identity={identity} onChanged={refreshWorkspace} />}
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}
+
+function PersonStatusBadge({ status }: { status: AdminAccessPersonStatus }) {
+  if (status === 'needs_attention') return <Badge variant="destructive">Needs attention</Badge>;
+  if (status === 'invited') return <Badge variant="secondary">Invited</Badge>;
+  if (status === 'inactive') return <Badge variant="outline">Inactive</Badge>;
+  return <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50">Active</Badge>;
+}
+
+function getPersonInitials(person: AdminAccessPerson) {
+  return person.displayName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || '?';
+}
+
+function PersonDirectoryRow({ person, onOpen }: { person: AdminAccessPerson; onOpen: () => void }) {
+  return (
+    <tr tabIndex={0} role="button" aria-label={`Open ${person.displayName}`} onClick={onOpen} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') onOpen(); }} className="cursor-pointer transition-colors hover:bg-muted/30 focus:bg-muted/30 focus:outline-none">
+      <td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{getPersonInitials(person)}</div><div className="min-w-0"><p className="font-medium text-foreground">{person.displayName}</p><p className="max-w-56 truncate text-xs text-muted-foreground">{person.email ?? 'No email yet'}</p></div></div></td>
+      <td className="px-4 py-4"><div className="flex max-w-56 flex-wrap gap-1">{person.roles.slice(0, 2).map((item) => <Badge key={item} variant="outline" className="font-normal">{item}</Badge>)}{person.roles.length > 2 && <Badge variant="secondary">+{person.roles.length - 2}</Badge>}</div></td>
+      <td className="max-w-56 px-4 py-4 text-muted-foreground">{person.accountNames.join(', ') || 'Global or source-based'}</td>
+      <td className="px-4 py-4 font-medium text-foreground">{person.machineCount}</td>
+      <td className="px-4 py-4"><PersonStatusBadge status={person.status} /></td>
+      <td className="whitespace-nowrap px-4 py-4 text-muted-foreground">{new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(new Date(person.updatedAt))}</td>
+    </tr>
+  );
+}
+
+function PersonDirectoryCard({ person, onOpen }: { person: AdminAccessPerson; onOpen: () => void }) {
+  return <button type="button" onClick={onOpen} className="w-full p-4 text-left transition hover:bg-muted/30"><div className="flex items-start justify-between gap-3"><div className="flex min-w-0 gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{getPersonInitials(person)}</div><div className="min-w-0"><p className="font-medium text-foreground">{person.displayName}</p><p className="truncate text-xs text-muted-foreground">{person.email ?? 'No email yet'}</p></div></div><PersonStatusBadge status={person.status} /></div><div className="mt-3 flex flex-wrap gap-1">{person.roles.map((item) => <Badge key={item} variant="outline" className="font-normal">{item}</Badge>)}</div><p className="mt-2 text-sm text-muted-foreground">{person.accountNames.join(', ') || 'Global or source-based'} · {pluralize(person.machineCount, 'machine')}</p></button>;
+}
+
+function LegacyAdminPersonAccessConsoleInner({
   initialShowActivity = false,
   initialLauncher,
 }: AdminPersonAccessConsoleProps) {

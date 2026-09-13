@@ -1069,6 +1069,16 @@ Historical controlled-pilot regression evidence remains the **ten-function/51-mi
 - [ ] Audit log view supports filtering and shows role + operational actions (support, orders, machine inventory)
 - [ ] Signed-in super-admin can reach `/admin` from visible navigation without typing the URL manually
 
+### People & Permissions roster (`#1296`)
+
+- [ ] `/admin/access` loads an exposed people list without requiring a search or manual refresh; search and Role, Account, Status, and Machine filters update the result and survive a page reload.
+- [ ] All, Needs attention, and Invited views show truthful states. Account members, Technicians, Corporate Partners, reporting access, admins, and pending Scoped Admin invites appear once per person with combined access labels.
+- [ ] Selecting Chelsea opens the right-side detail drawer with effective access, account/scope, machine count, access sources, Technician pay setup, activity, and advanced details. Closing restores focus to the selected row.
+- [ ] Edit access uses the existing source-specific permission checks, required reason fields, automatic readback, and audit entries; no manual Refresh action is shown.
+- [ ] Open Technician Pay Report deep-links to Chelsea's selected pay profile and retains the selected technician after reload.
+- [ ] A Scoped Admin sees only people whose account or machine access intersects their assigned machines; a non-admin cannot call the directory RPC.
+- [ ] At 1440px desktop and 390px mobile, the list has no horizontal page overflow and the drawer becomes a usable full-width detail surface with 44px primary controls.
+
 ### Refund customer outreach
 - [ ] Refund manager shows truthful preparing, queued, sent-unconfirmed, and waiting-for-customer outreach states from server data
 - [ ] `Request details` is available only for the explicit cash/no-match manual-fallback condition; routine delivery failures and unknown delivery remain owned by Refund Operations
