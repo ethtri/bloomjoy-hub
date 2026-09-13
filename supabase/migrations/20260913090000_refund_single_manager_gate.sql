@@ -563,7 +563,7 @@ declare
   replacement text;
 begin
   body:=replace(pg_get_functiondef(
-    'public.service_settle_nayax_refund_attempt(text,uuid,uuid,uuid,text,integer,text,text,text,text,text,text)'::regprocedure),E'\r\n',E'\n');
+    'public.service_settle_nayax_refund_attempt_pre_definitive_retry_v1(text,uuid,uuid,uuid,text,integer,text,text,text,text,text,text)'::regprocedure),E'\r\n',E'\n');
   anchor:=$old$  intent_row public.refund_manager_action_step_up_intents%rowtype;
 $old$;
   if length(body)-length(replace(body,anchor,''))<>length(anchor) then

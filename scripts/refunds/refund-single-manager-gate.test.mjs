@@ -42,6 +42,11 @@ test('normal manager confirmation creates one receipt and no step-up artifact', 
   assert.match(migration, /receipt\.step_up_intent_id is not null or receipt\.verified_totp_at is not null/);
   assert.match(orchestration, /authorizationMethod === "manager_session" && action\.stepUpIntentId != null/);
   assert.doesNotMatch(portal, /manual_nayax_approval|handleApproveManualNayaxRefund|Approve refund for Nayax portal/);
+  assert.match(
+    migration,
+    /service_settle_nayax_refund_attempt_pre_definitive_retry_v1\(text,uuid,uuid,uuid,text,integer,text,text,text,text,text,text\)/,
+    'the receipt predicate is rewritten in the deepest settlement implementation, not a later wrapper',
+  );
 });
 
 test('the four execution protections remain explicit and customer mail stays success-only', () => {
