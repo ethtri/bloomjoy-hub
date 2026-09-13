@@ -136,6 +136,7 @@
     "refunds:preflight-gmail": "node scripts/refunds/refund-gmail-preflight.mjs",
     "refunds:preflight-gpt-triage": "node scripts/refunds/refund-gpt-triage-preflight.mjs",
     "admin-access:validate-invite-uat": "node scripts/validate-admin-access-invite-uat.mjs",
+    "admin-access:validate-people-workspace": "node scripts/validate-people-permissions-workspace.mjs",
     "partner-technicians:validate-uat": "node scripts/validate-partner-technician-access-uat.mjs",
     "scoped-admin-technicians:validate-uat": "node scripts/validate-scoped-admin-technician-uat.mjs",
     "scoped-admin-invites:validate": "node scripts/validate-scoped-admin-invite-contract.mjs && npm run edge-url-allowlists:check",

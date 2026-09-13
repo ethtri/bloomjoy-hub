@@ -1,6 +1,6 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   Banknote,
@@ -629,9 +629,12 @@ function TechnicianReport({
 
 export default function AdminPayoutsPage() {
   const queryClient = useQueryClient();
-  const [month, setMonth] = useState(currentMonthValue);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedMonth = searchParams.get('month');
+  const requestedTechnicianId = searchParams.get('technician');
+  const [month, setMonth] = useState(() => requestedMonth && isMonthValue(requestedMonth) ? requestedMonth : currentMonthValue());
   const [accountId, setAccountId] = useState('all');
-  const [technicianId, setTechnicianId] = useState('all');
+  const [technicianId, setTechnicianId] = useState(requestedTechnicianId || 'all');
   const [machineId, setMachineId] = useState('all');
   const [payInputDraft, setPayInputDraft] = useState<PayInputDraft | null>(null);
   const [payInputError, setPayInputError] = useState<string | null>(null);
@@ -659,6 +662,14 @@ export default function AdminPayoutsPage() {
   });
 
   const technicians = useMemo(() => context?.technicians ?? [], [context?.technicians]);
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    if (technicianId === 'all') next.delete('technician');
+    else next.set('technician', technicianId);
+    if (month === currentMonthValue()) next.delete('month');
+    else next.set('month', month);
+    if (next.toString() !== searchParams.toString()) setSearchParams(next, { replace: true });
+  }, [month, searchParams, setSearchParams, technicianId]);
   const machines = useMemo(
     () => [...new Map(technicians.flatMap((technician) => technician.machines.map((machine) => [machine.machineId, machine.machineLabel] as const))).entries()].map(([id, label]) => ({ id, label })).sort((left, right) => left.label.localeCompare(right.label)),
     [technicians]
