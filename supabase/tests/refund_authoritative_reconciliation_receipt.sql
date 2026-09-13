@@ -20,11 +20,14 @@ values('ad300000-0000-4000-8000-000000000001','ad100000-0000-4000-8000-000000000
   'ad200000-0000-4000-8000-000000000001','Receipt fixture','RECEIPT-MACHINE','RECEIPT-ACCOUNT');
 insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
 values('ad300000-0000-4000-8000-000000000001','ad000000-0000-4000-8000-000000000001','receipt-ops@example.invalid','Receipt fixture');
--- Dedicated manual-only fixture keeps the receipt tests on the supported
--- evidence/selection/authorization path; API fallback is tested separately.
-insert into public.reporting_machines(id,account_id,location_id,machine_label,nayax_refunds_enabled,
-  nayax_manual_portal_enabled,nayax_manual_account_scope,nayax_manual_portal_timezone)
-values('ad300000-0000-4000-8000-000000000002','ad100000-0000-4000-8000-000000000001','ad200000-0000-4000-8000-000000000001','Receipt manual fixture',false,true,'receipt_manual','America/Los_Angeles');
+-- Historical manual-attempt evidence is observed against the machine's exact
+-- current account and provider identifiers. It does not reopen the retired
+-- manual-portal execution lane.
+insert into public.reporting_machines(id,account_id,location_id,machine_label,
+  nayax_machine_id,nayax_account_key,nayax_refunds_enabled,nayax_manual_portal_enabled)
+values('ad300000-0000-4000-8000-000000000002','ad100000-0000-4000-8000-000000000001',
+  'ad200000-0000-4000-8000-000000000001','Receipt historical fixture',
+  'RECEIPT-MACHINE','receipt_manual',true,false);
 insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
 values('ad300000-0000-4000-8000-000000000002','ad000000-0000-4000-8000-000000000001','receipt-ops@example.invalid','Synthetic manual receipt fixture');
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,issue_summary,
@@ -67,12 +70,12 @@ with inserted as (
     refund_case_id,actor_user_id,execution_mode,status,idempotency_key,
     amount_cents,provider_reference,provider_status,request_fingerprint,
     currency_code,provider_outcome,reconciliation_required,safe_transport_stage,
-    safe_failure_class,refund_operations_due_at,created_at)
+    safe_failure_class,created_at)
   select c.id,'ad000000-0000-4000-8000-000000000001','manual_portal','manual_review',
     'manual-nayax-portal-20260901-'||c.public_reference,700,c.matched_nayax_transaction_id,
     'request_accepted',encode(extensions.digest(convert_to(c.id::text||'|'||c.matched_nayax_transaction_id||'|700','UTF8'),'sha256'),'hex'),
     'USD','unknown',true,'confirmation_hold','provider_unknown',
-    statement_timestamp()-interval '1 hour','2026-09-01 18:00:00+00'
+    '2026-09-01 18:00:00+00'
   from public.refund_cases c where c.id='ad400000-0000-4000-8000-000000000002'
   returning id,refund_case_id,actor_user_id,created_at
 )
@@ -298,8 +301,8 @@ select is(public.refund_lifecycle_contract('ad400000-0000-4000-8000-000000000001
 select is(public.refund_lifecycle_contract('ad400000-0000-4000-8000-000000000001')->>'stageRank','70','Unadopted receipt never marks customer updated complete');
 select is(public.refund_lifecycle_contract('ad400000-0000-4000-8000-000000000002')#>>'{managerQueue,nextAction}','review_accounting_date','Accounting work stays with operations');
 select is(public.refund_lifecycle_contract('ad400000-0000-4000-8000-000000000002')#>>'{customerAction,required}','false','Customer is not assigned internal accounting work');
-select ok(public.can_perform_refund_official_action('ad000000-0000-4000-8000-000000000001','ad400000-0000-4000-8000-000000000001'),
-  'A recorded receipt does not masquerade as loss of the manager authority');
+select ok(not public.can_perform_refund_official_action('ad000000-0000-4000-8000-000000000001','ad400000-0000-4000-8000-000000000001'),
+  'A recorded receipt blocks a fresh payment action');
 select throws_ok($$update public.refund_authoritative_receipts set settled_at=observed_at$$,'P4660',null,'Receipt cannot be rewritten to invent settlement time');
 select throws_ok($$delete from public.refund_authoritative_receipts$$,'P4660',null,'Receipt evidence cannot be deleted');
 select throws_ok($$update public.refund_cases set refund_completed_at=now() where id='ad400000-0000-4000-8000-000000000001'$$,'P4663',null,'Legacy completion cannot substitute current time');

@@ -303,6 +303,12 @@ where refund_case.id in (
   'b1600000-0000-4000-8000-000000000006'
 );
 
+update public.refund_cases
+set status='card_refund_pending',decision='approved',
+  decided_by='b1000000-0000-4000-8000-000000000001',
+  decided_at=statement_timestamp()
+where id='b1600000-0000-4000-8000-000000000006';
+
 select ok(
   pg_temp.capture_error($sql$
     select public.service_consume_nayax_refund_official_action(
@@ -376,8 +382,15 @@ join public.reporting_machine_refund_managers manager_mapping
   and manager_mapping.manager_user_id='b1000000-0000-4000-8000-000000000001'
 where refund_case.id='b1600000-0000-4000-8000-000000000004';
 
+update public.refund_cases
+set status='card_refund_pending',decision='approved',
+  decided_by='b1000000-0000-4000-8000-000000000001',
+  decided_at=statement_timestamp()
+where id='b1600000-0000-4000-8000-000000000004';
+
 update public.reporting_machine_refund_managers
-set status='revoked',revoked_at=statement_timestamp()
+set status='revoked',revoked_at=statement_timestamp(),
+  revoke_reason='Synthetic post-approval authority change'
 where id='b1400000-0000-4000-8000-000000000001';
 update public.reporting_machines set nayax_account_key='MANAGER_SESSION_ACCOUNT_CHANGED'
 where id='b1300000-0000-4000-8000-000000000001';
@@ -403,7 +416,7 @@ select ok(
 update public.reporting_machines set nayax_account_key='MANAGER_SESSION_ACCOUNT'
 where id='b1300000-0000-4000-8000-000000000001';
 update public.reporting_machine_refund_managers
-set status='active',revoked_at=null
+set status='active',revoked_at=null,revoke_reason=null
 where id='b1400000-0000-4000-8000-000000000001';
 
 insert into pg_temp.manager_session_results (result_key, result)
@@ -413,7 +426,7 @@ select 'first', public.service_reserve_nayax_refund_manager_action(
   'b1600000-0000-4000-8000-000000000001',
   (select official_action_version from public.refund_cases
     where id = 'b1600000-0000-4000-8000-000000000001'),
-  'nayax-refund-' || repeat('1', 64), 700, 100000, 100, 'USD'
+  'nayax-refund-' || repeat('1', 64), 700, null, null, 'USD'
 );
 
 select ok(
@@ -455,7 +468,7 @@ select 'replay', public.service_reserve_nayax_refund_manager_action(
   'manager-session-executor',
   'b1000000-0000-4000-8000-000000000001',
   'b1600000-0000-4000-8000-000000000001', 1,
-  'nayax-refund-' || repeat('1', 64), 700, 100000, 100, 'USD'
+  'nayax-refund-' || repeat('1', 64), 700, null, null, 'USD'
 );
 
 select ok(

@@ -27,11 +27,14 @@ insert into public.reporting_machines(id,account_id,location_id,machine_label,na
 values('af300000-0000-4000-8000-000000000001','af100000-0000-4000-8000-000000000001','af200000-0000-4000-8000-000000000001','Receipt race','RECEIPT-RACE-MACHINE','RECEIPT-RACE-ACCOUNT',true);
 insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
 values('af300000-0000-4000-8000-000000000001','af000000-0000-4000-8000-000000000001','receipt-race@example.invalid','Synthetic receipt race');
--- Dedicated manual-only fixture keeps the receipt tests on the supported
--- evidence/selection/authorization path; API fallback is tested separately.
-insert into public.reporting_machines(id,account_id,location_id,machine_label,nayax_refunds_enabled,
-  nayax_manual_portal_enabled,nayax_manual_account_scope,nayax_manual_portal_timezone)
-values('af300000-0000-4000-8000-000000000002','af100000-0000-4000-8000-000000000001','af200000-0000-4000-8000-000000000001','Receipt manual fixture',false,true,'receipt_race_manual','America/Los_Angeles');
+-- Historical manual-attempt evidence is observed against the machine's exact
+-- current account and provider identifiers. It does not reopen the retired
+-- manual-portal execution lane.
+insert into public.reporting_machines(id,account_id,location_id,machine_label,
+  nayax_machine_id,nayax_account_key,nayax_refunds_enabled,nayax_manual_portal_enabled)
+values('af300000-0000-4000-8000-000000000002','af100000-0000-4000-8000-000000000001',
+  'af200000-0000-4000-8000-000000000001','Receipt historical fixture',
+  'RECEIPT-RACE-MACHINE','receipt_race_manual',true,false);
 insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
 values('af300000-0000-4000-8000-000000000002','af000000-0000-4000-8000-000000000001','receipt-race@example.invalid','Synthetic manual receipt fixture');
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,issue_summary,
@@ -279,11 +282,11 @@ insert into refund_receipt_race_test.results select 'resolver_loses',payload fro
 select * from extensions.dblink_get_result('receipt_race_b') as x(payload jsonb);
 select is((select payload->>'status' from refund_receipt_race_test.results where lane='receipt_wins'),'recorded','Receipt winner is committed');
 select diag((select payload::text from refund_receipt_race_test.results where lane='resolver_loses'));
-select is((select payload->>'error' from refund_receipt_race_test.results where lane='resolver_loses'),'P0001','Waiting old resolver is rejected by the post-lock official-action capability check');
+select is((select payload->>'error' from refund_receipt_race_test.results where lane='resolver_loses'),'P4661','Waiting old resolver is rejected by the post-lock authoritative-receipt check');
 select is((select payload->>'message' from refund_receipt_race_test.results where lane='resolver_loses'),
-  'Active Machine Manager mapping required','Resolver denial is the exact receipt-aware capability error, not an unrelated fixture failure');
-select ok(public.can_perform_refund_official_action('af000000-0000-4000-8000-000000000001','af400000-0000-4000-8000-000000000002'),
-  'A committed receipt does not masquerade as loss of the manager authority');
+  'Authoritative refund evidence is already recorded for this case','Resolver denial is the exact receipt-aware reconciliation error, not a manager-access failure');
+select ok(not public.can_perform_refund_official_action('af000000-0000-4000-8000-000000000001','af400000-0000-4000-8000-000000000002'),
+  'A committed receipt blocks a fresh payment action');
 
 select extensions.dblink_exec('receipt_race_a','begin');
 select * from extensions.dblink('receipt_race_a',$q$select id::text from public.refund_cases where id='af400000-0000-4000-8000-000000000001' for update$q$) as x(id text);

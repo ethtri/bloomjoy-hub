@@ -19,11 +19,7 @@ insert into auth.users(instance_id,id,aud,role,email,encrypted_password,email_co
   raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
 values
 ('00000000-0000-0000-0000-000000000000','8b000000-0000-4000-8000-000000000001',
- 'authenticated','authenticated','manager-session-race@example.test','',now(),'{}','{}',now(),now()),
-('00000000-0000-0000-0000-000000000000','8b000000-0000-4000-8000-000000000002',
- 'authenticated','authenticated','manager-session-owner@example.test','',now(),'{}','{}',now(),now());
-insert into public.admin_roles(id,user_id,role,active)
-values('8b010000-0000-4000-8000-000000000001','8b000000-0000-4000-8000-000000000002','super_admin',true);
+ 'authenticated','authenticated','manager-session-race@example.test','',now(),'{}','{}',now(),now());
 insert into public.customer_accounts(id,name,account_type)
 values('8b100000-0000-4000-8000-000000000001','Manager-session race','customer');
 insert into public.reporting_locations(id,account_id,name,timezone)
@@ -62,15 +58,6 @@ insert into public.refund_nayax_provider_callers(caller_id,assertion_digest)
 values('nayax-card-refund',encode(extensions.digest(
   convert_to('manager-session-race-executor','UTF8'),'sha256'),'hex'));
 
-update public.refund_manager_security_config set
-  totp_enrollment_enabled=false,
-  totp_enrollment_approved_manager_user_id=null,
-  totp_enrollment_approved_by_owner_user_id=null,
-  totp_enrollment_approval_expires_at=null,
-  totp_enrollment_owner_user_id_digest=encode(extensions.digest(
-    convert_to('8b000000-0000-4000-8000-000000000002','UTF8'),'sha256'),'hex')
-where singleton=true;
-
 create function refund_manager_session_race_test.reserve()
 returns jsonb language plpgsql set search_path=public,auth as $$
 declare reservation jsonb;
@@ -84,31 +71,11 @@ exception when others then return jsonb_build_object('ok',false,'error',sqlerrm)
 end;
 $$;
 
-create function refund_manager_session_race_test.open_owner_window()
-returns jsonb language plpgsql set search_path=public,auth as $$
-declare opened jsonb;
-begin
-  perform set_config('request.jwt.claim.sub','8b000000-0000-4000-8000-000000000002',true);
-  perform set_config('request.jwt.claim.role','authenticated',true);
-  perform set_config('request.jwt.claims',jsonb_build_object(
-    'sub','8b000000-0000-4000-8000-000000000002','role','authenticated',
-    'aal','aal1','amr','[]'::jsonb)::text,true);
-  opened:=public.open_refund_manager_totp_enrollment_window_current_user();
-  return jsonb_build_object('ok',true,'opened',opened->'opened','status',opened->'status',
-    'windowExpiresAt',opened->'windowExpiresAt');
-exception when others then return jsonb_build_object('ok',false,'error',sqlerrm);
-end;
-$$;
 commit;
 
-select plan(6);
+select plan(4);
 create temporary table manager_session_race_results(
   connection_name text primary key,result jsonb not null);
-create temporary table owner_window_race_results(
-  connection_name text primary key,result jsonb not null);
-create temporary table owner_window_race_baseline as
-select totp_enrollment_approval_version approval_version
-from public.refund_manager_security_config where singleton=true;
 
 do $$
 declare local_connection text:='host=db port='||current_setting('port')
@@ -161,43 +128,6 @@ select ok((select receipt.id=attempt.official_action_authorization_id
   where attempt.refund_case_id='8b600000-0000-4000-8000-000000000001'),
   'The winning attempt retains the exact receipt, actor, version, amount, and currency');
 
-do $$
-declare local_connection text:='host=db port='||current_setting('port')
-  ||' dbname='||current_database()||' user=postgres password=postgres sslmode=disable';
-begin
-  perform extensions.dblink_disconnect('manager_session_race_a');
-  perform extensions.dblink_disconnect('manager_session_race_b');
-  perform extensions.dblink_connect('manager_session_race_a',local_connection);
-  perform extensions.dblink_connect('manager_session_race_b',local_connection);
-end;
-$$;
-begin;
-do $$ begin
-  perform pg_advisory_xact_lock(hashtextextended('refund-totp-enrollment-owner-window',782));
-  perform extensions.dblink_send_query('manager_session_race_a',
-    'select refund_manager_session_race_test.open_owner_window()');
-  perform extensions.dblink_send_query('manager_session_race_b',
-    'select refund_manager_session_race_test.open_owner_window()');
-end; $$;
-commit;
-insert into owner_window_race_results select 'a',result
-from extensions.dblink_get_result('manager_session_race_a') as response(result jsonb);
-insert into owner_window_race_results select 'b',result
-from extensions.dblink_get_result('manager_session_race_b') as response(result jsonb);
-select ok(
-  (select count(*)=2 from owner_window_race_results where (result->>'ok')::boolean)
-  and (select count(*)=1 from owner_window_race_results where (result->>'opened')::boolean)
-  and (select count(*)=1 from owner_window_race_results where result->>'status'='already_open'),
-  'Concurrent owner-window calls serialize into one open and one non-extending replay');
-select ok(exists(select 1 from public.refund_manager_security_config config
-    cross join owner_window_race_baseline baseline where config.singleton=true
-      and config.totp_enrollment_approval_version=baseline.approval_version+1
-      and config.totp_enrollment_approval_expires_at=config.updated_at+interval '5 minutes')
-  and (select count(*)=1 from public.refund_manager_step_up_audit
-    where actor_user_id='8b000000-0000-4000-8000-000000000002'
-      and event_type='totp_enrollment_window_opened'),
-  'The owner-window race commits one version, expiry, and audit record');
-
 do $$ begin
   perform extensions.dblink_disconnect('manager_session_race_a');
   perform extensions.dblink_disconnect('manager_session_race_b');
@@ -205,8 +135,6 @@ end; $$;
 select * from finish();
 
 begin;
-delete from public.refund_manager_step_up_audit
-where actor_user_id='8b000000-0000-4000-8000-000000000002';
 delete from public.refund_case_nayax_refund_attempts
 where refund_case_id='8b600000-0000-4000-8000-000000000001';
 delete from public.refund_case_official_action_authorizations
@@ -217,15 +145,9 @@ delete from public.refund_cases where id='8b600000-0000-4000-8000-000000000001';
 delete from public.refund_nayax_provider_callers where caller_id='nayax-card-refund';
 delete from public.reporting_machine_refund_managers
 where id='8b400000-0000-4000-8000-000000000001';
-delete from public.admin_roles where id='8b010000-0000-4000-8000-000000000001';
 delete from public.reporting_machines where id='8b300000-0000-4000-8000-000000000001';
 delete from public.reporting_locations where id='8b200000-0000-4000-8000-000000000001';
 delete from public.customer_accounts where id='8b100000-0000-4000-8000-000000000001';
-update public.refund_manager_security_config set
-  totp_enrollment_enabled=false,totp_enrollment_approved_manager_user_id=null,
-  totp_enrollment_approved_by_owner_user_id=null,totp_enrollment_approval_expires_at=null,
-  updated_at=statement_timestamp() where singleton=true;
-delete from auth.users where id in (
-  '8b000000-0000-4000-8000-000000000001','8b000000-0000-4000-8000-000000000002');
+delete from auth.users where id='8b000000-0000-4000-8000-000000000001';
 drop schema refund_manager_session_race_test cascade;
 commit;

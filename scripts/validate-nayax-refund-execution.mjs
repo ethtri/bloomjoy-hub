@@ -317,7 +317,8 @@ assert(
     singleManagerGateMigration.includes("evidence_hash,'manager_session'") &&
     singleManagerGateMigration.includes('step_up_intent_id,verified_totp_at') &&
     singleManagerGateMigration.includes("'authorized',authorized_at+interval '30 seconds',null,null") &&
-    singleManagerGateMigration.includes('service_reserve_and_consume_nayax_refund_attempt_v2') &&
+    singleManagerGateMigration.includes('service_reserve_and_consume_nayax_refund_attempt(') &&
+    !singleManagerGateMigration.includes('return public.service_reserve_and_consume_nayax_refund_attempt_v2(') &&
     manualPortalTest.includes('An unattempted ordinary match cannot bypass the API') &&
     manualPortalTest.includes('An authenticated manager cannot start the retired manual execution lane') &&
     manualPortalTest.includes('Historical manual-portal evidence remains readable without reopening the lane') &&

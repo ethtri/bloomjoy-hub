@@ -1619,9 +1619,9 @@ select ok(
     from public.refund_cases refund_case
     where refund_case.id = '79600000-0000-4000-8000-000000000007')
   and not exists (
-    select 1 from public.refund_case_official_action_authorizations authorization
-    where authorization.refund_case_id='79600000-0000-4000-8000-000000000007'
-      and authorization.action='nayax_execute'
+    select 1 from public.refund_case_official_action_authorizations approval_receipt
+    where approval_receipt.refund_case_id='79600000-0000-4000-8000-000000000007'
+      and approval_receipt.action='nayax_execute'
   )
   and not exists (
     select 1

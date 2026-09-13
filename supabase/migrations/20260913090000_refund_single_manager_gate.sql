@@ -65,7 +65,19 @@ create or replace function public.can_perform_refund_official_action(
   p_user_id uuid,p_refund_case_id uuid
 )
 returns boolean language sql stable security definer set search_path='' as $$
-  select public.refund_official_action_authority(p_user_id,p_refund_case_id) is not null;
+  select public.refund_official_action_authority(p_user_id,p_refund_case_id) is not null
+    and exists(select 1 from public.refund_cases refund_case
+      where refund_case.id=p_refund_case_id
+        and refund_case.duplicate_of_refund_case_id is null
+        and not public.refund_case_has_unresolved_reconciliation(refund_case.id)
+        and not exists(select 1
+          from public.refund_gmail_case_link_review_candidates link_candidate
+          join public.refund_gmail_case_link_reviews link_review
+            on link_review.id=link_candidate.review_id
+          where link_candidate.refund_case_id=refund_case.id
+            and link_review.status='pending')
+        and not exists(select 1 from public.refund_authoritative_receipts receipt
+          where receipt.refund_case_id=refund_case.id));
 $$;
 revoke execute on function public.can_perform_refund_official_action(uuid,uuid)
   from public,anon;
@@ -236,7 +248,18 @@ begin
     p_refund_amount_cents,p_manual_refund_reference,p_cash_payout_sent_at,
     p_cash_payment_confirmed,p_matched_nayax_candidate_token,p_nayax_disagreement_reason);
   select * into c from public.refund_cases where id=receipt.refund_case_id for update;
-  if not found or c.official_action_version is distinct from receipt.expected_case_version then
+  if not found then
+    raise exception 'Refund case changed since authorization; reload before taking an official action';
+  end if;
+  if normalized_action='nayax_execute' then
+    if c.official_action_version is distinct from receipt.expected_case_version+1
+      or c.status is distinct from 'card_refund_pending'
+      or c.decision is distinct from 'approved'
+      or c.decided_by is distinct from receipt.actor_user_id
+      or c.refund_amount_cents is distinct from p_refund_amount_cents then
+      raise exception 'Refund case changed outside the exact authorized Nayax transition; review again';
+    end if;
+  elsif c.official_action_version is distinct from receipt.expected_case_version then
     raise exception 'Refund case changed since authorization; reload before taking an official action';
   end if;
   -- Authority is checked once, when this immutable receipt is created.  From
@@ -382,7 +405,7 @@ begin
     case when authority->>'kind'='machine_manager' then (authority->>'recordId')::uuid end,
     case when authority->>'kind'='machine_manager' then (authority->>'version')::bigint end,
     authority->>'kind',case when authority->>'kind'='super_admin'
-      then (authority->>'recordId')::uuid end,c.official_action_version,context_hash,
+      then (authority->>'recordId')::uuid end,p_expected_case_version,context_hash,
     'authorized',authorized_at+interval '30 seconds',null,null,evidence_hash,'manager_session')
   returning * into receipt;
   insert into public.refund_case_events(refund_case_id,actor_user_id,event_type,message,metadata)
@@ -390,9 +413,11 @@ begin
     'An authorized manager approved this exact Nayax refund.',jsonb_build_object(
       'action','nayax_execute','authority_kind',authority->>'kind',
       'authority_record_id',authority->>'recordId','payload_redacted',true));
-  return public.service_reserve_and_consume_nayax_refund_attempt_v2(
-    p_executor_assertion,receipt.id,c.id,p_idempotency_key,p_amount_cents,
-    p_daily_amount_cap_cents,p_daily_count_cap,'USD');
+  -- Daily caps are retained only in the compatibility signature. The single
+  -- manager decision is bound to the exact case/transaction/amount and is not
+  -- blocked by a separate retired operations cap.
+  return public.service_reserve_and_consume_nayax_refund_attempt(
+    p_executor_assertion,receipt.id,c.id,p_idempotency_key,p_amount_cents,'USD');
 end;
 $$;
 revoke execute on function public.service_reserve_nayax_refund_manager_action(
@@ -401,6 +426,36 @@ revoke execute on function public.service_reserve_nayax_refund_manager_action(
 grant execute on function public.service_reserve_nayax_refund_manager_action(
   text,uuid,uuid,bigint,text,integer,integer,integer,text
 ) to service_role;
+
+-- Every production v3/v4/v5 wrapper ultimately reaches this named boundary.
+-- Define it explicitly against the single-manager implementation so the live
+-- Edge path cannot depend on a rename-time legacy body.
+create or replace function public.service_reserve_nayax_refund_manager_action_pre_context_v1(
+  p_executor_assertion text,p_actor_user_id uuid,p_case_id uuid,
+  p_expected_case_version bigint,p_idempotency_key text,p_amount_cents integer,
+  p_daily_amount_cap_cents integer,p_daily_count_cap integer,p_currency_code text,
+  p_provider_contract_version text,p_journal_contract_version text
+)
+returns jsonb language plpgsql security definer set search_path='' as $$
+begin
+  perform public.assert_nayax_provider_executor(p_executor_assertion);
+  if btrim(coalesce(p_journal_contract_version,''))<>'nayax-provider-journal-v3'
+    or btrim(coalesce(p_provider_contract_version,''))<>
+      'nayax-production-account-contract-v2' then
+    raise exception 'Nayax provider journal contract version mismatch'
+      using errcode='P4611';
+  end if;
+  perform pg_catalog.set_config('bloomjoy.nayax_journal_contract_version',
+    p_journal_contract_version,true);
+  return public.service_reserve_nayax_refund_manager_action(
+    p_executor_assertion,p_actor_user_id,p_case_id,p_expected_case_version,
+    p_idempotency_key,p_amount_cents,p_daily_amount_cap_cents,
+    p_daily_count_cap,p_currency_code);
+end;
+$$;
+revoke all on function public.service_reserve_nayax_refund_manager_action_pre_context_v1(
+  text,uuid,uuid,bigint,text,integer,integer,integer,text,text,text
+) from public,anon,authenticated,service_role;
 
 create or replace function public.service_reserve_and_consume_nayax_refund_attempt(
   p_executor_assertion text,p_authorization_id uuid,p_case_id uuid,
@@ -509,6 +564,16 @@ alter table public.refund_case_nayax_refund_attempts
   drop constraint if exists refund_nayax_attempt_bound_lifecycle_check,
   add constraint refund_nayax_attempt_bound_lifecycle_check check (
     official_action_authorization_id is null or (
+      execution_mode='evidence_only'
+      and status='manual_review'
+      and provider_claim_digest is null
+      and provider_claim_expires_at is null
+      and provider_outcome='unknown'
+      and provider_outcome_recorded_at is not null
+      and reconciliation_required is true
+      and reporting_adjustment_id is null
+      and case_finalization_committed_at is null
+    ) or (
       request_fingerprint is not null and provider_claim_digest is not null
       and provider_claim_expires_at is not null
       and ((provider_outcome is null and provider_outcome_recorded_at is null)
@@ -970,6 +1035,20 @@ $new$;
 
   body:=replace(pg_get_functiondef(
     'public.guard_refund_nayax_execution_context_stage()'::regprocedure),E'\r\n',E'\n');
+  anchor:=$old$  current_execution_authorized := public.can_perform_refund_official_action(
+    attempt_row.actor_user_id,
+    case_row.id
+  );
+$old$;
+  replacement:=$new$  current_execution_authorized := public.refund_official_action_receipt_authority_valid(
+    attempt_row.official_action_authorization_id,
+    case_row.reporting_machine_id
+  );
+$new$;
+  if length(body)-length(replace(body,anchor,''))<>length(anchor) then
+    raise exception 'Exact continuation guard live-authority initialization required';
+  end if;
+  body:=replace(body,anchor,replacement);
   anchor:=$old$      join public.reporting_machine_refund_managers current_mapping
         on current_mapping.reporting_machine_id = case_row.reporting_machine_id
         and current_mapping.manager_user_id = continuation.actor_user_id
@@ -1108,5 +1187,172 @@ end;
 $$;
 revoke execute on function public.admin_begin_refund_manual_nayax_portal(uuid,bigint)
   from public,anon,authenticated,service_role;
+
+create or replace function public.admin_begin_refund_manual_nayax_portal_pre_ops_v1(
+  p_case_id uuid,p_expected_case_version bigint
+)
+returns jsonb language plpgsql security definer set search_path='' as $$
+begin
+  raise exception 'The manual Nayax portal refund lane is retired'
+    using errcode='42501';
+end;
+$$;
+revoke all on function public.admin_begin_refund_manual_nayax_portal_pre_ops_v1(uuid,bigint)
+  from public,anon,authenticated,service_role;
+
+create or replace function public.admin_resolve_refund_nayax_outcome_manager_session(
+  p_case_id uuid,p_attempt_id uuid,p_resolution_result text,p_evidence_type text,
+  p_evidence_reference text,p_evidence_occurred_at timestamptz,
+  p_reason_code text,p_expected_case_version bigint
+)
+returns jsonb language plpgsql security definer set search_path='' as $$
+begin
+  if auth.role() is distinct from 'authenticated' or auth.uid() is null
+    or not public.is_super_admin(auth.uid()) then
+    raise exception 'Super-admin access is required to record reconciled provider evidence'
+      using errcode='42501';
+  end if;
+  if exists(select 1 from public.refund_authoritative_receipts receipt
+    where receipt.refund_case_id=p_case_id) then
+    raise exception 'Authoritative refund evidence is already recorded for this case'
+      using errcode='P4661';
+  end if;
+  return public.admin_resolve_refund_nayax_outcome_manager_session_pre_ops_v1(
+    p_case_id,p_attempt_id,p_resolution_result,p_evidence_type,
+    p_evidence_reference,p_evidence_occurred_at,p_reason_code,
+    p_expected_case_version);
+end;
+$$;
+revoke execute on function public.admin_resolve_refund_nayax_outcome_manager_session(
+  uuid,uuid,text,text,text,timestamptz,text,bigint
+) from public,anon,service_role;
+grant execute on function public.admin_resolve_refund_nayax_outcome_manager_session(
+  uuid,uuid,text,text,text,timestamptz,text,bigint
+) to authenticated;
+
+-- Retire the remaining TOTP enrollment and controlled-pilot write surfaces.
+-- Historical tables and read paths remain available for audit, but no caller,
+-- including the database owner, can restart either execution lane.
+create or replace function public.open_refund_manager_totp_enrollment_window_current_user()
+returns jsonb language plpgsql security definer set search_path='' as $$ begin
+  raise exception 'The refund authenticator enrollment lane is retired' using errcode='42501';
+end; $$;
+create or replace function public.close_refund_manager_totp_enrollment_window_current_user()
+returns jsonb language plpgsql security definer set search_path='' as $$ begin
+  raise exception 'The refund authenticator enrollment lane is retired' using errcode='42501';
+end; $$;
+create or replace function public.service_record_refund_manager_totp_enrollment(
+  p_actor_user_id uuid,p_factor_binding_hash text
+)
+returns jsonb language plpgsql security definer set search_path='' as $$ begin
+  raise exception 'The refund authenticator enrollment lane is retired' using errcode='42501';
+end; $$;
+create or replace function public.service_compensate_refund_manager_totp_enrollment(
+  p_actor_user_id uuid,p_factor_binding_hash text
+)
+returns jsonb language plpgsql security definer set search_path='' as $$ begin
+  raise exception 'The refund authenticator enrollment lane is retired' using errcode='42501';
+end; $$;
+revoke all on function public.open_refund_manager_totp_enrollment_window_current_user()
+  from public,anon,authenticated,service_role;
+revoke all on function public.close_refund_manager_totp_enrollment_window_current_user()
+  from public,anon,authenticated,service_role;
+revoke all on function public.service_record_refund_manager_totp_enrollment(uuid,text)
+  from public,anon,authenticated,service_role;
+revoke all on function public.service_compensate_refund_manager_totp_enrollment(uuid,text)
+  from public,anon,authenticated,service_role;
+
+create or replace function public.owner_authorize_refund_nayax_controlled_pilot(
+  p_authorization_id uuid,p_owner_user_id uuid,p_case_id uuid,
+  p_expected_case_version bigint,p_amount_cents integer,
+  p_owner_case_evidence_digest text,p_owner_email_digest text,
+  p_self_case_attestation_digest text,p_machine_evidence_digest text,
+  p_account_key_digest text,p_runner_assertion_digest text,
+  p_executor_assertion_digest text,p_contract_digest text,
+  p_contract_version text,p_sponsor_confirmation_digest text,
+  p_dtm_owner_operator_proof_digest text
+)
+returns jsonb language plpgsql security definer set search_path='' as $$ begin
+  raise exception 'The controlled Nayax pilot lane is retired' using errcode='42501';
+end; $$;
+create or replace function public.owner_cancel_refund_nayax_controlled_pilot(
+  p_authorization_id uuid
+)
+returns jsonb language plpgsql security definer set search_path='' as $$ begin
+  raise exception 'The controlled Nayax pilot lane is retired' using errcode='42501';
+end; $$;
+create or replace function public.owner_recover_expired_refund_nayax_controlled_pilot()
+returns jsonb language plpgsql security definer set search_path='' as $$ begin
+  raise exception 'The controlled Nayax pilot lane is retired' using errcode='42501';
+end; $$;
+create or replace function public.service_validate_nayax_controlled_pilot_postarm(
+  p_executor_assertion text,p_pilot_authorization_id uuid,p_case_id uuid,
+  p_amount_cents integer,p_runner_assertion_digest text,p_contract_digest text
+)
+returns jsonb language plpgsql security definer set search_path='' as $$ begin
+  raise exception 'The controlled Nayax pilot lane is retired' using errcode='42501';
+end; $$;
+create or replace function public.admin_consume_refund_nayax_controlled_pilot_intent(
+  p_pilot_authorization_id uuid,p_intent_id uuid,p_case_id uuid,
+  p_expected_case_version bigint,p_refund_amount_cents integer,
+  p_factor_verification_proof text,p_executor_assertion text,
+  p_runner_assertion_digest text,p_contract_digest text,p_idempotency_key text,
+  p_worker_lease_id uuid
+)
+returns jsonb language plpgsql security definer set search_path='' as $$ begin
+  raise exception 'The controlled Nayax pilot lane is retired' using errcode='42501';
+end; $$;
+create or replace function public.service_reserve_and_consume_nayax_controlled_pilot_attempt(
+  p_executor_assertion text,p_pilot_authorization_id uuid,
+  p_runner_assertion_digest text,p_contract_digest text,p_authorization_id uuid,
+  p_case_id uuid,p_idempotency_key text,p_amount_cents integer,
+  p_currency_code text default 'USD',p_worker_lease_id uuid default null
+)
+returns jsonb language plpgsql security definer set search_path='' as $$ begin
+  raise exception 'The controlled Nayax pilot lane is retired' using errcode='42501';
+end; $$;
+create or replace function public.service_record_nayax_controlled_pilot_stage(
+  p_executor_assertion text,p_pilot_authorization_id uuid,p_attempt_id uuid,
+  p_worker_lease_id uuid,p_stage_event text,p_outcome text default null,
+  p_http_status integer default null,p_provider_result text default null,
+  p_provider_status text default null,p_failure_type text default null,
+  p_contract_matched boolean default null,p_classification_digest text default null
+)
+returns jsonb language plpgsql security definer set search_path='' as $$ begin
+  raise exception 'The controlled Nayax pilot lane is retired' using errcode='42501';
+end; $$;
+create or replace function public.service_settle_nayax_controlled_pilot_attempt(
+  p_executor_assertion text,p_pilot_authorization_id uuid,p_attempt_id uuid,
+  p_authorization_id uuid,p_case_id uuid,p_idempotency_key text,
+  p_amount_cents integer,p_currency_code text,p_provider_claim_token text,
+  p_provider_outcome text,p_worker_lease_id uuid,p_evidence_reference text default null,
+  p_provider_status text default null,p_error_code text default null
+)
+returns jsonb language plpgsql security definer set search_path='' as $$ begin
+  raise exception 'The controlled Nayax pilot lane is retired' using errcode='42501';
+end; $$;
+
+revoke all on function public.owner_authorize_refund_nayax_controlled_pilot(
+  uuid,uuid,uuid,bigint,integer,text,text,text,text,text,text,text,text,text,text,text
+) from public,anon,authenticated,service_role;
+revoke all on function public.owner_cancel_refund_nayax_controlled_pilot(uuid)
+  from public,anon,authenticated,service_role;
+revoke all on function public.owner_recover_expired_refund_nayax_controlled_pilot()
+  from public,anon,authenticated,service_role;
+revoke all on function public.service_validate_nayax_controlled_pilot_postarm(
+  text,uuid,uuid,integer,text,text
+) from public,anon,authenticated,service_role;
+revoke all on function public.admin_consume_refund_nayax_controlled_pilot_intent(
+  uuid,uuid,uuid,bigint,integer,text,text,text,text,text,uuid
+) from public,anon,authenticated,service_role;
+revoke all on function public.service_reserve_and_consume_nayax_controlled_pilot_attempt(
+  text,uuid,text,text,uuid,uuid,text,integer,text,uuid
+) from public,anon,authenticated,service_role;
+revoke all on function public.service_record_nayax_controlled_pilot_stage(
+  text,uuid,uuid,uuid,text,text,integer,text,text,text,boolean,text
+) from public,anon,authenticated,service_role;
+revoke all on function public.service_settle_nayax_controlled_pilot_attempt(
+  text,uuid,uuid,uuid,uuid,text,integer,text,text,text,uuid,text,text,text
+) from public,anon,authenticated,service_role;
 
 select pg_notify('pgrst','reload schema');

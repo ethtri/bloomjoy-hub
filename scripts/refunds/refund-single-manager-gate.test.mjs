@@ -20,6 +20,21 @@ const journalRecoveryMigration = await readFile(new URL(
 const providerOrchestrationDbTest = await readFile(new URL(
   'supabase/tests/refund_nayax_provider_orchestration.sql', root
 ), 'utf8');
+const managerSessionDbTest = await readFile(new URL(
+  'supabase/tests/refund_nayax_manager_session_execution.sql', root
+), 'utf8');
+const managerSessionRaceDbTest = await readFile(new URL(
+  'supabase/tests/refund_manager_action_step_up_concurrency.sql', root
+), 'utf8');
+const retiredLaneDbTest = await readFile(new URL(
+  'supabase/tests/refund_manager_action_step_up_safety.sql', root
+), 'utf8');
+const retiredPilotRaceDbTest = await readFile(new URL(
+  'supabase/tests/refund_nayax_controlled_owner_pilot_concurrency.sql', root
+), 'utf8');
+const nayaxEdge = await readFile(new URL(
+  'supabase/functions/nayax-card-refund/index.ts', root
+), 'utf8');
 
 test('one normalized authority resolver feeds one canonical authorization path', () => {
   assert.match(migration, /create or replace function public\.refund_official_action_authority/);
@@ -162,6 +177,46 @@ test('approval continuation preserves the original receipt without a second mana
   assert.match(migration, /candidate\.approving_actor_user_id/);
   assert.match(migration, /body:=replace\(body,E'      ''currentManagerMappingId''/);
   assert.match(migration, /It never creates or repeats the refund request/);
+  assert.match(
+    migration,
+    /current_execution_authorized := public\.refund_official_action_receipt_authority_valid/,
+    'the execution-context trigger starts from the immutable receipt, not live authority',
+  );
+  assert.match(
+    managerSessionDbTest,
+    /set status='revoked',[\s\S]*?revoke_reason='Synthetic post-approval authority change'[\s\S]*?execution evidence changed/,
+    'executable coverage changes access after approval while preserving evidence-drift protection',
+  );
+  assert.match(managerSessionDbTest, /authorization expired/);
+  assert.match(managerSessionDbTest, /cannot be consumed for a different case/);
+  assert.match(managerSessionDbTest, /A stale case version creates no receipt or provider attempt/);
+  assert.match(managerSessionRaceDbTest, /Exactly one racing request owns the provider call/);
+  assert.match(managerSessionRaceDbTest, /expected_case_version=1/);
+});
+
+test('all predecessor execution lanes fail before writes, including owner races', () => {
+  assert.match(
+    migration,
+    /create or replace function public\.admin_begin_refund_manual_nayax_portal_pre_ops_v1\([\s\S]*?manual Nayax portal refund lane is retired/,
+  );
+  assert.match(retiredLaneDbTest, /admin_begin_refund_manual_nayax_portal_pre_ops_v1/);
+  assert.match(retiredLaneDbTest, /Service-context calls to retired functions fail before any evidence or attempt write/);
+  assert.match(migration, /create or replace function public\.owner_authorize_refund_nayax_controlled_pilot\([\s\S]*?controlled Nayax pilot lane is retired/);
+  assert.match(retiredPilotRaceDbTest, /dblink_send_query/);
+  assert.match(retiredPilotRaceDbTest, /Concurrent retired-lane calls create no authorization, receipt, attempt, stage, or event writes/);
+});
+
+test('the live versioned edge path reaches the cap-free single-manager reservation', () => {
+  assert.match(nayaxEdge, /service_reserve_nayax_refund_manager_action_v5/);
+  assert.match(
+    migration,
+    /create or replace function public\.service_reserve_nayax_refund_manager_action_pre_context_v1\([\s\S]*?service_reserve_nayax_refund_manager_action\(/,
+  );
+  const baseReservation = migration.match(
+    /create or replace function public\.service_reserve_nayax_refund_manager_action\([\s\S]*?revoke execute on function public\.service_reserve_nayax_refund_manager_action/
+  )?.[0] ?? '';
+  assert.match(baseReservation, /service_reserve_and_consume_nayax_refund_attempt\(/);
+  assert.doesNotMatch(baseReservation, /service_reserve_and_consume_nayax_refund_attempt_v2/);
 });
 
 test('typed authority parsing rejects unknown roles', () => {

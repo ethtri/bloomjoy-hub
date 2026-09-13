@@ -44,13 +44,13 @@ select ok(
   not public.refund_nayax_direct_api_execution_hard_disabled()
   and pg_get_functiondef(
     'public.admin_begin_refund_manual_nayax_portal_pre_ops_v1(uuid,bigint)'::regprocedure
-  ) like '%refund_nayax_original_portal_fallback_ready(case_row.id)%'
+  ) like '%manual Nayax portal refund lane is retired%'
   and not has_function_privilege(
     'authenticated',
     'public.refund_nayax_direct_api_execution_hard_disabled()',
     'execute'
   ),
-  'Ordinary portal fallback requires original-bound rejection evidence'
+  'Historical manual fallback remains identifiable but cannot execute'
 );
 select ok(
   not has_table_privilege('anon', 'public.refund_manual_nayax_evidence', 'select')

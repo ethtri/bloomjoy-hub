@@ -48,9 +48,9 @@ select ok(not has_function_privilege('service_role',
   'The service role cannot mint retired TOTP factor evidence');
 
 select ok(
-  has_table('public','refund_manager_action_step_up_intents')
-  and has_table('public','refund_manager_step_up_audit')
-  and has_table('public','refund_manager_totp_enrollments'),
+  to_regclass('public.refund_manager_action_step_up_intents') is not null
+  and to_regclass('public.refund_manager_step_up_audit') is not null
+  and to_regclass('public.refund_manager_totp_enrollments') is not null,
   'Historical TOTP records remain readable for authorized audit paths');
 
 select ok(
@@ -89,9 +89,11 @@ select ok(
 select ok(
   pg_temp.capture_error($sql$select public.admin_begin_refund_manual_nayax_portal(null,null)$sql$)
     like '42501:%manual Nayax portal refund lane is retired%'
+  and pg_temp.capture_error($sql$select public.admin_begin_refund_manual_nayax_portal_pre_ops_v1(null,null)$sql$)
+    like '42501:%manual Nayax portal refund lane is retired%'
   and (select attempt_count=(select count(*) from public.refund_case_nayax_refund_attempts)
     from retired_lane_baseline),
-  'Database-owner calls to the retired manual Nayax function fail before an attempt write'
+  'Database-owner calls to every retired manual Nayax function fail before an attempt write'
 );
 
 set local role service_role;
@@ -99,11 +101,14 @@ select set_config('test.retired_service_totp_error',
   pg_temp.capture_error($sql$select public.service_mark_refund_manager_step_up_factor_verified(null,null,null)$sql$),true);
 select set_config('test.retired_service_manual_error',
   pg_temp.capture_error($sql$select public.admin_begin_refund_manual_nayax_portal(null,null)$sql$),true);
+select set_config('test.retired_service_manual_predecessor_error',
+  pg_temp.capture_error($sql$select public.admin_begin_refund_manual_nayax_portal_pre_ops_v1(null,null)$sql$),true);
 reset role;
 
 select ok(
   current_setting('test.retired_service_totp_error') like '42501:%'
   and current_setting('test.retired_service_manual_error') like '42501:%'
+  and current_setting('test.retired_service_manual_predecessor_error') like '42501:%'
   and (select intent_count=(select count(*) from public.refund_manager_action_step_up_intents)
       and receipt_count=(select count(*) from public.refund_case_official_action_authorizations)
       and attempt_count=(select count(*) from public.refund_case_nayax_refund_attempts)
