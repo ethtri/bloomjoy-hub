@@ -552,7 +552,7 @@ select pg_temp.set_auth_claims(
   'password',
   extract(epoch from statement_timestamp())
 );
-select like(
+select ok(
   pg_temp.capture_error($sql$
     select public.admin_begin_refund_manual_nayax_portal(
       '79600000-0000-4000-8000-000000000007',
@@ -560,8 +560,7 @@ select like(
        from public.refund_cases
        where id='79600000-0000-4000-8000-000000000007')
     )
-  $sql$),
-  '%permission denied%',
+  $sql$) like '%permission denied%',
   'A signed-in Super-admin cannot invoke the retired manual portal lane'
 );
 reset role;

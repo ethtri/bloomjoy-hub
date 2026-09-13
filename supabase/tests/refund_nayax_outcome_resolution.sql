@@ -18,7 +18,7 @@ $$;
 revoke all on function pg_temp.historical_reserve_v2(text,uuid,uuid,text,integer,integer,integer,text) from public,anon,authenticated,service_role;
 grant execute on function pg_temp.historical_reserve_v2(text,uuid,uuid,text,integer,integer,integer,text) to service_role;
 
-select plan(145);
+select plan(146);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -90,7 +90,8 @@ grant execute on function pg_temp.intent_totp_epoch(uuid, integer) to authentica
 create function pg_temp.seed_fresh_nayax_authorization(
   p_case_id uuid,
   p_intent_id uuid,
-  p_authorization_id uuid
+  p_authorization_id uuid,
+  p_legacy_step_up boolean default false
 )
 returns void
 language plpgsql
@@ -124,33 +125,39 @@ begin
     null, false, null, null, null
   );
 
-  insert into public.refund_manager_action_step_up_intents (
-    id, actor_user_id, refund_case_id, action, target_function,
-    manager_mapping_id, manager_mapping_version,
-    manager_totp_enrollment_version, expected_case_version,
-    action_context_hash, nayax_execution_evidence_hash,
-    status, not_before, expires_at, factor_verified_at,
-    verified_totp_at, consumed_at
-  ) values (
-    p_intent_id, mapping_row.manager_user_id, p_case_id,
-    'nayax_execute', 'nayax-card-refund', mapping_row.id,
-    mapping_row.mapping_version, 1, case_row.official_action_version,
-    context_hash, evidence_hash, 'consumed',
-    statement_timestamp() - interval '30 seconds',
-    statement_timestamp() + interval '60 seconds',
-    factor_time, factor_time, factor_time
-  );
+  if p_legacy_step_up then
+    insert into public.refund_manager_action_step_up_intents (
+      id, actor_user_id, refund_case_id, action, target_function,
+      manager_mapping_id, manager_mapping_version,
+      manager_totp_enrollment_version, expected_case_version,
+      action_context_hash, nayax_execution_evidence_hash,
+      status, not_before, expires_at, factor_verified_at,
+      verified_totp_at, consumed_at
+    ) values (
+      p_intent_id, mapping_row.manager_user_id, p_case_id,
+      'nayax_execute', 'nayax-card-refund', mapping_row.id,
+      mapping_row.mapping_version, 1, case_row.official_action_version,
+      context_hash, evidence_hash, 'consumed',
+      statement_timestamp() - interval '30 seconds',
+      statement_timestamp() + interval '60 seconds',
+      factor_time, factor_time, factor_time
+    );
+  end if;
 
   insert into public.refund_case_official_action_authorizations (
     id, refund_case_id, action, actor_user_id, manager_mapping_id,
-    manager_mapping_version, expected_case_version, action_context_hash,
-    status, expires_at, step_up_intent_id, verified_totp_at,
-    nayax_execution_evidence_hash
+    manager_mapping_version, authority_kind, expected_case_version,
+    action_context_hash, status, expires_at, step_up_intent_id,
+    verified_totp_at, nayax_execution_evidence_hash, authorization_method
   ) values (
     p_authorization_id, p_case_id, 'nayax_execute', mapping_row.manager_user_id,
-    mapping_row.id, mapping_row.mapping_version, case_row.official_action_version,
-    context_hash, 'authorized', statement_timestamp() + interval '5 minutes',
-    p_intent_id, factor_time, evidence_hash
+    mapping_row.id, mapping_row.mapping_version, 'machine_manager',
+    case_row.official_action_version, context_hash, 'authorized',
+    statement_timestamp() + interval '5 minutes',
+    case when p_legacy_step_up then p_intent_id else null end,
+    case when p_legacy_step_up then factor_time else null end,
+    evidence_hash,
+    case when p_legacy_step_up then 'totp' else 'manager_session' end
   );
 end;
 $$;
@@ -1722,7 +1729,8 @@ select ok((
 select pg_temp.seed_fresh_nayax_authorization(
   'b1600000-0000-4000-8000-000000000002',
   'b1900000-0000-4000-8000-000000000002',
-  'b1a00000-0000-4000-8000-000000000002'
+  'b1a00000-0000-4000-8000-000000000002',
+  true
 );
 update public.refund_nayax_provider_callers
 set assertion_digest = encode(
@@ -1734,10 +1742,33 @@ set assertion_digest = encode(
   )
 where caller_id = 'nayax-card-refund';
 set local role service_role;
+select ok(
+  pg_temp.capture_error($sql$
+    select pg_temp.historical_reserve_v2(
+      'resolution-retry-executor',
+      'b1a00000-0000-4000-8000-000000000002',
+      'b1600000-0000-4000-8000-000000000002',
+      'nayax-refund-9999999999999999999999999999999999999999999999999999999999999999',
+      702, 100000, 100, 'USD'
+    )
+  $sql$) like '%Fresh manager confirmation receipt required%',
+  'A legacy TOTP receipt cannot authorize a new provider attempt'
+);
+reset role;
+delete from public.refund_case_official_action_authorizations
+where id = 'b1a00000-0000-4000-8000-000000000002';
+delete from public.refund_manager_action_step_up_intents
+where id = 'b1900000-0000-4000-8000-000000000002';
+select pg_temp.seed_fresh_nayax_authorization(
+  'b1600000-0000-4000-8000-000000000002',
+  'b1900000-0000-4000-8000-000000000003',
+  'b1a00000-0000-4000-8000-000000000003'
+);
+set local role service_role;
 insert into pg_temp.nayax_resolution_test_results (result_key, result)
 select 'fresh-reserve', pg_temp.historical_reserve_v2(
   'resolution-retry-executor',
-  'b1a00000-0000-4000-8000-000000000002',
+  'b1a00000-0000-4000-8000-000000000003',
   'b1600000-0000-4000-8000-000000000002',
   'nayax-refund-' || repeat('9', 64),
   702,
@@ -1757,7 +1788,7 @@ select ok((
   from public.refund_case_nayax_refund_attempts attempt
   where attempt.refund_case_id = 'b1600000-0000-4000-8000-000000000002'
     and attempt.official_action_authorization_id =
-      'b1a00000-0000-4000-8000-000000000002'
+      'b1a00000-0000-4000-8000-000000000003'
     and attempt.idempotency_key = 'nayax-refund-' || repeat('9', 64)
 ), 'The fresh generation does not collide with the prior attempt idempotency row');
 

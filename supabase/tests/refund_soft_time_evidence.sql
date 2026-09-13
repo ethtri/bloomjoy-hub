@@ -664,7 +664,7 @@ select throws_ok($$select public.service_reserve_nayax_refund_manager_action_v3(
   'soft-time-executor','fb110000-0000-4000-8000-000000000001',
   'fb150000-0000-4000-8000-000000000001',
   (select official_action_version from pg_temp.soft_time_fact_change_before),
-  'nayax-refund-'||repeat('b',64),1090,null,null,'USD',
+  'nayax-refund-'||repeat('b',64),1090,100000,100,'USD',
   'nayax-production-account-contract-v2','nayax-provider-journal-v3',
   (select execution_context->>'contextHash' from pg_temp.soft_time_fact_change_before)
 )$$,'P4620',null,
@@ -802,7 +802,7 @@ insert into pg_temp.soft_time_handoff_result(result)
 select public.service_reserve_nayax_refund_manager_action_v3(
   'soft-time-executor','fb110000-0000-4000-8000-000000000002',
   'fb150000-0000-4000-8000-000000000002',(execution_context->>'caseVersion')::bigint,
-  'nayax-refund-'||repeat('a',64),1090,null,null,'USD',
+  'nayax-refund-'||repeat('a',64),1090,100000,100,'USD',
   'nayax-production-account-contract-v2','nayax-provider-journal-v3',
   execution_context->>'contextHash'
 ) from pg_temp.soft_time_handoff_before;
@@ -1113,7 +1113,7 @@ insert into pg_temp.soft_time_retry_result(result)
 select public.service_reserve_nayax_refund_manager_action_v3(
   'soft-time-executor','fb110000-0000-4000-8000-000000000002',
   'fb150000-0000-4000-8000-000000000003',(value->>'caseVersion')::bigint,
-  'nayax-refund-'||repeat('c',64),1090,null,null,'USD',
+  'nayax-refund-'||repeat('c',64),1090,100000,100,'USD',
   'nayax-production-account-contract-v2','nayax-provider-journal-v3',value->>'contextHash'
 ) from pg_temp.soft_time_retry_context;
 reset role;

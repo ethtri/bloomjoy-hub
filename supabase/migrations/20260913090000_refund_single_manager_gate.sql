@@ -133,9 +133,9 @@ begin
   if public.refund_case_has_unresolved_reconciliation(c.id) then
     raise exception 'This refund case has an unresolved reconciliation review';
   end if;
-  if exists(select 1 from public.refund_gmail_case_link_review_candidates candidate
-    join public.refund_gmail_case_link_reviews review on review.id=candidate.review_id
-    where candidate.refund_case_id=c.id and review.status='pending') then
+  if exists(select 1 from public.refund_gmail_case_link_review_candidates link_candidate
+    join public.refund_gmail_case_link_reviews review on review.id=link_candidate.review_id
+    where link_candidate.refund_case_id=c.id and review.status='pending') then
     raise exception 'This refund case has a pending email-to-case link review';
   end if;
   if normalized_action='cash_complete' and c.payment_method<>'cash' then
@@ -349,9 +349,9 @@ begin
   if public.refund_case_has_unresolved_reconciliation(c.id) then
     raise exception 'This refund case has an unresolved reconciliation review';
   end if;
-  if exists(select 1 from public.refund_gmail_case_link_review_candidates candidate
-    join public.refund_gmail_case_link_reviews review on review.id=candidate.review_id
-    where candidate.refund_case_id=c.id and review.status='pending') then
+  if exists(select 1 from public.refund_gmail_case_link_review_candidates link_candidate
+    join public.refund_gmail_case_link_reviews review on review.id=link_candidate.review_id
+    where link_candidate.refund_case_id=c.id and review.status='pending') then
     raise exception 'This refund case has a pending email-to-case link review';
   end if;
   select * into machine from public.reporting_machines where id=c.reporting_machine_id for share;

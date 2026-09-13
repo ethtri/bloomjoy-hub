@@ -52,20 +52,34 @@ returns void language plpgsql as $$ begin
   perform set_config('request.jwt.claims',jsonb_build_object('sub',p_user_id,'role','authenticated','session_id',p_session_id,'is_anonymous',false)::text,true);
 end; $$;
 select pg_temp.set_receipt_auth('ad000000-0000-4000-8000-000000000001','ad010000-0000-4000-8000-000000000001');
-do $$ declare candidate jsonb; c public.refund_cases%rowtype; begin
-  select * into c from public.refund_cases where id='ad400000-0000-4000-8000-000000000002';
-  candidate:=public.admin_create_refund_manual_nayax_candidate(c.id,c.official_action_version,'RECEIPT-MACHINE',
-    '123456782',to_char(c.incident_at at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI:SS'),700,'4242');
-  select * into c from public.refund_cases where id=c.id;
-  perform public.service_select_refund_nayax_candidate_as_actor('ad000000-0000-4000-8000-000000000001',c.id,c.official_action_version,
-    (candidate->>'candidateToken')::uuid,null);
-end $$;
-set local role authenticated;
-select lives_ok($$select public.admin_begin_refund_manual_nayax_portal(
-  'ad400000-0000-4000-8000-000000000002',
-  (select official_action_version from public.refund_cases where id='ad400000-0000-4000-8000-000000000002'))$$,
-  'Supported manual portal registration creates the held original-bound fixture');
-reset role;
+update public.refund_cases
+set status='card_refund_pending',decision='approved',correlation_status='matched',
+  correlation_source='nayax',correlation_confidence=1,automation_state='approved',
+  matched_nayax_transaction_id='123456782',matched_nayax_amount_cents=700,
+  matched_nayax_currency_code='USD',matched_nayax_machine_auth_time=incident_at,
+  nayax_refund_execution_status='unknown',refund_operations_due_at=statement_timestamp()-interval '1 hour',
+  lifecycle_integrity_status='hold',
+  lifecycle_integrity_code='card_payment_state_without_attempt',
+  lifecycle_integrity_detected_at=statement_timestamp()
+where id='ad400000-0000-4000-8000-000000000002';
+with inserted as (
+  insert into public.refund_case_nayax_refund_attempts(
+    refund_case_id,actor_user_id,execution_mode,status,idempotency_key,
+    amount_cents,provider_reference,provider_status,request_fingerprint,
+    currency_code,provider_outcome,reconciliation_required,safe_transport_stage,
+    safe_failure_class,created_at)
+  select c.id,'ad000000-0000-4000-8000-000000000001','manual_portal','manual_review',
+    'manual-nayax-portal-20260901-'||c.public_reference,700,c.matched_nayax_transaction_id,
+    'request_accepted',encode(extensions.digest(convert_to(c.id::text||'|'||c.matched_nayax_transaction_id||'|700','UTF8'),'sha256'),'hex'),
+    'USD','unknown',true,'confirmation_hold','provider_unknown','2026-09-01 18:00:00+00'
+  from public.refund_cases c where c.id='ad400000-0000-4000-8000-000000000002'
+  returning id,refund_case_id,actor_user_id,created_at
+)
+insert into public.refund_case_events(refund_case_id,actor_user_id,event_type,message,metadata,created_at)
+select refund_case_id,actor_user_id,'manual_nayax_refund_reconciliation_created','Synthetic historical registration',
+  jsonb_build_object('attempt_id',id,'provider_outcome','unknown','provider_call_made',true,
+    'settlement_confirmation_required',true,'payload_redacted',true),created_at
+from inserted;
 
 create function pg_temp.record_receipt(n integer,changes jsonb default '{}'::jsonb)
 returns jsonb language plpgsql as $$ declare
@@ -283,7 +297,8 @@ select is(public.refund_lifecycle_contract('ad400000-0000-4000-8000-000000000001
 select is(public.refund_lifecycle_contract('ad400000-0000-4000-8000-000000000001')->>'stageRank','70','Unadopted receipt never marks customer updated complete');
 select is(public.refund_lifecycle_contract('ad400000-0000-4000-8000-000000000002')#>>'{managerQueue,nextAction}','review_accounting_date','Accounting work stays with operations');
 select is(public.refund_lifecycle_contract('ad400000-0000-4000-8000-000000000002')#>>'{customerAction,required}','false','Customer is not assigned internal accounting work');
-select ok(not public.can_perform_refund_official_action('ad000000-0000-4000-8000-000000000001','ad400000-0000-4000-8000-000000000001'),'Receipt does not authorize a fresh payment');
+select ok(public.can_perform_refund_official_action('ad000000-0000-4000-8000-000000000001','ad400000-0000-4000-8000-000000000001'),
+  'A recorded receipt does not masquerade as loss of the manager authority');
 select throws_ok($$update public.refund_authoritative_receipts set settled_at=observed_at$$,'P4660',null,'Receipt cannot be rewritten to invent settlement time');
 select throws_ok($$delete from public.refund_authoritative_receipts$$,'P4660',null,'Receipt evidence cannot be deleted');
 select throws_ok($$update public.refund_cases set refund_completed_at=now() where id='ad400000-0000-4000-8000-000000000001'$$,'P4663',null,'Legacy completion cannot substitute current time');

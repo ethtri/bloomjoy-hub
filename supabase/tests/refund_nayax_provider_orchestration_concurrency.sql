@@ -82,7 +82,6 @@ declare
   machine_row public.reporting_machines%rowtype;
   evidence_hash text;
   context_hash text;
-  verified_at timestamptz := statement_timestamp() - interval '10 seconds';
 begin
   select * into case_row from public.refund_cases
   where id = '9b600000-0000-4000-8000-000000000001';
@@ -94,35 +93,18 @@ begin
     700, null, null, false, null, null, null
   );
 
-  insert into public.refund_manager_action_step_up_intents (
-    id, actor_user_id, refund_case_id, action, target_function,
-    manager_mapping_id, manager_mapping_version,
-    manager_totp_enrollment_version, expected_case_version,
-    action_context_hash, nayax_execution_evidence_hash,
-    status, not_before, expires_at, factor_verified_at,
-    verified_totp_at, consumed_at
-  ) values (
-    '9b700000-0000-4000-8000-000000000001',
-    '9b000000-0000-4000-8000-000000000001',
-    case_row.id, 'nayax_execute', 'nayax-card-refund',
-    '9b400000-0000-4000-8000-000000000001', 1, 1,
-    case_row.official_action_version, context_hash, evidence_hash,
-    'consumed', statement_timestamp() - interval '30 seconds',
-    statement_timestamp() + interval '60 seconds', verified_at,
-    verified_at, verified_at
-  );
   insert into public.refund_case_official_action_authorizations (
     id, refund_case_id, action, actor_user_id, manager_mapping_id,
-    manager_mapping_version, expected_case_version, action_context_hash,
-    status, expires_at, step_up_intent_id, verified_totp_at,
-    nayax_execution_evidence_hash
+    manager_mapping_version, authority_kind, expected_case_version,
+    action_context_hash, status, expires_at, step_up_intent_id,
+    verified_totp_at, nayax_execution_evidence_hash, authorization_method
   ) values (
     '9b800000-0000-4000-8000-000000000001', case_row.id, 'nayax_execute',
     '9b000000-0000-4000-8000-000000000001',
     '9b400000-0000-4000-8000-000000000001', 1,
-    case_row.official_action_version, context_hash, 'authorized',
-    statement_timestamp() + interval '5 minutes',
-    '9b700000-0000-4000-8000-000000000001', verified_at, evidence_hash
+    'machine_manager', case_row.official_action_version, context_hash,
+    'authorized', statement_timestamp() + interval '5 minutes',
+    null, null, evidence_hash, 'manager_session'
   );
 end;
 $$;

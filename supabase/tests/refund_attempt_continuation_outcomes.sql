@@ -168,19 +168,19 @@ select n,(context->>'caseVersion')::bigint,
   case when n=1 then public.service_reserve_nayax_refund_manager_action_v4('continuation-executor',
     'ca000000-0000-4000-8000-000000000001',
     ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
-    (context->>'caseVersion')::bigint,'nayax-refund-'||repeat(n::text,64),800,null,null,'USD',
+    (context->>'caseVersion')::bigint,'nayax-refund-'||repeat(n::text,64),800,100000,100,'USD',
     'nayax-production-account-contract-v2','nayax-provider-journal-v3',context->>'contextHash',
     'source_with_bound_offset')
   when n in (4,6,7) then public.service_reserve_nayax_refund_manager_action_v5('continuation-executor',
     'ca000000-0000-4000-8000-000000000001',
     ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
-    (context->>'caseVersion')::bigint,'nayax-refund-'||repeat(n::text,64),800,null,null,'USD',
+    (context->>'caseVersion')::bigint,'nayax-refund-'||repeat(n::text,64),800,100000,100,'USD',
     'nayax-production-account-contract-v2','nayax-provider-journal-v3',context->>'contextHash',
     'exact_source','empty_string')
   else public.service_reserve_nayax_refund_manager_action_v3('continuation-executor',
     'ca000000-0000-4000-8000-000000000001',
     ('ca500000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
-    (context->>'caseVersion')::bigint,'nayax-refund-'||repeat(n::text,64),800,null,null,'USD',
+    (context->>'caseVersion')::bigint,'nayax-refund-'||repeat(n::text,64),800,100000,100,'USD',
     'nayax-production-account-contract-v2','nayax-provider-journal-v3',context->>'contextHash') end
 from generate_series(1,7) n
 cross join lateral (

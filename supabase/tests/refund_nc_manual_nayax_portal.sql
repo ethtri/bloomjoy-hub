@@ -38,8 +38,8 @@ select has_column('public', 'reporting_machines', 'nayax_manual_portal_enabled',
 select has_column('public', 'reporting_machines', 'nayax_manual_account_scope', 'Machines have a private duplicate-protection scope');
 select has_column('public', 'reporting_machines', 'nayax_manual_portal_timezone', 'Manual machines have an exact machine-local timezone');
 select has_table('public', 'refund_manual_nayax_evidence', 'Exact manual portal evidence has a private table');
-select has_function('public', 'admin_create_refund_manual_nayax_candidate', array['uuid','bigint','text','text','text','integer','text'], 'Refund Operations can enter exact portal evidence through one guarded function');
-select has_function('public', 'admin_begin_refund_manual_nayax_portal', array['uuid','bigint'], 'Refund Operations has a separate guarded approval function');
+select has_function('public', 'admin_create_refund_manual_nayax_candidate', array['uuid','bigint','text','text','text','integer','text'], 'Historical portal evidence remains available for audit');
+select has_function('public', 'admin_begin_refund_manual_nayax_portal', array['uuid','bigint'], 'The retired manual execution function remains identifiable for explicit privilege checks');
 select ok(
   not public.refund_nayax_direct_api_execution_hard_disabled()
   and pg_get_functiondef(
@@ -64,9 +64,10 @@ select ok(
   'Only authenticated sessions can reach the evidence-entry boundary'
 );
 select ok(
-  has_function_privilege('authenticated', 'public.admin_begin_refund_manual_nayax_portal(uuid,bigint)', 'execute')
-  and not has_function_privilege('anon', 'public.admin_begin_refund_manual_nayax_portal(uuid,bigint)', 'execute'),
-  'Only authenticated sessions can reach the separate approval boundary'
+  not has_function_privilege('authenticated', 'public.admin_begin_refund_manual_nayax_portal(uuid,bigint)', 'execute')
+  and not has_function_privilege('anon', 'public.admin_begin_refund_manual_nayax_portal(uuid,bigint)', 'execute')
+  and not has_function_privilege('service_role', 'public.admin_begin_refund_manual_nayax_portal(uuid,bigint)', 'execute'),
+  'No current browser or service role can enter the retired manual execution lane'
 );
 
 insert into public.customer_accounts (id, name, account_type, status)
@@ -394,78 +395,56 @@ select is((select count(*)::integer from public.refund_case_messages where refun
 
 set local role authenticated;
 select pg_temp.set_auth_claims('94130000-0000-4000-8000-000000000001');
-insert into pg_temp.manual_results
-select 'approval', public.admin_begin_refund_manual_nayax_portal(
-  '94140000-0000-4000-8000-000000000001',
-  (select official_action_version from public.refund_cases where id = '94140000-0000-4000-8000-000000000001')
-);
-reset role;
-select ok((select (value ->> 'providerCallMade')::boolean = false and (value ->> 'customerMessageCreated')::boolean = false from pg_temp.manual_results where key = 'approval'), 'Manual approval explicitly makes no provider call or customer email');
-select is((select status || ':' || decision from public.refund_cases where id = '94140000-0000-4000-8000-000000000001'), 'card_refund_pending:approved', 'Separate approval places the case on a payment-result hold');
-select is((select execution_mode || ':' || status || ':' || provider_outcome from public.refund_case_nayax_refund_attempts where refund_case_id = '94140000-0000-4000-8000-000000000001'), 'manual_portal:manual_review:unknown', 'Approval creates one truthful unknown manual-portal attempt');
-select is((select count(*)::integer from public.refund_case_messages where refund_case_id = '94140000-0000-4000-8000-000000000001'), 0, 'Approval still sends no customer email');
-select is((select count(*)::integer from public.sales_adjustment_facts where refund_case_id = '94140000-0000-4000-8000-000000000001'), 0, 'Approval does not change financial reporting');
-
-set local role authenticated;
-select pg_temp.set_auth_claims('94130000-0000-4000-8000-000000000001');
-insert into pg_temp.manual_results
-select 'replay', public.admin_begin_refund_manual_nayax_portal(
-  '94140000-0000-4000-8000-000000000001',
-  (select official_action_version from public.refund_cases where id = '94140000-0000-4000-8000-000000000001')
-);
-reset role;
-select ok((select (value ->> 'created')::boolean = false from pg_temp.manual_results where key = 'replay'), 'A repeated approval returns the original attempt');
-select is((select count(*)::integer from public.refund_case_nayax_refund_attempts where refund_case_id = '94140000-0000-4000-8000-000000000001'), 1, 'A repeated approval cannot create a duplicate attempt');
-
-set local role authenticated;
-select pg_temp.set_auth_claims('94130000-0000-4000-8000-000000000001');
-insert into pg_temp.manual_results
-select 'completion', public.admin_resolve_refund_nayax_outcome_manager_session(
-  '94140000-0000-4000-8000-000000000001',
-  (select (value ->> 'attemptId')::uuid from pg_temp.manual_results where key = 'approval'),
-  'documented_manual_completion', 'documented_manual_refund',
-  'MANUAL:MANUAL-TXN-941-0001', statement_timestamp(),
-  'manual_nayax_completion',
-  (select official_action_version from public.refund_cases where id = '94140000-0000-4000-8000-000000000001')
-);
-reset role;
 select ok(
-  (select (value ->> 'caseCompleted')::boolean and not (value ->> 'providerCallMade')::boolean
-   from pg_temp.manual_results where key = 'completion'),
-  'The exact documented Nayax result completes the case without a second provider call'
+  pg_temp.capture_error($sql$
+    select public.admin_begin_refund_manual_nayax_portal(
+      '94140000-0000-4000-8000-000000000001',
+      (select official_action_version from public.refund_cases
+        where id = '94140000-0000-4000-8000-000000000001')
+    )
+  $sql$) like '42501:permission denied for function admin_begin_refund_manual_nayax_portal%',
+  'An authenticated manager cannot start the retired manual execution lane'
 );
-select ok((
-  select refund_case.status = 'completed'
-    and refund_case.reporting_adjustment_id is not null
-    and attempt.status = 'succeeded'
-    and attempt.provider_outcome = 'success'
-    and not attempt.reconciliation_required
-  from public.refund_cases refund_case
-  join public.refund_case_nayax_refund_attempts attempt on attempt.refund_case_id = refund_case.id
-  where refund_case.id = '94140000-0000-4000-8000-000000000001'
-), 'Documented completion atomically settles the case and its held attempt');
+reset role;
+select is((select status from public.refund_cases where id = '94140000-0000-4000-8000-000000000001'), 'needs_review', 'The rejected call leaves the case unchanged');
+select is((select count(*)::integer from public.refund_case_nayax_refund_attempts where refund_case_id = '94140000-0000-4000-8000-000000000001'), 0, 'The rejected call creates no provider attempt');
+select is((select count(*)::integer from public.refund_case_messages where refund_case_id = '94140000-0000-4000-8000-000000000001'), 0, 'The rejected call sends no customer email');
+
+update public.refund_cases
+set status = 'card_refund_pending', decision = 'approved'
+where id = '94140000-0000-4000-8000-000000000001';
+insert into public.refund_case_nayax_refund_attempts (
+  refund_case_id, actor_user_id, execution_mode, status, idempotency_key,
+  amount_cents, provider_reference, provider_status, request_fingerprint,
+  currency_code, provider_outcome, reconciliation_required,
+  safe_transport_stage, safe_failure_class, created_at
+) values (
+  '94140000-0000-4000-8000-000000000001',
+  '94130000-0000-4000-8000-000000000001',
+  'manual_portal', 'manual_review',
+  'manual-nayax-portal-20260901-RF-MANUAL-1', 700,
+  'MANUAL-TXN-941-0001', 'request_accepted', repeat('a', 64), 'USD',
+  'unknown', true, 'confirmation_hold', 'provider_unknown',
+  '2026-09-01 18:00:00+00'
+);
 select is(
-  (select count(*)::integer from public.sales_adjustment_facts where refund_case_id = '94140000-0000-4000-8000-000000000001'),
-  1,
-  'Documented completion creates exactly one reporting adjustment'
-);
-select ok(
-  (select count(*) = 1 from public.refund_case_messages
-    where refund_case_id = '94140000-0000-4000-8000-000000000001'
-      and template_version = 'refund_nayax_completion_v2')
-  and (select completion_gmail_thread_id = '94150000-0000-4000-8000-000000000001'
-    from public.refund_case_nayax_refund_attempts
-    where refund_case_id = '94140000-0000-4000-8000-000000000001'),
-  'Documented completion prepares one warm reply on the original customer thread'
+  (select execution_mode || ':' || status || ':' || provider_outcome
+   from public.refund_case_nayax_refund_attempts
+   where refund_case_id = '94140000-0000-4000-8000-000000000001'),
+  'manual_portal:manual_review:unknown',
+  'Historical manual-portal evidence remains readable without reopening the lane'
 );
 
 set local role authenticated;
 select pg_temp.set_auth_claims('94130000-0000-4000-8000-000000000001');
 select is((select count(*)::integer from jsonb_array_elements(public.admin_get_refund_manual_nayax_context()) context
   where context->>'caseId'='94140000-0000-4000-8000-000000000003'),0,'An unattempted ordinary match cannot bypass the API through portal fallback');
-select throws_ok(format($sql$select public.admin_begin_refund_manual_nayax_portal('94140000-0000-4000-8000-000000000003',%s)$sql$,
-  (select official_action_version from public.refund_cases where id='94140000-0000-4000-8000-000000000003')),
-  'P0001',null,'The server enforces the same rejection requirement as the manager view');
+select ok(
+  pg_temp.capture_error(format($sql$select public.admin_begin_refund_manual_nayax_portal('94140000-0000-4000-8000-000000000003',%s)$sql$,
+    (select official_action_version from public.refund_cases where id='94140000-0000-4000-8000-000000000003')))
+    like '42501:permission denied for function admin_begin_refund_manual_nayax_portal%',
+  'The retired lane remains unavailable even when older fallback facts exist'
+);
 reset role;
 select * from finish();
 rollback;
