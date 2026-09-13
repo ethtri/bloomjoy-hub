@@ -133,8 +133,8 @@ select ok(
 select ok(
   pg_temp.capture_error($$select public.admin_begin_refund_manual_nayax_portal(
     '99210000-0000-4000-8000-000000000001', 1
-  )$$) like '42501:Refund Operations administrator required%',
-  'A routine manager cannot begin a manual provider approval'
+  )$$) like '42501:permission denied for function admin_begin_refund_manual_nayax_portal%',
+  'No authenticated user can begin the retired manual provider lane'
 );
 
 select ok(
@@ -177,7 +177,7 @@ select pg_temp.set_auth_claims('99200000-0000-4000-8000-000000000002');
 select is(
   public.admin_get_refund_operations_overview() ->> 'refundOperationsAccess',
   'true',
-  'A Super Admin receives the Refund Operations capability'
+  'A Super Admin receives the system recovery capability'
 );
 
 select * from finish();

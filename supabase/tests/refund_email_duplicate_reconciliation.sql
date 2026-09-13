@@ -213,17 +213,17 @@ select ok(
   'A pending review blocks an official case decision'
 );
 select ok(
-  not public.can_perform_refund_official_action(
+  public.can_perform_refund_official_action(
     '93000000-0000-4000-8000-000000000001',
     '94000000-0000-4000-8000-000000000001'
   ),
-  'The current manager cannot prepare step-up while a duplicate review is pending'
+  'The duplicate review does not masquerade as a manager access failure'
 );
 select ok(
   pg_get_functiondef(
     'public.can_prepare_nayax_refund_execution(uuid,uuid)'::regprocedure
   ) like '%can_perform_refund_official_action%',
-  'Nayax readiness retains PR 701 manager/TOTP authority delegation'
+  'Nayax readiness delegates actor authority to the canonical manager check'
 );
 
 select set_config(

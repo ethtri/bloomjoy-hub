@@ -58,14 +58,13 @@ declare cid uuid:=('b7400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid; v bi
 begin
   select official_action_version into v from public.refund_cases where id=cid;
   return public.service_reserve_nayax_refund_manager_action_v3('verification-executor',
-    'b7000000-0000-4000-8000-000000000001',cid,v,'nayax-refund-'||repeat(n::text,64),amount,null,null,'USD',
+    'b7000000-0000-4000-8000-000000000001',cid,v,'nayax-refund-'||repeat(n::text,64),amount,100000,100,'USD',
     'nayax-production-account-contract-v2','nayax-provider-journal-v3',coalesce(context_hash,
       public.service_get_refund_nayax_execution_context('verification-executor','b7000000-0000-4000-8000-000000000001',cid)->>'contextHash'));
 end; $$;
 select ok(not has_table_privilege('authenticated','public.refund_nayax_execution_contexts','select'),'Execution identity is private');
 select ok(not has_table_privilege('service_role','public.refund_nayax_execution_contexts','insert'),'Service cannot forge execution snapshots');
 select ok(not exists(select 1 from (values
-  ('service_role','public.service_reserve_nayax_refund_manager_action(text,uuid,uuid,bigint,text,integer,integer,integer,text)'),
   ('service_role','public.service_reserve_nayax_refund_manager_action_v2(text,uuid,uuid,bigint,text,integer,integer,integer,text,text,text)'),
   ('service_role','public.service_reserve_and_consume_nayax_refund_attempt_v2(text,uuid,uuid,text,integer,integer,integer,text)'),
   ('service_role','public.service_reserve_and_consume_nayax_controlled_pilot_attempt(text,uuid,text,text,uuid,uuid,text,integer,text,uuid)'),
@@ -84,7 +83,7 @@ grant select,insert on verified_result to service_role;
 set local role service_role;
 insert into verified_result select public.service_reserve_nayax_refund_manager_action_v3(
   'verification-executor','b7000000-0000-4000-8000-000000000001','b7400000-0000-4000-8000-000000000001',
-  (context->>'caseVersion')::bigint,'nayax-refund-'||repeat('1',64),800,null,null,'USD',
+  (context->>'caseVersion')::bigint,'nayax-refund-'||repeat('1',64),800,100000,100,'USD',
   'nayax-production-account-contract-v2','nayax-provider-journal-v3',context->>'contextHash') from current_execution_input;
 reset role;
 select is((select result#>>'{attempt,shouldExecute}' from verified_result),'true','Normal manager action reserves the first request');
@@ -142,7 +141,7 @@ grant select,insert on email_result to service_role;
 set local role service_role;
 insert into email_result select public.service_reserve_nayax_refund_manager_action_v5(
   'verification-executor','b7000000-0000-4000-8000-000000000001','b7400000-0000-4000-8000-000000000007',
-  (context->>'caseVersion')::bigint,'nayax-refund-'||repeat('7',64),800,null,null,'USD',
+  (context->>'caseVersion')::bigint,'nayax-refund-'||repeat('7',64),800,100000,100,'USD',
   'nayax-production-account-contract-v2','nayax-provider-journal-v3',context->>'contextHash','exact_source','empty_string')
   from email_execution_input;
 reset role;
@@ -152,13 +151,13 @@ select is((select context->>'refundEmailListMode' from public.refund_nayax_execu
 select throws_ok($$select public.service_reserve_nayax_refund_manager_action_v5(
   'verification-executor','b7000000-0000-4000-8000-000000000001','b7400000-0000-4000-8000-000000000007',
   (select official_action_version from public.refund_cases where id='b7400000-0000-4000-8000-000000000007'),
-  'nayax-refund-'||repeat('7',64),800,null,null,'USD','nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  'nayax-refund-'||repeat('7',64),800,100000,100,'USD','nayax-production-account-contract-v2','nayax-provider-journal-v3',
   (select context->>'contextHash' from email_execution_input),'exact_source','omit')$$,
   'P4620',null,'Same-key replay cannot change the reserved email representation even with the old hash');
 select is((select public.service_reserve_nayax_refund_manager_action_v5(
   'verification-executor','b7000000-0000-4000-8000-000000000001','b7400000-0000-4000-8000-000000000007',
   (select official_action_version from public.refund_cases where id='b7400000-0000-4000-8000-000000000007'),
-  'nayax-refund-'||repeat('7',64),800,null,null,'USD','nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  'nayax-refund-'||repeat('7',64),800,100000,100,'USD','nayax-production-account-contract-v2','nayax-provider-journal-v3',
   (select context->>'contextHash' from email_execution_input),'exact_source','empty_string')#>>'{attempt,shouldExecute}'),
   'false','Exact same-mode replay does not reserve another provider request');
 create temp table offset_execution_input as select
@@ -212,7 +211,7 @@ insert into offset_result select public.service_reserve_nayax_refund_manager_act
   'verification-executor','b7000000-0000-4000-8000-000000000001',
   'b7400000-0000-4000-8000-000000000006',
   (context->>'caseVersion')::bigint,'nayax-refund-'||repeat('6',64),
-  800,null,null,'USD','nayax-production-account-contract-v2',
+  800,100000,100,'USD','nayax-production-account-contract-v2',
   'nayax-provider-journal-v3',context->>'contextHash',
   'source_with_bound_offset'
 ) from offset_execution_input;
@@ -236,7 +235,7 @@ select throws_ok(
     'verification-executor','b7000000-0000-4000-8000-000000000001',
     'b7400000-0000-4000-8000-000000000006',
     (select official_action_version from public.refund_cases where id='b7400000-0000-4000-8000-000000000006'),
-    'nayax-refund-'||repeat('6',64),800,null,null,'USD',
+    'nayax-refund-'||repeat('6',64),800,100000,100,'USD',
     'nayax-production-account-contract-v2','nayax-provider-journal-v3',
     (select context->>'contextHash' from offset_execution_input),
     'exact_source')$$,
@@ -248,7 +247,7 @@ select is(
     'verification-executor','b7000000-0000-4000-8000-000000000001',
     'b7400000-0000-4000-8000-000000000006',
     (select official_action_version from public.refund_cases where id='b7400000-0000-4000-8000-000000000006'),
-    'nayax-refund-'||repeat('6',64),800,null,null,'USD',
+    'nayax-refund-'||repeat('6',64),800,100000,100,'USD',
     'nayax-production-account-contract-v2','nayax-provider-journal-v3',
     (select context->>'contextHash' from offset_execution_input),
     'source_with_bound_offset')#>>'{attempt,shouldExecute}'),
@@ -260,7 +259,7 @@ select throws_ok(
     'verification-executor','b7000000-0000-4000-8000-000000000001',
     'b7400000-0000-4000-8000-000000000006',
     (select official_action_version from public.refund_cases where id='b7400000-0000-4000-8000-000000000006'),
-    'nayax-refund-'||repeat('7',64),800,null,null,'USD',
+    'nayax-refund-'||repeat('7',64),800,100000,100,'USD',
     'nayax-production-account-contract-v2','nayax-provider-journal-v3',
     (select context->>'contextHash' from offset_execution_input),
     'exact_source')$$,
@@ -354,23 +353,23 @@ select public.service_settle_nayax_refund_attempt('verification-executor',
 select is((select nayax_refund_attempt_generation from public.refund_cases where id='b7400000-0000-4000-8000-000000000005'),1,
   'Definitive rejection releases a fresh review generation');
 select ok(public.refund_nayax_original_portal_fallback_ready('b7400000-0000-4000-8000-000000000005'),
-  'Exact released rejection permits the supported portal fallback');
-select is(public.admin_begin_refund_manual_nayax_portal('b7400000-0000-4000-8000-000000000005',
-  (select official_action_version from public.refund_cases where id='b7400000-0000-4000-8000-000000000005'))->>'created','true',
-  'Rejected API purchase can enter one manager-approved portal hold');
-select is(public.refund_nayax_original_portal_fallback_ready('b7400000-0000-4000-8000-000000000005'),false,
-  'A newer held portal attempt prevents reuse of earlier rejection authority');
+  'Historical facts still identify the exact released rejection');
+select throws_ok($$select public.admin_begin_refund_manual_nayax_portal('b7400000-0000-4000-8000-000000000005',
+  (select official_action_version from public.refund_cases where id='b7400000-0000-4000-8000-000000000005'))$$,
+  '42501',null,'The retired manual portal lane cannot be started');
+select is(public.refund_nayax_original_portal_fallback_ready('b7400000-0000-4000-8000-000000000005'),true,
+  'A denied retired-lane call does not alter the historical rejection evidence');
 -- Upgrade replay preserves historical omitted-email reservations.
 select is((select public.service_reserve_nayax_refund_manager_action_v5(
   'verification-executor','b7000000-0000-4000-8000-000000000001','b7400000-0000-4000-8000-000000000006',
   (select official_action_version from public.refund_cases where id='b7400000-0000-4000-8000-000000000006'),
-  'nayax-refund-'||repeat('6',64),800,null,null,'USD','nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  'nayax-refund-'||repeat('6',64),800,100000,100,'USD','nayax-production-account-contract-v2','nayax-provider-journal-v3',
   (select context->>'contextHash' from offset_execution_input),'source_with_bound_offset','omit')#>>'{attempt,shouldExecute}'),
   'false','A historical missing-email-key reservation replays through v5 without another request');
 select throws_ok($$select public.service_reserve_nayax_refund_manager_action_v5(
   'verification-executor','b7000000-0000-4000-8000-000000000001','b7400000-0000-4000-8000-000000000006',
   (select official_action_version from public.refund_cases where id='b7400000-0000-4000-8000-000000000006'),
-  'nayax-refund-'||repeat('6',64),800,null,null,'USD','nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  'nayax-refund-'||repeat('6',64),800,100000,100,'USD','nayax-production-account-contract-v2','nayax-provider-journal-v3',
   (select context->>'contextHash' from offset_execution_input),'source_with_bound_offset','empty_string')$$,
   'P4620',null,'A historical omitted-email reservation cannot adopt explicit empty email after upgrade');
 -- The current case version advances after request reservation. Continuation

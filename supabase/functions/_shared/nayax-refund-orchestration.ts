@@ -17,8 +17,9 @@ export type ConsumedNayaxManagerAction = {
   action: "nayax_execute";
   targetFunction: "nayax-card-refund";
   status: "consumed";
-  stepUpIntentId: string;
+  stepUpIntentId?: string | null;
   authorizationMethod?: "totp" | "manager_session";
+  authorityKind?: "machine_manager" | "super_admin";
   authorizedAt?: string | null;
   verifiedTotpAt?: string | null;
 };
@@ -166,8 +167,9 @@ const assertConsumedManagerAction = (
     action.action !== "nayax_execute" ||
     action.targetFunction !== "nayax-card-refund" ||
     action.status !== "consumed" ||
-    !action.stepUpIntentId ||
     !new Set(["totp", "manager_session"]).has(authorizationMethod) ||
+    (authorizationMethod === "totp" && !action.stepUpIntentId) ||
+    (authorizationMethod === "manager_session" && action.stepUpIntentId != null) ||
     !authorizationTime ||
     !Number.isFinite(Date.parse(authorizationTime))
   ) {
@@ -424,7 +426,7 @@ export const orchestrateNayaxRefund = async ({
       customerCompletion,
       message: completionNeedsReconciliation(customerCompletion)
         ? "The refund is confirmed and cannot be retried. Accounting and the customer notice need follow-up."
-        : "The refund is confirmed and the customer was notified. Refund Operations owns the separate accounting review.",
+        : "The refund is confirmed and the customer was notified. The machine Manager must record the accounting date.",
     };
   }
 

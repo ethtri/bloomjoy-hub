@@ -322,7 +322,8 @@ select is((select item->'nayaxLookupCandidates' from jsonb_array_elements(public
   where item->>'id'='be400000-0000-4000-8000-000000000001'),'[]'::jsonb,'Current workbench does not reuse historical candidate comparison factors');
 select is((select count(*)::integer from public.refund_nayax_lookup_candidates where refund_case_id='be400000-0000-4000-8000-000000000001'
   and reporting_machine_id='be300000-0000-4000-8000-000000000001'),1,'Historical wrong-machine candidate remains preserved in source');
-select ok(not public.can_perform_refund_official_action('be000000-0000-4000-8000-000000000001','be400000-0000-4000-8000-000000000003'),'Correction does not reauthorize payment');
+select ok(public.can_perform_refund_official_action('be000000-0000-4000-8000-000000000001','be400000-0000-4000-8000-000000000003'),
+  'Correction does not misreport the active Super-admin as an unauthorized user');
 set local role authenticated;
 select set_config('request.jwt.claim.sub','be000000-0000-4000-8000-000000000002',true);
 select set_config('request.jwt.claims','{"sub":"be000000-0000-4000-8000-000000000002","role":"authenticated","session_id":"be010000-0000-4000-8000-000000000002","is_anonymous":false}',true);

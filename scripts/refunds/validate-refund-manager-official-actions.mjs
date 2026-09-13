@@ -124,8 +124,9 @@ assert(
 );
 
 assert(
-  databaseTests.includes('A mapped Super Admin receives official-action authority only from the exact Machine Manager mapping') &&
-    databaseTests.includes('A mapped Scoped Admin receives official-action authority only from the exact Machine Manager mapping') &&
+  databaseTests.includes('An active Super-admin uses the same official-action authority even when a mapping also exists') &&
+    databaseTests.includes('An assigned machine Manager can use official-action authority regardless of separate admin access') &&
+    databaseTests.includes('An unmapped Super-admin confirmation creates one role-bound receipt and zero step-up or TOTP rows') &&
     databaseTests.includes('An official-action receipt cannot be replayed') &&
     databaseTests.includes('A revoked manager cannot mint a new receipt') &&
     databaseTests.includes('Two receipts minted for one case cannot both commit an official action') &&

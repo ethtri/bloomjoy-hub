@@ -57,16 +57,33 @@ create function refund_receipt_race_test.authorize() returns void language plpgs
   perform set_config('request.jwt.claims','{"sub":"af000000-0000-4000-8000-000000000001","role":"authenticated","session_id":"af010000-0000-4000-8000-000000000001","is_anonymous":false}',true);
 end; $$;
 select refund_receipt_race_test.authorize();
-do $$ declare candidate jsonb; c public.refund_cases%rowtype; begin
-  select * into c from public.refund_cases where id='af400000-0000-4000-8000-000000000002';
-  candidate:=public.admin_create_refund_manual_nayax_candidate(c.id,c.official_action_version,'RECEIPT-RACE-MACHINE',
-    '223456782',to_char(c.incident_at at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI:SS'),700,'4242');
-  select * into c from public.refund_cases where id=c.id;
-  perform public.service_select_refund_nayax_candidate_as_actor('af000000-0000-4000-8000-000000000001',c.id,c.official_action_version,
-    (candidate->>'candidateToken')::uuid,null);
-end $$;
-select public.admin_begin_refund_manual_nayax_portal('af400000-0000-4000-8000-000000000002',
-  (select official_action_version from public.refund_cases where id='af400000-0000-4000-8000-000000000002'));
+update public.refund_cases
+set status='card_refund_pending',decision='approved',correlation_status='matched',
+  correlation_source='nayax',correlation_confidence=1,automation_state='approved',
+  matched_nayax_transaction_id='223456782',matched_nayax_amount_cents=700,
+  matched_nayax_currency_code='USD',matched_nayax_machine_auth_time=incident_at,
+  nayax_refund_execution_status='unknown',lifecycle_integrity_status='hold',
+  lifecycle_integrity_code='card_payment_state_without_attempt',
+  lifecycle_integrity_detected_at=statement_timestamp()
+where id='af400000-0000-4000-8000-000000000002';
+with inserted as (
+  insert into public.refund_case_nayax_refund_attempts(
+    refund_case_id,actor_user_id,execution_mode,status,idempotency_key,
+    amount_cents,provider_reference,provider_status,request_fingerprint,
+    currency_code,provider_outcome,reconciliation_required,safe_transport_stage,
+    safe_failure_class,created_at)
+  select c.id,'af000000-0000-4000-8000-000000000001','manual_portal','manual_review',
+    'manual-nayax-portal-20260901-'||c.public_reference,700,c.matched_nayax_transaction_id,
+    'request_accepted',encode(extensions.digest(convert_to(c.id::text||'|'||c.matched_nayax_transaction_id||'|700','UTF8'),'sha256'),'hex'),
+    'USD','unknown',true,'confirmation_hold','provider_unknown','2026-09-01 18:00:00+00'
+  from public.refund_cases c where c.id='af400000-0000-4000-8000-000000000002'
+  returning id,refund_case_id,actor_user_id,created_at
+)
+insert into public.refund_case_events(refund_case_id,actor_user_id,event_type,message,metadata,created_at)
+select refund_case_id,actor_user_id,'manual_nayax_refund_reconciliation_created','Synthetic historical registration',
+  jsonb_build_object('attempt_id',id,'provider_outcome','unknown','provider_call_made',true,
+    'settlement_confirmation_required',true,'payload_redacted',true),created_at
+from inserted;
 insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,first_message_at,latest_message_at,retention_expires_at)
 values('af700000-0000-4000-8000-000000000001','af400000-0000-4000-8000-000000000001',repeat('f',64),'receipt-race-thread','Synthetic already-sent notice',now()-interval '1 day',now(),now()+interval '30 days');
 insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,provider_message_id,operation_key,direction,message_kind,status,sender_email,recipient_email,subject,plain_body,sent_at,retention_expires_at,received_at)
@@ -265,8 +282,8 @@ select diag((select payload::text from refund_receipt_race_test.results where la
 select is((select payload->>'error' from refund_receipt_race_test.results where lane='resolver_loses'),'P0001','Waiting old resolver is rejected by the post-lock official-action capability check');
 select is((select payload->>'message' from refund_receipt_race_test.results where lane='resolver_loses'),
   'Active Machine Manager mapping required','Resolver denial is the exact receipt-aware capability error, not an unrelated fixture failure');
-select ok(not public.can_perform_refund_official_action('af000000-0000-4000-8000-000000000001','af400000-0000-4000-8000-000000000002'),
-  'Committed receipt revokes the old payment action even for the still-mapped manager');
+select ok(public.can_perform_refund_official_action('af000000-0000-4000-8000-000000000001','af400000-0000-4000-8000-000000000002'),
+  'A committed receipt does not masquerade as loss of the manager authority');
 
 select extensions.dblink_exec('receipt_race_a','begin');
 select * from extensions.dblink('receipt_race_a',$q$select id::text from public.refund_cases where id='af400000-0000-4000-8000-000000000001' for update$q$) as x(id text);

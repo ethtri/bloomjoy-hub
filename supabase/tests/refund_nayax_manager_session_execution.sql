@@ -232,17 +232,18 @@ select ok(
 );
 
 select ok(
-  exists (
-    select 1
-    from public.refund_manager_action_step_up_intents intent
-    join public.refund_case_official_action_authorizations authorization_row
-      on authorization_row.step_up_intent_id = intent.id
+  (select count(*) = 1
+   from public.refund_case_official_action_authorizations authorization_row
+   where authorization_row.refund_case_id = 'b1600000-0000-4000-8000-000000000001'
+     and authorization_row.authorization_method = 'manager_session'
+     and authorization_row.authority_kind = 'machine_manager'
+     and authorization_row.step_up_intent_id is null
+     and authorization_row.verified_totp_at is null)
+  and not exists (
+    select 1 from public.refund_manager_action_step_up_intents intent
     where intent.refund_case_id = 'b1600000-0000-4000-8000-000000000001'
-      and intent.authorization_method = 'manager_session'
-      and authorization_row.authorization_method = 'manager_session'
-      and intent.manager_totp_enrollment_version is null
   ),
-  'The audit record truthfully records manager-session authorization without a TOTP enrollment'
+  'One manager confirmation creates one manager-session receipt and no TOTP row'
 );
 
 select ok(
@@ -279,7 +280,7 @@ select ok(
       'b1600000-0000-4000-8000-000000000002', 1,
       'nayax-refund-3333333333333333333333333333333333333333333333333333333333333333',
       700, 100000, 100, 'USD')
-  $sql$) like '%Machine Manager mapping required%'
+  $sql$) like '%active assigned manager or Super-admin is required%'
   and not exists (
     select 1 from public.refund_case_nayax_refund_attempts
     where refund_case_id = 'b1600000-0000-4000-8000-000000000002'
@@ -291,7 +292,7 @@ select is(
   (select count(*)::integer from public.refund_case_events
     where refund_case_id = 'b1600000-0000-4000-8000-000000000001'
       and event_type = 'official_action_committed'
-      and metadata ->> 'authorization_method' = 'manager_session'),
+      and metadata ->> 'authority_kind' = 'machine_manager'),
   1,
   'The manager decision is auditable once'
 );

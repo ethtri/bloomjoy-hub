@@ -27,7 +27,7 @@ $$;
 revoke all on function pg_temp.historical_pilot_reserve(text,uuid,text,text,uuid,uuid,text,integer,text,uuid) from public,anon,authenticated,service_role;
 grant execute on function pg_temp.historical_pilot_reserve(text,uuid,text,text,uuid,uuid,text,integer,text,uuid) to service_role;
 
-select plan(55);
+select no_plan();
 
 select is(
   public.refund_nayax_controlled_pilot_audit_retention_approved(),
@@ -539,9 +539,8 @@ rollback to savepoint controlled_pilot_postarm_auth_email_drift;
 
 set local role authenticated;
 select pg_temp.set_auth_claims('43000000-0000-4000-8000-000000000001', 'aal2');
-select lives_ok(format($sql$
-  insert into pg_temp.controlled_pilot_results (result_key, result)
-  select 'step-up', pg_temp.historical_pilot_consume(
+select throws_ok(format($sql$
+  select pg_temp.historical_pilot_consume(
     '43000000-0000-4000-8000-000000000010', %L,
     '43600000-0000-4000-8000-000000000001',
     1, 700, repeat('f',64), 'controlled-pilot-executor', repeat('2',64),
@@ -550,8 +549,20 @@ select lives_ok(format($sql$
   )
 $sql$, (select result ->> 'intentId' from pg_temp.controlled_pilot_results
   where result_key = 'owner-authorize')),
-  'The exact owner TOTP atomically approves, authorizes, and reserves once');
+  'P0001','Fresh manager confirmation receipt required',
+  'The retired TOTP pilot cannot create a fresh provider attempt');
 reset role;
+
+select ok(
+  not exists (select 1 from public.refund_case_nayax_refund_attempts)
+  and not exists (select 1 from public.refund_case_official_action_authorizations),
+  'The retired pilot leaves no executable receipt or provider attempt'
+);
+
+-- The remaining assertions below document the retired pilot's former execution
+-- and recovery behavior. They are intentionally not executed: the manager-session
+-- gate above now rejects that TOTP lane before any provider work can exist.
+\if false
 
 select ok((
   select auth.action = 'nayax_execute' and auth.status = 'consumed'
@@ -841,6 +852,7 @@ select ok((public.owner_cancel_refund_nayax_controlled_pilot(
 select is((select count(*)::integer
   from public.refund_case_nayax_refund_attempts), 1,
   'Exactly one provider attempt exists after the one-transaction pilot');
+\endif
 
 select * from finish();
 rollback;

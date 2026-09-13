@@ -49,10 +49,10 @@ test('a late case-save response can update only the case that initiated it',()=>
  assert.match(handlerSource,/targetStillSelected && !options\.quietTransactionConfirmation/);
  assert.doesNotMatch(handlerSource,/selectedCase\.id/);
 });
-test('actual workbench maps accounting review into the manager-review view',()=>{
+test('actual workbench names the accounting correction directly',()=>{
  const refundCase={lifecycle:{managerQueue:{bucket:'accounting_review'}}};
  const bucket=caseValue=>caseValue.lifecycle.managerQueue.bucket;
- assert.equal(load('refundSearchViewLabel',{getRefundManagerQueueBucket:bucket})(refundCase),'Needs manager review');
+ assert.equal(load('refundSearchViewLabel',{getRefundManagerQueueBucket:bucket})(refundCase),'Fix refund accounting');
  assert.equal(load('isRefundOperationsCase',{canonicalQueueBucket:bucket})(refundCase),true);
 });
 test('actual manager action respects current scope, delivery holds and terminal truth',()=>{
@@ -63,7 +63,7 @@ test('actual manager action respects current scope, delivery holds and terminal 
  assert.equal(action({...base,customerCorrection:{...base.customerCorrection,isActive:false,isUsable:false}},editor,[],null).label,'Manager review required');
  assert.equal(action({...base,...freshPersistedSelection,matched:true,customerCorrection:{state:'pending',isActive:false,isUsable:false},lifecycle:{managerQueue:{bucket:'waiting_on_customer'}}},editor,[],freshAvailability).mode,'nayax_refund_execution');
  assert.equal(action({...base,customerDeliveryException:{state:'bounced'}},editor,[],null).label,'Delivery needs review');
- assert.equal(action({...base,providerHold:true},editor,[],null).label,'Refund status not confirmed');
+ assert.equal(action({...base,providerHold:true},editor,[],null).label,'Check refund status in Nayax');
  assert.equal(action({...base,status:'completed'},editor,[],null).label,'Case complete');
  assert.equal(action({...base,status:'denied'},editor,[],null).label,'Request denied');
  for(const messageState of ['none','pending','failed','delivery_unconfirmed','sent']) {
@@ -101,10 +101,10 @@ test('selected candidate exposes one ordinary refund decision and direct API tak
   action(selectedWallet,savedEditor,[],{...freshAvailability,refundAmountCents:1090}).mode,
   'nayax_refund_execution',
  );
- assert.equal(
-  action(selectedWallet,savedEditor,[],{...freshAvailability,canIssueCardRefund:false,blockReason:'provider_temporarily_unavailable'}).mode,
-  'manual_nayax_approval',
- );
+ const unavailable=action(selectedWallet,savedEditor,[],{...freshAvailability,canIssueCardRefund:false,blockReason:'provider_temporarily_unavailable'});
+ assert.equal(unavailable.mode,undefined);
+ assert.equal(unavailable.disabled,true);
+ assert.equal(unavailable.label,'Nayax API unavailable');
 });
 test('separated competing purchases cannot bypass server-owned outreach authority',()=>{
  const action=load('primaryActionConfig',{
@@ -411,12 +411,12 @@ test('actual action gives payment holds, pending and terminal truth priority ove
  const action=load('primaryActionConfig',dependencies);
  const editor={status:'needs_review',decision:null,matchedNayaxCandidateToken:''};
  const base={status:'needs_review',paymentMethod:'card',customerDeliveryException:{state:'bounced'}};
- for(const [stage,paymentState,label] of [['refund_initiated','submitted_pending','Refund initiated'],['confirming_with_nayax','submitted_pending','Confirming refund'],['needs_refund_operations','outcome_unknown','Needs manager review'],['integrity_hold','integrity_unknown','Lifecycle evidence needs review'],['denied','not_issued','Denied']]) {
+ for(const [stage,paymentState,label] of [['refund_initiated','submitted_pending','Refund initiated'],['confirming_with_nayax','submitted_pending','Confirming refund'],['needs_refund_operations','outcome_unknown','Check Nayax refund status'],['integrity_hold','integrity_unknown','Lifecycle evidence needs review'],['denied','not_issued','Denied']]) {
   const result=action({...base,lifecycle:{stage,paymentState,terminal:stage==='denied',managerQueue:{bucket:'needs_action'}}},editor,[],{canIssueCardRefund:true});
   assert.equal(result.disabled,true,stage);assert.equal(result.label,label,stage);
   assert.equal(result.mode,undefined,stage);
  }
- assert.equal(action({...base,providerHold:true},editor,[],{canIssueCardRefund:true}).label,'Refund status not confirmed');
+ assert.equal(action({...base,providerHold:true},editor,[],{canIssueCardRefund:true}).label,'Check refund status in Nayax');
 });
 
 test('actual action keeps explicit no-refund release independent of delivery-only review and current availability',()=>{

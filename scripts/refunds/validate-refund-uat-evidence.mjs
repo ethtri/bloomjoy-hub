@@ -468,7 +468,7 @@ try {
     'utf8'
   );
   assert.equal(
-    EXPECTED_SCREENSHOTS.filter((name) => name.endsWith('mapped-manager-session.png')).length,
+    EXPECTED_SCREENSHOTS.filter((name) => name.endsWith('single-manager-confirmation.png')).length,
     2,
     'The evidence must show both mapped-manager session paths without a second factor'
   );

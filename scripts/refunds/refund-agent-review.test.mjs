@@ -132,7 +132,7 @@ test('refund procedure follows the lean assistant-manager flow', async () => {
     "machine's existing Machine Manager assignment",
     'READY TO APPROVE REFUND', 'WAITING ON CUSTOMER', 'RECOMMEND REJECT',
     'Nayax portal', 'Nayax API', 'one missing fact',
-    'Machine Manager approves the decision', 'sends any cash refund',
+    'Machine Manager (the assigned manager or a Super-admin) approves the decision', 'sends any cash refund',
     '30 calendar days', 'GitHub issues', 'one-off customer email',
     'two to three calendar days',
     'separate manager approval is not required',

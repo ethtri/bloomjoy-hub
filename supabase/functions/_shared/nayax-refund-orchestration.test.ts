@@ -328,6 +328,8 @@ Deno.test("authenticated manager-session authorization can drive the same bounde
       managerAction: {
         ...reservation.managerAction,
         authorizationMethod: "manager_session",
+        authorityKind: "super_admin",
+        stepUpIntentId: null,
         authorizedAt: "2026-08-16T18:00:01.000Z",
         verifiedTotpAt: null,
       },
@@ -768,5 +770,9 @@ Deno.test("provider success with a late accounting collision remains terminal an
   assert(result.paymentTerminal && result.accountingException, "accounting must stay separate");
   assert(result.reportingAdjustmentPresent === false, "no adjustment may be invented");
   assert(result.errorCode === "accounting_reconciliation_required", "owned accounting work must be explicit");
+  assert(
+    result.message === "The refund is confirmed and the customer was notified. The machine Manager must record the accounting date.",
+    "the terminal result must name the exact Manager action",
+  );
   assert(providerCalls === 1 && noticeCalls === 1, "one payment and one notice only");
 });

@@ -66,7 +66,7 @@ declare cid uuid:=('b8400000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid; v bi
 begin
   select official_action_version into v from public.refund_cases where id=cid;
   return public.service_reserve_nayax_refund_manager_action_v3('verification-executor',
-    'b8000000-0000-4000-8000-000000000001',cid,v,'nayax-refund-'||repeat(n::text,64),800,null,null,'USD',
+    'b8000000-0000-4000-8000-000000000001',cid,v,'nayax-refund-'||repeat(n::text,64),800,100000,100,'USD',
     'nayax-production-account-contract-v2','nayax-provider-journal-v3',coalesce(context_hash,public.refund_nayax_selected_execution_context(cid)->>'contextHash'));
 end $$;
 

@@ -80,7 +80,7 @@ create function pg_temp.seed_nayax_authorization(
   p_case_id uuid,
   p_intent_id uuid,
   p_authorization_id uuid,
-  p_consumed_intent boolean default true
+  p_legacy_step_up boolean default false
 )
 returns void
 language plpgsql
@@ -111,37 +111,49 @@ begin
     null, false, null, null, null
   );
 
-  insert into public.refund_manager_action_step_up_intents (
-    id, actor_user_id, refund_case_id, action, target_function,
-    manager_mapping_id, manager_mapping_version,
-    manager_totp_enrollment_version, expected_case_version,
-    action_context_hash, nayax_execution_evidence_hash,
-    status, not_before, expires_at, factor_verified_at,
-    verified_totp_at, consumed_at
-  ) values (
-    p_intent_id, mapping_row.manager_user_id, p_case_id,
-    'nayax_execute', 'nayax-card-refund', mapping_row.id,
-    mapping_row.mapping_version, 1, case_row.official_action_version,
-    context_hash, evidence_hash,
-    case when p_consumed_intent then 'consumed' else 'pending' end,
-    statement_timestamp() - interval '30 seconds',
-    statement_timestamp() + interval '60 seconds',
-    case when p_consumed_intent then factor_time else null end,
-    case when p_consumed_intent then factor_time else null end,
-    case when p_consumed_intent then factor_time else null end
-  );
+  if p_legacy_step_up then
+    insert into public.refund_manager_action_step_up_intents (
+      id, actor_user_id, refund_case_id, action, target_function,
+      manager_mapping_id, manager_mapping_version,
+      manager_totp_enrollment_version, expected_case_version,
+      action_context_hash, nayax_execution_evidence_hash,
+      status, not_before, expires_at, factor_verified_at,
+      verified_totp_at, consumed_at
+    ) values (
+      p_intent_id, mapping_row.manager_user_id, p_case_id,
+      'nayax_execute', 'nayax-card-refund', mapping_row.id,
+      mapping_row.mapping_version, 1, case_row.official_action_version,
+      context_hash, evidence_hash, 'pending',
+      statement_timestamp() - interval '30 seconds',
+      statement_timestamp() + interval '60 seconds', null, null, null
+    );
 
-  insert into public.refund_case_official_action_authorizations (
-    id, refund_case_id, action, actor_user_id, manager_mapping_id,
-    manager_mapping_version, expected_case_version, action_context_hash,
-    status, expires_at, step_up_intent_id, verified_totp_at,
-    nayax_execution_evidence_hash
-  ) values (
-    p_authorization_id, p_case_id, 'nayax_execute', mapping_row.manager_user_id,
-    mapping_row.id, mapping_row.mapping_version, case_row.official_action_version,
-    context_hash, 'authorized', statement_timestamp() + interval '5 minutes',
-    p_intent_id, factor_time, evidence_hash
-  );
+    insert into public.refund_case_official_action_authorizations (
+      id, refund_case_id, action, actor_user_id, manager_mapping_id,
+      manager_mapping_version, authority_kind, expected_case_version,
+      action_context_hash, status, expires_at, step_up_intent_id,
+      verified_totp_at, nayax_execution_evidence_hash, authorization_method
+    ) values (
+      p_authorization_id, p_case_id, 'nayax_execute', mapping_row.manager_user_id,
+      mapping_row.id, mapping_row.mapping_version, 'machine_manager',
+      case_row.official_action_version, context_hash, 'authorized',
+      statement_timestamp() + interval '5 minutes', p_intent_id, factor_time,
+      evidence_hash, 'totp'
+    );
+  else
+    insert into public.refund_case_official_action_authorizations (
+      id, refund_case_id, action, actor_user_id, manager_mapping_id,
+      manager_mapping_version, authority_kind, expected_case_version,
+      action_context_hash, status, expires_at, step_up_intent_id,
+      verified_totp_at, nayax_execution_evidence_hash, authorization_method
+    ) values (
+      p_authorization_id, p_case_id, 'nayax_execute', mapping_row.manager_user_id,
+      mapping_row.id, mapping_row.mapping_version, 'machine_manager',
+      case_row.official_action_version, context_hash, 'authorized',
+      statement_timestamp() + interval '5 minutes', null, null,
+      evidence_hash, 'manager_session'
+    );
+  end if;
 end;
 $$;
 
@@ -233,7 +245,7 @@ select pg_temp.seed_nayax_authorization(
   ('9a600000-0000-4000-8000-' || lpad(series::text, 12, '0'))::uuid,
   ('9a700000-0000-4000-8000-' || lpad(series::text, 12, '0'))::uuid,
   ('9a800000-0000-4000-8000-' || lpad(series::text, 12, '0'))::uuid,
-  series <> 6
+  series = 6
 )
 from generate_series(1, 6) series;
 
@@ -363,8 +375,8 @@ select ok(pg_temp.capture_error($sql$
     'provider-test-executor', '9a800000-0000-4000-8000-000000000006',
     '9a600000-0000-4000-8000-000000000006',
     'nayax-refund-' || repeat('6',64), 700, 100000, 100, 'USD')
-$sql$) like '%exact-factor%',
-  'A non-consumed step-up intent cannot reserve a provider attempt');
+$sql$) like '%Fresh manager confirmation receipt required%',
+  'A legacy step-up receipt cannot reserve a provider attempt');
 reset role;
 select is((select status from public.refund_case_official_action_authorizations
   where id = '9a800000-0000-4000-8000-000000000006'), 'authorized',
