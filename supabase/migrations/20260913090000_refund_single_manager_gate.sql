@@ -637,11 +637,20 @@ $old$;
     raise exception 'Exact journal recovery intent join required';
   end if;
   body:=replace(body,anchor,'');
-  anchor:=$old$      and attempt.actor_user_id = authz.actor_user_id
+  anchor:=$old$      and authz.verified_totp_at is not null
+      and authz.nayax_execution_evidence_hash ~ '^[a-f0-9]{64}$'
+      and intent.status = 'consumed'
+      and intent.action = 'nayax_execute'
+      and intent.target_function = 'nayax-card-refund'
+      and intent.refund_case_id = refund_case.id
+      and intent.actor_user_id = authz.actor_user_id
+      and intent.verified_totp_at = authz.verified_totp_at
+      and intent.nayax_execution_evidence_hash = authz.nayax_execution_evidence_hash
 $old$;
-  replacement:=anchor||$new$      and authz.authorization_method = 'manager_session'
+  replacement:=$new$      and authz.authorization_method = 'manager_session'
       and authz.step_up_intent_id is null
       and authz.verified_totp_at is null
+      and authz.nayax_execution_evidence_hash ~ '^[a-f0-9]{64}$'
 $new$;
   if length(body)-length(replace(body,anchor,''))<>length(anchor) then
     raise exception 'Exact journal recovery receipt predicate required';

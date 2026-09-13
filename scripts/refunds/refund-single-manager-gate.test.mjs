@@ -75,9 +75,37 @@ test('normal manager confirmation creates one receipt and no step-up artifact', 
   );
   assert.match(
     migration,
-    /anchor:=\$old\$      and attempt\.actor_user_id = authz\.actor_user_id/,
-    'the journal receipt predicate uses the canonical operand order',
+    /and intent\.nayax_execution_evidence_hash = authz\.nayax_execution_evidence_hash[\s\S]*?replacement:=\$new\$      and authz\.authorization_method = 'manager_session'[\s\S]*?and authz\.verified_totp_at is null/,
+    'the full journal step-up predicate block is replaced by the manager-session receipt predicate',
   );
+  const normalizedJournalRecoveryMigration = journalRecoveryMigration.replace(/\r\n/g, '\n');
+  const journalFunction = normalizedJournalRecoveryMigration.match(
+    /create function public\.refund_nayax_unsettled_api_success_journal_proved\([\s\S]*?revoke all on function public\.refund_nayax_unsettled_api_success_journal_proved/
+  )?.[0] ?? '';
+  const transformedJournalFunction = journalFunction
+    .replace(
+      `    join public.refund_manager_action_step_up_intents intent\n` +
+        `      on intent.id = attempt.step_up_intent_id\n` +
+        `      and intent.id = authz.step_up_intent_id\n`,
+      '',
+    )
+    .replace(
+      `      and authz.verified_totp_at is not null\n` +
+        `      and authz.nayax_execution_evidence_hash ~ '^[a-f0-9]{64}$'\n` +
+        `      and intent.status = 'consumed'\n` +
+        `      and intent.action = 'nayax_execute'\n` +
+        `      and intent.target_function = 'nayax-card-refund'\n` +
+        `      and intent.refund_case_id = refund_case.id\n` +
+        `      and intent.actor_user_id = authz.actor_user_id\n` +
+        `      and intent.verified_totp_at = authz.verified_totp_at\n` +
+        `      and intent.nayax_execution_evidence_hash = authz.nayax_execution_evidence_hash\n`,
+      `      and authz.authorization_method = 'manager_session'\n` +
+        `      and authz.step_up_intent_id is null\n` +
+        `      and authz.verified_totp_at is null\n` +
+        `      and authz.nayax_execution_evidence_hash ~ '^[a-f0-9]{64}$'\n`,
+    );
+  assert.doesNotMatch(transformedJournalFunction, /intent\.|refund_manager_action_step_up_intents/);
+  assert.match(transformedJournalFunction, /authz\.authorization_method = 'manager_session'/);
 });
 
 test('the four execution protections remain explicit and customer mail stays success-only', () => {
