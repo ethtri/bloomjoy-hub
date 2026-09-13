@@ -121,6 +121,15 @@ on the same machine, with the same card or wallet ending and a time two minutes
 away. That is a clear match. Prepare the $10.90 provider sale for approval; do
 not ask the customer about the 90-cent difference.
 
+Nayax may return a weaker base-price row alongside a richer provider-total row
+for the same purchase. Treat the richer row as the purchase only when the portal
+has collapsed the pair using the same machine, site, card, currency, payment
+shape and provider minute, the amounts fit both the $3 and 15% limits, and the
+richer row has product/selection evidence the base row lacks. Use the richer
+row's full provider total and keep the amount difference visible. Different
+product selections, multiple reported attempts or more than one possible pair
+remain genuinely ambiguous.
+
 If one clear match exists:
 
 1. Select that exact transaction with the supported portal action.
@@ -176,9 +185,11 @@ needed to identify the purchase or prepare a cash payout.
 6. Send one request in the existing conversation. This procedure authorizes that
    routine information request; separate manager approval is not required.
 7. Verify the portal or original email thread recorded the send, and confirm the
-   customer appears in the final **To/CC** recipient list. If the customer is
-   missing, or delivery is failed or unknown, do not mark the case waiting; use
-   Step 7.
+   message was sent as **Bloomjoy Refunds <info@bloomjoysweets.com>**, the
+   customer appears in the final **To/CC** recipient list specifically as the
+   only **To** recipient, and every current assigned Machine Manager appears in
+   **CC**. If the sender or recipients are wrong, or delivery is failed or
+   unknown, do not mark the case waiting; use Step 7.
 8. Report **WAITING ON CUSTOMER**, the exact fact requested and the send date.
 
 Do not claim that the customer was contacted until the portal or original email
@@ -201,11 +212,18 @@ If there is no reply:
 When the portal does not support the case:
 
 1. Finish any research that is still possible with the Nayax API or Nayax portal.
-2. Use a one-off customer email only when a specific customer fact is still
-   needed and the portal cannot send the right request. Keep it in the existing
-   conversation when possible, follow the Bloomjoy correspondence guides named in
-   `AGENTS.md`, send it once and verify the send. This routine exception request
-   does not require separate manager approval.
+2. Use the portal's same-case customer-message action when a specific customer
+   fact is still needed. It records the request in case history and chooses the
+   original Gmail conversation or approved transactional route once. If the
+   portal cannot queue that exact request, send a one-off customer email exactly
+   once from the official Bloomjoy mailbox, keep the existing customer thread
+   when possible,
+   address the exact customer in **To** and every current assigned Machine
+   Manager in **CC**, and then record or import the sent message and delivery
+   evidence back onto the case. Never use a personal sender. If the customer need
+   is clear but case recording is temporarily impossible, still send once, open
+   or link the engineering issue immediately, and add the sent timestamp and
+   message ID to the case as soon as the portal supports it.
 3. Search the repository's open GitHub issues for the same portal gap.
 4. If no matching issue exists, create one for Engineering. Include the affected
    workflow, what the portal showed, what should have happened and a clear test

@@ -6,6 +6,13 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const APPROVED_REFUND_SENDER = 'info@bloomjoysweets.com';
+
+const extractEmailAddress = (value) => {
+  const normalized = String(value ?? '').trim();
+  const bracketed = normalized.match(/<([^<>]+)>$/);
+  return (bracketed?.[1] ?? normalized).trim().toLowerCase();
+};
 
 const parseArgs = (argv) => {
   const result = { envFiles: [], projectRef: '', profile: 'supabase' };
@@ -102,6 +109,8 @@ const run = () => {
     'GMAIL_SUPPORT_CLIENT_SECRET',
     'GMAIL_SUPPORT_REFRESH_TOKEN',
     'GMAIL_SUPPORT_MAILBOX',
+    'INTERNAL_NOTIFICATION_FROM_EMAIL',
+    'REFUND_REPLY_TO_EMAIL',
     'GMAIL_REFUND_LABEL_ID',
     'REFUND_GMAIL_SYNC_SECRET',
     'REFUND_GMAIL_ENABLED',
@@ -123,6 +132,16 @@ const run = () => {
     const mailbox = String(env.GMAIL_SUPPORT_MAILBOX ?? '').trim();
     if (mailbox && !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(mailbox)) {
       errors.push('GMAIL_SUPPORT_MAILBOX must be one valid mailbox address.');
+    } else if (mailbox.toLowerCase() !== APPROVED_REFUND_SENDER) {
+      errors.push(`GMAIL_SUPPORT_MAILBOX must be the approved refund sender ${APPROVED_REFUND_SENDER}.`);
+    }
+    const transactionalSender = extractEmailAddress(env.INTERNAL_NOTIFICATION_FROM_EMAIL);
+    if (transactionalSender !== APPROVED_REFUND_SENDER) {
+      errors.push(`INTERNAL_NOTIFICATION_FROM_EMAIL must use the approved refund sender ${APPROVED_REFUND_SENDER}.`);
+    }
+    const replyTo = extractEmailAddress(env.REFUND_REPLY_TO_EMAIL);
+    if (replyTo !== APPROVED_REFUND_SENDER) {
+      errors.push(`REFUND_REPLY_TO_EMAIL must use the monitored refund mailbox ${APPROVED_REFUND_SENDER}.`);
     }
     const sendAsAliases = String(env.GMAIL_SUPPORT_SEND_AS_ALIASES ?? '')
       .split(',')
@@ -233,6 +252,7 @@ const run = () => {
   if (loaded.length > 0) console.log(`INFO: Loaded env files: ${loaded.join(', ')}`);
   printList('Required Gmail controls', [
     'Exact designated mailbox and explicit refund label configured',
+    'Gmail and transactional refund delivery use the same approved Bloomjoy sender',
     'Approved send-as aliases inventoried for participant, first-contact, and CC boundaries',
     'OAuth client and refresh token kept server-only',
     'Dedicated scheduler secret configured',

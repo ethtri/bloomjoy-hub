@@ -7183,22 +7183,52 @@ const runNayaxLookupStatusMatrixChecks = async ({
   );
   const preparedCandidate = {
     ...uniqueQrScenario.response.candidates[0],
-    amountCents: 790,
+    amountCents: 1090,
     amountDeltaCents: 90,
-    matchReason: 'Exact machine and unique QR timing; provider amount differs by 90 cents.',
-    matchFactors: uniqueQrScenario.response.candidates[0].matchFactors.map((factor) =>
-      factor.key === 'amount'
-        ? { ...factor, outcome: 'manual', label: 'Transaction amount differs by $0.90' }
-        : factor
-    ),
+    cardLast4: '4242',
+    productCode: '9',
+    productLabel: 'Selection 9',
+    reasonCodes: [
+      'machine_exact',
+      'amount_within_tolerance',
+      'qr_time_within_30m',
+      'unique_qr_time_candidate',
+      'provider_total_preferred_over_base_representation',
+    ],
+    matchReason: 'Exact machine, card, and unique QR timing; the richer $10.90 provider total represents the same purchase as the weaker $10.00 base-price row.',
+    matchFactors: [
+      { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
+      { key: 'amount', outcome: 'manual', label: 'Transaction amount differs by $0.90' },
+      { key: 'provider_total', outcome: 'match', label: 'Nayax also returned a $10.00 base-price row for this same purchase. Use the richer $10.90 provider total' },
+      { key: 'card', outcome: 'match', label: 'Card ending matches' },
+      { key: 'qr_time', outcome: 'match', label: 'The machine QR form opened 6 minutes after the transaction' },
+    ],
   };
   scenarios.splice(scenarios.indexOf(uniqueQrScenario) + 1, 0, {
     ...uniqueQrScenario,
     name: 'server-persisted manager preparation',
     confirmCandidate: false,
     prepareCandidateOnly: true,
+    refundOverview: () => {
+      const overview = buildPendingNayaxRefundOverview();
+      overview.cases = overview.cases.map((refundCase) => ({
+        ...refundCase,
+        paymentAmountCents: 1000,
+        cardLast4: '4242',
+        cardLast4Provenance: 'physical_card',
+        paymentInteraction: 'insert_card',
+        nearbyAttemptCount: 'one',
+      }));
+      return overview;
+    },
     response: {
       ...uniqueQrScenario.response,
+      policyVersion: '2026-09-13.v12',
+      reasonCodes: preparedCandidate.reasonCodes,
+      providerRecordCount: 2,
+      providerParseableRecordCount: 2,
+      providerWindowRecordCount: 2,
+      candidateCount: 1,
       candidates: [preparedCandidate],
     },
     expectedAmountMismatch: '$0.90',
@@ -7672,8 +7702,14 @@ const runNayaxLookupStatusMatrixChecks = async ({
             await page.getByText('Save selected transaction', { exact: true }).isVisible() &&
             await page.getByText(/save it for manager review\. Saving does not issue a refund\./i).isVisible() &&
             await page.getByTestId('refund-prepare-amount-comparison')
-              .getByText(/Customer requested \$7\.00\. Selected transaction: \$7\.90 \(\$0\.90 difference\)\./)
+              .getByText(/Customer requested \$10\.00\. Selected transaction: \$10\.90 \(\$0\.90 difference\)\./)
               .isVisible() &&
+            await page.getByText('Selection 9', { exact: true }).isVisible() &&
+            await page.getByTestId('nayax-candidate-option')
+              .getByText(/Nayax also returned a \$10\.00 base-price row for this same purchase\. Use the richer \$10\.90 provider total/i)
+              .isVisible() &&
+            (await page.getByTestId('nayax-candidate-option').count()) === 1 &&
+            (await page.getByRole('button', { name: 'Ask for missing details', exact: true }).count()) === 0 &&
             await preparation.getByText(/does not approve or issue a refund/i).isVisible()
         );
         await page.screenshot({
@@ -7719,18 +7755,25 @@ const runNayaxLookupStatusMatrixChecks = async ({
         );
         await page.getByTestId('selected-nayax-transaction-evidence')
           .waitFor({ state: 'visible', timeout: 10000 });
-        await page.getByRole('button', { name: /^Refund \$7\.90$/i })
+        await page.getByRole('button', { name: /^Refund \$10\.90$/i })
           .waitFor({ state: 'visible', timeout: 10000 });
         const persistedEvidenceText = await page.getByTestId('selected-nayax-transaction-evidence').innerText();
+        await page.getByTestId('selected-nayax-transaction-evidence-details').click();
+        const persistedEvidenceDetails = await page.getByTestId(
+          'selected-nayax-transaction-evidence-details'
+        ).innerText();
         recorder.assert(
-          'Prepared selection survives reopen and remains ready for a manager decision',
-          persistedEvidenceText.includes('$7.90') &&
+          'Prepared provider-total selection survives reopen with the amount discrepancy evidence and remains ready for a manager decision',
+          persistedEvidenceText.includes('$10.90') &&
+            persistedEvidenceDetails.includes('$10.00 base-price row') &&
+            persistedEvidenceDetails.includes('$10.90 provider total') &&
             (await page.getByTestId('nayax-candidate-option').count()) === 0 &&
-            (await page.getByRole('button', { name: /^Refund \$7\.90$/i }).count()) === 1,
+            (await page.getByRole('button', { name: /^Refund \$10\.90$/i }).count()) === 1,
           JSON.stringify({
             persistedEvidenceText,
+            persistedEvidenceDetails,
             candidateCount: await page.getByTestId('nayax-candidate-option').count(),
-            refundActionCount: await page.getByRole('button', { name: /^Refund \$7\.90$/i }).count(),
+            refundActionCount: await page.getByRole('button', { name: /^Refund \$10\.90$/i }).count(),
           })
         );
         recorder.assert(
@@ -7992,8 +8035,8 @@ const runNayaxLookupStatusMatrixChecks = async ({
     } else if (scenario.prepareCandidateOnly) {
       recorder.assert(
         'Prepared server-owned evidence exposes one manager refund decision after reopen',
-        (await page.getByRole('button', { name: /^Refund \$7\.90$/i }).count()) === 1 &&
-          await page.getByRole('button', { name: /^Refund \$7\.90$/i }).isEnabled()
+        (await page.getByRole('button', { name: /^Refund \$10\.90$/i }).count()) === 1 &&
+          await page.getByRole('button', { name: /^Refund \$10\.90$/i }).isEnabled()
       );
     } else {
       const unresolvedCompetingSelection = scenario.name === 'multiple candidates';
@@ -8026,7 +8069,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
             (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0
           : scenario.prepareCandidateOnly
             ? (await page.getByTestId('nayax-candidate-option').count()) === 0 &&
-              (await page.getByRole('button', { name: /^Refund \$7\.90$/i }).count()) === 1
+              (await page.getByRole('button', { name: /^Refund \$10\.90$/i }).count()) === 1
           : scenario.expectedCandidateCount
             ? (await page.getByTestId('nayax-candidate-option').count()) === scenario.expectedCandidateCount &&
               (scenario.name === 'multiple candidates'
@@ -11677,9 +11720,11 @@ const runCustomerOutreachStateChecks = async ({ browser, appUrl, artifactDir, re
   for (const scenario of scenarios) {
     for (const elevated of scenario.failureCode ? [false, true] : [false]) {
       const functionCalls = [];
+      const functionBodies = [];
       const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
       await installMockSupabaseRoutes(context, {
         functionCalls,
+        functionBodies,
         adminAccessContext: elevated ? {
           isSuperAdmin: true,
           isScopedAdmin: false,
@@ -11745,6 +11790,9 @@ const runCustomerOutreachStateChecks = async ({ browser, appUrl, artifactDir, re
             status: scenario.state === 'waiting_for_customer' ? 'waiting_on_customer' : 'needs_review',
             correlationStatus: scenario.returnedCandidates ? 'multiple_candidates' : 'needs_nayax',
             missingInformation: true,
+            ...(scenario.manualFallbackEligible
+              ? { customerCorrectionFields: ['incident_time'] }
+              : {}),
             nayaxLookupCandidates: scenario.returnedCandidates ? [candidate] : [],
             lifecycle,
           }));
@@ -11808,14 +11856,72 @@ const runCustomerOutreachStateChecks = async ({ browser, appUrl, artifactDir, re
           await requestDetails.evaluate((element) => document.activeElement === element),
         );
         await requestDetails.click();
-        await page.waitForTimeout(100);
+        const deliveryRoute = page.getByTestId('refund-correction-delivery-route');
+        const sendCorrectionRequest = page.getByRole('button', {
+          name: 'Send correction request',
+          exact: true,
+        });
+        await deliveryRoute.waitFor({ state: 'visible', timeout: 10000 });
         recorder.assert(
-          'Manual fallback dispatches one customer request without lookup or payment effects',
-          functionCalls.filter((name) => name === 'refund-case-message-send').length === 1 &&
+          'Manual fallback shows the one auditable official sender and exact recipient policy before delivery',
+          await deliveryRoute.getByText(
+            'From Bloomjoy Refunds <info@bloomjoysweets.com>',
+            { exact: true }
+          ).isVisible() &&
+            await deliveryRoute.getByText(
+              'To this customer · CC every current assigned Machine Manager · saved in Activity and messages.',
+              { exact: true }
+            ).isVisible() &&
+            await deliveryRoute.getByText(
+              'If this official sender or the exact recipients cannot be verified, Bloomjoy stops before delivery.',
+              { exact: true }
+            ).isVisible() &&
+            await sendCorrectionRequest.isEnabled() &&
+            functionCalls.filter((name) => name === 'refund-case-message-send').length === 0 &&
             !functionCalls.some((name) => [
               'nayax-transaction-lookup', 'nayax-card-refund', 'refund-case-admin-update',
             ].includes(name)),
-          functionCalls.join(', '),
+          JSON.stringify({ functionCalls, routeText: await deliveryRoute.innerText() }),
+        );
+        await page.screenshot({
+          path: path.join(artifactDir, 'refund-customer-message-official-sender-desktop.png'),
+          fullPage: false,
+        });
+        await page.setViewportSize({ width: 390, height: 844 });
+        await deliveryRoute.scrollIntoViewIfNeeded();
+        const mobileRouteVisible = await deliveryRoute.isVisible();
+        const mobileLayoutFits = await page.evaluate(
+          () => document.documentElement.scrollWidth <= window.innerWidth
+        );
+        await sendCorrectionRequest.scrollIntoViewIfNeeded();
+        const mobileSendBox = await sendCorrectionRequest.boundingBox();
+        recorder.assert(
+          'Official customer-message route remains readable and actionable on mobile',
+          mobileRouteVisible &&
+            Boolean(mobileSendBox && mobileSendBox.height >= 44) &&
+            mobileLayoutFits,
+          JSON.stringify({ mobileRouteVisible, mobileSendBox, mobileLayoutFits }),
+        );
+        await page.screenshot({
+          path: path.join(artifactDir, 'refund-customer-message-official-sender-mobile.png'),
+          fullPage: false,
+        });
+        await page.setViewportSize({ width: 1440, height: 1000 });
+        await sendCorrectionRequest.click();
+        await page.waitForTimeout(100);
+        const messageBodies = functionBodies.filter(
+          (entry) => entry.functionName === 'refund-case-message-send'
+        );
+        recorder.assert(
+          'Manual fallback dispatches one saved same-case request without lookup or payment effects',
+          messageBodies.length === 1 &&
+            messageBodies[0].body?.caseId === `case-outreach-${scenario.state}` &&
+            messageBodies[0].body?.messageType === 'more_info' &&
+            JSON.stringify(messageBodies[0].body?.missingFields) === JSON.stringify(['incident_time']) &&
+            !functionCalls.some((name) => [
+              'nayax-transaction-lookup', 'nayax-card-refund', 'refund-case-admin-update',
+            ].includes(name)),
+          JSON.stringify({ functionCalls, messageBodies }),
         );
       }
       await page.setViewportSize({ width: 390, height: 844 });

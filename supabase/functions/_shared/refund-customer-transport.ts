@@ -1,4 +1,5 @@
 export const REFUND_CUSTOMER_SENDER_NAME = "Bloomjoy Refunds";
+export const REFUND_CUSTOMER_FROM_EMAIL = "info@bloomjoysweets.com";
 export const REFUND_MONITORED_REPLY_TO_EMAIL = "info@bloomjoysweets.com";
 
 const EMAIL_PATTERN = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
@@ -13,7 +14,17 @@ export const extractConfiguredEmailAddress = (value: string) => {
   return address;
 };
 
+export const requireRefundOfficialSender = (configuredSender: string) => {
+  const address = extractConfiguredEmailAddress(configuredSender);
+  if (address !== REFUND_CUSTOMER_FROM_EMAIL) {
+    throw new Error(
+      "Refund customer email requires the approved Bloomjoy support sender.",
+    );
+  }
+  return address;
+};
+
 export const formatRefundCustomerSender = (configuredSender: string) =>
   `${REFUND_CUSTOMER_SENDER_NAME} <${
-    extractConfiguredEmailAddress(configuredSender)
+    requireRefundOfficialSender(configuredSender)
   }>`;

@@ -193,7 +193,7 @@ Deno.test("first-contact copy safely omits an unavailable public reference", () 
 
 Deno.test("automatic Gmail replies carry loop-suppression headers", () => {
   const mime = buildReplyMime({
-    from: "support@example.test",
+    from: "info@bloomjoysweets.com",
     to: "customer@example.test",
     subject: "Synthetic first contact",
     text: "Synthetic safe text",

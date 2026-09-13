@@ -82,6 +82,91 @@ assert.equal(exact.confidenceClass, "strong_card");
 assert.equal(exact.candidates[0].transactionId, "exact");
 assert.equal(exact.candidates[0].oneClickEligible, true);
 
+const providerBaseAndTotal = recommend([
+  sale({ id: "base-price-row", amount: 10 }),
+  sale({ id: "provider-total-row", amount: 10.9, extra: { SelectionNumber: "9" } }),
+], {
+  requestAmountCents: 1000,
+  requestCardLast4: "4242",
+});
+assert.equal(providerBaseAndTotal.providerWindowRecordCount, 2);
+assert.deepEqual(
+  providerBaseAndTotal.consideredTransactionIds.sort(),
+  ["base-price-row", "provider-total-row"],
+);
+assert.equal(providerBaseAndTotal.recommendationState, "high_confidence");
+assert.equal(providerBaseAndTotal.candidateCount, 1);
+assert.equal(providerBaseAndTotal.candidates[0].transactionId, "provider-total-row");
+assert.equal(providerBaseAndTotal.candidates[0].amountCents, 1090);
+assert.equal(providerBaseAndTotal.candidates[0].productLabel, "Selection 9");
+assert.equal(providerBaseAndTotal.candidates[0].amountDeltaCents, 90);
+assert.equal(providerBaseAndTotal.candidates[0].oneClickEligible, true);
+assert.ok(
+  providerBaseAndTotal.candidates[0].reasonCodes.includes(
+    "provider_total_preferred_over_base_representation",
+  ),
+);
+assert.match(
+  providerBaseAndTotal.candidates[0].matchReason,
+  /\$10\.00 base-price row[\s\S]*\$10\.90 provider total/,
+);
+
+const genuinelyDistinctProductSales = recommend([
+  sale({ id: "selection-nine", amount: 10.9, extra: { SelectionNumber: "9" } }),
+  sale({ id: "selection-ten", amount: 11.9, extra: { SelectionNumber: "10" } }),
+], {
+  requestAmountCents: 1000,
+  requestCardLast4: "4242",
+  nearbyAttemptCount: "one",
+});
+assert.equal(genuinelyDistinctProductSales.recommendationState, "ambiguous");
+assert.equal(genuinelyDistinctProductSales.candidateCount, 2);
+assert.equal(
+  genuinelyDistinctProductSales.candidates.some((candidate) =>
+    candidate.reasonCodes.includes("provider_total_preferred_over_base_representation")
+  ),
+  false,
+);
+
+const multipleAttemptBaseAndTotal = recommend([
+  sale({ id: "multiple-attempt-base", amount: 10 }),
+  sale({ id: "multiple-attempt-total", amount: 10.9, extra: { SelectionNumber: "9" } }),
+], {
+  requestAmountCents: 1000,
+  requestCardLast4: "4242",
+  nearbyAttemptCount: "multiple",
+});
+assert.equal(multipleAttemptBaseAndTotal.recommendationState, "ambiguous");
+assert.equal(multipleAttemptBaseAndTotal.candidateCount, 2);
+
+const moreThanOnePossibleProviderTotal = recommend([
+  sale({ id: "one-base", amount: 10 }),
+  sale({ id: "selection-nine-total", amount: 10.9, extra: { SelectionNumber: "9" } }),
+  sale({ id: "selection-ten-total", amount: 11.1, extra: { SelectionNumber: "10" } }),
+], {
+  requestAmountCents: 1000,
+  requestCardLast4: "4242",
+});
+assert.equal(moreThanOnePossibleProviderTotal.recommendationState, "ambiguous");
+assert.equal(moreThanOnePossibleProviderTotal.candidateCount, 3);
+assert.equal(
+  moreThanOnePossibleProviderTotal.candidates.some((candidate) =>
+    candidate.reasonCodes.includes("provider_total_preferred_over_base_representation")
+  ),
+  false,
+);
+
+const outsidePercentToleranceBaseAndTotal = recommend([
+  sale({ id: "outside-percent-base", amount: 10 }),
+  sale({ id: "outside-percent-total", amount: 11.6, extra: { SelectionNumber: "9" } }),
+], {
+  requestAmountCents: 1000,
+  requestCardLast4: "4242",
+  nearbyAttemptCount: "one",
+});
+assert.equal(outsidePercentToleranceBaseAndTotal.recommendationState, "ambiguous");
+assert.equal(outsidePercentToleranceBaseAndTotal.candidateCount, 2);
+
 const exactNetwork = recommend([sale({ id: "exact-network", cardBrand: "MasterCard" })], {
   requestCardNetwork: "mastercard",
 });
@@ -982,7 +1067,7 @@ assert.equal(separateMachineClock.candidates[0].authorizedAt, incidentAt);
 assert.equal(separateMachineClock.candidates[0].timeDeltaMinutes, 0);
 assert.equal(separateMachineClock.candidates[0].machineAuthorizationTime, "2026-07-21T18:59:58.810Z");
 assert.equal(separateMachineClock.candidates[0].machineAuthorizationTimeRaw, "2026-07-21T11:59:58.810");
-assert.equal(NAYAX_RECOMMENDATION_POLICY.version, "2026-09-05.v11");
+assert.equal(NAYAX_RECOMMENDATION_POLICY.version, "2026-09-13.v12");
 
 for (const raw of ["2026-07-21T12:00:00.1234567", "2026-07-21T12:00:00.1234567-07:00"]) {
   const result = recommend([sale({ id: "fractional-machine-clock", extra: {

@@ -12,7 +12,7 @@ import {
 // API expose advisory words (strong evidence, compare candidates, manual review)
 // instead of presenting these points as a percentage.
 export const NAYAX_RECOMMENDATION_POLICY = Object.freeze({
-  version: "2026-09-05.v11",
+  version: "2026-09-13.v12",
   candidateLimit: 10,
   lookupWindowHours: 6,
   highConfidenceMinimumPoints: 80,
@@ -37,6 +37,121 @@ export const NAYAX_RECOMMENDATION_POLICY = Object.freeze({
     approvedProviderStatus: 5,
   }),
 });
+
+const formatUsdCents = (value) => `$${(value / 100).toFixed(2)}`;
+
+const sameProviderMinute = (left, right) => {
+  const leftMs = Date.parse(left.machineAuthorizationTime ?? "");
+  const rightMs = Date.parse(right.machineAuthorizationTime ?? "");
+  return Number.isFinite(leftMs) && Number.isFinite(rightMs) &&
+    Math.floor(leftMs / 60_000) === Math.floor(rightMs / 60_000);
+};
+
+const isClearSelectableProviderSale = (candidate) =>
+  candidate.selectionAllowed === true &&
+  candidate.providerRefundState === "clear" &&
+  candidate.paymentStatus === "approved" &&
+  candidate.duplicateProviderRecord !== true &&
+  candidate.hardExclusions.length === 0;
+
+const isBaseAndProviderTotalPair = ({
+  baseCandidate,
+  totalCandidate,
+  request,
+  policy,
+}) => {
+  if (
+    !isClearSelectableProviderSale(baseCandidate) ||
+    !isClearSelectableProviderSale(totalCandidate) ||
+    baseCandidate.productCode || baseCandidate.productLabel ||
+    (!totalCandidate.productCode && !totalCandidate.productLabel) ||
+    !baseCandidate.providerMachineId ||
+    baseCandidate.providerMachineId !== totalCandidate.providerMachineId ||
+    baseCandidate.siteId === null ||
+    baseCandidate.siteId !== totalCandidate.siteId ||
+    !baseCandidate.cardLast4 ||
+    baseCandidate.cardLast4 !== totalCandidate.cardLast4 ||
+    !baseCandidate.currencyCode ||
+    baseCandidate.currencyCode !== totalCandidate.currencyCode ||
+    (baseCandidate.cardNetwork && totalCandidate.cardNetwork &&
+      baseCandidate.cardNetwork !== totalCandidate.cardNetwork) ||
+    (baseCandidate.recognitionMethod && totalCandidate.recognitionMethod &&
+      baseCandidate.recognitionMethod !== totalCandidate.recognitionMethod) ||
+    !sameProviderMinute(baseCandidate, totalCandidate) ||
+    !Number.isSafeInteger(baseCandidate.amountCents) ||
+    !Number.isSafeInteger(totalCandidate.amountCents) ||
+    !Number.isSafeInteger(request.amountCents) ||
+    baseCandidate.amountCents !== request.amountCents ||
+    totalCandidate.amountCents <= baseCandidate.amountCents ||
+    request.nearbyAttemptCount === "multiple"
+  ) return false;
+
+  const amountDifference = totalCandidate.amountCents - baseCandidate.amountCents;
+  const withinDollarTolerance =
+    amountDifference <= policy.maximumStrongCardAmountDeltaCents;
+  const withinPercentageTolerance =
+    amountDifference / baseCandidate.amountCents <= 0.15;
+  return withinDollarTolerance && withinPercentageTolerance;
+};
+
+const collapseBaseAmountRepresentations = ({ candidates, request, policy }) => {
+  const pairings = [];
+  for (const baseCandidate of candidates) {
+    const totals = candidates.filter((totalCandidate) =>
+      totalCandidate !== baseCandidate && isBaseAndProviderTotalPair({
+        baseCandidate,
+        totalCandidate,
+        request,
+        policy,
+      })
+    );
+    if (totals.length === 1) {
+      pairings.push({ baseCandidate, totalCandidate: totals[0] });
+    }
+  }
+
+  const uniquePairs = pairings.filter(({ baseCandidate, totalCandidate }) =>
+    pairings.filter((pair) => pair.baseCandidate === baseCandidate).length === 1 &&
+    pairings.filter((pair) => pair.totalCandidate === totalCandidate).length === 1
+  );
+  const suppressed = new Set(uniquePairs.map(({ baseCandidate }) => baseCandidate));
+  const totalToBase = new Map(
+    uniquePairs.map(({ baseCandidate, totalCandidate }) => [totalCandidate, baseCandidate]),
+  );
+
+  return candidates
+    .filter((candidate) => !suppressed.has(candidate))
+    .map((candidate) => {
+      const baseCandidate = totalToBase.get(candidate);
+      if (!baseCandidate) return candidate;
+      const representationFactor = factor(
+        "provider_total",
+        "match",
+        `Nayax also returned a ${formatUsdCents(baseCandidate.amountCents)} base-price row for this same purchase. Use the richer ${formatUsdCents(candidate.amountCents)} provider total`,
+      );
+      const amountFactorIndex = candidate.matchFactors.findIndex((item) =>
+        item.key === "amount"
+      );
+      const matchFactors = [...candidate.matchFactors];
+      matchFactors.splice(amountFactorIndex >= 0 ? amountFactorIndex + 1 : 0, 0, representationFactor);
+      return {
+        ...candidate,
+        reasonCodes: [
+          ...new Set([
+            ...candidate.reasonCodes,
+            "provider_total_preferred_over_base_representation",
+          ]),
+        ],
+        matchFactors,
+        matchReason: matchFactors.map((item) => item.label).join("; "),
+      };
+    })
+    .map((candidate, index) => ({
+      ...candidate,
+      recommendationRank: index + 1,
+      isTopRanked: index === 0,
+    }));
+};
 
 const purchaseOccurrenceMinuteRange = (candidate) => {
   if (
@@ -1127,6 +1242,12 @@ export const buildNayaxRecommendation = ({
       left.authorizedAt.localeCompare(right.authorizedAt) ||
       left.transactionId.localeCompare(right.transactionId))
     .map((candidate, index) => ({ ...candidate, recommendationRank: index + 1, isTopRanked: index === 0 }));
+
+  candidates = collapseBaseAmountRepresentations({
+    candidates,
+    request,
+    policy,
+  });
 
   const customerTimeSupportsManagerSelection =
     ["exact", "legacy_absolute"].includes(request.incidentTimeResolution) &&

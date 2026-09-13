@@ -15,6 +15,16 @@ assert.match(
 );
 assert.match(
   transport,
+  /REFUND_CUSTOMER_FROM_EMAIL = "info@bloomjoysweets\.com"/,
+  "refund customer mail must use the approved official From address",
+);
+assert.match(
+  transport,
+  /address !== REFUND_CUSTOMER_FROM_EMAIL[\s\S]*approved Bloomjoy support sender/,
+  "personal or alternate sender configuration must fail closed",
+);
+assert.match(
+  transport,
   /REFUND_MONITORED_REPLY_TO_EMAIL = "info@bloomjoysweets\.com"/,
   "customer replies must stay on the monitored mailbox",
 );
@@ -29,9 +39,19 @@ assert.match(
   "transactional customer mail must bind the monitored Reply-To and sender name",
 );
 assert.match(
+  refundEmail,
+  /sendRefundTransactionalEmail[\s\S]*requireRefundOfficialSender\([\s\S]*INTERNAL_NOTIFICATION_FROM_EMAIL/,
+  "transactional customer mail must reject an unapproved sender before provider delivery",
+);
+assert.match(
   gmail,
-  /formatRefundCustomerSender\(from\)/,
-  "Gmail customer mail must standardize the sender name without changing the mailbox",
+  /export const sendRefundGmailReply[\s\S]*requireRefundOfficialGmailSender\(config\.mailbox\)/,
+  "Gmail customer mail must reject an unapproved mailbox before provider delivery",
+);
+assert.match(
+  gmail,
+  /`From: \$\{sanitizeHeader\(formatRefundCustomerSender\(from\), 320\)\}`/,
+  "Gmail customer mail must render the standardized identity",
 );
 
 for (const path of [
@@ -69,5 +89,5 @@ for (const requiredText of [
 }
 
 console.log(
-  "Refund email transport validation passed: customer mail uses the Bloomjoy Refunds identity, preserves Gmail threads or the verified transactional sender, routes replies to info@bloomjoysweets.com, and cannot fall through to a second transport.",
+  "Refund email transport validation passed: customer mail fails closed unless it uses Bloomjoy Refunds <info@bloomjoysweets.com>, preserves Gmail threads or the verified transactional sender, verifies customer To and mapped-manager CC recipients, and cannot fall through to a second transport.",
 );

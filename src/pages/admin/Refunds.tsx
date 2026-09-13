@@ -302,6 +302,7 @@ const openStatuses = new Set<RefundCaseStatus>([
 ]);
 
 const doneStatuses = new Set<RefundCaseStatus>(['completed', 'denied', 'closed']);
+const refundCustomerSenderIdentity = 'Bloomjoy Refunds <info@bloomjoysweets.com>';
 
 const customerMessageOptions: Array<{
   value: RefundCustomerPortalMessageType;
@@ -5531,7 +5532,7 @@ export default function AdminRefundsPage() {
     ) => {
       const selectionDisabled =
         isUsingDemoData || !caseAllowsCandidateSelection || candidate.selectionAllowed === false;
-      const visibleFactors = ['amount', 'card', 'incident_time', 'request_time']
+      const visibleFactors = ['amount', 'provider_total', 'card', 'incident_time', 'request_time']
         .map((key) => candidate.matchFactors?.find((factor) => factor.key === key))
         .filter((factor): factor is NonNullable<typeof factor> => Boolean(factor));
       const selectionMessage = candidate.selectionAllowed === false
@@ -9520,6 +9521,18 @@ export default function AdminRefundsPage() {
             <DialogTitle>{correctionSelection?.requestId ? correctionSelection.editing ? 'Revise customer request' : 'Current customer request' : 'Request customer correction'}</DialogTitle>
             <DialogDescription>{correctionSelection?.requestId ? correctionSelection.editing ? 'This sends one additional email and replaces the old secure link. Choose a different set of details only when the request needs correcting.' : 'Review the details already requested. The existing link stays active unless you explicitly revise and send.' : 'Select the details that need checking. Bloomjoy will send one secure link for this existing request.'}</DialogDescription>
           </DialogHeader>
+          <div
+            data-testid="refund-correction-delivery-route"
+            className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm leading-6 text-sky-950"
+          >
+            <p className="font-medium">From {refundCustomerSenderIdentity}</p>
+            <p>
+              To this customer · CC every current assigned Machine Manager · saved in Activity and messages.
+            </p>
+            <p className="mt-1 text-xs">
+              If this official sender or the exact recipients cannot be verified, Bloomjoy stops before delivery.
+            </p>
+          </div>
           <fieldset className="space-y-1">
             <legend className="mb-2 text-sm font-medium">Details to check</legend>
             {(correctionSelection?.requestId && !correctionSelection.editing ? selectedCase?.customerCorrection?.requestedFields ?? [] : selectedCase?.customerCorrectionFields ?? []).map((field) => <label key={field} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 hover:bg-muted">
@@ -9539,8 +9552,8 @@ export default function AdminRefundsPage() {
           {correctionSelection && (correctionSelection.caseId !== selectedCase?.id || correctionSelection.version !== officialActionVersion) && <p role="alert" className="text-sm text-destructive">This case changed. Close and reopen this request to review the current details.</p>}
           {!correctionSelection?.fields.length && <p role="status" className="text-sm text-muted-foreground">Choose at least one detail to send a correction request.</p>}
           <DialogFooter>
-            <Button type="button" variant="outline" disabled={isSendingCustomerMessage} onClick={() => setCorrectionSelection(null)}>Cancel</Button>
-            {correctionSelection?.requestId && !correctionSelection.editing ? <Button disabled={!selectedCase?.customerCorrection?.canRevise} onClick={() => setCorrectionSelection((current) => current ? {...current,editing:true,fields:current.fields.filter((field) => selectedCase?.customerCorrectionFields?.includes(field))} : current)}>Revise details</Button> : <Button type="button" disabled={isSendingCustomerMessage || !correctionSelection?.fields.length || correctionSelection.caseId !== selectedCase?.id || correctionSelection.version !== officialActionVersion || Boolean(correctionSelection.requestId && (!selectedCase?.customerCorrection?.canRevise || correctionSelection.requestId !== selectedCase.customerCorrection.requestId || [...correctionSelection.fields].sort().join('|') === [...selectedCase.customerCorrection.requestedFields].sort().join('|')))}
+            <Button type="button" variant="outline" className="min-h-11" disabled={isSendingCustomerMessage} onClick={() => setCorrectionSelection(null)}>Cancel</Button>
+            {correctionSelection?.requestId && !correctionSelection.editing ? <Button className="min-h-11" disabled={!selectedCase?.customerCorrection?.canRevise} onClick={() => setCorrectionSelection((current) => current ? {...current,editing:true,fields:current.fields.filter((field) => selectedCase?.customerCorrectionFields?.includes(field))} : current)}>Revise details</Button> : <Button type="button" className="min-h-11" disabled={isSendingCustomerMessage || !correctionSelection?.fields.length || correctionSelection.caseId !== selectedCase?.id || correctionSelection.version !== officialActionVersion || Boolean(correctionSelection.requestId && (!selectedCase?.customerCorrection?.canRevise || correctionSelection.requestId !== selectedCase.customerCorrection.requestId || [...correctionSelection.fields].sort().join('|') === [...selectedCase.customerCorrection.requestedFields].sort().join('|')))}
               onClick={() => void handleSendCustomerMessage('more_info', correctionSelection?.fields)}>{isSendingCustomerMessage ? 'Sending…' : correctionSelection?.requestId ? 'Revise and send' : 'Send correction request'}</Button>}
           </DialogFooter>
           {correctionSelection?.requestId && !selectedCase?.customerCorrection?.canRevise && <p role="status" className="text-sm text-muted-foreground">{selectedCase?.customerCorrection?.revisionReason ?? 'This request cannot be revised now.'}</p>}

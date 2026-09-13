@@ -18,7 +18,7 @@ Run `npm run refunds:validate-nayax-matching` to verify the implementation.
 
 ## Policy version
 
-Current implementation: `2026-09-05.v11`.
+Current implementation: `2026-09-13.v12`.
 
 Internal ranking points order otherwise-safe candidates. Never show the point
 total as a percentage or describe it as statistical confidence. Read exact
