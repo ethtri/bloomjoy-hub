@@ -7741,27 +7741,33 @@ const runNayaxLookupStatusMatrixChecks = async ({
         const saveForReview = page.getByTestId('refund-save-transaction-for-review');
         const preferredCandidateText = await page.getByTestId('nayax-candidate-option').first().innerText();
         const retainedBaseCandidateText = await page.getByTestId('nayax-candidate-option').nth(1).innerText();
+        const preparationText = await preparation.innerText();
+        const managerStateText = await page.getByTestId('refund-manager-state').innerText();
+        const managerNextStepText = await page.getByTestId('refund-manager-next-step').innerText();
+        const preparationChecks = {
+          preparationVisible: await preparation.isVisible(),
+          saveEnabled: await saveForReview.isEnabled(),
+          noRefundAction: (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0,
+          managerStateNamesSave: managerStateText.includes('Save selected transaction'),
+          managerStateExplainsNoRefund:
+            managerNextStepText.includes('save it for manager review. Saving does not issue a refund.'),
+          exactAmountComparison:
+            preparationText.includes('Customer requested $10.00. Selected transaction: $10.90 ($0.90 difference).'),
+          productVisible: await page.getByText('Selection 9', { exact: true }).isVisible(),
+          preferredMarked: preferredCandidateText.includes('Recommended'),
+          preferredFullCharge: preferredCandidateText.includes('product-labelled $10.90 full provider charge'),
+          alternateVisible: retainedBaseCandidateText.includes('$10.00') &&
+            retainedBaseCandidateText.includes('ending 4242'),
+          noDuplicateClaim: preferredCandidateText.includes('no duplicate linkage is claimed') &&
+            retainedBaseCandidateText.includes('records are not treated as duplicates'),
+          bothRowsVisible: (await page.getByTestId('nayax-candidate-option').count()) === 2,
+          noCustomerOutreach: (await page.getByRole('button', { name: 'Ask for missing details', exact: true }).count()) === 0,
+          preparationExplainsNoApproval: preparationText.includes('does not approve or issue a refund'),
+        };
         recorder.assert(
           'A selected transaction exposes a separate server-persisted manager-review action with the amount discrepancy visible',
-          await preparation.isVisible() &&
-            await saveForReview.isEnabled() &&
-            (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0 &&
-            await page.getByText('Save selected transaction', { exact: true }).isVisible() &&
-            await page.getByText(/save it for manager review\. Saving does not issue a refund\./i).isVisible() &&
-            await page.getByTestId('refund-prepare-amount-comparison')
-              .getByText(/Customer requested \$10\.00\. Selected transaction: \$10\.90 \(\$0\.90 difference\)\./)
-              .isVisible() &&
-            await page.getByText('Selection 9', { exact: true }).isVisible() &&
-            preferredCandidateText.includes('Recommended') &&
-            preferredCandidateText.includes('product-labelled $10.90 full provider charge') &&
-            preferredCandidateText.includes('separate $10.00 unlabelled base-price record') &&
-            preferredCandidateText.includes('no duplicate linkage is claimed') &&
-            retainedBaseCandidateText.includes('$10.00') &&
-            retainedBaseCandidateText.includes('Card ending 4242') &&
-            retainedBaseCandidateText.includes('records are not treated as duplicates') &&
-            (await page.getByTestId('nayax-candidate-option').count()) === 2 &&
-            (await page.getByRole('button', { name: 'Ask for missing details', exact: true }).count()) === 0 &&
-            await preparation.getByText(/does not approve or issue a refund/i).isVisible()
+          Object.values(preparationChecks).every(Boolean),
+          JSON.stringify({ preparationChecks, managerStateText, managerNextStepText, preparationText, preferredCandidateText, retainedBaseCandidateText })
         );
         await page.screenshot({
           path: path.join(artifactDir, 'refund-prepare-manager-review-desktop.png'),
