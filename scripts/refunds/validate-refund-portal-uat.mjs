@@ -4257,12 +4257,46 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     'Customer completion email is previewable before execution',
     await page.getByText('Preview customer email').isVisible()
   );
+  const inAppRefundAction = page
+    .getByTestId('refund-primary-action')
+    .getByTestId('refund-run-nayax-refund');
+  await inAppRefundAction.waitFor({ state: 'visible', timeout: 10000 });
+  const inAppExecutionDiagnostics = await inAppRefundAction.evaluate((action) => {
+    const managerState = document.querySelector('[data-testid="refund-manager-state"]');
+    const primaryAction = document.querySelector('[data-testid="refund-primary-action"]');
+    const forbiddenCopy = [
+      'Action happens outside Bloomjoy Hub.',
+      'Open Nayax and refund the matched card sale.',
+      'Card refund confirmation/reference',
+    ];
+    const visibleText = document.body.innerText;
+    const actionBox = action.getBoundingClientRect();
+    const actionStyle = window.getComputedStyle(action);
+    return {
+      actionCount: document.querySelectorAll('[data-testid="refund-run-nayax-refund"]').length,
+      actionLabel: action.textContent?.trim() ?? '',
+      actionVisible:
+        actionBox.width > 0 &&
+        actionBox.height > 0 &&
+        actionStyle.display !== 'none' &&
+        actionStyle.visibility !== 'hidden',
+      actionDisabled: action instanceof HTMLButtonElement ? action.disabled : null,
+      managerState: managerState?.textContent?.trim() ?? '',
+      primaryActionText: primaryAction?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+      forbiddenCopyMatches: forbiddenCopy.filter((copy) => visibleText.includes(copy)),
+    };
+  });
   recorder.assert(
     'Card completion is an in-app Nayax execution flow',
-    await page.getByTestId('refund-run-nayax-refund').isVisible() &&
-      (await page.getByText('Action happens outside Bloomjoy Hub.').count()) === 0 &&
-      (await page.getByText('Open Nayax and refund the matched card sale.').count()) === 0 &&
-      (await page.getByText('Card refund confirmation/reference').count()) === 0
+    inAppExecutionDiagnostics.actionCount === 1 &&
+      inAppExecutionDiagnostics.actionLabel === 'Refund $7.00' &&
+      inAppExecutionDiagnostics.actionVisible &&
+      inAppExecutionDiagnostics.actionDisabled === false &&
+      inAppExecutionDiagnostics.managerState === 'Ready to approve' &&
+      inAppExecutionDiagnostics.primaryActionText.includes('Transaction confirmed') &&
+      inAppExecutionDiagnostics.primaryActionText.includes('Payment: Not issued') &&
+      inAppExecutionDiagnostics.forbiddenCopyMatches.length === 0,
+    JSON.stringify(inAppExecutionDiagnostics)
   );
   const activityHistory = page.getByTestId('refund-activity-history');
   const activityHistorySummary = page.getByTestId('refund-activity-history-summary');
