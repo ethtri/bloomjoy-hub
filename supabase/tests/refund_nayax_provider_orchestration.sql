@@ -363,8 +363,8 @@ select ok(pg_temp.capture_error($sql$
     'provider-test-executor', '9a800000-0000-4000-8000-000000000006',
     '9a600000-0000-4000-8000-000000000006',
     'nayax-refund-' || repeat('6',64), 700, 100000, 100, 'USD')
-$sql$) like '%exact-factor%',
-  'A non-consumed step-up intent cannot reserve a provider attempt');
+$sql$) like '%Fresh manager confirmation receipt required%',
+  'A legacy step-up receipt cannot reserve a provider attempt');
 reset role;
 select is((select status from public.refund_case_official_action_authorizations
   where id = '9a800000-0000-4000-8000-000000000006'), 'authorized',
