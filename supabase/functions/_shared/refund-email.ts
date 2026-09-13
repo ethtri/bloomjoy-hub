@@ -231,13 +231,14 @@ export const sendRefundTransactionalEmail = async (
       "Automatic refund customer email cannot include manager CC recipients.",
     );
   }
-  requireRefundOfficialSender(
-    Deno.env.get("INTERNAL_NOTIFICATION_FROM_EMAIL") ?? "",
+  const refundSenderEmail = requireRefundOfficialSender(
+    Deno.env.get("REFUND_CUSTOMER_FROM_EMAIL") ?? "",
   );
   return await sendTransactionalEmail({
     ...transactionalInput,
     replyTo: getRefundReplyToEmail(),
     senderName: REFUND_CUSTOMER_SENDER_NAME,
+    senderEmail: refundSenderEmail,
   });
 };
 

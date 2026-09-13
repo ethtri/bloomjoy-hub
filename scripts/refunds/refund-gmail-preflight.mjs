@@ -109,7 +109,7 @@ const run = () => {
     'GMAIL_SUPPORT_CLIENT_SECRET',
     'GMAIL_SUPPORT_REFRESH_TOKEN',
     'GMAIL_SUPPORT_MAILBOX',
-    'INTERNAL_NOTIFICATION_FROM_EMAIL',
+    'REFUND_CUSTOMER_FROM_EMAIL',
     'REFUND_REPLY_TO_EMAIL',
     'GMAIL_REFUND_LABEL_ID',
     'REFUND_GMAIL_SYNC_SECRET',
@@ -135,9 +135,9 @@ const run = () => {
     } else if (mailbox.toLowerCase() !== APPROVED_REFUND_SENDER) {
       errors.push(`GMAIL_SUPPORT_MAILBOX must be the approved refund sender ${APPROVED_REFUND_SENDER}.`);
     }
-    const transactionalSender = extractEmailAddress(env.INTERNAL_NOTIFICATION_FROM_EMAIL);
+    const transactionalSender = extractEmailAddress(env.REFUND_CUSTOMER_FROM_EMAIL);
     if (transactionalSender !== APPROVED_REFUND_SENDER) {
-      errors.push(`INTERNAL_NOTIFICATION_FROM_EMAIL must use the approved refund sender ${APPROVED_REFUND_SENDER}.`);
+      errors.push(`REFUND_CUSTOMER_FROM_EMAIL must use the approved refund sender ${APPROVED_REFUND_SENDER}.`);
     }
     const replyTo = extractEmailAddress(env.REFUND_REPLY_TO_EMAIL);
     if (replyTo !== APPROVED_REFUND_SENDER) {

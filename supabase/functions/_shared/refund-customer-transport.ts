@@ -15,7 +15,14 @@ export const extractConfiguredEmailAddress = (value: string) => {
 };
 
 export const requireRefundOfficialSender = (configuredSender: string) => {
-  const address = extractConfiguredEmailAddress(configuredSender);
+  let address = "";
+  try {
+    address = extractConfiguredEmailAddress(configuredSender);
+  } catch {
+    throw new Error(
+      "Refund customer email requires the approved Bloomjoy support sender.",
+    );
+  }
   if (address !== REFUND_CUSTOMER_FROM_EMAIL) {
     throw new Error(
       "Refund customer email requires the approved Bloomjoy support sender.",

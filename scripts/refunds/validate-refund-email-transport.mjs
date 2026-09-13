@@ -35,12 +35,12 @@ assert.match(
 );
 assert.match(
   refundEmail,
-  /replyTo: getRefundReplyToEmail\(\)[\s\S]*senderName: REFUND_CUSTOMER_SENDER_NAME/,
-  "transactional customer mail must bind the monitored Reply-To and sender name",
+  /replyTo: getRefundReplyToEmail\(\)[\s\S]*senderName: REFUND_CUSTOMER_SENDER_NAME[\s\S]*senderEmail: refundSenderEmail/,
+  "transactional customer mail must bind the monitored Reply-To and dedicated exact sender",
 );
 assert.match(
   refundEmail,
-  /sendRefundTransactionalEmail[\s\S]*requireRefundOfficialSender\([\s\S]*INTERNAL_NOTIFICATION_FROM_EMAIL/,
+  /sendRefundTransactionalEmail[\s\S]*requireRefundOfficialSender\([\s\S]*REFUND_CUSTOMER_FROM_EMAIL/,
   "transactional customer mail must reject an unapproved sender before provider delivery",
 );
 assert.match(

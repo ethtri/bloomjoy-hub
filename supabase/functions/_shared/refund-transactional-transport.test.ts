@@ -73,7 +73,7 @@ Deno.test("bounced original request mark rejection stops actual Resend transport
 Deno.test("transactional refund mail uses the verified sender with the monitored Reply-To", async () => {
   const originalFetch = globalThis.fetch;
   const originalApiKey = Deno.env.get("RESEND_API_KEY");
-  const originalFrom = Deno.env.get("INTERNAL_NOTIFICATION_FROM_EMAIL");
+  const originalFrom = Deno.env.get("REFUND_CUSTOMER_FROM_EMAIL");
   const originalReplyTo = Deno.env.get("REFUND_REPLY_TO_EMAIL");
   let payload: Record<string, unknown> = {};
   let fetchCount = 0;
@@ -81,7 +81,7 @@ Deno.test("transactional refund mail uses the verified sender with the monitored
 
   Deno.env.set("RESEND_API_KEY", "synthetic-resend-key");
   Deno.env.set(
-    "INTERNAL_NOTIFICATION_FROM_EMAIL",
+    "REFUND_CUSTOMER_FROM_EMAIL",
     "Bloomjoy Info <info@bloomjoysweets.com>",
   );
   Deno.env.set("REFUND_REPLY_TO_EMAIL", "info@bloomjoysweets.com");
@@ -142,7 +142,7 @@ Deno.test("transactional refund mail uses the verified sender with the monitored
   } finally {
     globalThis.fetch = originalFetch;
     restoreEnv("RESEND_API_KEY", originalApiKey);
-    restoreEnv("INTERNAL_NOTIFICATION_FROM_EMAIL", originalFrom);
+    restoreEnv("REFUND_CUSTOMER_FROM_EMAIL", originalFrom);
     restoreEnv("REFUND_REPLY_TO_EMAIL", originalReplyTo);
   }
 });
@@ -150,11 +150,11 @@ Deno.test("transactional refund mail uses the verified sender with the monitored
 Deno.test("transactional refund mail rejects a personal From address before provider access", async () => {
   const originalFetch = globalThis.fetch;
   const originalApiKey = Deno.env.get("RESEND_API_KEY");
-  const originalFrom = Deno.env.get("INTERNAL_NOTIFICATION_FROM_EMAIL");
+  const originalFrom = Deno.env.get("REFUND_CUSTOMER_FROM_EMAIL");
   const originalReplyTo = Deno.env.get("REFUND_REPLY_TO_EMAIL");
   let fetchCount = 0;
   Deno.env.set("RESEND_API_KEY", "synthetic-resend-key");
-  Deno.env.set("INTERNAL_NOTIFICATION_FROM_EMAIL", "Personal Sender <person@example.test>");
+  Deno.env.set("REFUND_CUSTOMER_FROM_EMAIL", "Personal Sender <person@example.test>");
   Deno.env.set("REFUND_REPLY_TO_EMAIL", "info@bloomjoysweets.com");
   globalThis.fetch = async () => {
     fetchCount += 1;
@@ -176,7 +176,47 @@ Deno.test("transactional refund mail rejects a personal From address before prov
   } finally {
     globalThis.fetch = originalFetch;
     restoreEnv("RESEND_API_KEY", originalApiKey);
-    restoreEnv("INTERNAL_NOTIFICATION_FROM_EMAIL", originalFrom);
+    restoreEnv("REFUND_CUSTOMER_FROM_EMAIL", originalFrom);
+    restoreEnv("REFUND_REPLY_TO_EMAIL", originalReplyTo);
+  }
+});
+
+Deno.test("transactional refund mail never falls back to the global internal sender", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalApiKey = Deno.env.get("RESEND_API_KEY");
+  const originalRefundFrom = Deno.env.get("REFUND_CUSTOMER_FROM_EMAIL");
+  const originalInternalFrom = Deno.env.get("INTERNAL_NOTIFICATION_FROM_EMAIL");
+  const originalReplyTo = Deno.env.get("REFUND_REPLY_TO_EMAIL");
+  let fetchCount = 0;
+  Deno.env.set("RESEND_API_KEY", "synthetic-resend-key");
+  Deno.env.delete("REFUND_CUSTOMER_FROM_EMAIL");
+  Deno.env.set(
+    "INTERNAL_NOTIFICATION_FROM_EMAIL",
+    "Bloomjoy Internal <info@bloomjoyusa.com>",
+  );
+  Deno.env.set("REFUND_REPLY_TO_EMAIL", "info@bloomjoysweets.com");
+  globalThis.fetch = async () => {
+    fetchCount += 1;
+    throw new Error("The global internal sender must never send refund customer mail.");
+  };
+
+  try {
+    await assertRejects(
+      () => sendRefundTransactionalEmail({
+        to: ["customer@example.test"],
+        cc: ["manager@example.test"],
+        subject: "Synthetic refund update",
+        text: "Synthetic body.",
+      }),
+      Error,
+      "approved Bloomjoy support sender",
+    );
+    assertEquals(fetchCount, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv("RESEND_API_KEY", originalApiKey);
+    restoreEnv("REFUND_CUSTOMER_FROM_EMAIL", originalRefundFrom);
+    restoreEnv("INTERNAL_NOTIFICATION_FROM_EMAIL", originalInternalFrom);
     restoreEnv("REFUND_REPLY_TO_EMAIL", originalReplyTo);
   }
 });
@@ -184,10 +224,10 @@ Deno.test("transactional refund mail rejects a personal From address before prov
 Deno.test("transactional refund mail treats a successful response without a provider id as delivery unknown", async () => {
   const originalFetch = globalThis.fetch;
   const originalApiKey = Deno.env.get("RESEND_API_KEY");
-  const originalFrom = Deno.env.get("INTERNAL_NOTIFICATION_FROM_EMAIL");
+  const originalFrom = Deno.env.get("REFUND_CUSTOMER_FROM_EMAIL");
   const originalReplyTo = Deno.env.get("REFUND_REPLY_TO_EMAIL");
   Deno.env.set("RESEND_API_KEY", "synthetic-resend-key");
-  Deno.env.set("INTERNAL_NOTIFICATION_FROM_EMAIL", "info@bloomjoysweets.com");
+  Deno.env.set("REFUND_CUSTOMER_FROM_EMAIL", "info@bloomjoysweets.com");
   Deno.env.set("REFUND_REPLY_TO_EMAIL", "info@bloomjoysweets.com");
   globalThis.fetch = async () =>
     new Response(JSON.stringify({ accepted: true }), { status: 200 });
@@ -205,7 +245,7 @@ Deno.test("transactional refund mail treats a successful response without a prov
   } finally {
     globalThis.fetch = originalFetch;
     restoreEnv("RESEND_API_KEY", originalApiKey);
-    restoreEnv("INTERNAL_NOTIFICATION_FROM_EMAIL", originalFrom);
+    restoreEnv("REFUND_CUSTOMER_FROM_EMAIL", originalFrom);
     restoreEnv("REFUND_REPLY_TO_EMAIL", originalReplyTo);
   }
 });
@@ -213,11 +253,11 @@ Deno.test("transactional refund mail treats a successful response without a prov
 Deno.test("transactional refund mail rejects an unsafe idempotency key before provider access", async () => {
   const originalFetch = globalThis.fetch;
   const originalApiKey = Deno.env.get("RESEND_API_KEY");
-  const originalFrom = Deno.env.get("INTERNAL_NOTIFICATION_FROM_EMAIL");
+  const originalFrom = Deno.env.get("REFUND_CUSTOMER_FROM_EMAIL");
   const originalReplyTo = Deno.env.get("REFUND_REPLY_TO_EMAIL");
   let fetchCount = 0;
   Deno.env.set("RESEND_API_KEY", "synthetic-resend-key");
-  Deno.env.set("INTERNAL_NOTIFICATION_FROM_EMAIL", "info@bloomjoysweets.com");
+  Deno.env.set("REFUND_CUSTOMER_FROM_EMAIL", "info@bloomjoysweets.com");
   Deno.env.set("REFUND_REPLY_TO_EMAIL", "info@bloomjoysweets.com");
   globalThis.fetch = async () => {
     fetchCount += 1;
@@ -241,7 +281,7 @@ Deno.test("transactional refund mail rejects an unsafe idempotency key before pr
   } finally {
     globalThis.fetch = originalFetch;
     restoreEnv("RESEND_API_KEY", originalApiKey);
-    restoreEnv("INTERNAL_NOTIFICATION_FROM_EMAIL", originalFrom);
+    restoreEnv("REFUND_CUSTOMER_FROM_EMAIL", originalFrom);
     restoreEnv("REFUND_REPLY_TO_EMAIL", originalReplyTo);
   }
 });

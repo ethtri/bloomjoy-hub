@@ -121,14 +121,17 @@ on the same machine, with the same card or wallet ending and a time two minutes
 away. That is a clear match. Prepare the $10.90 provider sale for approval; do
 not ask the customer about the 90-cent difference.
 
-Nayax may return a weaker base-price row alongside a richer provider-total row
-for the same purchase. Treat the richer row as the purchase only when the portal
-has collapsed the pair using the same machine, site, card, currency, payment
-shape and provider minute, the amounts fit both the $3 and 15% limits, and the
-richer row has product/selection evidence the base row lacks. Use the richer
-row's full provider total and keep the amount difference visible. Different
-product selections, multiple reported attempts or more than one possible pair
-remain genuinely ambiguous.
+Nayax may return a weaker unlabelled base-price row alongside a richer
+product-labelled provider-total row. The portal keeps both provider records
+visible and does not claim they are duplicates. It may prefer the richer row
+when the machine, site, card, currency and payment shape match; their raw
+authorization timestamps are identical or no more than five seconds apart; the
+amounts fit both the $3 and 15% limits; and exactly one richer row has the
+product/selection evidence the base row lacks. Review both records, then select
+and save the exact richer provider transaction for manager approval. Use its
+full provider total and keep the amount difference visible. Different product
+selections, multiple reported attempts, timestamps farther apart or more than
+one possible pairing remain genuinely ambiguous.
 
 If one clear match exists:
 
@@ -216,14 +219,16 @@ When the portal does not support the case:
    fact is still needed. It records the request in case history and chooses the
    original Gmail conversation or approved transactional route once. If the
    portal cannot queue that exact request, send a one-off customer email exactly
-   once from the official Bloomjoy mailbox, keep the existing customer thread
-   when possible,
+   once as **Bloomjoy Refunds <info@bloomjoysweets.com>**, keep the existing
+   customer thread when possible,
    address the exact customer in **To** and every current assigned Machine
    Manager in **CC**, and then record or import the sent message and delivery
-   evidence back onto the case. Never use a personal sender. If the customer need
-   is clear but case recording is temporarily impossible, still send once, open
-   or link the engineering issue immediately, and add the sent timestamp and
-   message ID to the case as soon as the portal supports it.
+   evidence back onto the case. Verify the original thread's **Sent** evidence,
+   including the final sender, **To**, **CC**, sent timestamp and message ID;
+   never use a personal sender. If the customer need is clear but case recording
+   is temporarily impossible, still send once, immediately add the sent
+   timestamp and message ID to the linked engineering issue, and backfill the
+   same evidence onto the case as soon as the portal supports it.
 3. Search the repository's open GitHub issues for the same portal gap.
 4. If no matching issue exists, create one for Engineering. Include the affected
    workflow, what the portal showed, what should have happened and a clear test

@@ -123,6 +123,7 @@ const configuredMailboxIdentities = () => {
     cleanEnv("GMAIL_SUPPORT_MAILBOX", 320),
     ...cleanEnv("GMAIL_SUPPORT_SEND_AS_ALIASES", 4096).split(","),
     cleanEnv("REFUND_REPLY_TO_EMAIL", 320),
+    cleanEnv("REFUND_CUSTOMER_FROM_EMAIL", 320),
     cleanEnv("INTERNAL_NOTIFICATION_FROM_EMAIL", 320),
   ];
   return Array.from(

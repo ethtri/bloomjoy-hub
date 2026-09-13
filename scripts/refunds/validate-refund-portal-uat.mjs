@@ -7207,11 +7207,36 @@ const runNayaxLookupStatusMatrixChecks = async ({
       'unique_qr_time_candidate',
       'provider_total_preferred_over_base_representation',
     ],
-    matchReason: 'Exact machine, card, and unique QR timing; the richer $10.90 provider total represents the same purchase as the weaker $10.00 base-price row.',
+    matchReason: 'Exact machine, card, and unique QR timing; prefer the product-labelled $10.90 full provider charge while the separate $10.00 base-price record remains visible for review.',
     matchFactors: [
       { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
       { key: 'amount', outcome: 'manual', label: 'Transaction amount differs by $0.90' },
-      { key: 'provider_total', outcome: 'match', label: 'Nayax also returned a $10.00 base-price row for this same purchase. Use the richer $10.90 provider total' },
+      { key: 'provider_total', outcome: 'match', label: 'Prefer this product-labelled $10.90 full provider charge. A separate $10.00 unlabelled base-price record within 5 seconds remains visible for manager review; no duplicate linkage is claimed' },
+      { key: 'card', outcome: 'match', label: 'Card ending matches' },
+      { key: 'qr_time', outcome: 'match', label: 'The machine QR form opened 6 minutes after the transaction' },
+    ],
+  };
+  const retainedBaseCandidate = {
+    ...preparedCandidate,
+    candidateToken: '41000000-0000-4000-8000-000000000209',
+    amountCents: 1000,
+    amountDeltaCents: 0,
+    productCode: null,
+    productLabel: null,
+    recommendationRank: 2,
+    isTopRanked: false,
+    isRecommended: false,
+    oneClickEligible: false,
+    reasonCodes: [
+      'machine_exact',
+      'amount_exact',
+      'base_price_record_retained_for_review',
+    ],
+    matchReason: 'The separate $10.00 unlabelled base-price record remains visible for audit. Nayax also returned a product-labelled $10.90 full charge within 5 seconds; the records are not treated as duplicates.',
+    matchFactors: [
+      { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
+      { key: 'amount', outcome: 'match', label: 'Transaction amount matches exactly' },
+      { key: 'provider_total', outcome: 'manual', label: 'This $10.00 unlabelled base-price record stays visible for audit. Nayax also returned a product-labelled $10.90 full charge within 5 seconds; the records are not treated as duplicates' },
       { key: 'card', outcome: 'match', label: 'Card ending matches' },
       { key: 'qr_time', outcome: 'match', label: 'The machine QR form opened 6 minutes after the transaction' },
     ],
@@ -7240,9 +7265,14 @@ const runNayaxLookupStatusMatrixChecks = async ({
       providerRecordCount: 2,
       providerParseableRecordCount: 2,
       providerWindowRecordCount: 2,
-      candidateCount: 1,
-      candidates: [preparedCandidate],
+      candidateCount: 2,
+      summary: 'Nayax returned two separate provider records within 5 seconds. The product-labelled full charge is preferred under the small-variance rule; both records remain visible and are not treated as duplicates.',
+      recommendedAction: 'Review both provider records, then select and save the exact product-labelled full charge for manager approval. No customer outreach is needed for the small amount difference.',
+      candidates: [preparedCandidate, retainedBaseCandidate],
     },
+    expectedHeading: '2 transactions found',
+    expectedStatus: '2 results',
+    expectedCandidateCount: 2,
     expectedAmountMismatch: '$0.90',
   });
 
@@ -7688,11 +7718,14 @@ const runNayaxLookupStatusMatrixChecks = async ({
       }
       if (scenario.expectedAmountMismatch) {
         const resultCardText = await page.getByTestId('nayax-result-card').innerText();
+        const amountEvidenceText = scenario.prepareCandidateOnly
+          ? await page.getByTestId('nayax-candidate-option').first().innerText()
+          : resultCardText;
         recorder.assert(
           `Nayax ${scenario.name} keeps amount explanation consistent with displayed values`,
-          resultCardText.includes(`Amount differs by ${scenario.expectedAmountMismatch}`) &&
-            !resultCardText.includes('Amount matches exactly'),
-          resultCardText
+          amountEvidenceText.includes(`Amount differs by ${scenario.expectedAmountMismatch}`) &&
+            !amountEvidenceText.includes('Amount matches exactly'),
+          amountEvidenceText
         );
       }
       if (scenario.expectedWalletCardMismatch) {
@@ -7706,6 +7739,8 @@ const runNayaxLookupStatusMatrixChecks = async ({
         await page.getByTestId('nayax-candidate-option').first().click();
         const preparation = page.getByTestId('refund-prepare-transaction-panel');
         const saveForReview = page.getByTestId('refund-save-transaction-for-review');
+        const preferredCandidateText = await page.getByTestId('nayax-candidate-option').first().innerText();
+        const retainedBaseCandidateText = await page.getByTestId('nayax-candidate-option').nth(1).innerText();
         recorder.assert(
           'A selected transaction exposes a separate server-persisted manager-review action with the amount discrepancy visible',
           await preparation.isVisible() &&
@@ -7717,10 +7752,14 @@ const runNayaxLookupStatusMatrixChecks = async ({
               .getByText(/Customer requested \$10\.00\. Selected transaction: \$10\.90 \(\$0\.90 difference\)\./)
               .isVisible() &&
             await page.getByText('Selection 9', { exact: true }).isVisible() &&
-            await page.getByTestId('nayax-candidate-option')
-              .getByText(/Nayax also returned a \$10\.00 base-price row for this same purchase\. Use the richer \$10\.90 provider total/i)
-              .isVisible() &&
-            (await page.getByTestId('nayax-candidate-option').count()) === 1 &&
+            preferredCandidateText.includes('Recommended') &&
+            preferredCandidateText.includes('product-labelled $10.90 full provider charge') &&
+            preferredCandidateText.includes('separate $10.00 unlabelled base-price record') &&
+            preferredCandidateText.includes('no duplicate linkage is claimed') &&
+            retainedBaseCandidateText.includes('$10.00') &&
+            retainedBaseCandidateText.includes('Card ending 4242') &&
+            retainedBaseCandidateText.includes('records are not treated as duplicates') &&
+            (await page.getByTestId('nayax-candidate-option').count()) === 2 &&
             (await page.getByRole('button', { name: 'Ask for missing details', exact: true }).count()) === 0 &&
             await preparation.getByText(/does not approve or issue a refund/i).isVisible()
         );
@@ -7777,8 +7816,8 @@ const runNayaxLookupStatusMatrixChecks = async ({
         recorder.assert(
           'Prepared provider-total selection survives reopen with the amount discrepancy evidence and remains ready for a manager decision',
           persistedEvidenceText.includes('$10.90') &&
-            persistedEvidenceDetails.includes('$10.00 base-price row') &&
-            persistedEvidenceDetails.includes('$10.90 provider total') &&
+            persistedEvidenceDetails.includes('$10.00 base-price record') &&
+            persistedEvidenceDetails.includes('$10.90 full provider charge') &&
             (await page.getByTestId('nayax-candidate-option').count()) === 0 &&
             (await page.getByRole('button', { name: /^Refund \$10\.90$/i }).count()) === 1,
           JSON.stringify({

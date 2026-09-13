@@ -33,6 +33,7 @@ export type TransactionalEmailInput = {
   html?: string;
   replyTo?: string | string[] | null;
   senderName?: string | null;
+  senderEmail?: string | null;
   idempotencyKey?: string | null;
 };
 
@@ -69,9 +70,10 @@ const formatTransactionalSender = (
   return `${normalizedName} <${normalizedAddress}>`;
 };
 
-const getResendConfig = () => {
+const getResendConfig = (senderEmail?: string | null) => {
   const resendApiKey = Deno.env.get("RESEND_API_KEY");
-  const fromEmail = Deno.env.get("INTERNAL_NOTIFICATION_FROM_EMAIL");
+  const fromEmail = senderEmail?.trim() ||
+    Deno.env.get("INTERNAL_NOTIFICATION_FROM_EMAIL");
 
   if (!resendApiKey) {
     throw new Error("Missing RESEND_API_KEY.");
@@ -95,9 +97,10 @@ export async function sendTransactionalEmail({
   html,
   replyTo,
   senderName,
+  senderEmail,
   idempotencyKey,
 }: TransactionalEmailInput): Promise<TransactionalEmailReceipt> {
-  const { resendApiKey, fromEmail } = getResendConfig();
+  const { resendApiKey, fromEmail } = getResendConfig(senderEmail);
 
   if (!to.length) {
     throw new Error("No email recipients configured.");

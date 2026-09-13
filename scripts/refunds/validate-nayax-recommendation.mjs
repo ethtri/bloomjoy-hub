@@ -88,6 +88,7 @@ const providerBaseAndTotal = recommend([
 ], {
   requestAmountCents: 1000,
   requestCardLast4: "4242",
+  nearbyAttemptCount: null,
 });
 assert.equal(providerBaseAndTotal.providerWindowRecordCount, 2);
 assert.deepEqual(
@@ -95,7 +96,7 @@ assert.deepEqual(
   ["base-price-row", "provider-total-row"],
 );
 assert.equal(providerBaseAndTotal.recommendationState, "high_confidence");
-assert.equal(providerBaseAndTotal.candidateCount, 1);
+assert.equal(providerBaseAndTotal.candidateCount, 2);
 assert.equal(providerBaseAndTotal.candidates[0].transactionId, "provider-total-row");
 assert.equal(providerBaseAndTotal.candidates[0].amountCents, 1090);
 assert.equal(providerBaseAndTotal.candidates[0].productLabel, "Selection 9");
@@ -106,9 +107,41 @@ assert.ok(
     "provider_total_preferred_over_base_representation",
   ),
 );
+const retainedBasePriceRow = providerBaseAndTotal.candidates.find((candidate) =>
+  candidate.transactionId === "base-price-row"
+);
+assert.ok(retainedBasePriceRow);
+assert.equal(retainedBasePriceRow.selectionAllowed, true);
+assert.equal(retainedBasePriceRow.strongCardEligible, false);
+assert.equal(retainedBasePriceRow.providerTotalPreference, "base_alternate");
+assert.ok(
+  retainedBasePriceRow.reasonCodes.includes(
+    "base_price_record_retained_for_review",
+  ),
+);
 assert.match(
   providerBaseAndTotal.candidates[0].matchReason,
-  /\$10\.00 base-price row[\s\S]*\$10\.90 provider total/,
+  /product-labelled \$10\.90 full provider charge[\s\S]*separate \$10\.00 unlabelled base-price record[\s\S]*no duplicate linkage is claimed/,
+);
+assert.match(providerBaseAndTotal.summary, /two separate provider records[\s\S]*not treated as duplicates/);
+assert.match(providerBaseAndTotal.recommendedAction, /select and save the exact product-labelled full charge/);
+
+const unknownNearbyAttemptCount = recommend([
+  sale({ id: "unknown-attempt-base", amount: 10 }),
+  sale({ id: "unknown-attempt-total", amount: 10.9, extra: { SelectionNumber: "9" } }),
+], {
+  requestAmountCents: 1000,
+  requestCardLast4: "4242",
+  nearbyAttemptCount: "unknown",
+});
+assert.equal(unknownNearbyAttemptCount.recommendationState, "high_confidence");
+assert.equal(unknownNearbyAttemptCount.candidateCount, 2);
+assert.equal(unknownNearbyAttemptCount.candidates[0].transactionId, "unknown-attempt-total");
+assert.equal(
+  unknownNearbyAttemptCount.candidates.find((candidate) =>
+    candidate.transactionId === "unknown-attempt-base"
+  )?.providerTotalPreference,
+  "base_alternate",
 );
 
 const genuinelyDistinctProductSales = recommend([
@@ -166,6 +199,45 @@ const outsidePercentToleranceBaseAndTotal = recommend([
 });
 assert.equal(outsidePercentToleranceBaseAndTotal.recommendationState, "ambiguous");
 assert.equal(outsidePercentToleranceBaseAndTotal.candidateCount, 2);
+
+const fiveSecondProviderRepresentationPair = recommend([
+  sale({ id: "five-second-base", amount: 10 }),
+  sale({
+    id: "five-second-total",
+    at: "2026-07-21T19:00:05.000Z",
+    amount: 10.9,
+    extra: { SelectionNumber: "9" },
+  }),
+], {
+  requestAmountCents: 1000,
+  requestCardLast4: "4242",
+  nearbyAttemptCount: null,
+});
+assert.equal(fiveSecondProviderRepresentationPair.recommendationState, "high_confidence");
+assert.equal(fiveSecondProviderRepresentationPair.candidateCount, 2);
+assert.equal(fiveSecondProviderRepresentationPair.candidates[0].transactionId, "five-second-total");
+
+const outsideRepresentationTimeWindow = recommend([
+  sale({ id: "six-second-base", amount: 10 }),
+  sale({
+    id: "six-second-total",
+    at: "2026-07-21T19:00:06.000Z",
+    amount: 10.9,
+    extra: { SelectionNumber: "9" },
+  }),
+], {
+  requestAmountCents: 1000,
+  requestCardLast4: "4242",
+  nearbyAttemptCount: null,
+});
+assert.equal(outsideRepresentationTimeWindow.recommendationState, "ambiguous");
+assert.equal(outsideRepresentationTimeWindow.candidateCount, 2);
+assert.equal(
+  outsideRepresentationTimeWindow.candidates.some((candidate) =>
+    candidate.providerTotalPreference
+  ),
+  false,
+);
 
 const exactNetwork = recommend([sale({ id: "exact-network", cardBrand: "MasterCard" })], {
   requestCardNetwork: "mastercard",
