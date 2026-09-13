@@ -786,7 +786,7 @@ serve(async (req) => {
     if (isOwnerNonrefundAdoptionMode(body?.mode)) {
       const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
       if (!supabaseUrl || !anonKey || user.is_anonymous) {
-        return jsonResponse({ errorCode: "owner_resolution_unavailable", error: "Current Refund Operations access is required." }, 403);
+        return jsonResponse({ errorCode: "owner_resolution_unavailable", error: "Current assigned Manager access is required." }, 403);
       }
       const authenticatedClient = createClient(supabaseUrl, anonKey, {
         auth: { persistSession: false, autoRefreshToken: false },
@@ -798,7 +798,7 @@ serve(async (req) => {
     if (isAuthoritativeReceiptMode(body?.mode)) {
       const receiptAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
       if (!supabaseUrl || !receiptAnonKey || user.is_anonymous) {
-        return jsonResponse({ errorCode: "receipt_unavailable", error: "Current Refund Operations access is required." }, 403);
+        return jsonResponse({ errorCode: "receipt_unavailable", error: "Current assigned Manager access is required." }, 403);
       }
       const receiptClient = createClient(supabaseUrl, receiptAnonKey, {
         auth: { persistSession: false, autoRefreshToken: false },
@@ -850,7 +850,7 @@ serve(async (req) => {
     ) {
       return jsonResponse({
         error: beforeRow.nayax_refund_execution_status === "declined"
-          ? "Nayax rejected the refund. Leave the case open for payment support and do not send a customer decision from this case."
+          ? "Nayax rejected the refund. The assigned Manager must review the Nayax result; do not send a customer decision from this case."
           : "Nayax has not confirmed whether the refund was sent. Do not try again or contact the customer until the payment outcome is confirmed.",
         errorCode: beforeRow.nayax_refund_execution_status === "declined"
           ? "provider_refund_rejected"
