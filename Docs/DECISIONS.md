@@ -1809,3 +1809,9 @@ The server-owned manager-work projection remains the shared source for the exist
 - The existing queue already exposes the same statuses, cases, ordering, and navigation.
 - Repeating that information consumes the first viewport and delays the manager's actual review work.
 - Keeping the projection behind the existing queue preserves server-owned truth and digest consistency without duplicating the interface.
+
+## 2026-09-13 - Missing Sunze cash evidence requires proved timestamp and continuous coverage (`#1351`)
+
+Sunze `Payment time` timezone and DST behavior are not independently proved. Existing reporting imports keep the historical UTC conversion for timezone-less workbook values, explicitly marked as an unvalidated compatibility basis; those facts cannot prove a missing cash sale. Enabling validated conversion requires an independently timestamped known-order pair that proves UTC/account/browser/machine basis, daylight-saving behavior, and whether the rule is account-wide. A global timezone is accepted only with account-wide proof.
+
+Cash refund verification is server-owned and uses private per-machine/per-import intervals. Disjoint intervals never merge. Exactly five states exist: checking, one sale found, multiple possible sales, complete no match, and unavailable. Complete no match requires a supported mapped refund machine, validated account-wide IANA semantics, fresh import evidence, and one interval covering the full +/- one-hour lookup window. A fresh source whose watermark has not reached the request remains checking; unsupported, unmapped, unvalidated, stale, and temporally incomplete history is unavailable. No state authorizes approval, payout, customer contact, closed-case reopening, or a change to Nayax card execution.

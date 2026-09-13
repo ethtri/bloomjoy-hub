@@ -124,7 +124,7 @@ Observed headers:
 | `Order amount` | Numeric order amount. |
 | `Tax` | Numeric tax field; nullable in some rows. |
 | `Payment method` | Source payment label. |
-| `Payment time` | Exported as a workbook date/time value. |
+| `Payment time` | Observed as Excel date cells/timezone-less text and explicit-offset text in parser fixtures. Sunze's timezone basis is not yet independently proved. |
 | `Status` | Source payment/order status. |
 
 Observed payment method values:
@@ -160,6 +160,27 @@ Important metric notes:
 11. It sends normalized rows to `sunze-sales-ingest` with `REPORTING_INGEST_TOKEN`.
 12. The Edge Function hashes sensitive order identifiers with `REPORTING_ROW_HASH_SALT`, rejects unknown machines/statuses/payment methods, and upserts idempotent `machine_sales_facts`.
 
+## Cash Refund Timestamp And Coverage Contract
+
+- Existing reporting ingestion preserves its historical behavior for Excel date cells and timezone-less strings: their wall-clock parts are stored using the prior UTC conversion, now labeled `unvalidated_utc_compatibility`. This is reporting compatibility, not evidence that Sunze emits UTC.
+- Explicit `Z`/offset strings retain their actual instant and are labeled `explicit_offset`. A configured IANA conversion is accepted only when `SUNZE_PAYMENT_TIME_SEMANTICS_STATUS=validated`, `SUNZE_PAYMENT_TIME_PROOF_SCOPE=account`, and `SUNZE_PAYMENT_TIME_TIMEZONE` names the independently proved account-wide basis. A location timezone or browser/export timezone must not be substituted without proof.
+- A validated local timestamp that is nonexistent in a DST spring gap or ambiguous in a fall fold is rejected. Fixtures cover Excel dates, timezone-less strings, explicit offsets, midnight, and both DST transitions.
+- Refund coverage is stored privately as one interval per machine per completed import. Intervals are never merged across gaps. A source watermark advances only when the export has validated account-wide timestamp semantics, trusted complete machine visibility without a count mismatch, and exact selected-window bounds.
+- `checking_sales_history`: a supported, mapped, fresh source exists but its latest watermark has not yet reached the full purchase lookup window.
+- `sale_found`: exactly one validated cash fact matches the exact machine, optional exact amount, and +/- one-hour window inside one fresh coverage interval.
+- `multiple_possible_sales`: more than one such validated fact remains.
+- `no_sale_found_with_complete_coverage`: zero such facts remain and one fresh validated interval covers the complete +/- one-hour window.
+- `sales_history_unavailable`: the machine/source is unsupported or unmapped, timestamp proof is absent/out of scope, coverage is stale, or no one interval completely covers the historical window.
+- These states are server-owned. Raw workbooks, source order numbers, raw machine identifiers, and candidate rows are not exposed by the readiness contract.
+
+### Evidence still needed
+
+To enable validated conversion, capture one privacy-safe owner-controlled order whose occurrence instant is independently known (for example a UTC-stamped device/operator observation), its exact exported `Payment time` cell shape, the account/browser/location timezone settings at export, and a second independently known order across a daylight-saving boundary. The pair must establish whether the basis is UTC, account, browser/export, or machine/location time and whether one rule applies account-wide. Until then, the contract remains unvalidated and cannot emit complete-no-match.
+
+### Nayax secondary capability check
+
+A privacy-safe read-only check on 2026-09-13 queried three existing-account machines successfully and scanned 202 recent Last Sales rows. Every row populated `PaymentMethod`, but the sample contained one label and no cash-like label. Result: **inconclusive**. The endpoint exposes a payment-method field, but this sample does not prove that Bloomjoy's account receives cash rows or that their absence is complete. This finding does not change Nayax card matching or refund execution.
+
 ## Reporting Implications
 
 - Bubble Planet weekly reporting can use the imported transaction facts and filter/report by the entitled Bubble Planet machines in Bloomjoy Hub.
@@ -169,7 +190,7 @@ Important metric notes:
 
 - What is the maximum safe export date range before Sunze times out or truncates results?
 - Does the export always include all filtered records for larger ranges?
-- What timezone does `Payment time` represent?
+- What timezone does `Payment time` represent? This remains precisely blocked on the independent known-order/DST evidence described above.
 - Are refunded, voided, reversed, or partially refunded orders represented in Sunze, and if so what statuses/amount signs appear?
 - Are `Machine code` in Orders and `Machine ID` in Machine Center always the same identifier?
 - Can dashboard `Volume` be derived from another export field, or does it require a separate source/report?

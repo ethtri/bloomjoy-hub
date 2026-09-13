@@ -25,6 +25,7 @@ import {
   sanitizeUiSummaryForDiagnostic,
   summarizeRowsByDateForLog,
 } from './sync-diagnostics.mjs';
+import { resolveLocalDateTimeInZone } from '../../supabase/functions/_shared/timezone-resolution.mjs';
 
 const args = process.argv.slice(2);
 
@@ -119,6 +120,49 @@ const expectedVisibleMachineCount = expectedVisibleMachineCountEnv
   : null;
 const reportingTimezone =
   process.env.PROVIDER_REPORTING_TIMEZONE || process.env.SUNZE_REPORTING_TIMEZONE || 'America/Los_Angeles';
+const paymentTimeTimezone =
+  process.env.PROVIDER_PAYMENT_TIME_TIMEZONE || process.env.SUNZE_PAYMENT_TIME_TIMEZONE || null;
+const paymentTimeSemanticsStatus =
+  process.env.PROVIDER_PAYMENT_TIME_SEMANTICS_STATUS ||
+  process.env.SUNZE_PAYMENT_TIME_SEMANTICS_STATUS ||
+  'unvalidated';
+const paymentTimeProofScope =
+  process.env.PROVIDER_PAYMENT_TIME_PROOF_SCOPE ||
+  process.env.SUNZE_PAYMENT_TIME_PROOF_SCOPE ||
+  'unvalidated';
+const validatedPaymentTimeSemantics =
+  paymentTimeSemanticsStatus === 'validated' &&
+  paymentTimeProofScope === 'account' &&
+  Boolean(paymentTimeTimezone);
+
+const addUtcDays = (dateKey, days) => {
+  const [year, month, day] = String(dateKey).split('-').map(Number);
+  const value = new Date(Date.UTC(year, month - 1, day + days));
+  return value.toISOString().slice(0, 10);
+};
+
+const validatedCoverageBounds = (window) => {
+  if (!validatedPaymentTimeSemantics || !window?.uiWindowStart || !window?.uiWindowEnd) {
+    return { coverageStartedAt: null, coveredThrough: null };
+  }
+  const start = resolveLocalDateTimeInZone({
+    localDate: window.uiWindowStart,
+    localTime: '00:00:00',
+    timeZone: paymentTimeTimezone,
+  });
+  const end = resolveLocalDateTimeInZone({
+    localDate: addUtcDays(window.uiWindowEnd, 1),
+    localTime: '00:00:00',
+    timeZone: paymentTimeTimezone,
+  });
+  if (start.resolution !== 'exact' || end.resolution !== 'exact') {
+    return { coverageStartedAt: null, coveredThrough: null };
+  }
+  return {
+    coverageStartedAt: start.instant,
+    coveredThrough: new Date(Date.parse(end.instant) - 1).toISOString(),
+  };
+};
 const loginUrl = process.env.PROVIDER_LOGIN_URL ?? process.env.SUNZE_LOGIN_URL;
 const email = process.env.PROVIDER_REPORTING_EMAIL ?? process.env.SUNZE_REPORTING_EMAIL;
 const password = process.env.PROVIDER_REPORTING_PASSWORD ?? process.env.SUNZE_REPORTING_PASSWORD;
@@ -1794,7 +1838,10 @@ const cleanupExportSource = async (source) => {
 };
 
 const parseOrdersSourceRows = async (source) => {
-  const sourceRows = await parseSunzeOrderWorkbook(source.filePath);
+  const sourceRows = await parseSunzeOrderWorkbook(source.filePath, {
+    paymentTimeZone:
+      validatedPaymentTimeSemantics ? paymentTimeTimezone : null,
+  });
   const selectedWindow = deriveSelectedWindow();
   const windowBounds = {
     windowStart: selectedWindow?.uiWindowStart,
@@ -1901,6 +1948,7 @@ try {
   const summary = summarizeSunzeOrderRows(rows);
   const sourceSummary = summarizeSunzeOrderRows(sourceRows);
   const requestedWindow = deriveSelectedWindow();
+  const coverageBounds = validatedCoverageBounds(requestedWindow);
   const visibleSunzeMachineCount = source.visibleSunzeMachineCodes.length;
   const machineCoverageVerified = !parseFilePath && visibleSunzeMachineCount > 0;
   const machineCoverageIssue = parseFilePath
@@ -1934,6 +1982,12 @@ try {
       selectedWindowSource: matchedUiSummary?.uiWindowSource ?? null,
       selectedPreset: matchedUiSummary?.selectedPreset ?? null,
       reportingTimezone,
+      paymentTimeTimezone:
+        validatedPaymentTimeSemantics ? paymentTimeTimezone : null,
+      paymentTimeSemanticsStatus: validatedPaymentTimeSemantics ? 'validated' : 'unvalidated',
+      timestampProofScope: validatedPaymentTimeSemantics ? 'account' : 'unvalidated',
+      coverageStartedAt: coverageBounds.coverageStartedAt,
+      coveredThrough: coverageBounds.coveredThrough,
       uiRecordCount: matchedUiSummary?.uiRecordCount ?? null,
       uiRecordCountMatched: matchedUiSummary?.uiRecordCountMatched ?? null,
       uiRecordCountTrusted: matchedUiSummary?.uiRecordCountTrusted ?? null,
