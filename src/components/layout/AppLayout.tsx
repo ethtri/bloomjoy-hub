@@ -292,10 +292,10 @@ export function AppLayout({ children }: AppLayoutProps) {
         >
           <div className="flex min-h-[4.25rem] items-center justify-between gap-3 px-4 sm:px-6 lg:h-full lg:min-h-0 lg:px-8">
             <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground sm:text-[11px]">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground sm:text-[11px] lg:hidden">
                 {t('app.operatorApp')}
               </p>
-              <p className="truncate font-display text-lg font-semibold text-foreground sm:text-xl">
+              <p className="truncate font-display text-lg font-semibold leading-tight text-foreground sm:text-xl">
                 {t(appContext.titleKey)}
               </p>
               {scopedAdminContext ? (
