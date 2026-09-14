@@ -362,11 +362,13 @@ values (
   now() + interval '1 hour'
 );
 
-set local role service_role;
+select set_config('request.jwt.claim.sub','92140000-0000-4000-8000-000000000001',true);
+select set_config('request.jwt.claim.role','authenticated',true);
+select set_config('request.jwt.claims','{"sub":"92140000-0000-4000-8000-000000000001","role":"authenticated","is_anonymous":false}',true);
+set local role authenticated;
 select lives_ok(
   format(
-    $$select public.service_select_refund_nayax_candidate_as_actor(
-      '92140000-0000-4000-8000-000000000001',
+    $$select public.admin_select_refund_nayax_candidate_current_user_v1(
       '92150000-0000-4000-8000-000000000001', %s,
       '92160000-0000-4000-8000-000000000001', null
     )$$,

@@ -269,22 +269,22 @@ select is(refund_receipt_race_test.work_snapshot(),
   (select payload from refund_receipt_race_test.results where lane='historical_work_before'),
   'Post-commit scheduler calls leave historical work exactly unchanged');
 
--- The old dated resolver is already waiting when the new receipt commits.
--- Its post-lock capability check sees the receipt and rejects the old action
--- before the later storage-effect guard would be reached.
-select extensions.dblink_exec('receipt_race_a','begin');
-select * from extensions.dblink('receipt_race_a',$q$select id::text from public.refund_cases where id='af400000-0000-4000-8000-000000000002' for update$q$) as x(id text);
-select extensions.dblink_send_query('receipt_race_b',$q$select refund_receipt_race_test.run('old_resolver',2)$q$);
-select ok(refund_receipt_race_test.wait_for_blocked_b(),'Old resolver is verified waiting while receipt owns the case lock');
-insert into refund_receipt_race_test.results select 'receipt_wins',payload from extensions.dblink('receipt_race_a',$q$select refund_receipt_race_test.run('record',2)$q$) as x(payload jsonb);
-select extensions.dblink_exec('receipt_race_a','commit');
-insert into refund_receipt_race_test.results select 'resolver_loses',payload from extensions.dblink_get_result('receipt_race_b') as x(payload jsonb);
-select * from extensions.dblink_get_result('receipt_race_b') as x(payload jsonb);
-select is((select payload->>'status' from refund_receipt_race_test.results where lane='receipt_wins'),'recorded','Receipt winner is committed');
-select diag((select payload::text from refund_receipt_race_test.results where lane='resolver_loses'));
-select is((select payload->>'error' from refund_receipt_race_test.results where lane='resolver_loses'),'P4661','Waiting old resolver is rejected by the post-lock authoritative-receipt check');
-select is((select payload->>'message' from refund_receipt_race_test.results where lane='resolver_loses'),
-  'Authoritative refund evidence is already recorded for this case','Resolver denial is the exact receipt-aware reconciliation error, not a manager-access failure');
+-- The old manager-session resolver is retired. Current System-attempt evidence
+-- has its own race coverage; this file only proves the old path cannot return.
+insert into refund_receipt_race_test.results select 'receipt_wins',
+  refund_receipt_race_test.run('record',2);
+select is((select payload->>'status' from refund_receipt_race_test.results
+  where lane='receipt_wins'),'recorded','The second authoritative receipt is committed');
+select ok(not has_function_privilege('authenticated',
+  'public.admin_resolve_refund_nayax_outcome_manager_session(uuid,uuid,text,text,text,timestamptz,text,bigint)',
+  'execute'),'The retired manager-session resolver is not available to the portal');
+set local role authenticated;
+select throws_ok($q$select public.admin_resolve_refund_nayax_outcome_manager_session(
+  'af400000-0000-4000-8000-000000000002',null,'documented_manual_completion',
+  'documented_manual_refund','MANUAL:RECEIPT-RACE',statement_timestamp(),
+  'manual_nayax_completion',1)$q$,'42501',null,
+  'The retired manager-session resolver cannot mutate a case');
+reset role;
 select ok(not public.can_perform_refund_official_action('af000000-0000-4000-8000-000000000001','af400000-0000-4000-8000-000000000002'),
   'A committed receipt blocks a fresh payment action');
 

@@ -7,6 +7,7 @@ const read = (path) => readFile(new URL(path, root), 'utf8');
 const migration = await read('supabase/migrations/20260913090000_refund_single_manager_gate.sql');
 const hardening = await read('supabase/migrations/20260914052555_refund_single_manager_db_guards.sql');
 const settlementProof = await read('supabase/migrations/20260914080000_refund_system_settlement_adjustment_proof.sql');
+const cashAuthority = await read('supabase/migrations/20260914090000_refund_official_authority_cash_completion.sql');
 const edge = await read('supabase/functions/nayax-card-refund/index.ts');
 const adminUpdate = await read('supabase/functions/refund-case-admin-update/index.ts');
 const sweep = await read('supabase/functions/refund-case-automation-sweep/index.ts');
@@ -59,6 +60,7 @@ test('the gate has forward-only database hardening migrations', async () => {
   assert.match(migration, /refund_claim_exact_nayax_transaction/);
   assert.match(hardening, /original gate migration may already be present in migration history/);
   assert.match(settlementProof, /single-manager migrations may already be/);
+  assert.match(cashAuthority, /Complete the single-decision authority cutover for cash actions/);
   assert.doesNotMatch(migration, /refund_nayax_system_saved_approval_receipts/);
   assert.doesNotMatch(migration, /backfill|legacy approval.*executable/i);
 });
@@ -293,6 +295,27 @@ test('case work and financial authority are distinct', () => {
     2,
   );
   assert.match(behavioralFixture, /set status='active',revoked_at=null,revoke_reason=null/);
+});
+
+test('cash approval consumption preserves either exact manager authority', () => {
+  assert.match(cashAuthority, /authorization_row\.authority_kind = ''machine_manager''/);
+  assert.match(cashAuthority, /authorization_row\.authority_kind = ''super_admin''/);
+  assert.match(cashAuthority, /role_row\.id = authorization_row\.super_admin_role_id/);
+  assert.match(cashAuthority, /role_row\.user_id = authorization_row\.actor_user_id/);
+  assert.match(cashAuthority, /''authorityKind'', authorization_row\.authority_kind/);
+  assert.match(cashAuthority, /''authorityRecordId'', case/);
+  assert.match(cashAuthority, /''authority_kind'', authority_kind/);
+  assert.match(cashAuthority, /''authority_record_id'', authority_record_id/);
+  assert.match(cashAuthority, /Manager confirmed the cash refund was completed/);
+  assert.equal(
+    (cashAuthority.match(/Mapped Machine Manager confirmed an external cash refund/g) ?? []).length,
+    1,
+    'The retired wording appears only as the exact forward-migration replacement anchor',
+  );
+  assert.match(
+    cashAuthority,
+    /case_row\.decision = ''approved''[\s\S]*?older approval is not tied to an exact transaction and cannot be reused/,
+  );
 });
 
 test('System settlement writes accounting proof only after the approved case is complete', () => {

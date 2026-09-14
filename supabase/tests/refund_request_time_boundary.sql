@@ -177,13 +177,11 @@ select is((public.service_commit_refund_nayax_lookup('fd150000-0000-4000-8000-00
  'Synthetic request-bound candidate',null,3,'manual','fd110000-0000-4000-8000-000000000001')->>'applied'),'true',
  'Current request-bound candidates commit through the existing generation guard');
 
-set local role service_role;
 select is((public.service_select_refund_nayax_candidate_as_actor('fd110000-0000-4000-8000-000000000001',
  'fd150000-0000-4000-8000-000000000001',
  (select official_action_version from public.refund_cases where id='fd150000-0000-4000-8000-000000000001'),
  'fd160000-0000-4000-8000-000000000001',null)->>'selectionApplied'),'true',
- 'A proved earlier transaction remains selectable through the normal manager path');
-reset role;
+ 'The private selection guard accepts a proved earlier transaction');
 
 set local session_replication_role=replica;
 insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
@@ -196,14 +194,12 @@ select 'fd160000-0000-4000-8000-000000000009',c.id,l.generation,'fd110000-0000-4
  statement_timestamp()+interval '1 hour'
 from public.refund_cases c cross join lookup_claim l where c.id='fd150000-0000-4000-8000-000000000001';
 set local session_replication_role=origin;
-set local role service_role;
 select throws_ok(format($$select public.service_select_refund_nayax_candidate_as_actor(
  'fd110000-0000-4000-8000-000000000001','fd150000-0000-4000-8000-000000000001',%s,
  'fd160000-0000-4000-8000-000000000009',null)$$,
  (select official_action_version from public.refund_cases where id='fd150000-0000-4000-8000-000000000001')),
  'P4625','Transaction occurred after Bloomjoy received the customer request',
- 'Selection revalidates proved later manual evidence persisted before the current guard');
-reset role;
+ 'The private selection guard revalidates proved later historical evidence');
 
 select ok((select matched_nayax_transaction_id='SAFE-BOUNDARY-1' and nayax_match_execution_eligible
  from public.refund_cases where id='fd150000-0000-4000-8000-000000000001'),
@@ -232,12 +228,10 @@ select is((public.service_commit_refund_nayax_lookup('fd150000-0000-4000-8000-00
  'Legacy evidence remains readable until refreshed');
 update public.refund_cases set customer_request_received_at=statement_timestamp(),
  customer_request_received_source='hosted_refund_intake' where id='fd150000-0000-4000-8000-000000000002';
-set local role service_role;
 select throws_ok(format($$select public.service_select_refund_nayax_candidate_as_actor('fd110000-0000-4000-8000-000000000001',
  'fd150000-0000-4000-8000-000000000002',%s,'fd160000-0000-4000-8000-000000000005',null)$$,
  (select official_action_version from public.refund_cases where id='fd150000-0000-4000-8000-000000000002')),
  'P4626','Refresh Nayax transactions to use current identifier evidence','Stale selection cannot bypass the current identifier policy');
-reset role;
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
  where refund_case_id in ('fd150000-0000-4000-8000-000000000001','fd150000-0000-4000-8000-000000000002')),0,
  'Request-time matching creates no payment attempt');

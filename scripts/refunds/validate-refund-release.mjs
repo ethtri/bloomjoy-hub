@@ -161,13 +161,16 @@ try {
   );
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert(
-    repositoryMigrations.includes('20260913090000_refund_single_manager_gate.sql') &&
+      repositoryMigrations.includes('20260913090000_refund_single_manager_gate.sql') &&
       repositoryMigrations.includes('20260914052555_refund_single_manager_db_guards.sql') &&
       repositoryMigrations.includes('20260914080000_refund_system_settlement_adjustment_proof.sql') &&
+      repositoryMigrations.includes('20260914090000_refund_official_authority_cash_completion.sql') &&
       repositoryMigrations.indexOf('20260913090000_refund_single_manager_gate.sql') <
         repositoryMigrations.indexOf('20260914052555_refund_single_manager_db_guards.sql') &&
       repositoryMigrations.indexOf('20260914052555_refund_single_manager_db_guards.sql') <
         repositoryMigrations.indexOf('20260914080000_refund_system_settlement_adjustment_proof.sql') &&
+      repositoryMigrations.indexOf('20260914080000_refund_system_settlement_adjustment_proof.sql') <
+        repositoryMigrations.indexOf('20260914090000_refund_official_authority_cash_completion.sql') &&
       !repositoryMigrations.includes('20260913153000_refund_single_manager_gate_followup.sql'),
     'The applied single-manager gate must be followed by its forward-only database hardening migrations'
   );

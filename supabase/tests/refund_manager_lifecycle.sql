@@ -114,15 +114,19 @@ select ok(
 );
 
 select ok(
-  public.admin_get_refund_nayax_resolution_readiness(
+  (public.admin_get_refund_nayax_resolution_readiness(
     '99210000-0000-4000-8000-000000000001'
-  ) = jsonb_build_object(
-    'visible', false,
-    'available', false,
-    'blockReason', 'refund_operations_access_required',
-    'payloadRedacted', true
-  ),
-  'A routine manager receives only a redacted hidden reconciliation response'
+  ) ->> 'visible') = 'true'
+  and (public.admin_get_refund_nayax_resolution_readiness(
+    '99210000-0000-4000-8000-000000000001'
+  ) ->> 'available') = 'false'
+  and (public.admin_get_refund_nayax_resolution_readiness(
+    '99210000-0000-4000-8000-000000000001'
+  ) ->> 'blockReason') = 'exact_attempt_required'
+  and (public.admin_get_refund_nayax_resolution_readiness(
+    '99210000-0000-4000-8000-000000000001'
+  ) ->> 'payloadRedacted') = 'true',
+  'A case manager can see that exact System attempt evidence is required'
 );
 
 select ok(
@@ -143,8 +147,8 @@ select ok(
 select ok(
   pg_temp.capture_error($$select public.admin_begin_refund_nayax_evidence_only_reconciliation(
     '99210000-0000-4000-8000-000000000001', 1
-  )$$) like '42501:Refund Operations administrator required%',
-  'A routine manager cannot begin evidence-only reconciliation'
+  )$$) like '42501:permission denied for function admin_begin_refund_nayax_evidence_only_reconciliation%',
+  'The retired evidence-only reconciliation action is unavailable'
 );
 
 select ok(
@@ -152,8 +156,8 @@ select ok(
     '99210000-0000-4000-8000-000000000001',
     '99220000-0000-4000-8000-000000000001',
     'succeeded', 'provider_receipt', 'SAFE-REFERENCE', now(), 'confirmed', 1
-  )$$) like '42501:Refund Operations administrator required%',
-  'A routine manager cannot prepare a technical resolution intent'
+  )$$) like '42501:permission denied for function admin_prepare_refund_nayax_resolution_intent%',
+  'The retired technical resolution preparation action is unavailable'
 );
 
 select ok(
@@ -161,8 +165,8 @@ select ok(
     '99210000-0000-4000-8000-000000000001',
     '99220000-0000-4000-8000-000000000001',
     'succeeded', 'provider_receipt', 'SAFE-REFERENCE', now(), 'confirmed', 1
-  )$$) like '42501:Super-admin access is required to record reconciled provider evidence%',
-  'A routine manager cannot record an authoritative provider resolution'
+  )$$) like '42501:permission denied for function admin_resolve_refund_nayax_outcome_manager_session%',
+  'The retired manager-session outcome action is unavailable'
 );
 
 select ok(

@@ -141,10 +141,8 @@ create function pg_temp.select_candidate(p_n integer) returns jsonb language sql
  select public.service_select_refund_nayax_candidate_as_actor('fc410000-0000-4000-8000-000000000001',c.id,c.official_action_version,t.token,null)
  from public.refund_cases c join clock_selection_tokens t on t.n=p_n where c.id=pg_temp.case_id(p_n);
 $$;
-set local role service_role;
 select is(pg_temp.select_candidate(6)->>'selectionApplied','true','Current verified-clock candidate preserves the normal approved selection path');
 select is(pg_temp.select_candidate(8)->>'selectionApplied','true','Undecided fixture selects its original exact candidate');
-reset role;
 -- Exercise the existing service-only candidate/selection boundary with another
 -- immutable token for the same ID and different evidence. This does not claim
 -- the automatic matcher admits duplicate provider records or starts a new read.
@@ -179,11 +177,9 @@ update public.refund_nayax_machine_inventory set provider_clock_timezone='Americ
 select throws_ok($$select pg_temp.prepare_candidate(7,0,(select evidence_summary->'machine_clock_context'
  from public.refund_nayax_lookup_candidates where refund_case_id=pg_temp.case_id(7) limit 1))$$,
  'P4624','Provider clock changed during lookup; refresh current evidence','Actual candidate insert rejects a clock changed during the provider read');
-set local role service_role;
 select is(pg_temp.select_candidate(6)->>'selectionApplied','false','Exact already-selected replay stays read-only after later clock configuration changes');
 select throws_ok($$select pg_temp.select_candidate(7)$$,'P4626','Invalid Nayax identifier evidence','Unselected stale-clock candidate cannot be selected');
 select throws_ok($$select pg_temp.select_candidate(8)$$,'P4626','Invalid Nayax identifier evidence','Same original ID with changed evidence is not a freshness-bypassing replay');
-reset role;
 select ok(not exists(select 1 from before_stale_selection b join public.refund_cases c using(id) where b.snapshot is distinct from to_jsonb(c)),
  'Rejected new and same-ID selections leave every current case field unchanged');
 select is((select count(*) from public.refund_case_messages where refund_case_id in(select pg_temp.case_id(n) from generate_series(1,8)n)),0::bigint,'Clock interpretation sends no customer message');

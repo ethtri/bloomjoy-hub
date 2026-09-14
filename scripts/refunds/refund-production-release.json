@@ -200,7 +200,8 @@
     "20260912205646_refund_gap_recovery_paths.sql",
     "20260913090000_refund_single_manager_gate.sql",
     "20260914052555_refund_single_manager_db_guards.sql",
-    "20260914080000_refund_system_settlement_adjustment_proof.sql"
+    "20260914080000_refund_system_settlement_adjustment_proof.sql",
+    "20260914090000_refund_official_authority_cash_completion.sql"
   ],
   "migrationFilesSha256": "803521b995b60d5488f84f5ed7a97ba3e040cce88af916e639679a7d4a73f6ba",
   "migrationVersionSetSha256": "8e1ebe39012750a789c054c661649420f7634e33ca9cace71d0c63acd36f8e30",

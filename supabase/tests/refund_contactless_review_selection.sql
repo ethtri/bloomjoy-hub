@@ -129,11 +129,6 @@ create temp table lookup_claim as
 select (public.service_begin_refund_nayax_lookup('fc150000-0000-4000-8000-000000000001',2,'manual',
   'fc110000-0000-4000-8000-000000000001')->>'lookupGeneration')::bigint generation;
 
-update public.refund_cases set decision='approved',status='approved',
-  decision_reason='Ordinary manager approval',decided_by='fc110000-0000-4000-8000-000000000001',
-  decided_at=statement_timestamp()
-where id='fc150000-0000-4000-8000-000000000001';
-
 select lives_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
   actor_user_id,reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,amount_cents,
   card_last4,currency_code,evidence_summary,expires_at)
@@ -160,18 +155,21 @@ select is((public.service_commit_refund_nayax_lookup('fc150000-0000-4000-8000-00
   'fc110000-0000-4000-8000-000000000001')->>'applied'),'true',
   'Contactless review result commits through the generation guard');
 
-set local role service_role;
-select throws_ok($$select public.service_select_refund_nayax_candidate_as_actor(
-  'fc110000-0000-4000-8000-000000000001','fc150000-0000-4000-8000-000000000001',
+select set_config('request.jwt.claim.sub','fc110000-0000-4000-8000-000000000001',true);
+select set_config('request.jwt.claim.role','authenticated',true);
+select set_config('request.jwt.claims','{"sub":"fc110000-0000-4000-8000-000000000001","role":"authenticated","is_anonymous":false}',true);
+set local role authenticated;
+select throws_ok($$select public.admin_select_refund_nayax_candidate_current_user_v1(
+  'fc150000-0000-4000-8000-000000000001',
   (select official_action_version from public.refund_cases where id='fc150000-0000-4000-8000-000000000001'),
   'fc160000-0000-4000-8000-000000000001',null)$$,
   'P4604','Choose why this alternate Nayax transaction is the correct one',
   'Two close reviewable transactions cannot bind without an explicit manager reason');
 reset role;
 
-set local role service_role;
-select is((public.service_select_refund_nayax_candidate_as_actor(
-  'fc110000-0000-4000-8000-000000000001','fc150000-0000-4000-8000-000000000001',
+set local role authenticated;
+select is((public.admin_select_refund_nayax_candidate_current_user_v1(
+  'fc150000-0000-4000-8000-000000000001',
   (select official_action_version from public.refund_cases where id='fc150000-0000-4000-8000-000000000001'),
   'fc160000-0000-4000-8000-000000000001','customer_confirmation')->>'selectionApplied'),
   'true','Manager can explicitly bind one of two close reviewable transactions with a reason');
@@ -179,12 +177,12 @@ reset role;
 
 select ok((select matched_nayax_transaction_id='CONTACTLESS-REVIEW-SALE'
     and matched_nayax_machine_auth_time='2026-08-22T20:15:00Z'
-    and decision='approved'
+    and decision is null
     and refund_amount_cents=2590
     and matched_nayax_amount_cents=2590
     and nayax_recommendation_state='manager_confirmed'
   from public.refund_cases where id='fc150000-0000-4000-8000-000000000001'),
-  'Selection preserves ordinary approval and binds its full amount to the unique provider transaction');
+  'Selection binds the full provider amount without creating a refund decision');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
   where refund_case_id='fc150000-0000-4000-8000-000000000001'),0,
   'Manual transaction selection creates no payment attempt');

@@ -371,9 +371,12 @@ select is((public.service_commit_refund_nayax_lookup('fe150000-0000-4000-8000-00
   statement_timestamp(),'Historical evidence requires refresh',null,1,'manual',
   'fe110000-0000-4000-8000-000000000001')->>'applied'),'true',
   'Historical read-only evidence can complete its lookup lifecycle');
-set local role service_role;
-select throws_ok(format($$select public.service_select_refund_nayax_candidate_as_actor(
-  'fe110000-0000-4000-8000-000000000001','fe150000-0000-4000-8000-000000000003',%s,
+select set_config('request.jwt.claim.sub','fe110000-0000-4000-8000-000000000001',true);
+select set_config('request.jwt.claim.role','authenticated',true);
+select set_config('request.jwt.claims','{"sub":"fe110000-0000-4000-8000-000000000001","role":"authenticated","is_anonymous":false}',true);
+set local role authenticated;
+select throws_ok(format($$select public.admin_select_refund_nayax_candidate_current_user_v1(
+  'fe150000-0000-4000-8000-000000000003',%s,
   'fe160000-0000-4000-8000-000000000006',null)$$,
   (select official_action_version from public.refund_cases where id='fe150000-0000-4000-8000-000000000003')),
   'P4626','Refresh Nayax transactions to use current identifier evidence',
@@ -398,9 +401,9 @@ select is((public.service_commit_refund_nayax_lookup('fe150000-0000-4000-8000-00
 select is(public.refund_purchase_correction_request_fields('fe150000-0000-4000-8000-000000000001'),
   '{}'::text[],
   'Manager-reviewable identifier uncertainty does not create repeated customer homework');
-set local role service_role;
-select is((public.service_select_refund_nayax_candidate_as_actor(
-  'fe110000-0000-4000-8000-000000000001','fe150000-0000-4000-8000-000000000001',
+set local role authenticated;
+select is((public.admin_select_refund_nayax_candidate_current_user_v1(
+  'fe150000-0000-4000-8000-000000000001',
   (select official_action_version from public.refund_cases where id='fe150000-0000-4000-8000-000000000001'),
   'fe160000-0000-4000-8000-000000000001',null)->>'selectionApplied'),'true',
   'One recommended reviewable uncertainty needs no redundant disagreement reason');
@@ -418,7 +421,6 @@ select 'fe160000-0000-4000-8000-000000000015','fe150000-0000-4000-8000-000000000
      'identifier_review_state','customer_correction_fields'])
    || '{"policy_version":"2026-09-05.v8"}'::jsonb,
  statement_timestamp()+interval '1 hour' from review_claim;
-set local role service_role;
 select lives_ok(format($$select public.service_select_refund_nayax_candidate_as_actor(
   'fe110000-0000-4000-8000-000000000001','fe150000-0000-4000-8000-000000000001',%s,
   'fe160000-0000-4000-8000-000000000015',null)$$,
@@ -463,9 +465,9 @@ select is((public.service_commit_refund_nayax_lookup('fe150000-0000-4000-8000-00
   statement_timestamp(),'Two transactions require manager corroboration',null,2,'manual',
   'fe110000-0000-4000-8000-000000000001')->>'applied'),'true',
   'Ambiguous evidence remains visible');
-set local role service_role;
-select throws_ok(format($$select public.service_select_refund_nayax_candidate_as_actor(
-  'fe110000-0000-4000-8000-000000000001','fe150000-0000-4000-8000-000000000002',%s,
+set local role authenticated;
+select throws_ok(format($$select public.admin_select_refund_nayax_candidate_current_user_v1(
+  'fe150000-0000-4000-8000-000000000002',%s,
   'fe160000-0000-4000-8000-000000000002',null)$$,
   (select official_action_version from public.refund_cases where id='fe150000-0000-4000-8000-000000000002')),
   'P4604','Choose why this alternate Nayax transaction is the correct one',
