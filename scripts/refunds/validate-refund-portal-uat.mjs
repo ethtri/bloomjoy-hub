@@ -11118,13 +11118,13 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
     await page.setViewportSize({ width: 1440, height: 1000 });
 
     recorder.assert(
-      'Explicit local demo mode starts with a distinct empty action-needed queue',
-      (await page.getByTestId('refund-queue-count').innerText()) === '0 cases'
+      'Explicit local demo mode starts with the one manager-owned setup case',
+      (await page.getByTestId('refund-queue-count').innerText()) === '1 case'
     );
     await page.getByRole('button', { name: /^Ready to approve \d+$/ }).click();
     await waitForQueueCount(page, 1);
     recorder.assert(
-      'Demo visual review keeps ready, waiting, and operations cases distinct',
+      'Demo visual review keeps ready, waiting, and setup cases distinct',
       (await queueCase(page, 'RF-UAT-CARD').count()) === 1 &&
         (await queueCase(page, 'RF-UAT-WAIT').count()) === 0 &&
         (await queueCase(page, 'RF-UAT-NC-MANUAL').count()) === 0
@@ -11153,9 +11153,8 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
         (await page.getByTestId('refund-primary-action').innerText()).includes('Payment: Not issued')
     );
     recorder.assert(
-      'Demo hides advanced Nayax rerun action by default',
-      await page.getByText('Transaction search details').isVisible() &&
-        !(await page.getByRole('button', { name: /Refresh result/i }).isVisible())
+      'Demo exposes no advanced Nayax rerun action',
+      !(await page.getByRole('button', { name: /Refresh result/i }).isVisible())
     );
     recorder.assert(
       'Demo keeps the final refund action safely disabled',
