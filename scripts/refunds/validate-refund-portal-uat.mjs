@@ -516,6 +516,7 @@ const buildMockRefundOverview = () => ({
       zellePaymentContact: null,
       issueSummary: 'Machine spun but product did not dispense correctly.',
       incidentAt: isoHoursAgo(5),
+      incidentTimezone: 'America/New_York',
       incidentTimeResolution: 'exact',
       paymentMethod: 'card',
       paymentAmountCents: 700,
@@ -550,6 +551,20 @@ const buildMockRefundOverview = () => ({
         providerAuthorizedAt: isoHoursAgo(5),
         machineTimezone: 'America/Los_Angeles',
         providerTimeResolution: 'exact',
+        customerTimezone: 'America/New_York',
+        providerProcessingAt: isoHoursAgo(4.95),
+        timeEvidence: {
+          schemaVersion: 'refund_candidate_time_v1',
+          providerTimestampSource: 'authorization_gmt',
+          providerTimeResolution: 'exact',
+          machineTimeResolution: 'exact',
+          machineClockTimezone: 'America/Los_Angeles',
+          machineClockSource: 'native_machine_configuration',
+          occurrenceComparable: false,
+          occurrenceSemantics: 'unknown',
+          occurrenceTimezoneBasis: null,
+          payloadRedacted: true,
+        },
         cardLast4: '4242',
         cardNetwork: 'visa',
         recognitionMethod: 'tap',
@@ -563,8 +578,20 @@ const buildMockRefundOverview = () => ({
       nayaxLookupCandidates: [
         {
           candidateToken: '41000000-0000-4000-8000-000000000101',
-          authorizedAt: isoHoursAgo(5),
+          authorizedAt: isoHoursAgo(4.95),
           machineAuthorizationTime: isoHoursAgo(5),
+          timeEvidence: {
+            schemaVersion: 'refund_candidate_time_v1',
+            providerTimestampSource: 'authorization_gmt',
+            providerTimeResolution: 'exact',
+            machineTimeResolution: 'exact',
+            machineClockTimezone: 'America/Los_Angeles',
+            machineClockSource: 'native_machine_configuration',
+            occurrenceComparable: false,
+            occurrenceSemantics: 'unknown',
+            occurrenceTimezoneBasis: null,
+            payloadRedacted: true,
+          },
           amountCents: 700,
           currencyCode: 'USD',
           cardLast4: '4242',
@@ -4201,7 +4228,7 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       await purchaseComparison.isVisible() &&
       await transactionEvidenceDisclosure.isVisible() &&
       !(await page.getByText('NAYAX-UAT-SELECTED-7001', { exact: true }).isVisible()) &&
-      !(await page.getByText('Provider machine-local time', { exact: true }).isVisible()) &&
+      !(await page.getByText('Provider machine clock', { exact: true }).isVisible()) &&
       Boolean(
         selectedPurchaseBox && purchaseComparisonBox && transactionEvidenceDetailsBox &&
         selectedPurchaseBox.y < purchaseComparisonBox.y &&
@@ -4216,10 +4243,21 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       await transactionEvidenceDetails.getByText('Selected Nayax transaction ID', { exact: true }).isVisible() &&
       await transactionEvidenceDetails.getByText('NAYAX-UAT-SELECTED-7001', { exact: true }).isVisible() &&
       await transactionEvidenceDetails.getByText('Customer-reported time', { exact: true }).isVisible() &&
-      await transactionEvidenceDetails.getByText('Provider machine-local time', { exact: true }).isVisible() &&
-      (await transactionEvidenceDetails.getByText('America/Los_Angeles', { exact: false }).count()) >= 2 &&
+      await transactionEvidenceDetails.getByText('Nayax authorization time', { exact: true }).isVisible() &&
+      await transactionEvidenceDetails.getByText('Provider machine clock', { exact: true }).isVisible() &&
+      (await transactionEvidenceDetails.getByText('America/New_York', { exact: false }).count()) >= 2 &&
+      (await transactionEvidenceDetails.getByText('America/Los_Angeles', { exact: false }).count()) >= 1 &&
       await transactionEvidenceDetails.getByText('Why this transaction was selected', { exact: true }).isVisible() &&
       Boolean(copyTransactionButtonBox && copyTransactionButtonBox.height >= 44)
+  );
+  const purchaseComparisonText = await purchaseComparison.innerText();
+  recorder.assert(
+    'Customer, venue, and provider-machine times are labeled without browser-local ambiguity',
+    purchaseComparisonText.includes('Customer report · America/New_York') &&
+      purchaseComparisonText.includes('Nayax authorization time · shown in venue time') &&
+      purchaseComparisonText.includes('Provider machine clock:') &&
+      purchaseComparisonText.includes('America/Los_Angeles') &&
+      purchaseComparisonText.includes('does not prove when the purchase happened')
   );
   await copyTransactionButton.click();
   recorder.assert(
@@ -11246,6 +11284,16 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
       (await demoRefundAction.count()) === 1 &&
         await demoRefundAction.isDisabled() &&
         (await page.getByTestId('refund-confirmation-dialog').count()) === 0
+    );
+    const demoComparison = page.getByTestId('refund-purchase-comparison');
+    const demoComparisonText = await demoComparison.innerText();
+    recorder.assert(
+      'Demo distinguishes customer, venue, and provider-machine time without treating supporting time as proof',
+      demoComparisonText.includes('Customer report · America/New_York') &&
+        demoComparisonText.includes('Nayax authorization time · shown in venue time') &&
+        demoComparisonText.includes('Provider machine clock:') &&
+        demoComparisonText.includes('America/Los_Angeles') &&
+        demoComparisonText.includes('does not prove when the purchase happened')
     );
     await page.getByText('Other decisions', { exact: true }).click();
     recorder.assert(

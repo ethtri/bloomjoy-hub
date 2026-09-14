@@ -35,6 +35,18 @@ Deno.test("verified Pacific machine clock is distinct from physical Eastern purc
   const publicCandidate = toPublicNayaxCandidate(candidate, "synthetic-token");
   assert.equal("machineClockContext" in publicCandidate, false);
   assert.equal("machineAuthorizationTimeRaw" in publicCandidate, false);
+  assert.deepEqual(publicCandidate.timeEvidence, {
+    schemaVersion: "refund_candidate_time_v1",
+    providerTimestampSource: "verified_machine_clock",
+    providerTimeResolution: "exact",
+    machineTimeResolution: "exact",
+    machineClockTimezone: "America/Los_Angeles",
+    machineClockSource: "native_machine_configuration",
+    occurrenceComparable: false,
+    occurrenceSemantics: "unknown",
+    occurrenceTimezoneBasis: null,
+    payloadRedacted: true,
+  });
 });
 
 Deno.test("explicit GMT remains authoritative and explicit machine offset is never reinterpreted", () => {
@@ -57,6 +69,7 @@ Deno.test("DST gap/overlap follows verified provider clock; ambiguous evidence d
   const overlap = recommend(sale("2026-11-01T01:30:00"), "2026-11-01T08:30:00Z");
   assert.equal(overlap.candidates[0].machineTimeResolution, "ambiguous");
   assert.equal(overlap.candidates[0].oneClickEligible, false);
+  assert.equal(overlap.candidates[0].selectionAllowed, true);
   const indiana = buildNayaxProviderClockContext(reportingMachineId, inventory("America/Indiana/Indianapolis"));
   assert.equal(recommend(sale("2026-08-29T13:10:00"), "2026-08-29T17:10:00Z", indiana).candidates[0].authorizedAt, "2026-08-29T17:10:00.000Z");
 });

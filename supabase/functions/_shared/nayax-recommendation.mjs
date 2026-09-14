@@ -848,8 +848,6 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     candidate.amountCents > 0 &&
     amountDeltaCents !== null &&
     candidate.siteId !== null &&
-    candidate.providerTimeResolution === "exact" &&
-    candidate.machineTimeResolution === "exact" &&
     Boolean(candidate.machineAuthorizationTimeRaw) &&
     candidate.currencyCode === "USD" &&
     candidate.paymentStatus === "approved" &&
@@ -858,8 +856,9 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     candidate.requestTimeBoundaryState !== "after_request" &&
     !candidate.duplicateProviderRecord;
   const customerTimeSupportsSelection =
-    ["exact", "legacy_absolute"].includes(request.incidentTimeResolution) &&
-    request.incidentTimeConfidence !== "rough";
+    ["exact", "legacy_absolute", "ambiguous", "nonexistent"].includes(
+      request.incidentTimeResolution,
+    );
   const exactCardSupportsSelection =
     identifierEvidence.cardLast4Comparison === "exact_support";
   const managerSelectionCore = managerSelectionSafetyCore &&
@@ -1518,6 +1517,18 @@ export const toPublicNayaxCandidate = (candidate, candidateToken) => ({
   machineDisplayLabel: candidate.machineDisplayLabel ?? null,
   authorizedAt: candidate.authorizedAt,
   machineAuthorizationTime: candidate.machineAuthorizationTime,
+  timeEvidence: {
+    schemaVersion: "refund_candidate_time_v1",
+    providerTimestampSource: candidate.providerTimeSource,
+    providerTimeResolution: candidate.providerTimeResolution,
+    machineTimeResolution: candidate.machineTimeResolution,
+    machineClockTimezone: candidate.machineClockContext?.timezone ?? null,
+    machineClockSource: candidate.machineClockContext?.source ?? "unknown",
+    occurrenceComparable: candidate.transactionOccurrenceComparable === true,
+    occurrenceSemantics: candidate.transactionOccurrenceSemantics ?? "unknown",
+    occurrenceTimezoneBasis: candidate.transactionOccurrenceTimezoneBasis ?? null,
+    payloadRedacted: true,
+  },
   amountCents: candidate.amountCents,
   amountDeltaCents: candidate.amountDeltaCents,
   timeDeltaMinutes: candidate.timeDeltaMinutes,

@@ -82,6 +82,20 @@ assert.equal(exact.confidenceClass, "strong_card");
 assert.equal(exact.candidates[0].transactionId, "exact");
 assert.equal(exact.candidates[0].oneClickEligible, true);
 
+const roughCustomerTimeExactCard = recommend([sale({ id: "rough-time-exact-card" })], {
+  incidentTimeConfidence: "rough",
+  incidentTimeSource: "memory",
+  purchaseOccurrenceProof: null,
+});
+assert.equal(roughCustomerTimeExactCard.candidates[0].selectionAllowed, true,
+  "rough customer time is confidence context, not a manager-selection veto");
+assert.equal(roughCustomerTimeExactCard.candidates[0].oneClickEligible, false);
+assert.equal(
+  roughCustomerTimeExactCard.candidates[0].customerCorrectionFields.includes("incident_time"),
+  false,
+  "an exact-card candidate does not make the customer repeat a rough time",
+);
+
 const providerBaseAndTotal = recommend([
   sale({ id: "base-price-row", amount: 10 }),
   sale({ id: "provider-total-row", amount: 10.9, extra: { SelectionNumber: "9" } }),
@@ -508,7 +522,7 @@ assert.equal(roughCompetingPurchases.recommendationState, "ambiguous");
 assert.equal(roughCompetingPurchases.candidates.every((candidate) => candidate.selectionAllowed === false), true);
 assert.deepEqual(
   roughCompetingPurchases.candidates.map((candidate) => candidate.customerCorrectionFields),
-  [["incident_time"], ["incident_time"]],
+  [["incident_time", "incident_time_source"], ["incident_time", "incident_time_source"]],
 );
 assert.equal(roughCompetingPurchases.candidates.some((candidate) => candidate.isRecommended), false);
 
@@ -1188,6 +1202,8 @@ assert.equal(ambiguousMachineClock.candidateCount, 1);
 assert.equal(ambiguousMachineClock.candidates[0].machineTimeResolution, "ambiguous");
 assert.equal(ambiguousMachineClock.candidates[0].machineAuthorizationTimeRaw, "2026-11-01T01:30:00.810");
 assert.equal(ambiguousMachineClock.oneClickEligible, false, "an exact GMT field cannot resolve a machine DST fold");
+assert.equal(ambiguousMachineClock.candidates[0].selectionAllowed, true,
+  "a repeated provider-clock hour stays available for manager evidence review");
 
 const recommendationUrl = new URL("../../supabase/functions/_shared/nayax-recommendation.mjs", import.meta.url).href;
 const clockInput = {
@@ -1235,6 +1251,10 @@ assert.equal(publicJson.includes("rankingPoints"), false, "internal points must 
 assert.equal(publicJson.includes("providerMachineId"), false);
 assert.equal("machineAuthorizationTimeRaw" in publicCandidate, false, "raw provider identity stays private");
 assert.equal("machineTimeResolution" in publicCandidate, false);
+assert.equal(publicCandidate.timeEvidence.schemaVersion, "refund_candidate_time_v1");
+assert.equal(publicCandidate.timeEvidence.machineClockTimezone, null);
+assert.equal(publicCandidate.timeEvidence.payloadRedacted, true);
+assert.equal(JSON.stringify(publicCandidate.timeEvidence).includes("reportingMachineId"), false);
 assert.equal(publicCandidate.matchStrength, "strong");
 assert.equal(publicCandidate.confidenceClass, "strong_card");
 assert.equal(publicCandidate.candidateToken, "opaque-token");

@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(13);
+select plan(18);
 
 create function pg_temp.set_auth_claims(p_user_id uuid)
 returns void language plpgsql as $$
@@ -69,6 +69,17 @@ insert into public.reporting_machine_refund_managers (
     'Unrelated manager isolation fixture'
   );
 
+insert into public.refund_nayax_machine_inventory (
+  account_key, nayax_machine_id, reporting_machine_id,
+  provider_clock_timezone, provider_clock_source,
+  provider_clock_observed_at, provider_clock_daylight_saving
+) values (
+  'TGPACI_USA_DB', 'SAFE-MACHINE-751',
+  '75130000-0000-4000-8000-000000000001',
+  'America/Los_Angeles', 'native_machine_configuration',
+  '2026-08-31T17:00:00Z', true
+);
+
 insert into public.refund_cases (
   id, public_reference, reporting_machine_id, reporting_location_id,
   customer_email, issue_summary, incident_at, incident_local_datetime,
@@ -112,6 +123,18 @@ insert into public.refund_nayax_lookup_candidates (
   'NAYAX-751000001', 751, '2026-08-31T18:07:00Z', 800, '9999', 'USD',
   jsonb_build_object(
     'provider_time_resolution', 'exact',
+    'provider_time_source', 'authorization_gmt',
+    'authorized_at', '2026-08-31T18:08:00Z',
+    'machine_time_resolution', 'exact',
+    'machine_clock_context', jsonb_build_object(
+      'reportingMachineId', '75130000-0000-4000-8000-000000000001',
+      'timezone', 'America/Los_Angeles',
+      'source', 'native_machine_configuration',
+      'observedAt', '2026-08-31T17:00:00Z'
+    ),
+    'transaction_occurrence_comparable', false,
+    'transaction_occurrence_semantics', 'unknown',
+    'transaction_occurrence_timezone_basis', null,
     'card_network', 'visa',
     'recognition_method', 'wallet',
     'match_reason', 'Exact machine, amount, time, and wallet evidence',
@@ -121,7 +144,7 @@ insert into public.refund_nayax_lookup_candidates (
     ),
     'provider_payload_redacted', true
   ),
-  '2026-09-02T00:00:00Z'
+  '9999-12-31T23:59:59.999999Z'
 );
 
 select ok(
@@ -143,6 +166,12 @@ select is(
   public.admin_get_refund_operations_overview() ->> 'selectedNayaxTransactionContractVersion',
   'refund_selected_nayax_transaction_v1',
   'The overview versions the selected transaction contract'
+);
+
+select is(
+  public.admin_get_refund_operations_overview() ->> 'candidateTimeContractVersion',
+  'refund_candidate_time_v1',
+  'The overview versions the redacted candidate timestamp contract'
 );
 
 create temporary table selected_transaction_contract as
@@ -205,6 +234,55 @@ select ok(
     and not evidence ? 'accountToken'
     from selected_transaction_contract),
   'The selected contract is explicitly redacted and contains no raw provider payload or credential'
+);
+
+select ok(
+  (select evidence ->> 'customerTimezone' = 'America/New_York'
+    and evidence ->> 'providerProcessingAt' = '2026-08-31T18:08:00Z'
+    and evidence #>> '{timeEvidence,machineClockTimezone}' = 'America/Los_Angeles'
+    and evidence #>> '{timeEvidence,providerTimestampSource}' = 'authorization_gmt'
+    from selected_transaction_contract),
+  'Selected evidence distinguishes customer, venue, provider, and verified machine-clock time'
+);
+
+create temporary table candidate_time_contract as
+select item -> 'nayaxLookupCandidates' -> 0 -> 'timeEvidence' as evidence,
+  item -> 'nayaxLookupCandidates' -> 0 as candidate
+from jsonb_array_elements(
+  public.admin_get_refund_operations_overview() -> 'cases'
+) item
+where item ->> 'id' = '75140000-0000-4000-8000-000000000001';
+
+select ok(
+  (select candidate ->> 'authorizedAt' = '2026-08-31T18:08:00Z'
+    and evidence ->> 'schemaVersion' = 'refund_candidate_time_v1'
+    and evidence ->> 'machineClockTimezone' = 'America/Los_Angeles'
+    and (evidence ->> 'occurrenceComparable')::boolean is false
+    from candidate_time_contract),
+  'Visible candidates carry normalized provider time and bounded comparison semantics'
+);
+
+select ok(
+  (select (evidence ->> 'payloadRedacted')::boolean
+    and not candidate ? 'machineAuthorizationTimeRaw'
+    and not candidate ? 'machineClockContext'
+    and not evidence ? 'reportingMachineId'
+    and not evidence ? 'observedAt'
+    from candidate_time_contract),
+  'Candidate timestamp labels do not expose raw wall clocks or provider clock records'
+);
+
+select ok(
+  not has_function_privilege(
+    'authenticated',
+    'public.refund_candidate_time_evidence_v1(jsonb)',
+    'execute'
+  ) and not has_function_privilege(
+    'authenticated',
+    'public.refund_project_candidate_time_evidence_v1(jsonb)',
+    'execute'
+  ),
+  'Authenticated managers cannot call the private timestamp projection helpers directly'
 );
 
 select is(

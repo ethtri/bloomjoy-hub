@@ -324,6 +324,18 @@ export type NayaxResponseCandidate = Omit<
   "requestReceiptLowerBoundAt" | "requestReceiptUpperBoundAt"
 > & {
   candidateToken: string;
+  timeEvidence: {
+    schemaVersion: "refund_candidate_time_v1";
+    providerTimestampSource: string;
+    providerTimeResolution: string;
+    machineTimeResolution: string;
+    machineClockTimezone: string | null;
+    machineClockSource: string;
+    occurrenceComparable: boolean;
+    occurrenceSemantics: string;
+    occurrenceTimezoneBasis: string | null;
+    payloadRedacted: true;
+  };
 };
 
 export type NayaxLookupResult = {
