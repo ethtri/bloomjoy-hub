@@ -227,7 +227,7 @@ select pg_temp.set_actor('a3410000-0000-4000-8000-000000000001');
 select matches(pg_temp.capture_error($sql$select public.admin_select_refund_nayax_candidate_current_user_v1(
   'a3470000-0000-4000-8000-000000000002',
   (select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000002'),
-  'a3480000-0000-4000-8000-000000000014',null)$sql$),'P4604:%',
+  'a3480000-0000-4000-8000-000000000014',null)$sql$),'^P4604:.*',
   'human selection is limited to ambiguous or manual-exception results');
 select is((public.admin_dispute_refund_nayax_preselection_current_user_v1(
   'a3470000-0000-4000-8000-000000000002',
@@ -275,7 +275,7 @@ select ok((select a.actor_user_id is null and a.status='created' and a.official_
 select matches(pg_temp.capture_error(format('select public.admin_approve_selected_nayax_refund_for_system_v1(%L,%s)',
   'a3470000-0000-4000-8000-000000000001',
   (select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'))),
-  'P4620:%','double approval loses without another attempt');
+  '^P4620:.*','double approval loses without another attempt');
 select is((select count(*) from public.refund_case_nayax_refund_attempts where refund_case_id='a3470000-0000-4000-8000-000000000001'),1::bigint,
   'sequential duplicate approval leaves one attempt; the unique queue index is the cross-session arbiter');
 
@@ -350,7 +350,7 @@ select matches(pg_temp.capture_error(format($sql$select public.service_settle_na
   'a3470000-0000-4000-8000-000000000001',
   (select idempotency_key from public.refund_case_nayax_refund_attempts
     where id=(select (result->>'attemptId')::uuid from approval_result)))),
-  'P4620:%','wrong provider claim token cannot settle the attempt');
+  '^P4620:.*','wrong provider claim token cannot settle the attempt');
 select is((select status from public.refund_case_nayax_refund_attempts
   where id=(select (result->>'attemptId')::uuid from approval_result)),'in_progress',
   'wrong settlement claim leaves the exact attempt unsettled');
@@ -392,17 +392,17 @@ select matches(pg_temp.capture_error($sql$select public.admin_record_nayax_syste
   'a3470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result),
   'provider_confirmed_success','nayax_dtm_transaction','DTM:NAYAX-123456789',statement_timestamp(),
   'nayax_support_confirmed_success',(select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'))$sql$),
-  'P4661:%','mismatched evidence tuple is rejected');
+  '^P4661:.*','mismatched evidence tuple is rejected');
 select matches(pg_temp.capture_error($sql$select public.admin_record_nayax_system_outcome_evidence_v1(
   'a3470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result),
   'provider_confirmed_no_refund','nayax_dtm_transaction','DTM:NAYAX-123456789',statement_timestamp(),
   'provider_rejected',(select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'))$sql$),
-  'P4661:%','a rejected label is not authoritative no-refund proof');
+  '^P4661:.*','a rejected label is not authoritative no-refund proof');
 select matches(pg_temp.capture_error($sql$select public.admin_record_nayax_system_outcome_evidence_v1(
   'a3470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result),
   'provider_confirmed_no_refund','nayax_dtm_transaction','DTM:NAYAX-123456789','2026-09-01T00:00:00Z',
   'nayax_dtm_not_refunded',(select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'))$sql$),
-  'P4661:%','stale no-refund proof cannot continue an attempt');
+  '^P4661:.*','stale no-refund proof cannot continue an attempt');
 select is((public.admin_record_nayax_system_outcome_evidence_v1(
   'a3470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result),
   'provider_confirmed_no_refund','nayax_dtm_transaction','DTM:NAYAX-123456789',statement_timestamp(),
@@ -423,7 +423,7 @@ select matches(pg_temp.capture_error(format($sql$select public.service_settle_na
   'a3470000-0000-4000-8000-000000000001',
   (select idempotency_key from public.refund_case_nayax_refund_attempts where id=(select (result->>'attemptId')::uuid from approval_result)),
   (select result#>>'{claims,0,providerClaimToken}' from second_claim))),
-  'P4620:%','the old generation claim token is rejected');
+  '^P4620:.*','the old generation claim token is rejected');
 
 create temp table continuation_proof_backup as
 select * from public.refund_nayax_no_refund_proofs
@@ -462,7 +462,7 @@ select matches(pg_temp.capture_error(format($sql$select public.service_record_na
   p_status_diagnostic_disposition=>null,p_status_diagnostic_length_bucket=>null)$sql$,
   (select result->>'attemptId' from approval_result),
   (select result#>>'{claims,0,providerClaimToken}' from full_plan_claim))),
-  'P4620:%','request-and-approve generation two cannot approve from generation-one request evidence');
+  '^P4620:.*','request-and-approve generation two cannot approve from generation-one request evidence');
 update public.refund_case_nayax_refund_attempts set provider_claim_expires_at=now()-interval '1 second'
 where id=(select (result->>'attemptId')::uuid from approval_result);
 select public.service_reclaim_nayax_refund_attempt_no_call_v1(
@@ -507,7 +507,7 @@ select matches(pg_temp.capture_error(format($sql$select public.service_record_na
   p_status_diagnostic_disposition=>null,p_status_diagnostic_length_bucket=>null)$sql$,
   (select result->>'attemptId' from approval_result),
   (select result#>>'{claims,0,providerClaimToken}' from third_claim))),
-  'P4613:%','approval-only continuation requires the exact prior accepted request');
+  '^P4613:.*','approval-only continuation requires the exact prior accepted request');
 set local session_replication_role=replica;
 insert into public.refund_nayax_provider_stage_journal select * from prior_request_result_backup;
 set local session_replication_role=origin;
@@ -529,7 +529,7 @@ select matches(pg_temp.capture_error(format($sql$select public.service_record_na
   p_status_diagnostic_disposition=>null,p_status_diagnostic_length_bucket=>null)$sql$,
   (select result->>'attemptId' from approval_result),
   (select result#>>'{claims,0,providerClaimToken}' from third_claim))),
-  'P4620:%','approval-only continuation cannot create a new request stage');
+  '^P4620:.*','approval-only continuation cannot create a new request stage');
 select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
   'single-gate-executor',(select (result->>'attemptId')::uuid from approval_result),
   (select result#>>'{claims,0,providerClaimToken}' from third_claim),'approve','started',
@@ -646,7 +646,7 @@ values('a3480000-0000-4000-8000-000000000002','a3470000-0000-4000-8000-000000000
   'MANUAL-HISTORICAL',17,'2026-09-12T20:00:00Z',1090,'4242','USD',pg_temp.exact_evidence('manual_nayax_portal'),now()+interval '1 hour');
 select matches(pg_temp.capture_error(format('select public.admin_select_refund_nayax_candidate_current_user_v1(%L,%s,%L,null)',
   'a3470000-0000-4000-8000-000000000001',(select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'),
-  'a3480000-0000-4000-8000-000000000002')),'P4626:%','manual candidate source is rejected');
+  'a3480000-0000-4000-8000-000000000002')),'^P4626:.*','manual candidate source is rejected');
 
 select ok(not exists(
   select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
