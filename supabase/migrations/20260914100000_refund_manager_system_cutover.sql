@@ -29,6 +29,10 @@ begin
   if c.official_action_version is distinct from p_expected_case_version then
     raise exception 'Refund case changed since review; reload before taking an official action';
   end if;
+  if action_name='nayax_execute' then
+    raise exception 'Use the Refund action. Card approval and System queueing happen together.'
+      using errcode='P4620';
+  end if;
   if action_name='approve' then
     if c.payment_method='cash'
       and lower(btrim(coalesce(p_target_status,'')))<>'cash_zelle_pending' then

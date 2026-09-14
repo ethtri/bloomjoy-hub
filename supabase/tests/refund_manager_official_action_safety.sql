@@ -1410,10 +1410,10 @@ select ok(
   pg_temp.capture_error($sql$
     select public.admin_authorize_refund_official_action(
       '79600000-0000-4000-8000-000000000004', 'approve',
-      1,
+      (select official_action_version from public.refund_cases where id = '79600000-0000-4000-8000-000000000004'),
       'cash_zelle_pending', 'approved', null, null, null, 675, null, null, false, null, null
     )
-  $sql$) like '%active assigned manager or Super-admin is required%',
+  $sql$) like '%current Machine Manager or a Super-admin must make this decision%',
   'A revoked manager cannot mint a new receipt'
 );
 reset role;
@@ -1601,7 +1601,7 @@ select ok(
     (select official_action_version from public.refund_cases where id = '79600000-0000-4000-8000-000000000007'),
     'card_refund_pending', 'approved', null, null, null, 500, null, null, false, null, null
   )
-  $sql$) like '%created only by the atomic refund reservation%',
+  $sql$) like '%Use the Refund action%',
   'The generic browser authorization RPC cannot mint a Nayax execution receipt'
 );
 reset role;
@@ -1689,7 +1689,7 @@ select
 grant select on table pg_temp.nayax_selection_boundary_baseline to service_role;
 
 create temporary table nayax_selection_result (payload jsonb not null);
-grant select, insert on table pg_temp.nayax_selection_result to service_role;
+grant select, insert on table pg_temp.nayax_selection_result to authenticated, service_role;
 
 select ok(
   not has_function_privilege(
