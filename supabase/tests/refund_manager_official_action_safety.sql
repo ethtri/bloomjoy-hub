@@ -383,8 +383,13 @@ update public.refund_cases
 set customer_request_received_at = now() - interval '30 minutes',
     customer_request_received_source = 'hosted_refund_intake',
     incident_time_resolution = 'exact',
-    incident_time_confidence = 'exact',
-    nayax_recommendation_state = 'manual_exception',
+    incident_time_confidence = 'exact'
+where id = '79600000-0000-4000-8000-000000000009';
+
+-- Deterministic fact changes intentionally reset lookup state. Model the later
+-- ambiguous lookup result only after the customer facts are current.
+update public.refund_cases
+set nayax_recommendation_state = 'manual_exception',
     nayax_lookup_status = 'manual_exception'
 where id = '79600000-0000-4000-8000-000000000009';
 
