@@ -232,9 +232,13 @@ select is(
    where profile.user_id = 'a1100000-0000-4000-8000-000000000003'
      and profile.account_id = 'a1200000-0000-4000-8000-000000000001'
      and rule.shift_rate_cents = 2500
+     and rule.reporting_machine_id in (
+       'a1400000-0000-4000-8000-000000000001',
+       'a1400000-0000-4000-8000-000000000003'
+     )
      and rule.status = 'active'),
-  1,
-  'Multiple same-payer machines share one technician-level hourly rate'
+  2,
+  'Multiple same-payer machines receive distinct started-hour rates'
 );
 select is(
   (select count(*)::integer from public.get_operator_contact_directory(

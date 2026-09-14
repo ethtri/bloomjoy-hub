@@ -206,9 +206,9 @@ revoke execute on function public.admin_update_operator_contact(uuid, text, text
 grant execute on function public.admin_update_operator_contact(uuid, text, text, text, text)
   to authenticated;
 
--- The hourly rate is profile-scoped, while commission may vary by machine.
--- Create one hourly rule per payer profile so a technician can be assigned to
--- multiple machines for the same payer without overlapping duplicate rules.
+-- Keep the per-machine compensation setup repeatable inside one transaction.
+-- The original routine creates one started-hour rate and one commission
+-- arrangement for every selected machine.
 create or replace function public.admin_setup_timekeeping_technician_arrangements(
   p_user_email text,
   p_display_name text,
@@ -234,7 +234,6 @@ declare
   profile_results jsonb := '[]'::jsonb;
   machine_count integer;
   account_count integer;
-  account_shift_rate_cents integer;
 begin
   if actor_user_id is null then raise exception 'Authentication required'; end if;
   if normalized_email = '' or normalized_display_name = '' then raise exception 'Technician email and name are required'; end if;
@@ -297,21 +296,6 @@ begin
     from selected_arrangements selected
     join public.reporting_machines machine on machine.id = selected.machine_id_text::uuid
   loop
-    if (
-      select count(distinct selected.shift_rate_cents)
-      from selected_arrangements selected
-      join public.reporting_machines machine on machine.id = selected.machine_id_text::uuid
-      where machine.account_id = account_row.account_id
-    ) <> 1 then
-      raise exception 'Pay per started hour must be the same for every selected machine under one payer';
-    end if;
-
-    select min(selected.shift_rate_cents)
-    into account_shift_rate_cents
-    from selected_arrangements selected
-    join public.reporting_machines machine on machine.id = selected.machine_id_text::uuid
-    where machine.account_id = account_row.account_id;
-
     if exists (
       select 1 from public.operator_payout_profiles profile
       where profile.account_id = account_row.account_id and profile.user_id = target_user_id
@@ -330,12 +314,6 @@ begin
       updated_by = actor_user_id
     where id = profile_row.id returning * into profile_row;
 
-    perform public.admin_upsert_operator_compensation_rate(
-      null, account_row.account_id, profile_row.id, null,
-      'shift', account_shift_rate_cents, p_effective_start_date, null,
-      'active', 'Initial Timekeeping pay arrangement'
-    );
-
     for arrangement in
       select selected.*, machine.id as machine_id
       from selected_arrangements selected
@@ -344,6 +322,12 @@ begin
     loop
       perform public.admin_upsert_operator_machine_assignment(
         null, profile_row.id, arrangement.machine_id, p_effective_start_date, null
+      );
+
+      perform public.admin_upsert_operator_compensation_rate(
+        null, account_row.account_id, profile_row.id, arrangement.machine_id,
+        'shift', arrangement.shift_rate_cents, p_effective_start_date, null,
+        'active', 'Initial Timekeeping pay arrangement'
       );
 
       if arrangement.commission_start_date > p_effective_start_date then
@@ -384,7 +368,7 @@ end;
 $$;
 
 comment on function public.admin_setup_timekeeping_technician_arrangements(text, text, text, text, date, jsonb) is
-  'Atomically creates payer-scoped Technician profiles, machine assignments, one payer-profile hourly rate, and effective-dated machine commission arrangements.';
+  'Atomically creates payer-scoped Technician profiles, machine assignments, and effective-dated per-machine pay arrangements.';
 
 create or replace function public.admin_setup_timekeeping_technician_arrangements_with_contact(
   p_user_email text,
