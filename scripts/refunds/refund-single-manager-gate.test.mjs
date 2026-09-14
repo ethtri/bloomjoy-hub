@@ -15,6 +15,8 @@ const operations = await read('src/lib/refundOperations.ts');
 const concurrency = await read('supabase/tests/refund_single_manager_gate_concurrency.sql');
 const behavioralFixture = await read('supabase/tests/refund_single_manager_gate.sql');
 const durableLifecycle = await read('supabase/migrations/20260826165423_refund_durable_lifecycle_v1.sql');
+const requestBoundaryContract = await read('supabase/migrations/20260906053800_refund_soft_time_evidence.sql');
+const identifierContract = await read('supabase/migrations/20260906073000_refund_contactless_review_selection.sql');
 
 test('one branch migration owns the single manager gate', async () => {
   await assert.rejects(access(new URL(
@@ -52,6 +54,11 @@ test('the database serializes sessions and uniquely permits one queued refund pe
   assert.match(concurrency, /dblink_send_query\('single_gate_race_b'/);
   assert.match(concurrency, /exactly one wins/);
   assert.match(concurrency, /a second queue consumer cannot claim the same attempt/);
+  assert.match(
+    migration,
+    /official_action_version is distinct from p_expected_case_version then[\s\S]*?reload before approving the refund'[\s\S]*?using errcode='P4620'/,
+  );
+  assert.match(concurrency, /payload->>'sqlstate'='P4620'/);
 });
 
 test('database fixtures use an allowed completed-review lookup status', () => {
@@ -71,6 +78,87 @@ test('database fixtures use an allowed completed-review lookup status', () => {
     assert.deepEqual(seededLookupStatuses, ['manual_exception'], `${name} fixture lookup status`);
     assert(seededLookupStatuses.every((status) => allowedStatuses.has(status)));
   }
+});
+
+test('database fixtures satisfy the real null-request boundary contract', () => {
+  const nullRequestBranch = requestBoundaryContract.match(
+    /if p_request_received_at is null then([\s\S]*?)return 'invalid';/,
+  )?.[1] ?? '';
+  const requiredNullKeys = [
+    ...nullRequestBranch.matchAll(/p_evidence -> '([^']+)' = 'null'::jsonb/g),
+  ].map((match) => match[1]);
+  assert.deepEqual(requiredNullKeys, [
+    'customer_request_received_at',
+    'customer_request_received_source',
+    'transaction_occurrence_proof_source',
+    'transaction_occurrence_timestamp_source',
+    'transaction_occurrence_timezone_basis',
+    'transaction_occurrence_lower_bound_at',
+    'transaction_occurrence_upper_bound_at',
+    'request_receipt_lower_bound_at',
+    'request_receipt_upper_bound_at',
+  ]);
+  for (const [name, fixture] of [
+    ['behavioral', behavioralFixture],
+    ['concurrency', concurrency],
+  ]) {
+    for (const key of requiredNullKeys) {
+      assert.equal(
+        [...fixture.matchAll(new RegExp(`'${key}'\\s*,\\s*null`, 'g'))].length,
+        1,
+        `${name} fixture must carry JSON null for ${key}`,
+      );
+    }
+    assert.match(fixture, /'request_time_boundary'\s*,\s*'request_time_unknown'/);
+    assert.match(fixture, /'transaction_occurrence_comparable'\s*,\s*false/);
+    assert.match(fixture, /'transaction_occurrence_semantics'\s*,\s*'unknown'/);
+    assert.match(fixture, /'one_click_eligible'\s*,\s*false/);
+  }
+});
+
+test('database fixtures satisfy exact-card support and unknown-time rules', () => {
+  assert.match(
+    identifierContract,
+    /case_row\.card_last4 = p_card_last4[\s\S]*?card_last4_comparison' is distinct from 'exact_support'/,
+  );
+  assert.match(
+    identifierContract,
+    /review_state = 'exact_support' and last4_comparison <> 'exact_support'/,
+  );
+  assert.match(
+    identifierContract,
+    /elsif p_evidence -> 'time_delta_minutes' is distinct from 'null'::jsonb then/,
+  );
+  for (const [name, fixture] of [
+    ['behavioral', behavioralFixture],
+    ['concurrency', concurrency],
+  ]) {
+    assert.match(fixture, /'card_last4_comparison'\s*,\s*'exact_support'/, name);
+    assert.match(fixture, /'identifier_review_state'\s*,\s*'exact_support'/, name);
+    assert.match(fixture, /'transaction_occurrence_comparable'\s*,\s*false/, name);
+    assert.match(fixture, /'time_delta_minutes'\s*,\s*null/, name);
+  }
+});
+
+test('standalone completion owns its Gmail thread seed after the generator cut', () => {
+  const generatorCut = behavioralFixture.indexOf('create temp table second_claim as');
+  const gmailThreadSeed = behavioralFixture.indexOf('insert into public.refund_gmail_threads');
+  const successResolution = behavioralFixture.indexOf("'nayax_dtm_settled'");
+  assert(generatorCut >= 0);
+  assert(gmailThreadSeed > generatorCut);
+  assert(gmailThreadSeed < successResolution);
+  assert.doesNotMatch(behavioralFixture.slice(0, generatorCut), /insert into public\.refund_gmail_threads/);
+});
+
+test('outcome evidence timestamps cannot predate work performed in the statement', () => {
+  const outcomeEvidenceSection = behavioralFixture.slice(
+    behavioralFixture.indexOf('public.admin_record_nayax_system_outcome_evidence_v1('),
+  );
+  assert.equal(
+    [...outcomeEvidenceSection.matchAll(/DTM:NAYAX-123456789',statement_timestamp\(\)/g)].length,
+    3,
+  );
+  assert.doesNotMatch(outcomeEvidenceSection, /DTM:NAYAX-123456789',now\(\)/);
 });
 
 test('case work and financial authority are distinct', () => {

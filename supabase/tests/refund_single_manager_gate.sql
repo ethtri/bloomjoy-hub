@@ -58,9 +58,9 @@ select jsonb_build_object(
  'policy_version','2026-09-05.v11','identifier_policy_version','2026-09-05.identifier.v2',
  'customer_fact_version',1,'customer_credential_class','customer_physical_contactless_pan',
  'provider_identifier_class','last_sales_present_identifier_unverified',
- 'card_last4_comparison','exact','card_network_comparison','missing',
+ 'card_last4_comparison','exact_support','card_network_comparison','missing',
  'payment_interaction_comparison','unknown','same_identifier_equivalence_proven',false,
- 'identifier_review_state','reviewable_uncertainty','customer_correction_fields','[]'::jsonb,
+ 'identifier_review_state','exact_support','customer_correction_fields','[]'::jsonb,
  'hard_exclusions','[]'::jsonb,'manual_review_reasons','[]'::jsonb,
  'reason_codes','["machine_exact","provider_sale_approved"]'::jsonb,'match_factors','[]'::jsonb,
  'match_reason','Exact saved System candidate','recommendation_rank',1,'is_top_ranked',true,
@@ -68,8 +68,13 @@ select jsonb_build_object(
  'provider_machine_id','SINGLE-GATE-MACHINE','machine_authorization_time_raw','2026-09-12T20:00:00Z',
  'machine_authorization_at','2026-09-12T20:00:00Z','machine_authorization_time_source','MachineAuthorizationTime',
  'machine_time_resolution','exact','provider_time_resolution','exact','provider_time_source','authorization_gmt',
- 'authorized_at','2026-09-12T20:00:00Z','request_time_boundary','request_time_unknown',
- 'transaction_occurrence_comparable',false,'transaction_occurrence_semantics','unknown',
+ 'authorized_at','2026-09-12T20:00:00Z',
+ 'customer_request_received_at',null,'customer_request_received_source',null,
+ 'transaction_occurrence_proof_source',null,'transaction_occurrence_timestamp_source',null,
+ 'transaction_occurrence_timezone_basis',null,'transaction_occurrence_lower_bound_at',null,
+ 'transaction_occurrence_upper_bound_at',null,'request_receipt_lower_bound_at',null,
+ 'request_receipt_upper_bound_at',null,'request_time_boundary','request_time_unknown',
+ 'transaction_occurrence_comparable',false,'transaction_occurrence_semantics','unknown','time_delta_minutes',null,
  'amount_delta_cents',90,'provider_processing_time_delta_minutes',0,'payment_status','approved',
  'payment_status_evidence','last_sales_contract','provider_refund_state','clear',
  'duplicate_provider_record',false,'card_last4','4242','currency_code','USD','amount_cents',1090)
@@ -132,6 +137,12 @@ select ok((select status='created' and provider_claim_digest is null from public
 
 create temp table second_claim as select public.service_claim_due_nayax_refund_attempts_v1(
   'single-gate-executor','SINGLE_GATE_ACCOUNT','exact_source','empty_string',1) result;
+insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,provider_thread_id,
+  thread_subject,first_message_at,latest_message_at,retention_expires_at)
+values('a3490000-0000-4000-8000-000000000001','a3470000-0000-4000-8000-000000000001',
+  repeat('b',64),'single-gate-original-thread','Original customer thread',
+  statement_timestamp()-interval '2 days',statement_timestamp()-interval '2 days',
+  statement_timestamp()+interval '180 days');
 select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
   p_executor_assertion=>'single-gate-executor',
   p_attempt_id=>(select (result->>'attemptId')::uuid from approval_result),
@@ -186,7 +197,7 @@ select is((public.service_hold_nayax_refund_attempt_v1('single-gate-executor',
 
 select is((public.admin_record_nayax_system_outcome_evidence_v1(
   'a3470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result),
-  'remain_on_hold','nayax_dtm_transaction','DTM:NAYAX-123456789',now(),'evidence_incomplete',
+  'remain_on_hold','nayax_dtm_transaction','DTM:NAYAX-123456789',statement_timestamp(),'evidence_incomplete',
   (select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'))->>'status'),
   'provider_hold','valid evidence remains on the same permanent hold');
 select ok((select metadata->>'evidence_reference_digest'~'^[a-f0-9]{64}$'
@@ -196,12 +207,12 @@ select ok((select metadata->>'evidence_reference_digest'~'^[a-f0-9]{64}$'
   'hold evidence stores its privacy-safe type, digest, time, and reason');
 select like(pg_temp.capture_error($sql$select public.admin_record_nayax_system_outcome_evidence_v1(
   'a3470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result),
-  'provider_confirmed_success','nayax_dtm_transaction','DTM:NAYAX-123456789',now(),
+  'provider_confirmed_success','nayax_dtm_transaction','DTM:NAYAX-123456789',statement_timestamp(),
   'nayax_support_confirmed_success',(select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'))$sql$),
   'P4661:%','mismatched evidence tuple is rejected');
 select is((public.admin_record_nayax_system_outcome_evidence_v1(
   'a3470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result),
-  'provider_confirmed_success','nayax_dtm_transaction','DTM:NAYAX-123456789',now(),
+  'provider_confirmed_success','nayax_dtm_transaction','DTM:NAYAX-123456789',statement_timestamp(),
   'nayax_dtm_settled',(select official_action_version from public.refund_cases
     where id='a3470000-0000-4000-8000-000000000001'))->>'resolved'),'true',
   'valid provider-confirmed success evidence finalizes the same held attempt');

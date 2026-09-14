@@ -246,7 +246,8 @@ begin
     'Only the assigned machine Manager or a Super-admin can approve this refund'
     using errcode='42501'; end if;
   if c.official_action_version is distinct from p_expected_case_version then
-    raise exception 'Refund case changed since review; reload before approving the refund';
+    raise exception 'Refund case changed since review; reload before approving the refund'
+      using errcode='P4620';
   end if;
   if c.payment_method<>'card' or c.status not in ('needs_review','correlated')
     or c.decision is not null or c.correlation_status<>'matched'
