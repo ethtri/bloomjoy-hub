@@ -97,11 +97,12 @@ create index if not exists machine_sales_facts_sunze_cash_match_idx
   include (net_sales_cents, import_run_id)
   where source = 'sunze_browser' and payment_method = 'cash';
 
-create unique index refund_cases_selected_sunze_sale_unique_idx
+create unique index refund_cases_completed_sunze_sale_unique_idx
   on public.refund_cases (matched_sales_fact_id)
   where payment_method = 'cash'
     and matched_sales_fact_id is not null
-    and duplicate_of_refund_case_id is null;
+    and duplicate_of_refund_case_id is null
+    and (refund_completed_at is not null or reporting_adjustment_id is not null);
 
 create or replace function public.service_record_sunze_cash_watermarks(
   p_import_run_id uuid,

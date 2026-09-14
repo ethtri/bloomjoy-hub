@@ -38,7 +38,7 @@ historical fixtures cannot add product gates that the workflow does not contain.
   dates, strings, explicit offsets, midnight, and both DST transitions.
 - [ ] Amount and confidence remain advisory evidence. A reviewed Manager can
   complete a cash refund from any match state after sending Zelle; selecting an
-  exact Sunze sale cannot bind that sale to a second non-duplicate case.
+  exact Sunze sale cannot complete a second non-duplicate case.
 - [ ] `anon` and `authenticated` cannot read the private Sunze coverage objects
   or execute the server-owned matching RPC.
 - [ ] Customer clarification appears only after internal research is exhausted,

@@ -171,7 +171,7 @@ Important metric notes:
 - `multiple_possible_sales`: more than one such validated fact remains.
 - `no_sale_found_with_complete_coverage`: zero such facts remain and one fresh validated interval covers the complete +/- one-hour window.
 - `sales_history_unavailable`: the machine/source is unsupported or unmapped, timestamp proof is absent/out of scope, coverage is stale, or no one interval completely covers the historical window.
-- These states are server-owned evidence, not approval or completion gates. A Manager may act on any reviewed evidence under `REFUND_WORKFLOW.md`. When an exact Sunze sale is selected, the same sale cannot be bound to a second non-duplicate case. Raw workbooks, source order numbers, raw machine identifiers, and candidate rows are not exposed by the readiness contract.
+- These states are server-owned evidence, not approval or completion gates. A Manager may act on any reviewed evidence under `REFUND_WORKFLOW.md`. When an exact Sunze sale is selected, the same sale cannot support a second non-duplicate completion. Raw workbooks, source order numbers, raw machine identifiers, and candidate rows are not exposed by the readiness contract.
 
 ### Evidence still needed
 

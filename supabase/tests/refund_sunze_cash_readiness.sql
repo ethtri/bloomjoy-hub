@@ -113,23 +113,36 @@ values (
   '35140000-0000-4000-8000-000000000001'
 );
 
+insert into public.refund_cases (
+  id, public_reference, reporting_machine_id, reporting_location_id,
+  customer_email, issue_summary, incident_at, payment_method,
+  payment_amount_cents, status, correlation_status, correlation_source,
+  correlation_confidence, matched_sales_fact_id
+)
+values (
+  '35150000-0000-4000-8000-000000000002', 'RF-SUNZE-SELECT-2',
+  '35120000-0000-4000-8000-000000000001', '35110000-0000-4000-8000-000000000001',
+  'sunze-selection-two@example.test', 'Second selected-sale review fixture',
+  '2026-09-01 19:00:00+00', 'cash', 1000, 'needs_review', 'matched', 'sunze', 0.82,
+  '35140000-0000-4000-8000-000000000001'
+);
+
+set local session_replication_role = replica;
+
+update public.refund_cases
+set refund_completed_at = '2026-09-02 01:00:00+00'
+where id = '35150000-0000-4000-8000-000000000001';
+
 select throws_ok(
-  $$insert into public.refund_cases (
-      id, public_reference, reporting_machine_id, reporting_location_id,
-      customer_email, issue_summary, incident_at, payment_method,
-      payment_amount_cents, status, correlation_status, correlation_source,
-      correlation_confidence, matched_sales_fact_id
-    ) values (
-      '35150000-0000-4000-8000-000000000002', 'RF-SUNZE-SELECT-2',
-      '35120000-0000-4000-8000-000000000001', '35110000-0000-4000-8000-000000000001',
-      'sunze-selection-two@example.test', 'Duplicate selected-sale fixture',
-      '2026-09-01 19:00:00+00', 'cash', 1000, 'needs_review', 'matched', 'sunze', 0.82,
-      '35140000-0000-4000-8000-000000000001'
-    )$$,
+  $$update public.refund_cases
+    set refund_completed_at = '2026-09-02 01:05:00+00'
+    where id = '35150000-0000-4000-8000-000000000002'$$,
   '23505',
   null,
-  'One exact Sunze sale cannot be selected by a second non-duplicate case'
+  'One exact Sunze sale cannot complete a second non-duplicate case'
 );
+
+set local session_replication_role = origin;
 
 insert into public.machine_sales_facts (
   id, reporting_machine_id, reporting_location_id, sale_date, payment_method,
