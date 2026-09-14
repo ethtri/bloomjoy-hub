@@ -383,7 +383,9 @@ update public.refund_cases
 set customer_request_received_at = now() - interval '30 minutes',
     customer_request_received_source = 'hosted_refund_intake',
     incident_time_resolution = 'exact',
-    incident_time_confidence = 'exact'
+    incident_time_confidence = 'exact',
+    nayax_recommendation_state = 'manual_exception',
+    nayax_lookup_status = 'manual_exception'
 where id = '79600000-0000-4000-8000-000000000009';
 
 insert into public.refund_wallet_correction_contexts (
@@ -1410,7 +1412,7 @@ select ok(
   pg_temp.capture_error($sql$
     select public.admin_authorize_refund_official_action(
       '79600000-0000-4000-8000-000000000004', 'approve',
-      (select official_action_version from public.refund_cases where id = '79600000-0000-4000-8000-000000000004'),
+      1,
       'cash_zelle_pending', 'approved', null, null, null, 675, null, null, false, null, null
     )
   $sql$) like '%current Machine Manager or a Super-admin must make this decision%',
