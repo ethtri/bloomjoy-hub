@@ -1,12 +1,8 @@
 -- The preceding fixture is extracted from the real orchestration test through
 -- successful reserve/settle/completion claim. No payment attempt is fabricated.
--- Stop before its Gmail send-proof fixture: this branch models historical
--- transactional delivery, with no Gmail record to remove or replace.
-update public.refund_case_messages set status = 'sent', sent_at = statement_timestamp()
-where refund_case_id = '9a600000-0000-4000-8000-000000000001' and message_type = 'completed';
-update public.refund_case_messages set delivery_transport = 'resend', delivery_state = 'unknown',
-  delivery_state_updated_at = sent_at
-where refund_case_id = '9a600000-0000-4000-8000-000000000001' and message_type = 'completed';
+-- Stop before its Gmail send-proof fixture. This branch binds the pending
+-- completion notice through the real transactional-delivery function; it does
+-- not invent sent status without provider proof.
 create temporary table settled_delivery_before as
 select to_jsonb(c) - array['lifecycle_revision','updated_at'] as case_value,
   (select to_jsonb(a) from public.refund_case_nayax_refund_attempts a where a.refund_case_id = c.id) as attempt_value,
@@ -32,7 +28,7 @@ set local role service_role;
 select is(public.service_bind_refund_transactional_delivery(
   (select (result->>'refundCaseMessageId')::uuid from pg_temp.nayax_provider_results where result_key = 'completion-claim'),
   'resend_settled_completion_fixture', statement_timestamp())->>'bound', 'true',
-  'Actual security-definer binding accepts already-SENT settled token-bound completion');
+  'Actual security-definer binding accepts the pending settled token-bound completion');
 select is(public.service_record_refund_transactional_delivery_event(repeat('d1',32), 'resend_settled_completion_fixture',
   'bounced', statement_timestamp())->>'deliveryState', 'bounced',
   'Actual bound bounce updates token-bound completion delivery without reopening payment');
@@ -51,7 +47,7 @@ select is(to_jsonb(f), b.adjustment_value, 'Settled completion receipt events pr
 from public.sales_adjustment_facts f cross join settled_delivery_before b where f.refund_case_id = '9a600000-0000-4000-8000-000000000001';
 select is(to_jsonb(m) - array['provider_message_id','delivery_state','delivery_state_updated_at','status','error_message'],
   b.message_value - array['provider_message_id','delivery_state','delivery_state_updated_at','status','error_message'],
-  'Settled completion receipts preserve original content, evidence, provider attempt and sent timestamp')
+  'Settled completion receipts preserve original content, evidence, provider attempt and sent-at field')
 from public.refund_case_messages m cross join settled_delivery_before b
 where m.refund_case_id = '9a600000-0000-4000-8000-000000000001' and m.message_type = 'completed';
 select is((select count(*) from public.refund_case_messages where refund_case_id = '9a600000-0000-4000-8000-000000000001'

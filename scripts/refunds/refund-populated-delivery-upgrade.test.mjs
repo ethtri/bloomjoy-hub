@@ -76,6 +76,8 @@ test('settled completion delivery reuses the current System queue and canonical 
     'all four provider stages must be durable before canonical settlement',
   );
   assert.ok(sql.includes("'completion-claim-replay'"));
+  assert.ok(sql.includes('not invent sent status without provider proof'));
+  assert.doesNotMatch(sql, /update public\.refund_case_messages set status = 'sent'/u);
   assert.ok(sql.includes('public.service_bind_refund_transactional_delivery('));
   assert.ok(sql.includes('public.service_record_refund_transactional_delivery_event('));
   assert.doesNotMatch(sql, /provider-gmail-completion-1|select plan\(|session_replication_role|disable\s+trigger/iu);
