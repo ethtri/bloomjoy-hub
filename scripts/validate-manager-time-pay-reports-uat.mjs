@@ -70,6 +70,12 @@ const entry = (id, machineId, machineLabel, workDate, startTime, endTime, minute
 
 const state = {
   rpcCalls: [],
+  contact: {
+    operator_profile_id: PROFILE_ID,
+    contact_email: 'alex.technician@example.test',
+    contact_phone: '+1 555 010 1042',
+    mailing_address: '1042 Synthetic Avenue\nTest City, CA 90000',
+  },
   timeEntries: [
     entry('time-61', MACHINE_A, 'Cotton Candy 01', '2026-09-01', '08:00', '09:01', 61, 2),
     entry('time-20', MACHINE_B, 'Cotton Candy 02', '2026-09-02', '10:00', '10:20', 20, 1),
@@ -332,8 +338,8 @@ const setupContext = {
     accountId: ACCOUNT_ID,
     accountName: 'Bloomjoy Sweets',
     machines: [
-      { machineId: MACHINE_A, machineLabel: 'Cotton Candy 01', locationName: 'Mall Atrium' },
-      { machineId: MACHINE_B, machineLabel: 'Cotton Candy 02', locationName: 'Mall Atrium' },
+      { machineId: MACHINE_A, machineLabel: 'Cotton Candy 01', locationName: 'Mall Atrium', operationalPhase: 'live' },
+      { machineId: MACHINE_B, machineLabel: 'Cotton Candy 02', locationName: 'Mall Atrium', operationalPhase: 'setup' },
     ],
   }],
   capabilities: { accountPayAuthorityRequired: true, approvalRequired: false, paymentExecution: false },
@@ -379,12 +385,22 @@ const installRoutes = async (context) => {
     if (rpcName === 'get_current_technician_pay_report_context') {
       return route.fulfill(json(body.p_month === '2026-08-01' ? historicalAssignmentGapContext : payContext));
     }
+    if (rpcName === 'get_operator_contact_directory') return route.fulfill(json([state.contact]));
     if (rpcName === 'get_timekeeping_setup_context') return route.fulfill(json(setupContext));
-    if (rpcName === 'admin_setup_timekeeping_technician_arrangements') {
+    if (rpcName === 'admin_setup_timekeeping_technician_arrangements_with_contact') {
       if (body.p_user_email === 'pending-technician@example.test') {
         return route.fulfill(json({ code: 'P0001', message: 'Technician must accept the invitation and sign in once before Timekeeping setup' }, 400));
       }
       return route.fulfill(json({ profiles: [{ operatorProfileId: 'new-profile', accountId: ACCOUNT_ID }], payerCount: 1, displayName: body.p_display_name, machineCount: body.p_machine_compensation.length, effectiveStartDate: body.p_effective_start_date }));
+    }
+    if (rpcName === 'admin_update_operator_contact') {
+      state.contact = {
+        operator_profile_id: PROFILE_ID,
+        contact_email: body.p_contact_email,
+        contact_phone: body.p_contact_phone,
+        mailing_address: body.p_mailing_address,
+      };
+      return route.fulfill(json({ ...state.contact, user_id: user.id }));
     }
     if (rpcName === 'admin_supersede_operator_compensation_rate') return route.fulfill(json({ id: 'saved-rate' }));
     if (rpcName === 'admin_upsert_operator_machine_assignment') return route.fulfill(json({
@@ -498,6 +514,14 @@ const run = async () => {
     await openAuthenticated(page, '/admin/payouts', 'Technician Pay Report');
     check('Pay Report labels a stale published statement as needing regeneration', await page.getByRole('button', { name: 'Regenerate Pay Stub' }).isVisible());
     await page.getByText('Contractor 1042', { exact: true }).waitFor();
+    check('Pay Report loads protected contact details beside the Technician', (await page.locator('body').innerText()).includes('alex.technician@example.test') && (await page.locator('body').innerText()).includes('+1 555 010 1042'));
+    await page.getByRole('button', { name: 'Contact' }).click();
+    await page.locator('#contact-phone').fill('+1 555 010 2042');
+    await page.locator('#contact-address').fill('2042 Updated Synthetic Avenue');
+    await page.getByRole('button', { name: 'Save contact details' }).click();
+    await page.getByRole('dialog').waitFor({ state: 'hidden' });
+    const contactUpdate = state.rpcCalls.find((call) => call.rpcName === 'admin_update_operator_contact');
+    check('Contact edit uses the dedicated audited RPC with no browser table write', contactUpdate?.body.p_operator_profile_id === PROFILE_ID && contactUpdate?.body.p_contact_phone === '+1 555 010 2042' && contactUpdate?.body.p_mailing_address === '2042 Updated Synthetic Avenue' && contactUpdate?.body.p_reason === 'Technician contact details updated from Admin Payouts');
     await page.locator('#pay-report-month').fill('');
     check('Pay Report ignores an empty native month-input change without crashing', await page.locator('#pay-report-month').inputValue() === '2026-09' && await page.getByRole('heading', { name: 'Technician Pay Report' }).isVisible());
     const payReportRead = state.rpcCalls.find((call) => call.rpcName === 'get_current_technician_pay_report_context');
@@ -538,9 +562,12 @@ const run = async () => {
     check('Setup clearly links the invitation prerequisite', await page.getByRole('link', { name: 'Invite Technician' }).isVisible());
     await page.locator('#setup-technician-email').fill('pending-technician@example.test');
     await page.locator('#setup-technician-name').fill('New Technician');
+    await page.locator('#setup-contact-phone').fill('+1 555 010 3000');
+    await page.locator('#setup-mailing-address').fill('3000 Setup Avenue');
     const setupDialog = page.getByRole('dialog');
+    check('Provisional machines are clearly identified during Technician setup', await setupDialog.getByText('Provisional', { exact: true }).isVisible());
     await setupDialog.getByText('Cotton Candy 01', { exact: true }).click();
-    await setupDialog.getByText('Cotton Candy 02', { exact: true }).click();
+    await setupDialog.locator('label').filter({ hasText: 'Cotton Candy 02' }).click();
     await page.locator(`#setup-shift-rate-${MACHINE_A}`).fill('20');
     await page.locator(`#setup-commission-choice-${MACHINE_A}`).click();
     await page.getByRole('option', { name: 'Custom commission' }).click();
@@ -552,11 +579,11 @@ const run = async () => {
     check('An unaccepted invitation keeps the completed setup form available to retry', (await page.locator('#setup-technician-name').inputValue()) === 'New Technician' && await page.getByRole('dialog').isVisible());
     await page.locator('#setup-technician-email').fill('new-technician@example.test');
     const retryActivation = page.getByRole('button', { name: 'Activate Timekeeping' });
-    check('A corrected invitation can be retried without reopening setup', !(await retryActivation.isDisabled()) && !state.rpcCalls.some((call) => call.rpcName === 'admin_setup_timekeeping_technician_arrangements' && call.body.p_user_email === 'new-technician@example.test'));
+    check('A corrected invitation can be retried without reopening setup', !(await retryActivation.isDisabled()) && !state.rpcCalls.some((call) => call.rpcName === 'admin_setup_timekeeping_technician_arrangements_with_contact' && call.body.p_user_email === 'new-technician@example.test'));
     await retryActivation.click();
     await page.getByText('New Technician can now use Timekeeping across 2 machines.').waitFor();
-    const setupCall = state.rpcCalls.find((call) => call.rpcName === 'admin_setup_timekeeping_technician_arrangements' && call.body.p_user_email === 'new-technician@example.test');
-    check('One manager action sends profile, both machines, and starting rates atomically', setupCall?.body.p_user_email === 'new-technician@example.test' && setupCall?.body.p_worker_type === 'contractor_1099' && setupCall?.body.p_machine_compensation.length === 2 && setupCall?.body.p_machine_compensation.every((item) => item.shiftRateCents === 2000 && item.commissionBasisPoints === 700) && !('p_reason' in setupCall.body));
+    const setupCall = state.rpcCalls.find((call) => call.rpcName === 'admin_setup_timekeeping_technician_arrangements_with_contact' && call.body.p_user_email === 'new-technician@example.test');
+    check('One manager action sends contact, profile, both machines, and starting rates atomically', setupCall?.body.p_user_email === 'new-technician@example.test' && setupCall?.body.p_contact_email === 'new-technician@example.test' && setupCall?.body.p_contact_phone === '+1 555 010 3000' && setupCall?.body.p_mailing_address === '3000 Setup Avenue' && setupCall?.body.p_worker_type === 'contractor_1099' && setupCall?.body.p_machine_compensation.length === 2 && setupCall?.body.p_machine_compensation.every((item) => item.shiftRateCents === 2000 && item.commissionBasisPoints === 700) && !('p_reason' in setupCall.body));
 
     await page.getByRole('button', { name: 'View machine breakdown' }).click();
     await page.getByRole('button', { name: 'More filters' }).click();

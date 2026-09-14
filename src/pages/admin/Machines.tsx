@@ -83,6 +83,7 @@ import {
 import {
   lookupReportingUserByEmailAdmin,
   upsertReportingMachineAdmin,
+  type ReportingMachineOperationalPhase,
 } from '@/lib/reporting';
 import { normalizeMachineType, type CanonicalMachineType } from '@/lib/machineTypes';
 import { cn } from '@/lib/utils';
@@ -105,7 +106,7 @@ type MachineTypeFilter = 'all' | CanonicalMachineType;
 type MachineRefundFilter = 'all' | 'ready' | 'direct_blocked' | 'setup' | 'paused';
 type MachineActivityFilter = 'all' | 'recent' | 'no_sales';
 type MachineSort = 'status' | 'machine' | 'latest_sale';
-type MachineView = 'all' | 'attention' | 'ready';
+type MachineView = 'all' | 'setup' | 'attention' | 'ready';
 type MachineDetailTab = 'overview' | 'refunds' | 'managers' | 'reporting' | 'activity';
 type MachineAttentionReason = {
   code: string;
@@ -286,9 +287,11 @@ const emptyMachineForm = {
   machineId: null as string | null,
   accountName: '',
   locationName: '',
+  locationTimezone: 'America/Los_Angeles',
   machineLabel: '',
   machineType: 'commercial' as CanonicalMachineType | '',
   sunzeMachineId: '',
+  operationalPhase: 'live' as ReportingMachineOperationalPhase,
 };
 
 const emptyTaxChangeForm = {
@@ -309,7 +312,7 @@ const parseAssignmentFilter = (value: string | null): MachineAssignmentFilter =>
 };
 
 const parseMachineView = (value: string | null): MachineView => {
-  if (value === 'attention' || value === 'ready') return value;
+  if (value === 'setup' || value === 'attention' || value === 'ready') return value;
   return 'all';
 };
 
@@ -384,6 +387,7 @@ const buildLocalMachineManagerDemoSetup = (): PartnershipReportingSetup => ({
       machine_type: 'commercial',
       sunze_machine_id: 'DEMO-SUNZE-01',
       status: 'active',
+      operational_phase: 'live',
       account_name: 'Refund UAT Synthetic Account',
       location_name: 'Refund UAT Mall',
       latest_sale_date: today(),
@@ -394,6 +398,7 @@ const buildLocalMachineManagerDemoSetup = (): PartnershipReportingSetup => ({
       machine_type: 'commercial',
       sunze_machine_id: 'DEMO-SUNZE-02',
       status: 'active',
+      operational_phase: 'live',
       account_name: 'Refund UAT Synthetic Account',
       location_name: 'Refund UAT Arcade',
       latest_sale_date: today(),
@@ -670,8 +675,9 @@ export default function AdminMachinesPage() {
             (warning) => warning.warningType === 'overlapping_partnership_assignments'
           );
         const attentionReasons: MachineAttentionReason[] = [];
+        const isSetupPhase = machine.operational_phase === 'setup';
 
-        if (refundReadinessState !== 'ready_to_refund') {
+        if (!isSetupPhase && refundReadinessState !== 'ready_to_refund') {
           const reasonLabel =
             refundReadinessState === 'ready_to_activate'
               ? 'Card refunds are ready to activate'
@@ -693,6 +699,7 @@ export default function AdminMachinesPage() {
         }
 
         if (
+          !isSetupPhase &&
           machineManagerEmails.length === 0 &&
           !attentionReasons.some((reason) => reason.tab === 'managers')
         ) {
@@ -704,7 +711,7 @@ export default function AdminMachinesPage() {
           });
         }
 
-        if (hasAssignmentOverlap) {
+        if (!isSetupPhase && hasAssignmentOverlap) {
           attentionReasons.push({
             code: 'report_overlap',
             label: 'Partner report assignments overlap',
@@ -713,7 +720,7 @@ export default function AdminMachinesPage() {
           });
         }
 
-        if (activeAssignments.length > 0 && taxStatus === 'missing') {
+        if (!isSetupPhase && activeAssignments.length > 0 && taxStatus === 'missing') {
           attentionReasons.push({
             code: 'tax_missing',
             label: 'Reporting tax is missing',
@@ -816,8 +823,9 @@ export default function AdminMachinesPage() {
   const visibleMachineRows = useMemo(
     () =>
       machineRows.filter((row) => {
+        if (view === 'setup') return row.machine.operational_phase === 'setup';
         if (view === 'attention') return row.attentionReasons.length > 0;
-        if (view === 'ready') return row.attentionReasons.length === 0;
+        if (view === 'ready') return row.machine.operational_phase !== 'setup' && row.attentionReasons.length === 0;
         return true;
       }),
     [machineRows, view]
@@ -828,8 +836,9 @@ export default function AdminMachinesPage() {
   const portfolioCounts = useMemo(
     () => ({
       all: machineRows.length,
+      setup: machineRows.filter((row) => row.machine.operational_phase === 'setup').length,
       attention: machineRows.filter((row) => row.attentionReasons.length > 0).length,
-      ready: machineRows.filter((row) => row.attentionReasons.length === 0).length,
+      ready: machineRows.filter((row) => row.machine.operational_phase !== 'setup' && row.attentionReasons.length === 0).length,
     }),
     [machineRows]
   );
@@ -1365,6 +1374,7 @@ export default function AdminMachinesPage() {
           >
             {([
               ['all', 'All', portfolioCounts.all],
+              ['setup', 'Provisional', portfolioCounts.setup],
               ['attention', 'Needs attention', portfolioCounts.attention],
               ['ready', 'Ready', portfolioCounts.ready],
             ] as const).map(([value, label, count]) => (
@@ -1698,7 +1708,12 @@ function MachinePortfolioRow({
     >
       <div role="cell" className="min-w-0 xl:col-span-1">
         <CellLabel>Machine</CellLabel>
-        <div className="truncate font-semibold text-foreground">{machine.machine_label}</div>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="truncate font-semibold text-foreground">{machine.machine_label}</span>
+          {machine.operational_phase === 'setup' && (
+            <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900">Provisional</Badge>
+          )}
+        </div>
         <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
           <span className="truncate">{machine.location_name || machine.account_name || 'Location not set'}</span>
           <span aria-hidden="true">·</span>
@@ -1722,8 +1737,9 @@ function MachinePortfolioRow({
             </div>
           </div>
         ) : (
-          <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700">
-            <CheckCircle2 className="h-4 w-4" /> No setup issues
+          <span className={cn('inline-flex items-center gap-1.5 font-medium', machine.operational_phase === 'setup' ? 'text-amber-800' : 'text-emerald-700')}>
+            {machine.operational_phase === 'setup' ? <CalendarClock className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
+            {machine.operational_phase === 'setup' ? 'Waiting for launch setup' : 'No setup issues'}
           </span>
         )}
       </div>
@@ -1751,7 +1767,9 @@ function MachinePortfolioRow({
         <div className="font-medium text-foreground">
           {machine.latest_sale_date ? formatDate(machine.latest_sale_date) : 'No sales yet'}
         </div>
-        <div className="mt-0.5 text-xs text-muted-foreground">{formatLabel(machine.status || 'unknown')}</div>
+        <div className="mt-0.5 text-xs text-muted-foreground">
+          {machine.operational_phase === 'setup' ? 'Setup — available for Timekeeping' : formatLabel(machine.operational_phase || machine.status || 'unknown')}
+        </div>
       </div>
 
       <div role="cell" className="flex items-end justify-end xl:justify-end">
@@ -2514,7 +2532,7 @@ function MachineDialog({
       setForm({
         ...emptyMachineForm,
         accountName: hiddenManualMachineAccountName,
-        locationName: hiddenFallbackLocationName,
+        locationName: '',
       });
       return;
     }
@@ -2523,9 +2541,11 @@ function MachineDialog({
       machineId: machine.id,
       accountName: machine.account_name || hiddenManualMachineAccountName,
       locationName: machine.location_name,
+      locationTimezone: 'America/Los_Angeles',
       machineLabel: machine.machine_label,
       machineType: normalizeMachineType(machine.machine_type) ?? '',
       sunzeMachineId: machine.sunze_machine_id ?? '',
+      operationalPhase: machine.operational_phase ?? 'live',
     });
   }, [machine, open]);
 
@@ -2571,6 +2591,11 @@ function MachineDialog({
 
     if (shouldSaveIdentity && !form.machineType) {
       toast.error('Choose a machine type before saving.');
+      return;
+    }
+
+    if (shouldSaveIdentity && !form.machineId && !form.locationName.trim()) {
+      toast.error('Location is required for a new machine.');
       return;
     }
 
@@ -2842,7 +2867,8 @@ function MachineDialog({
     form.machineLabel.trim() !== machine.machine_label ||
     form.accountName.trim() !== (machine.account_name || hiddenManualMachineAccountName) ||
     form.machineType !== (normalizeMachineType(machine.machine_type) ?? '') ||
-    form.sunzeMachineId.trim() !== (machine.sunze_machine_id ?? '')
+    form.sunzeMachineId.trim() !== (machine.sunze_machine_id ?? '') ||
+    form.operationalPhase !== (machine.operational_phase ?? 'live')
   );
 
   const hasUnsavedChanges = machineManagerHasChanges || refundReadinessHasChanges || machineIdentityHasChanges;
@@ -2853,9 +2879,11 @@ function MachineDialog({
       machineId: machine.id,
       accountName: machine.account_name || hiddenManualMachineAccountName,
       locationName: machine.location_name,
+      locationTimezone: 'America/Los_Angeles',
       machineLabel: machine.machine_label,
       machineType: normalizeMachineType(machine.machine_type) ?? '',
       sunzeMachineId: machine.sunze_machine_id ?? '',
+      operationalPhase: machine.operational_phase ?? 'live',
     });
   }, [machine]);
 
@@ -2975,12 +3003,20 @@ function MachineDialog({
                 {machine.machine_label}
               </h1>
               <Badge variant="outline">{formatMachineType(machine.machine_type)}</Badge>
+              {machine.operational_phase === 'setup' && (
+                <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900">Provisional</Badge>
+              )}
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
               {machine.location_name || machine.account_name || 'Location not set'}
             </p>
           </div>
-          {primaryAttention ? (
+          {machine.operational_phase === 'setup' ? (
+            <div className="max-w-sm rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              <div className="font-medium">Setup phase</div>
+              <div className="mt-0.5 text-xs text-amber-900/80">Available for assignments and Timekeeping while provider setup is incomplete.</div>
+            </div>
+          ) : primaryAttention ? (
             <div className="max-w-sm rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
               <div className="flex gap-2">
                 <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
@@ -3051,6 +3087,14 @@ function MachineDialog({
                     {!form.machineType && <p className="mt-1 text-xs text-amber-700">This legacy record is unverified. Choose its correct type before saving.</p>}
                   </div>
                   <div>
+                    <Label htmlFor="page-machine-phase">Operational phase</Label>
+                    <select id="page-machine-phase" value={form.operationalPhase} onChange={(event) => setForm({ ...form, operationalPhase: event.target.value as ReportingMachineOperationalPhase })} className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm">
+                      <option value="setup">Setup — provisional</option>
+                      <option value="live">Live</option>
+                    </select>
+                    <p className="mt-1 text-xs text-muted-foreground">Setup machines can be assigned for Timekeeping before Nayax or Sunzee is connected.</p>
+                  </div>
+                  <div>
                     <Label htmlFor="page-machine-location">Location</Label>
                     <Input id="page-machine-location" value={machine.location_name || 'Not set'} readOnly />
                   </div>
@@ -3068,6 +3112,7 @@ function MachineDialog({
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Machine label</dt><dd className="text-right font-medium">{machine.machine_label}</dd></div>
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Reporting account</dt><dd className="text-right font-medium">{machine.account_name || 'Not set'}</dd></div>
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Machine type</dt><dd className="font-medium">{formatMachineType(machine.machine_type)}</dd></div>
+                <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Operational phase</dt><dd className="font-medium">{machine.operational_phase === 'setup' ? 'Setup — provisional' : formatLabel(machine.operational_phase)}</dd></div>
                 <div className="flex justify-between gap-4 px-4 py-3"><dt className="text-muted-foreground">Location</dt><dd className="text-right font-medium">{machine.location_name || 'Not set'}</dd></div>
               </dl>
             )}
@@ -3316,6 +3361,38 @@ function MachineDialog({
               disabled={!canEditMachineIdentity}
             />
           </div>
+          {!form.machineId && (
+            <>
+              <div>
+                <Label htmlFor="machine-location">Location</Label>
+                <Input
+                  id="machine-location"
+                  value={form.locationName}
+                  onChange={(event) => setForm({ ...form, locationName: event.target.value })}
+                  disabled={!canEditMachineIdentity}
+                  placeholder="Mall or event location"
+                />
+              </div>
+              <div>
+                <Label htmlFor="machine-timezone">Location time zone</Label>
+                <select
+                  id="machine-timezone"
+                  value={form.locationTimezone}
+                  onChange={(event) => setForm({ ...form, locationTimezone: event.target.value })}
+                  disabled={!canEditMachineIdentity}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="America/New_York">Eastern</option>
+                  <option value="America/Chicago">Central</option>
+                  <option value="America/Denver">Mountain</option>
+                  <option value="America/Phoenix">Arizona</option>
+                  <option value="America/Los_Angeles">Pacific</option>
+                  <option value="America/Anchorage">Alaska</option>
+                  <option value="Pacific/Honolulu">Hawaii</option>
+                </select>
+              </div>
+            </>
+          )}
           <div>
             <Label htmlFor="machine-type">Machine type</Label>
             <select
@@ -3331,6 +3408,20 @@ function MachineDialog({
                 </option>
               ))}
             </select>
+          </div>
+          <div>
+            <Label htmlFor="machine-phase">Operational phase</Label>
+            <select
+              id="machine-phase"
+              value={form.operationalPhase}
+              onChange={(event) => setForm({ ...form, operationalPhase: event.target.value as ReportingMachineOperationalPhase })}
+              disabled={!canEditMachineIdentity}
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+            >
+              <option value="setup">Setup — provisional</option>
+              <option value="live">Live</option>
+            </select>
+            <p className="mt-1 text-xs text-muted-foreground">Use Setup when technicians need Timekeeping before external machine setup is finished.</p>
           </div>
           <div className="sm:col-span-2">
             <Label htmlFor="sunze-id">External machine ID</Label>
