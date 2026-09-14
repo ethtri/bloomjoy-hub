@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(62);
+select plan(58);
 
 select has_table('public', 'refund_sunze_cash_correlation_attempts', 'Correlation attempts are durable');
 select has_table('public', 'refund_sunze_cash_correlation_candidates', 'Candidate evidence is durable');
@@ -401,16 +401,18 @@ create temporary table sunze_bulk_first as
 select public.service_correlate_sunze_cash_import(
   '35230000-0000-4000-8000-000000000001', 500, '2026-09-14 21:00:00+00'
 ) as result;
-select is((select result->>'evaluated' from sunze_bulk_first), '500', 'Completed-import work stays bounded at 500 cases');
-select is((select result->>'remaining' from sunze_bulk_first), '1', 'Completed-import work reports the exact remaining continuation count');
-select is((select result->>'hasMore' from sunze_bulk_first), 'true', 'Completed-import work reports that continuation is required');
-
 create temporary table sunze_bulk_second as
 select public.service_correlate_sunze_cash_import(
   '35230000-0000-4000-8000-000000000001', 500, '2026-09-14 21:00:00+00'
 ) as result;
-select is((select result->>'evaluated' from sunze_bulk_second), '1', 'A continuation drains the final unprocessed current snapshot');
-select is((select result->>'remaining' from sunze_bulk_second), '0', 'A completed continuation reports no remaining work');
+select ok(
+  (select result->>'evaluated' from sunze_bulk_first) = '500'
+  and (select result->>'remaining' from sunze_bulk_first) = '1'
+  and (select result->>'hasMore' from sunze_bulk_first) = 'true'
+  and (select result->>'evaluated' from sunze_bulk_second) = '1'
+  and (select result->>'remaining' from sunze_bulk_second) = '0',
+  'Completed-import batches report exact bounded continuation and drain the final snapshot'
+);
 
 select ok(
   (public.service_sunze_cash_correlation_metrics('2026-09-14 00:00:00+00')->>'attemptCount')::integer >= 3
