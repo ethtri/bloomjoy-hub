@@ -69,9 +69,12 @@ create table public.refund_sunze_cash_sale_links (
   )),
   release_note text check (release_note is null or length(release_note) <= 500),
   released_by uuid references auth.users (id) on delete restrict,
+  released_case_fact_version bigint check (released_case_fact_version is null or released_case_fact_version >= 1),
   constraint refund_sunze_cash_sale_links_release_shape check (
-    (released_at is null and release_reason is null and release_note is null and released_by is null)
-    or (released_at is not null and release_reason is not null and released_by is not null)
+    (released_at is null and release_reason is null and release_note is null and released_by is null
+      and released_case_fact_version is null)
+    or (released_at is not null and release_reason is not null and released_by is not null
+      and released_case_fact_version is not null)
   )
 );
 
@@ -264,7 +267,8 @@ begin
     p_refund_case_id, 'sunze_cash_correlation_v1', p_expected_fact_version, source_key,
     coalesce(watermark.import_run_id, latest_watermark.import_run_id), p_import_run_id,
     p_trigger_reason, result_state, result_reason, candidate_total,
-    watermark.coverage_started_at, watermark.covered_through,
+    coalesce(watermark.coverage_started_at, latest_watermark.coverage_started_at),
+    coalesce(watermark.covered_through, latest_watermark.covered_through),
     coalesce(watermark.freshness_expires_at, latest_watermark.freshness_expires_at), p_now
   ) returning * into attempt_row;
 
@@ -886,6 +890,7 @@ begin
         release_reason = 'source_reconciliation',
         release_note = 'Replaced by a reviewed current candidate.',
         released_by = p_actor_user_id,
+        released_case_fact_version = p_expected_fact_version,
         link_version = link_version + 1
     where id = link_row.id;
   end if;
@@ -984,7 +989,7 @@ begin
     select * into link_row
     from public.refund_sunze_cash_sale_links link
     where link.refund_case_id = p_refund_case_id
-      and link.case_fact_version = p_expected_fact_version
+      and link.released_case_fact_version = p_expected_fact_version
       and link.link_version = p_expected_link_version + 1
       and link.released_at is not null
       and link.release_reason = p_release_reason
@@ -1008,6 +1013,7 @@ begin
       release_reason = p_release_reason,
       release_note = nullif(btrim(coalesce(p_release_note, '')), ''),
       released_by = p_actor_user_id,
+      released_case_fact_version = p_expected_fact_version,
       link_version = link_version + 1
   where id = link_row.id;
 

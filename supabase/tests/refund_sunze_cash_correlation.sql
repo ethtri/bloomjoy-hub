@@ -350,10 +350,12 @@ select is(
   'true',
   'A lost release response replays with the original actor and generation token'
 );
-select is(
-  (select released_by from public.refund_sunze_cash_sale_links where refund_case_id='35250000-0000-4000-8000-000000000002'),
-  '35260000-0000-4000-8000-000000000001'::uuid,
-  'Reconciliation retains the explicit validated audit actor'
+select ok(
+  (select released_by = '35260000-0000-4000-8000-000000000001'::uuid
+      and released_case_fact_version = 2
+    from public.refund_sunze_cash_sale_links
+    where refund_case_id='35250000-0000-4000-8000-000000000002'),
+  'Reconciliation retains the explicit validated audit actor and release-time fact version'
 );
 select is(
   public.service_get_sunze_cash_correlation('35250000-0000-4000-8000-000000000002', '35260000-0000-4000-8000-000000000001', 100)->>'state',
