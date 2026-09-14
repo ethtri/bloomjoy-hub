@@ -324,7 +324,7 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 129, 'Evidence must enumerate all 129 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 128, 'Evidence must enumerate all 128 reviewed screenshots');
   for (const senderScreenshot of [
     'refund-customer-message-official-sender-desktop.png',
     'refund-customer-message-official-sender-mobile.png',
@@ -462,6 +462,11 @@ try {
     EXPECTED_SCREENSHOTS.filter((name) => name.includes('totp') || name.includes('step-up')).length,
     0,
     'The evidence allowlist must not preserve retired TOTP or step-up ceremony'
+  );
+  assert.equal(
+    EXPECTED_SCREENSHOTS.includes('refund-nayax-evidence-only-reconciliation.png'),
+    false,
+    'The evidence allowlist must not preserve the retired manual Nayax reconciliation screen'
   );
   const portalUatSource = await readFile(
     new URL('./validate-refund-portal-uat.mjs', import.meta.url),
