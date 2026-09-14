@@ -199,7 +199,8 @@
     "20260912040000_refund_orphaned_lookup_evidence_recovery.sql",
     "20260912205646_refund_gap_recovery_paths.sql",
     "20260913090000_refund_single_manager_gate.sql",
-    "20260914052555_refund_single_manager_db_guards.sql"
+    "20260914052555_refund_single_manager_db_guards.sql",
+    "20260914080000_refund_system_settlement_adjustment_proof.sql"
   ],
   "migrationFilesSha256": "ee30917b21ceb59a1e3ad0f5257ec57e51f445796a538d946fe729db8f81ed2a",
   "migrationVersionSetSha256": "cf90017a27721fc0dec3235a7c8b4800a9b387e30909c5b80b18b24c69e3a5bd",

@@ -163,10 +163,13 @@ try {
   assert(
     repositoryMigrations.includes('20260913090000_refund_single_manager_gate.sql') &&
       repositoryMigrations.includes('20260914052555_refund_single_manager_db_guards.sql') &&
+      repositoryMigrations.includes('20260914080000_refund_system_settlement_adjustment_proof.sql') &&
       repositoryMigrations.indexOf('20260913090000_refund_single_manager_gate.sql') <
         repositoryMigrations.indexOf('20260914052555_refund_single_manager_db_guards.sql') &&
+      repositoryMigrations.indexOf('20260914052555_refund_single_manager_db_guards.sql') <
+        repositoryMigrations.indexOf('20260914080000_refund_system_settlement_adjustment_proof.sql') &&
       !repositoryMigrations.includes('20260913153000_refund_single_manager_gate_followup.sql'),
-    'The applied single-manager gate must be followed by its forward-only database hardening migration'
+    'The applied single-manager gate must be followed by its forward-only database hardening migrations'
   );
   assert(repositoryMigrations.includes('20260903190000_refund_scoped_customer_corrections.sql') &&
     repositoryMigrations.indexOf('20260903190000_refund_scoped_customer_corrections.sql') <

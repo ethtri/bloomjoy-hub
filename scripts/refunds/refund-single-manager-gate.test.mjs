@@ -6,6 +6,7 @@ const root = new URL('../../', import.meta.url);
 const read = (path) => readFile(new URL(path, root), 'utf8');
 const migration = await read('supabase/migrations/20260913090000_refund_single_manager_gate.sql');
 const hardening = await read('supabase/migrations/20260914052555_refund_single_manager_db_guards.sql');
+const settlementProof = await read('supabase/migrations/20260914080000_refund_system_settlement_adjustment_proof.sql');
 const edge = await read('supabase/functions/nayax-card-refund/index.ts');
 const adminUpdate = await read('supabase/functions/refund-case-admin-update/index.ts');
 const sweep = await read('supabase/functions/refund-case-automation-sweep/index.ts');
@@ -47,7 +48,7 @@ const jsonbBuildObjectArgumentCounts = (sql) => {
   return counts;
 };
 
-test('the gate has one forward-only database hardening migration', async () => {
+test('the gate has forward-only database hardening migrations', async () => {
   await assert.rejects(access(new URL(
     'supabase/migrations/20260913153000_refund_system_saved_approval_boundary.sql', root,
   )));
@@ -57,6 +58,7 @@ test('the gate has one forward-only database hardening migration', async () => {
   assert.match(migration, /insert into public\.refund_nayax_execution_contexts/);
   assert.match(migration, /refund_claim_exact_nayax_transaction/);
   assert.match(hardening, /original gate migration may already be present in migration history/);
+  assert.match(settlementProof, /single-manager migrations may already be/);
   assert.doesNotMatch(migration, /refund_nayax_system_saved_approval_receipts/);
   assert.doesNotMatch(migration, /backfill|legacy approval.*executable/i);
 });
@@ -291,6 +293,25 @@ test('case work and financial authority are distinct', () => {
     2,
   );
   assert.match(behavioralFixture, /set status='active',revoked_at=null,revoke_reason=null/);
+});
+
+test('System settlement writes accounting proof only after the approved case is complete', () => {
+  assert.match(
+    settlementProof,
+    /service_settle_nayax_refund_attempt[\s\S]*?refund_case_status'',''completed''[\s\S]*?refund_case_decision'',''approved''/,
+  );
+  assert.match(
+    settlementProof,
+    /bloomjoy\.nayax_system_success_evidence_id[\s\S]*?bloomjoy\.nayax_settlement_attempt_id[\s\S]*?update public\.refund_cases set status=''completed'',decision=''approved''[\s\S]*?insert into public\.sales_adjustment_facts/,
+  );
+  assert.match(
+    settlementProof,
+    /system_success_evidence_id[\s\S]*?refund_case_status'',''completed'',''refund_case_decision'',''approved''/,
+  );
+  assert.match(
+    settlementProof,
+    /replacement := E'  update public\.refund_cases set reporting_adjustment_id=adjustment\.id where id=c\.id;'/,
+  );
 });
 
 test('System executes without a post-approval manager or browser continuation', () => {
