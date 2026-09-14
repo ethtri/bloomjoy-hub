@@ -162,8 +162,8 @@ Notes:
 - Never prefix Sunze, Google, service-role, or scheduler secrets with `VITE_`.
 
 ## Nayax Lynx API notes
-For Nayax refund work, start with `Docs/NAYAX_REFUND_WORKING_CONTRACT.md`, then
-read the Refund Operations snapshot in `Docs/CURRENT_STATUS.md` and the newest
+For Nayax refund work, start with `Docs/REFUND_WORKFLOW.md`, then read the current
+refund snapshot in `Docs/CURRENT_STATUS.md` and the newest
 entries in `Docs/DECISIONS.md`. Use `Docs/NAYAX_LYNX_API.md` for endpoint and
 historical technical evidence; dated incident narratives do not override the
 working permissions, payload, response, or duplicate-prevention baseline.
@@ -272,7 +272,7 @@ To use all login methods in local dev:
      - `http://localhost:8080/reset-password`
 
 
-## Refund operations agent QA and proof review
+## Refund workflow agent QA and proof review
 Use this path for agent-run QA of `/refunds/request`, `/refunds`, and Admin > Machines without Google OAuth and without sharing a password.
 
 Expected product behavior is in `Docs/REFUND_WORKFLOW.md`. Use
@@ -281,7 +281,7 @@ Expected product behavior is in `Docs/REFUND_WORKFLOW.md`. Use
 pilots and fixed evidence packets are not local-development prerequisites.
 
 Prereqs:
-- Local Supabase is running and the refund operations migration has been applied.
+- Local Supabase is running and the current refund migrations have been applied.
 - `.env` or `.env.local` contains local-only `SUPABASE_URL` or `VITE_SUPABASE_URL`, plus server-only `SUPABASE_SERVICE_ROLE_KEY`.
 - The Supabase URL should be `localhost`, `127.0.0.1`, or `::1`. The helper refuses non-local Supabase URLs by default.
 - For card lookup UAT, set server-only `NAYAX_LYNX_API_TOKEN_TGPACI_USA_DB` or the fallback `NAYAX_LYNX_API_TOKEN`, and keep `NAYAX_LYNX_BASE_URL=https://lynx.nayax.com/operational/v1`. Do not use `VITE_` for Nayax secrets.

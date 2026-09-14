@@ -51,6 +51,7 @@ export const refundManagerNextActionCopy = (actionCode: string) => ({
   mark_external_refund: 'Complete the approved external payment workflow, then record completion in the portal.',
   select_transaction: 'Review the current candidates and select the supported transaction in the portal.',
   retry_read_only_lookup: "Review the case, then use the portal's read-only lookup retry if it is still offered.",
+  repair_nayax_lookup_setup: 'Correct the saved Nayax machine or account mapping, then run the read-only transaction check.',
   review_inbound_case_link: 'Review the proposed inbound-message case link in the portal.',
   review_delivery_no_resend: 'Review delivery evidence in the portal. Do not resend or repeat payment from this email.',
   recover_customer_delivery: 'Review customer delivery evidence in the portal before choosing a recovery step.',

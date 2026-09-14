@@ -8,6 +8,7 @@ const migration = await read('supabase/migrations/20260913090000_refund_single_m
 const hardening = await read('supabase/migrations/20260914052555_refund_single_manager_db_guards.sql');
 const settlementProof = await read('supabase/migrations/20260914080000_refund_system_settlement_adjustment_proof.sql');
 const cashAuthority = await read('supabase/migrations/20260914090000_refund_official_authority_cash_completion.sql');
+const managerSystemCutover = await read('supabase/migrations/20260914100000_refund_manager_system_cutover.sql');
 const edge = await read('supabase/functions/nayax-card-refund/index.ts');
 const adminUpdate = await read('supabase/functions/refund-case-admin-update/index.ts');
 const sweep = await read('supabase/functions/refund-case-automation-sweep/index.ts');
@@ -61,6 +62,9 @@ test('the gate has forward-only database hardening migrations', async () => {
   assert.match(hardening, /original gate migration may already be present in migration history/);
   assert.match(settlementProof, /single-manager migrations may already be/);
   assert.match(cashAuthority, /Complete the single-decision authority cutover for cash actions/);
+  assert.match(managerSystemCutover, /Machine Manager or a Super-admin makes the decision/);
+  assert.match(managerSystemCutover, /Cash approval must enter the cash refund pending state/);
+  assert.match(managerSystemCutover, /safe_failure_class='provider_unknown'/);
   assert.doesNotMatch(migration, /refund_nayax_system_saved_approval_receipts/);
   assert.doesNotMatch(migration, /backfill|legacy approval.*executable/i);
 });
@@ -295,6 +299,20 @@ test('case work and financial authority are distinct', () => {
     2,
   );
   assert.match(behavioralFixture, /set status='active',revoked_at=null,revoke_reason=null/);
+});
+
+test('read-only recovery belongs to the current case manager while payment stays System-owned', () => {
+  assert.match(managerSystemCutover, /can_manage_refund_case\(p_actor_user_id,case_row\.id\)/);
+  assert.doesNotMatch(
+    managerSystemCutover.match(/create or replace function public\.service_begin_refund_nayax_operations_lookup[\s\S]*?\$\$;/)?.[0] ?? '',
+    /is_super_admin/,
+  );
+  assert.match(managerSystemCutover, /work_owner := 'machine_manager'/);
+  assert.match(managerSystemCutover, /manager_action := 'retry_read_only_lookup'/);
+  assert.match(managerSystemCutover, /'\{lifecycle,managerAction,owner\}','"Machine Manager"'/);
+  assert.match(managerSystemCutover, /'\{lifecycle,operations,owner\}','"System"'/);
+  assert.match(managerSystemCutover, /refund_authoritative_receipts/);
+  assert.match(managerSystemCutover, /refund_case_nayax_refund_attempts/);
 });
 
 test('cash approval consumption preserves either exact manager authority', () => {

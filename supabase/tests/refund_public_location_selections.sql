@@ -190,6 +190,7 @@ insert into public.refund_cases (
   payment_amount_cents, card_last4, card_last4_source, card_last4_provenance,
   card_network, payment_interaction,
   incident_time_confidence, issue_category, status, correlation_status,
+  nayax_lookup_status, nayax_recommendation_state,
   customer_request_received_at, customer_request_received_source
 )
 values (
@@ -200,6 +201,7 @@ values (
   now() - interval '30 minutes', to_char(now() - interval '30 minutes', 'YYYY-MM-DD"T"HH24:MI'),
   'America/Los_Angeles', 'exact', 'card', 550, '4242', 'physical_card', 'physical_card', 'visa',
   'tap_card', 'exact', 'charged_no_product', 'needs_review', 'multiple_candidates',
+  'multiple_matches', 'ambiguous',
   now() - interval '5 minutes', 'hosted_refund_intake'
 );
 

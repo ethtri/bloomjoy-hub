@@ -1,6 +1,6 @@
 # Refund workflow
 
-Last updated: 2026-09-13. Owner decision: #1364.
+Last updated: 2026-09-14. Owner decision: #1364.
 
 ## What we are doing
 

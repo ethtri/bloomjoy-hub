@@ -287,7 +287,7 @@ export type RefundCustomerDeliveryException = {
   state: Exclude<RefundTransactionalDeliveryState, 'accepted' | 'delivered'>;
   messageType: string;
   occurredAt: string;
-  recoveryOwner: 'refund_operations';
+  recoveryOwner: 'machine_manager' | 'refund_operations';
   nextAction: 'review_delivery_no_resend';
   customerMessageReplayAllowed: false;
   paymentReplayAllowed: false;
@@ -361,7 +361,7 @@ export type RefundNayaxLookupSummary = {
     | 'account_scope_missing'
     | 'account_access_unavailable'
     | 'grouped_mapping_incomplete';
-  responsibleOwner?: 'refund_operations';
+  responsibleOwner?: 'machine_manager' | 'refund_operations';
   requiredAccountScope?: string;
   customerActionRequired?: false;
 };
@@ -862,7 +862,7 @@ export type RefundCaseRecord = {
   internalTest?: RefundInternalTestContract | null;
   nayaxLookupSummary?: RefundNayaxLookupSummary | null;
   nayaxLookupWork?: {
-    state: 'system' | 'refund_operations' | 'complete';
+    state: 'system' | 'machine_manager' | 'refund_operations' | 'complete';
     automaticRetriesUsed: number;
     nextAttemptAt: string | null;
     failureClass: string | null;

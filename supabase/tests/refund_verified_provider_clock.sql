@@ -43,8 +43,8 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
  customer_request_received_at,customer_request_received_source)
 select pg_temp.case_id(n),'RF-DIAGNOSTIC-'||n,'fc440000-0000-4000-8000-000000000001',
  'fc430000-0000-4000-8000-000000000001','diagnostics-customer-'||n||'@example.invalid','Synthetic diagnostics',
- '2026-08-29T20:10:00Z','America/New_York','card',963,963,'4242','needs_review','approved','Ordinary decision',
- 'fc410000-0000-4000-8000-000000000001',now()-interval '1 day','no_match','nayax',1,'not_requested','exact',
+ '2026-08-29T20:10:00Z','America/New_York','card',963,963,'4242','needs_review',null,null,
+ null,null,'no_match','nayax',1,'not_requested','exact',
  case n when 5 then 'within_15_minutes' when 6 then 'within_1_hour' else 'rough' end,
  '2026-08-30T00:00:00Z','hosted_refund_intake'
 from generate_series(1,8) n;

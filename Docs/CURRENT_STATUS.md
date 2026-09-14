@@ -1,6 +1,6 @@
 # Current Status
 
-Last compacted: 2026-09-13.
+Last compacted: 2026-09-14.
 
 GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short
@@ -18,6 +18,9 @@ orientation snapshot; it is not a backlog or release ledger.
   from the assigned Machine Manager or Super-admin who approves.
 - A routine clear match is saved by the System. Ambiguous results stay available
   for a case worker to choose and save before approval.
+- Read-only transaction recovery and exact payment-result review belong to the
+  current Machine Manager or a Super-admin. The legacy `refundOperationsAccess`
+  flag is only for the internal/test archive and cannot block ordinary case work.
 - One assigned Machine Manager or Super-admin click atomically consumes one card
   approval and queues one System-owned attempt. The System executes and settles
   it. An unknown outcome holds that same attempt for verification. Exact later

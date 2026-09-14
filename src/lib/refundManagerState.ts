@@ -182,7 +182,7 @@ type RefundManagerCaseFacts = {
   customerDeliveryException?: {
     state: 'unknown' | 'deferred' | 'failed' | 'bounced' | 'complained';
     messageType: string;
-    recoveryOwner: 'refund_operations';
+    recoveryOwner: 'machine_manager' | 'refund_operations';
     nextAction: 'review_delivery_no_resend';
     customerMessageReplayAllowed: false;
     paymentReplayAllowed: false;

@@ -201,7 +201,8 @@
     "20260913090000_refund_single_manager_gate.sql",
     "20260914052555_refund_single_manager_db_guards.sql",
     "20260914080000_refund_system_settlement_adjustment_proof.sql",
-    "20260914090000_refund_official_authority_cash_completion.sql"
+    "20260914090000_refund_official_authority_cash_completion.sql",
+    "20260914100000_refund_manager_system_cutover.sql"
   ],
   "migrationFilesSha256": "c4ad7f6588299d397e8618e9ab445707d18de5e4d219ae7dd8af07be9020bcf5",
   "migrationVersionSetSha256": "6d6dfb815f7ffcaafb640db5c2b4428afc0d74f6d7c7d0709222537830a02c6e",

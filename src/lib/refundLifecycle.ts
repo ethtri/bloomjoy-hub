@@ -221,8 +221,8 @@ export type RefundLifecycleContract = {
   };
   operations: {
     required: boolean;
-    queue: "Refund Operations" | "System";
-    owner: "Refund Operations" | "System";
+    queue: "Refund Operations" | "Machine Manager" | "System";
+    owner: "Refund Operations" | "Machine Manager" | "System";
     slaMinutes: 60;
     ageMinutes: number | null;
     dueAt: string | null;
@@ -581,8 +581,7 @@ export const isRefundLifecycleContract = (
     Boolean(lookup) && typeof lookup?.status === "string" &&
     typeof lookup?.safeRetryEligible === "boolean" &&
     Boolean(operations) &&
-    ((hasRestrictedManagerProjection && operations?.queue === "System" &&
-      operations?.owner === "System") ||
+    ((operations?.queue === "System" && operations?.owner === "System") ||
       (!hasRestrictedManagerProjection && operations?.queue === "Refund Operations" &&
         operations?.owner === "Refund Operations")) &&
     operations?.slaMinutes === 60 &&

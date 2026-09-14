@@ -49,7 +49,7 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
   incident_time_confidence,payment_method,payment_amount_cents,refund_amount_cents,
   card_last4,card_last4_provenance,payment_interaction,status,correlation_status,
   correlation_source,correlation_confidence,correlation_summary,deterministic_fact_version,
-  intake_source,intake_meta,nayax_lookup_generation,nayax_lookup_status,
+  intake_source,intake_meta,nayax_lookup_generation,nayax_lookup_status,nayax_recommendation_state,
   nayax_refund_execution_status,matched_nayax_transaction_id,matched_nayax_site_id,
   matched_nayax_machine_auth_time,matched_nayax_amount_cents,matched_nayax_card_last4,
   matched_nayax_currency_code)
@@ -58,7 +58,7 @@ values('b3470000-0000-4000-8000-000000000001','RF-SINGLE-GATE-RACE',
   'race-customer@example.invalid','Concurrent exact saved sale','2026-09-12T20:00:00Z',
   'America/Los_Angeles','exact','exact','card',1000,1090,'4242','physical_card','tap_card',
   'needs_review','matched','nayax',1,'Exact saved System candidate',1,'form','{}',1,
-  'manual_exception','not_requested','RF423906B2-RACE',17,'2026-09-12T20:00:00Z',1090,'4242','USD');
+  'manual_exception','manual_exception','not_requested','RF423906B2-RACE',17,'2026-09-12T20:00:00Z',1090,'4242','USD');
 
 insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,
   reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,amount_cents,

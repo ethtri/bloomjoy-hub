@@ -66,6 +66,21 @@ insert into public.reporting_machine_refund_managers (
   'Manager lifecycle routine persona'
 );
 
+insert into public.refund_cases (
+  id, public_reference, reporting_machine_id, reporting_location_id,
+  customer_email, issue_summary, incident_at, incident_timezone,
+  payment_method, payment_amount_cents, refund_amount_cents,
+  status, correlation_status, deterministic_fact_version,
+  nayax_refund_execution_status
+) values (
+  '99240000-0000-4000-8000-000000000001', 'RF-MANAGER-LIFECYCLE',
+  '99230000-0000-4000-8000-000000000001',
+  '99220000-0000-4000-8000-000000000001',
+  'manager-lifecycle-customer@example.test', 'Manager lifecycle fixture',
+  now() - interval '1 hour', 'America/Los_Angeles',
+  'card', 500, 500, 'needs_review', 'no_match', 1, 'not_requested'
+);
+
 select ok(
   has_function_privilege('authenticated', 'public.admin_get_refund_operations_overview()', 'execute')
   and has_function_privilege('service_role', 'public.admin_get_refund_operations_overview()', 'execute')
@@ -86,7 +101,7 @@ select ok(
     || pg_get_functiondef('public.admin_get_refund_operations_overview_pre_manager_queue_truth_v1()'::regprocedure)
   )
     like '%is_super_admin%',
-  'The overview publishes the explicit Refund Operations capability from server-side authorization'
+  'The overview keeps its legacy internal capability flag server-controlled'
 );
 
 select ok(
@@ -101,7 +116,7 @@ select pg_temp.set_auth_claims('99200000-0000-4000-8000-000000000001');
 select is(
   public.admin_get_refund_operations_overview() ->> 'refundOperationsAccess',
   'false',
-  'A routine manager is not granted Refund Operations access'
+  'A routine manager is not granted the legacy internal capability'
 );
 
 select ok(
@@ -115,23 +130,23 @@ select ok(
 
 select ok(
   (public.admin_get_refund_nayax_resolution_readiness(
-    '99210000-0000-4000-8000-000000000001'
+    '99240000-0000-4000-8000-000000000001'
   ) ->> 'visible') = 'true'
   and (public.admin_get_refund_nayax_resolution_readiness(
-    '99210000-0000-4000-8000-000000000001'
+    '99240000-0000-4000-8000-000000000001'
   ) ->> 'available') = 'false'
   and (public.admin_get_refund_nayax_resolution_readiness(
-    '99210000-0000-4000-8000-000000000001'
+    '99240000-0000-4000-8000-000000000001'
   ) ->> 'blockReason') = 'exact_attempt_required'
   and (public.admin_get_refund_nayax_resolution_readiness(
-    '99210000-0000-4000-8000-000000000001'
+    '99240000-0000-4000-8000-000000000001'
   ) ->> 'payloadRedacted') = 'true',
   'A case manager can see that exact System attempt evidence is required'
 );
 
 select ok(
   pg_temp.capture_error($$select public.admin_create_refund_manual_nayax_candidate(
-    '99210000-0000-4000-8000-000000000001', 1, 'SAFE-MACHINE',
+    '99240000-0000-4000-8000-000000000001', 1, 'SAFE-MACHINE',
     'SAFE-TRANSACTION', '2026-08-26T12:00', 500, '4242'
   )$$) like '42501:permission denied for function admin_create_refund_manual_nayax_candidate%',
   'No authenticated user can submit retired manual provider evidence'
@@ -139,21 +154,21 @@ select ok(
 
 select ok(
   pg_temp.capture_error($$select public.admin_begin_refund_manual_nayax_portal(
-    '99210000-0000-4000-8000-000000000001', 1
+    '99240000-0000-4000-8000-000000000001', 1
   )$$) like '42501:permission denied for function admin_begin_refund_manual_nayax_portal%',
   'No authenticated user can begin the retired manual provider lane'
 );
 
 select ok(
   pg_temp.capture_error($$select public.admin_begin_refund_nayax_evidence_only_reconciliation(
-    '99210000-0000-4000-8000-000000000001', 1
+    '99240000-0000-4000-8000-000000000001', 1
   )$$) like '42501:permission denied for function admin_begin_refund_nayax_evidence_only_reconciliation%',
   'The retired evidence-only reconciliation action is unavailable'
 );
 
 select ok(
   pg_temp.capture_error($$select public.admin_prepare_refund_nayax_resolution_intent(
-    '99210000-0000-4000-8000-000000000001',
+    '99240000-0000-4000-8000-000000000001',
     '99220000-0000-4000-8000-000000000001',
     'succeeded', 'provider_receipt', 'SAFE-REFERENCE', now(), 'confirmed', 1
   )$$) like '42501:permission denied for function admin_prepare_refund_nayax_resolution_intent%',
@@ -162,7 +177,7 @@ select ok(
 
 select ok(
   pg_temp.capture_error($$select public.admin_resolve_refund_nayax_outcome_manager_session(
-    '99210000-0000-4000-8000-000000000001',
+    '99240000-0000-4000-8000-000000000001',
     '99220000-0000-4000-8000-000000000001',
     'succeeded', 'provider_receipt', 'SAFE-REFERENCE', now(), 'confirmed', 1
   )$$) like '42501:permission denied for function admin_resolve_refund_nayax_outcome_manager_session%',
@@ -184,7 +199,7 @@ select pg_temp.set_auth_claims('99200000-0000-4000-8000-000000000002');
 select is(
   public.admin_get_refund_operations_overview() ->> 'refundOperationsAccess',
   'true',
-  'A Super Admin receives the system recovery capability'
+  'A Super-admin retains the legacy internal capability flag'
 );
 
 select * from finish();

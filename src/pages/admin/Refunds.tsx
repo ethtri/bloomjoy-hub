@@ -889,7 +889,7 @@ const isRefundInProgressCase = (refundCase: RefundCaseRecord) => {
     );
 };
 
-const isRefundOperationsCase = (refundCase: RefundCaseRecord) => {
+const isManagerReviewCase = (refundCase: RefundCaseRecord) => {
   if (refundCase.lifecycle) return ['accounting_review', 'provider_hold', 'integrity_hold'].includes(canonicalQueueBucket(refundCase));
   return refundCase.paymentMethod === 'card' &&
     refundCase.lifecycle?.stage === 'needs_refund_operations';
@@ -2198,7 +2198,7 @@ const isNeedsActionCase = (refundCase: RefundCaseRecord) => {
   return openStatuses.has(refundCase.status) &&
     !isReadyToPayCase(refundCase) &&
     !isRefundInProgressCase(refundCase) &&
-    !isRefundOperationsCase(refundCase) &&
+    !isManagerReviewCase(refundCase) &&
     !isWaitingCase(refundCase, false) &&
     !isDoneCase(refundCase);
 };
@@ -2756,7 +2756,7 @@ export default function AdminRefundsPage() {
       query: search, matchesCurrentView: (refundCase) => {
         const readyToRefund = isReadyToPayCase(refundCase);
         const inProgress = isRefundInProgressCase(refundCase);
-        const needsRefundOperations = isRefundOperationsCase(refundCase);
+        const needsManagerReview = isManagerReviewCase(refundCase);
         const waiting = isWaitingCase(refundCase, refundOperationsAccess);
         const done = isDoneCase(refundCase);
         if (
@@ -2767,7 +2767,7 @@ export default function AdminRefundsPage() {
         if (statusFilter === 'missing_information' && !refundCase.missingInformation) return false;
         if (statusFilter === 'possible_duplicate' && !refundCase.possibleDuplicate && !refundCase.confirmedDuplicate) return false;
         if (statusFilter === 'aging' && !refundCase.aging) return false;
-        if (statusFilter === 'provider_hold' && (!refundOperationsAccess || !needsRefundOperations)) return false;
+        if (statusFilter === 'provider_hold' && !needsManagerReview) return false;
         if (statusFilter === 'waiting_on_customer' && !waiting) return false;
         if (
           statusFilter === 'ready_to_pay' &&
@@ -2799,9 +2799,7 @@ export default function AdminRefundsPage() {
     waiting_on_customer: overview.cases.filter((refundCase) =>
       isWaitingCase(refundCase, refundOperationsAccess)
     ).length,
-    provider_hold: refundOperationsAccess
-      ? overview.cases.filter(isRefundOperationsCase).length
-      : 0,
+    provider_hold: overview.cases.filter(isManagerReviewCase).length,
     completed: overview.cases.filter(isDoneCase).length,
     internal_test: refundOperationsAccess ? internalTestCases.length : 0,
     ...(overview.managerWork && (
@@ -3097,8 +3095,7 @@ export default function AdminRefundsPage() {
       verifiedActiveCustomerOutreachDeliveryMessage?.id === customerDeliveryRefreshMessage.id
   );
   const canRefreshCustomerDelivery = Boolean(
-    refundOperationsAccess &&
-      customerDeliveryRefreshMessage?.deliveryTransport === 'resend' &&
+    customerDeliveryRefreshMessage?.deliveryTransport === 'resend' &&
       customerDeliveryRefreshMessage.providerEvidenceAvailable === true &&
       ['unknown', 'accepted', 'deferred'].includes(
         customerDeliveryRefreshMessage.deliveryState ?? ''
@@ -5290,8 +5287,7 @@ export default function AdminRefundsPage() {
       editorStatus: editor.status,
       decision: selectedCase.decision,
       canSelectCandidate:
-        (selectedCase.canSelectNayaxCandidate ?? selectedCase.canPerformOfficialAction) !== false ||
-        refundOperationsAccess,
+        (selectedCase.canSelectNayaxCandidate ?? selectedCase.canPerformOfficialAction) !== false,
       });
     const selectedCandidate = selectedNayaxCandidate(editor, effectiveCandidates);
     const transactionView = selectedTransactionView ?? deriveRefundTransactionViewState({
@@ -5308,23 +5304,20 @@ export default function AdminRefundsPage() {
     const automaticLookupPending = transactionView.kind === 'checking';
     const incompleteHistory = selectedNayaxSummary?.lookupStatus === 'inconclusive';
     const incompleteHistoryRefreshAvailable = Boolean(
-      refundOperationsAccess &&
-        incompleteHistory &&
+      incompleteHistory &&
         (selectedCase.nayaxLookupWork?.automaticRetriesUsed ?? 0) < 1 &&
         !automaticLookupPending &&
         !hasSelectedMatch
     );
     const incompleteHistoryRefreshExhausted = Boolean(
-      refundOperationsAccess &&
-        incompleteHistory &&
+      incompleteHistory &&
         (selectedCase.nayaxLookupWork?.automaticRetriesUsed ?? 0) >= 1 &&
         !automaticLookupPending &&
         !hasSelectedMatch
     );
-    const showRefundOperationsRecovery =
-      refundOperationsAccess &&
+    const showManagerTransactionRecovery =
       (
-        selectedCase.nayaxLookupWork?.state === 'refund_operations' ||
+        ['machine_manager', 'refund_operations'].includes(selectedCase.nayaxLookupWork?.state ?? '') ||
         (
           selectedCase.lifecycle?.managerQueue.safeRetryEligible === true &&
           selectedCase.lifecycle.managerQueue.nextAction === 'retry_read_only_lookup'
@@ -5367,8 +5360,7 @@ export default function AdminRefundsPage() {
         ? `Not selectable: ${candidateUnavailableReason(candidate, selectedCase)}`
         : waitingOnCustomer
           ? 'Selection is paused while waiting for the customer. The assistant will run a fresh search after the reply.'
-          : (selectedCase.canSelectNayaxCandidate ?? selectedCase.canPerformOfficialAction) === false &&
-              !refundOperationsAccess
+          : (selectedCase.canSelectNayaxCandidate ?? selectedCase.canPerformOfficialAction) === false
             ? 'You can review this result, but your current case access does not allow you to save it.'
             : !caseAllowsCandidateSelection
               ? 'Selection is only available while the case is in manager review.'
@@ -5632,7 +5624,7 @@ export default function AdminRefundsPage() {
           </section>
         )}
 
-        {(showRefundOperationsRecovery || (hasSelectedMatch && !systemSelectedClearMatch)) && <details className="rounded-md border border-border bg-background p-2">
+        {(showManagerTransactionRecovery || (hasSelectedMatch && !systemSelectedClearMatch)) && <details className="rounded-md border border-border bg-background p-2">
           <summary className="cursor-pointer text-xs font-medium text-foreground">
             Transaction search details
           </summary>
@@ -5641,7 +5633,7 @@ export default function AdminRefundsPage() {
               Transaction research is read-only here. Bloomjoy runs one automatic check and one retry after a temporary failure.
             </p>
             <div className="flex flex-wrap gap-2">
-              {showRefundOperationsRecovery && (
+              {showManagerTransactionRecovery && (
                 <Button
                   data-testid="nayax-operations-recovery"
                   type="button"
@@ -6495,9 +6487,6 @@ export default function AdminRefundsPage() {
               </div>
 
               {!selectedCase.legacyStateReviewRequired &&
-              (refundOperationsAccess ||
-                (selectedCase.canPerformOfficialAction === true &&
-                  nayaxResolutionReadiness?.systemOutcomeEvidenceAvailable === true)) &&
               nayaxResolutionReadiness?.visible && (
                 <div
                   data-testid="refund-nayax-resolution-panel"
@@ -7270,9 +7259,7 @@ export default function AdminRefundsPage() {
               ['waiting_on_customer', 'Waiting for customer'],
               ['completed', 'Done'],
             ] as const)
-              .filter(([value]) =>
-                value !== 'provider_hold' || refundOperationsAccess
-              )
+              .filter(([value]) => value !== 'provider_hold' || primaryQueueCounts.provider_hold > 0)
               .map(([value, label]) => (
               <Button
                 key={value}

@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(72);
+select plan(70);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -51,6 +51,12 @@ create temporary table official_action_test_receipts (
   authorization_id uuid not null
 );
 grant select, insert on table pg_temp.official_action_test_receipts to authenticated, service_role;
+
+create temporary table official_action_service_results (
+  result_key text primary key,
+  payload jsonb not null
+);
+grant select, insert on table pg_temp.official_action_service_results to authenticated, service_role;
 
 insert into auth.users (
   instance_id,
@@ -355,6 +361,14 @@ values
     now() - interval '3 hours', 'cash', 800, null, 'closed', 'matched', 'sunze', 0.95,
     '79500000-0000-4000-8000-000000000001', 'approved', 'Already completed.',
     '79000000-0000-4000-8000-000000000001', now() - interval '2 hours', 800,
+    null, null, null, null, null, null, null, null, null, false
+  ),
+  (
+    '79600000-0000-4000-8000-000000000012', 'RF-OFFICIAL-SUPER-ADMIN',
+    '79300000-0000-4000-8000-000000000001', '79200000-0000-4000-8000-000000000001',
+    'super-admin-customer@example.test', 'synthetic-zelle-contact', 'Super-admin authority fixture',
+    now() - interval '2 hours', 'cash', 600, null, 'needs_review', 'matched', 'sunze', 0.95,
+    '79500000-0000-4000-8000-000000000001', null, null, null, null, 600,
     null, null, null, null, null, null, null, null, null, false
   );
 
@@ -1103,8 +1117,8 @@ select pg_temp.set_auth_claims(
 insert into pg_temp.official_action_test_receipts (receipt_key, authorization_id)
 select 'unmapped_super_admin',
   (public.admin_authorize_refund_official_action(
-    '79600000-0000-4000-8000-000000000002', 'approve',
-    (select official_action_version from public.refund_cases where id='79600000-0000-4000-8000-000000000002'),
+    '79600000-0000-4000-8000-000000000012', 'approve',
+    (select official_action_version from public.refund_cases where id='79600000-0000-4000-8000-000000000012'),
     'cash_zelle_pending','approved',null,null,null,600,null,null,false,null,null
   )->>'authorizationId')::uuid;
 reset role;
@@ -1123,52 +1137,45 @@ select ok(
       and receipt.verified_totp_at is null
   ) and not exists(
     select 1 from public.refund_manager_action_step_up_intents intent
-    where intent.refund_case_id='79600000-0000-4000-8000-000000000002'
+    where intent.refund_case_id='79600000-0000-4000-8000-000000000012'
       and intent.actor_user_id='79000000-0000-4000-8000-000000000004'
   ),
   'An unmapped Super-admin confirmation creates one role-bound receipt and zero step-up or TOTP rows'
 );
 
-create function pg_temp.probe_unmapped_super_admin_cash_approval() returns void
-language plpgsql as $$
-begin
-  perform public.service_apply_refund_official_case_update(
-    (select authorization_id from pg_temp.official_action_test_receipts
-      where receipt_key='unmapped_super_admin'),
-    '79600000-0000-4000-8000-000000000002','approve','cash_zelle_pending',
-    null,'approved',null,null,600,null,null,null
-  );
-  if exists(
-      select 1 from public.refund_case_official_action_authorizations receipt
-      where receipt.id=(select authorization_id from pg_temp.official_action_test_receipts
-        where receipt_key='unmapped_super_admin')
-        and receipt.status='consumed' and receipt.consumed_at is not null
-    ) and exists(
-      select 1 from public.refund_case_events event
-      where event.refund_case_id='79600000-0000-4000-8000-000000000002'
-        and event.event_type='official_action_committed'
-        and event.actor_user_id='79000000-0000-4000-8000-000000000004'
-        and event.metadata->>'authority_kind'='super_admin'
-        and event.metadata->>'authority_record_id'='79400000-0000-4000-8000-000000000006'
-        and event.metadata->>'payload_redacted'='true'
-    ) and exists(
-      select 1 from public.refund_cases c
-      where c.id='79600000-0000-4000-8000-000000000002'
-        and c.status='cash_zelle_pending' and c.decision='approved'
-        and c.decided_by='79000000-0000-4000-8000-000000000004'
-    ) then
-    raise exception 'unmapped_super_admin_authority_consumed' using errcode='P0001';
-  end if;
-  raise exception 'unmapped_super_admin_authority_not_preserved' using errcode='P0001';
-end;
-$$;
 set local role service_role;
-select throws_ok(
-  $$select pg_temp.probe_unmapped_super_admin_cash_approval()$$,
-  'P0001','unmapped_super_admin_authority_consumed',
-  'An unmapped Super-admin decision is consumed and audited without inventing a Machine Manager mapping'
+insert into pg_temp.official_action_service_results(result_key,payload)
+select 'unmapped_super_admin',public.service_apply_refund_official_case_update(
+  (select authorization_id from pg_temp.official_action_test_receipts
+    where receipt_key='unmapped_super_admin'),
+  '79600000-0000-4000-8000-000000000012','approve','cash_zelle_pending',
+  null,'approved',null,null,600,null,null,null
 );
 reset role;
+select ok(
+  (select payload->>'status'='cash_zelle_pending'
+    from pg_temp.official_action_service_results where result_key='unmapped_super_admin')
+  and exists(
+    select 1 from public.refund_case_official_action_authorizations receipt
+    where receipt.id=(select authorization_id from pg_temp.official_action_test_receipts
+      where receipt_key='unmapped_super_admin')
+      and receipt.status='consumed' and receipt.consumed_at is not null
+  ) and exists(
+    select 1 from public.refund_case_events event
+    where event.refund_case_id='79600000-0000-4000-8000-000000000012'
+      and event.event_type='official_action_committed'
+      and event.actor_user_id='79000000-0000-4000-8000-000000000004'
+      and event.metadata->>'authority_kind'='super_admin'
+      and event.metadata->>'authority_record_id'='79400000-0000-4000-8000-000000000006'
+      and event.metadata->>'payload_redacted'='true'
+  ) and exists(
+    select 1 from public.refund_cases c
+    where c.id='79600000-0000-4000-8000-000000000012'
+      and c.status='cash_zelle_pending' and c.decision='approved'
+      and c.decided_by='79000000-0000-4000-8000-000000000004'
+  ),
+  'An unmapped Super-admin decision is consumed and audited without inventing a Machine Manager mapping'
+);
 
 set local role authenticated;
 
@@ -1327,14 +1334,16 @@ set grant_reason = 'Official action safety test revision'
 where id = '79400000-0000-4000-8000-000000000001';
 
 set local role service_role;
+insert into pg_temp.official_action_service_results(result_key,payload)
+select 'mapping_changed',public.service_apply_refund_official_case_update(
+  (select authorization_id from pg_temp.official_action_test_receipts where receipt_key = 'mapping_changed'),
+  '79600000-0000-4000-8000-000000000003', 'approve', 'cash_zelle_pending',
+  null, 'approved', null, null, 650, null, null, null
+);
+reset role;
 select ok(
-  pg_temp.capture_error($sql$
-    select public.service_apply_refund_official_case_update(
-      (select authorization_id from pg_temp.official_action_test_receipts where receipt_key = 'mapping_changed'),
-      '79600000-0000-4000-8000-000000000003', 'approve', 'cash_zelle_pending',
-      null, 'approved', null, null, 650, null, null, null
-    )
-  $sql$) is null
+  (select payload->>'status'='cash_zelle_pending'
+    from pg_temp.official_action_service_results where result_key='mapping_changed')
   and (select status='consumed' and consumed_at is not null
     from public.refund_case_official_action_authorizations
     where id=(select authorization_id from pg_temp.official_action_test_receipts
@@ -1343,7 +1352,6 @@ select ok(
     from public.refund_cases where id='79600000-0000-4000-8000-000000000003'),
   'A valid immutable receipt survives a mapping revision after manager confirmation'
 );
-reset role;
 
 set local role authenticated;
 select pg_temp.set_auth_claims(

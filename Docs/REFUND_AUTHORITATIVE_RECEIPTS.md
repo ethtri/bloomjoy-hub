@@ -1,13 +1,19 @@
 # Authoritative full-refund observations with unknown settlement time
 
+> Historical repair reference only. This is not part of the ordinary refund
+> procedure and must not be treated as a Manager prerequisite. Current cases use
+> the one Manager decision and the exact-attempt payment-result check described
+> in `REFUND_WORKFLOW.md`; the System completes any safe continuation.
+
 This is the bounded `#628` / `#971` reconciliation receipt contract. It does not
 choose an accounting period or make a payment. Deployment and hosted database
 verification are separate release gates; no production backfill is included.
 
 ## Required evidence and authority
 
-Only a current, nonanonymous, mapped Refund Operations super-admin session can
-record an observation. The exact selected original transaction, account, machine,
+This legacy repair tool remains restricted to a current, nonanonymous Super-admin
+session. An agent or Machine Manager must not use it as an extra approval step for
+an ordinary case. The exact selected original transaction, account, machine,
 currency, sale amount and full refunded amount must agree with authoritative
 Nayax `Refunded` status `62`. Pending, partial, mismatched and stale evidence fails
 closed. A receipt binds the latest unresolved attempt, or explicitly binds the
