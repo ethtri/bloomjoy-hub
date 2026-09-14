@@ -4466,7 +4466,9 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       !functionCalls.includes('nayax-card-refund') &&
       await confirmationDialog.getByText('Cotton Candy 01').isVisible() &&
       await confirmationDialog.getByText('$7.00 · card ending 4242').isVisible() &&
-      (await confirmationDialog.innerText()).includes('Nayax authorization time') &&
+      await confirmationDialog
+        .getByText('Nayax authorization time', { exact: true })
+        .isVisible() &&
       (await confirmationDialog.innerText()).includes('Shown in venue time · America/New_York') &&
       (await confirmationDialog.innerText()).includes('does not prove when the purchase happened') &&
       (await confirmationDialog.innerText()).includes('Provider machine clock:')
