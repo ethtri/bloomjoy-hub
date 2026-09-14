@@ -204,7 +204,8 @@
     "20260914090000_refund_official_authority_cash_completion.sql",
     "20260914100000_refund_manager_system_cutover.sql",
     "20260914173954_refund_evidence_timezone.sql",
-    "20260914193919_refund_candidate_time_semantics.sql"
+    "20260914193919_refund_candidate_time_semantics.sql",
+    "20260915010000_refund_cash_verification_ux.sql"
   ],
   "migrationFilesSha256": "a6a708a90a2bd9e7f46743aca8089bec83f2c83bdebae4911f2781ed3e709550",
   "migrationVersionSetSha256": "93d51953f8f1d2e780a236b4c0a2d114f205eb5f2a94499c34ed5d62fed2944e",
@@ -388,6 +389,12 @@
         "sourceSha256": "100bd57eb64d6646d2c477b341fcac8705fab75c31e8f1ca0cf6c5f8178d120e",
         "entrypointIdentity": "supabase/functions/refund-nayax-outcome-resolve/index.ts"
       }
+    },
+    {
+      "slug": "refund-case-sunze-correlation",
+      "verifyJwt": false,
+      "sourceSha256": "pending",
+      "production": null
     }
   ],
   "additionalFunctionBaselines": [
