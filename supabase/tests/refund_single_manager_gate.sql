@@ -44,12 +44,12 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
   incident_time_confidence,payment_method,payment_amount_cents,refund_amount_cents,
   card_last4,card_last4_provenance,payment_interaction,status,correlation_status,
   deterministic_fact_version,intake_source,intake_meta,nayax_lookup_generation,
-  nayax_lookup_status,nayax_refund_execution_status)
+  nayax_lookup_status,nayax_recommendation_state,nayax_refund_execution_status)
 values('a3470000-0000-4000-8000-000000000001','RF-SINGLE-GATE',
   'a3440000-0000-4000-8000-000000000001','a3430000-0000-4000-8000-000000000001',
   'customer@example.invalid','Exact saved sale','2026-09-12T20:00:00Z','America/Los_Angeles',
   'exact','exact','card',1000,1090,'4242','physical_card','tap_card','needs_review',
-  'needs_nayax',1,'form','{}',1,'manual_exception','not_requested');
+  'needs_nayax',1,'form','{}',1,'manual_exception','manual_exception','not_requested');
 
 create function pg_temp.exact_evidence(p_source text default 'nayax_api') returns jsonb language sql stable as $$
 select jsonb_build_object(

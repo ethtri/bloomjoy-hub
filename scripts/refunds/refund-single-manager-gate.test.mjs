@@ -99,6 +99,10 @@ test('database fixtures use an allowed completed-review lookup status', () => {
     [...constraintBody.matchAll(/'([^']+)'/g)].map((match) => match[1]),
   );
   assert(allowedStatuses.has('manual_exception'));
+  assert.match(
+    behavioralFixture,
+    /nayax_lookup_status,nayax_recommendation_state,nayax_refund_execution_status\)[\s\S]*?'manual_exception','manual_exception','not_requested'\);/,
+  );
   for (const [name, fixture] of [
     ['behavioral', behavioralFixture],
     ['concurrency', concurrency],
