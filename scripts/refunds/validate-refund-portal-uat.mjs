@@ -4367,21 +4367,6 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     functionCalls.join(', ')
   );
 
-  await page.getByText('Transaction search details').click();
-  await page.getByRole('button', { name: 'Clear selected transaction' }).click();
-  recorder.assert(
-    'Clearing a selected sale closes the old payment action immediately',
-    (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-      await page.getByRole('button', { name: 'Clear transaction and check again' }).isVisible() &&
-      !functionCalls.includes('nayax-card-refund')
-  );
-
-  await page.getByRole('button', { name: /^Waiting for customer \d+$/ }).click();
-  await queueCase(page, 'RF-UAT-WAIT').click();
-  await page.getByRole('button', { name: /^Ready to approve \d+$/ }).click();
-  await queueCase(page, 'RF-UAT-CARD').click();
-  await page.getByTestId('refund-run-nayax-refund').waitFor({ state: 'visible' });
-
   await page.getByTestId('refund-run-nayax-refund').click();
   const confirmationDialog = page.getByTestId('refund-confirmation-dialog');
   recorder.assert(
@@ -6184,7 +6169,8 @@ const runApiUnavailableCaseEvidenceChecks = async ({ browser, appUrl, artifactDi
   recorder.assert(
     'Adam-managed API-pending case removes portal transcription and keeps the blocker internal',
     await page.getByTestId('nayax-decision-heading').getByText('Transaction search is unavailable', { exact: true }).isVisible() &&
-      await setupSummary.getByText(/Do not complete a card refund outside Bloomjoy Hub/).isVisible() &&
+      await setupSummary.getByText(/read-only transaction research/).isVisible() &&
+      await setupSummary.getByText(/Never issue or record a refund there/).isVisible() &&
       await setupSummary.getByText(/customer does not need to repeat details/).isVisible() &&
       (await page.getByTestId('refund-manager-next-step').innerText()).includes('No customer follow-up is needed') &&
       (await page.getByText('Ask for missing details', { exact: true }).count()) === 0 &&

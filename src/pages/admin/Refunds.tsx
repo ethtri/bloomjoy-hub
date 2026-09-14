@@ -5811,10 +5811,10 @@ export default function AdminRefundsPage() {
           explanation: transactionView.description,
           nextStep: transactionView.kind === 'checking'
             ? 'Wait for the read-only check to finish. No refund has been issued.'
-            : transactionView.kind === 'waiting'
-              ? 'Wait for Bloomjoy to start the read-only check. No refund has been issued.'
+              : transactionView.kind === 'waiting'
+                ? 'Wait for Bloomjoy to start the read-only check. No refund has been issued.'
               : transactionView.heading === 'Transaction search is unavailable'
-                ? 'Use read-only Nayax transaction research if needed, then report the blocked search. Never issue or record a refund there.'
+                ? 'Use Nayax for read-only transaction research if needed, then report the blocked search. Never issue or record a refund there. No customer follow-up is needed.'
               : 'Run the available transaction check. If no check is available, search the same machine in Nayax and report the portal gap. No refund has been issued.',
           tone: transactionView.kind === 'checking' ? 'info' : 'warning',
         }
