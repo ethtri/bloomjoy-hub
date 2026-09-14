@@ -324,7 +324,7 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 127, 'Evidence must enumerate all 127 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 125, 'Evidence must enumerate all 125 reviewed screenshots');
   for (const senderScreenshot of [
     'refund-customer-message-official-sender-desktop.png',
     'refund-customer-message-official-sender-mobile.png',
@@ -429,7 +429,7 @@ try {
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('machine-refunds-')).length,
     8,
-    'Evidence must include ready, ready-to-activate, setup-needed, Valley Mall product-unverified desktop/mobile, manual-portal-only, machine-disabled, and global-pause Admin states'
+    'Evidence must include ready, ready-to-activate, setup-needed, Valley Mall product-unverified desktop/mobile, API-blocked, machine-disabled, and global-pause Admin states'
   );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-simple-journey-')).length,
@@ -472,13 +472,8 @@ try {
     2,
     'The evidence must show both mapped-manager session paths without a second factor'
   );
-  assert.equal(
-    EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-portal-uat-nc-manual-')).length,
-    2,
-    'The evidence must show the temporary NC manual path on desktop and mobile'
-  );
   const supportPanelAssertionIndex = portalUatSource.indexOf(
-    "'Managers see exactly four structured outcomes and no arbitrary communication controls'"
+    "'Managers see only success or remain-on-hold evidence outcomes'"
   );
   const supportDesktopScreenshotIndex = portalUatSource.indexOf(
     "path.join(artifactDir, 'refund-nayax-support-resolution-desktop.png')"

@@ -503,7 +503,7 @@ export const getRefundManagerState = (
             'match_attention',
             'Transaction search unavailable',
             'Bloomjoy cannot check this machine\'s transactions right now.',
-            'Check the machine\'s Nayax connection. Use Nayax directly if Bloomjoy Hub still cannot search, and report the portal gap. No customer follow-up is needed.',
+            'Use Nayax for read-only transaction research only and report the blocked search. Never issue or record a refund there. No customer follow-up is needed.',
             'warning'
           );
         }
@@ -517,7 +517,7 @@ export const getRefundManagerState = (
             'Bloomjoy could not finish checking transactions.',
             lifecycle.lookup.safeRetryEligible
               ? 'Bloomjoy will run one more read-only check automatically. No refund has been issued.'
-              : 'Search the same machine in Nayax and report the missing portal fallback. No refund has been issued.',
+              : 'Report the blocked card-refund search. No refund has been issued and no manual card completion is available.',
             'warning'
           );
         }
@@ -904,7 +904,7 @@ export const getRefundManagerState = (
         'match_attention',
         'Transaction search unavailable',
         'Bloomjoy cannot check this machine\'s transactions right now.',
-        'Check the machine\'s Nayax connection. Use Nayax directly if Bloomjoy Hub still cannot search, and report the portal gap. No customer follow-up is needed.',
+        'Use Nayax for read-only transaction research only and report the blocked search. Never issue or record a refund there.',
         'warning'
       );
     }

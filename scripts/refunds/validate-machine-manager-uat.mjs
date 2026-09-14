@@ -1056,7 +1056,7 @@ const run = async () => {
         && await reopenedMachineDialog.locator('dl > div').filter({ hasText: 'Card-refund capability' }).getByText('Enabled', { exact: true }).isVisible()
     );
     await page.screenshot({
-      path: path.join(args.artifactDir, 'machine-refunds-manual-portal-only-desktop.png'),
+      path: path.join(args.artifactDir, 'machine-refunds-api-blocked-desktop.png'),
       fullPage: true,
     });
 

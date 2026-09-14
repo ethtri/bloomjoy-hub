@@ -71,22 +71,15 @@ import {
   refundManualMessageOutboxEnabled,
 } from "../_shared/refund-manual-message-outbox.ts";
 import {
-  drainNayaxServerApprovalContinuations,
-  type NayaxServerApprovalContinuationClaim,
-} from "../_shared/nayax-server-approval-continuation.ts";
-import {
-  drainNayaxSystemSavedApprovals,
-  type NayaxSystemSavedApprovalClaim,
-} from "../_shared/nayax-system-saved-approval.ts";
+  drainNayaxQueuedRefunds,
+  type NayaxQueuedRefundClaim,
+} from "../_shared/nayax-refund-attempt-queue.ts";
 import { deliverNayaxRefundCustomerCompletion } from "../_shared/nayax-refund-completion-delivery.ts";
 import { resolveNayaxRefundExecutionConfig } from "../_shared/nayax-refund-gates.ts";
-import type { NayaxAttemptSettlement } from "../_shared/nayax-refund-orchestration.ts";
 // @deno-types="../_shared/nayax-refund-provider.d.ts"
 import {
   buildRedactedNayaxStageDigest,
   createNayaxRefundProviderAdapter,
-  executeNayaxRefundApprovalOnly,
-  mapNayaxRefundExecutionOutcome,
   NAYAX_REFUND_PRODUCTION_BASE_URL,
   parseNayaxRefundProviderContract,
   type NayaxControlledPilotStageEvent,
@@ -123,8 +116,8 @@ const followUpClaimStaleMinutes = Math.min(
 const automationTimezone = Deno.env.get("REFUND_AUTOMATION_TIMEZONE") || "America/Los_Angeles";
 const policyStartHour = Number(Deno.env.get("REFUND_AUTOMATION_START_HOUR") || 8);
 const policyEndHour = Number(Deno.env.get("REFUND_AUTOMATION_END_HOUR") || 20);
-const nayaxServerContinuationEnabled =
-  (Deno.env.get("NAYAX_REFUND_SERVER_CONTINUATION_ENABLED") || "false")
+const nayaxAttemptQueueEnabled =
+  (Deno.env.get("NAYAX_REFUND_ATTEMPT_QUEUE_ENABLED") || "false")
     .toLowerCase() === "true";
 const NAYAX_REFUND_JOURNAL_CONTRACT_VERSION = "nayax-provider-journal-v3";
 const NAYAX_REFUND_APPROVAL_POLICY_VERSION =
@@ -4187,7 +4180,7 @@ const sha256Text = async (value: string) => {
   return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
 };
 
-const parseServerContinuationContract = () => {
+const parseNayaxAttemptQueueContract = () => {
   const raw = Deno.env.get("NAYAX_REFUND_MANAGER_CONTRACT_JSON")?.trim() ?? "";
   const timeMode = Deno.env.get("NAYAX_REFUND_MACHINE_AUTHORIZATION_TIME_MODE")
     ?.trim() || "exact_source";
@@ -4212,15 +4205,15 @@ const parseServerContinuationContract = () => {
   }
 };
 
-const runNayaxSystemSavedApprovalSweep = async (counters: SweepCounters) => {
-  if (!automationEnabled || !nayaxServerContinuationEnabled || !supabase) {
-    addReason(counters, "nayax_system_saved_approval_disabled");
+const runNayaxRefundAttemptSweep = async (counters: SweepCounters) => {
+  if (!automationEnabled || !nayaxAttemptQueueEnabled || !supabase) {
+    addReason(counters, "nayax_refund_attempt_queue_disabled");
     return;
   }
   const executionConfig = resolveNayaxRefundExecutionConfig((name) => Deno.env.get(name));
-  const contract = parseServerContinuationContract();
+  const contract = parseNayaxAttemptQueueContract();
   const accountKey = normalizeNayaxAccountKey(
-    Deno.env.get("NAYAX_REFUND_SERVER_CONTINUATION_ACCOUNT_KEY") ?? "",
+    Deno.env.get("NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEY") ?? "",
   );
   const requestToken = accountKey
     ? Deno.env.get(`NAYAX_REFUND_REQUEST_WRITE_TOKEN_${accountKey}`)?.trim() ?? ""
@@ -4233,7 +4226,7 @@ const runNayaxSystemSavedApprovalSweep = async (counters: SweepCounters) => {
     !executionConfig.idempotencySecret || !contract || !accountKey ||
     !requestToken || !approveToken || contract.baseUrl !== NAYAX_REFUND_PRODUCTION_BASE_URL) {
     counters.actionsSuppressed += 1;
-    addReason(counters, "nayax_system_saved_approval_not_ready");
+    addReason(counters, "nayax_refund_attempt_queue_not_ready");
     return;
   }
   const { data: capability, error: capabilityError } = await supabase.rpc(
@@ -4248,15 +4241,15 @@ const runNayaxSystemSavedApprovalSweep = async (counters: SweepCounters) => {
     capabilityEnvelope?.approvalPolicyVersion !== NAYAX_REFUND_APPROVAL_POLICY_VERSION ||
     capabilityEnvelope?.responseEnvelopeVersion !== NAYAX_REFUND_RESPONSE_ENVELOPE_VERSION) {
     counters.actionsSuppressed += 1;
-    addReason(counters, "nayax_system_saved_approval_journal_unavailable");
+    addReason(counters, "nayax_refund_attempt_queue_journal_unavailable");
     return;
   }
   const accountScopeDigest = await sha256Text(accountKey);
-  const output = await drainNayaxSystemSavedApprovals({
+  const output = await drainNayaxQueuedRefunds({
     limit: 2,
     claimOne: async () => {
       const { data: reclaimed, error: reclaimError } = await supabase.rpc(
-        "service_reclaim_nayax_system_saved_approval_no_call_v1",
+        "service_reclaim_nayax_refund_attempt_no_call_v1",
         { p_executor_assertion: executionConfig.executorAssertion, p_account_key: accountKey },
       );
       if (reclaimError) throw reclaimError;
@@ -4267,7 +4260,7 @@ const runNayaxSystemSavedApprovalSweep = async (counters: SweepCounters) => {
         return reclaimEnvelope.claim;
       }
       const { data, error } = await supabase.rpc(
-        "service_claim_due_nayax_system_saved_approvals_v1",
+        "service_claim_due_nayax_refund_attempts_v1",
         {
           p_executor_assertion: executionConfig.executorAssertion,
           p_account_key: accountKey,
@@ -4279,17 +4272,17 @@ const runNayaxSystemSavedApprovalSweep = async (counters: SweepCounters) => {
       const envelope = data && typeof data === "object"
         ? data as Record<string, unknown>
         : null;
-      if (error || envelope?.schemaVersion !== "nayax-system-saved-approval-v1" ||
+      if (error || envelope?.schemaVersion !== "nayax-refund-attempt-queue-v1" ||
         envelope.payloadRedacted !== true || !Array.isArray(envelope.claims)) {
-        throw error ?? new Error("nayax_system_saved_approval_claim_failed");
+        throw error ?? new Error("nayax_refund_attempt_claim_failed");
       }
       return envelope.claims[0] ?? null;
     },
-    executeProvider: async (claim: NayaxSystemSavedApprovalClaim) => {
+    executeProvider: async (claim: NayaxQueuedRefundClaim) => {
       if (claim.wire.accountScopeDigest !== accountScopeDigest ||
         claim.wire.providerContractVersion !== contract.contractVersion ||
         claim.wire.journalContractVersion !== NAYAX_REFUND_JOURNAL_CONTRACT_VERSION) {
-        throw new Error("nayax_system_saved_approval_frozen_context_mismatch");
+        throw new Error("nayax_refund_attempt_frozen_context_mismatch");
       }
       const claimContract = {
         ...contract,
@@ -4377,7 +4370,7 @@ const runNayaxSystemSavedApprovalSweep = async (counters: SweepCounters) => {
             },
           );
           if (error || !data || typeof data !== "object") {
-            throw new Error("nayax_system_saved_approval_journal_failed");
+            throw new Error("nayax_refund_attempt_journal_failed");
           }
           const decision = data as Record<string, unknown>;
           if (
@@ -4393,7 +4386,7 @@ const runNayaxSystemSavedApprovalSweep = async (counters: SweepCounters) => {
               "nayax-restricted-response-diagnostics-v2" ||
             decision.payloadRedacted !== true
           ) {
-            throw new Error("nayax_system_saved_approval_journal_version_mismatch");
+            throw new Error("nayax_refund_attempt_journal_version_mismatch");
           }
           return {
             approvalAuthorized: decision.approvalAuthorized === true,
@@ -4411,7 +4404,7 @@ const runNayaxSystemSavedApprovalSweep = async (counters: SweepCounters) => {
           idempotencyKey: claim.wire.idempotencyKey,
           amountCents: claim.wire.originalAmountCents,
           currencyCode: "USD",
-        }, "request_and_approve");
+        });
       } catch {
         return { kind: "unknown" as const, providerReference: null,
           providerStatus: null, errorCode: "provider_stage_or_transport_unknown" };
@@ -4419,11 +4412,11 @@ const runNayaxSystemSavedApprovalSweep = async (counters: SweepCounters) => {
     },
     settle: async (claim, outcome) => {
       const { data, error } = await supabase.rpc(
-        "service_settle_nayax_system_saved_approval_v1",
+        "service_settle_nayax_refund_attempt",
         {
           p_executor_assertion: executionConfig.executorAssertion,
           p_attempt_id: claim.attemptId,
-          p_system_saved_approval_receipt_id: claim.receiptId,
+          p_authorization_id: claim.sourceApprovalId,
           p_case_id: claim.caseId,
           p_idempotency_key: claim.wire.idempotencyKey,
           p_amount_cents: claim.wire.originalAmountCents,
@@ -4436,13 +4429,30 @@ const runNayaxSystemSavedApprovalSweep = async (counters: SweepCounters) => {
         },
       );
       if (error || !data || typeof data !== "object") {
-        throw error ?? new Error("nayax_system_saved_approval_settlement_failed");
+        throw error ?? new Error("nayax_refund_attempt_settlement_failed");
       }
       const attempt = (data as Record<string, unknown>).attempt;
       const settledAttempt = attempt && typeof attempt === "object"
         ? attempt as Record<string, unknown>
         : null;
       return { succeeded: settledAttempt?.status === "succeeded" && settledAttempt.providerOutcome === "success" };
+    },
+    hold: async (attemptId, errorCode) => {
+      const { data, error } = await supabase.rpc(
+        "service_hold_nayax_refund_attempt_v1",
+        {
+          p_executor_assertion: executionConfig.executorAssertion,
+          p_attempt_id: attemptId,
+          p_error_code: sanitizeNayaxText(errorCode, 80) || "system_post_claim_failure",
+        },
+      );
+      const envelope = data && typeof data === "object"
+        ? data as Record<string, unknown>
+        : null;
+      if (error || envelope?.payloadRedacted !== true ||
+        (envelope.held !== true && envelope.alreadySettled !== true)) {
+        throw error ?? new Error("nayax_refund_attempt_hold_failed");
+      }
     },
     deliverCompletion: async (claim) => {
       await deliverNayaxRefundCustomerCompletion({
@@ -4460,267 +4470,9 @@ const runNayaxSystemSavedApprovalSweep = async (counters: SweepCounters) => {
   counters.actionsSucceeded += output.results.filter((item) => item.executed).length;
   counters.actionsFailed += output.results.filter((item) => !item.executed).length;
   if (output.results.some((item) => item.completionErrorCode !== null)) {
-    addReason(counters, "nayax_system_saved_approval_completion_deferred");
+    addReason(counters, "nayax_refund_attempt_completion_deferred");
   }
 };
-
-const runNayaxApprovalContinuationSweep = async (
-  counters: SweepCounters,
-) => {
-  if (!automationEnabled || !nayaxServerContinuationEnabled || !supabase) {
-    addReason(counters, "nayax_approval_continuation_disabled");
-    return;
-  }
-  const executionConfig = resolveNayaxRefundExecutionConfig((name) =>
-    Deno.env.get(name));
-  const contract = parseServerContinuationContract();
-  const configuredAccountKey = normalizeNayaxAccountKey(
-    Deno.env.get("NAYAX_REFUND_SERVER_CONTINUATION_ACCOUNT_KEY") ?? "",
-  );
-  const configuredApproveToken = configuredAccountKey
-    ? Deno.env.get(
-      `NAYAX_REFUND_APPROVE_WRITE_TOKEN_${configuredAccountKey}`,
-    )?.trim() ?? ""
-    : "";
-  if (
-    executionConfig.blocks.length > 0 || executionConfig.dryRun ||
-    executionConfig.killSwitchActive || !executionConfig.executorAssertion ||
-    !executionConfig.idempotencySecret || !contract || !configuredAccountKey ||
-    !configuredApproveToken ||
-    contract.baseUrl !== NAYAX_REFUND_PRODUCTION_BASE_URL
-  ) {
-    counters.actionsSuppressed += 1;
-    addReason(counters, "nayax_approval_continuation_not_ready");
-    return;
-  }
-  const { data: capability, error: capabilityError } = await supabase.rpc(
-    "service_get_nayax_refund_provider_journal_capability_v3",
-    { p_executor_assertion: executionConfig.executorAssertion },
-  );
-  if (
-    capabilityError || !capability || typeof capability !== "object" ||
-    (capability as Record<string, unknown>).journalContractVersion !==
-      NAYAX_REFUND_JOURNAL_CONTRACT_VERSION
-  ) {
-    counters.actionsSuppressed += 1;
-    addReason(counters, "nayax_approval_continuation_journal_unavailable");
-    return;
-  }
-
-  const output = await drainNayaxServerApprovalContinuations({
-    limit: 2,
-    dependencies: {
-      claimDue: async (limit) => {
-        const { data, error } = await supabase.rpc(
-          "service_claim_due_nayax_approval_continuations_v1",
-          {
-            p_executor_assertion: executionConfig.executorAssertion,
-            p_account_key: configuredAccountKey,
-            p_limit: limit,
-          },
-        );
-        const envelope = data && typeof data === "object"
-          ? data as Record<string, unknown>
-          : null;
-        if (error || envelope?.schemaVersion !==
-            "nayax-server-approval-continuation-v1" ||
-          envelope.payloadRedacted !== true || !Array.isArray(envelope.claims)) {
-          throw new Error("nayax_server_continuation_claim_failed");
-        }
-        return envelope.claims;
-      },
-      createApprovalProvider: (claim: NayaxServerApprovalContinuationClaim) => {
-        const accountKey = normalizeNayaxAccountKey(claim.accountKey);
-        const approveToken = configuredApproveToken;
-        if (accountKey !== configuredAccountKey) {
-          throw new Error("nayax_server_continuation_credentials_unavailable");
-        }
-        const claimContract = {
-          ...contract,
-          machineAuthorizationTimeMode: claim.machineAuthorizationTimeMode,
-          refundEmailListMode: claim.refundEmailListMode,
-        };
-        return {
-          mode: "live",
-          execute: async (_request, plan) => {
-            if (plan !== "approval_continuation") {
-              throw new Error("nayax_server_continuation_request_forbidden");
-            }
-            const onStageEvent = async (
-              stageEvent: NayaxControlledPilotStageEvent,
-            ) => {
-              if (stageEvent.stage !== "approve") {
-                throw new Error("nayax_server_continuation_request_forbidden");
-              }
-              const result = "result" in stageEvent && stageEvent.result
-                ? stageEvent.result as unknown as Record<string, unknown>
-                : {};
-              const digest = await buildRedactedNayaxStageDigest({
-                journalSecret: executionConfig.idempotencySecret!,
-                attemptId: claim.reservation.attempt.attemptId,
-                contractVersion: claimContract.contractVersion,
-                stageEvent,
-              });
-              const { data, error } = await supabase.rpc(
-                "service_record_nayax_refund_provider_stage_v4_diagnostics",
-                {
-                  p_executor_assertion: executionConfig.executorAssertion,
-                  p_attempt_id: claim.reservation.attempt.attemptId,
-                  p_provider_claim_token:
-                    claim.reservation.providerClaimToken,
-                  p_stage: stageEvent.stage,
-                  p_event: stageEvent.event,
-                  p_http_status: Number.isInteger(result.httpStatus)
-                    ? result.httpStatus
-                    : null,
-                  p_outcome: sanitizeNayaxText(result.outcome, 40) || null,
-                  p_contract_matched: typeof result.contractMatched === "boolean"
-                    ? result.contractMatched
-                    : null,
-                  p_failure_type: sanitizeNayaxText(result.failureType, 20) || null,
-                  p_classification_digest: digest,
-                  p_provider_contract_version: claimContract.contractVersion,
-                  p_journal_contract_version:
-                    NAYAX_REFUND_JOURNAL_CONTRACT_VERSION,
-                  p_http_accepted: typeof result.httpAccepted === "boolean"
-                    ? result.httpAccepted
-                    : null,
-                  p_media_type_class: sanitizeNayaxText(result.mediaTypeClass, 40) || null,
-                  p_body_kind: sanitizeNayaxText(result.bodyKind, 40) || null,
-                  p_body_length_bucket:
-                    sanitizeNayaxText(result.bodyLengthBucket, 40) || null,
-                  p_json_parsed: typeof result.jsonParsed === "boolean"
-                    ? result.jsonParsed
-                    : null,
-                  p_json_object: typeof result.jsonObject === "boolean"
-                    ? result.jsonObject
-                    : null,
-                  p_schema_matched: typeof result.schemaMatched === "boolean"
-                    ? result.schemaMatched
-                    : null,
-                  p_result_key_present:
-                    typeof result.resultKeyPresent === "boolean"
-                      ? result.resultKeyPresent
-                      : null,
-                  p_status_key_present:
-                    typeof result.statusKeyPresent === "boolean"
-                      ? result.statusKeyPresent
-                      : null,
-                  p_result_value_type:
-                    sanitizeNayaxText(result.resultValueType, 40) || null,
-                  p_status_value_type:
-                    sanitizeNayaxText(result.statusValueType, 40) || null,
-                  p_semantic_pair_matched:
-                    typeof result.semanticPairMatched === "boolean"
-                      ? result.semanticPairMatched
-                      : null,
-                  p_business_result: result.businessPairRetained === true
-                    ? sanitizeNayaxText(result.businessResult, 80) || null
-                    : null,
-                  p_business_status: result.businessPairRetained === true
-                    ? sanitizeNayaxText(result.businessStatus, 80) || null
-                    : null,
-                  p_business_pair_retained:
-                    stageEvent.event === "result" &&
-                    result.businessPairRetained === true,
-                  p_observed_result_scalar:
-                    result.observedScalarPairRetained === true
-                      ? result.observedResultScalar
-                      : null,
-                  p_observed_status_scalar:
-                    result.observedScalarPairRetained === true
-                      ? result.observedStatusScalar
-                      : null,
-                  p_observed_scalar_pair_retained:
-                    stageEvent.event === "result" &&
-                    result.observedScalarPairRetained === true,
-                  p_result_diagnostic_text:
-                    typeof result.observedResultDiagnosticText === "string"
-                      ? result.observedResultDiagnosticText
-                      : null,
-                  p_result_diagnostic_disposition:
-                    sanitizeNayaxText(result.observedResultDiagnosticDisposition, 40) || null,
-                  p_result_diagnostic_length_bucket:
-                    sanitizeNayaxText(result.observedResultDiagnosticLengthBucket, 40) || null,
-                  p_status_diagnostic_text:
-                    typeof result.observedStatusDiagnosticText === "string"
-                      ? result.observedStatusDiagnosticText
-                      : null,
-                  p_status_diagnostic_disposition:
-                    sanitizeNayaxText(result.observedStatusDiagnosticDisposition, 40) || null,
-                  p_status_diagnostic_length_bucket:
-                    sanitizeNayaxText(result.observedStatusDiagnosticLengthBucket, 40) || null,
-                },
-              );
-              const decision = data && typeof data === "object"
-                ? data as Record<string, unknown>
-                : null;
-              if (
-                error || decision?.recorded !== true ||
-                decision.approvalPolicyVersion !==
-                  NAYAX_REFUND_APPROVAL_POLICY_VERSION ||
-                decision.responseEnvelopeVersion !==
-                  NAYAX_REFUND_RESPONSE_ENVELOPE_VERSION
-              ) throw new Error("nayax_server_continuation_journal_failed");
-            };
-            const result = await executeNayaxRefundApprovalOnly({
-              contract: claimContract,
-              approveToken,
-              transactionId: claim.transactionId,
-              siteId: claim.siteId,
-              machineAuthorizationTime: claim.machineAuthorizationTimeWire,
-              onStageEvent,
-            });
-            return await mapNayaxRefundExecutionOutcome(
-              result,
-              claimContract.contractVersion,
-              claim.request.idempotencyKey,
-            );
-          },
-        };
-      },
-      settleProviderOutcome: async (input) => {
-        const { data, error } = await supabase.rpc(
-          "service_settle_nayax_refund_attempt",
-          {
-            p_executor_assertion: executionConfig.executorAssertion,
-            p_attempt_id: input.attemptId,
-            p_authorization_id: input.authorizationId,
-            p_case_id: input.request.caseId,
-            p_idempotency_key: input.request.idempotencyKey,
-            p_amount_cents: input.request.amountCents,
-            p_currency_code: input.request.currencyCode,
-            p_provider_claim_token: input.providerClaimToken,
-            p_provider_outcome: input.outcome.kind,
-            p_provider_reference: input.outcome.providerReference ?? null,
-            p_provider_status: input.outcome.providerStatus ?? null,
-            p_error_code: input.outcome.errorCode ?? null,
-          },
-        );
-        if (error || !data || typeof data !== "object") {
-          throw new Error("nayax_server_continuation_settlement_failed");
-        }
-        return data as NayaxAttemptSettlement;
-      },
-      deliverCustomerCompletion: (attemptId, caseId) =>
-        deliverNayaxRefundCustomerCompletion({
-          supabase,
-          executorAssertion: executionConfig.executorAssertion!,
-          attemptId,
-          caseId,
-        }),
-    },
-  });
-  counters.nayaxApprovalContinuationsClaimed += output.claimedCount;
-  counters.nayaxApprovalContinuationsCompleted += output.results.filter((item) =>
-    item.executed).length;
-  counters.nayaxApprovalContinuationsHeld += output.invalidCount +
-    output.results.filter((item) => !item.executed).length;
-  counters.actionsAttempted += output.processedCount;
-  counters.actionsSucceeded += output.results.filter((item) => item.executed).length;
-  counters.actionsFailed += output.results.filter((item) => !item.executed).length;
-};
-
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -4841,14 +4593,8 @@ serve(async (req) => {
 
     // System first finishes an exact saved approval that has not reached the
     // provider. Each database claim is one case and one account at a time.
-    failureStage = "nayax_system_saved_approval";
-    await runNayaxSystemSavedApprovalSweep(counters);
-
-    // This bounded service lane resumes only the approval stage of an already
-    // consumed manager authorization. The database claim is claim-once and
-    // excludes paid/receipt-backed cases before any provider transport.
-    failureStage = "nayax_approval_continuation";
-    await runNayaxApprovalContinuationSweep(counters);
+    failureStage = "nayax_refund_attempt_queue";
+    await runNayaxRefundAttemptSweep(counters);
 
     // Only future, immutable terminal-source authorities can enter this
     // bounded queue. The environment, policy-window, and database contact

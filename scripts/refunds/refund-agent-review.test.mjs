@@ -36,7 +36,6 @@ function fixture(rows = [row(1)]) {
     admin_get_refund_operations_overview: { cases: rows, internalTestCases: [] },
     admin_get_refund_gmail_draft_cases: [],
     admin_get_refund_email_queue_states: rows.map(r => ({ caseId: r.id, providerHold: false, providerOutcome: 'not_attempted', actionBlocked: false })),
-    admin_get_refund_manual_nayax_context: [],
     get_refund_gmail_health: { status: 'healthy', reportFreshness: null },
   };
   const client = { scope: 'test-scope', async rpc(name, args = {}) {

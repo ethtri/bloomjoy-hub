@@ -98,7 +98,7 @@ test('RF-423906B2 shape keeps one visible refund action despite optional intake 
  assert.equal(result.label,'Refund $10.90');
  assert.equal(result.disabled,undefined);
 });
-test('selected candidate exposes one ordinary refund decision and direct API takes priority over wallet portal routing',()=>{
+test('selected candidate exposes one ordinary refund decision with no manual portal fallback',()=>{
  const action=load('primaryActionConfig',{
   ...dependencies,
   isWaitingCase:()=>false,
@@ -117,10 +117,7 @@ test('selected candidate exposes one ordinary refund decision and direct API tak
  assert.equal(combined.disabled,true);
  assert.equal(combined.mode,undefined);
 
- const selectedWallet={
-  ...pendingCase,...freshPersistedSelection,matched:true,manualNayaxPortalEnabled:true,
-  reviewedNayaxPortalFallbackKind:'ordinary_exact_match',refundAmountCents:1090,
- };
+ const selectedWallet={...pendingCase,...freshPersistedSelection,matched:true,refundAmountCents:1090};
  const savedEditor={...pendingEditor,matchedNayaxCandidateToken:''};
  assert.equal(
   action(selectedWallet,savedEditor,[],{...freshAvailability,refundAmountCents:1090}).mode,
@@ -129,7 +126,7 @@ test('selected candidate exposes one ordinary refund decision and direct API tak
  const unavailable=action(selectedWallet,savedEditor,[],{...freshAvailability,canIssueCardRefund:false,blockReason:'provider_temporarily_unavailable'});
  assert.equal(unavailable.mode,undefined);
  assert.equal(unavailable.disabled,true);
- assert.equal(unavailable.label,'Nayax API unavailable');
+ assert.equal(unavailable.label,'Refund temporarily unavailable');
 });
 test('separated competing purchases cannot bypass server-owned outreach authority',()=>{
  const action=load('primaryActionConfig',{
@@ -483,7 +480,7 @@ test('changed approvals and real mutation modes retain original save validation'
   assert.equal(unchangedApproval(approvedCase,next),false);
   assert.equal(JSON.stringify(displayIssues(approvedCase,next,{disabled:true})),JSON.stringify(saveIssues(approvedCase,next)));
  }
- for(const mode of ['case_update','nayax_refund_execution','manual_nayax_approval']) {
+ for(const mode of ['case_update','nayax_refund_execution']) {
   assert.equal(JSON.stringify(displayIssues(approvedCase,approvedEditor,{disabled:true,mode})),JSON.stringify(saveIssues(approvedCase,approvedEditor)));
  }
  for(const change of [{decision:null},{decision:'denied'},{refundAmountCents:null},{refundAmountCents:0},{paymentMethod:'cash'}]) {

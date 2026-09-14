@@ -1274,7 +1274,7 @@ export const lookupNayaxCandidatesForRefundCase = async ({
   if (!nayaxApiToken) {
     return setupResult(
       "This machine's separate Nayax account scope is not connected for read-only lookup.",
-      "Refund Operations must connect the required account scope, then run a fresh read-only transaction check or use the reviewed manual Nayax portal fallback. Do not ask the customer to repeat purchase details.",
+      "Refund Operations must connect the required account scope, then run a fresh read-only transaction check. Do not ask the customer to repeat purchase details.",
       "account_access_unavailable",
     );
   }

@@ -1,21 +1,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 
-export type RefundOfficialAction =
-  | "approve"
-  | "decline"
-  | "cash_complete"
-  | "nayax_execute";
-
-export type RefundOfficialActionTarget =
-  | "refund-case-admin-update"
-  | "nayax-card-refund";
+export type RefundOfficialAction = "approve" | "decline" | "cash_complete";
+export type RefundOfficialActionTarget = "refund-case-admin-update";
 
 export type RefundOfficialActionContext = {
   caseId: string;
   action: RefundOfficialAction;
   targetFunction: RefundOfficialActionTarget;
-  stepUpIntentId?: string | null;
-  stepUpFactorProof?: string | null;
   expectedCaseVersion: number;
   targetStatus: string | null;
   targetDecision: string | null;
@@ -26,14 +17,7 @@ export type RefundOfficialActionContext = {
   manualRefundReference?: string | null;
   cashPayoutSentAt?: string | null;
   cashPaymentConfirmed?: boolean;
-  matchedNayaxCandidateToken?: string | null;
   nayaxDisagreementReason?: string | null;
-  pilotAuthorizationId?: string | null;
-  pilotExecutorAssertion?: string | null;
-  pilotRunnerAssertionDigest?: string | null;
-  pilotContractDigest?: string | null;
-  pilotIdempotencyKey?: string | null;
-  pilotWorkerLeaseId?: string | null;
 };
 
 export type RefundOfficialActionAuthorization = {
@@ -43,129 +27,72 @@ export type RefundOfficialActionAuthorization = {
   authorityKind: "machine_manager" | "super_admin";
   authorityVersion: number;
   expiresAt: string;
-  pilotReservation?: {
-    attempt?: { attemptId?: string };
-    providerClaimToken?: string;
-  };
 };
 
 export class RefundOfficialActionAuthorizationError extends Error {
   readonly status: number;
-  readonly code:
-    | "configuration_missing"
-    | "mapping_required"
-    | "manager_step_up_required"
-    | "manager_verification_required"
-    | "official_actions_disabled"
-    | "stale_case"
-    | "authorization_failed";
-  readonly stepUpIntentId: string | null;
-  readonly stepUpExpiresAt: string | null;
+  readonly code: "configuration_missing" | "mapping_required" | "stale_case" |
+    "authorization_failed";
   readonly action: RefundOfficialAction | null;
   readonly targetFunction: RefundOfficialActionTarget | null;
 
-  constructor(
-    message: string,
-    status: number,
+  constructor(message: string, status: number,
     code: RefundOfficialActionAuthorizationError["code"],
-    details?: {
-      stepUpIntentId?: string | null;
-      stepUpExpiresAt?: string | null;
-      action?: RefundOfficialAction | null;
-      targetFunction?: RefundOfficialActionTarget | null;
-    },
-  ) {
+    details?: { action?: RefundOfficialAction | null;
+      targetFunction?: RefundOfficialActionTarget | null }) {
     super(message);
     this.name = "RefundOfficialActionAuthorizationError";
     this.status = status;
     this.code = code;
-    this.stepUpIntentId = details?.stepUpIntentId ?? null;
-    this.stepUpExpiresAt = details?.stepUpExpiresAt ?? null;
     this.action = details?.action ?? null;
     this.targetFunction = details?.targetFunction ?? null;
   }
 }
 
-const safeErrorMessage = (value: unknown) =>
-  typeof value === "string" ? value.trim().slice(0, 240) : "";
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const safeMessage = (value: unknown) => typeof value === "string" ? value : "";
 
-export const normalizeRefundAuthorizationAuthority = (value: {
-  authorityKind?: unknown;
-  authorityVersion?: unknown;
-  mappingVersion?: unknown;
-}) => {
-  const legacyManager = value.authorityKind == null &&
-    Number.isSafeInteger(Number(value.mappingVersion));
-  const authorityKind = legacyManager ? "machine_manager" : value.authorityKind;
+export const normalizeRefundAuthorizationAuthority = (value: unknown): {
+  authorityKind: "machine_manager" | "super_admin";
+  authorityVersion: number;
+} | null => {
+  const receipt = value && typeof value === "object"
+    ? value as Record<string, unknown>
+    : {};
+  const legacyVersion = Number(receipt.mappingVersion);
+  const authorityKind = receipt.authorityKind === "super_admin"
+    ? "super_admin"
+    : receipt.authorityKind === "machine_manager" ||
+        Number.isSafeInteger(legacyVersion) && legacyVersion > 0
+    ? "machine_manager"
+    : null;
   const authorityVersion = Number(
-    value.authorityVersion ?? value.mappingVersion,
+    receipt.authorityVersion ?? receipt.mappingVersion,
   );
-  if (
-    !new Set(["machine_manager", "super_admin"]).has(String(authorityKind)) ||
-    !Number.isSafeInteger(authorityVersion) || authorityVersion <= 0
-  ) return null;
-  return {
-    authorityKind: authorityKind as "machine_manager" | "super_admin",
-    authorityVersion,
-  };
+  return authorityKind && Number.isSafeInteger(authorityVersion) && authorityVersion > 0
+    ? { authorityKind, authorityVersion }
+    : null;
 };
 
-const classifyAuthorizationError = (message: string) => {
+const classifyError = (message: string) => {
   const normalized = message.toLowerCase();
-  if (normalized.includes("active machine manager mapping required")) {
-    return new RefundOfficialActionAuthorizationError(
-      "A currently mapped Machine Manager must perform this action.",
-      403,
-      "mapping_required",
-    );
-  }
-  if (
-    normalized.includes("changed since review") ||
-    normalized.includes("changed since authorization")
-  ) {
+  if (normalized.includes("changed since review") || normalized.includes("changed since authorization")) {
     return new RefundOfficialActionAuthorizationError(
       "This case changed during review. Reload it before taking an official action.",
-      409,
-      "stale_case",
-    );
+      409, "stale_case");
   }
-  if (
-    normalized.includes("fresh authenticator verification is required") ||
-    normalized.includes("new authenticator code entered after reviewing") ||
-    normalized.includes("authenticator verification proof is required")
-  ) {
+  if (normalized.includes("assigned manager") || normalized.includes("super-admin")) {
     return new RefundOfficialActionAuthorizationError(
-      "Verify with your authenticator immediately before taking this official action.",
-      403,
-      "manager_verification_required",
-    );
-  }
-  if (normalized.includes("official refund actions are disabled")) {
-    return new RefundOfficialActionAuthorizationError(
-      "Official refund actions remain disabled until manager step-up verification is deployed.",
-      503,
-      "official_actions_disabled",
-    );
-  }
-  if (normalized.includes("authenticated machine manager session required")) {
-    return new RefundOfficialActionAuthorizationError(
-      "An authenticated Machine Manager session is required.",
-      401,
-      "authorization_failed",
-    );
+      "Only the assigned Machine Manager or a Super-admin can take this action.",
+      403, "mapping_required");
   }
   return new RefundOfficialActionAuthorizationError(
-    "Unable to authorize this official refund action.",
-    400,
-    "authorization_failed",
-  );
+    "Unable to authorize this official refund action.", 400, "authorization_failed");
 };
 
 export const authorizeRefundOfficialAction = async ({
-  supabaseUrl,
-  supabaseAnonKey,
-  accessToken,
-  context,
+  supabaseUrl, supabaseAnonKey, accessToken, context,
 }: {
   supabaseUrl: string | undefined;
   supabaseAnonKey: string | undefined;
@@ -174,36 +101,19 @@ export const authorizeRefundOfficialAction = async ({
 }): Promise<RefundOfficialActionAuthorization> => {
   if (!supabaseUrl || !supabaseAnonKey) {
     throw new RefundOfficialActionAuthorizationError(
-      "Refund action authorization is not configured.",
-      500,
-      "configuration_missing",
-    );
+      "Refund action authorization is not configured.", 500, "configuration_missing");
   }
-
-  if (
-    !Number.isSafeInteger(context.expectedCaseVersion) ||
-    context.expectedCaseVersion <= 0
-  ) {
+  if (!Number.isSafeInteger(context.expectedCaseVersion) || context.expectedCaseVersion <= 0) {
     throw new RefundOfficialActionAuthorizationError(
-      "Reload this case before taking an official action.",
-      409,
-      "stale_case",
-    );
+      "Reload this case before taking an official action.", 409, "stale_case");
   }
-
-  const userClient = createClient(supabaseUrl, supabaseAnonKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
-    },
+  const client = createClient(supabaseUrl, supabaseAnonKey, {
     global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    auth: { persistSession: false },
   });
-
-  const rpcArguments = {
+  const { data, error } = await client.rpc("admin_authorize_refund_official_action", {
     p_case_id: context.caseId,
     p_action: context.action,
-    p_target_function: context.targetFunction,
     p_expected_case_version: context.expectedCaseVersion,
     p_target_status: context.targetStatus,
     p_target_decision: context.targetDecision,
@@ -214,147 +124,22 @@ export const authorizeRefundOfficialAction = async ({
     p_manual_refund_reference: context.manualRefundReference ?? null,
     p_cash_payout_sent_at: context.cashPayoutSentAt ?? null,
     p_cash_payment_confirmed: context.cashPaymentConfirmed === true,
-    p_matched_nayax_candidate_token: context.matchedNayaxCandidateToken ?? null,
+    p_matched_nayax_candidate_token: null,
     p_nayax_disagreement_reason: context.nayaxDisagreementReason ?? null,
-  };
-
-  const controlledPilot = typeof context.pilotAuthorizationId === "string" &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-      .test(context.pilotAuthorizationId);
-
-  if (!context.stepUpIntentId) {
-    if (controlledPilot) {
-      throw new RefundOfficialActionAuthorizationError(
-        "The reviewed controlled pilot verification request is required.",
-        409,
-        "authorization_failed",
-      );
-    }
-    const { p_target_function: _targetFunction, ...managerSessionArguments } =
-      rpcArguments;
-    const { data, error } = await userClient.rpc(
-      "admin_authorize_refund_official_action",
-      managerSessionArguments,
-    );
-
-    if (error || !data || typeof data !== "object") {
-      throw classifyAuthorizationError(safeErrorMessage(error?.message));
-    }
-
-    const authorization = data as Partial<{
-      authorizationId: string;
-      action: RefundOfficialAction;
-      expectedCaseVersion: number;
-      mappingVersion: number;
-      authorityKind: "machine_manager" | "super_admin";
-      authorityVersion: number;
-      expiresAt: string;
-    }>;
-    const authority = normalizeRefundAuthorizationAuthority(authorization);
-    if (
-      typeof authorization.authorizationId !== "string" ||
-      authorization.action !== context.action ||
-      !Number.isSafeInteger(Number(authorization.expectedCaseVersion)) ||
-      !authority ||
-      typeof authorization.expiresAt !== "string"
-    ) {
-      throw new RefundOfficialActionAuthorizationError(
-        "Refund action authorization returned an invalid receipt.",
-        500,
-        "authorization_failed",
-      );
-    }
-
-    return {
-      authorizationId: authorization.authorizationId,
-      action: authorization.action,
-      expectedCaseVersion: Number(authorization.expectedCaseVersion),
-      ...authority,
-      expiresAt: authorization.expiresAt,
-    };
-  }
-
-  if (!/^[a-f0-9]{64}$/.test(context.stepUpFactorProof ?? "")) {
-    throw new RefundOfficialActionAuthorizationError(
-      "Verify with your authenticator immediately before taking this official action.",
-      403,
-      "manager_verification_required",
-    );
-  }
-
-  const { data, error } = controlledPilot
-    ? await userClient.rpc(
-      "admin_consume_refund_nayax_controlled_pilot_intent",
-      {
-        p_pilot_authorization_id: context.pilotAuthorizationId,
-        p_intent_id: context.stepUpIntentId,
-        p_case_id: context.caseId,
-        p_expected_case_version: context.expectedCaseVersion,
-        p_refund_amount_cents: context.refundAmountCents,
-        p_factor_verification_proof: context.stepUpFactorProof,
-        p_executor_assertion: context.pilotExecutorAssertion,
-        p_runner_assertion_digest: context.pilotRunnerAssertionDigest,
-        p_contract_digest: context.pilotContractDigest,
-        p_idempotency_key: context.pilotIdempotencyKey,
-        p_worker_lease_id: context.pilotWorkerLeaseId,
-      },
-    )
-    : await userClient.rpc(
-      "admin_consume_refund_action_step_up_intent",
-      {
-        p_intent_id: context.stepUpIntentId,
-        p_factor_verification_proof: context.stepUpFactorProof,
-        ...rpcArguments,
-      },
-    );
-
+  });
   if (error || !data || typeof data !== "object") {
-    throw classifyAuthorizationError(safeErrorMessage(error?.message));
+    throw classifyError(safeMessage(error?.message));
   }
-
-  const authorization = data as Partial<RefundOfficialActionAuthorization> & {
-    mappingVersion?: number;
-  };
-  const authority = normalizeRefundAuthorizationAuthority(authorization);
-  if (
-    typeof authorization.authorizationId !== "string" ||
-    authorization.action !== context.action ||
-    !Number.isSafeInteger(Number(authorization.expectedCaseVersion)) ||
-    !authority ||
-    typeof authorization.expiresAt !== "string"
-  ) {
+  const receipt = data as Partial<RefundOfficialActionAuthorization>;
+  if (!UUID.test(receipt.authorizationId ?? "") ||
+    !new Set(["approve", "decline", "cash_complete"]).has(receipt.action ?? "") ||
+    !Number.isSafeInteger(Number(receipt.expectedCaseVersion)) ||
+    !new Set(["machine_manager", "super_admin"]).has(receipt.authorityKind ?? "") ||
+    !Number.isSafeInteger(Number(receipt.authorityVersion)) ||
+    typeof receipt.expiresAt !== "string") {
     throw new RefundOfficialActionAuthorizationError(
-      "Refund action authorization returned an invalid receipt.",
-      500,
-      "authorization_failed",
-    );
+      "Refund action authorization returned an invalid receipt.", 500,
+      "authorization_failed");
   }
-  const pilotReservation = controlledPilot
-    ? (data as { pilotReservation?: RefundOfficialActionAuthorization["pilotReservation"] })
-      .pilotReservation
-    : undefined;
-  if (controlledPilot &&
-      (!pilotReservation ||
-        typeof pilotReservation.attempt?.attemptId !== "string" ||
-        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-          .test(pilotReservation.attempt.attemptId) ||
-        typeof pilotReservation.providerClaimToken !== "string" ||
-        pilotReservation.providerClaimToken.length < 43)) {
-    throw new RefundOfficialActionAuthorizationError(
-      "The controlled pilot reservation did not commit atomically.",
-      500,
-      "authorization_failed",
-    );
-  }
-
-  return {
-    authorizationId: authorization.authorizationId,
-    action: authorization.action,
-    expectedCaseVersion: Number(authorization.expectedCaseVersion),
-    ...authority,
-    expiresAt: authorization.expiresAt,
-    ...(controlledPilot
-      ? { pilotReservation }
-      : {}),
-  };
+  return receipt as RefundOfficialActionAuthorization;
 };

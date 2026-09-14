@@ -194,11 +194,9 @@ await assert.rejects(
 
 const controlPlaneSource = read('scripts/refunds/refund-auth-control-plane.mjs');
 const deployGateSource = read('scripts/refunds/refund-production-auth-closed.mjs');
-const ceremonyReadinessSource = read('scripts/refunds/refund-owner-totp-auth-readiness.mjs');
 const combinedCheckerSource = [
   controlPlaneSource,
   deployGateSource,
-  ceremonyReadinessSource,
 ].join('\n');
 assert.match(controlPlaneSource, /method:\s*'GET'/u);
 assert.doesNotMatch(combinedCheckerSource, /method:\s*['"](?:PATCH|POST|PUT|DELETE)['"]/iu);

@@ -211,7 +211,7 @@ const captureManifest = cutoverPacket.indexOf(
   routeSmoke
 );
 const cleanDrift = cutoverPacket.indexOf(
-  'require the standard production drift check to pass for all ten functions',
+  'require the standard production drift check to pass for all eleven functions',
   captureManifest
 );
 const inventorySync = cutoverPacket.indexOf('Run one controlled inventory sync', cleanDrift);
@@ -233,22 +233,10 @@ assert.doesNotMatch(
 
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-release-test-'));
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');
-const canonicalPreDeploymentManagerSourceSha256 = {
-  'refund-manager-action-step-up':
-    'b4bfb6a6b89ef93b2ed1d8ac3c286dfa079fb198afca27418a4ceb030d7ebd4d',
-  'refund-manager-totp-enrollment':
-    'f98c1999c62b7ff51dafdcc42d42d9bebc2026da11805bb51c55e3c60c706511',
-};
-
 try {
   assert.equal(requiredFunctionSlugs.length, 11, 'Current refund release inventory must cover exactly eleven functions');
-  assert.equal(historicalFunctionSlugs.length, 10, 'Historical inventory must remain exactly ten functions');
+  assert.equal(historicalFunctionSlugs.length, 10, 'Historical cutover inventory must remain exactly ten functions');
   assert.equal(requiredFunctionSlugs.at(-1), 'refund-nayax-outcome-resolve');
-  assert.deepEqual(
-    historicalFunctionSlugs.slice(-2),
-    ['refund-manager-action-step-up', 'refund-manager-totp-enrollment'],
-    'Manager step-up and TOTP enrollment must be in the release inventory'
-  );
   const repositoryManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   validateManifestShape(repositoryManifest);
   const priorInventoryManifest = JSON.parse(execFileSync('git', [
@@ -538,7 +526,7 @@ try {
   );
   assert(
     repositoryMigrations.includes('20260823221537_refund_nc_manual_nayax_portal.sql'),
-    'The Adam-managed API-pending manual Nayax boundary must be in the discovered release inventory'
+    'The historical manual Nayax migration must remain in the immutable discovered migration inventory'
   );
   assert(
     repositoryMigrations.includes('20260824003000_refund_nc_manual_machine_timezones.sql'),
@@ -682,37 +670,6 @@ try {
       }),
       expectedFailure,
       `${label} must fail the historical pre-migration bridge closed`
-    );
-  }
-  for (const managerSlug of ['refund-manager-action-step-up', 'refund-manager-totp-enrollment']) {
-    const localEntry = repositoryManifest.functions.find((entry) => entry.slug === managerSlug);
-    const localStateEntry = repositoryLocalState.functions.find((entry) => entry.slug === managerSlug);
-    assert(localStateEntry, `${managerSlug} must be present in the local release state`);
-    assert.equal(
-      localStateEntry.sourceSha256,
-      localEntry.sourceSha256,
-      `${managerSlug} local source must match the reviewed current manifest digest`
-    );
-    const baselineEntry = repositoryManifest.preDeploymentProduction.find(
-      (entry) => entry.slug === managerSlug
-    );
-    const restoreEntry = repositoryManifest.approvedRestoreSource.functions.find(
-      (entry) => entry.slug === managerSlug
-    );
-    assert.equal(localEntry.verifyJwt, false, `${managerSlug} must keep verify_jwt disabled`);
-    assert(
-      baselineEntry &&
-        baselineEntry.status === 'ACTIVE' &&
-        baselineEntry.verifyJwt === localEntry.verifyJwt &&
-        baselineEntry.importMap === false &&
-        baselineEntry.sourceSha256 ===
-          canonicalPreDeploymentManagerSourceSha256[managerSlug],
-      `${managerSlug} must retain the exact canonical-51 pre-deployment source and security pairing`
-    );
-    assert.deepEqual(
-      restoreEntry,
-      { slug: managerSlug, restoreAction: 'disable' },
-      `${managerSlug} rollback must disable the newly introduced function`
     );
   }
   fs.mkdirSync(path.join(functionsRoot, 'example'), { recursive: true });
@@ -983,22 +940,6 @@ try {
     restoreAction: 'disable',
   };
   validateManifestShape(disableOnlyRestoreManifest);
-
-  for (const managerSlug of ['refund-manager-action-step-up', 'refund-manager-totp-enrollment']) {
-    const managerIndex = requiredFunctionSlugs.indexOf(managerSlug);
-    assert.notEqual(managerIndex, -1, `${managerSlug} must be covered by the refund release allowlist`);
-    const managerDisableManifest = structuredClone(shapeManifest);
-    managerDisableManifest.approvedRestoreSource.functions[managerIndex] = {
-      slug: managerSlug,
-      restoreAction: 'disable',
-    };
-    validateManifestShape(managerDisableManifest);
-    assert.equal(
-      managerDisableManifest.preDeploymentProduction[managerIndex].status,
-      'MISSING',
-      `${managerSlug} must retain an explicit missing pre-deployment baseline`
-    );
-  }
 
   const invalidDisableRestoreManifest = structuredClone(disableOnlyRestoreManifest);
   invalidDisableRestoreManifest.approvedRestoreSource.functions[disableOnlyIndex].sourceSha256 =

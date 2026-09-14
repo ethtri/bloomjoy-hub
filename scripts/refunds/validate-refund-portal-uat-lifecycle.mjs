@@ -47,7 +47,7 @@ assert.deepEqual(overviewFixtureBuilders, [
   'buildCashRefundReviewOverview',
   'buildCashRefundVariantsOverview',
   'buildPendingNayaxRefundOverview',
-  'buildAdamManualNayaxRefundOverview',
+  'buildAdamApiUnavailableRefundOverview',
   'buildNavigationOnlyPendingOverview',
   'buildSimpleCardRefundJourneyOverview',
   'buildGroupedLivermorePendingOverview',
@@ -64,7 +64,6 @@ assert.deepEqual(overviewFixtureBuilders, [
   'buildTransactionalDeliveryTruthOverview',
   'buildGmailUncertaintyPrecedenceOverview',
   'buildPhysicalCardMismatchRefundOverview',
-  'buildApprovalContinuationOverview',
 ]);
 assert.match(
   portalSource,
@@ -92,7 +91,7 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /const buildAdamManualNayaxRefundOverview = [\s\S]*?publicReference: 'RF-UAT-ADAM-MANUAL'[\s\S]*?manualNayaxPortalEnabled: true[\s\S]*?reviewedNayaxPortalFallbackKind: 'legacy_manual_evidence'/
+  /const buildAdamApiUnavailableRefundOverview = [\s\S]*?publicReference: 'RF-UAT-ADAM-MANUAL'[\s\S]*?correlationStatus: 'nayax_not_configured'/
 );
 assert.match(
   portalSource,
@@ -113,10 +112,6 @@ assert.match(
 assert.match(
   portalSource,
   /const buildInterruptedNayaxCompletionOverview = [\s\S]*?status: 'completed'[\s\S]*?lifecycle: buildLifecycleFixture\([\s\S]*?'refund_confirmed'[\s\S]*?70[\s\S]*?'wait_for_customer_notification'/
-);
-assert.match(
-  portalSource,
-  /interruptionPage\.getByRole\('button', \{ name: 'Refund in progress 1'[\s\S]*?uncertainPage\.getByRole\('button', \{ name: 'Refund in progress 1'/
 );
 assert.match(
   portalSource,

@@ -27,7 +27,6 @@ const run = async () => {
     nayaxRefund,
     nayaxCompletionDelivery,
     outcomeResolve,
-    managerStepUp,
     request,
     status,
     operations,
@@ -49,7 +48,6 @@ const run = async () => {
       read('supabase/functions/nayax-card-refund/index.ts'),
       read('supabase/functions/_shared/nayax-refund-completion-delivery.ts'),
       read('supabase/functions/refund-nayax-outcome-resolve/index.ts'),
-      read('supabase/functions/refund-manager-action-step-up/index.ts'),
       read('src/pages/RefundRequest.tsx'),
       read('src/pages/RefundStatus.tsx'),
       read('src/lib/refundOperations.ts'),
@@ -168,10 +166,7 @@ const run = async () => {
       source.includes('buildRefundStoredTextWithStatus')
     ) && automationSweep.includes('deliverNayaxRefundCustomerCompletion') &&
       !nayaxRefund.includes('tryIssueRefundStatusCapabilityForMessage') &&
-      !nayaxRefund.includes('buildRefundStoredTextWithStatus') &&
-      managerStepUp.includes('manager_step_up_retired') &&
-      managerStepUp.includes('actionTaken: false') &&
-      !managerStepUp.includes('tryIssueRefundStatusCapabilityForMessage'),
+      !nayaxRefund.includes('buildRefundStoredTextWithStatus'),
   );
   assert(
     'Privacy-safe access evidence is actively removed after its retention window',

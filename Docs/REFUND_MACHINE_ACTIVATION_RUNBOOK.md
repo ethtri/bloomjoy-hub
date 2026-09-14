@@ -8,7 +8,7 @@ This runbook governs the owner-reviewed activation introduced by issue `#948`. I
 - **Ready to activate:** every machine prerequisite is ready, but the machine capability is intentionally off. The screen shows the approved reason; activation does not override global direct API availability.
 - **Setup needed:** one machine prerequisite is missing. Fix the exact reason shown before activation.
 - **Paused:** the global runtime pause applies to all machines. This is not a machine mapping failure.
-- **Manual portal only:** machine capability, intake, and lookup remain ready, but direct API execution is blocked until Nayax remaining refundable value can be verified. Refund Operations may approve the reviewed portal fallback only for one exact matched transaction. After acting in Nayax, record completion only after verifying the portal shows the full selected transaction amount refunded; keep partial/smaller results on hold.
+- **Direct API blocked:** card-refund execution is unavailable. Keep the case in Bloomjoy Hub; do not issue or record a manual Nayax refund.
 
 Customer intake is independent from transaction matching and payment activation. Turning matching off must not prevent a customer from asking Bloomjoy for help.
 
@@ -21,10 +21,10 @@ Customer intake is independent from transaction matching and payment activation.
 
 ## Owner UAT before activation
 
-1. Open Admin → Machines and inspect examples of **Ready to activate**, **Setup needed**, **Manual portal only**, **Direct API blocked**, and an approved machine-disabled reason on desktop and mobile. **Ready to refund** may appear only when global direct availability is truly open.
+1. Open Admin → Machines and inspect examples of **Ready to activate**, **Setup needed**, **Direct API blocked**, and an approved machine-disabled reason on desktop and mobile. **Ready to refund** may appear only when global direct availability is truly open.
 2. Confirm **Customer requests**, **Transaction lookup**, **Machine Managers**, **Card-refund capability**, **Direct API**, and **Refund amount** remain separate and agree with the reviewed machine record.
 3. Confirm the global pause appears as **Paused for all machines** and does not erase the underlying machine status.
-4. For one qualified non-production fixture, choose **Activate card-refund capability**, confirm once, and verify the machine capability is `Enabled`. With the runtime gates open and exact account/machine/manager configuration, verify **Ready to refund**; otherwise verify the truthful configuration, pause, or portal status.
+4. For one qualified non-production fixture, choose **Activate card-refund capability**, confirm once, and verify the machine capability is `Enabled`. With the runtime gates open and exact account/machine/manager configuration, verify **Ready to refund**; otherwise verify the truthful configuration, pause, or blocked status.
 5. Confirm the Admin audit log contains one activation event and that repeating the same request creates no second event.
 
 ## Reviewed production activation

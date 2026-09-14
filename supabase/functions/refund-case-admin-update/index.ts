@@ -230,9 +230,7 @@ const resolveOfficialAction = ({
   const effectiveDecision = requestedDecision;
 
   if (effectiveStatus === "completed") {
-    return beforeRow.payment_method === "cash"
-      ? "cash_complete"
-      : "nayax_execute";
+    return beforeRow.payment_method === "cash" ? "cash_complete" : null;
   }
   if (effectiveStatus === "denied" || effectiveDecision === "denied") {
     return "decline";
@@ -836,6 +834,12 @@ serve(async (req) => {
     const requestedStatus = sanitizeText(body?.status, 80).toLowerCase() ||
       null;
     const requestedDecision = normalizeDecision(body?.decision);
+    if (requestedStatus === "completed" && beforeRow.payment_method === "card") {
+      return jsonResponse({
+        error: "Card completion is recorded only from System provider evidence.",
+        errorCode: "card_completion_requires_system_settlement",
+      }, 409);
+    }
     const officialAction = resolveOfficialAction({
       beforeRow,
       requestedStatus,
@@ -857,10 +861,10 @@ serve(async (req) => {
           : "provider_outcome_unconfirmed",
       }, 409);
     }
-    if (officialAction === "nayax_execute") {
+    if (officialAction === "approve" && beforeRow.payment_method === "card") {
       return jsonResponse({
-        error:
-          "Card completion must be finalized by the guarded Nayax execution workflow.",
+        error: "Use Refund to approve and queue this exact card transaction.",
+        errorCode: "card_approval_requires_refund_action",
       }, 409);
     }
 
@@ -904,9 +908,14 @@ serve(async (req) => {
         error: "Nayax lookup evidence is no longer available for this case.",
       }, 400);
     }
+    if (nayaxCandidate?.evidence_summary?.source === "manual_nayax_portal") {
+      return jsonResponse({
+        error: "Manual Nayax portal evidence is historical and cannot authorize a card refund.",
+        errorCode: "manual_nayax_candidate_retired",
+      }, 409);
+    }
     if (
       nayaxCandidate &&
-      nayaxCandidate.evidence_summary?.source !== "manual_nayax_portal" &&
       nayaxCandidate.actor_user_id !== user.id
     ) {
       const { data: evidenceBound, error: evidenceBindError } = await supabase.rpc(
@@ -1132,18 +1141,11 @@ serve(async (req) => {
     const officialCashPaymentConfirmed = cashCompletionContext?.ok
       ? cashCompletionContext.context.cashPaymentConfirmed
       : false;
-    const officialNayaxCandidateToken = officialAction === "approve"
-      ? nayaxCandidateToken || null
-      : null;
-    const officialNayaxDisagreementReason = officialAction === "approve"
-      ? nayaxDisagreementReason || null
-      : null;
+    const officialNayaxCandidateToken = null;
+    const officialNayaxDisagreementReason = null;
     const expectedOfficialActionVersion = Number(
       body?.expectedOfficialActionVersion,
     );
-    const stepUpIntentId = sanitizeText(body?.stepUpIntentId, 80) || null;
-    const stepUpFactorProof = sanitizeText(body?.stepUpFactorProof, 80) || null;
-
     const officialAuthorization = officialAction
       ? await authorizeRefundOfficialAction({
         supabaseUrl,
@@ -1153,8 +1155,6 @@ serve(async (req) => {
           caseId,
           action: officialAction,
           targetFunction: "refund-case-admin-update",
-          stepUpIntentId,
-          stepUpFactorProof,
           expectedCaseVersion: expectedOfficialActionVersion,
           targetStatus: requestedStatus,
           targetDecision: requestedDecision,
@@ -1165,7 +1165,6 @@ serve(async (req) => {
           manualRefundReference: officialManualRefundReference,
           cashPayoutSentAt: officialCashPayoutSentAt,
           cashPaymentConfirmed: officialCashPaymentConfirmed,
-          matchedNayaxCandidateToken: officialNayaxCandidateToken,
           nayaxDisagreementReason: officialNayaxDisagreementReason,
         },
       })
@@ -1179,14 +1178,19 @@ serve(async (req) => {
         requestedDecision === null &&
         requestedMessageType === null,
     );
-    const isNayaxSelectionApproval = Boolean(
-      nayaxCandidate &&
-        officialAction === "approve" &&
-        requestedStatus === "card_refund_pending" &&
-        requestedDecision === "approved" &&
-        requestedMessageType === null,
-    );
-
+    const evidenceSelectionClient = isNayaxEvidenceSelection && supabaseUrl &&
+        supabaseAnonKey
+      ? createClient(supabaseUrl, supabaseAnonKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+        global: { headers: { Authorization: `Bearer ${accessToken}` } },
+      })
+      : null;
+    if (isNayaxEvidenceSelection && !evidenceSelectionClient) {
+      return jsonResponse({
+        error: "Transaction selection is not configured.",
+        errorCode: "configuration_missing",
+      }, 500);
+    }
     const updateRpc = isCashCompletion && officialAuthorization
       ? await supabase.rpc("service_complete_cash_refund_official", {
         p_authorization_id: officialAuthorization.authorizationId,
@@ -1197,17 +1201,6 @@ serve(async (req) => {
         p_decision_reason: decisionReason,
         p_internal_note: internalNote,
         p_assigned_manager_email: assignedManagerEmail,
-      })
-      : isNayaxSelectionApproval && officialAuthorization
-      ? await supabase.rpc("service_apply_refund_nayax_selection_approval", {
-        p_authorization_id: officialAuthorization.authorizationId,
-        p_case_id: caseId,
-        p_assigned_manager_email: assignedManagerEmail,
-        p_decision_reason: decisionReason,
-        p_internal_note: internalNote,
-        p_refund_amount_cents: officialRefundAmountCents,
-        p_matched_nayax_candidate_token: officialNayaxCandidateToken,
-        p_nayax_disagreement_reason: officialNayaxDisagreementReason,
       })
       : officialAction && officialAuthorization
       ? await supabase.rpc("service_apply_refund_official_case_update", {
@@ -1225,8 +1218,7 @@ serve(async (req) => {
         p_nayax_disagreement_reason: officialNayaxDisagreementReason,
       })
       : isNayaxEvidenceSelection
-      ? await supabase.rpc("service_select_refund_nayax_candidate_as_actor", {
-        p_actor_user_id: user.id,
+      ? await evidenceSelectionClient!.rpc("admin_select_refund_nayax_candidate_current_user_v1", {
         p_case_id: caseId,
         p_expected_case_version: expectedOfficialActionVersion,
         p_candidate_token: nayaxCandidateToken,
@@ -1421,8 +1413,6 @@ serve(async (req) => {
         {
           error: error.message,
           errorCode: error.code,
-          stepUpIntentId: error.stepUpIntentId,
-          stepUpExpiresAt: error.stepUpExpiresAt,
           officialAction: error.action,
           targetFunction: error.targetFunction,
         },

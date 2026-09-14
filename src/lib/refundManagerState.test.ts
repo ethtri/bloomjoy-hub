@@ -1074,7 +1074,7 @@ Deno.test('retired remaining-value reason asks for a current availability refres
   assertEquals(
     result.nextStep,
     'Refresh the case to load the current refund availability.',
-    'manual portal fallback guidance'
+    'current availability guidance'
   );
 });
 

@@ -58,27 +58,50 @@ class TransactionalCompletionDeliveryUncertainError extends Error {}
 
 const allowedResults = new Set([
   "provider_confirmed_success",
-  "provider_confirmed_retry_safe",
-  "documented_manual_completion",
   "remain_on_hold",
 ]);
 
 const allowedEvidenceTypes = new Set([
   "nayax_dtm_transaction",
   "nayax_support_ticket",
-  "documented_manual_refund",
 ]);
 
 const allowedReasons = new Set([
   "nayax_dtm_settled",
   "nayax_support_confirmed_success",
-  "nayax_dtm_not_refunded",
-  "nayax_support_retry_safe",
-  "manual_nayax_completion",
   "evidence_incomplete",
   "provider_still_pending",
   "evidence_conflict",
 ]);
+
+const evidenceTupleIsValid = (
+  resolutionResult: string,
+  evidenceType: string,
+  reasonCode: string,
+) => resolutionResult === "provider_confirmed_success"
+  ? (evidenceType === "nayax_dtm_transaction" && reasonCode === "nayax_dtm_settled") ||
+    (evidenceType === "nayax_support_ticket" && reasonCode === "nayax_support_confirmed_success")
+  : resolutionResult === "remain_on_hold" &&
+    new Set(["evidence_incomplete", "provider_still_pending", "evidence_conflict"])
+      .has(reasonCode);
+
+const evidenceReferenceIsSafe = (value: string, evidenceType: string) => {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{7,119}$/.test(value) ||
+    value.includes("@") ||
+    /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i.test(value) ||
+    /(account|bank|card|customer|email|password|passcode|phone|pin|routing|security.?code|cvv|pan)/i.test(value)) {
+    return false;
+  }
+  const digits = value.replace(/[^0-9]/g, "");
+  const permittedLongNumber = evidenceType === "nayax_dtm_transaction"
+    ? /^DTM:NAYAX-[0-9]{9}$/.test(value)
+    : evidenceType === "nayax_support_ticket" &&
+      (/^SUPPORT:NAYAX-[0-9]{8}$/.test(value) || /^SUPPORT:NAYAX-CS[0-9]{7}$/.test(value));
+  return (digits.length < 8 || permittedLongNumber) &&
+    (evidenceType === "nayax_dtm_transaction"
+      ? /^DTM[:/-]/.test(value)
+      : evidenceType === "nayax_support_ticket" && /^SUPPORT[:/-]/.test(value));
+};
 
 const userClientFor = (accessToken: string) => {
   if (!supabaseUrl || !supabaseAnonKey) return null;
@@ -137,7 +160,6 @@ serve(async (req) => {
       ? body.reasonCode.trim()
       : "";
     const expectedCaseVersion = Number(body?.expectedCaseVersion);
-    const systemSavedApprovalEvidence = body?.systemSavedApprovalEvidence === true;
 
     if (
       !isUuid(caseId) || !isUuid(attemptId) ||
@@ -145,9 +167,11 @@ serve(async (req) => {
       !allowedEvidenceTypes.has(evidenceType) ||
       !allowedReasons.has(reasonCode) ||
       !isSafeText(evidenceReference, 120) ||
+      !evidenceReferenceIsSafe(evidenceReference, evidenceType) ||
+      !evidenceTupleIsValid(resolutionResult, evidenceType, reasonCode) ||
       !Number.isSafeInteger(expectedCaseVersion) || expectedCaseVersion <= 0 ||
-      (evidenceOccurredAt !== null &&
-        Number.isNaN(new Date(evidenceOccurredAt).getTime()))
+      evidenceOccurredAt === null ||
+      Number.isNaN(new Date(evidenceOccurredAt).getTime())
     ) {
       return jsonResponse({
         error: "Review the exact payment result again.",
@@ -155,24 +179,7 @@ serve(async (req) => {
       }, 400);
     }
 
-    if (
-      systemSavedApprovalEvidence &&
-      ![
-        "provider_confirmed_success",
-        "provider_confirmed_retry_safe",
-        "remain_on_hold",
-      ].includes(resolutionResult)
-    ) {
-      return jsonResponse({
-        error: "Record the exact Nayax result without issuing or retrying a refund.",
-        errorCode: "invalid_system_evidence_result",
-      }, 400);
-    }
-
-    const completedResult = [
-      "provider_confirmed_success",
-      "documented_manual_completion",
-    ].includes(resolutionResult);
+    const completedResult = resolutionResult === "provider_confirmed_success";
     if (
       completedResult &&
       !/^[A-Za-z0-9_-]{32,200}$/.test(nayaxExecutorAssertion)
@@ -189,9 +196,7 @@ serve(async (req) => {
     }
 
     const { data: resolution, error: resolutionError } = await userClient.rpc(
-      systemSavedApprovalEvidence
-        ? "admin_record_nayax_system_outcome_evidence_v1"
-        : "admin_resolve_refund_nayax_outcome_manager_session",
+      "admin_record_nayax_system_outcome_evidence_v1",
       {
         p_case_id: caseId,
         p_attempt_id: attemptId,

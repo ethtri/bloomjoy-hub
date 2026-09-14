@@ -45,7 +45,7 @@ test('optional reads cannot fail the critical refund overview read', () => {
   const overviewRead = functionBody(
     operationsSource,
     'export const fetchRefundOperationsOverview',
-    'type RefundManualNayaxContext',
+    'export type RefundOperationsSupplements',
   );
   assert.doesNotMatch(overviewRead, /get_refund_manager_work_projection/);
   assert.doesNotMatch(overviewRead, /admin_get_refund_gmail_draft_cases/);
@@ -60,7 +60,7 @@ test('optional reads cannot fail the critical refund overview read', () => {
   );
   assert.match(supplementRead, /admin_get_refund_gmail_draft_cases/);
   assert.match(supplementRead, /admin_get_refund_email_queue_states/);
-  assert.match(supplementRead, /admin_get_refund_manual_nayax_context/);
+  assert.doesNotMatch(supplementRead, /admin_get_refund_manual_nayax_context/);
   assert.match(supplementRead, /unavailableSources/);
   assert.match(supplementSource, /officialActionBlockReason: 'official_actions_disabled'/);
   assert.match(supplementSource, /canPerformOfficialAction: false/);

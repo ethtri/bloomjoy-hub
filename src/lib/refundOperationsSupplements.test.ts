@@ -30,7 +30,6 @@ const supplements = (
 ): RefundOperationsSupplements => ({
   gmailDrafts: [],
   queueStates: [],
-  manualNayaxContexts: [],
   unavailableSources,
 });
 

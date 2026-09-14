@@ -395,7 +395,6 @@ export type RefundReadinessBlockReason =
 
 export type RefundReadiness = {
   transactionConfirmed: boolean;
-  approvalContinuationReady?: boolean;
   canIssueCardRefund: boolean;
   blockReason: RefundReadinessBlockReason | null;
   refundAmountCents: number | null;
@@ -869,10 +868,6 @@ export type RefundCaseRecord = {
     failureClass: string | null;
     payloadRedacted: true;
   } | null;
-  manualNayaxPortalEnabled?: boolean;
-  manualNayaxEvidenceSelected?: boolean;
-  manualNayaxLocationTimezone?: string | null;
-  reviewedNayaxPortalFallbackKind?: 'legacy_manual_evidence' | 'ordinary_exact_match';
   lifecycle?: RefundLifecycleContract | null;
 };
 
@@ -1230,22 +1225,15 @@ export type UpdateRefundCaseInput = {
 
 export type RefundNayaxResolutionResult =
   | 'provider_confirmed_success'
-  | 'provider_confirmed_retry_safe'
-  | 'documented_manual_completion'
   | 'remain_on_hold';
 
 export type RefundNayaxResolutionEvidenceType =
   | 'nayax_dtm_transaction'
-  | 'nayax_support_ticket'
-  | 'documented_manual_refund';
+  | 'nayax_support_ticket';
 
 export type RefundNayaxResolutionReason =
   | 'nayax_dtm_settled'
-  | 'nayax_dtm_preexisting_settled'
   | 'nayax_support_confirmed_success'
-  | 'nayax_dtm_not_refunded'
-  | 'nayax_support_retry_safe'
-  | 'manual_nayax_completion'
   | 'evidence_incomplete'
   | 'provider_still_pending'
   | 'evidence_conflict';
@@ -1255,7 +1243,6 @@ export type RefundNayaxResolutionReadiness = {
   available: boolean;
   blockReason?:
     | 'resolution_disabled'
-    | 'evidence_only_start_required'
     | 'exact_attempt_required'
     | 'already_resolved'
     | 'provider_hold_required'
@@ -1263,42 +1250,11 @@ export type RefundNayaxResolutionReadiness = {
     | 'refund_operations_access_required'
     | 'system_provider_hold_no_retry'
     | null;
-  canStartEvidenceOnlyReconciliation?: boolean;
   systemOutcomeEvidenceAvailable?: boolean;
   attemptId?: string | null;
   providerOutcome?: 'rejected' | 'timeout' | 'unknown' | null;
-  manualPortalAttempt?: boolean;
-  evidenceOnlyAttempt?: boolean;
   expectedCaseVersion?: number | null;
   allowedResults?: RefundNayaxResolutionResult[];
-  payloadRedacted: true;
-};
-
-export type CreateRefundManualNayaxCandidateInput = {
-  caseId: string;
-  expectedCaseVersion: number;
-  portalMachineReference: string;
-  providerTransactionId: string;
-  machineAuthorizationLocalTime: string;
-  amountCents: number;
-  cardLast4: string;
-};
-
-export type CreateRefundManualNayaxCandidateResponse = {
-  candidateToken: string;
-  expiresAt: string;
-  providerCallMade: false;
-  customerMessageCreated: false;
-};
-
-export type BeginRefundNayaxEvidenceOnlyResponse = {
-  attemptId: string;
-  created: boolean;
-  status: 'manual_review';
-  providerOutcome: 'unknown';
-  expectedCaseVersion: number;
-  providerCallMade: false;
-  customerMessageCreated: false;
   payloadRedacted: true;
 };
 
@@ -1308,17 +1264,15 @@ export type ResolveRefundNayaxOutcomeInput = {
   resolutionResult: RefundNayaxResolutionResult;
   evidenceType: RefundNayaxResolutionEvidenceType;
   evidenceReference: string;
-  evidenceOccurredAt: string | null;
+  evidenceOccurredAt: string;
   reasonCode: RefundNayaxResolutionReason;
   expectedCaseVersion: number;
-  systemSavedApprovalEvidence?: boolean;
 };
 
 export type ResolveRefundNayaxOutcomeResponse = {
   resolved: boolean;
   result: RefundNayaxResolutionResult;
   caseCompleted: boolean;
-  retryReadyForFreshReview: boolean;
   customerCompletionAvailable: boolean;
   providerCallMade: false;
   customerMessageCreated: boolean;
@@ -1517,7 +1471,6 @@ export type NayaxCardRefundAvailabilityResponse = {
     | null;
   caseId?: string;
   transactionConfirmed?: boolean;
-  approvalContinuationReady?: boolean;
   canIssueCardRefund?: boolean;
   refundAmountCents?: number | null;
   machineLimitCents?: number | null;
@@ -2078,7 +2031,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         correlationStatus: 'nayax_not_configured',
         correlationSource: null,
         correlationConfidence: 0,
-        correlationSummary: 'Use Adam’s Nayax portal to find the exact transaction.',
+        correlationSummary: 'Use Nayax for read-only transaction research only. Never issue or record a refund there.',
         machineLabel: 'Carolina Place',
         locationName: 'Carolina Place',
         customerEmail: 'nc-customer@example.test',
@@ -2128,9 +2081,6 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         providerOutcome: 'not_attempted',
         reconciliationActionBlocked: false,
         legacyStateReviewRequired: false,
-        manualNayaxPortalEnabled: true,
-        manualNayaxEvidenceSelected: false,
-        manualNayaxLocationTimezone: 'America/New_York',
         reviewedNayaxPortalFallbackKind: 'legacy_manual_evidence',
         inboundLinkReview: showInboundLinkReview
           ? {
@@ -2191,7 +2141,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         nayaxLookupSummary: {
           lookupStatus: 'setup_needed',
           candidateCount: 0,
-          summary: 'Use Adam’s Nayax portal to find the exact transaction.',
+          summary: 'Use Nayax for read-only transaction research only. Never issue or record a refund there.',
           recommendedAction: 'Enter the exact transaction below.',
           recommendationState: 'manual_exception',
           oneClickEligible: false,
@@ -2610,26 +2560,16 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
   };
 };
 
-type RefundManualNayaxContext = {
-  caseId: string;
-  manualNayaxPortalEnabled: boolean;
-  manualNayaxEvidenceSelected: boolean;
-  manualNayaxLocationTimezone: string | null;
-  reviewedNayaxPortalFallbackKind?: 'legacy_manual_evidence' | 'ordinary_exact_match';
-};
-
 export type RefundOperationsSupplements = {
   gmailDrafts: RefundCaseRecord[];
   queueStates: RefundEmailQueueState[];
-  manualNayaxContexts: RefundManualNayaxContext[];
-  unavailableSources: Array<'gmail_drafts' | 'email_queue_states' | 'manual_nayax_context'>;
+  unavailableSources: Array<'gmail_drafts' | 'email_queue_states'>;
 };
 
 export const fetchRefundOperationsSupplements = async (): Promise<RefundOperationsSupplements> => {
-  const [gmailDraftSettled, queueStateSettled, manualNayaxSettled] = await Promise.allSettled([
+  const [gmailDraftSettled, queueStateSettled] = await Promise.allSettled([
     supabaseClient.rpc('admin_get_refund_gmail_draft_cases'),
     supabaseClient.rpc('admin_get_refund_email_queue_states'),
-    supabaseClient.rpc('admin_get_refund_manual_nayax_context'),
   ]);
   const gmailDraftResult = gmailDraftSettled.status === 'fulfilled'
     ? gmailDraftSettled.value
@@ -2637,13 +2577,9 @@ export const fetchRefundOperationsSupplements = async (): Promise<RefundOperatio
   const queueStateResult = queueStateSettled.status === 'fulfilled'
     ? queueStateSettled.value
     : null;
-  const manualNayaxResult = manualNayaxSettled.status === 'fulfilled'
-    ? manualNayaxSettled.value
-    : null;
   const unavailableSources: RefundOperationsSupplements['unavailableSources'] = [];
   if (!gmailDraftResult || gmailDraftResult.error) unavailableSources.push('gmail_drafts');
   if (!queueStateResult || queueStateResult.error) unavailableSources.push('email_queue_states');
-  if (!manualNayaxResult || manualNayaxResult.error) unavailableSources.push('manual_nayax_context');
 
   return {
     gmailDrafts: gmailDraftResult && !gmailDraftResult.error && Array.isArray(gmailDraftResult.data)
@@ -2651,9 +2587,6 @@ export const fetchRefundOperationsSupplements = async (): Promise<RefundOperatio
       : [],
     queueStates: queueStateResult && !queueStateResult.error && Array.isArray(queueStateResult.data)
       ? queueStateResult.data as RefundEmailQueueState[]
-      : [],
-    manualNayaxContexts: manualNayaxResult && !manualNayaxResult.error && Array.isArray(manualNayaxResult.data)
-      ? manualNayaxResult.data as RefundManualNayaxContext[]
       : [],
     unavailableSources,
   };
@@ -3233,46 +3166,6 @@ export const classifyRefundCaseInternalTest = async (input: {
   }
 
   return response as ClassifyRefundCaseInternalTestResponse;
-};
-
-export const createRefundManualNayaxCandidate = async (
-  input: CreateRefundManualNayaxCandidateInput
-): Promise<CreateRefundManualNayaxCandidateResponse> => {
-  const { data, error } = await supabaseClient.rpc(
-    'admin_create_refund_manual_nayax_candidate',
-    {
-      p_case_id: input.caseId,
-      p_expected_case_version: input.expectedCaseVersion,
-      p_portal_machine_reference: input.portalMachineReference,
-      p_provider_transaction_id: input.providerTransactionId,
-      p_machine_authorization_local_time: input.machineAuthorizationLocalTime,
-      p_amount_cents: input.amountCents,
-      p_card_last4: input.cardLast4,
-    }
-  );
-  if (error || !data || typeof data !== 'object') {
-    throw new Error(error?.message || 'Unable to save the Nayax portal transaction.');
-  }
-  return data as CreateRefundManualNayaxCandidateResponse;
-};
-
-export const beginRefundNayaxEvidenceOnlyReconciliation = async (
-  caseId: string,
-  expectedCaseVersion: number
-): Promise<BeginRefundNayaxEvidenceOnlyResponse> => {
-  const { data, error } = await supabaseClient.rpc(
-    'admin_begin_refund_nayax_evidence_only_reconciliation',
-    {
-      p_case_id: caseId,
-      p_expected_case_version: expectedCaseVersion,
-    }
-  );
-  if (error || !data || typeof data !== 'object') {
-    throw new Error(
-      error?.message || 'Unable to open the existing-refund evidence review.'
-    );
-  }
-  return data as BeginRefundNayaxEvidenceOnlyResponse;
 };
 
 export const fetchRefundNayaxResolutionReadiness = async (

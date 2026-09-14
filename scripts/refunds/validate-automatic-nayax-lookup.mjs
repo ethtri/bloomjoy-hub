@@ -182,11 +182,13 @@ assert(
     gapRecoveryMigration.includes("refund_case_nayax_refund_attempts") &&
     portal.includes('data-testid="nayax-incomplete-history-refresh"') &&
     portal.includes('data-testid="nayax-incomplete-history-fallback"') &&
-    portal.includes('href="https://my.nayax.com"'),
-  "incomplete provider history must get one guarded read-only refresh before the explicit portal fallback",
+    portal.includes('Read-only Nayax transaction research') &&
+    portal.includes('href="https://my.nayax.com"') &&
+    portal.includes('never issue or record a refund there'),
+  "incomplete provider history must get one guarded internal refresh before explicitly read-only Nayax research",
 );
 assert(
-  transactionViewState.includes('Use Nayax directly if Bloomjoy Hub still cannot search.') &&
+  transactionViewState.includes('read-only transaction research only') &&
     transactionViewState.includes('The customer does not need to repeat details.') &&
     !portal.includes("Try again or ask the customer for more details."),
   "mapping and account failures must be manager-owned without customer repetition"

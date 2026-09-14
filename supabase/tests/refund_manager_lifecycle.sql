@@ -104,10 +104,13 @@ select is(
   'A routine manager is not granted Refund Operations access'
 );
 
-select is(
-  public.admin_get_refund_manual_nayax_context(),
-  '[]'::jsonb,
-  'A routine manager receives no provider or manual Nayax context'
+select ok(
+  not has_function_privilege(
+    'authenticated',
+    'public.admin_get_refund_manual_nayax_context()',
+    'execute'
+  ),
+  'The retired manual Nayax context writer is unavailable to browser sessions'
 );
 
 select ok(
@@ -126,8 +129,8 @@ select ok(
   pg_temp.capture_error($$select public.admin_create_refund_manual_nayax_candidate(
     '99210000-0000-4000-8000-000000000001', 1, 'SAFE-MACHINE',
     'SAFE-TRANSACTION', '2026-08-26T12:00', 500, '4242'
-  )$$) like '42501:Refund Operations administrator required%',
-  'A routine manager cannot submit manual provider evidence'
+  )$$) like '42501:permission denied for function admin_create_refund_manual_nayax_candidate%',
+  'No authenticated user can submit retired manual provider evidence'
 );
 
 select ok(
