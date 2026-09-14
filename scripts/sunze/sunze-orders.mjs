@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { basename, extname, join } from 'node:path';
 import { unzipSync } from 'fflate';
 import { readSheet } from 'read-excel-file/node';
+import { resolveLocalDateTimeInZone } from '../../supabase/functions/_shared/timezone-resolution.mjs';
 
 export const SUNZE_ORDER_SHEET = 'Order';
 
@@ -159,7 +160,64 @@ const normalizeStatus = (value, rowNumber) => {
   return source;
 };
 
-const parsePaymentTime = (value, rowNumber) => {
+const assertValidatedPaymentTimezone = (timeZone, rowNumber) => {
+  const normalized = toText(timeZone);
+  if (!normalized) {
+    throw new SunzeOrderParseError(
+      `Ambiguous timezone-less payment time at row ${rowNumber}; a validated Sunze payment timezone is required.`,
+      { rowNumber, reason: 'sunze_payment_timezone_unvalidated' }
+    );
+  }
+
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: normalized }).format(0);
+  } catch {
+    throw new SunzeOrderParseError(`Invalid Sunze payment timezone at row ${rowNumber}.`, {
+      rowNumber,
+      reason: 'sunze_payment_timezone_invalid',
+    });
+  }
+
+  return normalized;
+};
+
+const resolveTimezoneLessPaymentTime = (parts, rowNumber, paymentTimeZone) => {
+  if (!toText(paymentTimeZone)) {
+    return {
+      paymentTimeIso: buildUtcIso(parts),
+      saleDate: buildDateString(parts.year, parts.month, parts.day),
+      paymentTimeBasis: 'unvalidated_utc_compatibility',
+      paymentTimeTimezone: null,
+    };
+  }
+
+  const timeZone = assertValidatedPaymentTimezone(paymentTimeZone, rowNumber);
+  const resolved = resolveLocalDateTimeInZone({
+    localDate: buildDateString(parts.year, parts.month, parts.day),
+    localTime: `${pad2(parts.hour)}:${pad2(parts.minute)}:${pad2(parts.second)}`,
+    timeZone,
+  });
+
+  if (resolved.resolution !== 'exact' || resolved.possibleInstantCount !== 1 || !resolved.instant) {
+    throw new SunzeOrderParseError(
+      `Ambiguous or nonexistent timezone-less payment time at row ${rowNumber}.`,
+      {
+        rowNumber,
+        reason: `sunze_payment_time_${resolved.resolution}`,
+        possibleInstantCount: resolved.possibleInstantCount,
+      }
+    );
+  }
+
+  return {
+    paymentTimeIso: resolved.instant,
+    saleDate: buildDateString(parts.year, parts.month, parts.day),
+    paymentTimeBasis: 'validated_iana_timezone',
+    paymentTimeTimezone: timeZone,
+  };
+};
+
+const parsePaymentTime = (value, rowNumber, { paymentTimeZone = null } = {}) => {
   if (value instanceof Date && Number.isFinite(value.getTime())) {
     const year = value.getUTCFullYear();
     const month = value.getUTCMonth() + 1;
@@ -168,10 +226,11 @@ const parsePaymentTime = (value, rowNumber) => {
     const minute = value.getUTCMinutes();
     const second = value.getUTCSeconds();
 
-    return {
-      paymentTimeIso: buildUtcIso({ year, month, day, hour, minute, second }),
-      saleDate: buildDateString(year, month, day),
-    };
+    return resolveTimezoneLessPaymentTime(
+      { year, month, day, hour, minute, second },
+      rowNumber,
+      paymentTimeZone
+    );
   }
 
   const source = toText(value);
@@ -208,6 +267,8 @@ const parsePaymentTime = (value, rowNumber) => {
         return {
           paymentTimeIso: parsed.toISOString(),
           saleDate: buildDateString(year, month, day),
+          paymentTimeBasis: 'explicit_offset',
+          paymentTimeTimezone: null,
         };
       }
     }
@@ -230,10 +291,11 @@ const parsePaymentTime = (value, rowNumber) => {
     const second = Number(secondRaw);
 
     if (isValidUtcDateTimeParts({ year, month, day, hour, minute, second })) {
-      return {
-        paymentTimeIso: buildUtcIso({ year, month, day, hour, minute, second }),
-        saleDate: buildDateString(year, month, day),
-      };
+      return resolveTimezoneLessPaymentTime(
+        { year, month, day, hour, minute, second },
+        rowNumber,
+        paymentTimeZone
+      );
     }
 
     throwInvalidPaymentTime(rowNumber);
@@ -252,6 +314,8 @@ const parsePaymentTime = (value, rowNumber) => {
   return {
     paymentTimeIso: parsed.toISOString(),
     saleDate: parsed.toISOString().slice(0, 10),
+    paymentTimeBasis: 'explicit_offset',
+    paymentTimeTimezone: null,
   };
 };
 
@@ -275,7 +339,7 @@ const validateHeaders = (headers) => {
   return Object.fromEntries(SUNZE_ORDER_HEADERS.map((header) => [header, normalized.indexOf(header)]));
 };
 
-export const parseSunzeOrderRows = (rows) => {
+export const parseSunzeOrderRows = (rows, options = {}) => {
   if (!Array.isArray(rows) || rows.length === 0) {
     throw new SunzeOrderParseError('Provider order workbook is empty.');
   }
@@ -292,7 +356,8 @@ export const parseSunzeOrderRows = (rows) => {
       const tradeName = normalizeSourceLabel(cell('Trade name'));
       const machineCode = toText(cell('Machine code'));
       const machineName = toText(cell('Machine name'));
-      const { paymentTimeIso, saleDate } = parsePaymentTime(cell('Payment time'), rowNumber);
+      const { paymentTimeIso, saleDate, paymentTimeBasis, paymentTimeTimezone } =
+        parsePaymentTime(cell('Payment time'), rowNumber, options);
       const sourceStatus = normalizeStatus(cell('Status'), rowNumber);
       const { paymentMethod, sourcePaymentMethod } = normalizePaymentMethod(
         cell('Payment method'),
@@ -318,6 +383,8 @@ export const parseSunzeOrderRows = (rows) => {
         paymentMethod,
         sourcePaymentMethod,
         paymentTimeIso,
+        paymentTimeBasis,
+        paymentTimeTimezone,
         saleDate,
         sourceStatus,
       };
@@ -333,7 +400,7 @@ const wrapWorkbookReadError = (error, filePath) =>
     cause: error instanceof Error ? error.message : String(error),
   });
 
-const parseSunzeOrderWorkbookFile = async (filePath) => {
+const parseSunzeOrderWorkbookFile = async (filePath, options = {}) => {
   let rows;
 
   try {
@@ -350,7 +417,7 @@ const parseSunzeOrderWorkbookFile = async (filePath) => {
     }
   }
 
-  return parseSunzeOrderRows(rows);
+  return parseSunzeOrderRows(rows, options);
 };
 
 const safeTempWorkbookName = (entryName, index) => {
@@ -359,7 +426,7 @@ const safeTempWorkbookName = (entryName, index) => {
   return workbookExtensions.has(extension) ? `${index}-${fileName}` : `${index}-${fileName}.xlsx`;
 };
 
-const parseSunzeOrderZip = async (filePath) => {
+const parseSunzeOrderZip = async (filePath, options = {}) => {
   const source = await readFile(filePath);
   let entries;
 
@@ -397,7 +464,7 @@ const parseSunzeOrderZip = async (filePath) => {
       await writeFile(tempPath, bytes);
 
       try {
-        rows.push(...(await parseSunzeOrderWorkbookFile(tempPath)));
+        rows.push(...(await parseSunzeOrderWorkbookFile(tempPath, options)));
       } catch (error) {
         if (error instanceof SunzeOrderParseError) {
           throw new SunzeOrderParseError(`${error.message} Zip entry: ${entryName}.`, {
@@ -422,12 +489,12 @@ const parseSunzeOrderZip = async (filePath) => {
   return rows;
 };
 
-export const parseSunzeOrderWorkbook = async (filePath) => {
+export const parseSunzeOrderWorkbook = async (filePath, options = {}) => {
   if (extname(filePath).toLowerCase() === '.zip') {
-    return parseSunzeOrderZip(filePath);
+    return parseSunzeOrderZip(filePath, options);
   }
 
-  return parseSunzeOrderWorkbookFile(filePath);
+  return parseSunzeOrderWorkbookFile(filePath, options);
 };
 
 export const assertSunzeOrderRowsWithinWindow = (rows, { windowStart, windowEnd } = {}) => {

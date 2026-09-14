@@ -54,6 +54,12 @@ orientation snapshot; it is not a backlog or release ledger.
 
 - Bloomjoy Hub remains a Vite, React, TypeScript, Tailwind, shadcn/ui application
   backed by Supabase.
+- Sunze cash-sale evidence now has a private, server-owned timestamp, freshness,
+  coverage, and five-state match contract. Timezone-less `Payment time` values
+  remain an explicitly unvalidated compatibility assumption and cannot prove a
+  missing sale. Match confidence and coverage state explain the evidence; they
+  do not decide whether a Manager may complete a reviewed cash refund. When an
+  exact sale is selected, it cannot support a second non-duplicate completion.
 - The production Nayax request and approval contract is proved with the current
   credentials. Use
   [NAYAX_REFUND_WORKING_CONTRACT.md](NAYAX_REFUND_WORKING_CONTRACT.md) for exact

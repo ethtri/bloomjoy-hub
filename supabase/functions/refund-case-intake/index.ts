@@ -1701,6 +1701,7 @@ serve(async (req) => {
     let correlationConfidence = 0;
     let correlationSummary = "";
     let matchedSalesFactId: string | null = null;
+    let cashMatchState: string | null = null;
     const candidateIds: string[] = [];
 
     if (paymentMethod === "card") {
@@ -1708,51 +1709,63 @@ serve(async (req) => {
       correlationStatus = "needs_nayax";
       correlationSummary = "Card payment requires manager review through Nayax Lynx lookup.";
     } else if (paymentMethod === "cash") {
-      const windowStart = new Date(incidentAt.getTime() - 60 * 60 * 1000);
-      const windowEnd = new Date(incidentAt.getTime() + 60 * 60 * 1000);
-      let query = supabase
-        .from("machine_sales_facts")
-        .select("id, net_sales_cents, payment_time, source_trade_name")
-        .eq("reporting_machine_id", machineRecord.id as string)
-        .eq("payment_method", "cash")
-        .gte("payment_time", windowStart.toISOString())
-        .lte("payment_time", windowEnd.toISOString())
-        .order("payment_time", { ascending: true })
-        .limit(4);
-
-      if (amountCents !== null && amountCents > 0) {
-        query = query.eq("net_sales_cents", amountCents);
+      cashMatchState = "checking_sales_history";
+      const { data: matchResult, error: matchError } = await supabase.rpc(
+        "service_match_sunze_cash_sale",
+        {
+          p_reporting_machine_id: machineRecord.id,
+          p_purchase_time: incidentAt.toISOString(),
+          p_amount_cents: amountCents,
+        },
+      );
+      if (matchError || !matchResult || typeof matchResult !== "object" || Array.isArray(matchResult)) {
+        throw new Error("Unable to check cash sales history safely.");
+      }
+      const result = matchResult as Record<string, unknown>;
+      cashMatchState = String(result.state ?? "");
+      const allowedCashStates = new Set([
+        "checking_sales_history",
+        "sale_found",
+        "multiple_possible_sales",
+        "no_sale_found_with_complete_coverage",
+        "sales_history_unavailable",
+      ]);
+      if (!allowedCashStates.has(cashMatchState)) {
+        throw new Error("Cash sales history returned an unsupported state.");
       }
 
-      const { data: candidates, error: candidateError } = await query;
-      if (candidateError) {
-        throw candidateError;
-      }
-
-      for (const candidate of candidates ?? []) {
-        if (candidate?.id) candidateIds.push(String(candidate.id));
-      }
-
-      if (candidateIds.length === 1) {
+      if (cashMatchState === "sale_found") {
+        const candidateId = String(result.matchedSalesFactId ?? "");
+        if (!isUuid(candidateId)) throw new Error("Cash sales history returned invalid match evidence.");
+        candidateIds.push(candidateId);
         status = "correlated";
         correlationStatus = "matched";
         correlationSource = "sunze";
-        correlationConfidence = amountCents !== null && amountCents > 0 ? 0.96 : 0.82;
-        matchedSalesFactId = candidateIds[0];
-        correlationSummary = amountCents !== null && amountCents > 0
-          ? "Matched one cash Sunze sales fact for this machine within +/- 1 hour and exact amount."
-          : "Matched one cash Sunze sales fact for this machine within +/- 1 hour.";
-      } else if (candidateIds.length > 1) {
+        correlationConfidence = 0.82;
+        matchedSalesFactId = candidateId;
+        correlationSummary =
+          "Matched one cash sale for this machine within +/- 1 hour using fresh, validated source coverage. The reported amount remains advisory evidence.";
+      } else if (cashMatchState === "multiple_possible_sales") {
         status = "needs_review";
         correlationStatus = "multiple_candidates";
         correlationSource = "sunze";
         correlationConfidence = 0.4;
-        correlationSummary = "Multiple cash Sunze candidates were found in the conservative time window.";
-      } else {
+        correlationSummary = "Multiple possible cash sales were found in the conservative time window.";
+      } else if (cashMatchState === "no_sale_found_with_complete_coverage") {
         status = "needs_review";
         correlationStatus = "no_match";
         correlationSource = "sunze";
-        correlationSummary = "No cash Sunze sales fact matched this machine within +/- 1 hour.";
+        correlationSummary = "No cash sale matched within +/- 1 hour; the server verified fresh source coverage for the full window.";
+      } else if (cashMatchState === "checking_sales_history") {
+        status = "needs_review";
+        correlationStatus = "manual_review";
+        correlationSource = "sunze";
+        correlationSummary = "Cash sales history is still checking for a source watermark that covers the purchase window.";
+      } else {
+        status = "needs_review";
+        correlationStatus = "manual_review";
+        correlationSource = "sunze";
+        correlationSummary = "Cash sales history is unavailable or incomplete; no missing-match conclusion was made.";
       }
     }
 
@@ -1870,6 +1883,7 @@ serve(async (req) => {
       product_description_supplied: Boolean(productDescription),
       incident_possible_instant_count: incidentResolution.possibleInstantCount,
       candidate_sales_fact_ids: candidateIds,
+      cash_match_state: cashMatchState,
       customer_locale: customerLocale,
       user_agent: req.headers.get("user-agent")?.slice(0, 300) ?? null,
       submission_identity_hash: submissionIdentityHash,
@@ -1922,7 +1936,9 @@ serve(async (req) => {
       correlation_confidence: correlationConfidence,
       correlation_summary: correlationSummary,
       matched_sales_fact_id: matchedSalesFactId,
-      cash_match_evaluated_fact_version: paymentValidation.paymentMethod === "cash" ? 1 : null,
+      cash_match_state: cashMatchState,
+      cash_match_evaluated_fact_version:
+        cashMatchState === "no_sale_found_with_complete_coverage" ? 1 : null,
       refund_amount_cents: paymentValidation.amountCents,
       refund_qr_claim_context_id: verifiedQrClaim?.id ?? null,
       customer_request_received_at: customerRequestReceivedAt,
@@ -2050,6 +2066,17 @@ serve(async (req) => {
         linkedRefundCase as SubmittedRefundCase | null,
       );
       if (!linkedCase) throw new RefundEmailContextUnavailableError();
+      if (paymentValidation.paymentMethod === "cash") {
+        const { error: cashStateError } = await supabase
+          .from("refund_cases")
+          .update({
+            cash_match_state: cashMatchState,
+            cash_match_evaluated_fact_version:
+              cashMatchState === "no_sale_found_with_complete_coverage" ? 1 : null,
+          })
+          .eq("id", linkedCase.id);
+        if (cashStateError) throw new Error("Unable to retain the cash sales-history state.");
+      }
       linkedGmailThreadId = requireLinkedRefundEmailThreadId(
         emailContextToken,
         linkedCase,

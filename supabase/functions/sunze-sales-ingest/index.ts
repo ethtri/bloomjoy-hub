@@ -281,6 +281,41 @@ const finishRun = async (
     .eq("id", importRunId);
 };
 
+const recordCashSourceWatermarks = async ({
+  importRunId,
+  machineCodes,
+  meta,
+  completedAt,
+}: {
+  importRunId: string;
+  machineCodes: string[];
+  meta: Record<string, unknown>;
+  completedAt: string;
+}) => {
+  if (!supabase || meta.paymentTimeSemanticsStatus !== "validated") return 0;
+
+  const coverageStartedAt = sanitizeText(meta.coverageStartedAt, 80);
+  const coveredThrough = sanitizeText(meta.coveredThrough, 80);
+  const paymentTimeTimezone = sanitizeText(meta.paymentTimeTimezone, 100);
+  const timestampProofScope = sanitizeText(meta.timestampProofScope, 40);
+  if (!coverageStartedAt || !coveredThrough || !paymentTimeTimezone || timestampProofScope !== "account") {
+    throw new Error("Validated Sunze timestamp semantics require complete coverage bounds.");
+  }
+
+  const { data, error } = await supabase.rpc("service_record_sunze_cash_watermarks", {
+    p_import_run_id: importRunId,
+    p_machine_codes: machineCodes,
+    p_coverage_started_at: coverageStartedAt,
+    p_covered_through: coveredThrough,
+    p_last_successful_import_at: completedAt,
+    p_freshness_hours: staleHoursDefault,
+    p_payment_time_timezone: paymentTimeTimezone,
+    p_timestamp_proof_scope: timestampProofScope,
+  });
+  if (error) throw new Error(error.message || "Unable to record Sunze cash source watermarks.");
+  return Number(data ?? 0);
+};
+
 const loadMachineMap = async () => {
   if (!supabase) {
     throw new Error("Supabase service client is not configured.");
@@ -814,6 +849,13 @@ serve(async (req) => {
       selected_window_source: sanitizeText(bodyMeta.selectedWindowSource, 80) || null,
       selected_preset: sanitizeText(bodyMeta.selectedPreset, 100) || null,
       reporting_timezone: sanitizeText(bodyMeta.reportingTimezone, 100) || null,
+      payment_time_timezone: sanitizeText(bodyMeta.paymentTimeTimezone, 100) || null,
+      payment_time_semantics_status:
+        bodyMeta.paymentTimeSemanticsStatus === "validated" ? "validated" : "unvalidated",
+      timestamp_proof_scope:
+        bodyMeta.timestampProofScope === "account" ? "account" : "unvalidated",
+      coverage_started_at: sanitizeText(bodyMeta.coverageStartedAt, 80) || null,
+      covered_through: sanitizeText(bodyMeta.coveredThrough, 80) || null,
       ui_record_count: safeInteger(bodyMeta.uiRecordCount),
       ui_record_count_matched: bodyMeta.uiRecordCountMatched === true,
       ui_record_count_trusted: bodyMeta.uiRecordCountTrusted === true,
@@ -927,11 +969,22 @@ serve(async (req) => {
     const rowsImported = normalized.facts.length;
     const rowsSkipped = normalized.unmappedSales.length;
 
+    const completedAt = new Date().toISOString();
     await finishRun(importRunId, {
       status: "completed",
       rowsImported,
       rowsSkipped,
       meta: finalRunMeta,
+    });
+    const cashWatermarkCount = await recordCashSourceWatermarks({
+      importRunId,
+      machineCodes: uniqueCodes([
+        ...sanitizeCodeArray(bodyMeta.visibleSunzeMachineCodes),
+        ...normalizeVisibleSunzeMachines(bodyMeta.visibleSunzeMachines)
+          .map((machine) => machine.machineCode),
+      ]),
+      meta: bodyMeta,
+      completedAt,
     });
 
     if (discoveryState.newlyPendingMachineCount > 0) {
@@ -953,6 +1006,7 @@ serve(async (req) => {
       rowsIgnored: ignoredUnmappedRows.length,
       unmappedRowsQueued: queuedRows?.length ?? normalized.unmappedSales.length,
       pendingUnmappedMachineCount: discoveryState.pendingMachineCount,
+      cashWatermarkCount,
     });
   } catch (error) {
     const message =

@@ -88,6 +88,7 @@ const buildWorkbook = (rows, { sheetName = 'Order' } = {}) =>
 const fixturePath = new URL('./sample-sunze-orders.json', import.meta.url);
 const fixture = JSON.parse(await readFile(fixturePath, 'utf8'));
 const rows = [fixture.headers, ...fixture.rows];
+const validatedPaymentTimeOptions = { paymentTimeZone: 'America/Los_Angeles' };
 const tempPaths = [];
 const createTempPath = (extension) => {
   const tempPath = join(
@@ -99,9 +100,9 @@ const createTempPath = (extension) => {
 };
 const tempPath = createTempPath('xlsx');
 
-const assertParseError = (testRows, expectedMessage) => {
+const assertParseError = (testRows, expectedMessage, options = {}) => {
   assert.throws(
-    () => parseSunzeOrderRows(testRows),
+    () => parseSunzeOrderRows(testRows, options),
     (error) =>
       error instanceof SunzeOrderParseError &&
       typeof error.message === 'string' &&
@@ -291,7 +292,7 @@ try {
       ),
     })
   );
-  const zippedParsed = await parseSunzeOrderWorkbook(zipPath);
+  const zippedParsed = await parseSunzeOrderWorkbook(zipPath, validatedPaymentTimeOptions);
   const zippedSummary = summarizeSunzeOrderRows(zippedParsed);
   assert.equal(zippedParsed.length, 4);
   assert.equal(zippedSummary.windowStart, '2026-04-22');
@@ -372,9 +373,28 @@ try {
   const midnightParsed = parseSunzeOrderRows([
     SUNZE_ORDER_HEADERS,
     withCell(fixture.rows[0], 'Payment time', '2026/04/24 00:00:03'),
-  ]);
+  ], validatedPaymentTimeOptions);
   assert.equal(midnightParsed[0].saleDate, '2026-04-24');
-  assert.equal(midnightParsed[0].paymentTimeIso, '2026-04-24T00:00:03.000Z');
+  assert.equal(midnightParsed[0].paymentTimeIso, '2026-04-24T07:00:03.000Z');
+  assert.equal(midnightParsed[0].paymentTimeBasis, 'validated_iana_timezone');
+
+  const workbookDateParsed = parseSunzeOrderRows([
+    SUNZE_ORDER_HEADERS,
+    withCell(fixture.rows[0], 'Payment time', new Date(Date.UTC(2026, 0, 15, 10, 15, 30))),
+  ], validatedPaymentTimeOptions);
+  assert.equal(workbookDateParsed[0].paymentTimeIso, '2026-01-15T18:15:30.000Z');
+
+  const springBeforeParsed = parseSunzeOrderRows([
+    SUNZE_ORDER_HEADERS,
+    withCell(fixture.rows[0], 'Payment time', '2026-03-08 01:59:59'),
+  ], validatedPaymentTimeOptions);
+  assert.equal(springBeforeParsed[0].paymentTimeIso, '2026-03-08T09:59:59.000Z');
+
+  const springAfterParsed = parseSunzeOrderRows([
+    SUNZE_ORDER_HEADERS,
+    withCell(fixture.rows[0], 'Payment time', '2026-03-08 03:00:00'),
+  ], validatedPaymentTimeOptions);
+  assert.equal(springAfterParsed[0].paymentTimeIso, '2026-03-08T10:00:00.000Z');
 
   const timezoneParsed = parseSunzeOrderRows([
     SUNZE_ORDER_HEADERS,
@@ -382,6 +402,24 @@ try {
   ]);
   assert.equal(timezoneParsed[0].saleDate, '2026-04-24');
   assert.equal(timezoneParsed[0].paymentTimeIso, '2026-04-23T16:30:00.000Z');
+  assert.equal(timezoneParsed[0].paymentTimeBasis, 'explicit_offset');
+
+  const compatibilityParsed = parseSunzeOrderRows([
+    SUNZE_ORDER_HEADERS,
+    withCell(fixture.rows[0], 'Payment time', '2026/04/24 00:00:03'),
+  ]);
+  assert.equal(compatibilityParsed[0].paymentTimeIso, '2026-04-24T00:00:03.000Z');
+  assert.equal(compatibilityParsed[0].paymentTimeBasis, 'unvalidated_utc_compatibility');
+  assertParseError(
+    [SUNZE_ORDER_HEADERS, withCell(fixture.rows[0], 'Payment time', '2026-03-08 02:30:00')],
+    'Ambiguous or nonexistent',
+    validatedPaymentTimeOptions
+  );
+  assertParseError(
+    [SUNZE_ORDER_HEADERS, withCell(fixture.rows[0], 'Payment time', '2026-11-01 01:30:00')],
+    'Ambiguous or nonexistent',
+    validatedPaymentTimeOptions
+  );
 
   assertParseError(
     [[...SUNZE_ORDER_HEADERS.filter((header) => header !== 'Status')], fixture.rows[0]],
@@ -434,6 +472,11 @@ try {
           'revenue mismatch rejection',
           'duplicate order preservation',
           'midnight date boundary',
+          'workbook date with validated IANA timezone',
+          'DST spring transition boundaries',
+          'DST spring gap rejection',
+          'DST fall fold rejection',
+          'timezone-less UTC compatibility marked unvalidated',
           'zip export parsing',
           'optional metadata header handling',
           'empty zip rejection',

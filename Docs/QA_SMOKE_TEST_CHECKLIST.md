@@ -29,6 +29,19 @@ historical fixtures cannot add product gates that the workflow does not contain.
   amount, and other available evidence. **Confirm refund sent via Zelle** means
   the Manager already sent the money and completes the case without an
   intermediate payout state.
+- [ ] Sunze cash evidence returns exactly one server-owned state:
+  `checking_sales_history`, `sale_found`, `multiple_possible_sales`,
+  `no_sale_found_with_complete_coverage`, or `sales_history_unavailable`.
+  Unmapped, unsupported, unvalidated, stale, post-watermark, and disjoint-gap
+  fixtures never claim complete no-match.
+- [ ] A timezone-less workbook value remains explicitly unvalidated and cannot
+  advance a refund coverage watermark. Validated IANA fixtures cover workbook
+  dates, strings, explicit offsets, midnight, and both DST transitions.
+- [ ] Amount and confidence remain advisory evidence. A reviewed Manager can
+  complete a cash refund from any match state after sending Zelle; selecting an
+  exact Sunze sale cannot complete a second non-duplicate case.
+- [ ] `anon` and `authenticated` cannot read the private Sunze coverage objects
+  or execute the server-owned matching RPC.
 - [ ] Customer clarification appears only after internal research is exhausted,
   asks one targeted question in the existing case, sends one follow-up only when
   there is no reply, applies replies to the same case, and closes after 30 days
