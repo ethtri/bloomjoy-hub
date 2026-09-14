@@ -115,7 +115,11 @@ const readJson = (filePath) => JSON.parse(fs.readFileSync(filePath, 'utf8'));
 
 const relativeImportSpecifiers = (source) => {
   const specifiers = new Set();
-  const staticPattern = /(?:import|export)\s+(?:type\s+)?(?:[^'";]+?\s+from\s+)?['"]([^'"]+)['"]/g;
+  // Supabase excludes pure TypeScript type imports/exports from downloaded
+  // runtime bundles, so the production digest must traverse value-bearing
+  // dependencies only. Mixed imports (for example `{ value, type Shape }`)
+  // still match and remain protected.
+  const staticPattern = /(?:import|export)\s+(?!type\b)(?:[^'";]+?\s+from\s+)?['"]([^'"]+)['"]/g;
   const dynamicPattern = /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
 
   for (const pattern of [staticPattern, dynamicPattern]) {

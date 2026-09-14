@@ -614,6 +614,35 @@ try {
   const crlf = calculateFunctionSource(fixtureRoot, 'example');
   assert.equal(crlf.sourceSha256, baseline.sourceSha256, 'CRLF and LF source must hash identically');
 
+  fs.writeFileSync(
+    path.join(functionsRoot, 'example', 'index.ts'),
+    'import type { RuntimeShape } from "../_shared/runtime-shape.ts";\n' +
+      'import { helper } from "../_shared/helper.ts";\n' +
+      'const shape: RuntimeShape | null = null;\nhelper();\nvoid shape;\n',
+    'utf8'
+  );
+  const typeOnlyWithoutBundledSource = calculateFunctionSource(fixtureRoot, 'example');
+  assert.deepEqual(
+    typeOnlyWithoutBundledSource.files,
+    [
+      'supabase/functions/_shared/helper.ts',
+      'supabase/functions/example/index.ts',
+    ],
+    'Pure type-only imports must match Supabase runtime downloads that omit their source files'
+  );
+
+  fs.writeFileSync(
+    path.join(functionsRoot, 'example', 'index.ts'),
+    'import { helper, type RuntimeShape } from "../_shared/missing-runtime.ts";\n' +
+      'const shape: RuntimeShape | null = null;\nhelper();\nvoid shape;\n',
+    'utf8'
+  );
+  assert.throws(
+    () => calculateFunctionSource(fixtureRoot, 'example'),
+    /Unresolved relative import/,
+    'Mixed value/type imports must remain protected runtime dependencies'
+  );
+
   fs.writeFileSync(path.join(functionsRoot, 'example', 'index.ts'), 'import "../_shared/missing.ts";\n', 'utf8');
   assert.throws(
     () => calculateFunctionSource(fixtureRoot, 'example'),
