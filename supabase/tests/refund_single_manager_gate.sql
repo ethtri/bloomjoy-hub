@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(55);
+select plan(61);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -135,42 +135,56 @@ begin
 end;
 $$;
 
-select ok((pg_temp.commit_lookup_fixture(
+create temp table pg_temp.lookup_fixture_results(result_key text primary key,result jsonb);
+insert into pg_temp.lookup_fixture_results(result_key,result) values
+  ('manual-clear',pg_temp.commit_lookup_fixture(
     'a3470000-0000-4000-8000-000000000010','a3480000-0000-4000-8000-000000000010',
-    'manual','a3410000-0000-4000-8000-000000000001','match_found','high_confidence')
-      ->>'systemPreselectionApplied')::boolean
-  and (select actor_user_id is null from public.refund_nayax_lookup_candidates
-    where token='a3480000-0000-4000-8000-000000000010')
-  and not exists(select 1 from public.refund_case_events
+    'manual','a3410000-0000-4000-8000-000000000001','match_found','high_confidence'));
+select is((select result->>'systemPreselectionApplied' from pg_temp.lookup_fixture_results
+    where result_key='manual-clear'),'true',
+  'manual clear lookup uses System preselection');
+select ok((select actor_user_id is null from public.refund_nayax_lookup_candidates
+    where token='a3480000-0000-4000-8000-000000000010'),
+  'manual clear candidate becomes System-owned evidence');
+select ok(not exists(select 1 from public.refund_case_events
     where refund_case_id='a3470000-0000-4000-8000-000000000010'
       and event_type in ('nayax_lookup_completed','nayax_lookup_diagnostics','nayax_match_preselected')
-      and actor_user_id is not null)
-  and exists(select 1 from public.refund_case_events
+      and actor_user_id is not null),
+  'manual clear lookup records no human transaction choice');
+select ok(exists(select 1 from public.refund_case_events
     where refund_case_id='a3470000-0000-4000-8000-000000000010'
       and event_type='nayax_match_preselected' and actor_user_id is null
       and metadata->>'lookup_initiator_user_id'='a3410000-0000-4000-8000-000000000001'),
-  'manual operator lookup preselects a clear provider result as System evidence');
-select ok((pg_temp.commit_lookup_fixture(
+  'manual clear lookup keeps the initiator only as audit context');
+
+insert into pg_temp.lookup_fixture_results(result_key,result) values
+  ('wallet-clear',pg_temp.commit_lookup_fixture(
     'a3470000-0000-4000-8000-000000000011','a3480000-0000-4000-8000-000000000011',
-    'wallet_correction',null,'match_found','high_confidence')
-      ->>'systemPreselectionApplied')::boolean
-  and (select matched_nayax_transaction_id is not null from public.refund_cases
+    'wallet_correction',null,'match_found','high_confidence'));
+select is((select result->>'systemPreselectionApplied' from pg_temp.lookup_fixture_results
+    where result_key='wallet-clear'),'true',
+  'wallet correction uses System preselection for one clear match');
+select ok((select matched_nayax_transaction_id is not null from public.refund_cases
     where id='a3470000-0000-4000-8000-000000000011'),
-  'wallet correction preselects a clear provider result without a human save');
+  'wallet correction saves the clear provider transaction without a human save');
 select is((pg_temp.commit_lookup_fixture(
     'a3470000-0000-4000-8000-000000000012','a3480000-0000-4000-8000-000000000012',
     'automatic',null,'match_found','high_confidence')->>'systemPreselectionApplied'),'true',
   'automatic lookup keeps the System preselection path');
-select ok((pg_temp.commit_lookup_fixture(
+insert into pg_temp.lookup_fixture_results(result_key,result) values
+  ('manual-ambiguous',pg_temp.commit_lookup_fixture(
     'a3470000-0000-4000-8000-000000000013','a3480000-0000-4000-8000-000000000013',
-    'manual','a3410000-0000-4000-8000-000000000001','multiple_matches','ambiguous')
-      ->>'systemPreselectionApplied')='false'
-  and (select actor_user_id='a3410000-0000-4000-8000-000000000001'
+    'manual','a3410000-0000-4000-8000-000000000001','multiple_matches','ambiguous'));
+select is((select result->>'systemPreselectionApplied' from pg_temp.lookup_fixture_results
+    where result_key='manual-ambiguous'),'false',
+  'ambiguous lookup does not use System preselection');
+select ok((select actor_user_id='a3410000-0000-4000-8000-000000000001'
     from public.refund_nayax_lookup_candidates
-    where token='a3480000-0000-4000-8000-000000000013')
-  and (select matched_nayax_transaction_id is null from public.refund_cases
+    where token='a3480000-0000-4000-8000-000000000013'),
+  'ambiguous candidate remains available to the current case worker');
+select ok((select matched_nayax_transaction_id is null from public.refund_cases
     where id='a3470000-0000-4000-8000-000000000013'),
-  'ambiguous operator lookup remains actor-bound case work and is never preselected');
+  'ambiguous lookup never saves a transaction before human review');
 
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
   customer_email,issue_summary,incident_at,incident_timezone,incident_time_resolution,
@@ -210,7 +224,7 @@ select is((public.refund_case_nayax_manager_readiness(
     'a3470000-0000-4000-8000-000000000002')->>'canIssueCardRefund'),'true',
   'the assigned manager can make the one decision on a current System-preselected match');
 select pg_temp.set_actor('a3410000-0000-4000-8000-000000000001');
-select like(pg_temp.capture_error($sql$select public.admin_select_refund_nayax_candidate_current_user_v1(
+select matches(pg_temp.capture_error($sql$select public.admin_select_refund_nayax_candidate_current_user_v1(
   'a3470000-0000-4000-8000-000000000002',
   (select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000002'),
   'a3480000-0000-4000-8000-000000000014',null)$sql$),'P4604:%',
@@ -258,7 +272,7 @@ select ok((select z.actor_user_id='a3410000-0000-4000-8000-000000000002' and z.s
 select ok((select a.actor_user_id is null and a.status='created' and a.official_action_authorization_id is not null
   from public.refund_case_nayax_refund_attempts a where a.id=(select (result->>'attemptId')::uuid from approval_result)),
   'approval creates one System-owned queued attempt');
-select like(pg_temp.capture_error(format('select public.admin_approve_selected_nayax_refund_for_system_v1(%L,%s)',
+select matches(pg_temp.capture_error(format('select public.admin_approve_selected_nayax_refund_for_system_v1(%L,%s)',
   'a3470000-0000-4000-8000-000000000001',
   (select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'))),
   'P4620:%','double approval loses without another attempt');
@@ -329,7 +343,7 @@ select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
   p_result_diagnostic_disposition=>'exact',p_result_diagnostic_length_bucket=>'1_80',
   p_status_diagnostic_text=>'Partial success',p_status_diagnostic_disposition=>'exact',
   p_status_diagnostic_length_bucket=>'1_80');
-select like(pg_temp.capture_error(format($sql$select public.service_settle_nayax_refund_attempt(
+select matches(pg_temp.capture_error(format($sql$select public.service_settle_nayax_refund_attempt(
   'single-gate-executor',%L,%L,%L,%L,1090,'USD','wrong-claim-token','success',
   'SINGLE-GATE-SUCCESS-1','approve_succeeded_contract_match',null)$sql$,
   (select result->>'attemptId' from approval_result),(select result->>'authorizationId' from approval_result),
@@ -374,17 +388,17 @@ select ok((select metadata->>'evidence_reference_digest'~'^[a-f0-9]{64}$'
   where refund_case_id='a3470000-0000-4000-8000-000000000001'
     and event_type='nayax_system_outcome_evidence_recorded' order by created_at desc limit 1),
   'hold evidence stores its privacy-safe type, digest, time, and reason');
-select like(pg_temp.capture_error($sql$select public.admin_record_nayax_system_outcome_evidence_v1(
+select matches(pg_temp.capture_error($sql$select public.admin_record_nayax_system_outcome_evidence_v1(
   'a3470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result),
   'provider_confirmed_success','nayax_dtm_transaction','DTM:NAYAX-123456789',statement_timestamp(),
   'nayax_support_confirmed_success',(select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'))$sql$),
   'P4661:%','mismatched evidence tuple is rejected');
-select like(pg_temp.capture_error($sql$select public.admin_record_nayax_system_outcome_evidence_v1(
+select matches(pg_temp.capture_error($sql$select public.admin_record_nayax_system_outcome_evidence_v1(
   'a3470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result),
   'provider_confirmed_no_refund','nayax_dtm_transaction','DTM:NAYAX-123456789',statement_timestamp(),
   'provider_rejected',(select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'))$sql$),
   'P4661:%','a rejected label is not authoritative no-refund proof');
-select like(pg_temp.capture_error($sql$select public.admin_record_nayax_system_outcome_evidence_v1(
+select matches(pg_temp.capture_error($sql$select public.admin_record_nayax_system_outcome_evidence_v1(
   'a3470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result),
   'provider_confirmed_no_refund','nayax_dtm_transaction','DTM:NAYAX-123456789','2026-09-01T00:00:00Z',
   'nayax_dtm_not_refunded',(select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'))$sql$),
@@ -402,7 +416,7 @@ select ok((select provider_execution_generation=2 and execution_plan='approve_on
 select is((select count(*) from public.refund_nayax_no_refund_proofs
     where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result)),1::bigint,
   'one held generation accepts exactly one append-only proof');
-select like(pg_temp.capture_error(format($sql$select public.service_settle_nayax_refund_attempt(
+select matches(pg_temp.capture_error(format($sql$select public.service_settle_nayax_refund_attempt(
   'single-gate-executor',%L,%L,%L,%L,1090,'USD',%L,'success',
   'SINGLE-GATE-SUCCESS-1','approve_succeeded_contract_match',null)$sql$,
   (select result->>'attemptId' from approval_result),(select result->>'authorizationId' from approval_result),
@@ -430,7 +444,7 @@ where id=(select (result->>'attemptId')::uuid from approval_result);
 set local session_replication_role=origin;
 create temp table full_plan_claim as select public.service_claim_due_nayax_refund_attempts_v1(
   'single-gate-executor','SINGLE_GATE_ACCOUNT','exact_source','empty_string',1) result;
-select like(pg_temp.capture_error(format($sql$select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
+select matches(pg_temp.capture_error(format($sql$select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
   p_executor_assertion=>'single-gate-executor',p_attempt_id=>%L::uuid,
   p_provider_claim_token=>%L,p_stage=>'approve',p_event=>'started',p_http_status=>null,
   p_outcome=>null,p_contract_matched=>null,p_failure_type=>null,
@@ -475,7 +489,7 @@ delete from public.refund_nayax_provider_stage_journal
 where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result)
   and provider_execution_generation=1 and stage='request' and event='result';
 set local session_replication_role=origin;
-select like(pg_temp.capture_error(format($sql$select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
+select matches(pg_temp.capture_error(format($sql$select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
   p_executor_assertion=>'single-gate-executor',p_attempt_id=>%L::uuid,
   p_provider_claim_token=>%L,p_stage=>'approve',p_event=>'started',p_http_status=>null,
   p_outcome=>null,p_contract_matched=>null,p_failure_type=>null,
@@ -497,7 +511,7 @@ select like(pg_temp.capture_error(format($sql$select public.service_record_nayax
 set local session_replication_role=replica;
 insert into public.refund_nayax_provider_stage_journal select * from prior_request_result_backup;
 set local session_replication_role=origin;
-select like(pg_temp.capture_error(format($sql$select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
+select matches(pg_temp.capture_error(format($sql$select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
   p_executor_assertion=>'single-gate-executor',p_attempt_id=>%L::uuid,
   p_provider_claim_token=>%L,p_stage=>'request',p_event=>'started',p_http_status=>null,
   p_outcome=>null,p_contract_matched=>null,p_failure_type=>null,
@@ -630,7 +644,7 @@ insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_ge
 values('a3480000-0000-4000-8000-000000000002','a3470000-0000-4000-8000-000000000001',1,
   'a3410000-0000-4000-8000-000000000003','a3440000-0000-4000-8000-000000000001',
   'MANUAL-HISTORICAL',17,'2026-09-12T20:00:00Z',1090,'4242','USD',pg_temp.exact_evidence('manual_nayax_portal'),now()+interval '1 hour');
-select like(pg_temp.capture_error(format('select public.admin_select_refund_nayax_candidate_current_user_v1(%L,%s,%L,null)',
+select matches(pg_temp.capture_error(format('select public.admin_select_refund_nayax_candidate_current_user_v1(%L,%s,%L,null)',
   'a3470000-0000-4000-8000-000000000001',(select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'),
   'a3480000-0000-4000-8000-000000000002')),'P4626:%','manual candidate source is rejected');
 

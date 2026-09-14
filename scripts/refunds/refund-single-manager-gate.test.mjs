@@ -224,9 +224,13 @@ test('routine clear matches are System-preselected while ambiguous selection rem
   assert.match(migration, /admin_dispute_refund_nayax_preselection_current_user_v1/);
   assert.match(migration, /nayax_match_preselection_disputed[\s\S]*?provider_call_made',false[\s\S]*?approval_created',false/);
   assert.match(migration, /grant execute on function public\.admin_dispute_refund_nayax_preselection_current_user_v1\(uuid,bigint\)[\s\S]*?to authenticated/);
-  assert.match(behavioralFixture, /manual operator lookup preselects a clear provider result as System evidence/);
-  assert.match(behavioralFixture, /wallet correction preselects a clear provider result without a human save/);
-  assert.match(behavioralFixture, /ambiguous operator lookup remains actor-bound case work and is never preselected/);
+  assert.match(behavioralFixture, /manual clear lookup uses System preselection/);
+  assert.match(behavioralFixture, /manual clear lookup records no human transaction choice/);
+  assert.match(behavioralFixture, /wallet correction uses System preselection for one clear match/);
+  assert.match(behavioralFixture, /ambiguous lookup does not use System preselection/);
+  assert.match(behavioralFixture, /ambiguous candidate remains available to the current case worker/);
+  assert.doesNotMatch(behavioralFixture, /select like\(/);
+  assert.match(behavioralFixture, /select matches\(/);
 });
 
 test('provider continuation is generation-scoped on the same authorized attempt', () => {
