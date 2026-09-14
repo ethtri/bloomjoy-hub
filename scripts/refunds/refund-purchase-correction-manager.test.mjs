@@ -433,7 +433,7 @@ test('actual action gives payment holds, pending and terminal truth priority ove
  const action=load('primaryActionConfig',dependencies);
  const editor={status:'needs_review',decision:null,matchedNayaxCandidateToken:''};
  const base={status:'needs_review',paymentMethod:'card',customerDeliveryException:{state:'bounced'}};
- for(const [stage,paymentState,label] of [['refund_initiated','submitted_pending','Refund initiated'],['confirming_with_nayax','submitted_pending','Confirming refund'],['needs_refund_operations','outcome_unknown','Check Nayax refund status'],['integrity_hold','integrity_unknown','Lifecycle evidence needs review'],['denied','not_issued','Denied']]) {
+ for(const [stage,paymentState,label] of [['refund_initiated','submitted_pending','Refund in progress'],['confirming_with_nayax','submitted_pending','Confirming refund'],['needs_refund_operations','outcome_unknown','Check Nayax refund status'],['integrity_hold','integrity_unknown','Lifecycle evidence needs review'],['denied','not_issued','Denied']]) {
   const result=action({...base,lifecycle:{stage,paymentState,terminal:stage==='denied',managerQueue:{bucket:'needs_action'}}},editor,[],{canIssueCardRefund:true});
   assert.equal(result.disabled,true,stage);assert.equal(result.label,label,stage);
   assert.equal(result.mode,undefined,stage);

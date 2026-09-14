@@ -38,6 +38,7 @@ const overviewFixtureBuilders = [
 
 assert.deepEqual(overviewFixtureBuilders, [
   'buildMockRefundOverview',
+  'buildSystemPreparedCardRefundOverview',
   'buildEmptyRefundOverview',
   'buildAcknowledgementRecoveryOverview',
   'buildLocaleCorrectionOverview',
@@ -79,7 +80,7 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /const withOfficialActionState = [\s\S]*?const queueProjectedCase = withManagerQueueProjection\(projectedCase\);[\s\S]*?return queueProjectedCase;/
+  /const withOfficialActionState = [\s\S]*?const queueProjectedCase = withManagerQueueProjection\([\s\S]*?\);[\s\S]*?return queueProjectedCase;/
 );
 assert.match(
   portalSource,

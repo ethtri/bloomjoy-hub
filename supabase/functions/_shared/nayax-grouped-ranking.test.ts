@@ -355,7 +355,7 @@ Deno.test("retained correction evidence commits a reviewable lifecycle with exac
   const commitCalls: Array<Record<string, unknown>> = [];
   const resultStore = {
     rpc: async (name: string, params: Record<string, unknown>) => {
-      assertEquals(name, "service_commit_refund_nayax_lookup_with_diagnostics");
+      assertEquals(name, "service_commit_refund_nayax_lookup_and_preselect_v1");
       commitCalls.push(params);
       return { data: { applied: true }, error: null };
     },
