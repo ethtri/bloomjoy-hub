@@ -10516,6 +10516,10 @@ const runNayaxExecutionOutcomeChecks = async ({
   providerOutcomeEvidence,
   captureManagerReviewScreenshots = false,
 }) => {
+  if (!providerOutcomeEvidence || typeof providerOutcomeEvidence !== 'object') {
+    throw new Error('Provider outcome evidence collector is required.');
+  }
+
   const availabilityScenarios = [
     {
       name: 'loading',
@@ -11925,6 +11929,7 @@ const run = async () => {
       artifactDir: args.artifactDir,
       recorder,
       evidence,
+      providerOutcomeEvidence,
     });
     await runDemoFallbackChecks({
       browser,

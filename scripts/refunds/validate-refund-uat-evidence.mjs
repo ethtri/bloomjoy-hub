@@ -472,6 +472,18 @@ try {
       portalUatSource.includes("path.join(args.fragmentDir, 'refund-provider-outcomes.json')"),
     'The full portal run must produce the reviewed provider-outcome evidence input'
   );
+  const providerOutcomeCallBodies = [
+    ...portalUatSource.matchAll(/await runNayaxExecutionOutcomeChecks\(\{([\s\S]*?)\n\s*\}\);/g),
+  ].map((match) => match[1]);
+  assert.equal(
+    providerOutcomeCallBodies.length,
+    2,
+    'The portal UAT must retain both focused and full provider-outcome runs'
+  );
+  assert(
+    providerOutcomeCallBodies.every((body) => /\bproviderOutcomeEvidence\b/.test(body)),
+    'Every provider-outcome run must receive the evidence collector'
+  );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.endsWith('single-manager-confirmation.png')).length,
     2,
