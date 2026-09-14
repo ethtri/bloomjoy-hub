@@ -139,6 +139,7 @@ import {
   getRefundCustomerOutreachPresentation,
 } from '@/lib/refundCustomerOutreach';
 import { mergeRefundOperationsSupplements } from '@/lib/refundOperationsSupplements';
+import { evidenceLocalDateTimeToIso } from '@/lib/refundEvidenceTime';
 
 const refundSearchViewLabel = (refundCase: RefundCaseRecord) => ({
   needs_action: 'Action needed', ready_to_pay: 'Ready to approve', in_progress: 'Refund in progress',
@@ -2539,6 +2540,8 @@ export default function AdminRefundsPage() {
     useState<RefundNayaxResolutionEvidenceType>('nayax_support_ticket');
   const [nayaxResolutionEvidenceReference, setNayaxResolutionEvidenceReference] = useState('');
   const [nayaxResolutionEvidenceOccurredAt, setNayaxResolutionEvidenceOccurredAt] = useState('');
+  const [nayaxResolutionEvidenceTimezoneOverride, setNayaxResolutionEvidenceTimezoneOverride] =
+    useState('');
   const [nayaxResolutionReason, setNayaxResolutionReason] =
     useState<RefundNayaxResolutionReason>('evidence_incomplete');
   const [isPreparingNayaxResolution, setIsPreparingNayaxResolution] = useState(false);
@@ -2931,6 +2934,12 @@ export default function AdminRefundsPage() {
 
   const selectedCase = [...overview.cases, ...internalTestCases]
     .find((refundCase) => refundCase.id === selectedId) ?? null;
+  const nayaxResolutionDefaultTimezone =
+    selectedCase?.selectedNayaxTransaction?.machineTimezone?.trim() ||
+    selectedCase?.lifecycle?.locationEvidence.normalized.timezone?.trim() ||
+    '';
+  const nayaxResolutionEvidenceTimezone =
+    nayaxResolutionEvidenceTimezoneOverride.trim() || nayaxResolutionDefaultTimezone;
   const pendingRevision = selectedCase ? pendingRevisions[selectedCase.id] ?? null : null;
   const setPendingRevision = (value: typeof pendingRevision) => {
     const caseId = value?.caseId ?? selectedCase?.id;
@@ -3152,6 +3161,7 @@ export default function AdminRefundsPage() {
     setNayaxResolutionEvidenceType('nayax_support_ticket');
     setNayaxResolutionEvidenceReference('');
     setNayaxResolutionEvidenceOccurredAt('');
+    setNayaxResolutionEvidenceTimezoneOverride('');
     setNayaxResolutionReason('evidence_incomplete');
   }, [
     selectedCase?.id,
@@ -4157,14 +4167,20 @@ export default function AdminRefundsPage() {
       toast.error(referenceIssue);
       return;
     }
-    const completedPaymentOutcome = nayaxResolutionResult === 'provider_confirmed_success';
-    const evidenceOccurredAtValue = new Date(nayaxResolutionEvidenceOccurredAt);
-    if (
-      (!nayaxResolutionEvidenceOccurredAt ||
-        Number.isNaN(evidenceOccurredAtValue.getTime()) ||
-        evidenceOccurredAtValue.getTime() > Date.now() + 30_000)
-    ) {
-      toast.error('Enter the refund date and time shown in the confirmation.');
+    let evidenceTime: ReturnType<typeof evidenceLocalDateTimeToIso>;
+    try {
+      evidenceTime = evidenceLocalDateTimeToIso(
+        nayaxResolutionEvidenceOccurredAt,
+        nayaxResolutionEvidenceTimezone,
+      );
+    } catch (error) {
+      toast.error(error instanceof Error
+        ? error.message
+        : 'Enter the refund date, time, and timezone shown in Nayax.');
+      return;
+    }
+    if (new Date(evidenceTime.occurredAt).getTime() > Date.now() + 30_000) {
+      toast.error('The Nayax evidence time cannot be in the future.');
       return;
     }
 
@@ -4177,7 +4193,8 @@ export default function AdminRefundsPage() {
         resolutionResult: nayaxResolutionResult,
         evidenceType: nayaxResolutionEvidenceType,
         evidenceReference,
-        evidenceOccurredAt: evidenceOccurredAtValue.toISOString(),
+        evidenceOccurredAt: evidenceTime.occurredAt,
+        evidenceSourceTimezone: evidenceTime.sourceTimeZone,
         reasonCode: nayaxResolutionReason,
         expectedCaseVersion: officialActionVersion,
       });
@@ -6624,23 +6641,66 @@ export default function AdminRefundsPage() {
                       </div>
 
                       <div>
-                          <Label htmlFor="refund-nayax-resolution-occurred-at">
-                            Evidence date and time
-                          </Label>
-                          <Input
-                            id="refund-nayax-resolution-occurred-at"
-                            data-testid="refund-nayax-resolution-occurred-at"
-                            type="datetime-local"
-                            step={1}
-                            value={nayaxResolutionEvidenceOccurredAt}
-                            onChange={(event) => setNayaxResolutionEvidenceOccurredAt(event.target.value)}
-                            autoComplete="off"
-                            className="mt-2 bg-background"
-                          />
-                          <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                            Use the exact date and time shown in the transaction record or support confirmation, including seconds.
-                            For confirmed success, this is also used in reporting and the customer receipt.
+                        <Label htmlFor="refund-nayax-resolution-occurred-at">
+                          Evidence date and time ({nayaxResolutionEvidenceTimezone || 'timezone needed'})
+                        </Label>
+                        <Input
+                          id="refund-nayax-resolution-occurred-at"
+                          data-testid="refund-nayax-resolution-occurred-at"
+                          type="datetime-local"
+                          step={1}
+                          value={nayaxResolutionEvidenceOccurredAt}
+                          onChange={(event) => setNayaxResolutionEvidenceOccurredAt(event.target.value)}
+                          autoComplete="off"
+                          className="mt-2 bg-background"
+                        />
+                        <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                          Use the exact date and time shown in Nayax, including seconds. This uses the
+                          machine timezone shown above, not your computer&apos;s timezone. For confirmed
+                          success, it is also used in reporting and the customer receipt.
+                        </p>
+                        {!nayaxResolutionDefaultTimezone ? (
+                          <p className="mt-2 text-xs font-medium text-destructive" role="alert">
+                            This case is missing its machine timezone. Choose the timezone shown in Nayax below.
                           </p>
+                        ) : null}
+                        <details
+                          className="mt-3 rounded-md border border-border/70 bg-muted/25 px-3 py-2"
+                          data-testid="refund-nayax-resolution-timezone-override"
+                        >
+                          <summary className="cursor-pointer text-xs font-medium text-foreground">
+                            Use a different timezone
+                          </summary>
+                          <div className="mt-3">
+                            <Label htmlFor="refund-nayax-resolution-timezone">
+                              Timezone shown by Nayax
+                            </Label>
+                            <Input
+                              id="refund-nayax-resolution-timezone"
+                              data-testid="refund-nayax-resolution-timezone"
+                              list="refund-nayax-resolution-timezones"
+                              value={nayaxResolutionEvidenceTimezone}
+                              onChange={(event) =>
+                                setNayaxResolutionEvidenceTimezoneOverride(event.target.value)}
+                              placeholder="America/Los_Angeles"
+                              autoComplete="off"
+                              className="mt-2 bg-background"
+                            />
+                            <datalist id="refund-nayax-resolution-timezones">
+                              <option value="America/Los_Angeles" />
+                              <option value="America/Denver" />
+                              <option value="America/Chicago" />
+                              <option value="America/New_York" />
+                              <option value="America/Phoenix" />
+                              <option value="Pacific/Honolulu" />
+                              <option value="America/Anchorage" />
+                              <option value="UTC" />
+                            </datalist>
+                            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                              Change this only when the Nayax record clearly shows a different timezone.
+                            </p>
+                          </div>
+                        </details>
                       </div>
 
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -6657,7 +6717,8 @@ export default function AdminRefundsPage() {
                               nayaxResolutionEvidenceReference,
                               nayaxResolutionEvidenceType
                             )) ||
-                            !nayaxResolutionEvidenceOccurredAt
+                            !nayaxResolutionEvidenceOccurredAt ||
+                            !nayaxResolutionEvidenceTimezone
                           }
                           className="min-h-11 shrink-0 bg-foreground text-background hover:bg-foreground/90"
                         >

@@ -9997,16 +9997,25 @@ const runManagerApprovalChecks = async ({ browser, appUrl, artifactDir, recorder
 };
 
 const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
+  const evidenceSourceTimezone = 'America/Los_Angeles';
+  const reviewerBrowserTimezone = 'America/New_York';
   const paymentEvidenceOccurredAt = new Date(Date.now() - 10 * 60 * 1000);
-  paymentEvidenceOccurredAt.setSeconds(10, 0);
-  const paymentEvidenceLocalValue = [
-    paymentEvidenceOccurredAt.getFullYear(),
-    String(paymentEvidenceOccurredAt.getMonth() + 1).padStart(2, '0'),
-    String(paymentEvidenceOccurredAt.getDate()).padStart(2, '0'),
-  ].join('-') + `T${String(paymentEvidenceOccurredAt.getHours()).padStart(2, '0')}:${String(
-    paymentEvidenceOccurredAt.getMinutes()
-  ).padStart(2, '0')}:${String(paymentEvidenceOccurredAt.getSeconds()).padStart(2, '0')}`;
-  const expectedPaymentEvidenceIso = new Date(paymentEvidenceLocalValue).toISOString();
+  paymentEvidenceOccurredAt.setUTCSeconds(10, 0);
+  const paymentEvidenceParts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US-u-hc-h23', {
+      timeZone: evidenceSourceTimezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(paymentEvidenceOccurredAt).map((part) => [part.type, part.value])
+  );
+  const paymentEvidenceLocalValue = `${paymentEvidenceParts.year}-${paymentEvidenceParts.month}-${paymentEvidenceParts.day}` +
+    `T${paymentEvidenceParts.hour}:${paymentEvidenceParts.minute}:${paymentEvidenceParts.second}`;
+  const expectedPaymentEvidenceIso = paymentEvidenceOccurredAt.toISOString();
   const scenarios = [
     {
       result: 'provider_confirmed_success',
@@ -10049,7 +10058,10 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
   ];
 
   for (const [scenarioIndex, scenario] of scenarios.entries()) {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 1000 },
+      timezoneId: reviewerBrowserTimezone,
+    });
     const functionCalls = [];
     const functionBodies = [];
     const rpcCalls = [];
@@ -10144,9 +10156,12 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
         await panel.getByTestId('refund-nayax-resolution-result').locator('option').count() === 3 &&
           await panel.getByTestId('refund-nayax-resolution-evidence-type').isVisible() &&
           await panel.getByTestId('refund-nayax-resolution-reference').isVisible() &&
-          await panel.getByLabel('Evidence date and time').isVisible() &&
-          await panel.getByLabel('Evidence date and time').getAttribute('step') === '1' &&
+          await panel.getByLabel(`Evidence date and time (${evidenceSourceTimezone})`).isVisible() &&
+          await panel.getByLabel(`Evidence date and time (${evidenceSourceTimezone})`).getAttribute('step') === '1' &&
           await panel.getByText('including seconds', { exact: false }).isVisible() &&
+          await panel.getByText(/not your computer's timezone/i).isVisible() &&
+          await panel.getByText('Use a different timezone', { exact: true }).isVisible() &&
+          !(await panel.getByTestId('refund-nayax-resolution-timezone').isVisible()) &&
           (await panel.locator('textarea').count()) === 0 &&
           (await panel.getByLabel(/recipient|email subject|message body|retry provider/i).count()) === 0 &&
           await panel.getByText(/can never create a second refund/i).isVisible() &&
@@ -10232,6 +10247,7 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
         verifiedBody.evidenceType === scenario.evidenceType &&
         verifiedBody.evidenceReference === (scenario.expectedEvidenceReference ?? scenario.evidenceReference) &&
         verifiedBody.evidenceOccurredAt === expectedPaymentEvidenceIso &&
+        verifiedBody.evidenceSourceTimezone === evidenceSourceTimezone &&
         new Date(verifiedBody.evidenceOccurredAt).getSeconds() === 10 &&
         new Date(verifiedBody.evidenceOccurredAt).getMilliseconds() === 0 &&
         verifiedBody.reasonCode === scenario.reasonCode &&
@@ -10242,6 +10258,24 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
         bodyKeys: Object.keys(verifiedBody).sort(),
       })
     );
+    if (scenarioIndex === 0) {
+      const observedBrowserTimezone = await page.evaluate(
+        () => Intl.DateTimeFormat().resolvedOptions().timeZone
+      );
+      recorder.assert(
+        'Nayax evidence uses the machine timezone when the reviewer computer is in another timezone',
+        observedBrowserTimezone === reviewerBrowserTimezone &&
+          evidenceSourceTimezone !== reviewerBrowserTimezone &&
+          verifiedBody.evidenceOccurredAt === expectedPaymentEvidenceIso &&
+          verifiedBody.evidenceSourceTimezone === evidenceSourceTimezone,
+        JSON.stringify({
+          observedBrowserTimezone,
+          evidenceSourceTimezone,
+          evidenceOccurredAt: verifiedBody.evidenceOccurredAt,
+          expectedPaymentEvidenceIso,
+        })
+      );
+    }
     if (scenario.result === 'provider_confirmed_no_refund') {
       recorder.assert(
         'Authoritative no-refund evidence reuses the original attempt and approval for System continuation',

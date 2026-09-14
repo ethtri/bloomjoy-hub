@@ -52,7 +52,19 @@ const isSafeText = (value: unknown, maxLength: number): value is string =>
   typeof value === "string" && value.trim().length > 0 &&
     value.trim().length <= maxLength;
 
+const canonicalEvidenceTimeZone = (value: unknown) => {
+  if (!isSafeText(value, 80)) return null;
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone: value.trim() })
+      .resolvedOptions().timeZone;
+  } catch {
+    return null;
+  }
+};
+
 const EMAIL_PATTERN = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
+const ABSOLUTE_TIMESTAMP_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/i;
 
 class TransactionalCompletionDeliveryUncertainError extends Error {}
 
@@ -162,6 +174,9 @@ serve(async (req) => {
         body.evidenceOccurredAt.trim()
       ? body.evidenceOccurredAt.trim()
       : null;
+    const evidenceSourceTimezone = canonicalEvidenceTimeZone(
+      body?.evidenceSourceTimezone,
+    );
     const reasonCode = typeof body?.reasonCode === "string"
       ? body.reasonCode.trim()
       : "";
@@ -177,7 +192,9 @@ serve(async (req) => {
       !evidenceTupleIsValid(resolutionResult, evidenceType, reasonCode) ||
       !Number.isSafeInteger(expectedCaseVersion) || expectedCaseVersion <= 0 ||
       evidenceOccurredAt === null ||
-      Number.isNaN(new Date(evidenceOccurredAt).getTime())
+      !ABSOLUTE_TIMESTAMP_PATTERN.test(evidenceOccurredAt) ||
+      Number.isNaN(new Date(evidenceOccurredAt).getTime()) ||
+      evidenceSourceTimezone === null
     ) {
       return jsonResponse({
         error: "Review the exact payment result again.",
@@ -210,6 +227,7 @@ serve(async (req) => {
         p_evidence_type: evidenceType,
         p_evidence_reference: evidenceReference,
         p_evidence_occurred_at: evidenceOccurredAt,
+        p_evidence_source_timezone: evidenceSourceTimezone,
         p_reason_code: reasonCode,
         p_expected_case_version: expectedCaseVersion,
       },

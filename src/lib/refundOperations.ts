@@ -1268,6 +1268,7 @@ export type ResolveRefundNayaxOutcomeInput = {
   evidenceType: RefundNayaxResolutionEvidenceType;
   evidenceReference: string;
   evidenceOccurredAt: string;
+  evidenceSourceTimezone: string;
   reasonCode: RefundNayaxResolutionReason;
   expectedCaseVersion: number;
 };

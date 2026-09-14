@@ -115,6 +115,12 @@ completion message and reporting. A timeout or unknown provider outcome pauses
 only that payment while the System reconciles it. It never permits a blind retry
 and never blocks unrelated refunds.
 
+When a case worker records an exact Nayax result, the portal uses the machine or
+location timezone by default and shows it beside the evidence time. A different
+timezone is used only when the Nayax record clearly shows one. The saved evidence
+includes both the exact time and the source timezone, so the reviewer’s computer
+timezone cannot change the result.
+
 The exact request and response contract is in
 [NAYAX_REFUND_WORKING_CONTRACT.md](NAYAX_REFUND_WORKING_CONTRACT.md). That
 technical reference cannot add another business approval or customer step.

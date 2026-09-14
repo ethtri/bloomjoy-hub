@@ -9,6 +9,7 @@ const hardening = await read('supabase/migrations/20260914052555_refund_single_m
 const settlementProof = await read('supabase/migrations/20260914080000_refund_system_settlement_adjustment_proof.sql');
 const cashAuthority = await read('supabase/migrations/20260914090000_refund_official_authority_cash_completion.sql');
 const managerSystemCutover = await read('supabase/migrations/20260914100000_refund_manager_system_cutover.sql');
+const evidenceTimezoneMigration = await read('supabase/migrations/20260914173954_refund_evidence_timezone.sql');
 const edge = await read('supabase/functions/nayax-card-refund/index.ts');
 const adminUpdate = await read('supabase/functions/refund-case-admin-update/index.ts');
 const sweep = await read('supabase/functions/refund-case-automation-sweep/index.ts');
@@ -16,6 +17,7 @@ const outcome = await read('supabase/functions/refund-nayax-outcome-resolve/inde
 const official = await read('supabase/functions/_shared/refund-official-action.ts');
 const portal = await read('src/pages/admin/Refunds.tsx');
 const operations = await read('src/lib/refundOperations.ts');
+const evidenceTimeHelper = await read('src/lib/refundEvidenceTime.ts');
 const concurrency = await read('supabase/tests/refund_single_manager_gate_concurrency.sql');
 const behavioralFixture = await read('supabase/tests/refund_single_manager_gate.sql');
 const durableLifecycle = await read('supabase/migrations/20260826165423_refund_durable_lifecycle_v1.sql');
@@ -219,7 +221,7 @@ test('outcome evidence timestamps cannot predate work performed in the statement
   );
   assert.equal(
     [...outcomeEvidenceSection.matchAll(/DTM:NAYAX-123456789',statement_timestamp\(\)/g)].length,
-    4,
+    5,
   );
   assert.doesNotMatch(outcomeEvidenceSection, /DTM:NAYAX-123456789',now\(\)/);
   assert.match(outcomeEvidenceSection, /DTM:NAYAX-123456789','2026-09-01T00:00:00Z'/);
@@ -299,6 +301,21 @@ test('case work and financial authority are distinct', () => {
     2,
   );
   assert.match(behavioralFixture, /set status='active',revoked_at=null,revoke_reason=null/);
+});
+
+test('provider evidence time is explicit and independent from the reviewer browser timezone', () => {
+  assert.match(portal, /evidenceLocalDateTimeToIso\(/);
+  assert.doesNotMatch(portal, /new Date\(nayaxResolutionEvidenceOccurredAt\)/);
+  assert.match(portal, /machine timezone shown above, not your computer/);
+  assert.match(evidenceTimeHelper, /canonicalizeEvidenceTimeZone/);
+  assert.match(evidenceTimeHelper, /matches\.length > 1/);
+  assert.match(outcome, /p_evidence_source_timezone: evidenceSourceTimezone/);
+  assert.match(outcome, /ABSOLUTE_TIMESTAMP_PATTERN\.test\(evidenceOccurredAt\)/);
+  assert.match(evidenceTimezoneMigration, /pg_catalog\.pg_timezone_names/);
+  assert.match(evidenceTimezoneMigration, /evidence_source_timezone/);
+  assert.match(evidenceTimezoneMigration, /source_timezone:=source_timezone/);
+  assert.match(evidenceTimezoneMigration, /rename to internal_record_refund_nayax_system_outcome_evidence_v1/);
+  assert.match(evidenceTimezoneMigration, /uuid,uuid,text,text,text,timestamptz,text,text,bigint/);
 });
 
 test('read-only recovery belongs to the current case manager while payment stays System-owned', () => {

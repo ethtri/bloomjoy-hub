@@ -134,7 +134,7 @@ begin
       'b3470000-0000-4000-8000-000000000001',
       (select id from public.refund_case_nayax_refund_attempts where refund_case_id='b3470000-0000-4000-8000-000000000001'),
       'provider_confirmed_no_refund','nayax_support_ticket','SUPPORT:NAYAX-12345678',
-      statement_timestamp(),'nayax_support_confirmed_no_refund',
+      statement_timestamp(),'America/Los_Angeles','nayax_support_confirmed_no_refund',
       (select official_action_version from public.refund_cases where id='b3470000-0000-4000-8000-000000000001'));
     return jsonb_build_object('ok',true,'output',output);
   exception when others then
@@ -240,7 +240,7 @@ begin
   begin
     output:=public.admin_record_nayax_system_outcome_evidence_v1(
       p_case_id,p_attempt_id,'provider_confirmed_success','nayax_dtm_transaction',
-      'DTM:NAYAX-876543210',statement_timestamp(),'nayax_dtm_settled',
+      'DTM:NAYAX-876543210',statement_timestamp(),'America/Los_Angeles','nayax_dtm_settled',
       (select official_action_version from public.refund_cases where id=p_case_id));
     return jsonb_build_object('ok',true,'output',output);
   exception when others then

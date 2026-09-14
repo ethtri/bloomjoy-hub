@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(61);
+select plan(63);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -384,41 +384,50 @@ select is((public.service_hold_nayax_refund_attempt_v1('single-gate-executor',
 
 select is((public.admin_record_nayax_system_outcome_evidence_v1(
   'a3470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result),
-  'remain_on_hold','nayax_dtm_transaction','DTM:NAYAX-123456789',statement_timestamp(),'evidence_incomplete',
+  'remain_on_hold','nayax_dtm_transaction','DTM:NAYAX-123456789',statement_timestamp(),
+  'America/Los_Angeles','evidence_incomplete',
   (select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'))->>'status'),
   'provider_hold','valid evidence remains on the same verification hold');
 select ok((select metadata->>'evidence_reference_digest'~'^[a-f0-9]{64}$'
-  and metadata->>'reason_code'='evidence_incomplete' from public.refund_case_events
+  and metadata->>'reason_code'='evidence_incomplete'
+  and metadata->>'evidence_source_timezone'='America/Los_Angeles'
+  from public.refund_case_events
   where refund_case_id='a3470000-0000-4000-8000-000000000001'
     and event_type='nayax_system_outcome_evidence_recorded' order by created_at desc limit 1),
   'hold evidence stores its privacy-safe type, digest, time, and reason');
 select matches(pg_temp.capture_error($sql$select public.admin_record_nayax_system_outcome_evidence_v1(
   'a3470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result),
+  'remain_on_hold','nayax_dtm_transaction','DTM:NAYAX-123456789',statement_timestamp(),
+  'Browser/Local','evidence_incomplete',(select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'))$sql$),
+  '^P4661:.*','an unknown browser timezone cannot be saved as provider evidence');
+select matches(pg_temp.capture_error($sql$select public.admin_record_nayax_system_outcome_evidence_v1(
+  'a3470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result),
   'provider_confirmed_success','nayax_dtm_transaction','DTM:NAYAX-123456789',statement_timestamp(),
-  'nayax_support_confirmed_success',(select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'))$sql$),
+  'America/Los_Angeles','nayax_support_confirmed_success',(select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'))$sql$),
   '^P4661:.*','mismatched evidence tuple is rejected');
 select matches(pg_temp.capture_error($sql$select public.admin_record_nayax_system_outcome_evidence_v1(
   'a3470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result),
   'provider_confirmed_no_refund','nayax_dtm_transaction','DTM:NAYAX-123456789',statement_timestamp(),
-  'provider_rejected',(select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'))$sql$),
+  'America/Los_Angeles','provider_rejected',(select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'))$sql$),
   '^P4661:.*','a rejected label is not authoritative no-refund proof');
 select matches(pg_temp.capture_error($sql$select public.admin_record_nayax_system_outcome_evidence_v1(
   'a3470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result),
   'provider_confirmed_no_refund','nayax_dtm_transaction','DTM:NAYAX-123456789','2026-09-01T00:00:00Z',
-  'nayax_dtm_not_refunded',(select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'))$sql$),
+  'America/Los_Angeles','nayax_dtm_not_refunded',(select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'))$sql$),
   '^P4661:.*','stale no-refund proof cannot continue an attempt');
 select is((public.admin_record_nayax_system_outcome_evidence_v1(
   'a3470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result),
   'provider_confirmed_no_refund','nayax_dtm_transaction','DTM:NAYAX-123456789',statement_timestamp(),
-  'nayax_dtm_not_refunded',(select official_action_version from public.refund_cases
+  'America/Los_Angeles','nayax_dtm_not_refunded',(select official_action_version from public.refund_cases
     where id='a3470000-0000-4000-8000-000000000001'))->>'status'),'system_finishing',
   'exact no-refund proof requeues System rather than asking for another manager decision');
 select ok((select provider_execution_generation=2 and execution_plan='approve_only'
     and status='created' and official_action_authorization_id=(select (result->>'authorizationId')::uuid from approval_result)
     from public.refund_case_nayax_refund_attempts where id=(select (result->>'attemptId')::uuid from approval_result)),
   'the same attempt and original authorization advance to approval-only generation two');
-select is((select count(*) from public.refund_nayax_no_refund_proofs
-    where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result)),1::bigint,
+select ok((select count(*)=1 and bool_and(source_timezone='America/Los_Angeles')
+    from public.refund_nayax_no_refund_proofs
+    where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result)),
   'one held generation accepts exactly one append-only proof');
 select matches(pg_temp.capture_error(format($sql$select public.service_settle_nayax_refund_attempt(
   'single-gate-executor',%L,%L,%L,%L,1090,'USD',%L,'success',
@@ -647,7 +656,7 @@ select is((public.admin_record_nayax_system_outcome_evidence_v1(
   'a3470000-0000-4000-8000-000000000003',
   (select (result->>'attemptId')::uuid from success_approval),
   'provider_confirmed_success','nayax_dtm_transaction','DTM:NAYAX-987654321',
-  statement_timestamp(),'nayax_dtm_settled',
+  statement_timestamp(),'America/Los_Angeles','nayax_dtm_settled',
   (select official_action_version from public.refund_cases
     where id='a3470000-0000-4000-8000-000000000003'))->>'authorizationMethod'),
   'original_manager_approval',
@@ -660,6 +669,15 @@ select ok((select status='completed' and decision='approved' and reporting_adjus
   and exists(select 1 from public.refund_nayax_system_success_evidence
     where refund_case_id='a3470000-0000-4000-8000-000000000003'),
   'success evidence preserves settlement, adjustment, completion, and pending customer message semantics');
+select ok((select source_timezone='America/Los_Angeles'
+    from public.refund_nayax_system_success_evidence
+    where refund_case_id='a3470000-0000-4000-8000-000000000003')
+  and (select metadata->>'evidence_source_timezone'='America/Los_Angeles'
+    from public.refund_case_events
+    where refund_case_id='a3470000-0000-4000-8000-000000000003'
+      and event_type='nayax_support_resolution_completed'
+    order by created_at desc limit 1),
+  'success evidence stores the provider source timezone in the proof and event');
 select ok((select count(*)=1 from public.refund_case_official_action_authorizations
     where refund_case_id='a3470000-0000-4000-8000-000000000003' and action='approve')
   and (select count(*)=0 from public.refund_nayax_resolution_intents
