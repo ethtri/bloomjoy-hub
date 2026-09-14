@@ -79,6 +79,8 @@ const retiredRefundContext = [
   "scripts/refunds/refund-owner-totp-auth-readiness.mjs",
   "scripts/refunds/validate-refund-production-auth-gate.mjs",
   "scripts/refunds/validate-refund-manager-mfa-freshness.mjs",
+  "scripts/refunds/pilot-readiness.mjs",
+  "scripts/refunds/pilot-cohort-config.mjs",
 ];
 
 for (const file of retiredRefundContext) {
@@ -169,6 +171,53 @@ if (exists("Docs/REFUND_WORKFLOW.md")) {
   assert(
     !/exact customer-amount matching is required/i.test(refundWorkflow),
     "Refund workflow must not restore exact customer-amount matching.",
+  );
+}
+
+if (exists("Docs/REFUND_AGENT_OPERATIONS.md")) {
+  const refundProcedure = read("Docs/REFUND_AGENT_OPERATIONS.md");
+  assert(
+    /Autonomous operating mandate/i.test(refundProcedure) &&
+      /Do not wait for the owner/i.test(refundProcedure) &&
+      /continue to the next case/i.test(refundProcedure),
+    "Refund procedure must authorize routine unattended case work without owner interruption.",
+  );
+  assert(
+    /Never impersonate the owner\s+or another Manager/i.test(refundProcedure) &&
+      /does not authorize a refund, a final denial decision/i.test(refundProcedure),
+    "Refund procedure must keep the final monetary decision with an eligible Manager.",
+  );
+  assert(
+    /approved template/i.test(refundProcedure) &&
+      /administrative 30-day no-response closure/i.test(refundProcedure),
+    "Refund procedure must use the systematic one-question flow and permit routine 30-day closure.",
+  );
+}
+
+for (const file of [
+  "Docs/PRODUCTION_RUNBOOK.md",
+  "Docs/QA_SMOKE_TEST_CHECKLIST.md",
+  "Docs/REFUND_NAYAX_INVENTORY_RUNBOOK.md",
+  "Docs/REFUND_MACHINE_ACTIVATION_RUNBOOK.md",
+]) {
+  if (!exists(file)) continue;
+  const source = read(file);
+  assert(
+    !/strict high-confidence candidate/i.test(source),
+    `${file} must describe a clear match without making confidence a workflow gate.`,
+  );
+  assert(
+    !/owner-reviewed activation|separate production activation|selected_for_pilot/i.test(source),
+    `${file} must not restore the retired refund rollout ceremony.`,
+  );
+}
+
+if (exists("Docs/REFUND_GPT_TRIAGE.md")) {
+  const gptReference = read("Docs/REFUND_GPT_TRIAGE.md");
+  assert(
+    /Dormant optional implementation reference/i.test(gptReference) &&
+      /not the Codex assistant-manager procedure/i.test(gptReference),
+    "Dormant GPT triage must not masquerade as the live assistant-manager procedure.",
   );
 }
 

@@ -6,10 +6,12 @@ GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short
 orientation snapshot; it is not a backlog or release ledger.
 
-## P0 refund context reset
+## Refund workflow (current)
 
-- Issue [#1364](https://github.com/ethtri/bloomjoy-hub/issues/1364) is replacing
-  the accumulated refund policy and runbook drift with one customer-first model.
+- Issue [#1364](https://github.com/ethtri/bloomjoy-hub/issues/1364) completed the
+  refund-context reset, and PR
+  [#1348](https://github.com/ethtri/bloomjoy-hub/pull/1348) merged the one-decision
+  card workflow on 2026-09-14. Neither is an open rollout program.
 - [REFUND_WORKFLOW.md](REFUND_WORKFLOW.md) is the durable product source of truth:
   the System investigates and saves the exact evidence for a routine clear match.
   A case worker chooses only when the result is genuinely ambiguous. The Manager
@@ -37,10 +39,16 @@ orientation snapshot; it is not a backlog or release ledger.
 - Nayax may be used for read-only transaction research when the API cannot find a
   match. Never issue or record a refund there. Cash remains a Manager-arranged
   manual payment outside the card attempt queue.
+- The retired refund TOTP and step-up endpoints remain inert `410 Gone`
+  compatibility tombstones for one release. Their historical names do not add a
+  Manager step or authorize agents to restore that workflow.
 - Open implementation work remains on the issue board. Documentation does not
   certify that every runtime path already follows the workflow.
 - The consolidated migration still contains four guarded text-replacement blocks
   tracked by issue #1345; that technical debt does not add workflow authority.
+- Issue [#1366](https://github.com/ethtri/bloomjoy-hub/issues/1366) is a P1 sweep
+  of active agent context and the assistant-manager procedure. It is not a new
+  payment safeguard or P0 launch gate.
 
 ## Current platform notes
 

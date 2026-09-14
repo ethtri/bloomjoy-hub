@@ -1,48 +1,49 @@
-# Refund Machine Activation Runbook
+# Refund machine readiness reference
 
-This runbook governs the owner-reviewed activation introduced by issue `#948`. It does not authorize an unattended production rollout.
+Issue `#948` introduced the truthful readiness model and is complete. This file
+describes the current steady state; its historical rollout sequence is retired.
+It is subordinate to [REFUND_WORKFLOW.md](REFUND_WORKFLOW.md) and cannot add a
+pilot, owner approval, customer prerequisite, or second Manager decision.
 
 ## What the screen means
 
-- **Ready to refund:** customer intake, transaction matching, exact active Nayax inventory, current Machine Manager routing, the machine payment gate, and global direct API availability are all ready.
-- **Ready to activate:** every machine prerequisite is ready, but the machine capability is intentionally off. The screen shows the approved reason; activation does not override global direct API availability.
-- **Setup needed:** one machine prerequisite is missing. Fix the exact reason shown before activation.
-- **Paused:** the global runtime pause applies to all machines. This is not a machine mapping failure.
-- **Direct API blocked:** card-refund execution is unavailable. Keep the case in Bloomjoy Hub; do not issue or record a manual Nayax refund.
+- **Ready to refund:** customer intake, transaction matching, exact active Nayax
+  inventory, current Machine Manager routing, the machine payment capability,
+  and global direct API availability are ready.
+- **Ready to activate:** the machine configuration is complete, but its payment
+  capability is off. An authorized Admin may enable that configuration once; it
+  is not a per-case or owner approval.
+- **Setup needed:** repair the exact mapping, timezone, location, Manager route,
+  or provider configuration shown.
+- **Paused:** a demonstrated global incident has paused direct execution. This is
+  not a machine mapping failure.
+- **Direct API blocked:** keep the case in Bloomjoy Hub and show the Manager the
+  System problem. Never issue or record a manual Nayax refund.
 
-Customer intake is independent from transaction matching and payment activation. Turning matching off must not prevent a customer from asking Bloomjoy for help.
+Customer intake remains independent from matching and payment readiness. Turning
+matching or payment execution off must not prevent a customer from asking
+Bloomjoy for help.
 
-## Predeployment checks
+## Routine configuration
 
-1. Confirm the ordered dependency PRs for `#946` and `#947` are merged before the `#948` database/UI release.
-2. Run `npm ci`, `npm run build`, `npm test`, `npm run lint -- --quiet`, `npm run db:validate-migrations`, `npm run db:validate-rpc-surface`, `npm run refunds:validate-machine-manager-uat`, and the refund release alignment/tooling checks.
-3. Confirm the release check identifies the new migration and that production comparison remains read-only before deployment.
-4. Confirm no unresolved provider attempt, duplicate-payment hold, or production incident requires the global kill switch to remain active.
+1. Fix only the concrete readiness item shown for the affected machine.
+2. Confirm the exact account, immutable provider machine ID, location timezone,
+   public label, and current Machine Manager route.
+3. If the screen shows **Ready to activate**, use the existing single-machine or
+   qualified-set action. Repeating the same request must create no second event.
+4. Verify the resulting status and continue refund case work.
 
-## Owner UAT before activation
+Do not disable unrelated machines, create a cohort, wait for the owner, or run a
+live customer refund merely to prove a configuration change. Use proportionate
+synthetic coverage when the readiness UI or contract changes.
 
-1. Open Admin → Machines and inspect examples of **Ready to activate**, **Setup needed**, **Direct API blocked**, and an approved machine-disabled reason on desktop and mobile. **Ready to refund** may appear only when global direct availability is truly open.
-2. Confirm **Customer requests**, **Transaction lookup**, **Machine Managers**, **Card-refund capability**, **Direct API**, and **Refund amount** remain separate and agree with the reviewed machine record.
-3. Confirm the global pause appears as **Paused for all machines** and does not erase the underlying machine status.
-4. For one qualified non-production fixture, choose **Activate card-refund capability**, confirm once, and verify the machine capability is `Enabled`. With the runtime gates open and exact account/machine/manager configuration, verify **Ready to refund**; otherwise verify the truthful configuration, pause, or blocked status.
-5. Confirm the Admin audit log contains one activation event and that repeating the same request creates no second event.
+## Incident response
 
-## Reviewed production activation
+For a machine-specific maintenance or mapping problem, disable only that
+machine's capability with the factual reason and preserve intake. For a genuine
+systemic payment defect, use the existing global runtime pause, preserve every
+attempt and audit record, and continue safe research and customer communication.
 
-Machine-capability activation is a separate owner-reviewed step after deployment and UAT. It does not enable or authorize the direct API.
-
-Run the aggregate-only baseline and post-activation audit with the current
-machine-readiness command documented below. Machine activation must support the
-product behavior in `Docs/REFUND_WORKFLOW.md`; it cannot introduce a pilot,
-amount cap, or separate Manager approval.
-
-- Use the single-machine action or **Activate qualified machine capabilities** for the reviewed qualified set.
-- Bulk activation never overrides `owner_pause`, `provider_support`, `machine_maintenance`, or `commercial_exception`.
-- A newly repaired mapping should appear as **Ready to activate** until this reviewed step occurs.
-- Do not change runtime secrets, the global kill switch, or provider contracts from the machine screen.
-
-## Rollback
-
-Use the server activation boundary with one approved reason: owner pause, provider support, machine maintenance, or commercial exception. Rollback disables the machine capability, preserves customer intake, and writes one audit event. If the issue affects all machines, use the existing global runtime pause first, then investigate machine state without relabeling it as setup failure.
-
-After rollback, verify there was no duplicate provider call, no unexpected reporting adjustment, and no customer completion message without confirmed provider success.
+After repair, verify no duplicate provider call or customer completion occurred,
+then restore the prior operating state. A configuration repair does not require
+another business approval or a new rollout ceremony.
