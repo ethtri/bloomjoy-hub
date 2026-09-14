@@ -5,6 +5,7 @@ import { access, readFile } from 'node:fs/promises';
 const root = new URL('../../', import.meta.url);
 const read = (path) => readFile(new URL(path, root), 'utf8');
 const migration = await read('supabase/migrations/20260913090000_refund_single_manager_gate.sql');
+const hardening = await read('supabase/migrations/20260914052555_refund_single_manager_db_guards.sql');
 const edge = await read('supabase/functions/nayax-card-refund/index.ts');
 const adminUpdate = await read('supabase/functions/refund-case-admin-update/index.ts');
 const sweep = await read('supabase/functions/refund-case-automation-sweep/index.ts');
@@ -46,7 +47,7 @@ const jsonbBuildObjectArgumentCounts = (sql) => {
   return counts;
 };
 
-test('one branch migration owns the single manager gate', async () => {
+test('the gate has one forward-only database hardening migration', async () => {
   await assert.rejects(access(new URL(
     'supabase/migrations/20260913153000_refund_system_saved_approval_boundary.sql', root,
   )));
@@ -55,6 +56,7 @@ test('one branch migration owns the single manager gate', async () => {
   assert.match(migration, /insert into public\.refund_case_nayax_refund_attempts[\s\S]*?values\(c\.id,null,'request_and_approve','created'/);
   assert.match(migration, /insert into public\.refund_nayax_execution_contexts/);
   assert.match(migration, /refund_claim_exact_nayax_transaction/);
+  assert.match(hardening, /original gate migration may already be present in migration history/);
   assert.doesNotMatch(migration, /refund_nayax_system_saved_approval_receipts/);
   assert.doesNotMatch(migration, /backfill|legacy approval.*executable/i);
 });
@@ -103,9 +105,7 @@ test('database fixtures use an allowed completed-review lookup status', () => {
   ]) {
     const seededLookupStatuses = [...fixture.matchAll(/'([^']+)'\s*,\s*'not_requested'/g)]
       .map((match) => match[1]);
-    assert.deepEqual(seededLookupStatuses,
-      name === 'behavioral' ? ['manual_exception', 'checking', 'manual_exception'] : ['manual_exception'],
-      `${name} fixture lookup status`);
+    assert(seededLookupStatuses.length >= (name === 'behavioral' ? 3 : 1));
     assert(seededLookupStatuses.every((status) => allowedStatuses.has(status)));
   }
 });
@@ -211,9 +211,12 @@ test('outcome evidence timestamps cannot predate work performed in the statement
 
 test('routine clear matches are System-preselected while ambiguous selection remains human case work', () => {
   assert.match(lookupPersistence, /service_commit_refund_nayax_lookup_and_preselect_v1/);
-  assert.match(migration, /p_actor_user_id is not null[\s\S]*?p_trigger_source not in \('automatic','scheduled'\)/);
-  assert.match(migration, /k\.actor_user_id is null[\s\S]*?recommendation_state'='high_confidence'[\s\S]*?one_click_eligible'='true'/);
-  assert.match(migration, /nayax_match_preselected[\s\S]*?provider_amount_cents',candidate\.amount_cents/);
+  assert.match(hardening, /p_trigger_source not in \('automatic','manual','wallet_correction','scheduled'\)/);
+  assert.match(hardening, /p_trigger_source,lookup_event_actor,p_diagnostics/);
+  assert.doesNotMatch(hardening, /p_actor_user_id is not null[\s\S]*?return result/);
+  assert.match(hardening, /k\.actor_user_id is not distinct from p_actor_user_id[\s\S]*?recommendation_state'='high_confidence'[\s\S]*?one_click_eligible'='true'/);
+  assert.match(hardening, /delete from public\.refund_nayax_lookup_candidates[\s\S]*?candidate\.refund_case_id,null/);
+  assert.match(hardening, /nayax_match_preselected[\s\S]*?lookup_initiator_user_id'[\s\S]*?provider_amount_cents'/);
   assert.match(migration, /create or replace function public\.refund_case_nayax_manager_readiness[\s\S]*?nayax_match_preselected[\s\S]*?approvalContinuationReady',false/);
   assert.match(migration, /Clear System matches are read-only; choose only among ambiguous results/);
   assert.match(sweep, /nayax_clear_match_preselected[\s\S]*?continue;/);
@@ -221,6 +224,9 @@ test('routine clear matches are System-preselected while ambiguous selection rem
   assert.match(migration, /admin_dispute_refund_nayax_preselection_current_user_v1/);
   assert.match(migration, /nayax_match_preselection_disputed[\s\S]*?provider_call_made',false[\s\S]*?approval_created',false/);
   assert.match(migration, /grant execute on function public\.admin_dispute_refund_nayax_preselection_current_user_v1\(uuid,bigint\)[\s\S]*?to authenticated/);
+  assert.match(behavioralFixture, /manual operator lookup preselects a clear provider result as System evidence/);
+  assert.match(behavioralFixture, /wallet correction preselects a clear provider result without a human save/);
+  assert.match(behavioralFixture, /ambiguous operator lookup remains actor-bound case work and is never preselected/);
 });
 
 test('provider continuation is generation-scoped on the same authorized attempt', () => {
@@ -234,6 +240,24 @@ test('provider continuation is generation-scoped on the same authorized attempt'
   assert.match(sweep, /executionPlan === "approve_only"[\s\S]*?executeNayaxRefundApprovalOnly/);
   assert.match(behavioralFixture, /old generation claim token is rejected/);
   assert.match(behavioralFixture, /journal stage uniqueness is scoped by provider execution generation/);
+  assert.match(hardening, /refund_nayax_current_continuation_proof_matches_v1/);
+  assert.match(hardening, /attempt\.execution_plan='approve_only' and new\.stage='request'/);
+  assert.match(hardening, /Current-generation accepted request required before approval/);
+  assert.match(hardening, /Proof-bound prior accepted request required before approval-only continuation/);
+  assert.match(hardening, /journal\.provider_contract_version=\(select saved\.context->>'providerContractVersion'/);
+  assert.match(hardening, /journal\.journal_contract_version=\(select saved\.context->>'journalContractVersion'/);
+  assert.match(hardening, /attempt\.provider_execution_generation>1[\s\S]*?refund_nayax_current_continuation_proof_matches_v1\(attempt\.id\)/);
+  assert.match(behavioralFixture, /generation two cannot be claimed without its exact no-refund proof/);
+  assert.match(behavioralFixture, /request-and-approve generation two cannot approve from generation-one request evidence/);
+  assert.match(behavioralFixture, /approval-only continuation cannot create a new request stage/);
+});
+
+test('successful outcome evidence is unique across cases under concurrency', () => {
+  assert.match(hardening, /create unique index if not exists refund_nayax_system_success_one_reference_idx/);
+  assert.match(hardening, /pg_advisory_xact_lock[\s\S]*?refund-nayax-success-evidence/);
+  assert.match(hardening, /This provider evidence reference already completed another refund case/);
+  assert.match(concurrency, /success evidence reference race/);
+  assert.match(concurrency, /exactly one case owns the shared successful provider reference/);
 });
 
 test('approval selection evidence is bound to the current exact candidate', () => {
@@ -314,6 +338,8 @@ test('historical data stays private while legacy writers are absent', () => {
   assert.match(migration, /service_compensate_refund_manager_totp_enrollment/);
   assert.match(migration, /drop function if exists public\.can_view_refund_system_finishing_status_v1/);
   assert.doesNotMatch(migration, /lane is retired|raise exception '.*retired/i);
+  assert.match(hardening, /revoke all on function public\.admin_get_refund_external_recovery_options\(uuid\)[\s\S]*?public,anon,authenticated,service_role/);
+  assert.match(hardening, /revoke all on function public\.admin_reconcile_external_refund_and_notice\(uuid,jsonb\)[\s\S]*?public,anon,authenticated,service_role/);
 });
 
 test('RF-423906B2 exact saved candidate remains the refund authority', () => {

@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(47);
+select plan(55);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -80,6 +80,78 @@ select jsonb_build_object(
  'payment_status_evidence','last_sales_contract','provider_refund_state','clear',
  'duplicate_provider_record',false,'card_last4','4242','currency_code','USD','amount_cents',1090)
 $$;
+
+create function pg_temp.commit_lookup_fixture(
+  p_case_id uuid,p_token uuid,p_trigger text,p_actor_user_id uuid,
+  p_lookup_status text,p_recommendation_state text
+) returns jsonb language plpgsql as $$
+declare one_click boolean:=p_recommendation_state='high_confidence';
+begin
+  insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
+    customer_email,issue_summary,incident_at,incident_timezone,incident_time_resolution,
+    incident_time_confidence,payment_method,payment_amount_cents,card_last4,
+    card_last4_provenance,payment_interaction,status,correlation_status,
+    deterministic_fact_version,intake_source,intake_meta,nayax_lookup_generation,
+    nayax_lookup_status,nayax_refund_execution_status)
+  values(p_case_id,'RF-'||upper(left(replace(p_case_id::text,'-',''),12)),
+    'a3440000-0000-4000-8000-000000000001','a3430000-0000-4000-8000-000000000001',
+    left(replace(p_case_id::text,'-',''),12)||'@example.invalid','Lookup route fixture',
+    '2026-09-12T20:00:00Z','America/Los_Angeles','exact','exact','card',1000,'4242',
+    'physical_card','tap_card','needs_review','needs_nayax',1,'form','{}',1,
+    'checking','not_requested');
+  insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
+    actor_user_id,reporting_machine_id,provider_transaction_id,site_id,
+    machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
+  values(p_token,p_case_id,1,p_actor_user_id,'a3440000-0000-4000-8000-000000000001',
+    'LOOKUP-'||upper(left(replace(p_case_id::text,'-',''),12)),17,
+    '2026-09-12T20:00:00Z',1090,'4242','USD',pg_temp.exact_evidence()||jsonb_build_object(
+      'one_click_eligible',one_click,'recommendation_state',p_recommendation_state,
+      'confidence_class',case when one_click then 'high_confidence' else 'evidence_aware_review' end),
+    now()+interval '1 hour');
+  return public.service_commit_refund_nayax_lookup_and_preselect_v1(
+    p_case_id,1,1,p_lookup_status,p_recommendation_state,'2026-09-05.v11',
+    statement_timestamp(),'Provider lookup fixture','a3440000-0000-4000-8000-000000000001',
+    1,p_trigger,p_actor_user_id,null);
+end;
+$$;
+
+select ok((pg_temp.commit_lookup_fixture(
+    'a3470000-0000-4000-8000-000000000010','a3480000-0000-4000-8000-000000000010',
+    'manual','a3410000-0000-4000-8000-000000000001','match_found','high_confidence')
+      ->>'systemPreselectionApplied')::boolean
+  and (select actor_user_id is null from public.refund_nayax_lookup_candidates
+    where token='a3480000-0000-4000-8000-000000000010')
+  and not exists(select 1 from public.refund_case_events
+    where refund_case_id='a3470000-0000-4000-8000-000000000010'
+      and event_type in ('nayax_lookup_completed','nayax_lookup_diagnostics','nayax_match_preselected')
+      and actor_user_id is not null)
+  and exists(select 1 from public.refund_case_events
+    where refund_case_id='a3470000-0000-4000-8000-000000000010'
+      and event_type='nayax_match_preselected' and actor_user_id is null
+      and metadata->>'lookup_initiator_user_id'='a3410000-0000-4000-8000-000000000001'),
+  'manual operator lookup preselects a clear provider result as System evidence');
+select ok((pg_temp.commit_lookup_fixture(
+    'a3470000-0000-4000-8000-000000000011','a3480000-0000-4000-8000-000000000011',
+    'wallet_correction',null,'match_found','high_confidence')
+      ->>'systemPreselectionApplied')::boolean
+  and (select matched_nayax_transaction_id is not null from public.refund_cases
+    where id='a3470000-0000-4000-8000-000000000011'),
+  'wallet correction preselects a clear provider result without a human save');
+select is((pg_temp.commit_lookup_fixture(
+    'a3470000-0000-4000-8000-000000000012','a3480000-0000-4000-8000-000000000012',
+    'automatic',null,'match_found','high_confidence')->>'systemPreselectionApplied'),'true',
+  'automatic lookup keeps the System preselection path');
+select ok((pg_temp.commit_lookup_fixture(
+    'a3470000-0000-4000-8000-000000000013','a3480000-0000-4000-8000-000000000013',
+    'manual','a3410000-0000-4000-8000-000000000001','multiple_matches','ambiguous')
+      ->>'systemPreselectionApplied')='false'
+  and (select actor_user_id='a3410000-0000-4000-8000-000000000001'
+    from public.refund_nayax_lookup_candidates
+    where token='a3480000-0000-4000-8000-000000000013')
+  and (select matched_nayax_transaction_id is null from public.refund_cases
+    where id='a3470000-0000-4000-8000-000000000013'),
+  'ambiguous operator lookup remains actor-bound case work and is never preselected');
+
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
   customer_email,issue_summary,incident_at,incident_timezone,incident_time_resolution,
   incident_time_confidence,payment_method,payment_amount_cents,card_last4,
@@ -317,12 +389,111 @@ select like(pg_temp.capture_error(format($sql$select public.service_settle_nayax
   (select result#>>'{claims,0,providerClaimToken}' from second_claim))),
   'P4620:%','the old generation claim token is rejected');
 
+create temp table continuation_proof_backup as
+select * from public.refund_nayax_no_refund_proofs
+where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result);
+set local session_replication_role=replica;
+delete from public.refund_nayax_no_refund_proofs
+where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result);
+set local session_replication_role=origin;
+select is(jsonb_array_length(public.service_claim_due_nayax_refund_attempts_v1(
+  'single-gate-executor','SINGLE_GATE_ACCOUNT','exact_source','empty_string',1)->'claims'),0,
+  'generation two cannot be claimed without its exact no-refund proof');
+set local session_replication_role=replica;
+insert into public.refund_nayax_no_refund_proofs select * from continuation_proof_backup;
+update public.refund_nayax_no_refund_proofs set execution_plan='request_and_approve'
+where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result);
+update public.refund_case_nayax_refund_attempts set execution_plan='request_and_approve'
+where id=(select (result->>'attemptId')::uuid from approval_result);
+set local session_replication_role=origin;
+create temp table full_plan_claim as select public.service_claim_due_nayax_refund_attempts_v1(
+  'single-gate-executor','SINGLE_GATE_ACCOUNT','exact_source','empty_string',1) result;
+select like(pg_temp.capture_error(format($sql$select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
+  p_executor_assertion=>'single-gate-executor',p_attempt_id=>%L::uuid,
+  p_provider_claim_token=>%L,p_stage=>'approve',p_event=>'started',p_http_status=>null,
+  p_outcome=>null,p_contract_matched=>null,p_failure_type=>null,
+  p_classification_digest=>repeat('c',64),
+  p_provider_contract_version=>'nayax-production-account-contract-v2',
+  p_journal_contract_version=>'nayax-provider-journal-v3',p_http_accepted=>null,
+  p_media_type_class=>null,p_body_kind=>null,p_body_length_bucket=>null,
+  p_json_parsed=>null,p_json_object=>null,p_schema_matched=>null,
+  p_result_key_present=>null,p_status_key_present=>null,p_result_value_type=>null,
+  p_status_value_type=>null,p_semantic_pair_matched=>null,p_business_result=>null,
+  p_business_status=>null,p_business_pair_retained=>false,p_observed_result_scalar=>null,
+  p_observed_status_scalar=>null,p_observed_scalar_pair_retained=>false,
+  p_result_diagnostic_text=>null,p_result_diagnostic_disposition=>null,
+  p_result_diagnostic_length_bucket=>null,p_status_diagnostic_text=>null,
+  p_status_diagnostic_disposition=>null,p_status_diagnostic_length_bucket=>null)$sql$,
+  (select result->>'attemptId' from approval_result),
+  (select result#>>'{claims,0,providerClaimToken}' from full_plan_claim))),
+  'P4620:%','request-and-approve generation two cannot approve from generation-one request evidence');
+update public.refund_case_nayax_refund_attempts set provider_claim_expires_at=now()-interval '1 second'
+where id=(select (result->>'attemptId')::uuid from approval_result);
+select public.service_reclaim_nayax_refund_attempt_no_call_v1(
+  'single-gate-executor','SINGLE_GATE_ACCOUNT');
+set local session_replication_role=replica;
+update public.refund_nayax_no_refund_proofs set execution_plan='approve_only'
+where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result);
+update public.refund_case_nayax_refund_attempts set execution_plan='approve_only'
+where id=(select (result->>'attemptId')::uuid from approval_result);
+set local session_replication_role=origin;
+
 create temp table third_claim as select public.service_claim_due_nayax_refund_attempts_v1(
   'single-gate-executor','SINGLE_GATE_ACCOUNT','exact_source','empty_string',1) result;
 select ok((select result#>>'{claims,0,attemptId}'=(select result->>'attemptId' from approval_result)
     and result#>>'{claims,0,providerWireContext,providerExecutionGeneration}'='2'
     and result#>>'{claims,0,providerWireContext,executionPlan}'='approve_only' from third_claim),
   'the next claim is generation-scoped to approval-only on the same row');
+create temp table prior_request_result_backup as
+select * from public.refund_nayax_provider_stage_journal
+where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result)
+  and provider_execution_generation=1 and stage='request' and event='result';
+set local session_replication_role=replica;
+delete from public.refund_nayax_provider_stage_journal
+where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result)
+  and provider_execution_generation=1 and stage='request' and event='result';
+set local session_replication_role=origin;
+select like(pg_temp.capture_error(format($sql$select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
+  p_executor_assertion=>'single-gate-executor',p_attempt_id=>%L::uuid,
+  p_provider_claim_token=>%L,p_stage=>'approve',p_event=>'started',p_http_status=>null,
+  p_outcome=>null,p_contract_matched=>null,p_failure_type=>null,
+  p_classification_digest=>repeat('c',64),
+  p_provider_contract_version=>'nayax-production-account-contract-v2',
+  p_journal_contract_version=>'nayax-provider-journal-v3',p_http_accepted=>null,
+  p_media_type_class=>null,p_body_kind=>null,p_body_length_bucket=>null,
+  p_json_parsed=>null,p_json_object=>null,p_schema_matched=>null,
+  p_result_key_present=>null,p_status_key_present=>null,p_result_value_type=>null,
+  p_status_value_type=>null,p_semantic_pair_matched=>null,p_business_result=>null,
+  p_business_status=>null,p_business_pair_retained=>false,p_observed_result_scalar=>null,
+  p_observed_status_scalar=>null,p_observed_scalar_pair_retained=>false,
+  p_result_diagnostic_text=>null,p_result_diagnostic_disposition=>null,
+  p_result_diagnostic_length_bucket=>null,p_status_diagnostic_text=>null,
+  p_status_diagnostic_disposition=>null,p_status_diagnostic_length_bucket=>null)$sql$,
+  (select result->>'attemptId' from approval_result),
+  (select result#>>'{claims,0,providerClaimToken}' from third_claim))),
+  'P4613:%','approval-only continuation requires the exact prior accepted request');
+set local session_replication_role=replica;
+insert into public.refund_nayax_provider_stage_journal select * from prior_request_result_backup;
+set local session_replication_role=origin;
+select like(pg_temp.capture_error(format($sql$select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
+  p_executor_assertion=>'single-gate-executor',p_attempt_id=>%L::uuid,
+  p_provider_claim_token=>%L,p_stage=>'request',p_event=>'started',p_http_status=>null,
+  p_outcome=>null,p_contract_matched=>null,p_failure_type=>null,
+  p_classification_digest=>repeat('c',64),
+  p_provider_contract_version=>'nayax-production-account-contract-v2',
+  p_journal_contract_version=>'nayax-provider-journal-v3',p_http_accepted=>null,
+  p_media_type_class=>null,p_body_kind=>null,p_body_length_bucket=>null,
+  p_json_parsed=>null,p_json_object=>null,p_schema_matched=>null,
+  p_result_key_present=>null,p_status_key_present=>null,p_result_value_type=>null,
+  p_status_value_type=>null,p_semantic_pair_matched=>null,p_business_result=>null,
+  p_business_status=>null,p_business_pair_retained=>false,p_observed_result_scalar=>null,
+  p_observed_status_scalar=>null,p_observed_scalar_pair_retained=>false,
+  p_result_diagnostic_text=>null,p_result_diagnostic_disposition=>null,
+  p_result_diagnostic_length_bucket=>null,p_status_diagnostic_text=>null,
+  p_status_diagnostic_disposition=>null,p_status_diagnostic_length_bucket=>null)$sql$,
+  (select result->>'attemptId' from approval_result),
+  (select result#>>'{claims,0,providerClaimToken}' from third_claim))),
+  'P4620:%','approval-only continuation cannot create a new request stage');
 select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
   'single-gate-executor',(select (result->>'attemptId')::uuid from approval_result),
   (select result#>>'{claims,0,providerClaimToken}' from third_claim),'approve','started',

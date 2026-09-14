@@ -9,6 +9,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const read = (relativePath) => fs.readFileSync(path.join(repoRoot, relativePath), 'utf8').replace(/\r\n/g, '\n');
 
 const migration = read('supabase/migrations/20260913090000_refund_single_manager_gate.sql');
+const hardening = read('supabase/migrations/20260914052555_refund_single_manager_db_guards.sql');
 const edge = read('supabase/functions/nayax-card-refund/index.ts');
 const sweep = read('supabase/functions/refund-case-automation-sweep/index.ts');
 const queue = read('supabase/functions/_shared/nayax-refund-attempt-queue.ts');
@@ -24,8 +25,11 @@ assert.match(migration, /insert into public\.refund_case_nayax_refund_attempts/)
 assert.match(migration, /refund_case_id,actor_user_id,execution_mode,status,idempotency_key/);
 assert.match(migration, /sanitized_request,sanitized_response,official_action_authorization_id/);
 assert.match(migration, /'\{\}'::jsonb,approval\.id,null/);
-assert.match(migration, /service_claim_due_nayax_refund_attempts_v1/);
-assert.match(migration, /for update of attempt skip locked/);
+assert.match(hardening, /service_claim_due_nayax_refund_attempts_v1/);
+assert.match(hardening, /for update of attempt skip locked/);
+assert.match(hardening, /refund_nayax_current_continuation_proof_matches_v1/);
+assert.match(hardening, /guard_refund_nayax_provider_generation_plan_v1/);
+assert.match(hardening, /refund_nayax_system_success_one_reference_idx/);
 assert.match(migration, /service_reclaim_nayax_refund_attempt_no_call_v1/);
 assert.match(migration, /service_settle_nayax_refund_attempt\(/);
 assert.match(migration, /provider_transport_unknown|provider_outcome_unknown/);

@@ -162,8 +162,11 @@ try {
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
   assert(
     repositoryMigrations.includes('20260913090000_refund_single_manager_gate.sql') &&
+      repositoryMigrations.includes('20260914052555_refund_single_manager_db_guards.sql') &&
+      repositoryMigrations.indexOf('20260913090000_refund_single_manager_gate.sql') <
+        repositoryMigrations.indexOf('20260914052555_refund_single_manager_db_guards.sql') &&
       !repositoryMigrations.includes('20260913153000_refund_single_manager_gate_followup.sql'),
-    'The single-manager gate must ship as one consolidated branch migration'
+    'The applied single-manager gate must be followed by its forward-only database hardening migration'
   );
   assert(repositoryMigrations.includes('20260903190000_refund_scoped_customer_corrections.sql') &&
     repositoryMigrations.indexOf('20260903190000_refund_scoped_customer_corrections.sql') <
