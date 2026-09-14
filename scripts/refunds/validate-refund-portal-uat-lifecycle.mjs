@@ -54,7 +54,7 @@ assert.deepEqual(overviewFixtureBuilders, [
   'buildSimpleCardRefundJourneyOverview',
   'buildGroupedLivermorePendingOverview',
   'buildManagerClarityRefundOverview',
-  'buildManagerStepUpRefundOverview',
+  'buildManagerApprovalRefundOverview',
   'buildManagerDraftNavigationOverview',
   'buildNayaxResolutionRefundOverview',
   'buildNayaxEvidenceOnlyRefundOverview',

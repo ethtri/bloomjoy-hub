@@ -76,7 +76,7 @@ const parseArgs = (argv) => {
     fragmentDir: process.env.REFUND_PORTAL_UAT_FRAGMENT_DIR || DEFAULT_FRAGMENT_DIR,
     runToken: process.env.REFUND_UAT_EVIDENCE_RUN_TOKEN || '',
     headed: false,
-    managerStepUpOnly: false,
+    managerApprovalOnly: false,
     dualRoleOnly: false,
     providerOutcomesOnly: false,
     legacyStateOnly: false,
@@ -101,8 +101,8 @@ const parseArgs = (argv) => {
       continue;
     }
 
-    if (arg === '--manager-step-up-only') {
-      args.managerStepUpOnly = true;
+    if (arg === '--manager-approval-only') {
+      args.managerApprovalOnly = true;
       continue;
     }
 
@@ -225,7 +225,7 @@ const parseArgs = (argv) => {
   args.appUrl = args.appUrl.replace(/\/+$/, '');
   args.artifactDir = path.resolve(process.cwd(), args.artifactDir);
   args.fragmentDir = path.resolve(process.cwd(), args.fragmentDir);
-  if (!args.managerStepUpOnly && !args.demoOnly && !args.managerQueueOnly && !args.selectionCompatibilityOnly && !args.deliveryTruthOnly && !args.inboundLinkOnly && !args.dualRoleOnly && !args.providerOutcomesOnly &&
+  if (!args.managerApprovalOnly && !args.demoOnly && !args.managerQueueOnly && !args.selectionCompatibilityOnly && !args.deliveryTruthOnly && !args.inboundLinkOnly && !args.dualRoleOnly && !args.providerOutcomesOnly &&
     !args.legacyStateOnly && !args.nayaxResolutionOnly &&
     !args.nayaxLookupOnly && !args.duplicateOnly) {
     requireEvidenceRunToken(args.runToken);
@@ -1219,7 +1219,7 @@ const buildMockHumanReviewGptContext = () => ({
 });
 
 const buildFailedCommsRefundOverview = () => {
-  const overview = buildMockRefundOverview();
+  const overview = buildManagerReadyRefundOverview();
   overview.cases[0] = {
     ...overview.cases[0],
     status: 'needs_review',
@@ -1648,13 +1648,13 @@ const buildManagerClarityRefundOverview = () => {
   };
 };
 
-const buildManagerStepUpRefundOverview = () => {
-  const overview = buildMockRefundOverview();
+const buildManagerApprovalRefundOverview = () => {
+  const overview = buildManagerReadyRefundOverview();
   overview.cases = [
     {
       ...overview.cases[0],
-      canPerformOfficialAction: false,
-      officialActionBlockReason: 'manager_verification_required',
+      canPerformOfficialAction: true,
+      officialActionBlockReason: null,
       officialActionVersion: 1,
     },
   ];
@@ -1799,7 +1799,7 @@ const buildUncertainNayaxCompletionOverview = () => {
 };
 
 const buildOfficialActionVersionResetOverview = () => {
-  const overview = buildMockRefundOverview();
+  const overview = buildManagerReadyRefundOverview();
   const validCase = {
     ...overview.cases[0],
     id: 'case-version-valid',
@@ -5950,9 +5950,9 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
       windowHours: 6,
       message: 'This machine\'s separate Nayax account scope is not connected for read-only lookup.',
       summary: 'This machine\'s separate Nayax account scope is not connected for read-only lookup.',
-      recommendedAction: 'Refund Operations must connect the required account scope, then run one safe read-only retry. Do not ask the customer to repeat purchase details.',
+      recommendedAction: 'The assigned Machine Manager should connect the required account scope, then run one safe read-only retry. Do not ask the customer to repeat purchase details.',
       setupIssueCode: 'account_access_unavailable',
-      responsibleOwner: 'refund_operations',
+      responsibleOwner: 'machine_manager',
       requiredAccountScope: 'Nashville Nayax account scope',
       customerActionRequired: false,
       candidates: [],
@@ -8348,7 +8348,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
 
   const guardedManagerContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   await installMockSupabaseRoutes(guardedManagerContext, {
-    refundOverview: buildMockRefundOverview,
+    refundOverview: buildManagerReadyRefundOverview,
     nayaxCardRefundAvailabilityResponse: {
       available: true,
       status: 'available',
@@ -8377,7 +8377,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
   const blockedRpcCalls = [];
   await installMockSupabaseRoutes(blockedContext, {
     refundOverview: () => {
-      const overview = buildMockRefundOverview();
+      const overview = buildManagerReadyRefundOverview();
       overview.refundOperationsAccess = true;
       overview.cases[0].cardWalletUsed = true;
       overview.cases[0].paymentInteraction = 'phone_watch_wallet';
@@ -8458,7 +8458,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
     const bypassContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
     await installMockSupabaseRoutes(bypassContext, {
       refundOverview: () => {
-        const overview = buildMockRefundOverview();
+        const overview = buildManagerReadyRefundOverview();
         overview.refundOperationsAccess = true;
         return overview;
       },
@@ -8513,6 +8513,21 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
   ];
 
   for (const scenario of scenarios) {
+    const systemQueueResponse = {
+      approved: true,
+      status: 'system_finishing',
+      providerAttempted: false,
+      providerCallMade: false,
+      customerMessageCreated: false,
+      authorizationId: `8a820000-0000-4000-8000-${scenario.slug === 'unmapped-super-admin' ? '000000000101' : '000000000102'}`,
+      attemptId: `8a830000-0000-4000-8000-${scenario.slug === 'unmapped-super-admin' ? '000000000101' : '000000000102'}`,
+      queued: true,
+      payloadRedacted: true,
+      replayed: false,
+      reconciliationRequired: false,
+      fallbackIssued: false,
+      message: 'Manager approval was saved. System will finish the original attempt and send no customer message until success is known.',
+    };
     const context = await browser.newContext({
       viewport: { width: 1440, height: 1000 },
     });
@@ -8526,21 +8541,7 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
       rpcCalls,
       adminAccessContext: scenario.adminAccessContext,
       nayaxCardRefundStatus: 202,
-      nayaxCardRefundResponse: {
-        approved: true,
-        status: 'system_finishing',
-        providerAttempted: false,
-        providerCallMade: false,
-        customerMessageCreated: false,
-        authorizationId: `8a820000-0000-4000-8000-${scenario.slug === 'unmapped-super-admin' ? '000000000101' : '000000000102'}`,
-        attemptId: `8a830000-0000-4000-8000-${scenario.slug === 'unmapped-super-admin' ? '000000000101' : '000000000102'}`,
-        queued: true,
-        payloadRedacted: true,
-        replayed: false,
-        reconciliationRequired: false,
-        fallbackIssued: false,
-        message: 'Manager approval was saved. System will finish the original attempt and send no customer message until success is known.',
-      },
+      nayaxCardRefundResponse: systemQueueResponse,
     });
 
     const page = await context.newPage();
@@ -8747,7 +8748,7 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
       entry.functionName === 'nayax-card-refund' && entry.body?.operation !== 'availability'
     );
     recorder.assert(
-      `${scenario.name} confirms once and the System executes exactly one refund`,
+      `${scenario.name} confirms once and queues exactly one System-owned attempt`,
       executionCallsAfterApproval.length === executionCallsBeforeApproval + 1 &&
         functionCalls.filter((name) => name === 'refund-case-admin-update').length === adminUpdatesBeforeApproval &&
         executionCallsAfterApproval.at(-1)?.body?.caseId === 'case-card-alternate' &&
@@ -8755,14 +8756,14 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
       JSON.stringify({ functionCalls, executionCallsAfterApproval })
     );
     recorder.assert(
-      `${scenario.name} Manager action only queues the System attempt`,
+      `${scenario.name} action only queues the System attempt`,
       executionCallsAfterApproval.at(-1)?.body?.caseId === 'case-card-alternate' &&
-        nayaxCardRefundResponse.providerAttempted === false &&
-        nayaxCardRefundResponse.providerCallMade === false &&
-        nayaxCardRefundResponse.customerMessageCreated === false &&
-        Boolean(nayaxCardRefundResponse.authorizationId) &&
-        Boolean(nayaxCardRefundResponse.attemptId),
-      JSON.stringify(nayaxCardRefundResponse)
+        systemQueueResponse.providerAttempted === false &&
+        systemQueueResponse.providerCallMade === false &&
+        systemQueueResponse.customerMessageCreated === false &&
+        Boolean(systemQueueResponse.authorizationId) &&
+        Boolean(systemQueueResponse.attemptId),
+      JSON.stringify(systemQueueResponse)
     );
 
     await page.screenshot({
@@ -8818,7 +8819,7 @@ const runOfficialActionVersionResetChecks = async ({ browser, appUrl, recorder }
     (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
       await page.getByTestId('refund-action-status').isVisible() &&
       (await page.getByTestId('refund-manager-next-step').innerText()).includes(
-        'Ask an administrator to restore your Machine Manager access before taking action.'
+        'Use the assigned Manager or a Super-admin. If this signed-in user already has one of those roles, report a portal or machine-assignment defect.'
       ) &&
       !functionCalls.includes('nayax-card-refund'),
     functionCalls.join(', ')
@@ -9134,7 +9135,7 @@ const runInternalTestDispositionChecks = async ({ browser, appUrl, artifactDir, 
   );
   await administration.locator(':scope > summary').click();
   recorder.assert(
-    'Refund Operations sees archived-test handling only as a secondary administration option',
+    'Super-admin sees archived-test handling only as a secondary administration option',
     await disposition.isVisible() &&
       (await disposition.locator(':scope > summary').innerText()).includes('Archive a non-customer test record') &&
       !(await page.getByTestId('refund-open-internal-test-confirmation').isVisible())
@@ -9267,7 +9268,7 @@ const runInternalTestDispositionChecks = async ({ browser, appUrl, artifactDir, 
     fullPage: false,
   });
   await page.getByTestId('refund-confirm-internal-test-classification').click();
-  await page.getByText('System details', { exact: true }).click();
+  await page.getByText('More details', { exact: true }).click();
   const archiveButton = page.getByRole('button', { name: /^View archive 1$/ });
   await archiveButton.waitFor({ timeout: 10000 });
   await archiveButton.click();
@@ -9865,22 +9866,25 @@ const runTransactionalDeliveryTruthChecks = async ({
   }
 };
 
-const runManagerStepUpChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
+const runManagerApprovalChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const functionCalls = [];
   const functionBodies = [];
+  const systemQueueResponse = {
+    executed: false,
+    status: 'system_finishing',
+    providerAttempted: false,
+    providerCallMade: false,
+    customerMessageCreated: false,
+    queued: true,
+    payloadRedacted: true,
+  };
   await installMockSupabaseRoutes(context, {
-    refundOverview: buildManagerStepUpRefundOverview,
+    refundOverview: buildManagerApprovalRefundOverview,
     functionCalls,
     functionBodies,
     nayaxCardRefundStatus: 202,
-    nayaxCardRefundResponse: {
-      executed: false,
-      status: 'system_finishing',
-      providerAttempted: false,
-      queued: true,
-      payloadRedacted: true,
-    },
+    nayaxCardRefundResponse: systemQueueResponse,
   });
 
   const page = await context.newPage();
@@ -9899,8 +9903,13 @@ const runManagerStepUpChecks = async ({ browser, appUrl, artifactDir, recorder }
   recorder.assert(
     'Routine manager confirmation queues exactly one System-owned attempt',
     providerExecutions.length === 1 &&
+      systemQueueResponse.queued === true &&
+      systemQueueResponse.executed === false &&
+      systemQueueResponse.providerAttempted === false &&
+      systemQueueResponse.providerCallMade === false &&
+      systemQueueResponse.customerMessageCreated === false &&
       !functionCalls.includes('refund-case-message-send'),
-    JSON.stringify({ functionCalls, providerExecutions })
+    JSON.stringify({ functionCalls, providerExecutions, systemQueueResponse })
   );
   recorder.assert(
     'Routine manager never handles credentials or provider authorization details',
@@ -9909,14 +9918,14 @@ const runManagerStepUpChecks = async ({ browser, appUrl, artifactDir, recorder }
       (await page.locator('[data-private-no-screenshot="true"]').count()) === 0
   );
   recorder.assert(
-    'Authorization exception moves the visible next step to manager review without a retry action',
-    await page.getByTestId('refund-manager-state').getByText('Needs manager review', { exact: true }).isVisible() &&
-      await page.getByTestId('refund-action-status').getByText('Manager review required', { exact: true }).isVisible() &&
+    'One manager approval moves the case to System follow-through without another action',
+    await page.getByTestId('refund-manager-state').getByText('Refund in progress', { exact: true }).isVisible() &&
       (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-      await page.getByTestId('refund-action-receipt').getByText('A manager with the required access must check the saved authorization result.', { exact: false }).isVisible()
+      await page.getByTestId('refund-action-receipt').getByText('Your approval was saved.', { exact: false }).isVisible() &&
+      await page.getByTestId('refund-action-receipt').getByText('Do not try the refund again.', { exact: false }).isVisible()
   );
   await page.screenshot({
-    path: path.join(artifactDir, 'refund-manager-operations-handoff.png'),
+    path: path.join(artifactDir, 'refund-manager-single-approval.png'),
     fullPage: false,
   });
   await closeRefundPortalContext(context);
@@ -11459,7 +11468,7 @@ const run = async () => {
   );
 
   await mkdir(args.artifactDir, { recursive: true });
-  if (!args.managerStepUpOnly && !args.dualRoleOnly &&
+  if (!args.managerApprovalOnly && !args.dualRoleOnly &&
     !args.legacyStateOnly && !args.nayaxResolutionOnly && !args.nayaxLookupOnly &&
     !args.gmailDraftOnly && !args.duplicateOnly && !args.managerQueueOnly &&
     !args.selectionCompatibilityOnly &&
@@ -11631,8 +11640,8 @@ const run = async () => {
         artifactDir: args.artifactDir,
         recorder,
       });
-    } else if (args.managerStepUpOnly) {
-      await runManagerStepUpChecks({
+    } else if (args.managerApprovalOnly) {
+      await runManagerApprovalChecks({
         browser,
         appUrl: args.appUrl,
         artifactDir: args.artifactDir,
@@ -11964,7 +11973,7 @@ const run = async () => {
     return;
   }
 
-  if (!args.managerStepUpOnly && !args.dualRoleOnly) {
+  if (!args.managerApprovalOnly && !args.dualRoleOnly) {
     recorder.assert(
       'Portal evidence counters match the executable navigation, lookup, and provider-outcome matrix',
       evidence.navigationProviderCallCount === 0 &&
@@ -11994,7 +12003,7 @@ const run = async () => {
     process.exit(1);
   }
 
-  if (!args.managerStepUpOnly && !args.dualRoleOnly) {
+  if (!args.managerApprovalOnly && !args.dualRoleOnly) {
     if (recorder.count() < 101) {
       throw new Error(`Portal assertion count ${recorder.count()} is below the required 101.`);
     }
@@ -12022,7 +12031,7 @@ const run = async () => {
 
   console.log('\nRefund portal UAT validation passed.');
   console.log(`Screenshots written to ${args.artifactDir}`);
-  if (!args.managerStepUpOnly && !args.dualRoleOnly) {
+  if (!args.managerApprovalOnly && !args.dualRoleOnly) {
     console.log(`Evidence fragments written to ${args.fragmentDir}`);
   }
 };
