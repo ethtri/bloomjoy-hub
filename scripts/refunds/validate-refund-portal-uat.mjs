@@ -10269,7 +10269,7 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
       );
     }
     recorder.assert(
-      `Support-resolution ${scenario.result} completes without console or page errors`,
+      `Payment-result ${scenario.result} completes without console or page errors`,
       getUatPageFailures(page, consoleErrors).length === 0,
       getUatPageFailures(page, consoleErrors).slice(0, 3).join(' | ')
     );
@@ -10513,6 +10513,7 @@ const runNayaxExecutionOutcomeChecks = async ({
   artifactDir,
   recorder,
   evidence,
+  providerOutcomeEvidence,
   captureManagerReviewScreenshots = false,
 }) => {
   const availabilityScenarios = [
@@ -11054,6 +11055,46 @@ const runNayaxExecutionOutcomeChecks = async ({
     else evidence.providerNonSuccessStateCount += 1;
     await closeRefundPortalContext(context);
   }
+
+  const reviewedProviderScenarios = scenarios.filter((scenario) =>
+    ['success', 'rejected', 'timeout', 'unknown'].includes(scenario.name)
+  );
+  Object.assign(providerOutcomeEvidence, {
+    passed: true,
+    successCount: reviewedProviderScenarios.filter((scenario) => scenario.name === 'success').length,
+    rejectionCount: reviewedProviderScenarios.filter((scenario) => scenario.name === 'rejected').length,
+    timeoutCount: reviewedProviderScenarios.filter((scenario) => scenario.name === 'timeout').length,
+    unknownCount: reviewedProviderScenarios.filter((scenario) => scenario.name === 'unknown').length,
+    totalProviderAttempts: reviewedProviderScenarios.length,
+    replayProviderAttempts: reviewedProviderScenarios.filter((scenario) => scenario.response.replayed === true).length,
+    caseReportingCompletionCount: reviewedProviderScenarios.filter(
+      (scenario) => scenario.response.reportingAdjustmentPresent === true
+    ).length,
+    originalThreadCompletionCount: reviewedProviderScenarios.filter(
+      (scenario) => scenario.response.customerCompletion?.originalThread === true
+    ).length,
+    fallbackNoticeCount: reviewedProviderScenarios.filter(
+      (scenario) => scenario.response.fallbackIssued === true
+    ).length,
+    managerCompletionNoticeCount: reviewedProviderScenarios.filter(
+      (scenario) => scenario.response.customerCompletion?.managerCompletionNoticeSent === true
+    ).length,
+  });
+  recorder.assert(
+    'Provider outcome evidence summarizes the four reviewed final outcomes',
+    providerOutcomeEvidence.passed === true &&
+      providerOutcomeEvidence.successCount === 1 &&
+      providerOutcomeEvidence.rejectionCount === 1 &&
+      providerOutcomeEvidence.timeoutCount === 1 &&
+      providerOutcomeEvidence.unknownCount === 1 &&
+      providerOutcomeEvidence.totalProviderAttempts === 4 &&
+      providerOutcomeEvidence.replayProviderAttempts === 0 &&
+      providerOutcomeEvidence.caseReportingCompletionCount === 1 &&
+      providerOutcomeEvidence.originalThreadCompletionCount === 1 &&
+      providerOutcomeEvidence.fallbackNoticeCount === 0 &&
+      providerOutcomeEvidence.managerCompletionNoticeCount === 0,
+    JSON.stringify(providerOutcomeEvidence)
+  );
 };
 
 const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
@@ -11522,6 +11563,22 @@ const run = async () => {
     intakeAvailable: false,
     portalAvailable: false,
   };
+  const providerOutcomeEvidence = {
+    schemaVersion: 1,
+    evidenceType: 'provider_outcomes',
+    evidenceMode: 'local_injected_provider_adapter',
+    passed: false,
+    successCount: 0,
+    rejectionCount: 0,
+    timeoutCount: 0,
+    unknownCount: 0,
+    totalProviderAttempts: 0,
+    replayProviderAttempts: 0,
+    caseReportingCompletionCount: 0,
+    originalThreadCompletionCount: 0,
+    fallbackNoticeCount: 0,
+    managerCompletionNoticeCount: 0,
+  };
 
   recorder.assert(
     'Navigation safety proof fails closed for an unknown Edge Function call',
@@ -11695,6 +11752,7 @@ const run = async () => {
         artifactDir: args.artifactDir,
         recorder,
         evidence,
+        providerOutcomeEvidence,
         captureManagerReviewScreenshots: true,
       });
     } else if (args.dualRoleOnly) {
@@ -11736,6 +11794,7 @@ const run = async () => {
       artifactDir: args.artifactDir,
       recorder,
       evidence,
+      providerOutcomeEvidence,
     });
     await runPublicRefundSubmissionChecks({
       browser,
@@ -12085,11 +12144,23 @@ const run = async () => {
       evidence: portalArtifact,
       runToken: args.runToken,
     });
-    await writeFile(
-      path.join(args.fragmentDir, 'refund-portal-assertions.json'),
-      `${JSON.stringify(portalEnvelope, null, 2)}\n`,
-      { flag: 'wx' }
-    );
+    const providerOutcomeEnvelope = createAuthenticatedEvidenceFragment({
+      filename: 'refund-provider-outcomes.json',
+      evidence: providerOutcomeEvidence,
+      runToken: args.runToken,
+    });
+    await Promise.all([
+      writeFile(
+        path.join(args.fragmentDir, 'refund-portal-assertions.json'),
+        `${JSON.stringify(portalEnvelope, null, 2)}\n`,
+        { flag: 'wx' }
+      ),
+      writeFile(
+        path.join(args.fragmentDir, 'refund-provider-outcomes.json'),
+        `${JSON.stringify(providerOutcomeEnvelope, null, 2)}\n`,
+        { flag: 'wx' }
+      ),
+    ]);
 
   }
 
