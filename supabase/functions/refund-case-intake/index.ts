@@ -128,6 +128,10 @@ type SubmittedRefundCase = {
   public_reference: string;
   status: string;
   correlation_status: string;
+  deterministic_fact_version?: number;
+  cash_match_evaluated_fact_version?: number | null;
+  cash_match_state?: string | null;
+  payment_method?: string;
   gmail_thread_id?: string;
   intake_meta?: Record<string, unknown> | null;
 };
@@ -1452,6 +1456,48 @@ serve(async (req) => {
         });
       }
     };
+    const runCashCorrelationIfReady = async (caseId: string) => {
+      const { data: cashCase, error: cashCaseError } = await supabase
+        .from("refund_cases")
+        .select("id, public_reference, status, correlation_status, deterministic_fact_version, cash_match_evaluated_fact_version, cash_match_state, payment_method, intake_meta, submission_identity_hash, submission_payload_fingerprint")
+        .eq("id", caseId)
+        .maybeSingle();
+      if (cashCaseError) {
+        console.error("refund intake Sunze cash replay check deferred", {
+          errorCode: typeof cashCaseError.code === "string" ? cashCaseError.code : "database_error",
+        });
+        return null;
+      }
+      if (!cashCase || cashCase.payment_method !== "cash") return null;
+      if (
+        cashCase.cash_match_evaluated_fact_version === cashCase.deterministic_fact_version
+        && cashCase.cash_match_state !== "checking_sales_history"
+      ) return cashCase as SubmittedRefundCase;
+      const { error: correlationError } = await supabase.rpc(
+        "service_correlate_sunze_cash_case",
+        {
+          p_refund_case_id: caseId,
+          p_expected_fact_version: cashCase.deterministic_fact_version,
+          p_trigger_reason: "intake",
+        },
+      );
+      if (correlationError) {
+        console.error("refund intake Sunze cash correlation deferred", {
+          errorCode: typeof correlationError.code === "string"
+            ? correlationError.code
+            : "database_error",
+        });
+        return cashCase as SubmittedRefundCase;
+      }
+      const { data: correlatedCase, error: correlatedCaseError } = await supabase
+        .from("refund_cases")
+        .select("id, public_reference, status, correlation_status, deterministic_fact_version, cash_match_evaluated_fact_version, cash_match_state, payment_method, intake_meta, submission_identity_hash, submission_payload_fingerprint")
+        .eq("id", caseId)
+        .maybeSingle();
+      return !correlatedCaseError && correlatedCase
+        ? correlatedCase as SubmittedRefundCase
+        : cashCase as SubmittedRefundCase;
+    };
 
     if (
       body?.incidentTimeConfidence !== undefined &&
@@ -1698,11 +1744,9 @@ serve(async (req) => {
     let status = "submitted";
     let correlationStatus = "not_started";
     let correlationSource: string | null = null;
-    let correlationConfidence = 0;
+    const correlationConfidence = 0;
     let correlationSummary = "";
-    let matchedSalesFactId: string | null = null;
     let cashMatchState: string | null = null;
-    const candidateIds: string[] = [];
 
     if (paymentMethod === "card") {
       status = "needs_review";
@@ -1710,63 +1754,10 @@ serve(async (req) => {
       correlationSummary = "Card payment requires manager review through Nayax Lynx lookup.";
     } else if (paymentMethod === "cash") {
       cashMatchState = "checking_sales_history";
-      const { data: matchResult, error: matchError } = await supabase.rpc(
-        "service_match_sunze_cash_sale",
-        {
-          p_reporting_machine_id: machineRecord.id,
-          p_purchase_time: incidentAt.toISOString(),
-          p_amount_cents: amountCents,
-        },
-      );
-      if (matchError || !matchResult || typeof matchResult !== "object" || Array.isArray(matchResult)) {
-        throw new Error("Unable to check cash sales history safely.");
-      }
-      const result = matchResult as Record<string, unknown>;
-      cashMatchState = String(result.state ?? "");
-      const allowedCashStates = new Set([
-        "checking_sales_history",
-        "sale_found",
-        "multiple_possible_sales",
-        "no_sale_found_with_complete_coverage",
-        "sales_history_unavailable",
-      ]);
-      if (!allowedCashStates.has(cashMatchState)) {
-        throw new Error("Cash sales history returned an unsupported state.");
-      }
-
-      if (cashMatchState === "sale_found") {
-        const candidateId = String(result.matchedSalesFactId ?? "");
-        if (!isUuid(candidateId)) throw new Error("Cash sales history returned invalid match evidence.");
-        candidateIds.push(candidateId);
-        status = "correlated";
-        correlationStatus = "matched";
-        correlationSource = "sunze";
-        correlationConfidence = 0.82;
-        matchedSalesFactId = candidateId;
-        correlationSummary =
-          "Matched one cash sale for this machine within +/- 1 hour using fresh, validated source coverage. The reported amount remains advisory evidence.";
-      } else if (cashMatchState === "multiple_possible_sales") {
-        status = "needs_review";
-        correlationStatus = "multiple_candidates";
-        correlationSource = "sunze";
-        correlationConfidence = 0.4;
-        correlationSummary = "Multiple possible cash sales were found in the conservative time window.";
-      } else if (cashMatchState === "no_sale_found_with_complete_coverage") {
-        status = "needs_review";
-        correlationStatus = "no_match";
-        correlationSource = "sunze";
-        correlationSummary = "No cash sale matched within +/- 1 hour; the server verified fresh source coverage for the full window.";
-      } else if (cashMatchState === "checking_sales_history") {
-        status = "needs_review";
-        correlationStatus = "manual_review";
-        correlationSource = "sunze";
-        correlationSummary = "Cash sales history is still checking for a source watermark that covers the purchase window.";
-      } else {
-        status = "needs_review";
-        correlationStatus = "manual_review";
-        correlationSource = "sunze";
-        correlationSummary = "Cash sales history is unavailable or incomplete; no missing-match conclusion was made.";
-      }
+      status = "needs_review";
+      correlationStatus = "manual_review";
+      correlationSource = "sunze";
+      correlationSummary = "Cash sales history is queued for server-owned evidence review.";
     }
 
     const serverDedupeWindowStartedAt = getPublicIntakeWindowStart(
@@ -1837,7 +1828,7 @@ serve(async (req) => {
         })
       : null;
     const selectedRefundCaseColumns =
-      "id, public_reference, status, correlation_status, intake_meta, submission_identity_hash, submission_payload_fingerprint";
+      "id, public_reference, status, correlation_status, deterministic_fact_version, intake_meta, submission_identity_hash, submission_payload_fingerprint";
     const claimSubmissionIdentity = async (refundCaseId: string | null) => {
       if (!submissionIdentityHash || !submissionPayloadFingerprint) return null;
       const { data, error } = await supabase.rpc(
@@ -1882,7 +1873,6 @@ serve(async (req) => {
       issue_category: issueCategory,
       product_description_supplied: Boolean(productDescription),
       incident_possible_instant_count: incidentResolution.possibleInstantCount,
-      candidate_sales_fact_ids: candidateIds,
       cash_match_state: cashMatchState,
       customer_locale: customerLocale,
       user_agent: req.headers.get("user-agent")?.slice(0, 300) ?? null,
@@ -1935,10 +1925,9 @@ serve(async (req) => {
       correlation_source: correlationSource,
       correlation_confidence: correlationConfidence,
       correlation_summary: correlationSummary,
-      matched_sales_fact_id: matchedSalesFactId,
+      matched_sales_fact_id: null,
       cash_match_state: cashMatchState,
-      cash_match_evaluated_fact_version:
-        cashMatchState === "no_sale_found_with_complete_coverage" ? 1 : null,
+      cash_match_evaluated_fact_version: null,
       refund_amount_cents: paymentValidation.amountCents,
       refund_qr_claim_context_id: verifiedQrClaim?.id ?? null,
       customer_request_received_at: customerRequestReceivedAt,
@@ -1961,15 +1950,17 @@ serve(async (req) => {
       if (submissionLookupError || !existingSubmission) {
         throw new Error("Unable to safely check this refund submission.");
       }
+      const persistedSubmission =
+        await runCashCorrelationIfReady(existingSubmission.id) ?? existingSubmission;
       await runReplayNayaxLookup(existingSubmission.id);
       const statusCapability = await issueStatusCapability(existingSubmission.id);
         return new Response(
           JSON.stringify({
             refundCase: {
-              id: existingSubmission.id,
-              publicReference: existingSubmission.public_reference,
-              status: existingSubmission.status,
-              correlationStatus: existingSubmission.correlation_status,
+              id: persistedSubmission.id,
+              publicReference: persistedSubmission.public_reference,
+              status: persistedSubmission.status,
+              correlationStatus: persistedSubmission.correlation_status,
             },
             statusToken: statusCapability?.token ?? null,
             statusExpiresAt: statusCapability?.expiresAt ?? null,
@@ -2042,15 +2033,17 @@ serve(async (req) => {
             if (concurrentCaseError || !concurrentCase) {
               throw new Error("Unable to safely check this refund submission.");
             }
+            const persistedConcurrentCase =
+              await runCashCorrelationIfReady(concurrentCase.id) ?? concurrentCase;
             await runReplayNayaxLookup(concurrentCase.id);
             const statusCapability = await issueStatusCapability(concurrentCase.id);
             return new Response(
               JSON.stringify({
                 refundCase: {
-                  id: concurrentCase.id,
-                  publicReference: concurrentCase.public_reference,
-                  status: concurrentCase.status,
-                  correlationStatus: concurrentCase.correlation_status,
+                  id: persistedConcurrentCase.id,
+                  publicReference: persistedConcurrentCase.public_reference,
+                  status: persistedConcurrentCase.status,
+                  correlationStatus: persistedConcurrentCase.correlation_status,
                 },
                 statusToken: statusCapability?.token ?? null,
                 statusExpiresAt: statusCapability?.expiresAt ?? null,
@@ -2066,17 +2059,6 @@ serve(async (req) => {
         linkedRefundCase as SubmittedRefundCase | null,
       );
       if (!linkedCase) throw new RefundEmailContextUnavailableError();
-      if (paymentValidation.paymentMethod === "cash") {
-        const { error: cashStateError } = await supabase
-          .from("refund_cases")
-          .update({
-            cash_match_state: cashMatchState,
-            cash_match_evaluated_fact_version:
-              cashMatchState === "no_sale_found_with_complete_coverage" ? 1 : null,
-          })
-          .eq("id", linkedCase.id);
-        if (cashStateError) throw new Error("Unable to retain the cash sales-history state.");
-      }
       linkedGmailThreadId = requireLinkedRefundEmailThreadId(
         emailContextToken,
         linkedCase,
@@ -2116,15 +2098,17 @@ serve(async (req) => {
           if (concurrentCaseError || !concurrentCase) {
             throw new Error("Unable to safely check this refund submission.");
           }
+          const persistedConcurrentCase =
+            await runCashCorrelationIfReady(concurrentCase.id) ?? concurrentCase;
           await runReplayNayaxLookup(concurrentCase.id);
           const statusCapability = await issueStatusCapability(concurrentCase.id);
           return new Response(
             JSON.stringify({
               refundCase: {
-                id: concurrentCase.id,
-                publicReference: concurrentCase.public_reference,
-                status: concurrentCase.status,
-                correlationStatus: concurrentCase.correlation_status,
+                id: persistedConcurrentCase.id,
+                publicReference: persistedConcurrentCase.public_reference,
+                status: persistedConcurrentCase.status,
+                correlationStatus: persistedConcurrentCase.correlation_status,
               },
               statusToken: statusCapability?.token ?? null,
               statusExpiresAt: statusCapability?.expiresAt ?? null,
@@ -2168,15 +2152,17 @@ serve(async (req) => {
           throw new Error("Unable to safely retain this refund submission.");
         }
 
+        const persistedDedupedCase =
+          await runCashCorrelationIfReady(dedupedRefundCase.id) ?? dedupedRefundCase;
         await runReplayNayaxLookup(dedupedRefundCase.id);
         const statusCapability = await issueStatusCapability(dedupedRefundCase.id);
         return new Response(
           JSON.stringify({
             refundCase: {
-              id: dedupedRefundCase.id,
-              publicReference: dedupedRefundCase.public_reference,
-              status: dedupedRefundCase.status,
-              correlationStatus: dedupedRefundCase.correlation_status,
+              id: persistedDedupedCase.id,
+              publicReference: persistedDedupedCase.public_reference,
+              status: persistedDedupedCase.status,
+              correlationStatus: persistedDedupedCase.correlation_status,
             },
             statusToken: statusCapability?.token ?? null,
             statusExpiresAt: statusCapability?.expiresAt ?? null,
@@ -2189,6 +2175,10 @@ serve(async (req) => {
 
     if (!refundCase) {
       throw new Error("Unable to create refund case.");
+    }
+
+    if (paymentValidation.paymentMethod === "cash") {
+      refundCase = await runCashCorrelationIfReady(refundCase.id) ?? refundCase;
     }
 
     let uploadedAttachments: unknown[] = [];
@@ -2208,7 +2198,6 @@ serve(async (req) => {
         incident_time_confidence: incidentTimeConfidence,
         payment_interaction: paymentValidation.paymentInteraction,
         issue_category: issueCategory,
-        candidate_sales_fact_ids: candidateIds,
         attachment_count: uploadedAttachments.length,
       },
     });

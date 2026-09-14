@@ -316,6 +316,18 @@ const recordCashSourceWatermarks = async ({
   return Number(data ?? 0);
 };
 
+const correlateCompletedCashImport = async (importRunId: string) => {
+  if (!supabase) throw new Error("Supabase service client is not configured.");
+  const { data, error } = await supabase.rpc("service_correlate_sunze_cash_import", {
+    p_import_run_id: importRunId,
+  });
+  if (error) throw new Error(error.message || "Unable to correlate the completed Sunze import.");
+  const result = data && typeof data === "object" && !Array.isArray(data)
+    ? data as Record<string, unknown>
+    : {};
+  return Number(result.evaluated ?? 0);
+};
+
 const loadMachineMap = async () => {
   if (!supabase) {
     throw new Error("Supabase service client is not configured.");
@@ -986,6 +998,9 @@ serve(async (req) => {
       meta: bodyMeta,
       completedAt,
     });
+    const cashCorrelationCount = cashWatermarkCount > 0
+      ? await correlateCompletedCashImport(importRunId)
+      : 0;
 
     if (discoveryState.newlyPendingMachineCount > 0) {
       await sendReportingAlert({
@@ -1007,6 +1022,7 @@ serve(async (req) => {
       unmappedRowsQueued: queuedRows?.length ?? normalized.unmappedSales.length,
       pendingUnmappedMachineCount: discoveryState.pendingMachineCount,
       cashWatermarkCount,
+      cashCorrelationCount,
     });
   } catch (error) {
     const message =
