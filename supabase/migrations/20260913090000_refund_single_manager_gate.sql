@@ -861,6 +861,8 @@ returns text language sql stable security definer set search_path='' as $$
 $$;
 revoke all on function public.refund_nayax_approved_card_read_state_v1(uuid)
   from public,anon,authenticated,service_role;
+grant execute on function public.refund_nayax_approved_card_read_state_v1(uuid)
+  to service_role;
 
 create or replace function public.admin_get_refund_nayax_resolution_readiness(
   p_refund_case_id uuid

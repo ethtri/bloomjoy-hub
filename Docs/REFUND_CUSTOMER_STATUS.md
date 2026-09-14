@@ -3,9 +3,17 @@
 Issue: `#993`  
 Parent: `#628`
 
+This technical capability follows [REFUND_WORKFLOW.md](REFUND_WORKFLOW.md). It
+cannot add a matching gate, customer question, Manager approval, or cash-payout
+state.
+
 ## Customer contract
 
-The primary card form asks for machine/location, email, purchase date and approximate time, amount, the last four digits shown for the payment (plus a wallet flag when applicable), and one issue category. Name, phone, time confidence, card interaction/network, and narrative are optional and collapsed by default. Omitting optional detail never approves, matches, or refunds a transaction; exact matching and the same-case correction loop remain authoritative.
+The primary card form asks for the minimum useful machine/location, email,
+approximate purchase date/time, amount, payment method, and last-four context.
+Optional detail cannot become a universal eligibility requirement. Matching uses
+all evidence and keeps amount advisory; the same-case clarification loop is a
+fallback after internal research.
 
 The customer tracker consumes only the allowlisted customer subset of `refund_lifecycle_v2` and maps it to:
 
@@ -14,7 +22,6 @@ The customer tracker consumes only the allowlisted customer subset of `refund_li
 | `matching` | Request received | Bloomjoy compares the request with machine records. |
 | `waiting_on_customer` | We need one detail | Reply in the existing Bloomjoy conversation with only the named detail. |
 | `needs_transaction_selection`, `transaction_confirmed` | Reviewing your purchase | A manager reviews the matching purchase. |
-| `awaiting_payout` | Preparing your reimbursement | Bloomjoy is confirming the reimbursement destination or recording the external payment. |
 | `refund_initiated` | Refund initiated | Bloomjoy confirms the result; the customer does not resubmit. |
 | `confirming_with_nayax`, `needs_refund_operations` | Confirming the refund | Bloomjoy owns the next check and will not ask the customer to troubleshoot Nayax. |
 | `integrity_hold` | Confirming the refund | Bloomjoy is reconciling its own records; no customer or payment retry is requested. |

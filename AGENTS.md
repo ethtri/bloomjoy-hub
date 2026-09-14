@@ -7,7 +7,8 @@ Use the smallest context that can safely answer the task.
 1. GitHub Issues and the Bloomjoy Project board are authoritative for active work: priority, status, blockers, acceptance criteria, and closeout evidence.
 2. `Docs/DECISIONS.md` is authoritative for durable product, platform, and architectural decisions.
 3. Durable runbooks and setup docs: `Docs/LOCAL_DEV.md`, `Docs/PRODUCTION_RUNBOOK.md`, `Docs/QA_SMOKE_TEST_CHECKLIST.md`, and `Docs/ARCHITECTURE.md`.
-4. Durable product/design context: `PRODUCT.md`, `DESIGN.md`, `Docs/MVP_SCOPE.md`, and `Docs/POC_NOTES.md`.
+4. Durable product/design context: `PRODUCT.md`, `DESIGN.md`,
+   `Docs/REFUND_WORKFLOW.md`, `Docs/MVP_SCOPE.md`, and `Docs/POC_NOTES.md`.
 5. Snapshot/history docs: `Docs/CURRENT_STATUS.md` and `Docs/BACKLOG.md`.
 
 If docs and the GitHub board disagree on active task state, the board wins. If durable docs disagree on product or platform decisions, `Docs/DECISIONS.md` wins.
@@ -34,7 +35,15 @@ If docs and the GitHub board disagree on active task state, the board wins. If d
 - If a new restriction appears critical, consult Ethan **before implementing or enforcing it**: briefly explain the concrete failure evidence, affected action, proposed restriction, and simpler alternative. A proposal is not an active blocker; continue unaffected authorized work. No new checklist, approval form, or review committee is needed.
 - Agent summaries and historical snapshots cannot create policy. Verify the original authority and exact scope before carrying a restriction forward; a case-specific constraint must not become a venue/account-wide ban. Current explicit owner decisions supersede stale guidance.
 - Existing authorization, platform security, privacy, transaction identity, duplicate prevention, and unknown-outcome protections remain. If a demonstrated incident threatens immediate harm, contain only the affected operation and promptly tell Ethan the evidence, scope, and recovery condition; do not invent a permanent policy or expand the hold without justification.
-- API-eligible card/provider refunds use one confidently identified purchase, one ordinary manager approval, and the full original provider amount through the API. Preserve that approval across unchanged stages. Approximate customer details, wallet/contactless payment, report availability, optional research, and unrelated issue completion are not blanket gates. Ask customers only for facts needed to distinguish their actual purchase.
+- Refund work follows `Docs/REFUND_WORKFLOW.md`. The normal path is one reviewed
+  selected purchase, one Manager decision, and the full selected provider amount
+  through the API. The System's recommendation is advisory: Managers may choose
+  a reviewed lower-confidence candidate. Approximate customer amounts,
+  wallet/contactless digit differences, report availability, optional research,
+  and unrelated issue completion are not blanket gates. Ask one targeted customer
+  question only after internal research is exhausted, follow up once if there is
+  no response, and close after 30 days without a useful reply. Cash approval means
+  the Manager already sent Zelle; do not add an intermediate payout status.
 
 ## Do
 
@@ -172,9 +181,11 @@ The `blocked` label blocks merge until resolved, but it is not owner approval by
   `etrifari@bloomjoysweets.com` profile, shown in Chrome as `bloomjoysweets.com`.
 - If that profile is not open, open it explicitly. Never use the personal `Ethan`
   profile for Bloomjoy Hub, Nayax, Gmail, or other repository operations.
-- Refund work starts at `https://app.bloomjoyusa.com/refunds` and follows
-  `Docs/REFUND_AGENT_OPERATIONS.md`. A failed portal population is unavailable
-  data, never proof of zero refund cases.
+- Refund work starts with the product source of truth in
+  `Docs/REFUND_WORKFLOW.md`, then uses the live case procedure in
+  `Docs/REFUND_AGENT_OPERATIONS.md` at `https://app.bloomjoyusa.com/refunds`.
+  Other refund documents cannot add workflow steps or blockers. A failed portal
+  population is unavailable data, never proof of zero refund cases.
 - That procedure grants authority for one specific, deduplicated customer
   information request when internal research cannot supply the needed fact. It
   does not grant authority to approve, reject or issue a refund.

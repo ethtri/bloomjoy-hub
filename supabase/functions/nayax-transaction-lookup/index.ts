@@ -88,7 +88,7 @@ serve(async (req) => {
     }
 
     if (isRefundOperations !== true) {
-      return jsonResponse({ error: "Refund Operations access required." }, 403);
+      return jsonResponse({ error: "This recovery action is unavailable for the current Manager." }, 403);
     }
 
     const { data: lookupCase, error: lookupCaseError } = await supabase

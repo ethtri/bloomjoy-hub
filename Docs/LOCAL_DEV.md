@@ -275,11 +275,10 @@ To use all login methods in local dev:
 ## Refund operations agent QA and proof review
 Use this path for agent-run QA of `/refunds/request`, `/refunds`, and Admin > Machines without Google OAuth and without sharing a password.
 
-Executive proof review happens only after agent QA has a pass/fail evidence packet. The executive sponsor should not be the first person to discover broken saves, missing test data, or access-boundary defects.
-
-`Docs/REFUND_OPERATIONS_SHADOW_PILOT.md` is historical evidence only. Current
-refund operation and verification follow `Docs/PRODUCTION_RUNBOOK.md` and the
-working Nayax contract; do not create a new shadow-pilot go/no-go gate.
+Expected product behavior is in `Docs/REFUND_WORKFLOW.md`. Use
+`Docs/QA_SMOKE_TEST_CHECKLIST.md` for proportionate verification and
+`Docs/NAYAX_REFUND_WORKING_CONTRACT.md` for the provider contract. Historical
+pilots and fixed evidence packets are not local-development prerequisites.
 
 Prereqs:
 - Local Supabase is running and the refund operations migration has been applied.
@@ -305,7 +304,12 @@ Steps:
 2) Seed synthetic fixtures and generate a one-click local magic link:
    - `node scripts/refunds/local-refund-uat.mjs --email refund-agent-uat@bloomjoy.localhost`
    - Add `--open` to open the generated link automatically.
-3) Open the printed magic link. It should land on `/refunds` as a local super-admin/Machine Manager fixture. Admin access alone never authorizes payment, but a current exact-machine mapping remains valid even when the same person also has admin access. Use the current mapped-manager and official-action synthetic suites; the retired refund-specific TOTP ceremony is not a current requirement. `/portal/refunds` and `/admin/refunds` are compatibility paths.
+3) Open the printed magic link. It should land on `/refunds` as a local
+   super-admin/Machine Manager fixture. Admin access alone never authorizes
+   payment, but a current exact-machine mapping remains valid when the same person
+   also has admin access. The Manager gets one decision without a separate
+   authenticator ceremony. `/portal/refunds` and `/admin/refunds` are
+   compatibility paths.
 4) Review the synthetic queue cases:
    - `RF-UAT-CARD`: matched card review path with transaction evidence; it is not live-refund completion evidence.
    - `RF-UAT-WAIT`: waiting-on-customer path with confirmation and more-info message history.
@@ -497,14 +501,15 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
    - Refund release-tool tests: `npm run refunds:validate-release-tooling`
    - Approved local refund release check: `npm run refunds:release:check`
    - Read-only production drift check: `npm run refunds:release:check-production -- --project-ref <project-ref>`
-   - Mandatory live Auth closed-state gate immediately before the first refund production database/function write and after the final refund function: set the owner-held short-lived token only as `SUPABASE_AUTH_CONFIG_READ_TOKEN`, then run `npm run refunds:production-auth-closed -- --project-ref ygbzkgxktzqsiygjlqyg --confirm-project-ref ygbzkgxktzqsiygjlqyg --phase predeploy` or `--phase postdeploy`. The command is pinned to the production project, validates source, makes one GET, emits only two booleans plus pass/fail, and never changes Auth. Clear the token after the postdeploy check.
    - Scheduled production drift checks use the dedicated `SUPABASE_EDGE_FUNCTIONS_READ_TOKEN` secret in the protected `production-readonly` GitHub environment. Create it in Supabase **Account -> Access Tokens -> Generate new token** with all of these restrictions: resource access is only project `Bloomjoy Hub` (`ygbzkgxktzqsiygjlqyg`), the only permission is **Edge Functions: Read**, and the token expires within 90 days. Do not use a classic/account-wide token.
    - Before storing or rotating the secret, run `npm run refunds:validate-drift-credential` with `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF` set only in the current private shell. The probe reads Edge Function metadata, verifies account project listing is forbidden, and verifies deletion of a pre-confirmed nonexistent probe name is forbidden. It never prints the token or response bodies.
    - Store the accepted token only as the `production-readonly` environment secret, manually run **Refund Production Drift** on `main`, and confirm the sanitized function/version/digest report. Rotate before expiry by creating and validating the replacement first, updating the environment secret, rerunning the workflow, and then revoking the old token in Supabase. If scoped tokens are not available for the account, leave the scheduled job blocked and keep using the owner-controlled local read-only release check; never substitute a broad Supabase personal token.
-   - Never reuse or broaden `SUPABASE_EDGE_FUNCTIONS_READ_TOKEN` for the Auth gate. A future scheduled Auth alert is allowed only with a separate exact-project Auth-configuration-read credential; until then the owner-run short-lived local check remains mandatory and there is no automatic writer/restorer.
    - Gmail intake static safety check: `npm run refunds:validate-gmail`
    - Gmail server-secret presence/format check: `npm run refunds:preflight-gmail`
-   - Keep `REFUND_GMAIL_FIRST_CONTACT_MODE=disabled` for normal local work. For a synthetic isolated test only, use a dedicated non-production label, a distinct recorded production label ID, and an owner-controlled synthetic sender allowlist as documented in `Docs/REFUND_GMAIL_FIRST_CONTACT_CUTOVER.md`; the preflight rejects label overlap or a missing allowlist.
+   - Keep `REFUND_GMAIL_FIRST_CONTACT_MODE=disabled` for normal local work. For
+     a synthetic isolated test only, use a dedicated non-production label, a
+     distinct production label ID, and an owner-controlled synthetic sender
+     allowlist. The preflight rejects label overlap or a missing allowlist.
 4) Run functions locally:
    - `supabase functions serve stripe-sugar-checkout --no-verify-jwt`
    - `supabase functions serve stripe-sticks-checkout --no-verify-jwt`

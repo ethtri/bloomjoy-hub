@@ -598,8 +598,8 @@ const sendCompletionOutboxHealthAlert = async (
       : "[Action needed] Refund completion outbox needs attention",
     text: [
       recovered
-        ? "Bloomjoy Refund Operations completion delivery has remained healthy for one hour."
-        : "Bloomjoy Refund Operations completion delivery needs attention.",
+        ? "Bloomjoy refund completion delivery has remained healthy for one hour."
+        : "Bloomjoy refund completion delivery needs the assigned Manager's attention.",
       "",
       `Aging queued: ${health.agingQueuedCount}`,
       `Stale claimed: ${health.staleClaimedCount}`,
@@ -1561,7 +1561,7 @@ const sendFollowUpManagerNotice = async ({
     provider_rejection: "Payment-provider lookup was rejected",
     provider_timeout: "Payment-provider lookup timed out",
     provider_unknown: "Payment-provider result needs a person to verify it",
-    follow_up_manual_review: "Automatic customer follow-up reached a safe stopping point",
+    follow_up_manual_review: "Automatic customer follow-up is ready for Manager review",
     customer_reply_review: "The customer replied and the case needs a person to review the new information",
   };
   const summary = noticeLabels[noticeKind];
@@ -1996,10 +1996,10 @@ const sendAutomationHealthAlert = async (
         ? `[Reminder] Refund automation ${label}`
         : `[Action needed] Refund automation ${label}`;
   const opening = notificationType === "recovery"
-    ? "Bloomjoy Refund Operations automation has remained healthy for one hour."
+    ? "Bloomjoy refund automation has remained healthy for one hour."
     : notificationType === "reminder"
-      ? "Bloomjoy Refund Operations automation still needs attention."
-      : "Bloomjoy Refund Operations automation needs attention.";
+      ? "Bloomjoy refund automation still needs the assigned Manager's attention."
+      : "Bloomjoy refund automation needs the assigned Manager's attention.";
   const closing = notificationType === "recovery"
     ? "No action is needed. A future distinct scheduler incident can alert again."
     : "The core refund case workflow remains available. Check the Refunds health banner and the primary Supabase schedule.";

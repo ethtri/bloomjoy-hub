@@ -31,6 +31,7 @@ assert.ok(!newWorkspaceSource.includes('Refresh sales'), 'new workspace must not
 assert.ok(!newWorkspaceSource.includes('<CustomerContextCard'), 'new workspace must not expose customer context');
 assert.match(newWorkspaceSource, /showActivity && <PersonActivityPanel/, 'activity must load only when expanded');
 assert.match(newWorkspaceSource, /layout.*full/, 'expanded detail state must survive URL synchronization');
+assert.match(newWorkspaceSource, /selectedDirectoryPerson \|\| requestedPersonKey/, 'expanded deep links must retain full-screen state while the selected person hydrates');
 assert.match(consoleSource, /label="Scope after save"[\s\S]*?selectedFirst/, 'machine editor must put current assignments before available machines');
 assert.ok(machinePickerSource.includes("locationName: 'Current assignments'"), 'machine picker must label current assignments');
 assert.ok(machinePickerSource.includes("locationName: 'Available machines'"), 'machine picker must label available machines');

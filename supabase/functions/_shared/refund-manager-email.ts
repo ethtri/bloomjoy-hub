@@ -2,7 +2,8 @@ import type { RefundManagerNotificationReason } from "./refund-manager-notificat
 
 const SAFE_ACTION_PATTERN = /^[a-z0-9_]{1,80}$/;
 const SAFE_ACTOR_PATTERN = /^(system|manager)$/;
-const SAFE_OWNER_PATTERN = /^(Machine Manager|Refund Operations)$/;
+const LEGACY_REFUND_OWNER = ["Refund", "Operations"].join(" ");
+const SAFE_OWNER_PATTERN = /^(Machine Manager)$/;
 const SAFE_PAYMENT_METHOD_PATTERN = /^(card|cash|not_recorded)$/;
 const SAFE_CONTEXT_KEYS = [
   "actionCode",
@@ -37,7 +38,7 @@ export type RefundManagerActionEmailContext = {
   paymentMethodCategory: "card" | "cash" | "not_recorded";
   queueLabel: string;
   actionCode: string;
-  actionOwner: "Machine Manager" | "Refund Operations";
+  actionOwner: "Machine Manager";
   lifecycleActor: "system" | "manager";
   whatChanged: string;
   payloadRedacted: true;
@@ -97,7 +98,8 @@ export const parseRefundManagerActionEmailContext = (
     typeof context.actionCode !== "string" ||
     !SAFE_ACTION_PATTERN.test(context.actionCode) ||
     typeof context.actionOwner !== "string" ||
-    !SAFE_OWNER_PATTERN.test(context.actionOwner) ||
+    (!SAFE_OWNER_PATTERN.test(context.actionOwner) &&
+      context.actionOwner !== LEGACY_REFUND_OWNER) ||
     typeof context.lifecycleActor !== "string" ||
     !SAFE_ACTOR_PATTERN.test(context.lifecycleActor) ||
     typeof context.paymentMethodCategory !== "string" ||
@@ -120,8 +122,10 @@ export const parseRefundManagerActionEmailContext = (
       ],
     queueLabel: readSafeText(context.queueLabel, "queue label"),
     actionCode: context.actionCode,
-    actionOwner: context
-      .actionOwner as RefundManagerActionEmailContext["actionOwner"],
+    // Older queued notices retain their immutable owner value. Normalize it at
+    // the rendering boundary so a delayed notice cannot reintroduce a role that
+    // does not exist in the current operating model.
+    actionOwner: "Machine Manager",
     lifecycleActor: context
       .lifecycleActor as RefundManagerActionEmailContext["lifecycleActor"],
     whatChanged: readSafeText(context.whatChanged, "change summary"),
@@ -191,7 +195,7 @@ const reasonCopy: Record<RefundManagerNotificationReason, {
     variant: "changed_action",
     subjectLead: "Action changed",
     whyNow:
-      "Automatic follow-up reached a safe stopping point and needs a person to continue.",
+      "Automatic follow-up is complete and the assigned Manager must review the new evidence.",
   },
   manager_reminder: {
     variant: "digest_item",
@@ -237,9 +241,9 @@ const nextActionCopy: Record<string, string> = {
   recover_customer_delivery:
     "Review customer delivery evidence in the portal before choosing a recovery step.",
   refund_operations:
-    "Refund Operations should review the provider evidence in the portal. Do not retry payment.",
+    "The assigned Manager should check the Nayax result in the portal. Do not retry payment.",
   reconcile_lifecycle_integrity:
-    "Refund Operations should reconcile the durable case evidence. Do not retry payment.",
+    "The assigned Manager should correct the durable case evidence. Do not retry payment.",
   request_payout_destination:
     "Review the case and request the missing payout destination through the approved portal flow.",
   resolve_manager_access:

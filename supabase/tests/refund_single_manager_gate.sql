@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(27);
+select plan(28);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -277,6 +277,16 @@ select ok(not exists(
 select ok(to_regprocedure('public.service_settle_nayax_refund_attempt_legacy_v1(text,uuid,uuid,uuid,text,integer,text,text,text,text,text,text)') is null
   and to_regprocedure('public.can_view_refund_system_finishing_status_v1(uuid,uuid)') is null,
   'parallel settlement and arbitrary-user status artifacts are absent');
+
+select ok(
+  has_function_privilege('service_role',
+    'public.refund_nayax_approved_card_read_state_v1(uuid)','execute')
+  and not has_function_privilege('anon',
+    'public.refund_nayax_approved_card_read_state_v1(uuid)','execute')
+  and not has_function_privilege('authenticated',
+    'public.refund_nayax_approved_card_read_state_v1(uuid)','execute'),
+  'approved-card read state is executable only by the service role'
+);
 
 select * from finish();
 rollback;

@@ -9,7 +9,6 @@ const read = (relativePath) => fs.readFileSync(path.join(repoRoot, relativePath)
 const migration = read('supabase/migrations/20260812160000_refund_case_manager_assignment.sql');
 const pgTap = read('supabase/tests/refund_case_manager_assignment.sql');
 const portalUat = read('scripts/refunds/validate-refund-portal-uat.mjs');
-const decisions = read('Docs/DECISIONS.md');
 
 assert.match(
   migration,
@@ -86,10 +85,4 @@ assert.match(
   /submission\.emailContextToken === journey\.expectedEmailContextToken/i,
   'Browser UAT must prove the opaque email context reaches intake unchanged.',
 );
-assert.match(
-  decisions,
-  /Exactly one current mapping is assigned automatically/i,
-  'The deterministic ownership rule must remain documented.',
-);
-
 console.log('Refund case manager assignment boundary validated.');

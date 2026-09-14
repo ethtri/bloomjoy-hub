@@ -6,7 +6,7 @@ import {
   NAYAX_IDENTIFIER_POLICY_VERSION,
 } from "./nayax-identifier-evidence.mjs";
 
-// Deterministic Nayax recommendation policy for Refund Operations.
+// Deterministic Nayax recommendation policy for the assigned machine Manager.
 //
 // Ranking points are ordering evidence, not a calibrated probability. The UI and
 // API expose advisory words (strong evidence, compare candidates, manual review)
@@ -1482,7 +1482,7 @@ export const buildNayaxRecommendation = ({
         : "The returned recent sales contain no usable transactions in the purchase time window. Historical coverage is unknown.",
       recommendedAction: windowRecordCount > 0
         ? "Compare the existing purchase details and transaction evidence before choosing the next step."
-        : "Refund Operations should review transaction coverage and machine/time evidence. Do not ask the customer to repeat details already provided.",
+        : "The assigned Manager should review transaction coverage and machine/time evidence. Do not ask the customer to repeat details already provided.",
     },
   }[recommendationState];
   const requestBoundaryNote = excludedAfterRequestCount > 0

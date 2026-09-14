@@ -1,95 +1,74 @@
-# Refund Nayax Matching Implementation Reference
+# Nayax matching implementation reference
 
-> **Not an agent case procedure.** Agents triaging live cases use only
-> [REFUND_AGENT_OPERATIONS.md](./REFUND_AGENT_OPERATIONS.md). This file explains
-> the matcher for Engineering and release verification; it must not create an
-> extra blocker or customer question.
+This Engineering reference is subordinate to
+[REFUND_WORKFLOW.md](REFUND_WORKFLOW.md). It describes how to implement and test
+card recommendations; it is not a second agent procedure or a source of customer
+questions, Manager approvals, or payment policy.
 
-## Purpose
+The executable implementation is `NAYAX_RECOMMENDATION_POLICY` in
+`supabase/functions/_shared/nayax-recommendation.mjs` and its tests. If the code
+conflicts with the product workflow, treat that as an implementation defect. Do
+not rewrite the product workflow to match a stale threshold.
 
-This reference explains the deterministic, manager-confirmed card-transaction
-recommendation implemented by Bloomjoy Hub. It is advisory matching, not a
-probability score and not permission to issue a refund.
+## Required behavior
 
-The execution source of truth is `NAYAX_RECOMMENDATION_POLICY` in
-`supabase/functions/_shared/nayax-recommendation.mjs`, together with its tests.
-Do not maintain a separate set of numeric matching rules in this document.
-Run `npm run refunds:validate-nayax-matching` to verify the implementation.
+- Search the exact provider account and machine.
+- Normalize customer, location, provider, and stored times using the location's
+  canonical IANA timezone before comparing them.
+- Use all available evidence together: time, comparable card details,
+  physical-card or wallet provenance, amount, product details, prior corrections,
+  and provider transaction state.
+- Keep the customer amount advisory. A difference by itself cannot eliminate an
+  otherwise obvious transaction or trigger a customer correction.
+- Treat contactless/device last four as potentially different from the physical
+  card. A mismatch is negative evidence only when provenance establishes that the
+  two values should be the same.
+- Return and explain every plausible candidate. Do not hide alternatives merely
+  because one ranks first.
+- Use deterministic reason codes and ordering. Do not describe heuristic output
+  as a statistical probability.
+- Never automatically make the refund decision.
 
-## Policy version
+## Manager behavior
 
-Current implementation: `2026-09-13.v12`.
+The recommendation is advisory. The Manager may select a reviewed candidate that
+is not ranked first or labeled high confidence when customer clarification or
+additional investigation identifies it. The server must preserve the exact
+candidate the Manager chose and use its provider total by default.
 
-Internal ranking points order otherwise-safe candidates. Never show the point
-total as a percentage or describe it as statistical confidence. Read exact
-values from the source constant above; do not copy them into another playbook.
+Confidence or rank may change presentation and the amount of explanation. It may
+not be a universal permission gate for Manager selection or approval.
 
-## Confidence classes
+## Execution boundary
 
-- `strong_card`: the deployed matcher found exactly one otherwise-safe sale under
-  its current strong-card rule. The agent follows the portal result and the
-  plain-English interpretation in Step 4 of the live case procedure.
-- `unique_qr_time`: exactly one otherwise-safe sale has the mapped machine, exact amount, exact resolved provider/customer times, occurs no more than 30 minutes before the verified server-recorded QR open, and has no plausible runner-up. It may guide a manager when wallet or contactless digits do not correlate, but it is never selected automatically.
-- `ambiguous_manual`: the available evidence does not meet either rule. This includes close-together candidates, a missing/invalid/replayed QR claim, a QR opened more than 30 minutes after the sale, uncertain amount, a customer time that may be off by an hour or is only rough, non-exact time resolution, or provider trouble.
+Matching never proves a vend failed and never proves a refund succeeded. Before
+execution, the server rechecks current Manager authority, the exact account,
+machine, selected transaction, currency, provider total, duplicate allocation,
+case version, and unresolved prior attempts.
 
-## Recommendation states
+These checks protect the selected payment. They do not create another business
+approval. A timeout or unknown provider result remains bound to that transaction
+until reconciliation and never permits a blind retry.
 
-- `high_confidence`: exactly one candidate qualifies as `strong_card` or `unique_qr_time`. The confidence class—not this state alone—controls whether guarded execution can ever become eligible.
-- `ambiguous`: more than one candidate qualifies under the same safe evidence path. No candidate is labeled recommended or one-click eligible.
-- `no_safe_match`: no candidate satisfies the safe recommendation rules. Managers may request more information or use the manual review path.
-- `manual_exception`: one or more candidates exist, but missing, late, contradictory, or unsafe evidence requires manual review. One-click stays unavailable.
+## Time handling
 
-## Safety rules
+Prefer an authoritative provider UTC instant when available. Resolve zone-less
+machine timestamps with the location timezone and keep the original source value.
+Daylight-saving gaps and repeated times must remain explicitly labeled rather
+than silently shifted.
 
-The scorer hard-blocks selection for a different provider machine, non-USD currency, a declined/failed/voided sale, a transaction already linked to another case, or existing refund evidence. Negative provider status always overrides positive words in the same status (for example, `not approved` and `successful reversal` are blocked). Missing provider machine identity cannot earn mapped-machine evidence. A suffix mismatch is negative only when the recorded interaction and identifier provenance establish that the customer and provider values should be equivalent; unproved contactless differences remain contextual evidence.
+A timezone parsing defect is an internal defect. The customer is not asked to
+re-enter a time already present in the case just to compensate for it.
 
-Contactless and wallet last four is supporting evidence, not an identity key. A correlating last four can support `strong_card`. When wallet or contactless evidence does not correlate, the manager may select an otherwise-safe transaction only when the combined evidence identifies one purchase and there is no plausible competing sale. The selected transaction then uses the normal guarded refund path; wallet classification alone does not route it to a separate portal workflow.
+## Amount handling
 
-QR open time and customer-reported incident time are stored, evaluated, and displayed separately. QR evidence must be a consumed, single-use claim bound to the same machine. Missing, invalid, replayed, future, or late QR evidence never supports `unique_qr_time`.
+The customer estimate can help rank nearby candidates, but exact equality and a
+fixed difference threshold are not product requirements. The default refund is
+the full charged amount on the Manager-selected provider transaction, including
+sales tax.
 
-Exact amount is not mandatory when the deployed strong-card estimate rule
-applies. Keep both amounts visible and use the provider's full sale amount if the
-manager approves the refund. Do not request customer confirmation solely because
-the portal accepted a small difference as likely tax or rounding. Agents use the
-single Step 4 rule in `REFUND_AGENT_OPERATIONS.md`; Engineering changes numeric
-controls only in the source constant and its tests.
-
-When one unlabelled base-price record and one product-labelled provider-total
-record meet the implementation's narrow pairing conditions, the matcher keeps
-both distinct provider IDs visible and selectable. It prefers the richer full
-charge for preparation without calling the rows duplicates. The manager still
-reviews, selects and saves the exact provider transaction before approval. A
-same-minute timestamp by itself is never sufficient; the source policy requires
-the exact raw authorization time or its tightly bounded parsed-time delta.
-
-Customer time confidence is separate from time-zone resolution. `exact` and `within_15_minutes` may support the existing deterministic rule. `within_1_hour` and `rough` remain useful comparison evidence, but they make the result manager-review-only. Existing records without the field retain their legacy behavior.
-
-The current read-only integration may also snapshot a configured product/selection price, current machine status, and machine alerts within two hours of the sale. These fields do not add ranking points or execution eligibility. They are investigation context only and must always be described as not proving that the purchase failed.
-
-Current Last Sales responses identify a card/prepaid sale and may include card brand, masked digits, recognition/payment text, amount, time, machine, and product text. Bloomjoy's current data does not reliably distinguish a tapped physical card from Apple Pay or Google Wallet. The form records the customer's description separately. Richer transaction-feed fields remain gated by `#751` and require Bloomjoy sample validation before use.
-
-Managers always confirm the transaction. Selecting an alternate requires one structured reason: closer time, correct amount, correct card, customer confirmation, provider data issue, or other reviewed evidence. Free-text and raw provider IDs are not stored in recommendation telemetry.
-
-The system rechecks cross-case use when a manager selects a candidate and again before execution. A partial unique database index is the final race-safe guard: the same provider transaction cannot be linked to two refund cases. If historical duplicates exist, deployment stops with an explicit review requirement instead of silently repairing or deleting them.
-
-## Timezone and DST handling
-
-The browser sends the incident date and local wall-clock time separately. The intake function resolves them using the selected location's canonical IANA timezone and stores the UTC instant plus sanitized resolution metadata.
-
-- Ordinary local time with one possible instant: exact.
-- Spring-forward nonexistent time: manual exception.
-- Fall-back repeated time: manual exception until an occurrence/fold can be established.
-- Legacy absolute timestamps: manual exception.
-- Nayax GMT timestamps: preferred.
-- Zone-less machine timestamps: resolved with the canonical location timezone only when unambiguous; otherwise manual exception.
-
-## Deterministic ordering
-
-Candidates sort by ranking points, then smallest amount delta, smallest time delta, earliest authorization instant, and finally a server-only transaction identifier. The identifier is used only as a stable tie-breaker and is never returned to the browser.
-
-## Privacy-safe shadow evidence
-
-Record only the policy version, recommendation state, confidence class, redacted reason codes, QR-evidence status, candidate count, recommended rank (when one exists), one-click eligibility, manager selection rank, whether the recommendation was accepted, a structured disagreement reason, time/amount deltas, and redacted factor labels. Do not log customer email, card details beyond approved sanitized fields, free text, QR tokens/hashes, raw Nayax payloads, or provider transaction IDs.
+Example: a reported **$10.00** and selected **$10.90** transaction remain
+separate visible facts; approval defaults to **$10.90**.
 
 ## Verification
 
@@ -97,13 +76,20 @@ Run:
 
 ```text
 npm run refunds:validate-nayax-matching
-npm run refunds:validate-portal-uat -- --app-url <local-or-preview-url>
 npm run refunds:validate-nayax-execution
-npm run db:validate-migrations
+npm run refunds:validate-manager-workbench
 ```
 
-Verify strong-card estimated totals (including likely tax or rounding), unique QR/time, two close-together sales, missing QR, late QR, replay attempt, amount outside tolerance, lookup failure, duplicate, already-refunded, wallet mismatch, and both DST edge cases. Automatic recommendation remains limited to the strongest evidence class. Any manager-selected transaction must pass the current exact-binding, duplicate, retry-safety, durable-attempt, and unknown-result controls before provider execution.
+Cover at least:
 
-## Rollback
+- same machine and correctly normalized time with exact and different estimates;
+- sales-tax and materially wrong customer amounts;
+- physical-card and tokenized contactless identifiers;
+- a Manager selecting a lower-ranked candidate;
+- multiple genuinely plausible purchases;
+- wrong machine/account, declined, used, already-refunded, and duplicate rows;
+- daylight-saving gaps and repeated local times; and
+- unknown provider outcomes and replay prevention.
 
-Set the global Nayax execution kill switch and execution-enabled flag to the fail-closed state first. Roll back the application/functions to the last approved version. Leave the new nullable evidence columns in place; they are backward-compatible, and existing eligibility defaults to false. Do not delete audit evidence during rollback.
+Use `Docs/QA_SMOKE_TEST_CHECKLIST.md` for the visible workflow checks. Tests must
+assert the current product rule rather than freeze an obsolete numeric threshold.

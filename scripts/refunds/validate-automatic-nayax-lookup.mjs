@@ -163,7 +163,7 @@ assert(
 );
 assert(
   lookupEndpoint.includes('"is_super_admin"') &&
-    lookupEndpoint.includes('"Refund Operations access required."') &&
+    lookupEndpoint.includes('"This recovery action is unavailable for the current Manager."') &&
     lookupEndpoint.includes('"service_begin_refund_nayax_operations_lookup"') &&
     !lookupEndpoint.includes('"can_manage_refund_case"'),
   "the narrow manual endpoint must reject an ordinary mapped manager",

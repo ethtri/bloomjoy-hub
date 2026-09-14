@@ -3,14 +3,15 @@ import { readFile } from 'node:fs/promises';
 
 const read = (path) => readFile(new URL(`../../${path}`, import.meta.url), 'utf8');
 
-const [migration, databaseTest, operations, managerUi, status, decisions, qa, runbook] =
+const [migration, databaseTest, operations, managerUi, status, workflow, procedure, qa, runbook] =
   await Promise.all([
     read('supabase/migrations/20260901050000_refund_selected_nayax_transaction_evidence.sql'),
     read('supabase/tests/refund_selected_nayax_transaction_evidence.sql'),
     read('src/lib/refundOperations.ts'),
     read('src/pages/admin/Refunds.tsx'),
     read('Docs/CURRENT_STATUS.md'),
-    read('Docs/DECISIONS.md'),
+    read('Docs/REFUND_WORKFLOW.md'),
+    read('Docs/REFUND_AGENT_OPERATIONS.md'),
     read('Docs/QA_SMOKE_TEST_CHECKLIST.md'),
     read('Docs/PRODUCTION_RUNBOOK.md'),
   ]);
@@ -69,12 +70,19 @@ assert(
     databaseTest.includes("select plan(13)"),
   'Database coverage must prove scope, tokenization, redaction, and the complete contract',
 );
-for (const document of [status, decisions, qa, runbook]) {
+for (const [name, document] of [
+  ['current status', status],
+  ['refund workflow', workflow],
+  ['agent procedure', procedure],
+  ['QA checklist', qa],
+  ['production runbook', runbook],
+]) {
   assert(
     document.includes('Selected Nayax transaction ID') ||
       document.includes('selected Nayax transaction') ||
-      document.includes('selected provider transaction'),
-    'Canonical status, policy, QA, and runbook docs must describe the selected transaction evidence contract',
+      document.includes('selected provider transaction') ||
+      document.includes('selected transaction'),
+    `${name} must describe the selected transaction evidence contract`,
   );
 }
 

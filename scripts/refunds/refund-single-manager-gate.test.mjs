@@ -78,6 +78,18 @@ test('System executes without a post-approval manager or browser continuation', 
   );
 });
 
+test('approved-card read state is paired with its service-role caller only', () => {
+  assert.match(edge, /\.rpc\("refund_nayax_approved_card_read_state_v1"/);
+  assert.match(
+    migration,
+    /revoke all on function public\.refund_nayax_approved_card_read_state_v1\(uuid\)[\s\S]*?from public,anon,authenticated,service_role;[\s\S]*?grant execute on function public\.refund_nayax_approved_card_read_state_v1\(uuid\)[\s\S]*?to service_role;/,
+  );
+  assert.doesNotMatch(
+    migration,
+    /grant execute on function public\.refund_nayax_approved_card_read_state_v1\(uuid\)\s+to (?:public|anon|authenticated)/,
+  );
+});
+
 test('current card UI exposes neither TOTP nor manual/retry completion', async () => {
   const current = edge + sweep + outcome + official + portal + operations;
   assert.doesNotMatch(current, /step_up_pending|provider_confirmed_retry_safe|documented_manual_completion|manualPortalAttempt|totp/i);

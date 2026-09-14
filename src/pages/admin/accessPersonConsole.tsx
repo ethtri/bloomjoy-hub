@@ -899,7 +899,7 @@ function AdminPersonAccessConsoleInner({
     if (page > 1) next.set('page', String(page));
     if (selectedDirectoryPerson) next.set('person', selectedDirectoryPerson.personKey);
     else if (requestedPersonKey) next.set('person', requestedPersonKey);
-    if (selectedDirectoryPerson && isDetailExpanded) next.set('layout', 'full');
+    if ((selectedDirectoryPerson || requestedPersonKey) && isDetailExpanded) next.set('layout', 'full');
     if (next.toString() !== searchParams.toString()) {
       setSearchParams(next, { replace: true });
     }

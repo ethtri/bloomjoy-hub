@@ -977,7 +977,7 @@ serve(async (req) => {
       );
       return jsonResponse({
         error: payoutContactExhausted
-          ? "This payout-destination contact cycle is complete. Refund Operations must review the case before any new customer request."
+          ? "This payout-destination contact cycle is complete. The assigned Manager must review the case before any new customer request."
           : conflict
           ? "The case or queued message changed. Refresh before sending."
           : "Unable to queue customer email.",
