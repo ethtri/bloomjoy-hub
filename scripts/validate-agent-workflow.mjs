@@ -49,9 +49,41 @@ const requiredFiles = [
   "scripts/agent-worktree-hygiene.mjs",
   "scripts/agent-merge-gate.mjs",
   "scripts/validate-agent-workflow.mjs",
+  "Docs/REFUND_WORKFLOW.md",
 ];
 
 for (const file of requiredFiles) assertFile(file);
+
+const retiredRefundContext = [
+  "Docs/MACHINE_MANAGER_SHADOW_UAT_SCRIPT.md",
+  "Docs/NAYAX_REFUND_PRODUCTION_RCA.md",
+  "Docs/REFUND_EMAIL_PILOT_DEMO_PACKET.md",
+  "Docs/REFUND_EMAIL_PILOT_SPONSOR_REVIEW.md",
+  "Docs/REFUND_EMAIL_PILOT_UAT_SCRIPT.md",
+  "Docs/REFUND_FULL_AUTOMATION_GO_NO_GO.md",
+  "Docs/REFUND_GMAIL_INTAKE_SHADOW_RUNBOOK.md",
+  "Docs/REFUND_HISTORICAL_OWNER_NOTICE.md",
+  "Docs/REFUND_IDENTIFICATION_STRATEGY.md",
+  "Docs/REFUND_LEGACY_MACHINE_CORRECTION.md",
+  "Docs/REFUND_MVP_PLAN.md",
+  "Docs/REFUND_NAYAX_CONTROLLED_OWNER_PILOT.md",
+  "Docs/REFUND_OPERATIONS_SHADOW_PILOT.md",
+  "Docs/REFUND_PRODUCTION_CUTOVER_PACKET.md",
+  "Docs/REFUND_PRODUCTION_POLICY.md",
+  "Docs/REFUND_PRODUCTION_SHADOW_SETUP.md",
+  "Docs/REFUND_SIMPLE_JOURNEY_RELEASE_RUNBOOK.md",
+  "scripts/refunds/validate-nayax-controlled-owner-pilot-runner.mjs",
+  "scripts/refunds/validate-refund-email-pilot.mjs",
+  "scripts/refunds/validate-refund-gmail-intake-shadow-runner.mjs",
+  "scripts/refunds/validate-refund-synthetic-gmail-proof-runner.mjs",
+  "scripts/refunds/refund-owner-totp-auth-readiness.mjs",
+  "scripts/refunds/validate-refund-production-auth-gate.mjs",
+  "scripts/refunds/validate-refund-manager-mfa-freshness.mjs",
+];
+
+for (const file of retiredRefundContext) {
+  assert(!exists(file), `Retired refund context must stay removed: ${file}`);
+}
 
 assert(!trackedFiles.has(".github/pull_request_template.md"), "Old lowercase PR template should not be tracked.");
 assert(!trackedFiles.has(".github/ISSUE_TEMPLATE/ai_task.md"), "Old markdown AI task issue template should not be tracked.");
@@ -97,12 +129,12 @@ if (exists("scripts/agent-context.mjs")) {
     "Agent context must always route agents through Docs/CURRENT_STATUS.md.",
   );
   assert(
-    /if \(isMatch\(haystack, \/refund\|nayax\/\)\) \{[\s\S]*?Docs\/NAYAX_LYNX_API\.md/.test(agentContext),
-    "Refund or Nayax context must route agents through Docs/NAYAX_LYNX_API.md.",
+    /if \(isMatch\(haystack, \/refund\|nayax\/\)\) \{[\s\S]*?Docs\/REFUND_WORKFLOW\.md/.test(agentContext),
+    "Refund or Nayax context must route agents through Docs/REFUND_WORKFLOW.md.",
   );
   assert(
-    /if \(isMatch\(haystack, \/refund\|nayax\/\)\) \{[\s\S]*?Docs\/NAYAX_REFUND_PRODUCTION_RCA\.md/.test(agentContext),
-    "Refund or Nayax context must route agents through Docs/NAYAX_REFUND_PRODUCTION_RCA.md.",
+    /if \(isMatch\(haystack, \/refund\|nayax\/\)\) \{[\s\S]*?Docs\/REFUND_AGENT_OPERATIONS\.md/.test(agentContext),
+    "Refund or Nayax context must route agents through Docs/REFUND_AGENT_OPERATIONS.md.",
   );
   assert(
     exists("Docs/NAYAX_REFUND_WORKING_CONTRACT.md") &&
@@ -112,41 +144,31 @@ if (exists("scripts/agent-context.mjs")) {
   );
 }
 
-if (exists("Docs/NAYAX_REFUND_PRODUCTION_RCA.md")) {
-  const nayaxRefundRca = read("Docs/NAYAX_REFUND_PRODUCTION_RCA.md");
+if (exists("Docs/REFUND_WORKFLOW.md")) {
+  const refundWorkflow = read("Docs/REFUND_WORKFLOW.md");
   assert(
-    /refund is confirmed; its attribution to Bloomjoy's API calls is unproved/i.test(nayaxRefundRca) &&
-      /provider-reported failures/i.test(nayaxRefundRca) &&
-      /do not establish that the calls had no side effects/i.test(nayaxRefundRca),
-    "Nayax refund RCA must preserve the confirmed refund, unproved API attribution, and uncertainty about failure side effects.",
+    /least 95% of ordinary valid cases/i.test(refundWorkflow) &&
+      /recommendation is advisory/i.test(refundWorkflow),
+    "Refund workflow must preserve the automation target and Manager override.",
   );
   assert(
-    /direct, fully automatic request -> approval -> finalization/i.test(nayaxRefundRca),
-    "Nayax refund RCA must distinguish a confirmed refund from direct end-to-end automation proof.",
+    /full amount actually charged/i.test(refundWorkflow) &&
+      /including sales tax/i.test(refundWorkflow),
+    "Refund workflow must default to the full charged total including sales tax.",
   );
   assert(
-    /business rejection[^\n]*HTTP `200`/i.test(nayaxRefundRca),
-    "Nayax refund RCA must preserve that HTTP 200 is not business-success proof.",
+    /Confirm refund sent via Zelle/i.test(refundWorkflow) &&
+      /There is no separate `approved for payout`/i.test(refundWorkflow),
+    "Refund workflow must keep cash completion to one post-Zelle confirmation.",
   );
   assert(
-    /Provider-free reconciliation of both later `\$8` attempts is complete/i.test(nayaxRefundRca),
-    "Nayax refund RCA must not leave reconciled provider attempts described as pending.",
+    /send one follow-up/i.test(refundWorkflow) &&
+      /Close the case after 30 days/i.test(refundWorkflow),
+    "Refund workflow must preserve the single follow-up and 30-day closure policy.",
   );
   assert(
-    /no refund request or approval is currently in flight/i.test(nayaxRefundRca),
-    "Nayax refund RCA must preserve that no provider write is currently in flight.",
-  );
-  assert(
-    /integration-support@nayax\.com` bounced with a recipient-address rejection/i.test(nayaxRefundRca),
-    "Nayax refund RCA must preserve that the direct integration-support route bounced.",
-  );
-  assert(
-    /#03594386[\s\S]*#03624855[\s\S]*#03624856[\s\S]*#03624867/.test(nayaxRefundRca),
-    "Nayax refund RCA must retain the confirmed support and routing ticket chain.",
-  );
-  assert(
-    !/current attempt requires provider-free DTM\/support reconciliation/i.test(nayaxRefundRca),
-    "Nayax refund RCA must not restore the stale unresolved-attempt framing.",
+    !/exact customer-amount matching is required/i.test(refundWorkflow),
+    "Refund workflow must not restore exact customer-amount matching.",
   );
 }
 
@@ -158,6 +180,13 @@ if (exists("package.json")) {
   assert(pkg.scripts?.["agent:worktree-hygiene"], "package.json must include agent:worktree-hygiene.");
   assert(pkg.scripts?.["agent:merge-gate"], "package.json must include agent:merge-gate.");
   assert(pkg.scripts?.["agent:validate-workflow"], "package.json must include agent:validate-workflow.");
+  assert(!pkg.scripts?.["refunds:synthetic-gmail-proof"], "Retired synthetic Gmail proof ceremony must not be a package command.");
+  assert(!pkg.scripts?.["refunds:gmail-intake-shadow"], "Retired Gmail shadow ceremony must not be a package command.");
+  assert(!pkg.scripts?.["refunds:validate-email-pilot"], "Retired email-pilot validator must not be a package command.");
+  assert(!pkg.scripts?.["refunds:validate-manager-totp"], "Retired routine TOTP validator must not be a package command.");
+  assert(!pkg.scripts?.["refunds:production-auth-closed"], "Retired Auth ceremony must not be a package command.");
+  assert(!pkg.scripts?.["refunds:validate-production-auth-gate"], "Retired Auth-ceremony validator must not be a package command.");
+  assert(!pkg.scripts.test.includes("refunds:validate-uat-evidence"), "The standard test profile must not impose a fixed refund screenshot ceremony.");
 }
 
 if (exists(".github/workflows/ci.yml")) {

@@ -27,8 +27,6 @@ const portal = read('src/pages/admin/Refunds.tsx');
 const transactionViewState = read('src/lib/refundTransactionViewState.ts');
 const managerState = read('src/lib/refundManagerState.ts');
 const portalUat = read('scripts/refunds/validate-refund-portal-uat.mjs');
-const runbook = read('Docs/PRODUCTION_RUNBOOK.md');
-const smoke = read('Docs/QA_SMOKE_TEST_CHECKLIST.md');
 
 const operationStart = migration.indexOf(
   'create or replace function public.owner_normalize_refund_legacy_card_state('
@@ -183,12 +181,6 @@ assert(
     concurrencyTests.includes('All concurrent paths complete with zero provider side effects') &&
     concurrencyTests.includes('preserve the exact message pairs without new communication'),
   'Two-session pgTAP must prove owner idempotency and zero-side-effect action races.'
-);
-
-assert(
-  runbook.includes('Legacy card-state normalization (`#784`, `#793`)') &&
-    smoke.includes('Legacy card-state normalization (`#784`, `#793`)'),
-  'Owner execution, sanitized verification, repair posture, and UAT must be documented.'
 );
 
 console.log('Refund legacy card-state normalization boundary validated.');

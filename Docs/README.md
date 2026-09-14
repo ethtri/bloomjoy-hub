@@ -14,6 +14,8 @@ If a static doc disagrees with the board about active status or priority, use th
 
 ## Durable Docs
 
+- `Docs/REFUND_WORKFLOW.md` - canonical refund purpose, customer journey, matching policy, Manager decision, and customer-contact limits.
+- `Docs/REFUND_AGENT_OPERATIONS.md` - concise live-case procedure subordinate to the canonical refund workflow.
 - `Docs/DECISIONS.md` - durable product, platform, architecture, and launch decisions.
 - `Docs/LOCAL_DEV.md` - local setup, preflight checks, env guidance, and operational helper commands.
 - `Docs/PRODUCTION_RUNBOOK.md` - production deploy, rollback, and operations guidance.

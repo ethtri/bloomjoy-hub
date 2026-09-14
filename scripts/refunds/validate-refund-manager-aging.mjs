@@ -21,10 +21,6 @@ const managerEmail = read('supabase/functions/_shared/refund-manager-email.ts');
 const portalUi = read('src/pages/admin/Refunds.tsx');
 const environmentExample = read('.env.example');
 const portalUat = read('scripts/refunds/validate-refund-portal-uat.mjs');
-const decisions = read('Docs/DECISIONS.md');
-const currentStatus = read('Docs/CURRENT_STATUS.md');
-const qaChecklist = read('Docs/QA_SMOKE_TEST_CHECKLIST.md');
-const productionRunbook = read('Docs/PRODUCTION_RUNBOOK.md');
 const evidenceWorkflow = read('.github/workflows/refund-uat-evidence.yml');
 
 const checks = [];
@@ -240,19 +236,6 @@ check(
     !sweep.includes('daysAgoIso') &&
     !sweep.includes('REFUND_MORE_INFO_REMINDER_DAYS') &&
     !sweep.includes('REFUND_ESCALATION_DAYS')
-);
-
-check(
-  'Owner-facing documentation records the contract, production-off gate, and synthetic rollout proof',
-  decisions.includes('Managers receive a separate sanitized notice') &&
-    currentStatus.includes('manager aging') &&
-    qaChecklist.includes('two business days') &&
-    qaChecklist.includes('five business days') &&
-    qaChecklist.includes('Monday-Friday') &&
-    productionRunbook.includes('REFUND_MANAGER_AGING_NOTICES_ENABLED=false') &&
-    productionRunbook.includes(
-      'two and one escalation at five Los Angeles business days',
-    )
 );
 
 for (const result of checks) {

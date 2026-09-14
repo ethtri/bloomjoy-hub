@@ -30,4 +30,7 @@ Set both `REFUND_NAYAX_INVENTORY_SYNC_ENABLED` controls false. This stops provid
 
 ## Pilot exclusions
 
-This runbook does not require TOTP, temporary operators, GPT, QR codes, Kexiazhan reporting, cash fallback, or a new SMS platform. Duplicate transaction selection, idempotency, amount/cap, manager, and provider-outcome protections remain separate launch gates.
+This inventory reference cannot add workflow gates. Current Manager authority,
+exact selected-transaction binding, duplicate prevention, idempotency, and
+unknown-result reconciliation remain implementation controls under
+`Docs/REFUND_WORKFLOW.md`.
