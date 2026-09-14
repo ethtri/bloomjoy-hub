@@ -53,7 +53,6 @@ test('actual workbench names the accounting correction directly',()=>{
  const refundCase={lifecycle:{managerQueue:{bucket:'accounting_review'}}};
  const bucket=caseValue=>caseValue.lifecycle.managerQueue.bucket;
  assert.equal(load('refundSearchViewLabel',{getRefundManagerQueueBucket:bucket})(refundCase),'Fix refund accounting');
- assert.equal(load('isRefundOperationsCase',{canonicalQueueBucket:bucket})(refundCase),true);
 });
 test('actual manager action respects current scope, delivery holds and terminal truth',()=>{
  const action=load('primaryActionConfig',dependencies);

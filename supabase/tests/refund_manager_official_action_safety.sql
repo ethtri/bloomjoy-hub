@@ -809,7 +809,7 @@ select ok(
       payment_amount_cents, status, correlation_status, decision,
       decided_by, decided_at, refund_amount_cents
     ) values (
-      '79600000-0000-4000-8000-000000000012', 'RF-RAW-OFFICIAL-INSERT',
+      '79600000-0000-4000-8000-000000000013', 'RF-RAW-OFFICIAL-INSERT',
       '79300000-0000-4000-8000-000000000001', '79200000-0000-4000-8000-000000000001',
       'raw-insert@example.test', 'Raw official insert attempt', statement_timestamp(),
       'cash', 500, 'approved', 'matched', 'approved',
@@ -818,7 +818,7 @@ select ok(
   $sql$) like '%Official refund state cannot be inserted by a browser or service identity%'
   and not exists (
     select 1 from public.refund_cases
-    where id = '79600000-0000-4000-8000-000000000012'
+    where id = '79600000-0000-4000-8000-000000000013'
   ),
   'A raw service identity cannot insert a pre-approved refund case'
 );

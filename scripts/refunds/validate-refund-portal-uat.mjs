@@ -2426,20 +2426,20 @@ const installMockSupabaseRoutes = async (
           },
         };
       }
-      if (activeLookupRecovery?.state === 'refund_operations') {
+      if (['machine_manager', 'refund_operations'].includes(activeLookupRecovery?.state)) {
         return {
           ...queueProjectedCase,
           nayaxLookupWork: activeLookupRecovery,
           lifecycle: {
             ...queueProjectedCase.lifecycle,
-            managerNextAction: 'refund_operations',
+            managerNextAction: 'retry_read_only_lookup',
             managerAction: {
-              action: 'refund_operations', owner: 'Refund Operations', safeRetryEligible: false, payloadRedacted: true,
+              action: 'retry_read_only_lookup', owner: 'Machine Manager', safeRetryEligible: false, payloadRedacted: true,
             },
             managerQueue: {
               ...queueProjectedCase.lifecycle?.managerQueue,
               bucket: 'provider_hold', label: 'Needs manager review',
-              nextAction: 'refund_operations', safeRetryEligible: false,
+              nextAction: 'retry_read_only_lookup', safeRetryEligible: false,
             },
             lookup: {
               ...queueProjectedCase.lifecycle?.lookup,
@@ -2448,8 +2448,8 @@ const installMockSupabaseRoutes = async (
             operations: {
               ...queueProjectedCase.lifecycle?.operations,
               required: true,
-              queue: 'Refund Operations',
-              owner: 'Refund Operations',
+              queue: 'System',
+              owner: 'System',
             },
           },
         };
@@ -6092,7 +6092,7 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
   const callsBeforeManualPortalDemo = functionCalls.length;
   await navigateRefundPortalPage(page, `${appUrl}/refunds?demo=on`, { waitUntil: 'networkidle' });
   recorder.assert(
-    'Routine managers do not receive Refund Operations cases or manual provider evidence controls',
+    'Routine managers do not receive manual payment or provider-evidence controls',
     (await queueCase(page, 'RF-UAT-NC-MANUAL').count()) === 0 &&
       (await page.getByTestId('manual-nayax-evidence-form').count()) === 0 &&
       (await page.getByLabel('Transaction reference').count()) === 0
@@ -6542,7 +6542,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
       expectedDescription: /18 transactions were returned, but none covered the reported purchase window/i,
       expectedAction: 'Run the available transaction check. If no check is available, search the same machine in Nayax and report the portal gap. No refund has been issued.',
       recovery: {
-        state: 'refund_operations', automaticRetriesUsed: 0,
+        state: 'machine_manager', automaticRetriesUsed: 0,
         nextAttemptAt: null, failureClass: 'incomplete_history', payloadRedacted: true,
       },
       operationsAccess: true,
@@ -7035,7 +7035,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
         candidates: [],
       },
       recovery: {
-        state: 'refund_operations', automaticRetriesUsed: 1,
+        state: 'machine_manager', automaticRetriesUsed: 1,
         nextAttemptAt: null, failureClass: 'response_limit', payloadRedacted: true,
       },
       operationsAccess: true,
@@ -7375,14 +7375,14 @@ const runNayaxLookupStatusMatrixChecks = async ({
     );
     if (scenario.expectedOperationsRecoveryControl) {
       recorder.assert(
-        'Unmapped elevated Refund Operations keeps the full workbench without a duplicate manager summary',
+        'The current manager keeps the full workbench without a duplicate manager summary',
         (await page.getByTestId('refund-manager-work-summary').count()) === 0 &&
           await page.getByTestId('nayax-result-card').isVisible()
       );
       await page.getByText('Transaction search details', { exact: true }).click();
       const operationsRecovery = page.getByTestId('nayax-operations-recovery');
       recorder.assert(
-        'Elevated Refund Operations can reach only the narrow transaction-check recovery control',
+        'The current manager can reach only the narrow transaction-check recovery control',
         await operationsRecovery.isEnabled() &&
           (await page.getByTestId('nayax-check-transaction').count()) === 0 &&
           (await page.getByTestId('nayax-refresh-expired-results').count()) === 0 &&
@@ -7394,7 +7394,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
         ({ functionName }) => functionName === 'nayax-transaction-lookup'
       );
       recorder.assert(
-        'Elevated Refund Operations recovery makes exactly one narrow lookup call and no payment or message call',
+        'Manager recovery makes exactly one narrow lookup call and no payment or message call',
         lookupBodies.length === 1 &&
           lookupBodies[0].body?.caseId === 'case-card-pending' &&
           JSON.stringify(Object.keys(lookupBodies[0].body ?? {}).sort()) === JSON.stringify(['caseId']) &&
@@ -8220,24 +8220,45 @@ const runNayaxLookupStatusMatrixChecks = async ({
       candidates: [],
     },
     persistedNayaxLookupWork: {
-      state: 'refund_operations', automaticRetriesUsed: 1,
+      state: 'machine_manager', automaticRetriesUsed: 1,
       nextAttemptAt: null, failureClass: 'response_limit', payloadRedacted: true,
     },
   });
   const ordinaryRecoveryPage = await ordinaryRecoveryContext.newPage();
   await signInRefundUser(ordinaryRecoveryPage, appUrl);
-  await ordinaryRecoveryPage.getByRole('button', { name: /^Action needed \d+$/ }).waitFor();
+  const ordinaryManagerReviewQueue = ordinaryRecoveryPage.getByRole('button', { name: /^Needs manager review \d+$/ });
+  await ordinaryManagerReviewQueue.waitFor();
+  await ordinaryManagerReviewQueue.click();
+  await openQueueCase(ordinaryRecoveryPage, 'RF-UAT-PENDING');
+  await ordinaryRecoveryPage.getByText('Transaction search details', { exact: true }).click();
+  const ordinaryManagerRecovery = ordinaryRecoveryPage.getByTestId('nayax-operations-recovery');
   recorder.assert(
-    'Ordinary manager cannot reach or invoke the Refund Operations recovery for the same durable state',
-    (await ordinaryRecoveryPage.getByRole('button', { name: /Needs manager review/ }).count()) === 0 &&
-      (await ordinaryRecoveryPage.getByTestId('nayax-operations-recovery').count()) === 0 &&
-      ordinaryRecoveryFunctionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 0 &&
+    'The current Machine Manager can run the same narrow read-only transaction check without another role',
+    await ordinaryManagerRecovery.isEnabled() &&
+      (await ordinaryRecoveryPage.getByTestId('nayax-check-transaction').count()) === 0 &&
+      (await ordinaryRecoveryPage.getByTestId('nayax-refresh-expired-results').count()) === 0 &&
+      ordinaryRecoveryFunctionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 0,
+    JSON.stringify({
+      functionCalls: ordinaryRecoveryFunctionCalls,
+      functionBodies: ordinaryRecoveryFunctionBodies,
+    })
+  );
+  await ordinaryManagerRecovery.click();
+  await ordinaryRecoveryPage.waitForTimeout(100);
+  const ordinaryLookupBodies = ordinaryRecoveryFunctionBodies.filter(
+    ({ functionName }) => functionName === 'nayax-transaction-lookup'
+  );
+  recorder.assert(
+    'The manager check sends only the case id and cannot refund, change the decision, or message the customer',
+    ordinaryLookupBodies.length === 1 &&
+      ordinaryLookupBodies[0].body?.caseId === 'case-card-pending' &&
+      JSON.stringify(Object.keys(ordinaryLookupBodies[0].body ?? {}).sort()) === JSON.stringify(['caseId']) &&
       !ordinaryRecoveryFunctionCalls.some((name) => [
         'nayax-card-refund', 'refund-case-admin-update', 'refund-case-message-send',
       ].includes(name)),
     JSON.stringify({
       functionCalls: ordinaryRecoveryFunctionCalls,
-      functionBodies: ordinaryRecoveryFunctionBodies,
+      lookupBodies: ordinaryLookupBodies,
     })
   );
   await closeRefundPortalContext(ordinaryRecoveryContext);

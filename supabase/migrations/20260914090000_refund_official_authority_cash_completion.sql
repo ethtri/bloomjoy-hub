@@ -42,7 +42,6 @@ begin
     || E'    where manager.id = authorization_row.manager_mapping_id\n'
     || E'      and manager.reporting_machine_id = refund_case.reporting_machine_id\n'
     || E'      and manager.manager_user_id = authorization_row.actor_user_id\n'
-    || E'      and manager.mapping_version = authorization_row.manager_mapping_version\n'
     || E'      and manager.status = ''active''\n'
     || E'      and manager.revoked_at is null\n'
     || E'    for share;\n\n'

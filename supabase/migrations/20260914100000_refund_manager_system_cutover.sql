@@ -2,37 +2,6 @@
 -- assigned Machine Manager or a Super-admin makes the decision and performs
 -- case research; the System remains the only card-payment executor.
 
-create or replace function public.guard_refund_nayax_lookup_retry_budget()
-returns trigger
-language plpgsql
-security definer
-set search_path = ''
-as $$
-begin
-  if new.deterministic_fact_version is distinct from old.deterministic_fact_version then
-    new.nayax_lookup_retry_count := 0;
-    new.nayax_lookup_retry_fact_version := new.deterministic_fact_version;
-    new.nayax_lookup_status := 'not_started';
-    new.nayax_lookup_started_at := null;
-    new.nayax_lookup_finished_at := null;
-    new.nayax_lookup_failure_class := null;
-    new.nayax_lookup_safe_retry_eligible := false;
-    new.nayax_lookup_correlation_digest := null;
-  elsif new.nayax_lookup_safe_retry_eligible
-    and new.nayax_lookup_retry_fact_version = new.deterministic_fact_version
-    and new.nayax_lookup_retry_count >= 1 then
-    new.nayax_lookup_safe_retry_eligible := false;
-    if new.nayax_lookup_status in (
-      'lookup_failed', 'lookup_timed_out', 'response_limited'
-    ) then
-      new.correlation_summary :=
-        'The automatic read-only checks are complete. The Machine Manager can review the case and run one deliberate read-only check.';
-    end if;
-  end if;
-  return new;
-end;
-$$;
-
 create or replace function public.admin_authorize_refund_official_action(
   p_case_id uuid,p_action text,p_expected_case_version bigint,
   p_target_status text default null,p_target_decision text default null,
