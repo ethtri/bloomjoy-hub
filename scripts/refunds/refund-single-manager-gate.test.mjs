@@ -13,6 +13,8 @@ const official = await read('supabase/functions/_shared/refund-official-action.t
 const portal = await read('src/pages/admin/Refunds.tsx');
 const operations = await read('src/lib/refundOperations.ts');
 const concurrency = await read('supabase/tests/refund_single_manager_gate_concurrency.sql');
+const behavioralFixture = await read('supabase/tests/refund_single_manager_gate.sql');
+const durableLifecycle = await read('supabase/migrations/20260826165423_refund_durable_lifecycle_v1.sql');
 
 test('one branch migration owns the single manager gate', async () => {
   await assert.rejects(access(new URL(
@@ -50,6 +52,25 @@ test('the database serializes sessions and uniquely permits one queued refund pe
   assert.match(concurrency, /dblink_send_query\('single_gate_race_b'/);
   assert.match(concurrency, /exactly one wins/);
   assert.match(concurrency, /a second queue consumer cannot claim the same attempt/);
+});
+
+test('database fixtures use an allowed completed-review lookup status', () => {
+  const constraintBody = durableLifecycle.match(
+    /add constraint refund_cases_nayax_lookup_status_check check \(\s*nayax_lookup_status in \(([\s\S]*?)\)\s*\)/,
+  )?.[1] ?? '';
+  const allowedStatuses = new Set(
+    [...constraintBody.matchAll(/'([^']+)'/g)].map((match) => match[1]),
+  );
+  assert(allowedStatuses.has('manual_exception'));
+  for (const [name, fixture] of [
+    ['behavioral', behavioralFixture],
+    ['concurrency', concurrency],
+  ]) {
+    const seededLookupStatuses = [...fixture.matchAll(/'([^']+)'\s*,\s*'not_requested'/g)]
+      .map((match) => match[1]);
+    assert.deepEqual(seededLookupStatuses, ['manual_exception'], `${name} fixture lookup status`);
+    assert(seededLookupStatuses.every((status) => allowedStatuses.has(status)));
+  }
 });
 
 test('case work and financial authority are distinct', () => {

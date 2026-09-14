@@ -58,7 +58,7 @@ values('b3470000-0000-4000-8000-000000000001','RF-SINGLE-GATE-RACE',
   'race-customer@example.invalid','Concurrent exact saved sale','2026-09-12T20:00:00Z',
   'America/Los_Angeles','exact','exact','card',1000,1090,'4242','physical_card','tap_card',
   'needs_review','matched','nayax',100,'Exact saved System candidate',1,'form','{}',1,
-  'completed','not_requested','RF423906B2-RACE',17,'2026-09-12T20:00:00Z',1090,'4242','USD');
+  'manual_exception','not_requested','RF423906B2-RACE',17,'2026-09-12T20:00:00Z',1090,'4242','USD');
 
 insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,
   reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,amount_cents,

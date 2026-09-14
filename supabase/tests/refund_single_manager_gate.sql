@@ -49,7 +49,7 @@ values('a3470000-0000-4000-8000-000000000001','RF-SINGLE-GATE',
   'a3440000-0000-4000-8000-000000000001','a3430000-0000-4000-8000-000000000001',
   'customer@example.invalid','Exact saved sale','2026-09-12T20:00:00Z','America/Los_Angeles',
   'exact','exact','card',1000,1090,'4242','physical_card','tap_card','needs_review',
-  'needs_nayax',1,'form','{}',1,'completed','not_requested');
+  'needs_nayax',1,'form','{}',1,'manual_exception','not_requested');
 
 create function pg_temp.exact_evidence(p_source text default 'nayax_api') returns jsonb language sql stable as $$
 select jsonb_build_object(
