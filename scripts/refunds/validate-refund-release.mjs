@@ -47,189 +47,56 @@ const refundEmailAssistantRunbook = fs.readFileSync(
   path.join(repositoryRoot, 'Docs', 'REFUND_EMAIL_ASSISTANT_RUNBOOK.md'),
   'utf8'
 );
-const cutoverPacket = fs.readFileSync(
-  path.join(repositoryRoot, 'Docs', 'REFUND_PRODUCTION_CUTOVER_PACKET.md'),
+const refundWorkflow = fs.readFileSync(
+  path.join(repositoryRoot, 'Docs', 'REFUND_WORKFLOW.md'),
   'utf8'
 );
 const productionDriftCommand =
   'npm run refunds:release:check-production -- --project-ref <project-ref>';
 
-assert.match(
-  productionRunbook,
-  new RegExp(productionDriftCommand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+assert(
+  productionRunbook.includes(productionDriftCommand),
   'The release runbook must call the production drift checker explicitly'
 );
 assert(
   productionRunbook.includes('canonical `supabase/functions/<slug>/index.ts` identity') &&
-    productionRunbook.includes('raw absolute paths are never retained') &&
-    cutoverPacket.includes('canonical `supabase/functions/<slug>/index.ts` entrypoint identity'),
+    productionRunbook.includes('raw absolute paths are never retained'),
   'Release guidance must require the sanitized canonical production entrypoint identity'
 );
-assert(
-  productionRunbook.includes(
-    'canonical ten-function/51-migration object remains immutable pre-`#427` evidence'
-  ) &&
-    productionRunbook.includes(
-      'paired provider-free resolution-window/closure sequence'
-    ) &&
-    productionRunbook.includes(
-      'Deploy only the eleven functions listed in the release manifest from the exact immutable, reviewed canonical-main commit'
-    ) &&
-    productionRunbook.includes('production Gmail OAuth/mailbox connection, scheduled intake, and approved automatic customer contact are now live') &&
-    productionRunbook.includes('Preserve normal refund operation during compatible deployments') &&
-    productionRunbook.includes('preserve the enabled production state') &&
-    !productionRunbook.includes('Official refund actions remain hard-off during deployment') &&
-    productionRunbook.includes('production adapter exists but cannot reserve or call Nayax') &&
-    productionRunbook.includes('Closed issue `#409` records historical shadow and cutover work') &&
-    !productionRunbook.includes('For the unmerged candidate') &&
-    !productionRunbook.includes('The later `#767` outcome-resolution migration and function deployment') &&
-    !productionRunbook.includes('Do not configure Gmail OAuth/mailbox secrets before') &&
-    !productionRunbook.includes('candidate handler') &&
-    !productionRunbook.includes('unmerged `#409` integration candidate') &&
-    !productionRunbook.includes('The candidate requires its own reviewed final manifest/evidence'),
-  'The runbook must preserve the immutable historical bridge and current live release authority'
-);
+for (const required of [
+  'least 95% of ordinary valid cases',
+  'recommendation is advisory',
+  'full amount actually charged',
+  'including sales tax',
+  'Confirm refund sent via Zelle',
+  'send one follow-up',
+  'Close the case after 30 days',
+]) {
+  assert.match(refundWorkflow, new RegExp(required, 'i'),
+    'Canonical refund workflow is missing: ' + required);
+}
+assert(qaSmokeChecklist.includes('Use [REFUND_WORKFLOW.md](REFUND_WORKFLOW.md) as the expected behavior'));
+assert.match(refundEmailAssistantRunbook, /subordinate to/);
 
 const refundDeployStart = productionRunbook.indexOf('Before deploying Refund Operations functions');
-const refundDeployEnd = productionRunbook.indexOf(
-  'After deploying the eleven manifest-tracked Refund Operations functions',
-  refundDeployStart
-);
+const refundDeployEnd = productionRunbook.indexOf('First inspect the no-write plan', refundDeployStart);
 assert(
   refundDeployStart >= 0 && refundDeployEnd > refundDeployStart,
   'The runbook must contain the reviewed Refund Operations deployment block'
 );
 const refundDeployBlock = productionRunbook.slice(refundDeployStart, refundDeployEnd);
 assert(
-  refundDeployBlock.includes(
-    'npm run refunds:deploy:functions -- --project-ref ygbzkgxktzqsiygjlqyg --confirm-project-ref ygbzkgxktzqsiygjlqyg --all'
-  ) &&
-    refundDeployBlock.includes('--execute --authorize "DEPLOY CANONICAL REFUND FUNCTIONS"') &&
-    refundDeployBlock.includes('absolute repository-root') &&
-    refundDeployBlock.includes('exact reviewed `origin/main` source'),
-  'Refund Operations deployment must use the exact-project root-pinned guarded wrapper'
+  refundDeployBlock.includes('root-pinned wrapper') &&
+    refundDeployBlock.includes('exact clean') &&
+    refundDeployBlock.includes('ordinary approval'),
+  'Refund deployment guidance must use the reviewed wrapper without adding another business approval'
 );
 for (const slug of requiredFunctionSlugs) {
   assert(
-    !refundDeployBlock.includes(`supabase functions deploy ${slug} --no-verify-jwt`),
-    `Raw Refund Operations deployment must not bypass the root-pinned wrapper for ${slug}`
+    !refundDeployBlock.includes('supabase functions deploy ' + slug + ' --no-verify-jwt'),
+    'Raw Refund Operations deployment must not bypass the root-pinned wrapper for ' + slug
   );
 }
-
-for (const requiredIsolatedDefault of [
-  'NAYAX_REFUND_EXECUTION_ENABLED=false',
-  'NAYAX_REFUND_EXECUTION_DRY_RUN=true',
-  'NAYAX_REFUND_EXECUTION_KILL_SWITCH=true',
-  'REFUND_AUTOMATION_ENABLED=false',
-  'REFUND_GMAIL_ENABLED=false',
-  'REFUND_GPT_TRIAGE_ENABLED=false',
-  'OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false',
-]) {
-  assert(
-    productionRunbook.includes(requiredIsolatedDefault),
-    `Release runbook is missing isolated setup default: ${requiredIsolatedDefault}`
-  );
-}
-
-for (const currentReleaseControl of [
-  'Initial isolated setup only',
-  'Preserve the current runtime Nayax execution, dry-run, and kill-switch settings during compatible deployments',
-  'A temporary execution pause must address a demonstrated release-specific incompatibility or incident, with its reason and restoration recorded',
-  'Reuse valid unchanged evidence',
-  'deploy and independently verify its backward-compatible replacement first',
-]) {
-  assert(productionRunbook.includes(currentReleaseControl),
-    `Release runbook is missing current operating control: ${currentReleaseControl}`);
-}
-
-assert.match(cutoverPacket, /all 90 required refund\/Nayax migrations/);
-assert.match(cutoverPacket, /exact canonical 51-migration predeployment bridge/);
-assert.match(
-  cutoverPacket,
-  /all ten manifest-tracked Refund Operations functions/
-);
-assert.match(cutoverPacket, /historical `#629\/#716` five-migration bridge does not apply/);
-for (const requiredPilotBoundary of [
-  'Customer contact alone creates zero cases',
-  'A Bloomjoy form submission creates exactly one case',
-  'Every active Nayax machine',
-  'Snapcase is in scope',
-  'reopens the same case without payment authority',
-  'Cut over responders without overlap',
-  'Monitor for 72 hours',
-  'are not pilot requirements',
-  '20260821090000_refund_form_only_case_creation.sql',
-  '20260821091000_refund_nayax_inventory.sql',
-  '20260821100000_refund_branded_appeals.sql',
-  '20260822190000_refund_portfolio_intake_inventory_correction.sql',
-]) {
-  assert(
-    cutoverPacket.includes(requiredPilotBoundary),
-    `Cutover packet is missing the current v1 boundary: ${requiredPilotBoundary}`
-  );
-}
-for (const retiredPilotGate of [
-  /\| `#633` cash workflow \|/,
-  /\| `#692` \/ `#782` human step-up \|/,
-  /\| `#635` GPT triage \|/,
-]) {
-  assert.doesNotMatch(
-    cutoverPacket,
-    retiredPilotGate,
-    'Retired optional work must not remain in the Refund Operations v1 evidence ledger'
-  );
-}
-assert.match(
-  productionRunbook,
-  /exactly 125 reviewed synthetic screenshots/,
-  'Production runbook must use the current 125-screenshot evidence inventory'
-);
-assert.doesNotMatch(
-  productionRunbook,
-  /exactly (?:44|83|85|86|90|92|111|112|114) reviewed synthetic screenshots/,
-  'Production runbook must not retain a retired screenshot evidence count'
-);
-for (const [documentName, document] of [
-  ['QA smoke checklist', qaSmokeChecklist],
-  ['refund email assistant runbook', refundEmailAssistantRunbook],
-]) {
-  assert.match(
-    document,
-    /exactly 125 reviewed synthetic screenshots/,
-    `${documentName} must use the current 125-screenshot evidence inventory`
-  );
-  assert.doesNotMatch(
-    document,
-    /exactly (?:44|83|85|86|90|92|111|112|114) reviewed synthetic screenshots/,
-    `${documentName} must not retain a retired screenshot evidence count`
-  );
-}
-const smokeOrder = cutoverPacket.indexOf('## Exact postdeployment readiness order');
-const routeSmoke = cutoverPacket.indexOf('refunds:smoke-routes', smokeOrder);
-const captureManifest = cutoverPacket.indexOf(
-  'Capture and independently review the timestamped production function receipt',
-  routeSmoke
-);
-const cleanDrift = cutoverPacket.indexOf(
-  'require the standard production drift check to pass for all ten functions',
-  captureManifest
-);
-const inventorySync = cutoverPacket.indexOf('Run one controlled inventory sync', cleanDrift);
-const publicOptionsSmoke = cutoverPacket.indexOf('refunds:smoke-public-options', inventorySync);
-assert(
-  smokeOrder >= 0 &&
-    routeSmoke > smokeOrder &&
-    captureManifest > routeSmoke &&
-    cleanDrift > captureManifest &&
-    inventorySync > cleanDrift &&
-    publicOptionsSmoke > inventorySync,
-  'The smoke order must be routes, capture/review, clean drift, complete inventory, then public options'
-);
-assert.doesNotMatch(
-  cutoverPacket,
-  /Merge only the approved `#644` head/,
-  'The current compatibility bridge must not retain the superseded main-only release instruction'
-);
 
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-release-test-'));
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');

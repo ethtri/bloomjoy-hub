@@ -31,7 +31,10 @@ Customer intake is independent from transaction matching and payment activation.
 
 Machine-capability activation is a separate owner-reviewed step after deployment and UAT. It does not enable or authorize the direct API.
 
-Run the aggregate-only baseline and post-activation audit in `Docs/REFUND_SIMPLE_JOURNEY_RELEASE_RUNBOOK.md`. The post-activation run must pass without `--allow-not-ready` before the rollout proceeds.
+Run the aggregate-only baseline and post-activation audit with the current
+machine-readiness command documented below. Machine activation must support the
+product behavior in `Docs/REFUND_WORKFLOW.md`; it cannot introduce a pilot,
+amount cap, or separate Manager approval.
 
 - Use the single-machine action or **Activate qualified machine capabilities** for the reviewed qualified set.
 - Bulk activation never overrides `owner_pause`, `provider_support`, `machine_maintenance`, or `commercial_exception`.
