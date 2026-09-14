@@ -105,6 +105,8 @@ test('database fixtures use an allowed completed-review lookup status', () => {
     )].length,
     2,
   );
+  assert.match(behavioralFixture, /fixture_amount integer:=1200\+right\(replace\(p_case_id::text,'-',''\),2\)::integer/);
+  assert.match(behavioralFixture, /'card',1100,1190,[\s\S]*?'SUCCESS-EVIDENCE-SALE'[\s\S]*?,1190,'4242','USD'/);
   for (const [name, fixture] of [
     ['behavioral', behavioralFixture],
     ['concurrency', concurrency],

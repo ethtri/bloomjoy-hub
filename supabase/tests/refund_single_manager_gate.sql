@@ -105,6 +105,7 @@ create function pg_temp.commit_lookup_fixture(
   p_lookup_status text,p_recommendation_state text
 ) returns jsonb language plpgsql as $$
 declare one_click boolean:=p_recommendation_state='high_confidence';
+  fixture_amount integer:=1200+right(replace(p_case_id::text,'-',''),2)::integer;
 begin
   insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
     customer_email,issue_summary,incident_at,incident_timezone,incident_time_resolution,
@@ -116,7 +117,7 @@ begin
   values(p_case_id,'RF-'||upper(right(replace(p_case_id::text,'-',''),12)),
     'a3440000-0000-4000-8000-000000000001','a3430000-0000-4000-8000-000000000001',
     right(replace(p_case_id::text,'-',''),12)||'@example.invalid','Lookup route fixture',
-    '2026-09-12T20:00:00Z','America/Los_Angeles','exact','exact','card',1000,'4242',
+    '2026-09-12T20:00:00Z','America/Los_Angeles','exact','exact','card',fixture_amount,'4242',
     'physical_card','tap_card','needs_review','needs_nayax',1,'form','{}',1,
     'checking','not_requested','2026-09-12T21:00:00Z','hosted_refund_intake');
   insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
@@ -124,7 +125,9 @@ begin
     machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
   values(p_token,p_case_id,1,p_actor_user_id,'a3440000-0000-4000-8000-000000000001',
     'LOOKUP-'||upper(right(replace(p_case_id::text,'-',''),12)),17,
-    '2026-09-12T20:00:00Z',1090,'4242','USD',pg_temp.request_bound_evidence()||jsonb_build_object(
+    '2026-09-12T20:00:00Z',fixture_amount,'4242','USD',
+    pg_temp.request_bound_evidence()||jsonb_build_object(
+      'amount_cents',fixture_amount,'amount_delta_cents',0,
       'one_click_eligible',one_click,'recommendation_state',p_recommendation_state,
       'confidence_class',case when one_click then 'high_confidence' else 'evidence_aware_review' end),
     now()+interval '1 hour');
@@ -576,7 +579,7 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
 values('a3470000-0000-4000-8000-000000000003','RF-SUCCESS-EVIDENCE',
   'a3440000-0000-4000-8000-000000000001','a3430000-0000-4000-8000-000000000001',
   'success-evidence@example.invalid','Held result later proved successful',
-  '2026-09-12T20:00:00Z','America/Los_Angeles','exact','exact','card',1000,1090,
+  '2026-09-12T20:00:00Z','America/Los_Angeles','exact','exact','card',1100,1190,
   '4242','physical_card','tap_card','needs_review','needs_nayax',1,'form','{}',1,
   'manual_exception','manual_exception','not_requested');
 insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,
@@ -584,8 +587,9 @@ insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_ge
   card_last4,currency_code,evidence_summary,expires_at)
 values('a3480000-0000-4000-8000-000000000020','a3470000-0000-4000-8000-000000000003',1,
   'a3410000-0000-4000-8000-000000000001','a3440000-0000-4000-8000-000000000001',
-  'SUCCESS-EVIDENCE-SALE',17,'2026-09-12T20:00:00Z',1090,'4242','USD',
-  pg_temp.exact_evidence(),now()+interval '1 hour');
+  'SUCCESS-EVIDENCE-SALE',17,'2026-09-12T20:00:00Z',1190,'4242','USD',
+  pg_temp.exact_evidence()||jsonb_build_object('amount_cents',1190,'amount_delta_cents',90),
+  now()+interval '1 hour');
 select pg_temp.set_actor('a3410000-0000-4000-8000-000000000001');
 select public.admin_select_refund_nayax_candidate_current_user_v1(
   'a3470000-0000-4000-8000-000000000003',
