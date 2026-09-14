@@ -2197,6 +2197,7 @@ const runCashNoSafeMatchSweep = async (
     .eq("status", "needs_review")
     .eq("correlation_status", "no_match")
     .eq("correlation_source", "sunze")
+    .is("cash_match_state", null)
     .limit(25);
   if (error) throw error;
 

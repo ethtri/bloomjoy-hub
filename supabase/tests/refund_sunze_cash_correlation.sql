@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(42);
+select plan(62);
 
 select has_table('public', 'refund_sunze_cash_correlation_attempts', 'Correlation attempts are durable');
 select has_table('public', 'refund_sunze_cash_correlation_candidates', 'Candidate evidence is durable');
@@ -103,7 +103,18 @@ values
   ('35250000-0000-4000-8000-000000000003', 'RF-SUNZE-CORR-3', '35220000-0000-4000-8000-000000000002', '35210000-0000-4000-8000-000000000001', 'conflict@example.test', 'conflict@example.test', 'Conflict evidence fixture', '2026-09-14 19:00:00+00', 'cash', 999, 'needs_review', 'manual_review'),
   ('35250000-0000-4000-8000-000000000004', 'RF-SUNZE-CORR-4', '35220000-0000-4000-8000-000000000003', '35210000-0000-4000-8000-000000000001', 'freshness@example.test', 'freshness@example.test', 'Freshness phase fixture', '2026-09-14 21:30:00+00', 'cash', 500, 'needs_review', 'manual_review'),
   ('35250000-0000-4000-8000-000000000005', 'RF-SUNZE-CORR-5', '35220000-0000-4000-8000-000000000001', '35210000-0000-4000-8000-000000000001', 'snapshot@example.test', 'snapshot@example.test', 'Snapshot attribution fixture', '2026-09-14 19:00:00+00', 'cash', 800, 'needs_review', 'manual_review'),
-  ('35250000-0000-4000-8000-000000000006', 'RF-SUNZE-CORR-6', '35220000-0000-4000-8000-000000000001', '35210000-0000-4000-8000-000000000001', 'pending@example.test', 'pending@example.test', 'Deferred intake fixture', '2026-09-14 19:00:00+00', 'cash', 800, 'needs_review', 'manual_review');
+  ('35250000-0000-4000-8000-000000000006', 'RF-SUNZE-CORR-6', '35220000-0000-4000-8000-000000000001', '35210000-0000-4000-8000-000000000001', 'pending@example.test', 'pending@example.test', 'Deferred intake fixture', '2026-09-14 19:00:00+00', 'cash', 800, 'needs_review', 'manual_review'),
+  ('35250000-0000-4000-8000-000000000007', 'RF-SUNZE-CORR-7', '35220000-0000-4000-8000-000000000001', '35210000-0000-4000-8000-000000000001', 'legacy-completed@example.test', 'legacy-completed@example.test', 'Legacy completed selection fixture', '2026-09-14 19:00:00+00', 'cash', 1000, 'needs_review', 'manual_review'),
+  ('35250000-0000-4000-8000-000000000008', 'RF-SUNZE-CORR-8', '35220000-0000-4000-8000-000000000002', '35210000-0000-4000-8000-000000000001', 'zero-candidate@example.test', 'zero-candidate@example.test', 'Internal zero-candidate fixture', '2026-09-14 21:00:00+00', 'cash', 800, 'needs_review', 'manual_review');
+
+update public.refund_cases
+set matched_sales_fact_id = '35240000-0000-4000-8000-000000000002'
+where id = '35250000-0000-4000-8000-000000000007';
+set local session_replication_role = replica;
+update public.refund_cases
+set refund_completed_at = '2026-09-14 20:30:00+00'
+where id = '35250000-0000-4000-8000-000000000007';
+set local session_replication_role = origin;
 
 update public.refund_cases
 set cash_match_state = 'checking_sales_history'
@@ -117,6 +128,11 @@ select is(
   jsonb_array_length(public.service_get_sunze_cash_correlation('35250000-0000-4000-8000-000000000006', '35260000-0000-4000-8000-000000000001', 100)->'candidates'),
   0,
   'No-attempt manager reads return bounded empty evidence without guessing'
+);
+select is(
+  public.service_get_sunze_cash_correlation('35250000-0000-4000-8000-000000000006', '35260000-0000-4000-8000-000000000001', 100)->>'sourceReadiness',
+  'correlation_pending',
+  'No-attempt reads explain that internal correlation remains pending'
 );
 
 select is(
@@ -136,9 +152,24 @@ select is(
   'Incomplete but fresh coverage remains checking'
 );
 select is(
+  public.service_get_sunze_cash_correlation('35250000-0000-4000-8000-000000000004', '35260000-0000-4000-8000-000000000001', 100)->>'sourceReadiness',
+  'awaiting_coverage',
+  'Safe reads explain fresh but incomplete internal coverage'
+);
+select ok(
+  (public.service_get_sunze_cash_correlation('35250000-0000-4000-8000-000000000004', '35260000-0000-4000-8000-000000000001', 100)->>'coveredThrough')::timestamptz is not null
+  and (public.service_get_sunze_cash_correlation('35250000-0000-4000-8000-000000000004', '35260000-0000-4000-8000-000000000001', 100)->>'freshnessExpiresAt')::timestamptz is not null,
+  'Safe reads expose bounded coverage and freshness timestamps without vendor rows'
+);
+select is(
   public.service_correlate_sunze_cash_case('35250000-0000-4000-8000-000000000004', 1, 'backfill', null, '2026-09-17 21:00:00+00')->>'state',
   'sales_history_unavailable',
   'The same watermark transitions truthfully after freshness expires'
+);
+select is(
+  public.service_get_sunze_cash_correlation('35250000-0000-4000-8000-000000000004', '35260000-0000-4000-8000-000000000001', 100)->>'sourceReadiness',
+  'stale',
+  'Safe reads distinguish stale internal history from incomplete coverage'
 );
 
 select is(
@@ -148,6 +179,7 @@ select is(
 );
 select is((select count(*)::integer from public.refund_sunze_cash_correlation_candidates c join public.refund_sunze_cash_correlation_attempts a on a.id=c.attempt_id where a.refund_case_id='35250000-0000-4000-8000-000000000001'), 3, 'All plausible candidates are retained');
 select is((select sales_fact_id from public.refund_sunze_cash_correlation_candidates c join public.refund_sunze_cash_correlation_attempts a on a.id=c.attempt_id where a.refund_case_id='35250000-0000-4000-8000-000000000001' and c.deterministic_rank=1), '35240000-0000-4000-8000-000000000002'::uuid, 'Ranking is deterministic and amount remains advisory evidence');
+select is((select selection_conflict from public.refund_sunze_cash_correlation_candidates c join public.refund_sunze_cash_correlation_attempts a on a.id=c.attempt_id where a.refund_case_id='35250000-0000-4000-8000-000000000001' and c.sales_fact_id='35240000-0000-4000-8000-000000000002'), true, 'Legacy completed-case use is visible as a candidate conflict');
 select is(
   public.service_get_sunze_cash_correlation('35250000-0000-4000-8000-000000000001', '35260000-0000-4000-8000-000000000001', 100)->>'returnedCandidateCount',
   '3',
@@ -168,6 +200,16 @@ select is(
   public.service_select_sunze_cash_candidate(
     '35250000-0000-4000-8000-000000000001',
     (select id from public.refund_sunze_cash_correlation_attempts where refund_case_id='35250000-0000-4000-8000-000000000001'),
+    '35240000-0000-4000-8000-000000000001', 1, 0,
+    '35260000-0000-4000-8000-000000000001'
+  )->>'replayed',
+  'true',
+  'A lost initial selection response replays with the original generation token'
+);
+select is(
+  public.service_select_sunze_cash_candidate(
+    '35250000-0000-4000-8000-000000000001',
+    (select id from public.refund_sunze_cash_correlation_attempts where refund_case_id='35250000-0000-4000-8000-000000000001'),
     '35240000-0000-4000-8000-000000000001', 1, 1,
     '35260000-0000-4000-8000-000000000001'
   )->>'replayed',
@@ -183,6 +225,43 @@ select is(
   )->>'linkVersion',
   '2',
   'A second manager replacement advances the active selection generation'
+);
+select is(
+  public.service_select_sunze_cash_candidate(
+    '35250000-0000-4000-8000-000000000001',
+    (select id from public.refund_sunze_cash_correlation_attempts where refund_case_id='35250000-0000-4000-8000-000000000001'),
+    '35240000-0000-4000-8000-000000000003', 1, 1,
+    '35260000-0000-4000-8000-000000000002'
+  )->>'replayed',
+  'true',
+  'A lost replacement response replays only for the original actor and generation'
+);
+select throws_ok(
+  $$select public.service_select_sunze_cash_candidate(
+    '35250000-0000-4000-8000-000000000001',
+    (select id from public.refund_sunze_cash_correlation_attempts where refund_case_id='35250000-0000-4000-8000-000000000001'),
+    '35240000-0000-4000-8000-000000000003', null::bigint, 2,
+    '35260000-0000-4000-8000-000000000002')$$,
+  '40001', 'Stale Sunze candidate selection',
+  'Candidate selection rejects a NULL fact-version token explicitly'
+);
+select throws_ok(
+  $$select public.service_select_sunze_cash_candidate(
+    '35250000-0000-4000-8000-000000000001',
+    (select id from public.refund_sunze_cash_correlation_attempts where refund_case_id='35250000-0000-4000-8000-000000000001'),
+    '35240000-0000-4000-8000-000000000003', 1, null::bigint,
+    '35260000-0000-4000-8000-000000000002')$$,
+  '40001', 'Stale Sunze link version',
+  'Candidate selection rejects a NULL link-generation token explicitly'
+);
+select throws_ok(
+  $$select public.service_select_sunze_cash_candidate(
+    '35250000-0000-4000-8000-000000000001',
+    (select id from public.refund_sunze_cash_correlation_attempts where refund_case_id='35250000-0000-4000-8000-000000000001'),
+    '35240000-0000-4000-8000-000000000002', 1, 2,
+    '35260000-0000-4000-8000-000000000001')$$,
+  '23505', 'Sunze sale is already selected for another case',
+  'Reviewed selection rejects a sale already used by a legacy completed case'
 );
 select throws_ok(
   $$select public.service_select_sunze_cash_candidate(
@@ -219,6 +298,13 @@ select is(
 );
 select is((select matched_sales_fact_id from public.refund_cases where id='35250000-0000-4000-8000-000000000003'), null::uuid, 'A conflicted sale is not selected twice');
 
+select is(
+  public.service_correlate_sunze_cash_case('35250000-0000-4000-8000-000000000008', 1, 'intake', null, '2026-09-14 21:00:00+00')->>'state',
+  'no_sale_found_with_complete_coverage',
+  'Complete internal coverage may retain zero-candidate evidence'
+);
+select is((select correlation_status from public.refund_cases where id='35250000-0000-4000-8000-000000000008'), 'manual_review', 'Internal zero-candidate evidence cannot activate customer no-match outreach');
+
 select lives_ok(
   $$update public.refund_cases set incident_at='2026-09-14 17:00:00+00' where id='35250000-0000-4000-8000-000000000002'$$,
   'Corrected facts invoke the shared correlation contract'
@@ -230,6 +316,21 @@ select is((select reason_code from public.refund_sunze_cash_correlation_attempts
 
 select is(public.service_sunze_cash_correlation_backfill(true, 100, '2026-09-14 21:00:00+00')->>'evaluated', '0', 'Dry-run backfill reports without mutating');
 
+select throws_ok(
+  $$select public.service_release_sunze_cash_sale_link(
+    '35250000-0000-4000-8000-000000000002', null::bigint, 1,
+    '35260000-0000-4000-8000-000000000001', 'wrong_sale', 'synthetic test')$$,
+  '40001', 'Stale Sunze reconciliation worker',
+  'Release rejects a NULL fact-version token explicitly'
+);
+select throws_ok(
+  $$select public.service_release_sunze_cash_sale_link(
+    '35250000-0000-4000-8000-000000000002', 2, null::bigint,
+    '35260000-0000-4000-8000-000000000001', 'wrong_sale', 'synthetic test')$$,
+  '40001', 'Stale Sunze link version',
+  'Release rejects a NULL link-generation token explicitly'
+);
+
 select is(
   public.service_release_sunze_cash_sale_link(
     '35250000-0000-4000-8000-000000000002', 2, 1,
@@ -237,6 +338,14 @@ select is(
   )->>'released',
   'true',
   'An authorized manager can release nonterminal selected-sale evidence'
+);
+select is(
+  public.service_release_sunze_cash_sale_link(
+    '35250000-0000-4000-8000-000000000002', 2, 1,
+    '35260000-0000-4000-8000-000000000001', 'wrong_sale', 'synthetic test'
+  )->>'replayed',
+  'true',
+  'A lost release response replays with the original actor and generation token'
 );
 select is(
   (select released_by from public.refund_sunze_cash_sale_links where refund_case_id='35250000-0000-4000-8000-000000000002'),
@@ -273,6 +382,35 @@ select is(
   '0',
   'Repeated completed-import hooks do not reselect processed cases or block bounded pagination'
 );
+
+insert into public.refund_cases (
+  id, public_reference, reporting_machine_id, reporting_location_id, customer_email,
+  issue_summary, incident_at, payment_method, payment_amount_cents, status, correlation_status
+)
+select
+  md5('sunze-correlation-bulk-' || fixture)::uuid,
+  'RF-SUNZE-BULK-' || fixture,
+  '35220000-0000-4000-8000-000000000003',
+  '35210000-0000-4000-8000-000000000001',
+  'bulk-' || fixture || '@example.test',
+  'Bounded import continuation fixture',
+  '2026-09-14 19:00:00+00', 'cash', 500, 'needs_review', 'manual_review'
+from generate_series(1, 501) fixture;
+
+create temporary table sunze_bulk_first as
+select public.service_correlate_sunze_cash_import(
+  '35230000-0000-4000-8000-000000000001', 500, '2026-09-14 21:00:00+00'
+) as result;
+select is((select result->>'evaluated' from sunze_bulk_first), '500', 'Completed-import work stays bounded at 500 cases');
+select is((select result->>'remaining' from sunze_bulk_first), '1', 'Completed-import work reports the exact remaining continuation count');
+select is((select result->>'hasMore' from sunze_bulk_first), 'true', 'Completed-import work reports that continuation is required');
+
+create temporary table sunze_bulk_second as
+select public.service_correlate_sunze_cash_import(
+  '35230000-0000-4000-8000-000000000001', 500, '2026-09-14 21:00:00+00'
+) as result;
+select is((select result->>'evaluated' from sunze_bulk_second), '1', 'A continuation drains the final unprocessed current snapshot');
+select is((select result->>'remaining' from sunze_bulk_second), '0', 'A completed continuation reports no remaining work');
 
 select ok(
   (public.service_sunze_cash_correlation_metrics('2026-09-14 00:00:00+00')->>'attemptCount')::integer >= 3

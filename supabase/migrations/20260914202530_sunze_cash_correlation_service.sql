@@ -22,6 +22,7 @@ create table public.refund_sunze_cash_correlation_attempts (
   candidate_count integer not null check (candidate_count >= 0),
   coverage_started_at timestamptz,
   covered_through timestamptz,
+  freshness_expires_at timestamptz,
   evaluated_at timestamptz not null default statement_timestamp(),
   invalidated_at timestamptz,
   invalidation_reason text check (invalidation_reason is null or invalidation_reason = 'selected_sale_released'),
@@ -258,12 +259,13 @@ begin
   insert into public.refund_sunze_cash_correlation_attempts (
     refund_case_id, policy_version, case_fact_version, source_snapshot_key,
     source_import_run_id, trigger_import_run_id, trigger_reason, match_state, reason_code,
-    candidate_count, coverage_started_at, covered_through, evaluated_at
+    candidate_count, coverage_started_at, covered_through, freshness_expires_at, evaluated_at
   ) values (
     p_refund_case_id, 'sunze_cash_correlation_v1', p_expected_fact_version, source_key,
     coalesce(watermark.import_run_id, latest_watermark.import_run_id), p_import_run_id,
     p_trigger_reason, result_state, result_reason, candidate_total,
-    watermark.coverage_started_at, watermark.covered_through, p_now
+    watermark.coverage_started_at, watermark.covered_through,
+    coalesce(watermark.freshness_expires_at, latest_watermark.freshness_expires_at), p_now
   ) returning * into attempt_row;
 
   if watermark.import_run_id is not null then
@@ -289,6 +291,16 @@ begin
         where link.sales_fact_id = ranked.id
           and link.released_at is null
           and link.refund_case_id <> p_refund_case_id
+      ) or exists (
+        select 1 from public.refund_cases completed_case
+        where completed_case.matched_sales_fact_id = ranked.id
+          and completed_case.id <> p_refund_case_id
+          and completed_case.payment_method = 'cash'
+          and completed_case.duplicate_of_refund_case_id is null
+          and (
+            completed_case.refund_completed_at is not null
+            or completed_case.reporting_adjustment_id is not null
+          )
       )
     from (
       select
@@ -350,6 +362,16 @@ begin
       if exists (
         select 1 from public.refund_sunze_cash_sale_links link
         where link.sales_fact_id = selected_fact_id and link.released_at is null
+      ) or exists (
+        select 1 from public.refund_cases completed_case
+        where completed_case.matched_sales_fact_id = selected_fact_id
+          and completed_case.id <> p_refund_case_id
+          and completed_case.payment_method = 'cash'
+          and completed_case.duplicate_of_refund_case_id is null
+          and (
+            completed_case.refund_completed_at is not null
+            or completed_case.reporting_adjustment_id is not null
+          )
       ) then
         selected_fact_id := null;
         result_state := 'multiple_possible_sales';
@@ -392,7 +414,6 @@ begin
       correlation_status = case result_state
         when 'sale_found' then 'matched'
         when 'multiple_possible_sales' then 'multiple_candidates'
-        when 'no_sale_found_with_complete_coverage' then 'no_match'
         else 'manual_review'
       end,
       correlation_source = 'sunze',
@@ -465,6 +486,7 @@ declare
   correlation_result jsonb;
   evaluated integer := 0;
   skipped integer := 0;
+  remaining integer := 0;
 begin
   if p_limit not between 1 and 500 then
     raise exception 'Sunze import correlation limit must be between 1 and 500';
@@ -528,17 +550,74 @@ begin
     order by c.created_at, c.id
     limit p_limit
   loop
-    correlation_result := public.service_correlate_sunze_cash_case(
-      target.id, target.deterministic_fact_version, 'completed_import', p_import_run_id, p_now
-    );
-    if coalesce((correlation_result ->> 'replayed')::boolean, false) then
+    begin
+      correlation_result := public.service_correlate_sunze_cash_case(
+        target.id, target.deterministic_fact_version, 'completed_import', p_import_run_id, p_now
+      );
+      if coalesce((correlation_result ->> 'replayed')::boolean, false) then
+        skipped := skipped + 1;
+      else
+        evaluated := evaluated + 1;
+      end if;
+    exception when sqlstate '40001' then
+      -- A concurrently corrected case remains eligible for the next bounded
+      -- call; one stale case must not roll back other completed-import work.
       skipped := skipped + 1;
-    else
-      evaluated := evaluated + 1;
-    end if;
+    end;
   end loop;
 
-  return jsonb_build_object('evaluated', evaluated, 'skipped', skipped, 'limit', p_limit);
+  select count(*)::integer into remaining
+  from public.refund_cases c
+  left join lateral (
+    select source.*
+    from public.sunze_cash_source_watermarks source
+    where source.reporting_machine_id = c.reporting_machine_id
+      and source.freshness_expires_at > p_now
+      and source.payment_time_basis = 'validated_iana_timezone'
+      and source.timestamp_proof_scope = 'account'
+      and source.coverage_started_at <= c.incident_at - interval '1 hour'
+      and source.covered_through >= c.incident_at + interval '1 hour'
+    order by source.last_successful_import_at desc, source.import_run_id
+    limit 1
+  ) covering on true
+  left join lateral (
+    select source.*
+    from public.sunze_cash_source_watermarks source
+    where source.reporting_machine_id = c.reporting_machine_id
+    order by source.last_successful_import_at desc, source.covered_through desc, source.import_run_id
+    limit 1
+  ) latest on true
+  where c.payment_method = 'cash'
+    and c.status in ('submitted', 'needs_review', 'waiting_on_customer', 'correlated')
+    and c.decision is null and c.refund_completed_at is null and c.reporting_adjustment_id is null
+    and exists (
+      select 1 from public.sunze_cash_source_watermarks source
+      where source.import_run_id = p_import_run_id
+        and source.reporting_machine_id = c.reporting_machine_id
+    )
+    and not exists (
+      select 1 from public.refund_sunze_cash_correlation_attempts attempt
+      where attempt.refund_case_id = c.id
+        and attempt.case_fact_version = c.deterministic_fact_version
+        and attempt.policy_version = 'sunze_cash_correlation_v1'
+        and attempt.source_snapshot_key = case
+          when covering.import_run_id is not null then
+            'covered:' || covering.import_run_id::text || ':' ||
+              extract(epoch from covering.covered_through)::bigint::text
+          when latest.import_run_id is not null then
+            'unavailable:' || case
+              when latest.freshness_expires_at <= p_now then 'stale:'
+              else 'fresh:'
+            end || latest.import_run_id::text || ':' ||
+              extract(epoch from latest.covered_through)::bigint::text
+          else 'unavailable:none'
+        end
+    );
+
+  return jsonb_build_object(
+    'evaluated', evaluated, 'skipped', skipped, 'remaining', remaining,
+    'hasMore', remaining > 0, 'limit', p_limit
+  );
 end;
 $$;
 
@@ -664,6 +743,17 @@ begin
     'policyVersion', attempt_row.policy_version,
     'state', coalesce(attempt_row.match_state, case_row.cash_match_state, 'checking_sales_history'),
     'reason', case when attempt_row.id is null then 'correlation_pending' else attempt_row.reason_code end,
+    'sourceReadiness', case
+      when attempt_row.id is null then 'correlation_pending'
+      when attempt_row.reason_code = 'sales_history_stale' then 'stale'
+      when attempt_row.match_state = 'checking_sales_history' then 'awaiting_coverage'
+      when attempt_row.match_state = 'sales_history_unavailable' then 'unavailable'
+      else 'complete_coverage'
+    end,
+    'coverageStartedAt', attempt_row.coverage_started_at,
+    'coveredThrough', attempt_row.covered_through,
+    'freshnessExpiresAt', attempt_row.freshness_expires_at,
+    'evaluatedAt', attempt_row.evaluated_at,
     'candidateCount', coalesce(attempt_row.candidate_count, 0),
     'returnedCandidateCount', jsonb_array_length(candidates),
     'candidatesTruncated', coalesce(attempt_row.candidate_count, 0) > jsonb_array_length(candidates),
@@ -706,8 +796,12 @@ begin
     or not public.can_manage_refund_case(p_actor_user_id, p_refund_case_id) then
     raise exception 'Authorized refund manager actor required' using errcode = '42501';
   end if;
-  if case_row.deterministic_fact_version <> p_expected_fact_version then
+  if p_expected_fact_version is null
+    or case_row.deterministic_fact_version <> p_expected_fact_version then
     raise exception 'Stale Sunze candidate selection' using errcode = '40001';
+  end if;
+  if p_expected_link_version is null then
+    raise exception 'Stale Sunze link version' using errcode = '40001';
   end if;
   if case_row.payment_method <> 'cash'
     or case_row.status not in ('submitted', 'needs_review', 'waiting_on_customer', 'correlated')
@@ -740,24 +834,48 @@ begin
   select * into link_row from public.refund_sunze_cash_sale_links link
   where link.refund_case_id = p_refund_case_id and link.released_at is null
   for update;
-  if link_row.id is null then
-    if p_expected_link_version <> 0 then
-      raise exception 'Stale Sunze link version' using errcode = '40001';
-    end if;
-  elsif link_row.link_version <> p_expected_link_version then
-    raise exception 'Stale Sunze link version' using errcode = '40001';
-  elsif link_row.sales_fact_id = p_sales_fact_id then
+  if link_row.id is not null
+    and link_row.sales_fact_id = p_sales_fact_id
+    and link_row.correlation_attempt_id = p_attempt_id
+    and link_row.case_fact_version = p_expected_fact_version
+    and link_row.link_origin = 'reviewed'
+    and link_row.link_version in (p_expected_link_version, p_expected_link_version + 1)
+    and exists (
+      select 1 from public.refund_case_events event
+      where event.refund_case_id = p_refund_case_id
+        and event.actor_user_id = p_actor_user_id
+        and event.event_type = 'sunze_cash_candidate_selected'
+        and event.metadata ->> 'attemptId' = p_attempt_id::text
+        and event.metadata ->> 'linkVersion' = link_row.link_version::text
+    ) then
     return jsonb_build_object(
       'selected', true, 'replayed', true,
       'salesFactId', link_row.sales_fact_id, 'linkVersion', link_row.link_version,
       'evidenceOnly', true
     );
   end if;
+  if link_row.id is null then
+    if p_expected_link_version <> 0 then
+      raise exception 'Stale Sunze link version' using errcode = '40001';
+    end if;
+  elsif link_row.link_version <> p_expected_link_version then
+    raise exception 'Stale Sunze link version' using errcode = '40001';
+  end if;
 
   if exists (
     select 1 from public.refund_sunze_cash_sale_links other
     where other.sales_fact_id = p_sales_fact_id and other.released_at is null
       and other.refund_case_id <> p_refund_case_id
+  ) or exists (
+    select 1 from public.refund_cases completed_case
+    where completed_case.matched_sales_fact_id = p_sales_fact_id
+      and completed_case.id <> p_refund_case_id
+      and completed_case.payment_method = 'cash'
+      and completed_case.duplicate_of_refund_case_id is null
+      and (
+        completed_case.refund_completed_at is not null
+        or completed_case.reporting_adjustment_id is not null
+      )
   ) then
     raise exception 'Sunze sale is already selected for another case' using errcode = '23505';
   end if;
@@ -845,8 +963,12 @@ begin
   select * into case_row from public.refund_cases c
   where c.id = p_refund_case_id for update;
   if not found then raise exception 'Refund case not found'; end if;
-  if case_row.deterministic_fact_version <> p_expected_fact_version then
+  if p_expected_fact_version is null
+    or case_row.deterministic_fact_version <> p_expected_fact_version then
     raise exception 'Stale Sunze reconciliation worker' using errcode = '40001';
+  end if;
+  if p_expected_link_version is null then
+    raise exception 'Stale Sunze link version' using errcode = '40001';
   end if;
   if case_row.status not in ('submitted', 'needs_review', 'waiting_on_customer', 'correlated')
     or case_row.decision is not null
@@ -858,7 +980,25 @@ begin
   select * into link_row from public.refund_sunze_cash_sale_links link
   where link.refund_case_id = p_refund_case_id and link.released_at is null
   for update;
-  if not found then raise exception 'Active Sunze sale link not found'; end if;
+  if not found then
+    select * into link_row
+    from public.refund_sunze_cash_sale_links link
+    where link.refund_case_id = p_refund_case_id
+      and link.case_fact_version = p_expected_fact_version
+      and link.link_version = p_expected_link_version + 1
+      and link.released_at is not null
+      and link.release_reason = p_release_reason
+      and link.release_note is not distinct from nullif(btrim(coalesce(p_release_note, '')), '')
+      and link.released_by = p_actor_user_id
+    order by link.released_at desc, link.id desc
+    limit 1;
+    if found then
+      return jsonb_build_object(
+        'released', true, 'replayed', true, 'linkVersion', link_row.link_version
+      );
+    end if;
+    raise exception 'Active Sunze sale link not found';
+  end if;
   if link_row.link_version <> p_expected_link_version then
     raise exception 'Stale Sunze link version' using errcode = '40001';
   end if;
