@@ -203,7 +203,8 @@
     "20260914080000_refund_system_settlement_adjustment_proof.sql",
     "20260914090000_refund_official_authority_cash_completion.sql",
     "20260914100000_refund_manager_system_cutover.sql",
-    "20260914173954_refund_evidence_timezone.sql"
+    "20260914173954_refund_evidence_timezone.sql",
+    "20260914193919_refund_candidate_time_semantics.sql"
   ],
   "migrationFilesSha256": "ee3b3c579167c5833a9c816a1bd5f0d230092acf718a8a1ed3c1a325ef1897c4",
   "migrationVersionSetSha256": "2c1593147c126245091878f99e898b497a90657e254e9e2812d13c304d522352",
