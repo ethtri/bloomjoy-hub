@@ -44,6 +44,7 @@ values('a3490000-0000-4000-8000-000000000001','a3470000-0000-4000-8000-000000000
   statement_timestamp()-interval '2 days',statement_timestamp()-interval '2 days',
   statement_timestamp()+interval '180 days');
 create temporary table pg_temp.nayax_provider_results(result_key text primary key,result jsonb not null);
+grant select on pg_temp.nayax_provider_results to service_role;
 insert into pg_temp.nayax_provider_results
 select 'success-reserve',(public.service_claim_due_nayax_refund_attempts_v1(
   'single-gate-executor','SINGLE_GATE_ACCOUNT','exact_source','empty_string',1)->'claims'->0);

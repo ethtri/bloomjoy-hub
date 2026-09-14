@@ -62,6 +62,7 @@ test('settled completion delivery reuses the current System queue and canonical 
   const original = fs.readFileSync(path.join(repoRoot, 'supabase/tests/refund_single_manager_gate.sql'), 'utf8').replaceAll('\r\n', '\n');
   const sql = buildSettledCompletionDeliveryTest(original);
   assert.ok(sql.includes('public.service_claim_due_nayax_refund_attempts_v1('));
+  assert.ok(sql.includes('grant select on pg_temp.nayax_provider_results to service_role;'));
   assert.ok(sql.includes('public.service_record_nayax_refund_provider_stage_v4_diagnostics('));
   assert.ok(sql.includes("record_single_gate_success_stage('request','started',null)"));
   assert.ok(sql.includes("record_single_gate_success_stage('request','result','accepted')"));
