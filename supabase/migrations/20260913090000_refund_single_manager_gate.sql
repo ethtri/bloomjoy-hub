@@ -296,8 +296,8 @@ begin
       where receipt.refund_case_id=c.id)
     or exists(select 1 from public.refund_case_nayax_refund_attempts attempt
       where attempt.refund_case_id=c.id)
-    or exists(select 1 from public.refund_case_official_action_authorizations authorization
-      where authorization.refund_case_id=c.id and authorization.status in ('pending','consumed')) then
+    or exists(select 1 from public.refund_case_official_action_authorizations approval_record
+      where approval_record.refund_case_id=c.id and approval_record.status in ('pending','consumed')) then
     raise exception 'Only the current unapproved System match can be disputed'
       using errcode='P4620';
   end if;
