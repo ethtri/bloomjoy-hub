@@ -3,10 +3,12 @@ import { readFile } from 'node:fs/promises';
 
 const read = (path) => readFile(new URL(`../../${path}`, import.meta.url), 'utf8');
 
-const [migration, databaseTest, operations, managerUi, status, workflow, procedure, qa, runbook] =
+const [migration, timeMigration, databaseTest, selectionTest, operations, managerUi, status, workflow, procedure, qa, runbook] =
   await Promise.all([
     read('supabase/migrations/20260901050000_refund_selected_nayax_transaction_evidence.sql'),
+    read('supabase/migrations/20260914193919_refund_candidate_time_semantics.sql'),
     read('supabase/tests/refund_selected_nayax_transaction_evidence.sql'),
+    read('supabase/tests/refund_contactless_review_selection.sql'),
     read('src/lib/refundOperations.ts'),
     read('src/pages/admin/Refunds.tsx'),
     read('Docs/CURRENT_STATUS.md'),
@@ -52,7 +54,7 @@ for (const label of [
   'Copy ID',
   'Provider-confirmed sale',
   'Customer-reported time',
-  'Provider machine-local time',
+  'Provider machine clock',
   'Card or wallet details',
   'Why this transaction was selected',
 ]) {
@@ -64,11 +66,41 @@ assert(
   'The manager must be able to copy the ID and missing evidence must remain an internal exception',
 );
 assert(
+  timeMigration.includes("'candidateTimeContractVersion'") &&
+    timeMigration.includes("'refund_candidate_time_v1'") &&
+    timeMigration.includes("'incidentLocalDateTime'") &&
+    timeMigration.includes("'providerTimestampAt'") &&
+    timeMigration.includes("'payloadRedacted', true") &&
+    timeMigration.includes('refund_safe_timezone_v1') &&
+    timeMigration.includes('matched_nayax_site_id') &&
+    timeMigration.includes("'2026-09-13.v12'") &&
+    timeMigration.includes('refund_nayax_request_boundary_evidence_state_pre_candidate_time_v1'),
+  'The timestamp extension must stay versioned, event-specific, and redacted',
+);
+assert(
   databaseTest.includes('Unselected candidate projections remain tokenized') &&
     databaseTest.includes('An unrelated manager cannot discover the case') &&
     databaseTest.includes("not evidence ? 'providerPayload'") &&
-    databaseTest.includes("select plan(13)"),
+    databaseTest.includes('full immutable sale identity') &&
+    databaseTest.includes('without hiding the manager queue') &&
+    databaseTest.includes("select plan(22)"),
   'Database coverage must prove scope, tokenization, redaction, and the complete contract',
+);
+assert(
+  selectionTest.includes("select plan(30)") &&
+    selectionTest.includes('The database accepts the current v12 bounded identifier contract') &&
+    selectionTest.includes('Rough DST-gap and noncomparable time remains selectable') &&
+    selectionTest.includes('Manager can explicitly bind persisted v12 ambiguous-time evidence') &&
+    selectionTest.includes('Supporting-only provider time cannot be saved as the manager rationale') &&
+    selectionTest.includes('cannot bypass the time-rationale guard with case or whitespace') &&
+    timeMigration.includes('$manager_selection_v12$'),
+  'Database coverage must prove v12 scorer/save parity for uncertain customer and provider time',
+);
+assert(
+  managerUi.includes('refundCandidateTimeSourceDetail') &&
+    managerUi.includes('refundCustomerTimeDisplay') &&
+    managerUi.includes('Customer-entered local time · no instant inferred'),
+  'The manager UI must show bounded source/resolution details and preserve DST wall-clock input',
 );
 for (const [name, document] of [
   ['current status', status],

@@ -518,6 +518,7 @@ const buildMockRefundOverview = () => ({
       incidentAt: isoHoursAgo(5),
       incidentTimezone: 'America/New_York',
       incidentTimeResolution: 'exact',
+      qrClaimOpenedAt: isoHoursAgo(4.9),
       paymentMethod: 'card',
       paymentAmountCents: 700,
       cardLast4: '4242',
@@ -552,7 +553,7 @@ const buildMockRefundOverview = () => ({
         machineTimezone: 'America/Los_Angeles',
         providerTimeResolution: 'exact',
         customerTimezone: 'America/New_York',
-        providerProcessingAt: isoHoursAgo(4.95),
+        providerTimestampAt: isoHoursAgo(4.95),
         timeEvidence: {
           schemaVersion: 'refund_candidate_time_v1',
           providerTimestampSource: 'authorization_gmt',
@@ -4259,6 +4260,18 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
       purchaseComparisonText.includes('America/Los_Angeles') &&
       purchaseComparisonText.includes('does not prove when the purchase happened')
   );
+  const providerClockDiagnostic = page.getByTestId('refund-provider-clock-diagnostic');
+  await providerClockDiagnostic.locator('summary').click();
+  recorder.assert(
+    'Provider clock mismatch remains a System diagnostic rather than customer homework',
+    await providerClockDiagnostic.isVisible() &&
+      (await providerClockDiagnostic.innerText()).includes('America/New_York') &&
+      (await providerClockDiagnostic.innerText()).includes('America/Los_Angeles') &&
+      (await providerClockDiagnostic.innerText()).includes('not information the customer needs to repeat') &&
+      (await page.getByTestId('refund-request-summary').innerText()).includes(
+        'Request receipt · shown in venue time · America/New_York'
+      )
+  );
   await copyTransactionButton.click();
   recorder.assert(
     'Copy ID writes only the exact selected Nayax transaction reference',
@@ -4452,7 +4465,11 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
     await confirmationDialog.isVisible() &&
       !functionCalls.includes('nayax-card-refund') &&
       await confirmationDialog.getByText('Cotton Candy 01').isVisible() &&
-      await confirmationDialog.getByText('$7.00 · card ending 4242').isVisible()
+      await confirmationDialog.getByText('$7.00 · card ending 4242').isVisible() &&
+      (await confirmationDialog.innerText()).includes('Nayax authorization time') &&
+      (await confirmationDialog.innerText()).includes('Shown in venue time · America/New_York') &&
+      (await confirmationDialog.innerText()).includes('does not prove when the purchase happened') &&
+      (await confirmationDialog.innerText()).includes('Provider machine clock:')
   );
   recorder.assert(
     'Keyboard focus is trapped inside the payment confirmation',
@@ -6847,8 +6864,8 @@ const runNayaxLookupStatusMatrixChecks = async ({
         lookupStatus: 'multiple_matches',
         recommendationState: 'ambiguous',
         confidenceClass: 'ambiguous_manual',
-        reasonCodes: ['multiple_candidates_need_manager_review', 'plausible_runner_up'],
-        policyVersion: '2026-09-05.v11',
+        reasonCodes: ['multiple_manager_selectable_candidates', 'plausible_runner_up'],
+        policyVersion: '2026-09-13.v12',
         oneClickEligible: false,
         lastCheckedAt: now.toISOString(),
         providerRecordCount: 2,
@@ -6867,10 +6884,22 @@ const runNayaxLookupStatusMatrixChecks = async ({
             recognitionMethod: 'contactless', paymentStatus: 'approved',
             recommendationRank: 1, isTopRanked: true, isRecommended: false,
             recommendationState: 'ambiguous', confidenceClass: 'ambiguous_manual',
-            reasonCodes: ['multiple_candidates_need_manager_review'], oneClickEligible: false,
-            selectionAllowed: false, matchStrength: 'manual_review', policyVersion: '2026-09-05.v11',
-            identifierReviewState: 'needs_corroboration',
+            reasonCodes: ['multiple_manager_selectable_candidates'], oneClickEligible: false,
+            selectionAllowed: true, matchStrength: 'compare', policyVersion: '2026-09-13.v12',
+            identifierReviewState: 'exact_support',
             customerCorrectionFields: [],
+            timeEvidence: {
+              schemaVersion: 'refund_candidate_time_v1',
+              providerTimestampSource: 'unverified_location_clock',
+              providerTimeResolution: 'unknown',
+              machineTimeResolution: 'unknown',
+              machineClockTimezone: null,
+              machineClockSource: 'unknown',
+              occurrenceComparable: false,
+              occurrenceSemantics: 'unknown',
+              occurrenceTimezoneBasis: null,
+              payloadRedacted: true,
+            },
             matchReason: 'Exact machine, amount, and card ending; available provider times cannot distinguish this sale.',
           },
           {
@@ -6881,17 +6910,29 @@ const runNayaxLookupStatusMatrixChecks = async ({
             recognitionMethod: 'contactless', paymentStatus: 'approved',
             recommendationRank: 2, isTopRanked: false, isRecommended: false,
             recommendationState: 'ambiguous', confidenceClass: 'ambiguous_manual',
-            reasonCodes: ['multiple_candidates_need_manager_review'], oneClickEligible: false,
-            selectionAllowed: false, matchStrength: 'manual_review', policyVersion: '2026-09-05.v11',
-            identifierReviewState: 'needs_corroboration',
+            reasonCodes: ['multiple_manager_selectable_candidates'], oneClickEligible: false,
+            selectionAllowed: true, matchStrength: 'compare', policyVersion: '2026-09-13.v12',
+            identifierReviewState: 'exact_support',
             customerCorrectionFields: [],
+            timeEvidence: {
+              schemaVersion: 'refund_candidate_time_v1',
+              providerTimestampSource: 'unverified_location_clock',
+              providerTimeResolution: 'unknown',
+              machineTimeResolution: 'unknown',
+              machineClockTimezone: null,
+              machineClockSource: 'unknown',
+              occurrenceComparable: false,
+              occurrenceSemantics: 'unknown',
+              occurrenceTimezoneBasis: null,
+              payloadRedacted: true,
+            },
             matchReason: 'Exact machine, amount, and card ending; available provider times cannot distinguish this sale.',
           },
         ],
       },
       expectedHeading: '2 transactions found',
       expectedStatus: '2 results',
-      expectedAction: 'Review transaction evidence',
+      expectedAction: 'Compare Customer request with Machine transaction. Select one only when they clearly describe the same purchase.',
       expectedCandidateCount: 2,
       expectedManagerEvidenceReview: true,
     },
@@ -7587,7 +7628,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
     recorder.assert(
       `Nayax ${scenario.name} keeps reported and QR times separate`,
       (await page.getByText('Customer time', { exact: true }).count()) >= 1 &&
-        (await page.getByText('Refund form opened', { exact: true }).count()) >= 1
+        (await page.getByText('Refund request received', { exact: true }).count()) >= 1
     );
     const statusText = page.getByTestId('nayax-result-card')
       .getByText(scenario.expectedHeading, { exact: true });
@@ -7696,22 +7737,50 @@ const runNayaxLookupStatusMatrixChecks = async ({
       if (scenario.expectedManagerEvidenceReview) {
         const candidateOptions = page.getByTestId('nayax-transaction-comparison').getByTestId('nayax-candidate-option');
         recorder.assert(
-          'Same-card purchases with unproved occurrence timing stay manager-owned without another customer question',
+          'Same-card purchases with unproved occurrence timing stay selectable and manager-owned without another customer question',
           await page.getByTestId('nayax-candidate-availability').getByText('2 current transaction results', { exact: true }).isVisible() &&
-            await page.getByTestId('nayax-candidate-availability').getByText(/none can be selected/i).isVisible() &&
+            await page.getByTestId('nayax-candidate-availability').getByText(/2 results are selectable.*choose one only/i).isVisible() &&
             (await candidateOptions.count()) === 2 &&
             await candidateOptions.locator('input[type="radio"]').evaluateAll(
-              (inputs) => inputs.every((input) => input.disabled)
+              (inputs) => inputs.every((input) => !input.disabled)
             ) &&
-            (await page.getByLabel('Why is this the right transaction?').count()) === 0 &&
             (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0 &&
             (await page.getByRole('button', { name: 'Ask for missing details', exact: true }).count()) === 0 &&
-            await page.getByRole('button', { name: 'Review transaction evidence', exact: true }).isEnabled()
+            await candidateOptions.evaluateAll((options) => options.every((option) =>
+              option.textContent?.includes(
+                'Unverified venue-clock interpretation · provider resolution unknown · machine clock resolution and source unknown'
+              )
+            ))
         );
-        await page.getByRole('button', { name: 'Review transaction evidence', exact: true }).click();
         recorder.assert(
-          'Manager evidence review focuses the existing machine transaction without dispatching customer work',
-          await page.evaluate(() => document.activeElement?.id === 'refund-machine-transaction') &&
+          'Candidate radios expose distinct payment and timestamp evidence to assistive technology',
+          await candidateOptions.locator('input[type="radio"]').evaluateAll((inputs) =>
+            inputs.every((input) => {
+              const descriptionIds = (input.getAttribute('aria-describedby') ?? '')
+                .split(/\s+/)
+                .filter(Boolean);
+              const description = descriptionIds
+                .map((id) => document.getElementById(id)?.textContent ?? '')
+                .join(' ');
+              return /^Select transaction \d+$/i.test(input.getAttribute('aria-label') ?? '') &&
+                /ending \d{4}/i.test(description) &&
+                /Nayax record time/i.test(description) &&
+                /does not prove when the purchase happened/i.test(description);
+            })
+          )
+        );
+        await candidateOptions.first().click();
+        const managerSelectionReason = page.getByLabel('Why is this the right transaction?');
+        recorder.assert(
+          'Noncomparable provider time cannot be recorded as the manager rationale',
+          (await managerSelectionReason.locator('option[value="closer_time"]').count()) === 0
+        );
+        await managerSelectionReason.selectOption('correct_card');
+        recorder.assert(
+          'Manager can prepare either existing purchase for review without dispatching customer work',
+          await page.getByTestId('refund-prepare-transaction-panel').isVisible() &&
+            await managerSelectionReason.isVisible() &&
+            await page.getByTestId('refund-save-transaction-for-review').isEnabled() &&
             !functionCalls.includes('refund-case-message-send')
         );
       }
@@ -7951,9 +8020,24 @@ const runNayaxLookupStatusMatrixChecks = async ({
 
           await page.getByTestId('refund-run-nayax-refund').click();
           const refundDialog = page.getByTestId('refund-confirmation-dialog');
+          await refundDialog.waitFor({ state: 'visible', timeout: 10000 });
+          await refundDialog.evaluate(async (dialog) => {
+            await Promise.allSettled(
+              dialog.getAnimations({ subtree: true }).map((animation) => animation.finished)
+            );
+          });
+          const refundDialogBounds = await refundDialog.boundingBox();
+          const refundDialogText = await refundDialog.innerText();
           recorder.assert(
             'The single confirmation covers the bound transaction, refund, and success email',
             await refundDialog.isVisible() &&
+              refundDialogBounds != null &&
+              refundDialogBounds.x >= 0 &&
+              refundDialogBounds.y >= 0 &&
+              refundDialogBounds.x + refundDialogBounds.width <= 1440 &&
+              refundDialogBounds.y + refundDialogBounds.height <= 1000 &&
+              /Approve \$\d+\.\d{2} card refund/.test(refundDialogText) &&
+              /card ending \d{4}/i.test(refundDialogText) &&
               await refundDialog.getByText(/email the customer only after Nayax confirms it/i).isVisible() &&
               functionCalls.filter((name) => name === 'refund-case-admin-update').length === 1 &&
               !functionCalls.includes('nayax-card-refund')
@@ -11187,6 +11271,7 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
   };
   const createDemoContext = () => browser.newContext({
     viewport: { width: 1440, height: 1000 },
+    timezoneId: 'America/Los_Angeles',
   });
   const openSignedInDemoPage = async (context, rpcCalls, initialPath) => {
     await installMockSupabaseRoutes(context, { refundOverview: buildEmptyRefundOverview, rpcCalls });
@@ -11228,12 +11313,26 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
       summaryCount: await page.getByTestId('refund-manager-work-summary').count(),
       actionNeededVisible: await mobileActionNeededFilter.isVisible(),
       queuePanelCount: await page.locator('#refund-queue-panel').count(),
+      identityAndTaskVisible: await page.getByTestId('refund-case-queue-item').evaluateAll((items) =>
+        items.some((item) => {
+          const bounds = item.getBoundingClientRect();
+          const text = item.textContent ?? '';
+          return bounds.width > 0 && bounds.height > 0 &&
+            text.includes('RF-UAT-SETUP') &&
+            text.includes('Transaction search unavailable');
+        })
+      ),
+      horizontalOverflow: await page.evaluate(() =>
+        document.documentElement.scrollWidth > document.documentElement.clientWidth
+      ),
     };
     recorder.assert(
       'The single refund queue remains operable at 390px and 200 percent zoom',
-      mobileQueueSignals.summaryCount === 0 &&
+        mobileQueueSignals.summaryCount === 0 &&
         mobileQueueSignals.actionNeededVisible &&
-        mobileQueueSignals.queuePanelCount === 1,
+        mobileQueueSignals.queuePanelCount === 1 &&
+        mobileQueueSignals.identityAndTaskVisible &&
+        !mobileQueueSignals.horizontalOverflow,
       JSON.stringify(mobileQueueSignals)
     );
     await page.screenshot({ path: path.join(artifactDir, 'refund-manager-queue-mobile-200-percent.png'), fullPage: true });
@@ -11290,10 +11389,22 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
     recorder.assert(
       'Demo distinguishes customer, venue, and provider-machine time without treating supporting time as proof',
       demoComparisonText.includes('Customer report · America/New_York') &&
-        demoComparisonText.includes('Nayax authorization time · shown in venue time') &&
+      demoComparisonText.includes('Nayax authorization time · shown in venue time') &&
         demoComparisonText.includes('Provider machine clock:') &&
         demoComparisonText.includes('America/Los_Angeles') &&
+        demoComparisonText.includes('Nayax GMT authorization · provider time exact · verified machine clock exact') &&
+        demoComparisonText.includes('EDT') &&
+        demoComparisonText.includes('PDT') &&
         demoComparisonText.includes('does not prove when the purchase happened')
+    );
+    const demoProviderClockDiagnostic = page.getByTestId('refund-provider-clock-diagnostic');
+    await demoProviderClockDiagnostic.locator('summary').click();
+    recorder.assert(
+      'Demo exposes provider clock mismatch and request receipt semantics without using the Pacific browser clock',
+      (await demoProviderClockDiagnostic.innerText()).includes('not information the customer needs to repeat') &&
+        (await page.getByTestId('refund-request-summary').innerText()).includes(
+          'Request receipt · shown in venue time · America/New_York'
+        )
     );
     await page.getByText('Other decisions', { exact: true }).click();
     recorder.assert(
@@ -11336,6 +11447,26 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
       'Explicit demo mode does not fetch live refund overview RPC data',
       !rpcCalls.includes('admin_get_refund_operations_overview'),
       rpcCalls.join(', ')
+    );
+
+    await navigateRefundPortalPage(
+      page,
+      `${appUrl}/refunds?demo=on&time-case=dst-gap`,
+      { waitUntil: 'domcontentloaded' }
+    );
+    await waitForRefundPortalRouteCommitted(page);
+    await page.getByRole('button', { name: /^Ready to approve \d+$/ }).click();
+    await waitForQueueCount(page, 1);
+    await queueCase(page, 'RF-UAT-CARD').click();
+    await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
+    const dstGapComparisonText = await page.getByTestId('refund-purchase-comparison').innerText();
+    recorder.assert(
+      'DST-gap review preserves the customer-entered wall clock without inventing an instant',
+      dstGapComparisonText.includes('Mar 8, 2026, 2:30 AM') &&
+        dstGapComparisonText.includes('Customer-entered local time · no instant inferred · America/New_York') &&
+        dstGapComparisonText.includes('This local time falls in a DST gap') &&
+        !dstGapComparisonText.includes('2:30 AM EST') &&
+        !dstGapComparisonText.includes('2:30 AM EDT')
     );
   });
 

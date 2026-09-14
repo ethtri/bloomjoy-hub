@@ -519,10 +519,10 @@ const roughCompetingPurchases = recommend([
   requestCardLast4Source: null,
 });
 assert.equal(roughCompetingPurchases.recommendationState, "ambiguous");
-assert.equal(roughCompetingPurchases.candidates.every((candidate) => candidate.selectionAllowed === false), true);
+assert.equal(roughCompetingPurchases.candidates.every((candidate) => candidate.selectionAllowed === true), true);
 assert.deepEqual(
   roughCompetingPurchases.candidates.map((candidate) => candidate.customerCorrectionFields),
-  [["incident_time", "incident_time_source"], ["incident_time", "incident_time_source"]],
+  [[], []],
 );
 assert.equal(roughCompetingPurchases.candidates.some((candidate) => candidate.isRecommended), false);
 
@@ -536,7 +536,7 @@ const roughSameCardCompetingPurchases = recommend([
 });
 assert.equal(roughSameCardCompetingPurchases.recommendationState, "ambiguous");
 assert.equal(
-  roughSameCardCompetingPurchases.candidates.every((candidate) => candidate.selectionAllowed === false),
+  roughSameCardCompetingPurchases.candidates.every((candidate) => candidate.selectionAllowed === true),
   true,
 );
 assert.deepEqual(
@@ -544,9 +544,10 @@ assert.deepEqual(
   [[], []],
 );
 assert.equal(roughSameCardCompetingPurchases.candidates.some((candidate) => candidate.isRecommended), false);
-assert.equal(roughSameCardCompetingPurchases.candidates.every((candidate) =>
-  candidate.reasonCodes.includes("multiple_candidates_need_manager_review")
-), true);
+assert.deepEqual(
+  roughSameCardCompetingPurchases.reasonCodes,
+  ["multiple_manager_selectable_candidates", "plausible_runner_up"],
+);
 
 const provedSeparatedPurchases = [
   sale({ id: "proved-separated-a", at: "2026-07-21T13:00:00.000Z" }),
@@ -559,7 +560,7 @@ const provedSeparatedRoughPurchases = recommend(provedSeparatedPurchases, {
 assert.equal(provedSeparatedRoughPurchases.recommendationState, "ambiguous");
 assert.deepEqual(
   provedSeparatedRoughPurchases.candidates.map((candidate) => candidate.customerCorrectionFields),
-  [["incident_time", "incident_time_source"], ["incident_time", "incident_time_source"]],
+  [[], []],
 );
 const provedSeparatedAfterCorrection = recommend(provedSeparatedPurchases, {
   incidentAt: "2026-07-21T13:00:00.000Z",

@@ -36,6 +36,11 @@ orientation snapshot; it is not a backlog or release ledger.
   provenance are System responsibilities, not reasons for customer rework. A
   reported $10.00 purchase may correctly match and refund the selected $10.90
   provider total when the remaining evidence identifies that purchase.
+- P0 issue [#1360](https://github.com/ethtri/bloomjoy-hub/issues/1360) adds an
+  explicit customer/venue/provider timestamp contract and keeps ambiguous or
+  noncomparable same-card candidates available for manager selection. The code
+  and migration are not production behavior until their PR is merged and the
+  normal release verification is complete.
 - Nayax may be used for read-only transaction research when the API cannot find a
   match. Never issue or record a refund there. Cash remains a Manager-arranged
   manual payment outside the card attempt queue.

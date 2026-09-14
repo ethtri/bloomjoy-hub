@@ -1280,64 +1280,6 @@ export const buildNayaxRecommendation = ({
     policy,
   });
 
-  const customerTimeSupportsManagerSelection =
-    ["exact", "legacy_absolute"].includes(request.incidentTimeResolution) &&
-    request.incidentTimeConfidence !== "rough";
-  const selectableWithoutPreciseTime = candidates.filter((candidate) => candidate.selectionAllowed);
-  const competingPurchaseCandidates = new Map();
-  for (const candidate of selectableWithoutPreciseTime) {
-    if (!candidate.cardLast4) continue;
-    const key = [candidate.cardLast4, candidate.amountCents, candidate.currencyCode].join(":");
-    const samePurchaseKeyCandidates = competingPurchaseCandidates.get(key) ?? [];
-    samePurchaseKeyCandidates.push(candidate);
-    competingPurchaseCandidates.set(key, samePurchaseKeyCandidates);
-  }
-  const competingPurchaseKeys = new Set(
-    [...competingPurchaseCandidates.entries()].filter(([, sameKey]) => sameKey.length > 1).map(([key]) => key),
-  );
-  const correctionFieldsByCompetingPurchaseKey = new Map(
-    [...competingPurchaseCandidates.entries()]
-      .filter(([, sameKey]) => sameKey.length > 1)
-      .map(([key, sameKey]) => [
-        key,
-        purchaseOccurrenceIntervalsSupportStructuredTimeCorrection(sameKey)
-          ? ["incident_time", "incident_time_source"]
-          : [],
-      ]),
-  );
-  const conservativeCompetingPurchaseHold =
-    !customerTimeSupportsManagerSelection && competingPurchaseKeys.size > 0;
-  if (conservativeCompetingPurchaseHold) {
-    candidates = candidates.map((candidate) => {
-      const key = [candidate.cardLast4, candidate.amountCents, candidate.currencyCode].join(":");
-      const correctionFields = correctionFieldsByCompetingPurchaseKey.get(key) ?? [];
-      const collisionReason = correctionFields.length > 0
-        ? "multiple_candidates_need_distinguishing_time"
-        : "multiple_candidates_need_manager_review";
-      return candidate.selectionAllowed && candidate.cardLast4 && competingPurchaseKeys.has(key)
-      ? {
-          ...candidate,
-          evidenceAwareReviewEligible: false,
-          selectionAllowed: false,
-          identifierReviewState: "needs_corroboration",
-          customerCorrectionFields: correctionFields,
-          manualReviewReasons: [
-            ...new Set([
-              ...candidate.manualReviewReasons,
-              collisionReason,
-            ]),
-          ],
-          reasonCodes: [
-            ...new Set([
-              ...candidate.reasonCodes,
-              collisionReason,
-            ]),
-          ],
-        }
-      : candidate;
-    });
-  }
-
   const topOverall = candidates[0] ?? null;
   const strongCardCandidates = candidates.filter((candidate) => candidate.strongCardEligible);
   const qrTimeCandidates = candidates.filter((candidate) => candidate.uniqueQrTimeEligible);
@@ -1390,11 +1332,6 @@ export const buildNayaxRecommendation = ({
   } else if (managerSelectableCandidates.length > 1) {
     recommendationState = "ambiguous";
     resultReasonCodes = ["multiple_manager_selectable_candidates", "plausible_runner_up"];
-  } else if (conservativeCompetingPurchaseHold) {
-    recommendationState = "ambiguous";
-    resultReasonCodes = candidatesNeedingDistinguishingCustomerFacts.length > 1
-      ? ["multiple_candidates_need_distinguishing_fact", "plausible_runner_up"]
-      : ["multiple_candidates_need_manager_review", "plausible_runner_up"];
   } else if (candidatesNeedingDistinguishingCustomerFacts.length > 1) {
     recommendationState = "ambiguous";
     resultReasonCodes = ["multiple_candidates_need_distinguishing_fact", "plausible_runner_up"];
@@ -1512,23 +1449,74 @@ export const buildNayaxRecommendation = ({
   };
 };
 
+const publicProviderTimestampSources = new Set([
+  "authorization_gmt",
+  "machine_authorization_offset",
+  "verified_machine_clock",
+  "unverified_location_clock",
+]);
+const publicTimeResolutions = new Set(["exact", "ambiguous"]);
+const publicOccurrenceTimezoneBases = new Set([
+  "utc",
+  "embedded_offset",
+  "verified_machine_timezone",
+]);
+
+const isPublicIanaTimezone = (value) => {
+  if (typeof value !== "string" || !value.trim() || value.length > 80) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const toPublicCandidateTimeEvidence = (candidate) => {
+  const machineClockIsVerified =
+    candidate.machineClockContext?.source === "native_machine_configuration" &&
+    isPublicIanaTimezone(candidate.machineClockContext?.timezone);
+  const occurrenceSemantics =
+    candidate.transactionOccurrenceSemantics === "online_purchase_occurrence"
+      ? "online_purchase_occurrence"
+      : "unknown";
+  const occurrenceTimezoneBasis = publicOccurrenceTimezoneBases.has(
+    candidate.transactionOccurrenceTimezoneBasis,
+  )
+    ? candidate.transactionOccurrenceTimezoneBasis
+    : null;
+  return {
+    schemaVersion: "refund_candidate_time_v1",
+    providerTimestampSource: publicProviderTimestampSources.has(candidate.providerTimeSource)
+      ? candidate.providerTimeSource
+      : "unknown",
+    providerTimeResolution: publicTimeResolutions.has(candidate.providerTimeResolution)
+      ? candidate.providerTimeResolution
+      : "unknown",
+    machineTimeResolution: publicTimeResolutions.has(candidate.machineTimeResolution)
+      ? candidate.machineTimeResolution
+      : "unknown",
+    machineClockTimezone:
+      machineClockIsVerified && isPublicIanaTimezone(candidate.machineClockContext?.timezone)
+        ? candidate.machineClockContext.timezone
+        : null,
+    machineClockSource: machineClockIsVerified ? "native_machine_configuration" : "unknown",
+    occurrenceComparable:
+      candidate.transactionOccurrenceComparable === true &&
+      occurrenceSemantics === "online_purchase_occurrence" &&
+      occurrenceTimezoneBasis !== null,
+    occurrenceSemantics,
+    occurrenceTimezoneBasis,
+    payloadRedacted: true,
+  };
+};
+
 export const toPublicNayaxCandidate = (candidate, candidateToken) => ({
   candidateToken,
   machineDisplayLabel: candidate.machineDisplayLabel ?? null,
   authorizedAt: candidate.authorizedAt,
   machineAuthorizationTime: candidate.machineAuthorizationTime,
-  timeEvidence: {
-    schemaVersion: "refund_candidate_time_v1",
-    providerTimestampSource: candidate.providerTimeSource,
-    providerTimeResolution: candidate.providerTimeResolution,
-    machineTimeResolution: candidate.machineTimeResolution,
-    machineClockTimezone: candidate.machineClockContext?.timezone ?? null,
-    machineClockSource: candidate.machineClockContext?.source ?? "unknown",
-    occurrenceComparable: candidate.transactionOccurrenceComparable === true,
-    occurrenceSemantics: candidate.transactionOccurrenceSemantics ?? "unknown",
-    occurrenceTimezoneBasis: candidate.transactionOccurrenceTimezoneBasis ?? null,
-    payloadRedacted: true,
-  },
+  timeEvidence: toPublicCandidateTimeEvidence(candidate),
   amountCents: candidate.amountCents,
   amountDeltaCents: candidate.amountDeltaCents,
   timeDeltaMinutes: candidate.timeDeltaMinutes,

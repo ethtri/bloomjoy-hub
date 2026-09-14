@@ -21,7 +21,11 @@ import {
   type RefundCustomerLifecycle,
 } from '@/lib/refundCustomerStatus';
 import { parseRefundManagerWorkProjection, type RefundManagerWorkProjection } from '@/lib/refundManagerWork';
-import { isRefundTimeZone, type RefundCandidateTimeEvidence } from '@/lib/refundTimePresentation';
+import {
+  isRefundTimeZone,
+  parseRefundSelectedCustomerTimezone,
+  type RefundCandidateTimeEvidence,
+} from '@/lib/refundTimePresentation';
 
 export type RefundPaymentMethod = 'card' | 'cash' | 'unknown';
 export type RefundPaymentInteraction =
@@ -547,8 +551,8 @@ export type RefundSelectedNayaxTransaction = {
   providerAuthorizedAt: string;
   machineTimezone: string;
   providerTimeResolution: string;
-  customerTimezone?: string;
-  providerProcessingAt?: string | null;
+  customerTimezone?: string | null;
+  providerTimestampAt?: string | null;
   timeEvidence?: RefundCandidateTimeEvidence | null;
   cardLast4: string | null;
   cardNetwork: RefundCardNetwork | null;
@@ -575,6 +579,22 @@ const selectedNayaxPaymentInteractions = new Set<RefundPaymentInteraction>([
 const selectedNayaxWalletProviders = new Set<RefundWalletProvider>([
   'apple_pay', 'google_wallet', 'other', 'unsure',
 ]);
+const refundProviderTimestampSources = new Set<RefundCandidateTimeEvidence['providerTimestampSource']>([
+  'authorization_gmt', 'machine_authorization_offset', 'verified_machine_clock',
+  'unverified_location_clock', 'unknown',
+]);
+const refundTimeResolutions = new Set<RefundCandidateTimeEvidence['providerTimeResolution']>([
+  'exact', 'ambiguous', 'unknown',
+]);
+const refundMachineClockSources = new Set<RefundCandidateTimeEvidence['machineClockSource']>([
+  'native_machine_configuration', 'unknown',
+]);
+const refundOccurrenceSemantics = new Set<RefundCandidateTimeEvidence['occurrenceSemantics']>([
+  'online_purchase_occurrence', 'unknown',
+]);
+const refundOccurrenceTimezoneBases = new Set<Exclude<RefundCandidateTimeEvidence['occurrenceTimezoneBasis'], null>>([
+  'utc', 'embedded_offset', 'verified_machine_timezone',
+]);
 
 const requireRefundCandidateTimeEvidence = (
   value: unknown
@@ -584,24 +604,36 @@ const requireRefundCandidateTimeEvidence = (
     : null;
   if (
     evidence?.schemaVersion !== 'refund_candidate_time_v1' ||
-    typeof evidence.providerTimestampSource !== 'string' ||
-    evidence.providerTimestampSource.length > 80 ||
-    typeof evidence.providerTimeResolution !== 'string' ||
-    evidence.providerTimeResolution.length > 40 ||
-    typeof evidence.machineTimeResolution !== 'string' ||
-    evidence.machineTimeResolution.length > 40 ||
+    !refundProviderTimestampSources.has(
+      evidence.providerTimestampSource as RefundCandidateTimeEvidence['providerTimestampSource']
+    ) ||
+    !refundTimeResolutions.has(
+      evidence.providerTimeResolution as RefundCandidateTimeEvidence['providerTimeResolution']
+    ) ||
+    !refundTimeResolutions.has(
+      evidence.machineTimeResolution as RefundCandidateTimeEvidence['machineTimeResolution']
+    ) ||
     (evidence.machineClockTimezone !== null && (
       typeof evidence.machineClockTimezone !== 'string' ||
       !isRefundTimeZone(evidence.machineClockTimezone)
     )) ||
-    typeof evidence.machineClockSource !== 'string' ||
-    evidence.machineClockSource.length > 80 ||
+    !refundMachineClockSources.has(
+      evidence.machineClockSource as RefundCandidateTimeEvidence['machineClockSource']
+    ) ||
+    (evidence.machineClockTimezone !== null &&
+      evidence.machineClockSource !== 'native_machine_configuration') ||
     typeof evidence.occurrenceComparable !== 'boolean' ||
-    typeof evidence.occurrenceSemantics !== 'string' ||
-    evidence.occurrenceSemantics.length > 80 ||
+    !refundOccurrenceSemantics.has(
+      evidence.occurrenceSemantics as RefundCandidateTimeEvidence['occurrenceSemantics']
+    ) ||
     (evidence.occurrenceTimezoneBasis !== null && (
-      typeof evidence.occurrenceTimezoneBasis !== 'string' ||
-      evidence.occurrenceTimezoneBasis.length > 80
+      !refundOccurrenceTimezoneBases.has(
+        evidence.occurrenceTimezoneBasis as Exclude<RefundCandidateTimeEvidence['occurrenceTimezoneBasis'], null>
+      )
+    )) ||
+    (evidence.occurrenceComparable === true && (
+      evidence.occurrenceSemantics !== 'online_purchase_occurrence' ||
+      evidence.occurrenceTimezoneBasis === null
     )) ||
     evidence.payloadRedacted !== true
   ) {
@@ -620,6 +652,12 @@ const requireRefundSelectedNayaxTransaction = (
     ? evidence.matchFactors
     : null;
   const evidenceSource = evidence?.evidenceSource;
+  let customerTimezone: string | null | undefined;
+  try {
+    customerTimezone = parseRefundSelectedCustomerTimezone(evidence?.customerTimezone);
+  } catch {
+    throw new Error('Unsupported selected Nayax transaction response.');
+  }
   if (
     evidence?.schemaVersion !== 'refund_selected_nayax_transaction_v1' ||
     typeof evidence.transactionId !== 'string' ||
@@ -641,13 +679,9 @@ const requireRefundSelectedNayaxTransaction = (
     evidence.machineTimezone.trim().length === 0 ||
     typeof evidence.providerTimeResolution !== 'string' ||
     evidence.providerTimeResolution.trim().length === 0 ||
-    (evidence.customerTimezone !== undefined && (
-      typeof evidence.customerTimezone !== 'string' ||
-      !isRefundTimeZone(evidence.customerTimezone)
-    )) ||
-    (evidence.providerProcessingAt !== undefined && evidence.providerProcessingAt !== null && (
-      typeof evidence.providerProcessingAt !== 'string' ||
-      Number.isNaN(Date.parse(evidence.providerProcessingAt))
+    (evidence.providerTimestampAt !== undefined && evidence.providerTimestampAt !== null && (
+      typeof evidence.providerTimestampAt !== 'string' ||
+      Number.isNaN(Date.parse(evidence.providerTimestampAt))
     )) ||
     (evidence.timeEvidence !== undefined && evidence.timeEvidence !== null &&
       (() => {
@@ -703,7 +737,10 @@ const requireRefundSelectedNayaxTransaction = (
   } catch {
     throw new Error('Unsupported selected Nayax transaction response.');
   }
-  return evidence as RefundSelectedNayaxTransaction;
+  return {
+    ...evidence,
+    customerTimezone,
+  } as RefundSelectedNayaxTransaction;
 };
 
 export type RefundGmailCaseLinkReviewCandidate = {
@@ -840,6 +877,7 @@ export type RefundCaseRecord = {
   zellePaymentContact: string | null;
   issueSummary: string;
   incidentAt: string;
+  incidentLocalDateTime?: string | null;
   incidentTimezone?: string | null;
   structuredIncidentAt?: string | null;
   incidentTimeResolution?: string | null;
@@ -2002,6 +2040,9 @@ export const buildLocalRefundPublicSelections = (): RefundPublicSelection[] => [
 export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
   const managerEmail = 'machine-manager@example.test';
   const correctionDemo = isLocalUatDemoForced() ? new URLSearchParams(window.location.search).get('correction') : null;
+  const timeDemo = isLocalUatDemoForced()
+    ? new URLSearchParams(window.location.search).get('time-case')
+    : null;
   const showInboundLinkReview = typeof window !== 'undefined' &&
     new URLSearchParams(window.location.search).get('inbound-link') === 'on';
   const managerWorkMode = typeof window === 'undefined'
@@ -2236,8 +2277,10 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         zellePaymentContact: null,
         issueSummary: 'Machine spun but product did not dispense correctly.',
         incidentAt: demoIsoHoursAgo(5),
+        incidentLocalDateTime: timeDemo === 'dst-gap' ? '2026-03-08T02:30' : null,
         incidentTimezone: 'America/New_York',
-        incidentTimeResolution: 'exact',
+        incidentTimeResolution: timeDemo === 'dst-gap' ? 'nonexistent' : 'exact',
+        qrClaimOpenedAt: demoIsoHoursAgo(4.9),
         paymentMethod: 'card',
         paymentAmountCents: 700,
         cardLast4: '4242',
@@ -2284,7 +2327,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
           machineTimezone: 'America/Los_Angeles',
           providerTimeResolution: 'exact',
           customerTimezone: 'America/New_York',
-          providerProcessingAt: demoIsoHoursAgo(5),
+          providerTimestampAt: demoIsoHoursAgo(5),
           timeEvidence: {
             schemaVersion: 'refund_candidate_time_v1',
             providerTimestampSource: 'authorization_gmt',
@@ -2604,8 +2647,26 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
     if (result.invalidLifecycle) lifecycleValidationFailureCount += 1;
     return result.refundCase as T;
   };
+  const sanitizeIncidentTimeContract = <T extends RefundCaseRecord>(refundCase: T): T => ({
+    ...refundCase,
+    incidentTimezone: isRefundTimeZone(refundCase.incidentTimezone)
+      ? refundCase.incidentTimezone
+      : null,
+    incidentLocalDateTime:
+      typeof refundCase.incidentLocalDateTime === 'string' &&
+        refundCase.incidentLocalDateTime.length <= 32 &&
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?$/.test(
+          refundCase.incidentLocalDateTime
+        )
+        ? refundCase.incidentLocalDateTime
+        : null,
+  });
   const internalTestCases = Array.isArray(overview.internalTestCases)
-    ? overview.internalTestCases.map((refundCase) => applyLifecycleSafety({
+    ? overview.internalTestCases.map((rawRefundCase) => {
+      const refundCase = overview.candidateTimeContractVersion === 'refund_candidate_time_v1'
+        ? sanitizeIncidentTimeContract(rawRefundCase)
+        : rawRefundCase;
+      return applyLifecycleSafety({
         ...refundCase,
         internalTest: requireRefundInternalTestContract(refundCase.internalTest),
         nayaxLookupCandidates: overview.candidateTimeContractVersion === 'refund_candidate_time_v1'
@@ -2614,7 +2675,8 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
               timeEvidence: requireRefundCandidateTimeEvidence(candidate.timeEvidence),
             }))
           : refundCase.nayaxLookupCandidates,
-      }))
+      });
+    })
     : [];
   if (
     overview.customerOutreachContractVersion === 'refund_customer_outreach_v1' &&
@@ -2623,13 +2685,23 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
     throw new Error('Unsupported refund customer outreach response.');
   }
   const cases = overview.cases.map((rawRefundCase) => {
-    const refundCase = overview.transactionalDeliveryContractVersion ===
+    const deliverySafeRefundCase = overview.transactionalDeliveryContractVersion ===
         'refund_transactional_delivery_v1'
       ? requireRefundTransactionalDeliveryCase(rawRefundCase)
       : rawRefundCase;
+    const refundCase = overview.candidateTimeContractVersion === 'refund_candidate_time_v1'
+      ? sanitizeIncidentTimeContract(deliverySafeRefundCase)
+      : deliverySafeRefundCase;
     const selectedNayaxTransaction = refundCase.selectedNayaxTransaction
       ? requireRefundSelectedNayaxTransaction(refundCase.selectedNayaxTransaction)
       : null;
+    if (
+      overview.candidateTimeContractVersion === 'refund_candidate_time_v1' &&
+      selectedNayaxTransaction &&
+      !selectedNayaxTransaction.timeEvidence
+    ) {
+      throw new Error('Unsupported selected refund timestamp response.');
+    }
     const nayaxLookupCandidates = overview.candidateTimeContractVersion === 'refund_candidate_time_v1'
       ? refundCase.nayaxLookupCandidates.map((candidate) => ({
           ...candidate,

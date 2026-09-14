@@ -15,7 +15,11 @@ import {
 import { formatRefundMachineLocation } from '@/lib/refundMachineLabel';
 import {
   formatRefundDateTime,
+  formatRefundLocalDateTime,
+  isRefundTimeZone,
   refundCandidateTimeMeaning,
+  refundCandidateTimeSourceDetail,
+  refundCustomerTimeMeaning,
   refundProviderTimeLabel,
 } from '@/lib/refundTimePresentation';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -516,22 +520,36 @@ const getNayaxResolutionReferenceIssue = (
 };
 
 const formatDate = (value: string | null) => {
-  if (!value) return 'n/a';
-  return new Date(value).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  return formatRefundDateTime(value, 'UTC');
 };
 
-const refundCaseTimezone = (refundCase: RefundCaseRecord) =>
-  refundCase.incidentTimezone?.trim() ||
-  refundCase.selectedNayaxTransaction?.customerTimezone?.trim() ||
-  refundCase.lifecycle?.locationEvidence.normalized.timezone?.trim() ||
-  refundCase.selectedNayaxTransaction?.machineTimezone?.trim() ||
-  null;
+const refundCaseTimezone = (refundCase: RefundCaseRecord) => {
+  const candidates = [
+    refundCase.incidentTimezone?.trim(),
+    refundCase.selectedNayaxTransaction?.customerTimezone?.trim(),
+    refundCase.lifecycle?.locationEvidence.normalized.timezone?.trim(),
+  ];
+  return candidates.find((candidate): candidate is string => isRefundTimeZone(candidate)) ?? null;
+};
+
+const refundCustomerTimeDisplay = (
+  refundCase: RefundCaseRecord,
+  incidentTimezone = refundCaseTimezone(refundCase)
+) => {
+  if (
+    ['ambiguous', 'nonexistent'].includes(refundCase.incidentTimeResolution ?? '') &&
+    refundCase.incidentLocalDateTime
+  ) {
+    return formatRefundLocalDateTime(refundCase.incidentLocalDateTime);
+  }
+  return formatRefundDateTime(refundCase.incidentAt, incidentTimezone);
+};
+
+const refundCustomerTimeSourceLabel = (refundCase: RefundCaseRecord) =>
+  ['ambiguous', 'nonexistent'].includes(refundCase.incidentTimeResolution ?? '') &&
+    refundCase.incidentLocalDateTime
+    ? 'Customer-entered local time · no instant inferred'
+    : 'Customer report';
 
 const formatProviderCurrency = (cents: number, currencyCode: string) => {
   try {
@@ -576,14 +594,20 @@ const derivePortalRefundMissingFields = (refundCase: RefundCaseRecord): RefundMi
   if (isMissingRefundLabel(refundCase.machineLabel) && isMissingRefundLabel(refundCase.locationName)) {
     missing.push('location_or_machine');
   }
-  const structuredIncidentAt = typeof refundCase.structuredIncidentAt === 'undefined'
-    ? refundCase.incidentAt
-    : refundCase.structuredIncidentAt;
+  const structuredIncidentAt = refundCase.incidentLocalDateTime ??
+    (typeof refundCase.structuredIncidentAt === 'undefined'
+      ? refundCase.incidentAt
+      : refundCase.structuredIncidentAt);
   const incidentAtIsStructured = Boolean(structuredIncidentAt);
+  const customerWallClockIsPreserved = Boolean(refundCase.incidentLocalDateTime) &&
+    ['ambiguous', 'nonexistent'].includes(refundCase.incidentTimeResolution ?? '');
   if (!incidentAtIsStructured) missing.push('incident_date');
   if (
     !incidentAtIsStructured
-    || !['exact', 'legacy_absolute'].includes(refundCase.incidentTimeResolution ?? '')
+    || (
+      !['exact', 'legacy_absolute'].includes(refundCase.incidentTimeResolution ?? '') &&
+      !customerWallClockIsPreserved
+    )
   ) {
     missing.push('incident_time');
   }
@@ -1015,16 +1039,11 @@ const intakeSourceBadgeClass = (refundCase: RefundCaseRecord) =>
     : 'border-violet-200 bg-violet-50 text-violet-800';
 
 const formatCandidateSummary = (
-  candidate: NayaxLookupCandidate,
-  incidentTimezone: string | null
+  candidate: NayaxLookupCandidate
 ) =>
   [
     formatCurrency(candidate.amountCents),
-    formatRefundDateTime(candidate.authorizedAt, incidentTimezone),
     `${candidate.cardBrand || 'Card'} ending ${candidate.cardLast4 || 'n/a'}`,
-    typeof candidate.timeDeltaMinutes === 'number'
-      ? `${candidate.timeDeltaMinutes} min from reported time`
-      : null,
   ]
     .filter(Boolean)
     .join(' • ');
@@ -5348,6 +5367,11 @@ export default function AdminRefundsPage() {
       !automaticLookupPending &&
       !hasSelectedMatch;
     const needsDisagreementReason = Boolean(selectedCandidate && selectedCandidate.isRecommended !== true);
+    const customerTimeIsComparable =
+      ['exact', 'legacy_absolute'].includes(selectedCase.incidentTimeResolution ?? '') &&
+      selectedCase.incidentTimeConfidence !== 'rough';
+    const supportsCloserTimeReason = (candidate: NayaxLookupCandidate | null | undefined) =>
+      customerTimeIsComparable && candidate?.timeEvidence?.occurrenceComparable === true;
     const selectCandidate = (candidate: NayaxLookupCandidate) => {
       if (!caseAllowsCandidateSelection || candidate.selectionAllowed === false) return;
       setEditor((current) =>
@@ -5362,7 +5386,12 @@ export default function AdminRefundsPage() {
                 typeof candidate.amountCents === 'number' ? (candidate.amountCents / 100).toFixed(2) : current.refundAmount,
               matchedNayaxCardLast4: candidate.cardLast4,
               matchedNayaxCurrencyCode: candidate.currencyCode,
-              nayaxDisagreementReason: candidate.isRecommended ? '' : current.nayaxDisagreementReason,
+              nayaxDisagreementReason:
+                candidate.isRecommended ||
+                  (current.nayaxDisagreementReason === 'closer_time' &&
+                    !supportsCloserTimeReason(candidate))
+                  ? ''
+                  : current.nayaxDisagreementReason,
             }
           : current
       );
@@ -5386,6 +5415,10 @@ export default function AdminRefundsPage() {
             : !caseAllowsCandidateSelection
               ? 'Selection is only available while the case is in manager review.'
               : 'Select this transaction';
+      const candidateDescriptionId =
+        `nayax-candidate-${candidate.candidateToken.replace(/[^A-Za-z0-9_-]/g, '-')}-description`;
+      const candidateStatusId =
+        `nayax-candidate-${candidate.candidateToken.replace(/[^A-Za-z0-9_-]/g, '-')}-status`;
 
       return (
         <label
@@ -5410,9 +5443,10 @@ export default function AdminRefundsPage() {
             disabled={selectionDisabled}
             onChange={() => selectCandidate(candidate)}
             aria-label={`Select ${label.toLowerCase()}`}
+            aria-describedby={`${candidateDescriptionId} ${candidateStatusId}`}
             className="mt-1 h-5 w-5 accent-primary"
           />
-          <span className="min-w-0">
+          <span id={candidateDescriptionId} className="min-w-0">
             <span className="flex flex-wrap items-center gap-2 font-semibold">
               <span>{label}</span>
               {candidate.isRecommended && (
@@ -5432,7 +5466,28 @@ export default function AdminRefundsPage() {
               </span>
             )}
             <span className="mt-1 block leading-5 text-foreground">
-              {formatCandidateSummary(candidate, refundCaseTimezone(selectedCase))}
+              {formatCandidateSummary(candidate)}
+            </span>
+            <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
+              {refundProviderTimeLabel(candidate.timeEvidence)}:{' '}
+              {formatRefundDateTime(candidate.authorizedAt, refundCaseTimezone(selectedCase))}
+              {' · '}shown in venue time · {refundCaseTimezone(selectedCase) || 'timezone unavailable'}
+            </span>
+            <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
+              {refundCandidateTimeSourceDetail(candidate.timeEvidence)}
+            </span>
+            {candidate.timeEvidence?.machineClockTimezone &&
+              candidate.timeEvidence.machineClockTimezone !== refundCaseTimezone(selectedCase) && (
+              <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
+                Provider machine clock:{' '}
+                {formatRefundDateTime(
+                  candidate.machineAuthorizationTime,
+                  candidate.timeEvidence.machineClockTimezone
+                )}{' · '}{candidate.timeEvidence.machineClockTimezone}
+              </span>
+            )}
+            <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
+              {refundCandidateTimeMeaning(candidate.timeEvidence)}
             </span>
           </span>
           <span className="col-start-2 min-w-0 sm:col-start-auto">
@@ -5455,6 +5510,7 @@ export default function AdminRefundsPage() {
               </span>
             )}
             <span
+              id={candidateStatusId}
               className={cn(
                 'mt-2 block font-medium',
                 selectionDisabled ? 'text-orange-950' : 'text-primary'
@@ -5573,7 +5629,9 @@ export default function AdminRefundsPage() {
                   className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                 >
                   <option value="">Choose a reason</option>
-                  <option value="closer_time">Closer transaction time</option>
+                  {supportsCloserTimeReason(selectedCandidate) && (
+                    <option value="closer_time">Closer transaction time</option>
+                  )}
                   <option value="correct_amount">Correct amount</option>
                   <option value="correct_card">Correct card ending</option>
                   <option value="customer_confirmation">Customer confirmed it</option>
@@ -5769,12 +5827,9 @@ export default function AdminRefundsPage() {
     const providerMachineTimezone =
       comparisonTimeEvidence?.machineClockTimezone?.trim() || null;
     const selectedTimeEvidence = selectedTransactionEvidence?.timeEvidence ?? null;
-    const selectedCustomerTimezone =
-      selectedTransactionEvidence?.customerTimezone?.trim() || incidentTimezone;
     const selectedProviderMachineTimezone =
-      selectedTimeEvidence?.machineClockTimezone?.trim() ||
-      selectedTransactionEvidence?.machineTimezone?.trim() ||
-      null;
+      selectedTimeEvidence?.machineClockTimezone?.trim() || null;
+    const customerTimeMeaning = refundCustomerTimeMeaning(selectedCase.incidentTimeResolution);
     const hasSelectableCandidate = effectiveCandidates.some(
       (candidate) => candidate.selectionAllowed !== false
     );
@@ -5799,11 +5854,20 @@ export default function AdminRefundsPage() {
       (selectedCase.legacyStateReviewRequired ? null : editor.matchedNayaxCardLast4) ||
       selectedCase.cardLast4 ||
       'n/a';
-    const transactionTime =
-      comparisonCandidate?.machineAuthorizationTime ||
+    const transactionTimeEvidence = comparisonCandidate?.timeEvidence ?? selectedTimeEvidence;
+    const transactionProviderTime =
+      comparisonCandidate?.authorizedAt ||
+      selectedTransactionEvidence?.providerTimestampAt ||
+      (!selectedTimeEvidence ? selectedTransactionEvidence?.providerAuthorizedAt : null) ||
       (selectedCase.legacyStateReviewRequired ? null : selectedCase.matchedNayaxMachineAuthTime) ||
       (selectedCase.legacyStateReviewRequired ? null : editor.matchedNayaxMachineAuthTime) ||
-      selectedCase.incidentAt;
+      null;
+    const transactionMachineTime =
+      comparisonCandidate?.machineAuthorizationTime ||
+      selectedTransactionEvidence?.providerAuthorizedAt ||
+      null;
+    const transactionMachineTimezone =
+      transactionTimeEvidence?.machineClockTimezone?.trim() || null;
     const actionLabel = `Refund ${formatCurrency(cardAmountCents)}`;
     const hasReadyRefund =
       primaryAction?.mode === 'nayax_refund_execution' &&
@@ -6078,17 +6142,28 @@ export default function AdminRefundsPage() {
                   <div>
                     <dt className="text-xs text-muted-foreground">Customer time</dt>
                     <dd className="mt-1 font-medium text-foreground">
-                      {formatRefundDateTime(selectedCase.incidentAt, incidentTimezone)}
+                      {refundCustomerTimeDisplay(selectedCase, incidentTimezone)}
                     </dd>
                     <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      Customer report · {incidentTimezone || 'timezone unavailable'} ·{' '}
+                      {refundCustomerTimeSourceLabel(selectedCase)} ·{' '}
+                      {incidentTimezone || 'timezone unavailable'} ·{' '}
                       {incidentTimeConfidenceLabel(selectedCase)}
                     </p>
+                    {customerTimeMeaning && (
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        {customerTimeMeaning}
+                      </p>
+                    )}
                   </div>
                   {selectedCase.qrClaimOpenedAt && (
                     <div>
-                      <p className="text-xs text-muted-foreground">Refund form opened</p>
-                      <p className="mt-1 font-medium text-foreground">{formatDate(selectedCase.qrClaimOpenedAt)}</p>
+                      <p className="text-xs text-muted-foreground">Refund request received</p>
+                      <p className="mt-1 font-medium text-foreground">
+                        {formatRefundDateTime(selectedCase.qrClaimOpenedAt, incidentTimezone)}
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        Request receipt · shown in venue time · {incidentTimezone || 'timezone unavailable'}
+                      </p>
                     </div>
                   )}
                   <div>
@@ -6234,13 +6309,11 @@ export default function AdminRefundsPage() {
                     <div>
                       <dt className="text-xs text-muted-foreground">Customer-reported time</dt>
                       <dd className="mt-1 font-medium text-foreground">
-                        {formatRefundDateTime(
-                          selectedTransactionEvidence.customerReportedAt,
-                          selectedCustomerTimezone
-                        )}
+                        {refundCustomerTimeDisplay(selectedCase, incidentTimezone)}
                       </dd>
                       <dd className="mt-1 text-xs text-muted-foreground">
-                        Customer report · {selectedCustomerTimezone || 'timezone unavailable'}
+                        {refundCustomerTimeSourceLabel(selectedCase)} ·{' '}
+                        {incidentTimezone || 'timezone unavailable'}
                       </dd>
                     </div>
                     <div>
@@ -6249,13 +6322,18 @@ export default function AdminRefundsPage() {
                       </dt>
                       <dd className="mt-1 font-medium text-foreground">
                         {formatRefundDateTime(
-                          selectedTransactionEvidence.providerProcessingAt ??
-                            selectedTransactionEvidence.providerAuthorizedAt,
+                          selectedTransactionEvidence.providerTimestampAt ??
+                            (!selectedTimeEvidence
+                              ? selectedTransactionEvidence.providerAuthorizedAt
+                              : null),
                           incidentTimezone
                         )}
                       </dd>
                       <dd className="mt-1 text-xs text-muted-foreground">
                         Shown in venue time · {incidentTimezone || 'timezone unavailable'}
+                      </dd>
+                      <dd className="mt-1 text-xs leading-5 text-muted-foreground">
+                        {refundCandidateTimeSourceDetail(selectedTimeEvidence)}
                       </dd>
                     </div>
                     {selectedProviderMachineTimezone && (
@@ -6337,10 +6415,16 @@ export default function AdminRefundsPage() {
                       <span className="font-semibold text-muted-foreground sm:font-normal">Time</span>
                       <span className="min-w-0 font-medium text-foreground">
                         <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:hidden">Customer request</span>
-                        {formatRefundDateTime(selectedCase.incidentAt, incidentTimezone)}
+                        {refundCustomerTimeDisplay(selectedCase, incidentTimezone)}
                         <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
-                          Customer report · {incidentTimezone || 'timezone unavailable'}
+                          {refundCustomerTimeSourceLabel(selectedCase)} ·{' '}
+                          {incidentTimezone || 'timezone unavailable'}
                         </span>
+                        {customerTimeMeaning && (
+                          <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
+                            {customerTimeMeaning}
+                          </span>
+                        )}
                       </span>
                       <span className="min-w-0 font-medium text-foreground">
                         <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:hidden">
@@ -6353,6 +6437,9 @@ export default function AdminRefundsPage() {
                             typeof comparisonCandidate.timeDeltaMinutes === 'number'
                             ? ` · ${comparisonCandidate.timeDeltaMinutes} min from customer report`
                             : ''}
+                        </span>
+                        <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
+                          {refundCandidateTimeSourceDetail(comparisonTimeEvidence)}
                         </span>
                         {providerMachineTimezone && providerMachineTimezone !== incidentTimezone && (
                           <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
@@ -6403,6 +6490,27 @@ export default function AdminRefundsPage() {
                       </span>
                     </div>
                   </div>
+
+                  {providerMachineTimezone && incidentTimezone &&
+                    providerMachineTimezone !== incidentTimezone && (
+                    <details
+                      data-testid="refund-provider-clock-diagnostic"
+                      className="group mt-3 rounded-md border border-border bg-background px-3 py-2 text-xs"
+                    >
+                      <summary className="flex min-h-8 cursor-pointer list-none items-center justify-between gap-3 font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                        <span>Provider clock differs from venue</span>
+                        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
+                      </summary>
+                      <p className="mt-2 leading-5 text-muted-foreground">
+                        The venue uses {incidentTimezone}; this Nayax machine uses {providerMachineTimezone}.
+                        {' '}Bloomjoy normalizes and displays each clock separately.
+                        {comparisonTimeEvidence?.occurrenceComparable
+                          ? ' Timing is compared because the purchase-event basis is verified.'
+                          : ' Timing is not used as purchase proof because the purchase-event basis is not verified.'}
+                        {' '}This is System context, not information the customer needs to repeat.
+                      </p>
+                    </details>
+                  )}
 
                   {(comparisonCandidate.productLabel || typeof comparisonCandidate.standardPriceCents === 'number') && (
                     <p className="mt-3 text-xs leading-5 text-muted-foreground">
@@ -6905,13 +7013,32 @@ export default function AdminRefundsPage() {
                 <p className="mt-1 text-muted-foreground">{selectedCase.locationName}</p>
               </div>
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Transaction</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {refundProviderTimeLabel(transactionTimeEvidence)}
+                </p>
                 <p className="mt-1 font-medium text-foreground">
-                  {formatRefundDateTime(transactionTime, incidentTimezone)}
+                  {formatRefundDateTime(transactionProviderTime, incidentTimezone)}
                 </p>
                 <p className="mt-1 text-muted-foreground">
                   {formatCurrency(cardAmountCents)} · card ending {cardLast4}
                 </p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  Shown in venue time · {incidentTimezone || 'timezone unavailable'}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {refundCandidateTimeSourceDetail(transactionTimeEvidence)}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {refundCandidateTimeMeaning(transactionTimeEvidence)}
+                </p>
+                {transactionMachineTime && transactionMachineTimezone &&
+                  transactionMachineTimezone !== incidentTimezone && (
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    Provider machine clock:{' '}
+                    {formatRefundDateTime(transactionMachineTime, transactionMachineTimezone)}
+                    {' · '}{transactionMachineTimezone}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -7071,7 +7198,7 @@ export default function AdminRefundsPage() {
                 <div>
                   <p className="text-xs text-muted-foreground">Reported time</p>
                   <p className="mt-1 font-medium text-foreground">
-                    {formatRefundDateTime(selectedCase.incidentAt, incidentTimezone)}
+                    {refundCustomerTimeDisplay(selectedCase, incidentTimezone)}
                   </p>
                 </div>
                 <div>
@@ -7493,10 +7620,10 @@ export default function AdminRefundsPage() {
                         refundCase.id === selectedId && 'bg-primary/5 shadow-[inset_3px_0_0_hsl(var(--primary))]'
                       )}
                     >
-                      <div className="flex min-w-0 items-start justify-between gap-3">
+                      <div className="grid min-w-0 gap-2">
                         <div className="min-w-0">
                           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                            <span className="truncate text-sm font-semibold text-foreground">
+                            <span className="break-words text-sm font-semibold text-foreground">
                               {refundCase.publicReference}
                             </span>
                             <Badge
@@ -7508,7 +7635,7 @@ export default function AdminRefundsPage() {
                             </Badge>
                           </div>
                         </div>
-                        <Badge className={cn('shrink-0 whitespace-normal rounded-md text-left leading-tight', managerTaskBadgeClass(refundCase))}>
+                        <Badge className={cn('h-auto w-fit max-w-full whitespace-normal break-words rounded-md py-1 text-left leading-tight', managerTaskBadgeClass(refundCase))}>
                           {managerTaskLabel(refundCase)}
                         </Badge>
                       </div>
@@ -8145,12 +8272,12 @@ export default function AdminRefundsPage() {
                         </p>
                         <p className="mt-1 text-muted-foreground">
                           Customer-reported time:{' '}
-                          {formatRefundDateTime(selectedCase.incidentAt, incidentTimezone)}
+                          {refundCustomerTimeDisplay(selectedCase, incidentTimezone)}
                         </p>
                         <p className="mt-1 text-muted-foreground">
-                          Machine QR opened:{' '}
+                          Refund request received:{' '}
                           {selectedCase.qrClaimOpenedAt
-                            ? formatDate(selectedCase.qrClaimOpenedAt)
+                            ? formatRefundDateTime(selectedCase.qrClaimOpenedAt, incidentTimezone)
                             : 'Not available · direct form'}
                         </p>
                         <p className="mt-3 break-words text-muted-foreground">{selectedCase.issueSummary}</p>

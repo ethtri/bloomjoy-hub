@@ -11,9 +11,13 @@ historical fixtures cannot add product gates that the workflow does not contain.
   according to provenance, and keeps the customer's amount advisory.
 - [ ] Refund comparison labels customer time in the case/venue timezone, Nayax
   authorization time in venue time, and a verified provider machine clock in
-  its own timezone. Browser location does not change these values; DST ambiguity
-  and non-comparable provider time remain manager-reviewable context rather than
-  a hard selection veto or a reason to ask the customer to repeat known facts.
+  its own timezone. Request-receipt and stored audit times are explicit too, and
+  each candidate names its bounded source and resolution. A provider/venue clock
+  mismatch is identified as System context. Browser location does not change
+  these values; DST folds/gaps preserve the customer's original wall-clock entry,
+  and multiple ambiguous or non-comparable provider times remain selectable for
+  Manager review rather than becoming a hard veto or a reason to ask the customer
+  to repeat known facts.
 - [ ] A customer estimate of $10.00 with an otherwise identified $10.90 provider
   charge defaults to a $10.90 refund and does not trigger an amount question.
 - [ ] The System saves one clear candidate automatically based on the complete

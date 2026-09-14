@@ -121,6 +121,7 @@ type RefundCaseRow = {
   reporting_location_id: string;
   incident_at: string | null;
   incident_time_resolution: string | null;
+  incident_time_confidence: string | null;
   intake_meta: Record<string, unknown> | null;
   nayax_refund_execution_status: string;
   official_action_version: number;
@@ -173,6 +174,7 @@ const selectCaseQuery = `
   reporting_location_id,
   incident_at,
   incident_time_resolution,
+  incident_time_confidence,
   intake_meta,
   nayax_refund_execution_status,
   official_action_version,
@@ -981,6 +983,23 @@ serve(async (req) => {
         { error: "Choose an approved Nayax review reason." },
         400,
       );
+    }
+    const customerAndCandidateTimesAreComparable = Boolean(
+      ["exact", "legacy_absolute"].includes(
+        beforeRow.incident_time_resolution ?? "",
+      ) &&
+        beforeRow.incident_time_confidence !== "rough" &&
+        nayaxEvidence.transaction_occurrence_comparable === true,
+    );
+    if (
+      nayaxCandidate && nayaxDisagreementReason === "closer_time" &&
+      !customerAndCandidateTimesAreComparable
+    ) {
+      return jsonResponse({
+        error:
+          "Closer transaction time is available only when both timestamps represent comparable purchase evidence.",
+        errorCode: "nayax_time_not_comparable",
+      }, 400);
     }
 
     if (

@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(18);
+select plan(22);
 
 create function pg_temp.set_auth_claims(p_user_id uuid)
 returns void language plpgsql as $$
@@ -115,7 +115,7 @@ insert into public.refund_cases (
 insert into public.refund_nayax_lookup_candidates (
   token, refund_case_id, actor_user_id, provider_transaction_id,
   site_id, machine_authorization_time, amount_cents, card_last4,
-  currency_code, evidence_summary, expires_at
+  currency_code, evidence_summary, expires_at, reporting_machine_id
 ) values (
   '75150000-0000-4000-8000-000000000001',
   '75140000-0000-4000-8000-000000000001',
@@ -144,7 +144,8 @@ insert into public.refund_nayax_lookup_candidates (
     ),
     'provider_payload_redacted', true
   ),
-  '9999-12-31T23:59:59.999999Z'
+  '9999-12-31T23:59:59.999999Z',
+  '75130000-0000-4000-8000-000000000001'
 );
 
 select ok(
@@ -238,11 +239,23 @@ select ok(
 
 select ok(
   (select evidence ->> 'customerTimezone' = 'America/New_York'
-    and evidence ->> 'providerProcessingAt' = '2026-08-31T18:08:00Z'
+    and evidence ->> 'providerTimestampAt' = '2026-08-31T18:08:00Z'
     and evidence #>> '{timeEvidence,machineClockTimezone}' = 'America/Los_Angeles'
     and evidence #>> '{timeEvidence,providerTimestampSource}' = 'authorization_gmt'
     from selected_transaction_contract),
   'Selected evidence distinguishes customer, venue, provider, and verified machine-clock time'
+);
+
+select is(
+  (
+    select item ->> 'incidentLocalDateTime'
+    from jsonb_array_elements(
+      public.admin_get_refund_operations_overview() -> 'cases'
+    ) item
+    where item ->> 'id' = '75140000-0000-4000-8000-000000000001'
+  ),
+  '2026-08-31T14:10:00',
+  'The manager contract preserves the bounded customer-entered wall clock'
 );
 
 create temporary table candidate_time_contract as
@@ -308,6 +321,73 @@ select ok(
     where item ->> 'id' = '75140000-0000-4000-8000-000000000001'
   ),
   'The visible provider reference is derived from the immutable transaction already selected on the case'
+);
+
+insert into public.refund_nayax_lookup_candidates (
+  token, refund_case_id, actor_user_id, provider_transaction_id,
+  site_id, machine_authorization_time, amount_cents, card_last4,
+  currency_code, evidence_summary, expires_at, reporting_machine_id, created_at
+) values (
+  '75150000-0000-4000-8000-000000000002',
+  '75140000-0000-4000-8000-000000000001',
+  '75100000-0000-4000-8000-000000000001',
+  'NAYAX-751000001', 999, '2026-08-31T19:07:00Z', 900, '1111', 'USD',
+  jsonb_build_object(
+    'provider_time_resolution', 'unknown',
+    'provider_time_source', 'unverified_location_clock',
+    'authorized_at', '2026-08-31T23:59:00Z',
+    'machine_time_resolution', 'ambiguous',
+    'transaction_occurrence_comparable', false,
+    'transaction_occurrence_semantics', 'unknown',
+    'transaction_occurrence_timezone_basis', null
+  ),
+  '9999-12-31T23:59:59.999999Z',
+  '75130000-0000-4000-8000-000000000001',
+  '2026-09-01T00:00:00Z'
+);
+
+select is(
+  (
+    select item #>> '{selectedNayaxTransaction,providerTimestampAt}'
+    from jsonb_array_elements(
+      public.admin_get_refund_operations_overview() -> 'cases'
+    ) item
+    where item ->> 'id' = '75140000-0000-4000-8000-000000000001'
+  ),
+  '2026-08-31T18:08:00Z',
+  'Selected time evidence stays bound to the full immutable sale identity across later representations'
+);
+
+update public.refund_cases
+set incident_timezone = 'Invalid/Legacy Zone'
+where id = '75140000-0000-4000-8000-000000000001';
+
+select is(
+  (
+    select item ->> 'incidentTimezone'
+    from jsonb_array_elements(
+      public.admin_get_refund_operations_overview() -> 'cases'
+    ) item
+    where item ->> 'id' = '75140000-0000-4000-8000-000000000001'
+  ),
+  'America/New_York',
+  'An invalid legacy case timezone falls back to the catalog-backed venue zone'
+);
+
+update public.reporting_locations
+set timezone = 'Invalid/Legacy Zone'
+where id = '75120000-0000-4000-8000-000000000001';
+
+select ok(
+  (
+    select item ? 'incidentTimezone'
+      and item -> 'incidentTimezone' = 'null'::jsonb
+    from jsonb_array_elements(
+      public.admin_get_refund_operations_overview() -> 'cases'
+    ) item
+    where item ->> 'id' = '75140000-0000-4000-8000-000000000001'
+  ),
+  'Invalid case and venue zones degrade one case to unavailable without hiding the manager queue'
 );
 
 select pg_temp.set_auth_claims('75100000-0000-4000-8000-000000000002');

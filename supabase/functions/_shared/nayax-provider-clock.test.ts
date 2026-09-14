@@ -47,6 +47,31 @@ Deno.test("verified Pacific machine clock is distinct from physical Eastern purc
     occurrenceTimezoneBasis: null,
     payloadRedacted: true,
   });
+  const untrustedTimeEvidence = toPublicNayaxCandidate({
+    ...candidate,
+    providerTimeSource: "provider-payload-label",
+    providerTimeResolution: "provider-payload-resolution",
+    machineTimeResolution: "provider-payload-resolution",
+    machineClockContext: {
+      timezone: "not/a/zone",
+      source: "provider-payload-source",
+    },
+    transactionOccurrenceComparable: true,
+    transactionOccurrenceSemantics: "provider-payload-semantics",
+    transactionOccurrenceTimezoneBasis: "provider-payload-basis",
+  }, "synthetic-token").timeEvidence;
+  assert.deepEqual(untrustedTimeEvidence, {
+    schemaVersion: "refund_candidate_time_v1",
+    providerTimestampSource: "unknown",
+    providerTimeResolution: "unknown",
+    machineTimeResolution: "unknown",
+    machineClockTimezone: null,
+    machineClockSource: "unknown",
+    occurrenceComparable: false,
+    occurrenceSemantics: "unknown",
+    occurrenceTimezoneBasis: null,
+    payloadRedacted: true,
+  });
 });
 
 Deno.test("explicit GMT remains authoritative and explicit machine offset is never reinterpreted", () => {
