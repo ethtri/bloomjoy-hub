@@ -67,6 +67,13 @@ orientation snapshot; it is not a backlog or release ledger.
 - Timekeeping, Technician Pay Reports, Pay Stubs, partner reporting, access
   management, training, commerce, and machine administration remain active
   product areas. Their current work belongs on the board, not in this snapshot.
+- Technician contact records now keep operational email, phone, and mailing-address
+  details in a separate directory limited to the technician and pay-authorized
+  managers. Machine-only managers cannot read them, and audit records store only
+  redacted presence flags. Machine records have
+  a separate operational phase, so a Setup-phase provisional machine remains
+  assignable for Timekeeping without being represented as live or given invented
+  provider identifiers.
 
 ## Durable references
 

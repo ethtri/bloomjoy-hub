@@ -1,6 +1,6 @@
 import { supabaseClient } from '@/lib/supabaseClient';
 import { invokeEdgeFunction } from '@/lib/edgeFunctions';
-import type { ReportingMachineType } from '@/lib/reporting';
+import type { ReportingMachineOperationalPhase, ReportingMachineType } from '@/lib/reporting';
 
 export type ReportingPartner = {
   id: string;
@@ -42,6 +42,7 @@ export type PartnershipSetupMachine = {
   machine_type: ReportingMachineType;
   sunze_machine_id: string | null;
   status: string;
+  operational_phase: ReportingMachineOperationalPhase;
   account_name: string;
   location_name: string;
   latest_sale_date: string | null;
@@ -430,9 +431,36 @@ export const fetchPartnershipReportingSetup = async (): Promise<PartnershipRepor
     throw new Error(error.message || 'Unable to load partnership reporting setup.');
   }
 
-  return {
+  const setup = {
     ...emptySetup,
     ...((data as Partial<PartnershipReportingSetup> | null) ?? {}),
+  };
+
+  if (!setup.machines.length) return setup;
+
+  const { data: machinePhases, error: machinePhasesError } = await supabaseClient
+    .from('reporting_machines')
+    .select('id, operational_phase')
+    .in('id', setup.machines.map((machine) => machine.id));
+
+  const phaseColumnUnavailable = machinePhasesError?.code === '42703' || machinePhasesError?.code === 'PGRST204';
+  if (machinePhasesError && !phaseColumnUnavailable) {
+    throw new Error(machinePhasesError.message || 'Unable to load machine operational phases.');
+  }
+
+  const phaseByMachineId = new Map(
+    (machinePhases ?? []).map((machine) => [
+      machine.id,
+      machine.operational_phase as ReportingMachineOperationalPhase,
+    ] as const)
+  );
+
+  return {
+    ...setup,
+    machines: setup.machines.map((machine) => ({
+      ...machine,
+      operational_phase: phaseByMachineId.get(machine.id) ?? machine.operational_phase ?? 'live',
+    })),
   };
 };
 

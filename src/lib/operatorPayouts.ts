@@ -743,6 +743,9 @@ export type TechnicianPayReportTechnician = {
   workerType: OperatorWorkerType;
   workerIdentifier: string | null;
   positionTitle: string;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  mailingAddress: string | null;
   periodStartDate: string;
   periodEndDate: string;
   actualDurationMinutes: number;
@@ -802,6 +805,7 @@ export type TimekeepingSetupMachine = {
   machineId: string;
   machineLabel: string;
   locationName: string | null;
+  operationalPhase: 'setup' | 'live';
 };
 
 export type TimekeepingSetupAccount = {
@@ -831,8 +835,18 @@ export type SetupTimekeepingTechnicianInput = {
   displayName: string;
   workerType: OperatorWorkerType;
   workerIdentifier?: string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+  mailingAddress?: string | null;
   effectiveStartDate: string;
   machineCompensation: TimekeepingMachineCompensation[];
+};
+
+export type UpdateOperatorContactInput = {
+  operatorProfileId: string;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+  mailingAddress?: string | null;
 };
 
 export type SetupTimekeepingTechnicianResult = {
@@ -851,6 +865,15 @@ export type OperatorPayoutProfileRecord = {
   worker_type: OperatorWorkerType;
   status: OperatorPayoutProfileStatus;
   payout_policy_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type OperatorContactRecord = {
+  user_id: string;
+  contact_email: string | null;
+  contact_phone: string | null;
+  mailing_address: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -1255,7 +1278,7 @@ export const fetchTechnicianPayReportContext = async (
     throw new Error(error.message || 'Unable to load the Technician Pay Report.');
   }
 
-  return {
+  const context: TechnicianPayReportContext = {
     month,
     periodStartDate: '',
     periodEndDate: '',
@@ -1270,6 +1293,41 @@ export const fetchTechnicianPayReportContext = async (
       taxCalculation: true,
     },
     ...((data as Partial<TechnicianPayReportContext> | null) ?? {}),
+  };
+
+  const profileIds = context.technicians.map((technician) => technician.operatorProfileId);
+  if (!profileIds.length) return context;
+
+  const { data: contacts, error: contactsError } = await supabaseClient.rpc(
+    'get_operator_contact_directory',
+    { p_operator_profile_ids: profileIds }
+  );
+
+  const contactDirectoryUnavailable = contactsError?.code === 'PGRST202' || contactsError?.code === '42883';
+  if (contactsError && !contactDirectoryUnavailable) {
+    throw new Error(contactsError.message || 'Unable to load Technician contact details.');
+  }
+
+  const contactByProfileId = new Map(
+    ((contacts ?? []) as Array<{
+      operator_profile_id: string;
+      contact_email: string | null;
+      contact_phone: string | null;
+      mailing_address: string | null;
+    }>).map((contact) => [contact.operator_profile_id, contact] as const)
+  );
+
+  return {
+    ...context,
+    technicians: context.technicians.map((technician) => {
+      const contact = contactByProfileId.get(technician.operatorProfileId);
+      return {
+        ...technician,
+        contactEmail: contact?.contact_email ?? null,
+        contactPhone: contact?.contact_phone ?? null,
+        mailingAddress: contact?.mailing_address ?? null,
+      };
+    }),
   };
 };
 
@@ -1296,23 +1354,56 @@ export const setupTimekeepingTechnicianAdmin = async ({
   displayName,
   workerType,
   workerIdentifier,
+  contactEmail,
+  contactPhone,
+  mailingAddress,
   effectiveStartDate,
   machineCompensation,
 }: SetupTimekeepingTechnicianInput): Promise<SetupTimekeepingTechnicianResult> => {
-  const { data, error } = await supabaseClient.rpc('admin_setup_timekeeping_technician_arrangements', {
+  const { data, error } = await supabaseClient.rpc('admin_setup_timekeeping_technician_arrangements_with_contact', {
     p_user_email: userEmail,
     p_display_name: displayName,
     p_worker_type: workerType,
     p_worker_identifier: workerIdentifier ?? null,
+    p_contact_email: contactEmail ?? null,
+    p_contact_phone: contactPhone ?? null,
+    p_mailing_address: mailingAddress ?? null,
     p_effective_start_date: effectiveStartDate,
     p_machine_compensation: machineCompensation,
   });
 
   if (error || !data) {
+    if (error?.code === 'PGRST202' || error?.code === '42883') {
+      throw new Error('Technician contact setup will be available after the database rollout completes.');
+    }
     throw new Error(error?.message || 'Unable to activate Timekeeping for this Technician.');
   }
 
   return data as SetupTimekeepingTechnicianResult;
+};
+
+export const updateOperatorContactAdmin = async ({
+  operatorProfileId,
+  contactEmail,
+  contactPhone,
+  mailingAddress,
+}: UpdateOperatorContactInput): Promise<OperatorContactRecord> => {
+  const { data, error } = await supabaseClient.rpc('admin_update_operator_contact', {
+    p_operator_profile_id: operatorProfileId,
+    p_contact_email: contactEmail ?? null,
+    p_contact_phone: contactPhone ?? null,
+    p_mailing_address: mailingAddress ?? null,
+    p_reason: 'Technician contact details updated from Admin Payouts',
+  });
+
+  if (error || !data) {
+    if (error?.code === 'PGRST202' || error?.code === '42883') {
+      throw new Error('Technician contact editing will be available after the database rollout completes.');
+    }
+    throw new Error(error?.message || 'Unable to update Technician contact details.');
+  }
+
+  return data as OperatorContactRecord;
 };
 
 export const reviewOperatorTimeEntry = async (

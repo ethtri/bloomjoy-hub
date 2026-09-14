@@ -29,6 +29,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,6 +49,7 @@ import {
   requestPayStubGenerationAdmin,
   setupTimekeepingTechnicianAdmin,
   supersedeOperatorCompensationRateAdmin,
+  updateOperatorContactAdmin,
   upsertEffectiveOperatorMachineAssignmentAdmin,
   upsertOperatorRecurringItemAdmin,
   type OperatorWorkerType,
@@ -90,9 +92,18 @@ type TechnicianSetupDraft = {
   displayName: string;
   workerType: OperatorWorkerType;
   workerIdentifier: string;
+  contactPhone: string;
+  mailingAddress: string;
   machineIds: string[];
   effectiveStartDate: string;
   machinePay: Record<string, MachinePayDraft>;
+};
+
+type TechnicianContactDraft = {
+  technician: TechnicianPayReportTechnician;
+  contactEmail: string;
+  contactPhone: string;
+  mailingAddress: string;
 };
 
 type CommissionTiming = 'immediate' | 'three_months' | 'date';
@@ -123,6 +134,8 @@ const newTechnicianSetupDraft = (): TechnicianSetupDraft => ({
   displayName: '',
   workerType: 'contractor_1099',
   workerIdentifier: '',
+  contactPhone: '',
+  mailingAddress: '',
   machineIds: [],
   effectiveStartDate: getTodayInTimekeepingZone(),
   machinePay: {},
@@ -321,6 +334,7 @@ function TechnicianReport({
   technician,
   selectedMonth,
   onManageAssignments,
+  onEditContact,
   onAddShiftRate,
   onAddCommissionRate,
   onAddOtherEarning,
@@ -331,6 +345,7 @@ function TechnicianReport({
   technician: TechnicianPayReportTechnician;
   selectedMonth: string;
   onManageAssignments: () => void;
+  onEditContact: () => void;
   onAddShiftRate: () => void;
   onAddCommissionRate: () => void;
   onAddOtherEarning: () => void;
@@ -381,8 +396,24 @@ function TechnicianReport({
             <p className="mt-1 text-sm text-muted-foreground">
               {technician.workerIdentifier || technician.positionTitle || 'Technician'}
             </p>
+            {(technician.contactEmail || technician.contactPhone || technician.mailingAddress) && (
+              <address className="mt-2 space-y-0.5 not-italic text-sm text-muted-foreground">
+                {technician.contactEmail && <div>{technician.contactEmail}</div>}
+                {technician.contactPhone && <div>{technician.contactPhone}</div>}
+                {technician.mailingAddress && <div className="whitespace-pre-line">{technician.mailingAddress}</div>}
+              </address>
+            )}
           </div>
           <div className="flex flex-wrap gap-2 lg:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="min-h-11 bg-background"
+              onClick={onEditContact}
+            >
+              <UserRound className="mr-2 h-4 w-4" /> Contact
+            </Button>
             <Button
               type="button"
               variant="outline"
@@ -640,6 +671,8 @@ export default function AdminPayoutsPage() {
   const [payInputError, setPayInputError] = useState<string | null>(null);
   const [assignmentInputDraft, setAssignmentInputDraft] = useState<AssignmentInputDraft | null>(null);
   const [assignmentInputError, setAssignmentInputError] = useState<string | null>(null);
+  const [contactDraft, setContactDraft] = useState<TechnicianContactDraft | null>(null);
+  const [contactError, setContactError] = useState<string | null>(null);
   const [setupDraft, setSetupDraft] = useState<TechnicianSetupDraft | null>(null);
   const [setupError, setSetupError] = useState<string | null>(null);
   const [setupSubmitting, setSetupSubmitting] = useState(false);
@@ -733,6 +766,16 @@ export default function AdminPayoutsPage() {
     });
   };
 
+  const openContactInput = (technician: TechnicianPayReportTechnician) => {
+    setContactError(null);
+    setContactDraft({
+      technician,
+      contactEmail: technician.contactEmail ?? '',
+      contactPhone: technician.contactPhone ?? '',
+      mailingAddress: technician.mailingAddress ?? '',
+    });
+  };
+
   const saveTechnicianSetup = useMutation({
     mutationFn: async (draft: TechnicianSetupDraft) => {
       if (!draft.userEmail.trim() || !draft.userEmail.includes('@')) {
@@ -775,6 +818,9 @@ export default function AdminPayoutsPage() {
         displayName: draft.displayName.trim(),
         workerType: draft.workerType,
         workerIdentifier: draft.workerIdentifier.trim() || null,
+        contactEmail: draft.userEmail.trim(),
+        contactPhone: draft.contactPhone.trim() || null,
+        mailingAddress: draft.mailingAddress.trim() || null,
         effectiveStartDate: draft.effectiveStartDate,
         machineCompensation,
       });
@@ -793,6 +839,29 @@ export default function AdminPayoutsPage() {
           ? setupSaveError.message
           : 'Unable to activate Timekeeping for this Technician.'
       );
+    },
+  });
+
+  const saveContact = useMutation({
+    mutationFn: async (draft: TechnicianContactDraft) => {
+      if (draft.contactEmail.trim() && !draft.contactEmail.includes('@')) {
+        throw new Error('Enter a valid contact email or leave it blank.');
+      }
+      return updateOperatorContactAdmin({
+        operatorProfileId: draft.technician.operatorProfileId,
+        contactEmail: draft.contactEmail.trim() || null,
+        contactPhone: draft.contactPhone.trim() || null,
+        mailingAddress: draft.mailingAddress.trim() || null,
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['technician-pay-report'] });
+      setContactDraft(null);
+      setContactError(null);
+      toast.success('Technician contact details saved.');
+    },
+    onError: (saveError) => {
+      setContactError(saveError instanceof Error ? saveError.message : 'Unable to save contact details.');
     },
   });
 
@@ -1010,6 +1079,7 @@ export default function AdminPayoutsPage() {
                   technician={technician}
                   selectedMonth={month}
                   onManageAssignments={() => openAssignmentInput(technician)}
+                  onEditContact={() => openContactInput(technician)}
                   onAddShiftRate={() => openPayInput(technician, 'shift')}
                   onAddCommissionRate={() => openPayInput(technician, 'commission')}
                   onAddOtherEarning={() => openPayInput(technician, 'bonus')}
@@ -1035,6 +1105,55 @@ export default function AdminPayoutsPage() {
             </p>
           </>
         )}
+
+        <Dialog open={Boolean(contactDraft)} onOpenChange={(open) => {
+          if (!open && !saveContact.isPending) {
+            setContactDraft(null);
+            setContactError(null);
+          }
+        }}>
+          <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+            {contactDraft && (
+              <form onSubmit={(event) => {
+                event.preventDefault();
+                setContactError(null);
+                saveContact.mutate(contactDraft);
+              }}>
+                <DialogHeader>
+                  <DialogTitle>Edit contact details</DialogTitle>
+                  <DialogDescription>
+                    {contactDraft.technician.displayName} · These details are limited to authorized pay managers and the Technician’s own protected profile.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="mt-5 space-y-4">
+                  <div>
+                    <label htmlFor="contact-email" className="text-sm font-medium text-foreground">Email</label>
+                    <Input id="contact-email" type="email" autoComplete="email" className="mt-2 min-h-11" value={contactDraft.contactEmail} onChange={(event) => setContactDraft((current) => current ? { ...current, contactEmail: event.target.value } : current)} />
+                  </div>
+                  <div>
+                    <label htmlFor="contact-phone" className="text-sm font-medium text-foreground">Phone</label>
+                    <Input id="contact-phone" type="tel" autoComplete="tel" className="mt-2 min-h-11" value={contactDraft.contactPhone} onChange={(event) => setContactDraft((current) => current ? { ...current, contactPhone: event.target.value } : current)} />
+                  </div>
+                  <div>
+                    <label htmlFor="contact-address" className="text-sm font-medium text-foreground">Mailing address</label>
+                    <Textarea id="contact-address" autoComplete="street-address" className="mt-2 min-h-24" value={contactDraft.mailingAddress} onChange={(event) => setContactDraft((current) => current ? { ...current, mailingAddress: event.target.value } : current)} />
+                  </div>
+                  <p className="text-xs leading-5 text-muted-foreground">Taxpayer identifiers are not stored here. Contact values are also redacted from the admin audit log.</p>
+                  {contactError && <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">{contactError}</p>}
+                </div>
+
+                <DialogFooter className="mt-6 gap-2 sm:gap-0">
+                  <Button type="button" variant="outline" className="min-h-11" disabled={saveContact.isPending} onClick={() => setContactDraft(null)}>Cancel</Button>
+                  <Button type="submit" className="min-h-11" disabled={saveContact.isPending}>
+                    {saveContact.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />}
+                    Save contact details
+                  </Button>
+                </DialogFooter>
+              </form>
+            )}
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={Boolean(payInputDraft)} onOpenChange={(open) => {
           if (!open && !savePayInput.isPending) {
@@ -1295,7 +1414,7 @@ export default function AdminPayoutsPage() {
                         <div className="flex flex-wrap items-end justify-between gap-2">
                           <div>
                             <h3 id="setup-person-heading" className="font-semibold text-foreground">1. Who is the Technician?</h3>
-                            <p className="mt-1 text-sm text-muted-foreground">Use the same email address as their invitation.</p>
+                            <p className="mt-1 text-sm text-muted-foreground">The invitation email is also saved as the primary contact email.</p>
                           </div>
                           <div className="w-full sm:w-48">
                             <label htmlFor="setup-start-date" className="text-sm font-medium text-foreground">Timekeeping starts</label>
@@ -1310,6 +1429,16 @@ export default function AdminPayoutsPage() {
                           <div>
                             <label htmlFor="setup-technician-name" className="text-sm font-medium text-foreground">Technician name</label>
                             <Input id="setup-technician-name" autoComplete="name" className="mt-2 min-h-11" placeholder="Full name" value={setupDraft.displayName} onChange={(event) => setSetupDraft((current) => current ? { ...current, displayName: event.target.value } : current)} required />
+                          </div>
+                        </div>
+                        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                          <div>
+                            <label htmlFor="setup-contact-phone" className="text-sm font-medium text-foreground">Phone <span className="font-normal text-muted-foreground">(optional)</span></label>
+                            <Input id="setup-contact-phone" type="tel" autoComplete="tel" className="mt-2 min-h-11" value={setupDraft.contactPhone} onChange={(event) => setSetupDraft((current) => current ? { ...current, contactPhone: event.target.value } : current)} />
+                          </div>
+                          <div>
+                            <label htmlFor="setup-mailing-address" className="text-sm font-medium text-foreground">Mailing address <span className="font-normal text-muted-foreground">(optional)</span></label>
+                            <Textarea id="setup-mailing-address" autoComplete="street-address" className="mt-2 min-h-20" value={setupDraft.mailingAddress} onChange={(event) => setSetupDraft((current) => current ? { ...current, mailingAddress: event.target.value } : current)} />
                           </div>
                         </div>
                         <details className="mt-4 rounded-lg border border-border bg-muted/20 px-4 py-3">
@@ -1363,7 +1492,13 @@ export default function AdminPayoutsPage() {
                                           machinePay,
                                         };
                                       })} />
-                                      <span className="min-w-0 text-sm"><span className="block font-medium text-foreground">{machine.machineLabel}</span>{machine.locationName && <span className="block truncate text-muted-foreground">{machine.locationName}</span>}</span>
+                                      <span className="min-w-0 text-sm">
+                                        <span className="flex flex-wrap items-center gap-2 font-medium text-foreground">
+                                          {machine.machineLabel}
+                                          {machine.operationalPhase === 'setup' && <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900">Provisional</Badge>}
+                                        </span>
+                                        {machine.locationName && <span className="block truncate text-muted-foreground">{machine.locationName}</span>}
+                                      </span>
                                     </label>
                                   );
                                 })}

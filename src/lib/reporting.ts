@@ -7,6 +7,7 @@ export type { ReportingMachineType } from '@/lib/machineTypes';
 export type ReportGrain = 'day' | 'week' | 'month';
 export type PaymentMethod = 'cash' | 'credit' | 'other' | 'unknown';
 export type ReportingAccessLevel = 'viewer' | 'report_manager';
+export type ReportingMachineOperationalPhase = 'setup' | 'live';
 
 export type ReportingAccessContext = {
   hasReportingAccess: boolean;
@@ -68,6 +69,7 @@ export type AdminReportingMachine = {
   serial_number: string | null;
   sunze_machine_id: string | null;
   status: string;
+  operational_phase: ReportingMachineOperationalPhase;
   created_at: string;
   updated_at: string;
   reporting_locations?: { name: string; timezone: string } | null;
@@ -496,9 +498,11 @@ type UpsertReportingMachineInput = {
   machineId?: string | null;
   accountName: string;
   locationName: string;
+  locationTimezone?: string | null;
   machineLabel: string;
   machineType: ReportingMachineType;
   sunzeMachineId?: string | null;
+  operationalPhase: ReportingMachineOperationalPhase;
   reason: string;
 };
 
@@ -989,17 +993,22 @@ export const lookupReportingUserByEmailAdmin = async (
 export const upsertReportingMachineAdmin = async (
   input: UpsertReportingMachineInput
 ): Promise<AdminReportingMachine> => {
-  const { data, error } = await supabaseClient.rpc('admin_upsert_reporting_machine', {
+  const { data, error } = await supabaseClient.rpc('admin_upsert_reporting_machine_with_phase', {
     p_machine_id: input.machineId ?? null,
     p_account_name: input.accountName,
     p_location_name: input.locationName,
     p_machine_label: input.machineLabel,
     p_machine_type: input.machineType,
     p_sunze_machine_id: input.sunzeMachineId ?? null,
+    p_operational_phase: input.operationalPhase,
     p_reason: input.reason,
+    p_location_timezone: input.locationTimezone ?? null,
   });
 
   if (error || !data) {
+    if (error?.code === 'PGRST202' || error?.code === '42883') {
+      throw new Error('Machine lifecycle setup will be available after the database rollout completes.');
+    }
     throw new Error(error?.message || 'Unable to save reporting machine.');
   }
 
