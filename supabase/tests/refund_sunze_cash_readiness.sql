@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(13);
+select plan(15);
 
 select has_table('public', 'sunze_cash_source_watermarks', 'Private Sunze cash coverage intervals exist');
 select has_column('public', 'refund_cases', 'cash_match_state', 'Refund cases can retain the server-owned cash state');
@@ -91,6 +91,44 @@ select is(
   public.service_match_sunze_cash_sale('35120000-0000-4000-8000-000000000001', '2026-09-01 19:00:00+00', 1000, '2026-09-02 00:00:00+00')->>'state',
   'sale_found',
   'Exactly one validated candidate is sale-found'
+);
+
+select is(
+  public.service_match_sunze_cash_sale('35120000-0000-4000-8000-000000000001', '2026-09-01 19:00:00+00', 700, '2026-09-02 00:00:00+00')->>'state',
+  'sale_found',
+  'A reported amount difference remains advisory and does not hide the one reviewed sale'
+);
+
+insert into public.refund_cases (
+  id, public_reference, reporting_machine_id, reporting_location_id,
+  customer_email, issue_summary, incident_at, payment_method,
+  payment_amount_cents, status, correlation_status, correlation_source,
+  correlation_confidence, matched_sales_fact_id
+)
+values (
+  '35150000-0000-4000-8000-000000000001', 'RF-SUNZE-SELECT-1',
+  '35120000-0000-4000-8000-000000000001', '35110000-0000-4000-8000-000000000001',
+  'sunze-selection-one@example.test', 'First selected-sale fixture',
+  '2026-09-01 19:00:00+00', 'cash', 700, 'needs_review', 'matched', 'sunze', 0.82,
+  '35140000-0000-4000-8000-000000000001'
+);
+
+select throws_ok(
+  $$insert into public.refund_cases (
+      id, public_reference, reporting_machine_id, reporting_location_id,
+      customer_email, issue_summary, incident_at, payment_method,
+      payment_amount_cents, status, correlation_status, correlation_source,
+      correlation_confidence, matched_sales_fact_id
+    ) values (
+      '35150000-0000-4000-8000-000000000002', 'RF-SUNZE-SELECT-2',
+      '35120000-0000-4000-8000-000000000001', '35110000-0000-4000-8000-000000000001',
+      'sunze-selection-two@example.test', 'Duplicate selected-sale fixture',
+      '2026-09-01 19:00:00+00', 'cash', 1000, 'needs_review', 'matched', 'sunze', 0.82,
+      '35140000-0000-4000-8000-000000000001'
+    )$$,
+  '23505',
+  null,
+  'One exact Sunze sale cannot be selected by a second non-duplicate case'
 );
 
 insert into public.machine_sales_facts (

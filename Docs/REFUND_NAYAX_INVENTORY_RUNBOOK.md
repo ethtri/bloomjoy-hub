@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This server-only inventory makes every active Nayax machine visible to Refund Operations. It is the authoritative public-eligibility gate for both cotton-candy and Snapcase machines. It does not change sales/reporting provenance and does not call the refund endpoint.
+This server-only inventory gives the System and current Machine Managers the exact Nayax machine mapping needed for card research. It is the authoritative public-eligibility gate for both cotton-candy and Snapcase machines. It does not change sales/reporting provenance and does not call the refund endpoint.
 
 ## Safe rollout order
 
@@ -30,4 +30,7 @@ Set both `REFUND_NAYAX_INVENTORY_SYNC_ENABLED` controls false. This stops provid
 
 ## Pilot exclusions
 
-This runbook does not require TOTP, temporary operators, GPT, QR codes, Kexiazhan reporting, cash fallback, or a new SMS platform. Duplicate transaction selection, idempotency, amount/cap, manager, and provider-outcome protections remain separate launch gates.
+This inventory reference cannot add workflow gates. Current Manager authority,
+exact selected-transaction binding, duplicate prevention, idempotency, and
+unknown-result reconciliation remain implementation controls under
+`Docs/REFUND_WORKFLOW.md`.

@@ -97,6 +97,12 @@ create index if not exists machine_sales_facts_sunze_cash_match_idx
   include (net_sales_cents, import_run_id)
   where source = 'sunze_browser' and payment_method = 'cash';
 
+create unique index refund_cases_selected_sunze_sale_unique_idx
+  on public.refund_cases (matched_sales_fact_id)
+  where payment_method = 'cash'
+    and matched_sales_fact_id is not null
+    and duplicate_of_refund_case_id is null;
+
 create or replace function public.service_record_sunze_cash_watermarks(
   p_import_run_id uuid,
   p_machine_codes text[],
@@ -282,7 +288,6 @@ begin
       and fact.payment_method = 'cash'
       and fact.payment_time between p_purchase_time - interval '1 hour'
                                 and p_purchase_time + interval '1 hour'
-      and (p_amount_cents is null or p_amount_cents <= 0 or fact.net_sales_cents = p_amount_cents)
       and run.status = 'completed'
       and run.meta ->> 'payment_time_semantics_status' = 'validated'
       and run.meta ->> 'payment_time_timezone' = watermark.payment_time_timezone
@@ -316,4 +321,4 @@ grant execute on function public.service_match_sunze_cash_sale(uuid, timestamptz
   to service_role;
 
 comment on function public.service_match_sunze_cash_sale(uuid, timestamptz, integer, timestamptz) is
-  'Private deterministic Sunze cash match contract. Complete-no-match is impossible without mapped, fresh, validated coverage spanning the full lookup window.';
+  'Private deterministic Sunze cash evidence contract. Amount is advisory, and complete-no-match is impossible without mapped, fresh, validated coverage spanning the full lookup window.';

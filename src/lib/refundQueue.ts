@@ -24,7 +24,7 @@ export const getRefundQueueFilterForCase = (
   const bucket = getRefundManagerQueueBucket(refundCase);
   if (bucket === 'internal_archive') return refundOperationsAccess ? 'internal_test' : 'all';
   if (bucket === 'accounting_review' || bucket === 'integrity_hold' || bucket === 'provider_hold') {
-    return refundOperationsAccess ? 'provider_hold' : 'all';
+    return 'provider_hold';
   }
   return bucket;
 };

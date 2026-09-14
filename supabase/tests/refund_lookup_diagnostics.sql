@@ -22,8 +22,8 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
  nayax_refund_execution_status,incident_time_confidence)
 select pg_temp.case_id(n),'RF-DIAGNOSTIC-'||n,'fb440000-0000-4000-8000-000000000001',
  'fb430000-0000-4000-8000-000000000001','diagnostics-customer-'||n||'@example.invalid','Synthetic diagnostics',
- '2026-08-29T20:10:00Z','America/New_York','card',963,963,'4242','needs_review','approved','Ordinary decision',
- 'fb410000-0000-4000-8000-000000000001',now()-interval '1 day','no_match','nayax',1,'not_requested',
+ '2026-08-29T20:10:00Z','America/New_York','card',963,963,'4242','needs_review',null,null,
+ null,null,'no_match','nayax',1,'not_requested',
  case n when 5 then 'within_15_minutes' when 6 then 'within_1_hour' else 'rough' end
 from generate_series(1,6) n;
 create temp table approval_before as select id,decision,decision_reason,decided_by,decided_at,refund_amount_cents,
@@ -44,7 +44,7 @@ returns jsonb language sql as $$
 $$;
 select public.service_begin_refund_nayax_lookup(pg_temp.case_id(n),1,'manual','fb410000-0000-4000-8000-000000000001')
 from generate_series(1,6) n;
-select is(pg_temp.commit_result(1)->>'applied','true','Actual existing commit accepts approved unpaid result with diagnostics');
+select is(pg_temp.commit_result(1)->>'applied','true','Actual existing commit accepts an undecided result with diagnostics');
 select is((select metadata->'diagnostics' from public.refund_case_events where refund_case_id=pg_temp.case_id(1)
  and event_type='nayax_lookup_diagnostics'),pg_temp.diagnostic(),'Exact counts/window/provenance stored in existing event stream');
 select is((select count(*) from public.refund_case_events where refund_case_id=pg_temp.case_id(1)
@@ -52,7 +52,7 @@ select is((select count(*) from public.refund_case_events where refund_case_id=p
 select ok(not exists(select 1 from approval_before b join public.refund_cases c using(id)
  where row(b.decision,b.decision_reason,b.decided_by,b.decided_at,b.refund_amount_cents,b.deterministic_fact_version)
  is distinct from row(c.decision,c.decision_reason,c.decided_by,c.decided_at,c.refund_amount_cents,c.deterministic_fact_version)),
- 'Approval amount actor date and facts are preserved');
+ 'Decision fields, amount, and case facts are preserved');
 select is(pg_temp.commit_result(1)->>'applied','true','Unchanged same-generation result remains supported');
 select is((select count(*) from public.refund_case_events where refund_case_id=pg_temp.case_id(1)
  and event_type='nayax_lookup_diagnostics'),1::bigint,'Unchanged replay adds no second diagnostic event');

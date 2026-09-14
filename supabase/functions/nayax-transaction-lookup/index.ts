@@ -78,19 +78,6 @@ serve(async (req) => {
       return jsonResponse({ error: "Refund case is required." }, 400);
     }
 
-    const { data: isRefundOperations, error: accessError } = await supabase.rpc(
-      "is_super_admin",
-      { uid: user.id },
-    );
-
-    if (accessError) {
-      throw accessError;
-    }
-
-    if (isRefundOperations !== true) {
-      return jsonResponse({ error: "Refund Operations access required." }, 403);
-    }
-
     const { data: lookupCase, error: lookupCaseError } = await supabase
       .from("refund_cases")
       .select("deterministic_fact_version")
@@ -113,7 +100,7 @@ serve(async (req) => {
     if (beginError) throw beginError;
     const lookupGeneration = Number(beginResult?.lookupGeneration);
     if (!Number.isInteger(lookupGeneration) || lookupGeneration < 1) {
-      throw new Error("Nayax operations lookup generation claim failed.");
+      throw new Error("The read-only transaction check could not be started.");
     }
     lookupGenerationForAudit = lookupGeneration;
     const result = await lookupNayaxCandidatesForRefundCase({

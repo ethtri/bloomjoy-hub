@@ -324,7 +324,7 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 127, 'Evidence must enumerate all 127 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 130, 'Evidence must enumerate all 130 reviewed screenshots');
   for (const senderScreenshot of [
     'refund-customer-message-official-sender-desktop.png',
     'refund-customer-message-official-sender-mobile.png',
@@ -429,7 +429,7 @@ try {
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('machine-refunds-')).length,
     8,
-    'Evidence must include ready, ready-to-activate, setup-needed, Valley Mall product-unverified desktop/mobile, manual-portal-only, machine-disabled, and global-pause Admin states'
+    'Evidence must include ready, ready-to-activate, setup-needed, Valley Mall product-unverified desktop/mobile, API-blocked, machine-disabled, and global-pause Admin states'
   );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-simple-journey-')).length,
@@ -449,36 +449,58 @@ try {
       name.startsWith('refund-portal-uat-customer-outreach-')
     ).length,
     13,
-    'Evidence must include every reviewed customer-outreach lifecycle and operations state'
+    'Evidence must include every reviewed customer-outreach lifecycle and ownership state'
   );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) =>
       name.startsWith('refund-nayax-support-resolution-')
     ).length,
     2,
-    'Evidence must include exactly one desktop and one mobile support-resolution state'
+    'Evidence must include exactly one desktop and one mobile payment-result review state'
   );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.includes('totp') || name.includes('step-up')).length,
     0,
     'The evidence allowlist must not preserve retired TOTP or step-up ceremony'
   );
+  assert.equal(
+    EXPECTED_SCREENSHOTS.includes('refund-nayax-evidence-only-reconciliation.png'),
+    false,
+    'The evidence allowlist must not preserve the retired manual Nayax reconciliation screen'
+  );
+  assert(
+    EXPECTED_SCREENSHOTS.includes('refund-payment-result-review-desktop.png') &&
+      EXPECTED_SCREENSHOTS.includes('refund-payment-result-review-mobile.png'),
+    'The evidence allowlist must include the current payment-result review at desktop and mobile widths'
+  );
   const portalUatSource = await readFile(
     new URL('./validate-refund-portal-uat.mjs', import.meta.url),
     'utf8'
   );
+  assert(
+    portalUatSource.includes("filename: 'refund-provider-outcomes.json'") &&
+      portalUatSource.includes("path.join(args.fragmentDir, 'refund-provider-outcomes.json')"),
+    'The full portal run must produce the reviewed provider-outcome evidence input'
+  );
+  const providerOutcomeCallBodies = [
+    ...portalUatSource.matchAll(/await runNayaxExecutionOutcomeChecks\(\{([\s\S]*?)\n\s*\}\);/g),
+  ].map((match) => match[1]);
   assert.equal(
-    EXPECTED_SCREENSHOTS.filter((name) => name.endsWith('mapped-manager-session.png')).length,
+    providerOutcomeCallBodies.length,
+    2,
+    'The portal UAT must retain both focused and full provider-outcome runs'
+  );
+  assert(
+    providerOutcomeCallBodies.every((body) => /\bproviderOutcomeEvidence\b/.test(body)),
+    'Every provider-outcome run must receive the evidence collector'
+  );
+  assert.equal(
+    EXPECTED_SCREENSHOTS.filter((name) => name.endsWith('single-manager-confirmation.png')).length,
     2,
     'The evidence must show both mapped-manager session paths without a second factor'
   );
-  assert.equal(
-    EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-portal-uat-nc-manual-')).length,
-    2,
-    'The evidence must show the temporary NC manual path on desktop and mobile'
-  );
   const supportPanelAssertionIndex = portalUatSource.indexOf(
-    "'Managers see exactly four structured outcomes and no arbitrary communication controls'"
+    "'Managers see success, no-refund, or remain-on-hold case-work outcomes'"
   );
   const supportDesktopScreenshotIndex = portalUatSource.indexOf(
     "path.join(artifactDir, 'refund-nayax-support-resolution-desktop.png')"
@@ -491,7 +513,7 @@ try {
     supportMobileScreenshotIndex
   );
   const supportManagerSessionAssertionIndex = portalUatSource.indexOf(
-    '`Manager-session ${scenario.result} submits one result with no provider or separate message endpoint`',
+    '`Case-work ${scenario.result} uses the original approval without provider or separate message endpoint`',
     supportSubmitIndex
   );
   assert(
@@ -500,7 +522,7 @@ try {
       supportMobileScreenshotIndex > supportDesktopScreenshotIndex &&
       supportSubmitIndex > supportMobileScreenshotIndex &&
       supportManagerSessionAssertionIndex > supportSubmitIndex,
-    'Support-resolution evidence must show structured desktop and mobile pre-action states before the mapped-manager submission'
+    'Payment-result evidence must show structured desktop and mobile review states before saving the result'
   );
   const providerReceiptAssertionIndex = portalUatSource.indexOf(
     '`Synthetic browser ${scenario.name} renders the settled domain outcome`'

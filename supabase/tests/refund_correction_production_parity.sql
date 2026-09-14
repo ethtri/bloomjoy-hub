@@ -230,15 +230,13 @@ select is((public.service_commit_refund_nayax_lookup(
   'cf110000-0000-4000-8000-000000000001'
 )->>'applied'),'true','The refreshed current generation commits through the generation guard');
 
-set local role service_role;
 select throws_ok(
   $$select public.service_select_refund_nayax_candidate_as_actor(
     'cf110000-0000-4000-8000-000000000001','cf150000-0000-4000-8000-000000000001',
     (select official_action_version from public.refund_cases where id='cf150000-0000-4000-8000-000000000001'),
     'cf160000-0000-4000-8000-000000000101','correct_card')$$,
   'P4626','Invalid Nayax identifier evidence',
-  'Correction-only upgrade compatibility never makes a stored row selectable');
-reset role;
+  'The private selection guard never makes a correction-only stored row selectable');
 
 select is(public.refund_purchase_correction_request_fields_pre_production_parity(
   'cf150000-0000-4000-8000-000000000001'),

@@ -1741,11 +1741,10 @@ serve(async (req) => {
         status = "correlated";
         correlationStatus = "matched";
         correlationSource = "sunze";
-        correlationConfidence = amountCents !== null && amountCents > 0 ? 0.96 : 0.82;
+        correlationConfidence = 0.82;
         matchedSalesFactId = candidateId;
-        correlationSummary = amountCents !== null && amountCents > 0
-          ? "Matched one cash sale for this machine within +/- 1 hour and exact amount using fresh, validated source coverage."
-          : "Matched one cash sale for this machine within +/- 1 hour using fresh, validated source coverage.";
+        correlationSummary =
+          "Matched one cash sale for this machine within +/- 1 hour using fresh, validated source coverage. The reported amount remains advisory evidence.";
       } else if (cashMatchState === "multiple_possible_sales") {
         status = "needs_review";
         correlationStatus = "multiple_candidates";

@@ -167,11 +167,11 @@ Important metric notes:
 - A validated local timestamp that is nonexistent in a DST spring gap or ambiguous in a fall fold is rejected. Fixtures cover Excel dates, timezone-less strings, explicit offsets, midnight, and both DST transitions.
 - Refund coverage is stored privately as one interval per machine per completed import. Intervals are never merged across gaps. A source watermark advances only when the export has validated account-wide timestamp semantics, trusted complete machine visibility without a count mismatch, and exact selected-window bounds.
 - `checking_sales_history`: a supported, mapped, fresh source exists but its latest watermark has not yet reached the full purchase lookup window.
-- `sale_found`: exactly one validated cash fact matches the exact machine, optional exact amount, and +/- one-hour window inside one fresh coverage interval.
+- `sale_found`: exactly one validated cash fact matches the exact machine and +/- one-hour window inside one fresh coverage interval. Amount is an advisory comparison, never an eligibility filter.
 - `multiple_possible_sales`: more than one such validated fact remains.
 - `no_sale_found_with_complete_coverage`: zero such facts remain and one fresh validated interval covers the complete +/- one-hour window.
 - `sales_history_unavailable`: the machine/source is unsupported or unmapped, timestamp proof is absent/out of scope, coverage is stale, or no one interval completely covers the historical window.
-- These states are server-owned. Raw workbooks, source order numbers, raw machine identifiers, and candidate rows are not exposed by the readiness contract.
+- These states are server-owned evidence, not approval or completion gates. A Manager may act on any reviewed evidence under `REFUND_WORKFLOW.md`. When an exact Sunze sale is selected, the same sale cannot be bound to a second non-duplicate case. Raw workbooks, source order numbers, raw machine identifiers, and candidate rows are not exposed by the readiness contract.
 
 ### Evidence still needed
 

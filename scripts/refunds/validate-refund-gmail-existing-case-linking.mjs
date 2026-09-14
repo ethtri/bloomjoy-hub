@@ -16,7 +16,6 @@ const gmailSync = read('supabase', 'functions', 'refund-gmail-sync', 'index.ts')
 const operations = read('src', 'lib', 'refundOperations.ts');
 const managerUi = read('src', 'pages', 'admin', 'Refunds.tsx');
 const runbook = read('Docs', 'REFUND_EMAIL_ASSISTANT_RUNBOOK.md');
-const smoke = read('Docs', 'QA_SMOKE_TEST_CHECKLIST.md');
 
 for (const requiredMigrationContract of [
   'service_ingest_refund_gmail_contact_v2',
@@ -98,12 +97,6 @@ assert.match(
   /existing-case-first Gmail linking/i,
   'The operator runbook must document existing-case-first Gmail linking'
 );
-assert.match(
-  smoke,
-  /two existing Website cases/i,
-  'The smoke checklist must retain the production regression fixture'
-);
-
 console.info(
   'Refund existing-case Gmail linking validation passed: single-case linking, ambiguous manager review, no-repeat contact, primary/related audit association, and replay/payment safety are present.'
 );

@@ -27,6 +27,16 @@ const formatDate = (value: string) =>
 const getOrderReference = (order: OrderRecord) =>
   order.stripe_checkout_session_id || order.stripe_payment_intent_id || order.id;
 
+const getOrderDisplayReference = (order: OrderRecord) => {
+  const reference = getOrderReference(order);
+
+  if (reference.length <= 18) {
+    return reference;
+  }
+
+  return `Order …${reference.slice(-8)}`;
+};
+
 const getLineItemsSummary = (lineItems: Array<Record<string, unknown>>) => {
   if (!lineItems.length) {
     return 'No line items';
@@ -105,7 +115,7 @@ export default function OrdersPage() {
             </div>
           )}
 
-          <div className="mt-6 md:hidden">
+          <div className="mt-6 2xl:hidden">
             <div className="space-y-4">
               {isLoading && (
                 <div className="card-elevated px-5 py-8 text-center text-sm text-muted-foreground">
@@ -122,8 +132,9 @@ export default function OrdersPage() {
                   <div key={order.id} className="card-elevated p-4 sm:p-5">
                     <div className="flex flex-col gap-2 min-[390px]:flex-row min-[390px]:items-start min-[390px]:justify-between">
                       <div className="min-w-0">
-                        <p className="break-words font-semibold text-foreground">
-                          {getOrderReference(order)}
+                        <p className="font-semibold text-foreground" title={getOrderReference(order)}>
+                          <span aria-hidden="true">{getOrderDisplayReference(order)}</span>
+                          <span className="sr-only">Order reference {getOrderReference(order)}</span>
                         </p>
                         <p className="mt-1 text-sm text-muted-foreground">
                           {formatDate(order.created_at)}
@@ -135,7 +146,7 @@ export default function OrdersPage() {
                     </div>
                     <div className="mt-4 space-y-2 text-sm text-muted-foreground">
                       <p>{getLineItemsSummary(order.line_items)}</p>
-                      <p className="font-medium text-foreground">
+                      <p className="font-medium tabular-nums text-foreground">
                         {formatCurrency(order.amount_total, order.currency)}
                       </p>
                       <p>Payment: {order.status}</p>
@@ -178,9 +189,18 @@ export default function OrdersPage() {
             </div>
           </div>
 
-          <div className="mt-6 hidden md:block">
-            <div className="overflow-hidden rounded-xl border border-border bg-card">
-              <table className="w-full">
+          <div className="mt-6 hidden 2xl:block">
+            <div className="overflow-x-auto rounded-xl border border-border bg-card">
+              <table className="w-full min-w-[1100px] table-fixed">
+                <colgroup>
+                  <col className="w-[16%]" />
+                  <col className="w-[11%]" />
+                  <col className="w-[24%]" />
+                  <col className="w-[9%]" />
+                  <col className="w-[10%]" />
+                  <col className="w-[12%]" />
+                  <col className="w-[18%]" />
+                </colgroup>
                 <thead className="border-b border-border bg-muted/50">
                   <tr>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">
@@ -224,32 +244,38 @@ export default function OrdersPage() {
                   {!isLoading &&
                     orders.map((order) => (
                       <tr key={order.id}>
-                        <td className="px-6 py-4">
-                          <span className="font-medium text-foreground">
-                            {getOrderReference(order)}
+                        <td className="px-5 py-4">
+                          <span
+                            className="block truncate font-medium text-foreground"
+                            title={getOrderReference(order)}
+                          >
+                            <span aria-hidden="true">{getOrderDisplayReference(order)}</span>
+                            <span className="sr-only">Order reference {getOrderReference(order)}</span>
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-sm text-muted-foreground">
+                        <td className="whitespace-nowrap px-5 py-4 text-sm tabular-nums text-muted-foreground">
                           {formatDate(order.created_at)}
                         </td>
-                        <td className="hidden px-6 py-4 text-sm text-muted-foreground md:table-cell">
-                          {getLineItemsSummary(order.line_items)}
+                        <td className="px-5 py-4 text-sm text-muted-foreground">
+                          <span className="line-clamp-2 text-pretty leading-5">
+                            {getLineItemsSummary(order.line_items)}
+                          </span>
                         </td>
-                        <td className="px-6 py-4 font-medium text-foreground">
+                        <td className="whitespace-nowrap px-5 py-4 font-medium tabular-nums text-foreground">
                           {formatCurrency(order.amount_total, order.currency)}
                         </td>
-                        <td className="px-6 py-4">
-                          <span className="rounded-full bg-sage-light px-2 py-1 text-xs font-medium text-sage">
+                        <td className="px-5 py-4">
+                          <span className="inline-flex rounded-full bg-sage-light px-2 py-1 text-xs font-medium capitalize text-sage">
                             {order.status}
                           </span>
                         </td>
-                        <td className="px-6 py-4">
-                          <span className="rounded-full bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
+                        <td className="px-5 py-4">
+                          <span className="inline-flex rounded-full bg-primary/10 px-2 py-1 text-xs font-medium capitalize text-primary">
                             {order.fulfillment_status}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex justify-end gap-2">
+                        <td className="px-4 py-4 text-right">
+                          <div className="flex justify-end gap-1">
                             <Button
                               asChild={Boolean(order.receipt_url)}
                               variant="ghost"

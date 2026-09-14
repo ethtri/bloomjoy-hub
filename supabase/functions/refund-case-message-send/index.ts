@@ -307,15 +307,6 @@ serve(async (req) => {
           error: "Choose the exact customer message to review.",
         }, 400);
       }
-      const { data: hasOperationsAccess, error: operationsAccessError } =
-        await supabase.rpc("is_super_admin", { uid: user.id });
-      if (operationsAccessError) throw operationsAccessError;
-      if (hasOperationsAccess !== true) {
-        return jsonResponse({
-          error: "Authorized manager access required.",
-        }, 403);
-      }
-
       const { data: message, error: messageError } = await supabase
         .from("refund_case_messages")
         .select(
@@ -977,7 +968,7 @@ serve(async (req) => {
       );
       return jsonResponse({
         error: payoutContactExhausted
-          ? "This payout-destination contact cycle is complete. Refund Operations must review the case before any new customer request."
+          ? "This payout-destination contact cycle is complete. The assigned Manager must review the case before any new customer request."
           : conflict
           ? "The case or queued message changed. Refresh before sending."
           : "Unable to queue customer email.",

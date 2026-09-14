@@ -1049,53 +1049,6 @@ export async function executeNayaxRefundProvider({
   });
 }
 
-// Current journal-v3 continuation only. The database must first prove that the
-// same immutable attempt recorded an accepted request and issue a one-use
-// continuation claim. This intentionally does not use the retired legacy
-// approval-only contract/runtime.
-export async function executeNayaxRefundApprovalContinuation({
-  contract,
-  approveToken,
-  transactionId,
-  siteId,
-  machineAuthorizationTime,
-  fetchImpl = fetch,
-  timeoutMs = DEFAULT_TIMEOUT_MS,
-  onStageEvent = async (_stageEvent) => {},
-}) {
-  if (
-    contract?.schemaVersion !== 2 ||
-    !Array.isArray(contract?.requestResponses) ||
-    !Array.isArray(contract?.approveResponses)
-  ) {
-    throw new Error("Current Nayax provider contract is required for continuation.");
-  }
-  const approveBody = buildNayaxRefundApprovalBody({
-    transactionId,
-    siteId,
-    machineAuthorizationTime,
-  });
-  await onStageEvent(Object.freeze({ stage: "approve", event: "started" }));
-  const approve = await postNayaxRefundStep({
-    stage: "approve",
-    contract,
-    token: approveToken,
-    body: approveBody,
-    fetchImpl,
-    timeoutMs,
-  });
-  await onStageEvent(Object.freeze({
-    stage: "approve",
-    event: "result",
-    result: approve,
-  }));
-  return Object.freeze({
-    request: null,
-    approve,
-    executed: approve.outcome === "succeeded",
-  });
-}
-
 export function parseNayaxRefundApprovalContract(rawValue) {
   let parsed;
   try {
@@ -1426,7 +1379,7 @@ export function createNayaxRefundProviderAdapter({
   return Object.freeze({
     mode: "live",
     contractVersion: contract.contractVersion,
-    execute: async (request, executionPlan = "request_and_approve") => {
+    execute: async (request) => {
       const input = assertPlainObject(request, "Nayax orchestration request");
       if (
         input.caseId !== evidence.caseId ||
@@ -1439,21 +1392,7 @@ export function createNayaxRefundProviderAdapter({
         );
       }
 
-      if (!new Set(["request_and_approve", "approval_continuation"]).has(executionPlan)) {
-        throw new Error("Unsupported Nayax provider execution plan.");
-      }
-      const result = executionPlan === "approval_continuation"
-        ? await executeNayaxRefundApprovalContinuation({
-          contract,
-          approveToken,
-          transactionId: evidence.transactionId,
-          siteId: evidence.siteId,
-          machineAuthorizationTime: evidence.machineAuthorizationTimeWire,
-          fetchImpl,
-          timeoutMs: boundedTimeoutMs,
-          onStageEvent,
-        })
-        : await executeNayaxRefundProvider({
+      const result = await executeNayaxRefundProvider({
           contract,
           requestToken,
           approveToken,

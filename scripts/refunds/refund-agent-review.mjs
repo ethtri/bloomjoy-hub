@@ -24,7 +24,7 @@ const bloomjoyIssuers = new Set([
 ]);
 const allowed = Object.freeze({
   admin_get_refund_operations_overview: [], admin_get_refund_gmail_draft_cases: [],
-  admin_get_refund_email_queue_states: [], admin_get_refund_manual_nayax_context: [],
+  admin_get_refund_email_queue_states: [],
   admin_get_refund_case_reconciliation: ['p_refund_case_id'],
   admin_get_refund_gmail_case_context: ['p_refund_case_id'],
   admin_get_refund_authoritative_receipt_overview: ['p_case_id'],
@@ -84,15 +84,14 @@ function index(rows, key) {
 }
 
 export async function readPopulation(client) {
-  const [overview, drafts, queue, manual] = await Promise.all([
+  const [overview, drafts, queue] = await Promise.all([
     client.rpc('admin_get_refund_operations_overview'), client.rpc('admin_get_refund_gmail_draft_cases'),
-    client.rpc('admin_get_refund_email_queue_states'), client.rpc('admin_get_refund_manual_nayax_context'),
+    client.rpc('admin_get_refund_email_queue_states'),
   ]);
   const customer = index(overview?.cases, 'id');
   const internal = index(overview?.internalTestCases ?? [], 'id');
   const draftMap = index(drafts, 'id');
   const queueMap = index(queue, 'caseId');
-  const manualMap = index(manual, 'caseId');
   if ([...internal.keys()].some(id => customer.has(id) || !queueMap.has(id))) fail('population_not_reconciled');
   let overlaps = 0;
   for (const [id, row] of draftMap) {
@@ -107,7 +106,7 @@ export async function readPopulation(client) {
   const missing = [...queueMap.keys()].filter(id => !customer.has(id) && !internal.has(id));
   const extra = [...customer.keys()].filter(id => !queueMap.has(id));
   if (missing.length || extra.length) fail('population_not_reconciled');
-  const cases = [...customer.values()].map(row => ({ row, queue: queueMap.get(row.id), manual: manualMap.get(row.id) ?? null }));
+  const cases = [...customer.values()].map(row => ({ row, queue: queueMap.get(row.id) }));
   return { cases, authorizedIds: new Set(customer.keys()), population: {
     scopedCount: queueMap.size, customerCount: customer.size, internalExcluded: internal.size,
     overviewCount: overview.cases.length, draftCount: drafts.length, overlappingDraftCount: overlaps,
@@ -258,7 +257,6 @@ export async function readCasePacket(client, population, caseId, now = new Date(
         owner: machineManagerOwner(lifecycle.operations.owner), overdue: due ? Date.parse(due) <= now.getTime() : null },
     } : null,
     queueEvidence: pick(entry.queue, ['providerHold', 'providerOutcome', 'actionBlocked', 'possibleDuplicate', 'confirmedDuplicate', 'legacyStateReviewRequired']),
-    manualContext: pick(entry.manual, ['manualNayaxPortalEnabled', 'manualNayaxEvidenceSelected', 'manualNayaxLocationTimezone', 'reviewedNayaxPortalFallbackKind']),
     receipt: r ? { ...pick(r, receiptKeys), receipt: r.receipt ? pick(r.receipt, receiptDetailKeys) : null,
       completionNotice: r.completionNotice ? pick(r.completionNotice, ['messageId', 'state', 'deliveryState']) : null,
     } : { available: receipt.available, reason: receipt.reason ?? 'not_visible_or_applicable' },

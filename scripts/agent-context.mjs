@@ -78,10 +78,9 @@ function isMatch(haystack, pattern) {
 }
 
 function taskHaystack(issue) {
-  const body = String(issue?.body ?? "")
-    .replace(/## Sensitive data warning[\s\S]*$/i, "")
-    .replace(/## Expected verification[\s\S]*?(?=\n## |$)/i, "");
-  return `${issue?.title ?? ""}\n${body}\n${labelNames(issue)}`.toLowerCase();
+  // Route from the issue's concise identity, not every incidental term in a long
+  // body. The body is still printed below as active acceptance criteria.
+  return `${issue?.title ?? ""}\n${labelNames(issue)}`.toLowerCase();
 }
 
 function buildDocList(issue) {
@@ -95,9 +94,12 @@ function buildDocList(issue) {
   ]);
 
   if (isMatch(haystack, /refund|nayax/)) {
+    docs.add("Docs/REFUND_WORKFLOW.md");
+    docs.add("Docs/REFUND_AGENT_OPERATIONS.md");
+  }
+
+  if (isMatch(haystack, /nayax|provider api|refund execution|refund adapter/)) {
     docs.add("Docs/NAYAX_REFUND_WORKING_CONTRACT.md");
-    docs.add("Docs/NAYAX_LYNX_API.md");
-    docs.add("Docs/NAYAX_REFUND_PRODUCTION_RCA.md");
   }
 
   if (isMatch(haystack, /ui|ux|frontend|design|visual|mobile|responsive|page|screen|component|portal|admin|operator|public/)) {
@@ -111,7 +113,7 @@ function buildDocList(issue) {
     docs.add("Docs/PRODUCTION_RUNBOOK.md");
   }
 
-  if (isMatch(haystack, /architecture|platform|database|migration|supabase|rls|rpc|schema|auth|stripe|payment|refund|reporting|vendor|sunze|nayax/)) {
+  if (isMatch(haystack, /architecture|platform|database|migration|supabase|rls|rpc|schema|auth|stripe/)) {
     docs.add("Docs/ARCHITECTURE.md");
   }
 
@@ -138,7 +140,7 @@ function buildVerification(issue) {
     commands.splice(-1, 0, "npm run auth:preflight");
   }
 
-  if (isMatch(haystack, /stripe|payment|checkout|order|commerce|refund/)) {
+  if (isMatch(haystack, /stripe|payment|checkout|order|commerce/)) {
     commands.splice(-1, 0, "npm run commerce:preflight");
   }
 

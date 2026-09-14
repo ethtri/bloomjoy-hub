@@ -2,7 +2,9 @@
 
 Last updated: 2026-09-08
 
-For the current MVP scope and delivery sequence, start with [REFUND_MVP_PLAN.md](./REFUND_MVP_PLAN.md). Historical audits below explain evidence, not additional activation gates.
+For current product behavior, start with
+[REFUND_WORKFLOW.md](REFUND_WORKFLOW.md). Use this file only for Nayax API details;
+it cannot add a customer step, Manager approval, or rollout gate.
 
 ## Purpose
 Bloomjoy is evaluating Nayax Lynx as the server-side source for machine inventory and machine-level sales activity.
@@ -35,7 +37,7 @@ there is no extra testing approval or balance/vendor/report prerequisite.
 - The earlier request-plus-approval incident exposed a lossy observability boundary: Bloomjoy retained HTTP/outcome/digest evidence but not media type or safe body-shape metadata, so its approval HTTP `500` cannot be attributed to a specific provider body, contract mismatch, identity, or permission cause from stored evidence.
 - Journal v3 and contract schema v2 repair that boundary. The new runtime requires Bearer authorization and exact HTTP `200` + `application/json` + valid object/string fields + an account-confirmed accepted pair before the database may authorize approval. An unfamiliar `2xx` no longer advances.
 - The journal persists safe response-envelope classes and a keyed digest, not raw response bodies. The v3 runtime negotiates `nayax-production-account-contract-v2`; new context-bound attempts cannot downgrade to journal v2 or enter through retired reservation paths.
-- Normal execution requires the paired account-scoped write credentials, current manager/machine authority, the exact selected original and amount, duplicate protection and a durable journal. There is no first-proof cohort or quota. Unknown outcomes require reconciliation before another payment; an exact rejection or audited no-refund release permits the reviewed portal fallback.
+- Normal execution requires the paired account-scoped write credentials, one manager or Super-admin approval, the exact selected original and amount, duplicate protection and a durable generation-scoped journal. Unknown outcomes hold the same attempt for verification. Only exact authoritative DTM or support proof that no refund occurred can advance that same attempt under its original approval; a rejected response label is not proof. When API search cannot find a match, the Nayax portal is for read-only transaction research only; never issue or record a refund there.
 - Production availability requires the coordinated database/function/frontend release and the configured execution switches. Do not infer availability from a merged PR or a successful build. SQS/SFTP readback and the invited report-only user are optional reporting work, not dependencies for ordinary refund execution.
 
 ## Current Production Credential Status
@@ -171,9 +173,11 @@ Refund execution is separate from read-only Last Sales lookup.
 
 The deployed foundation includes `nayax-card-refund` as a backend-only, fail-closed execution surface. The P0 `#961` repair makes its journaled database transition authoritative, adds an exact provider/journal compatibility handshake, separates request and approval credentials, and activates an account circuit breaker only through the new versioned reservation path. Provider success, Bloomjoy settlement, and customer delivery retain separate durable classifications so a later failure cannot invite a duplicate refund.
 
-The old controlled-owner pilot's default-off flags, TOTP ceremony, and runner-only execution surface are historical audit evidence, not current activation or permission guidance. See `Docs/REFUND_NAYAX_CONTROLLED_OWNER_PILOT.md` only when testing that retired design.
+Retired controlled-owner pilot flags and runner-only execution paths are not
+current activation or permission guidance. Use Git history when investigating
+that removed design.
 
-The current normal manager path uses the real provider adapter, the journaled database transition, separate account-scoped request/approval credentials, exact case and transaction binding, the full original provider amount, and one immutable generation. There are no arbitrary amount/daily caps or separate balance-proof requirements. The learned stage-specific pair in the working contract may advance; an unfamiliar response holds that transaction for inspection. A supported new generation requires authoritative no-refund evidence, not a blind replay. Qualified unrelated refunds continue.
+The current normal manager path uses the real provider adapter, the journaled database transition, separate account-scoped request/approval credentials, exact case and transaction binding, and the full original provider amount. The learned stage-specific pair in the working contract may advance; an unfamiliar response holds the same attempt for verification. An exact no-refund proof may authorize one System continuation generation on that row; blind retries and manual Nayax completion are not supported. Qualified unrelated refunds continue.
 
 ### Historical provider-outcome resolution evidence
 
@@ -185,7 +189,11 @@ The current orchestration proof injects a local synthetic provider adapter. Its 
 
 In the historical controlled-owner incident, the production account token created the pending request, two approval POSTs failed, and the then-signed-in portal view exposed no Approve/Decline action. That incident does not override the later provider confirmation of the active account's roles and does not diagnose today's token or response pair. The separate read-only reporting token was not used and must never be used as a write-permission probe. The `#877` approval-only runtime is now retired fail-closed: journal v3 cannot authorize a standalone approval from incomplete legacy request evidence. Its single-use database records remain for audit/rollback tests only and cannot authorize a provider call.
 
-There is no ad hoc "mark successful" shortcut for timeout, pending or unknown outcomes. The existing structured resolver records exact DTM/support evidence against the current mapping, authorized operator and evidence version without making a provider call. Historical TOTP/one-use pilot ceremonies and gate resets are not routine production requirements. #427 observes ordinary operations; it does not define an activation window. #971 owns automatic completion from independently validated machine-readable evidence using the existing receipt path.
+There is no ad hoc "mark successful" shortcut for timeout, pending or unknown
+outcomes. The existing structured resolver records exact DTM/support evidence
+against the current mapping and evidence version without making a provider call.
+Unknown-result reconciliation is an implementation control, not another Manager
+decision.
 
 ### Read-only execution availability
 

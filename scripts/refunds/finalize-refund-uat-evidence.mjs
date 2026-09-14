@@ -272,11 +272,18 @@ export async function finalizeRefundUatEvidence({
   const entries = await readdir(fragmentDir, { withFileTypes: true });
   const actualNames = entries.map((entry) => entry.name).sort();
   const expectedNames = [...EXPECTED_FRAGMENT_ARTIFACTS].sort();
+  const missingNames = expectedNames.filter((name) => !actualNames.includes(name));
+  const unexpectedEntryCount = actualNames.filter((name) => !expectedNames.includes(name)).length;
+  const nonFileEntryCount = entries.filter((entry) => !entry.isFile()).length;
   if (
-    entries.some((entry) => !entry.isFile()) ||
+    nonFileEntryCount > 0 ||
     JSON.stringify(actualNames) !== JSON.stringify(expectedNames)
   ) {
-    throw new Error('Fragment directory must contain exactly the six reviewed evidence inputs.');
+    throw new Error(
+      `Fragment directory must contain exactly the six reviewed evidence inputs. ` +
+      `Missing: ${missingNames.join(', ') || 'none'}. ` +
+      `Unexpected entries: ${unexpectedEntryCount}. Non-file entries: ${nonFileEntryCount}.`
+    );
   }
 
   const envelopes = Object.fromEntries(

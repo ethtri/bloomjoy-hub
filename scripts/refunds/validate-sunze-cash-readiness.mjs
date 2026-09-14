@@ -30,6 +30,13 @@ assert.match(migration, /run\.meta ->> 'timestamp_proof_scope' = 'account'/u);
 assert.match(migration, /security_invoker = true/u);
 assert.match(migration, /revoke all on table public\.sunze_cash_source_watermarks from public, anon, authenticated/u);
 assert.match(migration, /grant execute on function public\.service_match_sunze_cash_sale[\s\S]*to service_role/u);
+assert.match(migration, /create unique index refund_cases_selected_sunze_sale_unique_idx/u);
+assert.doesNotMatch(
+  migration,
+  /fact\.net_sales_cents = p_amount_cents/u,
+  'Reported amount must remain advisory rather than filtering reviewed Sunze sales',
+);
+assert.match(sqlTest, /One exact Sunze sale cannot be selected by a second non-duplicate case/u);
 assert.match(intake, /service_match_sunze_cash_sale/u);
 assert.doesNotMatch(intake, /\.from\("machine_sales_facts"\)[\s\S]*\.eq\("payment_method", "cash"\)/u);
 assert.match(intake, /cashMatchState === "no_sale_found_with_complete_coverage" \? 1 : null/u);

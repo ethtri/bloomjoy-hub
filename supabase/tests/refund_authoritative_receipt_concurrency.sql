@@ -27,11 +27,14 @@ insert into public.reporting_machines(id,account_id,location_id,machine_label,na
 values('af300000-0000-4000-8000-000000000001','af100000-0000-4000-8000-000000000001','af200000-0000-4000-8000-000000000001','Receipt race','RECEIPT-RACE-MACHINE','RECEIPT-RACE-ACCOUNT',true);
 insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
 values('af300000-0000-4000-8000-000000000001','af000000-0000-4000-8000-000000000001','receipt-race@example.invalid','Synthetic receipt race');
--- Dedicated manual-only fixture keeps the receipt tests on the supported
--- evidence/selection/authorization path; API fallback is tested separately.
-insert into public.reporting_machines(id,account_id,location_id,machine_label,nayax_refunds_enabled,
-  nayax_manual_portal_enabled,nayax_manual_account_scope,nayax_manual_portal_timezone)
-values('af300000-0000-4000-8000-000000000002','af100000-0000-4000-8000-000000000001','af200000-0000-4000-8000-000000000001','Receipt manual fixture',false,true,'receipt_race_manual','America/Los_Angeles');
+-- Historical manual-attempt evidence is observed against the machine's exact
+-- current account and provider identifiers. It does not reopen the retired
+-- manual-portal execution lane.
+insert into public.reporting_machines(id,account_id,location_id,machine_label,
+  nayax_machine_id,nayax_account_key,nayax_refunds_enabled,nayax_manual_portal_enabled)
+values('af300000-0000-4000-8000-000000000002','af100000-0000-4000-8000-000000000001',
+  'af200000-0000-4000-8000-000000000001','Receipt historical fixture',
+  'RECEIPT-RACE-MACHINE','receipt_race_manual',true,false);
 insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
 values('af300000-0000-4000-8000-000000000002','af000000-0000-4000-8000-000000000001','receipt-race@example.invalid','Synthetic manual receipt fixture');
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,issue_summary,
@@ -57,16 +60,33 @@ create function refund_receipt_race_test.authorize() returns void language plpgs
   perform set_config('request.jwt.claims','{"sub":"af000000-0000-4000-8000-000000000001","role":"authenticated","session_id":"af010000-0000-4000-8000-000000000001","is_anonymous":false}',true);
 end; $$;
 select refund_receipt_race_test.authorize();
-do $$ declare candidate jsonb; c public.refund_cases%rowtype; begin
-  select * into c from public.refund_cases where id='af400000-0000-4000-8000-000000000002';
-  candidate:=public.admin_create_refund_manual_nayax_candidate(c.id,c.official_action_version,'RECEIPT-RACE-MACHINE',
-    '223456782',to_char(c.incident_at at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI:SS'),700,'4242');
-  select * into c from public.refund_cases where id=c.id;
-  perform public.service_select_refund_nayax_candidate_as_actor('af000000-0000-4000-8000-000000000001',c.id,c.official_action_version,
-    (candidate->>'candidateToken')::uuid,null);
-end $$;
-select public.admin_begin_refund_manual_nayax_portal('af400000-0000-4000-8000-000000000002',
-  (select official_action_version from public.refund_cases where id='af400000-0000-4000-8000-000000000002'));
+update public.refund_cases
+set status='card_refund_pending',decision='approved',correlation_status='matched',
+  correlation_source='nayax',correlation_confidence=1,automation_state='approved',
+  matched_nayax_transaction_id='223456782',matched_nayax_amount_cents=700,
+  matched_nayax_currency_code='USD',matched_nayax_machine_auth_time=incident_at,
+  nayax_refund_execution_status='manual_review',lifecycle_integrity_status='hold',
+  lifecycle_integrity_code='card_payment_state_without_attempt',
+  lifecycle_integrity_detected_at=statement_timestamp()
+where id='af400000-0000-4000-8000-000000000002';
+with inserted as (
+  insert into public.refund_case_nayax_refund_attempts(
+    refund_case_id,actor_user_id,execution_mode,status,idempotency_key,
+    amount_cents,provider_reference,provider_status,request_fingerprint,
+    currency_code,provider_outcome,reconciliation_required,safe_transport_stage,
+    safe_failure_class,created_at)
+  select c.id,'af000000-0000-4000-8000-000000000001','manual_portal','manual_review',
+    'manual-nayax-portal-20260901-'||c.public_reference,700,c.matched_nayax_transaction_id,
+    'request_accepted',encode(extensions.digest(convert_to(c.id::text||'|'||c.matched_nayax_transaction_id||'|700','UTF8'),'sha256'),'hex'),
+    'USD','unknown',true,'confirmation_hold','provider_unknown','2026-09-01 18:00:00+00'
+  from public.refund_cases c where c.id='af400000-0000-4000-8000-000000000002'
+  returning id,refund_case_id,actor_user_id,created_at
+)
+insert into public.refund_case_events(refund_case_id,actor_user_id,event_type,message,metadata,created_at)
+select refund_case_id,actor_user_id,'manual_nayax_refund_reconciliation_created','Synthetic historical registration',
+  jsonb_build_object('attempt_id',id,'provider_outcome','unknown','provider_call_made',true,
+    'settlement_confirmation_required',true,'payload_redacted',true),created_at
+from inserted;
 insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,first_message_at,latest_message_at,retention_expires_at)
 values('af700000-0000-4000-8000-000000000001','af400000-0000-4000-8000-000000000001',repeat('f',64),'receipt-race-thread','Synthetic already-sent notice',now()-interval '1 day',now(),now()+interval '30 days');
 insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,provider_message_id,operation_key,direction,message_kind,status,sender_email,recipient_email,subject,plain_body,sent_at,retention_expires_at,received_at)
@@ -249,24 +269,24 @@ select is(refund_receipt_race_test.work_snapshot(),
   (select payload from refund_receipt_race_test.results where lane='historical_work_before'),
   'Post-commit scheduler calls leave historical work exactly unchanged');
 
--- The old dated resolver is already waiting when the new receipt commits.
--- Its post-lock capability check sees the receipt and rejects the old action
--- before the later storage-effect guard would be reached.
-select extensions.dblink_exec('receipt_race_a','begin');
-select * from extensions.dblink('receipt_race_a',$q$select id::text from public.refund_cases where id='af400000-0000-4000-8000-000000000002' for update$q$) as x(id text);
-select extensions.dblink_send_query('receipt_race_b',$q$select refund_receipt_race_test.run('old_resolver',2)$q$);
-select ok(refund_receipt_race_test.wait_for_blocked_b(),'Old resolver is verified waiting while receipt owns the case lock');
-insert into refund_receipt_race_test.results select 'receipt_wins',payload from extensions.dblink('receipt_race_a',$q$select refund_receipt_race_test.run('record',2)$q$) as x(payload jsonb);
-select extensions.dblink_exec('receipt_race_a','commit');
-insert into refund_receipt_race_test.results select 'resolver_loses',payload from extensions.dblink_get_result('receipt_race_b') as x(payload jsonb);
-select * from extensions.dblink_get_result('receipt_race_b') as x(payload jsonb);
-select is((select payload->>'status' from refund_receipt_race_test.results where lane='receipt_wins'),'recorded','Receipt winner is committed');
-select diag((select payload::text from refund_receipt_race_test.results where lane='resolver_loses'));
-select is((select payload->>'error' from refund_receipt_race_test.results where lane='resolver_loses'),'P0001','Waiting old resolver is rejected by the post-lock official-action capability check');
-select is((select payload->>'message' from refund_receipt_race_test.results where lane='resolver_loses'),
-  'Active Machine Manager mapping required','Resolver denial is the exact receipt-aware capability error, not an unrelated fixture failure');
+-- The old manager-session resolver is retired. Current System-attempt evidence
+-- has its own race coverage; this file only proves the old path cannot return.
+insert into refund_receipt_race_test.results select 'receipt_wins',
+  refund_receipt_race_test.run('record',2);
+select is((select payload->>'status' from refund_receipt_race_test.results
+  where lane='receipt_wins'),'recorded','The second authoritative receipt is committed');
+select ok(not has_function_privilege('authenticated',
+  'public.admin_resolve_refund_nayax_outcome_manager_session(uuid,uuid,text,text,text,timestamptz,text,bigint)',
+  'execute'),'The retired manager-session resolver is not available to the portal');
+set local role authenticated;
+select throws_ok($q$select public.admin_resolve_refund_nayax_outcome_manager_session(
+  'af400000-0000-4000-8000-000000000002',null,'documented_manual_completion',
+  'documented_manual_refund','MANUAL:RECEIPT-RACE',statement_timestamp(),
+  'manual_nayax_completion',1)$q$,'42501',null,
+  'The retired manager-session resolver cannot mutate a case');
+reset role;
 select ok(not public.can_perform_refund_official_action('af000000-0000-4000-8000-000000000001','af400000-0000-4000-8000-000000000002'),
-  'Committed receipt revokes the old payment action even for the still-mapped manager');
+  'A committed receipt blocks a fresh payment action');
 
 select extensions.dblink_exec('receipt_race_a','begin');
 select * from extensions.dblink('receipt_race_a',$q$select id::text from public.refund_cases where id='af400000-0000-4000-8000-000000000001' for update$q$) as x(id text);

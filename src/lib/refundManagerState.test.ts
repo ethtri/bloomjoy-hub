@@ -503,7 +503,7 @@ Deno.test('manager state surfaces a direct-email bounce without changing payment
   );
   assertEquals(
     result.nextStep,
-    'The assigned machine manager reviews the original customer email thread and saved delivery record, then chooses the supported next step. Do not resend this saved message until its delivery is clear, and do not retry a payment from delivery evidence.',
+    'Review the original customer email thread and saved delivery record, then choose the supported next step. Do not resend this saved message until its delivery is clear, and do not retry a payment from delivery evidence.',
     'delivery recovery uses plain manager language'
   );
 });
@@ -653,7 +653,7 @@ Deno.test('manager state keeps ambiguous, unmatched, and failed lookup results o
 });
 
 Deno.test('manager state distinguishes in-flight, uncertain, rejected, completed, and denied payments', () => {
-  assertEquals(getRefundManagerState(baseCase, { isRefunding: true }).label, 'Refund initiated', 'in-flight label');
+  assertEquals(getRefundManagerState(baseCase, { isRefunding: true }).label, 'Refund in progress', 'in-flight label');
   assertEquals(
     getRefundManagerState({ ...baseCase, providerHold: true, providerOutcome: 'unconfirmed' }).label,
     'Refund result is being checked',
@@ -680,7 +680,7 @@ Deno.test('manager state distinguishes in-flight, uncertain, rejected, completed
   assertEquals(getRefundManagerState({ ...baseCase, status: 'denied' }).label, 'Denied', 'denied label');
 });
 
-Deno.test('authoritative no-refund rejection restores the normal manager action', () => {
+Deno.test('authoritative no-refund evidence never restores a manager refund action', () => {
   const releasedLifecycle = lifecycle('transaction_confirmed', 30, 'issue_refund');
   releasedLifecycle.definitiveNoRefund = true;
   releasedLifecycle.safeRetryEligible = true;
@@ -701,7 +701,7 @@ Deno.test('authoritative no-refund rejection restores the normal manager action'
     lifecycle: releasedLifecycle,
   };
 
-  assertEquals(getRefundManagerState(releasedCase).label, 'Ready to approve', 'released rejection label');
+  assertEquals(getRefundManagerState(releasedCase).label, 'Refund rejected', 'released rejection label');
   assertEquals(getRefundPaymentStateLabel(releasedCase), 'Not issued', 'released rejection payment label');
 });
 
@@ -709,7 +709,7 @@ Deno.test('manager state consumes the canonical lifecycle for automatic progress
   const expected = [
     ['matching', 10, 'Checking transactions'],
     ['needs_transaction_selection', 20, 'Review transactions'],
-    ['refund_initiated', 40, 'Refund initiated'],
+    ['refund_initiated', 40, 'Refund in progress'],
     ['confirming_with_nayax', 50, 'Confirming refund'],
     ['refund_confirmed', 70, 'Refund confirmed'],
     ['customer_notified', 80, 'Completed'],
@@ -843,7 +843,7 @@ Deno.test('transaction-confirmed detail cannot overrule blocked canonical queue 
       officialActionBlockReason: 'manager_mapping_required',
       nextAction: 'resolve_manager_access',
       expectedNextStep:
-        'Ask an administrator to restore your Machine Manager access before taking action.',
+        'Use the assigned Manager or a Super-admin. If this signed-in user already has one of those roles, report a portal or machine-assignment defect.',
     },
     {
       block: 'missing official-action version',
@@ -901,12 +901,12 @@ Deno.test('payment hold gives routine managers plain next steps without exposing
   assertEquals(routine.id, 'needs_refund_operations', 'routine hold state');
   assertEquals(
     routine.nextStep,
-    'A manager with the required access must check the saved payment result. Do not try the payment again.',
+    'Check the saved payment result in Nayax and record what Nayax confirms. Do not try the payment again.',
     'routine guidance'
   );
   assertEquals(
     operations.nextStep,
-    'Use the Manager payment review panel below to record the confirmed Nayax result. Never retry the payment while the result is unclear.',
+    'Use the Payment result check below to record the confirmed Nayax result. Never retry the payment while the result is unclear.',
     'operations guidance'
   );
 });
@@ -1074,7 +1074,7 @@ Deno.test('retired remaining-value reason asks for a current availability refres
   assertEquals(
     result.nextStep,
     'Refresh the case to load the current refund availability.',
-    'manual portal fallback guidance'
+    'current availability guidance'
   );
 });
 
@@ -1145,12 +1145,12 @@ Deno.test('canonical pending and uncertain payment truth stays ahead of unrelate
  }
 });
 
-Deno.test('explicit released-no-refund evidence permits review with delivery-only operations, never a payment hold',()=>{
+Deno.test('explicit released-no-refund evidence never permits payment review continuation',()=>{
  const contract=lifecycle('transaction_confirmed',30,'refund');
  contract.definitiveNoRefund=true;contract.safeRetryEligible=true;
  contract.operations={...contract.operations,required:true,safeStage:'released_no_refund',failureClass:'customer_delivery_exception'};
  const released={...baseCase,providerOutcome:'rejected' as const,lifecycle:contract};
- assertEquals(hasUnpaidRefundReview(released),true,'Delivery-only review does not revoke an explicit safe release');
+ assertEquals(hasUnpaidRefundReview(released),false,'Legacy release evidence does not restore a payment review');
  for(const failureClass of ['provider_outcome_unknown','integrity_hold',null]) {
   assertEquals(hasUnpaidRefundReview({...released,lifecycle:{...contract,operations:{...contract.operations,failureClass}}}),false,'A payment review is not a delivery-only release');
  }

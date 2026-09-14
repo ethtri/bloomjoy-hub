@@ -53,7 +53,7 @@ Deno.test("request receipt diagnostics preserve PostgreSQL microseconds for the 
   assertEquals(diagnostic?.customerRequestReceivedAt, receivedAt);
 });
 
-Deno.test("actual persistence sends one existing result through scoped diagnostic wrapper; stale result is not success", async () => {
+Deno.test("actual persistence sends one result through the atomic System-preselection wrapper; stale result is not success", async () => {
   const calls: { name: string; args: Record<string, unknown> }[] = [];
   const supabase = { rpc(name: string, args: Record<string, unknown>) {
     calls.push({ name, args }); return Promise.resolve({ data: { applied: calls.length === 1 }, error: null });
@@ -62,7 +62,7 @@ Deno.test("actual persistence sends one existing result through scoped diagnosti
     trigger: "manual" as const, expectedFactVersion: 1, lookupGeneration: 3 };
   await persistNayaxLookupResult(input);
   assertEquals(calls.length, 1);
-  assertEquals(calls[0].name, "service_commit_refund_nayax_lookup_with_diagnostics");
+  assertEquals(calls[0].name, "service_commit_refund_nayax_lookup_and_preselect_v1");
   assertEquals(calls[0].args.p_diagnostics, buildNayaxLookupDiagnostics(result));
   await assertRejects(() => persistNayaxLookupResult(input), Error, "matching evidence changed");
   assertEquals(calls.length, 2, "No automatic retry or fallback commit");
@@ -100,7 +100,7 @@ Deno.test("actual persistence emits bounded v3 clock and request contexts withou
   await persistNayaxLookupResult({ supabase, caseId: "case-fixture", actorUserId: "actor-fixture",
     result: { ...result, providerClockContexts: contexts }, trigger: "manual", expectedFactVersion: 1, lookupGeneration: 3 });
   assertEquals(calls.length, 1);
-  assertEquals(calls[0].name, "service_commit_refund_nayax_lookup_with_diagnostics");
+  assertEquals(calls[0].name, "service_commit_refund_nayax_lookup_and_preselect_v1");
   const diagnostic = calls[0].args.p_diagnostics as Record<string, unknown>;
   assertEquals(Object.keys(diagnostic).length, 21);
   assertEquals(diagnostic.schemaVersion, "nayax_lookup_diagnostics_v3");

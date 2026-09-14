@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { createReadClient, readPopulation, readCasePacket, readReportHealth, compareReview, paginate, summarizeCasePacket, ReviewError } from './refund-agent-review.mjs';
-import { NAYAX_RECOMMENDATION_POLICY } from '../../supabase/functions/_shared/nayax-recommendation.mjs';
 
 const repoRoot = new URL('../../', import.meta.url);
 const readRepoFile = filePath => readFile(new URL(filePath, repoRoot), 'utf8');
@@ -36,7 +35,6 @@ function fixture(rows = [row(1)]) {
     admin_get_refund_operations_overview: { cases: rows, internalTestCases: [] },
     admin_get_refund_gmail_draft_cases: [],
     admin_get_refund_email_queue_states: rows.map(r => ({ caseId: r.id, providerHold: false, providerOutcome: 'not_attempted', actionBlocked: false })),
-    admin_get_refund_manual_nayax_context: [],
     get_refund_gmail_health: { status: 'healthy', reportFreshness: null },
   };
   const client = { scope: 'test-scope', async rpc(name, args = {}) {
@@ -118,7 +116,7 @@ test('compact daily summary includes queue, owner, and existing due time', async
 
 test('refund procedure follows the lean assistant-manager flow', async () => {
   const procedure = await readRepoFile('Docs/REFUND_AGENT_OPERATIONS.md');
-  const orderedSteps = Array.from({ length: 8 }, (_, index) => `## Step ${index + 1}`);
+  const orderedSteps = Array.from({ length: 7 }, (_, index) => `## ${index + 1}.`);
   let previous = -1;
   for (const step of orderedSteps) {
     const position = procedure.indexOf(step);
@@ -127,75 +125,71 @@ test('refund procedure follows the lean assistant-manager flow', async () => {
   }
   for (const required of [
     'https://app.bloomjoyusa.com/refunds', 'bloomjoysweets.com',
-    'etrifari@bloomjoysweets.com', 'The latest refund information could not be loaded',
-    'portal candidates are the first research step',
-    "machine's existing Machine Manager assignment",
-    'READY TO APPROVE REFUND', 'WAITING ON CUSTOMER', 'RECOMMEND REJECT',
-    'Nayax portal', 'Nayax API', 'one missing fact',
-    'Machine Manager approves the decision', 'sends any cash refund',
-    '30 calendar days', 'GitHub issues', 'one-off customer email',
-    'two to three calendar days',
-    'separate manager approval is not required',
-    'verify the send before reporting WAITING ON CUSTOMER',
-    'only playbook an agent should use to triage live refund cases',
-    "provider total is within $3 of the customer's estimate",
-    'difference under 15% is especially ordinary',
-    'Do not ask the customer to choose between the two amounts',
-    'customer appears in the final **To/CC** recipient list',
-    'refresh and reconcile the case',
-    'Never repeat a provider action or customer message',
-  ]) assert.match(procedure, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-  assert(procedure.indexOf('API-backed transaction search') < procedure.indexOf('search the same machine and a'));
-  assert.doesNotMatch(procedure, /Refund Operations|safe stopping point|Route to Refund Operations|assign Refund Operations/iu);
-  assert.doesNotMatch(procedure, /action-time confirmation|stop immediately before \*\*Send\*\*/iu);
+    'etrifari@bloomjoysweets.com', 'error-state zero is unavailable data',
+    'Portal candidates are the first research step',
+    'Customer amount is approximate', 'contactless digits may be tokenized',
+    'A case worker may select a lower-ranked or lower-confidence candidate',
+    'full charged amount', 'including tax',
+    'Confirm refund sent via Zelle', 'no waiting-for-payment state',
+    'send one follow-up', 'Close after 30 days',
+    'friendly, targeted question', 'GitHub issues',
+    'Never repeat an unknown payment',
+  ]) {
+    const flexiblePhrase = required
+      .trim()
+      .split(/\s+/u)
+      .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .join('\\s+');
+    assert.match(procedure, new RegExp(flexiblePhrase, 'i'));
+  }
+  assert(procedure.indexOf('Review every current portal candidate') < procedure.indexOf('Search the same machine'));
+  assert.doesNotMatch(procedure, /provider total is within \$3|difference under 15%|two to three calendar days/iu);
 });
 
-test('one live agent playbook matches the implemented amount and time controls', async () => {
-  const procedure = await readRepoFile('Docs/REFUND_AGENT_OPERATIONS.md');
-  assert.equal(NAYAX_RECOMMENDATION_POLICY.maximumStrongCardAmountDeltaCents, 300);
-  assert.equal(NAYAX_RECOMMENDATION_POLICY.maximumOneClickTimeDeltaMinutes, 60);
-  assert.match(procedure, new RegExp(`within \\$${NAYAX_RECOMMENDATION_POLICY.maximumStrongCardAmountDeltaCents / 100} of`));
-  assert.match(procedure, new RegExp(`time is within ${NAYAX_RECOMMENDATION_POLICY.maximumOneClickTimeDeltaMinutes} minutes`));
+test('live procedure follows product policy instead of freezing matcher thresholds', async () => {
+  const [workflow, procedure] = await Promise.all([
+    readRepoFile('Docs/REFUND_WORKFLOW.md'),
+    readRepoFile('Docs/REFUND_AGENT_OPERATIONS.md'),
+  ]);
+  for (const required of ['recommendation is advisory', 'full amount actually charged', 'including sales tax']) {
+    assert.match(workflow, new RegExp(required, 'i'));
+  }
+  assert.doesNotMatch(procedure, /maximumStrongCardAmountDeltaCents|maximumOneClickTimeDeltaMinutes|fixed difference threshold/);
 });
 
 test('supporting refund documents cannot masquerade as competing agent playbooks', async () => {
-  const [matching, email, identification, decisions, production] = await Promise.all([
+  const [workflow, matching, email, decisions, production] = await Promise.all([
+    readRepoFile('Docs/REFUND_WORKFLOW.md'),
     readRepoFile('Docs/REFUND_NAYAX_MATCHING_RUNBOOK.md'),
     readRepoFile('Docs/REFUND_EMAIL_ASSISTANT_RUNBOOK.md'),
-    readRepoFile('Docs/REFUND_IDENTIFICATION_STRATEGY.md'),
     readRepoFile('Docs/DECISIONS.md'),
     readRepoFile('Docs/PRODUCTION_RUNBOOK.md'),
   ]);
-  assert.match(matching, /Not an agent case procedure/);
-  assert(matching.includes(`Current implementation: \`${NAYAX_RECOMMENDATION_POLICY.version}\`.`));
-  assert.match(email, /Historical email-system and release reference/);
-  assert.match(email, /file may add a matching requirement, customer question or approval step/);
-  assert.match(identification, /Historical design reference — not a live case-triage playbook/);
-  assert.doesNotMatch(email, /mapped machine, exact amount, resolved time window, and matching last four/);
-  assert.doesNotMatch(email, /^## Agent procedure$/m);
-  assert.doesNotMatch(matching, /Exact amount is mandatory for one-click eligibility/);
-  assert.match(decisions, /REFUND_AGENT_OPERATIONS\.md` is the only procedure for agents triaging live/);
-  assert.doesNotMatch(production, /assign it to \*\*Refund Operations\*\*/);
+  assert.match(workflow, /durable product workflow/);
+  assert.match(matching, /subordinate to/);
+  assert.match(email, /subordinate to/);
+  assert.match(decisions, /REFUND_WORKFLOW\.md.*durable product source of truth/);
+  assert.match(production, /product workflow is \[REFUND_WORKFLOW\.md\]/);
+  assert.match(matching, /may\s+not be a universal permission gate for Manager selection or approval/i);
 });
 
 test('daily report contract has every deterministic case and population field', async () => {
   const procedure = await readRepoFile('Docs/REFUND_AGENT_OPERATIONS.md');
   for (const field of [
-    'Case:', 'Age:', 'Machine:', 'Outcome:', 'Evidence:', 'Action taken:',
-    'Manager action:', 'Engineering issue:', 'cases reviewed',
-    'ready to approve refund', 'recommend reject', 'waiting on customer',
+    'Case:', 'Machine:', 'State:', 'Evidence:', 'Action taken:',
+    'Manager action:', 'Engineering issue:',
   ]) assert(procedure.includes(field), `missing report field: ${field}`);
 });
 
-test('policy and repo instructions point agents at current status and the correct browser', async () => {
-  const [policy, agents] = await Promise.all([
-    readRepoFile('Docs/REFUND_PRODUCTION_POLICY.md'),
+test('workflow and repo instructions point agents at the canonical policy and correct browser', async () => {
+  const [workflow, agents] = await Promise.all([
+    readRepoFile('Docs/REFUND_WORKFLOW.md'),
     readRepoFile('AGENTS.md'),
   ]);
-  assert(policy.includes('[CURRENT_STATUS.md](./CURRENT_STATUS.md)'));
-  assert.doesNotMatch(policy, /one attributable request.*remains to be proved/s);
+  assert.match(workflow, /Sources of truth/);
+  assert.match(agents, /Docs\/REFUND_WORKFLOW\.md/);
   assert.match(agents, /etrifari@bloomjoysweets\.com/);
-  assert.match(agents, /failed portal population is unavailable/);
+  assert.match(agents, /failed portal\s+population is unavailable/i);
 });
 
 test('approval continuity requires the exact selected purchase amount and card purpose', async () => {

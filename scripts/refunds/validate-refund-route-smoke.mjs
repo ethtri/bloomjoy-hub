@@ -22,7 +22,7 @@ assert.deepEqual(
     ...refundRouteSmokeExcludedFunctionSlugs,
   ],
   requiredFunctionSlugs,
-  'Eight safe OPTIONS probes plus three explicitly unprobed endpoints must account for the full eleven-function manifest without implying route verification',
+  'Eight safe OPTIONS probes plus two inert tombstones and the outcome resolver must account for the full eleven-function inventory without implying route verification',
 );
 assert.equal(
   resolveRefundRouteSmokeBaseUrl({ projectRef, confirmProjectRef: projectRef, baseUrl: '' }),

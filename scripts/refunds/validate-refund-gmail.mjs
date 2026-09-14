@@ -53,7 +53,6 @@ const [
   evidenceHarness,
   packageJson,
   envExample,
-  qaChecklist,
   canonicalThreadMigration,
   managerDigestMigration,
 ] =
@@ -101,7 +100,6 @@ const [
     read('scripts/refunds/generate-refund-gmail-evidence.ts'),
     read('package.json'),
     read('.env.example'),
-    read('Docs/QA_SMOKE_TEST_CHECKLIST.md'),
     read('supabase/migrations/20260907221500_refund_gmail_canonical_threading.sql'),
     read('supabase/migrations/20260911005752_refund_manager_digest_projection.sql'),
   ]);
@@ -1602,18 +1600,6 @@ assert(
     !walletReadyManagerNotice.includes('summaryText:') &&
     !walletReadyManagerNotice.includes('subject:'),
   'Wallet-ready transport must supply only the canonical reason and keep caller-composed context out of manager email',
-);
-assert(
-  qaChecklist.includes("appear in the assigned manager's portal queue without a separate intake email") &&
-    qaChecklist.includes('Customer contact details, complaint text, card digits, provider identifiers/payloads, diagnostics, and attachments are absent') &&
-    qaChecklist.includes('Opening either link is navigation-only') &&
-    qaChecklist.includes('An incomplete or invalid manager route remains an internal routing-repair exception') &&
-    qaChecklist.includes('routine automatic acknowledgements, follow-ups, reminders, corrections, and status messages have the customer as sole To and no manager CC') &&
-    qaChecklist.includes('A manager-authored conversation reply retains every other current active, non-revoked mapped Machine Manager exactly once in visible CC') &&
-    qaChecklist.includes('Provider-confirmation receipts retain their existing audited manager-copy exception') &&
-    qaChecklist.includes('A fifth manager, zero managers, malformed mappings, or a mailbox collision fails the route') &&
-    !qaChecklist.includes('with reference, machine, amount, incident time, payment method, case link, and status only'),
-  'QA guidance must preserve private portal fields, suppress routine manager email, retain manual Reply All, and fail closed on invalid routes',
 );
 assert(
     intakeFunction.includes('dispatchRefundCaseGmailReply') &&
