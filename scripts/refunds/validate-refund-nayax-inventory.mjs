@@ -52,8 +52,9 @@ const checks = [
   ['large drops fail the workflow visibly', /largeDrop == true/.test(workflow) && /dropped by more than 20%/.test(workflow)],
   ['workflow logs only aggregate result fields', /\{accountKey,status,discoveredCount,activeCount,needsSetupCount,publishedCount,excludedCount,largeDrop,replayed,errorCode\}/.test(workflow)],
   ['runbook keeps Snapcase reporting provenance separate', /Keep their reporting\/payment source separate from Sunze/i.test(runbook)],
-  ['runbook keeps production activation separate', /enable the hourly GitHub schedule as a separate production activation/i.test(runbook)],
-  ['pilot exclusions remain explicit', /does not require TOTP, temporary operators, GPT, QR codes, Kexiazhan reporting, cash fallback, or a new SMS platform/i.test(runbook)],
+  ['runbook is subordinate to the canonical workflow', /subordinate to[\s\S]*REFUND_WORKFLOW\.md/i.test(runbook)],
+  ['runbook keeps inventory from becoming a case gate', /cannot add a customer[\s\S]*Manager approval[\s\S]*account-wide payment gate/i.test(runbook)],
+  ['runbook retires pilot and activation ceremony', /Do not create a pilot cohort, owner ceremony, live-refund canary, or separate\s+Manager approval/i.test(runbook)],
 ];
 
 for (const [label, passed] of checks) {

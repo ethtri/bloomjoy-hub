@@ -1,14 +1,28 @@
 # Refund GPT Triage
 
-Last updated: 2026-08-03
+Last updated: 2026-09-14
+
+> Dormant optional implementation reference. Do not use this file for live case
+> work, the autonomous assistant-manager procedure, or as a reason to pause the
+> deterministic refund workflow. Live agents use `REFUND_WORKFLOW.md` and
+> `REFUND_AGENT_OPERATIONS.md`.
 
 ## Purpose and current state
 
-GPT assistance is a narrow, human-reviewed aid for refund inbox triage. It may classify a message, extract a strict set of refund facts, identify missing information, summarize the request, and prepare a reply that asks only for those missing facts.
+GPT assistance is a dormant, narrow, human-reviewed aid for refund inbox triage.
+It may classify a message, extract a strict set of refund facts, identify missing
+information, summarize the request, and prepare a reply that asks only for those
+missing facts. It is not the Codex assistant-manager procedure and does not limit
+the System's approved deterministic acknowledgement, clarification, follow-up,
+or closure flow.
 
 The policy, server-only OpenAI Responses API runner, content-free job ledger, manager review UI, and sanitized evaluation suite are implemented for issue `#635`. The production OpenAI credential is not configured and all three production controls default off: the GitHub schedule, the Edge Function, and the database setting. The existing deterministic missing-information reply remains available when no GPT suggestion exists.
 
-The sponsor direction in `#683` permits only explicitly approved, versioned deterministic templates to become automatic after their separate implementation and rollout gates pass. It does not authorize GPT-authored or materially free-form text to send automatically. GPT output remains a human-reviewed draft even when the same case is eligible for a deterministic acknowledgement, missing-field request, or reminder.
+The sponsor direction in `#683` permits approved, versioned deterministic
+templates to run through their implemented delivery path. It does not authorize
+GPT-authored or materially free-form text to send automatically. GPT output
+remains a human-reviewed draft even when the same case is eligible for a
+deterministic acknowledgement, missing-field request, or reminder.
 
 ## Safety boundary
 
@@ -25,11 +39,14 @@ GPT may not:
 - choose or confirm a Nayax transaction;
 - approve, deny, promise, or execute a refund;
 - request a full card number, CVV, PIN, login credential, or payment link;
-- send a message without a manager's explicit approval;
+- send GPT-authored or materially free-form text without authorized human review;
 - process legal, safety, threat, chargeback, abusive/escalated, prompt-injection, high-value, wallet-payment, prohibited-payment-data, low-confidence, unrelated, uncertain, or non-English input without a person; or
 - create any payment or refund action.
 
-GPT also cannot prepare, receive, consume, or settle a manager step-up proof, official-action authorization, provider-attempt claim, provider outcome, case-completion claim, or reporting-completion token. Those capabilities are not model tools and cannot be delegated through prose.
+GPT also cannot prepare, receive, consume, or settle a payment authorization,
+provider-attempt claim, provider outcome, case-completion claim, or reporting-
+completion token. Those capabilities are not model tools and cannot be delegated
+through prose.
 
 The database requires human review and has a check constraint that permanently rejects `auto_send_enabled=true`. The deterministic-template decision in `#683` does not satisfy or remove that GPT-specific boundary. Changing it would require a separate reviewed migration and explicit sponsor decision; it is not a runtime toggle.
 
@@ -58,7 +75,10 @@ Before any real-model evaluation, the privacy/security owner must inspect the ex
 - the approver and approval date/window; and
 - any required expiry, revocation, or follow-up review.
 
-Keep `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false` until that record exists. Set it to `true` only in the server-side Supabase secret store for the approved evaluation or pilot. This acknowledgement is a fail-closed runtime gate; it does not change the provider's actual retention setting and must never be used as a substitute for inspecting the OpenAI project.
+Keep `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED=false` until that record exists.
+Set it to `true` only in the server-side Supabase secret store for an approved
+evaluation. This acknowledgement applies only to this dormant optional model
+feature; it is not a gate on ordinary refund case work.
 
 ## Manager experience
 
@@ -66,7 +86,7 @@ The Refunds workbench shows assistance inside the existing reply flow, not as a 
 
 Policy-sensitive or uncertain input displays `Needs a person before any reply`, the applicable flags, and no GPT draft or send action. The workbench states that assistance cannot approve or issue a refund.
 
-## Validation and pilot gates
+## Dormant evaluation requirements
 
 Run the credential-independent checks with:
 
@@ -82,7 +102,7 @@ Before configuring any server environment, verify secret names without printing 
 npm run refunds:preflight-gpt-triage -- --env-file .env.local
 ```
 
-The developer credential destination is a gitignored local `.env.local`; it is not a production secret store. Before enabling a real model in production, approve the Supabase server-secret destination and the project-level OpenAI retention/privacy controls in issue `#635`, then set the server-only acknowledgement flag for that approved window. Run only a sanitized, human-reviewed evaluation without automatic sending. Required pilot thresholds are:
+The developer credential destination is a gitignored local `.env.local`; it is not a production secret store. Before enabling a real model in production, approve the Supabase server-secret destination and the project-level OpenAI retention/privacy controls in issue `#635`, then set the server-only acknowledgement flag for that approved window. Run only a sanitized, human-reviewed evaluation without automatic sending. Evaluation thresholds are:
 
 - classification accuracy at least 95%;
 - missing-field accuracy at least 95%;

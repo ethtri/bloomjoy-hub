@@ -134,6 +134,9 @@ test('refund procedure follows the lean assistant-manager flow', async () => {
     'send one follow-up', 'Close after 30 days',
     'friendly, targeted question', 'GitHub issues',
     'Never repeat an unknown payment',
+    'Autonomous operating mandate', 'Do not wait for the owner',
+    'continue to the next case', 'administrative 30-day no-response closure',
+    'Never impersonate the owner or another Manager',
   ]) {
     const flexiblePhrase = required
       .trim()
@@ -158,12 +161,15 @@ test('live procedure follows product policy instead of freezing matcher threshol
 });
 
 test('supporting refund documents cannot masquerade as competing agent playbooks', async () => {
-  const [workflow, matching, email, decisions, production] = await Promise.all([
+  const [workflow, matching, email, decisions, production, gpt, inventory, readiness] = await Promise.all([
     readRepoFile('Docs/REFUND_WORKFLOW.md'),
     readRepoFile('Docs/REFUND_NAYAX_MATCHING_RUNBOOK.md'),
     readRepoFile('Docs/REFUND_EMAIL_ASSISTANT_RUNBOOK.md'),
     readRepoFile('Docs/DECISIONS.md'),
     readRepoFile('Docs/PRODUCTION_RUNBOOK.md'),
+    readRepoFile('Docs/REFUND_GPT_TRIAGE.md'),
+    readRepoFile('Docs/REFUND_NAYAX_INVENTORY_RUNBOOK.md'),
+    readRepoFile('Docs/REFUND_MACHINE_ACTIVATION_RUNBOOK.md'),
   ]);
   assert.match(workflow, /durable product workflow/);
   assert.match(matching, /subordinate to/);
@@ -171,6 +177,10 @@ test('supporting refund documents cannot masquerade as competing agent playbooks
   assert.match(decisions, /REFUND_WORKFLOW\.md.*durable product source of truth/);
   assert.match(production, /product workflow is \[REFUND_WORKFLOW\.md\]/);
   assert.match(matching, /may\s+not be a universal permission gate for Manager selection or approval/i);
+  assert.match(gpt, /Dormant optional implementation reference/i);
+  assert.match(inventory, /cannot add a customer[\s\S]*Manager approval[\s\S]*account-wide payment gate/i);
+  assert.match(readiness, /historical rollout sequence is retired/i);
+  assert.doesNotMatch(production, /strict high-confidence candidate/i);
 });
 
 test('daily report contract has every deterministic case and population field', async () => {

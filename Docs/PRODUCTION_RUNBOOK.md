@@ -17,9 +17,10 @@ release artifacts do not add steps to the current workflow.
 1. Let the System search Bloomjoy and Nayax before asking the customer for more
    information. Missing mapping, account, timezone, or search coverage is an
    internal defect, not customer work.
-2. The System saves the single clear high-confidence purchase. When results are
-   ambiguous, a case worker reviews them and saves the exact purchase. The triage
-   actor may differ from the assigned Machine Manager or Super-admin who approves.
+2. The System saves the single clear purchase based on the complete evidence.
+   When results are ambiguous, a case worker reviews them and saves the exact
+   purchase. The triage actor may differ from the assigned Machine Manager or
+   Super-admin who approves.
 3. The assigned Machine Manager or a Super-admin makes one **Approve refund** or
    **Decline** decision. Approval defaults to the selected transaction's full
    provider total, including tax, and atomically queues one System-owned attempt.
@@ -31,7 +32,8 @@ release artifacts do not add steps to the current workflow.
    verification. Evidence may confirm success or leave it held. Exact DTM or
    support proof that no refund occurred may advance the same attempt once under
    the original approval; a provider rejection label alone cannot. There is no
-   blind retry or manual card completion. Cash refunds remain manager-manual.
+   blind retry or manual card completion. For cash, the Manager sends Zelle first
+   and then confirms the completed payment in Bloomjoy.
 
 ### Immediate rollback
 
