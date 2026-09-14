@@ -50,7 +50,7 @@ Deno.test("idempotency is deterministic for an exact replay and changes with imm
   assert(first !== changed, "changed evidence must change the key");
   assert(
     first !== retryGeneration,
-    "a support-approved retry generation must create a fresh key",
+    "an evidence-approved execution generation must create a fresh key",
   );
   assert(
     /^nayax-refund-[a-f0-9]{64}$/.test(first),

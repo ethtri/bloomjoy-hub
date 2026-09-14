@@ -18,6 +18,7 @@ const claim = () => ({
   providerClaimToken: "x".repeat(43),
   providerWireContext: {
     caseId: id("2"), caseVersion: 2, attemptGeneration: 0,
+    providerExecutionGeneration: 1, executionPlan: "request_and_approve",
     idempotencyKey: `nayax-refund-${"a".repeat(64)}`,
     providerContractVersion: "nayax-production-account-contract-v2",
     journalContractVersion: "nayax-provider-journal-v3",

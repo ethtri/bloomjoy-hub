@@ -80,6 +80,8 @@ import { resolveNayaxRefundExecutionConfig } from "../_shared/nayax-refund-gates
 import {
   buildRedactedNayaxStageDigest,
   createNayaxRefundProviderAdapter,
+  executeNayaxRefundApprovalOnly,
+  mapNayaxRefundExecutionOutcome,
   NAYAX_REFUND_PRODUCTION_BASE_URL,
   parseNayaxRefundProviderContract,
   type NayaxControlledPilotStageEvent,
@@ -2641,6 +2643,13 @@ const runCardNayaxLookupSweep = async (
       lookupPersisted = true;
       counters.nayaxLookupsRun += 1;
 
+      if (lookupResult.recommendationState === "high_confidence" &&
+        lookupResult.oneClickEligible) {
+        counters.nayaxCandidatesFound += lookupResult.candidates.length;
+        await finishAction(action, "completed", "nayax_clear_match_preselected", null, counters);
+        continue;
+      }
+
       if (!lookupResult.configured) {
         counters.nayaxSetupNeeded += 1;
         const { error: updateError } = await supabase.from("refund_cases")
@@ -4289,22 +4298,7 @@ const runNayaxRefundAttemptSweep = async (counters: SweepCounters) => {
         machineAuthorizationTimeMode: claim.wire.machineAuthorizationTimeSerializationMode,
         refundEmailListMode: claim.wire.refundEmailListMode,
       };
-      const provider = createNayaxRefundProviderAdapter({
-        contract: claimContract,
-        requestToken,
-        approveToken,
-        evidence: {
-          caseId: claim.caseId,
-          amountCents: claim.wire.originalAmountCents,
-          currencyCode: "USD",
-          transactionId: claim.wire.transactionId,
-          siteId: claim.wire.siteId,
-          machineAuthorizationTime: claim.wire.machineAuthorizationTime,
-          machineAuthorizationTimeInstant: claim.wire.machineAuthorizationTimeInstant,
-          machineAuthorizationTimeWire: claim.wire.machineAuthorizationTimeWire,
-          refundEmailListMode: claim.wire.refundEmailListMode,
-        },
-        onStageEvent: async (stageEvent) => {
+      const onStageEvent = async (stageEvent: NayaxControlledPilotStageEvent) => {
           const result = "result" in stageEvent && stageEvent.result
             ? stageEvent.result as unknown as Record<string, unknown>
             : {};
@@ -4396,9 +4390,38 @@ const runNayaxRefundAttemptSweep = async (counters: SweepCounters) => {
             providerContractVersion: claim.wire.providerContractVersion,
             payloadRedacted: true as const,
           };
+        };
+      const provider = createNayaxRefundProviderAdapter({
+        contract: claimContract,
+        requestToken,
+        approveToken,
+        evidence: {
+          caseId: claim.caseId,
+          amountCents: claim.wire.originalAmountCents,
+          currencyCode: "USD",
+          transactionId: claim.wire.transactionId,
+          siteId: claim.wire.siteId,
+          machineAuthorizationTime: claim.wire.machineAuthorizationTime,
+          machineAuthorizationTimeInstant: claim.wire.machineAuthorizationTimeInstant,
+          machineAuthorizationTimeWire: claim.wire.machineAuthorizationTimeWire,
+          refundEmailListMode: claim.wire.refundEmailListMode,
         },
+        onStageEvent,
       });
       try {
+        if (claim.wire.executionPlan === "approve_only") {
+          const approval = await executeNayaxRefundApprovalOnly({
+            contract: claimContract,
+            approveToken,
+            transactionId: claim.wire.transactionId,
+            siteId: claim.wire.siteId,
+            machineAuthorizationTime: claim.wire.machineAuthorizationTimeWire,
+            onStageEvent: async (stageEvent) => { await onStageEvent(stageEvent); },
+          });
+          return await mapNayaxRefundExecutionOutcome(
+            approval, claim.wire.providerContractVersion, claim.wire.idempotencyKey,
+          );
+        }
         return await provider.execute({
           caseId: claim.caseId,
           idempotencyKey: claim.wire.idempotencyKey,

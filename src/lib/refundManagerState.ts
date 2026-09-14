@@ -189,28 +189,26 @@ type RefundManagerCaseFacts = {
   } | null;
 };
 
+/**
+ * Compatibility guard for retired provider-rejection releases.
+ *
+ * An authoritative no-refund proof now requeues the same approved System
+ * attempt. It never restores an unpaid manager action, even when a historical
+ * payload still contains definitiveNoRefund/safeRetryEligible fields.
+ */
 export const isDefinitiveNoRefundRetryReady = (
-  refundCase: Pick<
+  _refundCase: Pick<
     RefundManagerCaseFacts,
     'paymentMethod' | 'providerOutcome' | 'providerHold' | 'lifecycle'
   >
-) =>
-  refundCase.paymentMethod === 'card' &&
-  refundCase.providerOutcome === 'rejected' &&
-  refundCase.providerHold !== true &&
-  refundCase.lifecycle?.stage === 'transaction_confirmed' &&
-  refundCase.lifecycle.definitiveNoRefund === true &&
-  refundCase.lifecycle.safeRetryEligible === true &&
-  (refundCase.lifecycle.operations.required === false ||
-    refundCase.lifecycle.operations.failureClass === 'customer_delivery_exception') &&
-  refundCase.lifecycle.operations.safeStage === 'released_no_refund';
+) => false;
 
 /** Known unpaid review can continue independently of a historical customer notice. */
 export const hasUnpaidRefundReview = (refundCase: RefundManagerCaseFacts) =>
   refundCase.paymentMethod === 'card' &&
   refundCase.providerHold !== true &&
   !['unconfirmed', 'succeeded'].includes(refundCase.providerOutcome ?? '') &&
-  (refundCase.providerOutcome !== 'rejected' || isDefinitiveNoRefundRetryReady(refundCase)) &&
+  refundCase.providerOutcome !== 'rejected' &&
   ['not_requested', 'not_issued'].includes(refundCase.lifecycle?.paymentState ?? '') &&
   ['matching', 'needs_transaction_selection', 'transaction_confirmed'].includes(refundCase.lifecycle?.stage ?? '') &&
   refundCase.lifecycle?.terminal === false;
@@ -330,7 +328,7 @@ export const getRefundManagerState = (
   if (options.isRefunding) {
     return state(
       'refunding',
-      'Refund initiated',
+      'Refund in progress',
       'Bloomjoy accepted the refund action and is processing it.',
       'Wait for confirmation. Do not try the refund again.',
       'info'
@@ -409,6 +407,18 @@ export const getRefundManagerState = (
   if (refundCase.lifecycle) {
     const receiptState = receiptAccountingManagerState(refundCase.lifecycle);
     if (receiptState) return receiptState;
+  }
+
+  // A provider rejection is terminal for the manager's payment action even
+  // when an older lifecycle projection still says transaction_confirmed.
+  if (refundCase.providerOutcome === 'rejected') {
+    return state(
+      'refund_rejected',
+      'Refund rejected',
+      'The payment service rejected the refund, so no refund was confirmed.',
+      'Keep the case open. The machine Manager must review the exact rejection in Nayax.',
+      'danger'
+    );
   }
 
   if (refundCase.lifecycle?.stage === 'waiting_on_customer') {
@@ -584,7 +594,7 @@ export const getRefundManagerState = (
             'transaction_confirmed',
             'Transaction confirmed',
             'Payment: Not issued.',
-            'Ask an administrator to restore your Machine Manager access before taking action.',
+              'Use the assigned Manager or a Super-admin. If this signed-in user already has one of those roles, report a portal or machine-assignment defect.',
             'warning'
           );
         }
@@ -621,13 +631,13 @@ export const getRefundManagerState = (
               'The reimbursement cannot be sent until the missing payout destination is recorded.',
               lifecycle.managerAction.action === 'request_payout_destination'
                 ? 'Request only the payout destination in the existing customer thread.'
-                : 'Resolve manager access before taking a payment action.',
+                : 'Use the assigned Manager or a Super-admin. If this signed-in user already has one of those roles, report a portal or machine-assignment defect.',
               'warning'
             );
       case 'refund_initiated':
         return state(
           'refunding',
-          'Refund initiated',
+          'Refund in progress',
           'Bloomjoy recorded the one approved refund action.',
           'Wait for confirmation. Do not try the refund again.',
           'info'
@@ -757,16 +767,6 @@ export const getRefundManagerState = (
       'The payment provider has not confirmed the final result yet.',
       'Do not refund again. The machine Manager must check the exact transaction in Nayax.',
       'neutral'
-    );
-  }
-
-  if (refundCase.providerOutcome === 'rejected') {
-    return state(
-      'refund_rejected',
-      'Refund rejected',
-      'The payment service rejected the refund, so no refund was confirmed.',
-      'Keep the case open. The machine Manager must review the exact rejection in Nayax.',
-      'danger'
     );
   }
 

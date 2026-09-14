@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(28);
+select plan(47);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -62,7 +62,8 @@ select jsonb_build_object(
  'payment_interaction_comparison','unknown','same_identifier_equivalence_proven',false,
  'identifier_review_state','exact_support','customer_correction_fields','[]'::jsonb,
  'hard_exclusions','[]'::jsonb,'manual_review_reasons','[]'::jsonb,
- 'reason_codes','["machine_exact","provider_sale_approved"]'::jsonb,'match_factors','[]'::jsonb,
+ 'reason_codes','["machine_exact","provider_sale_approved"]'::jsonb,'match_factors','[]'::jsonb
+) || jsonb_build_object(
  'match_reason','Exact saved System candidate','recommendation_rank',1,'is_top_ranked',true,
  'lookup_account_scope','SINGLE_GATE_ACCOUNT','lookup_provider_machine_id','SINGLE-GATE-MACHINE',
  'provider_machine_id','SINGLE-GATE-MACHINE','machine_authorization_time_raw','2026-09-12T20:00:00Z',
@@ -79,6 +80,60 @@ select jsonb_build_object(
  'payment_status_evidence','last_sales_contract','provider_refund_state','clear',
  'duplicate_provider_record',false,'card_last4','4242','currency_code','USD','amount_cents',1090)
 $$;
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
+  customer_email,issue_summary,incident_at,incident_timezone,incident_time_resolution,
+  incident_time_confidence,payment_method,payment_amount_cents,card_last4,
+  card_last4_provenance,payment_interaction,status,correlation_status,
+  deterministic_fact_version,intake_source,intake_meta,nayax_lookup_generation,
+  nayax_lookup_status,nayax_refund_execution_status)
+values('a3470000-0000-4000-8000-000000000002','RF-SYSTEM-PRESELECT',
+  'a3440000-0000-4000-8000-000000000001','a3430000-0000-4000-8000-000000000001',
+  'clear-match@example.invalid','Routine clear match','2026-09-12T20:00:00Z','America/Los_Angeles',
+  'exact','exact','card',1000,'4242','physical_card','tap_card','needs_review',
+  'needs_nayax',1,'form','{}',1,'checking','not_requested');
+insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,
+  reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,amount_cents,
+  card_last4,currency_code,evidence_summary,expires_at)
+values('a3480000-0000-4000-8000-000000000010','a3470000-0000-4000-8000-000000000002',1,
+  null,'a3440000-0000-4000-8000-000000000001','SYSTEM-CLEAR-SALE',17,
+  '2026-09-12T20:00:00Z',1090,'4242','USD',pg_temp.exact_evidence()||jsonb_build_object(
+    'one_click_eligible',true,'recommendation_state','high_confidence',
+    'confidence_class','high_confidence'),now()+interval '1 hour');
+select is((public.service_commit_refund_nayax_lookup_and_preselect_v1(
+  'a3470000-0000-4000-8000-000000000002',1,1,'match_found','high_confidence',
+  '2026-09-05.v11',statement_timestamp(),'One clear provider transaction',
+  'a3440000-0000-4000-8000-000000000001',1,'scheduled',null,null)
+  ->>'systemPreselectionApplied'),'true','routine lookup atomically System-preselects one clear candidate');
+select ok((select matched_nayax_transaction_id='SYSTEM-CLEAR-SALE'
+    and matched_nayax_amount_cents=1090 and nayax_match_execution_eligible
+    from public.refund_cases where id='a3470000-0000-4000-8000-000000000002')
+  and exists(select 1 from public.refund_case_events where refund_case_id='a3470000-0000-4000-8000-000000000002'
+    and event_type='nayax_match_preselected' and actor_user_id is null
+    and metadata->>'provider_amount_cents'='1090'),
+  'System preselection persists exact provider facts and a bounded System audit event');
+select is((public.refund_case_nayax_manager_readiness(
+    'a3410000-0000-4000-8000-000000000002',
+    'a3470000-0000-4000-8000-000000000002')->>'canIssueCardRefund'),'true',
+  'the assigned manager can make the one decision on a current System-preselected match');
+select pg_temp.set_actor('a3410000-0000-4000-8000-000000000001');
+select like(pg_temp.capture_error($sql$select public.admin_select_refund_nayax_candidate_current_user_v1(
+  'a3470000-0000-4000-8000-000000000002',
+  (select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000002'),
+  'a3480000-0000-4000-8000-000000000010',null)$sql$),'P4604:%',
+  'human selection is limited to ambiguous or manual-exception results');
+select is((public.admin_dispute_refund_nayax_preselection_current_user_v1(
+  'a3470000-0000-4000-8000-000000000002',
+  (select official_action_version from public.refund_cases
+    where id='a3470000-0000-4000-8000-000000000002'))->>'status'),'manual_exception',
+  'a case worker can dispute the exact current System preselection before approval');
+select ok((select matched_nayax_transaction_id is null and matched_nayax_amount_cents is null
+    and nayax_recommendation_state='manual_exception' and not nayax_match_execution_eligible
+    from public.refund_cases where id='a3470000-0000-4000-8000-000000000002')
+  and exists(select 1 from public.refund_case_events
+    where refund_case_id='a3470000-0000-4000-8000-000000000002'
+      and event_type='nayax_match_preselection_disputed'
+      and metadata->>'provider_call_made'='false' and metadata->>'approval_created'='false'),
+  'dispute clears only the System match and records no payment side effect');
 insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,
   reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,amount_cents,
   card_last4,currency_code,evidence_summary,expires_at)
@@ -160,6 +215,26 @@ select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
   p_result_diagnostic_text=>null,p_result_diagnostic_disposition=>null,
   p_result_diagnostic_length_bucket=>null,p_status_diagnostic_text=>null,
   p_status_diagnostic_disposition=>null,p_status_diagnostic_length_bucket=>null);
+select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
+  p_executor_assertion=>'single-gate-executor',
+  p_attempt_id=>(select (result->>'attemptId')::uuid from approval_result),
+  p_provider_claim_token=>(select result#>>'{claims,0,providerClaimToken}' from second_claim),
+  p_stage=>'request',p_event=>'result',p_http_status=>200,p_outcome=>'accepted',
+  p_contract_matched=>true,p_failure_type=>null,p_classification_digest=>repeat('b',64),
+  p_provider_contract_version=>'nayax-production-account-contract-v2',
+  p_journal_contract_version=>'nayax-provider-journal-v3',p_http_accepted=>true,
+  p_media_type_class=>'application_json',p_body_kind=>'json_object',p_body_length_bucket=>'1_256',
+  p_json_parsed=>true,p_json_object=>true,p_schema_matched=>true,
+  p_result_key_present=>true,p_status_key_present=>true,p_result_value_type=>'string',
+  p_status_value_type=>'string',p_semantic_pair_matched=>true,
+  p_business_result=>'Refund status updated successfully, but the email could not be sent',
+  p_business_status=>'Partial success',p_business_pair_retained=>true,
+  p_observed_result_scalar=>'Refund status updated successfully, but the email could not be sent',
+  p_observed_status_scalar=>'Partial success',p_observed_scalar_pair_retained=>true,
+  p_result_diagnostic_text=>'Refund status updated successfully, but the email could not be sent',
+  p_result_diagnostic_disposition=>'exact',p_result_diagnostic_length_bucket=>'1_80',
+  p_status_diagnostic_text=>'Partial success',p_status_diagnostic_disposition=>'exact',
+  p_status_diagnostic_length_bucket=>'1_80');
 select like(pg_temp.capture_error(format($sql$select public.service_settle_nayax_refund_attempt(
   'single-gate-executor',%L,%L,%L,%L,1090,'USD','wrong-claim-token','success',
   'SINGLE-GATE-SUCCESS-1','approve_succeeded_contract_match',null)$sql$,
@@ -174,13 +249,13 @@ select is((select status from public.refund_case_nayax_refund_attempts
 update public.refund_case_nayax_refund_attempts set provider_claim_expires_at=now()-interval '1 second'
 where id=(select (result->>'attemptId')::uuid from approval_result);
 select is((public.service_reclaim_nayax_refund_attempt_no_call_v1('single-gate-executor','SINGLE_GATE_ACCOUNT')->>'held'),'true',
-  'expired provider-started claim becomes a permanent hold');
+  'expired provider-started claim becomes held for verification');
 select ok((select status='manual_review' and provider_outcome='unknown' and reconciliation_required
   from public.refund_case_nayax_refund_attempts where id=(select (result->>'attemptId')::uuid from approval_result)),
   'started claim remains the same manual-review unknown row');
 select is(jsonb_array_length(public.service_claim_due_nayax_refund_attempts_v1(
   'single-gate-executor','SINGLE_GATE_ACCOUNT','exact_source','empty_string',1)->'claims'),0,
-  'permanent unknown cannot be claimed again');
+  'held unknown cannot be claimed again without exact no-refund proof');
 
 select is((public.service_settle_nayax_refund_attempt(
   'single-gate-executor',(select (result->>'attemptId')::uuid from approval_result),
@@ -199,7 +274,7 @@ select is((public.admin_record_nayax_system_outcome_evidence_v1(
   'a3470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result),
   'remain_on_hold','nayax_dtm_transaction','DTM:NAYAX-123456789',statement_timestamp(),'evidence_incomplete',
   (select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'))->>'status'),
-  'provider_hold','valid evidence remains on the same permanent hold');
+  'provider_hold','valid evidence remains on the same verification hold');
 select ok((select metadata->>'evidence_reference_digest'~'^[a-f0-9]{64}$'
   and metadata->>'reason_code'='evidence_incomplete' from public.refund_case_events
   where refund_case_id='a3470000-0000-4000-8000-000000000001'
@@ -210,23 +285,151 @@ select like(pg_temp.capture_error($sql$select public.admin_record_nayax_system_o
   'provider_confirmed_success','nayax_dtm_transaction','DTM:NAYAX-123456789',statement_timestamp(),
   'nayax_support_confirmed_success',(select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'))$sql$),
   'P4661:%','mismatched evidence tuple is rejected');
+select like(pg_temp.capture_error($sql$select public.admin_record_nayax_system_outcome_evidence_v1(
+  'a3470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result),
+  'provider_confirmed_no_refund','nayax_dtm_transaction','DTM:NAYAX-123456789',statement_timestamp(),
+  'provider_rejected',(select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'))$sql$),
+  'P4661:%','a rejected label is not authoritative no-refund proof');
+select like(pg_temp.capture_error($sql$select public.admin_record_nayax_system_outcome_evidence_v1(
+  'a3470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result),
+  'provider_confirmed_no_refund','nayax_dtm_transaction','DTM:NAYAX-123456789','2026-09-01T00:00:00Z',
+  'nayax_dtm_not_refunded',(select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'))$sql$),
+  'P4661:%','stale no-refund proof cannot continue an attempt');
 select is((public.admin_record_nayax_system_outcome_evidence_v1(
   'a3470000-0000-4000-8000-000000000001',(select (result->>'attemptId')::uuid from approval_result),
-  'provider_confirmed_success','nayax_dtm_transaction','DTM:NAYAX-123456789',statement_timestamp(),
-  'nayax_dtm_settled',(select official_action_version from public.refund_cases
-    where id='a3470000-0000-4000-8000-000000000001'))->>'resolved'),'true',
-  'valid provider-confirmed success evidence finalizes the same held attempt');
-select ok((select count(*)=1 from public.refund_nayax_outcome_resolutions
+  'provider_confirmed_no_refund','nayax_dtm_transaction','DTM:NAYAX-123456789',statement_timestamp(),
+  'nayax_dtm_not_refunded',(select official_action_version from public.refund_cases
+    where id='a3470000-0000-4000-8000-000000000001'))->>'status'),'system_finishing',
+  'exact no-refund proof requeues System rather than asking for another manager decision');
+select ok((select provider_execution_generation=2 and execution_plan='approve_only'
+    and status='created' and official_action_authorization_id=(select (result->>'authorizationId')::uuid from approval_result)
+    from public.refund_case_nayax_refund_attempts where id=(select (result->>'attemptId')::uuid from approval_result)),
+  'the same attempt and original authorization advance to approval-only generation two');
+select is((select count(*) from public.refund_nayax_no_refund_proofs
+    where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result)),1::bigint,
+  'one held generation accepts exactly one append-only proof');
+select like(pg_temp.capture_error(format($sql$select public.service_settle_nayax_refund_attempt(
+  'single-gate-executor',%L,%L,%L,%L,1090,'USD',%L,'success',
+  'SINGLE-GATE-SUCCESS-1','approve_succeeded_contract_match',null)$sql$,
+  (select result->>'attemptId' from approval_result),(select result->>'authorizationId' from approval_result),
+  'a3470000-0000-4000-8000-000000000001',
+  (select idempotency_key from public.refund_case_nayax_refund_attempts where id=(select (result->>'attemptId')::uuid from approval_result)),
+  (select result#>>'{claims,0,providerClaimToken}' from second_claim))),
+  'P4620:%','the old generation claim token is rejected');
+
+create temp table third_claim as select public.service_claim_due_nayax_refund_attempts_v1(
+  'single-gate-executor','SINGLE_GATE_ACCOUNT','exact_source','empty_string',1) result;
+select ok((select result#>>'{claims,0,attemptId}'=(select result->>'attemptId' from approval_result)
+    and result#>>'{claims,0,providerWireContext,providerExecutionGeneration}'='2'
+    and result#>>'{claims,0,providerWireContext,executionPlan}'='approve_only' from third_claim),
+  'the next claim is generation-scoped to approval-only on the same row');
+select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
+  'single-gate-executor',(select (result->>'attemptId')::uuid from approval_result),
+  (select result#>>'{claims,0,providerClaimToken}' from third_claim),'approve','started',
+  null,null,null,null,repeat('c',64),'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  null,null,null,null,null,null,null,null,null,null,null,null,null,false,null,null,false,null,null,null,null,null,null);
+select public.service_record_nayax_refund_provider_stage_v4_diagnostics(
+  'single-gate-executor',(select (result->>'attemptId')::uuid from approval_result),
+  (select result#>>'{claims,0,providerClaimToken}' from third_claim),'approve','result',
+  200,'succeeded',true,null,repeat('d',64),'nayax-production-account-contract-v2','nayax-provider-journal-v3',
+  true,'application_json','json_object','1_256',true,true,true,true,true,'string','string',true,
+  'Refund status updated successfully, but the email could not be sent','Partial success',true,
+  'Refund status updated successfully, but the email could not be sent','Partial success',true,
+  'Refund status updated successfully, but the email could not be sent','exact','1_80','Partial success','exact','1_80');
+select ok((select count(*)=2 from public.refund_nayax_provider_stage_journal
+    where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result)
+      and provider_execution_generation=1)
+  and (select count(*)=2 from public.refund_nayax_provider_stage_journal
+    where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result)
+      and provider_execution_generation=2),
+  'journal stage uniqueness is scoped by provider execution generation');
+select is((public.service_settle_nayax_refund_attempt(
+  'single-gate-executor',(select (result->>'attemptId')::uuid from approval_result),
+  (select (result->>'authorizationId')::uuid from approval_result),
+  'a3470000-0000-4000-8000-000000000001',
+  (select idempotency_key from public.refund_case_nayax_refund_attempts where id=(select (result->>'attemptId')::uuid from approval_result)),
+  1090,'USD',(select result#>>'{claims,0,providerClaimToken}' from third_claim),
+  'success','SINGLE-GATE-SUCCESS-1','approve_succeeded_contract_match',null)->>'updateApplied'),'true',
+  'generation two settles through the canonical settlement function');
+select ok((select count(*)=1 from public.sales_adjustment_facts
     where refund_case_id='a3470000-0000-4000-8000-000000000001')
-  and (select count(*)=1 from public.sales_adjustment_facts
-    where refund_case_id='a3470000-0000-4000-8000-000000000001')
-  and (select count(*)=1 from public.refund_case_messages
-    where refund_case_id='a3470000-0000-4000-8000-000000000001' and message_type='completed')
   and (select count(*)=1 from public.refund_case_nayax_refund_attempts
     where refund_case_id='a3470000-0000-4000-8000-000000000001')
-  and (select count(*)=1 from public.refund_nayax_provider_stage_journal
-    where nayax_refund_attempt_id=(select (result->>'attemptId')::uuid from approval_result)),
-  'success evidence creates one resolution, adjustment, completion and message with no new attempt or provider call');
+  and (select count(*)=1 from public.refund_case_official_action_authorizations
+    where refund_case_id='a3470000-0000-4000-8000-000000000001' and action='approve'),
+  'completion creates one adjustment with no second attempt or manager approval');
+
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
+  customer_email,issue_summary,incident_at,incident_timezone,incident_time_resolution,
+  incident_time_confidence,payment_method,payment_amount_cents,refund_amount_cents,
+  card_last4,card_last4_provenance,payment_interaction,status,correlation_status,
+  deterministic_fact_version,intake_source,intake_meta,nayax_lookup_generation,
+  nayax_lookup_status,nayax_refund_execution_status)
+values('a3470000-0000-4000-8000-000000000003','RF-SUCCESS-EVIDENCE',
+  'a3440000-0000-4000-8000-000000000001','a3430000-0000-4000-8000-000000000001',
+  'success-evidence@example.invalid','Held result later proved successful',
+  '2026-09-12T20:00:00Z','America/Los_Angeles','exact','exact','card',1000,1090,
+  '4242','physical_card','tap_card','needs_review','needs_nayax',1,'form','{}',1,
+  'manual_exception','not_requested');
+insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,
+  reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,amount_cents,
+  card_last4,currency_code,evidence_summary,expires_at)
+values('a3480000-0000-4000-8000-000000000020','a3470000-0000-4000-8000-000000000003',1,
+  'a3410000-0000-4000-8000-000000000001','a3440000-0000-4000-8000-000000000001',
+  'SUCCESS-EVIDENCE-SALE',17,'2026-09-12T20:00:00Z',1090,'4242','USD',
+  pg_temp.exact_evidence(),now()+interval '1 hour');
+select pg_temp.set_actor('a3410000-0000-4000-8000-000000000001');
+select public.admin_select_refund_nayax_candidate_current_user_v1(
+  'a3470000-0000-4000-8000-000000000003',
+  (select official_action_version from public.refund_cases
+    where id='a3470000-0000-4000-8000-000000000003'),
+  'a3480000-0000-4000-8000-000000000020',null);
+select pg_temp.set_actor('a3410000-0000-4000-8000-000000000003');
+create temp table success_approval as select public.admin_approve_selected_nayax_refund_for_system_v1(
+  'a3470000-0000-4000-8000-000000000003',
+  (select official_action_version from public.refund_cases
+    where id='a3470000-0000-4000-8000-000000000003')) result;
+create temp table success_claim as select public.service_claim_due_nayax_refund_attempts_v1(
+  'single-gate-executor','SINGLE_GATE_ACCOUNT','exact_source','empty_string',1) result;
+select public.service_hold_nayax_refund_attempt_v1('single-gate-executor',
+  (select (result->>'attemptId')::uuid from success_approval),'provider_result_unknown');
+insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,provider_thread_id,
+  thread_subject,first_message_at,latest_message_at,retention_expires_at)
+values('a3490000-0000-4000-8000-000000000002','a3470000-0000-4000-8000-000000000003',
+  repeat('c',64),'single-gate-success-thread','Original success evidence thread',
+  statement_timestamp()-interval '2 days',statement_timestamp()-interval '2 days',
+  statement_timestamp()+interval '180 days');
+update public.reporting_machine_refund_managers set status='revoked',revoked_at=statement_timestamp()
+where manager_user_id='a3410000-0000-4000-8000-000000000003'
+  and reporting_machine_id='a3440000-0000-4000-8000-000000000001';
+update public.reporting_machine_refund_managers set status='active',revoked_at=null
+where manager_user_id='a3410000-0000-4000-8000-000000000002'
+  and reporting_machine_id='a3440000-0000-4000-8000-000000000001';
+select pg_temp.set_actor('a3410000-0000-4000-8000-000000000001');
+select is((public.admin_record_nayax_system_outcome_evidence_v1(
+  'a3470000-0000-4000-8000-000000000003',
+  (select (result->>'attemptId')::uuid from success_approval),
+  'provider_confirmed_success','nayax_dtm_transaction','DTM:NAYAX-987654321',
+  statement_timestamp(),'nayax_dtm_settled',
+  (select official_action_version from public.refund_cases
+    where id='a3470000-0000-4000-8000-000000000003'))->>'authorizationMethod'),
+  'original_manager_approval',
+  'exact success evidence completes after approver reassignment without another manager gate');
+select ok((select status='completed' and decision='approved' and reporting_adjustment_id is not null
+    from public.refund_cases where id='a3470000-0000-4000-8000-000000000003')
+  and (select status='succeeded' and provider_outcome='success' and completion_message_id is not null
+    from public.refund_case_nayax_refund_attempts
+    where refund_case_id='a3470000-0000-4000-8000-000000000003')
+  and exists(select 1 from public.refund_nayax_system_success_evidence
+    where refund_case_id='a3470000-0000-4000-8000-000000000003'),
+  'success evidence preserves settlement, adjustment, completion, and pending customer message semantics');
+select ok((select count(*)=1 from public.refund_case_official_action_authorizations
+    where refund_case_id='a3470000-0000-4000-8000-000000000003' and action='approve')
+  and (select count(*)=0 from public.refund_nayax_resolution_intents
+    where refund_case_id='a3470000-0000-4000-8000-000000000003')
+  and (select count(*)=1 from public.refund_case_nayax_refund_attempts
+    where refund_case_id='a3470000-0000-4000-8000-000000000003'),
+  'success reconciliation creates no second financial authorization, intent, or attempt');
 
 insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,
   reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,amount_cents,
@@ -298,6 +501,24 @@ select ok(
     'public.refund_nayax_approved_card_read_state_v1(uuid)','execute'),
   'approved-card read state is executable only by the service role'
 );
+select ok((select relrowsecurity from pg_catalog.pg_class
+    where oid='public.refund_nayax_no_refund_proofs'::regclass)
+  and (select relrowsecurity from pg_catalog.pg_class
+    where oid='public.refund_nayax_system_success_evidence'::regclass)
+  and not has_table_privilege('anon','public.refund_nayax_no_refund_proofs','select')
+  and not has_table_privilege('authenticated','public.refund_nayax_no_refund_proofs','select')
+  and not has_table_privilege('service_role','public.refund_nayax_no_refund_proofs','select')
+  and not has_table_privilege('anon','public.refund_nayax_system_success_evidence','select')
+  and not has_table_privilege('authenticated','public.refund_nayax_system_success_evidence','select')
+  and not has_table_privilege('service_role','public.refund_nayax_system_success_evidence','select'),
+  'both private System evidence tables have RLS enabled with runtime grants revoked');
+select ok(has_function_privilege('authenticated',
+    'public.admin_dispute_refund_nayax_preselection_current_user_v1(uuid,bigint)','execute')
+  and not has_function_privilege('anon',
+    'public.admin_dispute_refund_nayax_preselection_current_user_v1(uuid,bigint)','execute')
+  and not has_function_privilege('service_role',
+    'public.admin_dispute_refund_nayax_preselection_current_user_v1(uuid,bigint)','execute'),
+  'only authenticated case workers can call the auth-bound preselection dispute RPC');
 
 select * from finish();
 rollback;

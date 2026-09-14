@@ -680,7 +680,7 @@ Deno.test('manager state distinguishes in-flight, uncertain, rejected, completed
   assertEquals(getRefundManagerState({ ...baseCase, status: 'denied' }).label, 'Denied', 'denied label');
 });
 
-Deno.test('authoritative no-refund rejection restores the normal manager action', () => {
+Deno.test('authoritative no-refund evidence never restores a manager refund action', () => {
   const releasedLifecycle = lifecycle('transaction_confirmed', 30, 'issue_refund');
   releasedLifecycle.definitiveNoRefund = true;
   releasedLifecycle.safeRetryEligible = true;
@@ -701,7 +701,7 @@ Deno.test('authoritative no-refund rejection restores the normal manager action'
     lifecycle: releasedLifecycle,
   };
 
-  assertEquals(getRefundManagerState(releasedCase).label, 'Ready to approve', 'released rejection label');
+  assertEquals(getRefundManagerState(releasedCase).label, 'Refund rejected', 'released rejection label');
   assertEquals(getRefundPaymentStateLabel(releasedCase), 'Not issued', 'released rejection payment label');
 });
 
@@ -1145,12 +1145,12 @@ Deno.test('canonical pending and uncertain payment truth stays ahead of unrelate
  }
 });
 
-Deno.test('explicit released-no-refund evidence permits review with delivery-only operations, never a payment hold',()=>{
+Deno.test('explicit released-no-refund evidence never permits payment review continuation',()=>{
  const contract=lifecycle('transaction_confirmed',30,'refund');
  contract.definitiveNoRefund=true;contract.safeRetryEligible=true;
  contract.operations={...contract.operations,required:true,safeStage:'released_no_refund',failureClass:'customer_delivery_exception'};
  const released={...baseCase,providerOutcome:'rejected' as const,lifecycle:contract};
- assertEquals(hasUnpaidRefundReview(released),true,'Delivery-only review does not revoke an explicit safe release');
+ assertEquals(hasUnpaidRefundReview(released),false,'Legacy release evidence does not restore a payment review');
  for(const failureClass of ['provider_outcome_unknown','integrity_hold',null]) {
   assertEquals(hasUnpaidRefundReview({...released,lifecycle:{...contract,operations:{...contract.operations,failureClass}}}),false,'A payment review is not a delivery-only release');
  }

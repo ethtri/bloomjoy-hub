@@ -128,7 +128,7 @@ test('refund procedure follows the lean assistant-manager flow', async () => {
     'etrifari@bloomjoysweets.com', 'error-state zero is unavailable data',
     'Portal candidates are the first research step',
     'Customer amount is approximate', 'contactless digits may be tokenized',
-    'A Manager may select a lower-ranked or lower-confidence candidate',
+    'A case worker may select a lower-ranked or lower-confidence candidate',
     'full charged amount', 'including tax',
     'Confirm refund sent via Zelle', 'no waiting-for-payment state',
     'send one follow-up', 'Close after 30 days',

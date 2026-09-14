@@ -75,7 +75,8 @@ values('b3480000-0000-4000-8000-000000000001','b3470000-0000-4000-8000-000000000
     'payment_interaction_comparison','unknown','same_identifier_equivalence_proven',false,
     'identifier_review_state','exact_support','customer_correction_fields','[]'::jsonb,
     'hard_exclusions','[]'::jsonb,'manual_review_reasons','[]'::jsonb,
-    'reason_codes','["machine_exact","provider_sale_approved"]'::jsonb,'match_factors','[]'::jsonb,
+    'reason_codes','["machine_exact","provider_sale_approved"]'::jsonb,'match_factors','[]'::jsonb
+  ) || jsonb_build_object(
     'match_reason','Exact saved System candidate','recommendation_rank',1,'is_top_ranked',true,
     'lookup_account_scope','SINGLE_GATE_RACE_ACCOUNT','lookup_provider_machine_id','SINGLE-GATE-RACE-MACHINE',
     'provider_machine_id','SINGLE-GATE-RACE-MACHINE','machine_authorization_time_raw','2026-09-12T20:00:00Z',
@@ -90,8 +91,15 @@ values('b3480000-0000-4000-8000-000000000001','b3470000-0000-4000-8000-000000000
     'transaction_occurrence_comparable',false,'transaction_occurrence_semantics','unknown','time_delta_minutes',null,
     'amount_delta_cents',90,'provider_processing_time_delta_minutes',0,'payment_status','approved',
     'payment_status_evidence','last_sales_contract','provider_refund_state','clear',
-    'duplicate_provider_record',false,'card_last4','4242','currency_code','USD','amount_cents',1090),
+  'duplicate_provider_record',false,'card_last4','4242','currency_code','USD','amount_cents',1090),
   now()+interval '1 hour');
+select set_config('request.jwt.claim.sub','b3410000-0000-4000-8000-000000000001',true);
+select set_config('request.jwt.claim.role','authenticated',true);
+select set_config('request.jwt.claims','{"sub":"b3410000-0000-4000-8000-000000000001","role":"authenticated","is_anonymous":false}',true);
+select public.admin_select_refund_nayax_candidate_current_user_v1(
+  'b3470000-0000-4000-8000-000000000001',
+  (select official_action_version from public.refund_cases where id='b3470000-0000-4000-8000-000000000001'),
+  'b3480000-0000-4000-8000-000000000001',null);
 insert into refund_single_gate_race.settings
 select official_action_version from public.refund_cases where id='b3470000-0000-4000-8000-000000000001';
 
@@ -110,6 +118,25 @@ begin
   end;
 end $$;
 
+create function refund_single_gate_race.record_no_refund() returns jsonb language plpgsql as $$
+declare output jsonb;
+begin
+  perform set_config('request.jwt.claim.sub','b3410000-0000-4000-8000-000000000001',true);
+  perform set_config('request.jwt.claim.role','authenticated',true);
+  perform set_config('request.jwt.claims','{"sub":"b3410000-0000-4000-8000-000000000001","role":"authenticated","is_anonymous":false}',true);
+  begin
+    output:=public.admin_record_nayax_system_outcome_evidence_v1(
+      'b3470000-0000-4000-8000-000000000001',
+      (select id from public.refund_case_nayax_refund_attempts where refund_case_id='b3470000-0000-4000-8000-000000000001'),
+      'provider_confirmed_no_refund','nayax_support_ticket','SUPPORT:NAYAX-12345678',
+      statement_timestamp(),'nayax_support_confirmed_no_refund',
+      (select official_action_version from public.refund_cases where id='b3470000-0000-4000-8000-000000000001'));
+    return jsonb_build_object('ok',true,'output',output);
+  exception when others then
+    return jsonb_build_object('ok',false,'sqlstate',sqlstate,'message',sqlerrm);
+  end;
+end $$;
+
 create function refund_single_gate_race.delay_case_update() returns trigger language plpgsql
 set search_path='' as $$ begin perform pg_sleep(0.5); return new; end $$;
 create trigger refund_single_gate_race_delay before update on public.refund_cases for each row
@@ -117,7 +144,7 @@ when (new.id='b3470000-0000-4000-8000-000000000001')
 execute function refund_single_gate_race.delay_case_update();
 commit;
 
-select plan(5);
+select plan(8);
 select extensions.dblink_connect('single_gate_race_a','host=db port='||current_setting('port')
   ||' dbname='||current_database()||' user=postgres password=postgres sslmode=disable');
 select extensions.dblink_connect('single_gate_race_b','host=db port='||current_setting('port')
@@ -147,9 +174,37 @@ create temp table race_claim as select public.service_claim_due_nayax_refund_att
   'single-gate-race-executor','SINGLE_GATE_RACE_ACCOUNT','exact_source','empty_string',1) payload;
 select is(jsonb_array_length((select payload->'claims' from race_claim)),1,
   'the current queue claims the winning attempt exactly once');
+select public.service_hold_nayax_refund_attempt_v1('single-gate-race-executor',
+  (select (payload#>>'{claims,0,attemptId}')::uuid from race_claim),'provider_result_unknown');
+truncate refund_single_gate_race.results;
+select extensions.dblink_connect('single_gate_race_a','host=db port='||current_setting('port')
+  ||' dbname='||current_database()||' user=postgres password=postgres sslmode=disable');
+select extensions.dblink_connect('single_gate_race_b','host=db port='||current_setting('port')
+  ||' dbname='||current_database()||' user=postgres password=postgres sslmode=disable');
+select extensions.dblink_send_query('single_gate_race_a','select refund_single_gate_race.record_no_refund()');
+select extensions.dblink_send_query('single_gate_race_b','select refund_single_gate_race.record_no_refund()');
+insert into refund_single_gate_race.results select 'proof-a',payload
+  from extensions.dblink_get_result('single_gate_race_a') result(payload jsonb);
+insert into refund_single_gate_race.results select 'proof-b',payload
+  from extensions.dblink_get_result('single_gate_race_b') result(payload jsonb);
+select extensions.dblink_disconnect('single_gate_race_a');
+select extensions.dblink_disconnect('single_gate_race_b');
+select ok((select count(*)=1 from refund_single_gate_race.results where (payload->>'ok')::boolean)
+    and (select count(*)=1 from refund_single_gate_race.results where not (payload->>'ok')::boolean)
+    and not exists(select 1 from refund_single_gate_race.results where payload->>'sqlstate'='40P01'),
+  'two simultaneous exact proofs finish without deadlock and exactly one advances the held generation');
+select ok((select count(*)=1 from public.refund_nayax_no_refund_proofs
+    where refund_case_id='b3470000-0000-4000-8000-000000000001')
+  and (select provider_execution_generation=2 and status='created'
+    from public.refund_case_nayax_refund_attempts where refund_case_id='b3470000-0000-4000-8000-000000000001'),
+  'the proof race advances the same attempt exactly once');
+create temp table proof_claim as select public.service_claim_due_nayax_refund_attempts_v1(
+  'single-gate-race-executor','SINGLE_GATE_RACE_ACCOUNT','exact_source','empty_string',1) payload;
+select is(jsonb_array_length((select payload->'claims' from proof_claim)),1,
+  'one queue consumer claims the proof-authorized generation');
 select is(jsonb_array_length(public.service_claim_due_nayax_refund_attempts_v1(
   'single-gate-race-executor','SINGLE_GATE_RACE_ACCOUNT','exact_source','empty_string',1)->'claims'),0,
-  'a second queue consumer cannot claim the same attempt');
+  'a second queue consumer cannot claim the same generation');
 select * from finish();
 
 -- The committed fixture exists only to permit real independent sessions.
@@ -157,6 +212,7 @@ set session_replication_role=replica;
 delete from public.refund_case_events where refund_case_id='b3470000-0000-4000-8000-000000000001';
 delete from public.refund_nayax_transaction_allocations where refund_case_id='b3470000-0000-4000-8000-000000000001';
 delete from public.refund_nayax_execution_contexts where refund_case_id='b3470000-0000-4000-8000-000000000001';
+delete from public.refund_nayax_no_refund_proofs where refund_case_id='b3470000-0000-4000-8000-000000000001';
 delete from public.refund_case_nayax_refund_attempts where refund_case_id='b3470000-0000-4000-8000-000000000001';
 delete from public.refund_case_official_action_authorizations where refund_case_id='b3470000-0000-4000-8000-000000000001';
 delete from public.refund_nayax_lookup_candidates where refund_case_id='b3470000-0000-4000-8000-000000000001';

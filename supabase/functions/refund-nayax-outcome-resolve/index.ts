@@ -58,6 +58,7 @@ class TransactionalCompletionDeliveryUncertainError extends Error {}
 
 const allowedResults = new Set([
   "provider_confirmed_success",
+  "provider_confirmed_no_refund",
   "remain_on_hold",
 ]);
 
@@ -69,6 +70,8 @@ const allowedEvidenceTypes = new Set([
 const allowedReasons = new Set([
   "nayax_dtm_settled",
   "nayax_support_confirmed_success",
+  "nayax_dtm_not_refunded",
+  "nayax_support_confirmed_no_refund",
   "evidence_incomplete",
   "provider_still_pending",
   "evidence_conflict",
@@ -81,6 +84,9 @@ const evidenceTupleIsValid = (
 ) => resolutionResult === "provider_confirmed_success"
   ? (evidenceType === "nayax_dtm_transaction" && reasonCode === "nayax_dtm_settled") ||
     (evidenceType === "nayax_support_ticket" && reasonCode === "nayax_support_confirmed_success")
+  : resolutionResult === "provider_confirmed_no_refund"
+  ? (evidenceType === "nayax_dtm_transaction" && reasonCode === "nayax_dtm_not_refunded") ||
+    (evidenceType === "nayax_support_ticket" && reasonCode === "nayax_support_confirmed_no_refund")
   : resolutionResult === "remain_on_hold" &&
     new Set(["evidence_incomplete", "provider_still_pending", "evidence_conflict"])
       .has(reasonCode);

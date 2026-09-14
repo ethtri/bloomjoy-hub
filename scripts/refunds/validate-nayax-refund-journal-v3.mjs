@@ -31,6 +31,8 @@ for (const retired of [
   assert.match(current, new RegExp(`revoke all on function public\\.${retired}`));
 }
 assert.match(regression, /expired no-start claim resets the same row and generation/);
-assert.match(regression, /provider-started claim becomes a permanent hold/);
+assert.match(regression, /provider-started claim becomes held for verification/);
+assert.match(current, /provider_execution_generation/);
+assert.match(current, /refund_nayax_no_refund_proofs/);
 
-console.log('Nayax journal v3 validation passed: the historical journal feeds one current System-owned queue with no continuation or retry writer.');
+console.log('Nayax journal v3 validation passed: one System-owned queue uses generation-scoped evidence with no legacy continuation or blind retry writer.');

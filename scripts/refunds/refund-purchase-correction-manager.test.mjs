@@ -441,12 +441,13 @@ test('actual action gives payment holds, pending and terminal truth priority ove
  assert.equal(action({...base,providerHold:true},editor,[],{canIssueCardRefund:true}).label,'Check the exact transaction in Nayax');
 });
 
-test('actual action keeps explicit no-refund release independent of delivery-only review and current availability',()=>{
+test('retired no-refund release cannot restore the manager payment action',()=>{
  const action=load('primaryActionConfig',{...dependencies,isDefinitiveNoRefundRetryReady:managerModule.exports.isDefinitiveNoRefundRetryReady,isWaitingCase:()=>false});
  const lifecycle={stage:'transaction_confirmed',terminal:false,paymentState:'not_requested',definitiveNoRefund:true,safeRetryEligible:true,operations:{required:true,safeStage:'released_no_refund',failureClass:'customer_delivery_exception'},managerQueue:{bucket:'ready_to_pay'}};
  const current={status:'needs_review',paymentMethod:'card',providerOutcome:'rejected',providerHold:false,matched:true,...freshPersistedSelection,lifecycle,customerDeliveryException:{state:'unknown'}};
  const editor={status:'needs_review',decision:null,matchedNayaxCandidateToken:''};
- assert.equal(action(current,editor,[],freshAvailability).mode,'nayax_refund_execution');
+ assert.equal(action(current,editor,[],freshAvailability).disabled,true);
+ assert.equal(action(current,editor,[],freshAvailability).mode,undefined);
  assert.equal(action(current,editor,[],{...freshAvailability,canIssueCardRefund:false,blockReason:'reconciliation_hold'}).disabled,true);
  assert.equal(action({...current,lifecycle:{...lifecycle,operations:{...lifecycle.operations,failureClass:'provider_outcome_unknown'}}},editor,[],freshAvailability).disabled,true);
 });

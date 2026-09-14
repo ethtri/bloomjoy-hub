@@ -703,6 +703,73 @@ const buildMockRefundOverview = () => ({
   ],
 });
 
+// This is the state immediately before the assigned Manager's one approval.
+// The case worker/System has already saved the exact provider total; no
+// financial decision or approval message exists yet.
+const buildSystemPreparedCardRefundOverview = () => {
+  const overview = buildMockRefundOverview();
+  const refundCase = overview.cases[0];
+  const candidate = refundCase.nayaxLookupCandidates[0];
+  const providerTime = isoHoursAgo(5);
+  overview.cases = [{
+    ...refundCase,
+    status: 'needs_review',
+    paymentAmountCents: 1000,
+    refundAmountCents: 1090,
+    decision: null,
+    decisionReason: null,
+    decidedAt: null,
+    correlationSummary: 'System saved the exact $10.90 provider total for the $10.00 customer estimate.',
+    matchedNayaxTransactionId: 'RF423906B2-SALE',
+    matchedNayaxMachineAuthTime: providerTime,
+    matchedNayaxAmountCents: 1090,
+    matchedNayaxCardLast4: '4242',
+    matchedNayaxCurrencyCode: 'USD',
+    nayaxLookupGeneration: 1,
+    nayaxLookupStatus: 'match_found',
+    nayaxRefundExecutionStatus: 'not_requested',
+    nayaxMatchExecutionEligible: true,
+    refundReadiness: {
+      ...refundCase.refundReadiness,
+      transactionConfirmed: true,
+      refundAmountCents: 1090,
+    },
+    selectedNayaxTransaction: {
+      ...refundCase.selectedNayaxTransaction,
+      transactionId: 'RF423906B2-SALE',
+      saleAmountCents: 1090,
+      customerReportedAt: isoHoursAgo(5.05),
+      providerAuthorizedAt: providerTime,
+      matchExplanation: 'Exact mapped machine, card and time; the $10.90 provider total is the selected purchase.',
+      matchFactors: [
+        { key: 'machine', outcome: 'match', label: 'Exact mapped machine and location' },
+        { key: 'amount', outcome: 'manual', label: 'Transaction total differs from the $10.00 estimate by $0.90' },
+        { key: 'card', outcome: 'match', label: 'Card last four matches' },
+      ],
+    },
+    nayaxLookupCandidates: [{
+      ...candidate,
+      candidateToken: '41000000-0000-4000-8000-000000000401',
+      authorizedAt: providerTime,
+      machineAuthorizationTime: providerTime,
+      amountCents: 1090,
+      amountDeltaCents: 90,
+      oneClickEligible: true,
+      matchReason: 'Exact saved System candidate; provider total is $10.90 for the $10.00 customer estimate.',
+    }],
+    events: [
+      {
+        id: 'event-system-preselected',
+        eventType: 'nayax_match_preselected',
+        message: 'System saved the exact provider transaction for manager confirmation. No refund was issued.',
+        createdAt: isoHoursAgo(4.5),
+      },
+    ],
+    messages: refundCase.messages.filter((message) => message.messageType !== 'approved'),
+  }];
+  return overview;
+};
+
 const buildEmptyRefundOverview = () => ({
   machines: [],
   managerAssignments: [],
@@ -1569,7 +1636,7 @@ const buildManagerStepUpRefundOverview = () => {
 };
 
 const buildManagerDraftNavigationOverview = () => {
-  const overview = buildManagerStepUpRefundOverview();
+  const overview = buildSystemPreparedCardRefundOverview();
   const readyCase = {
     ...overview.cases[0],
     canPerformOfficialAction: true,
@@ -1993,6 +2060,7 @@ const installMockSupabaseRoutes = async (
   {
     refundOverview = buildMockRefundOverview,
     rpcCalls = [],
+    rpcBodies = [],
     functionCalls = [],
     functionBodies = [],
     nayaxLookupResponse = null,
@@ -2047,8 +2115,10 @@ const installMockSupabaseRoutes = async (
 ) => {
   const officialActionVersions = new Map();
   const confirmedCaseIds = new Set();
+  const disputedPreselectionCaseIds = new Set();
   const confirmedSelections = new Map();
   const approvedPendingExecutionCaseIds = new Set();
+  const systemFinishingCaseIds = new Set();
   const lookupResponsesByCaseId = new Map();
   if (persistedNayaxLookupResponse) {
     lookupResponsesByCaseId.set('case-card-pending', {
@@ -2299,7 +2369,35 @@ const installMockSupabaseRoutes = async (
             }
           : {}),
       };
-      const queueProjectedCase = withManagerQueueProjection(projectedCase);
+      const systemFinishing = systemFinishingCaseIds.has(refundCase.id);
+      const queueProjectedCase = withManagerQueueProjection(
+        systemFinishing
+          ? {
+              ...projectedCase,
+              status: 'card_refund_pending',
+              decision: 'approved',
+              providerOutcome: 'not_attempted',
+              nayaxRefundExecutionStatus: 'requested',
+              nayaxMatchExecutionEligible: false,
+              lifecycle: {
+                ...projectedCase.lifecycle,
+                stage: 'refund_initiated',
+                stageRank: 40,
+                managerNextAction: 'wait',
+                managerAction: {
+                  action: 'wait', owner: 'System', safeRetryEligible: false, payloadRedacted: true,
+                },
+                managerQueue: {
+                  ...projectedCase.lifecycle?.managerQueue,
+                  bucket: 'in_progress',
+                  label: 'Refund in progress',
+                  nextAction: 'wait',
+                  safeRetryEligible: false,
+                },
+              },
+            }
+          : projectedCase
+      );
       const activeLookupRecovery = persistedNayaxLookupWork;
       if (activeLookupRecovery?.state === 'system') {
         return {
@@ -2541,7 +2639,12 @@ const installMockSupabaseRoutes = async (
         killSwitchActive: true,
         message: 'Card refund execution is disabled for this pilot environment.',
       };
-      approvedPendingExecutionCaseIds.delete(requestBody?.caseId);
+      if (responseBody.status === 'system_finishing' && requestBody?.caseId) {
+        systemFinishingCaseIds.add(requestBody.caseId);
+        approvedPendingExecutionCaseIds.add(requestBody.caseId);
+      } else {
+        approvedPendingExecutionCaseIds.delete(requestBody?.caseId);
+      }
       if (responseBody.providerAttempted === true || responseBody.replayed === true || responseBody.executed === true) {
         nayaxSettlementResult = responseBody;
         nayaxSettlementCaseId = requestBody?.caseId ?? null;
@@ -2702,6 +2805,7 @@ const installMockSupabaseRoutes = async (
     const url = request.url();
     const rpcName = new URL(url).pathname.split('/').pop() ?? '';
     rpcCalls.push(rpcName);
+    rpcBodies.push({ name: rpcName, body: request.postDataJSON() });
     if (NAVIGATION_READ_ONLY_RPCS.has(rpcName)) {
       fixtureOwnedPortalRpcLabels.set(request, rpcName);
     }
@@ -2970,10 +3074,51 @@ const installMockSupabaseRoutes = async (
         });
       }
       const currentOverview = refundOverview();
+      const overviewAfterPreselectionDispute = {
+        ...currentOverview,
+        cases: currentOverview.cases.map((refundCase) =>
+          disputedPreselectionCaseIds.has(refundCase.id)
+            ? {
+                ...refundCase,
+                status: 'needs_review',
+                decision: null,
+                decisionReason: null,
+                decidedAt: null,
+                hasMatchedNayaxTransaction: false,
+                matchedNayaxTransactionId: null,
+                matchedNayaxMachineAuthTime: null,
+                matchedNayaxAmountCents: null,
+                selectedNayaxTransaction: null,
+                nayaxRecommendationState: 'manual_exception',
+                nayaxLookupStatus: 'manual_exception',
+                nayaxLookupSummary: {
+                  ...refundCase.nayaxLookupSummary,
+                  lookupStatus: 'manual_exception',
+                  recommendationState: 'manual_exception',
+                },
+                nayaxMatchExecutionEligible: false,
+                refundReadiness: {
+                  ...refundCase.refundReadiness,
+                  transactionConfirmed: false,
+                  canIssueCardRefund: false,
+                  blockReason: 'transaction_selection_required',
+                },
+                lifecycle: refundCase.lifecycle
+                  ? {
+                      ...refundCase.lifecycle,
+                      stage: 'matching',
+                      stageRank: 10,
+                      managerNextAction: 'select_transaction',
+                    }
+                  : refundCase.lifecycle,
+              }
+            : refundCase
+        ),
+      };
       const settledOverview = nayaxSettlementResult
         ? {
-            ...currentOverview,
-            cases: currentOverview.cases.map((refundCase) =>
+            ...overviewAfterPreselectionDispute,
+            cases: overviewAfterPreselectionDispute.cases.map((refundCase) =>
               refundCase.id === nayaxSettlementCaseId
                 ? nayaxSettlementResult.executed === true && nayaxSettlementResult.status === 'succeeded'
                   ? {
@@ -2991,39 +3136,25 @@ const installMockSupabaseRoutes = async (
                     }
                   : {
                       ...refundCase,
-                      providerHold: providerCheckRequired(nayaxSettlementResult),
-                      providerOutcome: providerCheckRequired(nayaxSettlementResult)
+                      providerHold: providerCheckRequired(nayaxSettlementResult) ||
+                        nayaxSettlementResult.providerAttempted === true ||
+                        nayaxSettlementResult.replayed === true ||
+                        nayaxSettlementResult.status === 'declined' ||
+                        nayaxSettlementResult.errorCode === 'provider_rejected',
+                      providerOutcome: providerCheckRequired(nayaxSettlementResult) ||
+                        nayaxSettlementResult.providerAttempted === true ||
+                        nayaxSettlementResult.replayed === true ||
+                        nayaxSettlementResult.status === 'declined' ||
+                        nayaxSettlementResult.errorCode === 'provider_rejected'
                         ? 'unconfirmed'
-                        : nayaxSettlementResult.status === 'declined' || nayaxSettlementResult.errorCode === 'provider_rejected'
-                          ? 'rejected'
-                          : 'not_attempted',
-                      nayaxMatchExecutionEligible:
-                        nayaxSettlementResult.safeRetryEligible === true,
+                        : 'not_attempted',
+                      nayaxMatchExecutionEligible: false,
                       ...(
-                        nayaxSettlementResult.safeRetryEligible === true
-                          ? {
-                              status: 'needs_review',
-                              decision: null,
-                              lifecycle: {
-                                ...buildLifecycleFixture(
-                                  'transaction_confirmed',
-                                  30,
-                                  'refund'
-                                ),
-                                operations: {
-                                  ...buildLifecycleFixture().operations,
-                                  required: false,
-                                  ageMinutes: null,
-                                  dueAt: null,
-                                  safeStage: 'released_no_refund',
-                                  failureClass: 'provider_rejected',
-                                  nextStep: null,
-                                },
-                                definitiveNoRefund: true,
-                                safeRetryEligible: true,
-                              },
-                            }
-                          : providerCheckRequired(nayaxSettlementResult)
+                        providerCheckRequired(nayaxSettlementResult) ||
+                        nayaxSettlementResult.providerAttempted === true ||
+                        nayaxSettlementResult.replayed === true ||
+                        nayaxSettlementResult.status === 'declined' ||
+                        nayaxSettlementResult.errorCode === 'provider_rejected'
                           ? {
                               lifecycle: {
                                 ...buildLifecycleFixture(
@@ -3034,11 +3165,27 @@ const installMockSupabaseRoutes = async (
                                 operations: {
                                   ...buildLifecycleFixture().operations,
                                   required: true,
+                                  queue: 'System verification',
+                                  owner: 'System',
                                   ageMinutes: 0,
                                   dueAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
                                   safeStage: 'confirmation_hold',
                                   failureClass: 'provider_outcome_unconfirmed',
                                   nextStep: 'Confirm the authoritative payment result. Never retry.',
+                                },
+                                managerAction: {
+                                  action: 'wait',
+                                  owner: 'System',
+                                  safeRetryEligible: false,
+                                  payloadRedacted: true,
+                                },
+                                managerNextAction: 'wait',
+                                managerQueue: {
+                                  ...buildLifecycleFixture().managerQueue,
+                                  bucket: 'provider_hold',
+                                  label: 'Needs manager review',
+                                  nextAction: 'wait',
+                                  safeRetryEligible: false,
                                 },
                               },
                             }
@@ -3049,7 +3196,7 @@ const installMockSupabaseRoutes = async (
                 : refundCase
             ),
           }
-        : currentOverview;
+        : overviewAfterPreselectionDispute;
       return route.fulfill(jsonResponse(withOfficialActionState(settledOverview)));
     }
 
@@ -3060,6 +3207,25 @@ const installMockSupabaseRoutes = async (
         digestCounts: { needsDecision: 0, newInformation: 0, aging: 0, exceptionsBeingHandled: 0 },
         oldestActionableAgeMinutes: null, recentMaterialChangeCount: 0, items: [],
         metrics: { emailsSentToday: 0, digestEligibleCount: 0, duplicatesSuppressedToday: 0, oldestActionableAgeMinutes: null, oldestDecisionAgeMinutes: null, payloadRedacted: true }, payloadRedacted: true,
+      }));
+    }
+
+    if (url.includes('/admin_dispute_refund_nayax_preselection_current_user_v1')) {
+      const requestBody = request.postDataJSON();
+      const caseId = requestBody?.p_case_id;
+      if (typeof caseId === 'string') {
+        disputedPreselectionCaseIds.add(caseId);
+        officialActionVersions.set(caseId, Number(requestBody?.p_expected_case_version ?? 1) + 1);
+      }
+      return route.fulfill(jsonResponse({
+        disputed: true,
+        status: 'manual_exception',
+        refundCaseId: caseId,
+        caseVersion: Number(requestBody?.p_expected_case_version ?? 1) + 1,
+        providerCallMade: false,
+        approvalCreated: false,
+        customerMessageCreated: false,
+        payloadRedacted: true,
       }));
     }
 
@@ -8307,25 +8473,21 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
       functionBodies,
       rpcCalls,
       adminAccessContext: scenario.adminAccessContext,
-      nayaxCardRefundStatus: 200,
+      nayaxCardRefundStatus: 202,
       nayaxCardRefundResponse: {
-        executed: true,
-        status: 'succeeded',
-        providerReference: `SINGLE-MANAGER-${scenario.slug}`,
-        providerAttempted: true,
+        approved: true,
+        status: 'system_finishing',
+        providerAttempted: false,
+        providerCallMade: false,
+        customerMessageCreated: false,
+        authorizationId: `8a820000-0000-4000-8000-${scenario.slug === 'unmapped-super-admin' ? '000000000101' : '000000000102'}`,
+        attemptId: `8a830000-0000-4000-8000-${scenario.slug === 'unmapped-super-admin' ? '000000000101' : '000000000102'}`,
+        queued: true,
+        payloadRedacted: true,
         replayed: false,
         reconciliationRequired: false,
         fallbackIssued: false,
-        reportingAdjustmentPresent: true,
-        customerCompletion: {
-          status: 'sent',
-          transport: 'gmail_thread',
-          managerCcCount: 1,
-          originalThread: true,
-          operationApplied: true,
-          managerCompletionNoticeSent: false,
-        },
-        message: 'The refund was confirmed and the customer completion was sent.',
+        message: 'Manager approval was saved. System will finish the original attempt and send no customer message until success is known.',
       },
     });
 
@@ -8527,7 +8689,7 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
     );
     await page.getByTestId('refund-confirm-nayax-refund').click();
     await page.getByTestId('refund-action-receipt')
-      .getByText('Refund completed', { exact: true })
+      .getByText('Refund approved', { exact: true })
       .waitFor({ timeout: 10000 });
     const executionCallsAfterApproval = functionBodies.filter((entry) =>
       entry.functionName === 'nayax-card-refund' && entry.body?.operation !== 'availability'
@@ -8539,6 +8701,16 @@ const runDualRoleOfficialActionChecks = async ({ browser, appUrl, artifactDir, r
         executionCallsAfterApproval.at(-1)?.body?.caseId === 'case-card-alternate' &&
         executionCallsAfterApproval.at(-1)?.body?.expectedOfficialActionVersion === 1,
       JSON.stringify({ functionCalls, executionCallsAfterApproval })
+    );
+    recorder.assert(
+      `${scenario.name} Manager action only queues the System attempt`,
+      executionCallsAfterApproval.at(-1)?.body?.caseId === 'case-card-alternate' &&
+        nayaxCardRefundResponse.providerAttempted === false &&
+        nayaxCardRefundResponse.providerCallMade === false &&
+        nayaxCardRefundResponse.customerMessageCreated === false &&
+        Boolean(nayaxCardRefundResponse.authorizationId) &&
+        Boolean(nayaxCardRefundResponse.attemptId),
+      JSON.stringify(nayaxCardRefundResponse)
     );
 
     await page.screenshot({
@@ -9649,7 +9821,7 @@ const runManagerStepUpChecks = async ({ browser, appUrl, artifactDir, recorder }
     refundOverview: buildManagerStepUpRefundOverview,
     functionCalls,
     functionBodies,
-    nayaxCardRefundStatus: 200,
+    nayaxCardRefundStatus: 202,
     nayaxCardRefundResponse: {
       executed: false,
       status: 'system_finishing',
@@ -9971,6 +10143,178 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
   await closeRefundPortalContext(uncertainContext);
 };
 
+const runNayaxManagerApprovalHandoffChecks = async ({
+  browser,
+  appUrl,
+  artifactDir,
+  recorder,
+}) => {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const functionCalls = [];
+  const functionBodies = [];
+  const systemFinishingResponse = {
+    approved: true,
+    status: 'system_finishing',
+    providerAttempted: false,
+    providerCallMade: false,
+    customerMessageCreated: false,
+    authorizationId: '8a820000-0000-4000-8000-000000000001',
+    attemptId: '8a830000-0000-4000-8000-000000000001',
+    queued: true,
+    payloadRedacted: true,
+  };
+  await installMockSupabaseRoutes(context, {
+    refundOverview: buildSystemPreparedCardRefundOverview,
+    functionCalls,
+    functionBodies,
+    nayaxCardRefundStatus: 202,
+    nayaxCardRefundResponse: systemFinishingResponse,
+  });
+
+  const page = await context.newPage();
+  await signInRefundUser(page, appUrl);
+  await page.getByRole('button', { name: /^Ready to approve \d+$/ }).click();
+  await waitForQueueCount(page, 1);
+  await queueCase(page, 'RF-UAT-CARD').click();
+  await page.getByTestId('refund-run-nayax-refund').waitFor({ timeout: 10000 });
+
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-portal-uat-system-prepared-desktop.png'),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  recorder.assert(
+    'System-prepared $10.90 card approval remains usable on mobile',
+    await page.getByTestId('refund-run-nayax-refund').isVisible() &&
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-portal-uat-system-prepared-mobile.png'),
+    fullPage: true,
+  });
+
+  await page.getByTestId('refund-run-nayax-refund').click();
+  await page.getByTestId('refund-confirmation-dialog').waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Manager confirmation shows the $10.00 estimate and exact $10.90 selected total',
+    await page.getByTestId('refund-confirmation-dialog')
+      .getByText('$10.90 · card ending 4242', { exact: true }).isVisible() &&
+      await page.getByTestId('refund-confirmation-dialog')
+        .getByText(/email the customer only after Nayax confirms it/i).isVisible()
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-portal-uat-system-prepared-confirmation.png'),
+    fullPage: false,
+  });
+  await page.getByTestId('refund-confirm-nayax-refund').click();
+  await page.getByTestId('refund-action-receipt')
+    .getByText('Refund approved', { exact: true }).waitFor({ timeout: 10000 });
+
+  const approvalBodies = functionBodies.filter(
+    (entry) => entry.functionName === 'nayax-card-refund' && entry.body?.operation !== 'availability'
+  );
+  recorder.assert(
+    'One Manager confirmation queues one System-owned attempt without provider or secondary mutation',
+    approvalBodies.length === 1 &&
+      approvalBodies[0].body?.caseId === 'case-card-1' &&
+      approvalBodies[0].body?.expectedOfficialActionVersion === 1 &&
+      systemFinishingResponse.status === 'system_finishing' &&
+      systemFinishingResponse.providerAttempted === false &&
+      systemFinishingResponse.providerCallMade === false &&
+      systemFinishingResponse.customerMessageCreated === false &&
+      Boolean(systemFinishingResponse.authorizationId) &&
+      Boolean(systemFinishingResponse.attemptId) &&
+      !functionCalls.includes('refund-case-admin-update') &&
+      !functionCalls.includes('refund-case-message-send'),
+    JSON.stringify({ functionCalls, approvalBodies, systemFinishingResponse })
+  );
+  recorder.assert(
+    'System handoff removes the second Manager action',
+    (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+      await page.getByTestId('refund-manager-state')
+        .getByText('Refund in progress', { exact: true }).isVisible() &&
+      await page.getByTestId('refund-action-receipt')
+        .getByText(/Do not try the refund again/i).isVisible()
+  );
+  await page.screenshot({
+    path: path.join(artifactDir, 'refund-portal-uat-system-finishing.png'),
+    fullPage: true,
+  });
+
+  await reloadRefundPortalPage(page);
+  await page.getByRole('button', { name: 'Refund in progress 1', exact: true })
+    .waitFor({ timeout: 10000 });
+  await page.getByRole('button', { name: 'Refund in progress 1', exact: true }).click();
+  await queueCase(page, 'RF-UAT-CARD').click();
+  recorder.assert(
+    'Reload preserves one in-progress System attempt with no Ready or Refund action',
+    (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+      (await page.getByText('Ready to approve', { exact: true }).count()) === 0 &&
+      await page.getByTestId('refund-manager-state')
+        .getByText('Refund in progress', { exact: true }).isVisible() &&
+      approvalBodies.length === 1,
+    JSON.stringify({ functionCalls, approvalBodies })
+  );
+  await closeRefundPortalContext(context);
+};
+
+const runSystemPreselectionOverrideChecks = async ({ browser, appUrl, recorder }) => {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const functionCalls = [];
+  const functionBodies = [];
+  const rpcCalls = [];
+  const rpcBodies = [];
+  await installMockSupabaseRoutes(context, {
+    refundOverview: buildSystemPreparedCardRefundOverview,
+    rpcCalls,
+    rpcBodies,
+    functionCalls,
+    functionBodies,
+    nayaxCardRefundStatus: 202,
+    nayaxCardRefundResponse: {
+      approved: true,
+      status: 'system_finishing',
+      providerAttempted: false,
+      providerCallMade: false,
+      customerMessageCreated: false,
+      authorizationId: '8a820000-0000-4000-8000-000000000003',
+      attemptId: '8a830000-0000-4000-8000-000000000003',
+      queued: true,
+      payloadRedacted: true,
+    },
+  });
+
+  const page = await context.newPage();
+  await signInRefundUser(page, appUrl);
+  await page.getByRole('button', { name: /^Ready to approve \d+$/ }).click();
+  await waitForQueueCount(page, 1);
+  await queueCase(page, 'RF-UAT-CARD').click();
+  await page.getByTestId('refund-review-other-transactions').waitFor({ timeout: 10000 });
+
+  await page.getByTestId('refund-review-other-transactions').click();
+  const candidate = page.getByTestId('nayax-candidate-option').first();
+  await candidate.waitFor({ timeout: 10000 });
+  const disputeCalls = rpcBodies.filter((entry) =>
+    entry.name === 'admin_dispute_refund_nayax_preselection_current_user_v1'
+  );
+  recorder.assert(
+    'A Manager can mark a wrong System match and review alternatives without financial authority',
+    await candidate.isVisible() &&
+      !(await candidate.locator('input[type="radio"]').isDisabled()) &&
+      (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+      disputeCalls.length === 1 &&
+      disputeCalls[0].body?.p_case_id === 'case-card-1' &&
+      Number.isInteger(disputeCalls[0].body?.p_expected_case_version) &&
+      rpcCalls.filter((name) => name === 'admin_dispute_refund_nayax_preselection_current_user_v1').length === 1 &&
+      functionCalls.filter((name) => !NAVIGATION_READ_ONLY_RPCS.has(name)).length === 0 &&
+      !functionCalls.some((name) => [
+        'nayax-card-refund', 'refund-case-admin-update', 'refund-case-message-send',
+      ].includes(name)),
+    JSON.stringify({ functionCalls, functionBodies, rpcCalls, rpcBodies })
+  );
+  await closeRefundPortalContext(context);
+};
+
 const runNayaxExecutionOutcomeChecks = async ({
   browser,
   appUrl,
@@ -10151,20 +10495,20 @@ const runNayaxExecutionOutcomeChecks = async ({
     {
       name: 'rejected',
       screenshot: 'refund-provider-rejected.png',
-      expectedTitle: 'Refund wasn’t sent',
+      expectedTitle: 'Refund status needs checking',
       response: {
         executed: false,
-        status: 'declined',
+        status: 'ambiguous',
         errorCode: 'provider_rejected',
         providerAttempted: true,
         replayed: false,
-        reconciliationRequired: false,
+        reconciliationRequired: true,
         fallbackIssued: false,
         reportingAdjustmentPresent: false,
         customerCompletion: null,
-        safeRetryEligible: true,
-        definitiveNoRefund: true,
-        message: 'No refund was sent. The case is ready for a fresh manager-confirmed refund action.',
+        safeRetryEligible: false,
+        definitiveNoRefund: false,
+        message: 'The provider returned a rejected-looking result. The same attempt is held for verification; no retry is allowed.',
       },
     },
     {
@@ -10341,12 +10685,10 @@ const runNayaxExecutionOutcomeChecks = async ({
     );
     if (scenario.name === 'rejected') {
       recorder.assert(
-        'Synthetic browser definitive no-refund result uses only safe fresh-action guidance',
-        (await page.getByText(
-          'No refund was sent. Review the transaction, then use Refund again if you still want to issue it.',
-          { exact: true }
-        ).count()) > 0 &&
-          (await page.getByText('Card refund is not available for this case.', { exact: true }).count()) === 0
+        'Synthetic browser rejected-looking result stays held for verification',
+        (await page.getByText(/Do not try the refund again/i).count()) > 0 &&
+          (await page.getByText('Card refund is not available for this case.', { exact: true }).count()) === 0 &&
+          (await page.getByTestId('refund-run-nayax-refund').count()) === 0
       );
     }
     // Capture the scenario-specific provider receipt before later reload checks
@@ -10362,43 +10704,20 @@ const runNayaxExecutionOutcomeChecks = async ({
       );
     } else {
       if (scenario.name === 'rejected') {
-        await page.getByRole('button', { name: 'Ready to approve 1', exact: true })
-          .waitFor({ timeout: 10000 });
-        await page.getByRole('button', { name: 'Ready to approve 1', exact: true }).click();
-        const retryReadyCaseRow = queueCase(page, 'RF-UAT-CARD');
-        await retryReadyCaseRow.waitFor({ state: 'visible', timeout: 10000 });
-        await retryReadyCaseRow.click();
-        const retryReadySignals = {
-          operationsZero:
-            (await page.getByRole('button', { name: 'Needs manager review 0', exact: true }).count()) > 0,
-          readyLabel: await retryReadyCaseRow.getByText('Ready to approve', { exact: true }).isVisible(),
-          refundAction: await page.getByTestId('refund-run-nayax-refund').isVisible(),
-          providerCallCount: functionCalls.filter((name) => name === 'nayax-card-refund').length,
-          secondaryMutationCount: functionCalls.filter(
-            (name) => name === 'refund-case-admin-update' || name === 'refund-case-message-send'
-          ).length,
-        };
-        recorder.assert(
-          'Synthetic browser definitive no-refund result restores one normal manager action',
-          retryReadySignals.operationsZero &&
-            retryReadySignals.readyLabel &&
-            retryReadySignals.refundAction &&
-            retryReadySignals.providerCallCount === 1 &&
-            retryReadySignals.secondaryMutationCount === 0,
-          JSON.stringify(retryReadySignals)
-        );
         await reloadRefundPortalPage(page);
-        await page.getByRole('button', { name: 'Ready to approve 1', exact: true })
+        await page.getByRole('button', { name: 'Needs manager review 1', exact: true })
           .waitFor({ timeout: 10000 });
-        await page.getByRole('button', { name: 'Ready to approve 1', exact: true }).click();
-        const reloadedRetryReadyCaseRow = queueCase(page, 'RF-UAT-CARD');
-        await reloadedRetryReadyCaseRow.click();
-        await page.getByTestId('refund-run-nayax-refund')
-          .waitFor({ state: 'visible', timeout: 10000 });
+        await page.getByRole('button', { name: 'Needs manager review 1', exact: true }).click();
+        const heldCaseRow = queueCase(page, 'RF-UAT-CARD');
+        await heldCaseRow.click();
         recorder.assert(
-          'Synthetic browser definitive no-refund release survives a full reload without another provider call',
-          await page.getByTestId('refund-run-nayax-refund').isVisible() &&
-            functionCalls.filter((name) => name === 'nayax-card-refund').length === 1
+          'Synthetic browser rejected-looking result survives reload without a second Manager action',
+          (await heldCaseRow.getByText('Ready to approve', { exact: true }).count()) === 0 &&
+            (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+            await page.getByTestId('refund-manager-state')
+              .getByText('Needs manager review', { exact: true }).isVisible() &&
+            functionCalls.filter((name) => name === 'nayax-card-refund').length === 1 &&
+            !functionCalls.includes('refund-case-message-send')
         );
         evidence.providerNonSuccessStateCount += 1;
         await closeRefundPortalContext(context);
@@ -10415,7 +10734,7 @@ const runNayaxExecutionOutcomeChecks = async ({
           .waitFor({ timeout: 10000 });
         await page.getByRole('button', { name: 'Needs manager review 1', exact: true }).click();
         recorder.assert(
-          `Synthetic browser ${scenario.name} enters the named Refund Operations queue`,
+          `Synthetic browser ${scenario.name} enters the System verification hold`,
           await page.getByRole('button', { name: 'Needs manager review 1', exact: true }).isVisible() &&
             (await page.getByRole('button', { name: /Check refund result/ }).count()) === 0
         );
@@ -11151,6 +11470,17 @@ const run = async () => {
         recorder,
       });
     } else if (args.providerOutcomesOnly) {
+      await runSystemPreselectionOverrideChecks({
+        browser,
+        appUrl: args.appUrl,
+        recorder,
+      });
+      await runNayaxManagerApprovalHandoffChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
+      });
       await runNayaxExecutionOutcomeChecks({
         browser,
         appUrl: args.appUrl,
@@ -11306,6 +11636,17 @@ const run = async () => {
       recorder,
     });
     await runNayaxResolutionChecks({
+      browser,
+      appUrl: args.appUrl,
+      artifactDir: args.artifactDir,
+      recorder,
+    });
+    await runSystemPreselectionOverrideChecks({
+      browser,
+      appUrl: args.appUrl,
+      recorder,
+    });
+    await runNayaxManagerApprovalHandoffChecks({
       browser,
       appUrl: args.appUrl,
       artifactDir: args.artifactDir,

@@ -16,6 +16,8 @@ export type NayaxQueuedRefundClaim = {
   wire: {
     caseVersion: number;
     attemptGeneration: number;
+    providerExecutionGeneration: number;
+    executionPlan: "request_and_approve" | "approve_only";
     idempotencyKey: string;
     providerContractVersion: string;
     journalContractVersion: string;
@@ -66,6 +68,8 @@ export const parseNayaxQueuedRefundClaim = (
     : "";
   const caseVersion = Number(wire?.caseVersion);
   const attemptGeneration = Number(wire?.attemptGeneration);
+  const providerExecutionGeneration = Number(wire?.providerExecutionGeneration);
+  const executionPlan = String(wire?.executionPlan);
   const siteId = Number(wire?.siteId);
   const amountCents = Number(wire?.originalAmountCents);
   const rawTime = typeof wire?.machineAuthorizationTime === "string"
@@ -93,6 +97,8 @@ export const parseNayaxQueuedRefundClaim = (
     attempt?.shouldExecute !== true || providerClaimToken.length < 43 ||
     wire?.caseId !== caseId || !Number.isInteger(caseVersion) || caseVersion < 1 ||
     !Number.isInteger(attemptGeneration) || attemptGeneration < 0 ||
+    !Number.isInteger(providerExecutionGeneration) || providerExecutionGeneration < 1 ||
+    !new Set(["request_and_approve", "approve_only"]).has(executionPlan) ||
     typeof wire?.idempotencyKey !== "string" ||
     !/^nayax-refund-[a-f0-9]{64}$/.test(wire.idempotencyKey) ||
     wire?.providerContractVersion !== "nayax-production-account-contract-v2" ||
@@ -119,6 +125,8 @@ export const parseNayaxQueuedRefundClaim = (
     wire: {
       caseVersion,
       attemptGeneration,
+      providerExecutionGeneration,
+      executionPlan: executionPlan as "request_and_approve" | "approve_only",
       idempotencyKey: wire!.idempotencyKey as string,
       providerContractVersion: wire!.providerContractVersion as string,
       journalContractVersion: wire!.journalContractVersion as string,
@@ -192,7 +200,7 @@ export const drainNayaxQueuedRefunds = async ({
       invalidCount += 1;
       // Parsing happens before the provider boundary. Leave this same leased row
       // for the no-call reclaimer; a malformed payload is not evidence that a
-      // provider call began and must not create a permanent hold by itself.
+      // provider call began and must not create a hold by itself.
       continue;
     }
     try {

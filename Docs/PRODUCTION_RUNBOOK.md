@@ -17,20 +17,21 @@ release artifacts do not add steps to the current workflow.
 1. Let the System search Bloomjoy and Nayax before asking the customer for more
    information. Missing mapping, account, timezone, or search coverage is an
    internal defect, not customer work.
-2. A case worker reviews the candidates and saves the exact purchase. The triage
+2. The System saves the single clear high-confidence purchase. When results are
+   ambiguous, a case worker reviews them and saves the exact purchase. The triage
    actor may differ from the assigned Machine Manager or Super-admin who approves.
-   The selected transaction and its evidence remain visible; a lower-confidence
-   exact selection is allowed.
 3. The assigned Machine Manager or a Super-admin makes one **Approve refund** or
    **Decline** decision. Approval defaults to the selected transaction's full
    provider total, including tax, and atomically queues one System-owned attempt.
 4. The System claims that same frozen attempt, rechecks exact transaction binding
-   and duplicate/idempotency state, and calls Nayax at most once. These checks add
-   no second business approval.
+   and duplicate/idempotency state, and performs the frozen execution plan. These
+   checks add no second business approval.
 5. Confirmed provider success completes the payment and customer update. A
-   timeout, unknown result, or error after transport permanently holds that same
-   attempt. Evidence may confirm success or leave it held; it never authorizes a
-   retry or manual card completion. Cash refunds remain manager-manual.
+   timeout, unknown result, or error after transport holds that same attempt for
+   verification. Evidence may confirm success or leave it held. Exact DTM or
+   support proof that no refund occurred may advance the same attempt once under
+   the original approval; a provider rejection label alone cannot. There is no
+   blind retry or manual card completion. Cash refunds remain manager-manual.
 
 ### Immediate rollback
 
@@ -144,7 +145,7 @@ Set the following values before launch.
 Security rule:
 - Never place secrets in `VITE_` variables.
 - Leave `BLOOMJOY_ALLOWED_VERCEL_PREVIEW_ORIGINS` unset in production. For temporary preview/UAT invite testing only, set it to comma-separated exact `https://<preview>.vercel.app` origins that should be allowed in invite login links.
-- Environment switches alone are insufficient for deterministic customer contact, retention, or GPT. Their database settings must also be explicitly enabled under the existing authority. Refund operations are live; preserve the current enabled state and use the latest #628/#990 decisions and production evidence rather than the historical all-switches-off candidate.
+- Environment switches alone are insufficient for deterministic customer contact, retention, or GPT. Their database settings must also be explicitly enabled under the existing authority. The refund workflow is live; preserve the current enabled state and use the latest #628/#990 decisions and production evidence rather than the historical all-switches-off candidate.
 
 ## 3) Pre-launch checklist (T-24h)
 - [ ] Launch freeze announced (no unrelated merges to `main` during launch window).
@@ -361,7 +362,9 @@ When a release changes refund behavior, run the focused checks in
 check, and proportionate desktop/mobile UAT with synthetic data. Verify the
 one-decision workflow, exact selected-transaction binding, full provider-total
 default, Manager override, cash confirmation semantics, customer clarification
-limit, duplicate protection, and permanent same-attempt hold for an unknown result.
+limit, duplicate protection, and a same-attempt verification hold for an unknown
+result. If exact Nayax or support evidence later proves that no refund occurred,
+the System continues that same approved attempt without another Manager decision.
 
 A release document or passing test does not authorize a customer refund,
 customer message, production deployment, or configuration change. Existing

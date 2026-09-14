@@ -106,6 +106,10 @@ The Manager reviews the selected transaction and makes one decision. Approval
 authorizes the System to submit the refund through the Nayax API for the exact
 selected transaction and its provider total.
 
+“Assigned Machine Manager or Super-admin” is the complete approval rule. There
+is no separate approval-access enrollment, temporary manager grant, or second
+session check to complete after that decision.
+
 Confirmed provider success completes the payment and supports the customer
 completion message and reporting. A timeout or unknown provider outcome pauses
 only that payment while the System reconciles it. It never permits a blind retry

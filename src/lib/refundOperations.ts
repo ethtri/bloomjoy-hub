@@ -1225,6 +1225,7 @@ export type UpdateRefundCaseInput = {
 
 export type RefundNayaxResolutionResult =
   | 'provider_confirmed_success'
+  | 'provider_confirmed_no_refund'
   | 'remain_on_hold';
 
 export type RefundNayaxResolutionEvidenceType =
@@ -1234,6 +1235,8 @@ export type RefundNayaxResolutionEvidenceType =
 export type RefundNayaxResolutionReason =
   | 'nayax_dtm_settled'
   | 'nayax_support_confirmed_success'
+  | 'nayax_dtm_not_refunded'
+  | 'nayax_support_confirmed_no_refund'
   | 'evidence_incomplete'
   | 'provider_still_pending'
   | 'evidence_conflict';
@@ -3010,6 +3013,49 @@ export const updateRefundCaseAdmin = async (input: UpdateRefundCaseInput) => {
     authErrorMessage: 'Log in to update refund cases.',
   });
   return requireUpdatedRefundCase(data);
+};
+
+export type RefundNayaxPreselectionDisputeResponse = {
+  disputed: true;
+  status: 'manual_exception';
+  refundCaseId: string;
+  caseVersion: number;
+  providerCallMade: false;
+  approvalCreated: false;
+  customerMessageCreated: false;
+  payloadRedacted: true;
+};
+
+export const disputeRefundNayaxPreselection = async (
+  caseId: string,
+  expectedCaseVersion: number
+): Promise<RefundNayaxPreselectionDisputeResponse> => {
+  const { data, error } = await supabaseClient.rpc(
+    'admin_dispute_refund_nayax_preselection_current_user_v1',
+    {
+      p_case_id: caseId,
+      p_expected_case_version: expectedCaseVersion,
+    }
+  );
+  if (error || !data || typeof data !== 'object') {
+    throw new Error(error?.message || 'Unable to mark the saved transaction for review.');
+  }
+  const response = data as Record<string, unknown>;
+  if (
+    response.disputed !== true ||
+    response.status !== 'manual_exception' ||
+    typeof response.refundCaseId !== 'string' ||
+    typeof response.caseVersion !== 'number' ||
+    !Number.isInteger(response.caseVersion) ||
+    response.caseVersion <= 0 ||
+    response.providerCallMade !== false ||
+    response.approvalCreated !== false ||
+    response.customerMessageCreated !== false ||
+    response.payloadRedacted !== true
+  ) {
+    throw new Error('The transaction review response was invalid. Refresh before continuing.');
+  }
+  return response as RefundNayaxPreselectionDisputeResponse;
 };
 
 export type DisposeRefundAcknowledgementExceptionResponse = {
