@@ -81,6 +81,7 @@ test('settled completion delivery reuses the current System queue and canonical 
   assert.doesNotMatch(sql, /update public\.refund_case_messages set status = 'sent'/u);
   assert.ok(sql.includes('public.service_bind_refund_transactional_delivery('));
   assert.ok(sql.includes('public.service_record_refund_transactional_delivery_event('));
+  assert.ok(sql.includes("array['provider_message_id','delivery_transport','delivery_state','delivery_state_updated_at','status','error_message']"));
   assert.doesNotMatch(sql, /provider-gmail-completion-1|select plan\(|session_replication_role|disable\s+trigger/iu);
   assert.ok(sql.trimEnd().endsWith('rollback;'));
   assert.doesNotMatch(sql, /service_reserve_and_consume_nayax_refund_attempt/);

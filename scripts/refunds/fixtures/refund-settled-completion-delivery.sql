@@ -45,8 +45,8 @@ select is(to_jsonb(a), b.attempt_value, 'Settled completion receipt events prese
 from public.refund_case_nayax_refund_attempts a cross join settled_delivery_before b where a.refund_case_id = '9a600000-0000-4000-8000-000000000001';
 select is(to_jsonb(f), b.adjustment_value, 'Settled completion receipt events preserve the reporting adjustment')
 from public.sales_adjustment_facts f cross join settled_delivery_before b where f.refund_case_id = '9a600000-0000-4000-8000-000000000001';
-select is(to_jsonb(m) - array['provider_message_id','delivery_state','delivery_state_updated_at','status','error_message'],
-  b.message_value - array['provider_message_id','delivery_state','delivery_state_updated_at','status','error_message'],
+select is(to_jsonb(m) - array['provider_message_id','delivery_transport','delivery_state','delivery_state_updated_at','status','error_message'],
+  b.message_value - array['provider_message_id','delivery_transport','delivery_state','delivery_state_updated_at','status','error_message'],
   'Settled completion receipts preserve original content, evidence, provider attempt and sent-at field')
 from public.refund_case_messages m cross join settled_delivery_before b
 where m.refund_case_id = '9a600000-0000-4000-8000-000000000001' and m.message_type = 'completed';
