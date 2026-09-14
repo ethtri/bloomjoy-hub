@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(32);
+select plan(34);
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -31,7 +31,8 @@ values
 insert into public.reporting_machines (id, account_id, location_id, machine_label, machine_type)
 values
   ('a1400000-0000-4000-8000-000000000001', 'a1200000-0000-4000-8000-000000000001', 'a1300000-0000-4000-8000-000000000001', 'Roster provisional machine', 'snapcase'),
-  ('a1400000-0000-4000-8000-000000000002', 'a1200000-0000-4000-8000-000000000002', 'a1300000-0000-4000-8000-000000000002', 'Roster live machine', 'commercial');
+  ('a1400000-0000-4000-8000-000000000002', 'a1200000-0000-4000-8000-000000000002', 'a1300000-0000-4000-8000-000000000002', 'Roster live machine', 'commercial'),
+  ('a1400000-0000-4000-8000-000000000003', 'a1200000-0000-4000-8000-000000000001', 'a1300000-0000-4000-8000-000000000001', 'Roster second provisional machine', 'snapcase');
 
 insert into public.payout_policies (id, account_id, name)
 values
@@ -160,7 +161,8 @@ select is(
 select lives_ok(
   $$select public.admin_update_operator_contact(
     'a1600000-0000-4000-8000-000000000001',
-    'Roster.Contact@Example.Invalid', '+1 555 010 9000', '100 Test Avenue', 'Roster contact test'
+    'Roster.Contact@Example.Invalid', '+1 555 010 9000', '100 Test Avenue',
+    'Technician contact details updated from Admin Payouts'
   )$$,
   'A pay-authorized admin can update protected contact details'
 );
@@ -186,9 +188,9 @@ select lives_ok(
   $$select public.admin_setup_timekeeping_technician_arrangements_with_contact(
     'roster-new-tech@example.invalid', 'New Roster Technician', 'contractor_1099', 'TEST-1002',
     'roster-new-tech@example.invalid', '+1 555 010 9001', '200 Test Avenue', '2026-09-14',
-    '[{"machineId":"a1400000-0000-4000-8000-000000000001","shiftRateCents":2500,"commissionBasisPoints":300,"commissionEffectiveStartDate":"2026-12-14"}]'::jsonb
+    '[{"machineId":"a1400000-0000-4000-8000-000000000001","shiftRateCents":2500,"commissionBasisPoints":300,"commissionEffectiveStartDate":"2026-12-14"},{"machineId":"a1400000-0000-4000-8000-000000000003","shiftRateCents":2500,"commissionBasisPoints":300,"commissionEffectiveStartDate":"2026-12-14"}]'::jsonb
   )$$,
-  'Initial setup stores contact data alongside a provisional machine arrangement'
+  'Initial setup stores contact data alongside multiple provisional machine arrangements under one payer'
 );
 
 reset role;
@@ -212,6 +214,27 @@ select is(
    where user_id = 'a1100000-0000-4000-8000-000000000003'),
   '+1 555 010 9001',
   'Initial setup saves the new technician contact details'
+);
+select is(
+  (select count(*)::integer
+   from public.operator_machine_assignments assignment
+   join public.operator_payout_profiles profile on profile.id = assignment.operator_profile_id
+   where profile.user_id = 'a1100000-0000-4000-8000-000000000003'
+     and profile.account_id = 'a1200000-0000-4000-8000-000000000001'
+     and assignment.status = 'active'),
+  2,
+  'Multiple same-payer machines receive separate assignments'
+);
+select is(
+  (select count(*)::integer
+   from public.compensation_rules rule
+   join public.operator_payout_profiles profile on profile.id = rule.operator_profile_id
+   where profile.user_id = 'a1100000-0000-4000-8000-000000000003'
+     and profile.account_id = 'a1200000-0000-4000-8000-000000000001'
+     and rule.shift_rate_cents = 2500
+     and rule.status = 'active'),
+  1,
+  'Multiple same-payer machines share one technician-level hourly rate'
 );
 select is(
   (select count(*)::integer from public.get_operator_contact_directory(

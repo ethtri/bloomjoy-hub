@@ -206,6 +206,186 @@ revoke execute on function public.admin_update_operator_contact(uuid, text, text
 grant execute on function public.admin_update_operator_contact(uuid, text, text, text, text)
   to authenticated;
 
+-- The hourly rate is profile-scoped, while commission may vary by machine.
+-- Create one hourly rule per payer profile so a technician can be assigned to
+-- multiple machines for the same payer without overlapping duplicate rules.
+create or replace function public.admin_setup_timekeeping_technician_arrangements(
+  p_user_email text,
+  p_display_name text,
+  p_worker_type text,
+  p_worker_identifier text,
+  p_effective_start_date date,
+  p_machine_compensation jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  actor_user_id uuid := auth.uid();
+  normalized_email text := lower(trim(coalesce(p_user_email, '')));
+  normalized_display_name text := trim(coalesce(p_display_name, ''));
+  normalized_worker_identifier text := nullif(trim(coalesce(p_worker_identifier, '')), '');
+  target_user_id uuid;
+  profile_row public.operator_payout_profiles;
+  account_row record;
+  arrangement record;
+  profile_results jsonb := '[]'::jsonb;
+  machine_count integer;
+  account_count integer;
+  account_shift_rate_cents integer;
+begin
+  if actor_user_id is null then raise exception 'Authentication required'; end if;
+  if normalized_email = '' or normalized_display_name = '' then raise exception 'Technician email and name are required'; end if;
+  if p_effective_start_date is null then raise exception 'Timekeeping start date is required'; end if;
+  if jsonb_typeof(p_machine_compensation) <> 'array' or jsonb_array_length(p_machine_compensation) = 0 then
+    raise exception 'Choose at least one machine';
+  end if;
+
+  drop table if exists pg_temp.selected_arrangements;
+  create temporary table selected_arrangements on commit drop as
+  select
+    value ->> 'machineId' as machine_id_text,
+    nullif(value ->> 'shiftRateCents', '')::integer as shift_rate_cents,
+    nullif(value ->> 'commissionBasisPoints', '')::integer as commission_basis_points,
+    nullif(value ->> 'commissionEffectiveStartDate', '')::date as commission_start_date
+  from jsonb_array_elements(p_machine_compensation) selected(value);
+
+  if exists (select 1 from selected_arrangements where machine_id_text is null or machine_id_text !~* '^[0-9a-f-]{36}$') then
+    raise exception 'Every pay arrangement must identify a machine';
+  end if;
+  if exists (select 1 from selected_arrangements group by machine_id_text having count(*) > 1) then
+    raise exception 'Each machine can have only one starting pay arrangement';
+  end if;
+  if exists (select 1 from selected_arrangements where shift_rate_cents is null or shift_rate_cents <= 0) then
+    raise exception 'Pay per started hour must be greater than zero';
+  end if;
+  if exists (select 1 from selected_arrangements where commission_basis_points is null or commission_basis_points < 0 or commission_basis_points > 10000) then
+    raise exception 'Commission percent must be between zero and 100';
+  end if;
+  if exists (select 1 from selected_arrangements where commission_start_date is null or commission_start_date < p_effective_start_date) then
+    raise exception 'Commission start cannot be before Timekeeping starts';
+  end if;
+
+  select users.id into target_user_id from auth.users users
+  where lower(users.email) = normalized_email limit 1;
+  if target_user_id is null then
+    raise exception 'Technician must accept the invitation and sign in once before Timekeeping setup';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(concat_ws(':', target_user_id::text, 'timekeeping-arrangements'), 0));
+
+  if exists (
+    select 1
+    from selected_arrangements selected
+    left join public.reporting_machines machine on machine.id = selected.machine_id_text::uuid
+    where machine.id is null or machine.status <> 'active'
+      or not coalesce(public.can_manage_operator_payout_account(actor_user_id, machine.account_id), false)
+      or not coalesce(public.can_manage_operator_payout_machine(actor_user_id, machine.id), false)
+  ) then
+    raise exception 'Every machine must be active and within your pay access';
+  end if;
+
+  select count(*)::integer, count(distinct machine.account_id)::integer
+  into machine_count, account_count
+  from selected_arrangements selected
+  join public.reporting_machines machine on machine.id = selected.machine_id_text::uuid;
+
+  for account_row in
+    select distinct machine.account_id
+    from selected_arrangements selected
+    join public.reporting_machines machine on machine.id = selected.machine_id_text::uuid
+  loop
+    if (
+      select count(distinct selected.shift_rate_cents)
+      from selected_arrangements selected
+      join public.reporting_machines machine on machine.id = selected.machine_id_text::uuid
+      where machine.account_id = account_row.account_id
+    ) <> 1 then
+      raise exception 'Pay per started hour must be the same for every selected machine under one payer';
+    end if;
+
+    select min(selected.shift_rate_cents)
+    into account_shift_rate_cents
+    from selected_arrangements selected
+    join public.reporting_machines machine on machine.id = selected.machine_id_text::uuid
+    where machine.account_id = account_row.account_id;
+
+    if exists (
+      select 1 from public.operator_payout_profiles profile
+      where profile.account_id = account_row.account_id and profile.user_id = target_user_id
+    ) then
+      raise exception 'Technician already has Timekeeping setup for one of these accounts';
+    end if;
+
+    select * into profile_row from public.admin_upsert_operator_payout_profile(
+      normalized_email, account_row.account_id, normalized_display_name, p_worker_type,
+      null, 'Initial Timekeeping pay arrangements'
+    );
+
+    update public.operator_payout_profiles set
+      worker_identifier = normalized_worker_identifier,
+      position_title = 'Technician',
+      updated_by = actor_user_id
+    where id = profile_row.id returning * into profile_row;
+
+    perform public.admin_upsert_operator_compensation_rate(
+      null, account_row.account_id, profile_row.id, null,
+      'shift', account_shift_rate_cents, p_effective_start_date, null,
+      'active', 'Initial Timekeeping pay arrangement'
+    );
+
+    for arrangement in
+      select selected.*, machine.id as machine_id
+      from selected_arrangements selected
+      join public.reporting_machines machine on machine.id = selected.machine_id_text::uuid
+      where machine.account_id = account_row.account_id
+    loop
+      perform public.admin_upsert_operator_machine_assignment(
+        null, profile_row.id, arrangement.machine_id, p_effective_start_date, null
+      );
+
+      if arrangement.commission_start_date > p_effective_start_date then
+        perform public.admin_upsert_operator_compensation_rate(
+          null, account_row.account_id, profile_row.id, arrangement.machine_id,
+          'commission', 0, p_effective_start_date, arrangement.commission_start_date - 1,
+          'active', 'Commission waiting period'
+        );
+      end if;
+      perform public.admin_upsert_operator_compensation_rate(
+        null, account_row.account_id, profile_row.id, arrangement.machine_id,
+        'commission', arrangement.commission_basis_points, arrangement.commission_start_date,
+        null, 'active', 'Initial Timekeeping pay arrangement'
+      );
+    end loop;
+
+    profile_results := profile_results || jsonb_build_array(jsonb_build_object(
+      'operatorProfileId', profile_row.id, 'accountId', profile_row.account_id
+    ));
+  end loop;
+
+  insert into public.admin_audit_log (
+    actor_user_id, action, entity_type, entity_id, target_user_id, before, after, meta
+  ) values (
+    actor_user_id, 'timekeeping_technician.arrangements_setup_completed', 'auth_user',
+    target_user_id::text, target_user_id, '{}'::jsonb,
+    jsonb_build_object('displayName', normalized_display_name, 'profiles', profile_results),
+    jsonb_build_object('machineCount', machine_count, 'payerCount', account_count,
+      'effectiveStartDate', p_effective_start_date, 'approvalRequired', false, 'paymentExecution', false)
+  );
+
+  return jsonb_build_object(
+    'displayName', normalized_display_name, 'profiles', profile_results,
+    'machineCount', machine_count, 'payerCount', account_count,
+    'effectiveStartDate', p_effective_start_date
+  );
+end;
+$$;
+
+comment on function public.admin_setup_timekeeping_technician_arrangements(text, text, text, text, date, jsonb) is
+  'Atomically creates payer-scoped Technician profiles, machine assignments, one payer-profile hourly rate, and effective-dated machine commission arrangements.';
+
 create or replace function public.admin_setup_timekeeping_technician_arrangements_with_contact(
   p_user_email text,
   p_display_name text,
