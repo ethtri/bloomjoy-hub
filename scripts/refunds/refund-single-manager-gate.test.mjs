@@ -99,9 +99,11 @@ test('database fixtures use an allowed completed-review lookup status', () => {
     [...constraintBody.matchAll(/'([^']+)'/g)].map((match) => match[1]),
   );
   assert(allowedStatuses.has('manual_exception'));
-  assert.match(
-    behavioralFixture,
-    /nayax_lookup_status,nayax_recommendation_state,nayax_refund_execution_status\)[\s\S]*?'manual_exception','manual_exception','not_requested'\);/,
+  assert.equal(
+    [...behavioralFixture.matchAll(
+      /nayax_lookup_status,nayax_recommendation_state,nayax_refund_execution_status\)\s*values[\s\S]{0,700}?'manual_exception','manual_exception','not_requested'\);/g,
+    )].length,
+    2,
   );
   for (const [name, fixture] of [
     ['behavioral', behavioralFixture],
@@ -282,6 +284,11 @@ test('case work and financial authority are distinct', () => {
   const selectionCall = adminUpdate.match(/admin_select_refund_nayax_candidate_current_user_v1[\s\S]*?\n\s*\}\)/)?.[0] ?? '';
   assert.match(selectionCall, /p_case_id: caseId/);
   assert.doesNotMatch(selectionCall, /p_actor_user_id/);
+  assert.equal(
+    [...behavioralFixture.matchAll(/set status='revoked',revoked_at=[^\n]+,\s*\n\s*revoke_reason='Fixture manager reassignment'/g)].length,
+    2,
+  );
+  assert.match(behavioralFixture, /set status='active',revoked_at=null,revoke_reason=null/);
 });
 
 test('System executes without a post-approval manager or browser continuation', () => {

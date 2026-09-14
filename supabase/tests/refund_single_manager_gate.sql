@@ -279,7 +279,8 @@ select matches(pg_temp.capture_error(format('select public.admin_approve_selecte
 select is((select count(*) from public.refund_case_nayax_refund_attempts where refund_case_id='a3470000-0000-4000-8000-000000000001'),1::bigint,
   'sequential duplicate approval leaves one attempt; the unique queue index is the cross-session arbiter');
 
-update public.reporting_machine_refund_managers set status='revoked',revoked_at=now()
+update public.reporting_machine_refund_managers set status='revoked',revoked_at=now(),
+  revoke_reason='Fixture manager reassignment'
 where id='a3450000-0000-4000-8000-000000000001';
 insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
 values('a3440000-0000-4000-8000-000000000001','a3410000-0000-4000-8000-000000000003','manager-c@example.invalid','Reassignment fixture');
@@ -571,13 +572,13 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
   incident_time_confidence,payment_method,payment_amount_cents,refund_amount_cents,
   card_last4,card_last4_provenance,payment_interaction,status,correlation_status,
   deterministic_fact_version,intake_source,intake_meta,nayax_lookup_generation,
-  nayax_lookup_status,nayax_refund_execution_status)
+  nayax_lookup_status,nayax_recommendation_state,nayax_refund_execution_status)
 values('a3470000-0000-4000-8000-000000000003','RF-SUCCESS-EVIDENCE',
   'a3440000-0000-4000-8000-000000000001','a3430000-0000-4000-8000-000000000001',
   'success-evidence@example.invalid','Held result later proved successful',
   '2026-09-12T20:00:00Z','America/Los_Angeles','exact','exact','card',1000,1090,
   '4242','physical_card','tap_card','needs_review','needs_nayax',1,'form','{}',1,
-  'manual_exception','not_requested');
+  'manual_exception','manual_exception','not_requested');
 insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,
   reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,amount_cents,
   card_last4,currency_code,evidence_summary,expires_at)
@@ -606,10 +607,11 @@ values('a3490000-0000-4000-8000-000000000002','a3470000-0000-4000-8000-000000000
   repeat('c',64),'single-gate-success-thread','Original success evidence thread',
   statement_timestamp()-interval '2 days',statement_timestamp()-interval '2 days',
   statement_timestamp()+interval '180 days');
-update public.reporting_machine_refund_managers set status='revoked',revoked_at=statement_timestamp()
+update public.reporting_machine_refund_managers set status='revoked',revoked_at=statement_timestamp(),
+  revoke_reason='Fixture manager reassignment'
 where manager_user_id='a3410000-0000-4000-8000-000000000003'
   and reporting_machine_id='a3440000-0000-4000-8000-000000000001';
-update public.reporting_machine_refund_managers set status='active',revoked_at=null
+update public.reporting_machine_refund_managers set status='active',revoked_at=null,revoke_reason=null
 where manager_user_id='a3410000-0000-4000-8000-000000000002'
   and reporting_machine_id='a3440000-0000-4000-8000-000000000001';
 select pg_temp.set_actor('a3410000-0000-4000-8000-000000000001');
@@ -641,11 +643,12 @@ select ok((select count(*)=1 from public.refund_case_official_action_authorizati
 insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,
   reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,amount_cents,
   card_last4,currency_code,evidence_summary,expires_at)
-values('a3480000-0000-4000-8000-000000000002','a3470000-0000-4000-8000-000000000001',1,
-  'a3410000-0000-4000-8000-000000000003','a3440000-0000-4000-8000-000000000001',
-  'MANUAL-HISTORICAL',17,'2026-09-12T20:00:00Z',1090,'4242','USD',pg_temp.exact_evidence('manual_nayax_portal'),now()+interval '1 hour');
+values('a3480000-0000-4000-8000-000000000002','a3470000-0000-4000-8000-000000000002',1,
+  'a3410000-0000-4000-8000-000000000001','a3440000-0000-4000-8000-000000000001',
+  'MANUAL-HISTORICAL',17,'2026-09-12T20:00:00Z',1090,'4242','USD',
+  pg_temp.request_bound_evidence('manual_nayax_portal'),now()+interval '1 hour');
 select matches(pg_temp.capture_error(format('select public.admin_select_refund_nayax_candidate_current_user_v1(%L,%s,%L,null)',
-  'a3470000-0000-4000-8000-000000000001',(select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001'),
+  'a3470000-0000-4000-8000-000000000002',(select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000002'),
   'a3480000-0000-4000-8000-000000000002')),'^P4626:.*','manual candidate source is rejected');
 
 select ok(not exists(
