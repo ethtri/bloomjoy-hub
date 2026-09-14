@@ -37,9 +37,9 @@ assert.doesNotMatch(
   'Reported amount must remain advisory rather than filtering reviewed Sunze sales',
 );
 assert.match(sqlTest, /One exact Sunze sale cannot complete a second non-duplicate case/u);
-assert.match(intake, /service_match_sunze_cash_sale/u);
+assert.match(intake, /service_correlate_sunze_cash_case/u);
 assert.doesNotMatch(intake, /\.from\("machine_sales_facts"\)[\s\S]*\.eq\("payment_method", "cash"\)/u);
-assert.match(intake, /cashMatchState === "no_sale_found_with_complete_coverage" \? 1 : null/u);
+assert.match(intake, /cash_match_evaluated_fact_version: null/u);
 assert.match(
   followUp,
   /correlation_status = 'no_match'[\s\S]*cash_match_evaluated_fact_version = case_row\.deterministic_fact_version/u,

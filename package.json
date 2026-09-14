@@ -51,6 +51,7 @@
     "reporting:provider-health": "node scripts/sunze/notify-health.mjs",
     "reporting:validate-provider-parser": "node scripts/sunze/validate-sunze-orders-parser.mjs",
     "refunds:validate-sunze-cash-readiness": "node scripts/refunds/validate-sunze-cash-readiness.mjs",
+    "refunds:validate-sunze-cash-correlation": "deno test --no-lock supabase/functions/_shared/sunze-cash-correlation.test.ts && node --test scripts/refunds/sunze-cash-intake-resilience.test.mjs scripts/refunds/sunze-cash-ingest-resilience.test.mjs && node scripts/refunds/validate-sunze-cash-correlation.mjs",
     "reporting:validate-sync-diagnostics": "node scripts/sunze/validate-sync-diagnostics.mjs",
     "reporting:validate-refund-adjustments": "node scripts/validate-refund-adjustments.mjs",
     "reporting:validate-portal-uat": "node scripts/validate-reporting-uat.mjs",

@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
+import { drainSunzeCashCorrelation } from "../_shared/sunze-cash-correlation.ts";
 import { sendInternalEmail } from "../_shared/internal-email.ts";
 import { sendWeComAlertResult } from "../_shared/wecom-alert.ts";
 
@@ -314,6 +315,16 @@ const recordCashSourceWatermarks = async ({
   });
   if (error) throw new Error(error.message || "Unable to record Sunze cash source watermarks.");
   return Number(data ?? 0);
+};
+
+const correlateCompletedCashImport = async (importRunId: string) => {
+  if (!supabase) throw new Error("Supabase service client is not configured.");
+  return await drainSunzeCashCorrelation(async (limit) =>
+    await supabase.rpc("service_correlate_sunze_cash_import", {
+      p_import_run_id: importRunId,
+      p_limit: limit,
+    })
+  );
 };
 
 const loadMachineMap = async () => {
@@ -986,6 +997,26 @@ serve(async (req) => {
       meta: bodyMeta,
       completedAt,
     });
+    let cashCorrelationCount = 0;
+    let cashCorrelationRemaining: number | null = 0;
+    let cashCorrelationDeferred = false;
+    if (cashWatermarkCount > 0) {
+      try {
+        const correlation = await correlateCompletedCashImport(importRunId);
+        cashCorrelationCount = correlation.evaluated;
+        cashCorrelationRemaining = correlation.remaining;
+        cashCorrelationDeferred = correlation.deferred;
+      } catch (correlationError) {
+        cashCorrelationDeferred = true;
+        cashCorrelationRemaining = null;
+        console.error("Sunze cash post-import correlation deferred", {
+          importRunId,
+          errorType: correlationError instanceof Error
+            ? correlationError.name
+            : typeof correlationError,
+        });
+      }
+    }
 
     if (discoveryState.newlyPendingMachineCount > 0) {
       await sendReportingAlert({
@@ -1007,6 +1038,9 @@ serve(async (req) => {
       unmappedRowsQueued: queuedRows?.length ?? normalized.unmappedSales.length,
       pendingUnmappedMachineCount: discoveryState.pendingMachineCount,
       cashWatermarkCount,
+      cashCorrelationCount,
+      cashCorrelationRemaining,
+      cashCorrelationDeferred,
     });
   } catch (error) {
     const message =

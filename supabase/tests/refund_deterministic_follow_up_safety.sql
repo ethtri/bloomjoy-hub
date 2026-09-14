@@ -1238,8 +1238,8 @@ select is(
     from public.refund_cases
     where id = '84000000-0000-4000-8000-000000000007'
   ),
-  null::bigint,
-  'A changed cash fact atomically invalidates the persisted Sunze evaluation marker'
+  2::bigint,
+  'A changed cash fact atomically replaces the stale Sunze evaluation marker'
 );
 select ok(
   pg_temp.capture_error(format(
