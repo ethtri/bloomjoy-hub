@@ -302,6 +302,10 @@ test('System settlement writes accounting proof only after the approved case is 
   );
   assert.match(
     settlementProof,
+    /provider_status=normalized_provider_status[\s\S]*?error_code=coalesce\(normalized_error_code/,
+  );
+  assert.match(
+    settlementProof,
     /bloomjoy\.nayax_system_success_evidence_id[\s\S]*?bloomjoy\.nayax_settlement_attempt_id[\s\S]*?update public\.refund_cases set status=''completed'',decision=''approved''[\s\S]*?insert into public\.sales_adjustment_facts/,
   );
   assert.match(

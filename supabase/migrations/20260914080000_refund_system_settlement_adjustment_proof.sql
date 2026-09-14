@@ -20,6 +20,44 @@ begin
   if cardinality(pg_catalog.string_to_array(body, anchor)) <> 2 then
     raise exception 'Unexpected System settlement adjustment payload shape';
   end if;
+  body := replace(body, anchor, replacement);
+
+  anchor := E'  provider_status text:=nullif(btrim(coalesce(p_provider_status,'''')),'''');\n'
+    || E'  error_code text:=nullif(btrim(coalesce(p_error_code,'''')),''''); settled_at timestamptz:=statement_timestamp();';
+  replacement := E'  normalized_provider_status text:=nullif(btrim(coalesce(p_provider_status,'''')),'''');\n'
+    || E'  normalized_error_code text:=nullif(btrim(coalesce(p_error_code,'''')),''''); settled_at timestamptz:=statement_timestamp();';
+  if cardinality(pg_catalog.string_to_array(body, anchor)) <> 2 then
+    raise exception 'Unexpected System settlement local result names';
+  end if;
+  body := replace(body, anchor, replacement);
+
+  anchor := E'    or provider_status is not null and provider_status!~''^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$''\n'
+    || E'    or error_code is not null and error_code!~''^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$''\n'
+    || E'    or outcome=''success'' and (reference is null\n'
+    || E'      or provider_status is distinct from ''approve_succeeded_contract_match'') then';
+  replacement := E'    or normalized_provider_status is not null and normalized_provider_status!~''^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$''\n'
+    || E'    or normalized_error_code is not null and normalized_error_code!~''^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$''\n'
+    || E'    or outcome=''success'' and (reference is null\n'
+    || E'      or normalized_provider_status is distinct from ''approve_succeeded_contract_match'') then';
+  if cardinality(pg_catalog.string_to_array(body, anchor)) <> 2 then
+    raise exception 'Unexpected System settlement result validation shape';
+  end if;
+  body := replace(body, anchor, replacement);
+
+  anchor := E'      provider_reference=reference,provider_status=provider_status,error_code=null,';
+  replacement := E'      provider_reference=reference,provider_status=normalized_provider_status,error_code=null,';
+  if cardinality(pg_catalog.string_to_array(body, anchor)) <> 2 then
+    raise exception 'Unexpected successful System settlement result assignment';
+  end if;
+  body := replace(body, anchor, replacement);
+
+  anchor := E'      provider_reference=reference,provider_status=provider_status,\n'
+    || E'      error_code=coalesce(error_code,case when outcome=''timeout'' then ''provider_timeout''';
+  replacement := E'      provider_reference=reference,provider_status=normalized_provider_status,\n'
+    || E'      error_code=coalesce(normalized_error_code,case when outcome=''timeout'' then ''provider_timeout''';
+  if cardinality(pg_catalog.string_to_array(body, anchor)) <> 2 then
+    raise exception 'Unexpected held System settlement result assignment';
+  end if;
   execute replace(body, anchor, replacement);
 end;
 $settlement_payload_proof$;
