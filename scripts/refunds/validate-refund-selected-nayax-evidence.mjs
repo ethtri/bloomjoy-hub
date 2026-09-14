@@ -78,6 +78,10 @@ assert(
   'The timestamp extension must stay versioned, event-specific, and redacted',
 );
 assert(
+  !/pg_catalog\.(?:coalesce|nullif|greatest|least)\s*\(/i.test(timeMigration),
+  'PostgreSQL conditional expressions must use SQL syntax rather than invalid pg_catalog function qualification',
+);
+assert(
   databaseTest.includes('Unselected candidate projections remain tokenized') &&
     databaseTest.includes('An unrelated manager cannot discover the case') &&
     databaseTest.includes("not evidence ? 'providerPayload'") &&

@@ -235,17 +235,17 @@ language sql
 stable
 set search_path = ''
 as $$
-  select pg_catalog.coalesce(
+  select coalesce(
     (
       select timezone_name.name
       from pg_catalog.pg_timezone_names timezone_name
-      where timezone_name.name = pg_catalog.nullif(pg_catalog.btrim(p_preferred), '')
+      where timezone_name.name = nullif(pg_catalog.btrim(p_preferred), '')
       limit 1
     ),
     (
       select timezone_name.name
       from pg_catalog.pg_timezone_names timezone_name
-      where timezone_name.name = pg_catalog.nullif(pg_catalog.btrim(p_fallback), '')
+      where timezone_name.name = nullif(pg_catalog.btrim(p_fallback), '')
       limit 1
     )
   );
@@ -357,7 +357,7 @@ begin
     return '[]'::jsonb;
   end if;
 
-  select pg_catalog.coalesce(
+  select coalesce(
     pg_catalog.jsonb_agg(
       item.case_json || pg_catalog.jsonb_build_object(
         'incidentTimezone', public.refund_safe_timezone_v1(
@@ -371,11 +371,11 @@ begin
           then refund_case.incident_local_datetime
           else null
         end,
-        'nayaxLookupCandidates', pg_catalog.coalesce((
+        'nayaxLookupCandidates', coalesce((
           select pg_catalog.jsonb_agg(
             visible_candidate.candidate_json || pg_catalog.jsonb_build_object(
-              'authorizedAt', pg_catalog.coalesce(
-                pg_catalog.nullif(
+              'authorizedAt', coalesce(
+                nullif(
                   private_candidate.evidence_summary ->> 'authorized_at',
                   ''
                 ),
@@ -388,7 +388,7 @@ begin
             order by visible_candidate.candidate_order
           )
           from pg_catalog.jsonb_array_elements(
-            pg_catalog.coalesce(
+            coalesce(
               item.case_json -> 'nayaxLookupCandidates',
               '[]'::jsonb
             )
@@ -409,7 +409,7 @@ begin
                 refund_case.incident_timezone,
                 location.timezone
               ),
-              'providerTimestampAt', pg_catalog.nullif(
+              'providerTimestampAt', nullif(
                 selected_candidate.evidence_summary ->> 'authorized_at',
                 ''
               ),
@@ -482,9 +482,9 @@ declare
   candidate_source text;
   candidate_time_comparable boolean;
   normalized_disagreement_reason text :=
-    pg_catalog.lower(pg_catalog.btrim(pg_catalog.coalesce(p_nayax_disagreement_reason, '')));
+    pg_catalog.lower(pg_catalog.btrim(coalesce(p_nayax_disagreement_reason, '')));
 begin
-  if actor_id is null or pg_catalog.coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false) then
+  if actor_id is null or coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false) then
     raise exception 'Authenticated refund case access required' using errcode = '42501';
   end if;
   if not public.can_manage_refund_case_current_user(p_case_id) then
@@ -501,7 +501,7 @@ begin
       using errcode = 'P4604';
   end if;
   select
-    pg_catalog.coalesce(candidate.evidence_summary ->> 'source', ''),
+    coalesce(candidate.evidence_summary ->> 'source', ''),
     (candidate.evidence_summary ->> 'transaction_occurrence_comparable') is not distinct from 'true'
       and refund_case.incident_time_resolution in ('exact', 'legacy_absolute')
       and refund_case.incident_time_confidence is distinct from 'rough'
@@ -528,7 +528,7 @@ begin
     p_case_id,
     p_expected_case_version,
     p_candidate_token,
-    pg_catalog.nullif(normalized_disagreement_reason, '')
+    nullif(normalized_disagreement_reason, '')
   );
 end;
 $$;
