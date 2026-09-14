@@ -7090,6 +7090,7 @@ export default function AdminRefundsPage() {
     if (!selectedCase || !editor || selectedCase.paymentMethod === 'card') return null;
     if (selectedCaseIsResolvedDuplicate) return null;
 
+    const incidentTimezone = refundCaseTimezone(selectedCase);
     const cashAmountCents = selectedCase.paymentAmountCents;
     const isCashCompletion = primaryAction?.targetStatus === 'completed';
     const actionLabel = primaryAction?.label ?? 'Review cash refund';
