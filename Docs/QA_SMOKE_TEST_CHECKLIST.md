@@ -11,9 +11,10 @@ historical fixtures cannot add product gates that the workflow does not contain.
   according to provenance, and keeps the customer's amount advisory.
 - [ ] A customer estimate of $10.00 with an otherwise identified $10.90 provider
   charge defaults to a $10.90 refund and does not trigger an amount question.
-- [ ] The System saves one strict high-confidence candidate automatically and
-  explains it. For ambiguous results, a case worker with case-work access can save
-  a reviewed exact candidate; that triage actor may differ from the approver.
+- [ ] The System saves one clear candidate automatically based on the complete
+  evidence and explains it. For ambiguous results, a case worker with case-work
+  access can save a reviewed exact candidate; that triage actor may differ from
+  the approver.
 - [ ] The assigned Machine Manager or a Super-admin receives one **Approve refund**
   or **Decline** decision. Approval binds the exact selected Nayax transaction and
   full provider total and queues exactly one System-owned attempt.

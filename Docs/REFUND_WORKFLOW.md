@@ -186,5 +186,8 @@ and require no extra Manager decision.
 - Current priorities and implementation acceptance live in GitHub Issues and
   the Bloomjoy Project board. Closed issues and Git history are evidence, not
   current operating instructions.
+- Historical migrations, tests, inert compatibility routes, and internal symbol
+  names may retain the vocabulary of an older implementation. They are evidence
+  for diagnosing that code only and never add a live case step or policy.
 - `Docs/DECISIONS.md` records the owner decision. If another refund document
   conflicts, this workflow and the newest decision entry win.

@@ -188,7 +188,15 @@ The `blocked` label blocks merge until resolved, but it is not owner approval by
   population is unavailable data, never proof of zero refund cases.
 - That procedure grants authority for one specific, deduplicated customer
   information request when internal research cannot supply the needed fact. It
-  does not grant authority to approve, reject or issue a refund.
+  also authorizes the routine case-work actions it names: reviewing the queue,
+  researching provider evidence, saving a reviewed candidate, sending the one
+  allowed follow-up, closing a 30-day no-response case, and recording a PII-free
+  engineering issue. An unattended run continues through every other workable
+  case instead of waiting for the owner.
+- The assistant-manager procedure may recommend a Manager decision, but it does
+  not grant authority to approve, reject, impersonate a Manager, or issue a card
+  or cash payment. Interrupt the owner only for a genuine policy or authority
+  decision that the canonical workflow does not already answer.
 
 # Nayax refund implementation baseline
 
