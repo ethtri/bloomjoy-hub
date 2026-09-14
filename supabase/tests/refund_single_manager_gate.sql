@@ -188,7 +188,7 @@ values('a3470000-0000-4000-8000-000000000002','RF-SYSTEM-PRESELECT',
 insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,
   reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,amount_cents,
   card_last4,currency_code,evidence_summary,expires_at)
-values('a3480000-0000-4000-8000-000000000010','a3470000-0000-4000-8000-000000000002',1,
+values('a3480000-0000-4000-8000-000000000014','a3470000-0000-4000-8000-000000000002',1,
   null,'a3440000-0000-4000-8000-000000000001','SYSTEM-CLEAR-SALE',17,
   '2026-09-12T20:00:00Z',1090,'4242','USD',pg_temp.request_bound_evidence()||jsonb_build_object(
     'one_click_eligible',true,'recommendation_state','high_confidence',
@@ -213,7 +213,7 @@ select pg_temp.set_actor('a3410000-0000-4000-8000-000000000001');
 select like(pg_temp.capture_error($sql$select public.admin_select_refund_nayax_candidate_current_user_v1(
   'a3470000-0000-4000-8000-000000000002',
   (select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000002'),
-  'a3480000-0000-4000-8000-000000000010',null)$sql$),'P4604:%',
+  'a3480000-0000-4000-8000-000000000014',null)$sql$),'P4604:%',
   'human selection is limited to ambiguous or manual-exception results');
 select is((public.admin_dispute_refund_nayax_preselection_current_user_v1(
   'a3470000-0000-4000-8000-000000000002',
