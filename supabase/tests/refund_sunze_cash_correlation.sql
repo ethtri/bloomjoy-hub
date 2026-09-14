@@ -357,23 +357,31 @@ select ok(
     where refund_case_id='35250000-0000-4000-8000-000000000002'),
   'Reconciliation retains the explicit validated audit actor and release-time fact version'
 );
-select is(
-  public.service_get_sunze_cash_correlation('35250000-0000-4000-8000-000000000002', '35260000-0000-4000-8000-000000000001', 100)->>'state',
-  'checking_sales_history',
-  'A released selection invalidates the prior attempt for manager reads'
+select ok(
+  public.service_get_sunze_cash_correlation('35250000-0000-4000-8000-000000000002', '35260000-0000-4000-8000-000000000001', 100)->>'state' = 'checking_sales_history'
+  and public.service_get_sunze_cash_correlation('35250000-0000-4000-8000-000000000002', '35260000-0000-4000-8000-000000000001', 100)->>'expectedLinkVersion' = '2',
+  'A released selection invalidates the prior attempt and exposes its current history token'
 );
-select is(
-  public.service_correlate_sunze_cash_case('35250000-0000-4000-8000-000000000002', 2, 'backfill', null, '2026-09-14 21:00:00+00')->>'state',
-  'checking_sales_history',
+select ok(
+  public.service_correlate_sunze_cash_case('35250000-0000-4000-8000-000000000002', 2, 'backfill', null, '2026-09-14 21:00:00+00')->>'state' = 'checking_sales_history'
+  and (select count(*) from public.refund_sunze_cash_sale_links where refund_case_id='35250000-0000-4000-8000-000000000002' and released_at is null) = 0,
   'Same-snapshot replay cannot silently restore released evidence'
 );
-select is((select count(*)::integer from public.refund_sunze_cash_sale_links where refund_case_id='35250000-0000-4000-8000-000000000002' and released_at is null), 0, 'Released sale stays unlinked until new facts or source evidence');
+
+update public.refund_cases
+set incident_at = '2026-09-14 19:00:00+00'
+where id = '35250000-0000-4000-8000-000000000002';
+select ok(
+  (select link_version = 3 from public.refund_sunze_cash_sale_links where refund_case_id='35250000-0000-4000-8000-000000000002' and released_at is null)
+  and public.service_get_sunze_cash_correlation('35250000-0000-4000-8000-000000000002', '35260000-0000-4000-8000-000000000001', 100)->>'expectedLinkVersion' = '3',
+  'A new fact snapshot reselects evidence with a monotonic case-history generation'
+);
 
 set local session_replication_role = replica;
 update public.refund_cases set refund_completed_at='2026-09-14 22:00:00+00' where id='35250000-0000-4000-8000-000000000002';
 set local session_replication_role = origin;
 select throws_ok(
-  $$select public.service_release_sunze_cash_sale_link('35250000-0000-4000-8000-000000000002', 2, 2, '35260000-0000-4000-8000-000000000001', 'wrong_sale', 'synthetic test')$$,
+  $$select public.service_release_sunze_cash_sale_link('35250000-0000-4000-8000-000000000002', 3, 3, '35260000-0000-4000-8000-000000000001', 'wrong_sale', 'synthetic test')$$,
   'P0001', 'Completed or official refund evidence cannot be released', 'Completed evidence cannot be released'
 );
 

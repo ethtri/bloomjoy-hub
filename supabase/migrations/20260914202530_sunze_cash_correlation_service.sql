@@ -384,10 +384,16 @@ begin
         begin
           insert into public.refund_sunze_cash_sale_links (
             refund_case_id, sales_fact_id, correlation_attempt_id,
-            case_fact_version, link_origin
+            case_fact_version, link_version, link_origin
           ) values (
             p_refund_case_id, selected_fact_id, attempt_row.id,
-            p_expected_fact_version, 'system_single_candidate'
+            p_expected_fact_version,
+            coalesce((
+              select max(link.link_version) + 1
+              from public.refund_sunze_cash_sale_links link
+              where link.refund_case_id = p_refund_case_id
+            ), 1),
+            'system_single_candidate'
           );
           active_link.sales_fact_id := selected_fact_id;
         exception when unique_violation then
@@ -700,6 +706,7 @@ declare
   case_row public.refund_cases%rowtype;
   attempt_row public.refund_sunze_cash_correlation_attempts%rowtype;
   link_row public.refund_sunze_cash_sale_links%rowtype;
+  expected_link_version bigint;
   candidates jsonb;
 begin
   if p_candidate_limit not between 1 and 100 then
@@ -722,6 +729,9 @@ begin
   limit 1;
   select * into link_row from public.refund_sunze_cash_sale_links link
   where link.refund_case_id = p_refund_case_id and link.released_at is null;
+  select coalesce(max(link.link_version), 0) into expected_link_version
+  from public.refund_sunze_cash_sale_links link
+  where link.refund_case_id = p_refund_case_id;
 
   select coalesce(jsonb_agg(jsonb_build_object(
     'salesFactId', candidate.sales_fact_id,
@@ -764,6 +774,7 @@ begin
     'candidates', candidates,
     'selectedSalesFactId', link_row.sales_fact_id,
     'selectedLinkVersion', link_row.link_version,
+    'expectedLinkVersion', expected_link_version,
     'evidenceOnly', true
   );
 end;
@@ -792,6 +803,7 @@ declare
   attempt_row public.refund_sunze_cash_correlation_attempts%rowtype;
   link_row public.refund_sunze_cash_sale_links%rowtype;
   new_link public.refund_sunze_cash_sale_links%rowtype;
+  current_link_version bigint;
 begin
   select * into case_row from public.refund_cases c
   where c.id = p_refund_case_id for update;
@@ -838,6 +850,9 @@ begin
   select * into link_row from public.refund_sunze_cash_sale_links link
   where link.refund_case_id = p_refund_case_id and link.released_at is null
   for update;
+  select coalesce(max(link.link_version), 0) into current_link_version
+  from public.refund_sunze_cash_sale_links link
+  where link.refund_case_id = p_refund_case_id;
   if link_row.id is not null
     and link_row.sales_fact_id = p_sales_fact_id
     and link_row.correlation_attempt_id = p_attempt_id
@@ -859,7 +874,7 @@ begin
     );
   end if;
   if link_row.id is null then
-    if p_expected_link_version <> 0 then
+    if p_expected_link_version <> current_link_version then
       raise exception 'Stale Sunze link version' using errcode = '40001';
     end if;
   elsif link_row.link_version <> p_expected_link_version then
@@ -901,7 +916,7 @@ begin
       case_fact_version, link_version, link_origin
     ) values (
       p_refund_case_id, p_sales_fact_id, p_attempt_id,
-      p_expected_fact_version, coalesce(link_row.link_version + 1, 1), 'reviewed'
+      p_expected_fact_version, current_link_version + 1, 'reviewed'
     ) returning * into new_link;
   exception when unique_violation then
     raise exception 'Sunze sale is already selected for another case' using errcode = '23505';
