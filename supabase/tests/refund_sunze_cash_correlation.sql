@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(41);
+select plan(42);
 
 select has_table('public', 'refund_sunze_cash_correlation_attempts', 'Correlation attempts are durable');
 select has_table('public', 'refund_sunze_cash_correlation_candidates', 'Candidate evidence is durable');
@@ -150,7 +150,7 @@ select is((select count(*)::integer from public.refund_sunze_cash_correlation_ca
 select is((select sales_fact_id from public.refund_sunze_cash_correlation_candidates c join public.refund_sunze_cash_correlation_attempts a on a.id=c.attempt_id where a.refund_case_id='35250000-0000-4000-8000-000000000001' and c.deterministic_rank=1), '35240000-0000-4000-8000-000000000002'::uuid, 'Ranking is deterministic and amount remains advisory evidence');
 select is(
   public.service_get_sunze_cash_correlation('35250000-0000-4000-8000-000000000001', '35260000-0000-4000-8000-000000000001', 100)->>'returnedCandidateCount',
-  '5',
+  '3',
   'Manager read contract returns bounded safe current candidates'
 );
 select is(
@@ -265,8 +265,13 @@ select throws_ok(
 
 select is(
   public.service_correlate_sunze_cash_import('35230000-0000-4000-8000-000000000001', 500, '2026-09-14 21:00:00+00')->>'evaluated',
-  '3',
-  'Completed imports re-evaluate only active relevant cases'
+  '1',
+  'Completed imports evaluate only active relevant cases missing the current source snapshot'
+);
+select is(
+  public.service_correlate_sunze_cash_import('35230000-0000-4000-8000-000000000001', 500, '2026-09-14 21:00:00+00')->>'evaluated',
+  '0',
+  'Repeated completed-import hooks do not reselect processed cases or block bounded pagination'
 );
 
 select ok(

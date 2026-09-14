@@ -998,9 +998,21 @@ serve(async (req) => {
       meta: bodyMeta,
       completedAt,
     });
-    const cashCorrelationCount = cashWatermarkCount > 0
-      ? await correlateCompletedCashImport(importRunId)
-      : 0;
+    let cashCorrelationCount = 0;
+    let cashCorrelationDeferred = false;
+    if (cashWatermarkCount > 0) {
+      try {
+        cashCorrelationCount = await correlateCompletedCashImport(importRunId);
+      } catch (correlationError) {
+        cashCorrelationDeferred = true;
+        console.error("Sunze cash post-import correlation deferred", {
+          importRunId,
+          errorType: correlationError instanceof Error
+            ? correlationError.name
+            : typeof correlationError,
+        });
+      }
+    }
 
     if (discoveryState.newlyPendingMachineCount > 0) {
       await sendReportingAlert({
@@ -1023,6 +1035,7 @@ serve(async (req) => {
       pendingUnmappedMachineCount: discoveryState.pendingMachineCount,
       cashWatermarkCount,
       cashCorrelationCount,
+      cashCorrelationDeferred,
     });
   } catch (error) {
     const message =

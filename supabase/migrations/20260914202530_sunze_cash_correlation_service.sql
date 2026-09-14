@@ -462,6 +462,7 @@ set search_path = ''
 as $$
 declare
   target record;
+  correlation_result jsonb;
   evaluated integer := 0;
   skipped integer := 0;
 begin
@@ -478,6 +479,25 @@ begin
   for target in
     select c.id, c.deterministic_fact_version
     from public.refund_cases c
+    left join lateral (
+      select source.*
+      from public.sunze_cash_source_watermarks source
+      where source.reporting_machine_id = c.reporting_machine_id
+        and source.freshness_expires_at > p_now
+        and source.payment_time_basis = 'validated_iana_timezone'
+        and source.timestamp_proof_scope = 'account'
+        and source.coverage_started_at <= c.incident_at - interval '1 hour'
+        and source.covered_through >= c.incident_at + interval '1 hour'
+      order by source.last_successful_import_at desc, source.import_run_id
+      limit 1
+    ) covering on true
+    left join lateral (
+      select source.*
+      from public.sunze_cash_source_watermarks source
+      where source.reporting_machine_id = c.reporting_machine_id
+      order by source.last_successful_import_at desc, source.covered_through desc, source.import_run_id
+      limit 1
+    ) latest on true
     where c.payment_method = 'cash'
       and c.status in ('submitted', 'needs_review', 'waiting_on_customer', 'correlated')
       and c.decision is null and c.refund_completed_at is null and c.reporting_adjustment_id is null
@@ -486,13 +506,36 @@ begin
         where source.import_run_id = p_import_run_id
           and source.reporting_machine_id = c.reporting_machine_id
       )
+      and not exists (
+        select 1
+        from public.refund_sunze_cash_correlation_attempts attempt
+        where attempt.refund_case_id = c.id
+          and attempt.case_fact_version = c.deterministic_fact_version
+          and attempt.policy_version = 'sunze_cash_correlation_v1'
+          and attempt.source_snapshot_key = case
+            when covering.import_run_id is not null then
+              'covered:' || covering.import_run_id::text || ':' ||
+                extract(epoch from covering.covered_through)::bigint::text
+            when latest.import_run_id is not null then
+              'unavailable:' || case
+                when latest.freshness_expires_at <= p_now then 'stale:'
+                else 'fresh:'
+              end || latest.import_run_id::text || ':' ||
+                extract(epoch from latest.covered_through)::bigint::text
+            else 'unavailable:none'
+          end
+      )
     order by c.created_at, c.id
     limit p_limit
   loop
-    perform public.service_correlate_sunze_cash_case(
+    correlation_result := public.service_correlate_sunze_cash_case(
       target.id, target.deterministic_fact_version, 'completed_import', p_import_run_id, p_now
     );
-    evaluated := evaluated + 1;
+    if coalesce((correlation_result ->> 'replayed')::boolean, false) then
+      skipped := skipped + 1;
+    else
+      evaluated := evaluated + 1;
+    end if;
   end loop;
 
   return jsonb_build_object('evaluated', evaluated, 'skipped', skipped, 'limit', p_limit);
@@ -908,9 +951,34 @@ begin
     and new.decision is null and new.refund_completed_at is null
     and new.reporting_adjustment_id is null
     and new.deterministic_fact_version > old.deterministic_fact_version then
-    perform public.service_correlate_sunze_cash_case(
-      new.id, new.deterministic_fact_version, 'corrected_case_facts', null, statement_timestamp()
-    );
+    begin
+      perform public.service_correlate_sunze_cash_case(
+        new.id, new.deterministic_fact_version, 'corrected_case_facts', null, statement_timestamp()
+      );
+    exception when others then
+      -- Corrected facts are the durable source of truth. Evidence refresh is
+      -- advisory and must never roll back a customer or manager correction.
+      update public.refund_cases
+      set cash_match_state = 'checking_sales_history',
+          cash_match_evaluated_fact_version = null,
+          correlation_status = 'manual_review',
+          correlation_source = 'sunze',
+          correlation_confidence = 0,
+          correlation_summary = 'Sunze cash evidence refresh is pending.'
+      where id = new.id;
+
+      insert into public.refund_case_events (
+        refund_case_id, event_type, message, metadata
+      ) values (
+        new.id,
+        'sunze_cash_correlation_deferred',
+        'Sunze cash evidence refresh was deferred for safe retry.',
+        jsonb_build_object(
+          'caseFactVersion', new.deterministic_fact_version,
+          'trigger', 'corrected_case_facts'
+        )
+      );
+    end;
   end if;
   return new;
 end;

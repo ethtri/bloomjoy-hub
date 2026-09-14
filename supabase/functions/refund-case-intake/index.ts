@@ -1471,6 +1471,7 @@ serve(async (req) => {
       if (!cashCase || cashCase.payment_method !== "cash") return null;
       if (
         cashCase.cash_match_evaluated_fact_version === cashCase.deterministic_fact_version
+        && typeof cashCase.cash_match_state === "string"
         && cashCase.cash_match_state !== "checking_sales_history"
       ) return cashCase as SubmittedRefundCase;
       const { error: correlationError } = await supabase.rpc(
