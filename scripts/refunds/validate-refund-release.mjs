@@ -100,7 +100,7 @@ for (const slug of requiredFunctionSlugs) {
 
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-release-test-'));
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');
-const canonicalPreDeploymentManagerSourceSha256 = {
+const canonicalRetiredManagerEndpointSourceSha256 = {
   'refund-manager-action-step-up':
     'b4bfb6a6b89ef93b2ed1d8ac3c286dfa079fb198afca27418a4ceb030d7ebd4d',
   'refund-manager-totp-enrollment':
@@ -114,7 +114,7 @@ try {
   assert.deepEqual(
     historicalFunctionSlugs.slice(-2),
     ['refund-manager-action-step-up', 'refund-manager-totp-enrollment'],
-    'Manager step-up and TOTP enrollment must be in the release inventory'
+    'Retired manager step-up and TOTP routes must remain inventoried as inert tombstones'
   );
   const repositoryManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   validateManifestShape(repositoryManifest);
@@ -565,35 +565,35 @@ try {
       `${label} must fail the historical pre-migration bridge closed`
     );
   }
-  for (const managerSlug of ['refund-manager-action-step-up', 'refund-manager-totp-enrollment']) {
-    const localEntry = repositoryManifest.functions.find((entry) => entry.slug === managerSlug);
-    const localStateEntry = repositoryLocalState.functions.find((entry) => entry.slug === managerSlug);
-    assert(localStateEntry, `${managerSlug} must be present in the local release state`);
+  for (const retiredManagerEndpointSlug of ['refund-manager-action-step-up', 'refund-manager-totp-enrollment']) {
+    const localEntry = repositoryManifest.functions.find((entry) => entry.slug === retiredManagerEndpointSlug);
+    const localStateEntry = repositoryLocalState.functions.find((entry) => entry.slug === retiredManagerEndpointSlug);
+    assert(localStateEntry, `${retiredManagerEndpointSlug} tombstone must be present in the local release state`);
     assert.equal(
       localStateEntry.sourceSha256,
       localEntry.sourceSha256,
-      `${managerSlug} local source must match the reviewed current manifest digest`
+      `${retiredManagerEndpointSlug} tombstone source must match the reviewed current manifest digest`
     );
     const baselineEntry = repositoryManifest.preDeploymentProduction.find(
-      (entry) => entry.slug === managerSlug
+      (entry) => entry.slug === retiredManagerEndpointSlug
     );
     const restoreEntry = repositoryManifest.approvedRestoreSource.functions.find(
-      (entry) => entry.slug === managerSlug
+      (entry) => entry.slug === retiredManagerEndpointSlug
     );
-    assert.equal(localEntry.verifyJwt, false, `${managerSlug} must keep verify_jwt disabled`);
+    assert.equal(localEntry.verifyJwt, false, `${retiredManagerEndpointSlug} tombstone must keep its reviewed JWT setting`);
     assert(
       baselineEntry &&
         baselineEntry.status === 'ACTIVE' &&
         baselineEntry.verifyJwt === localEntry.verifyJwt &&
         baselineEntry.importMap === false &&
         baselineEntry.sourceSha256 ===
-          canonicalPreDeploymentManagerSourceSha256[managerSlug],
-      `${managerSlug} must retain the exact canonical-51 pre-deployment source and security pairing`
+          canonicalRetiredManagerEndpointSourceSha256[retiredManagerEndpointSlug],
+      `${retiredManagerEndpointSlug} must retain the exact historical pre-deployment evidence`
     );
     assert.deepEqual(
       restoreEntry,
-      { slug: managerSlug, restoreAction: 'disable' },
-      `${managerSlug} rollback must disable the newly introduced function`
+      { slug: retiredManagerEndpointSlug, restoreAction: 'disable' },
+      `${retiredManagerEndpointSlug} rollback must stay disable-only so the retired workflow cannot return`
     );
   }
   fs.mkdirSync(path.join(functionsRoot, 'example'), { recursive: true });
@@ -865,19 +865,19 @@ try {
   };
   validateManifestShape(disableOnlyRestoreManifest);
 
-  for (const managerSlug of ['refund-manager-action-step-up', 'refund-manager-totp-enrollment']) {
-    const managerIndex = requiredFunctionSlugs.indexOf(managerSlug);
-    assert.notEqual(managerIndex, -1, `${managerSlug} must be covered by the refund release allowlist`);
+  for (const retiredManagerEndpointSlug of ['refund-manager-action-step-up', 'refund-manager-totp-enrollment']) {
+    const managerIndex = requiredFunctionSlugs.indexOf(retiredManagerEndpointSlug);
+    assert.notEqual(managerIndex, -1, `${retiredManagerEndpointSlug} tombstone must be covered by the refund release allowlist`);
     const managerDisableManifest = structuredClone(shapeManifest);
     managerDisableManifest.approvedRestoreSource.functions[managerIndex] = {
-      slug: managerSlug,
+      slug: retiredManagerEndpointSlug,
       restoreAction: 'disable',
     };
     validateManifestShape(managerDisableManifest);
     assert.equal(
       managerDisableManifest.preDeploymentProduction[managerIndex].status,
       'MISSING',
-      `${managerSlug} must retain an explicit missing pre-deployment baseline`
+      `${retiredManagerEndpointSlug} tombstone must retain an explicit missing pre-deployment baseline`
     );
   }
 

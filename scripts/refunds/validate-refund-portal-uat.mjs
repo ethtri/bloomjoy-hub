@@ -6146,11 +6146,17 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
 
   const callsBeforeManualPortalDemo = functionCalls.length;
   await navigateRefundPortalPage(page, `${appUrl}/refunds?demo=on`, { waitUntil: 'networkidle' });
+  const routineManagerSetupSignals = {
+    setupCaseCount: await queueCase(page, 'RF-UAT-NC-MANUAL').count(),
+    manualEvidenceFormCount: await page.getByTestId('manual-nayax-evidence-form').count(),
+    transactionReferenceInputCount: await page.getByLabel('Transaction reference').count(),
+  };
   recorder.assert(
-    'Routine managers do not receive manual payment or provider-evidence controls',
-    (await queueCase(page, 'RF-UAT-NC-MANUAL').count()) === 0 &&
-      (await page.getByTestId('manual-nayax-evidence-form').count()) === 0 &&
-      (await page.getByLabel('Transaction reference').count()) === 0
+    'Routine managers can see setup work without manual payment or provider-evidence controls',
+    routineManagerSetupSignals.setupCaseCount === 1 &&
+      routineManagerSetupSignals.manualEvidenceFormCount === 0 &&
+      routineManagerSetupSignals.transactionReferenceInputCount === 0,
+    JSON.stringify(routineManagerSetupSignals)
   );
   recorder.assert(
     'Routine manager demo exposes no provider identifiers or reconciliation instructions',
