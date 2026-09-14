@@ -81,6 +81,25 @@ select jsonb_build_object(
  'duplicate_provider_record',false,'card_last4','4242','currency_code','USD','amount_cents',1090)
 $$;
 
+create function pg_temp.request_bound_evidence(p_source text default 'nayax_api')
+returns jsonb language sql stable as $$
+select pg_temp.exact_evidence(p_source) || jsonb_build_object(
+ 'customer_request_received_at','2026-09-12T21:00:00Z',
+ 'customer_request_received_source','hosted_refund_intake',
+ 'transaction_occurrence_proof_source','verified_provider_purchase_occurrence_v1',
+ 'transaction_occurrence_timestamp_source','authorization_gmt',
+ 'transaction_occurrence_timezone_basis','utc',
+ 'transaction_occurrence_lower_bound_at','2026-09-12T20:00:00Z',
+ 'transaction_occurrence_upper_bound_at','2026-09-12T20:00:00Z',
+ 'request_receipt_lower_bound_at','2026-09-12T21:00:00Z',
+ 'request_receipt_upper_bound_at','2026-09-12T21:00:00Z',
+ 'request_time_boundary','before_or_at_request',
+ 'transaction_occurrence_comparable',true,
+ 'transaction_occurrence_semantics','online_purchase_occurrence',
+ 'time_delta_minutes',0
+)
+$$;
+
 create function pg_temp.commit_lookup_fixture(
   p_case_id uuid,p_token uuid,p_trigger text,p_actor_user_id uuid,
   p_lookup_status text,p_recommendation_state text
@@ -92,19 +111,20 @@ begin
     incident_time_confidence,payment_method,payment_amount_cents,card_last4,
     card_last4_provenance,payment_interaction,status,correlation_status,
     deterministic_fact_version,intake_source,intake_meta,nayax_lookup_generation,
-    nayax_lookup_status,nayax_refund_execution_status)
+    nayax_lookup_status,nayax_refund_execution_status,customer_request_received_at,
+    customer_request_received_source)
   values(p_case_id,'RF-'||upper(left(replace(p_case_id::text,'-',''),12)),
     'a3440000-0000-4000-8000-000000000001','a3430000-0000-4000-8000-000000000001',
     left(replace(p_case_id::text,'-',''),12)||'@example.invalid','Lookup route fixture',
     '2026-09-12T20:00:00Z','America/Los_Angeles','exact','exact','card',1000,'4242',
     'physical_card','tap_card','needs_review','needs_nayax',1,'form','{}',1,
-    'checking','not_requested');
+    'checking','not_requested','2026-09-12T21:00:00Z','hosted_refund_intake');
   insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
     actor_user_id,reporting_machine_id,provider_transaction_id,site_id,
     machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
   values(p_token,p_case_id,1,p_actor_user_id,'a3440000-0000-4000-8000-000000000001',
     'LOOKUP-'||upper(left(replace(p_case_id::text,'-',''),12)),17,
-    '2026-09-12T20:00:00Z',1090,'4242','USD',pg_temp.exact_evidence()||jsonb_build_object(
+    '2026-09-12T20:00:00Z',1090,'4242','USD',pg_temp.request_bound_evidence()||jsonb_build_object(
       'one_click_eligible',one_click,'recommendation_state',p_recommendation_state,
       'confidence_class',case when one_click then 'high_confidence' else 'evidence_aware_review' end),
     now()+interval '1 hour');
@@ -157,18 +177,20 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
   incident_time_confidence,payment_method,payment_amount_cents,card_last4,
   card_last4_provenance,payment_interaction,status,correlation_status,
   deterministic_fact_version,intake_source,intake_meta,nayax_lookup_generation,
-  nayax_lookup_status,nayax_refund_execution_status)
+  nayax_lookup_status,nayax_refund_execution_status,customer_request_received_at,
+  customer_request_received_source)
 values('a3470000-0000-4000-8000-000000000002','RF-SYSTEM-PRESELECT',
   'a3440000-0000-4000-8000-000000000001','a3430000-0000-4000-8000-000000000001',
   'clear-match@example.invalid','Routine clear match','2026-09-12T20:00:00Z','America/Los_Angeles',
   'exact','exact','card',1000,'4242','physical_card','tap_card','needs_review',
-  'needs_nayax',1,'form','{}',1,'checking','not_requested');
+  'needs_nayax',1,'form','{}',1,'checking','not_requested',
+  '2026-09-12T21:00:00Z','hosted_refund_intake');
 insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,
   reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,amount_cents,
   card_last4,currency_code,evidence_summary,expires_at)
 values('a3480000-0000-4000-8000-000000000010','a3470000-0000-4000-8000-000000000002',1,
   null,'a3440000-0000-4000-8000-000000000001','SYSTEM-CLEAR-SALE',17,
-  '2026-09-12T20:00:00Z',1090,'4242','USD',pg_temp.exact_evidence()||jsonb_build_object(
+  '2026-09-12T20:00:00Z',1090,'4242','USD',pg_temp.request_bound_evidence()||jsonb_build_object(
     'one_click_eligible',true,'recommendation_state','high_confidence',
     'confidence_class','high_confidence'),now()+interval '1 hour');
 select is((public.service_commit_refund_nayax_lookup_and_preselect_v1(
