@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
+import { drainSunzeCashCorrelation } from "../_shared/sunze-cash-correlation.ts";
 import { sendInternalEmail } from "../_shared/internal-email.ts";
 import { sendWeComAlertResult } from "../_shared/wecom-alert.ts";
 
@@ -318,14 +319,12 @@ const recordCashSourceWatermarks = async ({
 
 const correlateCompletedCashImport = async (importRunId: string) => {
   if (!supabase) throw new Error("Supabase service client is not configured.");
-  const { data, error } = await supabase.rpc("service_correlate_sunze_cash_import", {
-    p_import_run_id: importRunId,
-  });
-  if (error) throw new Error(error.message || "Unable to correlate the completed Sunze import.");
-  const result = data && typeof data === "object" && !Array.isArray(data)
-    ? data as Record<string, unknown>
-    : {};
-  return Number(result.evaluated ?? 0);
+  return await drainSunzeCashCorrelation(async (limit) =>
+    await supabase.rpc("service_correlate_sunze_cash_import", {
+      p_import_run_id: importRunId,
+      p_limit: limit,
+    })
+  );
 };
 
 const loadMachineMap = async () => {
@@ -999,12 +998,17 @@ serve(async (req) => {
       completedAt,
     });
     let cashCorrelationCount = 0;
+    let cashCorrelationRemaining: number | null = 0;
     let cashCorrelationDeferred = false;
     if (cashWatermarkCount > 0) {
       try {
-        cashCorrelationCount = await correlateCompletedCashImport(importRunId);
+        const correlation = await correlateCompletedCashImport(importRunId);
+        cashCorrelationCount = correlation.evaluated;
+        cashCorrelationRemaining = correlation.remaining;
+        cashCorrelationDeferred = correlation.deferred;
       } catch (correlationError) {
         cashCorrelationDeferred = true;
+        cashCorrelationRemaining = null;
         console.error("Sunze cash post-import correlation deferred", {
           importRunId,
           errorType: correlationError instanceof Error
@@ -1035,6 +1039,7 @@ serve(async (req) => {
       pendingUnmappedMachineCount: discoveryState.pendingMachineCount,
       cashWatermarkCount,
       cashCorrelationCount,
+      cashCorrelationRemaining,
       cashCorrelationDeferred,
     });
   } catch (error) {

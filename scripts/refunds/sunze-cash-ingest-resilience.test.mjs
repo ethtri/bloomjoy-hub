@@ -7,7 +7,7 @@ const ingest = readFileSync("supabase/functions/sunze-sales-ingest/index.ts", "u
 
 test("post-import cash correlation failure does not downgrade a completed import", () => {
   const completed = ingest.indexOf('status: "completed"');
-  const correlationTry = ingest.indexOf("cashCorrelationCount = await correlateCompletedCashImport");
+  const correlationTry = ingest.indexOf("const correlation = await correlateCompletedCashImport");
   const deferredLog = ingest.indexOf("Sunze cash post-import correlation deferred");
   const outerCatch = ingest.indexOf("} catch (error) {", correlationTry);
 
@@ -16,4 +16,11 @@ test("post-import cash correlation failure does not downgrade a completed import
   assert.ok(deferredLog < outerCatch, "correlation must be caught before the ingest failure handler");
   assert.match(ingest, /cashCorrelationDeferred = true/u);
   assert.match(ingest, /cashCorrelationDeferred,/u);
+});
+
+test("post-import hook drains bounded batches and reports retained backlog", () => {
+  assert.match(ingest, /drainSunzeCashCorrelation/u);
+  assert.match(ingest, /p_limit: limit/u);
+  assert.match(ingest, /cashCorrelationRemaining = correlation\.remaining/u);
+  assert.match(ingest, /cashCorrelationDeferred = correlation\.deferred/u);
 });
