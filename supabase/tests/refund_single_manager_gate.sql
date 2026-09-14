@@ -113,9 +113,9 @@ begin
     deterministic_fact_version,intake_source,intake_meta,nayax_lookup_generation,
     nayax_lookup_status,nayax_refund_execution_status,customer_request_received_at,
     customer_request_received_source)
-  values(p_case_id,'RF-'||upper(left(replace(p_case_id::text,'-',''),12)),
+  values(p_case_id,'RF-'||upper(right(replace(p_case_id::text,'-',''),12)),
     'a3440000-0000-4000-8000-000000000001','a3430000-0000-4000-8000-000000000001',
-    left(replace(p_case_id::text,'-',''),12)||'@example.invalid','Lookup route fixture',
+    right(replace(p_case_id::text,'-',''),12)||'@example.invalid','Lookup route fixture',
     '2026-09-12T20:00:00Z','America/Los_Angeles','exact','exact','card',1000,'4242',
     'physical_card','tap_card','needs_review','needs_nayax',1,'form','{}',1,
     'checking','not_requested','2026-09-12T21:00:00Z','hosted_refund_intake');
@@ -123,7 +123,7 @@ begin
     actor_user_id,reporting_machine_id,provider_transaction_id,site_id,
     machine_authorization_time,amount_cents,card_last4,currency_code,evidence_summary,expires_at)
   values(p_token,p_case_id,1,p_actor_user_id,'a3440000-0000-4000-8000-000000000001',
-    'LOOKUP-'||upper(left(replace(p_case_id::text,'-',''),12)),17,
+    'LOOKUP-'||upper(right(replace(p_case_id::text,'-',''),12)),17,
     '2026-09-12T20:00:00Z',1090,'4242','USD',pg_temp.request_bound_evidence()||jsonb_build_object(
       'one_click_eligible',one_click,'recommendation_state',p_recommendation_state,
       'confidence_class',case when one_click then 'high_confidence' else 'evidence_aware_review' end),
