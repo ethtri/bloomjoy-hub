@@ -5470,7 +5470,10 @@ export default function AdminRefundsPage() {
             </span>
             <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
               {refundProviderTimeLabel(candidate.timeEvidence)}:{' '}
-              {formatRefundDateTime(candidate.authorizedAt, refundCaseTimezone(selectedCase))}
+              {formatRefundDateTime(
+                candidate.providerTimestampAt ?? candidate.authorizedAt,
+                refundCaseTimezone(selectedCase)
+              )}
               {' · '}shown in venue time · {refundCaseTimezone(selectedCase) || 'timezone unavailable'}
             </span>
             <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
@@ -5856,6 +5859,7 @@ export default function AdminRefundsPage() {
       'n/a';
     const transactionTimeEvidence = comparisonCandidate?.timeEvidence ?? selectedTimeEvidence;
     const transactionProviderTime =
+      comparisonCandidate?.providerTimestampAt ||
       comparisonCandidate?.authorizedAt ||
       selectedTransactionEvidence?.providerTimestampAt ||
       (!selectedTimeEvidence ? selectedTransactionEvidence?.providerAuthorizedAt : null) ||
@@ -6430,7 +6434,10 @@ export default function AdminRefundsPage() {
                         <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground sm:hidden">
                           {hasPersistedSelectedMatch ? 'Selected purchase' : 'Purchase candidate'}
                         </span>
-                        {formatRefundDateTime(comparisonCandidate.authorizedAt, incidentTimezone)}
+                        {formatRefundDateTime(
+                          comparisonCandidate.providerTimestampAt ?? comparisonCandidate.authorizedAt,
+                          incidentTimezone
+                        )}
                         <span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">
                           {refundProviderTimeLabel(comparisonTimeEvidence)} · shown in venue time
                           {comparisonTimeEvidence?.occurrenceComparable &&

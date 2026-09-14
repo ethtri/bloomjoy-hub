@@ -1394,6 +1394,7 @@ export type NayaxLookupCandidate = {
   candidateToken: string;
   machineDisplayLabel?: string | null;
   authorizedAt: string;
+  providerTimestampAt?: string | null;
   machineAuthorizationTime: string;
   timeEvidence?: RefundCandidateTimeEvidence;
   amountCents: number | null;
@@ -2662,19 +2663,10 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
         : null,
   });
   const internalTestCases = Array.isArray(overview.internalTestCases)
-    ? overview.internalTestCases.map((rawRefundCase) => {
-      const refundCase = overview.candidateTimeContractVersion === 'refund_candidate_time_v1'
-        ? sanitizeIncidentTimeContract(rawRefundCase)
-        : rawRefundCase;
+    ? overview.internalTestCases.map((refundCase) => {
       return applyLifecycleSafety({
         ...refundCase,
         internalTest: requireRefundInternalTestContract(refundCase.internalTest),
-        nayaxLookupCandidates: overview.candidateTimeContractVersion === 'refund_candidate_time_v1'
-          ? refundCase.nayaxLookupCandidates.map((candidate) => ({
-              ...candidate,
-              timeEvidence: requireRefundCandidateTimeEvidence(candidate.timeEvidence),
-            }))
-          : refundCase.nayaxLookupCandidates,
       });
     })
     : [];

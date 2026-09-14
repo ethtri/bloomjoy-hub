@@ -267,7 +267,8 @@ from jsonb_array_elements(
 where item ->> 'id' = '75140000-0000-4000-8000-000000000001';
 
 select ok(
-  (select candidate ->> 'authorizedAt' = '2026-08-31T18:08:00Z'
+  (select candidate ->> 'authorizedAt' = '2026-08-31T18:07:00+00:00'
+    and candidate ->> 'providerTimestampAt' = '2026-08-31T18:08:00Z'
     and evidence ->> 'schemaVersion' = 'refund_candidate_time_v1'
     and evidence ->> 'machineClockTimezone' = 'America/Los_Angeles'
     and (evidence ->> 'occurrenceComparable')::boolean is false
@@ -323,6 +324,8 @@ select ok(
   'The visible provider reference is derived from the immutable transaction already selected on the case'
 );
 
+reset role;
+
 insert into public.refund_nayax_lookup_candidates (
   token, refund_case_id, actor_user_id, provider_transaction_id,
   site_id, machine_authorization_time, amount_cents, card_last4,
@@ -346,6 +349,9 @@ insert into public.refund_nayax_lookup_candidates (
   '2026-09-01T00:00:00Z'
 );
 
+set local role authenticated;
+select pg_temp.set_auth_claims('75100000-0000-4000-8000-000000000001');
+
 select is(
   (
     select item #>> '{selectedNayaxTransaction,providerTimestampAt}'
@@ -358,9 +364,14 @@ select is(
   'Selected time evidence stays bound to the full immutable sale identity across later representations'
 );
 
+reset role;
+
 update public.refund_cases
 set incident_timezone = 'Invalid/Legacy Zone'
 where id = '75140000-0000-4000-8000-000000000001';
+
+set local role authenticated;
+select pg_temp.set_auth_claims('75100000-0000-4000-8000-000000000001');
 
 select is(
   (
@@ -374,9 +385,14 @@ select is(
   'An invalid legacy case timezone falls back to the catalog-backed venue zone'
 );
 
+reset role;
+
 update public.reporting_locations
 set timezone = 'Invalid/Legacy Zone'
 where id = '75120000-0000-4000-8000-000000000001';
+
+set local role authenticated;
+select pg_temp.set_auth_claims('75100000-0000-4000-8000-000000000001');
 
 select ok(
   (

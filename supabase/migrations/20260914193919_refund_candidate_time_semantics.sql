@@ -100,6 +100,14 @@ comment on function public.refund_nayax_request_boundary_evidence_state(
 -- immutable machine, amount, provider-state, request-boundary, duplicate, and
 -- currency controls remain mandatory. Exact time remains required only for the
 -- narrow identifier-mismatch corroboration path.
+alter function public.refund_nayax_candidate_identifier_evidence_state(
+  uuid, uuid, integer, timestamptz, integer, text, text, jsonb
+) rename to refund_nayax_candidate_id_state_pre_time_v1;
+
+revoke all on function public.refund_nayax_candidate_id_state_pre_time_v1(
+  uuid, uuid, integer, timestamptz, integer, text, text, jsonb
+) from public, anon, authenticated, service_role;
+
 do $migration$
 declare
   source text;
@@ -109,9 +117,20 @@ declare
   end_position integer;
 begin
   select pg_catalog.pg_get_functiondef(
-    'public.refund_nayax_candidate_identifier_evidence_state(uuid,uuid,integer,timestamptz,integer,text,text,jsonb)'::regprocedure
+    'public.refund_nayax_candidate_id_state_pre_time_v1(uuid,uuid,integer,timestamptz,integer,text,text,jsonb)'::regprocedure
   ) into source;
   source := pg_catalog.replace(source, E'\r\n', E'\n');
+
+  old_fragment :=
+    'FUNCTION public.refund_nayax_candidate_id_state_pre_time_v1(';
+  new_fragment :=
+    'FUNCTION public.refund_nayax_candidate_id_state_time_v1(';
+  if (pg_catalog.length(source) - pg_catalog.length(
+      pg_catalog.replace(source, old_fragment, '')
+    )) / pg_catalog.length(old_fragment) <> 1 then
+    raise exception 'Refund candidate validator function declaration changed';
+  end if;
+  source := pg_catalog.replace(source, old_fragment, new_fragment);
 
   foreach old_fragment in array array[
     E'  base_selection_allowed boolean;\n',
@@ -178,6 +197,51 @@ begin
   execute source;
 end;
 $migration$;
+
+revoke all on function public.refund_nayax_candidate_id_state_time_v1(
+  uuid, uuid, integer, timestamptz, integer, text, text, jsonb
+) from public, anon, authenticated, service_role;
+
+create function public.refund_nayax_candidate_identifier_evidence_state(
+  p_case_id uuid,
+  p_reporting_machine_id uuid,
+  p_site_id integer,
+  p_machine_authorization_time timestamptz,
+  p_amount_cents integer,
+  p_card_last4 text,
+  p_currency_code text,
+  p_evidence jsonb
+)
+returns text
+language plpgsql
+stable
+set search_path = ''
+as $$
+begin
+  if p_evidence ->> 'policy_version' = '2026-09-13.v12' then
+    return public.refund_nayax_candidate_id_state_time_v1(
+      p_case_id,
+      p_reporting_machine_id,
+      p_site_id,
+      p_machine_authorization_time,
+      p_amount_cents,
+      p_card_last4,
+      p_currency_code,
+      p_evidence
+    );
+  end if;
+  return public.refund_nayax_candidate_id_state_pre_time_v1(
+    p_case_id,
+    p_reporting_machine_id,
+    p_site_id,
+    p_machine_authorization_time,
+    p_amount_cents,
+    p_card_last4,
+    p_currency_code,
+    p_evidence
+  );
+end;
+$$;
 
 revoke all on function public.refund_nayax_candidate_identifier_evidence_state(
   uuid, uuid, integer, timestamptz, integer, text, text, jsonb
@@ -374,12 +438,9 @@ begin
         'nayaxLookupCandidates', coalesce((
           select pg_catalog.jsonb_agg(
             visible_candidate.candidate_json || pg_catalog.jsonb_build_object(
-              'authorizedAt', coalesce(
-                nullif(
-                  private_candidate.evidence_summary ->> 'authorized_at',
-                  ''
-                ),
-                visible_candidate.candidate_json ->> 'authorizedAt'
+              'providerTimestampAt', nullif(
+                private_candidate.evidence_summary ->> 'authorized_at',
+                ''
               ),
               'timeEvidence', public.refund_candidate_time_evidence_v1(
                 private_candidate.evidence_summary
@@ -563,16 +624,6 @@ begin
       base,
       '{cases}',
       public.refund_project_candidate_time_evidence_v1(base -> 'cases'),
-      true
-    );
-  end if;
-  if pg_catalog.jsonb_typeof(base -> 'internalTestCases') = 'array' then
-    base := pg_catalog.jsonb_set(
-      base,
-      '{internalTestCases}',
-      public.refund_project_candidate_time_evidence_v1(
-        base -> 'internalTestCases'
-      ),
       true
     );
   end if;

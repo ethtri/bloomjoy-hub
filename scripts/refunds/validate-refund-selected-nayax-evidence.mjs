@@ -82,6 +82,12 @@ assert(
   'PostgreSQL conditional expressions must use SQL syntax rather than invalid pg_catalog function qualification',
 );
 assert(
+  timeMigration.includes('refund_nayax_candidate_id_state_pre_time_v1') &&
+    timeMigration.includes('refund_nayax_candidate_id_state_time_v1') &&
+    timeMigration.includes("if p_evidence ->> 'policy_version' = '2026-09-13.v12' then"),
+  'The v12 manager-selection rules must dispatch separately without reinterpreting retained v11 evidence',
+);
+assert(
   databaseTest.includes('Unselected candidate projections remain tokenized') &&
     databaseTest.includes('An unrelated manager cannot discover the case') &&
     databaseTest.includes("not evidence ? 'providerPayload'") &&
@@ -103,8 +109,9 @@ assert(
 assert(
   managerUi.includes('refundCandidateTimeSourceDetail') &&
     managerUi.includes('refundCustomerTimeDisplay') &&
+    managerUi.includes('candidate.providerTimestampAt ?? candidate.authorizedAt') &&
     managerUi.includes('Customer-entered local time · no instant inferred'),
-  'The manager UI must show bounded source/resolution details and preserve DST wall-clock input',
+  'The manager UI must show bounded source/resolution details, use the explicit provider timestamp, and preserve DST wall-clock input',
 );
 for (const [name, document] of [
   ['current status', status],

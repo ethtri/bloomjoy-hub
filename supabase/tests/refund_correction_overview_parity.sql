@@ -185,9 +185,52 @@ select public.admin_get_refund_operations_overview_pre_correction_scope_parity_v
 create temp table current_overview as
 select public.admin_get_refund_operations_overview() value;
 
+create function pg_temp.without_candidate_time_contract(p_case jsonb)
+returns jsonb
+language plpgsql
+immutable
+set search_path = ''
+as $$
+declare
+  normalized jsonb := p_case - 'incidentTimezone' - 'incidentLocalDateTime';
+  normalized_candidates jsonb;
+begin
+  if pg_catalog.jsonb_typeof(p_case -> 'nayaxLookupCandidates') = 'array' then
+    select coalesce(
+      pg_catalog.jsonb_agg(
+        candidate.value - 'providerTimestampAt' - 'timeEvidence'
+        order by candidate.ordinality
+      ),
+      '[]'::jsonb
+    )
+    into normalized_candidates
+    from pg_catalog.jsonb_array_elements(p_case -> 'nayaxLookupCandidates')
+      with ordinality candidate(value, ordinality);
+    normalized := pg_catalog.jsonb_set(
+      normalized,
+      '{nayaxLookupCandidates}',
+      normalized_candidates,
+      true
+    );
+  end if;
+  if pg_catalog.jsonb_typeof(p_case -> 'selectedNayaxTransaction') = 'object' then
+    normalized := pg_catalog.jsonb_set(
+      normalized,
+      '{selectedNayaxTransaction}',
+      (p_case -> 'selectedNayaxTransaction')
+        - 'customerTimezone' - 'providerTimestampAt' - 'timeEvidence',
+      true
+    );
+  end if;
+  return normalized;
+end;
+$$;
+
 select ok(
-  position('refund_project_customer_outreach_cases_for_manager' in pg_get_functiondef(
+  position('refund_project_candidate_time_evidence_v1' in pg_get_functiondef(
     'public.admin_get_refund_operations_overview()'::regprocedure))>0
+  and position('refund_project_customer_outreach_cases_for_manager' in pg_get_functiondef(
+    'public.admin_get_refund_operations_overview_pre_candidate_time_v1()'::regprocedure))>0
   and position('refund_purchase_correction_request_fields' in pg_get_functiondef(
     'public.admin_get_refund_operations_overview_pre_customer_outreach_v1()'::regprocedure))>0
   and position('internalTestCases' in pg_get_functiondef(
@@ -208,19 +251,24 @@ select is((select item->'customerCorrectionFields'
     'd9140000-0000-4000-8000-000000000002')),
   'The Internal/test case also exposes the direct current-helper result');
 
-select is((select value-'cases'-'internalTestCases'-'customerOutreachContractVersion' from current_overview),
+select is((select value-'cases'-'internalTestCases'-'customerOutreachContractVersion'
+    -'candidateTimeContractVersion' from current_overview),
   (select value-'cases'-'internalTestCases' from predecessor_overview),
   'The outer wrapper preserves every preceding top-level overview value');
 
-select is((select jsonb_agg(item-'customerCorrectionFields'-'nayaxLookupWork' order by ordinality)
+select is((select jsonb_agg(pg_temp.without_candidate_time_contract(
+    item-'customerCorrectionFields'-'nayaxLookupWork') order by ordinality)
   from current_overview, lateral jsonb_array_elements(value->'cases') with ordinality entries(item,ordinality)),
-  (select jsonb_agg(item-'customerCorrectionFields' order by ordinality)
+  (select jsonb_agg(pg_temp.without_candidate_time_contract(
+    item-'customerCorrectionFields') order by ordinality)
   from predecessor_overview, lateral jsonb_array_elements(value->'cases') with ordinality entries(item,ordinality)),
   'Ordinary case order and every unrelated field remain unchanged');
 
-select is((select jsonb_agg(item-'customerCorrectionFields'-'nayaxLookupWork' order by ordinality)
+select is((select jsonb_agg(pg_temp.without_candidate_time_contract(
+    item-'customerCorrectionFields'-'nayaxLookupWork') order by ordinality)
   from current_overview, lateral jsonb_array_elements(value->'internalTestCases') with ordinality entries(item,ordinality)),
-  (select jsonb_agg(item-'customerCorrectionFields' order by ordinality)
+  (select jsonb_agg(pg_temp.without_candidate_time_contract(
+    item-'customerCorrectionFields') order by ordinality)
   from predecessor_overview, lateral jsonb_array_elements(value->'internalTestCases') with ordinality entries(item,ordinality)),
   'Internal/test order and every unrelated field remain unchanged');
 
