@@ -1,361 +1,46 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const migrationUrl = new URL(
-  '../../supabase/migrations/20260828003503_refund_nayax_authoritative_journal_v3.sql',
-  import.meta.url,
-);
-const testUrl = new URL(
-  '../../supabase/tests/refund_nayax_authoritative_journal_v3.sql',
-  import.meta.url,
-);
-const legacyRecoveryTestUrl = new URL(
-  '../../supabase/tests/refund_nayax_pending_approval_recovery.sql',
-  import.meta.url,
-);
-const productionSimplificationUrl = new URL(
-  '../../supabase/migrations/20260830202234_refund_production_simplification.sql',
-  import.meta.url,
-);
-const continuationMigrationUrl = new URL(
-  '../../supabase/migrations/20260906202952_refund_attempt_continuation_outcomes.sql',
-  import.meta.url,
-);
-const continuationReadinessMigrationUrl = new URL(
-  '../../supabase/migrations/20260906222000_refund_attempt_continuation_readiness.sql',
-  import.meta.url,
-);
-const continuationHandoffMigrationUrl = new URL(
-  '../../supabase/migrations/20260906225234_refund_attempt_handoff_continuation.sql',
-  import.meta.url,
-);
-const continuationTestUrl = new URL(
-  '../../supabase/tests/refund_attempt_continuation_outcomes.sql',
-  import.meta.url,
-);
-const restrictedScalarMigrationUrl = new URL(
-  '../../supabase/migrations/20260907010000_refund_nayax_restricted_response_scalars.sql',
-  import.meta.url,
-);
-const independentDiagnosticsMigrationUrl = new URL(
-  '../../supabase/migrations/20260908044000_refund_nayax_independent_response_diagnostics.sql',
-  import.meta.url,
-);
-const nayaxCardRefundUrl = new URL(
-  '../../supabase/functions/nayax-card-refund/index.ts',
-  import.meta.url,
-);
-
-const [migration, test, legacyRecoveryTest, productionSimplification, continuationMigration, continuationReadinessMigration, continuationHandoffMigration, continuationTest, restrictedScalarMigration, independentDiagnosticsMigration, nayaxCardRefund] = await Promise.all([
-  readFile(migrationUrl, 'utf8'),
-  readFile(testUrl, 'utf8'),
-  readFile(legacyRecoveryTestUrl, 'utf8'),
-  readFile(productionSimplificationUrl, 'utf8'),
-  readFile(continuationMigrationUrl, 'utf8'),
-  readFile(continuationReadinessMigrationUrl, 'utf8'),
-  readFile(continuationHandoffMigrationUrl, 'utf8'),
-  readFile(continuationTestUrl, 'utf8'),
-  readFile(restrictedScalarMigrationUrl, 'utf8'),
-  readFile(independentDiagnosticsMigrationUrl, 'utf8'),
-  readFile(nayaxCardRefundUrl, 'utf8'),
+const read = (path) => readFile(new URL(`../../${path}`, import.meta.url), 'utf8');
+const [historicalJournal, current, hardening, regression, concurrency, sweep] = await Promise.all([
+  read('supabase/migrations/20260828003503_refund_nayax_authoritative_journal_v3.sql'),
+  read('supabase/migrations/20260913090000_refund_single_manager_gate.sql'),
+  read('supabase/migrations/20260914052555_refund_single_manager_db_guards.sql'),
+  read('supabase/tests/refund_single_manager_gate.sql'),
+  read('supabase/tests/refund_single_manager_gate_concurrency.sql'),
+  read('supabase/functions/refund-case-automation-sweep/index.ts'),
 ]);
 
-const exactMarkers = [
+for (const marker of [
   'nayax-provider-journal-v3',
   'nayax-production-account-contract-v2',
   'db-authoritative-exact-200-json-v1',
   'nayax-response-envelope-v1',
-];
-for (const marker of exactMarkers) {
-  assert.match(migration, new RegExp(marker), `migration must publish ${marker}`);
-  assert.match(test, new RegExp(marker), `pgTAP must verify ${marker}`);
-}
+]) assert.match(historicalJournal + current, new RegExp(marker));
 
-assert.match(
-  migration,
-  /create function public\.service_get_nayax_refund_provider_journal_capability_v3\(/u,
-);
-assert.match(
-  migration,
-  /create function public\.service_record_nayax_refund_provider_stage_v3\(/u,
-);
-assert.match(
-  migration,
-  /create function public\.service_reserve_nayax_refund_manager_action_v3\(/u,
-);
-assert.doesNotMatch(
-  migration,
-  /(?:drop|alter) function public\.service_reserve_nayax_refund_manager_action_v2\(/iu,
-  'v3 must not replace or rename the v2 reservation wrapper',
-);
-assert.doesNotMatch(
-  migration,
-  /(?:drop|alter) function public\.service_record_nayax_refund_provider_stage_v2\(/iu,
-  'v3 must not replace or rename the v2 journal writer',
-);
-
-for (const legacyRecoveryRpc of [
-  'service_record_nayax_refund_provider_stage',
+assert.match(hardening, /service_claim_due_nayax_refund_attempts_v1/);
+assert.match(hardening, /refund_nayax_current_continuation_proof_matches_v1/);
+assert.match(hardening, /guard_refund_nayax_provider_generation_plan_v1/);
+assert.match(hardening, /Current-generation accepted request required before approval/);
+assert.match(hardening, /Approval-only continuation cannot create a new refund request/);
+assert.match(current, /service_reclaim_nayax_refund_attempt_no_call_v1/);
+assert.match(current, /j\.event='started'/);
+assert.match(current, /status='manual_review'/);
+assert.match(current, /service_hold_nayax_refund_attempt_v1/);
+assert.match(sweep, /service_record_nayax_refund_provider_stage_v4_diagnostics/);
+assert.doesNotMatch(sweep, /approval_continuation|pending_approval_recovery/);
+for (const retired of [
   'service_reserve_nayax_pending_approval_recovery',
   'service_settle_nayax_pending_approval_recovery',
+  'service_claim_due_nayax_approval_continuations_v1',
 ]) {
-  assert.match(
-    migration,
-    new RegExp(
-      `revoke execute on function public\\.${legacyRecoveryRpc}\\([\\s\\S]*?\\) from public, anon, authenticated, service_role;`,
-      'u',
-    ),
-    `${legacyRecoveryRpc} must be revoked from service_role`,
-  );
-  assert.match(
-    test,
-    new RegExp(`not has_function_privilege\\([\\s\\S]*?${legacyRecoveryRpc}`, 'u'),
-    `pgTAP must prove service_role cannot execute ${legacyRecoveryRpc}`,
-  );
-  assert.match(
-    legacyRecoveryTest,
-    new RegExp(
-      String.raw`not has_function_privilege\('service_role',[\s\S]*?${legacyRecoveryRpc}`,
-      'u',
-    ),
-    `historical recovery pgTAP must expect ${legacyRecoveryRpc} retirement`,
-  );
+  assert.match(current, new RegExp(`revoke all on function public\\.${retired}`));
 }
+assert.match(regression, /expired no-start claim resets the same row and generation/);
+assert.match(regression, /provider-started claim becomes held for verification/);
+assert.match(current, /provider_execution_generation/);
+assert.match(current, /refund_nayax_no_refund_proofs/);
+assert.match(concurrency, /success evidence reference race/);
+assert.match(concurrency, /exactly one case owns the shared successful provider reference/);
 
-assert.match(
-  legacyRecoveryTest,
-  /The retired service role cannot reserve a recovery/u,
-  'historical recovery pgTAP must exercise the post-v3 permission denial',
-);
-
-for (const metadataField of [
-  'http_accepted',
-  'media_type_class',
-  'body_kind',
-  'body_length_bucket',
-  'json_parsed',
-  'body_json_object',
-  'schema_matched',
-  'result_key_present',
-  'status_key_present',
-  'result_value_type',
-  'status_value_type',
-  'semantic_pair_matched',
-]) {
-  assert.match(
-    migration,
-    new RegExp(`add column if not exists ${metadataField}`),
-    `migration must add privacy-safe ${metadataField}`,
-  );
-}
-
-assert.match(migration, /normalized_failure = 'response_read'/u);
-assert.match(migration, /then 'provider_response_invalid'/u);
-assert.match(migration, /p_http_status = 200/u);
-assert.match(migration, /normalized_media_type = 'application_json'/u);
-assert.match(migration, /p_schema_matched is true/u);
-assert.match(migration, /p_semantic_pair_matched is true/u);
-assert.match(migration, /normalized_outcome = 'accepted'/u);
-assert.doesNotMatch(
-  migration,
-  /normalized_outcome = 'unknown'.{0,120}approval_authorized/su,
-  'unknown outcomes must not authorize v3 approval',
-);
-
-for (const rpc of [
-  'service_get_nayax_refund_provider_journal_capability_v3',
-  'service_record_nayax_refund_provider_stage_v3',
-  'service_reserve_nayax_refund_manager_action_v3',
-]) {
-  assert.match(
-    migration,
-    new RegExp(`revoke execute on function(?:\\s+public\\.)?${rpc}`, 'u'),
-    `${rpc} must explicitly revoke execute`,
-  );
-  assert.match(
-    migration,
-    new RegExp(`grant execute on function(?:\\s+public\\.)?${rpc}`, 'u'),
-    `${rpc} must explicitly grant service_role`,
-  );
-}
-
-assert.match(
-  migration,
-  /journal_version not in \(\s*'nayax-provider-journal-v2',\s*'nayax-provider-journal-v3'/su,
-  'historical account-hold coverage must remain readable for both journal versions',
-);
-assert.match(
-  productionSimplification,
-  /drop trigger if exists refund_nayax_account_circuit_breaker/su,
-  'production must retire the account-wide circuit-breaker trigger',
-);
-assert.match(
-  productionSimplification,
-  /'blocked', false/su,
-  'legacy account observability must never block an unrelated transaction',
-);
-assert.match(
-  migration,
-  /final_result\.journal_contract_version =\s*'nayax-provider-journal-v3'/su,
-  'definitive rejection must recognize hardened v3 evidence',
-);
-
-for (const scenario of [
-  'unknown-200',
-  'json-suffix',
-  'http-201',
-  'malformed',
-  'response-read',
-  'rejected-v3',
-  'unknown-v2',
-]) {
-  assert.match(test, new RegExp(`'${scenario}'`), `pgTAP must cover ${scenario}`);
-}
-assert.match(test, /select plan\(30\)/u);
-assert.match(test, /select \* from finish\(\)/u);
-assert.match(test, /rollback;/u);
-
-for (const marker of [
-  'refund_nayax_provider_business_outcomes',
-  'refund_nayax_attempt_approval_continuations',
-  'service_record_nayax_refund_provider_stage_v3_outcomes',
-  'service_reserve_nayax_refund_approval_continuation_v1',
-  'nayax-business-outcome-v2',
-  'same-attempt-approval-continuation-v1',
-]) {
-  assert.match(continuationMigration, new RegExp(marker), `continuation migration must publish ${marker}`);
-  assert.match(continuationTest, new RegExp(marker), `continuation pgTAP must verify ${marker}`);
-}
-assert.match(continuationMigration, /enable row level security/iu);
-assert.match(
-  continuationMigration,
-  /revoke all on table public\.refund_nayax_provider_business_outcomes\s+from public, anon, authenticated, service_role;/u,
-);
-assert.match(
-  continuationMigration,
-  /request_result\.outcome = 'accepted'[\s\S]*request_result\.approval_authorized is true/u,
-);
-assert.match(continuationMigration, /attempt_row\.provider_claim_expires_at > statement_timestamp\(\)/u);
-assert.match(continuationMigration, /approval_stage\.stage = 'approve'/u);
-assert.match(continuationMigration, /current_context->>'machineAuthorizationTime' is distinct from execution_context->>'machineAuthorizationTime'/u);
-assert.doesNotMatch(continuationMigration, /refund-request|\/payment\//u);
-for (const scenario of [
-  'Crash after proved request acceptance',
-  'Duplicate click or concurrent worker',
-  'Unknown or ambiguous request pair',
-  'Request-not-proved',
-  'Stale expected version',
-  'Revoked manager authority',
-  'current mapped manager',
-  'original approver',
-  'Stale-version rejection',
-  'Settlement-after-effect recovery',
-  'Old Edge plus new database',
-  'alphabetic names and secrets',
-]) {
-  assert.match(continuationTest, new RegExp(scenario), `continuation pgTAP must cover ${scenario}`);
-}
-const continuationPlan = continuationTest.match(/select plan\((\d+)\)/u);
-assert.ok(
-  continuationPlan && Number(continuationPlan[1]) >= 60,
-  'continuation pgTAP must retain its original coverage as regression cases are added',
-);
-assert.match(
-  continuationHandoffMigration,
-  /attempt\.actor_user_id = action_authorization\.actor_user_id[\s\S]*public\.can_perform_refund_official_action\(p_user_id, refund_case\.id\)/u,
-  'readiness must preserve original attribution and require current executor authority',
-);
-assert.match(
-  continuationHandoffMigration,
-  /attempt_row\.id, case_row\.id, p_actor_user_id, authorization_row\.id/u,
-  'continuation insert must audit the current executor without replacing the original authorization',
-);
-assert.doesNotMatch(
-  continuationHandoffMigration,
-  /attempt_row\.actor_user_id is distinct from p_actor_user_id|authorization_row\.actor_user_id is distinct from p_actor_user_id/u,
-  'handoff continuation must not require the original approver to remain the executor',
-);
-assert.match(
-  continuationReadinessMigration,
-  /'approvalContinuationReady', approval_continuation_ready/u,
-  'service readiness must expose the evidence-bound continuation bit',
-);
-assert.match(
-  continuationReadinessMigration,
-  /attempt\.provider_claim_expires_at <= statement_timestamp\(\)/u,
-  'manager readiness must not race the original worker claim',
-);
-assert.match(
-  continuationMigration,
-  /grant execute on function public\.service_record_nayax_refund_provider_stage_v3\([\s\S]*\) to service_role;/u,
-  'rolling deploys must preserve the prior Edge journal-v3 recorder grant',
-);
-
-for (const marker of [
-  'observed_result_scalar',
-  'observed_status_scalar',
-  'observed_scalar_pair_retained',
-  'service_record_nayax_refund_provider_stage_v3_diagnostics',
-  'nayax-restricted-response-scalars-v1',
-]) {
-  assert.match(restrictedScalarMigration, new RegExp(marker), `restricted scalar migration must publish ${marker}`);
-  if (marker !== 'service_record_nayax_refund_provider_stage_v3_diagnostics') {
-    assert.match(nayaxCardRefund, new RegExp(marker.replaceAll('_', '.*'), 'i'), `normal executor must use ${marker}`);
-  }
-}
-for (const marker of [
-  'refund_nayax_provider_response_diagnostics',
-  'service_record_nayax_refund_provider_stage_v4_diagnostics',
-  'nayax-restricted-response-diagnostics-v2',
-  'sensitive_redacted',
-  'length_truncated',
-]) {
-  assert.match(independentDiagnosticsMigration, new RegExp(marker), `independent diagnostic migration must publish ${marker}`);
-  if (marker !== 'nayax-restricted-response-diagnostics-v2') {
-    assert.match(continuationTest, new RegExp(marker), `continuation pgTAP must verify ${marker}`);
-  }
-}
-assert.match(nayaxCardRefund, /service_record_nayax_refund_provider_stage_v4_diagnostics/u);
-assert.match(nayaxCardRefund, /nayax-restricted-response-diagnostics-v2/u);
-assert.match(continuationTest, /service_record_nayax_refund_provider_stage_v4_diagnostics/u);
-assert.match(continuationTest, /Unknown request scalars are captured without changing their unknown outcome/u);
-assert.match(continuationTest, /Browser roles cannot write restricted provider response scalars/u);
-assert.match(
-  restrictedScalarMigration,
-  /alter table public\.refund_nayax_provider_business_outcomes/u,
-  'restricted capture must extend the existing owner-only business outcome journal',
-);
-assert.match(independentDiagnosticsMigration, /enable row level security/iu);
-assert.match(
-  independentDiagnosticsMigration,
-  /revoke all on table public\.refund_nayax_provider_response_diagnostics\s+from public,anon,authenticated,service_role;/u,
-);
-assert.match(
-  independentDiagnosticsMigration,
-  /p_text = '\[redacted\]'/u,
-  'sensitive diagnostic text must be wholly replaced with the fixed redaction literal',
-);
-assert.match(
-  independentDiagnosticsMigration,
-  /p_text !~ '\[\[:cntrl:\]\]'/u,
-  'the database must reject control characters from every retained safe-text disposition',
-);
-assert.doesNotMatch(
-  restrictedScalarMigration,
-  /create table/u,
-  'restricted capture must not create a parallel audit store',
-);
-assert.match(
-  restrictedScalarMigration,
-  /revoke execute on function public\.service_record_nayax_refund_provider_stage_v3_diagnostics\([\s\S]*from public, anon, authenticated, service_role;/u,
-  'the diagnostic writer must revoke all broad execution before its service grant',
-);
-assert.match(
-  restrictedScalarMigration,
-  /Scalar evidence never changes outcome classification or approval authority/u,
-  'the restricted scalar record must remain evidence-only',
-);
-
-console.log(
-  'Nayax journal v3 static validation passed: additive rollback compatibility, exact-200 application/json authorization, redacted response metadata, and focused pgTAP coverage are present.',
-);
+console.log('Nayax journal v3 validation passed: one System-owned queue uses generation-scoped evidence with no legacy continuation or blind retry writer.');

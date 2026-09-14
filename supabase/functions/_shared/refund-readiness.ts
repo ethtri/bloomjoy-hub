@@ -8,6 +8,7 @@ export type RefundReadinessBlockReason =
   | "reconciliation_hold"
   | "duplicate_transaction"
   | "case_not_refundable"
+  | "system_finishing"
   | "machine_not_enabled"
   | "globally_paused"
   | "provider_remaining_value_unverified"
@@ -15,7 +16,6 @@ export type RefundReadinessBlockReason =
 
 export type RefundReadiness = {
   transactionConfirmed: boolean;
-  approvalContinuationReady: boolean;
   canIssueCardRefund: boolean;
   blockReason: RefundReadinessBlockReason | null;
   refundAmountCents: number | null;
@@ -32,6 +32,7 @@ const knownBlockReasons = new Set<RefundReadinessBlockReason>([
   "reconciliation_hold",
   "duplicate_transaction",
   "case_not_refundable",
+  "system_finishing",
   "machine_not_enabled",
   "globally_paused",
   "provider_remaining_value_unverified",
@@ -59,7 +60,6 @@ export const parseDatabaseRefundReadiness = (
 
   return {
     transactionConfirmed,
-    approvalContinuationReady: row.approvalContinuationReady === true,
     canIssueCardRefund: row.canIssueCardRefund === true && blockReason === null,
     blockReason,
     refundAmountCents: optionalInteger(row.refundAmountCents),

@@ -8,11 +8,21 @@ customer questions, approvals, or statuses to that workflow.
 
 Act as a customer-focused assistant manager. Research the case, keep it moving,
 and prepare one clear Manager decision. Do not make the final refund or rejection
-decision and do not issue a card or cash payment.
+decision and do not issue a card or cash payment. The triage actor who researches
+and saves an exact candidate may differ from the assigned Machine Manager or
+Super-admin who approves it.
 
-The Manager makes one final decision. The System issues an approved card refund
-through Nayax. For cash, the Manager sends Zelle first and then confirms the sent
-payment in Bloomjoy.
+The Manager makes one final decision. One assigned Machine Manager or Super-admin
+click approves a card refund and atomically queues one System-owned attempt. The
+System issues and settles that attempt through Nayax without another manager
+check. For cash, the Manager sends Zelle first and then confirms the sent payment
+in Bloomjoy.
+
+There is no separate “manager approval access” to activate. The only approval
+access check is whether the signed-in person is currently assigned to that
+machine or is a Super-admin. If an assigned Manager cannot act, treat that as a
+portal or machine-assignment defect; do not add a new approval step or tell the
+Manager to obtain another kind of access.
 
 ## 1. Open the case
 
@@ -59,13 +69,13 @@ A wallet/physical-card digit mismatch alone is not a blocker when the values may
 come from different tokens. Do not discard an obvious machine/time match until
 the complete evidence has been considered.
 
-The System recommendation is advisory. Keep every plausible candidate visible
-and explain the evidence. A Manager may select a lower-ranked or lower-confidence
-candidate after reviewing additional evidence. Do not invent an eligibility veto
-from a score.
+The System saves a routine clear match automatically. Keep every plausible
+ambiguous candidate visible and explain the evidence. A case worker may select a
+lower-ranked or lower-confidence candidate after reviewing additional evidence.
+Do not invent an eligibility veto from a score.
 
-If one purchase is clear, select and save that exact candidate for Manager
-review. This is preparation only; it is not approval or payment.
+If one purchase is clear, verify the exact System-saved candidate for Manager
+review. This preparation is not approval or payment.
 
 For cash, use the current Sunze evidence for the machine and timezone-corrected
 time. Prepare the verified amount and Zelle destination for the Manager without
@@ -80,7 +90,8 @@ If no purchase is clear:
    incomplete, expired, or clearly based on stale facts.
 3. Search the same machine and a reasonable timezone-corrected purchase window in
    Nayax for card or Sunze for cash when the application results remain
-   insufficient.
+   insufficient. Nayax access is read-only transaction research only; never
+   issue or record a refund there.
 4. Review the existing conversation for facts already supplied.
 
 Do not ask the customer for machine mappings, provider-account configuration,
@@ -117,6 +128,13 @@ For card, show the requested estimate, selected provider total, relevant time an
 card/wallet evidence, conflicts, and one clear **Approve refund** or **Decline**
 decision. Approval uses the selected provider transaction's full charged amount,
 including tax. The future editable-amount field is lower priority.
+
+One approval atomically consumes the manager authorization and queues one frozen,
+System-owned attempt. The System executes and settles it. An unknown provider
+outcome holds that same attempt for verification. Evidence may confirm success or
+leave it held. Only exact DTM or Nayax support proof that no refund occurred lets
+the System continue that same attempt under the original approval; a rejected
+label is not proof. No one completes it manually or approves again.
 
 For cash, show the Sunze evidence, amount, and verified destination. The Manager
 sends Zelle before selecting **Confirm refund sent via Zelle**. That action means
@@ -157,7 +175,8 @@ Engineering issue: <issue number or none>
 
 - One Manager decision; no second approval or routine TOTP ceremony.
 - No exact customer-amount or high-confidence requirement.
-- No ordinary manual-Nayax step after approval.
+- No manual Nayax card completion, browser continuation, blind retry, or separate attempt.
+- Nayax research is read-only and may never issue or record a refund.
 - No repeated customer-question loop.
 - No intermediate cash-payout status.
 - Never repeat an unknown payment, guess between genuinely plausible

@@ -122,11 +122,11 @@ select ok(
 select ok(
   pg_get_functiondef(
     'public.service_select_refund_nayax_candidate_as_actor_pre_lookup_generation_v1(uuid,uuid,bigint,uuid,text)'::regprocedure
-  ) like '%refund_case_user_has_active_manager_mapping%'
+  ) like '%can_manage_refund_case(p_actor_user_id, refund_case.id)%'
   and pg_get_functiondef(
     'public.service_select_refund_nayax_candidate_as_actor_pre_lookup_generation_v1(uuid,uuid,bigint,uuid,text)'::regprocedure
   ) not like '%refund_case_has_unresolved_reconciliation(refund_case.id)%',
-  'A mapped manager can record exact provider evidence while payment remains blocked'
+  'A case worker can record exact provider evidence while payment remains blocked'
 );
 select ok(
   pg_get_functiondef(
@@ -213,17 +213,17 @@ select ok(
   'A pending review blocks an official case decision'
 );
 select ok(
-  not public.can_perform_refund_official_action(
+  public.refund_official_action_authority(
     '93000000-0000-4000-8000-000000000001',
     '94000000-0000-4000-8000-000000000001'
-  ),
-  'The current manager cannot prepare step-up while a duplicate review is pending'
+  ) is not null,
+  'The duplicate review does not masquerade as a manager access failure'
 );
 select ok(
   pg_get_functiondef(
     'public.can_prepare_nayax_refund_execution(uuid,uuid)'::regprocedure
   ) like '%can_perform_refund_official_action%',
-  'Nayax readiness retains PR 701 manager/TOTP authority delegation'
+  'Nayax readiness delegates actor authority to the canonical manager check'
 );
 
 select set_config(

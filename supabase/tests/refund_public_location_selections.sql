@@ -190,6 +190,7 @@ insert into public.refund_cases (
   payment_amount_cents, card_last4, card_last4_source, card_last4_provenance,
   card_network, payment_interaction,
   incident_time_confidence, issue_category, status, correlation_status,
+  nayax_lookup_status, nayax_recommendation_state,
   customer_request_received_at, customer_request_received_source
 )
 values (
@@ -200,6 +201,7 @@ values (
   now() - interval '30 minutes', to_char(now() - interval '30 minutes', 'YYYY-MM-DD"T"HH24:MI'),
   'America/Los_Angeles', 'exact', 'card', 550, '4242', 'physical_card', 'physical_card', 'visa',
   'tap_card', 'exact', 'charged_no_product', 'needs_review', 'multiple_candidates',
+  'multiple_matches', 'ambiguous',
   now() - interval '5 minutes', 'hosted_refund_intake'
 );
 
@@ -362,11 +364,13 @@ values (
   now() + interval '1 hour'
 );
 
-set local role service_role;
+select set_config('request.jwt.claim.sub','92140000-0000-4000-8000-000000000001',true);
+select set_config('request.jwt.claim.role','authenticated',true);
+select set_config('request.jwt.claims','{"sub":"92140000-0000-4000-8000-000000000001","role":"authenticated","is_anonymous":false}',true);
+set local role authenticated;
 select lives_ok(
   format(
-    $$select public.service_select_refund_nayax_candidate_as_actor(
-      '92140000-0000-4000-8000-000000000001',
+    $$select public.admin_select_refund_nayax_candidate_current_user_v1(
       '92150000-0000-4000-8000-000000000001', %s,
       '92160000-0000-4000-8000-000000000001', null
     )$$,

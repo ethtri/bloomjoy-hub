@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This server-only inventory makes every active Nayax machine visible to Refund Operations. It is the authoritative public-eligibility gate for both cotton-candy and Snapcase machines. It does not change sales/reporting provenance and does not call the refund endpoint.
+This server-only inventory gives the System and current Machine Managers the exact Nayax machine mapping needed for card research. It is the authoritative public-eligibility gate for both cotton-candy and Snapcase machines. It does not change sales/reporting provenance and does not call the refund endpoint.
 
 ## Safe rollout order
 

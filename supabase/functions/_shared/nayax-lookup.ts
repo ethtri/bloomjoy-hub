@@ -361,7 +361,7 @@ export type NayaxLookupResult = {
     | "account_scope_missing"
     | "account_access_unavailable"
     | "grouped_mapping_incomplete";
-  responsibleOwner?: "refund_operations";
+  responsibleOwner?: "machine_manager";
   requiredAccountScope?: string;
   customerActionRequired?: false;
   resolvedMachineId?: string | null;
@@ -842,7 +842,7 @@ const lookupGroupedLivermoreCandidates = async ({
     summary: "Setup needed before Nayax can check this grouped card refund.",
     recommendedAction: "The assigned Manager must restore the exact grouped machine/account mapping, then run a fresh read-only transaction check. Do not ask the customer to repeat details Bloomjoy owns.",
     setupIssueCode,
-    responsibleOwner: "refund_operations",
+    responsibleOwner: "machine_manager",
     requiredAccountScope,
     customerActionRequired: false,
   });
@@ -1252,7 +1252,7 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     summary: message,
     recommendedAction,
     setupIssueCode,
-    responsibleOwner: "refund_operations",
+    responsibleOwner: "machine_manager",
     requiredAccountScope,
     customerActionRequired: false,
   });

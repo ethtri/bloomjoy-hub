@@ -25,8 +25,8 @@ const run = async () => {
     gmailTransport,
     gmailSync,
     nayaxRefund,
+    nayaxCompletionDelivery,
     outcomeResolve,
-    managerStepUp,
     request,
     status,
     operations,
@@ -46,8 +46,8 @@ const run = async () => {
       read('supabase/functions/_shared/refund-gmail-transport.ts'),
       read('supabase/functions/refund-gmail-sync/index.ts'),
       read('supabase/functions/nayax-card-refund/index.ts'),
+      read('supabase/functions/_shared/nayax-refund-completion-delivery.ts'),
       read('supabase/functions/refund-nayax-outcome-resolve/index.ts'),
-      read('supabase/functions/refund-manager-action-step-up/index.ts'),
       read('src/pages/RefundRequest.tsx'),
       read('src/pages/RefundStatus.tsx'),
       read('src/lib/refundOperations.ts'),
@@ -161,10 +161,12 @@ const run = async () => {
   );
   assert(
     'Authoritative Nayax completion paths attach a status link without changing provider execution',
-    [nayaxRefund, outcomeResolve, managerStepUp].every((source) =>
+    [nayaxCompletionDelivery, outcomeResolve].every((source) =>
       source.includes('tryIssueRefundStatusCapabilityForMessage') &&
       source.includes('buildRefundStoredTextWithStatus')
-    ),
+    ) && automationSweep.includes('deliverNayaxRefundCustomerCompletion') &&
+      !nayaxRefund.includes('tryIssueRefundStatusCapabilityForMessage') &&
+      !nayaxRefund.includes('buildRefundStoredTextWithStatus'),
   );
   assert(
     'Privacy-safe access evidence is actively removed after its retention window',

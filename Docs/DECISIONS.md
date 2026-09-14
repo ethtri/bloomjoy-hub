@@ -19,9 +19,18 @@ they are not operating instructions.
 - The Manager makes one final decision and may select any reviewed candidate,
   regardless of the System confidence label. The recommendation advises; it does
   not veto.
+- For a routine clear card match, the System saves the exact transaction before
+  Manager review. Human transaction selection is an exception for ambiguous or
+  disputed matches, not a preparation step on every case.
 - Card approval refunds the exact selected Nayax transaction. The default amount
   is its full charged total, including sales tax. A lower-priority UI improvement
   may allow the Manager to edit that amount.
+- After card approval, the System owns provider execution, settlement, and
+  reconciliation. An unknown or rejected-looking response holds the same attempt
+  while Bloomjoy verifies what happened; it does not ask the Manager to approve
+  again. Exact Nayax or support proof that no refund occurred lets the System
+  continue that same attempt under the original approval. A plain rejection label
+  is not enough proof to retry.
 - For cash, the System correlates Sunze evidence and presents the verified Zelle
   destination. The Manager sends Zelle before selecting **Confirm refund sent via
   Zelle**. That action completes the cash refund; there is no waiting-for-payment

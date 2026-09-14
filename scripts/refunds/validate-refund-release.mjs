@@ -78,11 +78,11 @@ for (const required of [
 assert(qaSmokeChecklist.includes('Use [REFUND_WORKFLOW.md](REFUND_WORKFLOW.md) as the expected behavior'));
 assert.match(refundEmailAssistantRunbook, /subordinate to/);
 
-const refundDeployStart = productionRunbook.indexOf('Before deploying Refund Operations functions');
+const refundDeployStart = productionRunbook.indexOf('Before deploying refund functions');
 const refundDeployEnd = productionRunbook.indexOf('First inspect the no-write plan', refundDeployStart);
 assert(
   refundDeployStart >= 0 && refundDeployEnd > refundDeployStart,
-  'The runbook must contain the reviewed Refund Operations deployment block'
+  'The runbook must contain the reviewed refund deployment block'
 );
 const refundDeployBlock = productionRunbook.slice(refundDeployStart, refundDeployEnd);
 assert(
@@ -94,13 +94,13 @@ assert(
 for (const slug of requiredFunctionSlugs) {
   assert(
     !refundDeployBlock.includes('supabase functions deploy ' + slug + ' --no-verify-jwt'),
-    'Raw Refund Operations deployment must not bypass the root-pinned wrapper for ' + slug
+    'Raw refund deployment must not bypass the root-pinned wrapper for ' + slug
   );
 }
 
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bloomjoy-refund-release-test-'));
 const functionsRoot = path.join(fixtureRoot, 'supabase', 'functions');
-const canonicalPreDeploymentManagerSourceSha256 = {
+const canonicalRetiredManagerEndpointSourceSha256 = {
   'refund-manager-action-step-up':
     'b4bfb6a6b89ef93b2ed1d8ac3c286dfa079fb198afca27418a4ceb030d7ebd4d',
   'refund-manager-totp-enrollment':
@@ -114,7 +114,7 @@ try {
   assert.deepEqual(
     historicalFunctionSlugs.slice(-2),
     ['refund-manager-action-step-up', 'refund-manager-totp-enrollment'],
-    'Manager step-up and TOTP enrollment must be in the release inventory'
+    'Retired manager step-up and TOTP routes must remain inventoried as inert tombstones'
   );
   const repositoryManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   validateManifestShape(repositoryManifest);
@@ -160,6 +160,20 @@ try {
     'Integrated release source commit must be a full immutable Git SHA'
   );
   const repositoryMigrations = discoverRefundMigrationFiles(repoRoot);
+  assert(
+      repositoryMigrations.includes('20260913090000_refund_single_manager_gate.sql') &&
+      repositoryMigrations.includes('20260914052555_refund_single_manager_db_guards.sql') &&
+      repositoryMigrations.includes('20260914080000_refund_system_settlement_adjustment_proof.sql') &&
+      repositoryMigrations.includes('20260914090000_refund_official_authority_cash_completion.sql') &&
+      repositoryMigrations.indexOf('20260913090000_refund_single_manager_gate.sql') <
+        repositoryMigrations.indexOf('20260914052555_refund_single_manager_db_guards.sql') &&
+      repositoryMigrations.indexOf('20260914052555_refund_single_manager_db_guards.sql') <
+        repositoryMigrations.indexOf('20260914080000_refund_system_settlement_adjustment_proof.sql') &&
+      repositoryMigrations.indexOf('20260914080000_refund_system_settlement_adjustment_proof.sql') <
+        repositoryMigrations.indexOf('20260914090000_refund_official_authority_cash_completion.sql') &&
+      !repositoryMigrations.includes('20260913153000_refund_single_manager_gate_followup.sql'),
+    'The applied single-manager gate must be followed by its forward-only database hardening migrations'
+  );
   assert(repositoryMigrations.includes('20260903190000_refund_scoped_customer_corrections.sql') &&
     repositoryMigrations.indexOf('20260903190000_refund_scoped_customer_corrections.sql') <
       repositoryMigrations.indexOf('20260903200000_refund_correction_message_delivery.sql'),
@@ -551,35 +565,35 @@ try {
       `${label} must fail the historical pre-migration bridge closed`
     );
   }
-  for (const managerSlug of ['refund-manager-action-step-up', 'refund-manager-totp-enrollment']) {
-    const localEntry = repositoryManifest.functions.find((entry) => entry.slug === managerSlug);
-    const localStateEntry = repositoryLocalState.functions.find((entry) => entry.slug === managerSlug);
-    assert(localStateEntry, `${managerSlug} must be present in the local release state`);
+  for (const retiredManagerEndpointSlug of ['refund-manager-action-step-up', 'refund-manager-totp-enrollment']) {
+    const localEntry = repositoryManifest.functions.find((entry) => entry.slug === retiredManagerEndpointSlug);
+    const localStateEntry = repositoryLocalState.functions.find((entry) => entry.slug === retiredManagerEndpointSlug);
+    assert(localStateEntry, `${retiredManagerEndpointSlug} tombstone must be present in the local release state`);
     assert.equal(
       localStateEntry.sourceSha256,
       localEntry.sourceSha256,
-      `${managerSlug} local source must match the reviewed current manifest digest`
+      `${retiredManagerEndpointSlug} tombstone source must match the reviewed current manifest digest`
     );
     const baselineEntry = repositoryManifest.preDeploymentProduction.find(
-      (entry) => entry.slug === managerSlug
+      (entry) => entry.slug === retiredManagerEndpointSlug
     );
     const restoreEntry = repositoryManifest.approvedRestoreSource.functions.find(
-      (entry) => entry.slug === managerSlug
+      (entry) => entry.slug === retiredManagerEndpointSlug
     );
-    assert.equal(localEntry.verifyJwt, false, `${managerSlug} must keep verify_jwt disabled`);
+    assert.equal(localEntry.verifyJwt, false, `${retiredManagerEndpointSlug} tombstone must keep its reviewed JWT setting`);
     assert(
       baselineEntry &&
         baselineEntry.status === 'ACTIVE' &&
         baselineEntry.verifyJwt === localEntry.verifyJwt &&
         baselineEntry.importMap === false &&
         baselineEntry.sourceSha256 ===
-          canonicalPreDeploymentManagerSourceSha256[managerSlug],
-      `${managerSlug} must retain the exact canonical-51 pre-deployment source and security pairing`
+          canonicalRetiredManagerEndpointSourceSha256[retiredManagerEndpointSlug],
+      `${retiredManagerEndpointSlug} must retain the exact historical pre-deployment evidence`
     );
     assert.deepEqual(
       restoreEntry,
-      { slug: managerSlug, restoreAction: 'disable' },
-      `${managerSlug} rollback must disable the newly introduced function`
+      { slug: retiredManagerEndpointSlug, restoreAction: 'disable' },
+      `${retiredManagerEndpointSlug} rollback must stay disable-only so the retired workflow cannot return`
     );
   }
   fs.mkdirSync(path.join(functionsRoot, 'example'), { recursive: true });
@@ -851,19 +865,19 @@ try {
   };
   validateManifestShape(disableOnlyRestoreManifest);
 
-  for (const managerSlug of ['refund-manager-action-step-up', 'refund-manager-totp-enrollment']) {
-    const managerIndex = requiredFunctionSlugs.indexOf(managerSlug);
-    assert.notEqual(managerIndex, -1, `${managerSlug} must be covered by the refund release allowlist`);
+  for (const retiredManagerEndpointSlug of ['refund-manager-action-step-up', 'refund-manager-totp-enrollment']) {
+    const managerIndex = requiredFunctionSlugs.indexOf(retiredManagerEndpointSlug);
+    assert.notEqual(managerIndex, -1, `${retiredManagerEndpointSlug} tombstone must be covered by the refund release allowlist`);
     const managerDisableManifest = structuredClone(shapeManifest);
     managerDisableManifest.approvedRestoreSource.functions[managerIndex] = {
-      slug: managerSlug,
+      slug: retiredManagerEndpointSlug,
       restoreAction: 'disable',
     };
     validateManifestShape(managerDisableManifest);
     assert.equal(
       managerDisableManifest.preDeploymentProduction[managerIndex].status,
       'MISSING',
-      `${managerSlug} must retain an explicit missing pre-deployment baseline`
+      `${retiredManagerEndpointSlug} tombstone must retain an explicit missing pre-deployment baseline`
     );
   }
 

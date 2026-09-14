@@ -4,7 +4,9 @@ import test from 'node:test';
 
 const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8').replaceAll('\r\n', '\n');
 const migration = read('supabase/migrations/20260908163714_refund_terminal_receipt_case_completion.sql');
-const nayaxFunction = read('supabase/functions/nayax-card-refund/index.ts');
+const completionDelivery = read(
+  'supabase/functions/_shared/nayax-refund-completion-delivery.ts',
+);
 const completionHelper = read('supabase/functions/_shared/nayax-resolution-completion.ts');
 const originalClaim = read('supabase/migrations/202608040004_refund_nayax_provider_orchestration.sql');
 
@@ -59,9 +61,11 @@ test('normal claimed v2 completion uses its stored manual delivery kind', () => 
   assert.match(claim,
     /'deterministic_template',\s*'manual',\s*'refund_nayax_completion_v2'/);
 
-  const deliveryStart = nayaxFunction.indexOf('deliverCustomerCompletion: async');
-  const deliveryEnd = nayaxFunction.indexOf('\n        },\n      },', deliveryStart);
-  const delivery = nayaxFunction.slice(deliveryStart, deliveryEnd);
+  const deliveryStart = completionDelivery.indexOf(
+    'export const deliverNayaxRefundCustomerCompletion',
+  );
+  assert.ok(deliveryStart >= 0);
+  const delivery = completionDelivery.slice(deliveryStart);
   assert.match(delivery, /deliveryKind: "manual"/);
   assert.doesNotMatch(delivery, /deliveryKind: "automatic"/);
   assert.match(delivery, /deliverNayaxCompletionWithDefiniteRetry/);
@@ -140,7 +144,7 @@ test('definite failures retry once while uncertain delivery remains held', () =>
     /if \(first\.status !== "failed"\) return first/);
   assert.match(completionHelper, /prepareSameMessageRetry\(\)/);
   assert.equal((completionHelper.match(/deliverNayaxCompletionOnce\(\{/g) ?? []).length >= 2, true);
-  assert.match(nayaxFunction,
+  assert.match(completionDelivery,
     /isDeliveryUncertain: \(error\) =>\s*error instanceof RefundGmailError && error\.deliveryUncertain/);
 });
 

@@ -92,7 +92,7 @@ export const persistNayaxLookupResult = async ({
   expectedFactVersion: number;
   lookupGeneration: number;
 }) => {
-  const { data, error } = await supabase.rpc("service_commit_refund_nayax_lookup_with_diagnostics", {
+  const { data, error } = await supabase.rpc("service_commit_refund_nayax_lookup_and_preselect_v1", {
     p_refund_case_id: caseId,
     p_lookup_generation: lookupGeneration,
     p_expected_fact_version: expectedFactVersion,

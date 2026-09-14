@@ -4,46 +4,17 @@ import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { parseNayaxRefundExecutionContext } from "../_shared/nayax-refund-context.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import {
-  authorizeRefundOfficialAction,
-  RefundOfficialActionAuthorizationError,
-} from "../_shared/refund-official-action.ts";
-import {
-  buildNayaxRefundIdempotencyKey,
   NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
   resolveNormalNayaxRefundAmountCents,
   resolveNayaxRefundAvailability,
   resolveNayaxRefundExecutionConfig,
 } from "../_shared/nayax-refund-gates.ts";
-import {
-  type NayaxAttemptReservation,
-  type NayaxAttemptSettlement,
-  type NayaxCompletionDelivery,
-  orchestrateNayaxRefund,
-  selectNayaxReservationAfterContinuation,
-  shouldRequestNayaxApprovalContinuation,
-} from "../_shared/nayax-refund-orchestration.ts";
 // @deno-types="../_shared/nayax-refund-provider.d.ts"
 import {
   areNayaxRefundWriteCredentialsReady,
-  buildRedactedNayaxStageDigest,
-  createNayaxRefundProviderAdapter,
-  executeNayaxRefundApprovalOnly,
-  mapNayaxRefundExecutionOutcome,
   NAYAX_REFUND_PRODUCTION_BASE_URL,
-  type NayaxControlledPilotStageEvent,
-  parseNayaxRefundApprovalContract,
   parseNayaxRefundProviderContract,
 } from "../_shared/nayax-refund-provider.mjs";
-import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
-import { RefundGmailError } from "../_shared/refund-gmail.ts";
-import {
-  deliverNayaxCompletionWithDefiniteRetry,
-  deliverNayaxFormReceiptCompletion,
-  parseNayaxFormReceiptClaim,
-} from "../_shared/nayax-resolution-completion.ts";
-import { drainRefundManualMessageOutbox } from "../_shared/refund-manual-message-outbox.ts";
-import { buildRefundStoredTextWithStatus } from "../_shared/refund-email.ts";
-import { tryIssueRefundStatusCapabilityForMessage } from "../_shared/refund-status-capability.ts";
 import {
   mergeRuntimeRefundReadiness,
   parseDatabaseRefundReadiness,
@@ -67,10 +38,6 @@ const NAYAX_REFUND_APPROVAL_POLICY_VERSION =
   "db-authoritative-exact-200-json-v1";
 const NAYAX_REFUND_RESPONSE_ENVELOPE_VERSION =
   "nayax-response-envelope-v1";
-// Journal v3 cannot authorize a standalone approval from legacy incomplete
-// response evidence. Keep the historical operation fail-closed until a new
-// recovery contract can prove the original request outcome authoritatively.
-const NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_SUPPORTED = false;
 
 const jsonResponse = (body: Record<string, unknown>, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -159,16 +126,9 @@ const providerJournalCompatible = async (
     capability.responseEnvelopeVersion ===
       NAYAX_REFUND_RESPONSE_ENVELOPE_VERSION &&
     capability.businessOutcomeRecordVersion === "nayax-business-outcome-v2" &&
-    capability.approvalContinuationVersion ===
-      "same-attempt-approval-continuation-v1" &&
     supported.includes(providerContractVersion) &&
     capability.providerContractConfirmationRequired === true &&
     capability.payloadRedacted === true;
-};
-
-const securePilotAssertion = (value: string | undefined) => {
-  const normalized = value?.trim() ?? "";
-  return /^[A-Za-z0-9_-]{32,200}$/.test(normalized) ? normalized : null;
 };
 
 type RefundCaseForExecution = {
@@ -456,19 +416,18 @@ serve(async (req) => {
     if (authError || !user) {
       return jsonResponse({ error: "Unauthorized." }, 401);
     }
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return jsonResponse({ error: "Nayax refund execution is not configured." }, 500);
+    }
+    const userClient = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    });
 
     const body = await req.json();
     const operation = sanitizeText(body?.operation, 40) || "execute";
     if (
-      !new Set([
-        "execute",
-        "availability",
-        // Preserve the retired forensic route so a legacy pending request
-        // receives its explicit fail-closed recovery result instead of being
-        // mistaken for an unknown operation. The support flag and revoked RPC
-        // grants below still prevent any provider write.
-        "approve_pending_request",
-      ]).has(operation)
+      !new Set(["execute", "availability"]).has(operation)
     ) {
       return jsonResponse({ error: "Unsupported operation." }, 400);
     }
@@ -493,12 +452,75 @@ serve(async (req) => {
     if (!refundCase) {
       return jsonResponse({ error: "Refund case not found." }, 404);
     }
-    const { data: actorCanPerformOfficialAction, error: accessError } =
+    const { data: actorCanViewCaseStatus, error: accessError } =
+      await userClient.rpc(
+        "can_manage_refund_case_current_user",
+        { p_refund_case_id: refundCase.id },
+      );
+    if (accessError) throw accessError;
+    if (!actorCanViewCaseStatus) {
+      if (operation === "availability") {
+        return jsonResponse({
+          available: false,
+          status: "unavailable",
+          blockReason: "unauthorized",
+          caseId,
+          transactionConfirmed: refundCase.matched_nayax_transaction_id !== null,
+          canIssueCardRefund: false,
+          refundAmountCents: refundCase.matched_nayax_amount_cents,
+          machineLimitCents: null,
+          caseVersion: refundCase.official_action_version,
+          payloadRedacted: true,
+        });
+      }
+      return jsonResponse({
+        executed: false,
+        status: "preflight_blocked",
+        errorCode: "authorization_failed",
+        blocks: ["authorization_failed"],
+      }, 403);
+    }
+
+    if (
+      operation === "execute" && refundCase.payment_method === "card" &&
+      refundCase.status === "card_refund_pending" &&
+      refundCase.decision === "approved"
+    ) {
+      const { data: approvedReadState, error: approvedReadStateError } =
+        await supabase.rpc("refund_nayax_approved_card_read_state_v1", {
+          p_case_id: refundCase.id,
+        });
+      if (approvedReadStateError) throw approvedReadStateError;
+      if (approvedReadState === "provider_hold") {
+        return jsonResponse({
+          executed: false,
+          status: "provider_hold",
+          errorCode: "provider_outcome_requires_reconciliation",
+          providerAttempted: false,
+          customerCompletionAttempted: false,
+          message:
+            "The refund result is unknown. Do not retry it. Check this exact transaction in Nayax and record what happened.",
+          payloadRedacted: true,
+        }, 409);
+      }
+      return jsonResponse({
+        executed: false,
+        status: "system_finishing",
+        errorCode: null,
+        providerAttempted: false,
+        customerCompletionAttempted: false,
+        message:
+          "System is finishing this approved refund. No action is needed. Do not try the refund again.",
+        payloadRedacted: true,
+      }, 202);
+    }
+
+    const { data: actorCanPerformOfficialAction, error: authorityError } =
       await supabase.rpc(
         "can_perform_refund_official_action",
         { p_user_id: user.id, p_refund_case_id: refundCase.id },
       );
-    if (accessError) throw accessError;
+    if (authorityError) throw authorityError;
     if (!actorCanPerformOfficialAction) {
       if (operation === "availability") {
         return jsonResponse({
@@ -546,7 +568,7 @@ serve(async (req) => {
     }
 
     const managerContract = parseConfiguredManagerContract();
-    if (operation !== "approve_pending_request" && executionConfig.executorAssertion) {
+    if (executionConfig.executorAssertion) {
       const { data: verificationData, error: verificationError } = await supabase.rpc(
         "service_get_refund_nayax_execution_context_v3", {
           p_executor_assertion: executionConfig.executorAssertion,
@@ -600,1130 +622,68 @@ serve(async (req) => {
         payloadRedacted: true,
       });
     }
-
-    if (operation === "approve_pending_request") {
-      const attemptId = sanitizeText(body?.attemptId, 80);
-      const evidenceReference = sanitizeText(body?.evidenceReference, 200);
-      const expectedOfficialActionVersion = Number(
-        body?.expectedOfficialActionVersion,
-      );
-      const accountKey = normalizeAccountKey(
-        refundCase.reporting_machines?.nayax_account_key ?? "",
-      );
-      const approveToken = accountKey
-        ? Deno.env.get(`NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}`)
-          ?.trim() || ""
-        : "";
-      const managerContract = parseConfiguredManagerContract();
-      const rawApprovalContract = Deno.env.get(
-        "NAYAX_REFUND_PENDING_APPROVAL_CONTRACT_JSON",
-      )?.trim() ?? "";
-      let approvalContract:
-        | ReturnType<typeof parseNayaxRefundApprovalContract>
-        | null = null;
-      if (rawApprovalContract) {
-        try {
-          approvalContract = parseNayaxRefundApprovalContract(
-            rawApprovalContract,
-          );
-        } catch {
-          approvalContract = null;
-        }
-      }
-      const recoveryBlocks = [
-        !NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_SUPPORTED
-          ? "pending_approval_recovery_retired"
-          : null,
-        !NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED
-          ? "official_actions_disabled"
-          : null,
-        ...executionConfig.blocks,
-        Deno.env.get("NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_ENABLED")?.trim()
-            .toLowerCase() !== "true"
-          ? "pending_approval_recovery_disabled"
-          : null,
-        !executionConfig.executorAssertion
-          ? "executor_assertion_missing"
-          : null,
-        !executionConfig.idempotencySecret
-          ? "stage_journal_secret_missing"
-          : null,
-        !isUuid(attemptId) ? "attempt_missing" : null,
-        !Number.isSafeInteger(expectedOfficialActionVersion) ||
-          expectedOfficialActionVersion < 0
-          ? "case_version_missing"
-          : null,
-        !/^[A-Za-z0-9][A-Za-z0-9._:/-]{5,199}$/.test(evidenceReference)
-          ? "dtm_evidence_missing"
-          : null,
-        !accountKey ? "machine_account_key_missing" : null,
-        !approveToken ? "provider_credential_missing" : null,
-        !managerContract ? "provider_contract_invalid" : null,
-        managerContract &&
-            managerContract.contractVersion !==
-              NAYAX_REFUND_PROVIDER_CONTRACT_VERSION
-          ? "provider_contract_version_invalid"
-          : null,
-        !rawApprovalContract ? "approval_contract_missing" : null,
-        rawApprovalContract && !approvalContract
-          ? "approval_contract_invalid"
-          : null,
-        approvalContract &&
-            approvalContract.contractVersion !==
-              NAYAX_REFUND_PROVIDER_CONTRACT_VERSION
-          ? "approval_contract_version_invalid"
-          : null,
-        approvalContract &&
-          approvalContract.baseUrl !== "https://lynx.nayax.com/operational/v1"
-          ? "approval_contract_host_invalid"
-          : null,
-      ].filter((block): block is string => block !== null);
-      if (recoveryBlocks.length > 0) {
-        return jsonResponse({
-          executed: false,
-          status: "preflight_blocked",
-          errorCode: "pending_approval_recovery_not_ready",
-          blocks: recoveryBlocks,
-          providerAttempted: false,
-          customerCompletionAttempted: false,
-        }, 409);
-      }
-
-      const { data: reservationData, error: reservationError } = await supabase
-        .rpc(
-          "service_reserve_nayax_pending_approval_recovery",
-          {
-            p_executor_assertion: executionConfig.executorAssertion,
-            p_actor_user_id: user.id,
-            p_case_id: refundCase.id,
-            p_attempt_id: attemptId,
-            p_expected_case_version: expectedOfficialActionVersion,
-            p_evidence_reference: evidenceReference,
-          },
-        );
-      const reservation = reservationData && typeof reservationData === "object"
-        ? reservationData as Record<string, unknown>
-        : null;
-      const recovery = reservation?.recovery &&
-          typeof reservation.recovery === "object"
-        ? reservation.recovery as Record<string, unknown>
-        : null;
-      if (reservationError || !reservation || !recovery) {
-        return jsonResponse({
-          executed: false,
-          status: "preflight_blocked",
-          errorCode: "pending_approval_recovery_not_eligible",
-          providerAttempted: false,
-          customerCompletionAttempted: false,
-        }, 409);
-      }
-      if (recovery.shouldExecute !== true) {
-        return jsonResponse({
-          executed: false,
-          status: sanitizeText(recovery.status, 40) || "provider_hold",
-          errorCode: sanitizeText(recovery.errorCode, 80) ||
-            "pending_approval_recovery_already_reserved",
-          providerAttempted: false,
-          replayed: true,
-          customerCompletionAttempted: false,
-          payloadRedacted: true,
-        }, 409);
-      }
-
-      const recoveryId = sanitizeText(recovery.recoveryId, 80);
-      const providerClaimToken = sanitizeText(
-        reservation.providerClaimToken,
-        200,
-      );
-      const evidence = reservation.evidence &&
-          typeof reservation.evidence === "object"
-        ? reservation.evidence as Record<string, unknown>
-        : null;
-      if (
-        !isUuid(recoveryId) || providerClaimToken.length < 43 || !evidence ||
-        evidence.caseId !== refundCase.id ||
-        evidence.transactionId !== refundCase.matched_nayax_transaction_id ||
-        evidence.siteId !== refundCase.matched_nayax_site_id ||
-        evidence.machineAuthorizationTime !==
-          refundCase.matched_nayax_machine_auth_time
-      ) {
-        throw new Error("pending_approval_recovery_reservation_invalid");
-      }
-
-      const onStageEvent = async (
-        stageEvent: NayaxControlledPilotStageEvent,
-      ) => {
-        const result = "result" in stageEvent
-          ? stageEvent.result as unknown as Record<string, unknown>
-          : {};
-        const classificationDigest = await buildRedactedNayaxStageDigest({
-          journalSecret: executionConfig.idempotencySecret!,
-          attemptId,
-          contractVersion: approvalContract!.contractVersion,
-          stageEvent,
-        });
-        const { data, error } = await supabase.rpc(
-          "service_record_nayax_refund_provider_stage",
-          {
-            p_executor_assertion: executionConfig.executorAssertion,
-            p_attempt_id: attemptId,
-            p_pending_approval_recovery_id: recoveryId,
-            p_provider_claim_token: providerClaimToken,
-            p_stage: stageEvent.stage,
-            p_event: stageEvent.event,
-            p_http_status: Number.isInteger(result.httpStatus)
-              ? result.httpStatus
-              : null,
-            p_outcome: sanitizeText(result.outcome, 40) || null,
-            p_contract_matched: stageEvent.event === "result"
-              ? result.contractMatched === true
-              : null,
-            p_failure_type: sanitizeText(result.failureType, 20) || null,
-            p_classification_digest: classificationDigest,
-          },
-        );
-        if (error || !data || typeof data !== "object") {
-          throw new Error("pending_approval_recovery_stage_journal_failed");
-        }
-      };
-
-      let providerOutcome: Awaited<
-        ReturnType<typeof mapNayaxRefundExecutionOutcome>
-      >;
-      try {
-        const providerResult = await executeNayaxRefundApprovalOnly({
-          contract: approvalContract!,
-          approveToken,
-          transactionId: String(evidence.transactionId ?? ""),
-          siteId: Number(evidence.siteId),
-          machineAuthorizationTime: String(
-            evidence.machineAuthorizationTime ?? "",
-          ),
-          onStageEvent,
-        });
-        const recoveryIdempotencyKey = `nayax-refund-${await sha256Hex(
-          `pending-approval-recovery-v1|${recoveryId}`,
-        )}`;
-        providerOutcome = await mapNayaxRefundExecutionOutcome(
-          providerResult,
-          approvalContract!.contractVersion,
-          recoveryIdempotencyKey,
-        );
-      } catch {
-        providerOutcome = {
-          kind: "unknown",
-          providerReference: null,
-          providerStatus: null,
-          errorCode: "provider_stage_or_transport_unknown",
-        };
-      }
-
-      const { data: settlementData, error: settlementError } = await supabase
-        .rpc(
-          "service_settle_nayax_pending_approval_recovery",
-          {
-            p_executor_assertion: executionConfig.executorAssertion,
-            p_recovery_id: recoveryId,
-            p_attempt_id: attemptId,
-            p_case_id: refundCase.id,
-            p_provider_claim_token: providerClaimToken,
-            p_provider_outcome: providerOutcome.kind,
-            p_provider_reference: providerOutcome.providerReference ?? null,
-            p_provider_status: providerOutcome.providerStatus ?? null,
-            p_error_code: providerOutcome.errorCode ?? null,
-          },
-        );
-      if (
-        settlementError || !settlementData || typeof settlementData !== "object"
-      ) {
-        throw new Error("pending_approval_recovery_requires_reconciliation");
-      }
-      const approvalAccepted = providerOutcome.kind === "success";
-      return jsonResponse({
-        executed: false,
-        approvalAccepted,
-        status: approvalAccepted
-          ? "awaiting_dtm_confirmation"
-          : "provider_hold",
-        errorCode: approvalAccepted ? null : providerOutcome.errorCode ??
-          "pending_approval_recovery_unknown",
-        providerAttempted: true,
-        reconciliationRequired: true,
-        fallbackIssued: false,
-        customerCompletionAttempted: false,
-        payloadRedacted: true,
-      }, approvalAccepted ? 202 : 409);
-    }
-
-    const preflightBlocks = getPreflightBlocks({
-      refundCase,
-      actorCanManageCase: true,
-    });
     const expectedOfficialActionVersion = Number(body?.expectedOfficialActionVersion);
-    const transactionPreflight = await getDuplicateTransactionBlocks({
-      refundCase,
-      actorUserId: user.id,
-      expectedCaseVersion: expectedOfficialActionVersion,
-      executorAssertion: executionConfig.executorAssertion,
-    });
-
-    if (operation === "controlled_owner_pilot") {
-      const suppliedRunnerAssertion = securePilotAssertion(
-        req.headers.get("x-bloomjoy-nayax-pilot-assertion") ?? undefined,
-      );
-      const configuredRunnerAssertion = securePilotAssertion(
-        Deno.env.get("NAYAX_REFUND_CONTROLLED_PILOT_RUNNER_ASSERTION"),
-      );
-      const pilotAuthorizationId = sanitizeText(
-        body?.pilotAuthorizationId,
-        80,
-      );
-      const amountCents = refundCase.payment_amount_cents ?? 0;
-      const machine = refundCase.reporting_machines;
-      const accountKey = normalizeAccountKey(machine?.nayax_account_key ?? "");
-      const rawContract = Deno.env.get(
-        "NAYAX_REFUND_CONTROLLED_PILOT_CONTRACT_JSON",
-      )?.trim() ?? "";
-      let parsedPilotContract:
-        | ReturnType<typeof parseNayaxRefundProviderContract>
-        | null = null;
-      if (rawContract) {
-        try {
-          parsedPilotContract = parseNayaxRefundProviderContract(rawContract);
-        } catch {
-          parsedPilotContract = null;
-        }
-      }
-      const requestWriteToken = accountKey
-        ? Deno.env.get(`NAYAX_REFUND_REQUEST_WRITE_TOKEN_${accountKey}`)
-          ?.trim() ?? ""
-        : "";
-      const approveWriteToken = accountKey
-        ? Deno.env.get(`NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}`)
-          ?.trim() ?? ""
-        : "";
-      const pilotCandidateBlocks = [
-        refundCase.status !== "correlated" || refundCase.decision !== null
-          ? "pilot_case_not_correlated"
-          : null,
-        refundCase.payment_method !== "card" || refundCase.card_wallet_used
-          ? "pilot_payment_not_exact_card"
-          : null,
-        refundCase.correlation_status !== "matched" ||
-          refundCase.correlation_source !== "nayax" ||
-          refundCase.nayax_recommendation_state !== "high_confidence" ||
-          !refundCase.nayax_match_execution_eligible
-          ? "pilot_match_not_execution_eligible"
-          : null,
-        !/^[1-9][0-9]{0,18}$/.test(
-            refundCase.matched_nayax_transaction_id ?? "",
-          ) ||
-          refundCase.matched_nayax_site_id === null ||
-          !refundCase.matched_nayax_machine_auth_time ||
-          refundCase.matched_nayax_currency_code !== "USD" ||
-          amountCents <= 0 ||
-          refundCase.matched_nayax_amount_cents !== amountCents
-          ? "pilot_transaction_evidence_invalid"
-          : null,
-        refundCase.reporting_adjustment_id ? "pilot_already_refunded" : null,
-        !machine || machine.status !== "active" ||
-          machine.nayax_refunds_enabled !== true ||
-          machine.nayax_refund_max_amount_cents !== amountCents
-          ? "pilot_machine_not_exactly_armed"
-          : null,
-      ];
-
-      const pilotBlocks = [
-        NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED
-          ? "global_official_actions_not_closed"
-          : null,
-        executionConfig.executionEnabled ? "global_execution_not_closed" : null,
-        !executionConfig.dryRun ? "global_dry_run_not_closed" : null,
-        !executionConfig.killSwitchActive
-          ? "global_kill_switch_not_closed"
-          : null,
-        // The broad production confirmations remain false. Exact sponsor and
-        // written-contract evidence is bound to the one database authorization
-        // by private SHA-256 digests instead of enabling shared provider gates.
-        "controlled_pilot_retired",
-        !executionConfig.idempotencySecret
-          ? "idempotency_secret_missing"
-          : null,
-        !executionConfig.executorAssertion
-          ? "executor_assertion_missing"
-          : null,
-        !suppliedRunnerAssertion || !configuredRunnerAssertion
-          ? "runner_assertion_missing"
-          : null,
-        !isUuid(pilotAuthorizationId) ? "pilot_authorization_missing" : null,
-        !rawContract ? "provider_contract_missing" : null,
-        rawContract && !parsedPilotContract
-          ? "provider_contract_invalid"
-          : null,
-        parsedPilotContract &&
-          parsedPilotContract.baseUrl !== "https://lynx.nayax.com/operational/v1"
-          ? "provider_contract_host_invalid"
-          : null,
-        !requestWriteToken ? "request_write_credential_missing" : null,
-        !approveWriteToken ? "approve_write_credential_missing" : null,
-        !accountKey ? "machine_account_key_missing" : null,
-        ...pilotCandidateBlocks,
-        ...transactionPreflight.blocks,
-      ].filter((block): block is string => block !== null);
-      if (
-        suppliedRunnerAssertion && configuredRunnerAssertion &&
-        await sha256Hex(suppliedRunnerAssertion) !==
-          await sha256Hex(configuredRunnerAssertion)
-      ) {
-        pilotBlocks.push("runner_assertion_invalid");
-      }
-      if (pilotBlocks.length > 0) {
-        return jsonResponse({
-          executed: false,
-          status: "preflight_blocked",
-          errorCode: "controlled_pilot_not_ready",
-          blocks: Array.from(new Set(pilotBlocks)),
-          providerAttempted: false,
-          customerCompletionAttempted: false,
-        }, 409);
-      }
-
-      const runnerAssertionDigest = await sha256Hex(suppliedRunnerAssertion!);
-      const contractDigest = await sha256Hex(rawContract);
-      const { data: postArmData, error: postArmError } = await supabase.rpc(
-        "service_validate_nayax_controlled_pilot_postarm",
-        {
-          p_executor_assertion: executionConfig.executorAssertion,
-          p_pilot_authorization_id: pilotAuthorizationId,
-          p_case_id: refundCase.id,
-          p_amount_cents: amountCents,
-          p_runner_assertion_digest: runnerAssertionDigest,
-          p_contract_digest: contractDigest,
-        },
-      );
-      const postArm = postArmData as Record<string, unknown> | null;
-      if (
-        postArmError || postArm?.ready !== true ||
-        postArm?.authorizationBound !== true ||
-        postArm?.machineArmed !== true || postArm?.amountCapExact !== true ||
-        postArm?.payloadRedacted !== true
-      ) {
-        return jsonResponse({
-          executed: false,
-          status: "preflight_blocked",
-          errorCode: "controlled_pilot_not_ready",
-          blocks: ["pilot_postarm_authorization_invalid"],
-          providerAttempted: false,
-          customerCompletionAttempted: false,
-        }, 409);
-      }
-
-      // Parse the exact contract, both dedicated write credentials, and the
-      // immutable provider evidence before TOTP consumption or reservation.
-      // The callback is installed now but cannot run until the attempt handle
-      // is filled after the atomic database reservation.
-      let pilotAttemptId = "";
-      const workerLeaseId = crypto.randomUUID();
-      const provider = createNayaxRefundProviderAdapter({
-        contract: rawContract,
-        requestToken: requestWriteToken,
-        approveToken: approveWriteToken,
-        evidence: {
-          caseId: refundCase.id,
-          amountCents,
-          currencyCode: "USD",
-          transactionId: refundCase.matched_nayax_transaction_id,
-          siteId: refundCase.matched_nayax_site_id,
-          machineAuthorizationTime: refundCase.matched_nayax_machine_auth_time,
-        },
-        onStageEvent: async (stageEvent) => {
-          if (!isUuid(pilotAttemptId)) {
-            throw new Error("controlled_pilot_attempt_not_reserved");
-          }
-          const result = "result" in stageEvent &&
-              stageEvent.result && typeof stageEvent.result === "object"
-            ? stageEvent.result as unknown as Record<string, unknown>
-            : {};
-          const stage = sanitizeText(stageEvent.stage, 20);
-          const event = sanitizeText(stageEvent.event, 20);
-          const outcome = sanitizeText(result.outcome, 40) || null;
-          const failureType = sanitizeText(result.failureType, 20) || null;
-          const contractMatched = result.contractMatched === true;
-          const responseClass = failureType
-            ? `transport_${failureType}`
-            : Number.isInteger(result.httpStatus) &&
-                Number(result.httpStatus) >= 200 &&
-                Number(result.httpStatus) < 300
-            ? "http_success"
-            : "http_failure";
-          const classificationDigest = "result" in stageEvent
-            ? await sha256Hex([
-              "controlled-pilot-provider-classification-v1",
-              stage,
-              outcome ?? "none",
-              Number.isInteger(result.httpStatus)
-                ? String(result.httpStatus)
-                : "none",
-              contractMatched ? "contract_match" : "contract_mismatch",
-              responseClass,
-            ].join("|"))
-            : null;
-          const { data, error } = await supabase.rpc(
-            "service_record_nayax_controlled_pilot_stage",
-            {
-              p_executor_assertion: executionConfig.executorAssertion,
-              p_pilot_authorization_id: pilotAuthorizationId,
-              p_attempt_id: pilotAttemptId,
-              p_worker_lease_id: workerLeaseId,
-              p_stage_event: `${stage}_${event}`,
-              p_outcome: outcome,
-              p_http_status: Number.isInteger(result.httpStatus)
-                ? result.httpStatus
-                : null,
-              p_provider_result: "result" in stageEvent
-                ? contractMatched ? "contract_match" : "contract_mismatch"
-                : null,
-              p_provider_status: "result" in stageEvent ? responseClass : null,
-              p_failure_type: failureType,
-              p_contract_matched: "result" in stageEvent
-                ? contractMatched
-                : null,
-              p_classification_digest: classificationDigest,
-            },
-          );
-          if (error || !data || typeof data !== "object") {
-            throw new Error("controlled_pilot_stage_journal_failed");
-          }
-        },
-      });
-
-      const idempotencyKey = await buildNayaxRefundIdempotencyKey(
-        executionConfig.idempotencySecret,
-        {
-          caseId: refundCase.id,
-          attemptGeneration: refundCase.nayax_refund_attempt_generation,
-          transactionId: refundCase.matched_nayax_transaction_id!,
-          siteId: refundCase.matched_nayax_site_id!,
-          machineAuthorizationTime: refundCase.matched_nayax_machine_auth_time!,
-          amountCents,
-          currencyCode: "USD",
-        },
-      );
-      const expectedOfficialActionVersion = Number(
-        body?.expectedOfficialActionVersion,
-      );
-      const stepUpIntentId = sanitizeText(body?.stepUpIntentId, 80) || null;
-      const stepUpFactorProof = sanitizeText(body?.stepUpFactorProof, 80) ||
-        null;
-      const authorization = await authorizeRefundOfficialAction({
-        supabaseUrl,
-        supabaseAnonKey,
-        accessToken,
-        context: {
-          caseId: refundCase.id,
-          action: "nayax_execute",
-          targetFunction: "nayax-card-refund",
-          pilotAuthorizationId,
-          pilotExecutorAssertion: executionConfig.executorAssertion,
-          pilotRunnerAssertionDigest: runnerAssertionDigest,
-          pilotContractDigest: contractDigest,
-          pilotIdempotencyKey: idempotencyKey,
-          pilotWorkerLeaseId: workerLeaseId,
-          stepUpIntentId,
-          stepUpFactorProof,
-          expectedCaseVersion: expectedOfficialActionVersion,
-          targetStatus: "card_refund_pending",
-          targetDecision: "approved",
-          refundAmountCents: amountCents,
-        },
-      });
-      const reservation = authorization.pilotReservation as
-        | NayaxAttemptReservation
-        | undefined;
-      if (!reservation) throw new Error("controlled_pilot_reservation_failed");
-      const attemptId = reservation.attempt?.attemptId ?? "";
-      const providerClaimToken = reservation.providerClaimToken ?? "";
-      if (!isUuid(attemptId) || providerClaimToken.length < 43) {
-        throw new Error("controlled_pilot_reservation_invalid");
-      }
-      pilotAttemptId = attemptId;
-
-      let providerOutcome;
-      try {
-        providerOutcome = await provider.execute({
-          caseId: refundCase.id,
-          idempotencyKey,
-          amountCents,
-          currencyCode: "USD",
-        });
-      } catch {
-        providerOutcome = {
-          kind: "unknown",
-          providerReference: null,
-          providerStatus: null,
-          errorCode: "provider_stage_or_transport_unknown",
-        };
-      }
-
-      const { data: settlementData, error: settlementError } = await supabase
-        .rpc(
-          "service_settle_nayax_controlled_pilot_attempt",
-          {
-            p_executor_assertion: executionConfig.executorAssertion,
-            p_pilot_authorization_id: pilotAuthorizationId,
-            p_attempt_id: attemptId,
-            p_authorization_id: authorization.authorizationId,
-            p_case_id: refundCase.id,
-            p_idempotency_key: idempotencyKey,
-            p_amount_cents: amountCents,
-            p_currency_code: "USD",
-            p_provider_claim_token: providerClaimToken,
-            p_provider_outcome: providerOutcome.kind,
-            p_worker_lease_id: workerLeaseId,
-            p_evidence_reference: providerOutcome.providerReference ?? null,
-            p_provider_status: providerOutcome.providerStatus ?? null,
-            p_error_code: providerOutcome.errorCode ?? null,
-          },
-        );
-      if (
-        settlementError || !settlementData || typeof settlementData !== "object"
-      ) {
-        throw new Error("controlled_pilot_settlement_requires_reconciliation");
-      }
-      const settlement = settlementData as NayaxAttemptSettlement & {
-        pilotProviderOnly?: boolean;
-      };
-      const succeeded = settlement.attempt?.providerOutcome === "success" &&
-        settlement.attempt?.status === "succeeded" &&
-        settlement.reportingAdjustmentPresent === true;
-      return jsonResponse({
-        executed: succeeded,
-        status: succeeded
-          ? "succeeded"
-          : settlement.attempt?.status ?? "provider_hold",
-        errorCode: succeeded
-          ? null
-          : providerOutcome.errorCode ?? "provider_hold",
-        providerAttempted: true,
-        reconciliationRequired: !succeeded &&
-          settlement.attempt?.providerOutcome !== "rejected",
-        fallbackIssued: false,
-        providerOnly: true,
-        customerCompletionAttempted: false,
-        payloadRedacted: true,
-      }, succeeded ? 200 : 409);
-    }
-
-    const normalAccountKey = normalizeAccountKey(
-      refundCase.reporting_machines?.nayax_account_key ?? "",
-    );
-    const normalWriteCredentials = resolveNormalWriteCredentials(
-      normalAccountKey,
-    );
-    const normalCredentialsPresent = Boolean(
-      normalWriteCredentials.requestToken && normalWriteCredentials.approveToken,
-    );
-    const normalCredentialsValid = Boolean(
-      managerContract && normalCredentialsPresent &&
-        areNayaxRefundWriteCredentialsReady({
-          contract: managerContract,
-          requestToken: normalWriteCredentials.requestToken,
-          approveToken: normalWriteCredentials.approveToken,
-        }),
-    );
-    const journalCompatible = await providerJournalCompatible(
-      executionConfig.executorAssertion,
-      managerContract?.contractVersion ?? null,
-    );
-    const preExecutionBlocks = Array.from(
-      new Set([
-        ...(NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED
-          ? []
-          : ["official_actions_disabled"]),
-        ...preflightBlocks,
-        ...transactionPreflight.blocks,
-        ...executionConfig.blocks,
-        ...(!normalAccountKey ? ["machine_account_key_missing"] : []),
-        ...(!normalWriteCredentials.requestToken
-          ? ["provider_request_credential_missing"]
-          : []),
-        ...(!normalWriteCredentials.approveToken
-          ? ["provider_approval_credential_missing"]
-          : []),
-        ...(!managerContract
-          ? ["provider_contract_invalid"]
-          : []),
-        ...(managerContract &&
-            managerContract.baseUrl !== NAYAX_REFUND_PRODUCTION_BASE_URL
-          ? ["provider_contract_host_invalid"]
-          : []),
-        ...(managerContract && normalCredentialsPresent && !normalCredentialsValid
-          ? ["provider_credentials_invalid"]
-          : []),
-        ...(!journalCompatible ? ["provider_journal_version_mismatch"] : []),
-      ]),
-    );
-    if (preExecutionBlocks.length > 0) {
-      const preferredError = preExecutionBlocks.includes("authorization_failed")
-        ? "authorization_failed"
-        : preExecutionBlocks.includes("official_actions_disabled")
-        ? "official_actions_disabled"
-        : preExecutionBlocks.includes("already_refunded")
-        ? "already_refunded"
-        : preExecutionBlocks.includes("duplicate_transaction")
-        ? "manual_review"
-        : preExecutionBlocks.includes("manual_review")
-        ? "manual_review"
-        : preExecutionBlocks.some((block) =>
-            [
-              "kill_switch_active",
-              "feature_disabled",
-              "dry_run_active",
-            ].includes(block)
-          )
-        ? "feature_disabled"
-        : executionConfig.blocks.length > 0 ||
-            preExecutionBlocks.includes("machine_account_key_missing") ||
-            preExecutionBlocks.includes("provider_request_credential_missing") ||
-            preExecutionBlocks.includes("provider_approval_credential_missing") ||
-            preExecutionBlocks.includes("provider_journal_version_mismatch")
-        ? "configuration_missing"
-        : "validation_rejected";
-
+    if (!Number.isSafeInteger(expectedOfficialActionVersion) ||
+      expectedOfficialActionVersion <= 0) {
       return jsonResponse({
         executed: false,
-        status: preferredError === "manual_review"
-          ? "manual_review"
-          : "preflight_blocked",
-        errorCode: preferredError,
-        blocks: preExecutionBlocks,
-        conflictReason: transactionPreflight.reason,
-        resolutionAction: transactionPreflight.resolutionAction,
-        dryRun: executionConfig.dryRun,
-        killSwitchActive: executionConfig.killSwitchActive,
+        status: "preflight_blocked",
+        errorCode: "case_version_missing",
+        providerAttempted: false,
+        customerCompletionAttempted: false,
       }, 409);
     }
+    if (!supabaseAnonKey) {
+      throw new Error("authenticated_refund_approval_not_configured");
+    }
 
-    const idempotencyKey = await buildNayaxRefundIdempotencyKey(
-      executionConfig.idempotencySecret,
+    const actorSupabase = createClient(supabaseUrl!, supabaseAnonKey, {
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+      auth: { persistSession: false },
+    });
+    const { data: approvalData, error: approvalError } = await actorSupabase.rpc(
+      "admin_approve_selected_nayax_refund_for_system_v1",
       {
-        caseId: refundCase.id,
-        attemptGeneration: refundCase.nayax_refund_attempt_generation,
-        transactionId: refundCase.matched_nayax_transaction_id!,
-        siteId: refundCase.matched_nayax_site_id!,
-        machineAuthorizationTime: refundCase.executionContext!.machineAuthorizationTime,
-        amountCents: resolveRefundAmountCents(refundCase),
-        currencyCode: "USD",
+        p_case_id: refundCase.id,
+        p_expected_case_version: expectedOfficialActionVersion,
       },
     );
-
-    let normalAttemptId = "";
-    let normalProviderClaimToken = "";
-    const provider = createNayaxRefundProviderAdapter({
-      contract: managerContract!,
-      requestToken: normalWriteCredentials.requestToken,
-      approveToken: normalWriteCredentials.approveToken,
-      evidence: {
-        caseId: refundCase.id,
-        amountCents: resolveRefundAmountCents(refundCase),
-        currencyCode: "USD",
-        transactionId: refundCase.matched_nayax_transaction_id,
-        siteId: refundCase.matched_nayax_site_id,
-        machineAuthorizationTime: refundCase.executionContext!.machineAuthorizationTime,
-        machineAuthorizationTimeInstant:
-          refundCase.executionContext!.machineAuthorizationTimeInstant,
-        machineAuthorizationTimeWire:
-          refundCase.executionContext!.machineAuthorizationTimeWire,
-        refundEmailListMode: refundCase.executionContext!.refundEmailListMode,
-      },
-      onStageEvent: async (stageEvent) => {
-        if (!isUuid(normalAttemptId) || normalProviderClaimToken.length < 43) {
-          throw new Error("normal_refund_attempt_not_reserved");
-        }
-        const result = "result" in stageEvent && stageEvent.result
-          ? stageEvent.result as unknown as Record<string, unknown>
-          : {};
-        const classificationDigest = await buildRedactedNayaxStageDigest({
-          journalSecret: executionConfig.idempotencySecret!,
-          attemptId: normalAttemptId,
-          contractVersion: managerContract!.contractVersion,
-          stageEvent,
-        });
-        const { data, error } = await supabase.rpc(
-          "service_record_nayax_refund_provider_stage_v4_diagnostics",
-          {
-            p_executor_assertion: executionConfig.executorAssertion,
-            p_attempt_id: normalAttemptId,
-            p_provider_claim_token: normalProviderClaimToken,
-            p_stage: stageEvent.stage,
-            p_event: stageEvent.event,
-            p_http_status: Number.isInteger(result.httpStatus)
-              ? result.httpStatus
-              : null,
-            p_outcome: sanitizeText(result.outcome, 40) || null,
-            p_contract_matched: typeof result.contractMatched === "boolean"
-              ? result.contractMatched
-              : null,
-            p_failure_type: sanitizeText(result.failureType, 20) || null,
-            p_classification_digest: classificationDigest,
-            p_provider_contract_version: managerContract!.contractVersion,
-            p_journal_contract_version: NAYAX_REFUND_JOURNAL_CONTRACT_VERSION,
-            p_http_accepted: typeof result.httpAccepted === "boolean"
-              ? result.httpAccepted
-              : null,
-            p_media_type_class: sanitizeText(result.mediaTypeClass, 40) || null,
-            p_body_kind: sanitizeText(result.bodyKind, 40) || null,
-            p_body_length_bucket:
-              sanitizeText(result.bodyLengthBucket, 40) || null,
-            p_json_parsed: typeof result.jsonParsed === "boolean"
-              ? result.jsonParsed
-              : null,
-            p_json_object: typeof result.jsonObject === "boolean"
-              ? result.jsonObject
-              : null,
-            p_schema_matched: typeof result.schemaMatched === "boolean"
-              ? result.schemaMatched
-              : null,
-            p_result_key_present:
-              typeof result.resultKeyPresent === "boolean"
-                ? result.resultKeyPresent
-                : null,
-            p_status_key_present:
-              typeof result.statusKeyPresent === "boolean"
-                ? result.statusKeyPresent
-                : null,
-            p_result_value_type:
-              sanitizeText(result.resultValueType, 40) || null,
-            p_status_value_type:
-              sanitizeText(result.statusValueType, 40) || null,
-            p_semantic_pair_matched:
-              typeof result.semanticPairMatched === "boolean"
-                ? result.semanticPairMatched
-                : null,
-            p_business_result:
-              result.businessPairRetained === true
-                ? sanitizeText(result.businessResult, 80) || null
-                : null,
-            p_business_status:
-              result.businessPairRetained === true
-                ? sanitizeText(result.businessStatus, 80) || null
-                : null,
-            p_business_pair_retained:
-              stageEvent.event === "result" &&
-                result.businessPairRetained === true,
-            p_observed_result_scalar:
-              stageEvent.event === "result" &&
-                result.observedScalarPairRetained === true
-                ? result.observedResultScalar
-                : null,
-            p_observed_status_scalar:
-              stageEvent.event === "result" &&
-                result.observedScalarPairRetained === true
-                ? result.observedStatusScalar
-                : null,
-            p_observed_scalar_pair_retained:
-              stageEvent.event === "result" &&
-                result.observedScalarPairRetained === true,
-            p_result_diagnostic_text: stageEvent.event === "result"
-              ? typeof result.observedResultDiagnosticText === "string"
-                ? result.observedResultDiagnosticText
-                : null
-              : null,
-            p_result_diagnostic_disposition: stageEvent.event === "result"
-              ? sanitizeText(result.observedResultDiagnosticDisposition, 40) || null
-              : null,
-            p_result_diagnostic_length_bucket: stageEvent.event === "result"
-              ? sanitizeText(result.observedResultDiagnosticLengthBucket, 40) || null
-              : null,
-            p_status_diagnostic_text: stageEvent.event === "result"
-              ? typeof result.observedStatusDiagnosticText === "string"
-                ? result.observedStatusDiagnosticText
-                : null
-              : null,
-            p_status_diagnostic_disposition: stageEvent.event === "result"
-              ? sanitizeText(result.observedStatusDiagnosticDisposition, 40) || null
-              : null,
-            p_status_diagnostic_length_bucket: stageEvent.event === "result"
-              ? sanitizeText(result.observedStatusDiagnosticLengthBucket, 40) || null
-              : null,
-          },
-        );
-        if (error || !data || typeof data !== "object") {
-          throw new Error(
-            error?.code === "P4611"
-              ? "provider_journal_version_mismatch"
-              : `stage_journal_${stageEvent.stage}_${stageEvent.event}_rejected`,
-          );
-        }
-        const decision = data as Record<string, unknown>;
-        if (
-          decision.recorded !== true ||
-          decision.journalContractVersion !==
-            NAYAX_REFUND_JOURNAL_CONTRACT_VERSION ||
-          decision.providerContractVersion !== managerContract!.contractVersion ||
-          decision.approvalPolicyVersion !==
-            NAYAX_REFUND_APPROVAL_POLICY_VERSION ||
-          decision.responseEnvelopeVersion !==
-            NAYAX_REFUND_RESPONSE_ENVELOPE_VERSION ||
-          decision.businessOutcomeRecordVersion !==
-            "nayax-business-outcome-v2" ||
-          decision.restrictedScalarEvidenceVersion !==
-            "nayax-restricted-response-scalars-v1" ||
-          decision.restrictedScalarDiagnosticVersion !==
-            "nayax-restricted-response-diagnostics-v2" ||
-          decision.payloadRedacted !== true
-        ) {
-          throw new Error("provider_journal_version_mismatch");
-        }
-        return {
-          approvalAuthorized: decision.approvalAuthorized === true,
-          approvalPolicyVersion: NAYAX_REFUND_APPROVAL_POLICY_VERSION,
-          responseEnvelopeVersion: NAYAX_REFUND_RESPONSE_ENVELOPE_VERSION,
-          journalContractVersion: NAYAX_REFUND_JOURNAL_CONTRACT_VERSION,
-          providerContractVersion: managerContract!.contractVersion,
-          payloadRedacted: true as const,
-        };
-      },
-    });
-
-    const result = await orchestrateNayaxRefund({
-      request: {
-        caseId: refundCase.id,
-        idempotencyKey,
-        amountCents: resolveRefundAmountCents(refundCase),
-        currencyCode: "USD",
-      },
-      dependencies: {
-        provider,
-        reserveAndConsumeAttempt: async (request) => {
-          const { data, error } = await supabase.rpc(
-            "service_reserve_nayax_refund_manager_action_v5",
-            {
-              p_execution_context_hash: refundCase.executionContext!.contextHash,
-              p_executor_assertion: executionConfig.executorAssertion,
-              p_actor_user_id: user.id,
-              p_case_id: request.caseId,
-              p_expected_case_version: expectedOfficialActionVersion,
-              p_idempotency_key: request.idempotencyKey,
-              p_amount_cents: request.amountCents,
-              p_daily_amount_cap_cents: null,
-              p_daily_count_cap: null,
-              p_currency_code: request.currencyCode,
-              p_provider_contract_version: managerContract!.contractVersion,
-              p_journal_contract_version: NAYAX_REFUND_JOURNAL_CONTRACT_VERSION,
-              p_machine_authorization_time_mode:
-                managerContract!.machineAuthorizationTimeMode,
-              p_refund_email_list_mode: managerContract!.refundEmailListMode,
-            },
-          );
-          // A reloaded interrupted attempt can fail the ordinary reservation's
-          // fresh-action eligibility check. Only a missing reservation or an
-          // unsettled in-progress replay asks the continuation boundary. Known
-          // success/rejection/hold replays retain their ordinary snapshot.
-          let reservation = !error && data && typeof data === "object"
-            ? data as NayaxAttemptReservation
-            : null;
-          if (shouldRequestNayaxApprovalContinuation(reservation)) {
-            const { data: continuationData, error: continuationError } =
-              await supabase.rpc(
-                "service_reserve_nayax_refund_approval_continuation_v2",
-                {
-                  p_machine_authorization_time_wire:
-                    refundCase.executionContext!.machineAuthorizationTimeWire,
-                  p_machine_authorization_time_mode:
-                    managerContract!.machineAuthorizationTimeMode,
-                  p_refund_email_list_mode: managerContract!.refundEmailListMode,
-                  p_executor_assertion: executionConfig.executorAssertion,
-                  p_actor_user_id: user.id,
-                  p_case_id: request.caseId,
-                  p_expected_case_version: expectedOfficialActionVersion,
-                  p_idempotency_key: request.idempotencyKey,
-                  p_amount_cents: request.amountCents,
-                  p_currency_code: request.currencyCode,
-                  p_provider_contract_version: managerContract!.contractVersion,
-                  p_journal_contract_version:
-                    NAYAX_REFUND_JOURNAL_CONTRACT_VERSION,
-                },
-              );
-            const continuationReservation =
-              !continuationError && continuationData &&
-                typeof continuationData === "object"
-                ? continuationData as NayaxAttemptReservation
-                : null;
-            reservation = selectNayaxReservationAfterContinuation({
-              ordinaryReservation: reservation,
-              continuationReservation,
-            });
-            // A concurrent/stale continuation rejection must not erase an
-            // otherwise valid ordinary replay. With no ordinary snapshot, both
-            // reservation paths still fail closed before provider transport.
-            if (!reservation) {
-              throw new Error(error
-                ? "Unable to reserve this Nayax refund safely."
-                : "Unable to reserve this Nayax approval continuation safely.");
-            }
-          }
-          if (!reservation) {
-            throw new Error("Unable to reserve this Nayax refund safely.");
-          }
-          if (reservation.attempt?.shouldExecute) {
-            normalAttemptId = reservation.attempt.attemptId;
-            normalProviderClaimToken = reservation.providerClaimToken ?? "";
-          }
-          return reservation;
-        },
-        settleProviderOutcome: async (input) => {
-          const { data, error } = await supabase.rpc(
-            "service_settle_nayax_refund_attempt",
-            {
-              p_executor_assertion: executionConfig.executorAssertion,
-              p_attempt_id: input.attemptId,
-              p_authorization_id: input.authorizationId,
-              p_case_id: input.request.caseId,
-              p_idempotency_key: input.request.idempotencyKey,
-              p_amount_cents: input.request.amountCents,
-              p_currency_code: input.request.currencyCode,
-              p_provider_claim_token: input.providerClaimToken,
-              p_provider_outcome: input.outcome.kind,
-              p_provider_reference: input.outcome.providerReference ?? null,
-              p_provider_status: input.outcome.providerStatus ?? null,
-              p_error_code: input.outcome.errorCode ?? null,
-            },
-          );
-          if (error || !data || typeof data !== "object") {
-            throw new Error("Unable to settle the bounded Nayax attempt.");
-          }
-          return data as NayaxAttemptSettlement;
-        },
-        deliverCustomerCompletion: async (attemptId) => {
-          const { data: claimData, error: claimError } = await supabase.rpc(
-            "service_claim_nayax_refund_completion",
-            {
-              p_executor_assertion: executionConfig.executorAssertion,
-              p_attempt_id: attemptId,
-            },
-          );
-          const claim = claimData && typeof claimData === "object"
-            ? claimData as Record<string, unknown>
-            : null;
-          const formClaim = claimError
-            ? null
-            : parseNayaxFormReceiptClaim(claim, caseId);
-          if (formClaim) {
-            return await deliverNayaxFormReceiptCompletion({
-              claim: formClaim,
-              drain: async (messageId) =>
-                await drainRefundManualMessageOutbox({
-                  supabase,
-                  messageId,
-                  limit: 1,
-                }),
-            }) as NayaxCompletionDelivery;
-          }
-          if (
-            claimError || !claim ||
-            typeof claim.refundCaseId !== "string" ||
-            typeof claim.refundCaseMessageId !== "string" ||
-            typeof claim.gmailThreadId !== "string" ||
-            typeof claim.recipientEmail !== "string" ||
-            typeof claim.subject !== "string" ||
-            typeof claim.body !== "string" ||
-            !isUuid(claim.refundCaseId) ||
-            !isUuid(claim.refundCaseMessageId) ||
-            !isUuid(claim.gmailThreadId)
-          ) {
-            throw new Error("Nayax completion message could not be prepared.");
-          }
-
-          const messageBody = claim.body;
-          return await deliverNayaxCompletionWithDefiniteRetry({
-            deliver: async () => {
-              const statusCapability = await tryIssueRefundStatusCapabilityForMessage({
-                supabase,
-                refundCaseId: claim.refundCaseId as string,
-                refundCaseMessageId: claim.refundCaseMessageId as string,
-              });
-              const completionEmail = buildRefundStoredTextWithStatus({
-                headline: "Your refund is on its way",
-                text: messageBody,
-                statusUrl: statusCapability?.url ?? null,
-              });
-              const gmailDelivery = await dispatchRefundCaseGmailReply({
-                supabase,
-                refundCaseId: claim.refundCaseId as string,
-                refundCaseMessageId: claim.refundCaseMessageId as string,
-                recipientEmail: claim.recipientEmail as string,
-                email: {
-                  subject: claim.subject as string,
-                  text: completionEmail.text,
-                  html: completionEmail.html,
-                },
-                deliveryKind: "manual",
-                gmailThreadId: claim.gmailThreadId as string,
-              });
-              return gmailDelivery.usedGmail;
-            },
-            finish: async (status) => {
-              const { data, error } = await supabase.rpc(
-                "service_finish_nayax_refund_completion",
-                {
-                  p_executor_assertion: executionConfig.executorAssertion,
-                  p_attempt_id: attemptId,
-                  p_delivery_status: status,
-                },
-              );
-              if (error || !data || typeof data !== "object") {
-                throw new Error(
-                  "Nayax completion status could not be recorded.",
-                );
-              }
-              return data as NayaxCompletionDelivery;
-            },
-            isDeliveryUncertain: (error) =>
-              error instanceof RefundGmailError && error.deliveryUncertain,
-            prepareSameMessageRetry: async () => {
-              const { data, error } = await supabase.rpc(
-                "service_prepare_nayax_completion_retry",
-                {
-                  p_executor_assertion: executionConfig.executorAssertion,
-                  p_refund_case_message_id: claim.refundCaseMessageId,
-                },
-              );
-              const retry = data && typeof data === "object"
-                ? data as Record<string, unknown>
-                : null;
-              return !error && retry?.prepared === true &&
-                retry.refundCaseId === claim.refundCaseId &&
-                retry.refundCaseMessageId === claim.refundCaseMessageId &&
-                retry.attemptId === attemptId &&
-                retry.gmailThreadId === claim.gmailThreadId &&
-                retry.recipientEmail === claim.recipientEmail &&
-                retry.subject === claim.subject && retry.body === claim.body &&
-                retry.retryCount === 1 && retry.originalThread === true &&
-                retry.payloadRedacted === true;
-            },
-          }) as NayaxCompletionDelivery;
-        },
-      },
-    });
+    const approval = !approvalError && approvalData &&
+        typeof approvalData === "object"
+      ? approvalData as Record<string, unknown>
+      : null;
+    if (!approval || approval.approved !== true ||
+      approval.status !== "system_finishing" ||
+      approval.providerCallMade !== false ||
+      approval.customerMessageCreated !== false ||
+      approval.payloadRedacted !== true) {
+      return jsonResponse({
+        executed: false,
+        status: "preflight_blocked",
+        errorCode: approvalError?.code === "42501"
+          ? "authorization_failed"
+          : "approval_not_recorded",
+        providerAttempted: false,
+        customerCompletionAttempted: false,
+        message: approvalError?.code === "42501"
+          ? "Only the assigned machine Manager or a Super-admin can approve this refund."
+          : "The approval was not saved. Reload the case and try again.",
+        payloadRedacted: true,
+      }, approvalError?.code === "42501" ? 403 : 409);
+    }
 
     return jsonResponse({
-      ...result,
-      blocks: executionConfig.blocks,
-      dryRun: executionConfig.dryRun,
-      killSwitchActive: executionConfig.killSwitchActive,
-    }, result.executed ? 200 : 409);
+      executed: false,
+      approved: true,
+      status: "system_finishing",
+      errorCode: null,
+      providerAttempted: false,
+      customerCompletionAttempted: false,
+      message:
+        "Refund approved. Bloomjoy is finishing it automatically. Do not try it again.",
+      payloadRedacted: true,
+    }, 202);
   } catch (error) {
-    if (error instanceof RefundOfficialActionAuthorizationError) {
-      return jsonResponse({
-        error: error.message,
-        errorCode: error.code,
-        stepUpIntentId: error.stepUpIntentId,
-        stepUpExpiresAt: error.stepUpExpiresAt,
-        officialAction: error.action,
-        targetFunction: error.targetFunction,
-      }, error.status);
-    }
     console.error("nayax-card-refund error", {
       errorType: error instanceof Error ? error.name : typeof error,
     });

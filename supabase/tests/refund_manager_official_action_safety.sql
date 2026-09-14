@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(68);
+select plan(72);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -51,6 +51,12 @@ create temporary table official_action_test_receipts (
   authorization_id uuid not null
 );
 grant select, insert on table pg_temp.official_action_test_receipts to authenticated, service_role;
+
+create temporary table official_action_service_results (
+  result_key text primary key,
+  payload jsonb not null
+);
+grant select, insert on table pg_temp.official_action_service_results to authenticated, service_role;
 
 insert into auth.users (
   instance_id,
@@ -356,6 +362,14 @@ values
     '79500000-0000-4000-8000-000000000001', 'approved', 'Already completed.',
     '79000000-0000-4000-8000-000000000001', now() - interval '2 hours', 800,
     null, null, null, null, null, null, null, null, null, false
+  ),
+  (
+    '79600000-0000-4000-8000-000000000012', 'RF-OFFICIAL-SUPER-ADMIN',
+    '79300000-0000-4000-8000-000000000001', '79200000-0000-4000-8000-000000000001',
+    'super-admin-customer@example.test', 'synthetic-zelle-contact', 'Super-admin authority fixture',
+    now() - interval '2 hours', 'cash', 600, null, 'needs_review', 'matched', 'sunze', 0.95,
+    '79500000-0000-4000-8000-000000000001', null, null, null, null, 600,
+    null, null, null, null, null, null, null, null, null, false
   );
 
 update public.refund_cases
@@ -370,6 +384,13 @@ set customer_request_received_at = now() - interval '30 minutes',
     customer_request_received_source = 'hosted_refund_intake',
     incident_time_resolution = 'exact',
     incident_time_confidence = 'exact'
+where id = '79600000-0000-4000-8000-000000000009';
+
+-- Deterministic fact changes intentionally reset lookup state. Model the later
+-- ambiguous lookup result only after the customer facts are current.
+update public.refund_cases
+set nayax_recommendation_state = 'manual_exception',
+    nayax_lookup_status = 'manual_exception'
 where id = '79600000-0000-4000-8000-000000000009';
 
 insert into public.refund_wallet_correction_contexts (
@@ -527,6 +548,45 @@ select ok(
 );
 
 select ok(
+  not has_function_privilege(
+    'authenticated',
+    'public.admin_begin_refund_manual_nayax_portal(uuid,bigint)',
+    'execute'
+  )
+  and not has_function_privilege(
+    'anon',
+    'public.admin_begin_refund_manual_nayax_portal(uuid,bigint)',
+    'execute'
+  )
+  and not has_function_privilege(
+    'service_role',
+    'public.admin_begin_refund_manual_nayax_portal(uuid,bigint)',
+    'execute'
+  ),
+  'No application role can create a new manual Nayax portal attempt'
+);
+
+set local role authenticated;
+select pg_temp.set_auth_claims(
+  '79000000-0000-4000-8000-000000000002',
+  'aal1',
+  'password',
+  extract(epoch from statement_timestamp())
+);
+select ok(
+  pg_temp.capture_error($sql$
+    select public.admin_begin_refund_manual_nayax_portal(
+      '79600000-0000-4000-8000-000000000007',
+      (select official_action_version
+       from public.refund_cases
+       where id='79600000-0000-4000-8000-000000000007')
+    )
+  $sql$) like '%permission denied%',
+  'A signed-in Super-admin cannot invoke the retired manual portal lane'
+);
+reset role;
+
+select ok(
   has_function_privilege(
     'service_role',
     'public.service_apply_refund_official_case_update(uuid,uuid,text,text,text,text,text,text,integer,text,uuid,text)',
@@ -651,154 +711,38 @@ select pg_temp.set_auth_claims(
 );
 select ok(
   pg_temp.capture_error($sql$
-    select public.admin_prepare_refund_action_step_up_intent(
-      '79600000-0000-4000-8000-000000000001', 'approve', 'refund-case-admin-update',
+    select public.admin_authorize_refund_official_action(
+      '79600000-0000-4000-8000-000000000001', 'approve',
       (select official_action_version from public.refund_cases where id = '79600000-0000-4000-8000-000000000001'),
       'card_refund_pending', 'approved', null, null, null, 700, null, null, false, null, null
     )
   $sql$) like '%Cash approval must enter the cash refund pending state%'
   and pg_temp.capture_error($sql$
-    select public.admin_prepare_refund_action_step_up_intent(
-      '79600000-0000-4000-8000-000000000009', 'approve', 'refund-case-admin-update',
+    select public.admin_authorize_refund_official_action(
+      '79600000-0000-4000-8000-000000000009', 'approve',
       (select official_action_version from public.refund_cases where id = '79600000-0000-4000-8000-000000000009'),
       'cash_zelle_pending', 'approved', null, null, null, 450, null, null, false, null, null
     )
-  $sql$) like '%Card approval must enter the card refund pending state%',
+  $sql$) like '%Use the Refund action for atomic card approval and queueing%',
   'Approval receipts cannot place cash and card cases into each other''s payment states'
 );
 
 select ok(
   pg_temp.capture_error($sql$
-    select public.admin_prepare_refund_action_step_up_intent(
-      '79600000-0000-4000-8000-000000000001', 'approve', 'refund-case-admin-update', 1,
+    select public.admin_authorize_refund_official_action(
+      '79600000-0000-4000-8000-000000000001', 'approve', 1,
       'cash_zelle_pending', 'approved', null, null, null, 0, null, null, false, null, null
     )
   $sql$) like '%positive reviewed refund amount%'
   and pg_temp.capture_error($sql$
-    select public.admin_prepare_refund_action_step_up_intent(
-      '79600000-0000-4000-8000-000000000001', 'approve', 'refund-case-admin-update', 1,
+    select public.admin_authorize_refund_official_action(
+      '79600000-0000-4000-8000-000000000001', 'approve', 1,
       'cash_zelle_pending', 'approved', null, null, null, null, null, null, false, null, null
     )
   $sql$) like '%positive reviewed refund amount%',
   'Approve receipts require an exact positive reviewed refund amount'
 );
 reset role;
-
-insert into public.refund_manager_totp_enrollments (
-  actor_user_id,
-  approved_factor_binding_hash,
-  owner_approved_by_user_id,
-  owner_approval_version,
-  enrollment_version
-) values
-  (
-    '79000000-0000-4000-8000-000000000001',
-    repeat('c', 64),
-    '79000000-0000-4000-8000-000000000002',
-    1,
-    1
-  ),
-  (
-    '79000000-0000-4000-8000-000000000002',
-    repeat('c', 64),
-    '79000000-0000-4000-8000-000000000002',
-    2,
-    1
-  ),
-  (
-    '79000000-0000-4000-8000-000000000003',
-    repeat('c', 64),
-    '79000000-0000-4000-8000-000000000002',
-    3,
-    1
-  );
-
--- The remaining #689 regression assertions need receipts. Route their legacy
--- test helper through the new #692 prepare/verify/consume protocol. This
--- transaction-local replacement rolls back with the test.
-create or replace function public.admin_authorize_refund_official_action(
-  p_case_id uuid,
-  p_action text,
-  p_expected_case_version bigint,
-  p_target_status text default null,
-  p_target_decision text default null,
-  p_assigned_manager_email text default null,
-  p_decision_reason text default null,
-  p_internal_note text default null,
-  p_refund_amount_cents integer default null,
-  p_manual_refund_reference text default null,
-  p_cash_payout_sent_at timestamptz default null,
-  p_cash_payment_confirmed boolean default false,
-  p_matched_nayax_candidate_token uuid default null,
-  p_nayax_disagreement_reason text default null
-)
-returns jsonb
-language plpgsql
-security definer
-set search_path = public, auth, pg_temp
-as $$
-declare
-  actor_user_id uuid := auth.uid();
-  intent jsonb;
-  factor_marker jsonb;
-  target_function text := case
-    when lower(btrim(coalesce(p_action, ''))) = 'nayax_execute'
-      then 'nayax-card-refund'
-    else 'refund-case-admin-update'
-  end;
-begin
-  intent := public.admin_prepare_refund_action_step_up_intent(
-    p_case_id,
-    p_action,
-    target_function,
-    p_expected_case_version,
-    p_target_status,
-    p_target_decision,
-    p_assigned_manager_email,
-    p_decision_reason,
-    p_internal_note,
-    p_refund_amount_cents,
-    p_manual_refund_reference,
-    p_cash_payout_sent_at,
-    p_cash_payment_confirmed,
-    p_matched_nayax_candidate_token,
-    p_nayax_disagreement_reason
-  );
-  perform set_config('request.jwt.claim.sub', '', true);
-  perform set_config('request.jwt.claim.role', 'service_role', true);
-  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
-  factor_marker := public.service_mark_refund_manager_step_up_factor_verified(
-    actor_user_id,
-    (intent ->> 'intentId')::uuid,
-    repeat('c', 64)
-  );
-  perform pg_temp.set_auth_claims(
-    actor_user_id,
-    'aal2',
-    'totp',
-    extract(epoch from statement_timestamp() + interval '1 second')
-  );
-  return public.admin_consume_refund_action_step_up_intent(
-    (intent ->> 'intentId')::uuid,
-    p_case_id,
-    p_action,
-    target_function,
-    p_expected_case_version,
-    p_target_status,
-    p_target_decision,
-    p_assigned_manager_email,
-    p_decision_reason,
-    p_internal_note,
-    p_refund_amount_cents,
-    p_manual_refund_reference,
-    p_cash_payout_sent_at,
-    p_cash_payment_confirmed,
-    p_matched_nayax_candidate_token,
-    p_nayax_disagreement_reason,
-    factor_marker ->> 'factorVerificationProof'
-  );
-end;
-$$;
 
 select ok(
   public.can_perform_refund_official_action(
@@ -817,7 +761,7 @@ select ok(
     '79000000-0000-4000-8000-000000000002',
     '79600000-0000-4000-8000-000000000001'
   ),
-  'A mapped Super Admin receives official-action authority only from the exact Machine Manager mapping'
+  'An active Super-admin uses the same official-action authority even when a mapping also exists'
 );
 
 select ok(
@@ -829,7 +773,7 @@ select ok(
     '79000000-0000-4000-8000-000000000003',
     '79600000-0000-4000-8000-000000000001'
   ),
-  'A mapped Scoped Admin receives official-action authority only from the exact Machine Manager mapping'
+  'An assigned machine Manager can use official-action authority regardless of separate admin access'
 );
 
 select ok(
@@ -837,11 +781,11 @@ select ok(
     '79000000-0000-4000-8000-000000000004',
     '79600000-0000-4000-8000-000000000001'
   )
-  and not public.can_perform_refund_official_action(
+  and public.can_perform_refund_official_action(
     '79000000-0000-4000-8000-000000000004',
     '79600000-0000-4000-8000-000000000001'
   ),
-  'Admin access can review but cannot perform an official action without an exact Machine Manager mapping'
+  'An active Super-admin can perform the same official action without a fabricated machine assignment'
 );
 
 set local role service_role;
@@ -872,7 +816,7 @@ select ok(
       payment_amount_cents, status, correlation_status, decision,
       decided_by, decided_at, refund_amount_cents
     ) values (
-      '79600000-0000-4000-8000-000000000012', 'RF-RAW-OFFICIAL-INSERT',
+      '79600000-0000-4000-8000-000000000013', 'RF-RAW-OFFICIAL-INSERT',
       '79300000-0000-4000-8000-000000000001', '79200000-0000-4000-8000-000000000001',
       'raw-insert@example.test', 'Raw official insert attempt', statement_timestamp(),
       'cash', 500, 'approved', 'matched', 'approved',
@@ -881,7 +825,7 @@ select ok(
   $sql$) like '%Official refund state cannot be inserted by a browser or service identity%'
   and not exists (
     select 1 from public.refund_cases
-    where id = '79600000-0000-4000-8000-000000000012'
+    where id = '79600000-0000-4000-8000-000000000013'
   ),
   'A raw service identity cannot insert a pre-approved refund case'
 );
@@ -1093,8 +1037,8 @@ select ok(
     where refund_case_id = '79600000-0000-4000-8000-000000000001'
       and event_type = 'official_action_committed'
       and actor_user_id = '79000000-0000-4000-8000-000000000001'
-      and metadata ->> 'manager_mapping_id' = '79400000-0000-4000-8000-000000000001'
-      and (metadata ->> 'manager_mapping_version')::bigint > 0
+      and metadata ->> 'authority_kind' = 'machine_manager'
+      and metadata ->> 'authority_record_id' = '79400000-0000-4000-8000-000000000001'
       and metadata ->> 'payload_redacted' = 'true'
       and not (metadata ? 'authorization_id')
       and not (metadata ? 'authorizationId')
@@ -1106,7 +1050,7 @@ select ok(
       and metadata::text not like '%approve-customer@example.test%'
       and metadata::text not like '%SAFE-TXN%'
   ),
-  'Official audit evidence records actor and mapping revision without customer or provider payloads'
+  'Official audit evidence records actor and immutable authority without customer or provider payloads'
 );
 
 set local role service_role;
@@ -1170,8 +1114,77 @@ $sql$
       'cash_zelle_pending', 'approved', null, null, null, 600, null, null, false, null, null
     )
 $sql$,
-  'A mapped Super Admin can mint a Machine Manager receipt after the same owner-approved step-up'
+  'A Super-admin can mint the same short-lived manager-session receipt'
 );
+
+select pg_temp.set_auth_claims(
+  '79000000-0000-4000-8000-000000000004', 'aal1', 'password',
+  extract(epoch from statement_timestamp())
+);
+insert into pg_temp.official_action_test_receipts (receipt_key, authorization_id)
+select 'unmapped_super_admin',
+  (public.admin_authorize_refund_official_action(
+    '79600000-0000-4000-8000-000000000012', 'approve',
+    (select official_action_version from public.refund_cases where id='79600000-0000-4000-8000-000000000012'),
+    'cash_zelle_pending','approved',null,null,null,600,null,null,false,null,null
+  )->>'authorizationId')::uuid;
+reset role;
+
+select ok(
+  exists(
+    select 1 from public.refund_case_official_action_authorizations receipt
+    where receipt.id=(select authorization_id from pg_temp.official_action_test_receipts
+      where receipt_key='unmapped_super_admin')
+      and receipt.authority_kind='super_admin'
+      and receipt.super_admin_role_id='79400000-0000-4000-8000-000000000006'
+      and receipt.manager_mapping_id is null
+      and receipt.manager_mapping_version is null
+      and receipt.authorization_method='manager_session'
+      and receipt.step_up_intent_id is null
+      and receipt.verified_totp_at is null
+  ) and not exists(
+    select 1 from public.refund_manager_action_step_up_intents intent
+    where intent.refund_case_id='79600000-0000-4000-8000-000000000012'
+      and intent.actor_user_id='79000000-0000-4000-8000-000000000004'
+  ),
+  'An unmapped Super-admin confirmation creates one role-bound receipt and zero step-up or TOTP rows'
+);
+
+set local role service_role;
+insert into pg_temp.official_action_service_results(result_key,payload)
+select 'unmapped_super_admin',public.service_apply_refund_official_case_update(
+  (select authorization_id from pg_temp.official_action_test_receipts
+    where receipt_key='unmapped_super_admin'),
+  '79600000-0000-4000-8000-000000000012','approve','cash_zelle_pending',
+  null,'approved',null,null,600,null,null,null
+);
+reset role;
+select ok(
+  (select payload->>'status'='cash_zelle_pending'
+    from pg_temp.official_action_service_results where result_key='unmapped_super_admin')
+  and exists(
+    select 1 from public.refund_case_official_action_authorizations receipt
+    where receipt.id=(select authorization_id from pg_temp.official_action_test_receipts
+      where receipt_key='unmapped_super_admin')
+      and receipt.status='consumed' and receipt.consumed_at is not null
+  ) and exists(
+    select 1 from public.refund_case_events event
+    where event.refund_case_id='79600000-0000-4000-8000-000000000012'
+      and event.event_type='official_action_committed'
+      and event.actor_user_id='79000000-0000-4000-8000-000000000004'
+      and event.metadata->>'authority_kind'='super_admin'
+      and event.metadata->>'authority_record_id'='79400000-0000-4000-8000-000000000006'
+      and event.metadata->>'payload_redacted'='true'
+  ) and exists(
+    select 1 from public.refund_cases c
+    where c.id='79600000-0000-4000-8000-000000000012'
+      and c.status='cash_zelle_pending' and c.decision='approved'
+      and c.decided_by='79000000-0000-4000-8000-000000000004'
+  ),
+  'An unmapped Super-admin decision is consumed and audited without inventing a Machine Manager mapping'
+);
+
+set local role authenticated;
 
 select pg_temp.set_auth_claims(
   '79000000-0000-4000-8000-000000000003', 'aal2', 'totp',
@@ -1291,28 +1304,6 @@ reset role;
 delete from public.admin_roles
 where id = '79400000-0000-4000-8000-000000000005';
 
-set local role authenticated;
-select pg_temp.set_auth_claims(
-  '79000000-0000-4000-8000-000000000001', 'aal2', 'totp',
-  extract(epoch from statement_timestamp())
-);
-insert into pg_temp.official_action_test_receipts (receipt_key, authorization_id)
-select
-  'candidate_tampered',
-  (public.admin_authorize_refund_official_action(
-    '79600000-0000-4000-8000-000000000009', 'approve',
-    (select official_action_version from public.refund_cases where id = '79600000-0000-4000-8000-000000000009'),
-    'card_refund_pending', 'approved', null, null, null, 450, null, null, false,
-    '79700000-0000-4000-8000-000000000001', null
-  ) ->> 'authorizationId')::uuid;
-reset role;
-
-create temporary table candidate_tamper_snapshot as
-select *
-from public.refund_nayax_lookup_candidates
-where token = '79700000-0000-4000-8000-000000000001';
-grant select on table pg_temp.candidate_tamper_snapshot to service_role;
-
 set local role service_role;
 select ok(
   pg_temp.capture_error($sql$
@@ -1328,33 +1319,6 @@ select ok(
   'A service identity cannot rewrite reviewed Nayax candidate evidence in place'
 );
 
-delete from public.refund_nayax_lookup_candidates
-where token = '79700000-0000-4000-8000-000000000001';
-
-insert into public.refund_nayax_lookup_candidates (
-  token, refund_case_id, actor_user_id, reporting_machine_id, provider_transaction_id, site_id,
-  machine_authorization_time, amount_cents, card_last4, currency_code,
-  evidence_summary, expires_at, created_at
-)
-select
-  token, refund_case_id, actor_user_id, reporting_machine_id,
-  'SAFE-TXN-79600009-ALTERED', site_id,
-  machine_authorization_time, amount_cents, card_last4, currency_code,
-  evidence_summary, expires_at, created_at
-from pg_temp.candidate_tamper_snapshot;
-
-select ok(
-  pg_temp.capture_error($sql$
-    select public.service_apply_refund_official_case_update(
-      (select authorization_id from pg_temp.official_action_test_receipts where receipt_key = 'candidate_tampered'),
-      '79600000-0000-4000-8000-000000000009', 'approve', 'card_refund_pending',
-      null, 'approved', null, null, 450, null,
-      '79700000-0000-4000-8000-000000000001', null
-    )
-  $sql$) like '%authorization payload changed%'
-  and (select status = 'needs_review' and decision is null from public.refund_cases where id = '79600000-0000-4000-8000-000000000009'),
-  'Delete-and-reinsert candidate evidence is detected by the receipt-bound SHA-256 hash'
-);
 reset role;
 
 set local role authenticated;
@@ -1377,17 +1341,24 @@ set grant_reason = 'Official action safety test revision'
 where id = '79400000-0000-4000-8000-000000000001';
 
 set local role service_role;
-select ok(
-  pg_temp.capture_error($sql$
-    select public.service_apply_refund_official_case_update(
-      (select authorization_id from pg_temp.official_action_test_receipts where receipt_key = 'mapping_changed'),
-      '79600000-0000-4000-8000-000000000003', 'approve', 'cash_zelle_pending',
-      null, 'approved', null, null, 650, null, null, null
-    )
-  $sql$) like '%mapping changed%',
-  'A mapping revision between authorization and mutation invalidates the receipt'
+insert into pg_temp.official_action_service_results(result_key,payload)
+select 'mapping_changed',public.service_apply_refund_official_case_update(
+  (select authorization_id from pg_temp.official_action_test_receipts where receipt_key = 'mapping_changed'),
+  '79600000-0000-4000-8000-000000000003', 'approve', 'cash_zelle_pending',
+  null, 'approved', null, null, 650, null, null, null
 );
 reset role;
+select ok(
+  (select payload->>'status'='cash_zelle_pending'
+    from pg_temp.official_action_service_results where result_key='mapping_changed')
+  and (select status='consumed' and consumed_at is not null
+    from public.refund_case_official_action_authorizations
+    where id=(select authorization_id from pg_temp.official_action_test_receipts
+      where receipt_key='mapping_changed'))
+  and (select status='cash_zelle_pending' and decision='approved'
+    from public.refund_cases where id='79600000-0000-4000-8000-000000000003'),
+  'A valid immutable receipt survives a mapping revision after manager confirmation'
+);
 
 set local role authenticated;
 select pg_temp.set_auth_claims(
@@ -1449,7 +1420,7 @@ select ok(
       1,
       'cash_zelle_pending', 'approved', null, null, null, 675, null, null, false, null, null
     )
-  $sql$) like '%Active Machine Manager mapping required%',
+  $sql$) like '%current Machine Manager or a Super-admin must make this decision%',
   'A revoked manager cannot mint a new receipt'
 );
 reset role;
@@ -1618,11 +1589,11 @@ select ok(
     '79000000-0000-4000-8000-000000000003',
     '79600000-0000-4000-8000-000000000007'
   )
-  and not public.can_prepare_nayax_refund_execution(
+  and public.can_prepare_nayax_refund_execution(
     '79000000-0000-4000-8000-000000000004',
     '79600000-0000-4000-8000-000000000007'
   ),
-  'Nayax preparation follows exact Machine Manager mapping, regardless of separate admin access'
+  'Nayax preparation accepts an assigned manager or Super-admin through the same authority check'
 );
 
 set local role authenticated;
@@ -1630,14 +1601,16 @@ select pg_temp.set_auth_claims(
   '79000000-0000-4000-8000-000000000001', 'aal2', 'totp',
   extract(epoch from statement_timestamp())
 );
-insert into pg_temp.official_action_test_receipts (receipt_key, authorization_id)
-select
-  'nayax_execute',
-  (public.admin_authorize_refund_official_action(
+select ok(
+  pg_temp.capture_error($sql$
+  select public.admin_authorize_refund_official_action(
     '79600000-0000-4000-8000-000000000007', 'nayax_execute',
     (select official_action_version from public.refund_cases where id = '79600000-0000-4000-8000-000000000007'),
     'card_refund_pending', 'approved', null, null, null, 500, null, null, false, null, null
-  ) ->> 'authorizationId')::uuid;
+  )
+  $sql$) like '%Use the Refund action%',
+  'The generic browser authorization RPC cannot mint a Nayax execution receipt'
+);
 reset role;
 
 set local role service_role;
@@ -1652,16 +1625,16 @@ select ok(
 reset role;
 
 select ok(
-  (
-    select refund_case.status = 'card_refund_pending'
+  (select refund_case.status = 'card_refund_pending'
       and refund_case.decision = 'approved'
       and refund_case.refund_completed_at is null
       and refund_case.reporting_adjustment_id is null
-      and action_authorization.status = 'authorized'
     from public.refund_cases refund_case
-    join public.refund_case_official_action_authorizations action_authorization
-      on action_authorization.id = (select authorization_id from pg_temp.official_action_test_receipts where receipt_key = 'nayax_execute')
-    where refund_case.id = '79600000-0000-4000-8000-000000000007'
+    where refund_case.id = '79600000-0000-4000-8000-000000000007')
+  and not exists (
+    select 1 from public.refund_case_official_action_authorizations approval_receipt
+    where approval_receipt.refund_case_id='79600000-0000-4000-8000-000000000007'
+      and approval_receipt.action='nayax_execute'
   )
   and not exists (
     select 1
@@ -1673,7 +1646,7 @@ select ok(
         'refund_completed'
       )
   ),
-  'Denied legacy consumption leaves manager authority and card case untouched'
+  'Denied generic Nayax authorization leaves the card case and receipt ledger untouched'
 );
 
 set local role authenticated;
@@ -1723,10 +1696,10 @@ select
 grant select on table pg_temp.nayax_selection_boundary_baseline to service_role;
 
 create temporary table nayax_selection_result (payload jsonb not null);
-grant select, insert on table pg_temp.nayax_selection_result to service_role;
+grant select, insert on table pg_temp.nayax_selection_result to authenticated, service_role;
 
 select ok(
-  has_function_privilege(
+  not has_function_privilege(
     'service_role',
     'public.service_select_refund_nayax_candidate_as_actor(uuid,uuid,bigint,uuid,text)',
     'execute'
@@ -1740,17 +1713,27 @@ select ok(
     'anon',
     'public.service_select_refund_nayax_candidate_as_actor(uuid,uuid,bigint,uuid,text)',
     'execute'
+  )
+  and has_function_privilege(
+    'authenticated',
+    'public.admin_select_refund_nayax_candidate_current_user_v1(uuid,bigint,uuid,text)',
+    'execute'
   ),
-  'Only the service workflow can invoke mapped-manager Nayax candidate selection'
+  'The private actor-parameter selector is closed and signed-in case managers use the current-user selector'
 );
 
-set local role service_role;
+set local role authenticated;
+select pg_temp.set_auth_claims(
+  '79000000-0000-4000-8000-000000000001',
+  'aal1',
+  'password',
+  extract(epoch from statement_timestamp())
+);
 select lives_ok(
   format(
     $sql$
       insert into pg_temp.nayax_selection_result (payload)
-      select public.service_select_refund_nayax_candidate_as_actor(
-        '79000000-0000-4000-8000-000000000001',
+      select public.admin_select_refund_nayax_candidate_current_user_v1(
         '79600000-0000-4000-8000-000000000009',
         %s,
         '79700000-0000-4000-8000-000000000001',
@@ -1784,7 +1767,7 @@ select ok(
       and decision is null
       and refund_amount_cents = 450
       and payment_amount_cents = 440
-      and matched_nayax_transaction_id = 'SAFE-TXN-79600009-ALTERED'
+      and matched_nayax_transaction_id = 'SAFE-TXN-79600009'
       and matched_nayax_amount_cents = 450
       and matched_nayax_currency_code = 'USD'
       and correlation_status = 'matched'
@@ -1820,7 +1803,6 @@ select ok(
   'Evidence selection creates no authorization, provider attempt, or official completion evidence'
 );
 
-set local role service_role;
 select ok(
   pg_temp.capture_error(format(
     $sql$
@@ -1862,7 +1844,6 @@ select ok(
   ),
   'An exact replay succeeds despite the old review version and creates no second event'
 );
-reset role;
 
 update public.reporting_machines
 set nayax_refunds_enabled = false
@@ -1995,7 +1976,6 @@ values
     now() - interval '1 minute'
   );
 
-set local role service_role;
 select ok(
   pg_temp.capture_error($sql$
     select public.service_select_refund_nayax_candidate_as_actor(
@@ -2042,7 +2022,6 @@ select ok(
   )) like 'P4602:%expired or belongs to another review session%',
   'Expired Nayax lookup evidence cannot be selected'
 );
-reset role;
 
 select * from finish();
 rollback;

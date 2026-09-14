@@ -308,7 +308,7 @@ async function ensureManagerAssignment(supabase, sponsorUser, email) {
         .from('reporting_machine_refund_managers')
         .update({
           manager_email: email,
-          grant_reason: 'Local refund operations agent UAT fixture',
+          grant_reason: 'Local refund case UAT fixture',
         })
         .eq('id', existing.id)
         .select('id'),
@@ -327,7 +327,7 @@ async function ensureManagerAssignment(supabase, sponsorUser, email) {
         manager_user_id: sponsorUser.id,
         manager_email: email,
         status: 'active',
-        grant_reason: 'Local refund operations agent UAT fixture',
+        grant_reason: 'Local refund case UAT fixture',
         granted_by: sponsorUser.id,
       },
     ],
@@ -349,7 +349,7 @@ async function seedFixtures(supabase, sponsorUser, email) {
         name: 'Refund UAT Synthetic Account',
         account_type: 'internal',
         status: 'active',
-        notes: 'Local synthetic fixture for refund operations agent UAT. No real customer data.',
+        notes: 'Local synthetic fixture for refund case UAT. No real customer data.',
         created_by: sponsorUser.id,
       },
     ],
@@ -386,6 +386,9 @@ async function seedFixtures(supabase, sponsorUser, email) {
         machine_label: 'Refund UAT Kiosk',
         machine_type: 'commercial',
         sunze_machine_id: 'refund-uat-kiosk-local',
+        nayax_machine_id: 'REFUND-UAT-KIOSK',
+        nayax_account_key: 'REFUND_UAT_ACCOUNT',
+        nayax_refunds_enabled: true,
         status: 'active',
         refund_intake_enabled: true,
         refund_public_display_label: 'Refund UAT Kiosk',
@@ -434,25 +437,39 @@ async function seedFixtures(supabase, sponsorUser, email) {
         customer_email: 'customer-card-uat@example.test',
         customer_name: 'Synthetic Card Customer',
         customer_phone: '555-0100',
-        issue_summary: 'Synthetic card request with a matched transaction ready for manager completion.',
+        issue_summary: 'Synthetic card request with a System-prepared matched transaction ready for manager approval.',
         incident_at: isoMinutesAgo(45),
         payment_method: 'card',
-        payment_amount_cents: 1200,
+        payment_amount_cents: 1000,
         card_last4: '4242',
-        card_wallet_used: true,
-        status: 'card_refund_pending',
+        card_last4_provenance: 'physical_card',
+        card_wallet_used: false,
+        payment_interaction: 'tap_card',
+        status: 'needs_review',
         priority: 'normal',
         correlation_status: 'matched',
         correlation_source: 'nayax',
         correlation_confidence: 0.96,
-        correlation_summary: 'Synthetic Nayax match found for agent UAT review.',
-        matched_nayax_transaction_id: 'UAT-NAYAX-410',
+        correlation_summary: 'System saved the exact $10.90 Nayax provider total for manager approval.',
+        matched_nayax_transaction_id: 'RF423906B2-SALE',
+        matched_nayax_site_id: 17,
+        matched_nayax_machine_auth_time: isoMinutesAgo(45),
+        matched_nayax_amount_cents: 1090,
+        matched_nayax_card_last4: '4242',
+        matched_nayax_currency_code: 'USD',
         assigned_manager_id: sponsorUser.id,
-        decision: 'approved',
-        decision_reason: 'Synthetic UAT approval path.',
-        decided_by: sponsorUser.id,
-        decided_at: isoMinutesAgo(25),
-        refund_amount_cents: 1200,
+        decision: null,
+        decision_reason: null,
+        decided_by: null,
+        decided_at: null,
+        refund_amount_cents: 1090,
+        nayax_lookup_generation: 1,
+        nayax_lookup_status: 'match_found',
+        nayax_match_execution_eligible: true,
+        nayax_refund_execution_status: 'not_requested',
+        manual_refund_reference: null,
+        refund_completed_by: null,
+        refund_completed_at: null,
         intake_meta: {
           fixture: 'refund-operations-local-uat',
           privacy: 'synthetic-no-real-customer-data',
@@ -561,6 +578,81 @@ async function seedFixtures(supabase, sponsorUser, email) {
     'Seed synthetic completed cash reporting adjustment'
   );
 
+  await upsertRows(
+    supabase,
+    'refund_nayax_lookup_candidates',
+    [
+      {
+        token: '41000000-0000-4000-8000-000000000401',
+        refund_case_id: FIXTURE.cardCaseId,
+        lookup_generation: 1,
+        actor_user_id: sponsorUser.id,
+        reporting_machine_id: FIXTURE.machineId,
+        provider_transaction_id: 'RF423906B2-SALE',
+        site_id: 17,
+        machine_authorization_time: isoMinutesAgo(45),
+        amount_cents: 1090,
+        card_last4: '4242',
+        currency_code: 'USD',
+        evidence_summary: {
+          source: 'nayax_api',
+          selection_allowed: true,
+          is_recommended: true,
+          one_click_eligible: false,
+          recommendation_state: 'high_confidence',
+          confidence_class: 'exact_match',
+          policy_version: '2026-09-13.v1',
+          lookup_account_scope: 'REFUND_UAT_ACCOUNT',
+          lookup_provider_machine_id: 'REFUND-UAT-KIOSK',
+          provider_machine_id: 'REFUND-UAT-KIOSK',
+          customer_fact_version: 1,
+          customer_credential_class: 'customer_physical_contactless_pan',
+          provider_identifier_class: 'last_sales_present_identifier_unverified',
+          card_last4_comparison: 'exact_support',
+          card_network_comparison: 'missing',
+          payment_interaction_comparison: 'unknown',
+          same_identifier_equivalence_proven: false,
+          identifier_review_state: 'exact_support',
+          machine_authorization_time_source: 'MachineAuthorizationTime',
+          machine_authorization_time_raw: isoMinutesAgo(45),
+          machine_authorization_at: isoMinutesAgo(45),
+          machine_time_resolution: 'exact',
+          provider_time_resolution: 'exact',
+          provider_time_source: 'authorization_gmt',
+          authorized_at: isoMinutesAgo(45),
+          provider_processing_time_delta_minutes: 0,
+          transaction_occurrence_comparable: false,
+          transaction_occurrence_semantics: 'unknown',
+          time_delta_minutes: null,
+          payment_status: 'approved',
+          provider_refund_state: 'clear',
+          duplicate_provider_record: false,
+          card_last4: '4242',
+          currency_code: 'USD',
+          amount_cents: 1090,
+          amount_delta_cents: 90,
+          reason_codes: ['machine_exact', 'provider_sale_approved'],
+          match_reason: 'Exact saved System candidate; provider total is $10.90 for the $10.00 customer estimate.',
+          customer_correction_fields: [],
+          hard_exclusions: [],
+          manual_review_reasons: [],
+        },
+        expires_at: new Date(now.getTime() + 60 * 60 * 1000).toISOString(),
+      },
+    ],
+    'Seed System-prepared exact card transaction'
+  );
+
+  for (const [table, id, label] of [
+    ['refund_case_events', '41000000-0000-4000-8000-000000000201', 'Remove stale approved UAT event'],
+    ['refund_case_messages', '41000000-0000-4000-8000-000000000302', 'Remove stale approved UAT message'],
+  ]) {
+    assertSupabase(
+      await supabase.from(table).delete().eq('id', id),
+      label
+    );
+  }
+
   assertSupabase(
     await supabase
       .from('refund_cases')
@@ -578,9 +670,9 @@ async function seedFixtures(supabase, sponsorUser, email) {
         id: '41000000-0000-4000-8000-000000000201',
         refund_case_id: FIXTURE.cardCaseId,
         actor_user_id: sponsorUser.id,
-        event_type: 'manager_approved',
-        message: 'Synthetic manager approved card refund and recorded the matched transaction.',
-        metadata: { fixture: 'refund-operations-local-uat' },
+        event_type: 'nayax_match_selected',
+        message: 'Synthetic case worker saved the exact $10.90 provider transaction for manager approval.',
+        metadata: { fixture: 'refund-operations-local-uat', actor_role: 'case_worker' },
         created_at: isoMinutesAgo(25),
       },
       {
@@ -621,19 +713,6 @@ async function seedFixtures(supabase, sponsorUser, email) {
         sent_at: isoMinutesAgo(42),
         created_by: sponsorUser.id,
         created_at: isoMinutesAgo(43),
-      },
-      {
-        id: '41000000-0000-4000-8000-000000000302',
-        refund_case_id: FIXTURE.cardCaseId,
-        message_type: 'approved',
-        status: 'sent',
-        recipient_email: 'customer-card-uat@example.test',
-        subject: 'Your Bloomjoy refund request RF-UAT-CARD was approved',
-        body: 'Synthetic approved body for local UAT only.',
-        template_key: 'refund_approved_v1',
-        sent_at: isoMinutesAgo(24),
-        created_by: sponsorUser.id,
-        created_at: isoMinutesAgo(25),
       },
       {
         id: '41000000-0000-4000-8000-000000000303',
@@ -752,7 +831,7 @@ async function run() {
     assertRemoteSeedSafety(args, supabaseUrl);
   }
 
-  console.log('Refund Operations local UAT setup');
+  console.log('Refund case local UAT setup');
   console.log(`- Env files loaded: ${loadedFiles.length ? loadedFiles.join(', ') : 'process env only'}`);
   console.log(`- Supabase URL: ${supabaseUrl}`);
   console.log(`- Target: ${args.target}`);

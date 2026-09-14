@@ -158,14 +158,12 @@ select is(public.refund_purchase_correction_request_fields(
   array['incident_time','incident_time_source']::text[],
   'Grouped proved purchases request the distinguishing time and its source despite an unrelated hard exclusion');
 
-set local role service_role;
 select throws_ok($$select public.service_select_refund_nayax_candidate_as_actor(
   'cf110000-0000-4000-8000-000000000001','cf150000-0000-4000-8000-000000000001',
   (select official_action_version from public.refund_cases where id='cf150000-0000-4000-8000-000000000001'),
   'cf160000-0000-4000-8000-000000000003','correct_card')$$,
   'P4604','This Nayax transaction has a safety block and cannot be selected',
-  'The unrelated hard-excluded candidate remains nonselectable');
-reset role;
+  'The private selection guard keeps the unrelated hard-excluded candidate nonselectable');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
   where refund_case_id='cf150000-0000-4000-8000-000000000001'),0,
   'Reading the correction scope and rejecting an excluded candidate create no payment attempt');

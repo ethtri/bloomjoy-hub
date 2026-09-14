@@ -1,6 +1,6 @@
 # Refund workflow
 
-Last updated: 2026-09-13. Owner decision: #1364.
+Last updated: 2026-09-14. Owner decision: #1364.
 
 ## What we are doing
 
@@ -106,10 +106,20 @@ The Manager reviews the selected transaction and makes one decision. Approval
 authorizes the System to submit the refund through the Nayax API for the exact
 selected transaction and its provider total.
 
+“Assigned Machine Manager or Super-admin” is the complete approval rule. There
+is no separate approval-access enrollment, temporary manager grant, or second
+session check to complete after that decision.
+
 Confirmed provider success completes the payment and supports the customer
 completion message and reporting. A timeout or unknown provider outcome pauses
 only that payment while the System reconciles it. It never permits a blind retry
 and never blocks unrelated refunds.
+
+When a case worker records an exact Nayax result, the portal uses the machine or
+location timezone by default and shows it beside the evidence time. A different
+timezone is used only when the Nayax record clearly shows one. The saved evidence
+includes both the exact time and the source timezone, so the reviewer’s computer
+timezone cannot change the result.
 
 The exact request and response contract is in
 [NAYAX_REFUND_WORKING_CONTRACT.md](NAYAX_REFUND_WORKING_CONTRACT.md). That

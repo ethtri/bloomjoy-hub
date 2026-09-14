@@ -12,7 +12,6 @@ import {
   buildNayaxRefundRequestBody,
   classifyNayaxRefundResponse,
   createNayaxRefundProviderAdapter as createNayaxRefundProviderAdapterRaw,
-  executeNayaxRefundApprovalContinuation,
   executeNayaxRefundApprovalOnly,
   executeNayaxRefundProvider as executeNayaxRefundProviderRaw,
   freezeNayaxRefundEvidence,
@@ -673,33 +672,6 @@ deepEqual(
   successfulStages.map(({ stage, event }) => `${stage}_${event}`),
   ['request_started', 'request_result', 'approve_started', 'approve_result'],
   'Durable stage callbacks bracket each provider POST in exact order.',
-);
-
-const continuationCalls = [];
-const continuationStages = [];
-const continuationResult = await executeNayaxRefundApprovalContinuation({
-  contract,
-  approveToken: 'synthetic-approve-token',
-  transactionId: '123456789',
-  siteId: 42,
-  machineAuthorizationTime: '2026-07-22T17:30:00Z',
-  fetchImpl: async (url, options) => {
-    continuationCalls.push({ url, options });
-    return response({ Result: 'True', Status: 'Approved' });
-  },
-  onStageEvent: async (stage) => continuationStages.push(stage),
-});
-check(continuationResult.executed, 'Current-contract continuation accepts the exact configured approval success pair.');
-equal(continuationCalls.length, 1, 'Continuation makes exactly one provider call.');
-check(
-  continuationCalls[0].url.endsWith('/payment/refund-approve') &&
-    !continuationCalls[0].url.includes('refund-request'),
-  'Continuation cannot create a second request.',
-);
-deepEqual(
-  continuationStages.map(({ stage, event }) => `${stage}_${event}`),
-  ['approve_started', 'approve_result'],
-  'Continuation brackets only the approval call in the current journal.',
 );
 
 let noDatabaseDecisionCalls = 0;
@@ -1389,25 +1361,6 @@ throws(() => createNayaxRefundProviderAdapter({
   evidence: { ...frozenEvidence, refundEmailListMode: 'omit' },
 }), /email mode does not match frozen evidence/, 'An omitted-email reservation cannot rebuild an empty-email request.');
 
-const continuationAdapterCalls = [];
-const continuationAdapter = createNayaxRefundProviderAdapter({
-  contract: baseContract,
-  requestToken: 'dedicated-request-write-token',
-  approveToken: 'dedicated-approve-write-token',
-  evidence: { ...frozenEvidence, transactionId: '123456789' },
-  fetchImpl: async (url) => {
-    continuationAdapterCalls.push(url);
-    return response({ Result: 'True', Status: 'Approved' });
-  },
-});
-const continuationAdapterOutcome = await continuationAdapter.execute(
-  orchestrationRequest,
-  'approval_continuation',
-);
-equal(continuationAdapterOutcome.kind, 'success', 'Adapter maps same-attempt approval continuation through the current contract.');
-equal(continuationAdapterCalls.length, 1, 'Continuation adapter performs only one approval POST.');
-check(!continuationAdapterCalls[0].includes('refund-request'), 'Continuation adapter never reaches the request endpoint.');
-
 throws(
   () => createNayaxRefundProviderAdapter({
     contract: baseContract,
@@ -1512,8 +1465,8 @@ const handler = fs.readFileSync(
   path.join(repoRoot, 'supabase/functions/nayax-card-refund/index.ts'),
   'utf8',
 );
-const officialAction = fs.readFileSync(
-  path.join(repoRoot, 'supabase/functions/_shared/refund-official-action.ts'),
+const systemWorker = fs.readFileSync(
+  path.join(repoRoot, 'supabase/functions/refund-case-automation-sweep/index.ts'),
   'utf8',
 );
 const gates = fs.readFileSync(
@@ -1594,30 +1547,31 @@ check(
   handler.includes('NAYAX_REFUND_MANAGER_CONTRACT_JSON') &&
     handler.includes('NAYAX_REFUND_MACHINE_AUTHORIZATION_TIME_MODE') &&
     !handler.includes('DEFAULT_NAYAX_MANAGER_CONTRACT') &&
-    handler.includes('NAYAX_REFUND_REQUEST_WRITE_TOKEN_${accountKey}') &&
-    handler.includes('NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}') &&
+    handler.includes('admin_approve_selected_nayax_refund_for_system_v1') &&
+    handler.includes('status: "system_finishing"') &&
+    handler.includes('providerAttempted: false') &&
+    !handler.includes('orchestrateNayaxRefund') &&
+    !handler.includes('createNayaxRefundProviderAdapter') &&
+    systemWorker.includes('NAYAX_REFUND_REQUEST_WRITE_TOKEN_${accountKey}') &&
+    systemWorker.includes('NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}') &&
     !handler.includes('NAYAX_LYNX_API_TOKEN_${normalAccountKey}') &&
-    handler.includes('provider,') &&
-    handler.includes('service_reserve_nayax_refund_manager_action_v5') &&
-    handler.includes('service_record_nayax_refund_provider_stage_v4_diagnostics') &&
-    handler.includes('nayax-restricted-response-diagnostics-v2') &&
-    handler.includes('service_get_nayax_refund_provider_journal_capability_v3') &&
-    handler.includes('p_media_type_class:') &&
-    handler.includes('p_body_kind:') &&
-    handler.includes('p_semantic_pair_matched:') &&
+    systemWorker.includes('service_claim_due_nayax_refund_attempts_v1') &&
+    systemWorker.includes('service_record_nayax_refund_provider_stage_v4_diagnostics') &&
+    systemWorker.includes('service_settle_nayax_refund_attempt') &&
+    systemWorker.includes('p_media_type_class:') &&
+    systemWorker.includes('p_body_kind:') &&
+    systemWorker.includes('p_semantic_pair_matched:') &&
     handler.includes('db-authoritative-exact-200-json-v1') &&
     handler.includes('nayax-response-envelope-v1') &&
-    handler.includes('approvalAuthorized: decision.approvalAuthorized === true') &&
-    handler.includes('productionScope: "manager_approved_original_transaction"') &&
+    systemWorker.includes('approvalAuthorized: decision.approvalAuthorized === true') &&
     !gates.includes('remainingValueVerified') &&
     handler.includes('service_get_refund_nayax_execution_context_v3') &&
-    handler.includes('p_execution_context_hash: refundCase.executionContext!.contextHash') &&
     !gates.includes('provider_remaining_value_unverified') &&
     !gates.includes('NAYAX_REFUND_BROAD_REOPEN_APPROVED') &&
     !gates.includes('NAYAX_REFUND_CANARY_CASE_ID') &&
     !handler.includes('resolveNayaxRefundCaseExecutionConfig') &&
     !handler.includes('provider: disabledNayaxProviderAdapter'),
-  'The reviewed provider contract binds the automatic exact selected purchase at the existing reservation boundary.',
+  'The manager request saves approval only; the scheduled System worker binds and executes the exact selected purchase.',
 );
 check(
   authoritativeJournalMigration.includes('service_record_nayax_refund_provider_stage_v2') &&
@@ -1641,31 +1595,12 @@ check(
   'Managers receive a privacy-safe reconciliation alert with a follow-up owner and no pause on other eligible refunds.',
 );
 check(
-  handler.includes('NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_SUPPORTED = false') &&
-    handler.includes('pending_approval_recovery_retired') &&
-    handler.includes('...executionConfig.blocks') &&
-    handler.includes('NAYAX_REFUND_APPROVE_WRITE_TOKEN_${accountKey}') &&
-    handler.includes('NAYAX_REFUND_PRODUCTION_BASE_URL') &&
-    handler.includes('provider_contract_host_invalid') &&
-    handler.includes('areNayaxRefundWriteCredentialsReady') &&
-    handler.includes('approval_contract_version_invalid') &&
-    handler.includes('Unsupported operation.') &&
-    handler.includes('executeNayaxRefundApprovalOnly') &&
-    handler.includes('service_reserve_nayax_pending_approval_recovery') &&
-    handler.includes('service_settle_nayax_pending_approval_recovery') &&
-    pendingApprovalRecoveryMigration.includes("provider_status is distinct from 'request_unknown_contract_mismatch'") &&
-    pendingApprovalRecoveryMigration.includes("journal.stage = 'approve'") &&
-    pendingApprovalRecoveryMigration.includes('nayax_refund_attempt_id uuid not null unique') &&
-    !pendingApprovalRecoveryMigration.includes('/payment/refund-request'),
-  'The legacy pending-request recovery is retired and also retains dedicated credentials, full gates, and its single-use forensic boundary.',
-);
-check(
   pendingApprovalRecoveryMigration.includes('classification_digest') &&
     pendingApprovalRecoveryMigration.includes('payload_redacted') &&
     pendingApprovalRecoveryMigration.includes('guard_refund_nayax_provider_stage_immutable') &&
     authoritativeJournalV3Migration.includes('body_length_bucket') &&
     authoritativeJournalV3Migration.includes('result_value_type') &&
-    handler.includes('buildRedactedNayaxStageDigest'),
+    systemWorker.includes('buildRedactedNayaxStageDigest'),
   'Normal provider stages retain only immutable keyed redacted envelope evidence.',
 );
 check(
@@ -1678,28 +1613,16 @@ check(
   'The manager-session bridge reuses mapped-manager authority and the existing atomic reservation without making provider calls in SQL.',
 );
 check(
-  handler.includes('machine.nayax_refunds_enabled !== true') &&
-    handler.includes('machine.nayax_refund_max_amount_cents !== amountCents') &&
-    handler.includes('service_validate_nayax_controlled_pilot_postarm') &&
-    handler.indexOf('service_validate_nayax_controlled_pilot_postarm') <
-      handler.indexOf('authorizeRefundOfficialAction({') &&
-    pilotMigration.includes(
-      'machine.nayax_refunds_enabled is distinct from true',
-    ) &&
-    pilotMigration.includes(
-      'machine.nayax_refund_max_amount_cents is distinct from pilot.amount_cents',
-    ),
-  'The pilot requires its exact authorization-bound post-arm machine and cap before TOTP.',
+  !handler.includes('controlled_owner_pilot') &&
+    !handler.includes('service_validate_nayax_controlled_pilot_postarm') &&
+    !handler.includes('service_record_nayax_controlled_pilot_stage') &&
+    !handler.includes('service_settle_nayax_controlled_pilot_attempt'),
+  'The live Edge function has no retired controlled-owner pilot provider path.',
 );
 check(
-  officialAction.includes('admin_consume_refund_nayax_controlled_pilot_intent') &&
-    pilotMigration.includes(
-      'reservation := public.service_reserve_and_consume_nayax_controlled_pilot_attempt(',
-    ) &&
-    !handler.includes('service_reserve_and_consume_nayax_controlled_pilot_attempt') &&
-    handler.includes('service_record_nayax_controlled_pilot_stage') &&
-    handler.includes('service_settle_nayax_controlled_pilot_attempt'),
-  'The custom TOTP RPC atomically reserves; Edge has no separate reservation gap.',
+  pilotMigration.includes('service_reserve_and_consume_nayax_controlled_pilot_attempt') &&
+    !handler.includes('service_reserve_and_consume_nayax_controlled_pilot_attempt'),
+  'Historical pilot evidence remains readable while live execution is absent.',
 );
 check(
   pilotMigration.includes("'request_started', 'request_result', 'approve_started', 'approve_result'") &&
@@ -1720,8 +1643,6 @@ check(/^NAYAX_REFUND_MACHINE_AUTHORIZATION_TIME_MODE=$/m.test(envExample), 'The 
 check(/^NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED=false$/m.test(envExample), 'Normal manager contract confirmation defaults to false.');
 check(/^NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED=false$/m.test(envExample), 'Approval permission confirmation defaults to false.');
 check(!/NAYAX_REFUND_(?:CANARY|BROAD_REOPEN|MAX_AMOUNT|DAILY_)/m.test(envExample), 'Retired canary and cap settings are absent from the production environment template.');
-check(/^NAYAX_REFUND_PENDING_APPROVAL_RECOVERY_ENABLED=false$/m.test(envExample), 'Pending-request recovery defaults to disabled.');
-check(/^NAYAX_REFUND_PENDING_APPROVAL_CONTRACT_JSON=$/m.test(envExample), 'The approval-only contract defaults to unset.');
 check(/^NAYAX_REFUND_REQUEST_WRITE_TOKEN_ACCOUNT_KEY=$/m.test(envExample), 'The dedicated request write credential defaults to unset.');
 check(/^NAYAX_REFUND_APPROVE_WRITE_TOKEN_ACCOUNT_KEY=$/m.test(envExample), 'The dedicated approval write credential defaults to unset.');
 check(/^NAYAX_REFUND_EXECUTOR_ASSERTION=$/m.test(envExample), 'The function-scoped executor assertion defaults to unset.');

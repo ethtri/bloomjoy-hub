@@ -30,13 +30,17 @@ insert into public.customer_accounts(id,name,account_type)
 values('a8700000-0000-4000-8000-000000000001','Lookup work fixture','internal');
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('a8700000-0000-4000-8000-000000000009','authenticated','authenticated',
-  'lookup-operations@example.invalid','{}','{}');
-insert into public.admin_roles(user_id,role,active)
-values('a8700000-0000-4000-8000-000000000009','super_admin',true);
+  'lookup-manager@example.invalid','{}','{}');
 insert into public.reporting_locations(id,account_id,name,timezone)
 values('a8700000-0000-4000-8000-000000000002','a8700000-0000-4000-8000-000000000001','Lookup place','America/Los_Angeles');
 insert into public.reporting_machines(id,account_id,location_id,machine_label,status,nayax_machine_id,nayax_account_key)
 values('a8700000-0000-4000-8000-000000000003','a8700000-0000-4000-8000-000000000001','a8700000-0000-4000-8000-000000000002','Lookup machine','active','lookup-machine','default');
+insert into public.reporting_machine_refund_managers(
+  reporting_machine_id,manager_user_id,manager_email,grant_reason
+) values(
+  'a8700000-0000-4000-8000-000000000003','a8700000-0000-4000-8000-000000000009',
+  'lookup-manager@example.invalid','Lookup recovery fixture'
+);
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
   customer_email,issue_summary,incident_at,incident_timezone,incident_time_resolution,
   payment_method,payment_amount_cents,card_last4,status,correlation_status,correlation_source)
@@ -101,8 +105,8 @@ select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
     'lifecycle',jsonb_build_object('managerAction','{}'::jsonb,'managerQueue','{}'::jsonb,
       'lookup','{}'::jsonb,'operations','{}'::jsonb),
     'nayaxLookupSummary',jsonb_build_object('lookupStatus','no_match'))),true)
-  ->0->'nayaxLookupWork'->>'state'),'refund_operations',
-  'Incomplete provider history is actionable internal manager work');
+  ->0->'nayaxLookupWork'->>'state'),'machine_manager',
+  'Incomplete provider history is actionable Machine Manager work');
 select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
   jsonb_build_array(jsonb_build_object('id','a8700000-0000-4000-8000-000000000011',
     'lifecycle',jsonb_build_object('managerAction','{}'::jsonb,'managerQueue','{}'::jsonb,
@@ -142,7 +146,7 @@ select throws_like($$
       where id='a8700000-0000-4000-8000-000000000011'),
     'a8700000-0000-4000-8000-000000000009'
   )
-$$,'%Automatic transaction checks must be exhausted first%',
+$$,'%not ready for another read-only transaction check%',
   'A second incomplete-history refresh is blocked');
 
 update public.refund_cases set nayax_lookup_status='lookup_failed',
@@ -153,13 +157,13 @@ select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
   jsonb_build_array(jsonb_build_object('id','a8700000-0000-4000-8000-000000000012',
     'canSelectNayaxCandidate',true,'lifecycle',jsonb_build_object('managerAction','{}'::jsonb,
       'managerQueue','{}'::jsonb,'lookup','{}'::jsonb,'operations','{}'::jsonb),
-    'nayaxLookupSummary','{}'::jsonb)),true)->0->'nayaxLookupWork'->>'state'),'refund_operations',
-  'An exhausted automatic retry routes to Refund Operations');
+    'nayaxLookupSummary','{}'::jsonb)),true)->0->'nayaxLookupWork'->>'state'),'machine_manager',
+  'An exhausted automatic retry routes to the Machine Manager');
 select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
   jsonb_build_array(jsonb_build_object('id','a8700000-0000-4000-8000-000000000012',
     'lifecycle',jsonb_build_object('managerAction','{}'::jsonb,'managerQueue','{}'::jsonb,
       'lookup','{}'::jsonb,'operations','{}'::jsonb),'nayaxLookupSummary','{}'::jsonb)),true)
-  ->0->'lifecycle'->'managerAction'->>'owner'),'Refund Operations',
+  ->0->'lifecycle'->'managerAction'->>'owner'),'Machine Manager',
   'Manager action and case-owned work agree on the owner');
 
 select ok(not has_function_privilege('authenticated',
@@ -231,15 +235,15 @@ select ok(not has_function_privilege('authenticated',
   'public.service_begin_refund_nayax_operations_lookup(uuid,bigint,uuid)','execute')
   and has_function_privilege('service_role',
   'public.service_begin_refund_nayax_operations_lookup(uuid,bigint,uuid)','execute'),
-  'The deliberate Operations check is server-only');
+  'The deliberate read-only check is server-only');
 select ok(
   pg_get_functiondef('public.service_begin_refund_nayax_operations_lookup(uuid,bigint,uuid)'::regprocedure)
-    like '%is_super_admin(p_actor_user_id)%'
+    like '%can_manage_refund_case(p_actor_user_id,case_row.id)%'
   and pg_get_functiondef('public.service_begin_refund_nayax_operations_lookup(uuid,bigint,uuid)'::regprocedure)
-    like '%Automatic transaction checks must be exhausted first%'
+    like '%not ready for another read-only transaction check%'
   and pg_get_functiondef('public.service_begin_refund_nayax_operations_lookup(uuid,bigint,uuid)'::regprocedure)
     like '%refund_authoritative_receipts%',
-  'Operations checks require current authority, automatic exhaustion, and no payment evidence');
+  'Read-only checks require current case authority, automatic exhaustion, and no payment evidence');
 
 select ok(
   pg_get_functiondef('public.service_claim_due_refund_nayax_lookups(integer)'::regprocedure)

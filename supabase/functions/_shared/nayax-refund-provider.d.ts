@@ -162,21 +162,6 @@ export function executeNayaxRefundApprovalOnly(input: {
   executed: boolean;
 }>;
 
-export function executeNayaxRefundApprovalContinuation(input: {
-  contract: NayaxRefundProviderContract;
-  approveToken: string;
-  transactionId: string | number;
-  siteId: number;
-  machineAuthorizationTime: string;
-  fetchImpl?: typeof fetch;
-  timeoutMs?: number;
-  onStageEvent?: (event: NayaxControlledPilotStageEvent) => Promise<void>;
-}): Promise<{
-  request: null;
-  approve: NayaxControlledPilotStageResult;
-  executed: boolean;
-}>;
-
 export function buildRedactedNayaxStageDigest(input: {
   journalSecret: string;
   attemptId: string;
@@ -227,7 +212,7 @@ export function createNayaxRefundProviderAdapter(input: {
     idempotencyKey: string;
     amountCents: number;
     currencyCode: "USD";
-  }, executionPlan?: "request_and_approve" | "approval_continuation"): Promise<{
+  }): Promise<{
     kind: "success" | "rejected" | "timeout" | "unknown";
     providerReference?: string | null;
     providerStatus?: string | null;

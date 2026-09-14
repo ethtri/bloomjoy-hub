@@ -78,6 +78,23 @@ Deno.test("provider configuration never hides a database safety block", () => {
   assertEquals(result.transactionConfirmed, true);
 });
 
+Deno.test("a saved approval is readable as System-owned work", () => {
+  assertEquals(
+    parseDatabaseRefundReadiness({
+      ...databaseReady,
+      canIssueCardRefund: false,
+      blockReason: "system_finishing",
+      approvalPendingExecution: true,
+    }),
+    {
+      ...databaseReady,
+      canIssueCardRefund: false,
+      blockReason: "system_finishing",
+      approvalPendingExecution: true,
+    },
+  );
+});
+
 Deno.test("a normal transaction amount needs no balance preflight or launch cap", () => {
   const result = mergeRuntimeRefundReadiness({
     databaseReadiness: {
@@ -103,7 +120,7 @@ Deno.test("unknown database values fail closed without leaking internals", () =>
     }),
     {
       transactionConfirmed: true,
-      approvalContinuationReady: false,
+      approvalPendingExecution: false,
       canIssueCardRefund: false,
       blockReason: "provider_unavailable",
       refundAmountCents: 700,

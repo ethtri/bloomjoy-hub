@@ -183,12 +183,12 @@ export const deriveRefundTransactionViewState = ({
             ? 'Retry pending'
             : 'Needs attention',
       description: setupNeeded
-        ? 'Check the machine\'s Nayax connection. Use Nayax directly if Bloomjoy Hub still cannot search. The customer does not need to repeat details.'
+        ? 'Use Nayax for read-only transaction research only and report the blocked search. Never issue or record a refund there. The customer does not need to repeat details.'
         : historyIncomplete
           ? incompleteDescription
         : retryAvailable
           ? 'Bloomjoy does not have current transaction results to show. It will run one more read-only check automatically. No refund was issued.'
-          : 'Bloomjoy does not have current transaction results to show. Search the same machine in Nayax and report the missing portal fallback. No refund was issued.',
+          : 'Bloomjoy does not have current transaction results to show. Report the blocked card-refund search. No refund was issued and no manual card completion is available.',
       tone: 'warning',
       showCandidates: false,
     };

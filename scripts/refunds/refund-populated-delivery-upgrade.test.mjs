@@ -58,16 +58,33 @@ test('every historical message guard is extracted from its actual applied migrat
   assert.ok(sql.includes('probe_old_family_backfill'));
 });
 
-test('settled completion delivery reuses the actual guarded reserve/settle fixture before Gmail delivery', () => {
-  const original = fs.readFileSync(path.join(repoRoot, 'supabase/tests/refund_nayax_provider_orchestration.sql'), 'utf8').replaceAll('\r\n', '\n');
+test('settled completion delivery reuses the current System queue and canonical settlement before Gmail delivery', () => {
+  const original = fs.readFileSync(path.join(repoRoot, 'supabase/tests/refund_single_manager_gate.sql'), 'utf8').replaceAll('\r\n', '\n');
   const sql = buildSettledCompletionDeliveryTest(original);
-  assert.ok(sql.includes('public.service_reserve_and_consume_nayax_refund_attempt_v2('));
+  assert.ok(sql.includes('public.service_claim_due_nayax_refund_attempts_v1('));
+  assert.ok(sql.includes('grant select on pg_temp.nayax_provider_results to service_role;'));
+  assert.ok(sql.includes('public.service_record_nayax_refund_provider_stage_v4_diagnostics('));
+  assert.ok(sql.includes("record_single_gate_success_stage('request','started',null)"));
+  assert.ok(sql.includes("record_single_gate_success_stage('request','result','accepted')"));
+  assert.ok(sql.includes("record_single_gate_success_stage('approve','started',null)"));
+  assert.ok(sql.includes("record_single_gate_success_stage('approve','result','succeeded')"));
+  assert.ok(sql.includes('Refund status updated successfully, but the email could not be sent'));
+  assert.ok(sql.includes("p_business_status=>case when p_event='result' then 'Partial success' end"));
   assert.ok(sql.includes('public.service_settle_nayax_refund_attempt('));
+  assert.ok(
+    sql.indexOf("record_single_gate_success_stage('approve','result','succeeded')") <
+      sql.indexOf('public.service_settle_nayax_refund_attempt('),
+    'all four provider stages must be durable before canonical settlement',
+  );
   assert.ok(sql.includes("'completion-claim-replay'"));
+  assert.ok(sql.includes('not invent sent status without provider proof'));
+  assert.doesNotMatch(sql, /update public\.refund_case_messages set status = 'sent'/u);
   assert.ok(sql.includes('public.service_bind_refund_transactional_delivery('));
   assert.ok(sql.includes('public.service_record_refund_transactional_delivery_event('));
+  assert.ok(sql.includes("array['provider_message_id','delivery_transport','delivery_state','delivery_state_updated_at','status','error_message']"));
   assert.doesNotMatch(sql, /provider-gmail-completion-1|select plan\(|session_replication_role|disable\s+trigger/iu);
   assert.ok(sql.trimEnd().endsWith('rollback;'));
+  assert.doesNotMatch(sql, /service_reserve_and_consume_nayax_refund_attempt/);
   assert.throws(() => buildSettledCompletionDeliveryTest(''), /boundary/);
 });
 

@@ -17,17 +17,21 @@ release artifacts do not add steps to the current workflow.
 1. Let the System search Bloomjoy and Nayax before asking the customer for more
    information. Missing mapping, account, timezone, or search coverage is an
    internal defect, not customer work.
-2. The Manager reviews the candidates and selects the exact purchase. The
-   selected Nayax transaction and its evidence remain visible. The recommendation
-   is advisory; a lower-confidence selection is allowed.
-3. The Manager makes one **Approve refund** or **Decline** decision. Approval
-   defaults to the selected transaction's full provider total, including tax.
-4. The server rechecks current Manager authority, exact transaction binding,
-   duplicate/idempotency state, and unresolved prior outcomes before calling
-   Nayax. These checks add no second business approval.
+2. The System saves the single clear high-confidence purchase. When results are
+   ambiguous, a case worker reviews them and saves the exact purchase. The triage
+   actor may differ from the assigned Machine Manager or Super-admin who approves.
+3. The assigned Machine Manager or a Super-admin makes one **Approve refund** or
+   **Decline** decision. Approval defaults to the selected transaction's full
+   provider total, including tax, and atomically queues one System-owned attempt.
+4. The System claims that same frozen attempt, rechecks exact transaction binding
+   and duplicate/idempotency state, and performs the frozen execution plan. These
+   checks add no second business approval.
 5. Confirmed provider success completes the payment and customer update. A
-   timeout or unknown result is reconciled before retrying that transaction;
-   unrelated refunds continue.
+   timeout, unknown result, or error after transport holds that same attempt for
+   verification. Evidence may confirm success or leave it held. Exact DTM or
+   support proof that no refund occurred may advance the same attempt once under
+   the original approval; a provider rejection label alone cannot. There is no
+   blind retry or manual card completion. Cash refunds remain manager-manual.
 
 ### Immediate rollback
 
@@ -72,8 +76,8 @@ Set the following values before launch.
 | `NAYAX_LYNX_API_TOKEN` | Server-only fallback | `nayax-transaction-lookup` | Fallback Nayax Lynx token only when account-specific token names are not used | Technical owner |
 | `NAYAX_REFUND_REQUEST_WRITE_TOKEN_<ACCOUNT_KEY>` | Server-only | `nayax-card-refund` | Dedicated account-scoped refund-request credential; never falls back to a reporting token | Technical owner |
 | `NAYAX_REFUND_APPROVE_WRITE_TOKEN_<ACCOUNT_KEY>` | Server-only | `nayax-card-refund`, `refund-case-automation-sweep` | Dedicated account-scoped refund-approval credential; never falls back to a reporting token | Technical owner |
-| `NAYAX_REFUND_SERVER_CONTINUATION_ENABLED` | Server-only | `refund-case-automation-sweep` | Default `false`; permits only claim-once approval continuation for an already-authorized immutable attempt | Release owner |
-| `NAYAX_REFUND_SERVER_CONTINUATION_ACCOUNT_KEY` | Server-only | `refund-case-automation-sweep` | Normalized exact account whose approval credential may be used by the bounded continuation drain | Technical owner |
+| `NAYAX_REFUND_ATTEMPT_QUEUE_ENABLED` | Server-only | `refund-case-automation-sweep` | Default `false`; enables System processing of already-approved immutable attempts | Release owner |
+| `NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEY` | Server-only | `refund-case-automation-sweep` | Normalized exact account processed by the bounded attempt queue | Technical owner |
 | `NAYAX_REFUND_MANAGER_CONTRACT_JSON` | Server-only | `nayax-card-refund`, `refund-case-admin-update`, `refund-case-automation-sweep` | Exact schema-v2 Bearer contract with the account-confirmed request/approval response pairs | Technical owner |
 | `NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED` | Server-only | `nayax-card-refund` | `true` only after the intended Core/API identity and account contract are independently confirmed | Technical owner |
 | `NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED` | Server-only | `nayax-card-refund` | `true` only after readback proves the dedicated approval credential has the intended account scope | Technical owner |
@@ -141,7 +145,7 @@ Set the following values before launch.
 Security rule:
 - Never place secrets in `VITE_` variables.
 - Leave `BLOOMJOY_ALLOWED_VERCEL_PREVIEW_ORIGINS` unset in production. For temporary preview/UAT invite testing only, set it to comma-separated exact `https://<preview>.vercel.app` origins that should be allowed in invite login links.
-- Environment switches alone are insufficient for deterministic customer contact, retention, or GPT. Their database settings must also be explicitly enabled under the existing authority. Refund operations are live; preserve the current enabled state and use the latest #628/#990 decisions and production evidence rather than the historical all-switches-off candidate.
+- Environment switches alone are insufficient for deterministic customer contact, retention, or GPT. Their database settings must also be explicitly enabled under the existing authority. The refund workflow is live; preserve the current enabled state and use the latest #628/#990 decisions and production evidence rather than the historical all-switches-off candidate.
 
 ## 3) Pre-launch checklist (T-24h)
 - [ ] Launch freeze announced (no unrelated merges to `main` during launch window).
@@ -164,7 +168,7 @@ Security rule:
   or repeat Manager decision.
 - [ ] `npm run commerce:preflight -- --project-ref <project-ref> --include-refunds` passes
 - [ ] `npm run refunds:validate-release-tooling` passes.
-- [ ] `npm run refunds:release:check` confirms that all protected Refund Operations functions, required migrations, source commit, and `verify_jwt` settings match the current approved release manifest. Use its function count; do not substitute a historical route-smoke count.
+- [ ] `npm run refunds:release:check` confirms that all protected refund functions, required migrations, source commit, and `verify_jwt` settings match the current approved release manifest. Use its function count; do not substitute a historical route-smoke count.
 - [ ] Browser evidence covers the changed refund path at desktop and mobile widths
   with synthetic data. Reuse unchanged automated evidence instead of requiring a
   fixed screenshot count or a new ceremony for every release.
@@ -285,11 +289,11 @@ Deploy all current checkout, submission, invite, and reporting functions:
 
 Before deploying reporting functions, confirm Step B has completed and `supabase db push --dry-run` reports the remote database is up to date. Reporting exports may depend on newly added snapshot columns or indexes.
 
-After applying the reviewed migrations, rerun `supabase db push --dry-run` and require zero pending migrations before deploying dependent Refund Operations functions.
+After applying the reviewed migrations, rerun `supabase db push --dry-run` and require zero pending migrations before deploying dependent refund functions.
 
 For the manager-message outbox slice, apply `20260902002716_refund_manual_message_outbox.sql` before deploying the matching `refund-case-message-send` and `refund-case-automation-sweep` bundles. Keep `REFUND_MANUAL_MESSAGE_OUTBOX_ENABLED=true` for normal operation. Reuse valid unchanged evidence that the immediate request or scheduled sweep settles the same message ID once. If this release changes that behavior or leaves a concrete verification gap, verify it using a Bloomjoy-controlled synthetic message under the existing sending authority; do not use an open customer or a payment-capable synthetic case.
 
-Before deploying Refund Operations functions, run `npm run refunds:release:check`.
+Before deploying refund functions, run `npm run refunds:release:check`.
 Deploy only the functions listed in the release manifest from the exact clean,
 reviewed canonical-main commit. Use the root-pinned wrapper rather than a raw
 `supabase functions deploy` command. Preserve current runtime execution, dry-run,
@@ -358,7 +362,9 @@ When a release changes refund behavior, run the focused checks in
 check, and proportionate desktop/mobile UAT with synthetic data. Verify the
 one-decision workflow, exact selected-transaction binding, full provider-total
 default, Manager override, cash confirmation semantics, customer clarification
-limit, duplicate protection, and unknown-result reconciliation.
+limit, duplicate protection, and a same-attempt verification hold for an unknown
+result. If exact Nayax or support evidence later proves that no refund occurred,
+the System continues that same approved attempt without another Manager decision.
 
 A release document or passing test does not authorize a customer refund,
 customer message, production deployment, or configuration change. Existing

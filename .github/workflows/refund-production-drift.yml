@@ -13,7 +13,6 @@ on:
       - 'scripts/refunds/refund-release.mjs'
       - 'scripts/refunds/refund-drift-credential.mjs'
       - 'scripts/refunds/refund-auth-control-plane.mjs'
-      - 'scripts/refunds/refund-owner-totp-auth-readiness.mjs'
       - 'scripts/refunds/refund-production-auth-closed.mjs'
       - 'scripts/refunds/refund-production-release.json'
       - 'scripts/refunds/validate-refund-drift-credential.mjs'

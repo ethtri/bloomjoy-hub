@@ -17,7 +17,7 @@ const baseArgs = [
   refundProductionProjectRef,
 ];
 
-test('the complete current plan contains all eleven functions including the live outcome resolver', () => {
+test('the complete current plan contains all eleven functions including two inert cutover tombstones', () => {
   const options = parseCanonicalDeployArgs([...baseArgs, '--all']);
   assert.equal(options.functions.length, 11);
   assert.equal(options.functions.at(-1), 'refund-nayax-outcome-resolve');

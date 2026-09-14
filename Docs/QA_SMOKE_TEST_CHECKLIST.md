@@ -11,12 +11,19 @@ historical fixtures cannot add product gates that the workflow does not contain.
   according to provenance, and keeps the customer's amount advisory.
 - [ ] A customer estimate of $10.00 with an otherwise identified $10.90 provider
   charge defaults to a $10.90 refund and does not trigger an amount question.
-- [ ] The System ranks and explains every plausible candidate. The Manager can
-  select a reviewed lower-confidence candidate and still receives one
-  **Approve refund** or **Decline** decision.
-- [ ] Card approval binds the exact selected Nayax transaction and full provider
-  total. A double click or replay creates no second refund. An unknown provider
-  outcome reconciles before retry and does not stop unrelated cases.
+- [ ] The System saves one strict high-confidence candidate automatically and
+  explains it. For ambiguous results, a case worker with case-work access can save
+  a reviewed exact candidate; that triage actor may differ from the approver.
+- [ ] The assigned Machine Manager or a Super-admin receives one **Approve refund**
+  or **Decline** decision. Approval binds the exact selected Nayax transaction and
+  full provider total and queues exactly one System-owned attempt.
+- [ ] The System claims and executes that same attempt. A double click or replay
+  creates no second refund or provider call. An unknown provider outcome holds the
+  same attempt and does not stop unrelated cases. Exact authoritative proof that
+  no refund occurred advances the same attempt once under the original approval;
+  a rejected label alone does not. There is no blind retry or manual completion.
+- [ ] Nayax portal access is read-only transaction research when API results are
+  insufficient; it never issues or records a refund.
 - [ ] Cash investigation uses Sunze, the exact machine, timezone-corrected time,
   amount, and other available evidence. **Confirm refund sent via Zelle** means
   the Manager already sent the money and completes the case without an

@@ -10,6 +10,7 @@ const transactionViewState = read("src/lib/refundTransactionViewState.ts");
 const lookupEndpoint = read("supabase/functions/nayax-transaction-lookup/index.ts");
 const recoveryMigration = read("supabase/migrations/20260911210036_simplify_refund_nayax_lookup.sql");
 const gapRecoveryMigration = read("supabase/migrations/20260912205646_refund_gap_recovery_paths.sql");
+const managerSystemCutover = read("supabase/migrations/20260914100000_refund_manager_system_cutover.sql");
 const recoveryConcurrency = read("supabase/tests/refund_server_owned_nayax_lookup_concurrency.sql");
 const recoverySql = read("supabase/tests/refund_server_owned_nayax_lookup_recovery.sql");
 const migration = read("supabase/migrations/202608150001_refund_automatic_nayax_lookup.sql");
@@ -158,21 +159,22 @@ assert(
 assert(
   recoveryMigration.includes("'{canSelectNayaxCandidate}','false'::jsonb") &&
     recoverySql.includes('Unknown historical coverage is not presented as a proved no-match') &&
-    recoverySql.includes('An exhausted automatic retry routes to Refund Operations'),
+    recoverySql.includes('An exhausted automatic retry routes to the Machine Manager'),
   "case-owned work must disable selection while active and distinguish inconclusive history",
 );
 assert(
-  lookupEndpoint.includes('"is_super_admin"') &&
-    lookupEndpoint.includes('"This recovery action is unavailable for the current Manager."') &&
+  !lookupEndpoint.includes('"is_super_admin"') &&
     lookupEndpoint.includes('"service_begin_refund_nayax_operations_lookup"') &&
-    !lookupEndpoint.includes('"can_manage_refund_case"'),
-  "the narrow manual endpoint must reject an ordinary mapped manager",
+    managerSystemCutover.includes('can_manage_refund_case(p_actor_user_id,case_row.id)') &&
+    managerSystemCutover.includes('refund_authoritative_receipts') &&
+    managerSystemCutover.includes('refund_case_nayax_refund_attempts'),
+  "the narrow endpoint must defer to exact current case authority and preserve payment guards",
 );
 assert(
-  portal.includes("selectedCase.nayaxLookupWork?.state === 'refund_operations'") &&
+  portal.includes("['machine_manager', 'refund_operations'].includes") &&
     portal.includes('data-testid="nayax-operations-recovery"') &&
     portal.includes('Run transaction check'),
-  "only the elevated manager projection exposes deliberate recovery",
+  "the assigned manager projection exposes the deliberate read-only recovery",
 );
 assert(
   gapRecoveryMigration.includes("incomplete_history") &&
@@ -182,11 +184,13 @@ assert(
     gapRecoveryMigration.includes("refund_case_nayax_refund_attempts") &&
     portal.includes('data-testid="nayax-incomplete-history-refresh"') &&
     portal.includes('data-testid="nayax-incomplete-history-fallback"') &&
-    portal.includes('href="https://my.nayax.com"'),
-  "incomplete provider history must get one guarded read-only refresh before the explicit portal fallback",
+    portal.includes('Read-only Nayax transaction research') &&
+    portal.includes('href="https://my.nayax.com"') &&
+    portal.includes('never issue or record a refund there'),
+  "incomplete provider history must get one guarded internal refresh before explicitly read-only Nayax research",
 );
 assert(
-  transactionViewState.includes('Use Nayax directly if Bloomjoy Hub still cannot search.') &&
+  transactionViewState.includes('read-only transaction research only') &&
     transactionViewState.includes('The customer does not need to repeat details.') &&
     !portal.includes("Try again or ask the customer for more details."),
   "mapping and account failures must be manager-owned without customer repetition"

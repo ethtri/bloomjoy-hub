@@ -38,6 +38,8 @@ const overviewFixtureBuilders = [
 
 assert.deepEqual(overviewFixtureBuilders, [
   'buildMockRefundOverview',
+  'buildManagerReadyRefundOverview',
+  'buildSystemPreparedCardRefundOverview',
   'buildEmptyRefundOverview',
   'buildAcknowledgementRecoveryOverview',
   'buildLocaleCorrectionOverview',
@@ -47,12 +49,12 @@ assert.deepEqual(overviewFixtureBuilders, [
   'buildCashRefundReviewOverview',
   'buildCashRefundVariantsOverview',
   'buildPendingNayaxRefundOverview',
-  'buildAdamManualNayaxRefundOverview',
+  'buildAdamApiUnavailableRefundOverview',
   'buildNavigationOnlyPendingOverview',
   'buildSimpleCardRefundJourneyOverview',
   'buildGroupedLivermorePendingOverview',
   'buildManagerClarityRefundOverview',
-  'buildManagerStepUpRefundOverview',
+  'buildManagerApprovalRefundOverview',
   'buildManagerDraftNavigationOverview',
   'buildNayaxResolutionRefundOverview',
   'buildNayaxEvidenceOnlyRefundOverview',
@@ -64,7 +66,6 @@ assert.deepEqual(overviewFixtureBuilders, [
   'buildTransactionalDeliveryTruthOverview',
   'buildGmailUncertaintyPrecedenceOverview',
   'buildPhysicalCardMismatchRefundOverview',
-  'buildApprovalContinuationOverview',
 ]);
 assert.match(
   portalSource,
@@ -80,7 +81,7 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /const withOfficialActionState = [\s\S]*?const queueProjectedCase = withManagerQueueProjection\(projectedCase\);[\s\S]*?return queueProjectedCase;/
+  /const withOfficialActionState = [\s\S]*?const queueProjectedCase = withManagerQueueProjection\([\s\S]*?\);[\s\S]*?return queueProjectedCase;/
 );
 assert.match(
   portalSource,
@@ -92,7 +93,11 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /const buildAdamManualNayaxRefundOverview = [\s\S]*?publicReference: 'RF-UAT-ADAM-MANUAL'[\s\S]*?manualNayaxPortalEnabled: true[\s\S]*?reviewedNayaxPortalFallbackKind: 'legacy_manual_evidence'/
+  /const buildManagerReadyRefundOverview = [\s\S]*?status: 'needs_review'[\s\S]*?decision: null[\s\S]*?eventType: 'nayax_match_preselected'[\s\S]*?const runRefundOnlyChecks = [\s\S]*?refundOverview: buildManagerReadyRefundOverview/
+);
+assert.match(
+  portalSource,
+  /const buildAdamApiUnavailableRefundOverview = [\s\S]*?publicReference: 'RF-UAT-ADAM-MANUAL'[\s\S]*?correlationStatus: 'nayax_not_configured'/
 );
 assert.match(
   portalSource,
@@ -113,10 +118,6 @@ assert.match(
 assert.match(
   portalSource,
   /const buildInterruptedNayaxCompletionOverview = [\s\S]*?status: 'completed'[\s\S]*?lifecycle: buildLifecycleFixture\([\s\S]*?'refund_confirmed'[\s\S]*?70[\s\S]*?'wait_for_customer_notification'/
-);
-assert.match(
-  portalSource,
-  /interruptionPage\.getByRole\('button', \{ name: 'Refund in progress 1'[\s\S]*?uncertainPage\.getByRole\('button', \{ name: 'Refund in progress 1'/
 );
 assert.match(
   portalSource,

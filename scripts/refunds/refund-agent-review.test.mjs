@@ -35,7 +35,6 @@ function fixture(rows = [row(1)]) {
     admin_get_refund_operations_overview: { cases: rows, internalTestCases: [] },
     admin_get_refund_gmail_draft_cases: [],
     admin_get_refund_email_queue_states: rows.map(r => ({ caseId: r.id, providerHold: false, providerOutcome: 'not_attempted', actionBlocked: false })),
-    admin_get_refund_manual_nayax_context: [],
     get_refund_gmail_health: { status: 'healthy', reportFreshness: null },
   };
   const client = { scope: 'test-scope', async rpc(name, args = {}) {
@@ -129,7 +128,7 @@ test('refund procedure follows the lean assistant-manager flow', async () => {
     'etrifari@bloomjoysweets.com', 'error-state zero is unavailable data',
     'Portal candidates are the first research step',
     'Customer amount is approximate', 'contactless digits may be tokenized',
-    'A Manager may select a lower-ranked or lower-confidence candidate',
+    'A case worker may select a lower-ranked or lower-confidence candidate',
     'full charged amount', 'including tax',
     'Confirm refund sent via Zelle', 'no waiting-for-payment state',
     'send one follow-up', 'Close after 30 days',

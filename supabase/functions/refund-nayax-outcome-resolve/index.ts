@@ -11,7 +11,10 @@ import {
   getRefundGmailMailboxIdentities,
   RefundGmailError,
 } from "../_shared/refund-gmail.ts";
-import { deliverPreparedNayaxCompletionOnce } from "../_shared/nayax-resolution-completion.ts";
+import {
+  deliverPreparedNayaxCompletionOnce,
+  type NayaxCompletionDeliveryStatus,
+} from "../_shared/nayax-resolution-completion.ts";
 import { tryIssueRefundStatusCapabilityForMessage } from "../_shared/refund-status-capability.ts";
 import {
   bindRefundTransactionalDelivery,
@@ -49,33 +52,74 @@ const isSafeText = (value: unknown, maxLength: number): value is string =>
   typeof value === "string" && value.trim().length > 0 &&
     value.trim().length <= maxLength;
 
+const canonicalEvidenceTimeZone = (value: unknown) => {
+  if (!isSafeText(value, 80)) return null;
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone: value.trim() })
+      .resolvedOptions().timeZone;
+  } catch {
+    return null;
+  }
+};
+
 const EMAIL_PATTERN = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
+const ABSOLUTE_TIMESTAMP_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/i;
 
 class TransactionalCompletionDeliveryUncertainError extends Error {}
 
 const allowedResults = new Set([
   "provider_confirmed_success",
-  "provider_confirmed_retry_safe",
-  "documented_manual_completion",
+  "provider_confirmed_no_refund",
   "remain_on_hold",
 ]);
 
 const allowedEvidenceTypes = new Set([
   "nayax_dtm_transaction",
   "nayax_support_ticket",
-  "documented_manual_refund",
 ]);
 
 const allowedReasons = new Set([
   "nayax_dtm_settled",
   "nayax_support_confirmed_success",
   "nayax_dtm_not_refunded",
-  "nayax_support_retry_safe",
-  "manual_nayax_completion",
+  "nayax_support_confirmed_no_refund",
   "evidence_incomplete",
   "provider_still_pending",
   "evidence_conflict",
 ]);
+
+const evidenceTupleIsValid = (
+  resolutionResult: string,
+  evidenceType: string,
+  reasonCode: string,
+) => resolutionResult === "provider_confirmed_success"
+  ? (evidenceType === "nayax_dtm_transaction" && reasonCode === "nayax_dtm_settled") ||
+    (evidenceType === "nayax_support_ticket" && reasonCode === "nayax_support_confirmed_success")
+  : resolutionResult === "provider_confirmed_no_refund"
+  ? (evidenceType === "nayax_dtm_transaction" && reasonCode === "nayax_dtm_not_refunded") ||
+    (evidenceType === "nayax_support_ticket" && reasonCode === "nayax_support_confirmed_no_refund")
+  : resolutionResult === "remain_on_hold" &&
+    new Set(["evidence_incomplete", "provider_still_pending", "evidence_conflict"])
+      .has(reasonCode);
+
+const evidenceReferenceIsSafe = (value: string, evidenceType: string) => {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{7,119}$/.test(value) ||
+    value.includes("@") ||
+    /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i.test(value) ||
+    /(account|bank|card|customer|email|password|passcode|phone|pin|routing|security.?code|cvv|pan)/i.test(value)) {
+    return false;
+  }
+  const digits = value.replace(/[^0-9]/g, "");
+  const permittedLongNumber = evidenceType === "nayax_dtm_transaction"
+    ? /^DTM:NAYAX-[0-9]{9,10}$/.test(value)
+    : evidenceType === "nayax_support_ticket" &&
+      (/^SUPPORT:NAYAX-[0-9]{8}$/.test(value) || /^SUPPORT:NAYAX-CS[0-9]{7}$/.test(value));
+  return (digits.length < 8 || permittedLongNumber) &&
+    (evidenceType === "nayax_dtm_transaction"
+      ? /^DTM[:/-]/.test(value)
+      : evidenceType === "nayax_support_ticket" && /^SUPPORT[:/-]/.test(value));
+};
 
 const userClientFor = (accessToken: string) => {
   if (!supabaseUrl || !supabaseAnonKey) return null;
@@ -130,6 +174,9 @@ serve(async (req) => {
         body.evidenceOccurredAt.trim()
       ? body.evidenceOccurredAt.trim()
       : null;
+    const evidenceSourceTimezone = canonicalEvidenceTimeZone(
+      body?.evidenceSourceTimezone,
+    );
     const reasonCode = typeof body?.reasonCode === "string"
       ? body.reasonCode.trim()
       : "";
@@ -141,9 +188,13 @@ serve(async (req) => {
       !allowedEvidenceTypes.has(evidenceType) ||
       !allowedReasons.has(reasonCode) ||
       !isSafeText(evidenceReference, 120) ||
+      !evidenceReferenceIsSafe(evidenceReference, evidenceType) ||
+      !evidenceTupleIsValid(resolutionResult, evidenceType, reasonCode) ||
       !Number.isSafeInteger(expectedCaseVersion) || expectedCaseVersion <= 0 ||
-      (evidenceOccurredAt !== null &&
-        Number.isNaN(new Date(evidenceOccurredAt).getTime()))
+      evidenceOccurredAt === null ||
+      !ABSOLUTE_TIMESTAMP_PATTERN.test(evidenceOccurredAt) ||
+      Number.isNaN(new Date(evidenceOccurredAt).getTime()) ||
+      evidenceSourceTimezone === null
     ) {
       return jsonResponse({
         error: "Review the exact payment result again.",
@@ -151,10 +202,7 @@ serve(async (req) => {
       }, 400);
     }
 
-    const completedResult = [
-      "provider_confirmed_success",
-      "documented_manual_completion",
-    ].includes(resolutionResult);
+    const completedResult = resolutionResult === "provider_confirmed_success";
     if (
       completedResult &&
       !/^[A-Za-z0-9_-]{32,200}$/.test(nayaxExecutorAssertion)
@@ -171,7 +219,7 @@ serve(async (req) => {
     }
 
     const { data: resolution, error: resolutionError } = await userClient.rpc(
-      "admin_resolve_refund_nayax_outcome_manager_session",
+      "admin_record_nayax_system_outcome_evidence_v1",
       {
         p_case_id: caseId,
         p_attempt_id: attemptId,
@@ -179,6 +227,7 @@ serve(async (req) => {
         p_evidence_type: evidenceType,
         p_evidence_reference: evidenceReference,
         p_evidence_occurred_at: evidenceOccurredAt,
+        p_evidence_source_timezone: evidenceSourceTimezone,
         p_reason_code: reasonCode,
         p_expected_case_version: expectedCaseVersion,
       },
@@ -211,8 +260,18 @@ serve(async (req) => {
     let formManagerCcCount = 0;
     let formManagerRecipientOverlap = false;
     const finishCompletion = async (
-      status: "sent" | "failed" | "delivery_unknown",
+      status: NayaxCompletionDeliveryStatus,
     ) => {
+      if (status === "deferred") {
+        return {
+          status,
+          transport: null,
+          managerCcCount: 0,
+          originalThread: completionTransport === "gmail_thread",
+          operationApplied: false,
+          managerCompletionNoticeSent: false,
+        };
+      }
       const { data: finished, error: finishError } = await serviceClient.rpc(
         completionTransport === "gmail_thread"
           ? "service_finish_nayax_refund_completion"
@@ -233,7 +292,7 @@ serve(async (req) => {
         throw new Error("completion_settlement_failed");
       }
       return finished as Record<string, unknown> & {
-        status: "sent" | "failed" | "delivery_unknown" | "already_sent";
+        status: NayaxCompletionDeliveryStatus | "already_sent";
       };
     };
 

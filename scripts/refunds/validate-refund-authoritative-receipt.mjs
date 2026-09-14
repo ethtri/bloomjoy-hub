@@ -141,10 +141,14 @@ for (const stage of ['refund_confirmed', 'customer_notified']) {
 }
 assert.match(
   workbench,
-  /const managerState: RefundManagerState = hasConfirmedRefundReceipt\(selectedCase\) \|\|\s*\(hasProtectedRefundLifecycle\(selectedCase\) && !selectedCaseApprovalContinuationReady\)/,
-  'Protected receipt states stay dominant while the exact server-proved continuation is the only in-progress exception',
+  /const managerState: RefundManagerState = hasConfirmedRefundReceipt\(selectedCase\) \|\|\s*hasProtectedRefundLifecycle\(selectedCase\)/,
+  'Protected payment states stay read-only while System owns approved continuation',
 );
-assert.match(workbench, /!hasConfirmedRefundReceipt\(selectedCase\) && refundOperationsBlockedCaseIds.has/);
+assert.doesNotMatch(
+  workbench,
+  /refundOperationsBlockedCaseIds|paymentActionNeedsOperations|Approval permission mismatch/,
+  'The retired Refund Operations approval gate must not reappear in the manager workflow',
+);
 assert.match(workbench, /hasConfirmedRefundReceipt\(selectedCase\) \? \(\s*<p data-testid="refund-receipt-accounting-only"/);
 assert.match(receiptClient, /\['admin-refund-operations-overview'\]/);
 assert.match(receiptClient, /\['nayax-card-refund-availability'\]/);

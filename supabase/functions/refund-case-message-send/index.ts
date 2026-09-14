@@ -307,15 +307,6 @@ serve(async (req) => {
           error: "Choose the exact customer message to review.",
         }, 400);
       }
-      const { data: hasOperationsAccess, error: operationsAccessError } =
-        await supabase.rpc("is_super_admin", { uid: user.id });
-      if (operationsAccessError) throw operationsAccessError;
-      if (hasOperationsAccess !== true) {
-        return jsonResponse({
-          error: "Authorized manager access required.",
-        }, 403);
-      }
-
       const { data: message, error: messageError } = await supabase
         .from("refund_case_messages")
         .select(
