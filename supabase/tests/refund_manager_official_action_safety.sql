@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(72);
+select plan(76);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -371,6 +371,57 @@ values
     '79500000-0000-4000-8000-000000000001', null, null, null, null, 600,
     null, null, null, null, null, null, null, null, null, false
   );
+
+-- The official cash fixture has a reviewed Sunze sale link whose amount
+-- intentionally differs from the customer estimate. Completion must derive
+-- the selected sale amount on the server, not trust the receipt amount.
+insert into public.refund_sunze_cash_correlation_attempts (
+  id, refund_case_id, policy_version, case_fact_version, source_snapshot_key,
+  trigger_reason, match_state, reason_code, candidate_count,
+  evaluated_at
+)
+select
+  '79900000-0000-4000-8000-000000000001',
+  '79600000-0000-4000-8000-000000000006',
+  'sunze_cash_correlation_v1',
+  deterministic_fact_version,
+  'official-action-safety-snapshot',
+  'backfill', 'sale_found', 'single_candidate', 1,
+  statement_timestamp()
+from public.refund_cases
+where id = '79600000-0000-4000-8000-000000000006';
+
+insert into public.refund_sunze_cash_sale_links (
+  id, refund_case_id, sales_fact_id, correlation_attempt_id,
+  case_fact_version, link_version, link_origin
+)
+select
+  '79900000-0000-4000-8000-000000000002',
+  '79600000-0000-4000-8000-000000000006',
+  '79500000-0000-4000-8000-000000000001',
+  '79900000-0000-4000-8000-000000000001',
+  deterministic_fact_version, 1, 'reviewed'
+from public.refund_cases
+where id = '79600000-0000-4000-8000-000000000006';
+
+select ok(
+  pg_temp.capture_error($sql$
+    select public.service_complete_cash_refund_as_actor(
+      '79000000-0000-4000-8000-000000000001',
+      '79600000-0000-4000-8000-000000000006',
+      725, null, null,
+      'Mismatched amount should not complete the selected sale.', null,
+      'official-manager@example.test'
+    )
+  $sql$) like '40001:%reviewed cash amount changed%'
+  and (
+    select status = 'cash_zelle_pending'
+      and refund_amount_cents = 725
+    from public.refund_cases
+    where id = '79600000-0000-4000-8000-000000000006'
+  ),
+  'A cash completion receipt cannot use a stale amount after a Sunze sale is selected'
+);
 
 update public.refund_cases
 set
@@ -1184,6 +1235,46 @@ select ok(
   'An unmapped Super-admin decision is consumed and audited without inventing a Machine Manager mapping'
 );
 
+reset role;
+update public.refund_cases
+set matched_sales_fact_id = null
+where id = '79600000-0000-4000-8000-000000000012';
+
+select is(
+  public.service_prepare_legacy_cash_case_for_correlation(
+    '79600000-0000-4000-8000-000000000012',
+    '79000000-0000-4000-8000-000000000001'
+  ) ->> 'status',
+  'needs_review',
+  'An active legacy approved cash case returns to the canonical manager-review state'
+);
+
+select is(
+  public.service_get_sunze_cash_correlation(
+    '79600000-0000-4000-8000-000000000012',
+    '79000000-0000-4000-8000-000000000001',
+    8
+  ) ->> 'state',
+  'sales_history_unavailable',
+  'A retry after legacy preparation reads the durable bounded Sunze evidence state'
+);
+
+select ok(
+  (
+    select status = 'needs_review' and decision is null
+      and exists (
+        select 1 from public.refund_case_events event
+        where event.refund_case_id = '79600000-0000-4000-8000-000000000012'
+          and event.event_type = 'legacy_cash_state_normalized'
+          and event.actor_user_id = '79000000-0000-4000-8000-000000000001'
+          and event.metadata ->> 'paymentReceiptPreserved' = 'true'
+      )
+    from public.refund_cases
+    where id = '79600000-0000-4000-8000-000000000012'
+  ),
+  'Legacy cash normalization preserves an audit trail and does not retain an old decision'
+);
+
 set local role authenticated;
 
 select pg_temp.set_auth_claims(
@@ -1538,14 +1629,14 @@ select
     '79600000-0000-4000-8000-000000000006', 'cash_complete',
     (select official_action_version from public.refund_cases where id = '79600000-0000-4000-8000-000000000006'),
     'completed', 'approved', 'official-manager@example.test', 'Matched cash sale.',
-    'Synthetic completion note.', 725, null, null, true, null, null
+    'Synthetic completion note.', 700, null, null, true, null, null
   ) ->> 'authorizationId')::uuid;
 reset role;
 
 set local role service_role;
 select public.service_complete_cash_refund_official(
   (select authorization_id from pg_temp.official_action_test_receipts where receipt_key = 'cash_complete'),
-  '79600000-0000-4000-8000-000000000006', 725, null, null,
+  '79600000-0000-4000-8000-000000000006', 700, null, null,
   'Matched cash sale.', 'Synthetic completion note.', 'official-manager@example.test'
 );
 reset role;
@@ -1556,15 +1647,17 @@ select is(
     from public.refund_cases
     where id = '79600000-0000-4000-8000-000000000006'
   ),
-  'completed:79000000-0000-4000-8000-000000000001:725',
-  'Cash completion derives the case amount and attributes a mapped-manager receipt'
+  'completed:79000000-0000-4000-8000-000000000001:700',
+  'Cash completion derives the selected Sunze sale amount and attributes a mapped-manager receipt'
 );
 
 select ok(
   (
     select count(*) = 1
       and bool_and(metadata ->> 'completion_method' = 'manual_external')
-      and bool_and(metadata ->> 'refund_amount_cents' = '725')
+      and bool_and(metadata ->> 'refund_amount_cents' = '700')
+      and bool_and(metadata ->> 'cash_amount_source' = 'sunze_selected_sale')
+      and bool_and(metadata ? 'selected_sales_fact_id')
       and bool_and(metadata ->> 'payload_redacted' = 'true')
       and bool_and(not (metadata ? 'manual_refund_reference'))
       and bool_and(not (metadata ? 'zelle_payment_contact'))
@@ -1574,6 +1667,27 @@ select ok(
       and metadata ->> 'action' = 'cash_complete'
   ),
   'Cash completion records exactly one channel-neutral official audit event'
+);
+
+select ok(
+  (
+    public.service_prepare_legacy_cash_case_for_correlation(
+      '79600000-0000-4000-8000-000000000006',
+      '79000000-0000-4000-8000-000000000001'
+    ) ->> 'immutable'
+  )::boolean
+  and (
+    select status = 'completed'
+      and refund_completed_at is not null
+      and not exists (
+        select 1 from public.refund_case_events event
+        where event.refund_case_id = '79600000-0000-4000-8000-000000000006'
+          and event.event_type = 'legacy_cash_state_normalized'
+      )
+    from public.refund_cases
+    where id = '79600000-0000-4000-8000-000000000006'
+  ),
+  'A completed cash case remains immutable to the legacy normalization path'
 );
 
 select ok(

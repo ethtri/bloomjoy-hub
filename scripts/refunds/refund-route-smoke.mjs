@@ -24,6 +24,7 @@ export const refundRouteSmokeExcludedFunctionSlugs = Object.freeze([
   'refund-manager-action-step-up',
   'refund-manager-totp-enrollment',
   'refund-nayax-outcome-resolve',
+  'refund-case-sunze-correlation',
 ]);
 
 const usage = () => {

@@ -108,9 +108,9 @@ const canonicalRetiredManagerEndpointSourceSha256 = {
 };
 
 try {
-  assert.equal(requiredFunctionSlugs.length, 11, 'Current refund release inventory must cover exactly eleven functions');
+  assert.equal(requiredFunctionSlugs.length, 12, 'Current refund release inventory must cover exactly twelve functions');
   assert.equal(historicalFunctionSlugs.length, 10, 'Historical inventory must remain exactly ten functions');
-  assert.equal(requiredFunctionSlugs.at(-1), 'refund-nayax-outcome-resolve');
+  assert.equal(requiredFunctionSlugs.at(-1), 'refund-case-sunze-correlation');
   assert.deepEqual(
     historicalFunctionSlugs.slice(-2),
     ['refund-manager-action-step-up', 'refund-manager-totp-enrollment'],
@@ -473,8 +473,8 @@ try {
   );
   assert.equal(
     repositoryManifest.functions.length,
-    11,
-    'Repository release manifest must contain exactly eleven functions'
+    12,
+    'Repository release manifest must contain exactly twelve functions'
   );
   const repositoryLocalState = buildLocalReleaseState(repoRoot, repositoryManifest);
   assert.deepEqual(

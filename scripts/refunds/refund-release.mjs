@@ -27,7 +27,13 @@ export const historicalFunctionSlugs = [
   'refund-manager-totp-enrollment',
 ];
 export const additionalFunctionSlugs = ['refund-nayax-outcome-resolve'];
-export const requiredFunctionSlugs = [...historicalFunctionSlugs, ...additionalFunctionSlugs];
+// The cash-evidence read/select route is a current deployable addition. It has
+// no production baseline until the separately approved deployment occurs.
+export const requiredFunctionSlugs = [
+  ...historicalFunctionSlugs,
+  ...additionalFunctionSlugs,
+  'refund-case-sunze-correlation',
+];
 
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const normalizeText = (value) => value.replace(/\r\n?/g, '\n');

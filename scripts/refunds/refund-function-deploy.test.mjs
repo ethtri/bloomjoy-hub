@@ -17,10 +17,10 @@ const baseArgs = [
   refundProductionProjectRef,
 ];
 
-test('the complete current plan contains all eleven functions including two inert cutover tombstones', () => {
+test('the complete current plan contains all twelve functions including the cash evidence route', () => {
   const options = parseCanonicalDeployArgs([...baseArgs, '--all']);
-  assert.equal(options.functions.length, 11);
-  assert.equal(options.functions.at(-1), 'refund-nayax-outcome-resolve');
+  assert.equal(options.functions.length, 12);
+  assert.equal(options.functions.at(-1), 'refund-case-sunze-correlation');
   const root = path.resolve('safe-release-root');
   const result = runCanonicalRefundDeployment(options, { root, runner: () => assert.fail('Plan must not execute') });
   assert.deepEqual(result.plan.map((entry) => entry.slug), requiredFunctionSlugs);
