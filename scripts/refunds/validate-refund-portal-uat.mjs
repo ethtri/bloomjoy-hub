@@ -48,6 +48,7 @@ const NAVIGATION_READ_ONLY_RPCS = new Set([
   'public_refund_selections',
   'public_refund_machine_options',
   'admin_get_refund_nayax_resolution_readiness',
+  'admin_get_refund_authoritative_receipt_overview',
   'admin_get_refund_email_queue_states',
   'admin_get_refund_case_reconciliation',
   'admin_get_refund_gmail_draft_cases',
@@ -727,6 +728,39 @@ const buildManagerReadyRefundOverview = () => {
     ],
   };
   return overview;
+};
+
+const buildManagerLookupRecoveryLifecycle = () => {
+  const lifecycle = buildLifecycleFixture('matching', 50, 'retry_read_only_lookup');
+  return {
+    ...lifecycle,
+    reasonCode: 'nayax_lookup_incomplete',
+    managerAction: {
+      ...lifecycle.managerAction,
+      action: 'retry_read_only_lookup',
+      owner: 'Machine Manager',
+      safeRetryEligible: true,
+    },
+    lookup: {
+      ...lifecycle.lookup,
+      status: 'lookup_failed',
+      safeRetryEligible: true,
+      failureClass: 'response_limit',
+    },
+    operations: {
+      ...lifecycle.operations,
+      required: false,
+      queue: 'System',
+      owner: 'System',
+    },
+    managerQueue: {
+      ...lifecycle.managerQueue,
+      bucket: 'provider_hold',
+      label: 'Needs manager review',
+      nextAction: 'retry_read_only_lookup',
+      safeRetryEligible: true,
+    },
+  };
 };
 
 // This is the state immediately before the assigned Manager's one approval.
@@ -1568,6 +1602,8 @@ const buildGroupedLivermorePendingOverview = () => {
     ...refundCase,
     machineLabel: 'San Francisco Premium Outlets — Cotton candy',
     locationName: 'San Francisco Premium Outlets',
+    correlationStatus: 'multiple_candidates',
+    nayaxRecommendationState: 'ambiguous',
     canPerformOfficialAction: false,
     canSelectNayaxCandidate: true,
     officialActionBlockReason: 'exact_machine_required',
@@ -3583,8 +3619,12 @@ const isExpectedPortalUatClosingRequestFailure = (request) => {
 const countLinksByName = async (page, name) =>
   page.getByRole('link', { name }).count();
 
-const queueCase = (page, publicReference) =>
-  page.getByTestId('refund-case-queue-item').filter({ hasText: publicReference, visible: true });
+const queueCase = (page, publicReference) => {
+  return page.getByTestId('refund-case-queue-item').filter({
+    has: page.getByText(publicReference, { exact: true }),
+    visible: true,
+  });
+};
 
 const openQueueCase = async (page, publicReference, { timeout = 30000 } = {}) => {
   const heading = page.getByRole('heading', { name: publicReference, exact: true });
@@ -6067,7 +6107,7 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
   recorder.assert(
     'Unavailable transaction search is visible without exposing provider setup detail',
     await page.getByTestId('nayax-result-card').getByText('Transaction search is unavailable', { exact: true }).isVisible() &&
-      await page.getByTestId('nayax-transaction-status').getByText(/Do not complete a card refund outside Bloomjoy Hub/).isVisible() &&
+      await page.getByTestId('nayax-transaction-status').getByText(/Never issue or record a refund there/).isVisible() &&
       (await page.getByText('Nashville Nayax account scope', { exact: false }).count()) === 0
   );
   recorder.assert(
@@ -6075,7 +6115,7 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
       (await page.getByText('Ask customer for details', { exact: true }).count()) === 0 &&
       (await page.getByText('Ask for missing details', { exact: true }).count()) === 0 &&
       (await page.getByTestId('refund-manager-next-step').innerText()).includes('No customer follow-up is needed') &&
-      await page.getByTestId('nayax-transaction-status').getByText(/Do not complete a card refund outside Bloomjoy Hub/).isVisible() &&
+      await page.getByTestId('nayax-transaction-status').getByText(/Never issue or record a refund there/).isVisible() &&
       await page.getByTestId('nayax-transaction-status').getByText(/customer does not need to repeat details/).isVisible()
   );
   recorder.assert(
@@ -6868,10 +6908,10 @@ const runNayaxLookupStatusMatrixChecks = async ({
       confirmCandidate: true,
       response: {
         configured: true,
-        lookupStatus: 'match_found',
-        recommendationState: 'high_confidence',
-        confidenceClass: 'unique_qr_time',
-        reasonCodes: ['machine_exact', 'amount_exact', 'qr_time_within_30m', 'unique_qr_time_candidate'],
+        lookupStatus: 'manual_exception',
+        recommendationState: 'manual_exception',
+        confidenceClass: 'ambiguous_manual',
+        reasonCodes: ['wallet_payment', 'machine_exact', 'amount_exact', 'qr_time_within_30m', 'unique_qr_time_candidate'],
         policyVersion: '2026-07-26.v2',
         oneClickEligible: false,
         incidentAt: isoHoursAgo(3),
@@ -6904,9 +6944,9 @@ const runNayaxLookupStatusMatrixChecks = async ({
             recommendationRank: 1,
             isTopRanked: true,
             isRecommended: true,
-            recommendationState: 'high_confidence',
-            confidenceClass: 'unique_qr_time',
-            reasonCodes: ['machine_exact', 'amount_exact', 'qr_time_within_30m', 'unique_qr_time_candidate'],
+            recommendationState: 'manual_exception',
+            confidenceClass: 'ambiguous_manual',
+            reasonCodes: ['wallet_payment', 'machine_exact', 'amount_exact', 'qr_time_within_30m', 'unique_qr_time_candidate'],
             oneClickEligible: false,
             selectionAllowed: true,
             matchStrength: 'strong',
@@ -6922,7 +6962,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
       },
       expectedHeading: '1 transaction found',
       expectedStatus: '1 result',
-      expectedAction: 'Compare Customer request with Machine transaction.',
+      expectedAction: /Select the exact transaction, then confirm it/i,
       expectedCandidateCount: 1,
     },
     {
@@ -7033,7 +7073,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
         overview.refundOperationsAccess = true;
         overview.cases = overview.cases.map((refundCase) => ({
           ...refundCase,
-          lifecycle: buildLifecycleFixture('needs_refund_operations', 50, 'refund_operations'),
+          lifecycle: buildManagerLookupRecoveryLifecycle(),
         }));
         return overview;
       },
@@ -7067,7 +7107,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
       expectedHeading: 'Transaction results are unavailable',
       expectedStatus: 'Needs attention',
       expectedDescription: /does not have current transaction results to show/i,
-      expectedAction: 'The assigned machine Manager or a Super-admin should check the saved Nayax result in the portal. Do not retry payment.',
+      expectedAction: 'Run the available transaction check. If no check is available, search the same machine in Nayax and report the portal gap. No refund has been issued.',
     },
     {
       name: 'wallet waiting on customer',
@@ -7256,6 +7296,15 @@ const runNayaxLookupStatusMatrixChecks = async ({
     await installMockSupabaseRoutes(context, {
       refundOverview: () => {
         const overview = (scenario.refundOverview ?? buildPendingNayaxRefundOverview)();
+        if (
+          scenario.response.candidates.length > 0 &&
+          ['ambiguous', 'manual_exception'].includes(scenario.response.recommendationState ?? '')
+        ) {
+          overview.cases = overview.cases.map((refundCase) => ({
+            ...refundCase,
+            nayaxRecommendationState: scenario.response.recommendationState,
+          }));
+        }
         if (scenario.operationsAccess) overview.refundOperationsAccess = true;
         return overview;
       },
@@ -7861,7 +7910,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
           recorder.assert(
             'The single confirmation covers the bound transaction, refund, and success email',
             await refundDialog.isVisible() &&
-              await refundDialog.getByText(/customer email sends only after the card refund succeeds/i).isVisible() &&
+              await refundDialog.getByText(/email the customer only after Nayax confirms it/i).isVisible() &&
               functionCalls.filter((name) => name === 'refund-case-admin-update').length === 1 &&
               !functionCalls.includes('nayax-card-refund')
           );
@@ -7953,7 +8002,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
       recorder.assert(
         'The manager still makes the refund decision after machine activation',
         await refundDialog.isVisible() &&
-          await refundDialog.getByText(/customer email sends only after the card refund succeeds/i).isVisible() &&
+          await refundDialog.getByText(/email the customer only after Nayax confirms it/i).isVisible() &&
           functionCalls.filter((name) => name === 'refund-case-admin-update').length === 1 &&
           !functionCalls.includes('nayax-card-refund')
       );
@@ -8150,7 +8199,14 @@ const runNayaxLookupStatusMatrixChecks = async ({
     const functionCalls = [];
     const functionBodies = [];
     await installMockSupabaseRoutes(context, {
-      refundOverview: buildPendingNayaxRefundOverview,
+      refundOverview: () => {
+        const overview = buildPendingNayaxRefundOverview();
+        overview.cases = overview.cases.map((refundCase) => ({
+          ...refundCase,
+          nayaxRecommendationState: 'manual_exception',
+        }));
+        return overview;
+      },
       functionCalls,
       functionBodies,
       persistedNayaxLookupResponse: uniqueQrScenario.response,
@@ -8219,7 +8275,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
       overview.refundOperationsAccess = false;
       overview.cases = overview.cases.map((refundCase) => ({
         ...refundCase,
-        lifecycle: buildLifecycleFixture('needs_refund_operations', 50, 'refund_operations'),
+        lifecycle: buildManagerLookupRecoveryLifecycle(),
       }));
       return overview;
     },
@@ -8285,16 +8341,19 @@ const runNayaxLookupStatusMatrixChecks = async ({
   await installMockSupabaseRoutes(staleContext, {
     refundOverview: () => {
       const overview = buildPendingNayaxRefundOverview();
-      overview.cases = [overview.cases[0]];
+      overview.cases = [{
+        ...overview.cases[0],
+        nayaxRecommendationState: 'manual_exception',
+      }];
       return overview;
     },
     functionCalls: staleFunctionCalls,
     persistedNayaxLookupResponse: {
       configured: true,
-      lookupStatus: 'match_found',
-      recommendationState: 'high_confidence',
-      confidenceClass: 'exact_match',
-      oneClickEligible: true,
+      lookupStatus: 'manual_exception',
+      recommendationState: 'manual_exception',
+      confidenceClass: 'ambiguous_manual',
+      oneClickEligible: false,
       lastCheckedAt: isoHoursAgo(25),
       providerRecordCount: 1,
       providerParseableRecordCount: 1,
@@ -8385,14 +8444,14 @@ const runNayaxLookupStatusMatrixChecks = async ({
       overview.cases[0].refundReadiness = {
         ...overview.cases[0].refundReadiness,
         canIssueCardRefund: false,
-        blockReason: 'provider_temporarily_unavailable',
+        blockReason: 'provider_unavailable',
       };
       return overview;
     },
     nayaxCardRefundAvailabilityResponse: {
       available: false,
       status: 'unavailable',
-      blockReason: 'provider_temporarily_unavailable',
+      blockReason: 'provider_unavailable',
       payloadRedacted: true,
     },
     functionCalls: blockedFunctionCalls,
@@ -8404,7 +8463,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
   await blockedPage.getByRole('button', { name: /^Action needed \d+$/ }).click();
   await waitForQueueCount(blockedPage, 1);
   await queueCase(blockedPage, 'RF-UAT-CARD').click();
-  const unavailableAction = blockedPage.getByRole('button', {
+  const unavailableAction = blockedPage.getByRole('status', {
     name: /^(Nayax API unavailable|Refund temporarily unavailable)$/,
   });
   await unavailableAction.waitFor({ timeout: 10000 });
