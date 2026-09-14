@@ -53,6 +53,9 @@ values (
 ), (
   '35220000-0000-4000-8000-000000000001', '35260000-0000-4000-8000-000000000002',
   'manager-two@example.test', 'active', 'Synthetic concurrency test'
+), (
+  '35220000-0000-4000-8000-000000000003', '35260000-0000-4000-8000-000000000001',
+  'manager@example.test', 'active', 'Synthetic freshness-read test'
 );
 
 insert into public.sales_import_runs (
