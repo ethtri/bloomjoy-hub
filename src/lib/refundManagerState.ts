@@ -399,7 +399,7 @@ export const getRefundManagerState = (
       'needs_refund_operations',
       'Delivery needs review',
       `${deliveryLabel}. The refund and payment state have not been changed.`,
-      'The assigned machine manager reviews the original customer email thread and saved delivery record, then chooses the supported next step. Do not resend this saved message until its delivery is clear, and do not retry a payment from delivery evidence.',
+      'Review the original customer email thread and saved delivery record, then choose the supported next step. Do not resend this saved message until its delivery is clear, and do not retry a payment from delivery evidence.',
       'warning'
     );
   }
@@ -416,7 +416,7 @@ export const getRefundManagerState = (
       'refund_rejected',
       'Refund rejected',
       'The payment service rejected the refund, so no refund was confirmed.',
-      'Keep the case open. The machine Manager must review the exact rejection in Nayax.',
+      'Keep the case open. Check the exact rejection in Nayax and record what Nayax confirms.',
       'danger'
     );
   }
@@ -680,10 +680,10 @@ export const getRefundManagerState = (
         return state(
           'needs_refund_operations',
           'Check Nayax refund status',
-          'The final payment result is unclear. Only the assigned machine Manager or a Super-admin can record it.',
+          'The final payment result is unclear. Record only what Nayax confirms; this does not create another approval.',
           options.canResolveHeldResult
-            ? 'Use the Manager payment review panel below to record the confirmed Nayax result. Never retry the payment while the result is unclear.'
-            : 'The assigned machine Manager or a Super-admin must check the saved payment result. Do not try the payment again.',
+            ? 'Use the Payment result check below to record the confirmed Nayax result. Never retry the payment while the result is unclear.'
+            : 'Check the saved payment result in Nayax and record what Nayax confirms. Do not try the payment again.',
           'warning'
         );
       case 'integrity_hold':
@@ -765,7 +765,7 @@ export const getRefundManagerState = (
       'check_nayax_result',
       'Refund result is being checked',
       'The payment provider has not confirmed the final result yet.',
-      'Do not refund again. The machine Manager must check the exact transaction in Nayax.',
+      'Do not refund again. Check the exact transaction in Nayax and record what Nayax confirms.',
       'neutral'
     );
   }

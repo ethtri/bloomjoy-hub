@@ -1275,11 +1275,14 @@ export type ResolveRefundNayaxOutcomeInput = {
 export type ResolveRefundNayaxOutcomeResponse = {
   resolved: boolean;
   result: RefundNayaxResolutionResult;
+  status?: 'provider_hold' | 'system_finishing';
   caseCompleted: boolean;
   customerCompletionAvailable: boolean;
   providerCallMade: false;
   customerMessageCreated: boolean;
   customerCompletion?: NayaxCustomerCompletionResult | null;
+  attemptId?: string;
+  authorizationId?: string;
   payloadRedacted: true;
 };
 

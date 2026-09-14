@@ -457,10 +457,10 @@ const normalizeNayaxResolutionReference = (
   const trimmed = value.trim();
   if (evidenceType === 'nayax_dtm_transaction') {
     const upper = trimmed.toUpperCase();
-    if (/^[0-9]{9}$/.test(upper)) {
+    if (/^[0-9]{9,10}$/.test(upper)) {
       return `DTM:NAYAX-${upper}`;
     }
-    if (/^NAYAX-[0-9]{9}$/.test(upper)) {
+    if (/^NAYAX-[0-9]{9,10}$/.test(upper)) {
       return `DTM:${upper}`;
     }
     return trimmed;
@@ -497,7 +497,7 @@ const getNayaxResolutionReferenceIssue = (
   const approvedNumericVendorReference =
     (evidenceType === 'nayax_support_ticket' && /^SUPPORT:NAYAX-[0-9]{8}$/.test(normalized)) ||
     (evidenceType === 'nayax_support_ticket' && /^SUPPORT:NAYAX-CS[0-9]{7}$/.test(normalized)) ||
-    (evidenceType === 'nayax_dtm_transaction' && /^DTM:NAYAX-[0-9]{9}$/.test(normalized));
+    (evidenceType === 'nayax_dtm_transaction' && /^DTM:NAYAX-[0-9]{9,10}$/.test(normalized));
   if (
     normalized.includes('@') ||
     (digitCount >= 8 && !approvedNumericVendorReference) ||
@@ -744,7 +744,7 @@ const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxL
   }
 
   if (refundCase.providerHold) {
-    return 'The refund result is unclear. Do not retry. The machine Manager must check the transaction in Nayax and record the result.';
+    return 'The refund result is unclear. Do not retry. Check the transaction in Nayax and record what Nayax confirms.';
   }
 
   if (
@@ -1755,7 +1755,7 @@ const primaryActionConfig = (
     );
     return {
       label: 'Delivery needs review',
-      helper: `${stateLabel}. The assigned machine manager must review the original customer email thread and saved delivery record, then choose the supported next step. Delivery evidence does not establish a refund result. Do not resend this saved message until its delivery is clear, and do not retry a payment from delivery evidence.`,
+      helper: `${stateLabel}. Review the original customer email thread and saved delivery record, then choose the supported next step. Delivery evidence does not establish a refund result. Do not resend this saved message until its delivery is clear, and do not retry a payment from delivery evidence.`,
       disabled: true,
     };
   }
@@ -1765,7 +1765,7 @@ const primaryActionConfig = (
   ) {
     return {
       label: 'Refund was rejected',
-      helper: 'No refund was sent. The machine Manager must check the exact transaction in Nayax.',
+      helper: 'No refund was sent. Check the exact transaction in Nayax and record what Nayax confirms.',
       disabled: true,
     };
   }
@@ -3939,6 +3939,9 @@ export default function AdminRefundsPage() {
     const message = providerPending
       ? 'The final refund result has not been confirmed.'
       : formatNayaxExecutionBlockedMessage(result);
+    const userFacingMessage = ambiguous
+      ? 'Bloomjoy is checking the exact Nayax result.'
+      : message;
     const receiptTitle = ambiguous
       ? timedOut
         ? 'The refund result timed out'
@@ -3971,12 +3974,12 @@ export default function AdminRefundsPage() {
       );
     }
 
-    setNayaxExecutionNotice({ tone: 'warning', message });
+    setNayaxExecutionNotice({ tone: 'warning', message: userFacingMessage });
     setRefundActionReceipt({
       tone: 'warning',
       title: receiptTitle,
       message: ambiguous
-        ? `${message} Do not try the refund again. The machine Manager must check the exact transaction in Nayax. The customer was not emailed.`
+        ? `${userFacingMessage} Do not try the refund again. Check the exact transaction in Nayax and record what Nayax confirms. The customer was not emailed.`
         : rejected
           ? `${message} The case remains held for verification. The customer was not emailed.`
           : `${message} The case remains open and no customer completion email was sent.`,
@@ -4120,7 +4123,7 @@ export default function AdminRefundsPage() {
         setRefundActionReceipt({
           tone: 'warning',
           title: 'Check Nayax refund status',
-          message: `${message} Do not try again. The machine Manager must check the exact transaction in Nayax. The customer was not emailed.`,
+          message: `${message} Do not try again. Check the exact transaction in Nayax and record what Nayax confirms. The customer was not emailed.`,
         });
         toast.error('Bloomjoy could not confirm whether the refund was sent. Do not try again.');
       }
@@ -4189,16 +4192,22 @@ export default function AdminRefundsPage() {
       const completionSent = completion?.status === 'sent' ||
         completion?.status === 'already_sent';
       const completionFailed = completion?.status === 'failed';
+      const systemContinuation = result.result === 'provider_confirmed_no_refund' &&
+        result.status === 'system_finishing';
       setRefundActionReceipt({
-        tone: result.caseCompleted && completionSent ? 'success' : 'warning',
-        title: result.caseCompleted
+        tone: result.caseCompleted && completionSent || systemContinuation ? 'success' : 'warning',
+        title: systemContinuation
+          ? 'System is continuing the original approved refund attempt'
+          : result.caseCompleted
           ? completionSent
             ? 'Refund completed and customer notified'
             : completionFailed
               ? 'Refund completed; customer email needs attention'
               : 'Refund completed; email status needs checking'
           : 'Still waiting for confirmation',
-        message: result.caseCompleted
+        message: systemContinuation
+          ? 'The exact no-refund evidence was saved on the original approval. System will continue the same attempt; no second approval, provider call, or customer message was created here.'
+          : result.caseCompleted
           ? completionSent
             ? 'Bloomjoy recorded the existing refund, updated reporting, and emailed the customer. No second payment was attempted.'
             : completionFailed

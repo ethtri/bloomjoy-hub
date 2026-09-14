@@ -100,7 +100,7 @@ const evidenceReferenceIsSafe = (value: string, evidenceType: string) => {
   }
   const digits = value.replace(/[^0-9]/g, "");
   const permittedLongNumber = evidenceType === "nayax_dtm_transaction"
-    ? /^DTM:NAYAX-[0-9]{9}$/.test(value)
+    ? /^DTM:NAYAX-[0-9]{9,10}$/.test(value)
     : evidenceType === "nayax_support_ticket" &&
       (/^SUPPORT:NAYAX-[0-9]{8}$/.test(value) || /^SUPPORT:NAYAX-CS[0-9]{7}$/.test(value));
   return (digits.length < 8 || permittedLongNumber) &&
