@@ -6147,7 +6147,7 @@ const runNayaxLookupNoticeChecks = async ({ browser, appUrl, artifactDir, record
   const callsBeforeManualPortalDemo = functionCalls.length;
   await navigateRefundPortalPage(page, `${appUrl}/refunds?demo=on`, { waitUntil: 'networkidle' });
   const routineManagerSetupSignals = {
-    setupCaseCount: await queueCase(page, 'RF-UAT-NC-MANUAL').count(),
+    setupCaseCount: await queueCase(page, 'RF-UAT-SETUP').count(),
     manualEvidenceFormCount: await page.getByTestId('manual-nayax-evidence-form').count(),
     transactionReferenceInputCount: await page.getByLabel('Transaction reference').count(),
   };
@@ -9395,7 +9395,7 @@ const runInboundCaseLinkReviewChecks = async ({
   await signInRefundUser(page, appUrl);
   await navigateRefundPortalPage(
     page,
-    `${appUrl}/refunds?demo=on&inbound-link=on&case=demo-nc-manual`,
+    `${appUrl}/refunds?demo=on&inbound-link=on&case=demo-nayax-setup`,
     { waitUntil: 'networkidle' }
   );
   const review = page.getByTestId('refund-inbound-link-review');
@@ -10168,13 +10168,13 @@ const runNayaxResolutionChecks = async ({ browser, appUrl, artifactDir, recorder
       );
       await panel.scrollIntoViewIfNeeded();
       await page.screenshot({
-        path: path.join(artifactDir, 'refund-portal-uat-nc-manual-desktop.png'),
+        path: path.join(artifactDir, 'refund-payment-result-review-desktop.png'),
         fullPage: false,
       });
       await page.setViewportSize({ width: 390, height: 844 });
       await panel.scrollIntoViewIfNeeded();
       await page.screenshot({
-        path: path.join(artifactDir, 'refund-portal-uat-nc-manual-mobile.png'),
+        path: path.join(artifactDir, 'refund-payment-result-review-mobile.png'),
         fullPage: false,
       });
       await page.setViewportSize({ width: 1440, height: 1000 });
@@ -11178,7 +11178,7 @@ const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder })
       'Demo visual review keeps ready, waiting, and setup cases distinct',
       (await queueCase(page, 'RF-UAT-CARD').count()) === 1 &&
         (await queueCase(page, 'RF-UAT-WAIT').count()) === 0 &&
-        (await queueCase(page, 'RF-UAT-NC-MANUAL').count()) === 0
+        (await queueCase(page, 'RF-UAT-SETUP').count()) === 0
     );
 
     await page.getByRole('button', { name: /^Waiting for customer \d+$/ }).click();

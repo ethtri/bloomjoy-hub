@@ -69,6 +69,8 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-manager-queue-mobile-200-percent.png',
   'refund-nayax-support-resolution-desktop.png',
   'refund-nayax-support-resolution-mobile.png',
+  'refund-payment-result-review-desktop.png',
+  'refund-payment-result-review-mobile.png',
   'refund-portal-demo-fallback.png',
   'refund-portal-gmail-draft-desktop.png',
   'refund-portal-gmail-draft-mobile.png',

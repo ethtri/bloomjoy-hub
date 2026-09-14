@@ -1973,7 +1973,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
       oldestActionableAgeMinutes: managerWorkMode === 'zero' ? null : 180,
       recentMaterialChangeCount: managerWorkMode === 'zero' ? 0 : managerWorkMode === 'one' ? 1 : 2,
       items: (managerWorkMode === 'zero' ? [] : [
-        { caseId: 'demo-nc-manual', publicReference: 'RF-UAT-NC-MANUAL', amountCents: 700, currencyCode: 'USD', machineLabel: 'Carolina Place — Phone cases with an intentionally long public label', locationName: 'Carolina Place', ageMinutes: 180, queueBucket: 'needs_action', queueLabel: 'Action needed', actionCode: 'repair_nayax_lookup_setup', actionOwner: 'manager', lifecycleActor: 'system', whatChanged: 'This machine needs its Nayax lookup setup checked before the transaction search can continue.', noticeReason: 'lookup_setup', attentionVersion: 2, digestEligible: true, urgentNoticeState: 'none', payloadRedacted: true },
+        { caseId: 'demo-nayax-setup', publicReference: 'RF-UAT-SETUP', amountCents: 700, currencyCode: 'USD', machineLabel: 'Carolina Place — Phone cases with an intentionally long public label', locationName: 'Carolina Place', ageMinutes: 180, queueBucket: 'needs_action', queueLabel: 'Action needed', actionCode: 'repair_nayax_lookup_setup', actionOwner: 'manager', lifecycleActor: 'system', whatChanged: 'This machine needs its Nayax lookup setup checked before the transaction search can continue.', noticeReason: 'lookup_setup', attentionVersion: 2, digestEligible: true, urgentNoticeState: 'none', payloadRedacted: true },
         { caseId: 'demo-card-match', publicReference: 'RF-UAT-CARD', amountCents: 700, currencyCode: 'USD', machineLabel: 'Cotton Candy 01', locationName: 'Mall Atrium', ageMinutes: 95, queueBucket: 'ready_to_pay', queueLabel: 'Ready to approve', actionCode: 'refund', actionOwner: 'manager', lifecycleActor: 'system', whatChanged: 'The exact card transaction is confirmed and ready for the Manager’s refund decision.', noticeReason: 'manager_reminder', attentionVersion: 1, digestEligible: true, urgentNoticeState: 'immediate_sent', payloadRedacted: true },
         { caseId: 'demo-cash-waiting', publicReference: 'RF-UAT-CASH', amountCents: 500, currencyCode: 'USD', machineLabel: 'Cotton Candy 02', locationName: 'Arcade Hall', ageMinutes: 60, queueBucket: 'waiting_on_customer', queueLabel: 'Waiting for customer', actionCode: 'wait_for_customer_reply', actionOwner: 'customer', lifecycleActor: 'system', whatChanged: 'The current server-owned queue state is Waiting for customer.', noticeReason: null, attentionVersion: 1, digestEligible: false, urgentNoticeState: 'none', payloadRedacted: true },
       ]).slice(0, managerWorkMode === 'one' ? 1 : undefined),
@@ -1993,7 +1993,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         nayaxLookupConfigured: false,
       },
       {
-        id: 'demo-machine-nc-manual',
+        id: 'demo-machine-nayax-setup',
         machineLabel: 'Carolina Place',
         locationName: 'Carolina Place',
         nayaxLookupConfigured: false,
@@ -2009,14 +2009,14 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         managerEmail,
       },
       {
-        reportingMachineId: 'demo-machine-nc-manual',
+        reportingMachineId: 'demo-machine-nayax-setup',
         managerEmail,
       },
     ],
     cases: [
       {
-        id: 'demo-nc-manual',
-        publicReference: 'RF-UAT-NC-MANUAL',
+        id: 'demo-nayax-setup',
+        publicReference: 'RF-UAT-SETUP',
         ...(correctionDemo ? {
           customerCorrectionFields: [] as RefundMissingField[],
           customerCorrection: {state: correctionDemo==='waiting' ? 'pending' as const : 'submitted' as const,
@@ -2099,8 +2099,8 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
               matchBasis: 'normalized_sender_recent_open_cases',
               candidates: [
                 {
-                  caseId: 'demo-nc-manual',
-                  publicReference: 'RF-UAT-NC-MANUAL',
+                  caseId: 'demo-nayax-setup',
+                  publicReference: 'RF-UAT-SETUP',
         ...(correctionDemo ? {
           customerCorrectionFields: [] as RefundMissingField[],
           customerCorrection: {state: correctionDemo==='waiting' ? 'pending' as const : 'submitted' as const,
