@@ -198,7 +198,8 @@
     "20260911210036_simplify_refund_nayax_lookup.sql",
     "20260912040000_refund_orphaned_lookup_evidence_recovery.sql",
     "20260912205646_refund_gap_recovery_paths.sql",
-    "20260913090000_refund_single_manager_gate.sql"
+    "20260913090000_refund_single_manager_gate.sql",
+    "20260914052555_refund_single_manager_db_guards.sql"
   ],
   "migrationFilesSha256": "6d6a09194705a9cf2767d9b565b9913880bf1f804381bd70e3362012c0f2c187",
   "migrationVersionSetSha256": "bcb0ad1da835e43aedf1276ba580a52b12a4824d2851f58b7036289a8a4cf880",
