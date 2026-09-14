@@ -2515,9 +2515,6 @@ export default function AdminRefundsPage() {
   const [isRefreshingCustomerDelivery, setIsRefreshingCustomerDelivery] = useState(false);
   const [isCashCompletionSubmitting, setIsCashCompletionSubmitting] = useState(false);
   const [refundActionReceipt, setRefundActionReceipt] = useState<RefundActionReceipt | null>(null);
-  const [refundOperationsBlockedCaseIds, setRefundOperationsBlockedCaseIds] = useState<Set<string>>(
-    () => new Set()
-  );
   const [isSendingCustomerMessage, setIsSendingCustomerMessage] = useState(false);
   const [correctionSelection, setCorrectionSelection] = useState<{ caseId: string; version: number; fields: RefundMissingField[]; requestId?: string; editing?: boolean } | null>(null);
   const correctionNoticeState = useRef<CorrectionNoticeState>({initialized:false,seen:new Set()});
@@ -5771,16 +5768,12 @@ export default function AdminRefundsPage() {
       (selectedCase.legacyStateReviewRequired ? null : editor.matchedNayaxMachineAuthTime) ||
       selectedCase.incidentAt;
     const actionLabel = `Refund ${formatCurrency(cardAmountCents)}`;
-    const paymentActionNeedsOperations = !hasConfirmedRefundReceipt(selectedCase) && refundOperationsBlockedCaseIds.has(selectedCase.id);
     const hasReadyRefund =
       primaryAction?.mode === 'nayax_refund_execution' &&
-      primaryAction.disabled !== true &&
-      !paymentActionNeedsOperations;
-    const topActionLabel = paymentActionNeedsOperations
-      ? 'Manager review required'
-      : hasReadyRefund
-        ? actionLabel
-        : primaryAction?.label ?? 'Review this request';
+      primaryAction.disabled !== true;
+    const topActionLabel = hasReadyRefund
+      ? actionLabel
+      : primaryAction?.label ?? 'Review this request';
     const baseManagerState = getRefundManagerState(
       {
         ...selectedCase,
@@ -5824,14 +5817,6 @@ export default function AdminRefundsPage() {
                 ? 'Use read-only Nayax transaction research if needed, then report the blocked search. Never issue or record a refund there.'
               : 'Run the available transaction check. If no check is available, search the same machine in Nayax and report the portal gap. No refund has been issued.',
           tone: transactionView.kind === 'checking' ? 'info' : 'warning',
-        }
-      : paymentActionNeedsOperations
-      ? {
-          id: 'needs_refund_operations',
-          label: 'Approval permission mismatch',
-          explanation: 'Bloomjoy did not send a refund. Only the assigned machine Manager or a Super-admin can approve.',
-          nextStep: 'If this signed-in user has one of those roles, report a configuration defect. Do not try the refund again.',
-          tone: 'warning',
         }
       : selectedCandidateRefundUnavailable
       ? {
@@ -5885,7 +5870,7 @@ export default function AdminRefundsPage() {
       : baseManagerState;
     const displayedManagerNextStep = getDisplayedRefundManagerNextStep(managerState, primaryAction);
     const showDisabledActionStatus =
-      (primaryAction?.disabled === true || paymentActionNeedsOperations) &&
+      primaryAction?.disabled === true &&
       !selectedCaseIsTerminal &&
       managerState.id !== 'match_attention' &&
       managerState.id !== 'check_nayax_result';
@@ -5895,7 +5880,6 @@ export default function AdminRefundsPage() {
       isRunningNayaxRefund ||
       isUsingDemoData ||
       !primaryAction ||
-      paymentActionNeedsOperations ||
       primaryAction.disabled === true ||
       (primaryActionNeedsOfficialAccess && (selectedCaseIsReviewOnly || officialActionVersion <= 0)) ||
       primaryActionIssues.length > 0;

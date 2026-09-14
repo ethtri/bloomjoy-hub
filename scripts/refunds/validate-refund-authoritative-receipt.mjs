@@ -144,7 +144,11 @@ assert.match(
   /const managerState: RefundManagerState = hasConfirmedRefundReceipt\(selectedCase\) \|\|\s*hasProtectedRefundLifecycle\(selectedCase\)/,
   'Protected payment states stay read-only while System owns approved continuation',
 );
-assert.match(workbench, /!hasConfirmedRefundReceipt\(selectedCase\) && refundOperationsBlockedCaseIds.has/);
+assert.doesNotMatch(
+  workbench,
+  /refundOperationsBlockedCaseIds|paymentActionNeedsOperations|Approval permission mismatch/,
+  'The retired Refund Operations approval gate must not reappear in the manager workflow',
+);
 assert.match(workbench, /hasConfirmedRefundReceipt\(selectedCase\) \? \(\s*<p data-testid="refund-receipt-accounting-only"/);
 assert.match(receiptClient, /\['admin-refund-operations-overview'\]/);
 assert.match(receiptClient, /\['nayax-card-refund-availability'\]/);

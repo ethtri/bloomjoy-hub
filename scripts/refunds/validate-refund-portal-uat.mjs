@@ -703,6 +703,32 @@ const buildMockRefundOverview = () => ({
   ],
 });
 
+// Normal manager journey: the System has already saved one clear transaction,
+// and the assigned Manager has not made the one final decision yet. Keep the
+// shared mock above in its post-approval state for the recovery scenarios that
+// intentionally exercise System follow-through.
+const buildManagerReadyRefundOverview = () => {
+  const overview = buildMockRefundOverview();
+  const refundCase = overview.cases[0];
+  overview.cases[0] = {
+    ...refundCase,
+    status: 'needs_review',
+    decision: null,
+    decisionReason: null,
+    decidedAt: null,
+    events: [
+      refundCase.events[0],
+      {
+        id: 'event-2',
+        eventType: 'nayax_match_preselected',
+        message: 'System saved the matching transaction for manager approval. No refund was issued.',
+        createdAt: isoHoursAgo(4.5),
+      },
+    ],
+  };
+  return overview;
+};
+
 // This is the state immediately before the assigned Manager's one approval.
 // The case worker/System has already saved the exact provider total; no
 // financial decision or approval message exists yet.
@@ -3893,7 +3919,11 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
   });
   const functionCalls = [];
   const functionBodies = [];
-  await installMockSupabaseRoutes(context, { functionCalls, functionBodies });
+  await installMockSupabaseRoutes(context, {
+    refundOverview: buildManagerReadyRefundOverview,
+    functionCalls,
+    functionBodies,
+  });
 
   const page = await context.newPage();
   const consoleErrors = [];
