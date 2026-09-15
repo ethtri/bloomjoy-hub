@@ -205,6 +205,7 @@
     "20260914100000_refund_manager_system_cutover.sql",
     "20260914173954_refund_evidence_timezone.sql",
     "20260914193919_refund_candidate_time_semantics.sql",
+    "20260914202530_sunze_cash_correlation_service.sql",
     "20260915010000_refund_cash_verification_ux.sql"
   ],
   "migrationFilesSha256": "a6a708a90a2bd9e7f46743aca8089bec83f2c83bdebae4911f2781ed3e709550",
