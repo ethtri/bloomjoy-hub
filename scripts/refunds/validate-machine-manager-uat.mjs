@@ -255,6 +255,17 @@ const installMockSupabaseRoutes = async (context, state) => {
     return route.fulfill(jsonResponse({}));
   });
 
+  await context.route('**/rest/v1/reporting_machines**', async (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill(jsonResponse([
+        { id: machineId, operational_phase: 'live' },
+        { id: valleyMachineId, operational_phase: 'live' },
+      ]));
+    }
+
+    return route.fulfill(jsonResponse({}));
+  });
+
   await context.route('**/functions/v1/access-invite', async (route) => {
     if (route.request().method() === 'OPTIONS') {
       return route.fulfill({ status: 204, headers: corsHeaders, body: '' });
