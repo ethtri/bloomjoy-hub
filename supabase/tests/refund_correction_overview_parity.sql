@@ -227,10 +227,12 @@ end;
 $$;
 
 select ok(
-  position('refund_project_candidate_time_evidence_v1' in pg_get_functiondef(
+  position('admin_get_refund_operations_overview_pre_cash_verification_ux_v1' in pg_get_functiondef(
     'public.admin_get_refund_operations_overview()'::regprocedure))>0
-  and position('admin_get_refund_operations_overview_pre_cash_verification_ux_v1' in pg_get_functiondef(
-    'public.admin_get_refund_operations_overview()'::regprocedure))>0
+  and position('refund_project_candidate_time_evidence_v1' in pg_get_functiondef(
+    'public.admin_get_refund_operations_overview_pre_cash_verification_ux_v1()'::regprocedure))>0
+  and position('admin_get_refund_operations_overview_pre_candidate_time_v1' in pg_get_functiondef(
+    'public.admin_get_refund_operations_overview_pre_cash_verification_ux_v1()'::regprocedure))>0
   and position('refund_project_customer_outreach_cases_for_manager' in pg_get_functiondef(
     'public.admin_get_refund_operations_overview_pre_candidate_time_v1()'::regprocedure))>0
   and position('refund_purchase_correction_request_fields' in pg_get_functiondef(
@@ -278,7 +280,7 @@ select is((select value-'cases'-'internalTestCases'-'customerOutreachContractVer
   'The outer wrapper preserves every preceding top-level overview value');
 
 select is((select jsonb_agg(pg_temp.without_candidate_time_contract(
-    item-'customerCorrectionFields'-'nayaxLookupWork'-'payoutDestinationRequest' order by ordinality)
+    item-'customerCorrectionFields'-'nayaxLookupWork'-'payoutDestinationRequest') order by ordinality)
   from current_overview, lateral jsonb_array_elements(value->'cases') with ordinality entries(item,ordinality)),
   (select jsonb_agg(pg_temp.without_candidate_time_contract(
     item-'customerCorrectionFields') order by ordinality)
@@ -286,7 +288,7 @@ select is((select jsonb_agg(pg_temp.without_candidate_time_contract(
   'Ordinary case order and every unrelated field remain unchanged');
 
 select is((select jsonb_agg(pg_temp.without_candidate_time_contract(
-    item-'customerCorrectionFields'-'nayaxLookupWork'-'payoutDestinationRequest' order by ordinality)
+    item-'customerCorrectionFields'-'nayaxLookupWork'-'payoutDestinationRequest') order by ordinality)
   from current_overview, lateral jsonb_array_elements(value->'internalTestCases') with ordinality entries(item,ordinality)),
   (select jsonb_agg(pg_temp.without_candidate_time_contract(
     item-'customerCorrectionFields') order by ordinality)

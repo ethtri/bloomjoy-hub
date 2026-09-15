@@ -1863,8 +1863,8 @@ select ok(
       )
     from public.refund_cases
     where id = '79600000-0000-4000-8000-000000000006'
-  ),
-  (
+  )
+  and (
     select status = 'closed'
       and decision = 'approved'
       and refund_amount_cents = 800
