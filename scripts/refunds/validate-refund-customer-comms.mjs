@@ -172,7 +172,8 @@ const run = async () => {
   );
   assert(
     'Portal primary customer requests use the durable message outbox',
-    includesAll(portalPage, ["mode: 'retry_message'", 'handleSendCustomerMessage(primaryAction.messageType)']) &&
+      includesAll(portalPage, ["mode: 'retry_message'"]) &&
+      /handleSendCustomerMessage\(primaryAction\.messageType(?:,|\))/.test(portalPage) &&
       includesAll(messageSend, ['service_enqueue_refund_manual_message_intent', 'drainRefundManualMessageOutbox'])
   );
   assert(

@@ -493,6 +493,7 @@ set search_path = ''
 as $$
 declare
   case_row public.refund_cases%rowtype;
+  before_case_row public.refund_cases%rowtype;
   normalized_event public.refund_case_events%rowtype;
   correlation_result jsonb;
 begin
@@ -510,6 +511,7 @@ begin
   end if;
 
   if case_row.payment_method <> 'cash'
+    or case_row.status in ('completed', 'denied', 'closed')
     or case_row.refund_completed_at is not null
     or case_row.reporting_adjustment_id is not null then
     return jsonb_build_object(
@@ -544,6 +546,7 @@ begin
     );
   end if;
 
+  before_case_row := case_row;
   update public.refund_cases
   set
     status = 'needs_review',
@@ -571,12 +574,12 @@ begin
     'legacy_cash_state_normalized',
     'A historical cash decision returned to manager review; no customer message or payment was sent by this operation.',
     jsonb_build_object(
-      'previousStatus', case_row.status,
-      'previousDecision', case_row.decision,
-      'previousDecisionReasonPresent', nullif(btrim(coalesce(case_row.decision_reason, '')), '') is not null,
-      'previousDecidedByPresent', case_row.decided_by is not null,
-      'previousDecidedAt', case_row.decided_at,
-      'previousRefundAmountCents', case_row.refund_amount_cents,
+      'previousStatus', before_case_row.status,
+      'previousDecision', before_case_row.decision,
+      'previousDecisionReasonPresent', nullif(btrim(coalesce(before_case_row.decision_reason, '')), '') is not null,
+      'previousDecidedByPresent', before_case_row.decided_by is not null,
+      'previousDecidedAt', before_case_row.decided_at,
+      'previousRefundAmountCents', before_case_row.refund_amount_cents,
       'existingMessageCount', (
         select count(*) from public.refund_case_messages message
         where message.refund_case_id = case_row.id
@@ -601,10 +604,10 @@ begin
     'refund_case',
     case_row.id::text,
     jsonb_build_object(
-      'status', case_row.status,
-      'decision', case_row.decision,
-      'decidedAt', case_row.decided_at,
-      'refundAmountCents', case_row.refund_amount_cents
+      'status', before_case_row.status,
+      'decision', before_case_row.decision,
+      'decidedAt', before_case_row.decided_at,
+      'refundAmountCents', before_case_row.refund_amount_cents
     ),
     jsonb_build_object(
       'status', 'needs_review',
@@ -650,6 +653,111 @@ grant execute on function public.service_prepare_legacy_cash_case_for_correlatio
 comment on function public.service_prepare_legacy_cash_case_for_correlation(uuid, uuid) is
   'Audited service-only forward repair for active legacy cash decisions; terminal outcomes and payment/customer records remain immutable.';
 
+-- Serialize payout-destination request creation with the case and treat both
+-- a scoped correction capability and an already queued/sent targeted request
+-- as active coverage. This keeps concurrent callers from creating a second
+-- customer question while leaving unrelated delivery history irrelevant.
+alter function public.service_enqueue_refund_manual_message_intent(
+  uuid, bigint, uuid, uuid, text, text, text, text, text, text, text,
+  text[], uuid, boolean, uuid
+) rename to service_enqueue_refund_manual_message_intent_pre_cash_verification_ux;
+revoke all on function public.service_enqueue_refund_manual_message_intent_pre_cash_verification_ux(
+  uuid, bigint, uuid, uuid, text, text, text, text, text, text, text,
+  text[], uuid, boolean, uuid
+) from public, anon, authenticated, service_role;
+
+create function public.service_enqueue_refund_manual_message_intent(
+  p_refund_case_id uuid,
+  p_expected_case_version bigint,
+  p_intent_id uuid,
+  p_actor_user_id uuid,
+  p_message_type text,
+  p_recipient_email text,
+  p_subject text,
+  p_body text,
+  p_template_key text,
+  p_content_source text,
+  p_reason_code text,
+  p_requested_fields text[],
+  p_synthetic_proof_authorization_id uuid,
+  p_status_link_requested boolean,
+  p_triage_suggestion_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  locked_case public.refund_cases%rowtype;
+begin
+  if p_requested_fields is not distinct from array['zelle_payment_contact']::text[] then
+    select refund_case.* into locked_case
+    from public.refund_cases refund_case
+    where refund_case.id = p_refund_case_id
+    for update;
+    if not found then
+      raise exception 'Refund case not found';
+    end if;
+
+    if exists (
+      select 1
+      from public.refund_wallet_correction_contexts correction
+      where correction.refund_case_id = locked_case.id
+        and correction.correction_kind = 'purchase'
+        and correction.status = 'pending'
+        and correction.expires_at > statement_timestamp()
+        and 'zelle_payment_contact' = any(coalesce(
+          correction.correction_requested_fields,
+          array[]::text[]
+        ))
+    ) or exists (
+      select 1
+      from public.refund_case_messages request_message
+      where request_message.refund_case_id = locked_case.id
+        and request_message.message_type = 'more_info'
+        and 'zelle_payment_contact' = any(coalesce(
+          request_message.requested_fields,
+          array[]::text[]
+        ))
+        and request_message.status in ('pending', 'sent')
+        and request_message.manual_delivery_intent_id is distinct from p_intent_id
+        and not public.is_refund_message_recorded_delivery_failure(to_jsonb(request_message))
+    ) then
+      raise exception 'Payout destination contact already has an active customer request; Refund Operations review is required before any new request'
+        using errcode = 'P4662';
+    end if;
+  end if;
+
+  return public.service_enqueue_refund_manual_message_intent_pre_cash_verification_ux(
+    p_refund_case_id,
+    p_expected_case_version,
+    p_intent_id,
+    p_actor_user_id,
+    p_message_type,
+    p_recipient_email,
+    p_subject,
+    p_body,
+    p_template_key,
+    p_content_source,
+    p_reason_code,
+    p_requested_fields,
+    p_synthetic_proof_authorization_id,
+    p_status_link_requested,
+    p_triage_suggestion_id
+  );
+end;
+$$;
+
+revoke execute on function public.service_enqueue_refund_manual_message_intent(
+  uuid, bigint, uuid, uuid, text, text, text, text, text, text, text,
+  text[], uuid, boolean, uuid
+) from public, anon, authenticated;
+grant execute on function public.service_enqueue_refund_manual_message_intent(
+  uuid, bigint, uuid, uuid, text, text, text, text, text, text, text,
+  text[], uuid, boolean, uuid
+) to service_role;
+
 -- Project payout-destination eligibility from the dedicated request ledger.
 -- Generic customer delivery messages (including delivery_unknown) are never
 -- consulted here, so they cannot suppress or replay this targeted question.
@@ -678,6 +786,30 @@ begin
           item.case_json ->> 'paymentMethod' = 'cash'
           and nullif(btrim(coalesce(item.case_json ->> 'zellePaymentContact', '')), '') is null
           and item.case_json ->> 'status' not in ('completed', 'denied', 'closed')
+          and not exists (
+            select 1
+            from public.refund_wallet_correction_contexts correction
+            where correction.refund_case_id = (item.case_json ->> 'id')::uuid
+              and correction.correction_kind = 'purchase'
+              and correction.status = 'pending'
+              and correction.expires_at > statement_timestamp()
+              and 'zelle_payment_contact' = any(coalesce(
+                correction.correction_requested_fields,
+                array[]::text[]
+              ))
+          )
+          and not exists (
+            select 1
+            from public.refund_case_messages request_message
+            where request_message.refund_case_id = (item.case_json ->> 'id')::uuid
+              and request_message.message_type = 'more_info'
+              and 'zelle_payment_contact' = any(coalesce(
+                request_message.requested_fields,
+                array[]::text[]
+              ))
+              and request_message.status in ('pending', 'sent')
+              and not public.is_refund_message_recorded_delivery_failure(to_jsonb(request_message))
+          )
           and (
             item.case_json ->> 'decision' = 'approved'
             or item.case_json ->> 'status' in ('approved', 'cash_zelle_pending')
@@ -707,6 +839,30 @@ begin
           item.case_json ->> 'paymentMethod' = 'cash'
           and nullif(btrim(coalesce(item.case_json ->> 'zellePaymentContact', '')), '') is null
           and item.case_json ->> 'status' not in ('completed', 'denied', 'closed')
+          and not exists (
+            select 1
+            from public.refund_wallet_correction_contexts correction
+            where correction.refund_case_id = (item.case_json ->> 'id')::uuid
+              and correction.correction_kind = 'purchase'
+              and correction.status = 'pending'
+              and correction.expires_at > statement_timestamp()
+              and 'zelle_payment_contact' = any(coalesce(
+                correction.correction_requested_fields,
+                array[]::text[]
+              ))
+          )
+          and not exists (
+            select 1
+            from public.refund_case_messages request_message
+            where request_message.refund_case_id = (item.case_json ->> 'id')::uuid
+              and request_message.message_type = 'more_info'
+              and 'zelle_payment_contact' = any(coalesce(
+                request_message.requested_fields,
+                array[]::text[]
+              ))
+              and request_message.status in ('pending', 'sent')
+              and not public.is_refund_message_recorded_delivery_failure(to_jsonb(request_message))
+          )
           and (
             item.case_json ->> 'decision' = 'approved'
             or item.case_json ->> 'status' in ('approved', 'cash_zelle_pending')

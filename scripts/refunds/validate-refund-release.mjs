@@ -655,11 +655,12 @@ try {
   const migrationFiles = [
     '202601010001_refund_first.sql',
     '202601010002_nayax_second.sql',
+    '202601010003_sunze_cash_correlation_service.sql',
   ];
   for (const fileName of migrationFiles) {
     fs.writeFileSync(path.join(migrationsRoot, fileName), `select '${fileName}';\n`, 'utf8');
   }
-  fs.writeFileSync(path.join(migrationsRoot, '202601010003_unrelated.sql'), 'select true;\n', 'utf8');
+  fs.writeFileSync(path.join(migrationsRoot, '202601010004_unrelated.sql'), 'select true;\n', 'utf8');
   assert.deepEqual(
     discoverRefundMigrationFiles(fixtureRoot),
     migrationFiles,
@@ -926,6 +927,23 @@ try {
     'A newly added in-scope migration must fail until the manifest includes it'
   );
   fs.rmSync(path.join(migrationsRoot, '202601010004_refund_unlisted.sql'));
+
+  const missingSunzePrerequisiteManifest = structuredClone(shapeManifest);
+  missingSunzePrerequisiteManifest.requiredMigrations = migrationFiles.filter(
+    (fileName) => fileName !== '202601010003_sunze_cash_correlation_service.sql'
+  );
+  missingSunzePrerequisiteManifest.migrationFilesSha256 = calculateMigrationDigest(
+    fixtureRoot,
+    missingSunzePrerequisiteManifest.requiredMigrations
+  );
+  missingSunzePrerequisiteManifest.migrationVersionSetSha256 = calculateMigrationVersionSetDigest(
+    missingSunzePrerequisiteManifest.requiredMigrations
+  );
+  assert.throws(
+    () => buildLocalReleaseState(fixtureRoot, missingSunzePrerequisiteManifest),
+    /do not match every refund\/Nayax migration/,
+    'The Sunze cash correlation prerequisite must fail closed when omitted from the release manifest'
+  );
 
   fs.appendFileSync(
     path.join(fixtureRoot, 'supabase', 'config.toml'),

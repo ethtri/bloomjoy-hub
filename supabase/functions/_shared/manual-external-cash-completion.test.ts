@@ -17,7 +17,7 @@ Deno.test("manual external completion derives the amount and omits client payout
   assert(result.context.refundAmountCents === 800, "case amount must be preserved");
   assert(result.context.manualRefundReference === null, "no payment reference is accepted");
   assert(result.context.cashPayoutSentAt === null, "server completion records its own time");
-  assert(result.context.cashPaymentConfirmed === true, "dialog confirmation is the attestation");
+  assert(result.context.cashPaymentConfirmed === true, "manager confirmation is the attestation");
   assert(
     Object.keys(result.context).sort().join(",") ===
       "cashPaymentConfirmed,cashPayoutSentAt,manualRefundReference,refundAmountCents",

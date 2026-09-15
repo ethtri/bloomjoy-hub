@@ -49,6 +49,11 @@ import { RefundReportFreshnessAdvisory } from '@/components/refunds/RefundReport
 import { RefundAuthoritativeReceiptPanel } from '@/components/refunds/RefundAuthoritativeReceiptPanel';
 import { RefundLifecycleProgress } from '@/components/refunds/RefundLifecycleProgress';
 import { RefundOwnerNonrefundResolution } from '@/components/refunds/RefundOwnerNonrefundResolution';
+import { CashRefundEvidencePanel } from '@/components/refunds/CashRefundEvidencePanel';
+import { fetchRefundSunzeCashCorrelation } from '@/lib/refundSunzeCashCorrelationApi';
+import type { RefundSunzeCashCorrelation } from '@/lib/refundSunzeCashCorrelation';
+import { canRequestDistinctCashPayoutDestination } from '@/lib/refundCashPayoutRequest';
+import { resolveCashReviewAmountCents } from '@/lib/refundCashAmount';
 import { hasConfirmedRefundReceipt } from '@/lib/refundAuthoritativeReceipt';
 import {
   AlertDialog,
@@ -586,9 +591,23 @@ const isMissingRefundLabel = (value: string | null | undefined) => {
   return !normalized || normalized.startsWith('unknown') || normalized.startsWith('unmapped');
 };
 
-const derivePortalRefundMissingFields = (refundCase: RefundCaseRecord): RefundMissingField[] => {
+const derivePortalRefundMissingFields = (
+  refundCase: RefundCaseRecord,
+  effectiveCashAmountCents?: number | null,
+): RefundMissingField[] => {
   if (refundCase.customerCorrectionFields) {
-    return refundCase.customerCorrection?.isActive === true ? [] : refundCase.customerCorrectionFields;
+    const correctionFields = refundCase.customerCorrection?.isActive === true
+      ? []
+      : [...refundCase.customerCorrectionFields];
+    if (
+      refundCase.paymentMethod === 'cash' &&
+      !refundCase.zellePaymentContact?.trim() &&
+      refundCase.payoutDestinationRequest &&
+      !correctionFields.includes('zelle_payment_contact')
+    ) {
+      correctionFields.push('zelle_payment_contact');
+    }
+    return correctionFields;
   }
   const missing: RefundMissingField[] = [];
   if (isMissingRefundLabel(refundCase.machineLabel) && isMissingRefundLabel(refundCase.locationName)) {
@@ -612,7 +631,10 @@ const derivePortalRefundMissingFields = (refundCase: RefundCaseRecord): RefundMi
     missing.push('incident_time');
   }
   if (!['card', 'cash'].includes(refundCase.paymentMethod ?? '')) missing.push('payment_method');
-  if (!Number.isInteger(refundCase.paymentAmountCents) || Number(refundCase.paymentAmountCents) <= 0) {
+  const cashAmountCents = refundCase.paymentMethod === 'cash'
+    ? resolveCashReviewAmountCents(refundCase.paymentAmountCents, effectiveCashAmountCents)
+    : refundCase.paymentAmountCents;
+  if (!Number.isInteger(cashAmountCents) || Number(cashAmountCents) <= 0) {
     missing.push('amount');
   }
   if (
@@ -625,9 +647,14 @@ const derivePortalRefundMissingFields = (refundCase: RefundCaseRecord): RefundMi
   if (
     refundCase.paymentMethod === 'cash' &&
     !refundCase.zellePaymentContact?.trim() &&
+    !['completed', 'denied', 'closed'].includes(refundCase.status) &&
     (
-      refundCase.decision === 'approved' ||
-      refundCase.lifecycle?.managerAction.action === 'request_payout_destination'
+      refundCase.payoutDestinationRequest
+        ? true
+        : (
+          refundCase.decision === 'approved' ||
+          refundCase.lifecycle?.managerAction.action === 'request_payout_destination'
+        )
     )
   ) {
     missing.push('zelle_payment_contact');
@@ -790,7 +817,7 @@ const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxL
   if (refundCase.decision === 'approved' && refundCase.status !== 'completed') {
     return refundCase.paymentMethod === 'card'
       ? 'Confirm the refund amount, then refund the matched card payment.'
-      : 'Send the external refund, then mark the case refunded.';
+      : 'Send the exact reimbursement through Zelle, then confirm it here.';
   }
 
   if (refundCase.status === 'completed') {
@@ -1345,7 +1372,7 @@ const getFallbackNayaxLookupSummary = (
       providerWindowRecordCount: null,
       candidateCount: 0,
       summary: 'Transaction search is only used for card refunds.',
-      recommendedAction: 'Send the cash reimbursement outside Bloomjoy Hub, then mark the case refunded.',
+      recommendedAction: 'Send the cash reimbursement through Zelle outside Bloomjoy Hub, then confirm it here.',
     };
   }
 
@@ -1692,7 +1719,14 @@ const primaryActionConfig = (
   refundCase: RefundCaseRecord,
   editor: EditorState,
   candidates: NayaxLookupCandidate[],
-  refundReadiness: RefundReadiness | null
+  refundReadiness: RefundReadiness | null,
+  cashCompletionAmountCents?: number | null,
+  cashEvidencePending = false,
+  payoutDestinationRequestChecker: (candidate: RefundCaseRecord) => boolean = (candidate) =>
+    candidate.paymentMethod === 'cash' &&
+    !candidate.zellePaymentContact?.trim() &&
+    candidate.payoutDestinationRequest?.canRequest === true &&
+    candidate.customerCorrection?.isActive !== true,
 ): PrimaryActionConfig => {
   if (refundCase.lifecycle?.stage === 'duplicate_resolved' || refundCase.confirmedDuplicate) {
     return {
@@ -1729,6 +1763,7 @@ const primaryActionConfig = (
     };
   }
   const latestMessage = getLatestCustomerMessage(refundCase);
+  const distinctPayoutDestinationRequest = payoutDestinationRequestChecker(refundCase);
   if (refundCase.legacyStateReviewRequired) {
     return {
       label: 'Transaction evidence needs review',
@@ -1741,7 +1776,7 @@ const primaryActionConfig = (
     return { label: current.label, helper: current.nextStep, disabled: true };
   }
   const customerOutreach = refundCase.lifecycle?.customerOutreach;
-  if (customerOutreach && customerOutreach.state !== 'none') {
+  if (customerOutreach && customerOutreach.state !== 'none' && !distinctPayoutDestinationRequest) {
     const presentation = getRefundCustomerOutreachPresentation(customerOutreach);
     if (
       canRequestRefundCustomerDetailsManually(customerOutreach)
@@ -1759,15 +1794,19 @@ const primaryActionConfig = (
       disabled: true,
     };
   }
-  if (refundCase.lifecycle?.stage === 'waiting_on_customer') return {
+  if (refundCase.lifecycle?.stage === 'waiting_on_customer' && !distinctPayoutDestinationRequest) return {
     label: 'Waiting for customer reply',
     helper: 'Wait for the customer to reply to the existing request. No new request is needed.', disabled: true,
   };
-  const canContinueReview = hasUnpaidRefundReview(refundCase) && derivePortalRefundMissingFields(refundCase).length === 0;
+  const canContinueReview = hasUnpaidRefundReview(refundCase) && derivePortalRefundMissingFields(
+    refundCase,
+    refundCase.paymentMethod === 'cash' ? cashCompletionAmountCents : undefined,
+  ).length === 0;
   if (
     refundCase.customerDeliveryException &&
     latestMessage?.status === 'failed' &&
     !canContinueReview &&
+    !distinctPayoutDestinationRequest &&
     isRefundCustomerDeliveryUncertain(latestMessage.errorMessage)
   ) {
     return {
@@ -1776,7 +1815,7 @@ const primaryActionConfig = (
       mode: 'resolve_delivery_not_found',
     };
   }
-  if (refundCase.customerDeliveryException && !canContinueReview) {
+  if (refundCase.customerDeliveryException && !canContinueReview && !distinctPayoutDestinationRequest) {
     const stateLabel = transactionalDeliveryLabel(
       refundCase.customerDeliveryException.state
     );
@@ -1797,7 +1836,10 @@ const primaryActionConfig = (
     };
   }
   if (
-    derivePortalRefundMissingFields(refundCase).length > 0 &&
+    derivePortalRefundMissingFields(
+      refundCase,
+      refundCase.paymentMethod === 'cash' ? cashCompletionAmountCents : undefined,
+    ).length > 0 &&
     refundReadiness?.canIssueCardRefund !== true &&
     !canRequestRefundCustomerDetailsManually(customerOutreach)
   ) {
@@ -1807,7 +1849,7 @@ const primaryActionConfig = (
       disabled: true,
     };
   }
-  if (latestMessage?.status === 'skipped' && !canContinueReview) {
+  if (latestMessage?.status === 'skipped' && !canContinueReview && !distinctPayoutDestinationRequest) {
     return {
       label: 'Send customer acknowledgement',
       helper: 'The automated message was skipped, so the customer has not been notified. Review and send one status update before treating this case as contacted.',
@@ -1815,7 +1857,7 @@ const primaryActionConfig = (
       mode: 'retry_message',
     };
   }
-  if (latestMessage?.status === 'failed' && !canContinueReview) {
+  if (latestMessage?.status === 'failed' && !canContinueReview && !distinctPayoutDestinationRequest) {
     if (refundCase.paymentMethod === 'card' && latestMessage.messageType === 'approved') {
       return {
         label: 'Approval email blocked',
@@ -1894,6 +1936,25 @@ const primaryActionConfig = (
     };
   }
 
+  if (
+    refundCase.customerCorrection?.isActive === true &&
+    !distinctPayoutDestinationRequest
+  ) return {
+    label: refundCase.customerCorrection.isUsable === true ? 'Waiting for customer response' : 'Customer request is being sent',
+    helper: 'Bloomjoy will continue this same request when the customer responds. No new request is needed.', disabled: true,
+  };
+  if (
+    refundCase.paymentMethod === 'cash' &&
+    cashEvidencePending &&
+    !distinctPayoutDestinationRequest
+  ) {
+    return {
+      label: 'Checking sales history',
+      helper: 'Wait for the safe sales-history response before reviewing or confirming a cash amount.',
+      disabled: true,
+    };
+  }
+
   if (editor.status === 'denied' || editor.decision === 'denied') {
     return {
       label: 'Deny request',
@@ -1905,14 +1966,14 @@ const primaryActionConfig = (
     };
   }
 
-  if (refundCase.customerCorrection?.isActive === true) return {
-    label: refundCase.customerCorrection.isUsable === true ? 'Waiting for customer response' : 'Customer request is being sent',
-    helper: 'Bloomjoy will continue this same request when the customer responds. No new request is needed.', disabled: true,
-  };
   const staleCorrection = ['pending','revoked'].includes(refundCase.customerCorrection?.state ?? '') && !refundCase.customerCorrection?.isActive;
   const matched = hasTransactionMatch(refundCase, editor);
   const noMatch = refundCase.correlationStatus === 'no_match' || (!matched && candidates.length === 0);
-  const missingFields = derivePortalRefundMissingFields(refundCase);
+  const missingFields = derivePortalRefundMissingFields(
+    refundCase,
+    refundCase.paymentMethod === 'cash' ? cashCompletionAmountCents : undefined,
+  );
+  const cashAmountIsSupported = typeof cashCompletionAmountCents === 'number' && cashCompletionAmountCents > 0;
   const waitingOnCustomer = !staleCorrection && isWaitingCase(refundCase, false);
   const customerAlreadyAsked =
     waitingOnCustomer &&
@@ -1920,7 +1981,7 @@ const primaryActionConfig = (
     ['more_info', 'no_safe_match'].includes(latestMessage.messageType) &&
     ['sent', 'pending'].includes(latestMessage.status);
 
-  if (!staleCorrection && refundCase.lifecycle?.managerQueue.bucket === 'waiting_on_customer') {
+  if (!staleCorrection && refundCase.lifecycle?.managerQueue.bucket === 'waiting_on_customer' && refundCase.paymentMethod !== 'cash') {
     return {
       label: 'Waiting for customer reply',
       helper: 'Wait for the customer to reply to the existing email before taking another case action.',
@@ -1929,7 +1990,7 @@ const primaryActionConfig = (
   }
 
   if (refundCase.paymentMethod === 'cash') {
-    if (typeof refundCase.paymentAmountCents !== 'number' || refundCase.paymentAmountCents <= 0) {
+    if (!cashAmountIsSupported) {
       if (missingFields.length > 0) {
         return {
           label: 'Ask for missing details',
@@ -1941,12 +2002,23 @@ const primaryActionConfig = (
 
       return {
         label: 'Payment amount required',
-        helper: 'Confirm the customer payment amount before marking this case refunded.',
+        helper: 'Confirm the supported cash sale amount before completing the refund.',
         disabled: true,
       };
     }
 
     if (missingFields.includes('zelle_payment_contact')) {
+      if (refundCase.payoutDestinationRequest?.canRequest !== true) {
+        return {
+          label: refundCase.payoutDestinationRequest?.state === 'waiting' ||
+            refundCase.payoutDestinationRequest?.state === 'reminder_claimed' ||
+            refundCase.payoutDestinationRequest?.state === 'reminder_sent'
+            ? 'Waiting for payout destination'
+            : 'Payout destination review required',
+          helper: 'Keep the existing targeted Zelle request. Do not resend it until the saved request is ready.',
+          disabled: true,
+        };
+      }
       return {
         label: 'Request payout destination',
         helper: 'Ask only for the Zelle email address or phone number in the existing customer thread.',
@@ -1956,8 +2028,8 @@ const primaryActionConfig = (
     }
 
     return {
-      label: `Mark ${formatCurrency(refundCase.paymentAmountCents)} as refunded`,
-      helper: 'Send the refund through Zelle or Venmo outside Bloomjoy Hub. After sending it, mark the case refunded here.',
+      label: 'Confirm refund sent via Zelle',
+      helper: 'Send the refund through Zelle outside Bloomjoy Hub first. Then confirm it here to complete the case.',
       targetStatus: 'completed',
       targetDecision: 'approved',
       messageType: 'completed',
@@ -2134,11 +2206,12 @@ const editorForDenial = (editor: EditorState): EditorState => ({
 const getCustomerMessageDraft = (
   refundCase: RefundCaseRecord,
   messageType: RefundCustomerPortalMessageType,
-  editor?: EditorState | null
+  editor?: EditorState | null,
+  effectiveCashAmountCents?: number | null,
 ) => {
   const editedRefundAmountCents = editor?.refundAmount ? centsFromCurrency(editor.refundAmount) : null;
   const amount = typeof editedRefundAmountCents === 'number' ? formatCurrency(editedRefundAmountCents) : formatMessageAmount(refundCase);
-  const missingFields = derivePortalRefundMissingFields(refundCase);
+  const missingFields = derivePortalRefundMissingFields(refundCase, effectiveCashAmountCents);
   const missingFieldList = missingFields.map((field) => `- ${missingFieldCustomerLabel[field]}`);
   const missingFieldReplyLines = missingFields.map((field) => missingFieldReplyLine[field]);
   switch (messageType) {
@@ -2382,7 +2455,11 @@ const getCoherentStatusOptions = (
   return options;
 };
 
-const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState): string[] => {
+const getCaseSaveIssues = (
+  selectedCase: RefundCaseRecord,
+  editor: EditorState,
+  cashCompletionAmountCents?: number | null
+): string[] => {
   const issues: string[] = [];
   const requiredDecision = statusDecisionMap[editor.status];
   const refundAmountCents = centsFromCurrency(editor.refundAmount);
@@ -2444,11 +2521,17 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
       issues.push('Completion requires a positive refund amount.');
     }
 
+    const cashAmountForCompletion = typeof cashCompletionAmountCents === 'undefined'
+      ? selectedCase.paymentAmountCents
+      : cashCompletionAmountCents;
     if (
       selectedCase.paymentMethod !== 'card' &&
-      (typeof selectedCase.paymentAmountCents !== 'number' || selectedCase.paymentAmountCents <= 0)
+      (
+        typeof cashAmountForCompletion !== 'number' ||
+        cashAmountForCompletion <= 0
+      )
     ) {
-      issues.push('Confirm the customer payment amount before completing the cash refund.');
+      issues.push('Confirm the supported cash sale amount before completing the refund.');
     }
 
     if (
@@ -2491,10 +2574,11 @@ const hasUnchangedSavedApproval = (refundCase: RefundCaseRecord, editor: EditorS
 const getPrimaryActionIssues = (
   refundCase: RefundCaseRecord,
   editor: EditorState,
-  action: PrimaryActionConfig | null
+  action: PrimaryActionConfig | null,
+  cashCompletionAmountCents?: number | null
 ): string[] => {
   if (hasConfirmedRefundReceipt(refundCase) || action?.mode === 'retry_message') return [];
-  const issues = getCaseSaveIssues(refundCase, editor);
+  const issues = getCaseSaveIssues(refundCase, editor, cashCompletionAmountCents);
   if (action?.disabled === true && !action.mode && hasUnchangedSavedApproval(refundCase, editor)) {
     // A read-only next step does not propose saving another approval.
     return issues.filter((issue) => issue !== `${statusLabel(editor.status)} is a review/follow-up status and cannot carry a final decision.`);
@@ -2536,7 +2620,6 @@ export default function AdminRefundsPage() {
   const [isLookingUpNayax, setIsLookingUpNayax] = useState(false);
   const [isRunningNayaxRefund, setIsRunningNayaxRefund] = useState(false);
   const [isRefundConfirmationOpen, setIsRefundConfirmationOpen] = useState(false);
-  const [isCashConfirmationOpen, setIsCashConfirmationOpen] = useState(false);
   const [isGmailResolutionOpen, setIsGmailResolutionOpen] = useState(false);
   const [isResolvingGmailDelivery, setIsResolvingGmailDelivery] = useState(false);
   const [isRefreshingCustomerDelivery, setIsRefreshingCustomerDelivery] = useState(false);
@@ -2858,7 +2941,6 @@ export default function AdminRefundsPage() {
     setNayaxLookupSummary(null);
     setIsRefundConfirmationOpen(false);
 
-    setIsCashConfirmationOpen(false);
     setMessageSubject('');
     setMessageBody('');
     setIsCustomerDraftDirty(false);
@@ -2888,7 +2970,6 @@ export default function AdminRefundsPage() {
     setNayaxLookupNotice(null);
     setNayaxLookupSummary(null);
     setIsRefundConfirmationOpen(false);
-    setIsCashConfirmationOpen(false);
     setMessageSubject('');
     setMessageBody('');
     setPendingCaseSelectionId(null);
@@ -2960,6 +3041,23 @@ export default function AdminRefundsPage() {
 
   const selectedCase = [...overview.cases, ...internalTestCases]
     .find((refundCase) => refundCase.id === selectedId) ?? null;
+  const {
+    data: selectedCashCorrelation,
+    isSuccess: isCashCorrelationLoaded,
+  } = useQuery<RefundSunzeCashCorrelation | null>({
+    queryKey: ['refund-sunze-cash-correlation', selectedCase?.id],
+    queryFn: ({ signal }) => fetchRefundSunzeCashCorrelation(selectedCase?.id ?? '', signal),
+    enabled: !isUsingDemoData && selectedCase?.paymentMethod === 'cash' && Boolean(selectedCase?.id),
+    staleTime: 10_000,
+    retry: false,
+  });
+  const cashCompletionAmountCents = selectedCase?.paymentMethod === 'cash'
+    ? (isUsingDemoData
+      ? selectedCase.sunzeCashCorrelation?.selectedSale?.actualAmountCents ?? selectedCase.paymentAmountCents
+      : isCashCorrelationLoaded && selectedCashCorrelation?.state !== 'checking_sales_history'
+        ? selectedCashCorrelation?.selectedSale?.actualAmountCents ?? selectedCase.paymentAmountCents
+        : null)
+    : null;
   const nayaxResolutionDefaultTimezone =
     selectedCase?.selectedNayaxTransaction?.machineTimezone?.trim() ||
     selectedCase?.lifecycle?.locationEvidence.normalized.timezone?.trim() ||
@@ -3360,10 +3458,13 @@ export default function AdminRefundsPage() {
             refundAmountCents: selectedCase.refundAmountCents,
             machineLimitCents: null,
             caseVersion: selectedCase.officialActionVersion ?? null,
-          }
+          },
+          cashCompletionAmountCents,
+          selectedCase.paymentMethod === 'cash' && !isUsingDemoData && !isCashCorrelationLoaded,
+          canRequestDistinctCashPayoutDestination,
         )
       : null),
-    [editor, nayaxCandidates, selectedCase, selectedNayaxSummary, selectedRefundReadiness]
+    [cashCompletionAmountCents, editor, isCashCorrelationLoaded, isUsingDemoData, nayaxCandidates, selectedCase, selectedNayaxSummary, selectedRefundReadiness]
   );
   const primaryActionNeedsOfficialAccess = primaryActionRequiresOfficialAction(primaryAction);
   const primaryActionEditor = useMemo(
@@ -3373,9 +3474,9 @@ export default function AdminRefundsPage() {
   const primaryActionIssues = useMemo(
     () =>
       selectedCase && primaryActionEditor
-        ? getPrimaryActionIssues(selectedCase, primaryActionEditor, primaryAction)
+        ? getPrimaryActionIssues(selectedCase, primaryActionEditor, primaryAction, cashCompletionAmountCents)
         : [],
-    [primaryAction, primaryActionEditor, selectedCase]
+    [cashCompletionAmountCents, primaryAction, primaryActionEditor, selectedCase]
   );
   const managerDisplayCase = (refundCase: RefundCaseRecord): RefundCaseRecord =>
     refundCase.id === selectedCase?.id
@@ -3550,7 +3651,6 @@ export default function AdminRefundsPage() {
     setNayaxLookupNotice(null);
     setNayaxExecutionNotice(null);
     setIsRefundConfirmationOpen(false);
-    setIsCashConfirmationOpen(false);
     setRefundActionReceipt(null);
     setNayaxLookupSummary(refundCase.nayaxLookupSummary ?? null);
     const initialMessageType: RefundCustomerPortalMessageType = refundCase.status === 'draft'
@@ -3669,7 +3769,11 @@ export default function AdminRefundsPage() {
       return null;
     }
 
-    const issues = getCaseSaveIssues(targetCase, nextEditor);
+    const issues = getCaseSaveIssues(
+      targetCase,
+      nextEditor,
+      nextEditor.status === 'completed' ? cashCompletionAmountCents : null
+    );
     if (issues.length > 0) {
       toast.error(issues[0]);
       return null;
@@ -3715,7 +3819,10 @@ export default function AdminRefundsPage() {
         nayaxDisagreementReason: nextEditor.nayaxDisagreementReason || null,
         customerMessageType,
         customerMissingFields: customerMessageType === 'more_info'
-          ? derivePortalRefundMissingFields(targetCase)
+          ? derivePortalRefundMissingFields(
+              targetCase,
+              isManualExternalCashCompletion ? cashCompletionAmountCents : undefined,
+            )
           : [],
       } as const;
       const result = await updateRefundCaseAdmin(updateInput);
@@ -4298,7 +4405,7 @@ export default function AdminRefundsPage() {
       return;
     }
     if (primaryAction.mode === 'retry_message') {
-      await handleSendCustomerMessage(primaryAction.messageType);
+      await handleSendCustomerMessage(primaryAction.messageType, undefined, cashCompletionAmountCents);
       return;
     }
     if (
@@ -4309,7 +4416,7 @@ export default function AdminRefundsPage() {
       return;
     }
     if (primaryAction.messageType && primaryAction.messageType !== messageType) {
-      handleMessageTypeChange(primaryAction.messageType);
+      handleMessageTypeChange(primaryAction.messageType, false, cashCompletionAmountCents);
     }
     setEditor(primaryActionEditor);
     await handleSaveCase(primaryActionEditor, primaryAction.messageType ?? null);
@@ -4409,12 +4516,14 @@ export default function AdminRefundsPage() {
 
     const confirmedEditor: EditorState = {
       ...primaryActionEditor,
-      refundAmount: (selectedCase.paymentAmountCents / 100).toFixed(2),
+      refundAmount: typeof cashCompletionAmountCents === 'number'
+        ? (cashCompletionAmountCents / 100).toFixed(2)
+        : '',
       manualRefundReference: '',
       cashPayoutSentAt: '',
       cashPaymentConfirmed: true,
     };
-    const issues = getCaseSaveIssues(selectedCase, confirmedEditor);
+    const issues = getCaseSaveIssues(selectedCase, confirmedEditor, cashCompletionAmountCents);
     if (issues.length > 0) {
       toast.error(issues[0]);
       return;
@@ -4438,7 +4547,7 @@ export default function AdminRefundsPage() {
 
       setRefundActionReceipt({
         tone: saveResult.customerMessage?.status === 'failed' ? 'warning' : 'success',
-        title: saveResult.updateApplied ? 'Refund marked complete' : 'Refund was already complete',
+        title: saveResult.updateApplied ? 'Refund sent via Zelle confirmed' : 'Zelle refund was already confirmed',
         message: !saveResult.updateApplied
             ? 'The existing completion was kept. No duplicate email or case update was created.'
           : saveResult.customerMessage?.status === 'failed'
@@ -4447,7 +4556,6 @@ export default function AdminRefundsPage() {
               ? 'The external refund was recorded, the case was completed, and the customer was notified.'
               : 'The external refund was recorded and the case was completed. Customer delivery is queued.',
       });
-      setIsCashConfirmationOpen(false);
     } finally {
       cashCompletionInFlightRef.current = false;
       setIsCashCompletionSubmitting(false);
@@ -4626,13 +4734,17 @@ export default function AdminRefundsPage() {
 
   const handleMessageTypeChange = (
     nextMessageType: RefundCustomerPortalMessageType,
-    managerEditedTemplate = false
+    managerEditedTemplate = false,
+    safeCashAmountCents?: number | null,
   ) => {
     if (isCustomerDraftDirty && !managerEditedTemplate) return;
     setMessageType(nextMessageType);
     if (!selectedCase) return;
 
-    const draft = getCustomerMessageDraft(selectedCase, nextMessageType);
+    const cashAmountForMessage = typeof safeCashAmountCents === 'undefined'
+      ? selectedCase.sunzeCashCorrelation?.selectedSale?.actualAmountCents ?? selectedCase.paymentAmountCents
+      : safeCashAmountCents;
+    const draft = getCustomerMessageDraft(selectedCase, nextMessageType, null, cashAmountForMessage);
     setMessageSubject(draft.subject);
     setMessageBody(draft.body);
     setIsCustomerDraftDirty(managerEditedTemplate);
@@ -4713,7 +4825,7 @@ export default function AdminRefundsPage() {
                 type="button"
                 data-testid="refund-gmail-ask-for-details"
                 data-dominant-action="true"
-                onClick={() => void handleSendCustomerMessage(draftFollowUpType)}
+                onClick={() => void handleSendCustomerMessage(draftFollowUpType, undefined, cashCompletionAmountCents)}
                 disabled={isSendingCustomerMessage || isUsingDemoData || customerDeliveryNeedsReconciliation}
                 className="min-h-11 shrink-0 bg-white text-slate-950 hover:bg-slate-100"
               >
@@ -4812,7 +4924,7 @@ export default function AdminRefundsPage() {
                     type="button"
                     data-testid="refund-gmail-ask-for-details"
                     data-dominant-action="true"
-                    onClick={() => void handleSendCustomerMessage('more_info')}
+                    onClick={() => void handleSendCustomerMessage('more_info', undefined, cashCompletionAmountCents)}
                     disabled={isSendingCustomerMessage || isUsingDemoData || customerDeliveryNeedsReconciliation}
                     className="min-h-11"
                   >
@@ -4971,7 +5083,11 @@ export default function AdminRefundsPage() {
     <Button variant="outline" className="mt-3" disabled={isSendingCustomerMessage} onClick={() => void handleInspectRevisionDelivery()}>Check revision delivery</Button>
   </div>;
 
-  const handleSendCustomerMessage = async (messageTypeOverride?: RefundCustomerPortalMessageType | null, selectedCorrectionFields?: RefundMissingField[]) => {
+  const handleSendCustomerMessage = async (
+    messageTypeOverride?: RefundCustomerPortalMessageType | null,
+    selectedCorrectionFields?: RefundMissingField[],
+    safeCashAmountCents?: number | null,
+  ) => {
     if (!selectedCase) return;
     if (pendingRevision?.caseId === selectedCase.id) {
       toast.error('Check the existing revision delivery before sending another request.');
@@ -4985,6 +5101,10 @@ export default function AdminRefundsPage() {
       toast.info('Demo cases are read-only. Customer email is disabled.');
       return;
     }
+
+    const cashAmountForMessage = typeof safeCashAmountCents === 'undefined'
+      ? selectedCase.sunzeCashCorrelation?.selectedSale?.actualAmountCents ?? selectedCase.paymentAmountCents
+      : safeCashAmountCents;
 
     const nextMessageType = messageTypeOverride ?? messageType;
     if (nextMessageType === 'more_info' && selectedCase.customerCorrectionFields) {
@@ -5015,7 +5135,7 @@ export default function AdminRefundsPage() {
       messageTypeOverride && !usesReviewedTriageDraft
     );
     const draft = messageTypeOverride && !usesReviewedTriageDraft
-      ? getCustomerMessageDraft(selectedCase, messageTypeOverride)
+      ? getCustomerMessageDraft(selectedCase, messageTypeOverride, null, cashAmountForMessage)
       : null;
     const subject = draft?.subject ?? messageSubject;
     const body = draft?.body ?? messageBody;
@@ -5034,7 +5154,7 @@ export default function AdminRefundsPage() {
         ? selectedCorrectionFields!
         : usesReviewedTriageDraft
         ? sanitizePortalMissingFields(triageSuggestion?.missingFields ?? [])
-        : derivePortalRefundMissingFields(selectedCase)
+        : derivePortalRefundMissingFields(selectedCase, cashAmountForMessage)
       : [];
     const messageFingerprint = JSON.stringify({
       caseId: selectedCase.id,
@@ -5777,7 +5897,7 @@ export default function AdminRefundsPage() {
 
   const nextCustomerDraft =
     selectedCase && editor && primaryAction?.messageType
-      ? getCustomerMessageDraft(selectedCase, primaryAction.messageType, editor)
+      ? getCustomerMessageDraft(selectedCase, primaryAction.messageType, editor, cashCompletionAmountCents)
       : null;
   const availableCustomerMessageOptions = customerMessageOptions.filter((option) => {
     if (selectedCase?.paymentMethod === 'card' && option.value === 'approved') return false;
@@ -5994,9 +6114,9 @@ export default function AdminRefundsPage() {
 
     const chooseCustomerFollowUp = () => {
       if (!canAskForCustomerDetails || isSendingCustomerMessage) return;
-      if (selectedCase.customerCorrectionFields) { void handleSendCustomerMessage('more_info'); return; }
+      if (selectedCase.customerCorrectionFields) { void handleSendCustomerMessage('more_info', undefined, cashCompletionAmountCents); return; }
       setEditor((current) => current ? { ...current, status: 'waiting_on_customer', decision: null, decisionReason: '' } : current);
-      handleMessageTypeChange('more_info');
+      handleMessageTypeChange('more_info', false, cashCompletionAmountCents);
     };
 
     const chooseDenial = (trigger: HTMLButtonElement) => {
@@ -6010,7 +6130,7 @@ export default function AdminRefundsPage() {
         isCustomerDraftDirty,
       };
       setEditor((current) => current ? editorForDenial(current) : current);
-      handleMessageTypeChange('denied');
+      handleMessageTypeChange('denied', false, cashCompletionAmountCents);
       window.requestAnimationFrame(() => denialReasonRef.current?.focus());
     };
 
@@ -7091,9 +7211,12 @@ export default function AdminRefundsPage() {
     if (selectedCaseIsResolvedDuplicate) return null;
 
     const incidentTimezone = refundCaseTimezone(selectedCase);
-    const cashAmountCents = selectedCase.paymentAmountCents;
-    const isCashCompletion = primaryAction?.targetStatus === 'completed';
-    const actionLabel = primaryAction?.label ?? 'Review cash refund';
+    const cashCompletionRecorded =
+      selectedCase.status === 'completed' ||
+      (editor.status === 'completed' &&
+        Boolean(refundActionReceipt?.title.match(/refund sent via zelle|zelle refund .*confirmed/i)));
+    const isCashCompletion = primaryAction?.targetStatus === 'completed' && !cashCompletionRecorded;
+    const actionLabel = cashCompletionRecorded ? 'Case complete' : primaryAction?.label ?? 'Review cash refund';
     const isActionDisabled =
       isSaving ||
       isSendingCustomerMessage ||
@@ -7103,16 +7226,18 @@ export default function AdminRefundsPage() {
       primaryAction.disabled === true ||
       (primaryActionNeedsOfficialAccess && (selectedCaseIsReviewOnly || officialActionVersion <= 0)) ||
       primaryActionIssues.length > 0;
-    const cashMatchReady = selectedCase.hasMatchedSalesFact && selectedCase.correlationStatus === 'matched';
+    const missingCashFields = derivePortalRefundMissingFields(selectedCase, cashCompletionAmountCents);
     const canAskForCustomerDetails =
-      canRequestRefundCustomerDetailsManually(selectedCase.lifecycle?.customerOutreach) &&
-      derivePortalRefundMissingFields(selectedCase).length > 0;
+      (missingCashFields.includes('zelle_payment_contact')
+        ? selectedCase.payoutDestinationRequest?.canRequest === true
+        : canRequestRefundCustomerDetailsManually(selectedCase.lifecycle?.customerOutreach)) &&
+      missingCashFields.length > 0;
 
     const chooseCustomerFollowUp = () => {
       if (!canAskForCustomerDetails || isSendingCustomerMessage) return;
-      if (selectedCase.customerCorrectionFields) { void handleSendCustomerMessage('more_info'); return; }
+      if (selectedCase.customerCorrectionFields) { void handleSendCustomerMessage('more_info', undefined, cashCompletionAmountCents); return; }
       setEditor((current) => current ? { ...current, status: 'waiting_on_customer', decision: null, decisionReason: '' } : current);
-      handleMessageTypeChange('more_info');
+      handleMessageTypeChange('more_info', false, cashCompletionAmountCents);
     };
 
     const chooseDenial = () => {
@@ -7121,10 +7246,15 @@ export default function AdminRefundsPage() {
           ? { ...editorForDenial(current), cashPaymentConfirmed: false }
           : current
       );
-      handleMessageTypeChange('denied');
+      handleMessageTypeChange('denied', false, cashCompletionAmountCents);
     };
 
-    const managerState = getRefundManagerState(selectedCase);
+    const managerState = getRefundManagerState(
+      cashCompletionRecorded ? { ...selectedCase, status: 'completed' } : selectedCase,
+      {
+      cashCompletionAmountCents,
+      },
+    );
     const displayedManagerNextStep = getDisplayedRefundManagerNextStep(managerState, primaryAction);
 
     return (
@@ -7150,8 +7280,21 @@ export default function AdminRefundsPage() {
               )}
               {isCashCompletion && (
                 <p data-testid="refund-manager-next-step" className="mt-2 max-w-xl text-sm font-medium leading-5 text-foreground">
-                  Send the refund through Zelle or Venmo outside Bloomjoy Hub. After sending it, mark the case refunded here.
+                  Send the refund through Zelle outside Bloomjoy Hub. After sending it, confirm it here.
                 </p>
+              )}
+              {isCashCompletion && typeof cashCompletionAmountCents === 'number' && (
+                <div
+                  data-testid="refund-cash-confirmation-amount"
+                  className="mt-3 max-w-xl rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm"
+                >
+                  <span className="font-semibold text-foreground">Amount to send: {formatCurrency(cashCompletionAmountCents)}</span>
+                  <span className="ml-1 text-muted-foreground">
+                    {selectedCashCorrelation?.selectedSale
+                      ? 'Use the selected sale evidence shown below.'
+                      : 'Use the reviewed customer estimate; no supported sale is selected.'}
+                  </span>
+                </div>
               )}
             </div>
             <div className="flex flex-col gap-2 sm:items-end">
@@ -7163,7 +7306,7 @@ export default function AdminRefundsPage() {
                 onClick={() => {
                   if (isCashCompletion) {
                     setRefundActionReceipt(null);
-                    setIsCashConfirmationOpen(true);
+                    void handleConfirmCashCompletion();
                     return;
                   }
                   void handlePrimaryAction();
@@ -7223,35 +7366,12 @@ export default function AdminRefundsPage() {
               </div>
             </article>
 
-            <article data-testid="refund-cash-match-summary" className="border-t border-border bg-muted/20 p-4 lg:border-t-0">
-              <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cash review</p>
-                  <p className="mt-2 text-lg font-semibold text-foreground">Customer reported a cash payment</p>
-                </div>
-                <Badge
-                  className={cn(
-                    'border-border bg-background text-foreground',
-                    cashMatchReady && 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                  )}
-                >
-                  {matchResultLabel(selectedCase, editor, nayaxCandidates)}
-                </Badge>
-              </div>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                {cashMatchReady
-                  ? `${transactionMatchSummary(selectedCase, editor, [])} This match is supporting context only.`
-                  : canAskForCustomerDetails && (typeof selectedCase.paymentAmountCents !== 'number' || selectedCase.paymentAmountCents <= 0)
-                    ? 'Ask only for the purchase details that are still missing before recording a refund.'
-                    : 'No imported cash-sale match is required to record a refund that you already sent.'}
-              </p>
-              <div className="mt-3 border-t border-border pt-3 text-sm">
-                <p className="text-xs font-medium text-foreground">External refund only</p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  Bloomjoy Hub does not send or verify Zelle or Venmo payments. Mark refunded only after you have sent the reimbursement.
-                </p>
-              </div>
-            </article>
+            <CashRefundEvidencePanel
+              refundCase={selectedCase}
+              isUsingDemoData={isUsingDemoData}
+              venueTimezone={incidentTimezone}
+              isCompleted={cashCompletionRecorded}
+            />
           </div>
         </section>
 
@@ -7329,54 +7449,6 @@ export default function AdminRefundsPage() {
           )}
         </section>
 
-        <AlertDialog
-          open={isCashConfirmationOpen}
-          onOpenChange={(open) => {
-            if (!isCashCompletionSubmitting) setIsCashConfirmationOpen(open);
-          }}
-        >
-          <AlertDialogContent data-testid="refund-cash-confirmation-dialog" className="max-w-xl">
-            <AlertDialogHeader>
-              <AlertDialogTitle>Mark {formatCurrency(cashAmountCents)} as refunded?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Confirm that you already refunded this customer outside Bloomjoy Hub. This closes the case, updates reporting, and notifies the customer.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-
-            <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Refund amount</p>
-                <p className="mt-1 font-medium text-foreground">{formatCurrency(cashAmountCents)}</p>
-                <p className="mt-1 text-muted-foreground">Bloomjoy Hub records this confirmation but does not send the external payment.</p>
-              </div>
-            </div>
-
-            {nextCustomerDraft && (
-              <details className="rounded-lg border border-border p-3 text-sm">
-                <summary className="cursor-pointer font-medium text-foreground">Review completion email</summary>
-                <p className="mt-3 font-medium text-foreground">{nextCustomerDraft.subject}</p>
-                <p className="mt-2 whitespace-pre-line text-muted-foreground">{nextCustomerDraft.body}</p>
-              </details>
-            )}
-
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={isCashCompletionSubmitting}>Go back</AlertDialogCancel>
-              <Button
-                data-testid="refund-confirm-cash-refund"
-                type="button"
-                onClick={() => void handleConfirmCashCompletion()}
-                disabled={isActionDisabled}
-              >
-                {isCashCompletionSubmitting ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="mr-2 h-4 w-4" />
-                )}
-                Mark refunded
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
       </div>
     );
   };
@@ -8509,7 +8581,7 @@ export default function AdminRefundsPage() {
                           <p className="mt-1 text-sm text-muted-foreground">{primaryAction.helper}</p>
                           <div className="mt-3 flex flex-wrap gap-2">
                             {!selectedCase.legacyStateReviewRequired &&
-                              derivePortalRefundMissingFields(selectedCase).length > 0
+                              derivePortalRefundMissingFields(selectedCase, cashCompletionAmountCents).length > 0
                               && primaryAction.messageType !== 'more_info' && (
                               <Button
                                 type="button"
@@ -8527,7 +8599,7 @@ export default function AdminRefundsPage() {
                                         }
                                       : current
                                   );
-                                  handleMessageTypeChange('more_info');
+                                  handleMessageTypeChange('more_info', false, cashCompletionAmountCents);
                                 }}
                               >
                                 Ask customer instead
@@ -8541,7 +8613,7 @@ export default function AdminRefundsPage() {
                                 disabled={isUsingDemoData || selectedCaseIsReviewOnly}
                                 onClick={() => {
                                   setEditor((current) => current ? editorForDenial(current) : current);
-                                  handleMessageTypeChange('denied');
+                                  handleMessageTypeChange('denied', false, cashCompletionAmountCents);
                                 }}
                               >
                                 Deny instead
@@ -8635,7 +8707,7 @@ export default function AdminRefundsPage() {
                             disabled={isUsingDemoData || selectedCaseIsReviewOnly || isSaving}
                             onClick={() => {
                               setEditor((current) => current ? editorForDenial(current) : current);
-                              handleMessageTypeChange('denied');
+                              handleMessageTypeChange('denied', false, cashCompletionAmountCents);
                             }}
                           >
                             Deny instead
@@ -8769,7 +8841,8 @@ export default function AdminRefundsPage() {
                             onChange={(event) =>
                               handleMessageTypeChange(
                                 event.target.value as RefundCustomerPortalMessageType,
-                                true
+                                true,
+                                cashCompletionAmountCents
                               )
                             }
                             className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
@@ -8823,7 +8896,7 @@ export default function AdminRefundsPage() {
                       <Button
                         type="button"
                         variant="outline"
-                        onClick={() => void handleSendCustomerMessage()}
+                        onClick={() => void handleSendCustomerMessage(undefined, undefined, cashCompletionAmountCents)}
                         disabled={
                           isUsingDemoData ||
                           isSendingCustomerMessage ||
@@ -9549,7 +9622,7 @@ export default function AdminRefundsPage() {
           <DialogFooter>
             <Button type="button" variant="outline" className="min-h-11" disabled={isSendingCustomerMessage} onClick={() => setCorrectionSelection(null)}>Cancel</Button>
             {correctionSelection?.requestId && !correctionSelection.editing ? <Button className="min-h-11" disabled={!selectedCase?.customerCorrection?.canRevise} onClick={() => setCorrectionSelection((current) => current ? {...current,editing:true,fields:current.fields.filter((field) => selectedCase?.customerCorrectionFields?.includes(field))} : current)}>Revise details</Button> : <Button type="button" className="min-h-11" disabled={isSendingCustomerMessage || !correctionSelection?.fields.length || correctionSelection.caseId !== selectedCase?.id || correctionSelection.version !== officialActionVersion || Boolean(correctionSelection.requestId && (!selectedCase?.customerCorrection?.canRevise || correctionSelection.requestId !== selectedCase.customerCorrection.requestId || [...correctionSelection.fields].sort().join('|') === [...selectedCase.customerCorrection.requestedFields].sort().join('|')))}
-              onClick={() => void handleSendCustomerMessage('more_info', correctionSelection?.fields)}>{isSendingCustomerMessage ? 'Sending…' : correctionSelection?.requestId ? 'Revise and send' : 'Send correction request'}</Button>}
+              onClick={() => void handleSendCustomerMessage('more_info', correctionSelection?.fields, cashCompletionAmountCents)}>{isSendingCustomerMessage ? 'Sending…' : correctionSelection?.requestId ? 'Revise and send' : 'Send correction request'}</Button>}
           </DialogFooter>
           {correctionSelection?.requestId && !selectedCase?.customerCorrection?.canRevise && <p role="status" className="text-sm text-muted-foreground">{selectedCase?.customerCorrection?.revisionReason ?? 'This request cannot be revised now.'}</p>}
         </DialogContent>

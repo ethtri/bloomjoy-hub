@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(76);
+select plan(82);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -643,6 +643,11 @@ select ok(
     'public.service_apply_refund_official_case_update(uuid,uuid,text,text,text,text,text,text,integer,text,uuid,text)',
     'execute'
   )
+  and has_function_privilege(
+    'service_role',
+    'public.service_complete_cash_refund_official(uuid,uuid,integer,text,timestamp with time zone,text,text,text)',
+    'execute'
+  )
   and not has_function_privilege(
     'authenticated',
     'public.service_apply_refund_official_case_update(uuid,uuid,text,text,text,text,text,text,integer,text,uuid,text)',
@@ -1240,6 +1245,46 @@ update public.refund_cases
 set matched_sales_fact_id = null
 where id = '79600000-0000-4000-8000-000000000012';
 
+savepoint legacy_cash_correlation_failure;
+create or replace function public.service_correlate_sunze_cash_case(
+  p_refund_case_id uuid,
+  p_expected_fact_version bigint,
+  p_trigger_reason text,
+  p_import_run_id uuid default null,
+  p_now timestamptz default statement_timestamp()
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  raise exception 'synthetic Sunze correlation failure';
+end;
+$$;
+
+select ok(
+  pg_temp.capture_error($sql$
+    select public.service_prepare_legacy_cash_case_for_correlation(
+      '79600000-0000-4000-8000-000000000012',
+      '79000000-0000-4000-8000-000000000001'
+    )
+  $sql$) like '%synthetic Sunze correlation failure%'
+  and (
+    select status = 'cash_zelle_pending'
+      and decision = 'approved'
+      and not exists (
+        select 1 from public.refund_case_events event
+        where event.refund_case_id = '79600000-0000-4000-8000-000000000012'
+          and event.event_type = 'legacy_cash_state_normalized'
+      )
+    from public.refund_cases
+    where id = '79600000-0000-4000-8000-000000000012'
+  ),
+  'A failed legacy correlation rolls back normalization and leaves the case retryable'
+);
+rollback to savepoint legacy_cash_correlation_failure;
+
 select is(
   public.service_prepare_legacy_cash_case_for_correlation(
     '79600000-0000-4000-8000-000000000012',
@@ -1274,6 +1319,107 @@ select ok(
   ),
   'Legacy cash normalization preserves an audit trail and does not retain an old decision'
 );
+
+select ok(
+  (
+    select event.metadata ->> 'previousStatus' = 'cash_zelle_pending'
+      and event.metadata ->> 'previousDecision' = 'approved'
+      and (event.metadata ->> 'previousRefundAmountCents')::integer = 600
+    from public.refund_case_events event
+    where event.refund_case_id = '79600000-0000-4000-8000-000000000012'
+      and event.event_type = 'legacy_cash_state_normalized'
+    order by event.created_at desc, event.id desc
+    limit 1
+  ),
+  'Legacy normalization event records the immutable pre-normalization decision and amount'
+);
+
+select ok(
+  (
+    select audit.before ->> 'status' = 'cash_zelle_pending'
+      and audit.before ->> 'decision' = 'approved'
+      and (audit.before ->> 'refund_amount_cents')::integer = 600
+      and audit.after ->> 'status' = 'needs_review'
+      and audit.after ->> 'decision' is null
+    from public.admin_audit_log audit
+    where audit.entity_type = 'refund_case'
+      and audit.entity_id = '79600000-0000-4000-8000-000000000012'
+      and audit.action = 'refund_case.legacy_cash_state_normalized'
+    order by audit.created_at desc, audit.id desc
+    limit 1
+  ),
+  'Legacy normalization audit before/after snapshots preserve the original approved state'
+);
+
+-- A payout destination request is serialized with the case and cannot race an
+-- active purchase correction that already requests that same destination.
+update public.refund_cases
+set zelle_payment_contact = null
+where id = '79600000-0000-4000-8000-000000000005';
+
+insert into public.refund_wallet_correction_contexts (
+  id,
+  refund_case_id,
+  token_hash,
+  version,
+  status,
+  issued_at,
+  expires_at,
+  correction_kind,
+  correction_requested_fields
+)
+values (
+  '79800000-0000-4000-8000-000000000002',
+  '79600000-0000-4000-8000-000000000005',
+  repeat('c', 64),
+  1,
+  'pending',
+  statement_timestamp() - interval '1 hour',
+  statement_timestamp() + interval '1 hour',
+  'purchase',
+  array['amount', 'zelle_payment_contact']::text[]
+);
+
+select ok(
+  exists (
+    select 1
+    from jsonb_array_elements(public.admin_get_refund_operations_overview() -> 'cases') item
+    where item.value ->> 'id' = '79600000-0000-4000-8000-000000000005'
+      and item.value -> 'payoutDestinationRequest' ->> 'canRequest' = 'false'
+  ),
+  'An active payout correction makes the server projection ineligible for another destination request'
+);
+
+set local role service_role;
+select ok(
+  pg_temp.capture_error($sql$
+    select public.service_enqueue_refund_manual_message_intent(
+      '79600000-0000-4000-8000-000000000005',
+      (select deterministic_fact_version from public.refund_cases where id = '79600000-0000-4000-8000-000000000005'),
+      '79800000-0000-4000-8000-000000000003',
+      '79000000-0000-4000-8000-000000000001',
+      'more_info',
+      'cash-customer@example.test',
+      'Synthetic payout destination request',
+      'Synthetic body',
+      'refund_more_info_v1',
+      'manager',
+      'missing_information',
+      array['zelle_payment_contact']::text[],
+      null,
+      false,
+      null
+    )
+  $sql$) like 'P4662:%active customer request%',
+  'The enqueue authority rejects a concurrent targeted payout request while its correction is active'
+);
+reset role;
+
+delete from public.refund_wallet_correction_contexts
+where id = '79800000-0000-4000-8000-000000000002';
+update public.refund_cases
+set zelle_payment_contact = 'synthetic-zelle-contact'
+where id = '79600000-0000-4000-8000-000000000005';
 
 set local role authenticated;
 
@@ -1677,6 +1823,12 @@ select ok(
     ) ->> 'immutable'
   )::boolean
   and (
+    public.service_prepare_legacy_cash_case_for_correlation(
+      '79600000-0000-4000-8000-000000000011',
+      '79000000-0000-4000-8000-000000000001'
+    ) ->> 'immutable'
+  )::boolean
+  and (
     select status = 'completed'
       and refund_completed_at is not null
       and not exists (
@@ -1687,7 +1839,19 @@ select ok(
     from public.refund_cases
     where id = '79600000-0000-4000-8000-000000000006'
   ),
-  'A completed cash case remains immutable to the legacy normalization path'
+  (
+    select status = 'closed'
+      and decision = 'approved'
+      and refund_amount_cents = 800
+      and not exists (
+        select 1 from public.refund_case_events event
+        where event.refund_case_id = '79600000-0000-4000-8000-000000000011'
+          and event.event_type = 'legacy_cash_state_normalized'
+      )
+    from public.refund_cases
+    where id = '79600000-0000-4000-8000-000000000011'
+  ),
+  'Completed and closed cash cases remain immutable to the legacy normalization path'
 );
 
 select ok(

@@ -50,7 +50,10 @@ export const isRefundReleaseProtectedPath = (value) => {
 const projectRefPattern = /^[a-z0-9]{20}$/;
 const digestPattern = /^[a-f0-9]{64}$/;
 const gitCommitPattern = /^[a-f0-9]{40}$/;
-const refundMigrationPattern = /^\d+_[a-z0-9_]*(?:refund|nayax)[a-z0-9_]*\.sql$/;
+// The Sunze cash correlation service is a refund-review prerequisite even
+// though its filename is intentionally vendor-scoped rather than prefixed
+// with `refund` or `nayax`.
+const refundMigrationPattern = /^\d+_[a-z0-9_]*(?:refund|nayax|sunze_cash_correlation_service)[a-z0-9_]*\.sql$/;
 const unsupportedFunctionConfigKeys = new Set(['entrypoint', 'import_map', 'static_files']);
 const unsupportedFunctionConfigFiles = new Set(['deno.json', 'deno.jsonc', 'import_map.json']);
 

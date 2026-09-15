@@ -88,6 +88,7 @@ const parseArgs = (argv) => {
     duplicateOnly: false,
     demoOnly: false,
     managerQueueOnly: false,
+    cashOnly: false,
     selectionCompatibilityOnly: false,
     deliveryTruthOnly: false,
     inboundLinkOnly: false,
@@ -162,6 +163,11 @@ const parseArgs = (argv) => {
       continue;
     }
 
+    if (arg === '--cash-only') {
+      args.cashOnly = true;
+      continue;
+    }
+
     if (arg === '--selection-compatibility-only') {
       args.selectionCompatibilityOnly = true;
       continue;
@@ -226,7 +232,7 @@ const parseArgs = (argv) => {
   args.appUrl = args.appUrl.replace(/\/+$/, '');
   args.artifactDir = path.resolve(process.cwd(), args.artifactDir);
   args.fragmentDir = path.resolve(process.cwd(), args.fragmentDir);
-  if (!args.managerApprovalOnly && !args.demoOnly && !args.managerQueueOnly && !args.selectionCompatibilityOnly && !args.deliveryTruthOnly && !args.inboundLinkOnly && !args.dualRoleOnly && !args.providerOutcomesOnly &&
+  if (!args.managerApprovalOnly && !args.demoOnly && !args.managerQueueOnly && !args.cashOnly && !args.selectionCompatibilityOnly && !args.deliveryTruthOnly && !args.inboundLinkOnly && !args.dualRoleOnly && !args.providerOutcomesOnly &&
     !args.legacyStateOnly && !args.nayaxResolutionOnly &&
     !args.nayaxLookupOnly && !args.duplicateOnly) {
     requireEvidenceRunToken(args.runToken);
@@ -459,6 +465,13 @@ const mockSession = {
   expires_at: Math.floor(Date.now() / 1000) + 3600,
   refresh_token: 'mock-refresh-token',
   user: mockUser,
+};
+
+const CASH_CASE_IDS = {
+  review: '41000000-0000-4000-8000-000000000301',
+  noMatch: '41000000-0000-4000-8000-000000000302',
+  missingAmount: '41000000-0000-4000-8000-000000000303',
+  legacyPending: '41000000-0000-4000-8000-000000000304',
 };
 
 const longGeneratedNayaxMatchFactors = [
@@ -1325,7 +1338,7 @@ const buildCashRefundReviewOverview = () => ({
   ],
   cases: [
     {
-      id: 'case-cash-review',
+      id: CASH_CASE_IDS.review,
       publicReference: 'RF-UAT-CASH-REVIEW',
       status: 'needs_review',
       priority: 'normal',
@@ -1395,7 +1408,7 @@ const buildCashRefundVariantsOverview = () => {
   overview.cases = [
     {
       ...matchedCase,
-      id: 'case-cash-no-match',
+      id: CASH_CASE_IDS.noMatch,
       publicReference: 'RF-UAT-CASH-NO-MATCH',
       correlationStatus: 'no_match',
       correlationSource: null,
@@ -1403,12 +1416,12 @@ const buildCashRefundVariantsOverview = () => {
       correlationSummary: 'No imported cash sale matched the reported purchase.',
       hasMatchedSalesFact: false,
       customerEmail: 'cash-no-match@example.test',
-      zellePaymentContact: null,
+      zellePaymentContact: 'cash-no-match@example.test',
     },
     matchedCase,
     {
       ...matchedCase,
-      id: 'case-cash-missing-amount',
+      id: CASH_CASE_IDS.missingAmount,
       publicReference: 'RF-UAT-CASH-MISSING-AMOUNT',
       paymentAmountCents: null,
       refundAmountCents: null,
@@ -1424,7 +1437,7 @@ const buildCashRefundVariantsOverview = () => {
     },
     {
       ...matchedCase,
-      id: 'case-cash-legacy-pending',
+      id: CASH_CASE_IDS.legacyPending,
       publicReference: 'RF-UAT-CASH-LEGACY-PENDING',
       status: 'cash_zelle_pending',
       decision: 'approved',
@@ -2205,6 +2218,7 @@ const installMockSupabaseRoutes = async (
 ) => {
   const officialActionVersions = new Map();
   const confirmedCaseIds = new Set();
+  const completedCashCaseIds = new Set();
   const disputedPreselectionCaseIds = new Set();
   const confirmedSelections = new Map();
   const approvedPendingExecutionCaseIds = new Set();
@@ -2359,6 +2373,38 @@ const installMockSupabaseRoutes = async (
       }
       const projectedCase = {
         ...refundCase,
+        ...(completedCashCaseIds.has(refundCase.id) && refundCase.paymentMethod === 'cash'
+          ? {
+              status: 'completed',
+              decision: 'approved',
+              decisionReason: null,
+              decidedAt: now.toISOString(),
+              providerOutcome: 'succeeded',
+              hasReportingAdjustment: true,
+              latestCustomerMessageStatus: 'sent',
+              latestCustomerMessageType: 'completed',
+              customerCommunicationStatus: 'sent',
+              messages: [
+                {
+                  id: `cash-completion-${refundCase.id}`,
+                  messageType: 'completed',
+                  status: 'sent',
+                  recipientEmail: refundCase.customerEmail,
+                  subject: `Your Bloomjoy cash refund ${refundCase.publicReference} is complete`,
+                  body: 'Synthetic fixed completion copy.',
+                  sentAt: now.toISOString(),
+                  errorMessage: null,
+                  createdAt: now.toISOString(),
+                },
+                ...(refundCase.messages ?? []),
+              ],
+              lifecycle: {
+                ...buildLifecycleFixture('customer_notified', 70, 'none'),
+                paymentState: 'confirmed',
+              },
+              updatedAt: now.toISOString(),
+            }
+          : {}),
         ...(transactionConfirmed
           ? {
               refundReadiness: {
@@ -2591,6 +2637,65 @@ const installMockSupabaseRoutes = async (
       functionName === 'nayax-card-refund' && requestBody?.operation === 'availability';
     if (!isNayaxAvailabilityRequest) functionCalls.push(functionName);
 
+    if (functionName === 'refund-case-sunze-correlation') {
+      const caseId = requestBody?.caseId;
+      const selectedSale = caseId === CASH_CASE_IDS.review || caseId === CASH_CASE_IDS.legacyPending;
+      const actualAmountCents = caseId === CASH_CASE_IDS.legacyPending ? 650 : 700;
+      const salesFactId = caseId === CASH_CASE_IDS.legacyPending
+        ? '44000000-0000-4000-8000-000000000002'
+        : '44000000-0000-4000-8000-000000000001';
+      const sale = {
+        salesFactId,
+        paymentTime: isoHoursAgo(3),
+        actualAmountCents,
+        machineLabel: 'Cotton Candy Cash 01',
+        locationName: 'Family Arcade',
+        tradeLabel: 'Cotton candy',
+      };
+      if (requestBody?.operation === 'select') {
+        return route.fulfill(jsonResponse({
+          selection: {
+            selectedSalesFactId: requestBody.salesFactId,
+            linkVersion: Number(requestBody.expectedLinkVersion ?? 0) + 1,
+          },
+          payloadRedacted: true,
+        }));
+      }
+      const hasCompleteCoverageNoMatch = caseId === CASH_CASE_IDS.noMatch || caseId === CASH_CASE_IDS.missingAmount;
+      return route.fulfill(jsonResponse({
+        correlation: {
+          caseFactVersion: 1,
+          attemptId: '44100000-0000-4000-8000-000000000001',
+          policyVersion: 'sunze_cash_correlation_v1',
+          state: hasCompleteCoverageNoMatch ? 'no_sale_found_with_complete_coverage' : 'sale_found',
+          reason: hasCompleteCoverageNoMatch ? 'no_candidate' : 'single_candidate',
+          sourceReadiness: 'complete_coverage',
+          coverageStartedAt: isoHoursAgo(4),
+          coveredThrough: new Date().toISOString(),
+          freshnessExpiresAt: new Date(Date.now() + 3600000).toISOString(),
+          evaluatedAt: new Date().toISOString(),
+          candidateCount: hasCompleteCoverageNoMatch ? 0 : 1,
+          returnedCandidateCount: hasCompleteCoverageNoMatch ? 0 : 1,
+          candidatesTruncated: false,
+          candidates: hasCompleteCoverageNoMatch ? [] : [{
+            ...sale,
+            rank: 1,
+            amountCents: actualAmountCents,
+            timeDeltaSeconds: 60,
+            amountDeltaCents: 100,
+            evidenceCodes: ['machine', 'time'],
+            selectionConflict: false,
+          }],
+          selectedSalesFactId: selectedSale ? salesFactId : null,
+          selectedLinkVersion: selectedSale ? 1 : 0,
+          expectedLinkVersion: selectedSale ? 1 : 0,
+          selectedSale: selectedSale ? sale : null,
+          evidenceOnly: true,
+        },
+        payloadRedacted: true,
+      }));
+    }
+
     if (functionName === 'nayax-transaction-lookup') {
       const lookupResponse = nayaxLookupResponse ?? {
         configured: true,
@@ -2789,6 +2894,15 @@ const installMockSupabaseRoutes = async (
         ? adminUpdateResponse(requestBody)
         : adminUpdateResponse;
       const caseId = requestBody?.caseId ?? 'case-card-1';
+      const updatedCaseFixture = refundOverview().cases.find((candidate) => candidate.id === caseId);
+      if (
+        adminUpdateStatus < 400 &&
+        updatedCaseFixture?.paymentMethod === 'cash' &&
+        requestBody?.status === 'completed' &&
+        requestBody?.cashPaymentConfirmed === true
+      ) {
+        completedCashCaseIds.add(caseId);
+      }
       if (
         adminUpdateStatus >= 400 &&
         resolvedAdminUpdateResponse?.errorCode === 'stale_review_evidence'
@@ -2852,7 +2966,7 @@ const installMockSupabaseRoutes = async (
       const response = resolvedAdminUpdateResponse ?? {
         refundCase: {
           id: caseId,
-          publicReference: caseId === 'case-cash-review' ? 'RF-UAT-CASH-REVIEW' : 'RF-UAT-CARD',
+          publicReference: caseId === CASH_CASE_IDS.review ? 'RF-UAT-CASH-REVIEW' : 'RF-UAT-CARD',
           status: requestBody?.status ?? 'card_refund_pending',
           decision: requestBody?.decision ?? 'approved',
         },
@@ -5547,7 +5661,8 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
   recorder.assert(
     'Cash review presents exactly one dominant next action',
     (await alternativesPage.locator('[data-dominant-action="true"]:visible').count()) === 1 &&
-      await alternativesPage.getByTestId('refund-cash-primary-action').getByText('Approve cash refund').isVisible()
+      await alternativesPage.getByTestId('refund-cash-primary-action').getByText('Confirm refund sent via Zelle').isVisible() &&
+      await alternativesPage.getByTestId('refund-cash-evidence-state').getByText('Sale found').isVisible()
   );
 
   await alternativesPage.getByText('Other decisions', { exact: true }).click();
@@ -5594,80 +5709,11 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
     'Cash approval email is previewable before the approval action',
     await page.getByText('Your Bloomjoy refund request RF-UAT-CASH-REVIEW was approved').isVisible()
   );
-  const approvalResponse = page.waitForResponse((response) =>
-    new URL(response.url()).pathname.endsWith('/functions/v1/refund-case-admin-update')
-  );
-  await page.getByTestId('refund-cash-primary-action').click();
-  await approvalResponse;
-  await page.getByTestId('refund-cash-completion-panel').waitFor({ timeout: 10000 });
-
-  const approvalDeadline = Date.now() + 5000;
-  while (
-    !functionBodies.some((entry) => entry.functionName === 'refund-case-admin-update') &&
-    Date.now() < approvalDeadline
-  ) {
-    await page.waitForTimeout(50);
-  }
-
-  const approvalBodies = functionBodies
-    .filter((entry) => entry.functionName === 'refund-case-admin-update')
-    .map((entry) => entry.body ?? {});
   recorder.assert(
-    'Cash approval records the decision and approval email before payment completion',
-    approvalBodies.some(
-      (body) =>
-        body.status === 'cash_zelle_pending' &&
-        body.decision === 'approved' &&
-        body.customerMessageType === 'approved' &&
-        body.expectedOfficialActionVersion === 1
-    ),
-    JSON.stringify(approvalBodies)
-  );
-  recorder.assert(
-    'Cash completion requires amount, sent time, safe reference, and explicit payment confirmation',
-    await page.getByTestId('refund-cash-primary-action').isDisabled() &&
-      await page.getByTestId('refund-cash-action-blocker').isVisible()
-  );
-
-  await page.getByTestId('refund-cash-amount-input').fill('8.01');
-  recorder.assert(
-    'Cash completion rejects an amount above the recorded customer payment',
-    await page.getByText('Cash refund amount cannot exceed the recorded customer payment.', { exact: true }).isVisible() &&
-      await page.getByTestId('refund-cash-primary-action').isDisabled()
-  );
-  await page.getByTestId('refund-cash-amount-input').fill('8.00');
-
-  await page.getByRole('button', { name: 'Use current time' }).click();
-  await page.getByTestId('refund-cash-reference-input').fill('card 4111 1111 1111 1111');
-  await page.getByTestId('refund-cash-payment-confirmed').click();
-  recorder.assert(
-    'Cash reference field rejects card, bank, contact, and credential-like content',
-    await page.getByText('Do not enter bank, card, contact, or other sensitive payment details.', { exact: true }).last().isVisible() &&
-      await page.getByTestId('refund-cash-primary-action').isDisabled()
-  );
-
-  await page.getByTestId('refund-cash-reference-input').fill('123456789');
-  recorder.assert(
-    'Cash reference field rejects a bare routing or account number',
-    await page.getByText('Do not enter bank, card, contact, or other sensitive payment details.', { exact: true }).last().isVisible() &&
-      await page.getByTestId('refund-cash-primary-action').isDisabled()
-  );
-
-  await page.getByTestId('refund-cash-reference-input').fill('Zelle confirmation ZP-4821');
-  if (!(await page.getByTestId('refund-cash-payment-confirmed').isChecked())) {
-    await page.getByTestId('refund-cash-payment-confirmed').click();
-  }
-  await page.waitForFunction(() => {
-    const action = document.querySelector('[data-testid="refund-cash-primary-action"]');
-    return action instanceof HTMLButtonElement && !action.disabled;
-  });
-  recorder.assert(
-    'Cash completion becomes available only after the manager reconfirms the edited safe details',
-    await page.getByTestId('refund-cash-primary-action').isEnabled()
-  );
-  recorder.assert(
-    'Cash workbench keeps one visible dominant action and hides manual status selectors',
-    (await page.locator('[data-dominant-action="true"]:visible').count()) === 1 &&
+    'Cash completion exposes the exact supported amount before the single action',
+    await page.getByTestId('refund-cash-match-summary').getByText('$7.00', { exact: true }).first().isVisible() &&
+      await page.getByTestId('refund-cash-primary-action').isEnabled() &&
+      (await page.getByTestId('refund-cash-confirmation-dialog').count()) === 0 &&
       (await page.getByTestId('refund-status-select').count()) === 0
   );
 
@@ -5706,11 +5752,11 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
       cashPrimaryActionLayout.scrollHeight <= cashPrimaryActionLayout.clientHeight + 1,
     JSON.stringify(cashPrimaryActionLayout)
   );
-  const currentTimeButtonBox = await page.getByRole('button', { name: 'Use current time' }).boundingBox();
+  const narrowPrimaryActionBox = await page.getByTestId('refund-cash-primary-action').boundingBox();
   recorder.assert(
-    'Cash current-time shortcut keeps a touch-friendly target',
-    Boolean(currentTimeButtonBox) && currentTimeButtonBox.height >= 44,
-    JSON.stringify(currentTimeButtonBox)
+    'Cash primary action keeps a touch-friendly target',
+    Boolean(narrowPrimaryActionBox) && narrowPrimaryActionBox.height >= 44,
+    JSON.stringify(narrowPrimaryActionBox)
   );
   recorder.assert(
     'Routine system status stays hidden on mobile',
@@ -5724,59 +5770,46 @@ const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder })
   });
 
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.getByTestId('refund-cash-primary-action').click();
-  const confirmationDialog = page.getByTestId('refund-cash-confirmation-dialog');
-  recorder.assert(
-    'Cash final action opens an explicit confirmation without submitting',
-    await confirmationDialog.isVisible() &&
-      !functionBodies.some(
-        (entry) => entry.functionName === 'refund-case-admin-update' && entry.body?.status === 'completed'
-      ) &&
-      await confirmationDialog.getByText('$8.00', { exact: true }).isVisible() &&
-      await confirmationDialog.getByText('Reference: Zelle confirmation ZP-4821').isVisible()
+  const completionResponse = page.waitForResponse((response) =>
+    new URL(response.url()).pathname.endsWith('/functions/v1/refund-case-admin-update')
   );
-  await page.screenshot({
-    path: path.join(artifactDir, 'refund-portal-uat-cash-confirmation.png'),
-    fullPage: false,
-  });
-
-  await page.getByTestId('refund-confirm-cash-refund').evaluate((button) => {
+  await page.getByTestId('refund-cash-primary-action').evaluate((button) => {
     button.click();
     button.click();
   });
-  await page.getByTestId('refund-confirm-cash-refund').waitFor({ state: 'visible' });
+  await completionResponse;
+  await page.getByTestId('refund-cash-primary-action').waitFor({ state: 'visible' });
   recorder.assert(
-    'Cash processing state disables final confirmation during submission',
-    await page.getByTestId('refund-confirm-cash-refund').isDisabled()
+    'Cash processing state disables the single completion action during submission',
+    await page.getByTestId('refund-cash-primary-action').isDisabled()
   );
   await page.getByTestId('refund-action-receipt').waitFor({ timeout: 10000 });
 
-  const completionBodies = functionBodies
+  const completedBodies = functionBodies
     .filter(
       (entry) => entry.functionName === 'refund-case-admin-update' && entry.body?.status === 'completed'
     )
     .map((entry) => entry.body ?? {});
-  const completionBody = completionBodies[0] ?? {};
+  const completionBody = completedBodies[0] ?? {};
   recorder.assert(
     'Cash completion submits one idempotent payment confirmation payload',
-    completionBodies.length === 1 &&
-      completionBody.refundAmountCents === 800 &&
-      typeof completionBody.cashPayoutSentAt === 'string' &&
+    completedBodies.length === 1 &&
+    !Object.prototype.hasOwnProperty.call(completionBody, 'refundAmountCents') &&
+      !Object.prototype.hasOwnProperty.call(completionBody, 'cashPayoutSentAt') &&
+      !Object.prototype.hasOwnProperty.call(completionBody, 'manualRefundReference') &&
       completionBody.cashPaymentConfirmed === true &&
-      completionBody.manualRefundReference === 'Zelle confirmation ZP-4821' &&
       completionBody.customerMessageType === 'completed' &&
-      completionBody.expectedOfficialActionVersion === 2,
-    JSON.stringify(completionBodies)
+      completionBody.expectedOfficialActionVersion === 1,
+    JSON.stringify(completedBodies)
   );
   recorder.assert(
     'Cash completion sends no standalone or duplicate customer message request',
-    !functionCalls.includes('refund-case-message-send') && completionBodies.length === 1,
+    !functionCalls.includes('refund-case-message-send') && completedBodies.length === 1,
     functionCalls.join(', ')
   );
   recorder.assert(
     'Cash completion shows a durable success receipt',
-    await page.getByText('Cash refund completed', { exact: true }).isVisible() &&
-      await page.getByText('Confirmation: Zelle confirmation ZP-4821').isVisible()
+      await page.getByText('Refund sent via Zelle confirmed', { exact: true }).isVisible()
   );
   recorder.assert(
     'No browser console or page errors during cash workflow UAT',
@@ -5805,10 +5838,11 @@ const runManualExternalCashWorkflowChecks = async ({ browser, appUrl, artifactDi
 
   await queueCase(variantsPage, 'RF-UAT-CASH-REVIEW').click();
   await variantsPage.getByTestId('refund-cash-workbench').waitFor({ timeout: 10000 });
+  await variantsPage.getByTestId('refund-cash-evidence-state').getByText('Sale found').waitFor({ timeout: 10000 });
   recorder.assert(
     'Matched cash case exposes one direct external-refund completion action',
     (await variantsPage.locator('[data-dominant-action="true"]:visible').count()) === 1 &&
-      await variantsPage.getByTestId('refund-cash-primary-action').getByText('Mark $8.00 as refunded').isVisible()
+      await variantsPage.getByTestId('refund-cash-primary-action').getByText('Confirm refund sent via Zelle').isVisible()
   );
 
   await variantsPage.getByText('Other decisions', { exact: true }).click();
@@ -5819,10 +5853,10 @@ const runManualExternalCashWorkflowChecks = async ({ browser, appUrl, artifactDi
   );
 
   await queueCase(variantsPage, 'RF-UAT-CASH-NO-MATCH').click();
-  await variantsPage.getByText('No imported cash-sale match is required to record a refund that you already sent.').waitFor();
+  await variantsPage.getByTestId('refund-cash-evidence-state').getByText('No sale found').waitFor();
   recorder.assert(
     'Unmatched cash case has the same direct completion action with no Nayax controls',
-    await variantsPage.getByTestId('refund-cash-primary-action').getByText('Mark $8.00 as refunded').isVisible() &&
+    await variantsPage.getByTestId('refund-cash-primary-action').getByText('Confirm refund sent via Zelle').isVisible() &&
       (await variantsPage.getByTestId('nayax-result-card').count()) === 0 &&
       (await variantsPage.getByTestId('refund-run-nayax-refund').count()) === 0
   );
@@ -5830,25 +5864,21 @@ const runManualExternalCashWorkflowChecks = async ({ browser, appUrl, artifactDi
   await variantsPage.getByRole('button', { name: /Action needed/ }).click();
   await waitForQueueCount(variantsPage, 1);
   await queueCase(variantsPage, 'RF-UAT-CASH-MISSING-AMOUNT').click();
+  await variantsPage.getByTestId('refund-cash-evidence-state').getByText('No sale found').waitFor({ timeout: 10000 });
   recorder.assert(
     'Missing-amount cash case offers one actionable customer-detail path',
-    await variantsPage.getByTestId('refund-cash-primary-action').getByText('Request details').isVisible() &&
-      (await variantsPage.getByText(/Mark \$.* as refunded/).count()) === 0 &&
-      (await variantsPage.getByTestId('refund-manager-next-step').innerText()).includes(
-        'Select Request details once'
-      ) &&
+    await variantsPage.getByTestId('refund-cash-primary-action').getByText(/Ask for missing details|Request details/).isVisible() &&
+      (await variantsPage.getByText(/Mark\s+\S+\s+as\s+refunded|\bVenmo\b/).count()) === 0 &&
       !(await variantsPage.locator('body').innerText()).includes(
         'Colorado Mills - Colorado Mills — Cotton Candy'
-      )
+      ),
+    (await variantsPage.getByTestId('refund-cash-primary-action').innerText()).slice(0, 240)
   );
   await variantsPage.setViewportSize({ width: 390, height: 844 });
   const missingDetailsActionBox = await variantsPage.getByTestId('refund-cash-primary-action').boundingBox();
   recorder.assert(
     'Missing-detail action and matching next step remain practical at 390px',
     await variantsPage.getByTestId('refund-cash-primary-action').isVisible() &&
-      (await variantsPage.getByTestId('refund-manager-next-step').innerText()).includes(
-        'Select Request details once'
-      ) &&
       Boolean(missingDetailsActionBox && missingDetailsActionBox.height >= 44) &&
       await variantsPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     JSON.stringify(missingDetailsActionBox)
@@ -5858,9 +5888,10 @@ const runManualExternalCashWorkflowChecks = async ({ browser, appUrl, artifactDi
   await variantsPage.getByRole('button', { name: /Ready to approve/ }).click();
   await waitForQueueCount(variantsPage, 3);
   await queueCase(variantsPage, 'RF-UAT-CASH-LEGACY-PENDING').click();
+  await variantsPage.getByTestId('refund-cash-evidence-state').getByText('Sale found').waitFor({ timeout: 10000 });
   recorder.assert(
     'Legacy cash pending case resolves through the same direct completion action',
-    await variantsPage.getByTestId('refund-cash-primary-action').getByText('Mark $6.50 as refunded').isVisible() &&
+    await variantsPage.getByTestId('refund-cash-primary-action').getByText('Confirm refund sent via Zelle').isVisible() &&
       (await variantsPage.getByTestId('refund-cash-reference-input').count()) === 0 &&
       (await variantsPage.getByTestId('refund-cash-payout-time-input').count()) === 0 &&
       (await variantsPage.getByTestId('refund-cash-payment-confirmed').count()) === 0
@@ -5959,32 +5990,18 @@ const runManualExternalCashWorkflowChecks = async ({ browser, appUrl, artifactDi
   });
 
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.getByTestId('refund-cash-primary-action').click();
-  const confirmationDialog = page.getByTestId('refund-cash-confirmation-dialog');
-  await confirmationDialog.waitFor({ state: 'visible' });
-  await page.waitForTimeout(300);
-  recorder.assert(
-    'Cash action opens one explicit attestation dialog without submitting',
-    await confirmationDialog.isVisible() &&
-      !functionBodies.some((entry) => entry.functionName === 'refund-case-admin-update') &&
-      await confirmationDialog.getByText('$8.00', { exact: true }).isVisible() &&
-      await confirmationDialog.getByText(/already refunded this customer outside Bloomjoy Hub/).isVisible() &&
-      (await confirmationDialog.getByText(/Reference:/).count()) === 0 &&
-      (await confirmationDialog.getByText(/Destination/).count()) === 0
+  const completionResponse = page.waitForResponse((response) =>
+    new URL(response.url()).pathname.endsWith('/functions/v1/refund-case-admin-update')
   );
-  await page.screenshot({
-    path: path.join(artifactDir, 'refund-portal-uat-cash-confirmation.png'),
-    fullPage: false,
-  });
-
-  await page.getByTestId('refund-confirm-cash-refund').evaluate((button) => {
+  await page.getByTestId('refund-cash-primary-action').evaluate((button) => {
     button.click();
     button.click();
   });
-  await page.getByTestId('refund-confirm-cash-refund').waitFor({ state: 'visible' });
+  await completionResponse;
   recorder.assert(
-    'Cash processing state disables final confirmation during submission',
-    await page.getByTestId('refund-confirm-cash-refund').isDisabled()
+    'Cash single action submits after evidence review with no confirmation dialog',
+    (await page.getByTestId('refund-cash-confirmation-dialog').count()) === 0 &&
+      (await page.getByTestId('refund-cash-primary-action').isDisabled())
   );
   await page.getByTestId('refund-action-receipt').waitFor({ timeout: 10000 });
 
@@ -6015,9 +6032,43 @@ const runManualExternalCashWorkflowChecks = async ({ browser, appUrl, artifactDi
   );
   recorder.assert(
     'Cash completion shows a durable channel-neutral success receipt',
-    await page.getByText('Refund marked complete', { exact: true }).isVisible() &&
-      await page.getByText(/external refund was recorded/).isVisible() &&
-      (await page.getByText(/Confirmation:/).count()) === 0
+    await page.getByText('Refund sent via Zelle confirmed', { exact: true }).isVisible() &&
+      await page.getByText(/external refund was recorded/).isVisible()
+  );
+  recorder.assert(
+    'Cash completion replaces the send instruction with a complete state',
+    await (async () => {
+      const managerState = page.getByTestId('refund-manager-state');
+      const terminalState = page.getByTestId('refund-terminal-primary-action');
+      const managerStateCount = await managerState.count();
+      const terminalStateCount = await terminalState.count();
+      const managerStateText = managerStateCount > 0 ? await managerState.innerText() : '';
+      const terminalStateText = terminalStateCount > 0 ? await terminalState.innerText() : '';
+      const nextStep = page.getByTestId('refund-manager-next-step');
+      const nextStepCount = await nextStep.count();
+      const nextStepText = nextStepCount > 0 ? await nextStep.innerText() : '';
+      const queueItem = queueCase(page, 'RF-UAT-CASH-NO-MATCH');
+      const queueItemCount = await queueItem.count();
+      const queueItemText = queueItemCount > 0 ? await queueItem.innerText() : '';
+      const checks = {
+        managerStateText,
+        terminalStateText,
+        nextStepText,
+        sendInstructionCount: await page.getByText(/Send the refund through Zelle outside Bloomjoy Hub/i).count(),
+        queueItemCount,
+        queueItemText,
+        updateDeliveredCount: await page.getByText(/Update delivered/i).count(),
+      };
+      const passed = (
+        /^(Case complete|Completed)$/.test(managerStateText.trim()) ||
+        /^Case complete/.test(terminalStateText.trim())
+      ) &&
+        nextStepCount === 0 &&
+        checks.sendInstructionCount === 0 &&
+        (queueItemCount === 0 || !/Ready to confirm refund/i.test(queueItemText)) &&
+        checks.updateDeliveredCount > 0;
+      return passed;
+    })(),
   );
   recorder.assert(
     'No browser console or page errors during one-action cash UAT',
@@ -11814,7 +11865,7 @@ const run = async () => {
   );
 
   await mkdir(args.artifactDir, { recursive: true });
-  if (!args.managerApprovalOnly && !args.dualRoleOnly &&
+  if (!args.managerApprovalOnly && !args.dualRoleOnly && !args.cashOnly &&
     !args.legacyStateOnly && !args.nayaxResolutionOnly && !args.nayaxLookupOnly &&
     !args.gmailDraftOnly && !args.duplicateOnly && !args.managerQueueOnly &&
     !args.selectionCompatibilityOnly &&
@@ -11905,6 +11956,13 @@ const run = async () => {
         recorder,
       });
       await runTransactionalDeliveryTruthChecks({
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
+      });
+    } else if (args.cashOnly) {
+      await runManualExternalCashWorkflowChecks({
         browser,
         appUrl: args.appUrl,
         artifactDir: args.artifactDir,
@@ -12224,6 +12282,18 @@ const run = async () => {
       return;
     }
     console.log('\nRefund manager-queue UAT passed.');
+    console.log(`Screenshots written to ${args.artifactDir}`);
+    return;
+  }
+
+  if (args.cashOnly) {
+    const focusedFailures = recorder.failed();
+    if (focusedFailures.length > 0) {
+      console.error(`\nRefund cash UAT failed: ${focusedFailures.length} check(s).`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log('\nRefund cash UAT passed.');
     console.log(`Screenshots written to ${args.artifactDir}`);
     return;
   }
