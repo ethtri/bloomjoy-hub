@@ -259,6 +259,33 @@ const getRefundCase = async (caseId: string): Promise<RefundCaseRow | null> => {
   return data as RefundCaseRow | null;
 };
 
+const resolveCashCompletionAmount = async (
+  caseId: string,
+  customerEstimateCents: number | null,
+): Promise<{ amountCents: number | null; selectedSale: boolean }> => {
+  if (!supabase) throw new Error("Cash completion is not configured.");
+  const { data: link, error: linkError } = await supabase
+    .from("refund_sunze_cash_sale_links")
+    .select("sales_fact_id")
+    .eq("refund_case_id", caseId)
+    .is("released_at", null)
+    .maybeSingle();
+  if (linkError) throw linkError;
+  if (!link) return { amountCents: customerEstimateCents, selectedSale: false };
+
+  const { data: sale, error: saleError } = await supabase
+    .from("machine_sales_facts")
+    .select("net_sales_cents")
+    .eq("id", link.sales_fact_id)
+    .maybeSingle();
+  if (saleError) throw saleError;
+  const amountCents = Number(sale?.net_sales_cents);
+  if (!sale || !Number.isSafeInteger(amountCents) || amountCents <= 0) {
+    throw new Error("The selected cash sale is unavailable.");
+  }
+  return { amountCents, selectedSale: true };
+};
+
 type NayaxSelectionRpcResult = {
   selectionApplied?: boolean;
   transactionConfirmed?: boolean;
@@ -1074,13 +1101,27 @@ serve(async (req) => {
       }, 400);
     }
     if (requestedMessageType === "more_info") {
+      let effectivePaymentAmountCents = beforeRow.payment_amount_cents;
+      if (beforeRow.payment_method === "cash") {
+        try {
+          effectivePaymentAmountCents = (await resolveCashCompletionAmount(
+            caseId,
+            beforeRow.payment_amount_cents,
+          )).amountCents;
+        } catch {
+          return jsonResponse({
+            error: "The selected cash sale could not be confirmed. Refresh the case before requesting more details.",
+            errorCode: "cash_amount_unavailable",
+          }, 502);
+        }
+      }
       const derived = deriveRefundMissingFields({
         reportingMachineId: beforeRow.reporting_machine_id,
         reportingLocationId: beforeRow.reporting_location_id,
         incidentAt: beforeRow.incident_at,
         incidentTimeResolution: beforeRow.incident_time_resolution,
         paymentMethod: beforeRow.payment_method,
-        paymentAmountCents: beforeRow.payment_amount_cents,
+        paymentAmountCents: effectivePaymentAmountCents,
         cardLast4: beforeRow.card_last4,
         cardWalletUsed: beforeRow.card_wallet_used,
         zellePaymentContact: beforeRow.zelle_payment_contact,
@@ -1114,9 +1155,23 @@ serve(async (req) => {
     }
 
     const isCashCompletion = officialAction === "cash_complete";
+    let cashCompletionAmountCents: number | null = null;
+    if (isCashCompletion) {
+      try {
+        cashCompletionAmountCents = (await resolveCashCompletionAmount(
+          caseId,
+          beforeRow.payment_amount_cents,
+        )).amountCents;
+      } catch {
+        return jsonResponse({
+          error: "The selected cash sale could not be confirmed. Refresh the case before completing the cash refund.",
+          errorCode: "cash_amount_unavailable",
+        }, 502);
+      }
+    }
     const cashCompletionContext = isCashCompletion
       ? deriveManualExternalCashCompletionContext({
-        paymentAmountCents: beforeRow.payment_amount_cents,
+        paymentAmountCents: cashCompletionAmountCents,
         managerConfirmed: body?.cashPaymentConfirmed,
       })
       : null;

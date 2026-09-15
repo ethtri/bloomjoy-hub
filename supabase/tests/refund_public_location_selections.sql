@@ -223,7 +223,7 @@ select lives_ok(
       now() - interval '20 minutes', 'cash', 700, 'cash', 'exact',
       'charged_no_product', 'needs_review', 'no_match', 700
     )$$,
-  'A normal cash website case is valid without Zelle or Venmo data'
+  'A normal cash website case is valid without payout-channel data'
 );
 select is(
   (select zelle_payment_contact from public.refund_cases where id = '92150000-0000-4000-8000-000000000002'),

@@ -49,6 +49,11 @@ import { RefundReportFreshnessAdvisory } from '@/components/refunds/RefundReport
 import { RefundAuthoritativeReceiptPanel } from '@/components/refunds/RefundAuthoritativeReceiptPanel';
 import { RefundLifecycleProgress } from '@/components/refunds/RefundLifecycleProgress';
 import { RefundOwnerNonrefundResolution } from '@/components/refunds/RefundOwnerNonrefundResolution';
+import { CashRefundEvidencePanel } from '@/components/refunds/CashRefundEvidencePanel';
+import { fetchRefundSunzeCashCorrelation } from '@/lib/refundSunzeCashCorrelationApi';
+import type { RefundSunzeCashCorrelation } from '@/lib/refundSunzeCashCorrelation';
+import { canRequestDistinctCashPayoutDestination } from '@/lib/refundCashPayoutRequest';
+import { resolveCashReviewAmountCents } from '@/lib/refundCashAmount';
 import { hasConfirmedRefundReceipt } from '@/lib/refundAuthoritativeReceipt';
 import {
   AlertDialog,
@@ -586,9 +591,23 @@ const isMissingRefundLabel = (value: string | null | undefined) => {
   return !normalized || normalized.startsWith('unknown') || normalized.startsWith('unmapped');
 };
 
-const derivePortalRefundMissingFields = (refundCase: RefundCaseRecord): RefundMissingField[] => {
+const derivePortalRefundMissingFields = (
+  refundCase: RefundCaseRecord,
+  effectiveCashAmountCents?: number | null,
+): RefundMissingField[] => {
   if (refundCase.customerCorrectionFields) {
-    return refundCase.customerCorrection?.isActive === true ? [] : refundCase.customerCorrectionFields;
+    const correctionFields = refundCase.customerCorrection?.isActive === true
+      ? []
+      : [...refundCase.customerCorrectionFields];
+    if (
+      refundCase.paymentMethod === 'cash' &&
+      !refundCase.zellePaymentContact?.trim() &&
+      refundCase.payoutDestinationRequest &&
+      !correctionFields.includes('zelle_payment_contact')
+    ) {
+      correctionFields.push('zelle_payment_contact');
+    }
+    return correctionFields;
   }
   const missing: RefundMissingField[] = [];
   if (isMissingRefundLabel(refundCase.machineLabel) && isMissingRefundLabel(refundCase.locationName)) {
@@ -612,7 +631,10 @@ const derivePortalRefundMissingFields = (refundCase: RefundCaseRecord): RefundMi
     missing.push('incident_time');
   }
   if (!['card', 'cash'].includes(refundCase.paymentMethod ?? '')) missing.push('payment_method');
-  if (!Number.isInteger(refundCase.paymentAmountCents) || Number(refundCase.paymentAmountCents) <= 0) {
+  const cashAmountCents = refundCase.paymentMethod === 'cash'
+    ? resolveCashReviewAmountCents(refundCase.paymentAmountCents, effectiveCashAmountCents)
+    : refundCase.paymentAmountCents;
+  if (!Number.isInteger(cashAmountCents) || Number(cashAmountCents) <= 0) {
     missing.push('amount');
   }
   if (
@@ -625,9 +647,14 @@ const derivePortalRefundMissingFields = (refundCase: RefundCaseRecord): RefundMi
   if (
     refundCase.paymentMethod === 'cash' &&
     !refundCase.zellePaymentContact?.trim() &&
+    !['completed', 'denied', 'closed'].includes(refundCase.status) &&
     (
-      refundCase.decision === 'approved' ||
-      refundCase.lifecycle?.managerAction.action === 'request_payout_destination'
+      refundCase.payoutDestinationRequest
+        ? true
+        : (
+          refundCase.decision === 'approved' ||
+          refundCase.lifecycle?.managerAction.action === 'request_payout_destination'
+        )
     )
   ) {
     missing.push('zelle_payment_contact');
@@ -790,7 +817,7 @@ const getSuggestedNextAction = (refundCase: RefundCaseRecord, candidates: NayaxL
   if (refundCase.decision === 'approved' && refundCase.status !== 'completed') {
     return refundCase.paymentMethod === 'card'
       ? 'Confirm the refund amount, then refund the matched card payment.'
-      : 'Send the external refund, then mark the case refunded.';
+      : 'Send the exact reimbursement through Zelle, then confirm it here.';
   }
 
   if (refundCase.status === 'completed') {
@@ -1345,7 +1372,7 @@ const getFallbackNayaxLookupSummary = (
       providerWindowRecordCount: null,
       candidateCount: 0,
       summary: 'Transaction search is only used for card refunds.',
-      recommendedAction: 'Send the cash reimbursement outside Bloomjoy Hub, then mark the case refunded.',
+      recommendedAction: 'Send the cash reimbursement through Zelle outside Bloomjoy Hub, then confirm it here.',
     };
   }
 
@@ -1692,7 +1719,10 @@ const primaryActionConfig = (
   refundCase: RefundCaseRecord,
   editor: EditorState,
   candidates: NayaxLookupCandidate[],
-  refundReadiness: RefundReadiness | null
+  refundReadiness: RefundReadiness | null,
+  cashCompletionAmountCents?: number | null,
+  cashEvidencePending = false,
+  payoutDestinationRequestChecker?: (candidate: RefundCaseRecord) => boolean,
 ): PrimaryActionConfig => {
   if (refundCase.lifecycle?.stage === 'duplicate_resolved' || refundCase.confirmedDuplicate) {
     return {
@@ -1729,6 +1759,9 @@ const primaryActionConfig = (
     };
   }
   const latestMessage = getLatestCustomerMessage(refundCase);
+  // Production callers provide the shared server-projection-derived helper;
+  // the absent checker fails closed for isolated legacy/card callers.
+  const distinctPayoutDestinationRequest = payoutDestinationRequestChecker?.(refundCase) === true;
   if (refundCase.legacyStateReviewRequired) {
     return {
       label: 'Transaction evidence needs review',
@@ -1741,7 +1774,7 @@ const primaryActionConfig = (
     return { label: current.label, helper: current.nextStep, disabled: true };
   }
   const customerOutreach = refundCase.lifecycle?.customerOutreach;
-  if (customerOutreach && customerOutreach.state !== 'none') {
+  if (customerOutreach && customerOutreach.state !== 'none' && !distinctPayoutDestinationRequest) {
     const presentation = getRefundCustomerOutreachPresentation(customerOutreach);
     if (
       canRequestRefundCustomerDetailsManually(customerOutreach)
@@ -1759,15 +1792,19 @@ const primaryActionConfig = (
       disabled: true,
     };
   }
-  if (refundCase.lifecycle?.stage === 'waiting_on_customer') return {
+  if (refundCase.lifecycle?.stage === 'waiting_on_customer' && !distinctPayoutDestinationRequest) return {
     label: 'Waiting for customer reply',
     helper: 'Wait for the customer to reply to the existing request. No new request is needed.', disabled: true,
   };
-  const canContinueReview = hasUnpaidRefundReview(refundCase) && derivePortalRefundMissingFields(refundCase).length === 0;
+  const canContinueReview = hasUnpaidRefundReview(refundCase) && derivePortalRefundMissingFields(
+    refundCase,
+    refundCase.paymentMethod === 'cash' ? cashCompletionAmountCents : undefined,
+  ).length === 0;
   if (
     refundCase.customerDeliveryException &&
     latestMessage?.status === 'failed' &&
     !canContinueReview &&
+    !distinctPayoutDestinationRequest &&
     isRefundCustomerDeliveryUncertain(latestMessage.errorMessage)
   ) {
     return {
@@ -1776,7 +1813,7 @@ const primaryActionConfig = (
       mode: 'resolve_delivery_not_found',
     };
   }
-  if (refundCase.customerDeliveryException && !canContinueReview) {
+  if (refundCase.customerDeliveryException && !canContinueReview && !distinctPayoutDestinationRequest) {
     const stateLabel = transactionalDeliveryLabel(
       refundCase.customerDeliveryException.state
     );
@@ -1797,7 +1834,10 @@ const primaryActionConfig = (
     };
   }
   if (
-    derivePortalRefundMissingFields(refundCase).length > 0 &&
+    derivePortalRefundMissingFields(
+      refundCase,
+      refundCase.paymentMethod === 'cash' ? cashCompletionAmountCents : undefined,
+    ).length > 0 &&
     refundReadiness?.canIssueCardRefund !== true &&
     !canRequestRefundCustomerDetailsManually(customerOutreach)
   ) {
@@ -1807,7 +1847,7 @@ const primaryActionConfig = (
       disabled: true,
     };
   }
-  if (latestMessage?.status === 'skipped' && !canContinueReview) {
+  if (latestMessage?.status === 'skipped' && !canContinueReview && !distinctPayoutDestinationRequest) {
     return {
       label: 'Send customer acknowledgement',
       helper: 'The automated message was skipped, so the customer has not been notified. Review and send one status update before treating this case as contacted.',
@@ -1815,7 +1855,7 @@ const primaryActionConfig = (
       mode: 'retry_message',
     };
   }
-  if (latestMessage?.status === 'failed' && !canContinueReview) {
+  if (latestMessage?.status === 'failed' && !canContinueReview && !distinctPayoutDestinationRequest) {
     if (refundCase.paymentMethod === 'card' && latestMessage.messageType === 'approved') {
       return {
         label: 'Approval email blocked',
@@ -1894,6 +1934,25 @@ const primaryActionConfig = (
     };
   }
 
+  if (
+    refundCase.customerCorrection?.isActive === true &&
+    !distinctPayoutDestinationRequest
+  ) return {
+    label: refundCase.customerCorrection.isUsable === true ? 'Waiting for customer response' : 'Customer request is being sent',
+    helper: 'Bloomjoy will continue this same request when the customer responds. No new request is needed.', disabled: true,
+  };
+  if (
+    refundCase.paymentMethod === 'cash' &&
+    cashEvidencePending &&
+    !distinctPayoutDestinationRequest
+  ) {
+    return {
+      label: 'Checking sales history',
+      helper: 'Wait for the safe sales-history response before reviewing or confirming a cash amount.',
+      disabled: true,
+    };
+  }
+
   if (editor.status === 'denied' || editor.decision === 'denied') {
     return {
       label: 'Deny request',
@@ -1905,14 +1964,14 @@ const primaryActionConfig = (
     };
   }
 
-  if (refundCase.customerCorrection?.isActive === true) return {
-    label: refundCase.customerCorrection.isUsable === true ? 'Waiting for customer response' : 'Customer request is being sent',
-    helper: 'Bloomjoy will continue this same request when the customer responds. No new request is needed.', disabled: true,
-  };
   const staleCorrection = ['pending','revoked'].includes(refundCase.customerCorrection?.state ?? '') && !refundCase.customerCorrection?.isActive;
   const matched = hasTransactionMatch(refundCase, editor);
   const noMatch = refundCase.correlationStatus === 'no_match' || (!matched && candidates.length === 0);
-  const missingFields = derivePortalRefundMissingFields(refundCase);
+  const missingFields = derivePortalRefundMissingFields(
+    refundCase,
+    refundCase.paymentMethod === 'cash' ? cashCompletionAmountCents : undefined,
+  );
+  const cashAmountIsSupported = typeof cashCompletionAmountCents === 'number' && cashCompletionAmountCents > 0;
   const waitingOnCustomer = !staleCorrection && isWaitingCase(refundCase, false);
   const customerAlreadyAsked =
     waitingOnCustomer &&
@@ -1920,7 +1979,7 @@ const primaryActionConfig = (
     ['more_info', 'no_safe_match'].includes(latestMessage.messageType) &&
     ['sent', 'pending'].includes(latestMessage.status);
 
-  if (!staleCorrection && refundCase.lifecycle?.managerQueue.bucket === 'waiting_on_customer') {
+  if (!staleCorrection && refundCase.lifecycle?.managerQueue.bucket === 'waiting_on_customer' && refundCase.paymentMethod !== 'cash') {
     return {
       label: 'Waiting for customer reply',
       helper: 'Wait for the customer to reply to the existing email before taking another case action.',
@@ -1929,7 +1988,7 @@ const primaryActionConfig = (
   }
 
   if (refundCase.paymentMethod === 'cash') {
-    if (typeof refundCase.paymentAmountCents !== 'number' || refundCase.paymentAmountCents <= 0) {
+    if (!cashAmountIsSupported) {
       if (missingFields.length > 0) {
         return {
           label: 'Ask for missing details',
@@ -1941,12 +2000,23 @@ const primaryActionConfig = (
 
       return {
         label: 'Payment amount required',
-        helper: 'Confirm the customer payment amount before marking this case refunded.',
+        helper: 'Confirm the supported cash sale amount before completing the refund.',
         disabled: true,
       };
     }
 
     if (missingFields.includes('zelle_payment_contact')) {
+      if (!distinctPayoutDestinationRequest) {
+        return {
+          label: refundCase.payoutDestinationRequest?.state === 'waiting' ||
+            refundCase.payoutDestinationRequest?.state === 'reminder_claimed' ||
+            refundCase.payoutDestinationRequest?.state === 'reminder_sent'
+            ? 'Waiting for payout destination'
+            : 'Payout destination review required',
+          helper: 'Keep the existing targeted Zelle request. Do not resend it until the saved request is ready.',
+          disabled: true,
+        };
+      }
       return {
         label: 'Request payout destination',
         helper: 'Ask only for the Zelle email address or phone number in the existing customer thread.',
@@ -1956,8 +2026,8 @@ const primaryActionConfig = (
     }
 
     return {
-      label: `Mark ${formatCurrency(refundCase.paymentAmountCents)} as refunded`,
-      helper: 'Send the refund through Zelle or Venmo outside Bloomjoy Hub. After sending it, mark the case refunded here.',
+      label: 'Confirm refund sent via Zelle',
+      helper: 'Send the refund through Zelle outside Bloomjoy Hub first. Then confirm it here to complete the case.',
       targetStatus: 'completed',
       targetDecision: 'approved',
       messageType: 'completed',
@@ -2134,11 +2204,12 @@ const editorForDenial = (editor: EditorState): EditorState => ({
 const getCustomerMessageDraft = (
   refundCase: RefundCaseRecord,
   messageType: RefundCustomerPortalMessageType,
-  editor?: EditorState | null
+  editor?: EditorState | null,
+  effectiveCashAmountCents?: number | null,
 ) => {
   const editedRefundAmountCents = editor?.refundAmount ? centsFromCurrency(editor.refundAmount) : null;
   const amount = typeof editedRefundAmountCents === 'number' ? formatCurrency(editedRefundAmountCents) : formatMessageAmount(refundCase);
-  const missingFields = derivePortalRefundMissingFields(refundCase);
+  const missingFields = derivePortalRefundMissingFields(refundCase, effectiveCashAmountCents);
   const missingFieldList = missingFields.map((field) => `- ${missingFieldCustomerLabel[field]}`);
   const missingFieldReplyLines = missingFields.map((field) => missingFieldReplyLine[field]);
   switch (messageType) {
@@ -2382,7 +2453,11 @@ const getCoherentStatusOptions = (
   return options;
 };
 
-const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState): string[] => {
+const getCaseSaveIssues = (
+  selectedCase: RefundCaseRecord,
+  editor: EditorState,
+  cashCompletionAmountCents?: number | null
+): string[] => {
   const issues: string[] = [];
   const requiredDecision = statusDecisionMap[editor.status];
   const refundAmountCents = centsFromCurrency(editor.refundAmount);
@@ -2444,11 +2519,17 @@ const getCaseSaveIssues = (selectedCase: RefundCaseRecord, editor: EditorState):
       issues.push('Completion requires a positive refund amount.');
     }
 
+    const cashAmountForCompletion = typeof cashCompletionAmountCents === 'undefined'
+      ? selectedCase.paymentAmountCents
+      : cashCompletionAmountCents;
     if (
       selectedCase.paymentMethod !== 'card' &&
-      (typeof selectedCase.paymentAmountCents !== 'number' || selectedCase.paymentAmountCents <= 0)
+      (
+        typeof cashAmountForCompletion !== 'number' ||
+        cashAmountForCompletion <= 0
+      )
     ) {
-      issues.push('Confirm the customer payment amount before completing the cash refund.');
+      issues.push('Confirm the supported cash sale amount before completing the refund.');
     }
 
     if (
@@ -2491,10 +2572,11 @@ const hasUnchangedSavedApproval = (refundCase: RefundCaseRecord, editor: EditorS
 const getPrimaryActionIssues = (
   refundCase: RefundCaseRecord,
   editor: EditorState,
-  action: PrimaryActionConfig | null
+  action: PrimaryActionConfig | null,
+  cashCompletionAmountCents?: number | null
 ): string[] => {
   if (hasConfirmedRefundReceipt(refundCase) || action?.mode === 'retry_message') return [];
-  const issues = getCaseSaveIssues(refundCase, editor);
+  const issues = getCaseSaveIssues(refundCase, editor, cashCompletionAmountCents);
   if (action?.disabled === true && !action.mode && hasUnchangedSavedApproval(refundCase, editor)) {
     // A read-only next step does not propose saving another approval.
     return issues.filter((issue) => issue !== `${statusLabel(editor.status)} is a review/follow-up status and cannot carry a final decision.`);
@@ -2536,7 +2618,6 @@ export default function AdminRefundsPage() {
   const [isLookingUpNayax, setIsLookingUpNayax] = useState(false);
   const [isRunningNayaxRefund, setIsRunningNayaxRefund] = useState(false);
   const [isRefundConfirmationOpen, setIsRefundConfirmationOpen] = useState(false);
-  const [isCashConfirmationOpen, setIsCashConfirmationOpen] = useState(false);
   const [isGmailResolutionOpen, setIsGmailResolutionOpen] = useState(false);
   const [isResolvingGmailDelivery, setIsResolvingGmailDelivery] = useState(false);
   const [isRefreshingCustomerDelivery, setIsRefreshingCustomerDelivery] = useState(false);
@@ -2612,10 +2693,6 @@ export default function AdminRefundsPage() {
       isResolvingInboundLink,
   };
   const forceDemoData = isLocalUatDemoForced();
-  const showLegacyCashWorkbench =
-    import.meta.env.DEV &&
-    typeof window !== 'undefined' &&
-    new URLSearchParams(window.location.search).get('legacy-cash') === 'on';
 
   const [overviewReadMessage, setOverviewReadMessage] = useState('');
   const overviewPolling = useMemo(createRefundReadPolling, [selectedId]);
@@ -2858,7 +2935,6 @@ export default function AdminRefundsPage() {
     setNayaxLookupSummary(null);
     setIsRefundConfirmationOpen(false);
 
-    setIsCashConfirmationOpen(false);
     setMessageSubject('');
     setMessageBody('');
     setIsCustomerDraftDirty(false);
@@ -2888,7 +2964,6 @@ export default function AdminRefundsPage() {
     setNayaxLookupNotice(null);
     setNayaxLookupSummary(null);
     setIsRefundConfirmationOpen(false);
-    setIsCashConfirmationOpen(false);
     setMessageSubject('');
     setMessageBody('');
     setPendingCaseSelectionId(null);
@@ -2960,6 +3035,23 @@ export default function AdminRefundsPage() {
 
   const selectedCase = [...overview.cases, ...internalTestCases]
     .find((refundCase) => refundCase.id === selectedId) ?? null;
+  const {
+    data: selectedCashCorrelation,
+    isSuccess: isCashCorrelationLoaded,
+  } = useQuery<RefundSunzeCashCorrelation | null>({
+    queryKey: ['refund-sunze-cash-correlation', selectedCase?.id],
+    queryFn: ({ signal }) => fetchRefundSunzeCashCorrelation(selectedCase?.id ?? '', signal),
+    enabled: !isUsingDemoData && selectedCase?.paymentMethod === 'cash' && Boolean(selectedCase?.id),
+    staleTime: 10_000,
+    retry: false,
+  });
+  const cashCompletionAmountCents = selectedCase?.paymentMethod === 'cash'
+    ? (isUsingDemoData
+      ? selectedCase.sunzeCashCorrelation?.selectedSale?.actualAmountCents ?? selectedCase.paymentAmountCents
+      : isCashCorrelationLoaded && selectedCashCorrelation?.state !== 'checking_sales_history'
+        ? selectedCashCorrelation?.selectedSale?.actualAmountCents ?? selectedCase.paymentAmountCents
+        : null)
+    : null;
   const nayaxResolutionDefaultTimezone =
     selectedCase?.selectedNayaxTransaction?.machineTimezone?.trim() ||
     selectedCase?.lifecycle?.locationEvidence.normalized.timezone?.trim() ||
@@ -3360,10 +3452,13 @@ export default function AdminRefundsPage() {
             refundAmountCents: selectedCase.refundAmountCents,
             machineLimitCents: null,
             caseVersion: selectedCase.officialActionVersion ?? null,
-          }
+          },
+          cashCompletionAmountCents,
+          selectedCase.paymentMethod === 'cash' && !isUsingDemoData && !isCashCorrelationLoaded,
+          canRequestDistinctCashPayoutDestination,
         )
       : null),
-    [editor, nayaxCandidates, selectedCase, selectedNayaxSummary, selectedRefundReadiness]
+    [cashCompletionAmountCents, editor, isCashCorrelationLoaded, isUsingDemoData, nayaxCandidates, selectedCase, selectedNayaxSummary, selectedRefundReadiness]
   );
   const primaryActionNeedsOfficialAccess = primaryActionRequiresOfficialAction(primaryAction);
   const primaryActionEditor = useMemo(
@@ -3373,9 +3468,9 @@ export default function AdminRefundsPage() {
   const primaryActionIssues = useMemo(
     () =>
       selectedCase && primaryActionEditor
-        ? getPrimaryActionIssues(selectedCase, primaryActionEditor, primaryAction)
+        ? getPrimaryActionIssues(selectedCase, primaryActionEditor, primaryAction, cashCompletionAmountCents)
         : [],
-    [primaryAction, primaryActionEditor, selectedCase]
+    [cashCompletionAmountCents, primaryAction, primaryActionEditor, selectedCase]
   );
   const managerDisplayCase = (refundCase: RefundCaseRecord): RefundCaseRecord =>
     refundCase.id === selectedCase?.id
@@ -3394,6 +3489,18 @@ export default function AdminRefundsPage() {
       refundCase.lifecycle.customerOutreach.state !== 'none'
     ) {
       return null;
+    }
+    const cashCorrelation = refundCase.id === selectedCase?.id
+      ? (isUsingDemoData ? refundCase.sunzeCashCorrelation : selectedCashCorrelation)
+      : null;
+    if (
+      refundCase.paymentMethod === 'cash' &&
+      cashCorrelation?.state === 'no_sale_found_with_complete_coverage' &&
+      cashCorrelation.sourceReadiness === 'complete_coverage' &&
+      primaryAction?.targetStatus === 'completed' &&
+      primaryAction.disabled !== true
+    ) {
+      return { label: 'Ready to confirm refund', tone: 'success' };
     }
     if (isWaitingCase(refundCase, refundOperationsAccess)) return null;
     if (refundCase.id !== selectedCase?.id || refundCase.hasMatchedNayaxTransaction || !editor) return null;
@@ -3550,7 +3657,6 @@ export default function AdminRefundsPage() {
     setNayaxLookupNotice(null);
     setNayaxExecutionNotice(null);
     setIsRefundConfirmationOpen(false);
-    setIsCashConfirmationOpen(false);
     setRefundActionReceipt(null);
     setNayaxLookupSummary(refundCase.nayaxLookupSummary ?? null);
     const initialMessageType: RefundCustomerPortalMessageType = refundCase.status === 'draft'
@@ -3669,7 +3775,11 @@ export default function AdminRefundsPage() {
       return null;
     }
 
-    const issues = getCaseSaveIssues(targetCase, nextEditor);
+    const issues = getCaseSaveIssues(
+      targetCase,
+      nextEditor,
+      nextEditor.status === 'completed' ? cashCompletionAmountCents : null
+    );
     if (issues.length > 0) {
       toast.error(issues[0]);
       return null;
@@ -3715,7 +3825,10 @@ export default function AdminRefundsPage() {
         nayaxDisagreementReason: nextEditor.nayaxDisagreementReason || null,
         customerMessageType,
         customerMissingFields: customerMessageType === 'more_info'
-          ? derivePortalRefundMissingFields(targetCase)
+          ? derivePortalRefundMissingFields(
+              targetCase,
+              isManualExternalCashCompletion ? cashCompletionAmountCents : undefined,
+            )
           : [],
       } as const;
       const result = await updateRefundCaseAdmin(updateInput);
@@ -4298,7 +4411,7 @@ export default function AdminRefundsPage() {
       return;
     }
     if (primaryAction.mode === 'retry_message') {
-      await handleSendCustomerMessage(primaryAction.messageType);
+      await handleSendCustomerMessage(primaryAction.messageType, undefined, cashCompletionAmountCents);
       return;
     }
     if (
@@ -4309,7 +4422,7 @@ export default function AdminRefundsPage() {
       return;
     }
     if (primaryAction.messageType && primaryAction.messageType !== messageType) {
-      handleMessageTypeChange(primaryAction.messageType);
+      handleMessageTypeChange(primaryAction.messageType, false, cashCompletionAmountCents);
     }
     setEditor(primaryActionEditor);
     await handleSaveCase(primaryActionEditor, primaryAction.messageType ?? null);
@@ -4409,12 +4522,14 @@ export default function AdminRefundsPage() {
 
     const confirmedEditor: EditorState = {
       ...primaryActionEditor,
-      refundAmount: (selectedCase.paymentAmountCents / 100).toFixed(2),
+      refundAmount: typeof cashCompletionAmountCents === 'number'
+        ? (cashCompletionAmountCents / 100).toFixed(2)
+        : '',
       manualRefundReference: '',
       cashPayoutSentAt: '',
       cashPaymentConfirmed: true,
     };
-    const issues = getCaseSaveIssues(selectedCase, confirmedEditor);
+    const issues = getCaseSaveIssues(selectedCase, confirmedEditor, cashCompletionAmountCents);
     if (issues.length > 0) {
       toast.error(issues[0]);
       return;
@@ -4438,7 +4553,7 @@ export default function AdminRefundsPage() {
 
       setRefundActionReceipt({
         tone: saveResult.customerMessage?.status === 'failed' ? 'warning' : 'success',
-        title: saveResult.updateApplied ? 'Refund marked complete' : 'Refund was already complete',
+        title: saveResult.updateApplied ? 'Refund sent via Zelle confirmed' : 'Zelle refund was already confirmed',
         message: !saveResult.updateApplied
             ? 'The existing completion was kept. No duplicate email or case update was created.'
           : saveResult.customerMessage?.status === 'failed'
@@ -4447,7 +4562,6 @@ export default function AdminRefundsPage() {
               ? 'The external refund was recorded, the case was completed, and the customer was notified.'
               : 'The external refund was recorded and the case was completed. Customer delivery is queued.',
       });
-      setIsCashConfirmationOpen(false);
     } finally {
       cashCompletionInFlightRef.current = false;
       setIsCashCompletionSubmitting(false);
@@ -4626,13 +4740,17 @@ export default function AdminRefundsPage() {
 
   const handleMessageTypeChange = (
     nextMessageType: RefundCustomerPortalMessageType,
-    managerEditedTemplate = false
+    managerEditedTemplate = false,
+    safeCashAmountCents?: number | null,
   ) => {
     if (isCustomerDraftDirty && !managerEditedTemplate) return;
     setMessageType(nextMessageType);
     if (!selectedCase) return;
 
-    const draft = getCustomerMessageDraft(selectedCase, nextMessageType);
+    const cashAmountForMessage = typeof safeCashAmountCents === 'undefined'
+      ? selectedCase.sunzeCashCorrelation?.selectedSale?.actualAmountCents ?? selectedCase.paymentAmountCents
+      : safeCashAmountCents;
+    const draft = getCustomerMessageDraft(selectedCase, nextMessageType, null, cashAmountForMessage);
     setMessageSubject(draft.subject);
     setMessageBody(draft.body);
     setIsCustomerDraftDirty(managerEditedTemplate);
@@ -4713,7 +4831,7 @@ export default function AdminRefundsPage() {
                 type="button"
                 data-testid="refund-gmail-ask-for-details"
                 data-dominant-action="true"
-                onClick={() => void handleSendCustomerMessage(draftFollowUpType)}
+                onClick={() => void handleSendCustomerMessage(draftFollowUpType, undefined, cashCompletionAmountCents)}
                 disabled={isSendingCustomerMessage || isUsingDemoData || customerDeliveryNeedsReconciliation}
                 className="min-h-11 shrink-0 bg-white text-slate-950 hover:bg-slate-100"
               >
@@ -4812,7 +4930,7 @@ export default function AdminRefundsPage() {
                     type="button"
                     data-testid="refund-gmail-ask-for-details"
                     data-dominant-action="true"
-                    onClick={() => void handleSendCustomerMessage('more_info')}
+                    onClick={() => void handleSendCustomerMessage('more_info', undefined, cashCompletionAmountCents)}
                     disabled={isSendingCustomerMessage || isUsingDemoData || customerDeliveryNeedsReconciliation}
                     className="min-h-11"
                   >
@@ -4971,7 +5089,11 @@ export default function AdminRefundsPage() {
     <Button variant="outline" className="mt-3" disabled={isSendingCustomerMessage} onClick={() => void handleInspectRevisionDelivery()}>Check revision delivery</Button>
   </div>;
 
-  const handleSendCustomerMessage = async (messageTypeOverride?: RefundCustomerPortalMessageType | null, selectedCorrectionFields?: RefundMissingField[]) => {
+  const handleSendCustomerMessage = async (
+    messageTypeOverride?: RefundCustomerPortalMessageType | null,
+    selectedCorrectionFields?: RefundMissingField[],
+    safeCashAmountCents?: number | null,
+  ) => {
     if (!selectedCase) return;
     if (pendingRevision?.caseId === selectedCase.id) {
       toast.error('Check the existing revision delivery before sending another request.');
@@ -4985,6 +5107,10 @@ export default function AdminRefundsPage() {
       toast.info('Demo cases are read-only. Customer email is disabled.');
       return;
     }
+
+    const cashAmountForMessage = typeof safeCashAmountCents === 'undefined'
+      ? selectedCase.sunzeCashCorrelation?.selectedSale?.actualAmountCents ?? selectedCase.paymentAmountCents
+      : safeCashAmountCents;
 
     const nextMessageType = messageTypeOverride ?? messageType;
     if (nextMessageType === 'more_info' && selectedCase.customerCorrectionFields) {
@@ -5015,7 +5141,7 @@ export default function AdminRefundsPage() {
       messageTypeOverride && !usesReviewedTriageDraft
     );
     const draft = messageTypeOverride && !usesReviewedTriageDraft
-      ? getCustomerMessageDraft(selectedCase, messageTypeOverride)
+      ? getCustomerMessageDraft(selectedCase, messageTypeOverride, null, cashAmountForMessage)
       : null;
     const subject = draft?.subject ?? messageSubject;
     const body = draft?.body ?? messageBody;
@@ -5034,7 +5160,7 @@ export default function AdminRefundsPage() {
         ? selectedCorrectionFields!
         : usesReviewedTriageDraft
         ? sanitizePortalMissingFields(triageSuggestion?.missingFields ?? [])
-        : derivePortalRefundMissingFields(selectedCase)
+        : derivePortalRefundMissingFields(selectedCase, cashAmountForMessage)
       : [];
     const messageFingerprint = JSON.stringify({
       caseId: selectedCase.id,
@@ -5777,7 +5903,7 @@ export default function AdminRefundsPage() {
 
   const nextCustomerDraft =
     selectedCase && editor && primaryAction?.messageType
-      ? getCustomerMessageDraft(selectedCase, primaryAction.messageType, editor)
+      ? getCustomerMessageDraft(selectedCase, primaryAction.messageType, editor, cashCompletionAmountCents)
       : null;
   const availableCustomerMessageOptions = customerMessageOptions.filter((option) => {
     if (selectedCase?.paymentMethod === 'card' && option.value === 'approved') return false;
@@ -5994,9 +6120,9 @@ export default function AdminRefundsPage() {
 
     const chooseCustomerFollowUp = () => {
       if (!canAskForCustomerDetails || isSendingCustomerMessage) return;
-      if (selectedCase.customerCorrectionFields) { void handleSendCustomerMessage('more_info'); return; }
+      if (selectedCase.customerCorrectionFields) { void handleSendCustomerMessage('more_info', undefined, cashCompletionAmountCents); return; }
       setEditor((current) => current ? { ...current, status: 'waiting_on_customer', decision: null, decisionReason: '' } : current);
-      handleMessageTypeChange('more_info');
+      handleMessageTypeChange('more_info', false, cashCompletionAmountCents);
     };
 
     const chooseDenial = (trigger: HTMLButtonElement) => {
@@ -6010,7 +6136,7 @@ export default function AdminRefundsPage() {
         isCustomerDraftDirty,
       };
       setEditor((current) => current ? editorForDenial(current) : current);
-      handleMessageTypeChange('denied');
+      handleMessageTypeChange('denied', false, cashCompletionAmountCents);
       window.requestAnimationFrame(() => denialReasonRef.current?.focus());
     };
 
@@ -7091,9 +7217,12 @@ export default function AdminRefundsPage() {
     if (selectedCaseIsResolvedDuplicate) return null;
 
     const incidentTimezone = refundCaseTimezone(selectedCase);
-    const cashAmountCents = selectedCase.paymentAmountCents;
-    const isCashCompletion = primaryAction?.targetStatus === 'completed';
-    const actionLabel = primaryAction?.label ?? 'Review cash refund';
+    const cashCompletionRecorded =
+      selectedCase.status === 'completed' ||
+      (editor.status === 'completed' &&
+        Boolean(refundActionReceipt?.title.match(/refund sent via zelle|zelle refund .*confirmed/i)));
+    const isCashCompletion = primaryAction?.targetStatus === 'completed' && !cashCompletionRecorded;
+    const actionLabel = cashCompletionRecorded ? 'Case complete' : primaryAction?.label ?? 'Review cash refund';
     const isActionDisabled =
       isSaving ||
       isSendingCustomerMessage ||
@@ -7103,16 +7232,19 @@ export default function AdminRefundsPage() {
       primaryAction.disabled === true ||
       (primaryActionNeedsOfficialAccess && (selectedCaseIsReviewOnly || officialActionVersion <= 0)) ||
       primaryActionIssues.length > 0;
-    const cashMatchReady = selectedCase.hasMatchedSalesFact && selectedCase.correlationStatus === 'matched';
+    const missingCashFields = derivePortalRefundMissingFields(selectedCase, cashCompletionAmountCents);
+    const canRequestCashPayoutDestination = canRequestDistinctCashPayoutDestination(selectedCase);
     const canAskForCustomerDetails =
-      canRequestRefundCustomerDetailsManually(selectedCase.lifecycle?.customerOutreach) &&
-      derivePortalRefundMissingFields(selectedCase).length > 0;
+      (missingCashFields.includes('zelle_payment_contact')
+        ? canRequestCashPayoutDestination
+        : canRequestRefundCustomerDetailsManually(selectedCase.lifecycle?.customerOutreach)) &&
+      missingCashFields.length > 0;
 
     const chooseCustomerFollowUp = () => {
       if (!canAskForCustomerDetails || isSendingCustomerMessage) return;
-      if (selectedCase.customerCorrectionFields) { void handleSendCustomerMessage('more_info'); return; }
+      if (selectedCase.customerCorrectionFields) { void handleSendCustomerMessage('more_info', undefined, cashCompletionAmountCents); return; }
       setEditor((current) => current ? { ...current, status: 'waiting_on_customer', decision: null, decisionReason: '' } : current);
-      handleMessageTypeChange('more_info');
+      handleMessageTypeChange('more_info', false, cashCompletionAmountCents);
     };
 
     const chooseDenial = () => {
@@ -7121,10 +7253,15 @@ export default function AdminRefundsPage() {
           ? { ...editorForDenial(current), cashPaymentConfirmed: false }
           : current
       );
-      handleMessageTypeChange('denied');
+      handleMessageTypeChange('denied', false, cashCompletionAmountCents);
     };
 
-    const managerState = getRefundManagerState(selectedCase);
+    const managerState = getRefundManagerState(
+      cashCompletionRecorded ? { ...selectedCase, status: 'completed' } : selectedCase,
+      {
+      cashCompletionAmountCents,
+      },
+    );
     const displayedManagerNextStep = getDisplayedRefundManagerNextStep(managerState, primaryAction);
 
     return (
@@ -7150,8 +7287,21 @@ export default function AdminRefundsPage() {
               )}
               {isCashCompletion && (
                 <p data-testid="refund-manager-next-step" className="mt-2 max-w-xl text-sm font-medium leading-5 text-foreground">
-                  Send the refund through Zelle or Venmo outside Bloomjoy Hub. After sending it, mark the case refunded here.
+                  Send the refund through Zelle outside Bloomjoy Hub. After sending it, confirm it here.
                 </p>
+              )}
+              {isCashCompletion && typeof cashCompletionAmountCents === 'number' && (
+                <div
+                  data-testid="refund-cash-confirmation-amount"
+                  className="mt-3 max-w-xl rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm"
+                >
+                  <span className="font-semibold text-foreground">Amount to send: {formatCurrency(cashCompletionAmountCents)}</span>
+                  <span className="ml-1 text-muted-foreground">
+                    {selectedCashCorrelation?.selectedSale
+                      ? 'Use the selected sale evidence shown below.'
+                      : 'Use the reviewed customer estimate; no supported sale is selected.'}
+                  </span>
+                </div>
               )}
             </div>
             <div className="flex flex-col gap-2 sm:items-end">
@@ -7163,7 +7313,7 @@ export default function AdminRefundsPage() {
                 onClick={() => {
                   if (isCashCompletion) {
                     setRefundActionReceipt(null);
-                    setIsCashConfirmationOpen(true);
+                    void handleConfirmCashCompletion();
                     return;
                   }
                   void handlePrimaryAction();
@@ -7223,35 +7373,12 @@ export default function AdminRefundsPage() {
               </div>
             </article>
 
-            <article data-testid="refund-cash-match-summary" className="border-t border-border bg-muted/20 p-4 lg:border-t-0">
-              <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cash review</p>
-                  <p className="mt-2 text-lg font-semibold text-foreground">Customer reported a cash payment</p>
-                </div>
-                <Badge
-                  className={cn(
-                    'border-border bg-background text-foreground',
-                    cashMatchReady && 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                  )}
-                >
-                  {matchResultLabel(selectedCase, editor, nayaxCandidates)}
-                </Badge>
-              </div>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                {cashMatchReady
-                  ? `${transactionMatchSummary(selectedCase, editor, [])} This match is supporting context only.`
-                  : canAskForCustomerDetails && (typeof selectedCase.paymentAmountCents !== 'number' || selectedCase.paymentAmountCents <= 0)
-                    ? 'Ask only for the purchase details that are still missing before recording a refund.'
-                    : 'No imported cash-sale match is required to record a refund that you already sent.'}
-              </p>
-              <div className="mt-3 border-t border-border pt-3 text-sm">
-                <p className="text-xs font-medium text-foreground">External refund only</p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  Bloomjoy Hub does not send or verify Zelle or Venmo payments. Mark refunded only after you have sent the reimbursement.
-                </p>
-              </div>
-            </article>
+            <CashRefundEvidencePanel
+              refundCase={selectedCase}
+              isUsingDemoData={isUsingDemoData}
+              venueTimezone={incidentTimezone}
+              isCompleted={cashCompletionRecorded}
+            />
           </div>
         </section>
 
@@ -7329,54 +7456,6 @@ export default function AdminRefundsPage() {
           )}
         </section>
 
-        <AlertDialog
-          open={isCashConfirmationOpen}
-          onOpenChange={(open) => {
-            if (!isCashCompletionSubmitting) setIsCashConfirmationOpen(open);
-          }}
-        >
-          <AlertDialogContent data-testid="refund-cash-confirmation-dialog" className="max-w-xl">
-            <AlertDialogHeader>
-              <AlertDialogTitle>Mark {formatCurrency(cashAmountCents)} as refunded?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Confirm that you already refunded this customer outside Bloomjoy Hub. This closes the case, updates reporting, and notifies the customer.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-
-            <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Refund amount</p>
-                <p className="mt-1 font-medium text-foreground">{formatCurrency(cashAmountCents)}</p>
-                <p className="mt-1 text-muted-foreground">Bloomjoy Hub records this confirmation but does not send the external payment.</p>
-              </div>
-            </div>
-
-            {nextCustomerDraft && (
-              <details className="rounded-lg border border-border p-3 text-sm">
-                <summary className="cursor-pointer font-medium text-foreground">Review completion email</summary>
-                <p className="mt-3 font-medium text-foreground">{nextCustomerDraft.subject}</p>
-                <p className="mt-2 whitespace-pre-line text-muted-foreground">{nextCustomerDraft.body}</p>
-              </details>
-            )}
-
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={isCashCompletionSubmitting}>Go back</AlertDialogCancel>
-              <Button
-                data-testid="refund-confirm-cash-refund"
-                type="button"
-                onClick={() => void handleConfirmCashCompletion()}
-                disabled={isActionDisabled}
-              >
-                {isCashCompletionSubmitting ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="mr-2 h-4 w-4" />
-                )}
-                Mark refunded
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
       </div>
     );
   };
@@ -8166,733 +8245,6 @@ export default function AdminRefundsPage() {
                       </section>
                     )}
 
-                    {/* Local-only rollback reference while the cash workbench completes UAT. */}
-                    {showLegacyCashWorkbench && selectedCase.paymentMethod === 'cash' && (
-                    <div className="contents">
-                    <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 text-sm">
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            Recommended next action
-                          </p>
-                          <p className="mt-1 text-lg font-semibold text-foreground">
-                            {isCardCompletion
-                              ? 'Refund card payment'
-                              : primaryActionIsCompletion
-                                ? `Record ${completionActionName} completion`
-                                : primaryAction?.label ?? 'Review case'}
-                          </p>
-                          <p className="mt-1 text-muted-foreground">
-                            {primaryActionIsCompletion
-                              ? isCardCompletion
-                                ? 'Step 2 confirms the sale match. Confirm the amount in Step 3, then refund the card payment in Step 4.'
-                                : `Step 2 only confirms the sale match. After you ${completionOutsideAction}, enter the confirmation in Step 3.`
-                              : primaryAction?.helper ?? getSuggestedNextAction(selectedCase, nayaxCandidates)}
-                          </p>
-                        </div>
-                        <Badge className="w-fit border-primary/20 bg-background text-primary">
-                          {getCustomerCommunicationLabel(selectedCase)}
-                        </Badge>
-                      </div>
-                      <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                        <div className="rounded-md border border-primary/15 bg-background/80 p-3">
-                          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Task</p>
-                          <p className="mt-1 font-medium text-foreground">{managerTaskLabel(selectedCase)}</p>
-                        </div>
-                        <div className="rounded-md border border-primary/15 bg-background/80 p-3">
-                          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Transaction</p>
-                          <p className="mt-1 font-medium text-foreground">
-                            {matchResultLabel(selectedCase, editor, nayaxCandidates)}
-                          </p>
-                        </div>
-                        <div className="rounded-md border border-primary/15 bg-background/80 p-3">
-                          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Customer update</p>
-                          <p className="mt-1 font-medium text-foreground">{getCustomerCommunicationLabel(selectedCase)}</p>
-                        </div>
-                        <div className="rounded-md border border-primary/15 bg-background/80 p-3">
-                          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Age</p>
-                          <p className="mt-1 font-medium text-foreground">{formatAge(selectedCase.createdAt)} old</p>
-                        </div>
-                      </div>
-                      {getOperationalSignals(selectedCase).length > 0 && (
-                        <div className="mt-3 flex flex-wrap gap-1.5">
-                          {getOperationalSignals(selectedCase).map((signal) => (
-                            <Badge key={signal.label} className={cn('rounded-md', signal.className)}>
-                              {signal.label}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-                      <p className="mt-3 text-xs font-medium text-primary">
-                        {primaryActionIsCompletion
-                          ? 'Continue to the completion step below.'
-                          : 'Use the action below to continue.'}
-                      </p>
-                    </div>
-
-                    <div className="space-y-3 rounded-lg border border-border bg-background p-4">
-                      <StepHeader step={1} title="Request">
-                        Confirm who contacted us, where it happened, and the refund path.
-                      </StepHeader>
-                      <div className="grid gap-3 text-sm sm:grid-cols-2">
-                        <div className="rounded-md border border-border bg-muted/20 p-3">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            Customer
-                          </p>
-                          <p className="mt-1 break-words font-medium text-foreground">
-                            {selectedCase.customerName || 'Name not provided'}
-                          </p>
-                          <p className={cn(
-                            'mt-1 break-words text-muted-foreground',
-                            !selectedCase.customerEmail?.trim() && 'font-medium text-amber-800'
-                          )}>
-                            {selectedCase.customerEmail?.trim() || 'Email needed'}
-                          </p>
-                          {selectedCase.customerPhone && (
-                            <p className="mt-1 break-words text-muted-foreground">
-                              Phone: {selectedCase.customerPhone}
-                            </p>
-                          )}
-                        </div>
-                        <div className="rounded-md border border-border bg-muted/20 p-3">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            Refund path
-                          </p>
-                          <p className="mt-1 capitalize text-foreground">
-                            {selectedCase.paymentMethod === 'cash' ? 'Cash refund by Zelle' : 'Card refund'}
-                          </p>
-                          {selectedCase.paymentMethod === 'cash' && (
-                            <p className="mt-1 break-words text-muted-foreground">
-                              Zelle: {selectedCase.zellePaymentContact || 'Not provided'}
-                            </p>
-                          )}
-                          {selectedCase.paymentMethod === 'card' && (
-                            <p className="mt-1 text-muted-foreground">
-                              Last 4: {selectedCase.cardLast4 || 'n/a'}
-                              {selectedCase.cardWalletUsed ? ' / wallet payment noted' : ''}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      <div className="rounded-md border border-border bg-muted/20 p-3 text-sm">
-                        <p className="font-medium text-foreground">
-                          {formatRefundMachineLocation(selectedCase.locationName, selectedCase.machineLabel)}
-                        </p>
-                        <p className="mt-1 text-muted-foreground">
-                          Customer-reported time:{' '}
-                          {refundCustomerTimeDisplay(selectedCase, incidentTimezone)}
-                        </p>
-                        <p className="mt-1 text-muted-foreground">
-                          Refund request received:{' '}
-                          {selectedCase.qrClaimOpenedAt
-                            ? formatRefundDateTime(selectedCase.qrClaimOpenedAt, incidentTimezone)
-                            : 'Not available · direct form'}
-                        </p>
-                        <p className="mt-3 break-words text-muted-foreground">{selectedCase.issueSummary}</p>
-                      </div>
-                    </div>
-
-                    <div className="rounded-lg border border-border bg-background p-4 text-sm">
-                      <StepHeader
-                        step={2}
-                        title={selectedCase.paymentMethod === 'card' ? 'Card transaction check' : 'Cash transaction check'}
-                      >
-                        {selectedCase.paymentMethod === 'card'
-                          ? 'Confirm whether Bloomjoy found the customer card transaction near the reported time.'
-                          : 'Confirm whether the cash sale matches the customer request.'}
-                      </StepHeader>
-                      <div className="mt-3">
-                        {selectedCase.paymentMethod === 'card' && selectedNayaxSummary && (
-                          <div data-testid="legacy-nayax-result-card" className="rounded-lg border border-sky-200 bg-sky-50 p-3">
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                              <div>
-                                <p className="text-sm font-semibold text-sky-950">
-                                  {nayaxResultTitle(selectedNayaxSummary, selectedCase, editor)}
-                                </p>
-                                <p className="mt-1 text-sm text-sky-900">
-                                  {hasSelectedCardEvidence(selectedCase, editor)
-                                    ? formatCardSaleLine(selectedCase, editor, nayaxCandidates)
-                                    : transactionSearchDescription(selectedNayaxSummary)}
-                                </p>
-                              </div>
-                              <Badge className={nayaxStatusClass(selectedNayaxSummary.lookupStatus, hasSelectedCardEvidence(selectedCase, editor))}>
-                                {nayaxDisplayStatusLabel(selectedNayaxSummary, selectedCase, editor)}
-                              </Badge>
-                            </div>
-                            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-sky-800">
-                              <span>Window: +/- {selectedNayaxSummary.windowHours ?? 6} hours</span>
-                              <span>Checked: {formatDate(selectedNayaxSummary.lastCheckedAt)}</span>
-                              <span>Transactions checked: {selectedNayaxSummary.providerWindowRecordCount ?? 'n/a'}</span>
-                            </div>
-                            <p className="mt-3 text-xs font-medium text-sky-950">
-                              {nayaxNextActionText(selectedNayaxSummary, selectedCase, editor)}
-                            </p>
-                            <p className="mt-2 text-xs text-sky-800">
-                              This identifies a likely payment only. It does not prove a delivery failure or approve a refund.
-                            </p>
-                          </div>
-                        )}
-                        {renderCardSaleCandidates()}
-                        {selectedCase.paymentMethod !== 'card' && (
-                          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                              <div>
-                                <p className="text-sm font-semibold text-emerald-950">Cash sale check</p>
-                                <p className="mt-1 text-sm text-emerald-900">
-                                  {transactionMatchSummary(selectedCase, editor, nayaxCandidates)}
-                                </p>
-                              </div>
-                              <Badge className="w-fit border-emerald-200 bg-white text-emerald-700">
-                                {selectedCase.hasMatchedSalesFact || selectedCase.correlationStatus === 'matched'
-                                  ? 'Matched'
-                                  : 'Needs review'}
-                              </Badge>
-                            </div>
-                            <p className="mt-3 text-xs font-medium text-emerald-950">
-                              Reporting only updates after the approved refund is marked complete.
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {selectedCase.attachments.length > 0 && (
-                      <div>
-                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Photos
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                          {selectedCase.attachments.map((attachment) => (
-                            <Button
-                              key={attachment.id}
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => void handleOpenAttachment(attachment.id)}
-                              className="max-w-full justify-start"
-                            >
-                              <ExternalLink className="mr-2 h-4 w-4" />
-                              <span className="truncate">{attachment.fileName}</span>
-                            </Button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="space-y-4 rounded-lg border border-border bg-background p-4">
-                      <StepHeader
-                        step={3}
-                        title={isCardCompletion ? 'Review selected transaction' : primaryActionIsCompletion ? `Record ${completionActionName} completion` : 'Decision'}
-                      >
-                        {isCardCompletion
-                          ? 'The refund uses the selected transaction amount. The customer\'s reported amount stays visible for comparison.'
-                          : primaryActionIsCompletion
-                            ? `Use this step after you ${completionOutsideAction}.`
-                          : 'Use the recommended action. Customer email sends with the action when a message is required.'}
-                      </StepHeader>
-
-                      {isCardCompletion ? (
-                        <div data-testid="refund-card-amount-panel" className="grid gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3">
-                          <div className="grid gap-3 sm:grid-cols-3">
-                            <div className="rounded-md border border-primary/20 bg-background p-3">
-                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                Requested amount
-                              </p>
-                              <p className="mt-1 text-base font-semibold text-foreground">
-                                {formatCurrency(selectedCase.paymentAmountCents)}
-                              </p>
-                            </div>
-                            <div className="rounded-md border border-primary/20 bg-background p-3">
-                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                Matched sale amount
-                              </p>
-                              <p className="mt-1 text-base font-semibold text-foreground">
-                                {formatCurrency(matchedCardSaleAmountCents)}
-                              </p>
-                            </div>
-                            <div className="rounded-md border border-primary/20 bg-background p-3">
-                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                Refund to send
-                              </p>
-                              <p className="mt-1 text-base font-semibold text-foreground">
-                                {formatCurrency(matchedCardSaleAmountCents)}
-                              </p>
-                              <InfoHint>
-                                The full selected Nayax transaction amount is set automatically. There is no separate amount to enter.
-                              </InfoHint>
-                            </div>
-                          </div>
-                        </div>
-                      ) : primaryActionIsCompletion ? (
-                        <div data-testid="refund-completion-panel" className="grid gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3">
-                          <div className="rounded-md border border-primary/20 bg-background p-3 text-sm text-muted-foreground">
-                            <p className="font-medium text-foreground">
-                              Record the Zelle refund after sending it.
-                            </p>
-                            <ol className="mt-2 list-decimal space-y-1 pl-5">
-                              <li>Send the Zelle refund to the customer.</li>
-                              <li>Paste the confirmation/reference below.</li>
-                              <li>Save to complete the case and email the customer.</li>
-                            </ol>
-                          </div>
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            <div>
-                              <Label>Refund amount</Label>
-                              <Input
-                                value={editor.refundAmount}
-                                disabled={isUsingDemoData || selectedCaseIsReviewOnly}
-                                onChange={(event) =>
-                                  setEditor((current) =>
-                                    current ? { ...current, refundAmount: event.target.value } : current
-                                  )
-                                }
-                                className="mt-2"
-                                placeholder="12.00"
-                              />
-                              {isUsingDemoData && (
-                                <InfoHint>
-                                  Demo mode disables this field because demo cases are browser-only and cannot save refund amounts.
-                                </InfoHint>
-                              )}
-                            </div>
-                            <div>
-                              <Label>{getRefundReferenceLabel(selectedCase)}</Label>
-                              <Input
-                                data-testid="refund-reference-input"
-                                value={editor.manualRefundReference}
-                                disabled={isUsingDemoData}
-                                onChange={(event) =>
-                                  setEditor((current) =>
-                                    current ? { ...current, manualRefundReference: event.target.value } : current
-                                  )
-                                }
-                                className="mt-2"
-                                placeholder="Zelle confirmation/reference"
-                              />
-                              <InfoHint>
-                                {isUsingDemoData
-                                  ? 'Demo mode disables this field because demo cases are browser-only and cannot save Zelle references.'
-                                  : 'Required before saving the completed refund.'}
-                              </InfoHint>
-                            </div>
-                          </div>
-                          <Button
-                            data-testid={selectedCase.paymentMethod === 'card' ? 'legacy-refund-save-case' : 'refund-save-case'}
-                            onClick={() => void handlePrimaryAction()}
-                            disabled={
-                              isSaving ||
-                              isSendingCustomerMessage ||
-                              isUsingDemoData ||
-                              !primaryAction ||
-                              primaryAction.disabled ||
-                              primaryActionIssues.length > 0 ||
-                              (primaryActionNeedsOfficialAccess &&
-                                (selectedCaseIsReviewOnly || officialActionVersion <= 0))
-                            }
-                          >
-                            {isSaving ? (
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            ) : (
-                              <CheckCircle2 className="mr-2 h-4 w-4" />
-                            )}
-                            {primaryAction?.label ?? `Save completed ${completionProvider} refund`}
-                          </Button>
-                        </div>
-                      ) : primaryAction ? (
-                        <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            Current decision
-                          </p>
-                          <p className="mt-1 text-base font-semibold text-foreground">
-                            {primaryAction.label}
-                          </p>
-                          <p className="mt-1 text-sm text-muted-foreground">{primaryAction.helper}</p>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {!selectedCase.legacyStateReviewRequired &&
-                              derivePortalRefundMissingFields(selectedCase).length > 0
-                              && primaryAction.messageType !== 'more_info' && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                disabled={isUsingDemoData}
-                                onClick={() => {
-                                  setEditor((current) =>
-                                    current
-                                      ? {
-                                          ...current,
-                                          status: 'waiting_on_customer',
-                                          decision: null,
-                                          decisionReason: '',
-                                        }
-                                      : current
-                                  );
-                                  handleMessageTypeChange('more_info');
-                                }}
-                              >
-                                Ask customer instead
-                              </Button>
-                            )}
-                            {!selectedCase.legacyStateReviewRequired && primaryAction.label !== 'Deny request' && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                disabled={isUsingDemoData || selectedCaseIsReviewOnly}
-                                onClick={() => {
-                                  setEditor((current) => current ? editorForDenial(current) : current);
-                                  handleMessageTypeChange('denied');
-                                }}
-                              >
-                                Deny instead
-                              </Button>
-                            )}
-                          </div>
-                          {(editor.decision === 'denied' || editor.status === 'denied') && (
-                            <div className="mt-3">
-                              <Label>Customer-facing denial reason</Label>
-                              <select
-                                data-testid="refund-denial-reason"
-                                value={editor.decisionReason}
-                                disabled={isUsingDemoData}
-                                onChange={(event) =>
-                                  setEditor((current) =>
-                                    current ? { ...current, decisionReason: event.target.value } : current
-                                  )
-                                }
-                                className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
-                              >
-                                <option value="">Choose a reason</option>
-                                {customerSafeDenialReasons.map((reason) => (
-                                  <option key={reason} value={reason}>{reason}</option>
-                                ))}
-                              </select>
-                              <InfoHint>
-                                The customer receives the selected warm, approved explanation.
-                              </InfoHint>
-                            </div>
-                          )}
-                          <Button
-                            data-testid={selectedCase.paymentMethod === 'card' ? 'legacy-refund-save-case' : 'refund-save-case'}
-                            className="mt-3"
-                            onClick={() => void handlePrimaryAction()}
-                            disabled={
-                              isSaving ||
-                              isSendingCustomerMessage ||
-                              isUsingDemoData ||
-                              primaryAction.disabled ||
-                              primaryActionIssues.length > 0 ||
-                              (primaryActionNeedsOfficialAccess &&
-                                (selectedCaseIsReviewOnly || officialActionVersion <= 0))
-                            }
-                          >
-                            {isSaving ? (
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            ) : (
-                              <CheckCircle2 className="mr-2 h-4 w-4" />
-                            )}
-                            {primaryAction.label}
-                          </Button>
-                        </div>
-                      ) : null}
-
-                      {isCardCompletion && (
-                        <div data-testid="refund-card-execution-panel" className="space-y-3 rounded-lg border border-border bg-background p-4">
-                          <StepHeader step={4} title="Refund card payment">
-                            Refund the selected transaction without leaving Bloomjoy. If the refund cannot be started, the case stays open and the customer is not emailed.
-                          </StepHeader>
-                          <div className="rounded-lg border border-sky-200 bg-sky-50 p-3">
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                              <div className="min-w-0 text-sm">
-                                <p className="font-semibold text-sky-950">
-                                  Ready amount: {editor.refundAmount ? formatCurrency(centsFromCurrency(editor.refundAmount)) : 'n/a'}
-                                </p>
-                                <p className="mt-1 text-sky-900">
-                                  Bloomjoy records the result and emails the customer only after the payment service confirms the refund.
-                                </p>
-                              </div>
-                            </div>
-                            {isUsingDemoData && (
-                              <InfoHint>
-                                Refund actions are disabled in demo mode.
-                              </InfoHint>
-                            )}
-                            {primaryActionIssues.length > 0 && (
-                              <div className="mt-3 rounded-md border border-orange-200 bg-orange-50 p-2 text-xs text-orange-950">
-                                {primaryActionIssues[0]}
-                              </div>
-                            )}
-                            {nayaxExecutionNotice && (
-                              <div className={nayaxLookupNoticeClass(nayaxExecutionNotice.tone)}>
-                                {nayaxExecutionNotice.message}
-                              </div>
-                            )}
-                          </div>
-                          <Button
-                            data-testid="refund-deny-instead"
-                            type="button"
-                            variant="outline"
-                            disabled={isUsingDemoData || selectedCaseIsReviewOnly || isSaving}
-                            onClick={() => {
-                              setEditor((current) => current ? editorForDenial(current) : current);
-                              handleMessageTypeChange('denied');
-                            }}
-                          >
-                            Deny instead
-                          </Button>
-                        </div>
-                      )}
-
-                    <details className="rounded-lg border border-border bg-muted/20 p-3">
-                      <summary className="cursor-pointer text-sm font-medium text-foreground">
-                        Advanced case fields
-                      </summary>
-                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                        <div>
-                          <Label>Status</Label>
-                          <select
-                            data-testid="refund-status-select"
-                            value={editor.status}
-                            disabled={isUsingDemoData || selectedCaseIsReviewOnly}
-                            onChange={(event) =>
-                              setEditor((current) =>
-                                current
-                                  ? {
-                                      ...current,
-                                      status: event.target.value as RefundCaseStatus,
-                                      decision: alignDecisionForStatus(
-                                        event.target.value as RefundCaseStatus,
-                                        current.decision
-                                      ),
-                                    }
-                                  : current
-                              )
-                            }
-                            className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                          >
-                            {getCoherentStatusOptions(editor, selectedCase).map((status) => (
-                              <option key={status} value={status}>
-                                {statusLabel(status)}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <Label>Decision</Label>
-                          <select
-                            value={editor.decision ?? ''}
-                            disabled={isUsingDemoData || selectedCaseIsReviewOnly}
-                            onChange={(event) =>
-                              setEditor((current) =>
-                                current
-                                  ? {
-                                      ...current,
-                                      decision: (event.target.value || null) as RefundDecision,
-                                      status: alignStatusForDecision(
-                                        (event.target.value || null) as RefundDecision,
-                                        current.status,
-                                        selectedCase.paymentMethod
-                                      ),
-                                    }
-                                  : current
-                              )
-                            }
-                            className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                          >
-                            <option value="">No decision</option>
-                            <option value="approved">Approve</option>
-                            <option value="denied">Deny</option>
-                          </select>
-                        </div>
-                        <div className="sm:col-span-2">
-                          <Label>Case owner</Label>
-                          <div className="mt-2 rounded-md border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
-                            {editor.assignedManagerEmail || 'Unassigned'}
-                          </div>
-                          <InfoHint>
-                            Machine Manager ownership is managed from Admin &gt; Machines. Case owner changes should happen through machine assignment, not refund processing.
-                          </InfoHint>
-                        </div>
-                      </div>
-                    </details>
-
-                    {!selectedCase.legacyStateReviewRequired && (
-                    <div className="space-y-3 rounded-lg border border-border bg-background p-4">
-                      <StepHeader step={customerUpdateStep} title="Customer update">
-                        The matching customer email sends only after the primary action succeeds. Replies go to info@bloomjoysweets.com.
-                      </StepHeader>
-                      <div className="rounded-md border border-border bg-muted/20 p-3 text-sm">
-                        <div className="flex items-start gap-2">
-                          <Mail className="mt-0.5 h-4 w-4 text-primary" />
-                          <div>
-                            <p className="font-medium text-foreground">{getCustomerCommunicationLabel(selectedCase)}</p>
-                            <p className="mt-1 text-muted-foreground">
-                              Next email template: {primaryAction?.messageType ? statusLabel(primaryAction.messageType) : 'none'}
-                            </p>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              {primaryAction?.messageType
-                                ? 'The email sends only after the guided action succeeds.'
-                                : 'No automatic email is queued for the current case state.'}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                      {nextCustomerDraft && (
-                        <details className="rounded-md border border-border bg-muted/20 p-3 text-sm">
-                          <summary className="cursor-pointer font-medium text-foreground">
-                            Preview customer email
-                          </summary>
-                          <div className="mt-3">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                              Customer will receive
-                            </p>
-                            <p className="mt-2 font-medium text-foreground">{nextCustomerDraft.subject}</p>
-                            <p className="mt-2 whitespace-pre-line text-muted-foreground">
-                              {nextCustomerDraft.body}
-                            </p>
-                          </div>
-                        </details>
-                      )}
-                      <details
-                        open={Boolean(latestPendingNayaxCompletionMessage || latestFailedNayaxCompletionMessage)}
-                        className="rounded-md border border-border bg-muted/20 p-3"
-                      >
-                      <summary className="cursor-pointer text-sm font-medium text-foreground">
-                          Advanced email preview and retry
-                        </summary>
-                      <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-                        <div>
-                          <Label>Template</Label>
-                          <select
-                            value={messageType}
-                            disabled={isUsingDemoData}
-                            onChange={(event) =>
-                              handleMessageTypeChange(
-                                event.target.value as RefundCustomerPortalMessageType,
-                                true
-                              )
-                            }
-                            className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                          >
-                            {availableCustomerMessageOptions.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                          <InfoHint>
-                            {availableCustomerMessageOptions.find((option) => option.value === messageType)?.helper}
-                          </InfoHint>
-                        </div>
-                        <div>
-                          <Label>Subject</Label>
-                          <Input
-                            data-testid="refund-customer-message-subject"
-                            value={messageSubject}
-                            disabled={isUsingDemoData}
-                            onChange={(event) => {
-                              setMessageSubject(event.target.value);
-                              setIsCustomerDraftDirty(true);
-                            }}
-                            className="mt-2"
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <Label>Message body</Label>
-                        <Textarea
-                          data-testid="refund-customer-message-body"
-                          value={messageBody}
-                          disabled={isUsingDemoData}
-                          onChange={(event) => {
-                            setMessageBody(event.target.value);
-                            setIsCustomerDraftDirty(true);
-                          }}
-                          rows={6}
-                          className="mt-2"
-                        />
-                        <InfoHint>
-                          Keep this friendly and specific. Do not paste payment-system data, Zelle details, or private internal notes into customer email.
-                        </InfoHint>
-                        {customerDeliveryNeedsReconciliation && (
-                          <InfoHint>
-                            Gmail delivery is uncertain. Check the original Gmail thread before sending anything else; all reply paths stay blocked to prevent a duplicate.
-                          </InfoHint>
-                        )}
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => void handleSendCustomerMessage()}
-                        disabled={
-                          isUsingDemoData ||
-                          isSendingCustomerMessage ||
-                          customerDeliveryNeedsReconciliation ||
-                          Boolean(latestPendingNayaxCompletionMessage || latestFailedNayaxCompletionMessage) ||
-                          !messageBody.trim()
-                        }
-                      >
-                        {isSendingCustomerMessage ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <Send className="mr-2 h-4 w-4" />
-                        )}
-                        Send manual/retry email
-                      </Button>
-                      </details>
-                    </div>
-                    )}
-
-                    <details className="rounded-lg border border-border bg-muted/20 p-3">
-                      <summary className="cursor-pointer text-sm font-medium text-foreground">
-                        Internal note
-                      </summary>
-                      <div className="mt-3">
-                        <Textarea
-                          data-testid="refund-internal-note"
-                          value={editor.internalNote}
-                          disabled={isUsingDemoData}
-                          onChange={(event) => {
-                            setEditor((current) =>
-                              current ? { ...current, internalNote: event.target.value } : current
-                            );
-                            setIsInternalNoteDirty(true);
-                          }}
-                          rows={3}
-                          placeholder="Camera review, customer follow-up, or refund note"
-                        />
-                        <InfoHint>
-                          Internal notes stay in the case history. Do not paste card details or payment-system data.
-                        </InfoHint>
-                      </div>
-                    </details>
-
-                    {primaryActionIssues.length > 0 && (
-                      <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-950">
-                        <div className="flex items-start gap-2">
-                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                          <div>
-                            <p className="font-medium">Resolve before action</p>
-                            <ul className="mt-1 list-disc space-y-1 pl-4">
-                              {primaryActionIssues.map((issue) => (
-                                <li key={issue}>{issue}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {isUsingDemoData && (
-                      <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">
-                        Demo cases are read-only. Changes are not saved.
-                      </div>
-                    )}
-
-                    </div>
-                    </div>
-                    )}
-
                     {!selectedCaseIsInternalTest && (
                       <details
                         data-testid="refund-case-administration"
@@ -9549,7 +8901,7 @@ export default function AdminRefundsPage() {
           <DialogFooter>
             <Button type="button" variant="outline" className="min-h-11" disabled={isSendingCustomerMessage} onClick={() => setCorrectionSelection(null)}>Cancel</Button>
             {correctionSelection?.requestId && !correctionSelection.editing ? <Button className="min-h-11" disabled={!selectedCase?.customerCorrection?.canRevise} onClick={() => setCorrectionSelection((current) => current ? {...current,editing:true,fields:current.fields.filter((field) => selectedCase?.customerCorrectionFields?.includes(field))} : current)}>Revise details</Button> : <Button type="button" className="min-h-11" disabled={isSendingCustomerMessage || !correctionSelection?.fields.length || correctionSelection.caseId !== selectedCase?.id || correctionSelection.version !== officialActionVersion || Boolean(correctionSelection.requestId && (!selectedCase?.customerCorrection?.canRevise || correctionSelection.requestId !== selectedCase.customerCorrection.requestId || [...correctionSelection.fields].sort().join('|') === [...selectedCase.customerCorrection.requestedFields].sort().join('|')))}
-              onClick={() => void handleSendCustomerMessage('more_info', correctionSelection?.fields)}>{isSendingCustomerMessage ? 'Sending…' : correctionSelection?.requestId ? 'Revise and send' : 'Send correction request'}</Button>}
+              onClick={() => void handleSendCustomerMessage('more_info', correctionSelection?.fields, cashCompletionAmountCents)}>{isSendingCustomerMessage ? 'Sending…' : correctionSelection?.requestId ? 'Revise and send' : 'Send correction request'}</Button>}
           </DialogFooter>
           {correctionSelection?.requestId && !selectedCase?.customerCorrection?.canRevise && <p role="status" className="text-sm text-muted-foreground">{selectedCase?.customerCorrection?.revisionReason ?? 'This request cannot be revised now.'}</p>}
         </DialogContent>

@@ -119,14 +119,14 @@ select extensions.dblink_send_query('cash_completion_a', $sql$
   select public.service_complete_cash_refund_as_actor(
     'b0000000-0000-4000-8000-000000000001',
     'b0500000-0000-4000-8000-000000000001',
-    1, 'ignored-a', now() - interval '1 year', null, null, null
+    825, 'ignored-a', now() - interval '1 year', null, null, null
   )
 $sql$);
 select extensions.dblink_send_query('cash_completion_b', $sql$
   select public.service_complete_cash_refund_as_actor(
     'b0000000-0000-4000-8000-000000000001',
     'b0500000-0000-4000-8000-000000000001',
-    999999, 'ignored-b', now() + interval '1 year', null, null, null
+    825, 'ignored-b', now() + interval '1 year', null, null, null
   )
 $sql$);
 

@@ -1103,12 +1103,69 @@ Deno.test('cash cases require both an amount and payout destination', () => {
   });
 
   assertEquals(result.id, 'ready_to_refund', 'cash completion state');
-  assertEquals(result.label, 'Ready to mark refunded', 'cash completion label');
+  assertEquals(result.label, 'Ready to confirm refund', 'cash completion label');
   assertEquals(
     result.nextStep,
-    'After sending it through Zelle or Venmo, select Mark refunded.',
+    'Send the exact reimbursement through Zelle outside Bloomjoy Hub, then select Confirm refund sent via Zelle.',
     'cash completion next step'
   );
+});
+
+Deno.test('cash payout requests wait on their own follow-up ledger', () => {
+  const waiting = getRefundManagerState({
+    ...baseCase,
+    paymentMethod: 'cash',
+    paymentAmountCents: 800,
+    correlationStatus: 'no_match',
+    nayaxRecommendationState: null,
+    payoutDestinationRequest: {
+      state: 'waiting',
+      canRequest: false,
+      payloadRedacted: true,
+    },
+  });
+  assertEquals(waiting.id, 'waiting_on_customer', 'existing payout request waits');
+  assertEquals(waiting.nextStep, 'Wait for the customer to answer the existing targeted Zelle request. Do not send another request.', 'waiting payout guidance');
+
+  const available = getRefundManagerState({
+    ...baseCase,
+    paymentMethod: 'cash',
+    paymentAmountCents: 800,
+    correlationStatus: 'no_match',
+    nayaxRecommendationState: null,
+    payoutDestinationRequest: {
+      state: 'not_started',
+      canRequest: true,
+      payloadRedacted: true,
+    },
+  });
+  assertEquals(available.id, 'needs_information', 'new payout request remains customer detail state');
+  assertEquals(available.nextStep, 'Request only the payout destination in the existing customer thread.', 'new payout guidance');
+});
+
+Deno.test('cash manager state can use a server-reviewed selected sale amount', () => {
+  const result = getRefundManagerState({
+    ...baseCase,
+    paymentMethod: 'cash',
+    paymentAmountCents: null,
+    zellePaymentContact: 'cash-customer@example.test',
+    correlationStatus: 'no_match',
+    nayaxRecommendationState: null,
+  }, { cashCompletionAmountCents: 700 });
+  assertEquals(result.id, 'ready_to_refund', 'selected sale amount is sufficient');
+});
+
+Deno.test('cash manager state stays checking while safe amount is loading', () => {
+  const result = getRefundManagerState({
+    ...baseCase,
+    paymentMethod: 'cash',
+    paymentAmountCents: 800,
+    zellePaymentContact: 'cash-customer@example.test',
+    correlationStatus: 'no_match',
+    nayaxRecommendationState: null,
+  }, { cashCompletionAmountCents: null });
+  assertEquals(result.id, 'needs_information', 'missing safe amount blocks completion');
+  assertEquals(result.label, 'Needs payment amount', 'loading amount is not presented as ready');
 });
 
 Deno.test('cash cases without an amount route to customer follow-up', () => {

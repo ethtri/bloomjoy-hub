@@ -143,6 +143,11 @@ type RefundManagerCaseFacts = {
   paymentMethod: 'card' | 'cash' | 'unknown';
   paymentAmountCents?: number | null;
   zellePaymentContact?: string | null;
+  payoutDestinationRequest?: {
+    state: 'not_started' | 'waiting' | 'reminder_claimed' | 'reminder_sent' | 'satisfied' | 'manual_review';
+    canRequest: boolean;
+    payloadRedacted: true;
+  } | null;
   correlationStatus:
     | 'not_started'
     | 'matched'
@@ -323,6 +328,7 @@ export const getRefundManagerState = (
     isRefunding?: boolean;
     canResolveHeldResult?: boolean;
     canViewOperationsDetail?: boolean;
+    cashCompletionAmountCents?: number | null;
   } = {}
 ): RefundManagerState => {
   if (options.isRefunding) {
@@ -771,7 +777,10 @@ export const getRefundManagerState = (
   }
 
   if (refundCase.paymentMethod === 'cash') {
-    if (typeof refundCase.paymentAmountCents !== 'number' || refundCase.paymentAmountCents <= 0) {
+    const cashAmountCents = typeof options.cashCompletionAmountCents === 'undefined'
+      ? refundCase.paymentAmountCents
+      : options.cashCompletionAmountCents;
+    if (typeof cashAmountCents !== 'number' || cashAmountCents <= 0) {
       return state(
         'needs_information',
         'Needs payment amount',
@@ -782,6 +791,32 @@ export const getRefundManagerState = (
     }
 
     if (!refundCase.zellePaymentContact?.trim()) {
+      const payoutRequestState = refundCase.payoutDestinationRequest?.state;
+      if (
+        refundCase.payoutDestinationRequest &&
+        refundCase.payoutDestinationRequest.canRequest !== true &&
+        ['waiting', 'reminder_claimed', 'reminder_sent'].includes(payoutRequestState ?? '')
+      ) {
+        return state(
+          'waiting_on_customer',
+          'Waiting for payout destination',
+          'Bloomjoy already has a targeted request for the Zelle destination.',
+          'Wait for the customer to answer the existing targeted Zelle request. Do not send another request.',
+          'info'
+        );
+      }
+      if (
+        refundCase.payoutDestinationRequest?.state === 'manual_review' ||
+        (refundCase.payoutDestinationRequest && refundCase.payoutDestinationRequest.canRequest !== true)
+      ) {
+        return state(
+          'needs_information',
+          'Payout destination review required',
+          'The Zelle destination is missing and the existing request needs review.',
+          'Review the saved targeted Zelle request before contacting the customer again.',
+          'warning'
+        );
+      }
       return state(
         'needs_information',
         'Needs payout destination',
@@ -793,9 +828,9 @@ export const getRefundManagerState = (
 
     return state(
       'ready_to_refund',
-      'Ready to mark refunded',
+      'Ready to confirm refund',
       'The manager sends this cash reimbursement outside Bloomjoy Hub.',
-      'After sending it through Zelle or Venmo, select Mark refunded.',
+      'Send the exact reimbursement through Zelle outside Bloomjoy Hub, then select Confirm refund sent via Zelle.',
       'success'
     );
   }

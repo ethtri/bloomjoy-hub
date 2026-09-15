@@ -15,6 +15,7 @@ assert.deepEqual(refundRouteSmokeExcludedFunctionSlugs, [
   'refund-manager-action-step-up',
   'refund-manager-totp-enrollment',
   'refund-nayax-outcome-resolve',
+  'refund-case-sunze-correlation',
 ]);
 assert.deepEqual(
   [
@@ -22,7 +23,7 @@ assert.deepEqual(
     ...refundRouteSmokeExcludedFunctionSlugs,
   ],
   requiredFunctionSlugs,
-  'Eight safe OPTIONS probes plus two inert tombstones and the outcome resolver must account for the full eleven-function inventory without implying route verification',
+  'Eight safe OPTIONS probes plus the excluded internal routes must account for the full function inventory without implying route verification',
 );
 assert.equal(
   resolveRefundRouteSmokeBaseUrl({ projectRef, confirmProjectRef: projectRef, baseUrl: '' }),

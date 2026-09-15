@@ -26,6 +26,7 @@ import {
   parseRefundSelectedCustomerTimezone,
   type RefundCandidateTimeEvidence,
 } from '@/lib/refundTimePresentation';
+import type { RefundSunzeCashCorrelation } from '@/lib/refundSunzeCashCorrelation';
 
 export type RefundPaymentMethod = 'card' | 'cash' | 'unknown';
 export type RefundPaymentInteraction =
@@ -843,6 +844,11 @@ const requireRefundGmailCaseLinkReview = (
 };
 
 export type RefundCaseRecord = {
+  payoutDestinationRequest?: {
+    state: 'not_started' | 'waiting' | 'reminder_claimed' | 'reminder_sent' | 'satisfied' | 'manual_review';
+    canRequest: boolean;
+    payloadRedacted: true;
+  } | null;
   customerCorrectionFields?: RefundMissingField[];
   customerCorrection?: { state: 'pending'|'submitted'|'expired'|'revoked'; requestedFields: RefundMissingField[];
     requestId?: string; canRevise?: boolean; revisionReason?: string|null;
@@ -909,6 +915,8 @@ export type RefundCaseRecord = {
   issueCategory?: RefundIssueCategory | null;
   productDescription?: string | null;
   hasMatchedSalesFact: boolean;
+  /** Safe, manager-facing Sunze evidence. It never gates the cash decision. */
+  sunzeCashCorrelation?: RefundSunzeCashCorrelation | null;
   hasMatchedNayaxTransaction: boolean;
   nayaxMatchExecutionEligible?: boolean;
   refundReadiness?: RefundReadiness | null;

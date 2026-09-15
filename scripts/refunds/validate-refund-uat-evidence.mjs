@@ -324,7 +324,20 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 130, 'Evidence must enumerate all 130 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 129, 'Evidence must enumerate all 129 reviewed screenshots');
+  assert.deepEqual(
+    EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-portal-uat-cash-')),
+    [
+      'refund-portal-uat-cash-desktop.png',
+      'refund-portal-uat-cash-mobile.png',
+      'refund-portal-uat-cash-success.png',
+    ],
+    'Evidence must require the three produced one-action cash states and no retired confirmation dialog'
+  );
+  assert(
+    !EXPECTED_SCREENSHOTS.includes('refund-portal-uat-cash-confirmation.png'),
+    'Evidence must not require the retired cash confirmation-dialog screenshot'
+  );
   for (const senderScreenshot of [
     'refund-customer-message-official-sender-desktop.png',
     'refund-customer-message-official-sender-mobile.png',

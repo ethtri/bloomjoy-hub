@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "c709de94c034e45d06080e882d3a42bd3d13c90a",
+  "sourceGitCommit": "4ca4ed95a13f49159b5ae10df489af60792110d6",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -204,10 +204,12 @@
     "20260914090000_refund_official_authority_cash_completion.sql",
     "20260914100000_refund_manager_system_cutover.sql",
     "20260914173954_refund_evidence_timezone.sql",
-    "20260914193919_refund_candidate_time_semantics.sql"
+    "20260914193919_refund_candidate_time_semantics.sql",
+    "20260914202530_sunze_cash_correlation_service.sql",
+    "20260915010000_refund_cash_verification_ux.sql"
   ],
-  "migrationFilesSha256": "a6a708a90a2bd9e7f46743aca8089bec83f2c83bdebae4911f2781ed3e709550",
-  "migrationVersionSetSha256": "93d51953f8f1d2e780a236b4c0a2d114f205eb5f2a94499c34ed5d62fed2944e",
+  "migrationFilesSha256": "f7059152e490373778ec50ba40379f55ffb5cebd3faeff59889d64205bc4c4df",
+  "migrationVersionSetSha256": "c456c94c9eb7a7bea7701c6a72ad98f86f839141677325e1836b540e78fc4493",
   "preMigrationCompatibility": {
     "releaseId": "refund-ops-2026-08-14-pre-controlled-nayax-pilot",
     "sourceGitCommit": "71eb076bc3ad95ccabd0c591b8140820bed6c393",
@@ -293,7 +295,7 @@
     {
       "slug": "refund-case-admin-update",
       "verifyJwt": false,
-      "sourceSha256": "e56da4f8f1a4c1e5c1d65f3d394d62fcd511e4551c1ab4de5336c1c052ef6499",
+      "sourceSha256": "81f10d747ee27290418663144d942216f99426bd357eaa5787a1b15e6c7a5154",
       "production": {
         "version": 141,
         "ezbrSha256": "0b76bfdd1020f62482e7b979f06e9de8dd04a5f3910835605f6fb980e978a795",
@@ -388,6 +390,12 @@
         "sourceSha256": "100bd57eb64d6646d2c477b341fcac8705fab75c31e8f1ca0cf6c5f8178d120e",
         "entrypointIdentity": "supabase/functions/refund-nayax-outcome-resolve/index.ts"
       }
+    },
+    {
+      "slug": "refund-case-sunze-correlation",
+      "verifyJwt": false,
+      "sourceSha256": "49d244fbe60ce8826945194f62e65dca8321440549b184bb6bcadba5e756f4bd",
+      "production": null
     }
   ],
   "additionalFunctionBaselines": [

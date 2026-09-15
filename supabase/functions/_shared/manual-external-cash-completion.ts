@@ -36,7 +36,7 @@ export const deriveManualExternalCashCompletionContext = ({
       ok: false,
       status: 409,
       errorCode: "cash_payment_amount_required",
-      error: "Confirm the customer payment amount before marking this case refunded.",
+      error: "Confirm the supported cash sale amount before completing the refund.",
     };
   }
 

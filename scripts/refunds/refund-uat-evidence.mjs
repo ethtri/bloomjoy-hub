@@ -75,7 +75,6 @@ export const EXPECTED_SCREENSHOTS = [
   'refund-portal-gmail-draft-desktop.png',
   'refund-portal-gmail-draft-mobile.png',
   'refund-unsaved-text-mobile.png',
-  'refund-portal-uat-cash-confirmation.png',
   'refund-portal-uat-cash-desktop.png',
   'refund-portal-uat-cash-mobile.png',
   'refund-portal-uat-cash-success.png',
