@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(26);
+select plan(30);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('fc110000-0000-4000-8000-000000000001','authenticated','authenticated',
@@ -135,9 +135,12 @@ select lives_ok($$insert into public.refund_nayax_lookup_candidates(token,refund
 select 'fc160000-0000-4000-8000-000000000001','fc150000-0000-4000-8000-000000000001',generation,
   'fc110000-0000-4000-8000-000000000001','fc140000-0000-4000-8000-000000000001',
   'CONTACTLESS-REVIEW-SALE',101,'2026-08-22T20:15:00Z',2590,'3760','USD',
-  jsonb_set(pg_temp.contactless_evidence(amount_delta => 1500, provider_amount => 2590),'{is_recommended}','false'::jsonb),
+  jsonb_set(pg_temp.contactless_evidence(amount_delta => 1500, provider_amount => 2590),'{is_recommended}','false'::jsonb) ||
+    jsonb_build_object('policy_version','2026-09-13.v12','provider_time_resolution','unknown',
+      'machine_time_resolution','ambiguous','transaction_occurrence_comparable',false,
+      'transaction_occurrence_semantics','unknown','time_delta_minutes',null),
   statement_timestamp()+interval '1 hour' from lookup_claim$$,
-  'Current contactless review evidence persists through the authoritative trigger');
+  'Current v12 noncomparable contactless evidence persists through the authoritative trigger');
 
 select lives_ok($$insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,
   actor_user_id,reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,amount_cents,
@@ -145,12 +148,15 @@ select lives_ok($$insert into public.refund_nayax_lookup_candidates(token,refund
 select 'fc160000-0000-4000-8000-000000000002','fc150000-0000-4000-8000-000000000001',generation,
   'fc110000-0000-4000-8000-000000000001','fc140000-0000-4000-8000-000000000001',
   'CONTACTLESS-REVIEW-SALE-2',101,'2026-08-22T20:15:00Z',2590,'3760','USD',
-  jsonb_set(pg_temp.contactless_evidence(amount_delta => 1500, provider_amount => 2590),'{is_recommended}','false'::jsonb),
+  jsonb_set(pg_temp.contactless_evidence(amount_delta => 1500, provider_amount => 2590),'{is_recommended}','false'::jsonb) ||
+    jsonb_build_object('policy_version','2026-09-13.v12','provider_time_resolution','unknown',
+      'machine_time_resolution','ambiguous','transaction_occurrence_comparable',false,
+      'transaction_occurrence_semantics','unknown','time_delta_minutes',null),
   statement_timestamp()+interval '1 hour' from lookup_claim$$,
   'A second reviewable transaction persists but prevents unique binding');
 
 select is((public.service_commit_refund_nayax_lookup('fc150000-0000-4000-8000-000000000001',
-  (select generation from lookup_claim),2,'manual_exception','manual_exception','2026-09-05.v11',
+  (select generation from lookup_claim),2,'manual_exception','manual_exception','2026-09-13.v12',
   statement_timestamp(),'Two contactless transactions need manager review',null,2,'manual',
   'fc110000-0000-4000-8000-000000000001')->>'applied'),'true',
   'Contactless review result commits through the generation guard');
@@ -168,11 +174,26 @@ select throws_ok($$select public.admin_select_refund_nayax_candidate_current_use
 reset role;
 
 set local role authenticated;
+select throws_ok($$select public.admin_select_refund_nayax_candidate_current_user_v1(
+  'fc150000-0000-4000-8000-000000000001',
+  (select official_action_version from public.refund_cases where id='fc150000-0000-4000-8000-000000000001'),
+  'fc160000-0000-4000-8000-000000000001','closer_time')$$,
+  'P4604','Closer transaction time requires comparable purchase-event evidence',
+  'Supporting-only provider time cannot be saved as the manager rationale');
+
+select throws_ok($$select public.admin_select_refund_nayax_candidate_current_user_v1(
+  'fc150000-0000-4000-8000-000000000001',
+  (select official_action_version from public.refund_cases where id='fc150000-0000-4000-8000-000000000001'),
+  'fc160000-0000-4000-8000-000000000001','  CLOSER_TIME  ')$$,
+  'P4604','Closer transaction time requires comparable purchase-event evidence',
+  'Authenticated callers cannot bypass the time-rationale guard with case or whitespace');
+
+set local role authenticated;
 select is((public.admin_select_refund_nayax_candidate_current_user_v1(
   'fc150000-0000-4000-8000-000000000001',
   (select official_action_version from public.refund_cases where id='fc150000-0000-4000-8000-000000000001'),
   'fc160000-0000-4000-8000-000000000001','customer_confirmation')->>'selectionApplied'),
-  'true','Manager can explicitly bind one of two close reviewable transactions with a reason');
+  'true','Manager can explicitly bind persisted v12 ambiguous-time evidence with a reason');
 reset role;
 
 select ok((select matched_nayax_transaction_id='CONTACTLESS-REVIEW-SALE'
@@ -181,8 +202,9 @@ select ok((select matched_nayax_transaction_id='CONTACTLESS-REVIEW-SALE'
     and refund_amount_cents=2590
     and matched_nayax_amount_cents=2590
     and nayax_recommendation_state='manager_confirmed'
+    and nayax_match_execution_eligible=true
   from public.refund_cases where id='fc150000-0000-4000-8000-000000000001'),
-  'Selection binds the full provider amount without creating a refund decision');
+  'Selection binds the full provider amount and becomes approval-ready without creating a refund decision');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
   where refund_case_id='fc150000-0000-4000-8000-000000000001'),0,
   'Manual transaction selection creates no payment attempt');
@@ -247,6 +269,36 @@ select is(public.refund_nayax_candidate_identifier_evidence_state(
   pg_temp.contactless_evidence(true,'reviewable_uncertainty','mismatch_neutral_unproven_scope',
     false,'[]'::jsonb,'[]'::jsonb,'OTHER-MACHINE')
 ), 'invalid','Wrong provider machine remains a hard stop');
+
+update public.refund_cases
+set card_last4='3760', incident_time_resolution='nonexistent',
+  incident_time_confidence='rough'
+where id='fc150000-0000-4000-8000-000000000001';
+
+select is(
+  public.refund_nayax_identifier_evidence_state(
+    (select deterministic_fact_version from public.refund_cases
+      where id='fc150000-0000-4000-8000-000000000001'),
+    pg_temp.contactless_evidence(true,'exact_support','exact_support') ||
+      jsonb_build_object('policy_version','2026-09-13.v12')
+  ),
+  'valid',
+  'The database accepts the current v12 bounded identifier contract'
+);
+
+select is(public.refund_nayax_candidate_identifier_evidence_state(
+  'fc150000-0000-4000-8000-000000000001','fc140000-0000-4000-8000-000000000001',101,
+  '2026-08-22T20:15:00Z',1090,'3760','USD',
+  pg_temp.contactless_evidence(true,'exact_support','exact_support') || jsonb_build_object(
+    'policy_version','2026-09-13.v12',
+    'provider_time_resolution','unknown',
+    'machine_time_resolution','ambiguous',
+    'transaction_occurrence_comparable',false,
+    'transaction_occurrence_semantics','unknown',
+    'time_delta_minutes',null
+  )
+), 'valid',
+  'Rough DST-gap and noncomparable time remains selectable for manager review under v12');
 
 select * from finish();
 rollback;

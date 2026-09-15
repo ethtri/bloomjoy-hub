@@ -324,6 +324,18 @@ export type NayaxResponseCandidate = Omit<
   "requestReceiptLowerBoundAt" | "requestReceiptUpperBoundAt"
 > & {
   candidateToken: string;
+  timeEvidence: {
+    schemaVersion: "refund_candidate_time_v1";
+    providerTimestampSource: string;
+    providerTimeResolution: string;
+    machineTimeResolution: string;
+    machineClockTimezone: string | null;
+    machineClockSource: string;
+    occurrenceComparable: boolean;
+    occurrenceSemantics: string;
+    occurrenceTimezoneBasis: string | null;
+    payloadRedacted: true;
+  };
 };
 
 export type NayaxLookupResult = {
@@ -563,7 +575,7 @@ export const rankGroupedNayaxCandidates = (groups: Array<{
   reportingMachineId: string;
   machineDisplayLabel: string;
   candidates: NayaxProviderCandidate[];
-}>, customerTime: {
+}>, _customerTime: {
   incidentTimeResolution: string | null;
   incidentTimeConfidence: string | null;
 }) => {
@@ -580,9 +592,6 @@ export const rankGroupedNayaxCandidates = (groups: Array<{
     left.providerProcessingTimeDeltaMinutes - right.providerProcessingTimeDeltaMinutes ||
     left.transactionId.localeCompare(right.transactionId)
   );
-  const customerTimeSupportsManagerSelection =
-    ["exact", "legacy_absolute"].includes(customerTime.incidentTimeResolution ?? "") &&
-    customerTime.incidentTimeConfidence !== "rough";
   const collisionRelevantCandidates = combinedCandidates.filter((candidate) =>
     candidate.selectionAllowed || (
       candidate.identifierReviewState === "needs_corroboration" &&
@@ -619,9 +628,7 @@ export const rankGroupedNayaxCandidates = (groups: Array<{
           : [],
       ]),
   );
-  const conservativeCompetingPurchaseHold =
-    !customerTimeSupportsManagerSelection && competingPurchaseKeys.size > 0;
-  if (conservativeCompetingPurchaseHold) {
+  if (competingPurchaseKeys.size > 0) {
     combinedCandidates = combinedCandidates.map((candidate) => {
       const competingPurchaseKey = [
         candidate.cardLast4,
@@ -632,12 +639,11 @@ export const rankGroupedNayaxCandidates = (groups: Array<{
       const collisionReason = correctionFields.length > 0
         ? "multiple_candidates_need_distinguishing_time"
         : "multiple_candidates_need_manager_review";
-      return candidate.selectionAllowed && candidate.cardLast4 && competingPurchaseKeys.has(competingPurchaseKey)
+      return candidate.cardLast4 && competingPurchaseKeys.has(competingPurchaseKey)
       ? {
           ...candidate,
-          evidenceAwareReviewEligible: false,
-          selectionAllowed: false,
-          identifierReviewState: "needs_corroboration",
+          // Keep potentially matching purchases manager-selectable. These fields
+          // are advisory context for distinguishing them, never a time-only veto.
           customerCorrectionFields: correctionFields,
           manualReviewReasons: [
             ...new Set([
@@ -656,8 +662,11 @@ export const rankGroupedNayaxCandidates = (groups: Array<{
     });
   }
   const selectableCandidates = combinedCandidates.filter((candidate) => candidate.selectionAllowed);
-  const uniqueCandidate = selectableCandidates.length === 1 ? selectableCandidates[0] : null;
-  const recommendationState: NayaxRecommendationState = conservativeCompetingPurchaseHold
+  const hasCompetingPurchaseCollision = competingPurchaseKeys.size > 0;
+  const uniqueCandidate = selectableCandidates.length === 1 && !hasCompetingPurchaseCollision
+    ? selectableCandidates[0]
+    : null;
+  const recommendationState: NayaxRecommendationState = hasCompetingPurchaseCollision
     ? "ambiguous"
     : uniqueCandidate
     ? uniqueCandidate.recommendationState === "high_confidence"

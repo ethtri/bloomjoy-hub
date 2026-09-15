@@ -1204,6 +1204,11 @@ const run = async () => {
       });
     }
 
+  } catch (error) {
+    if (networkFailures.length > 0) {
+      console.error(`Safe network failures before Machine Manager UAT stopped: ${networkFailures.slice(-3).join(' | ')}`);
+    }
+    throw error;
   } finally {
     teardownFailures = await closeUatSuiteResourcesAfterPageDrain({
       page,

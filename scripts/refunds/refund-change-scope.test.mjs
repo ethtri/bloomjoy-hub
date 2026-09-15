@@ -70,3 +70,13 @@ test('actual workflow condition skips only successful explicit neutral scope', (
   assert(ci.includes('run: node scripts/refunds/refund-change-scope.mjs "$REFUND_SCOPE_BASE" "$REFUND_SCOPE_HEAD"'),
     'Required verify check must reject failed or missing scope evidence');
 });
+
+test('hosted Machine Manager retry is limited to one transient request cancellation', () => {
+  const workflow = fs.readFileSync(new URL('../../.github/workflows/refund-uat-evidence.yml', import.meta.url), 'utf8');
+  const step = workflow.match(/      - name: Run Machine Manager synthetic UAT[\s\S]*?(?=\n      - name: Finalize strict machine-readable evidence)/)?.[0];
+
+  assert(step, 'Machine Manager UAT step must remain present');
+  assert(step.includes("grep -Fq 'refund_uat_request_failed_before_drain'"));
+  assert.equal((step.match(/npm run refunds:validate-machine-manager-uat/g) ?? []).length, 2);
+  assert(!step.includes('|| true'), 'The hosted retry must not suppress a second failure');
+});

@@ -155,11 +155,11 @@ Deno.test("one-minute unknown-occurrence collision stays with the manager withou
   });
   assertEquals(result.recommendationState, "ambiguous");
   assertEquals(result.uniqueCandidate, null);
-  assertEquals(result.selectableCandidates, []);
-  assertEquals(result.candidates.map((item) => item.selectionAllowed), [false, false]);
+  assertEquals(result.selectableCandidates.length, 2);
+  assertEquals(result.candidates.map((item) => item.selectionAllowed), [true, true]);
   assertEquals(result.candidates.map((item) => item.identifierReviewState), [
-    "needs_corroboration",
-    "needs_corroboration",
+    "exact_support",
+    "exact_support",
   ]);
   assertEquals(result.candidates.map((item) => item.customerCorrectionFields), [
     [],
@@ -168,6 +168,7 @@ Deno.test("one-minute unknown-occurrence collision stays with the manager withou
   assertEquals(result.candidates.every((item) =>
     item.reasonCodes.includes("multiple_candidates_need_manager_review")
   ), true);
+  assertEquals(result.oneClickEligible, false);
 });
 
 Deno.test("proved occurrence intervals separated by form precision request time with its source", () => {
@@ -182,7 +183,8 @@ Deno.test("proved occurrence intervals separated by form precision request time 
     incidentTimeResolution: "time_window",
     incidentTimeConfidence: "rough",
   });
-  assertEquals(result.selectableCandidates, []);
+  assertEquals(result.selectableCandidates.length, 2);
+  assertEquals(result.candidates.map((item) => item.selectionAllowed), [true, true]);
   assertEquals(result.candidates.map((item) => item.customerCorrectionFields), [
     ["incident_time", "incident_time_source"],
     ["incident_time", "incident_time_source"],
@@ -190,6 +192,7 @@ Deno.test("proved occurrence intervals separated by form precision request time 
   assertEquals(result.candidates.every((item) =>
     item.reasonCodes.includes("multiple_candidates_need_distinguishing_time")
   ), true);
+  assertEquals(result.oneClickEligible, false);
 });
 
 Deno.test("proved occurrences within the same form minute stay manager-owned", () => {
@@ -208,11 +211,13 @@ Deno.test("proved occurrences within the same form minute stay manager-owned", (
     incidentTimeResolution: "time_window",
     incidentTimeConfidence: "rough",
   });
-  assertEquals(result.selectableCandidates, []);
+  assertEquals(result.selectableCandidates.length, 2);
+  assertEquals(result.candidates.map((item) => item.selectionAllowed), [true, true]);
   assertEquals(result.candidates.map((item) => item.customerCorrectionFields), [[], []]);
   assertEquals(result.candidates.every((item) =>
     item.reasonCodes.includes("multiple_candidates_need_manager_review")
   ), true);
+  assertEquals(result.oneClickEligible, false);
 });
 
 Deno.test("rough-time grouped candidates with distinct card endings remain manager-reviewable", () => {
@@ -277,12 +282,14 @@ Deno.test("a grouped selectable sale joins an existing same-card manager-owned h
     incidentTimeConfidence: "rough",
   });
   assertEquals(result.recommendationState, "ambiguous");
-  assertEquals(result.selectableCandidates, []);
-  assertEquals(result.candidates.map((item) => item.selectionAllowed), [false, false, false]);
+  assertEquals(result.selectableCandidates.map((item) => item.transactionId), ["txn-b"]);
+  assertEquals(result.uniqueCandidate, null);
+  assertEquals(result.candidates.map((item) => item.selectionAllowed), [false, false, true]);
   assertEquals(result.candidates.every((item) => item.customerCorrectionFields.length === 0), true);
   assertEquals(result.candidates.every((item) =>
     item.reasonCodes.includes("multiple_candidates_need_manager_review")
   ), true);
+  assertEquals(result.oneClickEligible, false);
 });
 
 Deno.test("global ranking is deterministic across repeated input", () => {
