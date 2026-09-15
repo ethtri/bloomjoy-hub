@@ -18,6 +18,8 @@ test('cash manager surface has one external-Zelle decision and no retired labels
   assert.match(evidence, /Send the refund through Zelle outside Bloomjoy Hub first/);
   assert.doesNotMatch(page, /Mark\s+\S+\s+as\s+refunded|\bVenmo\b/);
   assert.doesNotMatch(page, /refund-cash-confirmation-dialog|refund-confirm-cash-refund/);
+  assert.doesNotMatch(page, /legacy-cash|showLegacyCashWorkbench|legacy-refund-save-case|refund-reference-input/);
+  assert.doesNotMatch(page, /Paste the confirmation\/reference|Save to complete the case|Record the Zelle refund after sending it/);
   assert.doesNotMatch(evidence, /confidence|rawPayload|provider diagnostics/i);
 });
 
