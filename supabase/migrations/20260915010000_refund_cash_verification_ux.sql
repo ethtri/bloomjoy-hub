@@ -653,10 +653,11 @@ grant execute on function public.service_prepare_legacy_cash_case_for_correlatio
 comment on function public.service_prepare_legacy_cash_case_for_correlation(uuid, uuid) is
   'Audited service-only forward repair for active legacy cash decisions; terminal outcomes and payment/customer records remain immutable.';
 
--- Serialize payout-destination request creation with the case and treat both
--- a scoped correction capability and an already queued/sent targeted request
--- as active coverage. This keeps concurrent callers from creating a second
--- customer question while leaving unrelated delivery history irrelevant.
+-- Serialize payout-destination request creation with the case and treat any
+-- unexpired pending purchase correction as active coverage, regardless of the
+-- fields it requests. An already queued/sent targeted request is also active.
+-- This keeps concurrent callers from creating a second customer question while
+-- leaving unrelated delivery history irrelevant.
 alter function public.service_enqueue_refund_manual_message_intent(
   uuid, bigint, uuid, uuid, text, text, text, text, text, text, text,
   text[], uuid, boolean, uuid
@@ -707,10 +708,6 @@ begin
         and correction.correction_kind = 'purchase'
         and correction.status = 'pending'
         and correction.expires_at > statement_timestamp()
-        and 'zelle_payment_contact' = any(coalesce(
-          correction.correction_requested_fields,
-          array[]::text[]
-        ))
     ) or exists (
       select 1
       from public.refund_case_messages request_message
@@ -793,10 +790,6 @@ begin
               and correction.correction_kind = 'purchase'
               and correction.status = 'pending'
               and correction.expires_at > statement_timestamp()
-              and 'zelle_payment_contact' = any(coalesce(
-                correction.correction_requested_fields,
-                array[]::text[]
-              ))
           )
           and not exists (
             select 1
@@ -846,10 +839,6 @@ begin
               and correction.correction_kind = 'purchase'
               and correction.status = 'pending'
               and correction.expires_at > statement_timestamp()
-              and 'zelle_payment_contact' = any(coalesce(
-                correction.correction_requested_fields,
-                array[]::text[]
-              ))
           )
           and not exists (
             select 1

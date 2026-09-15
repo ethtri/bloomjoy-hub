@@ -1722,11 +1722,7 @@ const primaryActionConfig = (
   refundReadiness: RefundReadiness | null,
   cashCompletionAmountCents?: number | null,
   cashEvidencePending = false,
-  payoutDestinationRequestChecker: (candidate: RefundCaseRecord) => boolean = (candidate) =>
-    candidate.paymentMethod === 'cash' &&
-    !candidate.zellePaymentContact?.trim() &&
-    candidate.payoutDestinationRequest?.canRequest === true &&
-    candidate.customerCorrection?.isActive !== true,
+  payoutDestinationRequestChecker?: (candidate: RefundCaseRecord) => boolean,
 ): PrimaryActionConfig => {
   if (refundCase.lifecycle?.stage === 'duplicate_resolved' || refundCase.confirmedDuplicate) {
     return {
@@ -1763,7 +1759,9 @@ const primaryActionConfig = (
     };
   }
   const latestMessage = getLatestCustomerMessage(refundCase);
-  const distinctPayoutDestinationRequest = payoutDestinationRequestChecker(refundCase);
+  // Production callers provide the shared server-projection-derived helper;
+  // the absent checker fails closed for isolated legacy/card callers.
+  const distinctPayoutDestinationRequest = payoutDestinationRequestChecker?.(refundCase) === true;
   if (refundCase.legacyStateReviewRequired) {
     return {
       label: 'Transaction evidence needs review',
@@ -2008,7 +2006,7 @@ const primaryActionConfig = (
     }
 
     if (missingFields.includes('zelle_payment_contact')) {
-      if (refundCase.payoutDestinationRequest?.canRequest !== true) {
+      if (!distinctPayoutDestinationRequest) {
         return {
           label: refundCase.payoutDestinationRequest?.state === 'waiting' ||
             refundCase.payoutDestinationRequest?.state === 'reminder_claimed' ||
@@ -7239,9 +7237,10 @@ export default function AdminRefundsPage() {
       (primaryActionNeedsOfficialAccess && (selectedCaseIsReviewOnly || officialActionVersion <= 0)) ||
       primaryActionIssues.length > 0;
     const missingCashFields = derivePortalRefundMissingFields(selectedCase, cashCompletionAmountCents);
+    const canRequestCashPayoutDestination = canRequestDistinctCashPayoutDestination(selectedCase);
     const canAskForCustomerDetails =
       (missingCashFields.includes('zelle_payment_contact')
-        ? selectedCase.payoutDestinationRequest?.canRequest === true
+        ? canRequestCashPayoutDestination
         : canRequestRefundCustomerDetailsManually(selectedCase.lifecycle?.customerOutreach)) &&
       missingCashFields.length > 0;
 

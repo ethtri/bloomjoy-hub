@@ -8,6 +8,7 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'u
 const page = read('src/pages/admin/Refunds.tsx');
 const evidence = read('src/components/refunds/CashRefundEvidencePanel.tsx');
 const migration = read('supabase/migrations/20260915010000_refund_cash_verification_ux.sql');
+const safetySql = read('supabase/tests/refund_manager_official_action_safety.sql');
 const edge = read('supabase/functions/refund-case-sunze-correlation/index.ts');
 const release = read('scripts/refunds/refund-release.mjs');
 const config = read('supabase/config.toml');
@@ -43,15 +44,28 @@ test('bounded evidence chooser supports keyboard-friendly radio selection and na
 test('payout request eligibility is ledger-backed and preserves one-request concurrency', () => {
   const helper = read('src/lib/refundCashPayoutRequest.ts');
   assert.match(helper, /payoutDestinationRequest\?\.canRequest === true/);
-  assert.match(helper, /customerCorrection\?\.isActive !== true/);
+  assert.match(helper, /correction\?\.isActive === true/);
+  assert.match(helper, /correction\?\.isActive === false/);
   assert.match(helper, /requestedFields\.includes\('zelle_payment_contact'\)/);
   assert.match(migration, /from public\.refund_payout_destination_follow_ups follow_up/);
   assert.match(migration, /service_enqueue_refund_manual_message_intent_pre_cash_verification_ux/);
   assert.match(migration, /from public\.refund_cases refund_case[\s\S]*for update/);
   assert.match(migration, /request_message\.status in \('pending', 'sent'\)/);
-  assert.match(migration, /'zelle_payment_contact' = any\(coalesce\(\s*correction\.correction_requested_fields/);
-  const overviewSection = migration.slice(migration.indexOf('create or replace function public.admin_get_refund_operations_overview()'));
+  assert.match(safetySql, /array\['amount'\]::text\[\]/);
+  assert.match(safetySql, /array\['zelle_payment_contact'\]::text\[\]/);
+  assert.match(safetySql, /active customer request/);
+  const enqueueSection = migration.slice(
+    migration.indexOf('create function public.service_enqueue_refund_manual_message_intent('),
+    migration.indexOf('revoke execute on function public.service_enqueue_refund_manual_message_intent('),
+  );
+  assert.match(enqueueSection, /correction\.correction_kind = 'purchase'/);
+  assert.doesNotMatch(enqueueSection, /correction\.correction_requested_fields/);
+  const overviewSection = migration.slice(migration.indexOf('create function public.admin_get_refund_operations_overview()'));
   assert.doesNotMatch(overviewSection, /delivery_unknown/);
+  assert.doesNotMatch(overviewSection, /correction\.correction_requested_fields/);
+  assert.match(page, /const canRequestCashPayoutDestination = canRequestDistinctCashPayoutDestination\(selectedCase\)/);
+  assert.match(page, /missingCashFields\.includes\('zelle_payment_contact'\)\s*\n\s*\? canRequestCashPayoutDestination/);
+  assert.doesNotMatch(page, /refundCase\.payoutDestinationRequest\?\.canRequest !== true/);
 });
 
 test('server completion binds the actual selected sale and preserves the manual estimate path', () => {

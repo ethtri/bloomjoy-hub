@@ -1351,8 +1351,8 @@ select ok(
   'Legacy normalization audit before/after snapshots preserve the original approved state'
 );
 
--- A payout destination request is serialized with the case and cannot race an
--- active purchase correction that already requests that same destination.
+-- A payout destination request is serialized with the case and cannot race any
+-- unexpired pending purchase correction, even when it requests only amount.
 update public.refund_cases
 set zelle_payment_contact = null
 where id = '79600000-0000-4000-8000-000000000005';
@@ -1377,7 +1377,7 @@ values (
   statement_timestamp() - interval '1 hour',
   statement_timestamp() + interval '1 hour',
   'purchase',
-  array['amount', 'zelle_payment_contact']::text[]
+  array['amount']::text[]
 );
 
 select ok(
@@ -1387,7 +1387,7 @@ select ok(
     where item.value ->> 'id' = '79600000-0000-4000-8000-000000000005'
       and item.value -> 'payoutDestinationRequest' ->> 'canRequest' = 'false'
   ),
-  'An active payout correction makes the server projection ineligible for another destination request'
+  'Any active purchase correction makes the server projection ineligible for another destination request'
 );
 
 set local role service_role;
@@ -1411,7 +1411,7 @@ select ok(
       null
     )
   $sql$) like 'P4662:%active customer request%',
-  'The enqueue authority rejects a concurrent targeted payout request while its correction is active'
+  'The enqueue authority rejects a targeted payout request while an amount-only correction is active'
 );
 reset role;
 

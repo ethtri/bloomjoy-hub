@@ -472,6 +472,7 @@ const CASH_CASE_IDS = {
   noMatch: '41000000-0000-4000-8000-000000000302',
   missingAmount: '41000000-0000-4000-8000-000000000303',
   legacyPending: '41000000-0000-4000-8000-000000000304',
+  activeAmountCorrection: '41000000-0000-4000-8000-000000000305',
 };
 
 const longGeneratedNayaxMatchFactors = [
@@ -1448,6 +1449,62 @@ const buildCashRefundVariantsOverview = () => {
       customerEmail: 'cash-legacy-pending@example.test',
       zellePaymentContact: 'legacy-contact@example.test',
       manualRefundReference: 'Legacy historical reference',
+    },
+    {
+      ...matchedCase,
+      id: CASH_CASE_IDS.activeAmountCorrection,
+      publicReference: 'RF-UAT-CASH-ACTIVE-AMOUNT-CORRECTION',
+      status: 'waiting_on_customer',
+      decision: null,
+      decisionReason: null,
+      paymentAmountCents: null,
+      refundAmountCents: null,
+      correlationStatus: 'no_match',
+      correlationSource: null,
+      correlationConfidence: 0,
+      hasMatchedSalesFact: false,
+      customerEmail: 'cash-active-amount@example.test',
+      zellePaymentContact: null,
+      customerCorrectionFields: ['amount'],
+      customerCorrection: {
+        state: 'pending',
+        requestedFields: ['amount'],
+        requestId: '44200000-0000-4000-8000-000000000001',
+        requestedAt: isoHoursAgo(0.5),
+        respondedAt: null,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        isActive: true,
+        isUsable: true,
+        deliveryStatus: 'sent',
+        deliveryState: 'delivered',
+        recheckState: null,
+        nextAction: 'review',
+        previousValues: { amount: '8.00' },
+        answers: null,
+      },
+      payoutDestinationRequest: {
+        state: 'not_started',
+        canRequest: true,
+        payloadRedacted: true,
+      },
+      lifecycle: {
+        ...buildCashRefundLifecycleFixture(false),
+        stage: 'waiting_on_customer',
+        stageRank: 15,
+        managerNextAction: 'wait_for_customer_reply',
+        managerQueue: {
+          ...buildCashRefundLifecycleFixture(false).managerQueue,
+          bucket: 'waiting_on_customer',
+          label: 'Waiting for customer',
+          nextAction: 'wait_for_customer_reply',
+        },
+        customerOutreach: buildCustomerOutreachFixture({
+          state: 'none',
+          owner: 'None',
+          nextAction: 'none',
+          requestedFields: [],
+        }),
+      },
     },
   ];
   return overview;
@@ -5909,6 +5966,18 @@ const runManualExternalCashWorkflowChecks = async ({ browser, appUrl, artifactDi
       (await variantsPage.getByTestId('refund-cash-reference-input').count()) === 0 &&
       (await variantsPage.getByTestId('refund-cash-payout-time-input').count()) === 0 &&
       (await variantsPage.getByTestId('refund-cash-payment-confirmed').count()) === 0
+  );
+
+  await variantsPage.getByRole('button', { name: /^Waiting for customer 1$/ }).click();
+  await waitForQueueCount(variantsPage, 1);
+  await queueCase(variantsPage, 'RF-UAT-CASH-ACTIVE-AMOUNT-CORRECTION').click();
+  await variantsPage.getByTestId('refund-cash-workbench').waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Active amount correction blocks the distinct payout request in the rendered cash workbench',
+    await variantsPage.getByTestId('refund-cash-primary-action').isDisabled() &&
+      await variantsPage.getByTestId('refund-cash-primary-action').getByText('Waiting for customer reply', { exact: true }).isVisible() &&
+      (await variantsPage.getByRole('button', { name: 'Request payout destination', exact: true }).count()) === 0 &&
+      (await variantsPage.getByRole('button', { name: 'Request customer correction', exact: true }).count()) === 0
   );
   await closeRefundPortalContext(variantsContext);
 
