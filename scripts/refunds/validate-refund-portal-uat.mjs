@@ -4460,6 +4460,12 @@ const runRefundOnlyChecks = async ({ browser, appUrl, artifactDir, recorder }) =
 
   await page.getByTestId('refund-run-nayax-refund').click();
   const confirmationDialog = page.getByTestId('refund-confirmation-dialog');
+  await confirmationDialog.waitFor({ state: 'visible', timeout: 10000 });
+  await confirmationDialog.evaluate(async (dialog) => {
+    await Promise.allSettled(
+      dialog.getAnimations({ subtree: true }).map((animation) => animation.finished)
+    );
+  });
   recorder.assert(
     'Payment action opens an explicit confirmation without submitting',
     await confirmationDialog.isVisible() &&
