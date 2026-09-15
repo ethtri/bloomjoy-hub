@@ -137,6 +137,7 @@ const buildMockSetup = (state) => ({
       machine_type: state.machineType,
       sunze_machine_id: 'SUNZE-CC-001',
       status: 'active',
+      operational_phase: 'live',
       account_name: 'Bloomjoy UAT',
       location_name: 'Mall Atrium',
       latest_sale_date: '2026-05-11',
@@ -147,6 +148,7 @@ const buildMockSetup = (state) => ({
       machine_type: 'unknown',
       sunze_machine_id: null,
       status: 'active',
+      operational_phase: 'live',
       account_name: 'Bloomjoy UAT',
       location_name: 'Valley Mall',
       latest_sale_date: '2026-09-06',
@@ -380,6 +382,13 @@ const installMockSupabaseRoutes = async (context, state) => {
 
     if (url.includes('/admin_get_partnership_reporting_setup')) {
       return route.fulfill(jsonResponse(buildMockSetup(state)));
+    }
+
+    if (url.includes('/rest/v1/reporting_machines')) {
+      return route.fulfill(jsonResponse([
+        { id: machineId, operational_phase: 'live' },
+        { id: valleyMachineId, operational_phase: 'live' },
+      ]));
     }
 
     if (url.includes('/admin_get_refund_manager_setup')) {

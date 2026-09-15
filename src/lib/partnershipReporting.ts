@@ -437,6 +437,9 @@ export const fetchPartnershipReportingSetup = async (): Promise<PartnershipRepor
   };
 
   if (!setup.machines.length) return setup;
+  if (setup.machines.every(
+    (machine) => machine.operational_phase === 'setup' || machine.operational_phase === 'live'
+  )) return setup;
 
   const { data: machinePhases, error: machinePhasesError } = await supabaseClient
     .from('reporting_machines')
