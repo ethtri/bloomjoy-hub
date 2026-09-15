@@ -3496,6 +3496,18 @@ export default function AdminRefundsPage() {
     ) {
       return null;
     }
+    const cashCorrelation = refundCase.id === selectedCase?.id
+      ? (isUsingDemoData ? refundCase.sunzeCashCorrelation : selectedCashCorrelation)
+      : null;
+    if (
+      refundCase.paymentMethod === 'cash' &&
+      cashCorrelation?.state === 'no_sale_found_with_complete_coverage' &&
+      cashCorrelation.sourceReadiness === 'complete_coverage' &&
+      primaryAction?.targetStatus === 'completed' &&
+      primaryAction.disabled !== true
+    ) {
+      return { label: 'Ready to confirm refund', tone: 'success' };
+    }
     if (isWaitingCase(refundCase, refundOperationsAccess)) return null;
     if (refundCase.id !== selectedCase?.id || refundCase.hasMatchedNayaxTransaction || !editor) return null;
     if (editor.matchedNayaxCandidateToken.trim()) {

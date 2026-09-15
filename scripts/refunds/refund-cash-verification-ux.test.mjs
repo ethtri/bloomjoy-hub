@@ -33,6 +33,11 @@ test('bounded evidence chooser supports keyboard-friendly radio selection and na
   assert.match(evidence, /min-h-11/);
   assert.match(evidence, /sm:grid-cols-2/);
   assert.match(evidence, /candidate\.selectionConflict/);
+  assert.match(evidence, /formatRefundDateTime/);
+  assert.match(evidence, /Sale time \(venue time\)/);
+  assert.match(evidence, /Venue time unavailable/);
+  assert.match(page, /venueTimezone=\{incidentTimezone\}/);
+  assert.match(page, /label: 'Ready to confirm refund'/);
 });
 
 test('payout request eligibility is ledger-backed and preserves one-request concurrency', () => {
@@ -56,7 +61,7 @@ test('server completion binds the actual selected sale and preserves the manual 
   assert.match(migration, /p_refund_amount_cents is distinct from server_refund_amount_cents/);
   assert.match(migration, /revoke all on function public\.service_complete_cash_refund_as_actor/);
   assert.match(migration, /grant execute on function public\.service_complete_cash_refund_official/);
-  assert.match(migration, /p_refund_amount_cents,\n    null,\n    null,/);
+  assert.match(migration, /p_refund_amount_cents,\r?\n    null,\r?\n    null,/);
 });
 
 test('legacy normalization is atomic, audited, and terminal-safe', () => {

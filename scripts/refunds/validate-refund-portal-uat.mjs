@@ -1354,6 +1354,7 @@ const buildCashRefundReviewOverview = () => ({
       zellePaymentContact: 'synthetic-zelle-contact',
       issueSummary: 'Customer paid cash and the machine stopped before dispensing.',
       incidentAt: isoHoursAgo(3),
+      incidentTimezone: 'America/New_York',
       incidentTimeResolution: 'exact',
       paymentMethod: 'cash',
       paymentAmountCents: 800,
@@ -5844,6 +5845,10 @@ const runManualExternalCashWorkflowChecks = async ({ browser, appUrl, artifactDi
     (await variantsPage.locator('[data-dominant-action="true"]:visible').count()) === 1 &&
       await variantsPage.getByTestId('refund-cash-primary-action').getByText('Confirm refund sent via Zelle').isVisible()
   );
+  recorder.assert(
+    'Cash sale evidence shows deterministic venue-time presentation',
+    await variantsPage.getByTestId('refund-cash-match-summary').getByText('Shown in venue time · America/New_York', { exact: true }).isVisible()
+  );
 
   await variantsPage.getByText('Other decisions', { exact: true }).click();
   recorder.assert(
@@ -5854,6 +5859,15 @@ const runManualExternalCashWorkflowChecks = async ({ browser, appUrl, artifactDi
 
   await queueCase(variantsPage, 'RF-UAT-CASH-NO-MATCH').click();
   await variantsPage.getByTestId('refund-cash-evidence-state').getByText('No sale found').waitFor();
+  await queueCase(variantsPage, 'RF-UAT-CASH-NO-MATCH')
+    .getByText('Ready to confirm refund', { exact: true })
+    .waitFor({ timeout: 10000 });
+  recorder.assert(
+    'Completed no-match cash evidence projects an authoritative ready-to-confirm queue state',
+    await queueCase(variantsPage, 'RF-UAT-CASH-NO-MATCH')
+      .getByText('Ready to confirm refund', { exact: true })
+      .isVisible()
+  );
   recorder.assert(
     'Unmatched cash case has the same direct completion action with no Nayax controls',
     await variantsPage.getByTestId('refund-cash-primary-action').getByText('Confirm refund sent via Zelle').isVisible() &&

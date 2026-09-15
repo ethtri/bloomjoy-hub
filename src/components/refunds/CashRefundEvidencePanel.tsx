@@ -13,11 +13,13 @@ import type {
   RefundSunzeCashSelectedSale,
 } from '@/lib/refundSunzeCashCorrelation';
 import type { RefundCaseRecord } from '@/lib/refundOperations';
+import { formatRefundDateTime } from '@/lib/refundTimePresentation';
 import { cn } from '@/lib/utils';
 
 type CashRefundEvidencePanelProps = {
   refundCase: RefundCaseRecord;
   isUsingDemoData: boolean;
+  venueTimezone: string | null;
   isCompleted?: boolean;
 };
 
@@ -26,12 +28,8 @@ const formatCurrency = (amountCents: number | null | undefined) =>
     ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amountCents / 100)
     : 'Not provided';
 
-const formatSaleTime = (value: string) => {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? 'Time unavailable'
-    : new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
-};
+const formatSaleTime = (value: string, venueTimezone: string | null) =>
+  formatRefundDateTime(value, venueTimezone);
 
 const evidenceStateCopy: Record<RefundSunzeCashCorrelation['state'], {
   label: string;
@@ -65,7 +63,15 @@ const evidenceStateCopy: Record<RefundSunzeCashCorrelation['state'], {
   },
 };
 
-const SaleDetails = ({ sale, heading }: { sale: RefundSunzeCashCandidate | RefundSunzeCashSelectedSale; heading: string }) => (
+const SaleDetails = ({
+  sale,
+  heading,
+  venueTimezone,
+}: {
+  sale: RefundSunzeCashCandidate | RefundSunzeCashSelectedSale;
+  heading: string;
+  venueTimezone: string | null;
+}) => (
   <div className="rounded-lg border border-border bg-background p-3">
     <div className="flex flex-wrap items-start justify-between gap-2">
       <p className="text-sm font-semibold text-foreground">{heading}</p>
@@ -73,8 +79,11 @@ const SaleDetails = ({ sale, heading }: { sale: RefundSunzeCashCandidate | Refun
     </div>
     <dl className="mt-3 grid gap-3 text-xs text-muted-foreground sm:grid-cols-2">
       <div>
-        <dt>Sale time</dt>
-        <dd className="mt-1 font-medium text-foreground">{formatSaleTime(sale.paymentTime)}</dd>
+        <dt>Sale time (venue time)</dt>
+        <dd className="mt-1 font-medium text-foreground">{formatSaleTime(sale.paymentTime, venueTimezone)}</dd>
+        <dd className="mt-1 text-[11px] leading-4 text-muted-foreground">
+          {venueTimezone ? `Shown in venue time · ${venueTimezone}` : 'Venue time unavailable'}
+        </dd>
       </div>
       <div>
         <dt>Machine</dt>
@@ -92,7 +101,12 @@ const SaleDetails = ({ sale, heading }: { sale: RefundSunzeCashCandidate | Refun
   </div>
 );
 
-export function CashRefundEvidencePanel({ refundCase, isUsingDemoData, isCompleted = false }: CashRefundEvidencePanelProps) {
+export function CashRefundEvidencePanel({
+  refundCase,
+  isUsingDemoData,
+  venueTimezone,
+  isCompleted = false,
+}: CashRefundEvidencePanelProps) {
   const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: ['refund-sunze-cash-correlation', refundCase.id],
@@ -165,7 +179,7 @@ export function CashRefundEvidencePanel({ refundCase, isUsingDemoData, isComplet
 
       {selectedSale && (
         <div className="mt-3 space-y-2">
-          <SaleDetails sale={selectedSale} heading="Selected sale evidence" />
+          <SaleDetails sale={selectedSale} heading="Selected sale evidence" venueTimezone={venueTimezone} />
           <p className="text-xs text-muted-foreground">
             Customer estimate: <span className="font-medium text-foreground">{formatCurrency(refundCase.paymentAmountCents)}</span> · Supported sale: <span className="font-medium text-foreground">{formatCurrency(selectedSale.actualAmountCents)}</span>. The final completion amount is derived from this selected sale on the server.
           </p>
@@ -200,7 +214,7 @@ export function CashRefundEvidencePanel({ refundCase, isUsingDemoData, isComplet
                     <span>{formatCurrency(candidate.actualAmountCents)}</span>
                   </span>
                   <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-                    {formatSaleTime(candidate.paymentTime)} · {candidate.machineLabel ?? 'Machine unavailable'} · {candidate.locationName ?? 'Location unavailable'}
+                    {formatSaleTime(candidate.paymentTime, venueTimezone)} · {candidate.machineLabel ?? 'Machine unavailable'} · {candidate.locationName ?? 'Location unavailable'}
                   </span>
                   {candidate.tradeLabel && <span className="mt-1 block text-xs text-muted-foreground">Product: {candidate.tradeLabel}</span>}
                 </span>
@@ -212,7 +226,7 @@ export function CashRefundEvidencePanel({ refundCase, isUsingDemoData, isComplet
 
       {!selectedSale && state === 'sale_found' && candidates[0] && (
         <div className="mt-3 space-y-2">
-          <SaleDetails sale={candidates[0]} heading="Supported sale" />
+          <SaleDetails sale={candidates[0]} heading="Supported sale" venueTimezone={venueTimezone} />
           <p className="flex items-start gap-2 text-xs text-muted-foreground">
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" aria-hidden="true" />
             This evidence is preselected when safe. It supports review but does not approve or deny the refund.
