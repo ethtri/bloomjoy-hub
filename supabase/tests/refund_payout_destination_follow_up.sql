@@ -84,24 +84,6 @@ select is(
   'Payout destination is canonical, ordered, and deduplicated'
 );
 
-insert into public.refund_case_messages (
-  id, refund_case_id, message_type, status, recipient_email, subject, body,
-  template_key, created_by, content_source, delivery_kind, reason_code,
-  requested_fields, sent_at, created_at
-) values (
-  'c1450000-0000-4000-8000-000000000001',
-  'c1400000-0000-4000-8000-000000000001',
-  'more_info', 'sent', 'payout-customer@example.invalid',
-  'Earlier payout destination request',
-  'Zelle email or phone number:',
-  'refund_more_info_editable_v1',
-  'c1000000-0000-4000-8000-000000000001',
-  'manager_authored', 'manual', 'missing_information',
-  array['zelle_payment_contact']::text[],
-  statement_timestamp() - interval '3 hours',
-  statement_timestamp() - interval '3 hours'
-);
-
 set local role service_role;
 select is(
   public.service_enqueue_refund_manual_message_intent(

@@ -185,7 +185,7 @@ select is(
     public.service_complete_cash_refund_as_actor(
       '75000000-0000-4000-8000-000000000001',
       '75600000-0000-4000-8000-000000000001',
-      1,
+      800,
       'card 4111 1111 1111 1111',
       now() - interval '1 year',
       null,

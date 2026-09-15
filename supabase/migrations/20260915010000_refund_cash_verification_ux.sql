@@ -607,12 +607,12 @@ begin
       'status', before_case_row.status,
       'decision', before_case_row.decision,
       'decidedAt', before_case_row.decided_at,
-      'refundAmountCents', before_case_row.refund_amount_cents
+      'refund_amount_cents', before_case_row.refund_amount_cents
     ),
     jsonb_build_object(
       'status', 'needs_review',
       'decision', null,
-      'refundAmountCents', null
+      'refund_amount_cents', null
     ),
     jsonb_build_object(
       'operation', 'cash_verification_ux_forward_repair',

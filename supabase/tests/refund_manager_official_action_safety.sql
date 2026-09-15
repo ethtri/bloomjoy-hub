@@ -237,6 +237,31 @@ values (
   '{"fixture":"official-action-safety"}'::jsonb
 );
 
+insert into public.machine_sales_facts (
+  id,
+  reporting_machine_id,
+  reporting_location_id,
+  sale_date,
+  payment_method,
+  net_sales_cents,
+  transaction_count,
+  source,
+  source_row_hash,
+  raw_payload
+)
+values (
+  '79500000-0000-4000-8000-000000000002',
+  '79300000-0000-4000-8000-000000000001',
+  '79200000-0000-4000-8000-000000000001',
+  current_date - 1,
+  'cash',
+  700,
+  1,
+  'sample_seed',
+  'official-action-safety-cash-sale-isolated',
+  '{"fixture":"official-action-safety-isolated-cash"}'::jsonb
+);
+
 insert into public.refund_cases (
   id,
   public_reference,
@@ -315,8 +340,8 @@ values
     '79600000-0000-4000-8000-000000000006', 'RF-OFFICIAL-CASH',
     '79300000-0000-4000-8000-000000000001', '79200000-0000-4000-8000-000000000001',
     'cash-customer@example.test', 'synthetic-zelle-contact', 'Cash completion safety fixture',
-    now() - interval '2 hours', 'cash', 725, null, 'cash_zelle_pending', 'matched', 'sunze', 0.95,
-    '79500000-0000-4000-8000-000000000001', 'approved', 'Matched cash sale.',
+    now() - interval '26 hours', 'cash', 725, null, 'cash_zelle_pending', 'matched', 'sunze', 0.95,
+    '79500000-0000-4000-8000-000000000002', 'approved', 'Matched cash sale.',
     '79000000-0000-4000-8000-000000000001', now() - interval '1 hour', 725,
     null, null, null, null, null, null, null, null, null, false
   ),
@@ -398,7 +423,7 @@ insert into public.refund_sunze_cash_sale_links (
 select
   '79900000-0000-4000-8000-000000000002',
   '79600000-0000-4000-8000-000000000006',
-  '79500000-0000-4000-8000-000000000001',
+  '79500000-0000-4000-8000-000000000002',
   '79900000-0000-4000-8000-000000000001',
   deterministic_fact_version, 1, 'reviewed'
 from public.refund_cases

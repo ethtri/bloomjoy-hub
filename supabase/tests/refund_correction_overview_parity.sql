@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(12);
+select plan(13);
 
 create function pg_temp.set_auth_claims(p_user_id uuid)
 returns void language plpgsql as $$
@@ -229,6 +229,8 @@ $$;
 select ok(
   position('refund_project_candidate_time_evidence_v1' in pg_get_functiondef(
     'public.admin_get_refund_operations_overview()'::regprocedure))>0
+  and position('admin_get_refund_operations_overview_pre_cash_verification_ux_v1' in pg_get_functiondef(
+    'public.admin_get_refund_operations_overview()'::regprocedure))>0
   and position('refund_project_customer_outreach_cases_for_manager' in pg_get_functiondef(
     'public.admin_get_refund_operations_overview_pre_candidate_time_v1()'::regprocedure))>0
   and position('refund_purchase_correction_request_fields' in pg_get_functiondef(
@@ -236,6 +238,25 @@ select ok(
   and position('internalTestCases' in pg_get_functiondef(
     'public.admin_get_refund_operations_overview_pre_customer_outreach_v1()'::regprocedure))>0,
   'The composed outer overview binds outreach after correction scope for both case arrays');
+
+select ok(
+  (select bool_and(
+    jsonb_typeof(item->'payoutDestinationRequest') = 'object'
+    and item->'payoutDestinationRequest' ? 'state'
+    and item->'payoutDestinationRequest' ? 'canRequest'
+    and item->'payoutDestinationRequest'->>'payloadRedacted' = 'true'
+  )
+  from current_overview, lateral jsonb_array_elements(value->'cases') item
+  where item->>'id' = 'd9140000-0000-4000-8000-000000000001')
+  and (select bool_and(
+    jsonb_typeof(item->'payoutDestinationRequest') = 'object'
+    and item->'payoutDestinationRequest' ? 'state'
+    and item->'payoutDestinationRequest' ? 'canRequest'
+    and item->'payoutDestinationRequest'->>'payloadRedacted' = 'true'
+  )
+  from current_overview, lateral jsonb_array_elements(value->'internalTestCases') item
+  where item->>'id' = 'd9140000-0000-4000-8000-000000000002'),
+  'The current wrapper owns one redacted payout-destination projection for both case arrays');
 
 select is((select item->'customerCorrectionFields'
   from current_overview, lateral jsonb_array_elements(value->'cases') item
@@ -252,12 +273,12 @@ select is((select item->'customerCorrectionFields'
   'The Internal/test case also exposes the direct current-helper result');
 
 select is((select value-'cases'-'internalTestCases'-'customerOutreachContractVersion'
-    -'candidateTimeContractVersion' from current_overview),
+    -'candidateTimeContractVersion'-'payoutDestinationRequestContractVersion' from current_overview),
   (select value-'cases'-'internalTestCases' from predecessor_overview),
   'The outer wrapper preserves every preceding top-level overview value');
 
 select is((select jsonb_agg(pg_temp.without_candidate_time_contract(
-    item-'customerCorrectionFields'-'nayaxLookupWork') order by ordinality)
+    item-'customerCorrectionFields'-'nayaxLookupWork'-'payoutDestinationRequest' order by ordinality)
   from current_overview, lateral jsonb_array_elements(value->'cases') with ordinality entries(item,ordinality)),
   (select jsonb_agg(pg_temp.without_candidate_time_contract(
     item-'customerCorrectionFields') order by ordinality)
@@ -265,7 +286,7 @@ select is((select jsonb_agg(pg_temp.without_candidate_time_contract(
   'Ordinary case order and every unrelated field remain unchanged');
 
 select is((select jsonb_agg(pg_temp.without_candidate_time_contract(
-    item-'customerCorrectionFields'-'nayaxLookupWork') order by ordinality)
+    item-'customerCorrectionFields'-'nayaxLookupWork'-'payoutDestinationRequest' order by ordinality)
   from current_overview, lateral jsonb_array_elements(value->'internalTestCases') with ordinality entries(item,ordinality)),
   (select jsonb_agg(pg_temp.without_candidate_time_contract(
     item-'customerCorrectionFields') order by ordinality)
