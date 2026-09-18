@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(30);
+select plan(31);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('fc110000-0000-4000-8000-000000000001','authenticated','authenticated',
@@ -299,6 +299,34 @@ select is(public.refund_nayax_candidate_identifier_evidence_state(
   )
 ), 'valid',
   'Rough DST-gap and noncomparable time remains selectable for manager review under v12');
+
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,
+  issue_summary,incident_at,incident_timezone,incident_time_resolution,incident_time_confidence,
+  payment_method,payment_amount_cents,refund_amount_cents,card_wallet_used,card_last4,card_last4_provenance,
+  card_last4_source,payment_interaction,wallet_device_kind,status,correlation_status,
+  deterministic_fact_version,intake_source,intake_meta)
+values('fc150000-0000-4000-8000-000000000002','RF-WALLET-REVIEW',
+  'fc140000-0000-4000-8000-000000000001','fc130000-0000-4000-8000-000000000001',
+  'wallet-review-customer@example.invalid','Charged without product',
+  '2026-08-22T20:00:00Z','America/Los_Angeles','exact','rough',
+  'card',1000,1000,true,'2776','wallet_device_token','wallet_device','phone_watch_wallet','phone',
+  'needs_review','needs_nayax',2,'form','{}');
+select is(public.refund_nayax_candidate_identifier_evidence_state(
+  'fc150000-0000-4000-8000-000000000002','fc140000-0000-4000-8000-000000000001',101,
+  '2026-08-22T20:15:00Z',1090,'3760','USD',
+  pg_temp.contactless_evidence() || jsonb_build_object(
+    'policy_version','2026-09-13.v12',
+    'customer_fact_version',2,
+    'customer_credential_class','customer_phone_wallet_token',
+    'amount_delta_cents',90,
+    'provider_time_resolution','unknown',
+    'machine_time_resolution','ambiguous',
+    'transaction_occurrence_comparable',false,
+    'transaction_occurrence_semantics','unknown',
+    'time_delta_minutes',null
+  )
+), 'valid',
+  'Rough-time wallet token mismatch and estimated amount permit manager review without payment');
 
 select * from finish();
 rollback;

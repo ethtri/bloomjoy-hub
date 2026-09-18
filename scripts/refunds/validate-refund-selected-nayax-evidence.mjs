@@ -97,9 +97,10 @@ assert(
   'Database coverage must prove scope, tokenization, redaction, and the complete contract',
 );
 assert(
-  selectionTest.includes("select plan(30)") &&
+  selectionTest.includes("select plan(31)") &&
     selectionTest.includes('The database accepts the current v12 bounded identifier contract') &&
     selectionTest.includes('Rough DST-gap and noncomparable time remains selectable') &&
+    selectionTest.includes('Rough-time wallet token mismatch and estimated amount permit manager review without payment') &&
     selectionTest.includes('Manager can explicitly bind persisted v12 ambiguous-time evidence') &&
     selectionTest.includes('Supporting-only provider time cannot be saved as the manager rationale') &&
     selectionTest.includes('cannot bypass the time-rationale guard with case or whitespace') &&
