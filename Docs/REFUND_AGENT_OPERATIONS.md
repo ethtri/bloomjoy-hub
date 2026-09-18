@@ -93,9 +93,13 @@ and the otherwise identified provider transaction charged **$10.90**, prepare
 the **$10.90** transaction. Do not ask about the difference merely because it may
 include tax.
 
-A wallet/physical-card digit mismatch alone is not a blocker when the values may
-come from different tokens. Do not discard an obvious machine/time match until
-the complete evidence has been considered.
+The last four shown by a contactless wallet (including Apple Pay or Apple Cash)
+may differ from the last four Nayax shows for the same purchase. Record where
+each set of digits came from before comparing them. A mismatch alone is not a
+blocker: check the exact machine, venue-local time, customer charge or receipt,
+product and independent sales evidence before discarding a plausible purchase.
+Do not assume different digits are equivalent without that corroboration, and
+keep the provider-status and duplicate-refund checks before selection.
 
 The System saves a routine clear match automatically. Keep every plausible
 ambiguous candidate visible and explain the evidence. A case worker may select a
