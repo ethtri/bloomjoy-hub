@@ -175,6 +175,13 @@ select is(
   'Safe reads distinguish stale internal history from incomplete coverage'
 );
 
+-- Later correction-trigger checks use statement_timestamp(). Keep their
+-- machine's fixture fresh when this suite runs after the fixed September dates.
+update public.sunze_cash_source_watermarks
+set freshness_expires_at = '2099-01-01 00:00:00+00'
+where reporting_machine_id = '35220000-0000-4000-8000-000000000002'
+  and import_run_id = '35230000-0000-4000-8000-000000000001';
+
 select is(
   public.service_correlate_sunze_cash_case('35250000-0000-4000-8000-000000000001', 1, 'intake', null, '2026-09-14 21:00:00+00')->>'state',
   'multiple_possible_sales',
