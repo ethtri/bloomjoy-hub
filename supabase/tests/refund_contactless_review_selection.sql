@@ -302,14 +302,14 @@ select is(public.refund_nayax_candidate_identifier_evidence_state(
 
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,
   issue_summary,incident_at,incident_timezone,incident_time_resolution,incident_time_confidence,
-  payment_method,payment_amount_cents,refund_amount_cents,card_last4,card_last4_provenance,
+  payment_method,payment_amount_cents,refund_amount_cents,card_wallet_used,card_last4,card_last4_provenance,
   card_last4_source,payment_interaction,wallet_device_kind,status,correlation_status,
   deterministic_fact_version,intake_source,intake_meta)
 values('fc150000-0000-4000-8000-000000000002','RF-WALLET-REVIEW',
   'fc140000-0000-4000-8000-000000000001','fc130000-0000-4000-8000-000000000001',
   'wallet-review-customer@example.invalid','Charged without product',
   '2026-08-22T20:00:00Z','America/Los_Angeles','exact','rough',
-  'card',1000,1000,'2776','wallet_device_token','wallet_device','phone_watch_wallet','phone',
+  'card',1000,1000,true,'2776','wallet_device_token','wallet_device','phone_watch_wallet','phone',
   'needs_review','needs_nayax',2,'form','{}');
 select is(public.refund_nayax_candidate_identifier_evidence_state(
   'fc150000-0000-4000-8000-000000000002','fc140000-0000-4000-8000-000000000001',101,
