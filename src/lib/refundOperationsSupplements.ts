@@ -4,30 +4,22 @@ import type {
   RefundOperationsSupplements,
 } from './refundOperations.ts';
 
-const holdOfficialActions = (refundCase: RefundCaseRecord): RefundCaseRecord => ({
-  ...refundCase,
-  canPerformOfficialAction: false,
-  canSelectNayaxCandidate: false,
-  officialActionBlockReason: 'official_actions_disabled',
-});
-
 export const mergeRefundOperationsSupplements = (
   overview: RefundOperationsOverview,
   supplements: RefundOperationsSupplements | undefined,
 ): RefundOperationsOverview => {
-  const supplementsReady = supplements?.unavailableSources.length === 0;
-  if (!supplements) {
-    return {
-      ...overview,
-      cases: overview.cases.map(holdOfficialActions),
-    };
-  }
+  // The overview RPC owns payment and selection authority. These reads add email
+  // drafts and queue presentation only, so an unavailable supplement must never
+  // replace an authoritative server capability with a client-created block.
+  if (!supplements) return overview;
 
+  const coreCaseIds = new Set(overview.cases.map((refundCase) => refundCase.id));
   const internalTestCaseIds = new Set(
     (overview.internalTestCases ?? []).map((refundCase) => refundCase.id),
   );
   const gmailDrafts = supplements.gmailDrafts.filter(
-    (refundCase) => !internalTestCaseIds.has(refundCase.id),
+    (refundCase) =>
+      !internalTestCaseIds.has(refundCase.id) && !coreCaseIds.has(refundCase.id),
   );
   const queueStateByCaseId = new Map(
     supplements.queueStates.map((state) => [state.caseId, state] as const),
@@ -50,7 +42,7 @@ export const mergeRefundOperationsSupplements = (
         reconciliationActionBlocked: state.actionBlocked,
       } : {}),
     };
-    return supplementsReady ? enrichedCase : holdOfficialActions(enrichedCase);
+    return enrichedCase;
   });
 
   return { ...overview, cases };

@@ -7551,7 +7551,7 @@ export default function AdminRefundsPage() {
               role="status"
               className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950"
             >
-              The refund queue is current. Some email or payment-support details are still loading, so related actions stay unavailable until the next refresh.
+              The refund queue and its available actions are current. Some optional email or queue details are still loading.
             </div>
           )}
 
