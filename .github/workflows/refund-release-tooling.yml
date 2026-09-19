@@ -44,5 +44,9 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '20'
+      - name: Retrieve exact sealed source object
+        run: >-
+          node --input-type=module -e
+          "import fs from 'node:fs'; import { fetchReviewedReleaseSource, manifestPath, repoRoot } from './scripts/refunds/refund-release.mjs'; fetchReviewedReleaseSource(repoRoot, JSON.parse(fs.readFileSync(manifestPath, 'utf8')));"
       - name: Validate refund release tooling
         run: npm run refunds:validate-release-tooling
