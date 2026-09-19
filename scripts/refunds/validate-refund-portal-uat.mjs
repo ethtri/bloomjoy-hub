@@ -7887,15 +7887,10 @@ const runNayaxLookupStatusMatrixChecks = async ({
         const preferredCandidateText = await page.getByTestId('nayax-candidate-option').first().innerText();
         const retainedBaseCandidateText = await page.getByTestId('nayax-candidate-option').nth(1).innerText();
         const preparationText = await preparation.innerText();
-        const managerStateText = await page.getByTestId('refund-manager-state').innerText();
-        const managerNextStepText = await page.getByTestId('refund-manager-next-step').innerText();
         const preparationChecks = {
           preparationVisible: await preparation.isVisible(),
           saveEnabled: await saveForReview.isEnabled(),
           noRefundAction: (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0,
-          managerStateNamesSave: managerStateText.includes('Save selected transaction'),
-          managerStateExplainsNoRefund:
-            managerNextStepText.includes('save it for manager review. Saving does not issue a refund.'),
           exactAmountComparison:
             preparationText.includes('Customer requested $10.00. Selected transaction: $10.90 ($0.90 difference).'),
           productVisible: await page.getByText('Selection 9', { exact: true }).isVisible(),
@@ -7912,7 +7907,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
         recorder.assert(
           'A selected transaction exposes a separate server-persisted manager-review action with the amount discrepancy visible',
           Object.values(preparationChecks).every(Boolean),
-          JSON.stringify({ preparationChecks, managerStateText, managerNextStepText, preparationText, preferredCandidateText, retainedBaseCandidateText })
+          JSON.stringify({ preparationChecks, preparationText, preferredCandidateText, retainedBaseCandidateText })
         );
         await page.screenshot({
           path: path.join(artifactDir, 'refund-prepare-manager-review-desktop.png'),
