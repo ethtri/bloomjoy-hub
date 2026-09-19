@@ -19,6 +19,8 @@ import {
   createTrackedUatBrowser,
   getUatPageFailures,
 } from './refund-browser-uat-network.mjs';
+import { runRefundPortalJourneys } from './portal-uat/journeys/index.mjs';
+import { shouldCaptureRefundPortalScreenshot } from './portal-uat/screenshot-policy.mjs';
 
 const DEFAULT_APP_URL = 'http://127.0.0.1:8081';
 const DEFAULT_EVIDENCE_DIR = 'output/refund-uat-evidence';
@@ -11966,6 +11968,7 @@ const run = async () => {
       isExpectedResponse: isExpectedPortalUatResponse,
       isExpectedRequestFailure: isExpectedPortalUatRequestFailure,
       isExpectedClosingRequestFailure: isExpectedPortalUatClosingRequestFailure,
+      shouldCaptureScreenshot: shouldCaptureRefundPortalScreenshot,
     }
   );
   try {
@@ -12154,151 +12157,67 @@ const run = async () => {
         ],
       });
     } else {
-    await runUnauthenticatedChecks({
-      browser,
-      appUrl: args.appUrl,
-      artifactDir: args.artifactDir,
-      recorder,
-      evidence,
-      providerOutcomeEvidence,
-    });
-    await runPublicRefundSubmissionChecks({
-      browser,
-      appUrl: args.appUrl,
-      recorder,
-    });
-    await runRefundOnlyChecks({
-      browser,
-      appUrl: args.appUrl,
-      artifactDir: args.artifactDir,
-      recorder,
-    });
-    await runApiUnavailableCaseEvidenceChecks({
-      browser,
-      appUrl: args.appUrl,
-      artifactDir: args.artifactDir,
-      recorder,
-    });
-    await runManagerClarityChecks({
-      browser,
-      appUrl: args.appUrl,
-      artifactDir: args.artifactDir,
-      recorder,
-    });
-    await runEmailPilotDuplicateChecks({
-      browser,
-      appUrl: args.appUrl,
-      artifactDir: args.artifactDir,
-      recorder,
-    });
-    await runGmailDraftChecks({
-      browser,
-      appUrl: args.appUrl,
-      artifactDir: args.artifactDir,
-      recorder,
-    });
-    await runManualExternalCashWorkflowChecks({
-      browser,
-      appUrl: args.appUrl,
-      artifactDir: args.artifactDir,
-      recorder,
-    });
-    await runNayaxLookupNoticeChecks({
-      browser,
-      appUrl: args.appUrl,
-      artifactDir: args.artifactDir,
-      recorder,
-      evidence,
-    });
-    await runNayaxLookupStatusMatrixChecks({
-      browser,
-      appUrl: args.appUrl,
-      artifactDir: args.artifactDir,
-      recorder,
-    });
-    await runDualRoleOfficialActionChecks({
-      browser,
-      appUrl: args.appUrl,
-      artifactDir: args.artifactDir,
-      recorder,
-    });
-    await runOfficialActionVersionResetChecks({
-      browser,
-      appUrl: args.appUrl,
-      recorder,
-    });
-    await runCustomerCommsFailureChecks({
-      browser,
-      appUrl: args.appUrl,
-      recorder,
-    });
-    await runAcknowledgementRecoveryChecks({
-      browser,
-      appUrl: args.appUrl,
-      artifactDir: args.artifactDir,
-      recorder,
-    });
-    await runCustomerLocaleCorrectionChecks({
-      browser,
-      appUrl: args.appUrl,
-      artifactDir: args.artifactDir,
-      recorder,
-    });
-    await runInternalTestDispositionChecks({
-      browser,
-      appUrl: args.appUrl,
-      artifactDir: args.artifactDir,
-      recorder,
-    });
-    await runTransactionalDeliveryTruthChecks({
-      browser,
-      appUrl: args.appUrl,
-      artifactDir: args.artifactDir,
-      recorder,
-    });
-    await runCustomerOutreachStateChecks({
-      browser,
-      appUrl: args.appUrl,
-      artifactDir: args.artifactDir,
-      recorder,
-    });
-    await runInboundCaseLinkReviewChecks({
-      browser,
-      appUrl: args.appUrl,
-      artifactDir: args.artifactDir,
-      recorder,
-    });
-    await runNayaxResolutionChecks({
-      browser,
-      appUrl: args.appUrl,
-      artifactDir: args.artifactDir,
-      recorder,
-    });
-    await runSystemPreselectionOverrideChecks({
-      browser,
-      appUrl: args.appUrl,
-      recorder,
-    });
-    await runNayaxManagerApprovalHandoffChecks({
-      browser,
-      appUrl: args.appUrl,
-      artifactDir: args.artifactDir,
-      recorder,
-    });
-    await runNayaxExecutionOutcomeChecks({
-      browser,
-      appUrl: args.appUrl,
-      artifactDir: args.artifactDir,
-      recorder,
-      evidence,
-      providerOutcomeEvidence,
-    });
-    await runDemoFallbackChecks({
-      browser,
-      appUrl: args.appUrl,
-      artifactDir: args.artifactDir,
-      recorder,
-    });
+      const commonCheckContext = {
+        browser,
+        appUrl: args.appUrl,
+        artifactDir: args.artifactDir,
+        recorder,
+      };
+      await runRefundPortalJourneys({
+        checks: {
+          'unauthenticated-entry': () => runUnauthenticatedChecks({
+            ...commonCheckContext,
+            evidence,
+            providerOutcomeEvidence,
+          }),
+          'public-submission': () => runPublicRefundSubmissionChecks({
+            browser,
+            appUrl: args.appUrl,
+            recorder,
+          }),
+          'queue-loading': () => runRefundOnlyChecks(commonCheckContext),
+          'cash-completion': () => runManualExternalCashWorkflowChecks(commonCheckContext),
+          'gmail-draft': () => runGmailDraftChecks(commonCheckContext),
+          'customer-outreach': () => runCustomerOutreachStateChecks(commonCheckContext),
+          'demo-fallback': () => runDemoFallbackChecks(commonCheckContext),
+          'api-unavailable-evidence': () => runApiUnavailableCaseEvidenceChecks(commonCheckContext),
+          'manager-clarity': () => runManagerClarityChecks(commonCheckContext),
+          'nayax-lookup-notices': () => runNayaxLookupNoticeChecks({
+            ...commonCheckContext,
+            evidence,
+          }),
+          'nayax-lookup-matrix': () => runNayaxLookupStatusMatrixChecks(commonCheckContext),
+          'email-duplicate': () => runEmailPilotDuplicateChecks(commonCheckContext),
+          'official-action-version-reset': () => runOfficialActionVersionResetChecks({
+            browser,
+            appUrl: args.appUrl,
+            recorder,
+          }),
+          'transactional-delivery-truth': () => runTransactionalDeliveryTruthChecks(commonCheckContext),
+          'dual-role-official-action': () => runDualRoleOfficialActionChecks(commonCheckContext),
+          'acknowledgement-recovery': () => runAcknowledgementRecoveryChecks(commonCheckContext),
+          'customer-locale-correction': () => runCustomerLocaleCorrectionChecks(commonCheckContext),
+          'internal-test-disposition': () => runInternalTestDispositionChecks(commonCheckContext),
+          'inbound-case-link-review': () => runInboundCaseLinkReviewChecks(commonCheckContext),
+          'customer-comms-failure': () => runCustomerCommsFailureChecks({
+            browser,
+            appUrl: args.appUrl,
+            recorder,
+          }),
+          'nayax-resolution': () => runNayaxResolutionChecks(commonCheckContext),
+          'system-preselection-override': () => runSystemPreselectionOverrideChecks({
+            browser,
+            appUrl: args.appUrl,
+            recorder,
+          }),
+          'nayax-manager-handoff': () => runNayaxManagerApprovalHandoffChecks(commonCheckContext),
+          'nayax-execution-outcomes': () => runNayaxExecutionOutcomeChecks({
+            ...commonCheckContext,
+            evidence,
+            providerOutcomeEvidence,
+          }),
+        },
+      });
     }
   } finally {
     await browser.close();

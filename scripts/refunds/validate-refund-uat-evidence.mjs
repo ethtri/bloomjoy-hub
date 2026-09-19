@@ -31,6 +31,7 @@ import {
   parseDatabaseTestSummary,
   writeDatabaseEvidence,
 } from '../validate-supabase-migrations.mjs';
+import { REFUND_PORTAL_HUMAN_REVIEW_SCREENSHOTS } from './portal-uat/screenshot-policy.mjs';
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const PNG_CRC_TABLE = Array.from({ length: 256 }, (_, index) => {
@@ -324,152 +325,21 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 129, 'Evidence must enumerate all 129 reviewed screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 29, 'Evidence keeps only 29 human-review screenshots');
   assert.deepEqual(
-    EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-portal-uat-cash-')),
-    [
-      'refund-portal-uat-cash-desktop.png',
-      'refund-portal-uat-cash-mobile.png',
-      'refund-portal-uat-cash-success.png',
-    ],
-    'Evidence must require the three produced one-action cash states and no retired confirmation dialog'
-  );
-  assert(
-    !EXPECTED_SCREENSHOTS.includes('refund-portal-uat-cash-confirmation.png'),
-    'Evidence must not require the retired cash confirmation-dialog screenshot'
-  );
-  for (const senderScreenshot of [
-    'refund-customer-message-official-sender-desktop.png',
-    'refund-customer-message-official-sender-mobile.png',
-  ]) {
-    assert(
-      EXPECTED_SCREENSHOTS.includes(senderScreenshot),
-      `Evidence must include reviewed official-sender screenshot ${senderScreenshot}`
-    );
-  }
-  for (const recoveryScreenshot of [
-    'refund-cash-message-delivery-refresh-desktop.png',
-    'refund-cash-message-delivery-refresh-mobile.png',
-    'refund-incomplete-history-fallback-mobile.png',
-    'refund-incomplete-history-refresh-desktop.png',
-    'refund-original-delivery-refresh-desktop.png',
-    'refund-original-delivery-refresh-mobile.png',
-    'refund-portal-uat-incomplete-transaction-history-after-refresh.png',
-    'refund-portal-uat-server-persisted-manager-preparation.png',
-    'refund-prepare-manager-review-desktop.png',
-    'refund-prepare-manager-review-mobile.png',
-  ]) {
-    assert(
-      EXPECTED_SCREENSHOTS.includes(recoveryScreenshot),
-      `Evidence must include reviewed refund recovery screenshot ${recoveryScreenshot}`
-    );
-  }
-  assert(
-    EXPECTED_SCREENSHOTS.includes('machine-type-snapcase-saved-desktop.png') &&
-      EXPECTED_SCREENSHOTS.includes('machine-type-snapcase-saved-mobile.png'),
-    'Evidence must include the reviewed Snapcase save-and-reload state on desktop and mobile'
-  );
-  assert(
-    EXPECTED_SCREENSHOTS.includes('refund-adam-api-pending-case-desktop.png') &&
-      EXPECTED_SCREENSHOTS.includes('refund-adam-api-pending-case-mobile.png'),
-    'Evidence must include the streamlined Adam-managed API-pending case on desktop and mobile'
-  );
-  assert(
-    EXPECTED_SCREENSHOTS.includes('machine-refunds-valley-product-unverified-desktop.png') &&
-      EXPECTED_SCREENSHOTS.includes('machine-refunds-valley-product-unverified-mobile.png'),
-    'Evidence must include the exact published Valley Mall product-unverified state on desktop and mobile'
-  );
-  assert(
-    EXPECTED_SCREENSHOTS.includes('refund-inbound-case-link-review-desktop.png') &&
-      EXPECTED_SCREENSHOTS.includes('refund-inbound-case-link-review-mobile.png'),
-    'Evidence must include reviewed desktop and mobile inbound existing-case link states'
-  );
-  assert(
-    EXPECTED_SCREENSHOTS.includes('refund-transactional-delivery-desktop.png') &&
-      EXPECTED_SCREENSHOTS.includes('refund-transactional-delivery-mobile.png'),
-    'Evidence must include reviewed desktop and mobile transactional-delivery truth states'
-  );
-  assert(
-    EXPECTED_SCREENSHOTS.includes('refund-nayax-account-scope-mobile.png'),
-    'Evidence must include the mobile internal Nayax account-scope recovery state'
-  );
-  assert(
-    EXPECTED_SCREENSHOTS.includes('refund-acknowledgement-recovery-mobile.png') &&
-      EXPECTED_SCREENSHOTS.includes('refund-acknowledgement-recovery-resolved.png'),
-    'Evidence must include both reviewed acknowledgement-recovery states'
-  );
-  assert(
-    EXPECTED_SCREENSHOTS.includes('refund-customer-locale-correction-mobile.png') &&
-      EXPECTED_SCREENSHOTS.includes('refund-customer-locale-correction-saved.png'),
-    'Evidence must include both reviewed customer-locale correction states'
-  );
-  assert(
-    EXPECTED_SCREENSHOTS.includes('refund-internal-test-disposition-mobile.png') &&
-      EXPECTED_SCREENSHOTS.includes('refund-internal-test-confirmation-desktop.png') &&
-      EXPECTED_SCREENSHOTS.includes('refund-internal-test-archive-desktop.png') &&
-      EXPECTED_SCREENSHOTS.includes('refund-internal-test-archive-mobile.png'),
-    'Evidence must include the reviewed Internal/test disposition and restricted archive states'
-  );
-  assert(
-    EXPECTED_SCREENSHOTS.includes('refund-selected-nayax-transaction-desktop.png') &&
-      EXPECTED_SCREENSHOTS.includes('refund-selected-nayax-transaction-mobile.png'),
-    'Evidence must include the reviewed selected Nayax transaction identity on desktop and mobile'
-  );
-  assert(
-    EXPECTED_SCREENSHOTS.includes('refund-case-availability-error-desktop.png') &&
-      EXPECTED_SCREENSHOTS.includes('refund-case-availability-error-mobile.png'),
-    'Evidence must include the reviewed case-specific availability state on desktop and mobile'
-  );
-  assert(
-    EXPECTED_SCREENSHOTS.includes('refund-direct-intake-cash-desktop.png') &&
-      EXPECTED_SCREENSHOTS.includes('refund-qr-intake-cash-mobile.png'),
-    'Evidence must include reviewed desktop and mobile cash-intake states'
+    EXPECTED_SCREENSHOTS.filter((name) => REFUND_PORTAL_HUMAN_REVIEW_SCREENSHOTS.includes(name)),
+    REFUND_PORTAL_HUMAN_REVIEW_SCREENSHOTS,
+    'Portal evidence must use the focused human-review screenshot policy'
   );
   assert.equal(
-    EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-manager-')).length,
-    12,
-    'Evidence must include confirmed ready/blocked, stale-evidence, action-clarity, responsive, cached-read, long-queue, and streamlined manager-queue states'
-  );
-  assert(
-    EXPECTED_SCREENSHOTS.includes('refund-manager-long-queue-desktop.png'),
-    'Evidence must include the reviewed bounded long-queue manager state'
-  );
-  assert(
-    EXPECTED_SCREENSHOTS.includes('refund-manager-queue-desktop.png') &&
-      EXPECTED_SCREENSHOTS.includes('refund-manager-queue-mobile-200-percent.png'),
-    'Evidence must include the single streamlined manager queue on desktop and at mobile 200% zoom'
+    EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('machine-') || name.startsWith('admin-machines-')).length,
+    11,
+    'Evidence must retain the machine setup review states produced by the separate manager UAT'
   );
   assert.equal(
-    EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('machine-refunds-')).length,
+    EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-direct-intake-') || name.startsWith('refund-qr-intake-')).length,
     8,
-    'Evidence must include ready, ready-to-activate, setup-needed, Valley Mall product-unverified desktop/mobile, API-blocked, machine-disabled, and global-pause Admin states'
-  );
-  assert.equal(
-    EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('refund-simple-journey-')).length,
-    3,
-    'Evidence must include disabled and resumed desktop/mobile states for the simple journey'
-  );
-  assert(
-    EXPECTED_SCREENSHOTS.includes('refund-portal-uat-sanitized-simple-card-refund-journey.png'),
-    'Evidence must include the successful sanitized simple journey'
-  );
-  assert(
-    EXPECTED_SCREENSHOTS.includes('refund-email-pilot-source-badges-mobile.png'),
-    'Evidence must include the reviewed mobile source-badge state'
-  );
-  assert.equal(
-    EXPECTED_SCREENSHOTS.filter((name) =>
-      name.startsWith('refund-portal-uat-customer-outreach-')
-    ).length,
-    13,
-    'Evidence must include every reviewed customer-outreach lifecycle and ownership state'
-  );
-  assert.equal(
-    EXPECTED_SCREENSHOTS.filter((name) =>
-      name.startsWith('refund-nayax-support-resolution-')
-    ).length,
-    2,
-    'Evidence must include exactly one desktop and one mobile payment-result review state'
+    'Evidence must retain the intake review states produced by the separate intake UAT'
   );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.includes('totp') || name.includes('step-up')).length,
@@ -481,11 +351,6 @@ try {
     false,
     'The evidence allowlist must not preserve the retired manual Nayax reconciliation screen'
   );
-  assert(
-    EXPECTED_SCREENSHOTS.includes('refund-payment-result-review-desktop.png') &&
-      EXPECTED_SCREENSHOTS.includes('refund-payment-result-review-mobile.png'),
-    'The evidence allowlist must include the current payment-result review at desktop and mobile widths'
-  );
   const portalUatSource = await readFile(
     new URL('./validate-refund-portal-uat.mjs', import.meta.url),
     'utf8'
@@ -495,71 +360,20 @@ try {
       portalUatSource.includes("path.join(args.fragmentDir, 'refund-provider-outcomes.json')"),
     'The full portal run must produce the reviewed provider-outcome evidence input'
   );
-  const providerOutcomeCallBodies = [
-    ...portalUatSource.matchAll(/await runNayaxExecutionOutcomeChecks\(\{([\s\S]*?)\n\s*\}\);/g),
-  ].map((match) => match[1]);
-  assert.equal(
-    providerOutcomeCallBodies.length,
-    2,
-    'The portal UAT must retain both focused and full provider-outcome runs'
+  assert.match(
+    portalUatSource,
+    /runRefundPortalJourneys\(\{/,
+    'The full browser run must execute the five focused business journeys'
   );
-  assert(
-    providerOutcomeCallBodies.every((body) => /\bproviderOutcomeEvidence\b/.test(body)),
-    'Every provider-outcome run must receive the evidence collector'
+  assert.match(
+    portalUatSource,
+    /'nayax-execution-outcomes':[\s\S]*providerOutcomeEvidence/,
+    'The unknown-provider-outcome journey must retain its machine-readable evidence collector'
   );
-  assert.equal(
-    EXPECTED_SCREENSHOTS.filter((name) => name.endsWith('single-manager-confirmation.png')).length,
-    2,
-    'The evidence must show both mapped-manager session paths without a second factor'
-  );
-  const supportPanelAssertionIndex = portalUatSource.indexOf(
-    "'Managers see success, no-refund, or remain-on-hold case-work outcomes'"
-  );
-  const supportDesktopScreenshotIndex = portalUatSource.indexOf(
-    "path.join(artifactDir, 'refund-nayax-support-resolution-desktop.png')"
-  );
-  const supportMobileScreenshotIndex = portalUatSource.indexOf(
-    "path.join(artifactDir, 'refund-nayax-support-resolution-mobile.png')"
-  );
-  const supportSubmitIndex = portalUatSource.indexOf(
-    "await panel.getByTestId('refund-nayax-resolution-prepare').click();",
-    supportMobileScreenshotIndex
-  );
-  const supportManagerSessionAssertionIndex = portalUatSource.indexOf(
-    '`Case-work ${scenario.result} uses the original approval without provider or separate message endpoint`',
-    supportSubmitIndex
-  );
-  assert(
-    supportPanelAssertionIndex >= 0 &&
-      supportDesktopScreenshotIndex > supportPanelAssertionIndex &&
-      supportMobileScreenshotIndex > supportDesktopScreenshotIndex &&
-      supportSubmitIndex > supportMobileScreenshotIndex &&
-      supportManagerSessionAssertionIndex > supportSubmitIndex,
-    'Payment-result evidence must show structured desktop and mobile review states before saving the result'
-  );
-  const providerReceiptAssertionIndex = portalUatSource.indexOf(
-    '`Synthetic browser ${scenario.name} renders the settled domain outcome`'
-  );
-  const providerScreenshotExpression =
-    'page.screenshot({ path: path.join(artifactDir, scenario.screenshot), fullPage: true })';
-  const providerScreenshotIndexes = [...portalUatSource.matchAll(
-    /page\.screenshot\(\{ path: path\.join\(artifactDir, scenario\.screenshot\), fullPage: true \}\)/g
-  )].map((match) => match.index);
-  const providerPersistenceIndex = portalUatSource.indexOf(
-    "if (scenario.name === 'success') {",
-    providerReceiptAssertionIndex
-  );
-  assert.equal(
-    providerScreenshotIndexes.length,
-    1,
-    'Each provider scenario must have exactly one reviewed screenshot capture'
-  );
-  assert(
-    providerReceiptAssertionIndex >= 0 &&
-      portalUatSource.indexOf('page.getByText(scenario.expectedTitle, { exact: true }).isVisible()', providerReceiptAssertionIndex) <
-        providerScreenshotIndexes[0] &&
-      providerScreenshotIndexes[0] < providerPersistenceIndex,
-    `Provider screenshots must capture the asserted scenario-specific receipt before normalized persistence checks: ${providerScreenshotExpression}`
+  assert.match(
+    portalUatSource,
+    /shouldCaptureScreenshot: shouldCaptureRefundPortalScreenshot/,
+    'Portal screenshot generation must use the focused human-review policy'
   );
   assert.deepEqual(
     EXPECTED_MACHINE_READABLE_ARTIFACTS,
