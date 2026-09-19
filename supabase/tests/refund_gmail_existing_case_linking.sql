@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(30);
+select plan(33);
 
 create function pg_temp.set_auth_claims(p_user_id uuid)
 returns void language plpgsql as $$
@@ -319,13 +319,67 @@ select ok(
     from jsonb_array_elements(public.admin_get_refund_operations_overview() -> 'cases') item
     where item ->> 'id' = 'b8940000-0000-4000-8000-000000000002'
       and item -> 'inboundLinkReview' ->> 'status' = 'pending'
-      and item ->> 'officialActionBlockReason' = 'inbound_link_review_required'
-      and (item ->> 'canPerformOfficialAction')::boolean is false
+      and (item -> 'inboundLinkReview' ->> 'customerContactSuppressed')::boolean
+      and (item ->> 'canPerformOfficialAction')::boolean
+      and item -> 'officialActionBlockReason' = 'null'::jsonb
       and item -> 'lifecycle' -> 'managerQueue' ->> 'bucket' = 'needs_action'
       and item -> 'lifecycle' -> 'managerQueue' ->> 'nextAction' = 'review_inbound_case_link'
   ),
-  'Each candidate exposes one Action needed manager task and blocks official action'
+  'Pending linkage suppresses contact and remains manager case work without revoking payment authority'
 );
+
+reset role;
+
+select is(
+  public.can_perform_refund_official_action(
+    'b8900000-0000-4000-8000-000000000002',
+    'b8940000-0000-4000-8000-000000000002'
+  ),
+  false,
+  'Pending linkage does not weaken the exact manager-authorization gate'
+);
+
+update public.refund_cases
+set duplicate_of_refund_case_id = 'b8940000-0000-4000-8000-000000000002'
+where id = 'b8940000-0000-4000-8000-000000000003';
+
+select is(
+  public.can_perform_refund_official_action(
+    'b8900000-0000-4000-8000-000000000001',
+    'b8940000-0000-4000-8000-000000000003'
+  ),
+  false,
+  'Confirmed duplicate cases remain outside payment authority'
+);
+
+update public.refund_cases
+set duplicate_of_refund_case_id = null
+where id = 'b8940000-0000-4000-8000-000000000003';
+
+insert into public.refund_case_reconciliation_reviews (
+  id, left_refund_case_id, right_refund_case_id, match_class, reason_codes,
+  left_fact_fingerprint, right_fact_fingerprint
+) values (
+  'b8950000-0000-4000-8000-000000000001',
+  'b8940000-0000-4000-8000-000000000002',
+  'b8940000-0000-4000-8000-000000000003',
+  'possible', array['customer_email_exact'], repeat('a', 64), repeat('b', 64)
+);
+
+select is(
+  public.can_perform_refund_official_action(
+    'b8900000-0000-4000-8000-000000000001',
+    'b8940000-0000-4000-8000-000000000002'
+  ),
+  false,
+  'Unresolved reconciliation remains outside payment authority'
+);
+
+delete from public.refund_case_reconciliation_reviews
+where id = 'b8950000-0000-4000-8000-000000000001';
+
+set local role authenticated;
+select pg_temp.set_auth_claims('b8900000-0000-4000-8000-000000000001');
 
 select ok(
   (select (result ->> 'resolved')::boolean

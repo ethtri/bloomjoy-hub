@@ -8,6 +8,13 @@ const read = (...parts) => fs.readFileSync(path.join(root, ...parts), 'utf8');
 const migration = read(
   'supabase', 'migrations', '20260901080000_refund_gmail_existing_case_linking.sql'
 );
+const authorityDecouplingMigration = read(
+  'supabase', 'migrations',
+  '20260919162345_refund_gmail_payment_authority_decoupling.sql'
+);
+const singleManagerGateMigration = read(
+  'supabase', 'migrations', '20260913090000_refund_single_manager_gate.sql'
+);
 const formOnlyMigration = read(
   'supabase', 'migrations', '20260821090000_refund_form_only_case_creation.sql'
 );
@@ -25,7 +32,6 @@ for (const requiredMigrationContract of [
   'customer_message_sent',
   'provider_call_made',
   'payment_action_taken',
-  'inbound_link_review_required',
   "'nextAction', 'review_inbound_case_link'",
   "'bucket', 'needs_action'",
   'Current manager access to every candidate case is required',
@@ -33,6 +39,36 @@ for (const requiredMigrationContract of [
   assert(
     migration.includes(requiredMigrationContract),
     `Existing-case Gmail migration is missing: ${requiredMigrationContract}`
+  );
+}
+
+const decoupledOverviewProjection = authorityDecouplingMigration.match(
+  /create or replace function\s+public\.admin_get_refund_operations_overview_pre_lifecycle_v2\(\)[\s\S]*?\$\$;/
+)?.[0] ?? '';
+assert.match(
+  decoupledOverviewProjection,
+  /refund_gmail_case_link_review_contract\(review\.id\)/,
+  'Pending Gmail linkage must retain its redacted manager review contract'
+);
+assert.match(
+  decoupledOverviewProjection,
+  /'nextAction', 'review_inbound_case_link'/,
+  'Pending Gmail linkage must remain visible manager case work'
+);
+assert.doesNotMatch(
+  decoupledOverviewProjection,
+  /canPerformOfficialAction|officialActionBlockReason|inbound_link_review_required/,
+  'The Gmail projection must not replace authoritative payment capability fields'
+);
+for (const retainedPaymentGate of [
+  /refund_official_action_authority\(p_user_id,p_refund_case_id\) is not null/,
+  /c\.duplicate_of_refund_case_id is null/,
+  /not public\.refund_case_has_unresolved_reconciliation\(c\.id\)/,
+]) {
+  assert.match(
+    singleManagerGateMigration,
+    retainedPaymentGate,
+    `The authoritative payment predicate lost ${retainedPaymentGate}`
   );
 }
 
