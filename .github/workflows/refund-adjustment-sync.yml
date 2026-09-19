@@ -1,6 +1,12 @@
 name: Refund Adjustment Sync
 
 on:
+  pull_request:
+    paths:
+      - 'scripts/refunds/refund-adjustment-utils.mjs'
+      - 'scripts/validate-refund-adjustments.mjs'
+      - 'supabase/migrations/202605090001_refund_operations_mvp.sql'
+      - '.github/workflows/refund-adjustment-sync.yml'
   schedule:
     # Daily private-source sync. Avoid the top of the hour because scheduled Actions can be delayed or dropped under load.
     - cron: '17 15 * * *'
@@ -15,11 +21,30 @@ permissions:
   contents: read
 
 concurrency:
-  group: refund-adjustment-sync
+  group: ${{ github.event_name == 'pull_request' && format('refund-adjustment-validation-{0}', github.event.pull_request.number) || 'refund-adjustment-sync' }}
   cancel-in-progress: false
 
 jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Validate refund adjustment fixtures
+        run: npm run reporting:validate-refund-adjustments
+
   sync:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:

@@ -142,11 +142,30 @@ try {
   const invalidAdditionalRestore = structuredClone(repositoryManifest);
   invalidAdditionalRestore.additionalFunctionBaselines[0].sourceSha256 = 'e'.repeat(64);
   assert.throws(() => validateApprovedRestoreSource(repoRoot, invalidAdditionalRestore), /Additional baseline restore source does not match/);
-  assert.match(
-    fs.readFileSync(path.join(repoRoot, '.github/workflows/refund-production-drift.yml'), 'utf8'),
-    /supabase\/functions\/refund-nayax-outcome-resolve\/\*\*/,
-    'Resolver-only edits must trigger the production source guard'
+  const productionDriftWorkflow = fs.readFileSync(
+    path.join(repoRoot, '.github/workflows/refund-production-drift.yml'),
+    'utf8'
   );
+  assert.match(productionDriftWorkflow, /schedule:/, 'Production drift must remain scheduled');
+  assert.match(productionDriftWorkflow, /workflow_dispatch:/, 'Production drift must remain manually runnable');
+  assert.doesNotMatch(
+    productionDriftWorkflow,
+    /pull_request:/,
+    'Production drift belongs at scheduled or explicit release boundaries, not on every refund PR'
+  );
+  const ciWorkflow = fs.readFileSync(path.join(repoRoot, '.github/workflows/ci.yml'), 'utf8');
+  assert.doesNotMatch(
+    ciWorkflow,
+    /refunds:release:check|refunds:validate-release-tooling|reporting:validate-refund-adjustments/,
+    'Universal PR CI must not run release-boundary or path-scoped refund validation'
+  );
+  const refundUatWorkflow = fs.readFileSync(
+    path.join(repoRoot, '.github/workflows/refund-uat-evidence.yml'),
+    'utf8'
+  );
+  assert.match(refundUatWorkflow, /run: npm run test:refunds/);
+  assert.match(refundUatWorkflow, /!scripts\/refunds\/refund-production-release\.json/);
+  assert.doesNotMatch(refundUatWorkflow, /refund-change-scope/);
   const missingEntrypointManifest = structuredClone(repositoryManifest);
   delete missingEntrypointManifest.functions[0].production.entrypointIdentity;
   assert.throws(

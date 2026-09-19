@@ -170,7 +170,8 @@ Security rule:
   or repeat Manager decision.
 - [ ] `npm run commerce:preflight -- --project-ref <project-ref> --include-refunds` passes
 - [ ] `npm run refunds:validate-release-tooling` passes.
-- [ ] `npm run refunds:release:check` confirms that all protected refund functions, required migrations, source commit, and `verify_jwt` settings match the current approved release manifest. Use its function count; do not substitute a historical route-smoke count.
+- [ ] On the final clean release-candidate source commit, run `npm run refunds:release:seal-candidate`, review the diff, and commit only the resulting manifest seal. Do not reseal the manifest on intermediate feature commits.
+- [ ] From that manifest-seal commit, `npm run refunds:release:check` confirms that all protected refund functions, required migrations, source commit, and `verify_jwt` settings match the current approved release manifest. Use its function count; do not substitute a historical route-smoke count.
 - [ ] Browser evidence covers the changed refund path at desktop and mobile widths
   with synthetic data. Reuse unchanged automated evidence instead of requiring a
   fixed screenshot count or a new ceremony for every release.

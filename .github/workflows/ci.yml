@@ -26,21 +26,10 @@ jobs:
         run: node scripts/check-supabase-migration-versions.mjs
       - name: Agent Workflow Drift Check
         run: npm run agent:validate-workflow
-      - name: Refund Release Manifest Check
-        run: npm run refunds:release:check -- --fetch-reviewed-source
-      - name: Refund Release Tooling Check
-        run: npm run refunds:validate-release-tooling
-      - name: Verify refund change-scope evidence
-        env:
-          REFUND_SCOPE_BASE: ${{ github.event.pull_request.base.sha }}
-          REFUND_SCOPE_HEAD: ${{ github.event.pull_request.head.sha }}
-        run: node scripts/refunds/refund-change-scope.mjs "$REFUND_SCOPE_BASE" "$REFUND_SCOPE_HEAD"
-      - name: Setup Deno for refund Edge Function tests
+      - name: Setup Deno for quick unit tests
         uses: denoland/setup-deno@v2
         with:
           deno-version: v2.6.3
-      - name: Refund Location Safety Check
-        run: npm run refunds:validate-location-safety
       - name: Build
         run: npm run build
       - name: TypeScript no-emit check
@@ -51,8 +40,6 @@ jobs:
         run: npm run reporting:validate-provider-parser
       - name: Provider Diagnostic Regression Checks
         run: npm run reporting:validate-sync-diagnostics
-      - name: Refund Adjustment Regression Checks
-        run: npm run reporting:validate-refund-adjustments
       - name: Edge URL Allowlist Checks
         run: npm run edge-url-allowlists:check
       - name: Test

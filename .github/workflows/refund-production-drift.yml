@@ -1,25 +1,6 @@
 name: Refund Production Drift
 
 on:
-  pull_request:
-    paths:
-      - 'supabase/functions/refund-case-*/**'
-      - 'supabase/functions/refund-nayax-outcome-resolve/**'
-      - 'supabase/functions/nayax-*/**'
-      - 'supabase/functions/_shared/**'
-      - 'supabase/migrations/**refund**'
-      - 'supabase/migrations/**nayax**'
-      - 'supabase/config.toml'
-      - 'scripts/refunds/refund-release.mjs'
-      - 'scripts/refunds/refund-drift-credential.mjs'
-      - 'scripts/refunds/refund-auth-control-plane.mjs'
-      - 'scripts/refunds/refund-production-auth-closed.mjs'
-      - 'scripts/refunds/refund-production-release.json'
-      - 'scripts/refunds/validate-refund-drift-credential.mjs'
-      - 'scripts/refunds/validate-refund-production-auth-gate.mjs'
-      - 'scripts/refunds/validate-refund-release.mjs'
-      - 'package.json'
-      - '.github/workflows/refund-production-drift.yml'
   schedule:
     - cron: '17 16 * * *'
   workflow_dispatch:
@@ -32,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  local-manifest:
+  release-monitoring-tooling:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -45,14 +26,12 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '20'
-      - name: Validate local release manifest
-        run: npm run refunds:release:check -- --fetch-reviewed-source
-      - name: Validate release tooling
-        run: npm run refunds:validate-release-tooling
+      - name: Validate release monitoring tooling
+        run: node --test scripts/refunds/refund-function-deploy.test.mjs scripts/refunds/refund-release-provenance.test.mjs && node scripts/refunds/validate-refund-drift-credential.mjs
 
   production-drift:
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
-    needs: local-manifest
+    needs: release-monitoring-tooling
     runs-on: ubuntu-latest
     environment: production-readonly
     timeout-minutes: 10
