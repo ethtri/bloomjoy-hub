@@ -8,15 +8,25 @@ import { Webhook } from 'svix';
 
 const read = (path) => readFile(new URL(`../../${path}`, import.meta.url), 'utf8');
 
-const [migration, shared, messageSend, operations, refundsPage, databaseTest] =
+const [
+  migration,
+  shared,
+  messageSend,
+  operations,
+  refundsPageSource,
+  customerDeliveryPanels,
+  databaseTest,
+] =
   await Promise.all([
     read('supabase/migrations/20260901070000_refund_transactional_delivery_truth.sql'),
     read('supabase/functions/_shared/refund-transactional-delivery.ts'),
     read('supabase/functions/refund-case-message-send/index.ts'),
     read('src/lib/refundOperations.ts'),
     read('src/pages/admin/Refunds.tsx'),
+    read('src/components/refunds/RefundCustomerDeliveryPanels.tsx'),
     read('supabase/tests/refund_transactional_delivery_truth.sql'),
   ]);
+const refundsPage = `${refundsPageSource}\n${customerDeliveryPanels}`;
 
 for (const token of [
   'refund_transactional_delivery_events',

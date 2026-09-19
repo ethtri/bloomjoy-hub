@@ -63,6 +63,20 @@ import {
   RefundCardExecutionConfirmationDialog,
   type RefundCardExecutionConfirmationPresentation,
 } from '@/components/refunds/RefundCardExecutionConfirmationDialog';
+import {
+  RefundCustomerCommunicationActions,
+  type RefundCustomerCommunicationActionsPresentation,
+} from '@/components/refunds/RefundCustomerCommunicationActions';
+import {
+  RefundCustomerCompletionRecoveryPanel,
+  RefundCustomerDeliveryReviewPanel,
+  type RefundCustomerCompletionRecoveryPresentation,
+  type RefundCustomerDeliveryReviewPresentation,
+} from '@/components/refunds/RefundCustomerDeliveryPanels';
+import {
+  RefundCustomerMessageHistory,
+  type RefundCustomerMessageHistoryRow,
+} from '@/components/refunds/RefundCustomerMessageHistory';
 import { fetchRefundSunzeCashCorrelation } from '@/lib/refundSunzeCashCorrelationApi';
 import type { RefundSunzeCashCorrelation } from '@/lib/refundSunzeCashCorrelation';
 import { canRequestDistinctCashPayoutDestination } from '@/lib/refundCashPayoutRequest';
@@ -3217,6 +3231,29 @@ export default function AdminRefundsPage() {
         customerDeliveryRefreshMessage.deliveryState ?? ''
       )
   );
+  const customerDeliveryReviewPresentation: RefundCustomerDeliveryReviewPresentation | null =
+    selectedCase?.customerDeliveryException
+      ? {
+          outcomeLabel: transactionalDeliveryLabel(selectedCase.customerDeliveryException.state),
+          paymentMessage: selectedCase.lifecycle?.paymentState === 'confirmed'
+            ? 'Payment remains confirmed.'
+            : 'This delivery record does not change the refund or payment state.',
+          recordKind: customerDeliveryRefreshIsOriginalRequest
+            ? 'original-request'
+            : customerDeliveryRefreshMessage
+              ? 'specific-message'
+              : 'unidentified',
+          refresh: canRefreshCustomerDelivery
+            ? {
+                label: customerDeliveryRefreshIsOriginalRequest
+                  ? 'Refresh original request delivery'
+                  : 'Refresh customer message delivery',
+                disabled: isRefreshingCustomerDelivery || isUsingDemoData,
+                pending: isRefreshingCustomerDelivery,
+              }
+            : null,
+        }
+      : null;
   const latestNayaxCompletionMessage = selectedCase?.messages
     .filter((message) =>
       message.messageType === 'completed' &&
@@ -3245,6 +3282,98 @@ export default function AdminRefundsPage() {
       ['pending', 'failed'].includes(latestNayaxCompletionMessage.status) &&
       isRefundCustomerDeliveryUncertain(latestNayaxCompletionMessage.errorMessage)
   );
+  const customerCompletionRecoveryPresentation: RefundCustomerCompletionRecoveryPresentation | null =
+    latestPendingNayaxCompletionMessage || latestFailedNayaxCompletionMessage
+      ? nayaxCompletionNeedsReconciliation
+        ? { kind: 'reconciliation' }
+        : recoverablePendingNayaxCompletionMessage
+          ? {
+              kind: 'recover',
+              message: selectedCase?.intakeSource === 'gmail'
+                ? 'If the last step was interrupted, wait five minutes and check the saved reply. Bloomjoy will either confirm it was sent or make one safe retry available.'
+                : 'The refund and reporting update are complete. Recover the saved customer email once; this cannot repeat the refund.',
+              disabled: isUsingDemoData || isSendingCustomerMessage,
+              pending: isSendingCustomerMessage,
+            }
+          : failedNayaxCompletionMessage
+            ? {
+                kind: 'retry',
+                disabled: isUsingDemoData || isSendingCustomerMessage,
+                pending: isSendingCustomerMessage,
+              }
+            : nayaxCompletionRetryExhausted
+              ? { kind: 'exhausted' }
+              : null
+      : null;
+  const customerMessageHistoryRows: RefundCustomerMessageHistoryRow[] = selectedCase?.messages.map(
+    (message) => {
+      const focused = message.id === selectedDeliveryEvidenceMessageId;
+      const completionHistory = getRefundCompletionHistoryPresentation(message);
+      const deliveryLabel = transactionalDeliveryLabel(message.deliveryState);
+      const hasDetails = Boolean(
+        message.reasonCode ||
+        message.templateVersion ||
+        (message.requestedFields?.length ?? 0) > 0
+      );
+      return {
+        id: message.id,
+        focused,
+        focusedAriaLabel: focused
+          ? `Saved delivery record: ${completionHistory?.badgeLabel ?? deliveryLabel}`
+          : null,
+        messageTypeLabel: statusLabel(message.messageType),
+        primaryBadge: completionHistory
+          ? { kind: 'completion', label: completionHistory.badgeLabel }
+          : {
+              kind: 'status',
+              label: message.status,
+              className: messageStatusBadgeClass(message.status),
+            },
+        deliveryBadge: message.deliveryTransport === 'resend'
+          ? {
+              testId: `refund-message-delivery-${message.id}`,
+              label: deliveryLabel,
+              className: transactionalDeliveryBadgeClass(message.deliveryState),
+            }
+          : null,
+        deliveryKindLabel: message.deliveryKind
+          ? message.deliveryKind === 'automatic' ? 'Automatic' : 'Manager sent'
+          : null,
+        details: hasDetails
+          ? {
+              heading: message.reasonCode === 'missing_information'
+                ? 'Reason: exact purchase details were missing'
+                : message.reasonCode === 'no_safe_match'
+                  ? 'Reason: no single safe transaction match was found'
+                  : 'Customer email details',
+              requestedFields: message.requestedFields && message.requestedFields.length > 0
+                ? message.requestedFields.map((field) => missingFieldCustomerLabel[field]).join('; ')
+                : null,
+              templateVersion: message.templateVersion ?? null,
+            }
+          : null,
+        subject: message.subject,
+        body: message.body,
+        recipientEmail: message.recipientEmail,
+        recordedLabel: completionHistory
+          ? `${completionHistory.timeLabel} ${formatDate(completionHistory.recordedAt)}`
+          : message.deliveryTransport === 'resend'
+            ? `${deliveryLabel.toLowerCase()} ${formatDate(
+                message.deliveryStateUpdatedAt ?? message.sentAt ?? message.createdAt
+              )}`
+            : message.sentAt
+              ? `sent ${formatDate(message.sentAt)}`
+              : `created ${formatDate(message.createdAt)}`,
+        errorMessage: message.errorMessage &&
+          !(
+            message.deliveryTransport === 'resend' &&
+            message.errorMessage.startsWith('transactional_delivery_')
+          )
+          ? message.errorMessage
+          : null,
+      };
+    }
+  ) ?? [];
   const selectedCaseOfficialActionBlockReason = selectedCase?.officialActionBlockReason ??
     (selectedCase?.canPerformOfficialAction !== true ? 'manager_mapping_required' : null);
   const selectedCaseIsTerminal = selectedCase ? doneStatuses.has(selectedCase.status) : false;
@@ -6043,6 +6172,18 @@ export default function AdminRefundsPage() {
     const canAskForCustomerDetails =
       canRequestRefundCustomerDetailsManually(selectedCase.lifecycle?.customerOutreach) &&
       derivePortalRefundMissingFields(selectedCase).length > 0;
+    const customerCommunicationActions: RefundCustomerCommunicationActionsPresentation = {
+      draft: nextCustomerDraft,
+      requestCorrection: canAskForCustomerDetails && primaryAction?.messageType !== 'more_info'
+        ? { disabled: isUsingDemoData }
+        : null,
+      denial: primaryAction?.label !== 'Deny request'
+        ? {
+            label: selectedCase.decision === 'approved' ? 'Change to denial' : 'Deny request',
+            disabled: isUsingDemoData || selectedCaseIsReviewOnly,
+          }
+        : null,
+    };
 
     const chooseCustomerFollowUp = () => {
       if (!canAskForCustomerDetails || isSendingCustomerMessage) return;
@@ -6705,41 +6846,11 @@ export default function AdminRefundsPage() {
               onPrepare={() => void handlePrepareNayaxResolution()}
             />
           ) : transactionDecisionPending ? null : (
-          <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <details className="text-sm">
-              <summary className="cursor-pointer font-medium text-foreground">Preview customer email</summary>
-              {nextCustomerDraft ? (
-                <div className="mt-3 max-w-xl rounded-md bg-muted/40 p-3">
-                  <p className="font-medium text-foreground">{nextCustomerDraft.subject}</p>
-                  <p className="mt-2 whitespace-pre-line text-sm leading-6 text-muted-foreground">{nextCustomerDraft.body}</p>
-                </div>
-              ) : (
-                <p className="mt-2 text-muted-foreground">No automatic email is queued for this state.</p>
-              )}
-            </details>
-            <details className="text-sm sm:text-right">
-              <summary className="cursor-pointer font-medium text-muted-foreground">Other decisions</summary>
-              <div className="mt-3 flex flex-wrap gap-2 sm:justify-end">
-                {canAskForCustomerDetails && primaryAction?.messageType !== 'more_info' && (
-                  <Button type="button" size="sm" variant="outline" disabled={isUsingDemoData} onClick={chooseCustomerFollowUp}>
-                    Request customer correction
-                  </Button>
-                )}
-                {primaryAction?.label !== 'Deny request' && (
-                  <Button
-                    data-testid="refund-deny-instead"
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={isUsingDemoData || selectedCaseIsReviewOnly}
-                    onClick={(event) => chooseDenial(event.currentTarget)}
-                  >
-                    {selectedCase.decision === 'approved' ? 'Change to denial' : 'Deny request'}
-                  </Button>
-                )}
-              </div>
-            </details>
-          </div>
+            <RefundCustomerCommunicationActions
+              presentation={customerCommunicationActions}
+              onRequestCorrection={chooseCustomerFollowUp}
+              onDeny={chooseDenial}
+            />
           )}
         </section>
         )}
@@ -7387,71 +7498,12 @@ export default function AdminRefundsPage() {
                       </div>
                     )}
 
-                    {!selectedCaseIsInternalTest && selectedCase.customerDeliveryException && (
-                      <section
-                        data-testid="refund-secondary-delivery-review"
-                        className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950"
-                      >
-                        <p className="font-semibold">Customer message needs review</p>
-                        <p className="mt-1 leading-6">
-                          Saved delivery outcome: {transactionalDeliveryLabel(selectedCase.customerDeliveryException.state)}.{' '}
-                          {selectedCase.lifecycle?.paymentState === 'confirmed'
-                            ? 'Payment remains confirmed.'
-                            : 'This delivery record does not change the refund or payment state.'}{' '}
-                          The assigned machine manager reviews the original customer email thread and saved delivery record. Do not resend this saved message until its delivery is clear.
-                        </p>
-                        {customerDeliveryRefreshIsOriginalRequest ? (
-                          <p className="mt-2 leading-6">
-                            The active customer request is the record that must be reconciled. A later delivered update does not prove that request arrived.
-                          </p>
-                        ) : customerDeliveryRefreshMessage ? (
-                          <p className="mt-2 leading-6">
-                            This specific customer message is the record that must be reconciled. A different or later delivered message does not prove this one arrived.
-                          </p>
-                        ) : (
-                          <p className="mt-2 leading-6">
-                            Bloomjoy could not identify exactly one message for this delivery record. Keep it blocked for manager review.
-                          </p>
-                        )}
-                        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                          {canRefreshCustomerDelivery && (
-                            <Button
-                              data-testid="refund-refresh-delivery-status"
-                              type="button"
-                              size="sm"
-                              className="h-auto min-h-11 w-full whitespace-normal py-2 text-center leading-5 sm:w-auto"
-                              onClick={() => void handleRefreshCustomerDelivery()}
-                              disabled={isRefreshingCustomerDelivery || isUsingDemoData}
-                            >
-                              {isRefreshingCustomerDelivery ? (
-                                <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
-                              ) : (
-                                <RefreshCw className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
-                              )}
-                              {customerDeliveryRefreshIsOriginalRequest
-                                ? 'Refresh original request delivery'
-                                : 'Refresh customer message delivery'}
-                            </Button>
-                          )}
-                          <Button
-                            data-testid="refund-review-delivery-record"
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="h-auto min-h-11 w-full whitespace-normal border-amber-400 bg-white py-2 text-center leading-5 text-amber-950 hover:bg-amber-100 sm:w-auto"
-                            aria-label={`Review delivery record: ${transactionalDeliveryLabel(selectedCase.customerDeliveryException.state)}`}
-                            onClick={handleReviewDeliveryRecord}
-                          >
-                            <Mail className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
-                            Review delivery record
-                          </Button>
-                        </div>
-                        {!canRefreshCustomerDelivery && (
-                          <p data-testid="refund-delivery-recovery-fallback" className="mt-3 text-xs leading-5">
-                            The exact provider record cannot be refreshed here. Keep delivery blocked and do not resend this saved message until its delivery is clear. A different specific request may still follow the documented case procedure.
-                          </p>
-                        )}
-                      </section>
+                    {!selectedCaseIsInternalTest && customerDeliveryReviewPresentation && (
+                      <RefundCustomerDeliveryReviewPanel
+                        presentation={customerDeliveryReviewPresentation}
+                        onRefresh={() => void handleRefreshCustomerDelivery()}
+                        onReview={handleReviewDeliveryRecord}
+                      />
                     )}
 
                     {!selectedCaseIsInternalTest && (selectedCaseIsTerminal ? (
@@ -7479,71 +7531,12 @@ export default function AdminRefundsPage() {
                           ? renderCardDecisionWorkbench()
                           : renderCashDecisionWorkbench())}
 
-                    {!selectedCaseIsInternalTest && (latestPendingNayaxCompletionMessage || latestFailedNayaxCompletionMessage) && (
-                      <section
-                        data-testid="refund-nayax-completion-recovery"
-                        className="rounded-xl border border-slate-300 bg-slate-50 p-4 text-sm text-slate-950"
-                      >
-                        {nayaxCompletionNeedsReconciliation ? (
-                          <div>
-                            <p className="font-semibold">Check whether the customer email was sent</p>
-                            <p className="mt-1 leading-6">
-                              Gmail delivery may have started. Do not send another completion or use a generic reply. Check the original Gmail thread and escalate the stored delivery record for support review.
-                            </p>
-                          </div>
-                        ) : recoverablePendingNayaxCompletionMessage ? (
-                          <div>
-                            <p className="font-semibold">Customer completion is still pending</p>
-                            <p className="mt-1 leading-6">
-                              {selectedCase.intakeSource === 'gmail'
-                                ? 'If the last step was interrupted, wait five minutes and check the saved reply. Bloomjoy will either confirm it was sent or make one safe retry available.'
-                                : 'The refund and reporting update are complete. Recover the saved customer email once; this cannot repeat the refund.'}
-                            </p>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="mt-3"
-                              onClick={() => void handleRecoverPendingNayaxCompletion()}
-                              disabled={isUsingDemoData || isSendingCustomerMessage}
-                            >
-                              {isSendingCustomerMessage ? (
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              ) : (
-                                <ShieldCheck className="mr-2 h-4 w-4" />
-                              )}
-                              Recover interrupted completion
-                            </Button>
-                          </div>
-                        ) : failedNayaxCompletionMessage ? (
-                          <div>
-                            <p className="font-semibold">Customer completion needs one controlled retry</p>
-                            <p className="mt-1 leading-6">
-                              This retries the same completion email in the original Gmail thread. It does not retry or change the refund.
-                            </p>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="mt-3"
-                              onClick={() => void handleRetryNayaxCompletionMessage()}
-                              disabled={isUsingDemoData || isSendingCustomerMessage}
-                            >
-                              {isSendingCustomerMessage ? (
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              ) : (
-                                <Send className="mr-2 h-4 w-4" />
-                              )}
-                              Retry completion email
-                            </Button>
-                          </div>
-                        ) : nayaxCompletionRetryExhausted ? (
-                          <div>
-                            <p className="font-semibold">Customer completion retry is exhausted</p>
-                            <p className="mt-1 leading-6">
-                              Do not send another completion message or repeat the payment. Check the original Gmail thread, then report the delivery record if the result is still unclear.
-                            </p>
-                          </div>
-                        ) : null}
-                      </section>
+                    {!selectedCaseIsInternalTest && customerCompletionRecoveryPresentation && (
+                      <RefundCustomerCompletionRecoveryPanel
+                        presentation={customerCompletionRecoveryPresentation}
+                        onRecover={() => void handleRecoverPendingNayaxCompletion()}
+                        onRetry={() => void handleRetryNayaxCompletionMessage()}
+                      />
                     )}
 
                     {!selectedCaseIsInternalTest && (
@@ -7854,120 +7847,13 @@ export default function AdminRefundsPage() {
                         </div>
                       </details>
 
-                      <details
+                      <RefundCustomerMessageHistory
                         key={selectedCase.id}
-                        ref={customerMessagesDetailsRef}
-                        data-testid="refund-customer-messages"
-                        className="rounded-lg border border-border bg-background p-3"
-                      >
-                        <summary
-                          ref={customerMessagesSummaryRef}
-                          data-testid="refund-customer-messages-summary"
-                          className="flex scroll-mt-20 cursor-pointer list-none items-center gap-2 rounded-sm text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                        >
-                          <Mail className="h-4 w-4 text-primary" />
-                          Customer messages ({selectedCase.messages.length})
-                        </summary>
-                        <div className="mt-3 space-y-3">
-                          {selectedCase.messages.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">
-                              No customer email records have been logged.
-                            </p>
-                          ) : (
-                            selectedCase.messages.map((message) => {
-                              const isSelectedDeliveryEvidence = message.id === selectedDeliveryEvidenceMessageId;
-                              const completionHistory = getRefundCompletionHistoryPresentation(message);
-                              return (
-                                <div
-                                  key={message.id}
-                                  ref={isSelectedDeliveryEvidence ? customerDeliveryEvidenceRef : undefined}
-                                  data-refund-message-id={message.id}
-                                  data-testid={isSelectedDeliveryEvidence ? 'refund-focused-delivery-record' : undefined}
-                                  tabIndex={isSelectedDeliveryEvidence ? -1 : undefined}
-                                  aria-label={isSelectedDeliveryEvidence
-                                    ? `Saved delivery record: ${completionHistory?.badgeLabel ?? transactionalDeliveryLabel(message.deliveryState)}`
-                                    : undefined}
-                                  className={cn(
-                                    'rounded-md border border-border/80 p-2',
-                                    isSelectedDeliveryEvidence && 'scroll-mt-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
-                                  )}
-                                >
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <Badge variant="outline" className="capitalize">
-                                    {statusLabel(message.messageType)}
-                                  </Badge>
-                                  {completionHistory ? (
-                                    <Badge variant="secondary">{completionHistory.badgeLabel}</Badge>
-                                  ) : (
-                                    <Badge className={cn('capitalize', messageStatusBadgeClass(message.status))}>
-                                      {message.status}
-                                    </Badge>
-                                  )}
-                                  {message.deliveryTransport === 'resend' && (
-                                    <Badge
-                                      data-testid={`refund-message-delivery-${message.id}`}
-                                      variant="outline"
-                                      className={transactionalDeliveryBadgeClass(message.deliveryState)}
-                                    >
-                                      {transactionalDeliveryLabel(message.deliveryState)}
-                                    </Badge>
-                                  )}
-                                  {message.deliveryKind && (
-                                    <Badge variant="secondary" className="capitalize">
-                                      {message.deliveryKind === 'automatic' ? 'Automatic' : 'Manager sent'}
-                                    </Badge>
-                                  )}
-                                </div>
-                                {(message.reasonCode || message.templateVersion || (message.requestedFields?.length ?? 0) > 0) && (
-                                  <div className="mt-2 rounded-md border border-sky-200 bg-sky-50 p-2 text-xs leading-5 text-sky-950">
-                                    <p className="font-medium">
-                                      {message.reasonCode === 'missing_information'
-                                        ? 'Reason: exact purchase details were missing'
-                                        : message.reasonCode === 'no_safe_match'
-                                          ? 'Reason: no single safe transaction match was found'
-                                          : 'Customer email details'}
-                                    </p>
-                                    {message.requestedFields && message.requestedFields.length > 0 && (
-                                      <p>
-                                        Requested: {message.requestedFields.map((field) => missingFieldCustomerLabel[field]).join('; ')}
-                                      </p>
-                                    )}
-                                    {message.templateVersion && <p>Template: {message.templateVersion}</p>}
-                                  </div>
-                                )}
-                                <p className="mt-2 break-words text-sm font-medium text-foreground">
-                                  {message.subject}
-                                </p>
-                                <p className="mt-2 whitespace-pre-line break-words rounded-md bg-muted/40 p-2 text-xs leading-5 text-muted-foreground">
-                                  {message.body}
-                                </p>
-                                <p className="mt-1 break-words text-xs text-muted-foreground">
-                                  To {message.recipientEmail} /{' '}
-                                  {completionHistory
-                                    ? `${completionHistory.timeLabel} ${formatDate(completionHistory.recordedAt)}`
-                                    : message.deliveryTransport === 'resend'
-                                    ? `${transactionalDeliveryLabel(message.deliveryState).toLowerCase()} ${
-                                        formatDate(message.deliveryStateUpdatedAt ?? message.sentAt ?? message.createdAt)
-                                      }`
-                                    : message.sentAt
-                                      ? `sent ${formatDate(message.sentAt)}`
-                                      : `created ${formatDate(message.createdAt)}`}
-                                </p>
-                                {message.errorMessage &&
-                                  !(
-                                    message.deliveryTransport === 'resend' &&
-                                    message.errorMessage.startsWith('transactional_delivery_')
-                                  ) && (
-                                  <p className="mt-1 break-words text-xs text-destructive">
-                                    {message.errorMessage}
-                                  </p>
-                                )}
-                                </div>
-                              );
-                            })
-                          )}
-                        </div>
-                      </details>
+                        rows={customerMessageHistoryRows}
+                        detailsRef={customerMessagesDetailsRef}
+                        summaryRef={customerMessagesSummaryRef}
+                        focusedRecordRef={customerDeliveryEvidenceRef}
+                      />
                         </div>
                       </div>
                     </details>
