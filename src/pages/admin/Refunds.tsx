@@ -55,6 +55,14 @@ import {
   RefundCardManagerDecisionPanel,
   type RefundCardManagerCapabilityAction,
 } from '@/components/refunds/RefundCardManagerDecisionPanel';
+import {
+  RefundNayaxOutcomeResolutionPanel,
+  type RefundNayaxOutcomeResolutionPresentation,
+} from '@/components/refunds/RefundNayaxOutcomeResolutionPanel';
+import {
+  RefundCardExecutionConfirmationDialog,
+  type RefundCardExecutionConfirmationPresentation,
+} from '@/components/refunds/RefundCardExecutionConfirmationDialog';
 import { fetchRefundSunzeCashCorrelation } from '@/lib/refundSunzeCashCorrelationApi';
 import type { RefundSunzeCashCorrelation } from '@/lib/refundSunzeCashCorrelation';
 import { canRequestDistinctCashPayoutDestination } from '@/lib/refundCashPayoutRequest';
@@ -5919,6 +5927,119 @@ export default function AdminRefundsPage() {
               pending: isSaving || isRunningNayaxRefund,
             }
           : { kind: 'empty' };
+    const hasNayaxOutcomeResolution = selectedCase.legacyStateReviewRequired ||
+      selectedCase.providerHold ||
+      selectedCase.providerOutcome === 'rejected';
+    const nayaxResolutionReferenceIssue = getNayaxResolutionReferenceIssue(
+      nayaxResolutionEvidenceReference,
+      nayaxResolutionEvidenceType
+    );
+    const nayaxOutcomeResolutionPresentation: RefundNayaxOutcomeResolutionPresentation = {
+      freeze: {
+        testId: selectedCase.legacyStateReviewRequired
+          ? 'refund-legacy-state-freeze'
+          : 'refund-customer-decision-freeze',
+        message: selectedCase.legacyStateReviewRequired
+          ? 'Customer decisions and email are paused during this payment history check.'
+          : selectedCase.providerOutcome === 'rejected'
+            ? 'The customer is not contacted until the payment result is confirmed.'
+            : 'The customer is not contacted until the payment result is confirmed.',
+      },
+      resolution: !selectedCase.legacyStateReviewRequired && nayaxResolutionReadiness?.visible
+        ? {
+            operations: selectedCase.lifecycle?.operations.required
+              ? {
+                  slaMinutes: selectedCase.lifecycle.operations.slaMinutes,
+                  overdue: selectedCase.lifecycle.operations.slaBreached,
+                  recordedPaymentStep: statusLabel(selectedCase.lifecycle.operations.safeStage),
+                }
+              : null,
+            action: !nayaxResolutionReadiness.available &&
+              nayaxResolutionReadiness.systemOutcomeEvidenceAvailable !== true
+              ? {
+                  kind: 'blocked',
+                  message: nayaxResolutionReadiness.blockReason === 'already_resolved'
+                    ? 'The final payment result is already recorded.'
+                    : nayaxResolutionReadiness.blockReason === 'system_provider_hold_no_retry'
+                      ? 'Check this exact transaction in Nayax and record what happened. Do not retry the refund.'
+                      : nayaxResolutionReadiness.blockReason === 'exact_attempt_required'
+                        ? 'Bloomjoy could not identify the exact refund attempt.'
+                        : nayaxResolutionReadiness.blockReason === 'manager_access_required'
+                          ? 'This signed-in user cannot update this machine’s case. Use the assigned Manager or a Super-admin. If that is already true, report a portal defect.'
+                          : nayaxResolutionReadiness.blockReason === 'provider_hold_required'
+                            ? 'This case no longer has an unclear refund result.'
+                            : 'Payment result confirmation is temporarily unavailable.',
+                }
+              : {
+                  kind: 'form',
+                  form: {
+                    result: {
+                      value: nayaxResolutionResult,
+                      options: nayaxResolutionResultOptions.filter((option) =>
+                        !nayaxResolutionReadiness.allowedResults ||
+                        nayaxResolutionReadiness.allowedResults.includes(option.value)
+                      ),
+                      helper: nayaxResolutionResultOptions.find(
+                        ({ value }) => value === nayaxResolutionResult
+                      )?.helper,
+                    },
+                    evidence: {
+                      value: nayaxResolutionEvidenceType,
+                      options: nayaxResolutionEvidenceOptions[nayaxResolutionResult],
+                    },
+                    reference: {
+                      value: nayaxResolutionEvidenceReference,
+                      issue: nayaxResolutionReferenceIssue,
+                    },
+                    occurredAt: nayaxResolutionEvidenceOccurredAt,
+                    timezone: {
+                      value: nayaxResolutionEvidenceTimezone,
+                      defaultMissing: !nayaxResolutionDefaultTimezone,
+                    },
+                    submit: {
+                      label: nayaxResolutionResult === 'provider_confirmed_success'
+                        ? 'Complete case & notify customer'
+                        : 'Save payment result',
+                      disabled: isPreparingNayaxResolution ||
+                        Boolean(nayaxResolutionReferenceIssue) ||
+                        !nayaxResolutionEvidenceOccurredAt ||
+                        !nayaxResolutionEvidenceTimezone,
+                      pending: isPreparingNayaxResolution,
+                    },
+                  },
+                },
+          }
+        : null,
+    };
+    const cardExecutionConfirmationPresentation: RefundCardExecutionConfirmationPresentation = {
+      title: `Approve ${formatCurrency(cardAmountCents)} card refund`,
+      machine: {
+        label: selectedCase.machineLabel,
+        location: selectedCase.locationName,
+      },
+      transaction: {
+        timeLabel: refundProviderTimeLabel(transactionTimeEvidence),
+        time: formatRefundDateTime(transactionProviderTime, incidentTimezone),
+        payment: `${formatCurrency(cardAmountCents)} · card ending ${cardLast4}`,
+        timezone: incidentTimezone || 'timezone unavailable',
+        timeSourceDetail: refundCandidateTimeSourceDetail(transactionTimeEvidence),
+        timeMeaning: refundCandidateTimeMeaning(transactionTimeEvidence),
+        providerMachineClock: transactionMachineTime &&
+          transactionMachineTimezone &&
+          transactionMachineTimezone !== incidentTimezone
+          ? `${formatRefundDateTime(transactionMachineTime, transactionMachineTimezone)} · ${transactionMachineTimezone}`
+          : null,
+      },
+      customerDraft: nextCustomerDraft,
+      executionNotice: nayaxExecutionNotice
+        ? {
+            className: nayaxLookupNoticeClass(nayaxExecutionNotice.tone),
+            message: nayaxExecutionNotice.message,
+          }
+        : null,
+      busy: isRunningNayaxRefund,
+      confirmDisabled: isActionDisabled,
+    };
     const canAskForCustomerDetails =
       canRequestRefundCustomerDetailsManually(selectedCase.lifecycle?.customerOutreach) &&
       derivePortalRefundMissingFields(selectedCase).length > 0;
@@ -5974,6 +6095,29 @@ export default function AdminRefundsPage() {
           : document.querySelector<HTMLButtonElement>('[data-testid="refund-deny-instead"]');
         trigger?.focus();
       }));
+    };
+
+    const handleNayaxResolutionResultChange = (nextResult: RefundNayaxResolutionResult) => {
+      const defaults = defaultNayaxResolutionSelection(nextResult);
+      setNayaxResolutionResult(nextResult);
+      setNayaxResolutionEvidenceType(defaults.evidenceType);
+      setNayaxResolutionReason(defaults.reason);
+      setNayaxResolutionEvidenceReference('');
+      if (nextResult !== 'provider_confirmed_success') {
+        setNayaxResolutionEvidenceOccurredAt('');
+      }
+    };
+
+    const handleNayaxResolutionEvidenceTypeChange = (
+      nextEvidenceType: RefundNayaxResolutionEvidenceType
+    ) => {
+      const nextReasons = nayaxResolutionReasonsForEvidence(
+        nayaxResolutionResult,
+        nextEvidenceType
+      );
+      setNayaxResolutionEvidenceType(nextEvidenceType);
+      setNayaxResolutionReason(nextReasons[0].value);
+      setNayaxResolutionEvidenceReference('');
     };
 
     return (
@@ -6550,274 +6694,16 @@ export default function AdminRefundsPage() {
             </p>
           ) : receiptCorrectionReviewActive ? (
             <p className="mt-4 border-t border-border pt-4 text-sm text-muted-foreground">Machine correction review only. No payment or customer message is available in this review.</p>
-          ) : (selectedCase.legacyStateReviewRequired ||
-          selectedCase.providerHold ||
-          selectedCase.providerOutcome === 'rejected') ? (
-            <>
-              <div
-                data-testid={selectedCase.legacyStateReviewRequired
-                  ? 'refund-legacy-state-freeze'
-                  : 'refund-customer-decision-freeze'}
-                role="status"
-                className="mt-4 border-t border-border pt-4 text-sm text-muted-foreground"
-              >
-                <p>
-                  {selectedCase.legacyStateReviewRequired
-                    ? 'Customer decisions and email are paused during this payment history check.'
-                    : selectedCase.providerOutcome === 'rejected'
-                    ? 'The customer is not contacted until the payment result is confirmed.'
-                    : 'The customer is not contacted until the payment result is confirmed.'}
-                </p>
-              </div>
-
-              {!selectedCase.legacyStateReviewRequired &&
-              nayaxResolutionReadiness?.visible && (
-                <div
-                  data-testid="refund-nayax-resolution-panel"
-                  className="mt-4 space-y-4 border-t border-border pt-4 text-foreground"
-                >
-                  <div className="flex items-start gap-3">
-                    <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
-                    <div>
-                      <p className="font-semibold">Payment result check</p>
-                      <p className="mt-1 text-sm leading-6">
-                        Record what Nayax confirmed. This uses the original approval and can never create a second refund.
-                      </p>
-                    </div>
-                  </div>
-                  {selectedCase.lifecycle?.operations.required && (
-                    <div
-                      data-testid="refund-operations-sla"
-                      className="grid gap-2 rounded-lg border border-border bg-muted/30 p-3 text-sm sm:grid-cols-3"
-                    >
-                      <div>
-                        <p className="text-xs text-muted-foreground">Owner</p>
-                        <p className="mt-1 font-medium">Machine Manager</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Review within</p>
-                        <p className="mt-1 font-medium">
-                          {selectedCase.lifecycle.operations.slaMinutes} minutes
-                          {selectedCase.lifecycle.operations.slaBreached ? ', overdue' : ''}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Recorded payment step</p>
-                        <p className="mt-1 font-medium">
-                          {statusLabel(selectedCase.lifecycle.operations.safeStage)}
-                        </p>
-                      </div>
-                      <p className="sm:col-span-3">
-                        Check and record the confirmed Nayax result. Never retry the payment while its result is unknown.
-                      </p>
-                    </div>
-                  )}
-
-                  {!nayaxResolutionReadiness.available &&
-                  nayaxResolutionReadiness.systemOutcomeEvidenceAvailable !== true ? (
-                    <div
-                      data-testid="refund-nayax-resolution-blocked"
-                      className="rounded-md border border-border bg-muted/30 p-3 text-sm"
-                    >
-                      <p className="font-medium">No manager action is available yet.</p>
-                      <p className="mt-1 text-muted-foreground">
-                        {nayaxResolutionReadiness.blockReason === 'already_resolved'
-                          ? 'The final payment result is already recorded.'
-                          : nayaxResolutionReadiness.blockReason === 'system_provider_hold_no_retry'
-                            ? 'Check this exact transaction in Nayax and record what happened. Do not retry the refund.'
-                          : nayaxResolutionReadiness.blockReason === 'exact_attempt_required'
-                            ? 'Bloomjoy could not identify the exact refund attempt.'
-                            : nayaxResolutionReadiness.blockReason === 'manager_access_required'
-                              ? 'This signed-in user cannot update this machine’s case. Use the assigned Manager or a Super-admin. If that is already true, report a portal defect.'
-                            : nayaxResolutionReadiness.blockReason === 'provider_hold_required'
-                              ? 'This case no longer has an unclear refund result.'
-                              : 'Payment result confirmation is temporarily unavailable.'}
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="grid gap-4">
-                      <div>
-                        <Label htmlFor="refund-nayax-resolution-result">What is the confirmed payment result?</Label>
-                        <select
-                          id="refund-nayax-resolution-result"
-                          data-testid="refund-nayax-resolution-result"
-                          value={nayaxResolutionResult}
-                          onChange={(event) => {
-                            const nextResult = event.target.value as RefundNayaxResolutionResult;
-                            const defaults = defaultNayaxResolutionSelection(nextResult);
-                            setNayaxResolutionResult(nextResult);
-                            setNayaxResolutionEvidenceType(defaults.evidenceType);
-                            setNayaxResolutionReason(defaults.reason);
-                            setNayaxResolutionEvidenceReference('');
-                            if (nextResult !== 'provider_confirmed_success') {
-                              setNayaxResolutionEvidenceOccurredAt('');
-                            }
-                          }}
-                          className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                        >
-                          {nayaxResolutionResultOptions
-                            .filter((option) =>
-                              !nayaxResolutionReadiness.allowedResults ||
-                              nayaxResolutionReadiness.allowedResults.includes(option.value)
-                            )
-                            .map((option) => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
-                            ))}
-                        </select>
-                        <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                          {nayaxResolutionResultOptions.find(({ value }) => value === nayaxResolutionResult)?.helper}
-                        </p>
-                      </div>
-
-                      <div>
-                        <div>
-                          <Label htmlFor="refund-nayax-resolution-evidence-type">Confirmation source</Label>
-                          <select
-                            id="refund-nayax-resolution-evidence-type"
-                            data-testid="refund-nayax-resolution-evidence-type"
-                            value={nayaxResolutionEvidenceType}
-                            onChange={(event) => {
-                              const nextEvidenceType = event.target.value as RefundNayaxResolutionEvidenceType;
-                              const nextReasons = nayaxResolutionReasonsForEvidence(
-                                nayaxResolutionResult,
-                                nextEvidenceType
-                              );
-                              setNayaxResolutionEvidenceType(nextEvidenceType);
-                              setNayaxResolutionReason(nextReasons[0].value);
-                              setNayaxResolutionEvidenceReference('');
-                            }}
-                            className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                          >
-                            {nayaxResolutionEvidenceOptions[nayaxResolutionResult].map((option) => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-
-                      <div>
-                        <Label htmlFor="refund-nayax-resolution-reference">Reference number</Label>
-                        <Input
-                          id="refund-nayax-resolution-reference"
-                          data-testid="refund-nayax-resolution-reference"
-                          value={nayaxResolutionEvidenceReference}
-                          onChange={(event) => setNayaxResolutionEvidenceReference(event.target.value)}
-                          placeholder="Nayax evidence reference"
-                          aria-describedby="refund-nayax-resolution-reference-help"
-                          autoComplete="off"
-                          className="mt-2 bg-background"
-                        />
-                        <p id="refund-nayax-resolution-reference-help" className="mt-2 text-xs leading-5 text-muted-foreground">
-                          Enter the Nayax ticket number (for example, CS1500666) or the reference from the transaction record. Do not include customer or card details.
-                        </p>
-                        {getNayaxResolutionReferenceIssue(
-                          nayaxResolutionEvidenceReference,
-                          nayaxResolutionEvidenceType
-                        ) && nayaxResolutionEvidenceReference.trim() ? (
-                          <p className="mt-2 text-xs font-medium text-destructive" role="alert">
-                            {getNayaxResolutionReferenceIssue(
-                              nayaxResolutionEvidenceReference,
-                              nayaxResolutionEvidenceType
-                            )}
-                          </p>
-                        ) : null}
-                      </div>
-
-                      <div>
-                        <Label htmlFor="refund-nayax-resolution-occurred-at">
-                          Evidence date and time ({nayaxResolutionEvidenceTimezone || 'timezone needed'})
-                        </Label>
-                        <Input
-                          id="refund-nayax-resolution-occurred-at"
-                          data-testid="refund-nayax-resolution-occurred-at"
-                          type="datetime-local"
-                          step={1}
-                          value={nayaxResolutionEvidenceOccurredAt}
-                          onChange={(event) => setNayaxResolutionEvidenceOccurredAt(event.target.value)}
-                          autoComplete="off"
-                          className="mt-2 bg-background"
-                        />
-                        <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                          Use the exact date and time shown in Nayax, including seconds. This uses the
-                          machine timezone shown above, not your computer&apos;s timezone. For confirmed
-                          success, it is also used in reporting and the customer receipt.
-                        </p>
-                        {!nayaxResolutionDefaultTimezone ? (
-                          <p className="mt-2 text-xs font-medium text-destructive" role="alert">
-                            This case is missing its machine timezone. Choose the timezone shown in Nayax below.
-                          </p>
-                        ) : null}
-                        <details
-                          className="mt-3 rounded-md border border-border/70 bg-muted/25 px-3 py-2"
-                          data-testid="refund-nayax-resolution-timezone-override"
-                        >
-                          <summary className="cursor-pointer text-xs font-medium text-foreground">
-                            Use a different timezone
-                          </summary>
-                          <div className="mt-3">
-                            <Label htmlFor="refund-nayax-resolution-timezone">
-                              Timezone shown by Nayax
-                            </Label>
-                            <Input
-                              id="refund-nayax-resolution-timezone"
-                              data-testid="refund-nayax-resolution-timezone"
-                              list="refund-nayax-resolution-timezones"
-                              value={nayaxResolutionEvidenceTimezone}
-                              onChange={(event) =>
-                                setNayaxResolutionEvidenceTimezoneOverride(event.target.value)}
-                              placeholder="America/Los_Angeles"
-                              autoComplete="off"
-                              className="mt-2 bg-background"
-                            />
-                            <datalist id="refund-nayax-resolution-timezones">
-                              <option value="America/Los_Angeles" />
-                              <option value="America/Denver" />
-                              <option value="America/Chicago" />
-                              <option value="America/New_York" />
-                              <option value="America/Phoenix" />
-                              <option value="Pacific/Honolulu" />
-                              <option value="America/Anchorage" />
-                              <option value="UTC" />
-                            </datalist>
-                            <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                              Change this only when the Nayax record clearly shows a different timezone.
-                            </p>
-                          </div>
-                        </details>
-                      </div>
-
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="text-xs leading-5 text-muted-foreground">
-                          This records evidence for the System. It does not ask for or create another approval.
-                        </p>
-                        <Button
-                          type="button"
-                          data-testid="refund-nayax-resolution-prepare"
-                          onClick={() => void handlePrepareNayaxResolution()}
-                          disabled={
-                            isPreparingNayaxResolution ||
-                            Boolean(getNayaxResolutionReferenceIssue(
-                              nayaxResolutionEvidenceReference,
-                              nayaxResolutionEvidenceType
-                            )) ||
-                            !nayaxResolutionEvidenceOccurredAt ||
-                            !nayaxResolutionEvidenceTimezone
-                          }
-                          className="min-h-11 shrink-0 bg-foreground text-background hover:bg-foreground/90"
-                        >
-                          {isPreparingNayaxResolution && (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          )}
-                          {nayaxResolutionResult === 'provider_confirmed_success'
-                            ? 'Complete case & notify customer'
-                            : 'Save payment result'}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
+          ) : hasNayaxOutcomeResolution ? (
+            <RefundNayaxOutcomeResolutionPanel
+              presentation={nayaxOutcomeResolutionPresentation}
+              onResultChange={handleNayaxResolutionResultChange}
+              onEvidenceTypeChange={handleNayaxResolutionEvidenceTypeChange}
+              onReferenceChange={setNayaxResolutionEvidenceReference}
+              onOccurredAtChange={setNayaxResolutionEvidenceOccurredAt}
+              onTimezoneChange={setNayaxResolutionEvidenceTimezoneOverride}
+              onPrepare={() => void handlePrepareNayaxResolution()}
+            />
           ) : transactionDecisionPending ? null : (
           <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
             <details className="text-sm">
@@ -6881,91 +6767,14 @@ export default function AdminRefundsPage() {
           </details>
         )}
 
-        <AlertDialog
+        <RefundCardExecutionConfirmationDialog
           open={isRefundConfirmationOpen}
+          presentation={cardExecutionConfirmationPresentation}
           onOpenChange={(open) => {
             if (!isRunningNayaxRefund) setIsRefundConfirmationOpen(open);
           }}
-        >
-          <AlertDialogContent data-testid="refund-confirmation-dialog" className="max-w-xl">
-            <AlertDialogHeader>
-              <AlertDialogTitle>
-                {`Approve ${formatCurrency(cardAmountCents)} card refund`}
-              </AlertDialogTitle>
-              <AlertDialogDescription>
-                This records your approval once. Bloomjoy will finish the refund automatically and email the customer only after Nayax confirms it.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-
-            <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-3 text-sm sm:grid-cols-2">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Machine</p>
-                <p className="mt-1 font-medium text-foreground">{selectedCase.machineLabel}</p>
-                <p className="mt-1 text-muted-foreground">{selectedCase.locationName}</p>
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  {refundProviderTimeLabel(transactionTimeEvidence)}
-                </p>
-                <p className="mt-1 font-medium text-foreground">
-                  {formatRefundDateTime(transactionProviderTime, incidentTimezone)}
-                </p>
-                <p className="mt-1 text-muted-foreground">
-                  {formatCurrency(cardAmountCents)} · card ending {cardLast4}
-                </p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  Shown in venue time · {incidentTimezone || 'timezone unavailable'}
-                </p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  {refundCandidateTimeSourceDetail(transactionTimeEvidence)}
-                </p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  {refundCandidateTimeMeaning(transactionTimeEvidence)}
-                </p>
-                {transactionMachineTime && transactionMachineTimezone &&
-                  transactionMachineTimezone !== incidentTimezone && (
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    Provider machine clock:{' '}
-                    {formatRefundDateTime(transactionMachineTime, transactionMachineTimezone)}
-                    {' · '}{transactionMachineTimezone}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {nextCustomerDraft && (
-              <details className="rounded-lg border border-border p-3 text-sm">
-                <summary className="cursor-pointer font-medium text-foreground">Review completion email</summary>
-                <div className="mt-3 max-h-52 overflow-y-auto rounded-md bg-muted/30 p-3">
-                  <p className="font-medium text-foreground">{nextCustomerDraft.subject}</p>
-                  <p className="mt-2 whitespace-pre-line leading-6 text-muted-foreground">{nextCustomerDraft.body}</p>
-                </div>
-              </details>
-            )}
-
-            {nayaxExecutionNotice && (
-              <div className={nayaxLookupNoticeClass(nayaxExecutionNotice.tone)}>{nayaxExecutionNotice.message}</div>
-            )}
-
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={isRunningNayaxRefund}>Go back</AlertDialogCancel>
-              <Button
-                data-testid="refund-confirm-nayax-refund"
-                type="button"
-                onClick={() => void handleRunNayaxRefund()}
-                disabled={isActionDisabled}
-                className="bg-foreground text-background hover:bg-foreground/90"
-              >
-                {isRunningNayaxRefund ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="mr-2 h-4 w-4" />
-                )}
-                Approve refund
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+          onConfirm={() => void handleRunNayaxRefund()}
+        />
       </div>
     );
   };
