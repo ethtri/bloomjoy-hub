@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const migrationUrl = new URL(
-  '../../supabase/migrations/20260919214959_refund_proven_unsent_status_recovery.sql',
+  '../../supabase/migrations/20260919221021_refund_proven_unsent_status_recovery.sql',
   import.meta.url,
 );
 
