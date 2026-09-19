@@ -416,6 +416,30 @@ Privacy guardrails:
 12) Run `npm run db:validate-migrations` when working on Supabase migrations.
 13) If you are in `C:\Repos\Bloomjoy_hub`, stop and switch to a worktree.
 
+## Verification matrix
+
+| Boundary | Trigger | Retained checks | Owner |
+| --- | --- | --- | --- |
+| Every PR | `CI` on `pull_request` | install, migration filename uniqueness, agent-workflow contract, build, typecheck, quick unit tests, lint, and the existing small cross-cutting regressions | PR author |
+| App or public-content PR | Native path filters in `App and Content Validation` | machine workspace, lead attribution, quote intake, mobile content/planners, and sales-report PDF contracts via `npm run test:app` | App/content owner |
+| Other changed product surface | During implementation, using the verification profile from `npm run agent:context` | the existing focused validator for that surface, such as reporting or commerce | PR author |
+| Refund runtime or migration PR | Native path filters in `Refund UAT Evidence` | complete refund regression suite, disposable migration replay, and synthetic browser evidence | Refund technical owner |
+| Refund release-tooling PR | Native path filters in `Refund Release Tooling` | deploy-wrapper tests, sealed-manifest provenance, release contract, and least-privilege credential contract | Release owner |
+| Any Supabase migration PR | Native path filters in `Supabase Migrations` | complete disposable migration apply | Database owner |
+| Refund release candidate | Explicit predeployment run from the exact clean candidate commit | refund release tooling, local manifest alignment, migration dry run/replay, and synthetic UAT evidence | Release owner |
+| Production drift | Daily schedule or explicit `main` dispatch | least-privilege credential probe and live production comparison with the last sealed manifest; later `main` commits do not invalidate that artifact | Technical owner |
+
+`npm test` is intentionally the quick, universal unit profile; it retains the
+machine-type contract alongside the other cross-cutting unit tests. The native
+app/content workflow runs `npm run test:app` only when its owned source, content,
+or validator inputs change. Run
+`npm run test:refunds` only when refund runtime, refund migrations, or the refund
+release itself changes; the path-scoped refund workflow runs it automatically.
+Do not refresh `scripts/refunds/refund-production-release.json` during ordinary
+feature commits. Seal it once from the exact clean release-candidate source
+commit with `npm run refunds:release:seal-candidate`, commit that manifest-only
+update, and use `npm run refunds:release:check` before deployment.
+
 ## Merge autonomy lanes
 - Green: low-risk docs, workflow tooling, lint/build cleanup, safe dependency updates, tests, or narrow non-sensitive cleanup. Agents may merge when checks are green and the PR evidence is complete.
 - Yellow: UI changes, shared code/workflow changes, performance/build changes, P0/P1 work, `uat-required`, `risky-db-change`, or `risky-auth-payment`. Agents may merge after the PR includes the extra browser/design/overlap/UAT/independent-review/performance evidence that matches the change.

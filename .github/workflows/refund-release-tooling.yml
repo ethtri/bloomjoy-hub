@@ -1,0 +1,56 @@
+name: Refund Release Tooling
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/refunds/refund-production-auth-closed.mjs'
+      - 'scripts/refunds/refund-auth-control-plane.mjs'
+      - 'scripts/refunds/refund-auth-control-plane.test.mjs'
+      - 'scripts/refunds/refund-release.mjs'
+      - 'scripts/refunds/refund-release-provenance.test.mjs'
+      - 'scripts/refunds/refund-function-deploy.mjs'
+      - 'scripts/refunds/refund-function-deploy.test.mjs'
+      - 'scripts/refunds/refund-drift-credential.mjs'
+      - 'scripts/refunds/validate-refund-drift-credential.mjs'
+      - 'scripts/refunds/validate-refund-release.mjs'
+      - 'scripts/refunds/run-refund-release-uat-local.ps1'
+      - 'scripts/refunds/refund-production-release.json'
+      - 'supabase/config.toml'
+      - 'Docs/PRODUCTION_RUNBOOK.md'
+      - 'Docs/QA_SMOKE_TEST_CHECKLIST.md'
+      - 'Docs/REFUND_EMAIL_ASSISTANT_RUNBOOK.md'
+      - 'Docs/REFUND_WORKFLOW.md'
+      - 'package.json'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/refund-production-drift.yml'
+      - '.github/workflows/refund-uat-evidence.yml'
+      - '.github/workflows/refund-release-tooling.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refund-release-tooling-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+      - name: Retrieve exact sealed source object
+        run: >-
+          node --input-type=module -e
+          "import fs from 'node:fs'; import { fetchReviewedReleaseSource, manifestPath, repoRoot } from './scripts/refunds/refund-release.mjs'; fetchReviewedReleaseSource(repoRoot, JSON.parse(fs.readFileSync(manifestPath, 'utf8')));"
+      - name: Validate refund release tooling
+        run: npm run refunds:validate-release-tooling

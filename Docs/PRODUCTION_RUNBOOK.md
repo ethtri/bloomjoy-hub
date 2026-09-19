@@ -170,7 +170,8 @@ Security rule:
   or repeat Manager decision.
 - [ ] `npm run commerce:preflight -- --project-ref <project-ref> --include-refunds` passes
 - [ ] `npm run refunds:validate-release-tooling` passes.
-- [ ] `npm run refunds:release:check` confirms that all protected refund functions, required migrations, source commit, and `verify_jwt` settings match the current approved release manifest. Use its function count; do not substitute a historical route-smoke count.
+- [ ] On the final clean release-candidate source commit, run `npm run refunds:release:seal-candidate`, review the diff, and commit only the resulting manifest seal. Do not reseal the manifest on intermediate feature commits.
+- [ ] From that manifest-seal commit, `npm run refunds:release:check` confirms that all protected refund functions, required migrations, source commit, and `verify_jwt` settings match the current approved release manifest. Use its function count; do not substitute a historical route-smoke count.
 - [ ] Browser evidence covers the changed refund path at desktop and mobile widths
   with synthetic data. Reuse unchanged automated evidence instead of requiring a
   fixed screenshot count or a new ceremony for every release.
@@ -354,7 +355,7 @@ For an isolated canonical-entrypoint repair, replace `--all` with one or more ap
    - `npm run refunds:release:capture-production -- --project-ref <project-ref> --confirm-project-ref <project-ref> --output output/refund-production-release.json`
 7. Review each function's `ACTIVE` status, live version, approved-bundle version, version relation, `verify_jwt`, canonical entrypoint identity, bundle digest, and downloaded source digest.
 8. When a receipt reports `new_bundle_candidate`, update `scripts/refunds/refund-production-release.json` through a reviewed PR; capture is not automatic approval. When it reports `same_bundle_later_revision`, preserve the sealed manifest and do not rewrite its historical counter solely to match mutable live metadata.
-9. Run `npm run refunds:release:check-production -- --project-ref <project-ref>` and require all eleven manifest-tracked functions to pass. The live counter must not regress below the approved-bundle version, while the bundle digest, source pairing, JWT setting, import-map state, and canonical entrypoint identity remain exact.
+9. Run `npm run refunds:release:check-production -- --project-ref <project-ref>` and require every manifest-tracked function to pass. This scheduled/manual monitor validates the exact last sealed artifact and its pinned source, then compares that artifact with live production; later `main` commits do not require a reseal or change the comparison baseline. The live counter must not regress below the approved-bundle version, while the bundle digest, source pairing, JWT setting, import-map state, and canonical entrypoint identity remain exact.
 10. Run the remaining refund production smoke rows in `Docs/QA_SMOKE_TEST_CHECKLIST.md` using sanitized evidence only.
 
 ### Refund release verification

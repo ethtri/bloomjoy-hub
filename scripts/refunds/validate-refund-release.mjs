@@ -142,10 +142,114 @@ try {
   const invalidAdditionalRestore = structuredClone(repositoryManifest);
   invalidAdditionalRestore.additionalFunctionBaselines[0].sourceSha256 = 'e'.repeat(64);
   assert.throws(() => validateApprovedRestoreSource(repoRoot, invalidAdditionalRestore), /Additional baseline restore source does not match/);
+  const productionDriftWorkflow = fs.readFileSync(
+    path.join(repoRoot, '.github/workflows/refund-production-drift.yml'),
+    'utf8'
+  );
+  assert.match(productionDriftWorkflow, /schedule:/, 'Production drift must remain scheduled');
+  assert.match(productionDriftWorkflow, /workflow_dispatch:/, 'Production drift must remain manually runnable');
+  assert.doesNotMatch(
+    productionDriftWorkflow,
+    /pull_request:/,
+    'Production drift belongs at scheduled or explicit release boundaries, not on every refund PR'
+  );
+  assert.doesNotMatch(
+    productionDriftWorkflow,
+    /validate-release-tooling|refund-release-provenance\.test/,
+    'Scheduled production drift must not rerun PR release-tooling validation'
+  );
+  const ciWorkflow = fs.readFileSync(path.join(repoRoot, '.github/workflows/ci.yml'), 'utf8');
+  assert.doesNotMatch(
+    ciWorkflow,
+    /refunds:release:check|refunds:validate-release-tooling|reporting:validate-refund-adjustments/,
+    'Universal PR CI must not run release-boundary or path-scoped refund validation'
+  );
+  const refundUatWorkflow = fs.readFileSync(
+    path.join(repoRoot, '.github/workflows/refund-uat-evidence.yml'),
+    'utf8'
+  );
+  assert.match(refundUatWorkflow, /run: npm run test:refunds/);
+  assert.match(refundUatWorkflow, /!scripts\/refunds\/refund-production-release\.json/);
+  for (const runtimeDependency of [
+    'src/App.tsx',
+    'src/components/auth/AdminRoute.tsx',
+    'src/contexts/AuthContext.tsx',
+    'src/lib/edgeFunctions.ts',
+    'src/pages/admin/Machines.tsx',
+    'package.json',
+  ]) {
+    assert(
+      refundUatWorkflow.includes(`- '${runtimeDependency}'`),
+      `Refund UAT path scope must include ${runtimeDependency}`
+    );
+  }
+  for (const releaseOnlyPath of [
+    'scripts/refunds/refund-production-auth-closed.mjs',
+    'scripts/refunds/refund-auth-control-plane.mjs',
+    'scripts/refunds/refund-auth-control-plane.test.mjs',
+    'scripts/refunds/refund-release.mjs',
+    'scripts/refunds/refund-release-provenance.test.mjs',
+    'scripts/refunds/refund-function-deploy.mjs',
+    'scripts/refunds/refund-function-deploy.test.mjs',
+    'scripts/refunds/refund-drift-credential.mjs',
+    'scripts/refunds/validate-refund-drift-credential.mjs',
+    'scripts/refunds/validate-refund-release.mjs',
+    'scripts/refunds/run-refund-release-uat-local.ps1',
+  ]) {
+    assert(
+      refundUatWorkflow.includes(`- '!${releaseOnlyPath}'`),
+      `Release-only path must not trigger browser UAT: ${releaseOnlyPath}`
+    );
+  }
+  assert.doesNotMatch(refundUatWorkflow, /refund-change-scope/);
+  assert.doesNotMatch(
+    refundUatWorkflow,
+    /- '\.github\/workflows\/refund-uat-evidence\.yml'/,
+    'Editing the UAT workflow itself must use fast release-tooling validation, not start browser UAT'
+  );
+  const machineManagerStep = refundUatWorkflow.match(
+    /      - name: Run Machine Manager synthetic UAT[\s\S]*?(?=\n      - name: Finalize strict machine-readable evidence)/
+  )?.[0];
+  assert(machineManagerStep, 'Machine Manager UAT step must remain present');
+  assert(
+    machineManagerStep.includes("grep -Fq 'refund_uat_request_failed_before_drain'"),
+    'Machine Manager UAT may retry only its specific transient request cancellation'
+  );
+  assert.equal(
+    (machineManagerStep.match(/npm run refunds:validate-machine-manager-uat/g) ?? []).length,
+    2,
+    'Machine Manager UAT must run at most twice'
+  );
+  assert(
+    !machineManagerStep.includes('|| true'),
+    'Machine Manager UAT must not suppress a second failure'
+  );
+  const releaseToolingWorkflow = fs.readFileSync(
+    path.join(repoRoot, '.github/workflows/refund-release-tooling.yml'),
+    'utf8'
+  );
+  assert.match(releaseToolingWorkflow, /pull_request:[\s\S]*paths:/);
+  for (const authToolingPath of [
+    'scripts/refunds/refund-production-auth-closed.mjs',
+    'scripts/refunds/refund-auth-control-plane.mjs',
+    'scripts/refunds/refund-auth-control-plane.test.mjs',
+    'supabase/config.toml',
+  ]) {
+    assert(
+      releaseToolingWorkflow.includes(`- '${authToolingPath}'`),
+      `Release tooling path scope must include ${authToolingPath}`
+    );
+  }
   assert.match(
-    fs.readFileSync(path.join(repoRoot, '.github/workflows/refund-production-drift.yml'), 'utf8'),
-    /supabase\/functions\/refund-nayax-outcome-resolve\/\*\*/,
-    'Resolver-only edits must trigger the production source guard'
+    releaseToolingWorkflow,
+    /run: npm run refunds:validate-release-tooling/,
+    'Path-scoped release tooling must execute the authoritative release validator in Actions'
+  );
+  const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+  assert.match(
+    packageJson.scripts['refunds:validate-release-tooling'],
+    /refund-auth-control-plane\.test\.mjs/,
+    'Release tooling must retain direct fail-closed Auth control-plane coverage'
   );
   const missingEntrypointManifest = structuredClone(repositoryManifest);
   delete missingEntrypointManifest.functions[0].production.entrypointIdentity;
