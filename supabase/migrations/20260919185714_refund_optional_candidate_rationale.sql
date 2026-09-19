@@ -28,11 +28,11 @@ $old$;
     normalized_disagreement_reason := '';
   end if;
   if normalized_disagreement_reason = 'closer_time'
-    and not (
+    and (
       candidate.evidence_summary ->> 'transaction_occurrence_comparable' = 'true'
       and refund_case.incident_time_resolution in ('exact', 'legacy_absolute')
       and refund_case.incident_time_confidence is distinct from 'rough'
-    ) then
+    ) is distinct from true then
     normalized_disagreement_reason := '';
   end if;
 $new$;
