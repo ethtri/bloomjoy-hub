@@ -3975,16 +3975,6 @@ export default function AdminRefundsPage() {
       toast.error(issues[0]);
       return null;
     }
-    const candidateBeingSelected = selectedNayaxCandidate(nextEditor, nayaxCandidates);
-    if (
-      candidateBeingSelected &&
-      candidateBeingSelected.isRecommended !== true &&
-      !nextEditor.nayaxDisagreementReason
-    ) {
-      toast.error('Choose why this is the correct transaction.');
-      return null;
-    }
-
     setIsSaving(true);
     try {
       const clearNayaxMatch = nextEditor.clearNayaxMatch;

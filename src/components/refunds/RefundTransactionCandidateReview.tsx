@@ -281,8 +281,7 @@ export function RefundTransactionCandidateReview({
             disabled={
               isSaving ||
               isDemoData ||
-              !canSelectCandidates ||
-              (needsDisagreementReason && !disagreementReason)
+              !canSelectCandidates
             }
           >
             {isSaving ? (
