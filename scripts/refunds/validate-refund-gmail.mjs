@@ -590,6 +590,11 @@ assert(
 );
 assert(gmailHelper.includes('GMAIL_SUPPORT_SEND_AS_ALIASES'), 'Approved mailbox aliases must be explicit server configuration');
 assert(
+  gmailHelper.includes('isRefundGmailConversation') &&
+    syncFunction.includes('refundAddress: config.senderEmail'),
+  'New refund intake must be addressed to the refund alias while existing case threads remain eligible',
+);
+assert(
   gmailHelper.includes('providerSentEvidence') && gmailHelper.includes('labelIds') && gmailHelper.includes('"SENT"'),
   'Mailbox aliases must require Gmail Sent-label evidence rather than trusting the From header',
 );

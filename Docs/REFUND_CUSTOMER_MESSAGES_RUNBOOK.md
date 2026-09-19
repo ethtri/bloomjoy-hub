@@ -34,10 +34,12 @@ unpaid state.
 
 ## Delivery
 
-Use **Bloomjoy Refunds <info@bloomjoysweets.com>**, keep the customer as the sole
+Use **Bloomjoy Refunds <refunds@bloomjoysweets.com>**, keep the customer as the sole
 **To** recipient, and use the current established Manager-CC route. Preserve the
 original Gmail thread where one exists. An unknown delivery result is reconciled,
 not resent blindly.
+
+Reply-To: refunds@bloomjoysweets.com
 
 See [REFUND_EMAIL_ASSISTANT_RUNBOOK.md](REFUND_EMAIL_ASSISTANT_RUNBOOK.md) for
 the current transport reference.

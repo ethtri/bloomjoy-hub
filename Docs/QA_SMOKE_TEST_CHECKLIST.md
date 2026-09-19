@@ -787,3 +787,14 @@ npm run refunds:validate-portal-uat-lifecycle
 - [ ] Technician actions expose Manage machines, Renew access, and Revoke Technician access. Manage machines shows one assignment picker with current assignments preselected; renewal and revocation each show a focused reason form.
 - [ ] Revocation clearly states that Technician training and Technician-sourced reporting are removed, preserves unrelated sources, requires a reason, and uses a destructive confirmation action. Canceling or closing performs no write.
 - [ ] Activity is collapsed by default and does not load until expanded. Pay report still opens with the selected Technician preserved.
+
+### Refund Gmail sender routing (`#1384`)
+
+- [ ] A new direct-human message to `refunds@bloomjoysweets.com` is ingested and
+  any acknowledgement is sent in the same thread from **Bloomjoy Refunds
+  <refunds@bloomjoysweets.com>**.
+- [ ] A new direct-human message addressed only to `info@bloomjoysweets.com` or
+  `support@bloomjoysweets.com` is not ingested as refund contact and receives no
+  refund acknowledgement.
+- [ ] A customer reply in an existing thread with a case-specific refund message
+  is still ingested even if the historical thread began through the Info alias.

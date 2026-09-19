@@ -11,12 +11,12 @@ import {
 
 Deno.test("refund customer sender keeps the verified address and standardizes the display name", () => {
   assertEquals(REFUND_CUSTOMER_SENDER_NAME, "Bloomjoy Refunds");
-  assertEquals(REFUND_CUSTOMER_FROM_EMAIL, "info@bloomjoysweets.com");
+  assertEquals(REFUND_CUSTOMER_FROM_EMAIL, "refunds@bloomjoysweets.com");
   assertEquals(
-    formatRefundCustomerSender("info@bloomjoysweets.com"),
-    "Bloomjoy Refunds <info@bloomjoysweets.com>",
+    formatRefundCustomerSender("refunds@bloomjoysweets.com"),
+    "Bloomjoy Refunds <refunds@bloomjoysweets.com>",
   );
-  assertEquals(REFUND_MONITORED_REPLY_TO_EMAIL, "info@bloomjoysweets.com");
+  assertEquals(REFUND_MONITORED_REPLY_TO_EMAIL, "refunds@bloomjoysweets.com");
 });
 
 Deno.test("refund customer sender rejects malformed or injected addresses", () => {
@@ -27,7 +27,7 @@ Deno.test("refund customer sender rejects malformed or injected addresses", () =
   assertThrows(() => formatRefundCustomerSender("not-an-email"));
   assertThrows(() =>
     formatRefundCustomerSender(
-      "Info <info@bloomjoysweets.com>\r\nBcc: outsider@example.test",
+      "Refunds <refunds@bloomjoysweets.com>\r\nBcc: outsider@example.test",
     )
   );
 });

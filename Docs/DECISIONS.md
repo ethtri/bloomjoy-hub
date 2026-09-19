@@ -836,3 +836,14 @@ Bloomjoy will collect payment on the website before beginning fulfillment or sen
 - Resolve `#717`, configure and verify `STRIPE_MICRO_PRICE_ID` and `STRIPE_MICRO_SHIPPING_RATE_ID` in test mode and production, then explicitly enable `VITE_MICRO_CHECKOUT_ENABLED=true`.
 - Confirm Stripe Tax registrations, product tax codes, Price tax behavior, and checkout tax results with the business owner/tax advisor.
 - Apply the order-type migration, deploy the reviewed Edge Functions, and capture test-mode evidence for paid, canceled, unpaid/delayed, replayed, and mixed-cart cases before go-live.
+
+## 2026-09-19 - Refund email address is separate from the Gmail login (`#1384`)
+
+- The automation continues to authenticate to the shared Info Gmail account.
+- Customer-facing refund mail sends and receives as **Bloomjoy Refunds
+  <refunds@bloomjoysweets.com>**.
+- A new Gmail conversation enters refund intake only when it is addressed to
+  `refunds@bloomjoysweets.com`. A case-specific refund message in an existing
+  thread keeps that thread eligible.
+- Ordinary Info, Support, technician, vendor, and account mail does not become a
+  refund request merely because it shares the same Gmail account or label.

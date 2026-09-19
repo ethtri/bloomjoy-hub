@@ -95,6 +95,8 @@ const withGmailEnvironment = async (run: () => Promise<void>) => {
     GMAIL_SUPPORT_CLIENT_SECRET: "client-secret",
     GMAIL_SUPPORT_REFRESH_TOKEN: "refresh-token",
     GMAIL_SUPPORT_MAILBOX: "info@bloomjoysweets.com",
+    GMAIL_SUPPORT_SEND_AS_ALIASES: "refunds@bloomjoysweets.com",
+    REFUND_CUSTOMER_FROM_EMAIL: "refunds@bloomjoysweets.com",
     GMAIL_REFUND_LABEL_ID: "refund-label",
   };
   const before = new Map<string, string | undefined>();

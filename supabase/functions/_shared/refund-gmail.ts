@@ -26,6 +26,7 @@ export type RefundGmailConfig = {
   clientSecret: string;
   refreshToken: string;
   mailbox: string;
+  senderEmail: string;
   mailboxIdentities: string[];
   labelId: string;
   startAt: Date;
@@ -143,6 +144,7 @@ export const getRefundGmailConfig = (): RefundGmailConfig | null => {
   const clientSecret = cleanEnv("GMAIL_SUPPORT_CLIENT_SECRET", 1024);
   const refreshToken = cleanEnv("GMAIL_SUPPORT_REFRESH_TOKEN", 4096);
   const mailbox = cleanEnv("GMAIL_SUPPORT_MAILBOX", 320).toLowerCase();
+  const senderEmail = cleanEnv("REFUND_CUSTOMER_FROM_EMAIL", 320).toLowerCase();
   const configuredAliases = cleanEnv("GMAIL_SUPPORT_SEND_AS_ALIASES", 2048)
     .split(",")
     .map((value) => value.trim().toLowerCase())
@@ -156,9 +158,11 @@ export const getRefundGmailConfig = (): RefundGmailConfig | null => {
 
   if (
     !clientId || !clientSecret || !refreshToken || !isEmail(mailbox) ||
+    !isEmail(senderEmail) ||
     !labelId ||
     configuredAliases.length > 20 ||
-    configuredAliases.some((alias) => !isEmail(alias))
+    configuredAliases.some((alias) => !isEmail(alias)) ||
+    (senderEmail !== mailbox && !configuredAliases.includes(senderEmail))
   ) {
     return null;
   }
@@ -171,6 +175,7 @@ export const getRefundGmailConfig = (): RefundGmailConfig | null => {
     clientSecret,
     refreshToken,
     mailbox,
+    senderEmail,
     mailboxIdentities,
     labelId,
     startAt,
@@ -834,6 +839,43 @@ export const refundGmailOperationMarker = (operationKey: string) => {
   return `v1.${bytesToBase64Url(new TextEncoder().encode(exactOperation))}`;
 };
 
+export const refundGmailOperationKeyFromMarker = (marker: string) => {
+  const encoded = marker.trim().match(/^v1\.([A-Za-z0-9_-]+)$/)?.[1];
+  if (!encoded) return "";
+  try {
+    const operationKey = new TextDecoder().decode(base64UrlToBytes(encoded));
+    return operationKey.length >= 8 && operationKey.length <= 255 &&
+        !/[\r\n]/.test(operationKey)
+      ? operationKey
+      : "";
+  } catch {
+    return "";
+  }
+};
+
+export const isRefundGmailConversation = ({
+  messages,
+  refundAddress,
+}: {
+  messages: GmailMessage[];
+  refundAddress: string;
+}) => {
+  const expectedRecipient = refundAddress.trim().toLowerCase();
+  return messages.some((message) => {
+    const headers = message.payload?.headers;
+    const recipients = [
+      ...parseEmailAddressList(getGmailHeader(headers, "To")),
+      ...parseEmailAddressList(getGmailHeader(headers, "Cc")),
+    ];
+    if (recipients.includes(expectedRecipient)) return true;
+    const operationKey = refundGmailOperationKeyFromMarker(
+      getGmailHeader(headers, REFUND_GMAIL_OPERATION_HEADER),
+    );
+    return operationKey.startsWith("refund-case-message:") ||
+      operationKey.startsWith("refund-first-contact:");
+  });
+};
+
 export const buildRefundGmailReplyMime = ({
   from,
   to,
@@ -953,7 +995,7 @@ export const sendRefundGmailReply = async ({
     | "premapping_acknowledgement";
 }) => {
   requireRefundGmailEnabled();
-  requireRefundOfficialGmailSender(config.mailbox);
+  requireRefundOfficialGmailSender(config.senderEmail);
   const effectiveDeliveryKind = automatic ? "automatic" : deliveryKind;
   if (!isEmail(recipientEmail.toLowerCase())) {
     throw new RefundGmailError(
@@ -1029,7 +1071,7 @@ export const sendRefundGmailReply = async ({
   }
 
   const mime = buildRefundGmailReplyMime({
-    from: config.mailbox,
+    from: config.senderEmail,
     to: recipientEmail,
     cc: normalizedCc,
     deliveryKind: effectiveDeliveryKind,
