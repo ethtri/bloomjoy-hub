@@ -22,8 +22,18 @@ type RefundAvailabilityRead = {
   status: 'available' | 'unavailable';
   blockReason: string | null;
   caseId?: string;
+  transactionConfirmed?: boolean;
+  canIssueCardRefund?: boolean;
+  refundAmountCents?: number | null;
+  machineLimitCents?: number | null;
+  caseVersion?: number | null;
+  approvalPendingExecution?: boolean;
   payloadRedacted: true;
 };
+
+const isOptionalBoolean = (value: unknown) => value === undefined || typeof value === 'boolean';
+const isOptionalNullableNumber = (value: unknown) =>
+  value === undefined || value === null || typeof value === 'number';
 
 /** Reject malformed success bodies so query polling keeps its last valid snapshot. */
 export const parseRefundAvailabilityRead = <T extends RefundAvailabilityRead>(
@@ -40,7 +50,21 @@ export const parseRefundAvailabilityRead = <T extends RefundAvailabilityRead>(
     response.status !== (available ? 'available' : 'unavailable') ||
     !(response.blockReason === null || typeof response.blockReason === 'string') ||
     response.payloadRedacted !== true ||
-    (expectedCaseId && response.caseId !== expectedCaseId)
+    !(response.caseId === undefined || typeof response.caseId === 'string') ||
+    !isOptionalBoolean(response.transactionConfirmed) ||
+    !isOptionalBoolean(response.canIssueCardRefund) ||
+    !isOptionalNullableNumber(response.refundAmountCents) ||
+    !isOptionalNullableNumber(response.machineLimitCents) ||
+    !isOptionalNullableNumber(response.caseVersion) ||
+    !isOptionalBoolean(response.approvalPendingExecution) ||
+    (expectedCaseId && (
+      response.caseId !== expectedCaseId ||
+      typeof response.transactionConfirmed !== 'boolean' ||
+      typeof response.canIssueCardRefund !== 'boolean' ||
+      response.refundAmountCents === undefined ||
+      response.machineLimitCents === undefined ||
+      response.caseVersion === undefined
+    ))
   ) {
     throw new Error('Refund availability response is invalid.');
   }

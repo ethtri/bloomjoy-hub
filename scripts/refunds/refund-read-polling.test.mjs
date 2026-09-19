@@ -75,9 +75,10 @@ test('real QueryObserver backs off across failed polls, preserves cached truth, 
 test('malformed availability success cannot replace the last valid cached capability',async()=>{
  const client=new QueryClient({defaultOptions:{queries:{retry:false,gcTime:Infinity}}});
  const polling=createRefundReadPolling();let malformed=false;
- const valid={available:true,status:'available',blockReason:null,caseId:'case-a',payloadRedacted:true};
+ const valid={available:true,status:'available',blockReason:null,caseId:'case-a',transactionConfirmed:true,
+  canIssueCardRefund:true,refundAmountCents:700,machineLimitCents:1200,caseVersion:4,payloadRedacted:true};
  const observer=new QueryObserver(client,{queryKey:['availability','case-a'],queryFn:()=>polling.read(async()=>
-  parseRefundAvailabilityRead(malformed?{...valid,status:'unavailable'}:valid,'case-a'))});
+  parseRefundAvailabilityRead(malformed?{...valid,canIssueCardRefund:'yes'}:valid,'case-a'))});
  const unsubscribe=observer.subscribe(()=>{});
  try{
   await flush();assert.deepEqual(observer.getCurrentResult().data,valid);
