@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(82);
+select plan(83);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -2155,8 +2155,8 @@ where id = '79300000-0000-4000-8000-000000000001';
 select ok(
   (
     select readiness ->> 'transactionConfirmed' = 'true'
-      and readiness ->> 'canIssueCardRefund' = 'false'
-      and readiness ->> 'blockReason' = 'machine_not_enabled'
+      and readiness ->> 'canIssueCardRefund' = 'true'
+      and readiness ->> 'blockReason' is null
     from (
       select public.refund_case_nayax_manager_readiness(
         '79000000-0000-4000-8000-000000000001',
@@ -2164,11 +2164,31 @@ select ok(
       ) as readiness
     ) readiness_result
   ),
-  'A disabled machine preserves confirmation and returns the exact machine-disabled reason'
+  'A refunds-disabled machine preserves confirmation and remains ready for the manager decision'
 );
 
 update public.reporting_machines
-set nayax_refunds_enabled = true
+set status = 'inactive'
+where id = '79300000-0000-4000-8000-000000000001';
+
+select ok(
+  (
+    select readiness ->> 'transactionConfirmed' = 'true'
+      and readiness ->> 'canIssueCardRefund' = 'true'
+      and readiness ->> 'blockReason' is null
+    from (
+      select public.refund_case_nayax_manager_readiness(
+        '79000000-0000-4000-8000-000000000001',
+        '79600000-0000-4000-8000-000000000009'
+      ) as readiness
+    ) readiness_result
+  ),
+  'An inactive machine preserves confirmation and remains ready for the manager decision'
+);
+
+update public.reporting_machines
+set status = 'active',
+    nayax_refunds_enabled = true
 where id = '79300000-0000-4000-8000-000000000001';
 
 select ok(

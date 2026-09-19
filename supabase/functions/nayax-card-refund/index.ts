@@ -6,7 +6,6 @@ import { corsHeaders } from "../_shared/cors.ts";
 import {
   NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
   normalizeNayaxRefundAccountKey,
-  resolveNormalNayaxRefundAmountCents,
   resolveNayaxRefundAttemptQueueReadiness,
   resolveNayaxRefundAvailability,
   resolveNayaxRefundExecutionConfig,
@@ -154,10 +153,8 @@ type RefundCaseForExecution = {
   reporting_machines?: {
     id: string;
     machine_label: string | null;
-    status: string | null;
     nayax_machine_id: string | null;
     nayax_account_key: string | null;
-    nayax_refunds_enabled: boolean | null;
     nayax_refund_max_amount_cents: number | null;
   } | null;
 };
@@ -195,10 +192,8 @@ const getRefundCase = async (
       reporting_machines(
         id,
         machine_label,
-        status,
         nayax_machine_id,
         nayax_account_key,
-        nayax_refunds_enabled,
         nayax_refund_max_amount_cents
       )
     `)
@@ -285,70 +280,6 @@ const resolveCaseRefundReadiness = async ({
 
 const safeNayaxReference = (value: string | null | undefined) =>
   Boolean(value && /^[A-Za-z0-9][A-Za-z0-9._:-]{5,79}$/.test(value));
-
-const resolveRefundAmountCents = (refundCase: RefundCaseForExecution) =>
-  resolveNormalNayaxRefundAmountCents({
-    matchedTransactionAmountCents: refundCase.matched_nayax_amount_cents,
-  }) ?? 0;
-
-const getPreflightBlocks = ({
-  refundCase,
-  actorCanManageCase,
-}: {
-  refundCase: RefundCaseForExecution;
-  actorCanManageCase: boolean;
-}) => {
-  const blocks: string[] = [];
-  const machine = refundCase.reporting_machines;
-  const amountCents = resolveRefundAmountCents(refundCase);
-  if (!refundCase.executionContext) blocks.push("transaction_not_confirmed");
-
-  if (!actorCanManageCase) blocks.push("authorization_failed");
-  if (
-    !new Set([
-      "needs_review",
-      "correlated",
-      "approved",
-      "card_refund_pending",
-    ]).has(refundCase.status)
-  ) {
-    blocks.push("validation_rejected");
-  }
-  if (refundCase.decision !== null && refundCase.decision !== "approved") {
-    blocks.push("validation_rejected");
-  }
-  if (refundCase.payment_method !== "card") blocks.push("validation_rejected");
-  if (refundCase.correlation_status !== "matched") {
-    blocks.push("validation_rejected");
-  }
-  if (refundCase.correlation_source !== "nayax") {
-    blocks.push("validation_rejected");
-  }
-  if (!safeNayaxReference(refundCase.matched_nayax_transaction_id)) {
-    blocks.push("validation_rejected");
-  }
-  if (refundCase.matched_nayax_site_id === null) {
-    blocks.push("validation_rejected");
-  }
-  if (!refundCase.matched_nayax_machine_auth_time) {
-    blocks.push("validation_rejected");
-  }
-  if (refundCase.matched_nayax_currency_code !== "USD") {
-    blocks.push("validation_rejected");
-  }
-  if (amountCents <= 0) blocks.push("validation_rejected");
-  if (refundCase.matched_nayax_amount_cents !== amountCents) {
-    blocks.push("validation_rejected");
-  }
-  if (refundCase.reporting_adjustment_id) blocks.push("already_refunded");
-  if (!machine || machine.status !== "active") {
-    blocks.push("configuration_missing");
-  }
-  if (!machine?.nayax_machine_id) blocks.push("configuration_missing");
-  if (!machine?.nayax_refunds_enabled) blocks.push("feature_disabled");
-
-  return Array.from(new Set(blocks));
-};
 
 type NayaxTransactionPreflight = {
   blocks: string[];

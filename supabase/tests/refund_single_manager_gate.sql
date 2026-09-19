@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(63);
+select plan(66);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -265,7 +265,15 @@ select is((select actor_user_id from public.refund_case_events where refund_case
   and event_type='nayax_match_selected' order by created_at desc limit 1),
   'a3410000-0000-4000-8000-000000000001'::uuid,'selection audit retains triage actor A');
 
+update public.reporting_machines
+set status='inactive',nayax_refunds_enabled=false,
+  nayax_refunds_disabled_reason='machine_maintenance'
+where id='a3440000-0000-4000-8000-000000000001';
 select pg_temp.set_actor('a3410000-0000-4000-8000-000000000002');
+select is((public.refund_case_nayax_manager_readiness(
+    'a3410000-0000-4000-8000-000000000002',
+    'a3470000-0000-4000-8000-000000000001')->>'canIssueCardRefund'),'true',
+  'inactive or execution-disabled machine state does not revoke the exact manager decision');
 create temp table approval_result as select public.admin_approve_selected_nayax_refund_for_system_v1(
   'a3470000-0000-4000-8000-000000000001',
   (select official_action_version from public.refund_cases where id='a3470000-0000-4000-8000-000000000001')) result;
@@ -281,6 +289,22 @@ select matches(pg_temp.capture_error(format('select public.admin_approve_selecte
   '^P4620:.*','double approval loses without another attempt');
 select is((select count(*) from public.refund_case_nayax_refund_attempts where refund_case_id='a3470000-0000-4000-8000-000000000001'),1::bigint,
   'sequential duplicate approval leaves one attempt; the unique queue index is the cross-session arbiter');
+select is(jsonb_array_length(public.service_claim_due_nayax_refund_attempts_v1(
+    'single-gate-executor','SINGLE_GATE_ACCOUNT','exact_source','empty_string',1)->'claims'),0,
+  'inactive or execution-disabled machine holds the one durable attempt before provider claim');
+select ok((select a.status='created' and a.provider_claim_digest is null
+    and c.nayax_refund_execution_status='not_requested'
+    and (select result->>'providerCallMade' from approval_result)='false'
+    and not exists(select 1 from public.refund_nayax_provider_stage_journal journal
+      where journal.nayax_refund_attempt_id=a.id)
+  from public.refund_case_nayax_refund_attempts a
+  join public.refund_cases c on c.id=a.refund_case_id
+  where a.id=(select (result->>'attemptId')::uuid from approval_result)),
+  'held approval remains one provider-free created attempt with no provider journal');
+
+update public.reporting_machines
+set status='active',nayax_refunds_enabled=true,nayax_refunds_disabled_reason=null
+where id='a3440000-0000-4000-8000-000000000001';
 
 update public.reporting_machine_refund_managers set status='revoked',revoked_at=now(),
   revoke_reason='Fixture manager reassignment'

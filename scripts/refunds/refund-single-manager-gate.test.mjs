@@ -15,6 +15,9 @@ const managerSystemCutover = await read('supabase/migrations/20260914100000_refu
 const recoveredProofCompatibility = await read(
   'supabase/migrations/20260919160428_refund_recovered_selection_proof_approval_compatibility.sql',
 );
+const machineProcessorHold = await read(
+  'supabase/migrations/20260919182610_refund_machine_processor_hold.sql',
+);
 const evidenceTimezoneMigration = await read('supabase/migrations/20260914173954_refund_evidence_timezone.sql');
 const edge = await read('supabase/functions/nayax-card-refund/index.ts');
 const adminUpdate = await read('supabase/functions/refund-case-admin-update/index.ts');
@@ -92,6 +95,33 @@ test('the existing attempt is the one claim and settlement boundary', () => {
   assert.match(migration, /status='manual_review'[\s\S]*?reconciliation_required=true/);
   assert.match(migration, /safeRetryEligible',false/);
   assert.doesNotMatch(migration, /service_settle_nayax_system_saved_approval/);
+});
+
+test('machine operational state holds the processor, not the manager decision', () => {
+  assert.match(
+    machineProcessorHold,
+    /approval_identity_guard[\s\S]*?if machine\.id is null[\s\S]*?nayax_machine_id[\s\S]*?nayax_account_key/,
+  );
+  assert.match(
+    machineProcessorHold,
+    /readiness_identity_guard[\s\S]*?when machine\.id is null[\s\S]*?then 'provider_unavailable'/,
+  );
+  assert.match(
+    machineProcessorHold,
+    /service_claim_due_nayax_refund_attempts_v1[\s\S]*?machine\.status = 'active'[\s\S]*?machine\.nayax_refunds_enabled is true/,
+  );
+  assert.match(
+    machineProcessorHold,
+    /saved\.context ->> 'accountScope' = machine\.nayax_account_key[\s\S]*?saved\.context ->> 'providerMachineId' = machine\.nayax_machine_id/,
+  );
+  assert.match(
+    behavioralFixture,
+    /inactive or execution-disabled machine holds the one durable attempt before provider claim/,
+  );
+  assert.match(
+    behavioralFixture,
+    /held approval remains one provider-free created attempt with no provider journal/,
+  );
 });
 
 test('the database serializes sessions and uniquely permits one queued refund per case', () => {
