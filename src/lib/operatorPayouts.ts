@@ -42,6 +42,7 @@ export type OperatorAssignedMachine = {
   machineLabel: string;
   locationId: string;
   locationName: string;
+  locationTimezone: string;
   effectiveStartDate: string;
   effectiveEndDate: string | null;
 };
@@ -281,6 +282,7 @@ export type OperatorTimeEntry = {
   machineLabel: string;
   locationId: string;
   locationName: string;
+  locationTimezone: string;
   payoutPolicyId: string;
   payoutPeriodId: string;
   workDate: string;
