@@ -50,6 +50,7 @@ import { RefundLifecycleProgress } from '@/components/refunds/RefundLifecyclePro
 import { RefundOwnerNonrefundResolution } from '@/components/refunds/RefundOwnerNonrefundResolution';
 import { RefundCashDecisionWorkbench } from '@/components/refunds/RefundCashDecisionWorkbench';
 import { RefundTransactionCandidateReview } from '@/components/refunds/RefundTransactionCandidateReview';
+import { RefundCaseQueuePanel } from '@/components/refunds/RefundCaseQueuePanel';
 import { fetchRefundSunzeCashCorrelation } from '@/lib/refundSunzeCashCorrelationApi';
 import type { RefundSunzeCashCorrelation } from '@/lib/refundSunzeCashCorrelation';
 import { canRequestDistinctCashPayoutDestination } from '@/lib/refundCashPayoutRequest';
@@ -154,13 +155,6 @@ import {
 } from '@/lib/refundCustomerOutreach';
 import { mergeRefundOperationsSupplements } from '@/lib/refundOperationsSupplements';
 import { evidenceLocalDateTimeToIso } from '@/lib/refundEvidenceTime';
-
-const refundSearchViewLabel = (refundCase: RefundCaseRecord) => ({
-  needs_action: 'Action needed', ready_to_pay: 'Ready to approve', in_progress: 'Refund in progress',
-  waiting_on_customer: 'Waiting for customer', provider_hold: 'Check Nayax refund status',
-  accounting_review: 'Fix refund accounting',
-  integrity_hold: 'Fix payment record', completed: 'Done', internal_archive: 'Internal/test archive',
-})[getRefundManagerQueueBucket(refundCase)];
 
 const statusDecisionMap: Partial<Record<RefundCaseStatus, Exclude<RefundDecision, null>>> = {
   approved: 'approved',
@@ -3257,7 +3251,6 @@ export default function AdminRefundsPage() {
       : selectedCaseOfficialActionBlockReason === 'exact_machine_required'
         ? 'Confirm the exact transaction so Bloomjoy can bind this request to one outlet machine before any refund decision.'
       : 'You can review this case. The assigned Manager or a Super-admin makes the final refund decision.';
-  const mobileQueueCases = selectedCase && !isMobileQueueExpanded ? [selectedCase] : filteredCases;
   useEffect(() => {
     const nextVersion = Number(selectedCase?.officialActionVersion ?? 0);
     setOfficialActionVersion(nextVersion > 0 ? nextVersion : 0);
@@ -7311,157 +7304,24 @@ export default function AdminRefundsPage() {
           </div>
 
           <div className="mt-4 grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(19rem,22rem)_minmax(0,1fr)]">
-            <div
-              id="refund-queue-panel"
-              tabIndex={-1}
-              className={cn(
-                'scroll-mt-20 min-w-0 overflow-hidden rounded-xl border border-border bg-card outline-none focus-visible:ring-2 focus-visible:ring-ring lg:sticky lg:top-4 lg:flex lg:h-[calc(100dvh-15rem)] lg:min-h-[28rem] lg:max-h-[52rem] lg:flex-col',
-                selectedCase && !isMobileQueueExpanded && 'hidden lg:flex'
-              )}
-            >
-              <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 py-3">
-                <div>
-                  <h2 className="text-sm font-semibold text-foreground">{isSearching ? 'Search results' : 'Queue'}</h2>
-                  <p data-testid="refund-queue-count" role="status" aria-live="polite" aria-atomic="true" className="mt-1 text-xs text-muted-foreground">
-                    {filteredCases.length} {filteredCases.length === 1 ? 'case' : 'cases'}
-                  </p>
-                </div>
-                {selectedCase && (
-                  <button
-                    type="button"
-                    aria-expanded={isMobileQueueExpanded}
-                    aria-label={isMobileQueueExpanded ? 'Hide queue' : 'Show queue'}
-                    onClick={() => setIsMobileQueueExpanded((current) => !current)}
-                    className="flex min-h-11 items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 lg:hidden"
-                  >
-                    {!isMobileQueueExpanded && <ArrowLeft className="h-4 w-4" aria-hidden="true" />}
-                    {isMobileQueueExpanded ? 'Hide queue' : 'Back to queue'}
-                  </button>
-                )}
-              </div>
-              <div className="divide-y divide-border/70 lg:hidden">
-                {pageIsLoading && (
-                  <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-                    Loading refund queue...
-                  </div>
-                )}
-                {!pageIsLoading && filteredCases.length === 0 && (
-                  <div className="px-4 py-10 text-center">
-                    <p className="text-sm font-medium text-foreground">{emptyQueueTitle}</p>
-                    <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
-                      {emptyQueueDescription}
-                    </p>
-                  </div>
-                )}
-                {!pageIsLoading && (isMobileQueueExpanded || !selectedCase) &&
-                  filteredCases.map((refundCase) => (
-                    <button
-                      key={refundCase.id}
-                      data-testid="refund-case-queue-item"
-                      type="button"
-                      onClick={() => handleSelectCase(refundCase)}
-                      className={cn(
-                        'block w-full min-w-0 p-4 text-left transition-colors hover:bg-muted/40',
-                        refundCase.id === selectedId && 'bg-primary/5 shadow-[inset_3px_0_0_hsl(var(--primary))]'
-                      )}
-                    >
-                      <div className="grid min-w-0 gap-2">
-                        <div className="min-w-0">
-                          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                            <span className="break-words text-sm font-semibold text-foreground">
-                              {refundCase.publicReference}
-                            </span>
-                            <Badge
-                              variant="outline"
-                              data-testid="refund-case-source"
-                              className={cn('shrink-0 px-1.5 py-0 text-[10px] font-semibold', intakeSourceBadgeClass(refundCase))}
-                            >
-                              {intakeSourceLabel(refundCase)}
-                            </Badge>
-                          </div>
-                        </div>
-                        <Badge className={cn('h-auto w-fit max-w-full whitespace-normal break-words rounded-md py-1 text-left leading-tight', managerTaskBadgeClass(refundCase))}>
-                          {managerTaskLabel(refundCase)}
-                        </Badge>
-                      </div>
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        {formatRefundMachineLocation(refundCase.locationName, refundCase.machineLabel)}
-                      </div>
-                      {isSearching && <p className="mt-2 text-xs text-muted-foreground">Current view: {refundSearchViewLabel(refundCase)}</p>}
-                    <div className="mt-3 flex items-center justify-between gap-3 text-xs">
-                        <span className="font-medium text-foreground">
-                          {formatCurrency(refundCase.refundAmountCents ?? refundCase.paymentAmountCents)}
-                        </span>
-                        <span className="text-muted-foreground">{formatAge(refundCase.createdAt)} old</span>
-                      </div>
-                    </button>
-                  ))}
-              </div>
-
-              <div
-                role="region"
-                aria-label="Refund case queue"
-                tabIndex={0}
-                className="hidden min-h-0 flex-1 divide-y divide-border/70 overflow-y-auto overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:block"
-              >
-                {pageIsLoading && (
-                  <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-                    Loading refund queue...
-                  </div>
-                )}
-                {!pageIsLoading && filteredCases.length === 0 && (
-                  <div className="px-4 py-10 text-center">
-                    <p className="text-sm font-medium text-foreground">{emptyQueueTitle}</p>
-                    <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
-                      {emptyQueueDescription}
-                    </p>
-                  </div>
-                )}
-                {!pageIsLoading && filteredCases.map((refundCase) => (
-                  <button
-                    key={refundCase.id}
-                    data-testid="refund-case-queue-item"
-                    type="button"
-                    aria-current={refundCase.id === selectedId ? 'true' : undefined}
-                    onClick={() => handleSelectCase(refundCase)}
-                    className={cn(
-                      'block min-h-20 w-full px-4 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
-                      refundCase.id === selectedId && 'bg-primary/5 shadow-[inset_3px_0_0_hsl(var(--primary))]'
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                          <span className="truncate text-sm font-semibold text-foreground">
-                            {refundCase.publicReference}
-                          </span>
-                          <Badge
-                            variant="outline"
-                            data-testid="refund-case-source"
-                            className={cn('shrink-0 px-1.5 py-0 text-[10px] font-semibold', intakeSourceBadgeClass(refundCase))}
-                          >
-                            {intakeSourceLabel(refundCase)}
-                          </Badge>
-                        </div>
-                        <p className="mt-1 truncate text-xs text-muted-foreground">
-                          {formatRefundMachineLocation(refundCase.locationName, refundCase.machineLabel)}
-                        </p>
-                      </div>
-                      <Badge className={cn('shrink-0 rounded-md', managerTaskBadgeClass(refundCase))}>
-                        {managerTaskLabel(refundCase)}
-                      </Badge>
-                    </div>
-                    {isSearching && <p className="mt-2 text-xs text-muted-foreground">Current view: {refundSearchViewLabel(refundCase)}</p>}
-                    <div className="mt-3 flex items-center justify-between gap-3 text-xs">
-                      <span className="font-medium text-foreground">
-                        {formatCurrency(refundCase.refundAmountCents ?? refundCase.paymentAmountCents)}
-                      </span>
-                      <span className="text-muted-foreground">{formatAge(refundCase.createdAt)} old</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
+            <RefundCaseQueuePanel
+              cases={filteredCases}
+              selectedCaseId={selectedId}
+              hasSelectedCase={Boolean(selectedCase)}
+              isMobileExpanded={isMobileQueueExpanded}
+              isLoading={pageIsLoading}
+              isSearching={isSearching}
+              emptyTitle={emptyQueueTitle}
+              emptyDescription={emptyQueueDescription}
+              onToggleMobile={() => setIsMobileQueueExpanded((current) => !current)}
+              onSelectCase={handleSelectCase}
+              getTaskLabel={managerTaskLabel}
+              getTaskBadgeClass={managerTaskBadgeClass}
+              getIntakeSourceLabel={intakeSourceLabel}
+              getIntakeSourceBadgeClass={intakeSourceBadgeClass}
+              formatCaseAge={formatAge}
+              formatCaseAmount={formatCurrency}
+            />
 
             <div
               ref={detailPanelRef}
