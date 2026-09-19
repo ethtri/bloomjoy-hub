@@ -33,7 +33,7 @@ values('fc150000-0000-4000-8000-000000000001','RF-CONTACTLESS-REVIEW',
   'contactless-review-customer@example.invalid','Charged without product',
   '2026-08-22T20:00:00Z','America/Los_Angeles','exact','exact',null,null,
   'card',1090,1090,'6768','physical_card',null,'tap_card','needs_review','needs_nayax',
-  2,'form','{}',null,null);
+  2,'form','{}','2026-08-22T21:00:00Z','hosted_refund_intake');
 
 create function pg_temp.contactless_evidence(
   selection_allowed boolean default true,
@@ -59,8 +59,8 @@ create function pg_temp.contactless_evidence(
     'payment_interaction_comparison',case when c.payment_interaction='swipe_card' then 'supporting' else 'unknown' end,
     'same_identifier_equivalence_proven',false,'identifier_review_state',review_state,
     'customer_correction_fields',correction_fields,'hard_exclusions',hard_exclusions,
-    'manual_review_reasons','["customer_request_time_unknown","transaction_occurrence_time_uncertain","card_last4_mismatch_reviewable"]'::jsonb,
-    'reason_codes','["machine_exact","amount_exact","customer_request_time_unknown","transaction_occurrence_time_uncertain","card_last4_mismatch_neutral_unproven_scope"]'::jsonb
+    'manual_review_reasons','["transaction_occurrence_time_uncertain","card_last4_mismatch_reviewable"]'::jsonb,
+    'reason_codes','["machine_exact","amount_exact","transaction_occurrence_time_uncertain","card_last4_mismatch_neutral_unproven_scope"]'::jsonb
   ) || jsonb_build_object(
     'match_factors','[]'::jsonb,'match_reason','Exact machine and amount; contactless identifier needs manager review',
     'recommendation_rank',1,'is_top_ranked',true,'lookup_account_scope','CONTACTLESS_REVIEW_ACCOUNT',
@@ -68,8 +68,8 @@ create function pg_temp.contactless_evidence(
     'machine_authorization_time_raw','2026-08-22T20:15:00Z',
     'machine_authorization_at','2026-08-22T20:15:00Z','machine_authorization_time_source','MachineAuthorizationTime',
     'machine_time_resolution','exact','provider_time_resolution','exact','provider_time_source','authorization_gmt',
-    'authorized_at','2026-08-22T20:15:00Z','customer_request_received_at',null,
-    'customer_request_received_source',null,'request_time_boundary','request_time_unknown',
+    'authorized_at','2026-08-22T20:15:00Z','customer_request_received_at','2026-08-22T21:00:00Z',
+    'customer_request_received_source','hosted_refund_intake','request_time_boundary','occurrence_time_uncertain',
     'transaction_occurrence_comparable',false,'transaction_occurrence_semantics','unknown',
     'transaction_occurrence_proof_source',null,'transaction_occurrence_timestamp_source',null,
     'transaction_occurrence_timezone_basis',null,'transaction_occurrence_lower_bound_at',null,
@@ -84,7 +84,7 @@ $$;
 select is(public.refund_nayax_candidate_identifier_evidence_state(
   'fc150000-0000-4000-8000-000000000001','fc140000-0000-4000-8000-000000000001',101,
   '2026-08-22T20:15:00Z',1090,'3760','USD',pg_temp.contactless_evidence()
-), 'valid','Neutral physical-contactless suffix difference is valid for manual review without optional customer facts');
+), 'valid','Neutral physical-contactless suffix difference is valid for manual review without extra customer identifier facts');
 
 select is(public.refund_nayax_candidate_identifier_evidence_state(
   'fc150000-0000-4000-8000-000000000001','fc140000-0000-4000-8000-000000000001',101,
@@ -135,10 +135,11 @@ select lives_ok($$insert into public.refund_nayax_lookup_candidates(token,refund
 select 'fc160000-0000-4000-8000-000000000001','fc150000-0000-4000-8000-000000000001',generation,
   'fc110000-0000-4000-8000-000000000001','fc140000-0000-4000-8000-000000000001',
   'CONTACTLESS-REVIEW-SALE',101,'2026-08-22T20:15:00Z',2590,'3760','USD',
-  jsonb_set(pg_temp.contactless_evidence(amount_delta => 1500, provider_amount => 2590),'{is_recommended}','false'::jsonb) ||
+  (jsonb_set(pg_temp.contactless_evidence(amount_delta => 1500, provider_amount => 2590),'{is_recommended}','false'::jsonb) ||
     jsonb_build_object('policy_version','2026-09-13.v12','provider_time_resolution','unknown',
       'machine_time_resolution','ambiguous','transaction_occurrence_comparable',false,
-      'transaction_occurrence_semantics','unknown','time_delta_minutes',null),
+      'transaction_occurrence_semantics','unknown','time_delta_minutes',null)) -
+        'transaction_occurrence_comparable',
   statement_timestamp()+interval '1 hour' from lookup_claim$$,
   'Current v12 noncomparable contactless evidence persists through the authoritative trigger');
 
@@ -155,9 +156,6 @@ select 'fc160000-0000-4000-8000-000000000002','fc150000-0000-4000-8000-000000000
   statement_timestamp()+interval '1 hour' from lookup_claim$$,
   'A second reviewable transaction persists but prevents unique binding');
 
-update public.refund_nayax_lookup_candidates
-set evidence_summary = evidence_summary - 'transaction_occurrence_comparable'
-where token='fc160000-0000-4000-8000-000000000001';
 select ok((select not (evidence_summary ? 'transaction_occurrence_comparable')
   from public.refund_nayax_lookup_candidates
   where token='fc160000-0000-4000-8000-000000000001'),
@@ -227,8 +225,8 @@ select ok((select (metadata ->> 'one_click_eligible')::boolean = false
 select is((select metadata -> 'uncertainty_codes' from public.refund_case_events
   where refund_case_id='fc150000-0000-4000-8000-000000000001'
     and event_type='nayax_identifier_evidence_selected' order by created_at desc limit 1),
-  '["customer_request_time_unknown","transaction_occurrence_time_uncertain","card_last4_mismatch_reviewable","customer_amount_variance"]'::jsonb,
-  'Selection event preserves the actual unknown timing and identifier uncertainty');
+  '["transaction_occurrence_time_uncertain","card_last4_mismatch_reviewable","customer_amount_variance"]'::jsonb,
+  'Selection event preserves the actual occurrence-time and identifier uncertainty');
 select is((select metadata ->> 'customer_payment_interaction' from public.refund_case_events
   where refund_case_id='fc150000-0000-4000-8000-000000000001'
     and event_type='nayax_identifier_evidence_selected' order by created_at desc limit 1),
