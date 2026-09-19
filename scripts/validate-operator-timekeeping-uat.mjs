@@ -12,8 +12,11 @@ const PROFILE_ID = '66000000-0000-4000-8000-000000000010';
 const ACCOUNT_ID = '66000000-0000-4000-8000-000000000011';
 const POLICY_ID = '66000000-0000-4000-8000-000000000013';
 const LOCATION_ID = '66000000-0000-4000-8000-000000000015';
+const EASTERN_LOCATION_ID = '66000000-0000-4000-8000-000000000025';
 const MACHINE_A = '66000000-0000-4000-8000-000000000014';
 const MACHINE_B = '66000000-0000-4000-8000-000000000024';
+const PACIFIC_TIME_ZONE = 'America/Los_Angeles';
+const EASTERN_TIME_ZONE = 'America/New_York';
 
 const parseArgs = (argv) => {
   const args = {
@@ -94,24 +97,26 @@ const machineAssignments = [
     machineLabel: 'Cotton Candy 01',
     locationId: LOCATION_ID,
     locationName: 'Mall Atrium',
+    locationTimezone: PACIFIC_TIME_ZONE,
     effectiveStartDate: '2026-01-01',
     effectiveEndDate: '2026-09-01',
   },
   {
     assignmentId: 'assignment-machine-b',
     machineId: MACHINE_B,
-    machineLabel: 'Cotton Candy 02',
-    locationId: LOCATION_ID,
-    locationName: 'Mall Atrium',
+    machineLabel: 'Francis Scott Key Mall — Provisional',
+    locationId: EASTERN_LOCATION_ID,
+    locationName: 'Francis Scott Key Mall',
+    locationTimezone: EASTERN_TIME_ZONE,
     effectiveStartDate: '2026-09-02',
     effectiveEndDate: null,
   },
 ];
 
-const zonedParts = (value) =>
+const zonedParts = (value, timeZone) =>
   Object.fromEntries(
     new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/Los_Angeles',
+      timeZone,
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
@@ -134,16 +139,25 @@ const makeEntry = ({
   const [startHour, startMinute] = startTime.split(':').map(Number);
   const [endHour, endMinute] = endTime.split(':').map(Number);
   const duration = endHour * 60 + endMinute - (startHour * 60 + startMinute);
-  const offset = workDate < '2026-11-01' ? '-07:00' : '-08:00';
+  const isEasternMachine = machineId === MACHINE_B;
+  const offset = isEasternMachine
+    ? workDate < '2026-11-01'
+      ? '-04:00'
+      : '-05:00'
+    : workDate < '2026-11-01'
+      ? '-07:00'
+      : '-08:00';
   const paidShifts = Math.ceil(duration / 60);
   return {
     id,
     accountId: ACCOUNT_ID,
     operatorProfileId: PROFILE_ID,
     machineId,
-    machineLabel: machineId === MACHINE_A ? 'Cotton Candy 01' : 'Cotton Candy 02',
-    locationId: LOCATION_ID,
-    locationName: 'Mall Atrium',
+    machineLabel:
+      machineId === MACHINE_A ? 'Cotton Candy 01' : 'Francis Scott Key Mall — Provisional',
+    locationId: isEasternMachine ? EASTERN_LOCATION_ID : LOCATION_ID,
+    locationName: isEasternMachine ? 'Francis Scott Key Mall' : 'Mall Atrium',
+    locationTimezone: isEasternMachine ? EASTERN_TIME_ZONE : PACIFIC_TIME_ZONE,
     payoutPolicyId: POLICY_ID,
     payoutPeriodId: `period-${workDate.slice(0, 7)}`,
     workDate,
@@ -221,8 +235,9 @@ const buildContext = (state, requestedDate) => {
 };
 
 const entryFromSave = (body, state) => {
-  const start = zonedParts(body.p_actual_start_at);
-  const end = zonedParts(body.p_actual_end_at);
+  const timeZone = body.p_reporting_machine_id === MACHINE_B ? EASTERN_TIME_ZONE : PACIFIC_TIME_ZONE;
+  const start = zonedParts(body.p_actual_start_at, timeZone);
+  const end = zonedParts(body.p_actual_end_at, timeZone);
   const workDate = `${start.year}-${start.month}-${start.day}`;
   const startTime = `${start.hour}:${start.minute}`;
   const endTime = `${end.hour}:${end.minute}`;
@@ -544,6 +559,12 @@ const run = async () => {
     await page.keyboard.press('Enter');
     await page.getByRole('heading', { name: 'Add time' }).waitFor();
     check.assert('Keyboard activates the primary Add time action', true);
+    check.assert(
+      'Time form explains that entries use the selected machine timezone',
+      await page
+        .getByText("Times use the selected machine's local timezone.", { exact: true })
+        .isVisible()
+    );
     const mobileHeaderBounds = await page.locator('[data-app-shell-content-header]').boundingBox();
     const addTimeHeadingBounds = await page.getByRole('heading', { name: 'Add time' }).boundingBox();
     check.assert(
@@ -556,7 +577,7 @@ const run = async () => {
       JSON.stringify({ mobileHeaderBounds, addTimeHeadingBounds })
     );
     await page.locator('#work-machine').click();
-    await page.getByRole('option', { name: /Cotton Candy 02/ }).click();
+    await page.getByRole('option', { name: /Francis Scott Key Mall/ }).click();
     await page.locator('#start-time').fill('10:30');
     await page.locator('#end-time').fill('11:30');
     const callsBeforeOverlap = state.rpcCalls.filter(
@@ -594,11 +615,11 @@ const run = async () => {
     const canonicalSave = state.rpcCalls.find(
       (call) =>
         call.rpcName === 'save_operator_time_entry' &&
-        call.body.p_actual_start_at === '2026-09-02T19:00:00.000Z'
+        call.body.p_actual_start_at === '2026-09-02T16:00:00.000Z'
     );
     check.assert(
-      'Save uses the canonical Pacific timestamp RPC',
-      Boolean(canonicalSave?.body.p_actual_end_at === '2026-09-02T20:01:00.000Z')
+      'Eastern machine time is accepted and saved as the canonical UTC timestamp',
+      Boolean(canonicalSave?.body.p_actual_end_at === '2026-09-02T17:01:00.000Z')
     );
 
     await page.getByRole('button', { name: /Edit .*12:00 PM to 1:01 PM/i }).click();
@@ -622,7 +643,7 @@ const run = async () => {
     );
     check.assert(
       'Add time remembers the Technician\'s last-used machine',
-      (await page.locator('#work-machine').textContent())?.includes('Cotton Candy 02')
+      (await page.locator('#work-machine').textContent())?.includes('Francis Scott Key Mall')
     );
     await page.getByRole('button', { name: 'Back to week' }).click();
     await page.waitForURL(/\/portal\/time\?/);

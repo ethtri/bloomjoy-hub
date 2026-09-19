@@ -22,6 +22,12 @@ const files = {
     'migrations',
     '202607170001_timekeeping_manager_authority_fail_closed.sql'
   ),
+  locationTimezoneMigration: path.join(
+    repoRoot,
+    'supabase',
+    'migrations',
+    '20260919035117_timekeeping_location_timezone.sql'
+  ),
   page: path.join(repoRoot, 'src', 'pages', 'portal', 'Time.tsx'),
   reviewPage: path.join(repoRoot, 'src', 'pages', 'portal', 'TimeReview.tsx'),
   app: path.join(repoRoot, 'src', 'App.tsx'),
@@ -118,6 +124,18 @@ for (const snippet of [
   }
 }
 
+const locationTimezoneMigration = readText(files.locationTimezoneMigration);
+for (const snippet of [
+  "'locationTimezone', location.timezone",
+  'at time zone location_timezone',
+  'pg_catalog.pg_timezone_names',
+  'create or replace function public.set_operator_time_entry_durations',
+  'create or replace function public.validate_operator_time_entry_assignment',
+  'create or replace function public.save_operator_time_entry',
+]) {
+  expect(locationTimezoneMigration, snippet, 'location-timezone migration');
+}
+
 for (const retiredSnippet of [
   'Waiting for review',
   'Correction requested',
@@ -158,6 +176,9 @@ for (const snippet of [
   '61-minute duration',
   'one second before Pacific cutoff',
   'at Pacific cutoff',
+  'Eastern conversion',
+  'completed Eastern work is not future at the same instant',
+  'the former Pacific interpretation reproduces the reported defect',
 ]) {
   expect(uiHelperTest, snippet, 'timekeeping UI helper tests');
 }

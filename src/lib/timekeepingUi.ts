@@ -12,25 +12,28 @@ type ComparableTimeEntry = {
   machineId: string;
   startTime: string;
   endTime: string;
+  locationTimezone?: string;
 };
 
-const plainDateFormatter = new Intl.DateTimeFormat('en-US', {
-  timeZone: TIMEKEEPING_TIME_ZONE,
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-});
+const getPlainDateFormatter = (timeZone: string) =>
+  new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
 
-const zonedDateTimeFormatter = new Intl.DateTimeFormat('en-US', {
-  timeZone: TIMEKEEPING_TIME_ZONE,
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hourCycle: 'h23',
-});
+const getZonedDateTimeFormatter = (timeZone: string) =>
+  new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  });
 
 const partsToRecord = (parts: Intl.DateTimeFormatPart[]) =>
   Object.fromEntries(parts.map((part) => [part.type, part.value]));
@@ -56,13 +59,13 @@ const parseTime = (value: string) => {
   return { hour, minute };
 };
 
-const formatPlainDateParts = (date: Date) => {
-  const parts = partsToRecord(plainDateFormatter.formatToParts(date));
+const formatPlainDateParts = (date: Date, timeZone: string) => {
+  const parts = partsToRecord(getPlainDateFormatter(timeZone).formatToParts(date));
   return `${parts.year}-${parts.month}-${parts.day}`;
 };
 
-const zonedParts = (date: Date) => {
-  const parts = partsToRecord(zonedDateTimeFormatter.formatToParts(date));
+const zonedParts = (date: Date, timeZone: string) => {
+  const parts = partsToRecord(getZonedDateTimeFormatter(timeZone).formatToParts(date));
   return {
     year: Number(parts.year),
     month: Number(parts.month),
@@ -73,15 +76,18 @@ const zonedParts = (date: Date) => {
   };
 };
 
-const timeZoneOffsetMs = (date: Date) => {
-  const parts = zonedParts(date);
+const timeZoneOffsetMs = (date: Date, timeZone: string) => {
+  const parts = zonedParts(date, timeZone);
   return (
     Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second) -
     Math.floor(date.getTime() / 1000) * 1000
   );
 };
 
-export const getTodayInTimekeepingZone = (now = new Date()) => formatPlainDateParts(now);
+export const getTodayInTimekeepingZone = (
+  now = new Date(),
+  timeZone = TIMEKEEPING_TIME_ZONE
+) => formatPlainDateParts(now, timeZone);
 
 export const getTechnicianCutoffDate = (workDate: string) => {
   const { year, month } = parsePlainDate(workDate);
@@ -115,15 +121,19 @@ export const getWeekDates = (weekStart: string) =>
 export const getWeekMonthAnchors = (weekStart: string) =>
   [...new Set(getWeekDates(weekStart).map((date) => `${date.slice(0, 7)}-01`))];
 
-export const combineDateAndTimeInTimekeepingZone = (dateValue: string, timeValue: string) => {
+export const combineDateAndTimeInTimekeepingZone = (
+  dateValue: string,
+  timeValue: string,
+  timeZone = TIMEKEEPING_TIME_ZONE
+) => {
   const date = parsePlainDate(dateValue);
   const time = parseTime(timeValue);
   const desiredUtc = Date.UTC(date.year, date.month - 1, date.day, time.hour, time.minute);
 
-  let candidate = desiredUtc - timeZoneOffsetMs(new Date(desiredUtc));
-  candidate = desiredUtc - timeZoneOffsetMs(new Date(candidate));
+  let candidate = desiredUtc - timeZoneOffsetMs(new Date(desiredUtc), timeZone);
+  candidate = desiredUtc - timeZoneOffsetMs(new Date(candidate), timeZone);
 
-  const actual = zonedParts(new Date(candidate));
+  const actual = zonedParts(new Date(candidate), timeZone);
   if (
     actual.year !== date.year ||
     actual.month !== date.month ||
@@ -140,31 +150,41 @@ export const combineDateAndTimeInTimekeepingZone = (dateValue: string, timeValue
 export const getActualDurationMinutes = (
   workDate: string,
   startTime: string,
-  endTime: string
+  endTime: string,
+  timeZone = TIMEKEEPING_TIME_ZONE
 ) => {
   if (!startTime || !endTime) return 0;
-  const startAt = Date.parse(combineDateAndTimeInTimekeepingZone(workDate, startTime));
-  const endAt = Date.parse(combineDateAndTimeInTimekeepingZone(workDate, endTime));
+  const startAt = Date.parse(combineDateAndTimeInTimekeepingZone(workDate, startTime, timeZone));
+  const endAt = Date.parse(combineDateAndTimeInTimekeepingZone(workDate, endTime, timeZone));
   return Math.max(0, Math.round((endAt - startAt) / 60_000));
 };
 
 export const timeDraftOverlapsEntry = (
   draft: TechnicianTimeDraft,
-  entry: ComparableTimeEntry
+  entry: ComparableTimeEntry,
+  draftTimeZone = TIMEKEEPING_TIME_ZONE
 ) => {
   if (draft.workDate !== entry.workDate) return false;
   try {
     const draftStart = Date.parse(
-      combineDateAndTimeInTimekeepingZone(draft.workDate, draft.startTime)
+      combineDateAndTimeInTimekeepingZone(draft.workDate, draft.startTime, draftTimeZone)
     );
     const draftEnd = Date.parse(
-      combineDateAndTimeInTimekeepingZone(draft.workDate, draft.endTime)
+      combineDateAndTimeInTimekeepingZone(draft.workDate, draft.endTime, draftTimeZone)
     );
     const entryStart = Date.parse(
-      combineDateAndTimeInTimekeepingZone(entry.workDate, entry.startTime)
+      combineDateAndTimeInTimekeepingZone(
+        entry.workDate,
+        entry.startTime,
+        entry.locationTimezone ?? draftTimeZone
+      )
     );
     const entryEnd = Date.parse(
-      combineDateAndTimeInTimekeepingZone(entry.workDate, entry.endTime)
+      combineDateAndTimeInTimekeepingZone(
+        entry.workDate,
+        entry.endTime,
+        entry.locationTimezone ?? draftTimeZone
+      )
     );
     return draftStart < entryEnd && entryStart < draftEnd;
   } catch {
@@ -184,8 +204,9 @@ export const timeDraftMatchesEntry = (
 export const isCompletedTimeInFuture = (
   workDate: string,
   endTime: string,
-  now = new Date()
-) => Date.parse(combineDateAndTimeInTimekeepingZone(workDate, endTime)) > now.getTime();
+  now = new Date(),
+  timeZone = TIMEKEEPING_TIME_ZONE
+) => Date.parse(combineDateAndTimeInTimekeepingZone(workDate, endTime, timeZone)) > now.getTime();
 
 export const describeTimekeepingError = (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error ?? '');

@@ -72,6 +72,10 @@ orientation snapshot; it is not a backlog or release ledger.
 - Timekeeping, Technician Pay Reports, Pay Stubs, partner reporting, access
   management, training, commerce, and machine administration remain active
   product areas. Their current work belongs on the board, not in this snapshot.
+- Technician wall-clock entries are interpreted in the selected machine
+  location's IANA timezone. This keeps completed Eastern and Central work from
+  being rejected as future merely because Bloomjoy's month-close policy and
+  headquarters clock are Pacific; the month-close cutoff itself remains Pacific.
 - Technician contact records now keep operational email, phone, and mailing-address
   details in a separate directory limited to the technician and pay-authorized
   managers. Machine-only managers cannot read them, and audit records store only
