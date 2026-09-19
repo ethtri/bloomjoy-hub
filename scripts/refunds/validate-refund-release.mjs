@@ -153,6 +153,11 @@ try {
     /pull_request:/,
     'Production drift belongs at scheduled or explicit release boundaries, not on every refund PR'
   );
+  assert.doesNotMatch(
+    productionDriftWorkflow,
+    /validate-release-tooling|refund-release-provenance\.test/,
+    'Scheduled production drift must not rerun PR release-tooling validation'
+  );
   const ciWorkflow = fs.readFileSync(path.join(repoRoot, '.github/workflows/ci.yml'), 'utf8');
   assert.doesNotMatch(
     ciWorkflow,
@@ -165,7 +170,60 @@ try {
   );
   assert.match(refundUatWorkflow, /run: npm run test:refunds/);
   assert.match(refundUatWorkflow, /!scripts\/refunds\/refund-production-release\.json/);
+  for (const runtimeDependency of [
+    'src/App.tsx',
+    'src/components/auth/AdminRoute.tsx',
+    'src/pages/admin/Machines.tsx',
+    'package.json',
+  ]) {
+    assert(
+      refundUatWorkflow.includes(`- '${runtimeDependency}'`),
+      `Refund UAT path scope must include ${runtimeDependency}`
+    );
+  }
+  for (const releaseOnlyPath of [
+    'scripts/refunds/refund-release.mjs',
+    'scripts/refunds/refund-release-provenance.test.mjs',
+    'scripts/refunds/refund-function-deploy.mjs',
+    'scripts/refunds/refund-function-deploy.test.mjs',
+    'scripts/refunds/refund-drift-credential.mjs',
+    'scripts/refunds/validate-refund-drift-credential.mjs',
+    'scripts/refunds/validate-refund-release.mjs',
+    'scripts/refunds/run-refund-release-uat-local.ps1',
+  ]) {
+    assert(
+      refundUatWorkflow.includes(`- '!${releaseOnlyPath}'`),
+      `Release-only path must not trigger browser UAT: ${releaseOnlyPath}`
+    );
+  }
   assert.doesNotMatch(refundUatWorkflow, /refund-change-scope/);
+  const machineManagerStep = refundUatWorkflow.match(
+    /      - name: Run Machine Manager synthetic UAT[\s\S]*?(?=\n      - name: Finalize strict machine-readable evidence)/
+  )?.[0];
+  assert(machineManagerStep, 'Machine Manager UAT step must remain present');
+  assert(
+    machineManagerStep.includes("grep -Fq 'refund_uat_request_failed_before_drain'"),
+    'Machine Manager UAT may retry only its specific transient request cancellation'
+  );
+  assert.equal(
+    (machineManagerStep.match(/npm run refunds:validate-machine-manager-uat/g) ?? []).length,
+    2,
+    'Machine Manager UAT must run at most twice'
+  );
+  assert(
+    !machineManagerStep.includes('|| true'),
+    'Machine Manager UAT must not suppress a second failure'
+  );
+  const releaseToolingWorkflow = fs.readFileSync(
+    path.join(repoRoot, '.github/workflows/refund-release-tooling.yml'),
+    'utf8'
+  );
+  assert.match(releaseToolingWorkflow, /pull_request:[\s\S]*paths:/);
+  assert.match(
+    releaseToolingWorkflow,
+    /run: npm run refunds:validate-release-tooling/,
+    'Path-scoped release tooling must execute the authoritative release validator in Actions'
+  );
   const missingEntrypointManifest = structuredClone(repositoryManifest);
   delete missingEntrypointManifest.functions[0].production.entrypointIdentity;
   assert.throws(

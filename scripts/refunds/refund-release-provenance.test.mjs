@@ -5,7 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
-import { fetchReviewedReleaseSource, manifestPath, validateReleaseManifestGitAnchor } from './refund-release.mjs';
+import {
+  fetchReviewedReleaseSource,
+  manifestPath,
+  validateReleaseManifestGitAnchor,
+  validateSealedReleaseManifestGitAnchor,
+} from './refund-release.mjs';
 
 const manifestRelativePath = 'scripts/refunds/refund-production-release.json';
 const baseManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
@@ -102,8 +107,29 @@ test('missing source, dirty checkout and canonical source-pointer mismatch fail 
 test('later protected changes still fail and an exact reversion preserves source equivalence', (t) => {
   const f = fixture(t);
   f.write('src/refund.ts', 'export const outcome = "unreviewed";\n');
-  f.commit('later protected change');
+  const laterProtectedHead = f.commit('later protected change');
   assert.throws(() => validateReleaseManifestGitAnchor(f.root, f.manifest), /Protected refund release paths changed/);
+  assert.deepEqual(
+    validateSealedReleaseManifestGitAnchor(f.root, f.manifest),
+    {
+      sourceGitCommit: f.source,
+      sealedAnchorGitCommit: f.canonicalAnchor,
+      monitorGitCommit: laterProtectedHead,
+    },
+    'Production monitoring validates the exact sealed artifact without comparing later main source'
+  );
+
+  const tamperedManifest = { ...f.manifest, releaseId: `${f.manifest.releaseId}-tampered` };
+  f.write(manifestRelativePath, JSON.stringify(tamperedManifest));
+  f.commit('tamper with sealed manifest after runtime change');
+  assert.throws(
+    () => validateSealedReleaseManifestGitAnchor(f.root, tamperedManifest),
+    /does not match an exact manifest-only sealed release anchor/,
+    'Production monitoring still rejects a manifest that is not the exact sealed artifact'
+  );
+
+  f.write(manifestRelativePath, JSON.stringify(f.manifest));
+  f.commit('restore sealed manifest artifact');
   f.write('src/refund.ts', 'export const outcome = "reviewed";\n');
   f.commit('exact reversion');
   assert.equal(validateReleaseManifestGitAnchor(f.root, f.manifest).squashEquivalentAnchor, f.canonicalAnchor);

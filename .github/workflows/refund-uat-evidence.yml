@@ -3,9 +3,12 @@ name: Refund UAT Evidence
 on:
   pull_request:
     paths:
+      - 'src/App.tsx'
+      - 'src/components/auth/AdminRoute.tsx'
       - 'src/components/refunds/**'
       - 'src/lib/refund*'
       - 'src/pages/Refund*'
+      - 'src/pages/admin/Machines.tsx'
       - 'src/pages/admin/Refunds.tsx'
       - 'supabase/functions/refund-*/**'
       - 'supabase/functions/nayax-*/**'
@@ -16,9 +19,18 @@ on:
       - 'supabase/tests/refund*'
       - 'scripts/refunds/**'
       - '!scripts/refunds/refund-production-release.json'
+      - '!scripts/refunds/refund-release.mjs'
+      - '!scripts/refunds/refund-release-provenance.test.mjs'
+      - '!scripts/refunds/refund-function-deploy.mjs'
+      - '!scripts/refunds/refund-function-deploy.test.mjs'
+      - '!scripts/refunds/refund-drift-credential.mjs'
+      - '!scripts/refunds/validate-refund-drift-credential.mjs'
+      - '!scripts/refunds/validate-refund-release.mjs'
+      - '!scripts/refunds/run-refund-release-uat-local.ps1'
       - 'scripts/validate-nayax-refund-execution.mjs'
       - 'scripts/validate-supabase-migrations.mjs'
       - 'supabase/config.toml'
+      - 'package.json'
       - '.github/workflows/refund-uat-evidence.yml'
   workflow_dispatch:
 

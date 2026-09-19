@@ -215,6 +215,19 @@ const readGitFileAtCommit = (rootDirectory, commit, repositoryPath, sourceCache)
   return source;
 };
 
+const listGitPathsAtCommit = (rootDirectory, commit, repositoryPath) => {
+  const result = spawnSync(
+    'git',
+    ['ls-tree', '-r', '--name-only', '-z', commit, '--', repositoryPath],
+    { cwd: rootDirectory, encoding: 'utf8', windowsHide: true }
+  );
+  assert(
+    !result.error && result.status === 0,
+    `Unable to inspect ${repositoryPath} at ${commit.slice(0, 12)}`
+  );
+  return result.stdout.split('\0').filter(Boolean).map(normalizePath);
+};
+
 export const calculateFunctionSourceAtGitCommit = (
   rootDirectory,
   commit,
@@ -279,6 +292,23 @@ export const calculateMigrationDigest = (rootDirectory, requiredMigrations) => {
   return sha256(records.join(''));
 };
 
+export const calculateMigrationDigestAtGitCommit = (
+  rootDirectory,
+  commit,
+  requiredMigrations,
+  { sourceCache = new Map() } = {}
+) => {
+  assert(gitCommitPattern.test(commit), 'Source Git commit must be a full 40-character SHA');
+  const records = requiredMigrations.map((fileName) => {
+    assert(/^\d+_[a-z0-9_]+\.sql$/.test(fileName), `Invalid migration manifest entry: ${fileName}`);
+    const repositoryPath = `supabase/migrations/${fileName}`;
+    const source = readGitFileAtCommit(rootDirectory, commit, repositoryPath, sourceCache);
+    assert(source !== null, `Missing required migration at ${commit.slice(0, 12)}: ${fileName}`);
+    return `${fileName}\0${source}\0`;
+  });
+  return sha256(records.join(''));
+};
+
 export const discoverRefundMigrationFiles = (rootDirectory) => {
   const migrationsDirectory = path.join(rootDirectory, 'supabase', 'migrations');
   return fs.readdirSync(migrationsDirectory, { withFileTypes: true })
@@ -286,6 +316,12 @@ export const discoverRefundMigrationFiles = (rootDirectory) => {
     .map((entry) => entry.name)
     .sort();
 };
+
+export const discoverRefundMigrationFilesAtGitCommit = (rootDirectory, commit) =>
+  listGitPathsAtCommit(rootDirectory, commit, 'supabase/migrations')
+    .map((entry) => path.posix.basename(entry))
+    .filter((entry) => refundMigrationPattern.test(entry))
+    .sort();
 
 export const calculateMigrationVersionSetDigest = (requiredMigrations) =>
   sha256([...requiredMigrations].sort().join('\n'));
@@ -308,8 +344,16 @@ export const assertSupportedFunctionDeploymentInputs = (rootDirectory) => {
   }
 };
 
-export const parseFunctionDeploymentConfig = (rootDirectory) => {
-  const config = fs.readFileSync(path.join(rootDirectory, 'supabase', 'config.toml'), 'utf8');
+export const assertSupportedFunctionDeploymentInputsAtGitCommit = (rootDirectory, commit) => {
+  const unsupportedPath = listGitPathsAtCommit(rootDirectory, commit, 'supabase/functions')
+    .find((entry) => unsupportedFunctionConfigFiles.has(path.posix.basename(entry)));
+  assert(
+    !unsupportedPath,
+    `Unsupported Edge Function deployment input ${unsupportedPath}`
+  );
+};
+
+const parseFunctionDeploymentConfigText = (config) => {
   const values = new Map();
   let activeSlug = null;
 
@@ -339,6 +383,24 @@ export const parseFunctionDeploymentConfig = (rootDirectory) => {
   }
 
   return values;
+};
+
+export const parseFunctionDeploymentConfig = (rootDirectory) => {
+  const config = fs.readFileSync(path.join(rootDirectory, 'supabase', 'config.toml'), 'utf8');
+  return parseFunctionDeploymentConfigText(config);
+};
+
+export const parseFunctionDeploymentConfigAtGitCommit = (rootDirectory, commit, {
+  sourceCache = new Map(),
+} = {}) => {
+  const config = readGitFileAtCommit(
+    rootDirectory,
+    commit,
+    'supabase/config.toml',
+    sourceCache
+  );
+  assert(config !== null, `Missing supabase/config.toml at ${commit.slice(0, 12)}`);
+  return parseFunctionDeploymentConfigText(config);
 };
 
 export const validateManifestShape = (manifest, { allowPending = false } = {}) => {
@@ -556,6 +618,52 @@ export const buildLocalReleaseState = (rootDirectory, manifest) => {
         slug: entry.slug,
         verifyJwt: entry.verifyJwt,
         ...localSource,
+      };
+    }),
+  };
+};
+
+export const buildSealedReleaseState = (rootDirectory, manifest) => {
+  validateManifestShape(manifest);
+  const sourceCommit = manifest.sourceGitCommit;
+  const sourceCache = new Map();
+  assertSupportedFunctionDeploymentInputsAtGitCommit(rootDirectory, sourceCommit);
+  const discoveredMigrations = discoverRefundMigrationFilesAtGitCommit(
+    rootDirectory,
+    sourceCommit
+  );
+  assert(
+    JSON.stringify(manifest.requiredMigrations) === JSON.stringify(discoveredMigrations),
+    'Required migrations do not match the sealed refund/Nayax migration inventory'
+  );
+  const verifyJwtConfig = parseFunctionDeploymentConfigAtGitCommit(
+    rootDirectory,
+    sourceCommit,
+    { sourceCache }
+  );
+
+  return {
+    migrationFilesSha256: calculateMigrationDigestAtGitCommit(
+      rootDirectory,
+      sourceCommit,
+      manifest.requiredMigrations,
+      { sourceCache }
+    ),
+    migrationVersionSetSha256: calculateMigrationVersionSetDigest(manifest.requiredMigrations),
+    functions: manifest.functions.map((entry) => {
+      assert(
+        verifyJwtConfig.has(entry.slug),
+        `Missing sealed Supabase config section for ${entry.slug}`
+      );
+      return {
+        slug: entry.slug,
+        verifyJwt: verifyJwtConfig.get(entry.slug),
+        ...calculateFunctionSourceAtGitCommit(
+          rootDirectory,
+          sourceCommit,
+          entry.slug,
+          { sourceCache }
+        ),
       };
     }),
   };
@@ -1112,6 +1220,65 @@ const findSquashEquivalentAnchor = (rootDirectory, manifest, headGitCommit, mani
   return null;
 };
 
+const findSealedManifestAnchor = (
+  rootDirectory,
+  manifest,
+  headGitCommit,
+  manifestRelativePath
+) => {
+  const currentManifestSource = normalizeText(
+    fs.readFileSync(path.join(rootDirectory, manifestRelativePath), 'utf8')
+  );
+  const history = spawnSync(
+    'git',
+    ['log', '--first-parent', '--format=%H', headGitCommit, '--', manifestRelativePath],
+    { cwd: rootDirectory, encoding: 'utf8', windowsHide: true }
+  );
+  assert(!history.error && history.status === 0, 'Unable to inspect sealed refund manifest history');
+
+  for (const candidate of history.stdout.trim().split(/\r?\n/).filter(Boolean)) {
+    assert(gitCommitPattern.test(candidate), 'Invalid sealed refund manifest history');
+    const candidateManifestSource = readGitFileAtCommit(
+      rootDirectory,
+      candidate,
+      manifestRelativePath
+    );
+    if (candidateManifestSource !== currentManifestSource) continue;
+
+    let candidateManifest;
+    try {
+      candidateManifest = JSON.parse(candidateManifestSource);
+    } catch {
+      continue;
+    }
+    if (candidateManifest?.sourceGitCommit !== manifest.sourceGitCommit) continue;
+
+    const diff = spawnSync(
+      'git',
+      [
+        'diff',
+        '--name-only',
+        '-z',
+        '--no-renames',
+        '--no-ext-diff',
+        '--ignore-submodules=none',
+        manifest.sourceGitCommit,
+        candidate,
+      ],
+      { cwd: rootDirectory, encoding: 'utf8', windowsHide: true }
+    );
+    assert(!diff.error && diff.status === 0, 'Unable to verify the sealed refund manifest anchor');
+    const changedPaths = diff.stdout.split('\0').filter(Boolean).map(normalizePath);
+    if (
+      changedPaths.length === 1 &&
+      changedPaths[0] === manifestRelativePath
+    ) {
+      return candidate;
+    }
+  }
+  return null;
+};
+
 export const assertReleaseGitWorktreeClean = (rootDirectory) => {
   const statusResult = spawnSync(
     'git',
@@ -1228,6 +1395,58 @@ export const validateReleaseManifestGitAnchor = (rootDirectory, manifest) => {
   });
 };
 
+export const validateSealedReleaseManifestGitAnchor = (rootDirectory, manifest) => {
+  validateManifestShape(manifest);
+  assertReleaseGitWorktreeClean(rootDirectory);
+
+  const headResult = spawnSync('git', ['rev-parse', 'HEAD'], {
+    cwd: rootDirectory,
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  assert(
+    !headResult.error && headResult.status === 0,
+    'Unable to resolve the current Git commit for sealed refund monitoring'
+  );
+  const headGitCommit = headResult.stdout.trim();
+  assert(gitCommitPattern.test(headGitCommit), 'Current sealed-refund monitor commit is invalid');
+
+  const sourceExistsResult = spawnSync(
+    'git',
+    ['cat-file', '-e', `${manifest.sourceGitCommit}^{commit}`],
+    { cwd: rootDirectory, encoding: 'utf8', windowsHide: true }
+  );
+  assert(!sourceExistsResult.error, 'Unable to inspect sealed refund sourceGitCommit');
+  assert(
+    sourceExistsResult.status === 0,
+    'Refund production sourceGitCommit does not exist as a Git commit'
+  );
+
+  const manifestRelativePath = normalizePath(path.relative(repoRoot, manifestPath));
+  assert(
+    manifestRelativePath &&
+      !manifestRelativePath.startsWith('..') &&
+      !path.isAbsolute(manifestRelativePath),
+    'Refund production manifest is outside the release repository'
+  );
+  const sealedAnchorGitCommit = findSealedManifestAnchor(
+    rootDirectory,
+    manifest,
+    headGitCommit,
+    manifestRelativePath
+  );
+  assert(
+    sealedAnchorGitCommit,
+    'Current refund production manifest does not match an exact manifest-only sealed release anchor'
+  );
+
+  return {
+    sourceGitCommit: manifest.sourceGitCommit,
+    sealedAnchorGitCommit,
+    monitorGitCommit: headGitCommit,
+  };
+};
+
 // Opt-in retrieval for fresh canonical checkouts after GitHub deletes a squash
 // source branch. Retrieval never proves approval: all provenance and digest
 // validation still runs afterwards, and the manifest is never rewritten.
@@ -1332,15 +1551,20 @@ const main = () => {
     return;
   }
 
+  const monitoringSealedRelease = options.mode === 'production';
   let localStateManifest = manifest;
   if (options.writeLocal) {
     localStateManifest = prepareManifestForLocalRefresh(manifest, {
       worktreeIsClean: assertReleaseGitWorktreeClean(repoRoot),
     });
+  } else if (monitoringSealedRelease) {
+    validateSealedReleaseManifestGitAnchor(repoRoot, manifest);
   } else {
     validateReleaseManifestGitAnchor(repoRoot, manifest);
   }
-  const localState = buildLocalReleaseState(repoRoot, localStateManifest);
+  const localState = monitoringSealedRelease
+    ? buildSealedReleaseState(repoRoot, manifest)
+    : buildLocalReleaseState(repoRoot, localStateManifest);
 
   if (options.writeLocal) {
     assert(options.mode === 'local', '--write-local may be used only with --local');
@@ -1354,8 +1578,9 @@ const main = () => {
   printFailures('Refund release local alignment failed:', localFailures);
   if (localFailures.length > 0) process.exit(1);
 
-  console.log(
-    `Refund release local alignment passed for ${requiredFunctionSlugs.length} functions and ${manifest.requiredMigrations.length} migrations.`
+  console.log(monitoringSealedRelease
+    ? `Sealed refund release provenance passed for ${requiredFunctionSlugs.length} functions and ${manifest.requiredMigrations.length} migrations; current main source is intentionally outside this production comparison.`
+    : `Refund release local alignment passed for ${requiredFunctionSlugs.length} functions and ${manifest.requiredMigrations.length} migrations.`
   );
   if (options.mode === 'local') return;
 

@@ -13,25 +13,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release-monitoring-tooling:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: '20'
-      - name: Validate release monitoring tooling
-        run: node --test scripts/refunds/refund-function-deploy.test.mjs scripts/refunds/refund-release-provenance.test.mjs && node scripts/refunds/validate-refund-drift-credential.mjs
-
   production-drift:
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
-    needs: release-monitoring-tooling
     runs-on: ubuntu-latest
     environment: production-readonly
     timeout-minutes: 10
