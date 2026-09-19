@@ -9,6 +9,7 @@ const HARNESS_FILES = [
   'validate-machine-manager-uat.mjs',
 ];
 const PUBLIC_SUBMISSION_JOURNEY = 'portal-uat/journeys/public-submission.mjs';
+const ORDINARY_SUCCESS_JOURNEY = 'portal-uat/journeys/ordinary-success.mjs';
 
 const countMatches = (source, pattern) => [...source.matchAll(pattern)].length;
 
@@ -93,6 +94,7 @@ export const validateRefundBrowserUatNetworkCoverage = (sources) => {
   const portalFixtureSource = [
     sources['validate-refund-portal-uat.mjs'],
     sources[PUBLIC_SUBMISSION_JOURNEY],
+    sources[ORDINARY_SUCCESS_JOURNEY],
   ].join('\n');
   const routeCount = countMatches(portalFixtureSource,
     /\.route\(['"]\*\*\/rest\/v1\/rpc\/public_refund_(?:machine_options|selections(?:_v2)?)['"], async \(route\) => \{/g);
@@ -109,7 +111,7 @@ export const validateRefundBrowserUatNetworkCoverage = (sources) => {
 
 const run = async () => {
   const entries = await Promise.all(
-    [...HARNESS_FILES, PUBLIC_SUBMISSION_JOURNEY].map(async (filename) => [
+    [...HARNESS_FILES, PUBLIC_SUBMISSION_JOURNEY, ORDINARY_SUCCESS_JOURNEY].map(async (filename) => [
       filename,
       await readFile(path.join(SCRIPT_DIR, filename), 'utf8'),
     ])

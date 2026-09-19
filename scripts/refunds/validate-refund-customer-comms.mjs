@@ -22,6 +22,7 @@ const run = async () => {
     portalPage,
     publicRequestPage,
     portalUatDriver,
+    ordinarySuccessUat,
     duplicateIdempotencyUat,
     authorizationUat,
     unknownProviderOutcomeUat,
@@ -55,6 +56,7 @@ const run = async () => {
     readText('src/pages/admin/Refunds.tsx'),
     readText('src/pages/RefundRequest.tsx'),
     readText('scripts/refunds/validate-refund-portal-uat.mjs'),
+    readText('scripts/refunds/portal-uat/journeys/ordinary-success.mjs'),
     readText('scripts/refunds/portal-uat/journeys/duplicate-idempotency.mjs'),
     readText('scripts/refunds/portal-uat/journeys/authorization.mjs'),
     readText('scripts/refunds/portal-uat/journeys/unknown-provider-outcome.mjs'),
@@ -84,7 +86,7 @@ const run = async () => {
     readText('supabase/migrations/20260907213000_refund_receipt_trigger_privilege_boundary.sql'),
     readText('supabase/tests/refund_receipt_trigger_privilege_boundary.sql'),
   ]);
-  const portalUat = `${portalUatDriver}\n${duplicateIdempotencyUat}\n${authorizationUat}\n${unknownProviderOutcomeUat}`;
+  const portalUat = `${portalUatDriver}\n${ordinarySuccessUat}\n${duplicateIdempotencyUat}\n${authorizationUat}\n${unknownProviderOutcomeUat}`;
 
   assert(
     'Intake acknowledgements avoid the private receipt predicate without weakening its mutation boundary',
