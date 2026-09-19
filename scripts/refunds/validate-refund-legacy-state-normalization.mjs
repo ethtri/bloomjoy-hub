@@ -23,7 +23,9 @@ const concurrencyTests = read(
 const operations = `${read('src/lib/refundOperations.ts')}\n${read(
   'src/lib/refundOperationsSupplements.ts'
 )}`;
-const portal = read('src/pages/admin/Refunds.tsx');
+const portal = `${read('src/pages/admin/Refunds.tsx')}\n${read(
+  'src/components/refunds/RefundCardManagerDecisionPanel.tsx'
+)}`;
 const transactionViewState = read('src/lib/refundTransactionViewState.ts');
 const managerState = read('src/lib/refundManagerState.ts');
 const portalUat = read('scripts/refunds/validate-refund-portal-uat.mjs');

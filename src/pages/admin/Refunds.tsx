@@ -51,6 +51,10 @@ import { RefundOwnerNonrefundResolution } from '@/components/refunds/RefundOwner
 import { RefundCashDecisionWorkbench } from '@/components/refunds/RefundCashDecisionWorkbench';
 import { RefundTransactionCandidateReview } from '@/components/refunds/RefundTransactionCandidateReview';
 import { RefundCaseQueuePanel } from '@/components/refunds/RefundCaseQueuePanel';
+import {
+  RefundCardManagerDecisionPanel,
+  type RefundCardManagerCapabilityAction,
+} from '@/components/refunds/RefundCardManagerDecisionPanel';
 import { fetchRefundSunzeCashCorrelation } from '@/lib/refundSunzeCashCorrelationApi';
 import type { RefundSunzeCashCorrelation } from '@/lib/refundSunzeCashCorrelation';
 import { canRequestDistinctCashPayoutDestination } from '@/lib/refundCashPayoutRequest';
@@ -5898,6 +5902,23 @@ export default function AdminRefundsPage() {
       primaryAction.disabled === true ||
       (primaryActionNeedsOfficialAccess && (selectedCaseIsReviewOnly || officialActionVersion <= 0)) ||
       primaryActionIssues.length > 0;
+    const cardManagerCapabilityAction: RefundCardManagerCapabilityAction = transactionDecisionPending
+      ? { kind: 'hidden' }
+      : showDisabledActionStatus && primaryAction
+        ? {
+            kind: 'status',
+            label: topActionLabel,
+            helper: primaryAction.helper,
+          }
+        : primaryAction && primaryAction.disabled !== true
+          ? {
+              kind: 'button',
+              testId: hasReadyRefund ? 'refund-run-nayax-refund' : 'refund-save-case',
+              label: topActionLabel,
+              disabled: isActionDisabled,
+              pending: isSaving || isRunningNayaxRefund,
+            }
+          : { kind: 'empty' };
     const canAskForCustomerDetails =
       canRequestRefundCustomerDetailsManually(selectedCase.lifecycle?.customerOutreach) &&
       derivePortalRefundMissingFields(selectedCase).length > 0;
@@ -5958,67 +5979,20 @@ export default function AdminRefundsPage() {
     return (
       <div data-testid="refund-card-workbench" className="space-y-4">
         <section className="overflow-hidden rounded-xl border border-border bg-card text-foreground">
-          <div
-            data-testid="refund-primary-action"
-            aria-live="polite"
-            className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
-          >
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                Current state
-              </p>
-              <h3 data-testid="refund-manager-state" className="mt-1 text-xl font-semibold">
-                {managerState.label}
-              </h3>
-              <p className="mt-2 max-w-xl text-sm leading-5 text-muted-foreground">
-                {managerState.explanation}
-              </p>
-              <p data-testid="refund-manager-next-step" className="mt-1 max-w-xl text-sm font-medium leading-5 text-foreground">
-                Next: {displayedManagerNextStep}
-              </p>
-            </div>
-            {!transactionDecisionPending && <div className="flex flex-col gap-2 sm:items-end">
-              {showDisabledActionStatus ? (
-                <div
-                  data-testid="refund-action-status"
-                  role="status"
-                  aria-label={topActionLabel}
-                  className="flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-orange-200 bg-orange-50 px-4 py-2 text-center text-sm font-semibold leading-5 text-orange-950 sm:w-auto"
-                >
-                  <AlertTriangle className="h-4 w-4 shrink-0" />
-                  <div>
-                    <p>{topActionLabel}</p>
-                    {primaryAction.helper && (
-                      <p className="mt-1 max-w-lg font-normal leading-5">{primaryAction.helper}</p>
-                    )}
-                  </div>
-                </div>
-              ) : primaryAction && primaryAction.disabled !== true ? (
-                <Button
-                  data-testid={hasReadyRefund ? 'refund-run-nayax-refund' : 'refund-save-case'}
-                  type="button"
-                  className="h-auto min-h-11 w-full whitespace-normal px-5 py-2.5 text-center font-semibold leading-5 sm:w-auto"
-                  onClick={() => {
-                    if (hasReadyRefund) {
-                      setNayaxExecutionNotice(null);
-                      setRefundActionReceipt(null);
-                      setIsRefundConfirmationOpen(true);
-                      return;
-                    }
-                    void handlePrimaryAction();
-                  }}
-                  disabled={isActionDisabled}
-                >
-                  {isSaving || isRunningNayaxRefund ? (
-                    <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" />
-                  ) : (
-                    <CheckCircle2 className="mr-2 h-4 w-4 shrink-0" />
-                  )}
-                  {topActionLabel}
-                </Button>
-              ) : null}
-            </div>}
-          </div>
+          <RefundCardManagerDecisionPanel
+            managerState={managerState}
+            managerNextStep={displayedManagerNextStep}
+            action={cardManagerCapabilityAction}
+            onPrimaryAction={() => {
+              if (hasReadyRefund) {
+                setNayaxExecutionNotice(null);
+                setRefundActionReceipt(null);
+                setIsRefundConfirmationOpen(true);
+                return;
+              }
+              void handlePrimaryAction();
+            }}
+          />
 
           {!selectedCaseIsResolvedDuplicate && (
           <>
