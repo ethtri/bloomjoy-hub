@@ -259,7 +259,6 @@ const resolveCaseRefundReadiness = async ({
     executionConfig,
     officialActionsEnabled: NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
     providerCredentialAvailable,
-    attemptQueueReadiness,
   });
   console.info(JSON.stringify({
     event: "nayax_refund_availability_runtime",
@@ -444,9 +443,6 @@ serve(async (req) => {
       return jsonResponse(resolveNayaxRefundAvailability({
         executionConfig,
         officialActionsEnabled: NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
-        attemptQueueReadiness: resolveNayaxRefundAttemptQueueReadiness({
-          readEnv: (name) => Deno.env.get(name),
-        }),
       }));
     }
 

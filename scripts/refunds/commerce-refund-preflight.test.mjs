@@ -94,7 +94,7 @@ test('active journal-v3 refund inputs pass while execution gates remain fail-clo
   assert.match(result.stdout, /Commerce and refund operations preflight checks passed/);
 });
 
-test('live approval requires the matching System attempt queue to be enabled', () => {
+test('production rollout preflight requires the matching System attempt queue to be enabled', () => {
   const live = {
     NAYAX_REFUND_EXECUTION_ENABLED: 'true',
     NAYAX_REFUND_EXECUTION_DRY_RUN: 'false',

@@ -41,7 +41,6 @@ import { isRefundCustomerSafeDenialReason } from "../_shared/refund-denial.ts";
 import {
   NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
   normalizeNayaxRefundAccountKey,
-  resolveNayaxRefundAttemptQueueReadiness,
   resolveNayaxRefundExecutionConfig,
 } from "../_shared/nayax-refund-gates.ts";
 // @deno-types="../_shared/nayax-refund-provider.d.ts"
@@ -321,10 +320,6 @@ const resolveSelectionRefundReadiness = async ({
   const accountKey = normalizeNayaxRefundAccountKey(
     afterRow.reporting_machines?.nayax_account_key ?? "",
   );
-  const attemptQueueReadiness = resolveNayaxRefundAttemptQueueReadiness({
-    readEnv: (name) => Deno.env.get(name),
-    requiredAccountKey: accountKey,
-  });
   const rawManagerContract = Deno.env.get("NAYAX_REFUND_MANAGER_CONTRACT_JSON")
     ?.trim() ?? "";
   let managerContract:
@@ -393,7 +388,6 @@ const resolveSelectionRefundReadiness = async ({
     executionConfig,
     officialActionsEnabled: NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
     providerCredentialAvailable,
-    attemptQueueReadiness,
   });
 };
 

@@ -42,7 +42,7 @@ assert.match(gates, /NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEY/);
 const executeReadinessCheck = edge.lastIndexOf('const executionReadiness = await resolveCaseRefundReadiness');
 const approvalWrite = edge.indexOf('"admin_approve_selected_nayax_refund_for_system_v1"');
 assert.ok(executeReadinessCheck >= 0 && approvalWrite > executeReadinessCheck,
-  'The execute request must recheck queue readiness before saving approval');
+  'The execute request must recheck payment readiness before saving approval');
 assert.doesNotMatch(edge, /approve_pending_request|service_reserve_nayax_refund_manager_action|orchestrateNayaxRefund/);
 assert.match(sweep, /service_claim_due_nayax_refund_attempts_v1/);
 assert.match(sweep, /service_reclaim_nayax_refund_attempt_no_call_v1/);
@@ -64,7 +64,9 @@ assert.match(provider, /redirect: "error"/);
 
 assert.match(adminUpdate, /card_approval_requires_refund_action/);
 assert.match(adminUpdate, /card_completion_requires_system_settlement/);
-assert.match(adminUpdate, /resolveNayaxRefundAttemptQueueReadiness/);
+assert.doesNotMatch(adminUpdate, /resolveNayaxRefundAttemptQueueReadiness/);
+assert.match(sweep, /NAYAX_REFUND_ATTEMPT_QUEUE_ENABLED/);
+assert.match(sweep, /nayax_refund_attempt_queue_disabled/);
 assert.doesNotMatch(operations + refundsUi, /step_up_pending|provider_confirmed_retry_safe|documented_manual_completion|manualPortalAttempt/);
 assert.match(config, /refund-manager-action-step-up/);
 assert.match(config, /refund-manager-totp-enrollment/);
