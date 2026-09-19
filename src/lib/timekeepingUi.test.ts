@@ -37,6 +37,42 @@ Deno.test('Pacific local timestamps preserve winter and summer offsets', () => {
   );
 });
 
+Deno.test('machine-local timestamps support Eastern jobs independently of the browser clock', () => {
+  assertEquals(
+    getTodayInTimekeepingZone(
+      new Date('2026-09-19T03:30:00.000Z'),
+      'America/New_York'
+    ),
+    '2026-09-18',
+    'Eastern work date'
+  );
+  assertEquals(
+    combineDateAndTimeInTimekeepingZone('2026-09-18', '15:29', 'America/New_York'),
+    '2026-09-18T19:29:00.000Z',
+    'Eastern conversion'
+  );
+  assertEquals(
+    isCompletedTimeInFuture(
+      '2026-09-18',
+      '15:29',
+      new Date('2026-09-18T19:32:00.000Z'),
+      'America/New_York'
+    ),
+    false,
+    'completed Eastern work is not future at the same instant'
+  );
+  assertEquals(
+    isCompletedTimeInFuture(
+      '2026-09-18',
+      '15:29',
+      new Date('2026-09-18T19:32:00.000Z'),
+      'America/Los_Angeles'
+    ),
+    true,
+    'the former Pacific interpretation reproduces the reported defect'
+  );
+});
+
 Deno.test('Pacific helpers reject skipped daylight-saving time', () => {
   let rejected = false;
   try {

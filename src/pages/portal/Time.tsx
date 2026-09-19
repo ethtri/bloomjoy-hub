@@ -287,6 +287,10 @@ export default function PortalTimePage() {
       ) ?? [],
     [form.workDate, selectedProfile]
   );
+  const selectedMachine = effectiveMachines.find(
+    (machine) => machine.machineId === form.machineId
+  );
+  const formTimeZone = selectedMachine?.locationTimezone ?? TIMEKEEPING_TIME_ZONE;
 
   useEffect(() => {
     if (!isFormRoute || !selectedProfile) return;
@@ -333,12 +337,17 @@ export default function PortalTimePage() {
   let localTimeError: string | null = null;
   if (form.startTime && form.endTime) {
     try {
-      durationMinutes = getActualDurationMinutes(form.workDate, form.startTime, form.endTime);
+      durationMinutes = getActualDurationMinutes(
+        form.workDate,
+        form.startTime,
+        form.endTime,
+        formTimeZone
+      );
     } catch (error) {
       localTimeError =
         error instanceof Error
           ? error.message
-          : 'Choose times that exist in Bloomjoy’s Pacific operating timezone.';
+          : 'Choose times that exist in the selected machine’s local timezone.';
     }
   }
   const previewPaidShifts = calculateOperatorPaidShifts(durationMinutes);
@@ -352,7 +361,7 @@ export default function PortalTimePage() {
   const overlappingEntry =
     form.startTime && form.endTime && durationMinutes > 0
       ? comparableEntries.find(
-          (entry) => entry.id !== entryId && timeDraftOverlapsEntry(form, entry)
+          (entry) => entry.id !== entryId && timeDraftOverlapsEntry(form, entry, formTimeZone)
         )
       : null;
   const currentWeekStart = getWeekStart(today);
@@ -386,8 +395,16 @@ export default function PortalTimePage() {
         timeEntryId: entryId ?? null,
         operatorProfileId: selectedProfile.id,
         machineId: form.machineId,
-        actualStartAt: combineDateAndTimeInTimekeepingZone(form.workDate, form.startTime),
-        actualEndAt: combineDateAndTimeInTimekeepingZone(form.workDate, form.endTime),
+        actualStartAt: combineDateAndTimeInTimekeepingZone(
+          form.workDate,
+          form.startTime,
+          formTimeZone
+        ),
+        actualEndAt: combineDateAndTimeInTimekeepingZone(
+          form.workDate,
+          form.endTime,
+          formTimeZone
+        ),
         notes: routeEntry?.notes ?? null,
       });
     },
@@ -473,7 +490,7 @@ export default function PortalTimePage() {
       !localTimeError &&
       form.workDate &&
       form.endTime &&
-      isCompletedTimeInFuture(form.workDate, form.endTime)
+      isCompletedTimeInFuture(form.workDate, form.endTime, new Date(), formTimeZone)
     ) {
       errors.endTime = 'Enter time only after the work has ended.';
     }
@@ -608,7 +625,7 @@ export default function PortalTimePage() {
                 <div className="border-b border-border px-4 py-5 sm:px-6">
                   <h2 className="text-lg font-semibold text-foreground">Work details</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Times use Bloomjoy's Pacific operating timezone.
+                    Times use the selected machine's local timezone.
                   </p>
                 </div>
 

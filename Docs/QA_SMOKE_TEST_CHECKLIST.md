@@ -316,6 +316,7 @@ npm run refunds:validate-portal-uat-lifecycle
 - [ ] Add Time allows only machines effective in the Technician's assignment scope, accepts actual work date/start/end, and previews the independently rounded machine shift count before save.
 - [ ] One machine-specific entry rounds 1-60 minutes to one shift, 61-120 minutes to two shifts, and so on; separate machine entries round independently.
 - [ ] Technician Time blocks end-before-start, future work, exact duplicates, and any overlapping time for the same Technician, including overlaps across different machines.
+- [ ] Technician Time interprets start/end values in the selected machine location timezone: at the same instant, a completed `3:29 p.m.` Eastern entry is accepted while a genuinely future local end remains blocked; switching machines recalculates the preview and overlap check in the newly selected location timezone.
 - [ ] Technician edit/delete controls work through 11:59 p.m. Pacific on the fourth day after month-end and fail closed at the start of day five; December time therefore locks to the Technician at the start of January 5.
 - [ ] Technician Time empty state explains that assigned machines are required before time can be entered, without exposing payroll-setup jargon.
 - [ ] Time Report (`/portal/time-review`) appears only for machine-manager/payout-management authority and returns time only for machines the current manager may manage.
