@@ -70,27 +70,28 @@ export const parseDatabaseRefundReadiness = (
 export const mergeRuntimeRefundReadiness = ({
   databaseReadiness,
   executionConfig,
-  officialActionsEnabled,
   providerCredentialAvailable,
 }: {
   databaseReadiness: RefundReadiness;
   executionConfig: NayaxRefundExecutionConfig;
-  officialActionsEnabled: boolean;
   providerCredentialAvailable: boolean;
 }): RefundReadiness => {
   if (!databaseReadiness.canIssueCardRefund) return databaseReadiness;
 
-  let blockReason: RefundReadinessBlockReason | null = null;
-  if (
-    !officialActionsEnabled ||
-    executionConfig.blocks.includes("kill_switch_active") ||
-    executionConfig.blocks.includes("feature_disabled") ||
-    executionConfig.blocks.includes("dry_run_active")
-  ) {
-    blockReason = "globally_paused";
-  } else if (executionConfig.blocks.length > 0 || !providerCredentialAvailable) {
-    blockReason = "provider_unavailable";
-  }
+  // Operational switches and the two deployment confirmations hold the
+  // durable attempt in the System processor. They do not revoke a manager's
+  // otherwise-valid decision. The concrete secrets, provider credentials,
+  // production contract and journal remain required before approval is saved;
+  // the processor independently rechecks every execution prerequisite before
+  // claiming the attempt.
+  const managerRequiredConfigMissing = executionConfig.blocks.some((block) =>
+    block === "idempotency_secret_missing" ||
+    block === "executor_assertion_missing"
+  );
+  const blockReason: RefundReadinessBlockReason | null =
+    managerRequiredConfigMissing || !providerCredentialAvailable
+      ? "provider_unavailable"
+      : null;
 
   return {
     ...databaseReadiness,
