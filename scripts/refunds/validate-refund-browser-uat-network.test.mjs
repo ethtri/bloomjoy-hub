@@ -8,6 +8,7 @@ const filenames = [
   'validate-refund-qr-intake-uat.mjs',
   'validate-machine-manager-uat.mjs',
 ];
+const publicSubmissionJourneyFilename = 'portal-uat/journeys/public-submission.mjs';
 
 const coveredSource = `
 import { createTrackedUatBrowser } from './refund-browser-uat-network.mjs';
@@ -20,8 +21,8 @@ await browser.newContext();
 assert(networkFailures.length === 0);
 `;
 
-const sources = (source = coveredSource) => Object.fromEntries(
-  filenames.map((filename) => [filename, filename === 'validate-refund-qr-intake-uat.mjs'
+const sources = (source = coveredSource) => ({
+  ...Object.fromEntries(filenames.map((filename) => [filename, filename === 'validate-refund-qr-intake-uat.mjs'
     ? `${source}
       const fixtureOwnedQrAborts = new WeakSet();
       fixtureOwnedQrAborts.add(route.request());
@@ -29,13 +30,7 @@ const sources = (source = coveredSource) => Object.fromEntries(
       isFixtureOwnedUatRequestFailure(request);
     `
     : filename === 'validate-refund-portal-uat.mjs'
-      ? `${source}
-        labelFixtureOwnedPortalRpc(route, 'public_refund_machine_options');
-        labelFixtureOwnedPortalRpc(route, 'public_refund_selections');
-        labelFixtureOwnedPortalRpc(route, 'public_refund_selections_v2');
-        labelFixtureOwnedPortalRpc(route, 'public_refund_selections_v2');
-        labelFixtureOwnedPortalRpc(route, 'public_refund_selections_v2');
-      `
+      ? source
       : `${source}
         await page.goto(appUrl);
         await navigateUatPageAfterDrain(page, appUrl + '/admin/machines?demo=on', { waitUntil: 'networkidle' });
@@ -49,8 +44,13 @@ const sources = (source = coveredSource) => Object.fromEntries(
           'No browser console/page/network or teardown errors during mocked Machine Manager QA pass',
           suiteFailures.pass
         );
-      `])
-);
+      `])),
+  [publicSubmissionJourneyFilename]: `
+    context.route('**/rest/v1/rpc/public_refund_selections_v2', async (route) => {
+      labelReadOnlyRpc(route, 'public_refund_selections_v2');
+    });
+  `,
+});
 
 test('all three suites pass only with one wrapped launch and an asserted aggregate', () => {
   assert.deepEqual(validateRefundBrowserUatNetworkCoverage(sources()), []);
@@ -149,11 +149,13 @@ test('a global public-font failure exception fails completeness', () => {
 });
 
 test('all direct public-options RPC fixtures require ownership labels', () => {
-  const unsafe = sources();
-  unsafe['validate-refund-portal-uat.mjs'] = unsafe['validate-refund-portal-uat.mjs']
-    .replace("labelFixtureOwnedPortalRpc(route, 'public_refund_selections_v2');", '');
-  assert.match(
-    validateRefundBrowserUatNetworkCoverage(unsafe).join(' | '),
-    /direct public-options RPC fixtures are not all ownership-labelled/
-  );
+  const label = "labelReadOnlyRpc(route, 'public_refund_selections_v2');";
+  const ownedRoute = sources()[publicSubmissionJourneyFilename];
+  const failures = (source) => validateRefundBrowserUatNetworkCoverage({ ...sources(), [publicSubmissionJourneyFilename]: source }).join(' | ');
+  for (const source of [
+    ownedRoute.replace(label, ''),
+    `${ownedRoute.replace(label, `${label}\n${label}`)}\ncontext.route('**/rest/v1/rpc/public_refund_selections_v2', async (route) => {});`,
+    `${ownedRoute.replace(label, '')}\n${label}`,
+    ownedRoute.replace(label, "labelReadOnlyRpc(route, 'public_refund_selections');"),
+  ]) assert.match(failures(source), /direct public-options RPC fixtures are not all ownership-labelled/);
 });
