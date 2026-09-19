@@ -32,8 +32,11 @@ type RefundAvailabilityRead = {
 };
 
 const isOptionalBoolean = (value: unknown) => value === undefined || typeof value === 'boolean';
-const isOptionalNullableNumber = (value: unknown) =>
-  value === undefined || value === null || typeof value === 'number';
+const isOptionalNullableNonNegativeInteger = (value: unknown) =>
+  value === undefined || value === null ||
+  (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0);
+const isPositiveInteger = (value: unknown) =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 
 /** Reject malformed success bodies so query polling keeps its last valid snapshot. */
 export const parseRefundAvailabilityRead = <T extends RefundAvailabilityRead>(
@@ -48,14 +51,16 @@ export const parseRefundAvailabilityRead = <T extends RefundAvailabilityRead>(
   if (
     typeof available !== 'boolean' ||
     response.status !== (available ? 'available' : 'unavailable') ||
-    !(response.blockReason === null || typeof response.blockReason === 'string') ||
+    (available
+      ? response.blockReason !== null
+      : !(typeof response.blockReason === 'string' && response.blockReason.trim().length > 0)) ||
     response.payloadRedacted !== true ||
     !(response.caseId === undefined || typeof response.caseId === 'string') ||
     !isOptionalBoolean(response.transactionConfirmed) ||
     !isOptionalBoolean(response.canIssueCardRefund) ||
-    !isOptionalNullableNumber(response.refundAmountCents) ||
-    !isOptionalNullableNumber(response.machineLimitCents) ||
-    !isOptionalNullableNumber(response.caseVersion) ||
+    !isOptionalNullableNonNegativeInteger(response.refundAmountCents) ||
+    !isOptionalNullableNonNegativeInteger(response.machineLimitCents) ||
+    !isOptionalNullableNonNegativeInteger(response.caseVersion) ||
     !isOptionalBoolean(response.approvalPendingExecution) ||
     (expectedCaseId && (
       response.caseId !== expectedCaseId ||
@@ -64,7 +69,12 @@ export const parseRefundAvailabilityRead = <T extends RefundAvailabilityRead>(
       response.canIssueCardRefund !== available ||
       response.refundAmountCents === undefined ||
       response.machineLimitCents === undefined ||
-      response.caseVersion === undefined
+      response.caseVersion === undefined ||
+      (available && (
+        response.transactionConfirmed !== true ||
+        !isPositiveInteger(response.refundAmountCents) ||
+        !isPositiveInteger(response.caseVersion)
+      ))
     ))
   ) {
     throw new Error('Refund availability response is invalid.');
