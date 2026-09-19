@@ -17,6 +17,71 @@ export const createRefundReadPolling = () => {
   };
 };
 
+type RefundAvailabilityRead = {
+  available: boolean;
+  status: 'available' | 'unavailable';
+  blockReason: string | null;
+  caseId?: string;
+  transactionConfirmed?: boolean;
+  canIssueCardRefund?: boolean;
+  refundAmountCents?: number | null;
+  machineLimitCents?: number | null;
+  caseVersion?: number | null;
+  approvalPendingExecution?: boolean;
+  payloadRedacted: true;
+};
+
+const isOptionalBoolean = (value: unknown) => value === undefined || typeof value === 'boolean';
+const isOptionalNullableNonNegativeInteger = (value: unknown) =>
+  value === undefined || value === null ||
+  (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0);
+const isPositiveInteger = (value: unknown) =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+
+/** Reject malformed success bodies so query polling keeps its last valid snapshot. */
+export const parseRefundAvailabilityRead = <T extends RefundAvailabilityRead>(
+  value: unknown,
+  expectedCaseId?: string | null,
+): T => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Refund availability response is invalid.');
+  }
+  const response = value as Record<string, unknown>;
+  const available = response.available;
+  if (
+    typeof available !== 'boolean' ||
+    response.status !== (available ? 'available' : 'unavailable') ||
+    (available
+      ? response.blockReason !== null
+      : !(typeof response.blockReason === 'string' && response.blockReason.trim().length > 0)) ||
+    response.payloadRedacted !== true ||
+    !(response.caseId === undefined || typeof response.caseId === 'string') ||
+    !isOptionalBoolean(response.transactionConfirmed) ||
+    !isOptionalBoolean(response.canIssueCardRefund) ||
+    !isOptionalNullableNonNegativeInteger(response.refundAmountCents) ||
+    !isOptionalNullableNonNegativeInteger(response.machineLimitCents) ||
+    !isOptionalNullableNonNegativeInteger(response.caseVersion) ||
+    !isOptionalBoolean(response.approvalPendingExecution) ||
+    (expectedCaseId && (
+      response.caseId !== expectedCaseId ||
+      typeof response.transactionConfirmed !== 'boolean' ||
+      typeof response.canIssueCardRefund !== 'boolean' ||
+      response.canIssueCardRefund !== available ||
+      response.refundAmountCents === undefined ||
+      response.machineLimitCents === undefined ||
+      response.caseVersion === undefined ||
+      (available && (
+        response.transactionConfirmed !== true ||
+        !isPositiveInteger(response.refundAmountCents) ||
+        !isPositiveInteger(response.caseVersion)
+      ))
+    ))
+  ) {
+    throw new Error('Refund availability response is invalid.');
+  }
+  return value as T;
+};
+
 export const refundOverviewPollingInterval = (cases: Array<{lifecycle?: {terminal: boolean; refreshAfterSeconds: number | null} | null}> | undefined): number | false => {
   // An unavailable initial read needs bounded recovery; it is not terminal proof.
   if (!cases) return 5_000;
