@@ -72,6 +72,7 @@ export const deliverNayaxRefundCustomerCompletion = async ({
           text: completionEmail.text,
           html: completionEmail.html,
         },
+        claimPlainBody: claim.body as string,
         deliveryKind: "manual",
         gmailThreadId: claim.gmailThreadId as string,
       });
@@ -93,6 +94,9 @@ export const deliverNayaxRefundCustomerCompletion = async ({
     },
     isDeliveryUncertain: (error) =>
       error instanceof RefundGmailError && error.deliveryUncertain,
+    isRetryableDeliveryError: (error) =>
+      !(error instanceof RefundGmailError &&
+        error.code === "gmail_delivery_identity_changed"),
     prepareSameMessageRetry: async () => {
       const { data, error } = await supabase.rpc(
         "service_prepare_nayax_completion_retry",

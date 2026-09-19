@@ -302,6 +302,28 @@ Deno.test("second definite completion failure stops after one retry", async () =
   assertEquals(result.status, "failed");
 });
 
+Deno.test("permanent pre-send completion failure does not retry", async () => {
+  let deliveryCalls = 0;
+  let prepareCalls = 0;
+  const permanent = new Error("fixed_delivery_identity_changed");
+  const result = await deliverNayaxCompletionWithDefiniteRetry({
+    deliver: async () => {
+      deliveryCalls += 1;
+      throw permanent;
+    },
+    finish: async (status) => ({ status }),
+    isDeliveryUncertain: () => false,
+    isRetryableDeliveryError: (error) => error !== permanent,
+    prepareSameMessageRetry: async () => {
+      prepareCalls += 1;
+      return true;
+    },
+  });
+  assertEquals(deliveryCalls, 1);
+  assertEquals(prepareCalls, 0);
+  assertEquals(result.status, "failed");
+});
+
 Deno.test("uncertain completion is held without an automatic retry", async () => {
   let prepareCalls = 0;
   const uncertain = new Error("fixed_uncertain_failure") as Error & {

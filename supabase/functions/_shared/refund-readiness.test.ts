@@ -1,5 +1,8 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { resolveNayaxRefundExecutionConfig } from "./nayax-refund-gates.ts";
+import {
+  resolveNayaxRefundAttemptQueueReadiness,
+  resolveNayaxRefundExecutionConfig,
+} from "./nayax-refund-gates.ts";
 import {
   mergeRuntimeRefundReadiness,
   parseDatabaseRefundReadiness,
@@ -23,6 +26,14 @@ const databaseReady = parseDatabaseRefundReadiness({
   machineLimitCents: 2000,
   caseVersion: 3,
 });
+const readyQueue = resolveNayaxRefundAttemptQueueReadiness({
+  readEnv: (name) => ({
+    REFUND_AUTOMATION_ENABLED: "true",
+    NAYAX_REFUND_ATTEMPT_QUEUE_ENABLED: "true",
+    NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEY: "TGPACI_USA_DB",
+  } as Record<string, string>)[name],
+  requiredAccountKey: "TGPACI_USA_DB",
+});
 
 Deno.test("confirmed database readiness needs no additional balance attestation", () => {
   assertEquals(
@@ -31,6 +42,7 @@ Deno.test("confirmed database readiness needs no additional balance attestation"
       executionConfig: readyConfig,
       officialActionsEnabled: true,
       providerCredentialAvailable: true,
+      attemptQueueReadiness: readyQueue,
     }),
     {
       ...databaseReady,
@@ -56,6 +68,7 @@ Deno.test("a runtime pause has one stable manager-safe reason", () => {
     executionConfig: paused,
     officialActionsEnabled: true,
     providerCredentialAvailable: true,
+    attemptQueueReadiness: readyQueue,
   });
   assertEquals(result.canIssueCardRefund, false);
   assertEquals(result.blockReason, "globally_paused");
@@ -73,6 +86,7 @@ Deno.test("provider configuration never hides a database safety block", () => {
     executionConfig: readyConfig,
     officialActionsEnabled: true,
     providerCredentialAvailable: false,
+    attemptQueueReadiness: readyQueue,
   });
   assertEquals(result.blockReason, "machine_not_enabled");
   assertEquals(result.transactionConfirmed, true);
@@ -105,9 +119,25 @@ Deno.test("a normal transaction amount needs no balance preflight or launch cap"
     executionConfig: readyConfig,
     officialActionsEnabled: true,
     providerCredentialAvailable: true,
+    attemptQueueReadiness: readyQueue,
   });
   assertEquals(result.canIssueCardRefund, true);
   assertEquals(result.blockReason, null);
+});
+
+Deno.test("a disabled System attempt queue blocks approval before it is saved", () => {
+  const result = mergeRuntimeRefundReadiness({
+    databaseReadiness: databaseReady,
+    executionConfig: readyConfig,
+    officialActionsEnabled: true,
+    providerCredentialAvailable: true,
+    attemptQueueReadiness: resolveNayaxRefundAttemptQueueReadiness({
+      readEnv: () => undefined,
+      requiredAccountKey: "TGPACI_USA_DB",
+    }),
+  });
+  assertEquals(result.canIssueCardRefund, false);
+  assertEquals(result.blockReason, "system_attempt_queue_disabled");
 });
 
 Deno.test("unknown database values fail closed without leaking internals", () => {

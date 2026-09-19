@@ -127,6 +127,7 @@ export const dispatchRefundCaseGmailReply = async ({
   refundCaseMessageId,
   recipientEmail,
   email,
+  claimPlainBody,
   deliveryKind = "manual",
   gmailThreadId = null,
   syntheticProofAuthorizationId = null,
@@ -136,6 +137,7 @@ export const dispatchRefundCaseGmailReply = async ({
   refundCaseMessageId: string;
   recipientEmail: string;
   email: RefundEmailPayload;
+  claimPlainBody?: string;
   deliveryKind?: "manual" | "automatic";
   gmailThreadId?: string | null;
   syntheticProofAuthorizationId?: string | null;
@@ -284,7 +286,7 @@ export const dispatchRefundCaseGmailReply = async ({
       p_operation_key: operationKey,
       p_sender_email: config.mailbox,
       p_recipient_email: recipientEmail,
-      p_plain_body: redactRefundStatusLinksForStorage(email.text),
+      p_plain_body: claimPlainBody ?? redactRefundStatusLinksForStorage(email.text),
       p_mailbox_identities: config.mailboxIdentities,
       p_delivery_kind: deliveryKind,
       p_target_gmail_thread_id: targetGmailThreadId,
@@ -300,6 +302,12 @@ export const dispatchRefundCaseGmailReply = async ({
         "gmail_delivery_reconciliation_required",
         REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE,
         true,
+      );
+    }
+    if (claimError.code === "P4664") {
+      throw new RefundGmailError(
+        "gmail_delivery_identity_changed",
+        "The saved customer message no longer matches the authorized delivery.",
       );
     }
     throw new RefundGmailError(

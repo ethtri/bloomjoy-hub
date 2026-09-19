@@ -813,13 +813,21 @@ Deno.test("enabled automatic linked delivery preserves the exact thread and supp
       let oauthCalls = 0;
       let gmailCalls = 0;
       let providerRequest: Record<string, unknown> = {};
+      let claimArgs: Record<string, unknown> = {};
       let finishArgs: Record<string, unknown> = {};
+      const storedPlainBody = email.text;
+      const deliveredEmail = {
+        ...email,
+        text: `${email.text}\n\nCheck refund status:\nhttps://app.bloomjoyusa.com/refunds/status#token=${"s".repeat(43)}`,
+        html: `${email.html}<p>Check refund status</p>`,
+      };
       const mailboxHash = await sha256Hex(SYNTHETIC_ENV.GMAIL_SUPPORT_MAILBOX);
       const supabase = fakeSupabase({
         link: { id: "synthetic-link", mailbox_hash: mailboxHash },
         rpc: async (name, args) => {
           rpcCalls.push(name);
           if (name === "service_claim_refund_gmail_outbound_v3") {
+            claimArgs = args;
             return {
               data: {
                 linked: true,
@@ -886,7 +894,8 @@ Deno.test("enabled automatic linked delivery preserves the exact thread and supp
             refundCaseId: "79850000-0000-4000-8000-000000000003",
             refundCaseMessageId: "79860000-0000-4000-8000-000000000003",
             recipientEmail: customerEmail,
-            email,
+            email: deliveredEmail,
+            claimPlainBody: storedPlainBody,
             deliveryKind: "automatic",
             gmailThreadId: "synthetic-link",
           });
@@ -901,6 +910,15 @@ Deno.test("enabled automatic linked delivery preserves the exact thread and supp
         ? providerRequest.raw
         : "";
       const mime = decodeRawMime(raw);
+      const encodedPlainBody = mime.match(
+        /Content-Type: text\/plain; charset="UTF-8"\r?\nContent-Transfer-Encoding: base64\r?\n\r?\n([A-Za-z0-9+/=\r\n]+?)\r?\n--/,
+      )?.[1]?.replace(/\s+/g, "") ?? "";
+      const deliveredPlainBody = encodedPlainBody
+        ? new TextDecoder().decode(
+          Uint8Array.from(atob(encodedPlainBody), (character) =>
+            character.charCodeAt(0)),
+        )
+        : "";
       assertEquals(providerRequest.threadId, providerThreadId);
       assertMatch(mime, /^To: first-contact-customer@example\.test$/m);
       assert(!/^Cc:/m.test(mime));
@@ -911,6 +929,9 @@ Deno.test("enabled automatic linked delivery preserves the exact thread and supp
       );
       assertStringIncludes(mime, "Auto-Submitted: auto-generated");
       assertStringIncludes(mime, "X-Auto-Response-Suppress: All");
+      assertStringIncludes(deliveredPlainBody, "Check refund status:");
+      assertEquals(claimArgs.p_plain_body, storedPlainBody);
+      assert(!String(claimArgs.p_plain_body).includes("/refunds/status#token="));
       assert(!mime.includes("/refunds?case="));
       assertEquals(
         rpcCalls.filter((name) =>

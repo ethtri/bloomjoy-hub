@@ -141,11 +141,14 @@ test('API receipt lifecycle reuses v2 delivery state and keeps accounting separa
 
 test('definite failures retry once while uncertain delivery remains held', () => {
   assert.match(completionHelper,
-    /if \(first\.status !== "failed"\) return first/);
+    /first\.status !== "failed" \|\|/);
+  assert.match(completionHelper, /isRetryableDeliveryError\(firstDeliveryError\)/);
   assert.match(completionHelper, /prepareSameMessageRetry\(\)/);
   assert.equal((completionHelper.match(/deliverNayaxCompletionOnce\(\{/g) ?? []).length >= 2, true);
   assert.match(completionDelivery,
     /isDeliveryUncertain: \(error\) =>\s*error instanceof RefundGmailError && error\.deliveryUncertain/);
+  assert.match(completionDelivery,
+    /error\.code === "gmail_delivery_identity_changed"/);
 });
 
 test('tracked recovery source contains no production identifiers', () => {

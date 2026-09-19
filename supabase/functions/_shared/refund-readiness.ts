@@ -1,4 +1,7 @@
-import type { NayaxRefundExecutionConfig } from "./nayax-refund-gates.ts";
+import type {
+  NayaxRefundAttemptQueueReadiness,
+  NayaxRefundExecutionConfig,
+} from "./nayax-refund-gates.ts";
 
 export type RefundReadinessBlockReason =
   | "case_not_found"
@@ -11,6 +14,8 @@ export type RefundReadinessBlockReason =
   | "system_finishing"
   | "machine_not_enabled"
   | "globally_paused"
+  | "system_attempt_queue_disabled"
+  | "system_attempt_queue_not_ready"
   | "provider_remaining_value_unverified"
   | "provider_unavailable";
 
@@ -35,6 +40,8 @@ const knownBlockReasons = new Set<RefundReadinessBlockReason>([
   "system_finishing",
   "machine_not_enabled",
   "globally_paused",
+  "system_attempt_queue_disabled",
+  "system_attempt_queue_not_ready",
   "provider_remaining_value_unverified",
   "provider_unavailable",
 ]);
@@ -74,11 +81,13 @@ export const mergeRuntimeRefundReadiness = ({
   executionConfig,
   officialActionsEnabled,
   providerCredentialAvailable,
+  attemptQueueReadiness,
 }: {
   databaseReadiness: RefundReadiness;
   executionConfig: NayaxRefundExecutionConfig;
   officialActionsEnabled: boolean;
   providerCredentialAvailable: boolean;
+  attemptQueueReadiness: NayaxRefundAttemptQueueReadiness;
 }): RefundReadiness => {
   if (!databaseReadiness.canIssueCardRefund) return databaseReadiness;
 
@@ -90,6 +99,8 @@ export const mergeRuntimeRefundReadiness = ({
     executionConfig.blocks.includes("dry_run_active")
   ) {
     blockReason = "globally_paused";
+  } else if (!attemptQueueReadiness.ready) {
+    blockReason = attemptQueueReadiness.blockReason;
   } else if (executionConfig.blocks.length > 0 || !providerCredentialAvailable) {
     blockReason = "provider_unavailable";
   }
