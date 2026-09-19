@@ -798,3 +798,9 @@ npm run refunds:validate-portal-uat-lifecycle
   refund acknowledgement.
 - [ ] A customer reply in an existing thread with a case-specific refund message
   is still ingested even if the historical thread began through the Info alias.
+- [ ] Automatic status and completion emails for portal-created requests without
+  an exact Gmail source use the transactional outbox once, with the refund
+  message ID as the idempotency key; they do not fail with
+  `gmail_source_thread_required` or attach to unrelated Gmail history.
+- [ ] Automatic messages created from a Gmail request retain the exact original
+  Gmail thread binding and never fall back to a different linked conversation.

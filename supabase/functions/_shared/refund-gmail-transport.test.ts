@@ -400,6 +400,86 @@ Deno.test("disabled Gmail leaves the non-Gmail customer-delivery route available
   );
 });
 
+Deno.test("automatic delivery without an exact source uses transactional fallback even when the case has Gmail history", async () => {
+  await withEnvironment(
+    { ...SYNTHETIC_ENV, REFUND_GMAIL_ENABLED: "true" },
+    async () => {
+      const rpcCalls: string[] = [];
+      let linkLookups = 0;
+      let providerCalls = 0;
+      const supabase = {
+        from: () => {
+          linkLookups += 1;
+          return new FakeLinkQuery({
+            id: "unrelated-later-thread",
+            mailbox_hash: "must-not-be-read",
+          });
+        },
+        rpc: async (name: string) => {
+          rpcCalls.push(name);
+          if (
+            name === "service_verify_refund_synthetic_gmail_proof_transport"
+          ) {
+            return {
+              data: {
+                required: false,
+                allowed: true,
+                status: "not_required",
+              },
+              error: null,
+            };
+          }
+          if (name === "service_authorize_refund_customer_outbound") {
+            return {
+              data: {
+                allowed: true,
+                recipientResolutionStatus: "resolved",
+                managerCcEmails: [],
+                managerRecipientOverlap: false,
+                managerRecipientCount: 1,
+              },
+              error: null,
+            };
+          }
+          throw new Error(`unexpected automatic fallback RPC: ${name}`);
+        },
+      };
+
+      await withFetch(
+        async () => {
+          providerCalls += 1;
+          throw new Error("unbound automatic delivery attempted Gmail access");
+        },
+        async () => {
+          const result = await dispatchRefundCaseGmailReply({
+            supabase: supabase as never,
+            refundCaseId: "79850000-0000-4000-8000-000000000006",
+            refundCaseMessageId: "79860000-0000-4000-8000-000000000006",
+            recipientEmail: "portal-customer@example.test",
+            email,
+            deliveryKind: "automatic",
+          });
+          assertEquals(result.usedGmail, false);
+          assertEquals(result.managerCcEmails, []);
+          assertEquals(result.managerCcCount, 0);
+          assertEquals(result.managerRecipientCount, 1);
+        },
+      );
+
+      assertEquals(linkLookups, 0);
+      assertEquals(providerCalls, 0);
+      assertEquals(rpcCalls, [
+        "service_verify_refund_synthetic_gmail_proof_transport",
+        "service_authorize_refund_customer_outbound",
+      ]);
+      assertEquals(
+        rpcCalls.includes("service_claim_refund_gmail_outbound_v3"),
+        false,
+      );
+    },
+  );
+});
+
 Deno.test("automatic-contact shutdown settles a new Gmail claim before provider access", async () => {
   await withEnvironment(
     {
