@@ -94,14 +94,13 @@ export const validateRefundBrowserUatNetworkCoverage = (sources) => {
     sources['validate-refund-portal-uat.mjs'],
     sources[PUBLIC_SUBMISSION_JOURNEY],
   ].join('\n');
-  const routedPublicOptions = [...portalFixtureSource.matchAll(
-    /\.route\(['"]\*\*\/rest\/v1\/rpc\/(public_refund_(?:machine_options|selections|selections_v2))['"]/g
-  )].map((match) => match[1]);
-  const hasUnlabelledPublicOptionsFixture = routedPublicOptions.some((rpcName) =>
-    countMatches(portalFixtureSource, new RegExp(`(?:labelFixtureOwnedPortalRpc|labelReadOnlyRpc)\\(route, ['"]${rpcName}['"]\\)`, 'g')) <
-      routedPublicOptions.filter((candidate) => candidate === rpcName).length
-  );
-  if (hasUnlabelledPublicOptionsFixture) {
+  const routeCount = countMatches(portalFixtureSource,
+    /\.route\(['"]\*\*\/rest\/v1\/rpc\/public_refund_(?:machine_options|selections(?:_v2)?)['"], async \(route\) => \{/g);
+  const boundLabelCount = countMatches(portalFixtureSource,
+    /\.route\((['"])\*\*\/rest\/v1\/rpc\/(public_refund_(?:machine_options|selections(?:_v2)?))\1, async \(route\) => \{\s*(?:labelFixtureOwnedPortalRpc|labelReadOnlyRpc)\(route, \1\2\1\);/g);
+  const labelCount = countMatches(portalFixtureSource,
+    /(?:labelFixtureOwnedPortalRpc|labelReadOnlyRpc)\(route, ['"]public_refund_(?:machine_options|selections(?:_v2)?)['"]\)/g);
+  if (routeCount !== boundLabelCount || routeCount !== labelCount) {
     failures.push('Refund portal: direct public-options RPC fixtures are not all ownership-labelled');
   }
 

@@ -149,11 +149,13 @@ test('a global public-font failure exception fails completeness', () => {
 });
 
 test('all direct public-options RPC fixtures require ownership labels', () => {
-  const unsafe = sources();
-  unsafe[publicSubmissionJourneyFilename] = unsafe[publicSubmissionJourneyFilename]
-    .replace("labelReadOnlyRpc(route, 'public_refund_selections_v2');", '');
-  assert.match(
-    validateRefundBrowserUatNetworkCoverage(unsafe).join(' | '),
-    /direct public-options RPC fixtures are not all ownership-labelled/
-  );
+  const label = "labelReadOnlyRpc(route, 'public_refund_selections_v2');";
+  const ownedRoute = sources()[publicSubmissionJourneyFilename];
+  const failures = (source) => validateRefundBrowserUatNetworkCoverage({ ...sources(), [publicSubmissionJourneyFilename]: source }).join(' | ');
+  for (const source of [
+    ownedRoute.replace(label, ''),
+    `${ownedRoute.replace(label, `${label}\n${label}`)}\ncontext.route('**/rest/v1/rpc/public_refund_selections_v2', async (route) => {});`,
+    `${ownedRoute.replace(label, '')}\n${label}`,
+    ownedRoute.replace(label, "labelReadOnlyRpc(route, 'public_refund_selections');"),
+  ]) assert.match(failures(source), /direct public-options RPC fixtures are not all ownership-labelled/);
 });
