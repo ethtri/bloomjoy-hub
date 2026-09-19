@@ -1,11 +1,14 @@
 import { readFile } from 'node:fs/promises';
 
-const [appSource, machinesSource, machineUatSource, refundPortalUatSource] = await Promise.all([
+const [appSource, machinesSource, machineUatSource, refundPortalUatSource, ambiguousSelectionUatSource] = await Promise.all([
   readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/pages/admin/Machines.tsx', import.meta.url), 'utf8'),
   readFile(new URL('./refunds/validate-machine-manager-uat.mjs', import.meta.url), 'utf8'),
   readFile(new URL('./refunds/validate-refund-portal-uat.mjs', import.meta.url), 'utf8'),
+  readFile(new URL('./refunds/portal-uat/journeys/ambiguous-selection.mjs', import.meta.url), 'utf8'),
 ]);
+
+const refundPortalUatSources = `${refundPortalUatSource}\n${ambiguousSelectionUatSource}`;
 
 const checks = [
   ['machine detail route', appSource.includes('path="/admin/machines/:machineId"')],
@@ -31,7 +34,7 @@ const checks = [
   ['retired launch-cap copy is absent', !machinesSource.includes('$50 launch limit') && !machinesSource.includes('Activate card refunds · $50 limit')],
   ['UAT waits for asynchronous field hydration', machineUatSource.includes('if (await predicate()) return;')],
   ['UAT proves guard truthfulness in row, filter, and detail', machineUatSource.includes('Ready refund filter requires live global availability') && machineUatSource.includes('Unavailable provider configuration is distinct from machine capability') && machineUatSource.includes('Guarded detail preserves customer intake, transaction lookup, and machine capability facts')],
-  ['Refund portal UAT proves one direct attempt and no second manager approval path', refundPortalUatSource.includes('Configured first refund needs no balance form or portal handoff') && refundPortalUatSource.includes('API unavailability does not create a second manager approval path') && refundPortalUatSource.includes("name: 'Approve refund for Nayax portal'")],
+  ['Refund portal UAT proves one direct attempt and no second manager approval path', refundPortalUatSources.includes('Configured first refund needs no balance form or portal handoff') && refundPortalUatSources.includes('API unavailability does not create a second manager approval path') && refundPortalUatSources.includes("name: 'Approve refund for Nayax portal'")],
   ['production PPV skips local-only demo assertions', machineUatSource.includes("if (arg === '--skip-demo')") && machineUatSource.includes('Production PPV skips local-only demo assertions')],
 ];
 
