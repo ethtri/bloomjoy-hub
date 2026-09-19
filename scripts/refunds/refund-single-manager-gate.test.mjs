@@ -4,6 +4,12 @@ import { access, readFile } from 'node:fs/promises';
 
 const root = new URL('../../', import.meta.url);
 const read = (path) => readFile(new URL(path, root), 'utf8');
+const officialActionBoundary = await read(
+  'supabase/migrations/202608030002_refund_manager_official_action_boundary.sql',
+);
+const oneManagerDecision = await read(
+  'supabase/migrations/20260906230000_refund_one_manager_decision.sql',
+);
 const migration = await read('supabase/migrations/20260913090000_refund_single_manager_gate.sql');
 const hardening = await read('supabase/migrations/20260914052555_refund_single_manager_db_guards.sql');
 const settlementProof = await read('supabase/migrations/20260914080000_refund_system_settlement_adjustment_proof.sql');
@@ -292,10 +298,38 @@ test('approval selection evidence is bound to the current exact candidate', () =
   assert.match(migration, /e\.event_type='nayax_match_selected'[\s\S]*?candidate_token'=selected\.token::text[\s\S]*?candidate_evidence_hash'=candidate_hash[\s\S]*?lookup_generation'=c\.nayax_lookup_generation::text/);
   assert.match(migration, /''candidate_token'', candidate\.token[\s\S]*?''candidate_evidence_hash'', public\.refund_nayax_candidate_evidence_hash/);
   const compatibilityAnchor = recoveredProofCompatibility.match(
-    /existing_proof_clause text := \$existing\$\n([\s\S]*?)\$existing\$;/,
-  )?.[1];
+    /existing_proof_clause text := \$existing\$\r?\n([\s\S]*?)\$existing\$;/,
+  )?.[1]?.replaceAll('\r\n', '\n');
   assert(compatibilityAnchor);
   assert.equal(migration.replaceAll('\r\n', '\n').split(compatibilityAnchor).length, 2);
+  const legacyBoundaryTail = recoveredProofCompatibility.match(
+    /legacy_shape_tail text := \$legacy\$\r?\n([\s\S]*?)\$legacy\$;/,
+  )?.[1]?.replaceAll('\r\n', '\n');
+  const currentBoundaryTail = recoveredProofCompatibility.match(
+    /current_shape_tail text := \$current\$\r?\n([\s\S]*?)\$current\$;/,
+  )?.[1]?.replaceAll('\r\n', '\n');
+  const reservedEventAnchor = recoveredProofCompatibility.match(
+    /selection_event_anchor text := \$anchor\$\r?\n([\s\S]*?)\$anchor\$;/,
+  )?.[1]?.replaceAll('\r\n', '\n');
+  assert(legacyBoundaryTail);
+  assert(currentBoundaryTail);
+  assert(reservedEventAnchor);
+  assert.equal(
+    officialActionBoundary.replaceAll('\r\n', '\n').split(legacyBoundaryTail).length,
+    3,
+  );
+  assert.equal(
+    oneManagerDecision.replaceAll('\r\n', '\n').split(currentBoundaryTail).length,
+    3,
+  );
+  assert.equal(
+    oneManagerDecision.replaceAll('\r\n', '\n').split(reservedEventAnchor).length,
+    3,
+  );
+  assert.match(
+    recoveredProofCompatibility,
+    /nayax_match_selected',[\s\S]*?nayax_match_selection_proof_recovered',[\s\S]*?official_action_committed'/,
+  );
   assert.match(
     recoveredProofCompatibility,
     /nayax_match_selection_proof_recovered'[\s\S]*?e\.actor_user_id is null[\s\S]*?candidate_token'=selected\.token::text[\s\S]*?candidate_evidence_hash'=candidate_hash[\s\S]*?lookup_generation'=c\.nayax_lookup_generation::text[\s\S]*?deterministic_fact_version'=c\.deterministic_fact_version::text/,
@@ -313,6 +347,10 @@ test('approval selection evidence is bound to the current exact candidate', () =
   assert.match(
     recoveredProofFixture,
     /queues one exact attempt without a provider call or customer message/,
+  );
+  assert.match(
+    recoveredProofFixture,
+    /raw service-role insert cannot fabricate accepted recovered selection proof/,
   );
 });
 

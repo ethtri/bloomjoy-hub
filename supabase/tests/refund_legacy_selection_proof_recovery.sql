@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(19);
+select plan(20);
 
 create function pg_temp.set_actor(p_user_id uuid)
 returns void
@@ -450,6 +450,37 @@ select ok(
   ),
   'recovery records full current proof and privacy-safe source-event evidence'
 );
+
+set local role service_role;
+
+select matches(
+  pg_temp.capture_error($sql$
+    insert into public.refund_case_events (
+      refund_case_id,
+      actor_user_id,
+      event_type,
+      message,
+      metadata
+    ) values (
+      'b5070000-0000-4000-8000-000000000001',
+      null,
+      'nayax_match_selection_proof_recovered',
+      'Spoofed recovered selection proof.',
+      jsonb_build_object(
+        'candidate_token', 'b5080000-0000-4000-8000-000000000001',
+        'recovery_contract_version', 'refund_legacy_selection_proof_recovery_v1',
+        'provider_call_made', false,
+        'approval_created', false,
+        'customer_message_created', false,
+        'payload_redacted', true
+      )
+    )
+  $sql$),
+  '^P0001:Official refund audit events are wrapper-owned and append-only$',
+  'a raw service-role insert cannot fabricate accepted recovered selection proof'
+);
+
+reset role;
 
 select ok(
   not exists (
