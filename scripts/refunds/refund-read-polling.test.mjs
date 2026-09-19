@@ -78,7 +78,7 @@ test('malformed availability success cannot replace the last valid cached capabi
  const valid={available:true,status:'available',blockReason:null,caseId:'case-a',transactionConfirmed:true,
   canIssueCardRefund:true,refundAmountCents:700,machineLimitCents:1200,caseVersion:4,payloadRedacted:true};
  const observer=new QueryObserver(client,{queryKey:['availability','case-a'],queryFn:()=>polling.read(async()=>
-  parseRefundAvailabilityRead(malformed?{...valid,canIssueCardRefund:'yes'}:valid,'case-a'))});
+  parseRefundAvailabilityRead(malformed?{...valid,canIssueCardRefund:false}:valid,'case-a'))});
  const unsubscribe=observer.subscribe(()=>{});
  try{
   await flush();assert.deepEqual(observer.getCurrentResult().data,valid);

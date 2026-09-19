@@ -61,6 +61,7 @@ export const parseRefundAvailabilityRead = <T extends RefundAvailabilityRead>(
       response.caseId !== expectedCaseId ||
       typeof response.transactionConfirmed !== 'boolean' ||
       typeof response.canIssueCardRefund !== 'boolean' ||
+      response.canIssueCardRefund !== available ||
       response.refundAmountCents === undefined ||
       response.machineLimitCents === undefined ||
       response.caseVersion === undefined
