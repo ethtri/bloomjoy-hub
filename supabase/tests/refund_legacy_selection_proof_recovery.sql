@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(13);
+select plan(20);
 
 create function pg_temp.set_actor(p_user_id uuid)
 returns void
@@ -21,6 +21,51 @@ begin
     )::text,
     true
   );
+end;
+$$;
+
+create function pg_temp.capture_error(statement text)
+returns text
+language plpgsql
+as $$
+begin
+  execute statement;
+  return null;
+exception
+  when others then
+    return sqlstate || ':' || sqlerrm;
+end;
+$$;
+
+create function pg_temp.reject_altered_recovered_proof(
+  p_key text,
+  p_bad_value text,
+  p_good_value text
+)
+returns text
+language plpgsql
+as $$
+declare
+  captured_error text;
+begin
+  update public.refund_case_events
+  set metadata = jsonb_set(metadata, array[p_key], to_jsonb(p_bad_value), true)
+  where refund_case_id = 'b5070000-0000-4000-8000-000000000001'
+    and event_type = 'nayax_match_selection_proof_recovered';
+
+  captured_error := pg_temp.capture_error(format(
+    'select public.admin_approve_selected_nayax_refund_for_system_v1(%L::uuid,%s)',
+    'b5070000-0000-4000-8000-000000000001',
+    (select official_action_version from public.refund_cases
+      where id = 'b5070000-0000-4000-8000-000000000001')
+  ));
+
+  update public.refund_case_events
+  set metadata = jsonb_set(metadata, array[p_key], to_jsonb(p_good_value), true)
+  where refund_case_id = 'b5070000-0000-4000-8000-000000000001'
+    and event_type = 'nayax_match_selection_proof_recovered';
+
+  return captured_error;
 end;
 $$;
 
@@ -406,6 +451,37 @@ select ok(
   'recovery records full current proof and privacy-safe source-event evidence'
 );
 
+set local role service_role;
+
+select matches(
+  pg_temp.capture_error($sql$
+    insert into public.refund_case_events (
+      refund_case_id,
+      actor_user_id,
+      event_type,
+      message,
+      metadata
+    ) values (
+      'b5070000-0000-4000-8000-000000000001',
+      null,
+      'nayax_match_selection_proof_recovered',
+      'Spoofed recovered selection proof.',
+      jsonb_build_object(
+        'candidate_token', 'b5080000-0000-4000-8000-000000000001',
+        'recovery_contract_version', 'refund_legacy_selection_proof_recovery_v1',
+        'provider_call_made', false,
+        'approval_created', false,
+        'customer_message_created', false,
+        'payload_redacted', true
+      )
+    )
+  $sql$),
+  '^P0001:Official refund audit events are wrapper-owned and append-only$',
+  'a raw service-role insert cannot fabricate accepted recovered selection proof'
+);
+
+reset role;
+
 select ok(
   not exists (
     select 1
@@ -425,6 +501,63 @@ select is(
   ),
   'true',
   'the assigned manager regains guarded readiness for the recoverable selection'
+);
+
+select pg_temp.set_actor('b5010000-0000-4000-8000-000000000002');
+
+select matches(
+  pg_temp.reject_altered_recovered_proof(
+    'candidate_token',
+    'b5080000-0000-4000-8000-000000000099',
+    'b5080000-0000-4000-8000-000000000001'
+  ),
+  '^P4620:.*selection evidence required$',
+  'approval rejects a recovered proof with an altered candidate token'
+);
+
+select matches(
+  pg_temp.reject_altered_recovered_proof(
+    'candidate_evidence_hash',
+    repeat('0', 64),
+    (select public.refund_nayax_candidate_evidence_hash(
+      candidate.refund_case_id,
+      candidate.actor_user_id,
+      candidate.provider_transaction_id,
+      candidate.site_id,
+      candidate.machine_authorization_time,
+      candidate.amount_cents,
+      candidate.card_last4,
+      candidate.currency_code,
+      candidate.evidence_summary,
+      candidate.expires_at,
+      candidate.created_at
+    ) from public.refund_nayax_lookup_candidates candidate
+    where candidate.token = 'b5080000-0000-4000-8000-000000000001')
+  ),
+  '^P4620:.*selection evidence required$',
+  'approval rejects a recovered proof with an altered candidate evidence hash'
+);
+
+select matches(
+  pg_temp.reject_altered_recovered_proof('lookup_generation', '2', '1'),
+  '^P4620:.*selection evidence required$',
+  'approval rejects a recovered proof from a different lookup generation'
+);
+
+select matches(
+  pg_temp.reject_altered_recovered_proof('deterministic_fact_version', '2', '1'),
+  '^P4620:.*selection evidence required$',
+  'approval rejects a recovered proof from a different deterministic fact version'
+);
+
+select matches(
+  pg_temp.reject_altered_recovered_proof(
+    'recovery_contract_version',
+    'refund_legacy_selection_proof_recovery_v2',
+    'refund_legacy_selection_proof_recovery_v1'
+  ),
+  '^P4620:.*selection evidence required$',
+  'approval rejects an unsupported recovered-proof contract version'
 );
 
 select is(
@@ -493,6 +626,39 @@ select ok(
     'EXECUTE'
   ),
   'the one-time recovery helper is not callable by runtime roles'
+);
+
+create temp table recovered_proof_approval as
+select public.admin_approve_selected_nayax_refund_for_system_v1(
+  'b5070000-0000-4000-8000-000000000001',
+  (select official_action_version from public.refund_cases
+    where id = 'b5070000-0000-4000-8000-000000000001')
+) as result;
+
+select ok(
+  (select result ->> 'approved' = 'true'
+      and result ->> 'status' = 'system_finishing'
+      and result ->> 'providerCallMade' = 'false'
+      and result ->> 'customerMessageCreated' = 'false'
+    from recovered_proof_approval)
+  and (select count(*) = 1
+    from public.refund_case_official_action_authorizations
+    where refund_case_id = 'b5070000-0000-4000-8000-000000000001'
+      and action = 'approve'
+      and status = 'consumed')
+  and (select count(*) = 1
+    from public.refund_case_nayax_refund_attempts
+    where refund_case_id = 'b5070000-0000-4000-8000-000000000001'
+      and status = 'created'
+      and execution_mode = 'request_and_approve')
+  and not exists (
+    select 1
+    from public.refund_nayax_provider_stage_journal journal
+    join public.refund_case_nayax_refund_attempts attempt
+      on attempt.id = journal.nayax_refund_attempt_id
+    where attempt.refund_case_id = 'b5070000-0000-4000-8000-000000000001'
+  ),
+  'a readiness-compatible recovered proof consumes one approval and queues one exact attempt without a provider call or customer message'
 );
 
 select * from finish();

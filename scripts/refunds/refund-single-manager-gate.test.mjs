@@ -4,11 +4,17 @@ import { access, readFile } from 'node:fs/promises';
 
 const root = new URL('../../', import.meta.url);
 const read = (path) => readFile(new URL(path, root), 'utf8');
+const oneManagerDecision = await read(
+  'supabase/migrations/20260906230000_refund_one_manager_decision.sql',
+);
 const migration = await read('supabase/migrations/20260913090000_refund_single_manager_gate.sql');
 const hardening = await read('supabase/migrations/20260914052555_refund_single_manager_db_guards.sql');
 const settlementProof = await read('supabase/migrations/20260914080000_refund_system_settlement_adjustment_proof.sql');
 const cashAuthority = await read('supabase/migrations/20260914090000_refund_official_authority_cash_completion.sql');
 const managerSystemCutover = await read('supabase/migrations/20260914100000_refund_manager_system_cutover.sql');
+const recoveredProofCompatibility = await read(
+  'supabase/migrations/20260919160428_refund_recovered_selection_proof_approval_compatibility.sql',
+);
 const evidenceTimezoneMigration = await read('supabase/migrations/20260914173954_refund_evidence_timezone.sql');
 const edge = await read('supabase/functions/nayax-card-refund/index.ts');
 const adminUpdate = await read('supabase/functions/refund-case-admin-update/index.ts');
@@ -20,6 +26,9 @@ const operations = await read('src/lib/refundOperations.ts');
 const evidenceTimeHelper = await read('src/lib/refundEvidenceTime.ts');
 const concurrency = await read('supabase/tests/refund_single_manager_gate_concurrency.sql');
 const behavioralFixture = await read('supabase/tests/refund_single_manager_gate.sql');
+const recoveredProofFixture = await read(
+  'supabase/tests/refund_legacy_selection_proof_recovery.sql',
+);
 const durableLifecycle = await read('supabase/migrations/20260826165423_refund_durable_lifecycle_v1.sql');
 const requestBoundaryContract = await read('supabase/migrations/20260906053800_refund_soft_time_evidence.sql');
 const identifierContract = await read('supabase/migrations/20260906073000_refund_contactless_review_selection.sql');
@@ -285,6 +294,66 @@ test('successful outcome evidence is unique across cases under concurrency', () 
 test('approval selection evidence is bound to the current exact candidate', () => {
   assert.match(migration, /e\.event_type='nayax_match_selected'[\s\S]*?candidate_token'=selected\.token::text[\s\S]*?candidate_evidence_hash'=candidate_hash[\s\S]*?lookup_generation'=c\.nayax_lookup_generation::text/);
   assert.match(migration, /''candidate_token'', candidate\.token[\s\S]*?''candidate_evidence_hash'', public\.refund_nayax_candidate_evidence_hash/);
+  const compatibilityAnchor = recoveredProofCompatibility.match(
+    /existing_proof_clause text := \$existing\$\r?\n([\s\S]*?)\$existing\$;/,
+  )?.[1]?.replaceAll('\r\n', '\n');
+  assert(compatibilityAnchor);
+  assert.equal(migration.replaceAll('\r\n', '\n').split(compatibilityAnchor).length, 2);
+  const reservedEventAnchor = recoveredProofCompatibility.match(
+    /selection_event_anchor text := \$anchor\$\r?\n([\s\S]*?)\$anchor\$;/,
+  )?.[1]?.replaceAll('\r\n', '\n');
+  const reservedEventReplacement = recoveredProofCompatibility.match(
+    /reserved_selection_event_anchor text := \$replacement\$\r?\n([\s\S]*?)\$replacement\$;/,
+  )?.[1]?.replaceAll('\r\n', '\n');
+  assert(reservedEventAnchor);
+  assert(reservedEventReplacement);
+
+  const boundaryBeforeSingleManager = oneManagerDecision.match(
+    /create or replace function public\.enforce_refund_official_event_boundary\(\)[\s\S]*?\n\$\$;/,
+  )?.[0]?.replaceAll('\r\n', '\n');
+  assert(boundaryBeforeSingleManager);
+  const selectedEventLine = "      'nayax_match_selected',\n";
+  const finalSelectionEvents = `${selectedEventLine}      'nayax_match_preselected',\n      'nayax_match_preselection_disputed',\n`;
+  assert.equal(boundaryBeforeSingleManager.split(selectedEventLine).length, 3);
+  const finalBoundaryDefinition = boundaryBeforeSingleManager.replaceAll(
+    selectedEventLine,
+    finalSelectionEvents,
+  );
+  assert.equal(finalBoundaryDefinition.split(reservedEventAnchor).length, 3);
+  const patchedBoundaryDefinition = finalBoundaryDefinition.replaceAll(
+    reservedEventAnchor,
+    reservedEventReplacement,
+  );
+  assert.equal(
+    patchedBoundaryDefinition.match(/'nayax_match_selection_proof_recovered'/g)?.length,
+    2,
+  );
+  assert.match(
+    patchedBoundaryDefinition,
+    /nayax_match_selected',[\s\S]*?nayax_match_preselected',[\s\S]*?nayax_match_preselection_disputed',[\s\S]*?nayax_match_selection_proof_recovered',[\s\S]*?official_action_committed'/,
+  );
+  assert.match(
+    recoveredProofCompatibility,
+    /nayax_match_selection_proof_recovered'[\s\S]*?e\.actor_user_id is null[\s\S]*?candidate_token'=selected\.token::text[\s\S]*?candidate_evidence_hash'=candidate_hash[\s\S]*?lookup_generation'=c\.nayax_lookup_generation::text[\s\S]*?deterministic_fact_version'=c\.deterministic_fact_version::text/,
+  );
+  assert.match(
+    recoveredProofCompatibility,
+    /recovery_contract_version'[\s\S]*?refund_legacy_selection_proof_recovery_v1[\s\S]*?provider_call_made'='false'[\s\S]*?approval_created'='false'[\s\S]*?customer_message_created'='false'[\s\S]*?payload_redacted'='true'/,
+  );
+  assert.match(recoveredProofCompatibility, /source_selection_event_digest'[\s\S]*?\^\[0-9a-f\]\{64\}\$/);
+  assert.match(recoveredProofFixture, /altered candidate token/);
+  assert.match(recoveredProofFixture, /altered candidate evidence hash/);
+  assert.match(recoveredProofFixture, /different lookup generation/);
+  assert.match(recoveredProofFixture, /different deterministic fact version/);
+  assert.match(recoveredProofFixture, /unsupported recovered-proof contract version/);
+  assert.match(
+    recoveredProofFixture,
+    /queues one exact attempt without a provider call or customer message/,
+  );
+  assert.match(
+    recoveredProofFixture,
+    /raw service-role insert cannot fabricate accepted recovered selection proof/,
+  );
 });
 
 test('case work and financial authority are distinct', () => {
