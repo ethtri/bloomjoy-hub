@@ -259,7 +259,7 @@ export const dispatchRefundCaseGmailReply = async ({
       "Gmail reply transport is not configured.",
     );
   }
-  requireRefundOfficialGmailSender(config.mailbox);
+  requireRefundOfficialGmailSender(config.senderEmail);
   if (
     syntheticProof.required &&
     config.mailbox.trim().toLowerCase() !== "info@bloomjoysweets.com"
@@ -284,7 +284,7 @@ export const dispatchRefundCaseGmailReply = async ({
       p_refund_case_id: refundCaseId,
       p_refund_case_message_id: refundCaseMessageId,
       p_operation_key: operationKey,
-      p_sender_email: config.mailbox,
+      p_sender_email: config.senderEmail,
       p_recipient_email: recipientEmail,
       p_plain_body: claimPlainBody ?? redactRefundStatusLinksForStorage(email.text),
       p_mailbox_identities: config.mailboxIdentities,

@@ -6,7 +6,8 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const APPROVED_REFUND_SENDER = 'info@bloomjoysweets.com';
+const GMAIL_OAUTH_MAILBOX = 'info@bloomjoysweets.com';
+const APPROVED_REFUND_SENDER = 'refunds@bloomjoysweets.com';
 
 const extractEmailAddress = (value) => {
   const normalized = String(value ?? '').trim();
@@ -132,8 +133,8 @@ const run = () => {
     const mailbox = String(env.GMAIL_SUPPORT_MAILBOX ?? '').trim();
     if (mailbox && !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(mailbox)) {
       errors.push('GMAIL_SUPPORT_MAILBOX must be one valid mailbox address.');
-    } else if (mailbox.toLowerCase() !== APPROVED_REFUND_SENDER) {
-      errors.push(`GMAIL_SUPPORT_MAILBOX must be the approved refund sender ${APPROVED_REFUND_SENDER}.`);
+    } else if (mailbox.toLowerCase() !== GMAIL_OAUTH_MAILBOX) {
+      errors.push(`GMAIL_SUPPORT_MAILBOX must be the connected OAuth mailbox ${GMAIL_OAUTH_MAILBOX}.`);
     }
     const transactionalSender = extractEmailAddress(env.REFUND_CUSTOMER_FROM_EMAIL);
     if (transactionalSender !== APPROVED_REFUND_SENDER) {
@@ -170,6 +171,9 @@ const run = () => {
     }
     if (enabled === 'true' && aliases.length === 0) {
       errors.push('GMAIL_SUPPORT_SEND_AS_ALIASES must list every approved send-as alias before Gmail is enabled.');
+    }
+    if (enabled === 'true' && !aliases.includes(APPROVED_REFUND_SENDER)) {
+      errors.push(`GMAIL_SUPPORT_SEND_AS_ALIASES must include ${APPROVED_REFUND_SENDER} before Gmail is enabled.`);
     }
     if (env.GMAIL_REFUND_START_AT && !Number.isFinite(new Date(env.GMAIL_REFUND_START_AT).getTime())) {
       errors.push('GMAIL_REFUND_START_AT must be a valid ISO timestamp when provided.');

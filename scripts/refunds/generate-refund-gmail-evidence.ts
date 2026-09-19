@@ -29,7 +29,8 @@ const SYNTHETIC_ENV = {
   GMAIL_SUPPORT_CLIENT_SECRET: "synthetic-client-secret",
   GMAIL_SUPPORT_REFRESH_TOKEN: "synthetic-refresh-token",
   GMAIL_SUPPORT_MAILBOX: "info@bloomjoysweets.com",
-  GMAIL_SUPPORT_SEND_AS_ALIASES: "support@bloomjoysweets.com",
+  GMAIL_SUPPORT_SEND_AS_ALIASES: "refunds@bloomjoysweets.com",
+  REFUND_CUSTOMER_FROM_EMAIL: "refunds@bloomjoysweets.com",
   GMAIL_REFUND_LABEL_ID: "Label_Synthetic",
   REFUND_AUTOMATION_ENABLED: "true",
 };
@@ -56,6 +57,7 @@ const gmailConfig: RefundGmailConfig = {
   clientSecret: SYNTHETIC_ENV.GMAIL_SUPPORT_CLIENT_SECRET,
   refreshToken: SYNTHETIC_ENV.GMAIL_SUPPORT_REFRESH_TOKEN,
   mailbox: SYNTHETIC_ENV.GMAIL_SUPPORT_MAILBOX,
+  senderEmail: SYNTHETIC_ENV.REFUND_CUSTOMER_FROM_EMAIL,
   mailboxIdentities: [
     SYNTHETIC_ENV.GMAIL_SUPPORT_MAILBOX,
     SYNTHETIC_ENV.GMAIL_SUPPORT_SEND_AS_ALIASES,

@@ -46,7 +46,7 @@ export function buildExternalRecoveryEvidence(v: ExternalRecoveryOptions, f: Ext
     originalAmountCents: amountCents, refundedAmountCents: amountCents, currencyCode: 'USD', providerStatus: 62,
     evidenceReference: `DTM:NAYAX-${f.transactionId}`, cardLast4: v.cardLast4,
     reviewedRefund: true, reviewedMatch: true, reviewedSentNotice: true,
-    notice: { senderEmail: 'info@bloomjoysweets.com', replyToEmail: 'info@bloomjoysweets.com', recipientEmail: v.customerEmail,
+    notice: { senderEmail: 'refunds@bloomjoysweets.com', replyToEmail: 'refunds@bloomjoysweets.com', recipientEmail: v.customerEmail,
       ccEmails, providerMessageId: f.providerMessageId, providerThreadId: f.providerThreadId, rfcMessageId: f.rfcMessageId,
       sentAt: new Date(f.sentAt).toISOString(), subject: f.subject, plainBody: f.plainBody } };
 }

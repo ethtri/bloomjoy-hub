@@ -3,6 +3,7 @@ import {
   extractPlainTextBody,
   type GmailMessage,
   inspectRefundGmailParticipantSignals,
+  isRefundGmailConversation,
   parseEmailAddressList,
   refundGmailOperationMarker,
   type RefundGmailConfig,
@@ -839,7 +840,7 @@ Deno.test("forwarded and spoof-suspected messages never look like direct custome
 
 Deno.test("Gmail reply MIME has one customer To and deduplicated visible manager Cc", () => {
   const mime = buildRefundGmailReplyMime({
-    from: "info@bloomjoysweets.com",
+    from: "refunds@bloomjoysweets.com",
     to: "customer@example.test",
     cc: [
       "manager-one@example.test",
@@ -858,7 +859,7 @@ Deno.test("Gmail reply MIME has one customer To and deduplicated visible manager
 
   assertIncludes(
     decoded,
-    "From: Bloomjoy Refunds <info@bloomjoysweets.com>\r\n",
+    "From: Bloomjoy Refunds <refunds@bloomjoysweets.com>\r\n",
     "standardized customer sender",
   );
   assertIncludes(
@@ -889,9 +890,67 @@ Deno.test("Gmail reply MIME has one customer To and deduplicated visible manager
   );
 });
 
+Deno.test("refund Gmail intake starts only from the refund address or a real case thread", () => {
+  const directRefundMail = messageWithHeaders({
+    From: "customer@example.test",
+    To: "refunds@bloomjoysweets.com",
+  });
+  const unrelatedInfoMail = messageWithHeaders({
+    From: "technician@example.test",
+    To: "info@bloomjoysweets.com",
+  });
+  const existingCaseReply = messageWithHeaders({
+    From: "info@bloomjoysweets.com",
+    To: "customer@example.test",
+    "X-Bloomjoy-Refund-Operation": refundGmailOperationMarker(
+      "refund-case-message:existing-case",
+    ),
+  });
+  const oldContactOnlyReply = messageWithHeaders({
+    From: "info@bloomjoysweets.com",
+    To: "technician@example.test",
+    "X-Bloomjoy-Refund-Operation": refundGmailOperationMarker(
+      "refund-contact-first-response:unrelated-contact",
+    ),
+  });
+
+  assertEquals(
+    isRefundGmailConversation({
+      messages: [directRefundMail],
+      refundAddress: "refunds@bloomjoysweets.com",
+    }),
+    true,
+    "mail sent to the refund address is eligible",
+  );
+  assertEquals(
+    isRefundGmailConversation({
+      messages: [unrelatedInfoMail],
+      refundAddress: "refunds@bloomjoysweets.com",
+    }),
+    false,
+    "ordinary Info mail is not refund intake",
+  );
+  assertEquals(
+    isRefundGmailConversation({
+      messages: [unrelatedInfoMail, existingCaseReply],
+      refundAddress: "refunds@bloomjoysweets.com",
+    }),
+    true,
+    "existing case conversations remain eligible",
+  );
+  assertEquals(
+    isRefundGmailConversation({
+      messages: [unrelatedInfoMail, oldContactOnlyReply],
+      refundAddress: "refunds@bloomjoysweets.com",
+    }),
+    false,
+    "an old mistaken acknowledgement does not turn unrelated mail into a refund thread",
+  );
+});
+
 Deno.test("automatic Gmail replies suppress responder loops without changing manual mail", () => {
   const mime = buildRefundGmailReplyMime({
-    from: "info@bloomjoysweets.com",
+    from: "refunds@bloomjoysweets.com",
     to: "customer@example.test",
     cc: ["manager@example.test"],
     deliveryKind: "automatic",
@@ -921,7 +980,7 @@ Deno.test("Gmail canonical Message-IDs form a three-message reply chain", () => 
     "refund-contact-first-response:synthetic-chain",
   );
   const second = buildRefundGmailReplyMime({
-    from: "info@bloomjoysweets.com",
+    from: "refunds@bloomjoysweets.com",
     to: "customer@example.test",
     deliveryKind: "automatic",
     subject: "Refund request received",
@@ -943,7 +1002,7 @@ Deno.test("Gmail canonical Message-IDs form a three-message reply chain", () => 
 
   const secondCanonical = "<second.canonical@gmail.com>";
   const third = buildRefundGmailReplyMime({
-    from: "info@bloomjoysweets.com",
+    from: "refunds@bloomjoysweets.com",
     to: "customer@example.test",
     subject: "Refund request received",
     text: "Here is the next update.",
@@ -1032,8 +1091,10 @@ Deno.test("manual Gmail send pins the provider thread and preserves the resolved
     clientSecret: "synthetic-secret",
     refreshToken: "synthetic-refresh",
     mailbox: "info@bloomjoysweets.com",
+    senderEmail: "refunds@bloomjoysweets.com",
     mailboxIdentities: [
       "info@bloomjoysweets.com",
+      "refunds@bloomjoysweets.com",
       "support@bloomjoysweets.com",
     ],
     labelId: "synthetic-label",
@@ -1070,7 +1131,7 @@ Deno.test("manual Gmail send pins the provider thread and preserves the resolved
     const decoded = decodeBase64Url(String(sentPayload?.raw ?? ""));
     assertIncludes(
       decoded,
-      "From: Bloomjoy Refunds <info@bloomjoysweets.com>",
+      "From: Bloomjoy Refunds <refunds@bloomjoysweets.com>",
       "sent customer sender",
     );
     assertIncludes(decoded, "Cc: manager@example.test", "sent manager CC");
@@ -1112,7 +1173,11 @@ Deno.test("metadata read failure preserves a provider-confirmed Gmail send", asy
     clientSecret: "synthetic-secret",
     refreshToken: "synthetic-refresh",
     mailbox: "info@bloomjoysweets.com",
-    mailboxIdentities: ["info@bloomjoysweets.com"],
+    senderEmail: "refunds@bloomjoysweets.com",
+    mailboxIdentities: [
+      "info@bloomjoysweets.com",
+      "refunds@bloomjoysweets.com",
+    ],
     labelId: "synthetic-label",
     startAt: new Date("2026-09-07T00:00:00Z"),
   };

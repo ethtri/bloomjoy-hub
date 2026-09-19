@@ -20,7 +20,8 @@ const SYNTHETIC_ENV = {
   GMAIL_SUPPORT_CLIENT_SECRET: "synthetic-client-secret",
   GMAIL_SUPPORT_REFRESH_TOKEN: "synthetic-refresh-token",
   GMAIL_SUPPORT_MAILBOX: "info@bloomjoysweets.com",
-  GMAIL_SUPPORT_SEND_AS_ALIASES: "support@example.test",
+  GMAIL_SUPPORT_SEND_AS_ALIASES: "refunds@bloomjoysweets.com",
+  REFUND_CUSTOMER_FROM_EMAIL: "refunds@bloomjoysweets.com",
   GMAIL_REFUND_LABEL_ID: "Label_Synthetic",
   REFUND_AUTOMATION_ENABLED: "true",
   REFUND_AUTOMATIC_CUSTOMER_CONTACT_ENABLED: "true",
@@ -142,9 +143,10 @@ const gmailConfig: RefundGmailConfig = {
   clientSecret: SYNTHETIC_ENV.GMAIL_SUPPORT_CLIENT_SECRET,
   refreshToken: SYNTHETIC_ENV.GMAIL_SUPPORT_REFRESH_TOKEN,
   mailbox: SYNTHETIC_ENV.GMAIL_SUPPORT_MAILBOX,
+  senderEmail: SYNTHETIC_ENV.REFUND_CUSTOMER_FROM_EMAIL,
   mailboxIdentities: [
     SYNTHETIC_ENV.GMAIL_SUPPORT_MAILBOX,
-    "support@example.test",
+    SYNTHETIC_ENV.REFUND_CUSTOMER_FROM_EMAIL,
   ],
   labelId: SYNTHETIC_ENV.GMAIL_REFUND_LABEL_ID,
   startAt: new Date("2026-08-03T00:00:00Z"),
@@ -297,13 +299,16 @@ Deno.test("personal Gmail sender configuration fails before claim, OAuth, or pro
   await withEnvironment(
     {
       ...SYNTHETIC_ENV,
-      GMAIL_SUPPORT_MAILBOX: "personal@example.test",
+      REFUND_CUSTOMER_FROM_EMAIL: "personal@example.test",
+      GMAIL_SUPPORT_SEND_AS_ALIASES: "personal@example.test",
       REFUND_GMAIL_ENABLED: "true",
     },
     async () => {
       let claimCalls = 0;
       let providerCalls = 0;
-      const personalMailboxHash = await sha256Hex("personal@example.test");
+      const personalMailboxHash = await sha256Hex(
+        SYNTHETIC_ENV.GMAIL_SUPPORT_MAILBOX,
+      );
       const supabase = fakeSupabase({
         link: { id: "synthetic-link", mailbox_hash: personalMailboxHash },
         rpc: async (name) => {
