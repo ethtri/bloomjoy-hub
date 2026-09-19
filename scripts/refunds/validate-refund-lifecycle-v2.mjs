@@ -47,6 +47,7 @@ assert.doesNotMatch(statusCapability, /managerAction/);
 assert.doesNotMatch(statusCapability, /providerAccountKey/);
 assert.doesNotMatch(portalFixture, /refund_lifecycle_v1|refund_manager_queue_v1/);
 assert.match(releaseValidator, /20260902000417_refund_lifecycle_v2_integrity\.sql/);
-assert.match(releaseValidator, /Repository manifest must list every discovered refund\/Nayax migration in order/);
+assert.match(releaseValidator, /Repository must retain every migration included in the sealed refund release/);
+assert.match(releaseValidator, /Repository must retain the exact contents of every migration included in the sealed refund release/);
 
 console.log('Refund lifecycle v2 integrity, privacy, UI, fixture, and release-skew validation passed.');
