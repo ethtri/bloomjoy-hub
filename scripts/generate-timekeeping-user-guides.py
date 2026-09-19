@@ -100,7 +100,7 @@ def prepare_screenshot_assets() -> None:
     marker_font = ImageFont.truetype(str(EN_BOLD), 28)
     redaction_font = ImageFont.truetype(str(EN_FONT), 21)
     for name, spec in SHOT_SPECS.items():
-        target = SCREENSHOT_DIR / f"{name}.png"
+        target = SCREENSHOT_DIR / f"{name}.jpg"
         source = RAW_SHOTS / spec["source"]
         if not source.exists():
             if target.exists():
@@ -123,7 +123,7 @@ def prepare_screenshot_assets() -> None:
                 font=marker_font,
                 fill="#FFFFFF",
             )
-        image.save(target, optimize=True)
+        image.save(target, quality=82, optimize=True, progressive=True)
 
 
 def make_styles(language: str) -> dict[str, ParagraphStyle]:
@@ -205,7 +205,7 @@ def step(number: int, title: str, body: str, styles: dict[str, ParagraphStyle], 
 
 
 def screenshot(name: str, width: float) -> Image:
-    path = SCREENSHOT_DIR / f"{name}.png"
+    path = SCREENSHOT_DIR / f"{name}.jpg"
     image = PILImage.open(path)
     height = width * image.height / image.width
     return Image(str(path), width=width, height=height)
