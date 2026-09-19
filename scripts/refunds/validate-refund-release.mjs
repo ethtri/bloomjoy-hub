@@ -173,6 +173,8 @@ try {
   for (const runtimeDependency of [
     'src/App.tsx',
     'src/components/auth/AdminRoute.tsx',
+    'src/contexts/AuthContext.tsx',
+    'src/lib/edgeFunctions.ts',
     'src/pages/admin/Machines.tsx',
     'package.json',
   ]) {
@@ -182,6 +184,9 @@ try {
     );
   }
   for (const releaseOnlyPath of [
+    'scripts/refunds/refund-production-auth-closed.mjs',
+    'scripts/refunds/refund-auth-control-plane.mjs',
+    'scripts/refunds/refund-auth-control-plane.test.mjs',
     'scripts/refunds/refund-release.mjs',
     'scripts/refunds/refund-release-provenance.test.mjs',
     'scripts/refunds/refund-function-deploy.mjs',
@@ -197,6 +202,11 @@ try {
     );
   }
   assert.doesNotMatch(refundUatWorkflow, /refund-change-scope/);
+  assert.doesNotMatch(
+    refundUatWorkflow,
+    /- '\.github\/workflows\/refund-uat-evidence\.yml'/,
+    'Editing the UAT workflow itself must use fast release-tooling validation, not start browser UAT'
+  );
   const machineManagerStep = refundUatWorkflow.match(
     /      - name: Run Machine Manager synthetic UAT[\s\S]*?(?=\n      - name: Finalize strict machine-readable evidence)/
   )?.[0];
@@ -219,10 +229,27 @@ try {
     'utf8'
   );
   assert.match(releaseToolingWorkflow, /pull_request:[\s\S]*paths:/);
+  for (const authToolingPath of [
+    'scripts/refunds/refund-production-auth-closed.mjs',
+    'scripts/refunds/refund-auth-control-plane.mjs',
+    'scripts/refunds/refund-auth-control-plane.test.mjs',
+    'supabase/config.toml',
+  ]) {
+    assert(
+      releaseToolingWorkflow.includes(`- '${authToolingPath}'`),
+      `Release tooling path scope must include ${authToolingPath}`
+    );
+  }
   assert.match(
     releaseToolingWorkflow,
     /run: npm run refunds:validate-release-tooling/,
     'Path-scoped release tooling must execute the authoritative release validator in Actions'
+  );
+  const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+  assert.match(
+    packageJson.scripts['refunds:validate-release-tooling'],
+    /refund-auth-control-plane\.test\.mjs/,
+    'Release tooling must retain direct fail-closed Auth control-plane coverage'
   );
   const missingEntrypointManifest = structuredClone(repositoryManifest);
   delete missingEntrypointManifest.functions[0].production.entrypointIdentity;

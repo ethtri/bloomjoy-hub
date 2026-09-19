@@ -3,6 +3,9 @@ name: Refund Release Tooling
 on:
   pull_request:
     paths:
+      - 'scripts/refunds/refund-production-auth-closed.mjs'
+      - 'scripts/refunds/refund-auth-control-plane.mjs'
+      - 'scripts/refunds/refund-auth-control-plane.test.mjs'
       - 'scripts/refunds/refund-release.mjs'
       - 'scripts/refunds/refund-release-provenance.test.mjs'
       - 'scripts/refunds/refund-function-deploy.mjs'
@@ -12,6 +15,7 @@ on:
       - 'scripts/refunds/validate-refund-release.mjs'
       - 'scripts/refunds/run-refund-release-uat-local.ps1'
       - 'scripts/refunds/refund-production-release.json'
+      - 'supabase/config.toml'
       - 'Docs/PRODUCTION_RUNBOOK.md'
       - 'Docs/QA_SMOKE_TEST_CHECKLIST.md'
       - 'Docs/REFUND_EMAIL_ASSISTANT_RUNBOOK.md'

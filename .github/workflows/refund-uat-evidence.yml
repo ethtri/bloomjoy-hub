@@ -6,6 +6,8 @@ on:
       - 'src/App.tsx'
       - 'src/components/auth/AdminRoute.tsx'
       - 'src/components/refunds/**'
+      - 'src/contexts/AuthContext.tsx'
+      - 'src/lib/edgeFunctions.ts'
       - 'src/lib/refund*'
       - 'src/pages/Refund*'
       - 'src/pages/admin/Machines.tsx'
@@ -19,6 +21,9 @@ on:
       - 'supabase/tests/refund*'
       - 'scripts/refunds/**'
       - '!scripts/refunds/refund-production-release.json'
+      - '!scripts/refunds/refund-production-auth-closed.mjs'
+      - '!scripts/refunds/refund-auth-control-plane.mjs'
+      - '!scripts/refunds/refund-auth-control-plane.test.mjs'
       - '!scripts/refunds/refund-release.mjs'
       - '!scripts/refunds/refund-release-provenance.test.mjs'
       - '!scripts/refunds/refund-function-deploy.mjs'
@@ -31,7 +36,6 @@ on:
       - 'scripts/validate-supabase-migrations.mjs'
       - 'supabase/config.toml'
       - 'package.json'
-      - '.github/workflows/refund-uat-evidence.yml'
   workflow_dispatch:
 
 permissions:
