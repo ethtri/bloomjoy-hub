@@ -165,36 +165,26 @@ select set_config('request.jwt.claim.sub','fc110000-0000-4000-8000-000000000001'
 select set_config('request.jwt.claim.role','authenticated',true);
 select set_config('request.jwt.claims','{"sub":"fc110000-0000-4000-8000-000000000001","role":"authenticated","is_anonymous":false}',true);
 set local role authenticated;
-select throws_ok($$select public.admin_select_refund_nayax_candidate_current_user_v1(
+create temp table optional_rationale_selection as
+select public.admin_select_refund_nayax_candidate_current_user_v1(
   'fc150000-0000-4000-8000-000000000001',
   (select official_action_version from public.refund_cases where id='fc150000-0000-4000-8000-000000000001'),
-  'fc160000-0000-4000-8000-000000000001',null)$$,
-  'P4604','Choose why this alternate Nayax transaction is the correct one',
-  'Two close reviewable transactions cannot bind without an explicit manager reason');
+  'fc160000-0000-4000-8000-000000000001','  CLOSER_TIME  ') result;
+select is((select result->>'selectionApplied' from optional_rationale_selection),
+  'true','Manager can bind persisted v12 ambiguous-time evidence without a rationale hard stop');
+select is((select result->>'transactionConfirmed' from optional_rationale_selection),
+  'true','Optional rationale metadata does not change exact transaction confirmation');
 reset role;
 
-set local role authenticated;
-select throws_ok($$select public.admin_select_refund_nayax_candidate_current_user_v1(
-  'fc150000-0000-4000-8000-000000000001',
-  (select official_action_version from public.refund_cases where id='fc150000-0000-4000-8000-000000000001'),
-  'fc160000-0000-4000-8000-000000000001','closer_time')$$,
-  'P4604','Closer transaction time requires comparable purchase-event evidence',
-  'Supporting-only provider time cannot be saved as the manager rationale');
-
-select throws_ok($$select public.admin_select_refund_nayax_candidate_current_user_v1(
-  'fc150000-0000-4000-8000-000000000001',
-  (select official_action_version from public.refund_cases where id='fc150000-0000-4000-8000-000000000001'),
-  'fc160000-0000-4000-8000-000000000001','  CLOSER_TIME  ')$$,
-  'P4604','Closer transaction time requires comparable purchase-event evidence',
-  'Authenticated callers cannot bypass the time-rationale guard with case or whitespace');
-
-set local role authenticated;
-select is((public.admin_select_refund_nayax_candidate_current_user_v1(
-  'fc150000-0000-4000-8000-000000000001',
-  (select official_action_version from public.refund_cases where id='fc150000-0000-4000-8000-000000000001'),
-  'fc160000-0000-4000-8000-000000000001','customer_confirmation')->>'selectionApplied'),
-  'true','Manager can explicitly bind persisted v12 ambiguous-time evidence with a reason');
-reset role;
+select is((select metadata ->> 'disagreement_reason_code' from public.refund_case_events
+  where refund_case_id='fc150000-0000-4000-8000-000000000001'
+    and event_type='nayax_match_selected' order by created_at desc limit 1),
+  null,'Unsupported closer-time context is omitted from the durable selection event');
+select ok((select metadata ->> 'candidate_token'='fc160000-0000-4000-8000-000000000001'
+  from public.refund_case_events
+  where refund_case_id='fc150000-0000-4000-8000-000000000001'
+    and event_type='nayax_match_selected' order by created_at desc limit 1),
+  'Optional rationale normalization preserves the exact selected candidate token');
 
 select ok((select matched_nayax_transaction_id='CONTACTLESS-REVIEW-SALE'
     and matched_nayax_machine_auth_time='2026-08-22T20:15:00Z'

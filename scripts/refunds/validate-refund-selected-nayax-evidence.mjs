@@ -3,12 +3,14 @@ import { readFile } from 'node:fs/promises';
 
 const read = (path) => readFile(new URL(`../../${path}`, import.meta.url), 'utf8');
 
-const [migration, timeMigration, databaseTest, selectionTest, operations, managerUi, status, workflow, procedure, qa, runbook] =
+const [migration, timeMigration, optionalRationaleMigration, databaseTest, selectionTest, adminUpdate, operations, managerUi, status, workflow, procedure, qa, runbook] =
   await Promise.all([
     read('supabase/migrations/20260901050000_refund_selected_nayax_transaction_evidence.sql'),
     read('supabase/migrations/20260914193919_refund_candidate_time_semantics.sql'),
+    read('supabase/migrations/20260919185714_refund_optional_candidate_rationale.sql'),
     read('supabase/tests/refund_selected_nayax_transaction_evidence.sql'),
     read('supabase/tests/refund_contactless_review_selection.sql'),
+    read('supabase/functions/refund-case-admin-update/index.ts'),
     read('src/lib/refundOperations.ts'),
     read('src/pages/admin/Refunds.tsx'),
     read('Docs/CURRENT_STATUS.md'),
@@ -100,11 +102,19 @@ assert(
   selectionTest.includes("select plan(30)") &&
     selectionTest.includes('The database accepts the current v12 bounded identifier contract') &&
     selectionTest.includes('Rough DST-gap and noncomparable time remains selectable') &&
-    selectionTest.includes('Manager can explicitly bind persisted v12 ambiguous-time evidence') &&
-    selectionTest.includes('Supporting-only provider time cannot be saved as the manager rationale') &&
-    selectionTest.includes('cannot bypass the time-rationale guard with case or whitespace') &&
+    selectionTest.includes('without a rationale hard stop') &&
+    selectionTest.includes('Unsupported closer-time context is omitted') &&
+    optionalRationaleMigration.includes('optional audit context') &&
+    optionalRationaleMigration.includes("nullif(normalized_disagreement_reason, '')") &&
     timeMigration.includes('$manager_selection_v12$'),
-  'Database coverage must prove v12 scorer/save parity for uncertain customer and provider time',
+  'Database coverage must preserve v12 scorer/save parity without making optional rationale authoritative',
+);
+assert(
+  adminUpdate.includes('The rationale is optional audit context') &&
+    adminUpdate.includes('nayaxDisagreementReason = ""') &&
+    !adminUpdate.includes('Choose why this alternate Nayax transaction is the correct one.') &&
+    !adminUpdate.includes('nayax_time_not_comparable'),
+  'The Edge boundary must degrade unsupported optional rationale instead of rejecting a valid selection',
 );
 assert(
   managerUi.includes('refundCandidateTimeSourceDetail') &&
