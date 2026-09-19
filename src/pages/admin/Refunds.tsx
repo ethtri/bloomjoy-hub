@@ -5441,6 +5441,8 @@ export default function AdminRefundsPage() {
     );
     const selectableCandidateCount = selectableCandidates.length;
     const waitingOnCustomer = isWaitingCase(selectedCase, refundOperationsAccess);
+    const candidateSelectionAuthorized =
+      (selectedCase.canSelectNayaxCandidate ?? selectedCase.canPerformOfficialAction) === true;
     const caseAllowsCandidateSelection =
       (canReviewSystemSelection ||
         ['ambiguous', 'manual_exception'].includes(selectedCase.nayaxRecommendationState ?? '')) &&
@@ -5448,8 +5450,7 @@ export default function AdminRefundsPage() {
       persistedStatus: selectedCase.status,
       editorStatus: editor.status,
       decision: selectedCase.decision,
-      canSelectCandidate:
-        (selectedCase.canSelectNayaxCandidate ?? selectedCase.canPerformOfficialAction) !== false,
+      canSelectCandidate: candidateSelectionAuthorized,
       });
     const selectedCandidate = selectedNayaxCandidate(editor, effectiveCandidates);
     const transactionView = selectedTransactionView ?? deriveRefundTransactionViewState({
@@ -5532,7 +5533,7 @@ export default function AdminRefundsPage() {
         ? `Not selectable: ${candidateUnavailableReason(candidate, selectedCase)}`
         : waitingOnCustomer
           ? 'Selection is paused while waiting for the customer. The assistant will run a fresh search after the reply.'
-          : (selectedCase.canSelectNayaxCandidate ?? selectedCase.canPerformOfficialAction) === false
+          : !candidateSelectionAuthorized
             ? 'You can review this result, but your current case access does not allow you to save it.'
             : !caseAllowsCandidateSelection
               ? 'Selection is only available while the case is in manager review.'
@@ -7557,9 +7558,10 @@ export default function AdminRefundsPage() {
               role="status"
               className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950"
             >
-              The refund queue is available, but {liveOverview.lifecycleValidationFailureCount}{' '}
-              {liveOverview.lifecycleValidationFailureCount === 1 ? 'case needs' : 'cases need'} a data review.
-              Refund decisions are temporarily unavailable for {liveOverview.lifecycleValidationFailureCount === 1 ? 'that case' : 'those cases'}.
+              The refund queue is available, but lifecycle and progress detail is unavailable for{' '}
+              {liveOverview.lifecycleValidationFailureCount}{' '}
+              {liveOverview.lifecycleValidationFailureCount === 1 ? 'case' : 'cases'} pending a data review.
+              Action availability still follows each case&apos;s authoritative capability.
             </div>
           )}
 

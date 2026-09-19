@@ -36,9 +36,6 @@ export const applyRefundLifecycleSafety = <T extends LifecycleBearingRefundCase>
     refundCase: {
       ...refundCase,
       lifecycle: null,
-      canPerformOfficialAction: false,
-      canSelectNayaxCandidate: false,
-      officialActionBlockReason: 'official_actions_disabled',
     },
     invalidLifecycle: true,
   };
