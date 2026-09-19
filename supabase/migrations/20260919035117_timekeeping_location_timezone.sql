@@ -114,12 +114,20 @@ begin
     from public.operator_machine_assignments assignment
     where assignment.operator_profile_id = new.operator_profile_id
       and assignment.reporting_machine_id = new.reporting_machine_id
-      and assignment.status = 'active'
-      and assignment.revoked_at is null
       and assignment.effective_start_date <= new.work_date
       and (
         assignment.effective_end_date is null
         or assignment.effective_end_date >= new.work_date
+      )
+      and (
+        (
+          manager_correction
+          and coalesce(
+            public.can_manage_operator_payout_machine(auth.uid(), new.reporting_machine_id),
+            false
+          )
+        )
+        or (assignment.status = 'active' and assignment.revoked_at is null)
       )
   ) then
     raise exception 'Technician is not assigned to this machine for the work date';
@@ -156,7 +164,13 @@ set search_path = ''
 as $$
 declare
   location_timezone text;
+  manager_correction boolean;
 begin
+  manager_correction := coalesce(
+    current_setting('app.timekeeping_manager_correction', true),
+    ''
+  ) = 'true';
+
   select location.timezone
   into location_timezone
   from public.reporting_machines machine
@@ -180,12 +194,20 @@ begin
     from public.operator_machine_assignments assignment
     where assignment.operator_profile_id = new.operator_profile_id
       and assignment.reporting_machine_id = new.reporting_machine_id
-      and assignment.status = 'active'
-      and assignment.revoked_at is null
       and assignment.effective_start_date <= new.work_date
       and (
         assignment.effective_end_date is null
         or assignment.effective_end_date >= new.work_date
+      )
+      and (
+        (
+          manager_correction
+          and coalesce(
+            public.can_manage_operator_payout_machine(auth.uid(), new.reporting_machine_id),
+            false
+          )
+        )
+        or (assignment.status = 'active' and assignment.revoked_at is null)
       )
   ) then
     raise exception 'Time entry machine is not assigned for this work date';

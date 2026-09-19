@@ -129,6 +129,8 @@ for (const snippet of [
   "'locationTimezone', location.timezone",
   'at time zone location_timezone',
   'pg_catalog.pg_timezone_names',
+  'manager_correction',
+  'public.can_manage_operator_payout_machine',
   'create or replace function public.set_operator_time_entry_durations',
   'create or replace function public.validate_operator_time_entry_assignment',
   'create or replace function public.save_operator_time_entry',
