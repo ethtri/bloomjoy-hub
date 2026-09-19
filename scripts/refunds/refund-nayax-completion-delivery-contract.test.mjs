@@ -35,6 +35,7 @@ test('normal claimed v2 completion is dispatched with its stored manual kind', (
   assert.ok(deliveryStart >= 0);
   const delivery = completionDelivery.slice(deliveryStart);
   assert.match(delivery, /deliveryKind: "manual"/);
+  assert.match(delivery, /claimPlainBody: claim\.body as string/);
   assert.doesNotMatch(delivery, /deliveryKind: "automatic"/);
   assert.match(delivery, /service_prepare_nayax_completion_retry/);
 });

@@ -30,6 +30,7 @@ type DeliverNayaxCompletionWithDefiniteRetryInput =
   & DeliverNayaxCompletionOnceInput
   & {
     prepareSameMessageRetry: () => Promise<boolean>;
+    isRetryableDeliveryError?: (error: unknown) => boolean;
   };
 
 const fallbackResult = (
@@ -172,13 +173,25 @@ export const deliverNayaxCompletionWithDefiniteRetry = async ({
   finish,
   isDeliveryUncertain,
   prepareSameMessageRetry,
+  isRetryableDeliveryError = () => true,
 }: DeliverNayaxCompletionWithDefiniteRetryInput) => {
+  let firstDeliveryError: unknown = null;
   const first = await deliverNayaxCompletionOnce({
-    deliver,
+    deliver: async () => {
+      try {
+        return await deliver();
+      } catch (error) {
+        firstDeliveryError = error;
+        throw error;
+      }
+    },
     finish,
     isDeliveryUncertain,
   });
-  if (first.status !== "failed") return first;
+  if (
+    first.status !== "failed" ||
+    (firstDeliveryError && !isRetryableDeliveryError(firstDeliveryError))
+  ) return first;
 
   try {
     if (!await prepareSameMessageRetry()) return first;

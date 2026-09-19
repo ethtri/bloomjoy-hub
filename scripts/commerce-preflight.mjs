@@ -260,7 +260,10 @@ function run() {
       'NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED',
       'NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED',
       'NAYAX_REFUND_IDEMPOTENCY_SECRET',
-      'NAYAX_REFUND_EXECUTOR_ASSERTION'
+      'NAYAX_REFUND_EXECUTOR_ASSERTION',
+      'REFUND_AUTOMATION_ENABLED',
+      'NAYAX_REFUND_ATTEMPT_QUEUE_ENABLED',
+      'NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEY'
     );
   }
 
@@ -399,10 +402,31 @@ function run() {
       'NAYAX_REFUND_EXECUTION_KILL_SWITCH',
       'NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED',
       'NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED',
+      'REFUND_AUTOMATION_ENABLED',
+      'NAYAX_REFUND_ATTEMPT_QUEUE_ENABLED',
     ];
     for (const key of booleanKeys) {
       if (env[key] && !['true', 'false'].includes(String(env[key]).trim().toLowerCase())) {
         errors.push(`${key} must be true or false.`);
+      }
+    }
+
+    const liveRefundExecutionEnabled =
+      String(env.NAYAX_REFUND_EXECUTION_ENABLED || '').trim().toLowerCase() === 'true' &&
+      String(env.NAYAX_REFUND_EXECUTION_DRY_RUN || '').trim().toLowerCase() === 'false' &&
+      String(env.NAYAX_REFUND_EXECUTION_KILL_SWITCH || '').trim().toLowerCase() === 'false';
+    if (liveRefundExecutionEnabled) {
+      const activeCredentialAccounts = findNayaxRefundWriteCredentialAccounts(env);
+      if (String(env.REFUND_AUTOMATION_ENABLED || '').trim().toLowerCase() !== 'true') {
+        errors.push('REFUND_AUTOMATION_ENABLED must be true while live card refund approval is enabled.');
+      }
+      if (String(env.NAYAX_REFUND_ATTEMPT_QUEUE_ENABLED || '').trim().toLowerCase() !== 'true') {
+        errors.push('NAYAX_REFUND_ATTEMPT_QUEUE_ENABLED must be true while live card refund approval is enabled.');
+      }
+      const queueAccount = String(env.NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEY || '')
+        .trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+      if (!activeCredentialAccounts.pairedAccounts.includes(queueAccount)) {
+        errors.push('NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEY must match an account with paired refund write credentials.');
       }
     }
 
@@ -418,7 +442,7 @@ function run() {
 
     if (String(env.NAYAX_REFUND_EXECUTION_KILL_SWITCH || '').trim().toLowerCase() !== 'true') {
       warnings.push(
-        'NAYAX_REFUND_EXECUTION_KILL_SWITCH is not true. Live card refund execution must stay disabled until explicit go/no-go.'
+        'Live Nayax refund execution is enabled; confirm the production go/no-go and queue health evidence.'
       );
     }
   }

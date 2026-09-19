@@ -40,6 +40,8 @@ import {
 import { isRefundCustomerSafeDenialReason } from "../_shared/refund-denial.ts";
 import {
   NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
+  normalizeNayaxRefundAccountKey,
+  resolveNayaxRefundAttemptQueueReadiness,
   resolveNayaxRefundExecutionConfig,
 } from "../_shared/nayax-refund-gates.ts";
 // @deno-types="../_shared/nayax-refund-provider.d.ts"
@@ -92,9 +94,6 @@ const sanitizeText = (value: unknown, maxLength = 800) =>
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
     .test(value);
-
-const normalizeAccountKey = (value: string) =>
-  value.trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
 
 const centsFromInput = (value: unknown): number | null => {
   if (value === null || typeof value === "undefined") return null;
@@ -319,9 +318,13 @@ const resolveSelectionRefundReadiness = async ({
   const executionConfig = resolveNayaxRefundExecutionConfig((name) =>
     Deno.env.get(name)
   );
-  const accountKey = normalizeAccountKey(
+  const accountKey = normalizeNayaxRefundAccountKey(
     afterRow.reporting_machines?.nayax_account_key ?? "",
   );
+  const attemptQueueReadiness = resolveNayaxRefundAttemptQueueReadiness({
+    readEnv: (name) => Deno.env.get(name),
+    requiredAccountKey: accountKey,
+  });
   const rawManagerContract = Deno.env.get("NAYAX_REFUND_MANAGER_CONTRACT_JSON")
     ?.trim() ?? "";
   let managerContract:
@@ -390,6 +393,7 @@ const resolveSelectionRefundReadiness = async ({
     executionConfig,
     officialActionsEnabled: NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
     providerCredentialAvailable,
+    attemptQueueReadiness,
   });
 };
 

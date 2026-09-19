@@ -5,7 +5,9 @@ import { parseNayaxRefundExecutionContext } from "../_shared/nayax-refund-contex
 import { corsHeaders } from "../_shared/cors.ts";
 import {
   NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
+  normalizeNayaxRefundAccountKey,
   resolveNormalNayaxRefundAmountCents,
+  resolveNayaxRefundAttemptQueueReadiness,
   resolveNayaxRefundAvailability,
   resolveNayaxRefundExecutionConfig,
 } from "../_shared/nayax-refund-gates.ts";
@@ -64,12 +66,6 @@ const sha256Hex = async (value: string) => {
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
 };
-
-const normalizeAccountKey = (value: string) =>
-  value.trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
-
-const exactEnvFlag = (name: string) =>
-  Deno.env.get(name)?.trim().toLowerCase() === "true";
 
 const resolveNormalWriteCredentials = (accountKey: string) => ({
   requestToken: accountKey
@@ -233,9 +229,13 @@ const resolveCaseRefundReadiness = async ({
   const databaseReadiness = parseDatabaseRefundReadiness(databaseValue);
   if (!databaseReadiness.canIssueCardRefund) return databaseReadiness;
 
-  const accountKey = normalizeAccountKey(
+  const accountKey = normalizeNayaxRefundAccountKey(
     refundCase.reporting_machines?.nayax_account_key ?? "",
   );
+  const attemptQueueReadiness = resolveNayaxRefundAttemptQueueReadiness({
+    readEnv: (name) => Deno.env.get(name),
+    requiredAccountKey: accountKey,
+  });
   const credentials = resolveNormalWriteCredentials(accountKey);
   const managerContract = parseConfiguredManagerContract();
   const writeCredentialsReady = Boolean(
@@ -259,6 +259,7 @@ const resolveCaseRefundReadiness = async ({
     executionConfig,
     officialActionsEnabled: NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
     providerCredentialAvailable,
+    attemptQueueReadiness,
   });
   console.info(JSON.stringify({
     event: "nayax_refund_availability_runtime",
@@ -271,6 +272,9 @@ const resolveCaseRefundReadiness = async ({
       NAYAX_REFUND_PRODUCTION_BASE_URL,
     writeCredentialsReady,
     journalCompatible,
+    attemptQueueEnabled: attemptQueueReadiness.enabled,
+    attemptQueueAccountConfigured: attemptQueueReadiness.accountConfigured,
+    attemptQueueAccountMatches: attemptQueueReadiness.accountMatches,
     productionScope: "manager_approved_original_transaction",
     payloadRedacted: true,
   }));
@@ -440,6 +444,9 @@ serve(async (req) => {
       return jsonResponse(resolveNayaxRefundAvailability({
         executionConfig,
         officialActionsEnabled: NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
+        attemptQueueReadiness: resolveNayaxRefundAttemptQueueReadiness({
+          readEnv: (name) => Deno.env.get(name),
+        }),
       }));
     }
 
@@ -631,6 +638,32 @@ serve(async (req) => {
         errorCode: "case_version_missing",
         providerAttempted: false,
         customerCompletionAttempted: false,
+      }, 409);
+    }
+    const executionReadiness = await resolveCaseRefundReadiness({
+      refundCase,
+      actorUserId: user.id,
+      executionConfig,
+    });
+    const executionTransactionPreflight = await getDuplicateTransactionBlocks({
+      refundCase,
+      actorUserId: user.id,
+      expectedCaseVersion: expectedOfficialActionVersion,
+      executorAssertion: executionConfig.executorAssertion,
+    });
+    const executionBlockReason = executionTransactionPreflight.blocks[0] ??
+      executionReadiness.blockReason;
+    if (!executionReadiness.canIssueCardRefund || executionBlockReason) {
+      return jsonResponse({
+        executed: false,
+        status: "preflight_blocked",
+        errorCode: executionBlockReason ?? "provider_unavailable",
+        blocks: [executionBlockReason ?? "provider_unavailable"],
+        conflictReason: executionTransactionPreflight.reason,
+        resolutionAction: executionTransactionPreflight.resolutionAction,
+        providerAttempted: false,
+        customerCompletionAttempted: false,
+        payloadRedacted: true,
       }, 409);
     }
     if (!supabaseAnonKey) {

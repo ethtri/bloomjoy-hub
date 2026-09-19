@@ -21,7 +21,20 @@ export type NayaxRefundExecutionConfig = {
 export type NayaxRefundAvailabilityBlockReason =
   | "official_actions_disabled"
   | "kill_switch_active"
-  | "configuration_missing";
+  | "configuration_missing"
+  | "system_attempt_queue_disabled"
+  | "system_attempt_queue_not_ready";
+
+export type NayaxRefundAttemptQueueReadiness = {
+  enabled: boolean;
+  ready: boolean;
+  blockReason:
+    | "system_attempt_queue_disabled"
+    | "system_attempt_queue_not_ready"
+    | null;
+  accountConfigured: boolean;
+  accountMatches: boolean;
+};
 
 export type NayaxRefundAvailability = {
   available: boolean;
@@ -65,6 +78,42 @@ const secureSecret = (value: string | undefined) => {
 
 const exactFlag = (value: string | undefined, expected: string) =>
   value?.trim().toLowerCase() === expected;
+
+export const normalizeNayaxRefundAccountKey = (value: string | undefined) =>
+  (value ?? "").trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+
+export const resolveNayaxRefundAttemptQueueReadiness = ({
+  readEnv,
+  requiredAccountKey,
+}: {
+  readEnv: (name: string) => string | undefined;
+  requiredAccountKey?: string | null;
+}): NayaxRefundAttemptQueueReadiness => {
+  const enabled = exactFlag(readEnv("REFUND_AUTOMATION_ENABLED"), "true") &&
+    exactFlag(readEnv("NAYAX_REFUND_ATTEMPT_QUEUE_ENABLED"), "true");
+  const configuredAccountKey = normalizeNayaxRefundAccountKey(
+    readEnv("NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEY"),
+  );
+  const normalizedRequiredAccountKey = normalizeNayaxRefundAccountKey(
+    requiredAccountKey ?? undefined,
+  );
+  const accountConfigured = configuredAccountKey.length > 0;
+  const accountMatches = !normalizedRequiredAccountKey ||
+    configuredAccountKey === normalizedRequiredAccountKey;
+  const blockReason = !enabled
+    ? "system_attempt_queue_disabled" as const
+    : !accountConfigured || !accountMatches
+    ? "system_attempt_queue_not_ready" as const
+    : null;
+
+  return {
+    enabled,
+    ready: blockReason === null,
+    blockReason,
+    accountConfigured,
+    accountMatches,
+  };
+};
 
 export const resolveNayaxRefundExecutionConfig = (
   readEnv: (name: string) => string | undefined,
@@ -121,9 +170,11 @@ export const resolveNayaxRefundExecutionConfig = (
 export const resolveNayaxRefundAvailability = ({
   executionConfig,
   officialActionsEnabled,
+  attemptQueueReadiness,
 }: {
   executionConfig: NayaxRefundExecutionConfig;
   officialActionsEnabled: boolean;
+  attemptQueueReadiness: NayaxRefundAttemptQueueReadiness;
 }): NayaxRefundAvailability => {
   let blockReason: NayaxRefundAvailabilityBlockReason | null = null;
   if (!officialActionsEnabled) {
@@ -132,6 +183,8 @@ export const resolveNayaxRefundAvailability = ({
     blockReason = "kill_switch_active";
   } else if (executionConfig.blocks.length > 0) {
     blockReason = "configuration_missing";
+  } else if (!attemptQueueReadiness.ready) {
+    blockReason = attemptQueueReadiness.blockReason;
   }
 
   return {
@@ -150,9 +203,13 @@ export const readNayaxRefundAvailability = async ({
   officialActionsEnabled: boolean;
 }) => {
   const executionConfig = resolveNayaxRefundExecutionConfig(readEnv);
+  const attemptQueueReadiness = resolveNayaxRefundAttemptQueueReadiness({
+    readEnv,
+  });
   return resolveNayaxRefundAvailability({
     executionConfig,
     officialActionsEnabled,
+    attemptQueueReadiness,
   });
 };
 

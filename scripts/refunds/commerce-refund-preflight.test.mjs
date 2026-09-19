@@ -71,6 +71,9 @@ const validEnvironment = {
   NAYAX_REFUND_REQUEST_WRITE_TOKEN_TEST_ACCOUNT: 'request-write-token',
   NAYAX_REFUND_APPROVE_WRITE_TOKEN_TEST_ACCOUNT: 'approve-write-token',
   REFUND_AUTOMATION_SWEEP_SECRET: 'configured',
+  REFUND_AUTOMATION_ENABLED: 'false',
+  NAYAX_REFUND_ATTEMPT_QUEUE_ENABLED: 'false',
+  NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEY: 'TEST_ACCOUNT',
 };
 
 const runPreflight = (overrides = {}) => {
@@ -89,6 +92,34 @@ test('active journal-v3 refund inputs pass while execution gates remain fail-clo
   const result = runPreflight();
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   assert.match(result.stdout, /Commerce and refund operations preflight checks passed/);
+});
+
+test('live approval requires the matching System attempt queue to be enabled', () => {
+  const live = {
+    NAYAX_REFUND_EXECUTION_ENABLED: 'true',
+    NAYAX_REFUND_EXECUTION_DRY_RUN: 'false',
+    NAYAX_REFUND_EXECUTION_KILL_SWITCH: 'false',
+    NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED: 'true',
+    NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED: 'true',
+    REFUND_AUTOMATION_ENABLED: 'true',
+  };
+  const disabled = runPreflight({ ...live, NAYAX_REFUND_ATTEMPT_QUEUE_ENABLED: 'false' });
+  assert.equal(disabled.status, 1);
+  assert.match(disabled.stdout, /NAYAX_REFUND_ATTEMPT_QUEUE_ENABLED must be true/);
+
+  const wrongAccount = runPreflight({
+    ...live,
+    NAYAX_REFUND_ATTEMPT_QUEUE_ENABLED: 'true',
+    NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEY: 'OTHER_ACCOUNT',
+  });
+  assert.equal(wrongAccount.status, 1);
+  assert.match(wrongAccount.stdout, /must match an account with paired refund write credentials/);
+
+  const ready = runPreflight({
+    ...live,
+    NAYAX_REFUND_ATTEMPT_QUEUE_ENABLED: 'true',
+  });
+  assert.equal(ready.status, 0, `${ready.stdout}\n${ready.stderr}`);
 });
 
 test('email-list override accepts the explicit empty representation and rejects unsupported modes', () => {
