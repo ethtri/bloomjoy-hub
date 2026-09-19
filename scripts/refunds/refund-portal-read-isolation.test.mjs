@@ -173,6 +173,44 @@ test('overview parser localizes optional skew while core identity and capability
   );
 });
 
+test('overview parser omits only cases with malformed message or candidate collections', () => {
+  const fixture = refundOperations.buildLocalRefundDemoOverview();
+  const malformedIndex = fixture.cases.findIndex(
+    (refundCase) => refundCase.canPerformOfficialAction === true &&
+      refundCase.canSelectNayaxCandidate === true,
+  );
+  assert.ok(malformedIndex >= 0);
+  const malformedCaseId = fixture.cases[malformedIndex].id;
+  const healthyCases = fixture.cases.filter((refundCase) => refundCase.id !== malformedCaseId);
+
+  for (const collection of ['messages', 'nayaxLookupCandidates']) {
+    const malformed = structuredClone(fixture);
+    malformed.cases[malformedIndex][collection] = { unexpected: true };
+
+    const parsed = refundOperations.parseRefundOperationsOverview(malformed);
+    assert.equal(parsed.cases.length, healthyCases.length);
+    assert.equal(parsed.cases.some((refundCase) => refundCase.id === malformedCaseId), false);
+    for (const healthyCase of healthyCases) {
+      const parsedCase = parsed.cases.find((refundCase) => refundCase.id === healthyCase.id);
+      assert.ok(parsedCase);
+      assert.equal(parsedCase.canPerformOfficialAction, healthyCase.canPerformOfficialAction);
+      assert.equal(parsedCase.canSelectNayaxCandidate, healthyCase.canSelectNayaxCandidate);
+    }
+  }
+
+  const unredactedOmittedCase = structuredClone(fixture);
+  const selectedIndex = unredactedOmittedCase.cases.findIndex(
+    (refundCase) => refundCase.selectedNayaxTransaction,
+  );
+  assert.ok(selectedIndex >= 0);
+  unredactedOmittedCase.cases[selectedIndex].messages = { unexpected: true };
+  unredactedOmittedCase.cases[selectedIndex].selectedNayaxTransaction.payloadRedacted = false;
+  assert.throws(
+    () => refundOperations.parseRefundOperationsOverview(unredactedOmittedCase),
+    /Unsupported selected Nayax transaction response/,
+  );
+});
+
 test('the portal schedules manager work only after the core overview succeeds', () => {
   const overviewQuery = functionBody(
     pageSource,

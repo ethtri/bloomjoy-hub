@@ -2614,12 +2614,45 @@ const requireRefundOverviewCore = (overview: RefundOperationsOverview) => {
     if (!refundCase || typeof refundCase !== 'object' ||
         typeof refundCase.id !== 'string' || refundCase.id.trim().length === 0 ||
         typeof refundCase.publicReference !== 'string' || refundCase.publicReference.trim().length === 0 ||
-        seenCaseIds.has(refundCase.id) || !Array.isArray(refundCase.messages) ||
-        !Array.isArray(refundCase.nayaxLookupCandidates)) {
+        seenCaseIds.has(refundCase.id)) {
       throw new Error(refundOverviewCoreError);
     }
     seenCaseIds.add(refundCase.id);
   }
+};
+
+const hasRefundOverviewCaseCollections = (refundCase: RefundCaseRecord) =>
+  Array.isArray(refundCase.messages) && Array.isArray(refundCase.nayaxLookupCandidates);
+
+const requireRefundOverviewCaseProjectionRedaction = (refundCase: RefundCaseRecord) => {
+  requireRefundOverviewProjectionRedaction(
+    refundCase.customerDeliveryException,
+    'Unsupported transactional delivery response.',
+  );
+  requireRefundOverviewProjectionRedaction(
+    refundCase.selectedNayaxTransaction,
+    'Unsupported selected Nayax transaction response.',
+  );
+  requireRefundOverviewProjectionRedaction(
+    refundCase.selectedNayaxTransaction?.timeEvidence,
+    'Unsupported refund candidate time response.',
+  );
+  if (Array.isArray(refundCase.nayaxLookupCandidates)) {
+    for (const candidate of refundCase.nayaxLookupCandidates) {
+      requireRefundOverviewProjectionRedaction(
+        candidate?.timeEvidence,
+        'Unsupported refund candidate time response.',
+      );
+    }
+  }
+  requireRefundOverviewProjectionRedaction(
+    refundCase.machineCorrection,
+    'Reload the saved machine correction evidence.',
+  );
+  requireRefundOverviewProjectionRedaction(
+    refundCase.inboundLinkReview,
+    'Unsupported inbound email linking review response.',
+  );
 };
 
 const withoutRefundTransactionalDelivery = (
@@ -2718,18 +2751,18 @@ export const parseRefundOperationsOverview = (value: unknown): RefundOperationsO
         : null,
   });
   const internalTestCases = Array.isArray(overview.internalTestCases)
-    ? overview.internalTestCases.map((refundCase) => {
+    ? overview.internalTestCases.flatMap((refundCase) => {
+      const internalTest = requireRefundInternalTestContract(refundCase.internalTest);
+      if (!hasRefundOverviewCaseCollections(refundCase)) return [];
       return applyLifecycleSafety({
         ...refundCase,
-        internalTest: requireRefundInternalTestContract(refundCase.internalTest),
+        internalTest,
       });
     })
     : [];
-  const cases = overview.cases.map((rawRefundCase) => {
-    requireRefundOverviewProjectionRedaction(
-      rawRefundCase.customerDeliveryException,
-      'Unsupported transactional delivery response.',
-    );
+  const cases = overview.cases.flatMap((rawRefundCase) => {
+    requireRefundOverviewCaseProjectionRedaction(rawRefundCase);
+    if (!hasRefundOverviewCaseCollections(rawRefundCase)) return [];
     let deliverySafeRefundCase = rawRefundCase;
     if (transactionalDeliveryContractCurrent) {
       try {
@@ -2748,15 +2781,7 @@ export const parseRefundOperationsOverview = (value: unknown): RefundOperationsO
       : deliverySafeRefundCase;
 
     const rawSelectedNayaxTransaction = refundCase.selectedNayaxTransaction;
-    requireRefundOverviewProjectionRedaction(
-      rawSelectedNayaxTransaction,
-      'Unsupported selected Nayax transaction response.',
-    );
     const rawSelectedTimeEvidence = rawSelectedNayaxTransaction?.timeEvidence;
-    requireRefundOverviewProjectionRedaction(
-      rawSelectedTimeEvidence,
-      'Unsupported refund candidate time response.',
-    );
     let selectedNayaxTransaction: RefundSelectedNayaxTransaction | null = null;
     if (rawSelectedNayaxTransaction && !selectedNayaxTransactionContractSkewed) {
       try {
@@ -2785,10 +2810,6 @@ export const parseRefundOperationsOverview = (value: unknown): RefundOperationsO
     }
 
     const nayaxLookupCandidates = refundCase.nayaxLookupCandidates.map((candidate) => {
-      requireRefundOverviewProjectionRedaction(
-        candidate.timeEvidence,
-        'Unsupported refund candidate time response.',
-      );
       if (!candidateTimeContractCurrent && !candidateTimeContractSkewed) return candidate;
       if (candidateTimeContractCurrent && candidate.timeEvidence) {
         try {
@@ -2806,20 +2827,12 @@ export const parseRefundOperationsOverview = (value: unknown): RefundOperationsO
     });
     const safeRefundCase = applyLifecycleSafety(refundCase);
     const lifecycle = safeRefundCase.lifecycle;
-    requireRefundOverviewProjectionRedaction(
-      refundCase.machineCorrection,
-      'Reload the saved machine correction evidence.',
-    );
     let machineCorrection: RefundMachineCorrectionEvidence | null = null;
     try {
       machineCorrection = parseRefundMachineCorrectionEvidence(refundCase.machineCorrection);
     } catch {
       machineCorrection = null;
     }
-    requireRefundOverviewProjectionRedaction(
-      refundCase.inboundLinkReview,
-      'Unsupported inbound email linking review response.',
-    );
     let inboundLinkReview: RefundGmailCaseLinkReview | null = null;
     if (inboundLinkReviewContractCurrent) {
       try {
