@@ -21,7 +21,8 @@ const run = async () => {
     adminUpdate,
     portalPage,
     publicRequestPage,
-    portalUat,
+    portalUatDriver,
+    duplicateIdempotencyUat,
     refundEmail,
     followUpPolicy,
     nayaxCustomerCorrection,
@@ -52,6 +53,7 @@ const run = async () => {
     readText('src/pages/admin/Refunds.tsx'),
     readText('src/pages/RefundRequest.tsx'),
     readText('scripts/refunds/validate-refund-portal-uat.mjs'),
+    readText('scripts/refunds/portal-uat/journeys/duplicate-idempotency.mjs'),
     readText('supabase/functions/_shared/refund-email.ts'),
     readText('supabase/functions/_shared/refund-deterministic-follow-up.ts'),
     readText('supabase/functions/_shared/refund-nayax-customer-correction.ts'),
@@ -78,6 +80,7 @@ const run = async () => {
     readText('supabase/migrations/20260907213000_refund_receipt_trigger_privilege_boundary.sql'),
     readText('supabase/tests/refund_receipt_trigger_privilege_boundary.sql'),
   ]);
+  const portalUat = `${portalUatDriver}\n${duplicateIdempotencyUat}`;
 
   assert(
     'Intake acknowledgements avoid the private receipt predicate without weakening its mutation boundary',
