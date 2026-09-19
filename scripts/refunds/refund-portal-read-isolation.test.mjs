@@ -148,7 +148,23 @@ test('one malformed lifecycle cannot discard the queue or revoke server capabili
     lifecycleSafetySource,
     /officialActionBlockReason:\s*['"]official_actions_disabled['"]/,
   );
+  assert.match(
+    pageSource,
+    /const candidateSelectionAuthorized\s*=\s*\(selectedCase\.canSelectNayaxCandidate \?\? selectedCase\.canPerformOfficialAction\) === true/,
+  );
+  assert.match(pageSource, /canSelectCandidate:\s*candidateSelectionAuthorized/);
+  assert.match(
+    pageSource,
+    /!candidateSelectionAuthorized[\s\S]*You can review this result, but your current case access does not allow you to save it\./,
+  );
+  assert.doesNotMatch(
+    pageSource,
+    /\(selectedCase\.canSelectNayaxCandidate \?\? selectedCase\.canPerformOfficialAction\) !== false/,
+  );
   assert.match(pageSource, /data-testid="refund-lifecycle-read-status"/);
+  assert.match(pageSource, /lifecycle and progress detail is unavailable/);
+  assert.match(pageSource, /Action availability still follows each case/);
+  assert.doesNotMatch(pageSource, /Refund decisions are temporarily unavailable/);
 });
 
 test('pending accounting ownership wins over historical outreach state', () => {
