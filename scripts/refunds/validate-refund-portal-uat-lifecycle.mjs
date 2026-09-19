@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const portalSource = await readFile(
+const portalDriverSource = await readFile(
   new URL('./validate-refund-portal-uat.mjs', import.meta.url),
   'utf8'
 );
+const ambiguousSelectionSource = await readFile(
+  new URL('./portal-uat/journeys/ambiguous-selection.mjs', import.meta.url),
+  'utf8'
+);
+const portalSource = `${portalDriverSource}\n${ambiguousSelectionSource}`;
 const refundsSource = await readFile(
   new URL('../../src/pages/admin/Refunds.tsx', import.meta.url),
   'utf8'
@@ -28,12 +33,12 @@ const networkSource = await readFile(
   new URL('./refund-browser-uat-network.mjs', import.meta.url),
   'utf8'
 );
-const demoSource = portalSource.slice(
-  portalSource.indexOf('const runDemoFallbackChecks = async'),
-  portalSource.indexOf('const run = async () =>')
+const demoSource = portalDriverSource.slice(
+  portalDriverSource.indexOf('const runDemoFallbackChecks = async'),
+  portalDriverSource.indexOf('const run = async () =>')
 );
 const overviewFixtureBuilders = [
-  ...portalSource.matchAll(/const (build[A-Za-z0-9]*Overview)\s*=\s*/g),
+  ...portalDriverSource.matchAll(/const (build[A-Za-z0-9]*Overview)\s*=\s*/g),
 ].map((match) => match[1]);
 
 assert.deepEqual(overviewFixtureBuilders, [
