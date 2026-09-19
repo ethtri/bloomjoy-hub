@@ -392,6 +392,7 @@ export const createTrackedUatBrowser = (
     isExpectedResponse,
     isExpectedRequestFailure,
     isExpectedClosingRequestFailure,
+    shouldCaptureScreenshot,
   }
 ) => {
   if (!browser || typeof browser.newContext !== 'function') {
@@ -406,6 +407,17 @@ export const createTrackedUatBrowser = (
   const attachPage = (page) => {
     if (!page || trackedPages.has(page)) return page;
     trackedPages.add(page);
+    if (typeof shouldCaptureScreenshot === 'function') {
+      const captureScreenshot = page.screenshot.bind(page);
+      Object.defineProperty(page, 'screenshot', {
+        configurable: true,
+        value: async (options = {}) => (
+          shouldCaptureScreenshot(options.path)
+            ? captureScreenshot(options)
+            : Buffer.alloc(0)
+        ),
+      });
+    }
     if (!pageNetworkFailures.has(page)) pageNetworkFailures.set(page, []);
     ensurePageRequestLedger(page);
     return page;
