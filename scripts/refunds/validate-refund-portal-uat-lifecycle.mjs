@@ -13,7 +13,11 @@ const duplicateIdempotencySource = await readFile(
   new URL('./portal-uat/journeys/duplicate-idempotency.mjs', import.meta.url),
   'utf8'
 );
-const portalSource = `${portalDriverSource}\n${ambiguousSelectionSource}\n${duplicateIdempotencySource}`;
+const authorizationSource = await readFile(
+  new URL('./portal-uat/journeys/authorization.mjs', import.meta.url),
+  'utf8'
+);
+const portalSource = `${portalDriverSource}\n${ambiguousSelectionSource}\n${duplicateIdempotencySource}\n${authorizationSource}`;
 const refundsSource = await readFile(
   new URL('../../src/pages/admin/Refunds.tsx', import.meta.url),
   'utf8'
