@@ -252,7 +252,6 @@ const resolveCaseRefundReadiness = async ({
   const readiness = mergeRuntimeRefundReadiness({
     databaseReadiness,
     executionConfig,
-    officialActionsEnabled: NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
     providerCredentialAvailable,
   });
   console.info(JSON.stringify({
