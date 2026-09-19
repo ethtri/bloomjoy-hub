@@ -8,6 +8,7 @@ const HARNESS_FILES = [
   'validate-refund-qr-intake-uat.mjs',
   'validate-machine-manager-uat.mjs',
 ];
+const PUBLIC_SUBMISSION_JOURNEY = 'portal-uat/journeys/public-submission.mjs';
 
 const countMatches = (source, pattern) => [...source.matchAll(pattern)].length;
 
@@ -87,25 +88,21 @@ export const validateRefundBrowserUatNetworkCoverage = (sources) => {
     ) {
       failures.push(`${filename}: global public-font failure exception remains`);
     }
-    if (
-      filename === 'validate-refund-portal-uat.mjs' &&
-      (
-        countMatches(
-          source,
-          /labelFixtureOwnedPortalRpc\(route, ['"]public_refund_machine_options['"]\)/g
-        ) !== 1 ||
-        countMatches(
-          source,
-          /labelFixtureOwnedPortalRpc\(route, ['"]public_refund_selections['"]\)/g
-        ) !== 1 ||
-        countMatches(
-          source,
-          /labelFixtureOwnedPortalRpc\(route, ['"]public_refund_selections_v2['"]\)/g
-        ) !== 3
-      )
-    ) {
-      failures.push(`${filename}: direct public-options RPC fixtures are not all ownership-labelled`);
-    }
+  }
+
+  const portalFixtureSource = [
+    sources['validate-refund-portal-uat.mjs'],
+    sources[PUBLIC_SUBMISSION_JOURNEY],
+  ].join('\n');
+  const routedPublicOptions = [...portalFixtureSource.matchAll(
+    /\.route\(['"]\*\*\/rest\/v1\/rpc\/(public_refund_(?:machine_options|selections|selections_v2))['"]/g
+  )].map((match) => match[1]);
+  const hasUnlabelledPublicOptionsFixture = routedPublicOptions.some((rpcName) =>
+    countMatches(portalFixtureSource, new RegExp(`(?:labelFixtureOwnedPortalRpc|labelReadOnlyRpc)\\(route, ['"]${rpcName}['"]\\)`, 'g')) <
+      routedPublicOptions.filter((candidate) => candidate === rpcName).length
+  );
+  if (hasUnlabelledPublicOptionsFixture) {
+    failures.push('Refund portal: direct public-options RPC fixtures are not all ownership-labelled');
   }
 
   return failures;
@@ -113,7 +110,7 @@ export const validateRefundBrowserUatNetworkCoverage = (sources) => {
 
 const run = async () => {
   const entries = await Promise.all(
-    HARNESS_FILES.map(async (filename) => [
+    [...HARNESS_FILES, PUBLIC_SUBMISSION_JOURNEY].map(async (filename) => [
       filename,
       await readFile(path.join(SCRIPT_DIR, filename), 'utf8'),
     ])
