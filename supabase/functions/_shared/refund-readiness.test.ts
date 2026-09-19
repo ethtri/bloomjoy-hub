@@ -62,18 +62,18 @@ Deno.test("a runtime pause has one stable manager-safe reason", () => {
 });
 
 Deno.test("provider configuration never hides a database safety block", () => {
-  const machineDisabled = parseDatabaseRefundReadiness({
+  const reconciliationHold = parseDatabaseRefundReadiness({
     ...databaseReady,
     canIssueCardRefund: false,
-    blockReason: "machine_not_enabled",
+    blockReason: "reconciliation_hold",
   });
   const result = mergeRuntimeRefundReadiness({
-    databaseReadiness: machineDisabled,
+    databaseReadiness: reconciliationHold,
     executionConfig: readyConfig,
     officialActionsEnabled: true,
     providerCredentialAvailable: false,
   });
-  assertEquals(result.blockReason, "machine_not_enabled");
+  assertEquals(result.blockReason, "reconciliation_hold");
   assertEquals(result.transactionConfirmed, true);
 });
 
