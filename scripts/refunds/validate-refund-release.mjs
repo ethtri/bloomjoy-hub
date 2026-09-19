@@ -36,6 +36,7 @@ import {
   validateHistoricalPreMigrationCompatibilityEntries,
   validatePreMigrationCompatibilitySource,
   validateReleaseManifestGitAnchorState,
+  validateSealedReleaseManifestGitAnchor,
 } from './refund-release.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -119,6 +120,9 @@ try {
   );
   const repositoryManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   validateManifestShape(repositoryManifest);
+  validateSealedReleaseManifestGitAnchor(repoRoot, repositoryManifest, {
+    requireClean: false,
+  });
   const priorInventoryManifest = JSON.parse(execFileSync('git', [
     'show', '2e0316b7e074f5ff133d40cc1e9faa0724ba059e:scripts/refunds/refund-production-release.json',
   ], { cwd: repoRoot, encoding: 'utf8', windowsHide: true }));
@@ -578,6 +582,11 @@ try {
     missingSealedMigrations,
     [],
     'Repository must retain every migration included in the sealed refund release'
+  );
+  assert.equal(
+    calculateMigrationDigest(repoRoot, repositoryManifest.requiredMigrations),
+    repositoryManifest.migrationFilesSha256,
+    'Repository must retain the exact contents of every migration included in the sealed refund release'
   );
   assert.equal(
     repositoryManifest.functions.length,

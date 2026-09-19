@@ -118,6 +118,14 @@ test('later protected changes still fail and an exact reversion preserves source
     },
     'Production monitoring validates the exact sealed artifact without comparing later main source'
   );
+  f.write('untracked-tooling-change.txt', 'local release-tooling work\n');
+  assert.equal(
+    validateSealedReleaseManifestGitAnchor(f.root, f.manifest, { requireClean: false })
+      .sealedAnchorGitCommit,
+    f.canonicalAnchor,
+    'Tooling validation may prove the committed sealed artifact while unrelated local tooling edits are pending'
+  );
+  fs.unlinkSync(path.join(f.root, 'untracked-tooling-change.txt'));
 
   const tamperedManifest = { ...f.manifest, releaseId: `${f.manifest.releaseId}-tampered` };
   f.write(manifestRelativePath, JSON.stringify(tamperedManifest));
