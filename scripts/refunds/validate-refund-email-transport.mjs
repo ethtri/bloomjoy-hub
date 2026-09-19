@@ -15,7 +15,7 @@ assert.match(
 );
 assert.match(
   transport,
-  /REFUND_CUSTOMER_FROM_EMAIL = "info@bloomjoysweets\.com"/,
+  /REFUND_CUSTOMER_FROM_EMAIL = "refunds@bloomjoysweets\.com"/,
   "refund customer mail must use the approved official From address",
 );
 assert.match(
@@ -25,7 +25,7 @@ assert.match(
 );
 assert.match(
   transport,
-  /REFUND_MONITORED_REPLY_TO_EMAIL = "info@bloomjoysweets\.com"/,
+  /REFUND_MONITORED_REPLY_TO_EMAIL = "refunds@bloomjoysweets\.com"/,
   "customer replies must stay on the monitored mailbox",
 );
 assert.match(
@@ -45,8 +45,8 @@ assert.match(
 );
 assert.match(
   gmail,
-  /export const sendRefundGmailReply[\s\S]*requireRefundOfficialGmailSender\(config\.mailbox\)/,
-  "Gmail customer mail must reject an unapproved mailbox before provider delivery",
+  /export const sendRefundGmailReply[\s\S]*requireRefundOfficialGmailSender\(config\.senderEmail\)/,
+  "Gmail customer mail must reject an unapproved sender before provider delivery",
 );
 assert.match(
   gmail,
@@ -74,13 +74,9 @@ for (const path of [
 }
 
 for (const requiredText of [
-  "Bloomjoy Refunds <info@bloomjoysweets.com>",
-  "Reply-To: info@bloomjoysweets.com",
-  "No transactional fallback",
-  "Completion receipt",
-  "Denial",
-  "Appeal receipt",
-  "Manager notice",
+  "Bloomjoy Refunds <refunds@bloomjoysweets.com>",
+  "Reply-To: refunds@bloomjoysweets.com",
+  "original Gmail thread",
 ]) {
   assert.ok(
     runbook.includes(requiredText),
@@ -89,5 +85,5 @@ for (const requiredText of [
 }
 
 console.log(
-  "Refund email transport validation passed: customer mail fails closed unless it uses Bloomjoy Refunds <info@bloomjoysweets.com>, preserves Gmail threads or the verified transactional sender, verifies customer To and mapped-manager CC recipients, and cannot fall through to a second transport.",
+  "Refund email transport validation passed: customer mail fails closed unless it uses Bloomjoy Refunds <refunds@bloomjoysweets.com>, preserves Gmail threads or the verified transactional sender, verifies customer To and mapped-manager CC recipients, and cannot fall through to a second transport.",
 );

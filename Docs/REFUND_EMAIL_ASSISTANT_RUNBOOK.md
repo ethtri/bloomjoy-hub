@@ -35,7 +35,11 @@ the remaining candidates.
 ## Sender and recipients
 
 - Customer refund messages use **Bloomjoy Refunds
-  <info@bloomjoysweets.com>**.
+  <refunds@bloomjoysweets.com>**.
+- The automation may authenticate to the shared Info Gmail account, but that
+  login address is not the customer-visible sender and does not make ordinary
+  Info or Support mail a refund request. New refund intake must be addressed to
+  `refunds@bloomjoysweets.com`; existing linked refund threads remain eligible.
 - The customer is the sole **To** recipient.
 - Current assigned Managers are visibly copied when the established route
   requires it.

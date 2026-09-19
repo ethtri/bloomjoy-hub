@@ -11818,7 +11818,7 @@ const runCustomerOutreachStateChecks = async ({ browser, appUrl, artifactDir, re
         recorder.assert(
           'Manual fallback shows the one auditable official sender and exact recipient policy before delivery',
           await deliveryRoute.getByText(
-            'From Bloomjoy Refunds <info@bloomjoysweets.com>',
+            'From Bloomjoy Refunds <refunds@bloomjoysweets.com>',
             { exact: true }
           ).isVisible() &&
             await deliveryRoute.getByText(

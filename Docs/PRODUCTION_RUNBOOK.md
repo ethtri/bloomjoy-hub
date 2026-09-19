@@ -63,7 +63,7 @@ Set the following values before launch.
 | `STRIPE_WEBHOOK_SECRET` | Server-only | `stripe-webhook` | Stripe webhook endpoint signing secret | Billing owner |
 | `RESEND_API_KEY` | Server-only | `stripe-webhook`, `lead-submission-intake`, `access-invite`, `refund-case-intake`, `refund-case-message-send`, `refund-case-automation-sweep` | Resend API key | Technical owner |
 | `INTERNAL_NOTIFICATION_FROM_EMAIL` | Server-only | `stripe-webhook`, `lead-submission-intake`, `access-invite`, `refund-case-intake`, `refund-case-message-send`, `refund-case-automation-sweep` | Verified sender in Resend | Technical owner |
-| `REFUND_CUSTOMER_FROM_EMAIL` | Server-only | refund customer-message paths | Exact verified refund sender `info@bloomjoysweets.com`; never falls back to the internal notification sender | Technical owner |
+| `REFUND_CUSTOMER_FROM_EMAIL` | Server-only | refund customer-message paths | Exact verified refund sender `refunds@bloomjoysweets.com`; never falls back to the OAuth login or internal notification sender | Technical owner |
 | `INTERNAL_NOTIFICATION_RECIPIENTS` | Server-only | `stripe-webhook`, `lead-submission-intake`, `refund-case-automation-sweep` | Additional internal recipient list; Ethan/Ian are always included by the email helper | Release owner |
 | `WECOM_CORP_ID` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
 | `WECOM_AGENT_ID` | Server-only | `lead-submission-intake`, `stripe-webhook`, `support-request-intake` | WeCom app settings | Technical owner |
@@ -84,7 +84,7 @@ Set the following values before launch.
 | `NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED` | Server-only | `nayax-card-refund` | `true` only after the intended Core/API identity and account contract are independently confirmed | Technical owner |
 | `NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED` | Server-only | `nayax-card-refund` | `true` only after readback proves the dedicated approval credential has the intended account scope | Technical owner |
 | `NAYAX_LOOKUP_WINDOW_HOURS` | Server-only | `nayax-transaction-lookup`, `refund-case-automation-sweep` | Default `6`; conservative card lookup window around reported incident time | Release owner |
-| `REFUND_REPLY_TO_EMAIL` | Server-only | Refund customer email functions | Default `info@bloomjoysweets.com`; customer replies | Release owner |
+| `REFUND_REPLY_TO_EMAIL` | Server-only | Refund customer email functions | Exact monitored refund address `refunds@bloomjoysweets.com`; customer replies | Release owner |
 | `NAYAX_REFUND_EXECUTION_ENABLED` | Server-only | `nayax-card-refund`, `refund-case-automation-sweep` | Preserve `true` for normal qualified operations through compatible deployments; disable only for a demonstrated release incompatibility, incident or rollback | Release owner |
 | `NAYAX_REFUND_EXECUTION_DRY_RUN` | Server-only | `nayax-card-refund`, `refund-case-automation-sweep` | Preserve `false` for normal qualified operations through compatible deployments; use `true` only for explicitly isolated validation or a justified incident/release pause | Release owner |
 | `NAYAX_REFUND_EXECUTION_KILL_SWITCH` | Server-only | `nayax-card-refund`, `refund-case-automation-sweep` | `false` during healthy operation; set `true` first for rollback or a systemic stop condition | Release owner |
@@ -99,7 +99,7 @@ Set the following values before launch.
 | `GMAIL_SUPPORT_CLIENT_ID` | Server-only | `refund-gmail-sync`, Gmail reply transport | Google OAuth client ID for the designated support mailbox | Technical owner |
 | `GMAIL_SUPPORT_CLIENT_SECRET` | Server-only | `refund-gmail-sync`, Gmail reply transport | Google OAuth client secret | Technical owner |
 | `GMAIL_SUPPORT_REFRESH_TOKEN` | Server-only | `refund-gmail-sync`, Gmail reply transport | Refresh token with only Gmail read-only and send grants | Auth owner |
-| `GMAIL_SUPPORT_MAILBOX` | Server-only | `refund-gmail-sync`, Gmail reply transport | Exact designated support mailbox address | Operations owner |
+| `GMAIL_SUPPORT_MAILBOX` | Server-only | `refund-gmail-sync`, Gmail reply transport | OAuth login account `info@bloomjoysweets.com`; separate from the public refund sender | Operations owner |
 | `GMAIL_REFUND_LABEL_ID` | Server-only | `refund-gmail-sync` | Gmail label ID used only for refund intake | Operations owner |
 | `GMAIL_REFUND_START_AT` | Server-only, optional | `refund-gmail-sync` | ISO timestamp limiting initial historical import | Operations owner |
 | `GMAIL_REFUND_MAX_THREADS_PER_RUN` | Server-only, optional | `refund-gmail-sync` | Default `100`, maximum `500`; bounds one sync run | Technical owner |
@@ -201,7 +201,7 @@ supabase secrets set STRIPE_PLUS_PRICE_ID=...
 supabase secrets set STRIPE_WEBHOOK_SECRET=...
 supabase secrets set RESEND_API_KEY=...
 supabase secrets set INTERNAL_NOTIFICATION_FROM_EMAIL=...
-supabase secrets set REFUND_CUSTOMER_FROM_EMAIL=info@bloomjoysweets.com
+supabase secrets set REFUND_CUSTOMER_FROM_EMAIL=refunds@bloomjoysweets.com
 supabase secrets set INTERNAL_NOTIFICATION_RECIPIENTS=etrifari@bloomjoysweets.com,ian@bloomjoysweets.com
 supabase secrets set WECOM_CORP_ID=...
 supabase secrets set WECOM_AGENT_ID=...

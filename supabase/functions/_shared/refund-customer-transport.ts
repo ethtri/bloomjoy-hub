@@ -1,6 +1,6 @@
 export const REFUND_CUSTOMER_SENDER_NAME = "Bloomjoy Refunds";
-export const REFUND_CUSTOMER_FROM_EMAIL = "info@bloomjoysweets.com";
-export const REFUND_MONITORED_REPLY_TO_EMAIL = "info@bloomjoysweets.com";
+export const REFUND_CUSTOMER_FROM_EMAIL = "refunds@bloomjoysweets.com";
+export const REFUND_MONITORED_REPLY_TO_EMAIL = "refunds@bloomjoysweets.com";
 
 const EMAIL_PATTERN = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
 

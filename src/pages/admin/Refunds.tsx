@@ -298,7 +298,7 @@ const openStatuses = new Set<RefundCaseStatus>([
 ]);
 
 const doneStatuses = new Set<RefundCaseStatus>(['completed', 'denied', 'closed']);
-const refundCustomerSenderIdentity = 'Bloomjoy Refunds <info@bloomjoysweets.com>';
+const refundCustomerSenderIdentity = 'Bloomjoy Refunds <refunds@bloomjoysweets.com>';
 
 const customerMessageOptions: Array<{
   value: RefundCustomerPortalMessageType;

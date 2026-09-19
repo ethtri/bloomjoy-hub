@@ -144,7 +144,7 @@ payout destination:
 3. Never request a full card number, CVV, expiration date, PIN, password, bank
    login, or wallet secret.
 4. Verify the message was sent by **Bloomjoy Refunds
-   <info@bloomjoysweets.com>** to the customer and copied to the current assigned
+   <refunds@bloomjoysweets.com>** to the customer and copied to the current assigned
    Managers before recording the case as waiting.
 5. If the customer does not reply, send one follow-up in the same conversation.
    Do not create another reminder cycle.

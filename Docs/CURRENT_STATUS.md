@@ -72,6 +72,9 @@ orientation snapshot; it is not a backlog or release ledger.
 - Timekeeping, Technician Pay Reports, Pay Stubs, partner reporting, access
   management, training, commerce, and machine administration remain active
   product areas. Their current work belongs on the board, not in this snapshot.
+- Refund automation authenticates through the Info Gmail account but sends as
+  `refunds@bloomjoysweets.com`. Only mail addressed to that refund alias, plus
+  existing case-specific refund threads, is eligible for refund intake.
 - Technician wall-clock entries are interpreted in the selected machine
   location's IANA timezone. This keeps completed Eastern and Central work from
   being rejected as future merely because Bloomjoy's month-close policy and

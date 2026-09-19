@@ -12,6 +12,7 @@ import {
   type GmailMessagePart,
   inspectRefundGmailParticipantSignals,
   inspectRefundGmailReplyByMessageHeader,
+  isRefundGmailConversation,
   listLabeledRefundThreads,
   listNayaxScheduledReportThreads,
   redactPaymentCardNumbers,
@@ -808,7 +809,7 @@ const processFirstContact = async ({
       p_mode: firstContact.mode,
       p_cutover_at: firstContact.cutoverAt,
       p_template_key: REFUND_FIRST_CONTACT_TEMPLATE_KEY,
-      p_sender_email: config.mailbox,
+      p_sender_email: config.senderEmail,
       p_plain_body: redactRefundStatusLinksForStorage(email.text),
       p_thread_has_outbound: threadHasOutbound,
     },
@@ -2166,6 +2167,16 @@ serve(async (request) => {
             (left, right) =>
               Number(left.internalDate ?? 0) - Number(right.internalDate ?? 0),
           );
+          const hasScheduledNayaxReport = messages.some(
+            isNayaxScheduledReportMessage,
+          );
+          if (
+            !intakeShadow && !hasScheduledNayaxReport &&
+            !isRefundGmailConversation({
+              messages,
+              refundAddress: config.senderEmail,
+            })
+          ) continue;
           const threadHasOutbound = messages.some((message) =>
             (() => {
               const signals = inspectRefundGmailParticipantSignals({
