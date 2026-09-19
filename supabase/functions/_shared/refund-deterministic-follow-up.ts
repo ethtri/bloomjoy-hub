@@ -72,6 +72,20 @@ export const sanitizeRefundMissingFields = (value: unknown): RefundMissingField[
   return missingFieldOrder.filter((field) => supplied.has(field));
 };
 
+export const refreshRefundMissingFieldSelection = (
+  suppliedValue: unknown,
+  currentValue: unknown,
+): RefundMissingField[] => {
+  const suppliedFields = sanitizeRefundMissingFields(suppliedValue);
+  const currentFields = sanitizeRefundMissingFields(currentValue);
+  const suppliedSelectionIsCurrent = Array.isArray(suppliedValue) &&
+    suppliedFields.length === suppliedValue.length &&
+    suppliedFields.length === currentFields.length &&
+    suppliedFields.every((field, index) => field === currentFields[index]);
+
+  return suppliedSelectionIsCurrent ? suppliedFields : currentFields;
+};
+
 export const deriveRefundMissingFields = (
   facts: RefundFollowUpFacts,
 ): { missingFields: RefundMissingField[]; requiresSecureWalletCorrection: boolean } => {

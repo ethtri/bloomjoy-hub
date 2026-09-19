@@ -14,6 +14,7 @@ import {
 } from "../_shared/refund-email.ts";
 import {
   deriveRefundMissingFields,
+  refreshRefundMissingFieldSelection,
   type RefundMissingField,
   sanitizeRefundMissingFields,
 } from "../_shared/refund-deterministic-follow-up.ts";
@@ -388,13 +389,6 @@ const resolveSelectionRefundReadiness = async ({
     providerCredentialAvailable,
   });
 };
-
-const sameMissingFields = (
-  left: RefundMissingField[],
-  right: RefundMissingField[],
-) =>
-  left.length === right.length &&
-  left.every((field, index) => field === right[index]);
 
 const getNayaxLookupCandidate = async (
   caseId: string,
@@ -1120,15 +1114,13 @@ serve(async (req) => {
             "This case has no structured purchase detail to request. Return it to manager review.",
         }, 409);
       }
-      if (
-        !sameMissingFields(suppliedCustomerMissingFields, currentFields)
-      ) {
-        return jsonResponse({
-          error:
-            "The case facts changed. Refresh before asking for the exact missing purchase details.",
-        }, 409);
-      }
-      customerMissingFields = currentFields;
+      // Browser projections can lag behind durable case facts. Rebuild this
+      // optional selection from the current server state instead of blocking
+      // an otherwise authorized message on an exact client-side snapshot.
+      customerMissingFields = refreshRefundMissingFieldSelection(
+        body?.customerMissingFields,
+        currentFields,
+      );
     }
 
     const isCashCompletion = officialAction === "cash_complete";
