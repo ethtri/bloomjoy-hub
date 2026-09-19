@@ -23,11 +23,12 @@ test('cash manager surface has one external-Zelle decision and no retired labels
   assert.doesNotMatch(evidence, /confidence|rawPayload|provider diagnostics/i);
 });
 
-test('safe evidence loading cannot present a fallback amount before a response', () => {
-  assert.match(page, /isCashCorrelationLoaded && selectedCashCorrelation\?\.state !== 'checking_sales_history'/);
-  assert.match(page, /selectedCase\.paymentMethod === 'cash' && !isUsingDemoData && !isCashCorrelationLoaded/);
+test('optional evidence loading keeps the reviewed estimate available', () => {
+  assert.doesNotMatch(page, /cashEvidencePending|isCashCorrelationLoaded/);
   assert.match(read('src/lib/refundCashAmount.ts'), /typeof safeEvidenceAmountCents === 'undefined'/);
+  assert.match(page, /resolveCashReviewAmountCents\(\s*selectedCase\.paymentAmountCents,\s*selectedCashEvidenceAmountCents/);
   assert.match(page, /resolveCashReviewAmountCents\(refundCase\.paymentAmountCents, effectiveCashAmountCents\)/);
+  assert.match(evidence, /The manager decision remains available from the reviewed case details/);
 });
 
 test('bounded evidence chooser supports keyboard-friendly radio selection and narrow layouts', () => {

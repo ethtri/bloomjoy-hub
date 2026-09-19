@@ -1745,7 +1745,6 @@ const primaryActionConfig = (
   candidates: NayaxLookupCandidate[],
   refundReadiness: RefundReadiness | null,
   cashCompletionAmountCents?: number | null,
-  cashEvidencePending = false,
   payoutDestinationRequestChecker?: (candidate: RefundCaseRecord) => boolean,
 ): PrimaryActionConfig => {
   if (refundCase.lifecycle?.stage === 'duplicate_resolved' || refundCase.confirmedDuplicate) {
@@ -1965,18 +1964,6 @@ const primaryActionConfig = (
     label: refundCase.customerCorrection.isUsable === true ? 'Waiting for customer response' : 'Customer request is being sent',
     helper: 'Bloomjoy will continue this same request when the customer responds. No new request is needed.', disabled: true,
   };
-  if (
-    refundCase.paymentMethod === 'cash' &&
-    cashEvidencePending &&
-    !distinctPayoutDestinationRequest
-  ) {
-    return {
-      label: 'Checking sales history',
-      helper: 'Wait for the safe sales-history response before reviewing or confirming a cash amount.',
-      disabled: true,
-    };
-  }
-
   if (editor.status === 'denied' || editor.decision === 'denied') {
     return {
       label: 'Deny request',
@@ -3057,22 +3044,25 @@ export default function AdminRefundsPage() {
 
   const selectedCase = [...overview.cases, ...internalTestCases]
     .find((refundCase) => refundCase.id === selectedId) ?? null;
-  const {
-    data: selectedCashCorrelation,
-    isSuccess: isCashCorrelationLoaded,
-  } = useQuery<RefundSunzeCashCorrelation | null>({
+  const { data: selectedCashCorrelation } = useQuery<RefundSunzeCashCorrelation | null>({
     queryKey: ['refund-sunze-cash-correlation', selectedCase?.id],
     queryFn: ({ signal }) => fetchRefundSunzeCashCorrelation(selectedCase?.id ?? '', signal),
     enabled: !isUsingDemoData && selectedCase?.paymentMethod === 'cash' && Boolean(selectedCase?.id),
     staleTime: 10_000,
     retry: false,
   });
+  const selectedCashCorrelationForReview = isUsingDemoData
+    ? selectedCase?.sunzeCashCorrelation
+    : selectedCashCorrelation;
+  const selectedCashEvidenceAmountCents =
+    selectedCashCorrelationForReview?.state === 'checking_sales_history'
+      ? undefined
+      : selectedCashCorrelationForReview?.selectedSale?.actualAmountCents;
   const cashCompletionAmountCents = selectedCase?.paymentMethod === 'cash'
-    ? (isUsingDemoData
-      ? selectedCase.sunzeCashCorrelation?.selectedSale?.actualAmountCents ?? selectedCase.paymentAmountCents
-      : isCashCorrelationLoaded && selectedCashCorrelation?.state !== 'checking_sales_history'
-        ? selectedCashCorrelation?.selectedSale?.actualAmountCents ?? selectedCase.paymentAmountCents
-        : null)
+    ? resolveCashReviewAmountCents(
+        selectedCase.paymentAmountCents,
+        selectedCashEvidenceAmountCents,
+      ) ?? null
     : null;
   const nayaxResolutionDefaultTimezone =
     selectedCase?.selectedNayaxTransaction?.machineTimezone?.trim() ||
@@ -3645,11 +3635,10 @@ export default function AdminRefundsPage() {
             caseVersion: selectedCase.officialActionVersion ?? null,
           },
           cashCompletionAmountCents,
-          selectedCase.paymentMethod === 'cash' && !isUsingDemoData && !isCashCorrelationLoaded,
           canRequestDistinctCashPayoutDestination,
         )
       : null),
-    [cashCompletionAmountCents, editor, isCashCorrelationLoaded, isUsingDemoData, nayaxCandidates, selectedCase, selectedNayaxSummary, selectedRefundReadiness]
+    [cashCompletionAmountCents, editor, nayaxCandidates, selectedCase, selectedNayaxSummary, selectedRefundReadiness]
   );
   const primaryActionNeedsOfficialAccess = primaryActionRequiresOfficialAction(primaryAction);
   const primaryActionEditor = useMemo(

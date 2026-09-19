@@ -1156,7 +1156,7 @@ Deno.test('cash manager state can use a server-reviewed selected sale amount', (
   assertEquals(result.id, 'ready_to_refund', 'selected sale amount is sufficient');
 });
 
-Deno.test('cash manager state stays checking while safe amount is loading', () => {
+Deno.test('cash manager state still blocks an explicitly unavailable amount', () => {
   const result = getRefundManagerState({
     ...baseCase,
     paymentMethod: 'cash',
@@ -1165,8 +1165,8 @@ Deno.test('cash manager state stays checking while safe amount is loading', () =
     correlationStatus: 'no_match',
     nayaxRecommendationState: null,
   }, { cashCompletionAmountCents: null });
-  assertEquals(result.id, 'needs_information', 'missing safe amount blocks completion');
-  assertEquals(result.label, 'Needs payment amount', 'loading amount is not presented as ready');
+  assertEquals(result.id, 'needs_information', 'explicitly unavailable amount blocks completion');
+  assertEquals(result.label, 'Needs payment amount', 'unavailable amount is not presented as ready');
 });
 
 Deno.test('cash cases without an amount route to customer follow-up', () => {

@@ -11,3 +11,7 @@ Deno.test('cash review amount keeps an omitted evidence value on the manual esti
 Deno.test('cash review amount keeps explicit unavailable evidence distinct from the estimate', () => {
   assertEquals(resolveCashReviewAmountCents(1250, null), null, 'explicit unavailable evidence should stay unavailable');
 });
+
+Deno.test('cash review amount uses an exact selected-sale amount when it is available', () => {
+  assertEquals(resolveCashReviewAmountCents(1250, 1400), 1400, 'selected sale should replace estimate');
+});
