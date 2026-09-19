@@ -1,4 +1,7 @@
 export const REFUND_MANAGER_WORK_SCHEMA_VERSION = 'refund_manager_work_v1' as const;
+export const REFUND_MANAGER_QUEUE_CONTRACT_VERSION = 'refund_manager_queue_v2' as const;
+export const REFUND_MANAGER_QUEUE_PROJECTION_WARNING = 'manager_queue_projection_unavailable' as const;
+export type RefundManagerQueueProjectionWarning = typeof REFUND_MANAGER_QUEUE_PROJECTION_WARNING;
 export const refundManagerWorkBuckets = ['needs_action', 'ready_to_pay', 'in_progress', 'provider_hold', 'waiting_on_customer', 'completed'] as const;
 export type RefundManagerWorkBucket = typeof refundManagerWorkBuckets[number];
 export type RefundManagerWorkItem = {
@@ -44,6 +47,39 @@ export const parseRefundManagerWorkProjection = (value: unknown): RefundManagerW
     digestCounts: { needsDecision: countValue(digest.needsDecision), newInformation: countValue(digest.newInformation), aging: countValue(digest.aging), exceptionsBeingHandled: countValue(digest.exceptionsBeingHandled) },
     oldestActionableAgeMinutes: root.oldestActionableAgeMinutes === null ? null : countValue(root.oldestActionableAgeMinutes), recentMaterialChangeCount: countValue(root.recentMaterialChangeCount), items,
     metrics: { emailsSentToday: countValue(metrics.emailsSentToday), digestEligibleCount: countValue(metrics.digestEligibleCount), duplicatesSuppressedToday: countValue(metrics.duplicatesSuppressedToday), oldestActionableAgeMinutes: metrics.oldestActionableAgeMinutes === null ? null : countValue(metrics.oldestActionableAgeMinutes), oldestDecisionAgeMinutes: metrics.oldestDecisionAgeMinutes === null ? null : countValue(metrics.oldestDecisionAgeMinutes), payloadRedacted: metrics.payloadRedacted === true ? true : (() => { throw new Error('Unsupported refund manager work response.'); })() }, payloadRedacted: true };
+};
+
+type ManagerQueueProjectionInput = { managerQueueContractVersion?: unknown; managerWork?: unknown };
+type LocalizedManagerQueueProjection<T extends ManagerQueueProjectionInput> =
+  Omit<T, 'managerQueueContractVersion' | 'managerWork' | 'managerQueueProjectionWarning'> & {
+    managerQueueContractVersion?: typeof REFUND_MANAGER_QUEUE_CONTRACT_VERSION;
+    managerWork: RefundManagerWorkProjection | null;
+    managerQueueProjectionWarning: RefundManagerQueueProjectionWarning | null;
+  };
+
+export const localizeRefundManagerQueueProjection = <T extends ManagerQueueProjectionInput>(
+  input: T,
+): LocalizedManagerQueueProjection<T> => {
+  let managerWork: RefundManagerWorkProjection | null = null;
+  let managerQueueProjectionWarning: RefundManagerQueueProjectionWarning | null = null;
+  const supported = input.managerQueueContractVersion === REFUND_MANAGER_QUEUE_CONTRACT_VERSION;
+
+  if (supported && input.managerWork != null) {
+    try {
+      managerWork = parseRefundManagerWorkProjection(input.managerWork);
+    } catch {
+      managerQueueProjectionWarning = REFUND_MANAGER_QUEUE_PROJECTION_WARNING;
+    }
+  } else if (input.managerQueueContractVersion !== undefined || input.managerWork != null) {
+    managerQueueProjectionWarning = REFUND_MANAGER_QUEUE_PROJECTION_WARNING;
+  }
+
+  return {
+    ...input,
+    managerQueueContractVersion: supported ? REFUND_MANAGER_QUEUE_CONTRACT_VERSION : undefined,
+    managerWork,
+    managerQueueProjectionWarning,
+  };
 };
 
 export const refundManagerNextActionCopy = (actionCode: string) => ({
