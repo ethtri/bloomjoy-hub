@@ -466,12 +466,11 @@ select is((public.service_commit_refund_nayax_lookup('fe150000-0000-4000-8000-00
   'fe110000-0000-4000-8000-000000000001')->>'applied'),'true',
   'Ambiguous evidence remains visible');
 set local role authenticated;
-select throws_ok(format($$select public.admin_select_refund_nayax_candidate_current_user_v1(
-  'fe150000-0000-4000-8000-000000000002',%s,
-  'fe160000-0000-4000-8000-000000000002',null)$$,
-  (select official_action_version from public.refund_cases where id='fe150000-0000-4000-8000-000000000002')),
-  'P4604','Choose why this alternate Nayax transaction is the correct one',
-  'Ambiguous candidates still require explicit manager corroboration');
+select is((public.admin_select_refund_nayax_candidate_current_user_v1(
+  'fe150000-0000-4000-8000-000000000002',
+  (select official_action_version from public.refund_cases where id='fe150000-0000-4000-8000-000000000002'),
+  'fe160000-0000-4000-8000-000000000002',null)->>'selectionApplied'),
+  'true','A review-safe ambiguous candidate remains selectable without optional rationale metadata');
 reset role;
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
   where refund_case_id in ('fe150000-0000-4000-8000-000000000001','fe150000-0000-4000-8000-000000000002'))
