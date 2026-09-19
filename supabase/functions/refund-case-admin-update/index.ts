@@ -39,7 +39,6 @@ import {
 } from "../_shared/refund-evidence-selection.ts";
 import { isRefundCustomerSafeDenialReason } from "../_shared/refund-denial.ts";
 import {
-  NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
   normalizeNayaxRefundAccountKey,
   resolveNayaxRefundExecutionConfig,
 } from "../_shared/nayax-refund-gates.ts";
@@ -386,7 +385,6 @@ const resolveSelectionRefundReadiness = async ({
   return mergeRuntimeRefundReadiness({
     databaseReadiness,
     executionConfig,
-    officialActionsEnabled: NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
     providerCredentialAvailable,
   });
 };

@@ -28,7 +28,6 @@ Deno.test("confirmed database readiness needs no additional balance attestation"
     mergeRuntimeRefundReadiness({
       databaseReadiness: databaseReady,
       executionConfig: readyConfig,
-      officialActionsEnabled: true,
       providerCredentialAvailable: true,
     }),
     {
@@ -39,26 +38,55 @@ Deno.test("confirmed database readiness needs no additional balance attestation"
   );
 });
 
-Deno.test("a runtime pause has one stable manager-safe reason", () => {
-  const paused = resolveNayaxRefundExecutionConfig((name) =>
-    name === "NAYAX_REFUND_EXECUTION_KILL_SWITCH" ? "true" : ({
+Deno.test("operational switches hold the processor without revoking manager readiness", () => {
+  for (
+    const overrides of [
+      { NAYAX_REFUND_EXECUTION_KILL_SWITCH: "true" },
+      { NAYAX_REFUND_EXECUTION_ENABLED: "false" },
+      { NAYAX_REFUND_EXECUTION_DRY_RUN: "true" },
+      { NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED: "false" },
+      { NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED: "false" },
+    ]
+  ) {
+    const config = resolveNayaxRefundExecutionConfig((name) => ({
+      NAYAX_REFUND_EXECUTION_KILL_SWITCH: "false",
       NAYAX_REFUND_EXECUTION_ENABLED: "true",
       NAYAX_REFUND_EXECUTION_DRY_RUN: "false",
       NAYAX_REFUND_IDEMPOTENCY_SECRET: "a".repeat(43),
       NAYAX_REFUND_EXECUTOR_ASSERTION: "b".repeat(43),
       NAYAX_REFUND_MANAGER_CONTRACT_CONFIRMED: "true",
       NAYAX_REFUND_APPROVAL_SCOPE_CONFIRMED: "true",
-    } as Record<string, string>)[name]
-  );
-  const result = mergeRuntimeRefundReadiness({
-    databaseReadiness: databaseReady,
-    executionConfig: paused,
-    officialActionsEnabled: true,
-    providerCredentialAvailable: true,
-  });
-  assertEquals(result.canIssueCardRefund, false);
-  assertEquals(result.blockReason, "globally_paused");
-  assertEquals(result.transactionConfirmed, true);
+      ...overrides,
+    } as Record<string, string>)[name]);
+    const result = mergeRuntimeRefundReadiness({
+      databaseReadiness: databaseReady,
+      executionConfig: config,
+      providerCredentialAvailable: true,
+    });
+    assertEquals(result.canIssueCardRefund, true);
+    assertEquals(result.blockReason, null);
+    assertEquals(result.transactionConfirmed, true);
+    assertEquals(config.blocks.length, 1);
+  }
+});
+
+Deno.test("concrete execution identity and provider checks still block approval", () => {
+  for (
+    const context of [
+      {
+        executionConfig: resolveNayaxRefundExecutionConfig(() => undefined),
+        providerCredentialAvailable: true,
+      },
+      { executionConfig: readyConfig, providerCredentialAvailable: false },
+    ]
+  ) {
+    const result = mergeRuntimeRefundReadiness({
+      databaseReadiness: databaseReady,
+      ...context,
+    });
+    assertEquals(result.canIssueCardRefund, false);
+    assertEquals(result.blockReason, "provider_unavailable");
+  }
 });
 
 Deno.test("provider configuration never hides a database safety block", () => {
@@ -70,7 +98,6 @@ Deno.test("provider configuration never hides a database safety block", () => {
   const result = mergeRuntimeRefundReadiness({
     databaseReadiness: reconciliationHold,
     executionConfig: readyConfig,
-    officialActionsEnabled: true,
     providerCredentialAvailable: false,
   });
   assertEquals(result.blockReason, "reconciliation_hold");
@@ -102,7 +129,6 @@ Deno.test("a normal transaction amount needs no balance preflight or launch cap"
       machineLimitCents: null,
     },
     executionConfig: readyConfig,
-    officialActionsEnabled: true,
     providerCredentialAvailable: true,
   });
   assertEquals(result.canIssueCardRefund, true);
@@ -113,7 +139,6 @@ Deno.test("processor liveness is not part of manager payment readiness", () => {
   const result = mergeRuntimeRefundReadiness({
     databaseReadiness: databaseReady,
     executionConfig: readyConfig,
-    officialActionsEnabled: true,
     providerCredentialAvailable: true,
   });
   assertEquals(result.canIssueCardRefund, true);
