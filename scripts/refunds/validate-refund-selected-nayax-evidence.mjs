@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 
 const read = (path) => readFile(new URL(`../../${path}`, import.meta.url), 'utf8');
 
-const [migration, timeMigration, databaseTest, selectionTest, operations, managerUi, status, workflow, procedure, qa, runbook] =
+const [migration, timeMigration, databaseTest, selectionTest, operations, managerPage, candidateReview, status, workflow, procedure, qa, runbook] =
   await Promise.all([
     read('supabase/migrations/20260901050000_refund_selected_nayax_transaction_evidence.sql'),
     read('supabase/migrations/20260914193919_refund_candidate_time_semantics.sql'),
@@ -11,12 +11,15 @@ const [migration, timeMigration, databaseTest, selectionTest, operations, manage
     read('supabase/tests/refund_contactless_review_selection.sql'),
     read('src/lib/refundOperations.ts'),
     read('src/pages/admin/Refunds.tsx'),
+    read('src/components/refunds/RefundTransactionCandidateReview.tsx'),
     read('Docs/CURRENT_STATUS.md'),
     read('Docs/REFUND_WORKFLOW.md'),
     read('Docs/REFUND_AGENT_OPERATIONS.md'),
     read('Docs/QA_SMOKE_TEST_CHECKLIST.md'),
     read('Docs/PRODUCTION_RUNBOOK.md'),
   ]);
+
+const managerUi = `${managerPage}\n${candidateReview}`;
 
 for (const field of [
   'transactionId',
