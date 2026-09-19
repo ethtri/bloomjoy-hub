@@ -8,7 +8,7 @@ const read = (relativePath) => fs.readFileSync(path.join(repoRoot, relativePath)
 
 const migration = read('supabase/migrations/20260812160000_refund_case_manager_assignment.sql');
 const pgTap = read('supabase/tests/refund_case_manager_assignment.sql');
-const portalUat = read('scripts/refunds/validate-refund-portal-uat.mjs');
+const portalUat = read('scripts/refunds/portal-uat/journeys/public-submission.mjs');
 
 assert.match(
   migration,
