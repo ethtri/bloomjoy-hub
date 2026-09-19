@@ -9,6 +9,7 @@ const filenames = [
   'validate-machine-manager-uat.mjs',
 ];
 const publicSubmissionJourneyFilename = 'portal-uat/journeys/public-submission.mjs';
+const ordinarySuccessJourneyFilename = 'portal-uat/journeys/ordinary-success.mjs';
 
 const coveredSource = `
 import { createTrackedUatBrowser } from './refund-browser-uat-network.mjs';
@@ -50,6 +51,7 @@ const sources = (source = coveredSource) => ({
       labelReadOnlyRpc(route, 'public_refund_selections_v2');
     });
   `,
+  [ordinarySuccessJourneyFilename]: '',
 });
 
 test('all three suites pass only with one wrapped launch and an asserted aggregate', () => {

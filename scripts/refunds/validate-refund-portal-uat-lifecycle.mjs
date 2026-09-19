@@ -5,11 +5,27 @@ const portalDriverSource = await readFile(
   new URL('./validate-refund-portal-uat.mjs', import.meta.url),
   'utf8'
 );
+const ordinarySuccessSource = await readFile(
+  new URL('./portal-uat/journeys/ordinary-success.mjs', import.meta.url),
+  'utf8'
+);
 const ambiguousSelectionSource = await readFile(
   new URL('./portal-uat/journeys/ambiguous-selection.mjs', import.meta.url),
   'utf8'
 );
-const portalSource = `${portalDriverSource}\n${ambiguousSelectionSource}`;
+const duplicateIdempotencySource = await readFile(
+  new URL('./portal-uat/journeys/duplicate-idempotency.mjs', import.meta.url),
+  'utf8'
+);
+const authorizationSource = await readFile(
+  new URL('./portal-uat/journeys/authorization.mjs', import.meta.url),
+  'utf8'
+);
+const unknownProviderOutcomeSource = await readFile(
+  new URL('./portal-uat/journeys/unknown-provider-outcome.mjs', import.meta.url),
+  'utf8'
+);
+const portalSource = `${portalDriverSource}\n${ordinarySuccessSource}\n${ambiguousSelectionSource}\n${duplicateIdempotencySource}\n${authorizationSource}\n${unknownProviderOutcomeSource}`;
 const refundsSource = await readFile(
   new URL('../../src/pages/admin/Refunds.tsx', import.meta.url),
   'utf8'
@@ -33,9 +49,9 @@ const networkSource = await readFile(
   new URL('./refund-browser-uat-network.mjs', import.meta.url),
   'utf8'
 );
-const demoSource = portalDriverSource.slice(
-  portalDriverSource.indexOf('const runDemoFallbackChecks = async'),
-  portalDriverSource.indexOf('const run = async () =>')
+const demoSource = ordinarySuccessSource.slice(
+  ordinarySuccessSource.indexOf('const runDemoFallbackChecks = async'),
+  ordinarySuccessSource.indexOf('const runCustomerOutreachStateChecks = async')
 );
 const overviewFixtureBuilders = [
   ...portalDriverSource.matchAll(/const (build[A-Za-z0-9]*Overview)\s*=\s*/g),
