@@ -708,21 +708,24 @@ serve(async (req) => {
     // Exact revision retries inspect the existing immutable intent before current
     // facts/template changes. They never construct a replacement request again.
     if (currentCorrectionRequestId) {
-      if (!Array.isArray(body?.missingFields) || !suppliedMissingFields.length ||
-        suppliedMissingFields.length !== body.missingFields.length || body?.subject !== undefined ||
-        body?.body !== undefined || body?.triageSuggestionId !== undefined) {
+      if (body?.subject !== undefined || body?.body !== undefined || body?.triageSuggestionId !== undefined) {
         return jsonResponse({error:"Revision requests use the approved message and selected details."},400);
       }
       const {data: previous, error: previousError} = await supabase.from("refund_case_messages")
-        .select("id,recipient_email,subject,body,status,manual_delivery_state,delivery_transport,sent_at,provider_message_id,manual_delivery_provider_attempted_at")
+        .select("id,recipient_email,subject,body,status,manual_delivery_state,delivery_transport,sent_at,provider_message_id,manual_delivery_provider_attempted_at,requested_fields")
         .eq("manual_delivery_intent_id",messageIntentId).maybeSingle();
       if (previousError) throw previousError;
       if (previous) {
+        const previousMissingFields = sanitizeRefundMissingFields(previous.requested_fields);
+        if (!Array.isArray(previous.requested_fields) || !previousMissingFields.length ||
+          previousMissingFields.length !== previous.requested_fields.length) {
+          return jsonResponse({error:"The existing revision needs internal review before delivery."},409);
+        }
         const {data: replay, error: replayError} = await supabase.rpc("service_revise_refund_purchase_correction",{
           p_refund_case_id:caseId,p_expected_case_version:expectedCaseVersion,p_intent_id:messageIntentId,
           p_actor_user_id:user.id,p_current_request_id:currentCorrectionRequestId,
           p_recipient_email:previous.recipient_email,p_subject:previous.subject,p_body:previous.body,
-          p_requested_fields:suppliedMissingFields,
+          p_requested_fields:previousMissingFields,
         });
         if (replayError || replay?.replayed !== true || replay.messageId !== previous.id) {
           return jsonResponse({error:"This revision intent is already bound. Refresh before sending."},409);
@@ -821,6 +824,7 @@ serve(async (req) => {
       ? sanitizeRefundMissingFields(triageSuggestion.missing_fields)
       : suppliedMissingFields;
     let missingFields: RefundMissingField[] = [];
+    let missingFieldsRefreshed = false;
     const correctionEnabled = messageType === "more_info" && await refundCorrectionLinksEnabled(supabase);
     if (currentCorrectionRequestId && !correctionEnabled) return jsonResponse({ error: "Correction revisions are not enabled." }, 409);
     if (messageType === "more_info") {
@@ -842,17 +846,20 @@ serve(async (req) => {
           body.missingFields.length === suppliedMissingFields.length &&
           suppliedMissingFields.every((field) => currentFields.includes(field))
         : sameMissingFields(reviewedMissingFields, currentFields);
-      if (!validSelection) {
-        return jsonResponse({
-          error:
-            "The case facts changed. Refresh before asking for the exact missing purchase details.",
-        }, 409);
-      }
       if (correctionEnabled && (triageSuggestionId || body?.subject !== undefined || body?.body !== undefined)) {
         return jsonResponse({ error: "Correction requests use the approved message for the selected details." }, 400);
       }
-      missingFields = correctionEnabled ? suppliedMissingFields : currentFields;
+      missingFieldsRefreshed = !validSelection;
+      missingFields = correctionEnabled && validSelection
+        ? suppliedMissingFields
+        : currentFields;
     }
+
+    // Browser projections can lag behind the authoritative case facts. When
+    // that happens, discard the stale optional field selection/draft and build
+    // the approved server template from the current fields instead of making
+    // customer contact depend on an exact client-side snapshot.
+    const effectiveTriageSuggestion = missingFieldsRefreshed ? null : triageSuggestion;
 
     const customerMessageError = validateRefundCustomerMessageRequest({
       paymentMethod: refundCase.payment_method,
@@ -888,8 +895,8 @@ serve(async (req) => {
       customerLocale: refundCustomerLocaleFromIntakeMeta(refundCase.intake_meta),
     };
     const defaultEmailWithoutStatus = buildRefundCustomerEmail(templateInputWithoutStatus);
-    const requestedSubject = sanitizeText(body?.subject, 180);
-    const requestedBody = sanitizeText(body?.body, 4000);
+    const requestedSubject = missingFieldsRefreshed ? "" : sanitizeText(body?.subject, 180);
+    const requestedBody = missingFieldsRefreshed ? "" : sanitizeText(body?.body, 4000);
     const emailWithoutStatus = requestedBody || requestedSubject
       ? buildEditableRefundCustomerEmail({
         input: templateInputWithoutStatus,
@@ -898,11 +905,11 @@ serve(async (req) => {
       })
       : defaultEmailWithoutStatus;
 
-    if (triageSuggestion) {
+    if (effectiveTriageSuggestion) {
       const reviewedDraft = validateRefundGptReviewedDraft({
         subject: emailWithoutStatus.subject,
         body: emailWithoutStatus.text,
-        missingFields: triageSuggestion.missing_fields,
+        missingFields: effectiveTriageSuggestion.missing_fields,
       });
       if (!reviewedDraft.ok) {
         return jsonResponse({
@@ -918,8 +925,8 @@ serve(async (req) => {
       recipientEmail: refundCase.customer_email,
       runToken: body?.syntheticProofRunToken,
       messageType,
-      defaultTemplateOnly: !triageSuggestionId &&
-        suppliedMissingFields.length === 0 &&
+      defaultTemplateOnly: !effectiveTriageSuggestion &&
+        (missingFieldsRefreshed || suppliedMissingFields.length === 0) &&
         !requestedSubject &&
         !requestedBody,
     });
@@ -946,12 +953,12 @@ serve(async (req) => {
         p_subject: emailWithoutStatus.subject,
         p_body: emailWithoutStatus.text,
         p_template_key: `refund_${messageType}_editable_v1`,
-        p_content_source: triageSuggestion ? "manager_reviewed_gpt" : "manager_authored",
+        p_content_source: effectiveTriageSuggestion ? "manager_reviewed_gpt" : "manager_authored",
         p_reason_code: messageType === "more_info" ? "missing_information" : null,
         p_requested_fields: messageType === "more_info" ? missingFields : [],
         p_synthetic_proof_authorization_id: syntheticProof.authorizationId,
         p_status_link_requested: !templateInputWithoutStatus.correctionUrl && refundStatusLinksEnabled(),
-        p_triage_suggestion_id: triageSuggestion?.id ?? null,
+        p_triage_suggestion_id: effectiveTriageSuggestion?.id ?? null,
       },
     );
     const queued = enqueued && typeof enqueued === "object"
@@ -1010,7 +1017,7 @@ serve(async (req) => {
           transport: replayedMessage.delivery_transport === "resend"
             ? "transactional_email"
             : "gmail_thread",
-          triageReviewStatus: triageSuggestion ? "recorded" : "not_applicable",
+          triageReviewStatus: effectiveTriageSuggestion ? "recorded" : "not_applicable",
         },
         replayed: true,
       });
