@@ -210,7 +210,8 @@
     "20260919010000_refund_legacy_selection_proof_recovery.sql",
     "20260919160428_refund_recovered_selection_proof_approval_compatibility.sql",
     "20260919162345_refund_gmail_payment_authority_decoupling.sql",
-    "20260919182610_refund_machine_processor_hold.sql"
+    "20260919182610_refund_machine_processor_hold.sql",
+    "20260919214959_refund_proven_unsent_status_recovery.sql"
   ],
   "migrationFilesSha256": "7cbb50dcbc9956b37a8f79fd76052470038a3f673bdc4a323b4d318835e73e14",
   "migrationVersionSetSha256": "aef1c45cfc1d7de2b1fd9c31f0be6532a0a5779ab45d8a23fb014a6c92a7cd6a",
