@@ -17,6 +17,36 @@ export const createRefundReadPolling = () => {
   };
 };
 
+type RefundAvailabilityRead = {
+  available: boolean;
+  status: 'available' | 'unavailable';
+  blockReason: string | null;
+  caseId?: string;
+  payloadRedacted: true;
+};
+
+/** Reject malformed success bodies so query polling keeps its last valid snapshot. */
+export const parseRefundAvailabilityRead = <T extends RefundAvailabilityRead>(
+  value: unknown,
+  expectedCaseId?: string | null,
+): T => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Refund availability response is invalid.');
+  }
+  const response = value as Record<string, unknown>;
+  const available = response.available;
+  if (
+    typeof available !== 'boolean' ||
+    response.status !== (available ? 'available' : 'unavailable') ||
+    !(response.blockReason === null || typeof response.blockReason === 'string') ||
+    response.payloadRedacted !== true ||
+    (expectedCaseId && response.caseId !== expectedCaseId)
+  ) {
+    throw new Error('Refund availability response is invalid.');
+  }
+  return value as T;
+};
+
 export const refundOverviewPollingInterval = (cases: Array<{lifecycle?: {terminal: boolean; refreshAfterSeconds: number | null} | null}> | undefined): number | false => {
   // An unavailable initial read needs bounded recovery; it is not terminal proof.
   if (!cases) return 5_000;

@@ -5,7 +5,7 @@ import ts from 'typescript';
 const source=fs.readFileSync(new URL('../../src/lib/refundReadPolling.ts',import.meta.url),'utf8');
 const compiled=ts.transpile(source,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022});
 const {createRefundReadPolling,refundOverviewPollingInterval,refundAvailabilityIsTerminal,refundOverviewReadMessage,
- mergeRefundOverviewContactTruth,REFUND_OVERVIEW_INITIAL_LOAD_ERROR,REFUND_OVERVIEW_UPDATE_DELAYED,REFUND_OVERVIEW_RECOVERED}=await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+ mergeRefundOverviewContactTruth,parseRefundAvailabilityRead,REFUND_OVERVIEW_INITIAL_LOAD_ERROR,REFUND_OVERVIEW_UPDATE_DELAYED,REFUND_OVERVIEW_RECOVERED}=await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
 // QueryObserver only schedules browser intervals when a window exists at import.
 globalThis.window={};
 const {QueryClient,QueryObserver,focusManager,onlineManager}=await import('@tanstack/query-core');
@@ -70,6 +70,21 @@ test('real QueryObserver backs off across failed polls, preserves cached truth, 
   focusManager.setFocused(false);await clock.tick(60000);assert.equal(at.length,11);
   focusManager.setFocused(true);await flush();assert.equal(at.length,12);
  }finally{unsubscribe();client.unmount();client.clear();focusManager.setFocused(undefined);onlineManager.setOnline(true);}
+});
+
+test('malformed availability success cannot replace the last valid cached capability',async()=>{
+ const client=new QueryClient({defaultOptions:{queries:{retry:false,gcTime:Infinity}}});
+ const polling=createRefundReadPolling();let malformed=false;
+ const valid={available:true,status:'available',blockReason:null,caseId:'case-a',payloadRedacted:true};
+ const observer=new QueryObserver(client,{queryKey:['availability','case-a'],queryFn:()=>polling.read(async()=>
+  parseRefundAvailabilityRead(malformed?{...valid,status:'unavailable'}:valid,'case-a'))});
+ const unsubscribe=observer.subscribe(()=>{});
+ try{
+  await flush();assert.deepEqual(observer.getCurrentResult().data,valid);
+  malformed=true;await assert.rejects(observer.refetch({throwOnError:true}),/Refund availability response is invalid/);await flush();
+  assert.deepEqual(observer.getCurrentResult().data,valid);
+  assert.equal(polling.consecutiveFailures(),1);
+ }finally{unsubscribe();client.clear();}
 });
 
 test('real observer case switch isolates a late old failure and resets the new read cadence',async()=>{

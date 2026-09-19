@@ -16,6 +16,7 @@ import {
   type RefundLifecycleContract,
 } from '@/lib/refundLifecycle';
 import { applyRefundLifecycleSafety } from '@/lib/refundOperationsLifecycleSafety';
+import { parseRefundAvailabilityRead } from '@/lib/refundReadPolling';
 import {
   requireRefundCustomerLifecycle,
   type RefundCustomerLifecycle,
@@ -3690,7 +3691,7 @@ export const fetchNayaxCardRefundAvailability = (caseId?: string | null) =>
       requireUserAuth: true,
       authErrorMessage: 'Log in to check card refund availability.',
     }
-  );
+  ).then((response) => parseRefundAvailabilityRead<NayaxCardRefundAvailabilityResponse>(response, caseId));
 
 export const createRefundAttachmentSignedUrl = async (
   attachment: Pick<RefundCaseAttachment, 'storageBucket' | 'storagePath'>
