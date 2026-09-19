@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(30);
+select plan(31);
 
 insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data)
 values('fc110000-0000-4000-8000-000000000001','authenticated','authenticated',
@@ -155,6 +155,14 @@ select 'fc160000-0000-4000-8000-000000000002','fc150000-0000-4000-8000-000000000
   statement_timestamp()+interval '1 hour' from lookup_claim$$,
   'A second reviewable transaction persists but prevents unique binding');
 
+update public.refund_nayax_lookup_candidates
+set evidence_summary = evidence_summary - 'transaction_occurrence_comparable'
+where token='fc160000-0000-4000-8000-000000000001';
+select ok((select not (evidence_summary ? 'transaction_occurrence_comparable')
+  from public.refund_nayax_lookup_candidates
+  where token='fc160000-0000-4000-8000-000000000001'),
+  'The optional-rationale regression covers missing timestamp comparability metadata');
+
 select is((public.service_commit_refund_nayax_lookup('fc150000-0000-4000-8000-000000000001',
   (select generation from lookup_claim),2,'manual_exception','manual_exception','2026-09-13.v12',
   statement_timestamp(),'Two contactless transactions need manager review',null,2,'manual',
@@ -179,7 +187,7 @@ reset role;
 select is((select metadata ->> 'disagreement_reason_code' from public.refund_case_events
   where refund_case_id='fc150000-0000-4000-8000-000000000001'
     and event_type='nayax_match_selected' order by created_at desc limit 1),
-  null,'Unsupported closer-time context is omitted from the durable selection event');
+  null,'Missing closer-time comparability is omitted from the durable selection event');
 select ok((select metadata ->> 'candidate_token'='fc160000-0000-4000-8000-000000000001'
   from public.refund_case_events
   where refund_case_id='fc150000-0000-4000-8000-000000000001'
