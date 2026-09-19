@@ -20,7 +20,10 @@ const managerNotification = read('supabase/functions/_shared/refund-manager-noti
 const managerEmail = read('supabase/functions/_shared/refund-manager-email.ts');
 const portalUi = read('src/pages/admin/Refunds.tsx');
 const environmentExample = read('.env.example');
-const portalUat = read('scripts/refunds/validate-refund-portal-uat.mjs');
+const portalUat = [
+  read('scripts/refunds/validate-refund-portal-uat.mjs'),
+  read('scripts/refunds/portal-uat/journeys/ambiguous-selection.mjs'),
+].join('\n');
 const evidenceWorkflow = read('.github/workflows/refund-uat-evidence.yml');
 
 const checks = [];
