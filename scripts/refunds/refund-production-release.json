@@ -399,7 +399,12 @@
       "slug": "refund-case-sunze-correlation",
       "verifyJwt": false,
       "sourceSha256": "49d244fbe60ce8826945194f62e65dca8321440549b184bb6bcadba5e756f4bd",
-      "production": null
+      "production": {
+        "version": 1,
+        "ezbrSha256": "902acee845c4fb97c1b90d53a249a703165349e2b89309f3f1b37febfb10515a",
+        "sourceSha256": "49d244fbe60ce8826945194f62e65dca8321440549b184bb6bcadba5e756f4bd",
+        "entrypointIdentity": "supabase/functions/refund-case-sunze-correlation/index.ts"
+      }
     }
   ],
   "additionalFunctionBaselines": [
