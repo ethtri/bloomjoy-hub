@@ -21,15 +21,19 @@ begin
     ''
   ) = 'true';
 
-  select machine, location.timezone
-  into machine_row, location_timezone
+  select *
+  into machine_row
   from public.reporting_machines machine
-  join public.reporting_locations location on location.id = machine.location_id
   where machine.id = new.reporting_machine_id;
 
   if machine_row.id is null then
     raise exception 'Technician machine not found';
   end if;
+
+  select location.timezone
+  into location_timezone
+  from public.reporting_locations location
+  where location.id = machine_row.location_id;
 
   if location_timezone is null or not exists (
     select 1
@@ -425,16 +429,20 @@ begin
     raise exception 'Technician timekeeping access required';
   end if;
 
-  select machine, location.timezone
-  into machine_row, location_timezone
+  select *
+  into machine_row
   from public.reporting_machines machine
-  join public.reporting_locations location on location.id = machine.location_id
   where machine.id = p_reporting_machine_id
     and machine.account_id = profile_row.account_id;
 
   if machine_row.id is null then
     raise exception 'Assigned machine not found';
   end if;
+
+  select location.timezone
+  into location_timezone
+  from public.reporting_locations location
+  where location.id = machine_row.location_id;
 
   if location_timezone is null or not exists (
     select 1
