@@ -62,9 +62,10 @@ test('optional reads cannot fail the critical refund overview read', () => {
   assert.match(supplementRead, /admin_get_refund_email_queue_states/);
   assert.doesNotMatch(supplementRead, /admin_get_refund_manual_nayax_context/);
   assert.match(supplementRead, /unavailableSources/);
-  assert.match(supplementSource, /officialActionBlockReason: 'official_actions_disabled'/);
-  assert.match(supplementSource, /canPerformOfficialAction: false/);
-  assert.match(supplementSource, /canSelectNayaxCandidate: false/);
+  assert.doesNotMatch(supplementSource, /officialActionBlockReason/);
+  assert.doesNotMatch(supplementSource, /canPerformOfficialAction:\s*false/);
+  assert.doesNotMatch(supplementSource, /canSelectNayaxCandidate:\s*false/);
+  assert.match(supplementSource, /if \(!supplements\) return overview/);
 
   const managerRead = functionBody(
     operationsSource,
