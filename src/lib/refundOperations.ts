@@ -396,8 +396,6 @@ export type RefundReadinessBlockReason =
   | 'system_finishing'
   | 'machine_not_enabled'
   | 'globally_paused'
-  | 'system_attempt_queue_disabled'
-  | 'system_attempt_queue_not_ready'
   | 'provider_remaining_value_unverified'
   | 'provider_unavailable';
 
@@ -1267,8 +1265,6 @@ export type RefundManagerSetup = {
       | 'kill_switch_active'
       | 'provider_remaining_value_unverified'
       | 'configuration_missing'
-      | 'system_attempt_queue_disabled'
-      | 'system_attempt_queue_not_ready'
       | null;
   };
 };
@@ -1589,8 +1585,6 @@ export type NayaxCardRefundAvailabilityResponse = {
     | 'official_actions_disabled'
     | 'kill_switch_active'
     | 'configuration_missing'
-    | 'system_attempt_queue_disabled'
-    | 'system_attempt_queue_not_ready'
     | null;
   caseId?: string;
   transactionConfirmed?: boolean;
@@ -3109,9 +3103,7 @@ export const fetchRefundManagerSetup = async (): Promise<RefundManagerSetup> => 
     globalBlockReason === 'official_actions_disabled' ||
     globalBlockReason === 'kill_switch_active' ||
     globalBlockReason === 'provider_remaining_value_unverified' ||
-    globalBlockReason === 'configuration_missing' ||
-    globalBlockReason === 'system_attempt_queue_disabled' ||
-    globalBlockReason === 'system_attempt_queue_not_ready'
+    globalBlockReason === 'configuration_missing'
       ? globalBlockReason
       : globalAvailability?.available
         ? null
@@ -3123,8 +3115,7 @@ export const fetchRefundManagerSetup = async (): Promise<RefundManagerSetup> => 
       available: globalAvailability?.available === true,
       paused:
         safeGlobalBlockReason === 'official_actions_disabled' ||
-        safeGlobalBlockReason === 'kill_switch_active' ||
-        safeGlobalBlockReason === 'system_attempt_queue_disabled',
+        safeGlobalBlockReason === 'kill_switch_active',
       blockReason: safeGlobalBlockReason,
     },
   };

@@ -2348,10 +2348,6 @@ const nayaxExecutionBlockLabel = (block: string) => {
       return 'Card refunds are temporarily unavailable.';
     case 'feature_disabled':
       return 'Card refunds are not enabled yet.';
-    case 'system_attempt_queue_disabled':
-      return 'Automatic card refund processing is off. Approval was not saved.';
-    case 'system_attempt_queue_not_ready':
-      return 'Automatic card refund processing is not ready for this machine. Approval was not saved.';
     case 'configuration_missing':
       return 'Card refunds are not ready for this machine.';
     case 'provider_contract_unconfirmed':

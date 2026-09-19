@@ -82,8 +82,7 @@ Deno.test("idempotency never falls back to a service key or local default", asyn
 
 
 Deno.test('availability exposes configured execution without revealing credentials',()=>{
- const result=resolveNayaxRefundAvailability({executionConfig:resolveNayaxRefundExecutionConfig(envReader(enabledConfig)),officialActionsEnabled:true,
-  attemptQueueReadiness:resolveNayaxRefundAttemptQueueReadiness({readEnv:envReader(enabledConfig)})});
+ const result=resolveNayaxRefundAvailability({executionConfig:resolveNayaxRefundExecutionConfig(envReader(enabledConfig)),officialActionsEnabled:true});
  assert(result.available&&result.status==='available'&&result.blockReason===null,'Configured availability');
  assert(Object.keys(result).sort().join('|')==='available|blockReason|payloadRedacted|status','Bounded public response');
  assert(!JSON.stringify(result).includes(enabledConfig.NAYAX_REFUND_IDEMPOTENCY_SECRET),'No credential disclosure');
@@ -91,18 +90,20 @@ Deno.test('availability exposes configured execution without revealing credentia
 Deno.test('availability preserves pause and configuration precedence',()=>{
  for(const f of [{values:{},official:false,reason:'official_actions_disabled'},{values:{},official:true,reason:'kill_switch_active'},
  {values:{...enabledConfig,NAYAX_REFUND_EXECUTOR_ASSERTION:''},official:true,reason:'configuration_missing'}]){
- const result=resolveNayaxRefundAvailability({executionConfig:resolveNayaxRefundExecutionConfig(envReader(f.values)),officialActionsEnabled:f.official,
-  attemptQueueReadiness:resolveNayaxRefundAttemptQueueReadiness({readEnv:envReader(f.values)})});
+ const result=resolveNayaxRefundAvailability({executionConfig:resolveNayaxRefundExecutionConfig(envReader(f.values)),officialActionsEnabled:f.official});
  assert(!result.available&&result.blockReason===f.reason,'The actual pause/configuration issue remains visible');
  }
 });
-Deno.test('approval availability fails closed when the System queue is off or scoped to another account',()=>{
+Deno.test('System queue readiness remains a processor diagnostic, not a manager approval gate',()=>{
  const disabled=resolveNayaxRefundAttemptQueueReadiness({readEnv:envReader({}),requiredAccountKey:'TGPACI_USA_DB'});
- assert(!disabled.ready&&disabled.blockReason==='system_attempt_queue_disabled','Disabled queue must block approval');
+ assert(!disabled.ready&&disabled.blockReason==='system_attempt_queue_disabled','Disabled queue is visible to the processor');
  const mismatch=resolveNayaxRefundAttemptQueueReadiness({readEnv:envReader(enabledConfig),requiredAccountKey:'OTHER_ACCOUNT'});
- assert(!mismatch.ready&&mismatch.blockReason==='system_attempt_queue_not_ready'&&!mismatch.accountMatches,'Wrong queue account must block approval');
+ assert(!mismatch.ready&&mismatch.blockReason==='system_attempt_queue_not_ready'&&!mismatch.accountMatches,'Wrong queue account remains diagnosable');
  const ready=resolveNayaxRefundAttemptQueueReadiness({readEnv:envReader(enabledConfig),requiredAccountKey:'tgpaci usa db'});
- assert(ready.ready&&ready.blockReason===null&&ready.accountMatches,'Normalized exact queue account permits approval');
+ assert(ready.ready&&ready.blockReason===null&&ready.accountMatches,'Normalized exact queue account is ready to drain attempts');
+ const approvalAvailability=resolveNayaxRefundAvailability({
+  executionConfig:resolveNayaxRefundExecutionConfig(envReader(enabledConfig)),officialActionsEnabled:true});
+ assert(approvalAvailability.available,'Processor liveness must not revoke manager approval authority');
 });
 Deno.test('availability reads gates only and performs zero execution side effects',async()=>{
  const result=await readNayaxRefundAvailability({readEnv:envReader(enabledConfig),officialActionsEnabled:true});

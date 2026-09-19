@@ -21,9 +21,7 @@ export type NayaxRefundExecutionConfig = {
 export type NayaxRefundAvailabilityBlockReason =
   | "official_actions_disabled"
   | "kill_switch_active"
-  | "configuration_missing"
-  | "system_attempt_queue_disabled"
-  | "system_attempt_queue_not_ready";
+  | "configuration_missing";
 
 export type NayaxRefundAttemptQueueReadiness = {
   enabled: boolean;
@@ -170,11 +168,9 @@ export const resolveNayaxRefundExecutionConfig = (
 export const resolveNayaxRefundAvailability = ({
   executionConfig,
   officialActionsEnabled,
-  attemptQueueReadiness,
 }: {
   executionConfig: NayaxRefundExecutionConfig;
   officialActionsEnabled: boolean;
-  attemptQueueReadiness: NayaxRefundAttemptQueueReadiness;
 }): NayaxRefundAvailability => {
   let blockReason: NayaxRefundAvailabilityBlockReason | null = null;
   if (!officialActionsEnabled) {
@@ -183,8 +179,6 @@ export const resolveNayaxRefundAvailability = ({
     blockReason = "kill_switch_active";
   } else if (executionConfig.blocks.length > 0) {
     blockReason = "configuration_missing";
-  } else if (!attemptQueueReadiness.ready) {
-    blockReason = attemptQueueReadiness.blockReason;
   }
 
   return {
@@ -203,13 +197,9 @@ export const readNayaxRefundAvailability = async ({
   officialActionsEnabled: boolean;
 }) => {
   const executionConfig = resolveNayaxRefundExecutionConfig(readEnv);
-  const attemptQueueReadiness = resolveNayaxRefundAttemptQueueReadiness({
-    readEnv,
-  });
   return resolveNayaxRefundAvailability({
     executionConfig,
     officialActionsEnabled,
-    attemptQueueReadiness,
   });
 };
 

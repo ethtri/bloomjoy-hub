@@ -31,19 +31,6 @@ const baseCase = {
   nayaxRecommendationState: 'high_confidence' as const,
 };
 
-Deno.test('System queue readiness gives the manager a concrete next step', () => {
-  assertEquals(
-    refundReadinessBlockMessage('system_attempt_queue_disabled'),
-    'Automatic card refund processing is off. An administrator needs to restore it before approval.',
-    'disabled queue message'
-  );
-  assertEquals(
-    refundReadinessBlockMessage('system_attempt_queue_not_ready'),
-    'Automatic card refund processing is not ready for this machine. An administrator needs to repair it before approval.',
-    'wrong-account queue message'
-  );
-});
-
 Deno.test('refund selection requires the exact current server version', () => {
   const refundCase = {
     hasMatchedNayaxTransaction: true,

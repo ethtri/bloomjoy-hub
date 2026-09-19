@@ -309,10 +309,6 @@ export const refundReadinessBlockMessage = (blockReason: string | null | undefin
       return 'Card refunds are not enabled for this machine. An administrator needs to enable them.';
     case 'globally_paused':
       return 'Card refunds are temporarily paused. A manager with admin access needs to resume them.';
-    case 'system_attempt_queue_disabled':
-      return 'Automatic card refund processing is off. An administrator needs to restore it before approval.';
-    case 'system_attempt_queue_not_ready':
-      return 'Automatic card refund processing is not ready for this machine. An administrator needs to repair it before approval.';
     case 'provider_remaining_value_unverified':
       return 'Refresh the case to load the current refund availability.';
     case 'provider_unavailable':
