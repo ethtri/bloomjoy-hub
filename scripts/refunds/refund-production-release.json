@@ -207,7 +207,10 @@
     "20260914193919_refund_candidate_time_semantics.sql",
     "20260914202530_sunze_cash_correlation_service.sql",
     "20260915010000_refund_cash_verification_ux.sql",
-    "20260919010000_refund_legacy_selection_proof_recovery.sql"
+    "20260919010000_refund_legacy_selection_proof_recovery.sql",
+    "20260919160428_refund_recovered_selection_proof_approval_compatibility.sql",
+    "20260919162345_refund_gmail_payment_authority_decoupling.sql",
+    "20260919182610_refund_machine_processor_hold.sql"
   ],
   "migrationFilesSha256": "48fd58d3268c7e8aa303c09ce28a32033740669aa40b67ad5a2b91f6ba313817",
   "migrationVersionSetSha256": "af49311173ef7a90a4ed461322561e09a6f566ce9818188185b0bb3ccf6ad008",
