@@ -430,6 +430,48 @@ Run immediately after deploy:
 - [ ] Stripe customer portal opens from `/portal/account`.
 - [ ] No critical frontend console errors on key pages.
 
+## 5a) Recover a proven-unsent automatic refund status email
+
+Use this only after the refund transactional-fallback release is deployed. The
+recovery is deliberately two-step: release one exact failed automation action,
+then let the normal scheduler re-evaluate the current case and create a fresh
+status message. It does not resend the immutable failed row and does not touch
+refund payment execution.
+
+1. Confirm the exact `refund_case_messages.id` is an automatic SLA
+   `status_update` failed with `gmail_source_thread_required` and has all of the following:
+   `sent_at`, `provider_message_id`, `delivery_transport`,
+   `delivery_state_updated_at`, and `manual_delivery_provider_attempted_at` are
+   null; no `refund_gmail_messages` row references it. Stop if any provider
+   evidence exists or delivery is accepted, deferred, or delivered.
+2. As a service-role operator, release only that reviewed message:
+
+   ```sql
+   select public.service_release_proven_unsent_refund_status(
+     '<exact-refund-case-message-uuid>'::uuid
+   );
+   ```
+
+   The expected response has `released=true`, `payloadRedacted=true`, and
+   `replayed=false` on the first call. Repeating the exact call is a no-op with
+   `replayed=true`.
+3. Run the normal refund automation workflow once with a new manual run key, or
+   wait for its next scheduled run. Current eligibility is checked again. A
+   terminal or no-longer-due case is not contacted.
+4. Verify a new status message is `sent` with
+   `delivery_transport='resend'`, a provider message ID, and the provider
+   idempotency key derived from the new message ID. Confirm the original failed
+   row remains unchanged and its failed automation action remains in the audit
+   history under `recovered-failed-status:<message-id>`.
+
+The message ledger's default `delivery_state='unknown'` is eligible only when
+all provider-attempt and delivery-evidence fields above remain null. Never use
+this recovery for provider delivery uncertainty (an unknown state with a
+provider-attempt timestamp, transport binding, provider ID, Gmail row, or
+delivery-state timestamp), a customer completion email, or any case with a
+payment/refund attempt. Those paths retain their existing reconciliation
+procedures.
+
 ## 5b) Incident recovery for missed order sync
 Use this when a payment succeeded in Stripe but the order is missing in `public.orders`.
 

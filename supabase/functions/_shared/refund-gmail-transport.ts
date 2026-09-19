@@ -172,16 +172,29 @@ export const dispatchRefundCaseGmailReply = async ({
     );
   }
 
-  let linkQuery = supabase
-    .from("refund_gmail_threads")
-    .select("id,mailbox_hash")
-    .eq("refund_case_id", refundCaseId);
-  linkQuery = targetGmailThreadId
-    ? linkQuery.eq("id", targetGmailThreadId)
-    : linkQuery.order("latest_message_at", { ascending: false });
-  const { data: link, error: linkError } = await linkQuery
-    .limit(1)
-    .maybeSingle();
+  // Automatic mail may use Gmail only when the originating conversation is
+  // explicit. Choosing the latest case thread for a portal-created status or
+  // completion message is ambiguous: it can reply to an unrelated later
+  // conversation, and the database therefore rejects it as
+  // source_thread_required. Route that unbound intent through the existing
+  // transactional outbox instead. Gmail-originated callers already carry the
+  // exact source thread and retain strict in-thread delivery below.
+  const automaticWithoutExactSource = deliveryKind === "automatic" &&
+    !targetGmailThreadId;
+  let link: Record<string, unknown> | null = null;
+  let linkError: { message?: string } | null = null;
+  if (!automaticWithoutExactSource) {
+    let linkQuery = supabase
+      .from("refund_gmail_threads")
+      .select("id,mailbox_hash")
+      .eq("refund_case_id", refundCaseId);
+    linkQuery = targetGmailThreadId
+      ? linkQuery.eq("id", targetGmailThreadId)
+      : linkQuery.order("latest_message_at", { ascending: false });
+    const lookup = await linkQuery.limit(1).maybeSingle();
+    link = lookup.data;
+    linkError = lookup.error;
+  }
 
   if (linkError) {
     throw new RefundGmailError(

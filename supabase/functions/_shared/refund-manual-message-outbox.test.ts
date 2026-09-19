@@ -275,7 +275,7 @@ Deno.test("fresh automatic shutdown defers the exact claim without provider acce
   });
 });
 
-Deno.test("mark-only automatic crash cannot send after env shutdown", async () => {
+Deno.test("mark-only automatic crash cannot send after env shutdown and defers transactional fallback", async () => {
   await withAutomaticEnvironment("false", "false", async () => {
     await withGmailEnvironment(async () => {
       const calls: string[] = [];
@@ -313,6 +313,18 @@ Deno.test("mark-only automatic crash cannot send after env shutdown", async () =
             if (name === "service_verify_refund_synthetic_gmail_proof_transport") {
               return Promise.resolve({
                 data: { required: false, payloadRedacted: true },
+                error: null,
+              });
+            }
+            if (name === "service_authorize_refund_customer_outbound") {
+              return Promise.resolve({
+                data: {
+                  allowed: true,
+                  recipientResolutionStatus: "resolved",
+                  managerCcEmails: [],
+                  managerRecipientOverlap: false,
+                  managerRecipientCount: 1,
+                },
                 error: null,
               });
             }
@@ -362,10 +374,10 @@ Deno.test("mark-only automatic crash cannot send after env shutdown", async () =
         assertEquals(providerCalls, 0);
         assertEquals(calls.includes(
           "rpc:service_claim_refund_gmail_outbound_v3",
-        ), true);
+        ), false);
         assertEquals(calls.includes(
           "rpc:service_finish_refund_gmail_outbound",
-        ), true);
+        ), false);
       } finally {
         globalThis.fetch = originalFetch;
       }
@@ -380,7 +392,10 @@ Deno.test("shutdown Gmail-claim settlement failure escapes the outbox delivery",
       const supabase = {
         from: (table: string) => {
           if (table === "refund_case_messages") {
-            return singleRowQuery(claimedMessage("2026-09-05T12:00:00Z"));
+            return singleRowQuery(claimedMessage("2026-09-05T12:00:00Z", {
+              synthetic_gmail_proof_authorization_id:
+                "b2600000-0000-4000-8000-000000000001",
+            }));
           }
           if (table === "refund_cases") return singleRowQuery(currentCase);
           if (table === "refund_gmail_threads") {
@@ -400,7 +415,15 @@ Deno.test("shutdown Gmail-claim settlement failure escapes the outbox delivery",
           }
           if (name === "service_verify_refund_synthetic_gmail_proof_transport") {
             return Promise.resolve({
-              data: { required: false, payloadRedacted: true },
+              data: {
+                required: true,
+                allowed: true,
+                status: "authorized",
+                gmailThreadId: "b2400000-0000-4000-8000-000000000001",
+                expectedManagerCount: 1,
+                managerRouteDigest: "a".repeat(64),
+                payloadRedacted: true,
+              },
               error: null,
             });
           }
@@ -467,7 +490,10 @@ Deno.test("started automatic delivery reaches Gmail sent or unknown reconciliati
             from: (table: string) => {
               calls.push(`from:${table}`);
               if (table === "refund_case_messages") {
-                return singleRowQuery(claimedMessage("2026-09-05T12:00:00Z"));
+                return singleRowQuery(claimedMessage("2026-09-05T12:00:00Z", {
+                  synthetic_gmail_proof_authorization_id:
+                    "b2600000-0000-4000-8000-000000000002",
+                }));
               }
               if (table === "refund_cases") return singleRowQuery(currentCase);
               if (table === "refund_gmail_threads") {
@@ -492,7 +518,15 @@ Deno.test("started automatic delivery reaches Gmail sent or unknown reconciliati
                 name === "service_verify_refund_synthetic_gmail_proof_transport"
               ) {
                 return Promise.resolve({
-                  data: { required: false, payloadRedacted: true },
+                  data: {
+                    required: true,
+                    allowed: true,
+                    status: "authorized",
+                    gmailThreadId: "b2400000-0000-4000-8000-000000000001",
+                    expectedManagerCount: 1,
+                    managerRouteDigest: "a".repeat(64),
+                    payloadRedacted: true,
+                  },
                   error: null,
                 });
               }
@@ -615,6 +649,124 @@ Deno.test("automatic transactional sent and unknown evidence reconcile before sh
         "rpc:service_mark_refund_manual_message_provider_attempt",
         "rpc:service_finish_refund_manual_message_delivery",
       ]);
+    }
+  });
+});
+
+Deno.test("portal completion without an exact Gmail source uses one deterministic transactional send", async () => {
+  await withAutomaticEnvironment("true", "true", async () => {
+    const values: Record<string, string> = {
+      REFUND_GMAIL_ENABLED: "true",
+      REFUND_CUSTOMER_FROM_EMAIL: "refunds@bloomjoysweets.com",
+      REFUND_REPLY_TO_EMAIL: "refunds@bloomjoysweets.com",
+      RESEND_API_KEY: "synthetic-resend-key",
+      INTERNAL_NOTIFICATION_FROM_EMAIL: "refunds@bloomjoysweets.com",
+    };
+    const before = new Map<string, string | undefined>();
+    for (const [name, value] of Object.entries(values)) {
+      before.set(name, Deno.env.get(name));
+      Deno.env.set(name, value);
+    }
+    const calls: string[] = [];
+    const originalFetch = globalThis.fetch;
+    let providerCalls = 0;
+    let providerIdempotencyKey = "";
+    globalThis.fetch = ((_input, init) => {
+      providerCalls += 1;
+      providerIdempotencyKey = new Headers(init?.headers).get(
+        "idempotency-key",
+      ) ?? "";
+      return Promise.resolve(new Response(
+        JSON.stringify({ id: "resend_provider_001" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ));
+    }) as typeof fetch;
+    try {
+      const supabase = {
+        from: (table: string) => {
+          calls.push(`from:${table}`);
+          if (table === "refund_case_messages") {
+            return singleRowQuery(claimedMessage(null));
+          }
+          if (table === "refund_cases") return singleRowQuery(currentCase);
+          throw new Error(`unexpected portal-completion table: ${table}`);
+        },
+        rpc: (name: string) => {
+          calls.push(`rpc:${name}`);
+          if (name === "service_mark_refund_manual_message_provider_attempt") {
+            return Promise.resolve({
+              data: { marked: true, replayed: false, payloadRedacted: true },
+              error: null,
+            });
+          }
+          if (name === "service_verify_refund_synthetic_gmail_proof_transport") {
+            return Promise.resolve({
+              data: { required: false, allowed: true, status: "not_required" },
+              error: null,
+            });
+          }
+          if (name === "service_authorize_refund_customer_outbound") {
+            return Promise.resolve({
+              data: {
+                allowed: true,
+                recipientResolutionStatus: "resolved",
+                managerCcEmails: [],
+                managerRecipientOverlap: false,
+                managerRecipientCount: 1,
+              },
+              error: null,
+            });
+          }
+          if (name === "service_mark_refund_transactional_delivery_attempt") {
+            return Promise.resolve({
+              data: { marked: true, payloadRedacted: true },
+              error: null,
+            });
+          }
+          if (name === "service_bind_refund_transactional_delivery") {
+            return Promise.resolve({
+              data: { bound: true, payloadRedacted: true },
+              error: null,
+            });
+          }
+          if (name === "service_finish_refund_manual_message_delivery") {
+            return Promise.resolve({
+              data: { finished: true, payloadRedacted: true },
+              error: null,
+            });
+          }
+          return Promise.resolve({
+            data: null,
+            error: { code: "unexpected_rpc" },
+          });
+        },
+      } as never;
+
+      const result = await deliverRefundManualMessageClaim({
+        supabase,
+        reference: { messageId, claimToken },
+      });
+
+      assertEquals(result.outcome, "sent");
+      assertEquals(result.transport, "transactional_email");
+      assertEquals(providerCalls, 1);
+      assertEquals(providerIdempotencyKey, `refund-message-${messageId}`);
+      assertEquals(
+        calls.includes("rpc:service_claim_refund_gmail_outbound_v3"),
+        false,
+      );
+      assertEquals(
+        calls.filter((call) =>
+          call === "rpc:service_mark_refund_transactional_delivery_attempt"
+        ).length,
+        1,
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+      for (const [name, value] of before) {
+        if (value === undefined) Deno.env.delete(name);
+        else Deno.env.set(name, value);
+      }
     }
   });
 });
