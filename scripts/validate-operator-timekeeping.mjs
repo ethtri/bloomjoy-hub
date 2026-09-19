@@ -26,7 +26,7 @@ const files = {
     repoRoot,
     'supabase',
     'migrations',
-    '20260919035117_timekeeping_location_timezone.sql'
+    '20260919061746_timekeeping_location_timezone.sql'
   ),
   page: path.join(repoRoot, 'src', 'pages', 'portal', 'Time.tsx'),
   reviewPage: path.join(repoRoot, 'src', 'pages', 'portal', 'TimeReview.tsx'),
