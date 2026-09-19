@@ -20,7 +20,13 @@ import {
   requireRefundCustomerLifecycle,
   type RefundCustomerLifecycle,
 } from '@/lib/refundCustomerStatus';
-import { parseRefundManagerWorkProjection, type RefundManagerWorkProjection } from '@/lib/refundManagerWork';
+import {
+  localizeRefundManagerQueueProjection,
+  REFUND_MANAGER_QUEUE_CONTRACT_VERSION,
+  parseRefundManagerWorkProjection,
+  type RefundManagerWorkProjection,
+  type RefundManagerQueueProjectionWarning,
+} from '@/lib/refundManagerWork';
 import {
   isRefundTimeZone,
   parseRefundSelectedCustomerTimezone,
@@ -992,7 +998,7 @@ export type RefundOperationsOverview = {
   machines: RefundAdminMachine[];
   managerAssignments: RefundManagerAssignment[];
   lifecycleContractVersion?: typeof REFUND_LIFECYCLE_SCHEMA_VERSION;
-  managerQueueContractVersion?: 'refund_manager_queue_v2';
+  managerQueueContractVersion?: typeof REFUND_MANAGER_QUEUE_CONTRACT_VERSION;
   customerOutreachContractVersion?: 'refund_customer_outreach_v1';
   acknowledgementRecoveryContractVersion?: 'refund_acknowledgement_recovery_v1';
   customerLocaleContractVersion?: 'refund_customer_locale_v1';
@@ -1004,6 +1010,7 @@ export type RefundOperationsOverview = {
   inboundLinkReviewContractVersion?: 'refund_gmail_case_link_review_v1';
   refundOperationsAccess?: boolean;
   managerWork?: RefundManagerWorkProjection | null;
+  managerQueueProjectionWarning?: RefundManagerQueueProjectionWarning | null;
   lifecycleValidationFailureCount?: number;
 };
 
@@ -2065,7 +2072,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
 
   return {
     lifecycleContractVersion: REFUND_LIFECYCLE_SCHEMA_VERSION,
-    managerQueueContractVersion: 'refund_manager_queue_v2',
+    managerQueueContractVersion: REFUND_MANAGER_QUEUE_CONTRACT_VERSION,
     customerOutreachContractVersion: 'refund_customer_outreach_v1',
     selectedNayaxTransactionContractVersion: 'refund_selected_nayax_transaction_v1',
     candidateTimeContractVersion: 'refund_candidate_time_v1',
@@ -2597,21 +2604,16 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
     throw new Error(overviewResult.error.message || 'Unable to load refund cases.');
   }
 
-  const overview = {
+  const rawOverview = {
     ...emptyOverview,
     ...((overviewResult.data as Partial<RefundOperationsOverview> | null) ?? {}),
   };
+  const overview = localizeRefundManagerQueueProjection(rawOverview);
   if (
     overview.lifecycleContractVersion !== undefined &&
     overview.lifecycleContractVersion !== REFUND_LIFECYCLE_SCHEMA_VERSION
   ) {
     throw new Error('Unsupported refund lifecycle response.');
-  }
-  if (
-    overview.managerQueueContractVersion !== undefined &&
-    overview.managerQueueContractVersion !== 'refund_manager_queue_v2'
-  ) {
-    throw new Error('Unsupported refund manager queue response.');
   }
   if (
     overview.customerOutreachContractVersion !== undefined &&
