@@ -206,7 +206,8 @@
     "20260914173954_refund_evidence_timezone.sql",
     "20260914193919_refund_candidate_time_semantics.sql",
     "20260914202530_sunze_cash_correlation_service.sql",
-    "20260915010000_refund_cash_verification_ux.sql"
+    "20260915010000_refund_cash_verification_ux.sql",
+    "20260919010000_refund_legacy_selection_proof_recovery.sql"
   ],
   "migrationFilesSha256": "f7059152e490373778ec50ba40379f55ffb5cebd3faeff59889d64205bc4c4df",
   "migrationVersionSetSha256": "c456c94c9eb7a7bea7701c6a72ad98f86f839141677325e1836b540e78fc4493",
