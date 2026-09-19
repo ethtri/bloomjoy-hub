@@ -17,7 +17,11 @@ const authorizationSource = await readFile(
   new URL('./portal-uat/journeys/authorization.mjs', import.meta.url),
   'utf8'
 );
-const portalSource = `${portalDriverSource}\n${ambiguousSelectionSource}\n${duplicateIdempotencySource}\n${authorizationSource}`;
+const unknownProviderOutcomeSource = await readFile(
+  new URL('./portal-uat/journeys/unknown-provider-outcome.mjs', import.meta.url),
+  'utf8'
+);
+const portalSource = `${portalDriverSource}\n${ambiguousSelectionSource}\n${duplicateIdempotencySource}\n${authorizationSource}\n${unknownProviderOutcomeSource}`;
 const refundsSource = await readFile(
   new URL('../../src/pages/admin/Refunds.tsx', import.meta.url),
   'utf8'
