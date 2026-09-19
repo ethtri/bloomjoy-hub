@@ -27,6 +27,12 @@ historical fixtures cannot add product gates that the workflow does not contain.
 - [ ] The assigned Machine Manager or a Super-admin receives one **Approve refund**
   or **Decline** decision. Approval binds the exact selected Nayax transaction and
   full provider total and queues exactly one System-owned attempt.
+- [ ] A legacy selected transaction becomes refundable only when its unchanged
+  current candidate and original manager event reconstruct one unique,
+  top-ranked recommendation under the current proof rules. An ambiguous or
+  lower-ranked legacy selection stays blocked for manager review, names the
+  transaction-confirmation problem, and does not remain on **Checking refund
+  availability** during background refreshes.
 - [ ] The System claims and executes that same attempt. A double click or replay
   creates no second refund or provider call. An unknown provider outcome holds the
   same attempt and does not stop unrelated cases. Exact authoritative proof that

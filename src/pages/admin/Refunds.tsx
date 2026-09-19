@@ -2766,8 +2766,6 @@ export default function AdminRefundsPage() {
   const {
     data: nayaxCardRefundAvailability,
     isLoading: nayaxCardRefundAvailabilityIsLoading,
-    isFetching: nayaxCardRefundAvailabilityIsFetching,
-    error: nayaxCardRefundAvailabilityError,
   } = useQuery({
     queryKey: ['nayax-card-refund-availability', selectedId],
     queryFn: () => availabilityPolling.read(() => fetchNayaxCardRefundAvailability(selectedId)),
@@ -3130,9 +3128,9 @@ export default function AdminRefundsPage() {
   const selectedRefundReadiness: RefundReadiness | null = useMemo(() => {
     if (forceDemoData) return selectedCase?.refundReadiness ?? null;
     if (!selectedCase) return null;
-    if (nayaxCardRefundAvailabilityIsLoading || nayaxCardRefundAvailabilityIsFetching) return null;
+    if (nayaxCardRefundAvailabilityIsLoading && !nayaxCardRefundAvailability) return null;
     if (
-      nayaxCardRefundAvailabilityError ||
+      !nayaxCardRefundAvailability ||
       nayaxCardRefundAvailability?.caseId !== selectedCase.id ||
       nayaxCardRefundAvailability.payloadRedacted !== true ||
       !['available', 'unavailable'].includes(nayaxCardRefundAvailability.status)
@@ -3168,8 +3166,6 @@ export default function AdminRefundsPage() {
   }, [
     forceDemoData,
     nayaxCardRefundAvailability,
-    nayaxCardRefundAvailabilityError,
-    nayaxCardRefundAvailabilityIsFetching,
     nayaxCardRefundAvailabilityIsLoading,
     selectedCase,
   ]);
