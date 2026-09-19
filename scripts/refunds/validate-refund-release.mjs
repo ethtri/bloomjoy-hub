@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import {
   assertSupportedFunctionDeploymentInputs,
   buildProductionCaptureReceipt,
+  buildSealedReleaseState,
   buildUpdatedLocalManifest,
   buildPreDeploymentProductionBaseline,
   buildLocalReleaseState,
@@ -35,6 +36,7 @@ import {
   validateHistoricalPreMigrationCompatibilityEntries,
   validatePreMigrationCompatibilitySource,
   validateReleaseManifestGitAnchorState,
+  validateSealedReleaseManifestGitAnchor,
 } from './refund-release.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -118,6 +120,9 @@ try {
   );
   const repositoryManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   validateManifestShape(repositoryManifest);
+  validateSealedReleaseManifestGitAnchor(repoRoot, repositoryManifest, {
+    requireClean: false,
+  });
   const priorInventoryManifest = JSON.parse(execFileSync('git', [
     'show', '2e0316b7e074f5ff133d40cc1e9faa0724ba059e:scripts/refunds/refund-production-release.json',
   ], { cwd: repoRoot, encoding: 'utf8', windowsHide: true }));
@@ -570,21 +575,29 @@ try {
     repositoryMigrations.includes('202608140001_refund_gmail_intake_shadow.sql'),
     'The exact-run owner Gmail intake-shadow migration must be in the discovered release inventory'
   );
+  const missingSealedMigrations = repositoryManifest.requiredMigrations.filter(
+    (fileName) => !repositoryMigrations.includes(fileName)
+  );
   assert.deepEqual(
-    repositoryManifest.requiredMigrations,
-    repositoryMigrations,
-    'Repository manifest must list every discovered refund/Nayax migration in order'
+    missingSealedMigrations,
+    [],
+    'Repository must retain every migration included in the sealed refund release'
+  );
+  assert.equal(
+    calculateMigrationDigest(repoRoot, repositoryManifest.requiredMigrations),
+    repositoryManifest.migrationFilesSha256,
+    'Repository must retain the exact contents of every migration included in the sealed refund release'
   );
   assert.equal(
     repositoryManifest.functions.length,
     12,
     'Repository release manifest must contain exactly twelve functions'
   );
-  const repositoryLocalState = buildLocalReleaseState(repoRoot, repositoryManifest);
+  const repositorySealedState = buildSealedReleaseState(repoRoot, repositoryManifest);
   assert.deepEqual(
-    compareLocalState(repositoryManifest, repositoryLocalState),
+    compareLocalState(repositoryManifest, repositorySealedState),
     [],
-    'Repository function and migration digests must align with the anchored manifest'
+    'Sealed function and migration digests must align with the manifest at its pinned source commit'
   );
   assert.equal(
     repositoryManifest.preMigrationCompatibility?.sourceGitCommit,
@@ -671,8 +684,8 @@ try {
   }
   for (const retiredManagerEndpointSlug of ['refund-manager-action-step-up', 'refund-manager-totp-enrollment']) {
     const localEntry = repositoryManifest.functions.find((entry) => entry.slug === retiredManagerEndpointSlug);
-    const localStateEntry = repositoryLocalState.functions.find((entry) => entry.slug === retiredManagerEndpointSlug);
-    assert(localStateEntry, `${retiredManagerEndpointSlug} tombstone must be present in the local release state`);
+    const localStateEntry = repositorySealedState.functions.find((entry) => entry.slug === retiredManagerEndpointSlug);
+    assert(localStateEntry, `${retiredManagerEndpointSlug} tombstone must be present in the sealed release state`);
     assert.equal(
       localStateEntry.sourceSha256,
       localEntry.sourceSha256,

@@ -439,6 +439,11 @@ Do not refresh `scripts/refunds/refund-production-release.json` during ordinary
 feature commits. Seal it once from the exact clean release-candidate source
 commit with `npm run refunds:release:seal-candidate`, commit that manifest-only
 update, and use `npm run refunds:release:check` before deployment.
+`npm run refunds:validate-release-tooling` validates the existing sealed artifact
+against that artifact's pinned source commit while also checking current tooling
+contracts. Later runtime or migration commits therefore do not require a reseal;
+the explicit release-candidate check remains responsible for proving current
+local alignment before deployment.
 
 ## Merge autonomy lanes
 - Green: low-risk docs, workflow tooling, lint/build cleanup, safe dependency updates, tests, or narrow non-sensitive cleanup. Agents may merge when checks are green and the PR evidence is complete.

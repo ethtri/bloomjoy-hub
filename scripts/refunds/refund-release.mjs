@@ -1395,9 +1395,13 @@ export const validateReleaseManifestGitAnchor = (rootDirectory, manifest) => {
   });
 };
 
-export const validateSealedReleaseManifestGitAnchor = (rootDirectory, manifest) => {
+export const validateSealedReleaseManifestGitAnchor = (
+  rootDirectory,
+  manifest,
+  { requireClean = true } = {}
+) => {
   validateManifestShape(manifest);
-  assertReleaseGitWorktreeClean(rootDirectory);
+  if (requireClean) assertReleaseGitWorktreeClean(rootDirectory);
 
   const headResult = spawnSync('git', ['rev-parse', 'HEAD'], {
     cwd: rootDirectory,
