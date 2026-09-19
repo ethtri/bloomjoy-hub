@@ -1,6 +1,6 @@
 # Current Status
 
-Last compacted: 2026-09-14.
+Last compacted: 2026-09-19.
 
 GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short
@@ -8,6 +8,12 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- Production recovery on 2026-09-19 restored the System card-attempt queue for
+  the TGPaci enterprise account. Approval and processing now use the same queue
+  readiness contract, and deterministic completion delivery claims the database
+  identity before it adds a customer status link. Customer intake visibility
+  follows the reviewed refund inventory product category independently of the
+  reporting-machine family used by other operations such as Timekeeping.
 - Issue [#1364](https://github.com/ethtri/bloomjoy-hub/issues/1364) completed the
   refund-context reset, and PR
   [#1348](https://github.com/ethtri/bloomjoy-hub/pull/1348) merged the one-decision

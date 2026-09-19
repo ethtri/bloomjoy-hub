@@ -39,7 +39,9 @@ insert into public.reporting_machines (
 values
   ('91bae5ac-4ba6-4378-91f0-ef266bdd4d7a', '92100000-0000-4000-8000-000000000001', '92110000-0000-4000-8000-000000000001', 'TT20 Cotton Candy', 'commercial', 'active', '921900001', 'TGPACI_USA_DB', false, true, 'San Francisco Premium Outlets — TT20 Cotton Candy'),
   ('8eda5a29-1718-4c70-9993-7c7e2fd6c65a', '92100000-0000-4000-8000-000000000001', '92110000-0000-4000-8000-000000000001', 'TT33 Cotton Candy', 'commercial', 'active', '921900002', 'TGPACI_USA_DB', false, true, 'San Francisco Premium Outlets — TT33 Cotton Candy'),
-  ('92120000-0000-4000-8000-000000000003', '92100000-0000-4000-8000-000000000001', '92110000-0000-4000-8000-000000000002', 'Preit0990 Capital City', 'commercial', 'active', '921900003', 'TGPACI_USA_DB', false, true, 'Capital City Mall — Cotton Candy'),
+  -- Product eligibility comes from reviewed refund inventory. Operational machine
+  -- family changes must not hide a published cotton-candy intake route.
+  ('92120000-0000-4000-8000-000000000003', '92100000-0000-4000-8000-000000000001', '92110000-0000-4000-8000-000000000002', 'Preit0990 Capital City', 'snapcase', 'active', '921900003', 'TGPACI_USA_DB', false, true, 'Capital City Mall — Cotton Candy'),
   ('92120000-0000-4000-8000-000000000004', '92100000-0000-4000-8000-000000000001', '92110000-0000-4000-8000-000000000003', 'South Hills Cotton', 'commercial', 'active', '921900004', 'TGPACI_USA_DB', false, true, 'South Hills Village — Cotton Candy'),
   ('92120000-0000-4000-8000-000000000005', '92100000-0000-4000-8000-000000000001', '92110000-0000-4000-8000-000000000003', 'South Hills SnapCase', 'unknown', 'active', '921900005', 'TGPACI_USA_DB', false, true, 'South Hills Village — SnapCase'),
   ('92120000-0000-4000-8000-000000000006', '92100000-0000-4000-8000-000000000001', '92110000-0000-4000-8000-000000000004', 'Bubble Planet Atlanta', 'commercial', 'active', '921900006', 'TGPACI_USA_DB', false, true, 'Bubble Planet - Atlanta'),
