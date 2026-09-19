@@ -4,9 +4,6 @@ import { access, readFile } from 'node:fs/promises';
 
 const root = new URL('../../', import.meta.url);
 const read = (path) => readFile(new URL(path, root), 'utf8');
-const officialActionBoundary = await read(
-  'supabase/migrations/202608030002_refund_manager_official_action_boundary.sql',
-);
 const oneManagerDecision = await read(
   'supabase/migrations/20260906230000_refund_one_manager_decision.sql',
 );
@@ -302,33 +299,38 @@ test('approval selection evidence is bound to the current exact candidate', () =
   )?.[1]?.replaceAll('\r\n', '\n');
   assert(compatibilityAnchor);
   assert.equal(migration.replaceAll('\r\n', '\n').split(compatibilityAnchor).length, 2);
-  const legacyBoundaryTail = recoveredProofCompatibility.match(
-    /legacy_shape_tail text := \$legacy\$\r?\n([\s\S]*?)\$legacy\$;/,
-  )?.[1]?.replaceAll('\r\n', '\n');
-  const currentBoundaryTail = recoveredProofCompatibility.match(
-    /current_shape_tail text := \$current\$\r?\n([\s\S]*?)\$current\$;/,
-  )?.[1]?.replaceAll('\r\n', '\n');
   const reservedEventAnchor = recoveredProofCompatibility.match(
     /selection_event_anchor text := \$anchor\$\r?\n([\s\S]*?)\$anchor\$;/,
   )?.[1]?.replaceAll('\r\n', '\n');
-  assert(legacyBoundaryTail);
-  assert(currentBoundaryTail);
+  const reservedEventReplacement = recoveredProofCompatibility.match(
+    /reserved_selection_event_anchor text := \$replacement\$\r?\n([\s\S]*?)\$replacement\$;/,
+  )?.[1]?.replaceAll('\r\n', '\n');
   assert(reservedEventAnchor);
-  assert.equal(
-    officialActionBoundary.replaceAll('\r\n', '\n').split(legacyBoundaryTail).length,
-    3,
+  assert(reservedEventReplacement);
+
+  const boundaryBeforeSingleManager = oneManagerDecision.match(
+    /create or replace function public\.enforce_refund_official_event_boundary\(\)[\s\S]*?\n\$\$;/,
+  )?.[0]?.replaceAll('\r\n', '\n');
+  assert(boundaryBeforeSingleManager);
+  const selectedEventLine = "      'nayax_match_selected',\n";
+  const finalSelectionEvents = `${selectedEventLine}      'nayax_match_preselected',\n      'nayax_match_preselection_disputed',\n`;
+  assert.equal(boundaryBeforeSingleManager.split(selectedEventLine).length, 3);
+  const finalBoundaryDefinition = boundaryBeforeSingleManager.replaceAll(
+    selectedEventLine,
+    finalSelectionEvents,
+  );
+  assert.equal(finalBoundaryDefinition.split(reservedEventAnchor).length, 3);
+  const patchedBoundaryDefinition = finalBoundaryDefinition.replaceAll(
+    reservedEventAnchor,
+    reservedEventReplacement,
   );
   assert.equal(
-    oneManagerDecision.replaceAll('\r\n', '\n').split(currentBoundaryTail).length,
-    3,
-  );
-  assert.equal(
-    oneManagerDecision.replaceAll('\r\n', '\n').split(reservedEventAnchor).length,
-    3,
+    patchedBoundaryDefinition.match(/'nayax_match_selection_proof_recovered'/g)?.length,
+    2,
   );
   assert.match(
-    recoveredProofCompatibility,
-    /nayax_match_selected',[\s\S]*?nayax_match_selection_proof_recovered',[\s\S]*?official_action_committed'/,
+    patchedBoundaryDefinition,
+    /nayax_match_selected',[\s\S]*?nayax_match_preselected',[\s\S]*?nayax_match_preselection_disputed',[\s\S]*?nayax_match_selection_proof_recovered',[\s\S]*?official_action_committed'/,
   );
   assert.match(
     recoveredProofCompatibility,

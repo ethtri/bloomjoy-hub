@@ -7,31 +7,21 @@
 do $reserve_recovered_selection_proof_event$
 declare
   function_definition text;
-  legacy_shape_tail text := $legacy$
-      'nayax_official_action_finalized'
-    );
-$legacy$;
-  current_shape_tail text := $current$
-      'nayax_official_action_finalized',
-      'nayax_refund_execution_authorized',
-      'nayax_refund_execution_continued'
-    );
-$current$;
   selection_event_anchor text := $anchor$
       'nayax_match_selected',
+      'nayax_match_preselected',
+      'nayax_match_preselection_disputed',
       'official_action_committed',
 $anchor$;
   reserved_selection_event_anchor text := $replacement$
       'nayax_match_selected',
+      'nayax_match_preselected',
+      'nayax_match_preselection_disputed',
       'nayax_match_selection_proof_recovered',
       'official_action_committed',
 $replacement$;
-  legacy_shape_count integer;
-  current_shape_count integer;
   selection_anchor_count integer;
 begin
-  legacy_shape_tail := replace(legacy_shape_tail, E'\r\n', E'\n');
-  current_shape_tail := replace(current_shape_tail, E'\r\n', E'\n');
   selection_event_anchor := replace(selection_event_anchor, E'\r\n', E'\n');
   reserved_selection_event_anchor := replace(
     reserved_selection_event_anchor,
@@ -46,20 +36,11 @@ begin
     E'\n'
   );
 
-  legacy_shape_count := cardinality(
-    string_to_array(function_definition, legacy_shape_tail)
-  ) - 1;
-  current_shape_count := cardinality(
-    string_to_array(function_definition, current_shape_tail)
-  ) - 1;
   selection_anchor_count := cardinality(
     string_to_array(function_definition, selection_event_anchor)
   ) - 1;
 
-  if not (
-    (legacy_shape_count = 2 and current_shape_count = 0)
-    or (legacy_shape_count = 0 and current_shape_count = 2)
-  ) or selection_anchor_count <> 2 then
+  if selection_anchor_count <> 2 then
     raise exception
       'Unexpected official refund event boundary shape; recovered-proof reservation was not applied';
   end if;
