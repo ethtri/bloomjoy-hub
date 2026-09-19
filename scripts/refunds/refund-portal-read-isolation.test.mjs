@@ -138,12 +138,16 @@ test('manager queue projection reuses the delegated lifecycle without an N+1 cal
   );
 });
 
-test('one malformed lifecycle cannot discard the otherwise healthy queue', () => {
+test('one malformed lifecycle cannot discard the queue or revoke server capability', () => {
   assert.match(operationsSource, /applyRefundLifecycleSafety/);
   assert.match(operationsSource, /lifecycleValidationFailureCount/);
-  assert.match(lifecycleSafetySource, /canPerformOfficialAction: false/);
-  assert.match(lifecycleSafetySource, /canSelectNayaxCandidate: false/);
-  assert.match(lifecycleSafetySource, /officialActionBlockReason: 'official_actions_disabled'/);
+  assert.match(lifecycleSafetySource, /\.\.\.refundCase,[\s\S]*lifecycle: null/);
+  assert.doesNotMatch(lifecycleSafetySource, /canPerformOfficialAction:\s*false/);
+  assert.doesNotMatch(lifecycleSafetySource, /canSelectNayaxCandidate:\s*false/);
+  assert.doesNotMatch(
+    lifecycleSafetySource,
+    /officialActionBlockReason:\s*['"]official_actions_disabled['"]/,
+  );
   assert.match(pageSource, /data-testid="refund-lifecycle-read-status"/);
 });
 
