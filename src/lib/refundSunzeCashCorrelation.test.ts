@@ -2,6 +2,7 @@
 import { assertEquals, assertThrows } from 'jsr:@std/assert@1';
 import {
   parseRefundSunzeCashCorrelation,
+  refundSunzeCashSelectionOperationOwnsMarker,
   refundSunzeCashSelectionRefreshIsAuthoritative,
   type RefundSunzeCashCorrelation,
 } from './refundSunzeCashCorrelation.ts';
@@ -106,7 +107,7 @@ Deno.test('accepts first selection token version zero and rejects malformed or p
 });
 
 Deno.test('an unknown selection clears only after a newer authoritative refresh', () => {
-  const pending = { afterDataUpdatedAt: 100, recoveryAvailable: true };
+  const pending = { operationId: 'selection-a', afterDataUpdatedAt: 100, recoveryAvailable: true };
   assertEquals(refundSunzeCashSelectionRefreshIsAuthoritative({
     ...pending,
     recoveryAvailable: false,
@@ -114,4 +115,11 @@ Deno.test('an unknown selection clears only after a newer authoritative refresh'
   assertEquals(refundSunzeCashSelectionRefreshIsAuthoritative(pending, 100, true), false);
   assertEquals(refundSunzeCashSelectionRefreshIsAuthoritative(pending, 101, false), false);
   assertEquals(refundSunzeCashSelectionRefreshIsAuthoritative(pending, 101, true), true);
+});
+
+Deno.test('only the owning cash selection operation may mutate its pending marker', () => {
+  const pending = { operationId: 'selection-a', afterDataUpdatedAt: 100, recoveryAvailable: false };
+  assertEquals(refundSunzeCashSelectionOperationOwnsMarker(pending, 'selection-a'), true);
+  assertEquals(refundSunzeCashSelectionOperationOwnsMarker(pending, 'selection-b'), false);
+  assertEquals(refundSunzeCashSelectionOperationOwnsMarker(null, 'selection-a'), false);
 });

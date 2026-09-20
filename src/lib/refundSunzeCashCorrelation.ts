@@ -30,9 +30,15 @@ export type RefundSunzeCashSelectedSale = {
 };
 
 export type RefundSunzeCashSelectionPending = {
+  operationId: string;
   afterDataUpdatedAt: number;
   recoveryAvailable: boolean;
 };
+
+export const refundSunzeCashSelectionOperationOwnsMarker = (
+  pending: RefundSunzeCashSelectionPending | null | undefined,
+  operationId: string,
+) => pending?.operationId === operationId;
 
 export const refundSunzeCashSelectionRefreshIsAuthoritative = (
   pending: RefundSunzeCashSelectionPending | null | undefined,

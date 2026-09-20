@@ -15,7 +15,10 @@ import type {
   RefundSunzeCashSelectedSale,
   RefundSunzeCashSelectionPending,
 } from '@/lib/refundSunzeCashCorrelation';
-import { refundSunzeCashSelectionRefreshIsAuthoritative } from '@/lib/refundSunzeCashCorrelation';
+import {
+  refundSunzeCashSelectionOperationOwnsMarker,
+  refundSunzeCashSelectionRefreshIsAuthoritative,
+} from '@/lib/refundSunzeCashCorrelation';
 import type { RefundCaseRecord } from '@/lib/refundOperations';
 import { formatRefundDateTime } from '@/lib/refundTimePresentation';
 import { cn } from '@/lib/utils';
@@ -147,13 +150,19 @@ export function CashRefundEvidencePanel({
       query.dataUpdatedAt,
       query.isSuccess && Boolean(query.data),
     )) {
-      queryClient.setQueryData(selectionPendingQueryKey, null);
+      queryClient.setQueryData<RefundSunzeCashSelectionPending | null>(selectionPendingQueryKey, (current) =>
+        refundSunzeCashSelectionOperationOwnsMarker(current, selectionPending.operationId)
+          ? null
+          : current ?? null
+      );
     }
   }, [query.data, query.dataUpdatedAt, query.isSuccess, queryClient, selectionPending, selectionPendingQueryKey]);
 
   const handleSelect = async (candidate: RefundSunzeCashCandidate) => {
-    if (!correlation?.attemptId || candidate.selectionConflict || isUsingDemoData || isSelectionPending) return;
+    const activeSelection = queryClient.getQueryData<RefundSunzeCashSelectionPending | null>(selectionPendingQueryKey);
+    if (!correlation?.attemptId || candidate.selectionConflict || isUsingDemoData || activeSelection) return;
     const pendingMarker: RefundSunzeCashSelectionPending = {
+      operationId: crypto.randomUUID(),
       afterDataUpdatedAt: query.dataUpdatedAt,
       recoveryAvailable: false,
     };
@@ -184,26 +193,40 @@ export function CashRefundEvidencePanel({
         };
       });
       await queryClient.invalidateQueries({ queryKey: correlationQueryKey });
-      queryClient.setQueryData(selectionPendingQueryKey, null);
+      queryClient.setQueryData<RefundSunzeCashSelectionPending | null>(selectionPendingQueryKey, (current) =>
+        refundSunzeCashSelectionOperationOwnsMarker(current, pendingMarker.operationId)
+          ? null
+          : current ?? null
+      );
       toast.success('Sale evidence selected for review.');
     } catch (error) {
       const refreshed = await query.refetch();
       if (refreshed.isSuccess && refreshed.data) {
-        queryClient.setQueryData(selectionPendingQueryKey, null);
+        queryClient.setQueryData<RefundSunzeCashSelectionPending | null>(selectionPendingQueryKey, (current) =>
+          refundSunzeCashSelectionOperationOwnsMarker(current, pendingMarker.operationId)
+            ? null
+            : current ?? null
+        );
       } else {
-        queryClient.setQueryData<RefundSunzeCashSelectionPending>(selectionPendingQueryKey, (current) => ({
-          afterDataUpdatedAt: current?.afterDataUpdatedAt ?? pendingMarker.afterDataUpdatedAt,
-          recoveryAvailable: true,
-        }));
+        queryClient.setQueryData<RefundSunzeCashSelectionPending | null>(selectionPendingQueryKey, (current) =>
+          refundSunzeCashSelectionOperationOwnsMarker(current, pendingMarker.operationId)
+            ? { ...current, recoveryAvailable: true }
+            : current ?? null
+        );
       }
       toast.error(error instanceof Error ? error.message : 'The sale evidence could not be selected. Refresh and try again.');
     }
   };
 
   const handleRefresh = async () => {
+    const pendingMarker = queryClient.getQueryData<RefundSunzeCashSelectionPending | null>(selectionPendingQueryKey);
     const refreshed = await query.refetch();
-    if (refreshed.isSuccess && refreshed.data) {
-      queryClient.setQueryData(selectionPendingQueryKey, null);
+    if (refreshed.isSuccess && refreshed.data && pendingMarker) {
+      queryClient.setQueryData<RefundSunzeCashSelectionPending | null>(selectionPendingQueryKey, (current) =>
+        refundSunzeCashSelectionOperationOwnsMarker(current, pendingMarker.operationId)
+          ? null
+          : current ?? null
+      );
     }
   };
 

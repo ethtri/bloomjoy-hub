@@ -44,12 +44,14 @@ test('optional evidence loading keeps the reviewed estimate available', () => {
   assert.match(page, /isCashCompletionSubmitting \|\|\s*isCashSaleSelectionPending/);
   assert.match(evidence, /afterDataUpdatedAt: query\.dataUpdatedAt/);
   assert.match(evidence, /recoveryAvailable: false/);
+  assert.match(evidence, /queryClient\.getQueryData<RefundSunzeCashSelectionPending \| null>\(selectionPendingQueryKey\)/);
+  assert.match(evidence, /operationId: crypto\.randomUUID\(\)/);
+  assert.match(evidence, /refundSunzeCashSelectionOperationOwnsMarker/);
   assert.match(evidence, /const refreshed = await query\.refetch\(\)/);
   assert.match(evidence, /refreshed\.isSuccess && refreshed\.data/);
   assert.match(evidence, /recoveryAvailable: true/);
   assert.match(evidence, /refetchOnMount: selectionPending\?\.recoveryAvailable \? 'always' : true/);
   assert.match(evidence, /refundSunzeCashSelectionRefreshIsAuthoritative/);
-  assert.match(evidence, /queryClient\.setQueryData\(selectionPendingQueryKey, null\)/);
   assert.match(correlation, /pending\.recoveryAvailable/);
   assert.match(correlation, /dataUpdatedAt > pending\.afterDataUpdatedAt/);
   assert.match(page, /refundSunzeCashSelectionPendingQueryKey\(selectedCase\?\.id \?\? ''\)/);
