@@ -14,6 +14,7 @@ import {
 } from "../_shared/refund-email.ts";
 import {
   deriveRefundMissingFields,
+  refreshRefundMissingFieldSelection,
   type RefundMissingField,
   sanitizeRefundMissingFields,
 } from "../_shared/refund-deterministic-follow-up.ts";
@@ -388,13 +389,6 @@ const resolveSelectionRefundReadiness = async ({
     providerCredentialAvailable,
   });
 };
-
-const sameMissingFields = (
-  left: RefundMissingField[],
-  right: RefundMissingField[],
-) =>
-  left.length === right.length &&
-  left.every((field, index) => field === right[index]);
 
 const getNayaxLookupCandidate = async (
   caseId: string,
@@ -973,7 +967,7 @@ serve(async (req) => {
     }
 
     const nayaxEvidence = nayaxCandidate?.evidence_summary ?? {};
-    const nayaxDisagreementReason = sanitizeText(
+    let nayaxDisagreementReason = sanitizeText(
       body?.nayaxDisagreementReason,
       80,
     );
@@ -989,24 +983,6 @@ serve(async (req) => {
           "This Nayax transaction conflicts with required details or is already in use, so it cannot be selected.",
       }, 400);
     }
-    if (
-      nayaxCandidate && !isRecommended &&
-      !nayaxDisagreementReasons.has(nayaxDisagreementReason)
-    ) {
-      return jsonResponse({
-        error:
-          "Choose why this alternate Nayax transaction is the correct one.",
-      }, 400);
-    }
-    if (
-      nayaxDisagreementReason &&
-      !nayaxDisagreementReasons.has(nayaxDisagreementReason)
-    ) {
-      return jsonResponse(
-        { error: "Choose an approved Nayax review reason." },
-        400,
-      );
-    }
     const customerAndCandidateTimesAreComparable = Boolean(
       ["exact", "legacy_absolute"].includes(
         beforeRow.incident_time_resolution ?? "",
@@ -1014,15 +990,14 @@ serve(async (req) => {
         beforeRow.incident_time_confidence !== "rough" &&
         nayaxEvidence.transaction_occurrence_comparable === true,
     );
+    // The rationale is optional audit context. Stale/unsupported presentation
+    // metadata must not disable an otherwise review-safe exact selection.
     if (
-      nayaxCandidate && nayaxDisagreementReason === "closer_time" &&
-      !customerAndCandidateTimesAreComparable
+      !nayaxDisagreementReasons.has(nayaxDisagreementReason) ||
+      (nayaxDisagreementReason === "closer_time" &&
+        !customerAndCandidateTimesAreComparable)
     ) {
-      return jsonResponse({
-        error:
-          "Closer transaction time is available only when both timestamps represent comparable purchase evidence.",
-        errorCode: "nayax_time_not_comparable",
-      }, 400);
+      nayaxDisagreementReason = "";
     }
 
     if (
@@ -1139,15 +1114,13 @@ serve(async (req) => {
             "This case has no structured purchase detail to request. Return it to manager review.",
         }, 409);
       }
-      if (
-        !sameMissingFields(suppliedCustomerMissingFields, currentFields)
-      ) {
-        return jsonResponse({
-          error:
-            "The case facts changed. Refresh before asking for the exact missing purchase details.",
-        }, 409);
-      }
-      customerMissingFields = currentFields;
+      // Browser projections can lag behind durable case facts. Rebuild this
+      // optional selection from the current server state instead of blocking
+      // an otherwise authorized message on an exact client-side snapshot.
+      customerMissingFields = refreshRefundMissingFieldSelection(
+        body?.customerMissingFields,
+        currentFields,
+      );
     }
 
     const isCashCompletion = officialAction === "cash_complete";

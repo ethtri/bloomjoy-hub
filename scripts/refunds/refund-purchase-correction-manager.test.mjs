@@ -5,12 +5,10 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import { webcrypto } from 'node:crypto';
 const source=ts.createSourceFile('Refunds.tsx',fs.readFileSync(new URL('../../src/pages/admin/Refunds.tsx',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
-const queuePanelSource=ts.createSourceFile('RefundCaseQueuePanel.tsx',fs.readFileSync(new URL('../../src/components/refunds/RefundCaseQueuePanel.tsx',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
-function load(name,dependencies){
- const handlerSource=name==='refundSearchViewLabel'?queuePanelSource:source;
- let initializer;function visit(node){if(ts.isVariableDeclaration(node)&&node.name.getText(handlerSource)===name)initializer=node.initializer;ts.forEachChild(node,visit);}visit(handlerSource);
+function load(name,dependencies,sourceFile=source){
+ let initializer;function visit(node){if(ts.isVariableDeclaration(node)&&node.name.getText(sourceFile)===name)initializer=node.initializer;ts.forEachChild(node,visit);}visit(sourceFile);
  assert.ok(initializer,`Actual handler ${name} exists`);
- const code=ts.transpile(`const handler=${initializer.getText(handlerSource)};globalThis.handler=handler;`,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None});
+ const code=ts.transpile(`const handler=${initializer.getText(sourceFile)};globalThis.handler=handler;`,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None});
  const context=vm.createContext({document:{activeElement:null,getElementById:()=>null},HTMLElement:class {},correctionDialogTriggerRef:{current:null},...dependencies,console,crypto:webcrypto});vm.runInContext(code,context);return context.handler;
 }
 const managerModule = { exports: {} };
@@ -54,7 +52,8 @@ test('a late case-save response can update only the case that initiated it',()=>
 test('actual workbench names the accounting correction directly',()=>{
  const refundCase={lifecycle:{managerQueue:{bucket:'accounting_review'}}};
  const bucket=caseValue=>caseValue.lifecycle.managerQueue.bucket;
- assert.equal(load('refundSearchViewLabel',{getRefundManagerQueueBucket:bucket})(refundCase),'Fix refund accounting');
+ const queueSource=ts.createSourceFile('RefundCaseQueuePanel.tsx',fs.readFileSync(new URL('../../src/components/refunds/RefundCaseQueuePanel.tsx',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
+ assert.equal(load('refundSearchViewLabel',{getRefundManagerQueueBucket:bucket},queueSource)(refundCase),'Fix refund accounting');
 });
 test('actual manager action respects current scope, delivery holds and terminal truth',()=>{
  const action=load('primaryActionConfig',dependencies);
@@ -70,11 +69,237 @@ test('actual manager action respects current scope, delivery holds and terminal 
  assert.equal(action({...base,providerHold:true},editor,[],null).label,'Check the exact transaction in Nayax');
  assert.equal(action({...base,status:'completed'},editor,[],null).label,'Case complete');
  assert.equal(action({...base,status:'denied'},editor,[],null).label,'Request denied');
+ assert.equal(action({...base,...freshPersistedSelection,status:'completed'},editor,[],freshAvailability).label,'Case complete');
+ assert.equal(action({...base,...freshPersistedSelection,status:'card_refund_pending',decision:'approved'},editor,[],freshAvailability).label,'System is finishing this approved refund');
  for(const messageState of ['none','pending','failed','delivery_unconfirmed','sent']) {
   const receiptAction=action({...base,receipt:true,lifecycle:{messageState:{state:messageState},managerQueue:{bucket:'accounting_review'}}},editor,[],null);
   assert.equal(receiptAction.disabled,true,messageState);
   assert.equal(receiptAction.mode,undefined,messageState);
   assert.equal(receiptAction.label,'Refund confirmed · accounting review',messageState);
+ }
+});
+test('current server capability wins over stale optional and privacy projections',()=>{
+ const action=load('primaryActionConfig',{...dependencies,isWaitingCase:()=>true,derivePortalRefundMissingFields:()=>['incident_time']});
+ const editor={status:'needs_review',decision:null,clearNayaxMatch:false,matchedNayaxCandidateToken:''};
+ const staleOptional={
+  status:'needs_review',paymentMethod:'card',matched:true,...freshPersistedSelection,
+  canPerformOfficialAction:false,reconciliationActionBlocked:true,providerHold:true,
+  refundOperationsAccess:false,customerDeliveryException:{state:'bounced'},legacyStateReviewRequired:true,
+  lifecycle:{stage:'waiting_on_customer',paymentState:'not_requested',terminal:false,managerQueue:{bucket:'waiting_on_customer'}},
+ };
+ const result=action(staleOptional,editor,[],freshAvailability);
+ assert.equal(result.mode,'nayax_refund_execution');
+ assert.equal(result.disabled,undefined);
+ assert.equal(result.label,'Refund $7.00');
+ const denial=action(staleOptional,{...editor,status:'denied',decision:'denied'},[],freshAvailability);
+ assert.equal(denial.mode,'case_update');
+ assert.equal(denial.label,'Deny request');
+});
+test('current card capability remains visible in the composed manager presentation',()=>{
+ const staleOptionalCase={
+  status:'needs_review',paymentMethod:'card',...freshPersistedSelection,
+  paymentAmountCents:1000,matchedNayaxAmountCents:1000,
+  providerHold:true,legacyStateReviewRequired:true,
+  lifecycle:{stage:'waiting_on_customer',managerQueue:{bucket:'waiting_on_customer'}},
+ };
+ const baseManagerState=managerModule.exports.getCurrentRefundCardManagerState(
+  staleOptionalCase,
+  freshAvailability,
+ );
+ const managerState=load('cardManagerState',{
+  selectedCase:staleOptionalCase,
+  hasConfirmedRefundReceipt:()=>false,
+  hasProtectedRefundLifecycle:()=>true,
+  hasUnpaidRefundReview:()=>true,
+  baseManagerState,
+ });
+ assert.equal(managerState.id,'ready_to_refund');
+ assert.equal(managerState.nextStep,'Select Refund once to issue the exact amount.');
+ const selectedCaseHasCurrentCardDecisionAuthority=load('selectedCaseHasCurrentCardDecisionAuthority',{
+  selectedCaseHasCurrentCardCapability:true,
+  selectedCase:staleOptionalCase,
+  selectedCaseIsTerminal:false,
+  selectedCaseIsResolvedDuplicate:false,
+  hasConfirmedRefundReceipt:()=>false,
+ });
+ assert.equal(selectedCaseHasCurrentCardDecisionAuthority,true);
+ const hasNayaxOutcomeResolution=load('hasNayaxOutcomeResolution',{
+  selectedCaseHasCurrentCardCapability:true,
+  selectedCaseNeedsLegacyPaymentReview:false,
+  selectedCase:staleOptionalCase,
+ });
+ assert.equal(hasNayaxOutcomeResolution,false);
+ const cardAmountCents=load('cardAmountCents',{
+  selectedCaseHasCurrentCardCapability:true,
+  selectedRefundReadiness:freshAvailability,
+  selectedTransactionEvidence:freshPersistedSelection.selectedNayaxTransaction,
+  selectedCase:staleOptionalCase,
+  selectedCaseNeedsLegacyPaymentReview:false,
+  matchedCardSaleAmountCents:1000,
+ });
+ assert.equal(cardAmountCents,700);
+ const comparisonCandidate=load('comparisonCandidate',{
+  selectedCaseHasCurrentCardCapability:true,
+  selectedCaseNeedsLegacyPaymentReview:false,
+  activeCandidate:{amountCents:1000,cardLast4:'9999'},
+  selectedTransactionEvidence:freshPersistedSelection.selectedNayaxTransaction,
+  persistedNayaxSelectionMatchesCandidate:managerModule.exports.persistedNayaxSelectionMatchesCandidate,
+  selectableComparisonCandidate:null,
+  effectiveCandidates:[],
+ });
+ assert.equal(comparisonCandidate,null);
+ const exactCandidate={
+  amountCents:700,currencyCode:'USD',authorizedAt:'2026-09-12T18:31:00Z',
+  machineAuthorizationTime:'2026-09-12T18:30:00Z',cardLast4:'4242',
+ };
+ const selectedComparisonCandidate=load('comparisonCandidate',{
+  selectedCaseHasCurrentCardCapability:true,
+  selectedCaseNeedsLegacyPaymentReview:false,
+  activeCandidate:exactCandidate,
+  selectedTransactionEvidence:freshPersistedSelection.selectedNayaxTransaction,
+  persistedNayaxSelectionMatchesCandidate:managerModule.exports.persistedNayaxSelectionMatchesCandidate,
+  selectableComparisonCandidate:null,
+  effectiveCandidates:[],
+ });
+ assert.equal(selectedComparisonCandidate,exactCandidate);
+ const transactionDecisionPending=load('transactionDecisionPending',{
+  selectedCaseHasCurrentCardCapability:true,
+  hasSelectedMatch:false,
+  waitingOnCustomer:false,
+  hasActiveCustomerOutreach:false,
+  transactionView:{kind:'unavailable'},
+ });
+ assert.equal(transactionDecisionPending,false);
+ const topActionLabel=load('topActionLabel',{
+  primaryAction:{mode:'nayax_refund_execution',label:'Refund $7.00'},
+ });
+ const presentedAction=load('cardManagerCapabilityAction',{
+  transactionDecisionPending,
+  showDisabledActionStatus:false,
+  primaryAction:{mode:'nayax_refund_execution',label:'Refund $7.00'},
+  hasReadyRefund:true,
+  topActionLabel,
+  cardActionDisabled:false,
+  isSaving:false,
+  isRunningNayaxRefund:false,
+ });
+ assert.deepEqual({...presentedAction},{
+  kind:'button',testId:'refund-run-nayax-refund',label:'Refund $7.00',disabled:false,pending:false,
+ });
+ const denialAction={mode:'case_update',targetDecision:'denied',label:'Deny request'};
+ const currentCardDenialAction=load('currentCardDenialAction',{
+  selectedCaseHasCurrentCardDecisionAuthority,
+  primaryAction:denialAction,
+ });
+ assert.equal(currentCardDenialAction,true);
+ const cardActionDisabled=load('cardActionDisabled',{
+  primaryAction:denialAction,
+  selectedCaseHasCurrentCardDecisionAuthority,
+  currentCardDenialAction,
+  isSaving:false,isSendingCustomerMessage:false,isRunningNayaxRefund:false,isUsingDemoData:false,
+  primaryActionNeedsOfficialAccess:true,officialActionVersion:7,selectedCaseIsReviewOnly:true,
+  primaryActionIssues:[],
+ });
+ assert.equal(cardActionDisabled,false);
+ const customerCommunicationActions=load('customerCommunicationActions',{
+  nextCustomerDraft:null,canAskForCustomerDetails:false,primaryAction:{label:'Refund $7.00'},
+  isUsingDemoData:false,selectedCaseIsReviewOnly:true,selectedCaseHasCurrentCardDecisionAuthority,
+  selectedCase:staleOptionalCase,
+ });
+ assert.equal(customerCommunicationActions.denial.disabled,false);
+});
+test('current card capability lets an explicit denial reach the versioned server update',async()=>{
+ const selectedCase={id:'case-current',status:'needs_review',paymentMethod:'card',...freshPersistedSelection};
+ const denialEditor={
+  status:'denied',assignedManagerEmail:'',decision:'denied',decisionReason:'Unable to verify the purchase',
+  internalNote:'',refundAmount:'7.00',manualRefundReference:'',cashPayoutSentAt:'',cashPaymentConfirmed:false,
+  clearNayaxMatch:false,matchedNayaxCandidateToken:'',matchedNayaxMachineAuthTime:'',matchedNayaxAmount:'',
+  matchedNayaxCardLast4:'',matchedNayaxCurrencyCode:'',nayaxDisagreementReason:'',
+ };
+ let updateInput=null;
+ const handler=load('handleSaveCase',{
+  selectedCase,editor:denialEditor,officialActionVersion:7,
+  selectedCaseHasCurrentCardDecisionAuthority:true,selectedCaseIsReviewOnly:true,
+  editorRequiresOfficialAction:()=>true,toast:{error:()=>{},info:()=>{}},isUsingDemoData:false,
+  centsFromCurrency:value=>Math.round(Number(value)*100),getCaseSaveIssues:()=>[],
+  selectedNayaxCandidate:()=>null,nayaxCandidates:[],setIsSaving:()=>{},cashCompletionAmountCents:null,
+  derivePortalRefundMissingFields:()=>[],
+  updateRefundCaseAdmin:async input=>{updateInput=input;return {};},
+  applyCaseUpdateResponse:async()=>({updateApplied:true,officialActionVersion:8,refundReadiness:null,customerMessage:null}),
+  isRefundCaseUpdateError:()=>false,selectedIdRef:{current:selectedCase.id},
+ });
+ const result=await handler(denialEditor,'denied');
+ assert.equal(result.updateApplied,true);
+ assert.equal(updateInput.expectedOfficialActionVersion,7);
+ assert.equal(updateInput.status,'denied');
+ assert.equal(updateInput.decision,'denied');
+ assert.equal(updateInput.customerMessageType,'denied');
+});
+test('current card capability owns ready queue classification over stale lifecycle',()=>{
+ const isReady=load('isReadyToPayCase',{
+  doneStatuses:new Set(['completed','denied','closed']),
+  hasConfirmedRefundReceipt:()=>false,
+  hasCurrentRefundCardCapability:managerModule.exports.hasCurrentRefundCardCapability,
+  canonicalQueueBucket:refundCase=>refundCase.lifecycle.managerQueue.bucket,
+ });
+ const staleWaitingCase={
+  status:'needs_review',paymentMethod:'card',...freshPersistedSelection,
+  refundReadiness:freshAvailability,
+  lifecycle:{stage:'waiting_on_customer',managerQueue:{bucket:'waiting_on_customer'}},
+ };
+ assert.equal(isReady(staleWaitingCase),true);
+ const taskState=load('taskManagerState',{
+  isReadyToPayCase:isReady,
+  getCurrentRefundCardManagerState:managerModule.exports.getCurrentRefundCardManagerState,
+  getRefundManagerState:managerModule.exports.getRefundManagerState,
+ });
+ assert.equal(taskState(staleWaitingCase).id,'ready_to_refund');
+ assert.equal(
+  isReady({...staleWaitingCase,refundReadiness:{...freshAvailability,canIssueCardRefund:false,blockReason:'reconciliation_hold'}}),
+  false,
+ );
+});
+test('authoritative unavailable reasons stay disabled with their existing recovery copy',()=>{
+ const action=load('primaryActionConfig',{...dependencies,isWaitingCase:()=>false});
+ const refundCase={status:'needs_review',paymentMethod:'card',matched:true,...freshPersistedSelection};
+ const editor={status:'needs_review',decision:null,clearNayaxMatch:false,matchedNayaxCandidateToken:''};
+ for(const blockReason of [
+  'unauthorized','already_refunded','reconciliation_hold','duplicate_transaction',
+  'case_not_refundable','transaction_not_confirmed','provider_remaining_value_unverified','provider_unavailable',
+ ]) {
+  const result=action(refundCase,editor,[],{...freshAvailability,canIssueCardRefund:false,blockReason});
+  assert.equal(result.disabled,true,blockReason);
+  assert.equal(result.mode,undefined,blockReason);
+  assert.equal(result.label,'Refund temporarily unavailable',blockReason);
+  assert.ok(result.helper.length>10,blockReason);
+ }
+});
+test('fresh reread drift makes zero provider execution calls',async()=>{
+ const selectedCase={
+  id:'case-current',paymentMethod:'card',officialActionVersion:7,
+  selectedNayaxTransaction:freshPersistedSelection.selectedNayaxTransaction,
+ };
+ const editor={clearNayaxMatch:false,matchedNayaxCandidateToken:''};
+ for(const [label,freshCase,freshReadiness,confirmed] of [
+  ['version drift',{...selectedCase,officialActionVersion:8},{...freshAvailability,caseVersion:8},true],
+  ['capability revoked',selectedCase,{...freshAvailability,canIssueCardRefund:false,blockReason:'reconciliation_hold'},true],
+  ['selection drift',{...selectedCase,selectedNayaxTransaction:{...selectedCase.selectedNayaxTransaction,saleAmountCents:800}},freshAvailability,true],
+ ]) {
+  let executions=0;let reads=0;
+  const handler=load('handleRunNayaxRefund',{
+   nayaxRefundInFlightRef:{current:false},selectedCase,editor,isUsingDemoData:false,
+   selectedNayaxCandidate:()=>null,nayaxCandidates:[],setIsRefundConfirmationOpen:()=>{},
+   setNayaxExecutionNotice:()=>{},setIsRunningNayaxRefund:()=>{},setRefundActionReceipt:()=>{},
+   readFreshNayaxSelection:async()=>{reads++;return {freshCase,freshReadiness,confirmed};},
+   selectedIdRef:{current:selectedCase.id},
+   persistedNayaxSelectionMatchesCandidate:managerModule.exports.persistedNayaxSelectionMatchesCandidate,
+   officialActionVersion:7,refundReadinessBlockMessage:managerModule.exports.refundReadinessBlockMessage,
+   executeNayaxCardRefund:async()=>{executions++;return {};},applyNayaxExecutionResult:async()=>{},
+   isNayaxCardRefundExecutionError:()=>false,toast:{error:()=>{},info:()=>{}},
+  });
+  await handler();
+  assert.equal(reads,1,label);
+  assert.equal(executions,0,label);
  }
 });
 test('RF-423906B2 shape keeps one visible refund action despite optional intake metadata',()=>{
@@ -426,8 +651,8 @@ test('actual action preserves canonical unpaid readiness despite failed, skipped
   assert.equal(action({...base,customerDeliveryException:{state}},editor,[],{...available,canIssueCardRefund:false,blockReason:'unauthorized'}).disabled,true);
  }
  const missing=load('primaryActionConfig',{...dependencies,derivePortalRefundMissingFields:()=>['incident_time']});
- assert.equal(missing({...base,customerDeliveryException:{state:'bounced'}},editor,[],available).disabled,true);
- assert.equal(load('primaryActionConfig',dependencies)({...base,lifecycle:{...lifecycle,stage:'waiting_on_customer'},customerDeliveryException:{state:'bounced'}},editor,[],available).label,'Waiting for customer reply');
+ assert.equal(missing({...base,customerDeliveryException:{state:'bounced'}},editor,[],available).mode,'nayax_refund_execution');
+ assert.equal(load('primaryActionConfig',dependencies)({...base,lifecycle:{...lifecycle,stage:'waiting_on_customer'},customerDeliveryException:{state:'bounced'}},editor,[],available).mode,'nayax_refund_execution');
 });
 
 test('actual action gives payment holds, pending and terminal truth priority over a delivery task',()=>{
@@ -442,15 +667,13 @@ test('actual action gives payment holds, pending and terminal truth priority ove
  assert.equal(action({...base,providerHold:true},editor,[],{canIssueCardRefund:true}).label,'Check the exact transaction in Nayax');
 });
 
-test('retired no-refund release cannot restore the manager payment action',()=>{
+test('authoritative unknown-outcome hold cannot restore the manager payment action',()=>{
  const action=load('primaryActionConfig',{...dependencies,isDefinitiveNoRefundRetryReady:managerModule.exports.isDefinitiveNoRefundRetryReady,isWaitingCase:()=>false});
  const lifecycle={stage:'transaction_confirmed',terminal:false,paymentState:'not_requested',definitiveNoRefund:true,safeRetryEligible:true,operations:{required:true,safeStage:'released_no_refund',failureClass:'customer_delivery_exception'},managerQueue:{bucket:'ready_to_pay'}};
  const current={status:'needs_review',paymentMethod:'card',providerOutcome:'rejected',providerHold:false,matched:true,...freshPersistedSelection,lifecycle,customerDeliveryException:{state:'unknown'}};
  const editor={status:'needs_review',decision:null,matchedNayaxCandidateToken:''};
- assert.equal(action(current,editor,[],freshAvailability).disabled,true);
- assert.equal(action(current,editor,[],freshAvailability).mode,undefined);
  assert.equal(action(current,editor,[],{...freshAvailability,canIssueCardRefund:false,blockReason:'reconciliation_hold'}).disabled,true);
- assert.equal(action({...current,lifecycle:{...lifecycle,operations:{...lifecycle.operations,failureClass:'provider_outcome_unknown'}}},editor,[],freshAvailability).disabled,true);
+ assert.equal(action({...current,lifecycle:{...lifecycle,operations:{...lifecycle.operations,failureClass:'provider_outcome_unknown'}}},editor,[],{...freshAvailability,canIssueCardRefund:false,blockReason:'reconciliation_hold'}).disabled,true);
 });
 
 const approvalValidationDependencies={
@@ -482,7 +705,7 @@ test('changed approvals and real mutation modes retain original save validation'
   assert.equal(unchangedApproval(approvedCase,next),false);
   assert.equal(JSON.stringify(displayIssues(approvedCase,next,{disabled:true})),JSON.stringify(saveIssues(approvedCase,next)));
  }
- for(const mode of ['case_update','nayax_refund_execution']) {
+ for(const mode of ['case_update']) {
   assert.equal(JSON.stringify(displayIssues(approvedCase,approvedEditor,{disabled:true,mode})),JSON.stringify(saveIssues(approvedCase,approvedEditor)));
  }
  for(const change of [{decision:null},{decision:'denied'},{refundAmountCents:null},{refundAmountCents:0},{paymentMethod:'cash'}]) {
@@ -490,9 +713,9 @@ test('changed approvals and real mutation modes retain original save validation'
  }
 });
 
-test('existing approval does not waive exact full-refund completion checks',()=>{
+test('server-authorized card execution bypasses duplicate browser form policy',()=>{
  const completed={...approvedEditor,status:'completed',matchedNayaxAmount:'9.64'};
  const issues=displayIssues(approvedCase,completed,{mode:'nayax_refund_execution'});
- assert.ok(issues.some(issue=>issue.includes('must match the selected machine transaction')));
- assert.ok(issues.some(issue=>issue.includes('before completing this refund')));
+ assert.equal(issues.length,0);
+ assert.ok(saveIssues(approvedCase,completed).some(issue=>issue.includes('must match the selected machine transaction')),'generic case mutations retain form validation');
 });

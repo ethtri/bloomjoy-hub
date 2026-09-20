@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, Clock3, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
@@ -5,12 +6,18 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   fetchRefundSunzeCashCorrelation,
+  refundSunzeCashSelectionPendingQueryKey,
   selectRefundSunzeCashCandidate,
 } from '@/lib/refundSunzeCashCorrelationApi';
 import type {
   RefundSunzeCashCandidate,
   RefundSunzeCashCorrelation,
   RefundSunzeCashSelectedSale,
+  RefundSunzeCashSelectionPending,
+} from '@/lib/refundSunzeCashCorrelation';
+import {
+  refundSunzeCashSelectionOperationOwnsMarker,
+  refundSunzeCashSelectionRefreshIsAuthoritative,
 } from '@/lib/refundSunzeCashCorrelation';
 import type { RefundCaseRecord } from '@/lib/refundOperations';
 import { formatRefundDateTime } from '@/lib/refundTimePresentation';
@@ -108,12 +115,23 @@ export function CashRefundEvidencePanel({
   isCompleted = false,
 }: CashRefundEvidencePanelProps) {
   const queryClient = useQueryClient();
+  const correlationQueryKey = ['refund-sunze-cash-correlation', refundCase.id] as const;
+  const selectionPendingQueryKey = refundSunzeCashSelectionPendingQueryKey(refundCase.id);
+  const { data: selectionPending = null } = useQuery<RefundSunzeCashSelectionPending | null>({
+    queryKey: selectionPendingQueryKey,
+    queryFn: async () => null,
+    enabled: false,
+    placeholderData: null,
+    gcTime: Infinity,
+  });
+  const isSelectionPending = selectionPending !== null;
   const query = useQuery({
-    queryKey: ['refund-sunze-cash-correlation', refundCase.id],
+    queryKey: correlationQueryKey,
     queryFn: ({ signal }) => fetchRefundSunzeCashCorrelation(refundCase.id, signal),
     enabled: !isUsingDemoData,
     staleTime: 10_000,
     retry: false,
+    refetchOnMount: selectionPending?.recoveryAvailable ? 'always' : true,
   });
   const correlation = isUsingDemoData
     ? refundCase.sunzeCashCorrelation ?? null
@@ -126,20 +144,89 @@ export function CashRefundEvidencePanel({
     selectedId ? candidates.find((candidate) => candidate.salesFactId === selectedId) ?? null : null
   );
 
+  useEffect(() => {
+    if (refundSunzeCashSelectionRefreshIsAuthoritative(
+      selectionPending,
+      query.dataUpdatedAt,
+      query.isSuccess && Boolean(query.data),
+    )) {
+      queryClient.setQueryData<RefundSunzeCashSelectionPending | null>(selectionPendingQueryKey, (current) =>
+        refundSunzeCashSelectionOperationOwnsMarker(current, selectionPending.operationId)
+          ? null
+          : current ?? null
+      );
+    }
+  }, [query.data, query.dataUpdatedAt, query.isSuccess, queryClient, selectionPending, selectionPendingQueryKey]);
+
   const handleSelect = async (candidate: RefundSunzeCashCandidate) => {
-    if (!correlation?.attemptId || candidate.selectionConflict || isUsingDemoData) return;
+    const activeSelection = queryClient.getQueryData<RefundSunzeCashSelectionPending | null>(selectionPendingQueryKey);
+    if (!correlation?.attemptId || candidate.selectionConflict || isUsingDemoData || activeSelection) return;
+    const pendingMarker: RefundSunzeCashSelectionPending = {
+      operationId: crypto.randomUUID(),
+      afterDataUpdatedAt: query.dataUpdatedAt,
+      recoveryAvailable: false,
+    };
+    queryClient.setQueryData(selectionPendingQueryKey, pendingMarker);
     try {
-      await selectRefundSunzeCashCandidate({
+      const selection = await selectRefundSunzeCashCandidate({
         caseId: refundCase.id,
         attemptId: correlation.attemptId,
         salesFactId: candidate.salesFactId,
         caseFactVersion: correlation.caseFactVersion,
         expectedLinkVersion: correlation.expectedLinkVersion,
       });
-      await queryClient.invalidateQueries({ queryKey: ['refund-sunze-cash-correlation', refundCase.id] });
+      queryClient.setQueryData<RefundSunzeCashCorrelation>(correlationQueryKey, (current) => {
+        if (!current || current.caseFactVersion !== correlation.caseFactVersion) return current;
+        return {
+          ...current,
+          selectedSalesFactId: selection.salesFactId,
+          selectedLinkVersion: selection.linkVersion,
+          expectedLinkVersion: selection.linkVersion,
+          selectedSale: {
+            salesFactId: candidate.salesFactId,
+            paymentTime: candidate.paymentTime,
+            actualAmountCents: candidate.actualAmountCents,
+            machineLabel: candidate.machineLabel,
+            locationName: candidate.locationName,
+            tradeLabel: candidate.tradeLabel,
+          },
+        };
+      });
+      await queryClient.invalidateQueries({ queryKey: correlationQueryKey });
+      queryClient.setQueryData<RefundSunzeCashSelectionPending | null>(selectionPendingQueryKey, (current) =>
+        refundSunzeCashSelectionOperationOwnsMarker(current, pendingMarker.operationId)
+          ? null
+          : current ?? null
+      );
       toast.success('Sale evidence selected for review.');
     } catch (error) {
+      const refreshed = await query.refetch();
+      if (refreshed.isSuccess && refreshed.data) {
+        queryClient.setQueryData<RefundSunzeCashSelectionPending | null>(selectionPendingQueryKey, (current) =>
+          refundSunzeCashSelectionOperationOwnsMarker(current, pendingMarker.operationId)
+            ? null
+            : current ?? null
+        );
+      } else {
+        queryClient.setQueryData<RefundSunzeCashSelectionPending | null>(selectionPendingQueryKey, (current) =>
+          refundSunzeCashSelectionOperationOwnsMarker(current, pendingMarker.operationId)
+            ? { ...current, recoveryAvailable: true }
+            : current ?? null
+        );
+      }
       toast.error(error instanceof Error ? error.message : 'The sale evidence could not be selected. Refresh and try again.');
+    }
+  };
+
+  const handleRefresh = async () => {
+    const pendingMarker = queryClient.getQueryData<RefundSunzeCashSelectionPending | null>(selectionPendingQueryKey);
+    const refreshed = await query.refetch();
+    if (refreshed.isSuccess && refreshed.data && pendingMarker) {
+      queryClient.setQueryData<RefundSunzeCashSelectionPending | null>(selectionPendingQueryKey, (current) =>
+        refundSunzeCashSelectionOperationOwnsMarker(current, pendingMarker.operationId)
+          ? null
+          : current ?? null
+      );
     }
   };
 
@@ -167,11 +254,13 @@ export function CashRefundEvidencePanel({
         {copy.detail}
       </p>
 
-      {query.isError && (
+      {(query.isError || selectionPending?.recoveryAvailable) && (
         <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-950" role="status">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span>Sales history could not be refreshed. The manager decision remains available from the reviewed case details.</span>
-          <Button type="button" variant="ghost" size="sm" className="ml-auto min-h-8 shrink-0 px-2" onClick={() => void query.refetch()}>
+          <span>{isSelectionPending
+            ? 'The sale selection outcome could not be refreshed. Cash confirmation stays unavailable until the selected sale is current.'
+            : 'Sales history could not be refreshed. The manager decision remains available from the reviewed case details.'}</span>
+          <Button type="button" variant="ghost" size="sm" className="ml-auto min-h-8 shrink-0 px-2" disabled={query.isFetching} onClick={() => void handleRefresh()}>
             <RefreshCw className="mr-1 h-3.5 w-3.5" /> Refresh
           </Button>
         </div>
@@ -204,7 +293,7 @@ export function CashRefundEvidencePanel({
                   type="radio"
                   name={`sunze-cash-sale-${refundCase.id}`}
                   checked={isSelected}
-                  disabled={candidate.selectionConflict || !correlation?.attemptId || isUsingDemoData || query.isFetching}
+                  disabled={candidate.selectionConflict || !correlation?.attemptId || isUsingDemoData || query.isFetching || isSelectionPending}
                   onChange={() => void handleSelect(candidate)}
                   className="mt-1 h-4 w-4 accent-foreground"
                 />
@@ -237,7 +326,9 @@ export function CashRefundEvidencePanel({
       <div className="mt-4 border-t border-border pt-3 text-sm">
         <p className="flex items-center gap-2 text-xs font-medium text-foreground"><Clock3 className="h-3.5 w-3.5" /> {isCompleted ? 'Cash refund recorded' : 'External refund only'}</p>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          {isCompleted
+          {isSelectionPending
+            ? 'Wait until the current selected sale and amount are confirmed. Do not send the external payment yet.'
+            : isCompleted
             ? 'The external reimbursement and case completion are recorded. No further payment action is needed.'
             : 'Send the refund through Zelle outside Bloomjoy Hub first. Then select “Confirm refund sent via Zelle” here. Bloomjoy Hub records that confirmation; it does not send or verify the payment.'}
         </p>

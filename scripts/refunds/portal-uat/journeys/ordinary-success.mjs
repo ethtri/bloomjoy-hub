@@ -865,7 +865,7 @@ export const createOrdinarySuccessChecks = ({
     const longQueueContext = await browser.newContext({
       viewport: { width: 1440, height: 1000 },
     });
-    const baseLongQueueOverview = buildMockRefundOverview();
+    const baseLongQueueOverview = buildManagerReadyRefundOverview();
     const longQueueCases = Array.from({ length: 30 }, (_, index) => ({
       ...baseLongQueueOverview.cases[0],
       id: `case-long-queue-${index + 1}`,

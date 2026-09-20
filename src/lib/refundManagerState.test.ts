@@ -4,12 +4,15 @@ import './refundTransactionViewState.test.ts';
 
 import {
   canConfirmRefundCandidate,
+  getCurrentRefundCardManagerState,
   getDisplayedRefundManagerNextStep,
   getRefundManagerState,
+  hasCurrentRefundCardCapability,
   isResolvedDuplicateRefundCase,
   getRefundPaymentStateLabel,
   hasUnpaidRefundReview,
   hasFreshPersistedNayaxSelection,
+  isRefundCardActionDisabled,
   persistedNayaxSelectionMatchesCandidate,
   refundReadinessBlockMessage,
 } from './refundManagerState.ts';
@@ -69,6 +72,80 @@ Deno.test('refund selection requires the exact current server version', () => {
   );
 });
 
+Deno.test('one current server capability owns card presentation eligibility', () => {
+  const staleOptionalProjections = {
+    hasMatchedNayaxTransaction: true,
+    officialActionVersion: 7,
+    selectedNayaxTransaction: {
+      saleAmountCents: 1090,
+      currencyCode: 'USD',
+      providerAuthorizedAt: '2026-09-12T18:30:00.000Z',
+      cardLast4: '6172',
+    },
+    canPerformOfficialAction: false,
+    providerHold: true,
+    reconciliationActionBlocked: true,
+    refundOperationsAccess: false,
+  };
+  const currentCapability = {
+    transactionConfirmed: true,
+    caseVersion: 7,
+    canIssueCardRefund: true,
+  };
+  const idle = { busy: false, demo: false, hasUnsavedSelection: false };
+
+  assertEquals(
+    hasCurrentRefundCardCapability(staleOptionalProjections, currentCapability),
+    true,
+    'stale optional and privacy projections cannot replace current server permission',
+  );
+  assertEquals(
+    isRefundCardActionDisabled(staleOptionalProjections, currentCapability, idle),
+    false,
+    'current server permission enables the ordinary action',
+  );
+  const managerState = getCurrentRefundCardManagerState(
+    staleOptionalProjections,
+    currentCapability,
+  );
+  assertEquals(managerState?.id, 'ready_to_refund', 'manager state follows current capability');
+  assertEquals(
+    managerState?.nextStep,
+    'Select Refund once to issue the exact amount.',
+    'stale hold and lifecycle copy cannot contradict the enabled action',
+  );
+
+  for (const [label, ui] of [
+    ['busy', { ...idle, busy: true }],
+    ['demo', { ...idle, demo: true }],
+    ['unsaved selection', { ...idle, hasUnsavedSelection: true }],
+  ] as const) {
+    assertEquals(
+      isRefundCardActionDisabled(staleOptionalProjections, currentCapability, ui),
+      true,
+      `${label} remains a UI-only pause`,
+    );
+  }
+  assertEquals(
+    isRefundCardActionDisabled(
+      staleOptionalProjections,
+      { ...currentCapability, caseVersion: 6 },
+      idle,
+    ),
+    true,
+    'stale server capability must not enable the action',
+  );
+  assertEquals(
+    isRefundCardActionDisabled(
+      staleOptionalProjections,
+      { ...currentCapability, canIssueCardRefund: false },
+      idle,
+    ),
+    true,
+    'an authoritative unavailable result must disable the action',
+  );
+});
+
 Deno.test('fresh saved evidence must match the browser candidate exactly', () => {
   const selection = {
     saleAmountCents: 1090,
@@ -79,14 +156,15 @@ Deno.test('fresh saved evidence must match the browser candidate exactly', () =>
   const candidate = {
     amountCents: 1090,
     currencyCode: 'usd',
-    authorizedAt: '2026-09-12T18:30:00Z',
+    authorizedAt: '2026-09-12T18:31:00Z',
+    machineAuthorizationTime: '2026-09-12T18:30:00Z',
     cardLast4: '6172',
   };
 
   assertEquals(
     persistedNayaxSelectionMatchesCandidate(selection, candidate),
     true,
-    'equivalent timestamps and normalized currency should match',
+    'the exact machine authorization time and normalized currency should match independently of the provider timestamp',
   );
   assertEquals(
     persistedNayaxSelectionMatchesCandidate(selection, { ...candidate, amountCents: 1000 }),
@@ -94,9 +172,9 @@ Deno.test('fresh saved evidence must match the browser candidate exactly', () =>
     'a different amount must fail closed',
   );
   assertEquals(
-    persistedNayaxSelectionMatchesCandidate(selection, { ...candidate, authorizedAt: '2026-09-12T18:31:00Z' }),
+    persistedNayaxSelectionMatchesCandidate(selection, { ...candidate, machineAuthorizationTime: '2026-09-12T18:32:00Z' }),
     false,
-    'a different provider authorization must fail closed',
+    'a different machine authorization time must fail closed',
   );
   assertEquals(
     persistedNayaxSelectionMatchesCandidate(selection, { ...candidate, cardLast4: '0000' }),
@@ -1020,24 +1098,31 @@ Deno.test('uncertain provider result blocks a second action even when old status
 });
 
 Deno.test('confirmed transaction takes precedence over an older manual-review recommendation', () => {
-  const result = getRefundManagerState({
+  const currentCase = {
     ...baseCase,
     hasMatchedNayaxTransaction: true,
+    officialActionVersion: 7,
+    selectedNayaxTransaction: {
+      saleAmountCents: 1090,
+      currencyCode: 'USD',
+      providerAuthorizedAt: '2026-09-12T18:30:00.000Z',
+      cardLast4: '6172',
+    },
     nayaxRecommendationState: 'manual_exception',
     nayaxLookupSummary: {
       lookupStatus: 'manual_exception',
       recommendationState: 'manual_exception',
     },
-    refundReadiness: {
-      transactionConfirmed: true,
-      canIssueCardRefund: true,
-      blockReason: null,
-    },
+  };
+  const result = getCurrentRefundCardManagerState(currentCase, {
+    transactionConfirmed: true,
+    caseVersion: 7,
+    canIssueCardRefund: true,
   });
 
-  assertEquals(result.id, 'ready_to_refund', 'confirmed state');
-  assertEquals(result.label, 'Ready to approve', 'confirmed label');
-  assertEquals(result.explanation, 'Transaction confirmed. Payment: Not issued.', 'payment clarity');
+  assertEquals(result?.id, 'ready_to_refund', 'confirmed state');
+  assertEquals(result?.label, 'Ready to approve', 'confirmed label');
+  assertEquals(result?.explanation, 'Transaction confirmed. Payment: Not issued.', 'payment clarity');
 });
 
 Deno.test('confirmed transaction shows the exact safe reason when refunding is unavailable', () => {
@@ -1156,7 +1241,7 @@ Deno.test('cash manager state can use a server-reviewed selected sale amount', (
   assertEquals(result.id, 'ready_to_refund', 'selected sale amount is sufficient');
 });
 
-Deno.test('cash manager state stays checking while safe amount is loading', () => {
+Deno.test('cash manager state still blocks an explicitly unavailable amount', () => {
   const result = getRefundManagerState({
     ...baseCase,
     paymentMethod: 'cash',
@@ -1165,8 +1250,8 @@ Deno.test('cash manager state stays checking while safe amount is loading', () =
     correlationStatus: 'no_match',
     nayaxRecommendationState: null,
   }, { cashCompletionAmountCents: null });
-  assertEquals(result.id, 'needs_information', 'missing safe amount blocks completion');
-  assertEquals(result.label, 'Needs payment amount', 'loading amount is not presented as ready');
+  assertEquals(result.id, 'needs_information', 'explicitly unavailable amount blocks completion');
+  assertEquals(result.label, 'Needs payment amount', 'unavailable amount is not presented as ready');
 });
 
 Deno.test('cash cases without an amount route to customer follow-up', () => {

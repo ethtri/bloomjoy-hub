@@ -47,6 +47,7 @@ export type RefundCashDecisionWorkbenchProps = {
   denialReasonDisabled: boolean;
   reportedTimeLabel: string;
   venueTimezone: string | null;
+  isCashSaleSelectionPending: boolean;
   correctionSummary?: ReactNode;
   revisionDeliveryReview?: ReactNode;
   denialReasons: readonly string[];
@@ -71,6 +72,7 @@ export function RefundCashDecisionWorkbench({
   denialReasonDisabled,
   reportedTimeLabel,
   venueTimezone,
+  isCashSaleSelectionPending,
   correctionSummary,
   revisionDeliveryReview,
   denialReasons,
@@ -97,7 +99,9 @@ export function RefundCashDecisionWorkbench({
                 ? 'mt-2 max-w-xl text-sm font-medium leading-5 text-foreground'
                 : 'mt-1 max-w-xl text-sm font-medium leading-5 text-foreground'}
             >
-              {action.isCompletion
+              {isCashSaleSelectionPending
+                ? 'Confirming the selected sale amount. Do not send the external payment yet.'
+                : action.isCompletion
                 ? 'Send the refund through Zelle outside Bloomjoy Hub. After sending it, confirm it here.'
                 : `Next: ${managerNextStep}`}
             </p>

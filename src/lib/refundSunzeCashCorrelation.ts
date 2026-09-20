@@ -29,6 +29,29 @@ export type RefundSunzeCashSelectedSale = {
   tradeLabel: string | null;
 };
 
+export type RefundSunzeCashSelectionPending = {
+  operationId: string;
+  afterDataUpdatedAt: number;
+  recoveryAvailable: boolean;
+};
+
+export const refundSunzeCashSelectionOperationOwnsMarker = (
+  pending: RefundSunzeCashSelectionPending | null | undefined,
+  operationId: string,
+) => pending?.operationId === operationId;
+
+export const refundSunzeCashSelectionRefreshIsAuthoritative = (
+  pending: RefundSunzeCashSelectionPending | null | undefined,
+  dataUpdatedAt: number,
+  hasAuthoritativeData: boolean,
+) => Boolean(
+  pending &&
+  pending.recoveryAvailable &&
+  hasAuthoritativeData &&
+  Number.isSafeInteger(dataUpdatedAt) &&
+  dataUpdatedAt > pending.afterDataUpdatedAt
+);
+
 export type RefundSunzeCashCorrelation = {
   caseFactVersion: number;
   attemptId: string | null;

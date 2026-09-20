@@ -91,6 +91,12 @@ export const createDuplicateIdempotencyChecks = ({
       rpcCalls,
       emailQueueStates,
       reconciliationContext,
+      nayaxCardRefundAvailabilityResponse: {
+        available: false,
+        status: 'unavailable',
+        blockReason: 'reconciliation_hold',
+        payloadRedacted: true,
+      },
     });
 
     const page = await context.newPage();
@@ -180,6 +186,19 @@ export const createDuplicateIdempotencyChecks = ({
     await installMockSupabaseRoutes(context, {
       refundOverview: buildOfficialActionVersionResetOverview,
       functionCalls,
+      nayaxCardRefundAvailabilityResolver: ({ caseId }) => caseId === 'case-authority-missing'
+        ? {
+            available: false,
+            status: 'unavailable',
+            blockReason: 'unauthorized',
+            payloadRedacted: true,
+          }
+        : {
+            available: true,
+            status: 'available',
+            blockReason: null,
+            payloadRedacted: true,
+          },
     });
 
     const page = await context.newPage();

@@ -13,6 +13,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isInteger = (value: unknown, minimum = 0): value is number =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum;
 
+export const refundSunzeCashSelectionPendingQueryKey = (caseId: string) =>
+  ['refund-sunze-cash-selection-pending', caseId] as const;
+
 export const fetchRefundSunzeCashCorrelation = async (
   caseId: string,
   signal?: AbortSignal,
@@ -54,5 +57,21 @@ export const selectRefundSunzeCashCandidate = async (input: {
   if (result.payloadRedacted !== true || !isRecord(result.selection)) {
     throw new Error('Cash sale selection returned an invalid response.');
   }
-  return result.selection;
+  const selection = result.selection;
+  if (
+    selection.selected !== true ||
+    typeof selection.replayed !== 'boolean' ||
+    selection.salesFactId !== input.salesFactId ||
+    !isInteger(selection.linkVersion, 1) ||
+    selection.evidenceOnly !== true
+  ) {
+    throw new Error('Cash sale selection returned an invalid response.');
+  }
+  return {
+    selected: true as const,
+    replayed: selection.replayed,
+    salesFactId: selection.salesFactId,
+    linkVersion: selection.linkVersion,
+    evidenceOnly: true as const,
+  };
 };

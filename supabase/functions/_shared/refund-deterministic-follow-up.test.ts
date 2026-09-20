@@ -2,6 +2,7 @@ import {
   automaticRefundCustomerContactEnabled,
   buildRefundFollowUpTriggerFingerprint,
   deriveRefundMissingFields,
+  refreshRefundMissingFieldSelection,
   refundFollowUpTemplateKey,
   REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
   sanitizeRefundMissingFields,
@@ -108,6 +109,38 @@ Deno.test("complete facts have no missing-field request", () => {
   });
   assert(complete.missingFields.length === 0, "complete case must not ask for known facts");
   assert(!complete.requiresSecureWalletCorrection, "physical card does not use wallet correction");
+});
+
+Deno.test("stale browser fields refresh from the authoritative missing-field list", () => {
+  const currentFields = ["incident_time", "card_last4"] as const;
+
+  for (const suppliedFields of [
+    undefined,
+    [],
+    ["amount"],
+    ["card_last4", "card_last4"],
+    ["card_last4", "provider_account"],
+  ]) {
+    assert(
+      JSON.stringify(refreshRefundMissingFieldSelection(suppliedFields, currentFields)) ===
+        JSON.stringify(currentFields),
+      "missing, stale, duplicate, and unsupported browser fields must use current case facts",
+    );
+  }
+
+  assert(
+    JSON.stringify(
+      refreshRefundMissingFieldSelection(
+        ["card_last4", "incident_time"],
+        currentFields,
+      ),
+    ) === JSON.stringify(currentFields),
+    "equivalent browser fields should remain canonical",
+  );
+  assert(
+    refreshRefundMissingFieldSelection(["amount"], []).length === 0,
+    "a stale browser selection must not fabricate fields when current facts are complete",
+  );
 });
 
 Deno.test("template identities are deterministic and versioned", () => {

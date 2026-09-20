@@ -7,6 +7,8 @@ const root = path.resolve('.');
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
 const page = read('src/pages/admin/Refunds.tsx');
 const evidence = read('src/components/refunds/CashRefundEvidencePanel.tsx');
+const correlationApi = read('src/lib/refundSunzeCashCorrelationApi.ts');
+const correlation = read('src/lib/refundSunzeCashCorrelation.ts');
 const migration = read('supabase/migrations/20260915010000_refund_cash_verification_ux.sql');
 const safetySql = read('supabase/tests/refund_manager_official_action_safety.sql');
 const edge = read('supabase/functions/refund-case-sunze-correlation/index.ts');
@@ -23,11 +25,39 @@ test('cash manager surface has one external-Zelle decision and no retired labels
   assert.doesNotMatch(evidence, /confidence|rawPayload|provider diagnostics/i);
 });
 
-test('safe evidence loading cannot present a fallback amount before a response', () => {
-  assert.match(page, /isCashCorrelationLoaded && selectedCashCorrelation\?\.state !== 'checking_sales_history'/);
-  assert.match(page, /selectedCase\.paymentMethod === 'cash' && !isUsingDemoData && !isCashCorrelationLoaded/);
+test('optional evidence loading keeps the reviewed estimate available', () => {
+  assert.doesNotMatch(page, /cashEvidencePending|isCashCorrelationLoaded/);
   assert.match(read('src/lib/refundCashAmount.ts'), /typeof safeEvidenceAmountCents === 'undefined'/);
+  assert.match(page, /resolveCashReviewAmountCents\(\s*selectedCase\.paymentAmountCents,\s*selectedCashEvidenceAmountCents/);
+  assert.match(page, /selectedCashCorrelationForReview\?\.selectedSale\?\.actualAmountCents/);
+  assert.match(page, /selectedCase\?\.hasMatchedSalesFact === true \|\|/);
+  assert.match(page, /selectedCashCorrelationForReview\?\.selectedSalesFactId != null/);
+  assert.match(page, /selectedCashEvidenceAmountCents,\s*hasDurableSelectedCashSale/);
+  assert.doesNotMatch(page, /selectedCashCorrelationForReview\?\.state === 'checking_sales_history'/);
   assert.match(page, /resolveCashReviewAmountCents\(refundCase\.paymentAmountCents, effectiveCashAmountCents\)/);
+  assert.match(evidence, /The manager decision remains available from the reviewed case details/);
+  assert.match(evidence, /queryClient\.setQueryData<RefundSunzeCashCorrelation>/);
+  assert.match(evidence, /selectedSalesFactId: selection\.salesFactId/);
+  assert.match(evidence, /selectedSale: \{/);
+  assert.match(correlationApi, /selection\.salesFactId !== input\.salesFactId/);
+  assert.match(page, /isCashSaleSelectionPending\s*\? null\s*: resolveCashReviewAmountCents/);
+  assert.match(page, /isCashCompletionSubmitting \|\|\s*isCashSaleSelectionPending/);
+  assert.match(evidence, /afterDataUpdatedAt: query\.dataUpdatedAt/);
+  assert.match(evidence, /recoveryAvailable: false/);
+  assert.match(evidence, /queryClient\.getQueryData<RefundSunzeCashSelectionPending \| null>\(selectionPendingQueryKey\)/);
+  assert.match(evidence, /operationId: crypto\.randomUUID\(\)/);
+  assert.match(evidence, /refundSunzeCashSelectionOperationOwnsMarker/);
+  assert.match(evidence, /const refreshed = await query\.refetch\(\)/);
+  assert.match(evidence, /refreshed\.isSuccess && refreshed\.data/);
+  assert.match(evidence, /recoveryAvailable: true/);
+  assert.match(evidence, /refetchOnMount: selectionPending\?\.recoveryAvailable \? 'always' : true/);
+  assert.match(evidence, /refundSunzeCashSelectionRefreshIsAuthoritative/);
+  assert.match(correlation, /pending\.recoveryAvailable/);
+  assert.match(correlation, /dataUpdatedAt > pending\.afterDataUpdatedAt/);
+  assert.match(page, /refundSunzeCashSelectionPendingQueryKey\(selectedCase\?\.id \?\? ''\)/);
+  assert.match(page, /gcTime: Infinity/);
+  assert.match(evidence, /Do not send the external payment yet/);
+  assert.match(read('src/components/refunds/RefundCashDecisionWorkbench.tsx'), /Confirming the selected sale amount/);
 });
 
 test('bounded evidence chooser supports keyboard-friendly radio selection and narrow layouts', () => {

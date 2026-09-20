@@ -128,10 +128,10 @@ assert(
     !portal.includes("label: 'Refresh transaction results'") &&
     portal.includes('refund-legacy-state-review-banner') &&
     portal.includes('refund-legacy-state-freeze') &&
-    portal.includes('const effectiveCandidates = selectedCase.legacyStateReviewRequired ? [] : nayaxCandidates') &&
+    portal.includes('const effectiveCandidates = selectedCaseNeedsLegacyPaymentReview ? [] : nayaxCandidates') &&
     transactionViewState.includes("heading: 'Transaction results expired'") &&
     transactionViewState.includes('legacyStateReviewRequired ||') &&
-    portal.includes('!selectedCase.legacyStateReviewRequired') &&
+    portal.includes('!selectedCaseNeedsLegacyPaymentReview') &&
     portal.includes('Earlier approval sent') &&
     portal.includes('No refund is recorded.') &&
     portal.includes('Customer decisions and email are paused during this payment history check.'),
