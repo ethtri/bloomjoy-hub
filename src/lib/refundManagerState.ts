@@ -58,6 +58,16 @@ type PersistedNayaxSelectionReadiness = {
   caseVersion: number | null;
 };
 
+type CurrentRefundCardCapability = PersistedNayaxSelectionReadiness & {
+  canIssueCardRefund: boolean;
+};
+
+type RefundCardActionUiState = {
+  busy: boolean;
+  demo: boolean;
+  hasUnsavedSelection: boolean;
+};
+
 const sameInstant = (left: string, right: string) => {
   const leftTime = Date.parse(left);
   const rightTime = Date.parse(right);
@@ -79,6 +89,21 @@ export const hasFreshPersistedNayaxSelection = (
     refundCase.officialActionVersion > 0 &&
     readiness.caseVersion === refundCase.officialActionVersion
 );
+
+/** The case-specific server capability is the only payment-permission result used by the UI. */
+export const hasCurrentRefundCardCapability = (
+  refundCase: PersistedNayaxSelectionCase | null | undefined,
+  readiness: CurrentRefundCardCapability | null | undefined,
+) => readiness?.canIssueCardRefund === true &&
+  hasFreshPersistedNayaxSelection(refundCase, readiness);
+
+/** UI-only guards may pause the button without recreating server payment policy. */
+export const isRefundCardActionDisabled = (
+  refundCase: PersistedNayaxSelectionCase | null | undefined,
+  readiness: CurrentRefundCardCapability | null | undefined,
+  ui: RefundCardActionUiState,
+) => ui.busy || ui.demo || ui.hasUnsavedSelection ||
+  !hasCurrentRefundCardCapability(refundCase, readiness);
 
 /** Confirm that a fresh server-selected transaction is the browser choice being saved. */
 export const persistedNayaxSelectionMatchesCandidate = (
@@ -249,6 +274,19 @@ const state = (
   nextStep: string,
   tone: RefundManagerStateTone
 ): RefundManagerState => ({ id, label, explanation, nextStep, tone });
+
+export const getCurrentRefundCardManagerState = (
+  refundCase: PersistedNayaxSelectionCase | null | undefined,
+  readiness: CurrentRefundCardCapability | null | undefined,
+): RefundManagerState | null => hasCurrentRefundCardCapability(refundCase, readiness)
+  ? state(
+      'ready_to_refund',
+      'Ready to approve',
+      'Transaction confirmed. Payment: Not issued.',
+      'Select Refund once to issue the exact amount.',
+      'success',
+    )
+  : null;
 
 const customerActionFieldLabels: Record<string, string> = {
   location_or_machine: 'machine or location',
@@ -839,15 +877,6 @@ export const getRefundManagerState = (
     refundCase.refundReadiness?.transactionConfirmed === true ||
     refundCase.hasMatchedNayaxTransaction === true;
   if (transactionConfirmed) {
-    if (refundCase.refundReadiness?.canIssueCardRefund === true) {
-      return state(
-        'ready_to_refund',
-        'Ready to approve',
-        'Transaction confirmed. Payment: Not issued.',
-        'Select Refund to issue the card refund.',
-        'success'
-      );
-    }
     if (refundCase.refundReadiness?.blockReason) {
       return state(
         'refund_unavailable',
