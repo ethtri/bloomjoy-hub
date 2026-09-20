@@ -183,7 +183,7 @@ assert.match(
 );
 assert.match(
   networkSource,
-  /context\.on\('requestfinished',[\s\S]*?if \(ledger\.activeRequests\.delete\(request\)\) publishLedgerChange\(ledger\)[\s\S]*?context\.on\('requestfailed',[\s\S]*?const isExpected =[\s\S]*?safelyExpected\(isExpectedRequestFailure, request\)[\s\S]*?isClosing && safelyExpected\(isExpectedClosingRequestFailure, request\)[\s\S]*?if \(ledger\.activeRequests\.delete\(request\)\)[\s\S]*?if \(!isExpected\) ledger\.failedRequestCount \+= 1[\s\S]*?if \(isExpected\) return/
+  /context\.on\('requestfinished',[\s\S]*?if \(ledger\.activeRequests\.delete\(request\)\) publishLedgerChange\(ledger\)[\s\S]*?context\.on\('requestfailed',[\s\S]*?const isExpected =[\s\S]*?safelyExpected\(isExpectedRequestFailure, request\)[\s\S]*?isClosing && safelyExpected\(isExpectedClosingRequestFailure, request\)[\s\S]*?const failure = isExpected \? null : describeFailedUatRequest\(request, appUrl\)[\s\S]*?if \(ledger\.activeRequests\.delete\(request\)\)[\s\S]*?if \(!isExpected\)[\s\S]*?ledger\.failedRequestCount \+= 1[\s\S]*?ledger\.firstFailedRequest \?\?= failure[\s\S]*?if \(isExpected\) return/
 );
 assert.match(
   networkSource,

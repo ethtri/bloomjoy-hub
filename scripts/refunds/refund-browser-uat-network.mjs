@@ -45,6 +45,7 @@ const ensurePageRequestLedger = (page) => {
     pageRequestLedgers.set(page, {
       activeRequests: new Set(),
       failedRequestCount: 0,
+      firstFailedRequest: null,
       generation: 0,
       listeners: new Set(),
     });
@@ -112,7 +113,10 @@ export const waitForUatPageRequestDrain = async (page, { timeout = 10_000 } = {}
   let stableBoundaryCount = 0;
   while (Date.now() < deadline) {
     if (ledger.failedRequestCount > 0) {
-      throw new Error('refund_uat_request_failed_before_drain');
+      throw new Error([
+        'refund_uat_request_failed_before_drain',
+        ledger.firstFailedRequest,
+      ].filter(Boolean).join(': '));
     }
 
     const remaining = deadline - Date.now();
@@ -466,16 +470,20 @@ export const createTrackedUatBrowser = (
       const isExpected =
         safelyExpected(isExpectedRequestFailure, request) ||
         (isClosing && safelyExpected(isExpectedClosingRequestFailure, request));
+      const failure = isExpected ? null : describeFailedUatRequest(request, appUrl);
       const page = pageForRequest(request);
       if (page) {
         const ledger = ensurePageRequestLedger(attachPage(page));
         if (ledger.activeRequests.delete(request)) {
-          if (!isExpected) ledger.failedRequestCount += 1;
+          if (!isExpected) {
+            ledger.failedRequestCount += 1;
+            ledger.firstFailedRequest ??= failure;
+          }
           publishLedgerChange(ledger);
         }
       }
       if (isExpected) return;
-      record(describeFailedUatRequest(request, appUrl), request);
+      record(failure, request);
     });
     context.on('page', attachPage);
     return new Proxy(context, {
