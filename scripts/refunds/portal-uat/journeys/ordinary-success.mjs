@@ -100,16 +100,8 @@ export const createOrdinarySuccessChecks = ({
         await demoLocation.locator('option', { hasText: /unmapped|unknown/i }).count() === 0
     );
     await demoLocation.selectOption('demo-livermore-pair');
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-email-pilot-hosted-form-desktop.png'),
-      fullPage: true,
-    });
     await page.setViewportSize({ width: 390, height: 844 });
     await demoLocation.selectOption('demo-south-hills-snapcase');
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-email-pilot-hosted-form-mobile.png'),
-      fullPage: false,
-    });
 
     await navigateRefundPortalPage(page, `${appUrl}/refunds/request`, {
       waitUntil: 'domcontentloaded',
@@ -503,10 +495,6 @@ export const createOrdinarySuccessChecks = ({
       .waitFor({ state: 'hidden', timeout: 10000 })
       .catch(() => undefined);
     await settleRefundPortalPage(page);
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-selected-nayax-transaction-desktop.png'),
-      fullPage: true,
-    });
     await page.setViewportSize({ width: 390, height: 844 });
     await transactionEvidenceDisclosure.click();
     await selectedTransactionEvidence.scrollIntoViewIfNeeded();
@@ -521,10 +509,6 @@ export const createOrdinarySuccessChecks = ({
       ),
       JSON.stringify({ mobileEvidenceBox, mobileCopyButtonBox })
     );
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-selected-nayax-transaction-mobile.png'),
-      fullPage: true,
-    });
     await transactionEvidenceDisclosure.click();
     await page.setViewportSize({ width: 1440, height: 1000 });
     await settleRefundPortalPage(page);
@@ -704,10 +688,6 @@ export const createOrdinarySuccessChecks = ({
       'Keyboard focus is trapped inside the payment confirmation',
       await confirmationDialog.evaluate((dialog) => dialog.contains(document.activeElement))
     );
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-portal-uat-confirmation.png'),
-      fullPage: false,
-    });
 
     await page.getByRole('button', { name: 'Go back' }).focus();
     await page.keyboard.press('Enter');
@@ -961,10 +941,6 @@ export const createOrdinarySuccessChecks = ({
       .waitFor({ state: 'hidden', timeout: 10000 })
       .catch(() => undefined);
     await settleRefundPortalPage(longQueuePage);
-    await longQueuePage.screenshot({
-      path: path.join(artifactDir, 'refund-manager-long-queue-desktop.png'),
-      fullPage: false,
-    });
     await closeRefundPortalContext(longQueueContext);
   };
 
@@ -1180,10 +1156,6 @@ export const createOrdinarySuccessChecks = ({
         dirtyDialogMetrics.discard?.scrollWidth <= dirtyDialogMetrics.discard?.clientWidth,
       JSON.stringify(dirtyDialogMetrics)
     );
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-unsaved-text-mobile.png'),
-      fullPage: false,
-    });
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.keyboard.press('Enter');
     await page.getByTestId('refund-unsaved-text-dialog').waitFor({ state: 'hidden', timeout: 10000 });
@@ -1425,10 +1397,6 @@ export const createOrdinarySuccessChecks = ({
       JSON.stringify(recoveryButtonLayout)
     );
     await page.getByTestId('refund-gmail-latest-note-header').scrollIntoViewIfNeeded();
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-portal-gmail-draft-mobile.png'),
-      fullPage: false,
-    });
     recorder.assert(
       'No browser console/page errors during Gmail draft QA pass',
       getUatPageFailures(page, consoleErrors).length === 0,
@@ -1631,10 +1599,6 @@ export const createOrdinarySuccessChecks = ({
 
     await page.waitForTimeout(4500);
 
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-portal-uat-cash-desktop.png'),
-      fullPage: true,
-    });
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByTestId('refund-cash-workbench').scrollIntoViewIfNeeded();
@@ -1666,10 +1630,6 @@ export const createOrdinarySuccessChecks = ({
         cashPrimaryActionLayout.scrollHeight <= cashPrimaryActionLayout.clientHeight + 1,
       JSON.stringify(cashPrimaryActionLayout)
     );
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-portal-uat-cash-mobile.png'),
-      fullPage: true,
-    });
 
     await page.setViewportSize({ width: 1440, height: 1000 });
     const completionResponse = page.waitForResponse((response) =>
@@ -1813,7 +1773,6 @@ export const createOrdinarySuccessChecks = ({
           await page.getByRole('button', { name: /^Waiting for customer 1$/ }).isVisible() &&
           await page.getByRole('button', { name: /^Done 1$/ }).isVisible()
       );
-      await page.screenshot({ path: path.join(artifactDir, 'refund-manager-queue-desktop.png'), fullPage: true });
       await page.setViewportSize({ width: 390, height: 844 });
       await page.evaluate(() => { document.documentElement.style.zoom = '2'; });
       const mobileActionNeededFilter = page.getByRole('button', { name: /^Action needed 1$/ });
@@ -1844,7 +1803,6 @@ export const createOrdinarySuccessChecks = ({
           !mobileQueueSignals.horizontalOverflow,
         JSON.stringify(mobileQueueSignals)
       );
-      await page.screenshot({ path: path.join(artifactDir, 'refund-manager-queue-mobile-200-percent.png'), fullPage: true });
       await page.evaluate(() => { document.documentElement.style.zoom = ''; });
       await page.setViewportSize({ width: 1440, height: 1000 });
 
@@ -1930,16 +1888,8 @@ export const createOrdinarySuccessChecks = ({
           (await customerFactEvidence.innerText()).includes('physical-card digits') &&
           (await customerFactEvidence.innerText()).includes('fact version 2')
       );
-      await page.screenshot({
-        path: path.join(artifactDir, 'refund-manager-confirmed-ready-desktop.png'),
-        fullPage: true,
-      });
       await page.setViewportSize({ width: 390, height: 844 });
       await customerFactEvidence.scrollIntoViewIfNeeded();
-      await page.screenshot({
-        path: path.join(artifactDir, 'refund-manager-confirmed-ready-mobile.png'),
-        fullPage: false,
-      });
       await page.setViewportSize({ width: 1440, height: 1000 });
 
       await page.getByRole('button', { name: /Done/ }).click();
@@ -1948,10 +1898,6 @@ export const createOrdinarySuccessChecks = ({
         'Demo visual review completed cash case appears under Done',
         (await page.getByText('RF-UAT-CASH').count()) > 0
       );
-      await page.screenshot({
-        path: path.join(artifactDir, 'refund-portal-demo-fallback.png'),
-        fullPage: true,
-      });
       recorder.assert(
         'Explicit demo mode does not fetch live refund overview RPC data',
         !rpcCalls.includes('admin_get_refund_operations_overview'),
@@ -2204,10 +2150,6 @@ export const createOrdinarySuccessChecks = ({
               ].includes(name)),
             JSON.stringify({ functionCalls, routeText: await deliveryRoute.innerText() }),
           );
-          await page.screenshot({
-            path: path.join(artifactDir, 'refund-customer-message-official-sender-desktop.png'),
-            fullPage: false,
-          });
           await page.setViewportSize({ width: 390, height: 844 });
           await deliveryRoute.scrollIntoViewIfNeeded();
           const mobileRouteVisible = await deliveryRoute.isVisible();
@@ -2223,10 +2165,6 @@ export const createOrdinarySuccessChecks = ({
               mobileLayoutFits,
             JSON.stringify({ mobileRouteVisible, mobileSendBox, mobileLayoutFits }),
           );
-          await page.screenshot({
-            path: path.join(artifactDir, 'refund-customer-message-official-sender-mobile.png'),
-            fullPage: false,
-          });
           await page.setViewportSize({ width: 1440, height: 1000 });
           await sendCorrectionRequest.click();
           await page.waitForTimeout(100);
@@ -2262,10 +2200,6 @@ export const createOrdinarySuccessChecks = ({
               ),
           );
         }
-        await page.screenshot({
-          path: path.join(artifactDir, `refund-portal-uat-customer-outreach-${scenario.state}${elevated ? '-operations' : ''}.png`),
-          fullPage: false,
-        });
         await closeRefundPortalContext(context);
       }
     }

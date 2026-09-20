@@ -312,10 +312,6 @@ export const createAuthorizationChecks = ({
         JSON.stringify(systemQueueResponse)
       );
 
-      await page.screenshot({
-        path: path.join(artifactDir, `refund-portal-uat-${scenario.slug}-single-manager-confirmation.png`),
-        fullPage: true,
-      });
       recorder.assert(
         `${scenario.name} single-manager flow reports no browser errors`,
         getUatPageFailures(page, consoleErrors).length === 0,
@@ -382,10 +378,6 @@ export const createAuthorizationChecks = ({
         mobileOverflow.bodyScrollWidth <= mobileOverflow.innerWidth + 1,
       JSON.stringify(mobileOverflow)
     );
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-acknowledgement-recovery-mobile.png'),
-      fullPage: false,
-    });
 
     await page.setViewportSize({ width: 1440, height: 1000 });
     await disposition.click();
@@ -412,10 +404,6 @@ export const createAuthorizationChecks = ({
         !(await page.locator('body').innerText()).includes('Acknowledgement needs review') &&
         (await page.locator('body').innerText()).includes('Checking transactions')
     );
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-acknowledgement-recovery-resolved.png'),
-      fullPage: false,
-    });
 
     await closeRefundPortalContext(context);
   };
@@ -496,10 +484,6 @@ export const createAuthorizationChecks = ({
         mobileOverflow.bodyScrollWidth <= mobileOverflow.innerWidth + 1,
       JSON.stringify(mobileOverflow)
     );
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-customer-locale-correction-mobile.png'),
-      fullPage: false,
-    });
 
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.getByTestId('refund-customer-locale-select').selectOption('es');
@@ -529,10 +513,6 @@ export const createAuthorizationChecks = ({
     );
 
     await page.getByTestId('refund-customer-locale-current').scrollIntoViewIfNeeded();
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-customer-locale-correction-saved.png'),
-      fullPage: false,
-    });
 
     await page.getByTestId('refund-activity-history-summary').click();
     const messageHistory = page.getByText('Customer messages (1)', { exact: true });
@@ -614,10 +594,6 @@ export const createAuthorizationChecks = ({
         mobileOverflow.bodyScrollWidth <= mobileOverflow.innerWidth + 1,
       JSON.stringify(mobileOverflow)
     );
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-internal-test-disposition-mobile.png'),
-      fullPage: false,
-    });
 
     const confirmation = page.getByTestId('refund-internal-test-confirmation-dialog');
     for (const viewport of [
@@ -714,10 +690,6 @@ export const createAuthorizationChecks = ({
         (await confirmation.innerText()).includes('Customer messages, refunds, reporting adjustments, reminders, and customer SLA escalation') &&
         (await confirmation.innerText()).includes('Existing evidence and message history remain in the archive')
     );
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-internal-test-confirmation-desktop.png'),
-      fullPage: false,
-    });
     await page.getByTestId('refund-confirm-internal-test-classification').click();
     await page.getByText('More details', { exact: true }).click();
     const archiveButton = page.getByRole('button', { name: /^View archive 1$/ });
@@ -751,17 +723,9 @@ export const createAuthorizationChecks = ({
         rpcCalls.filter((name) => name === 'admin_classify_refund_case_internal_test').length === 1,
       JSON.stringify({ classificationBodies, functionCalls, rpcCalls })
     );
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-internal-test-archive-desktop.png'),
-      fullPage: false,
-    });
 
     await page.setViewportSize({ width: 390, height: 844 });
     await archiveSummary.scrollIntoViewIfNeeded();
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-internal-test-archive-mobile.png'),
-      fullPage: false,
-    });
 
     await closeRefundPortalContext(context);
   };
@@ -802,10 +766,6 @@ export const createAuthorizationChecks = ({
         rpcCalls.every((name) => NAVIGATION_READ_ONLY_RPCS.has(name)),
       JSON.stringify({ functionCalls, rpcCalls })
     );
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-inbound-case-link-review-desktop.png'),
-      fullPage: false,
-    });
 
     await page.setViewportSize({ width: 390, height: 844 });
     await review.scrollIntoViewIfNeeded();
@@ -821,10 +781,6 @@ export const createAuthorizationChecks = ({
         mobileLayout.bodyScrollWidth <= mobileLayout.innerWidth + 1,
       JSON.stringify(mobileLayout)
     );
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-inbound-case-link-review-mobile.png'),
-      fullPage: false,
-    });
 
     await closeRefundPortalContext(context);
   };

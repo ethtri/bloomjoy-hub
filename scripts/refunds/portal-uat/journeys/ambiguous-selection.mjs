@@ -142,20 +142,12 @@ const runNayaxLookupNoticeChecks = async ({
   );
   const automaticLookupGuidance = page.getByTestId('refund-manager-state');
   await automaticLookupGuidance.scrollIntoViewIfNeeded();
-  await page.screenshot({
-    path: path.join(artifactDir, 'refund-automatic-nayax-ready-desktop.png'),
-    fullPage: false,
-  });
   await page.setViewportSize({ width: 390, height: 844 });
   await automaticLookupGuidance.scrollIntoViewIfNeeded();
   recorder.assert(
     'Automatic lookup guidance remains usable without narrow-width overflow',
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
   );
-  await page.screenshot({
-    path: path.join(artifactDir, 'refund-automatic-nayax-ready-mobile.png'),
-    fullPage: false,
-  });
   await page.setViewportSize({ width: 1440, height: 1000 });
   evidence.primaryCheckLookupCallCountAfter = functionCalls.filter(
     (name) => name === 'nayax-transaction-lookup'
@@ -191,20 +183,12 @@ const runNayaxLookupNoticeChecks = async ({
     'Nayax setup notice does not expose raw provider IDs',
     !(await page.locator('body').innerText()).includes('providerTransactionId')
   );
-  await page.screenshot({
-    path: path.join(artifactDir, 'refund-portal-uat-setup-needed.png'),
-    fullPage: false,
-  });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByTestId('nayax-transaction-status').scrollIntoViewIfNeeded();
   recorder.assert(
     'Internal Nayax account-scope recovery remains readable on mobile',
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
   );
-  await page.screenshot({
-    path: path.join(artifactDir, 'refund-nayax-account-scope-mobile.png'),
-    fullPage: true,
-  });
   await page.setViewportSize({ width: 1440, height: 1000 });
 
   const callsBeforeManualPortalDemo = functionCalls.length;
@@ -230,19 +214,11 @@ const runNayaxLookupNoticeChecks = async ({
     'Hiding the manual provider path makes no provider or official-action call',
     functionCalls.length === callsBeforeManualPortalDemo
   );
-  await page.screenshot({
-    path: path.join(artifactDir, 'refund-portal-uat-routine-manager-desktop.png'),
-    fullPage: false,
-  });
   await page.setViewportSize({ width: 390, height: 844 });
   recorder.assert(
     'Routine manager queue remains usable without mobile overflow',
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
   );
-  await page.screenshot({
-    path: path.join(artifactDir, 'refund-portal-uat-routine-manager-mobile.png'),
-    fullPage: false,
-  });
 
   await closeRefundPortalContext(context);
 };
@@ -311,10 +287,6 @@ const runApiUnavailableCaseEvidenceChecks = async ({
     }
     window.scrollTo(0, 0);
   });
-  await page.screenshot({
-    path: path.join(artifactDir, 'refund-adam-api-pending-case-desktop.png'),
-    fullPage: true,
-  });
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -326,10 +298,6 @@ const runApiUnavailableCaseEvidenceChecks = async ({
       (await page.getByTestId('manual-nayax-evidence-form').count()) === 0 &&
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
   );
-  await page.screenshot({
-    path: path.join(artifactDir, 'refund-adam-api-pending-case-mobile.png'),
-    fullPage: true,
-  });
 
   await closeRefundPortalContext(context);
 };
@@ -374,10 +342,6 @@ const runManagerClarityChecks = async ({
         exact: true,
       }).isVisible()
   );
-  await clarityPage.screenshot({
-    path: path.join(artifactDir, 'refund-manager-clarity-ask-desktop.png'),
-    fullPage: true,
-  });
 
   await clarityPage.setViewportSize({ width: 640, height: 900 });
   await askAction.scrollIntoViewIfNeeded();
@@ -403,10 +367,6 @@ const runManagerClarityChecks = async ({
       ),
     JSON.stringify(askActionBox)
   );
-  await clarityPage.screenshot({
-    path: path.join(artifactDir, 'refund-manager-clarity-ask-200-percent-reflow.png'),
-    fullPage: true,
-  });
 
   await clarityPage.setViewportSize({ width: 1440, height: 1000 });
   await clarityPage.getByRole('button', { name: /^Waiting for customer 1$/ }).click();
@@ -510,10 +470,6 @@ const runManagerClarityChecks = async ({
       await queueCase(pollingPage, 'RF-UAT-DRAFT-AMBIGUOUS').isVisible() &&
       await pollingPage.getByTestId('refund-gmail-ask-for-details').isEnabled()
   );
-  await pollingPage.screenshot({
-    path: path.join(artifactDir, 'refund-manager-clarity-cached-read-delay.png'),
-    fullPage: true,
-  });
 
   await waitForRefundOverviewReadCount(pollingPage, pollingReads, 4);
   await pollingStatus.getByText('Refund information is up to date.', { exact: true })
@@ -1441,10 +1397,6 @@ const runNayaxLookupStatusMatrixChecks = async ({
           (await page.getByTestId('refund-manager-next-step').innerText()).includes('Wait for the customer to reply'),
         functionCalls.join(', ')
       );
-      await page.screenshot({
-        path: path.join(artifactDir, 'refund-portal-uat-wallet-waiting-on-customer.png'),
-        fullPage: false,
-      });
       await closeRefundPortalContext(context);
       continue;
     } else {
@@ -1535,10 +1487,6 @@ const runNayaxLookupStatusMatrixChecks = async ({
           ].includes(name)),
         JSON.stringify({ functionCalls, lookupBodies })
       );
-      await page.screenshot({
-        path: path.join(artifactDir, 'refund-incomplete-history-refresh-desktop.png'),
-        fullPage: true,
-      });
     }
     if (scenario.expectedIncompleteHistoryFallback) {
       const fallback = page.getByTestId('nayax-incomplete-history-fallback');
@@ -1563,10 +1511,6 @@ const runNayaxLookupStatusMatrixChecks = async ({
           layout.documentWidth <= layout.viewportWidth + 1,
         JSON.stringify({ fallbackBox, layout })
       );
-      await page.screenshot({
-        path: path.join(artifactDir, 'refund-incomplete-history-fallback-mobile.png'),
-        fullPage: true,
-      });
     }
     if (scenario.expectedEmptyCandidateState) {
       const selectedQueueRow = queueCase(page, 'RF-UAT-PENDING')
@@ -1841,10 +1785,6 @@ const runNayaxLookupStatusMatrixChecks = async ({
           Object.values(preparationChecks).every(Boolean),
           JSON.stringify({ preparationChecks, preparationText, preferredCandidateText, retainedBaseCandidateText })
         );
-        await page.screenshot({
-          path: path.join(artifactDir, 'refund-prepare-manager-review-desktop.png'),
-          fullPage: true,
-        });
         await page.setViewportSize({ width: 390, height: 844 });
         await preparation.scrollIntoViewIfNeeded();
         const mobilePreparationBox = await preparation.boundingBox();
@@ -1855,10 +1795,6 @@ const runNayaxLookupStatusMatrixChecks = async ({
             Boolean(mobileSaveBox && mobileSaveBox.height >= 44) &&
             await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
         );
-        await page.screenshot({
-          path: path.join(artifactDir, 'refund-prepare-manager-review-mobile.png'),
-          fullPage: true,
-        });
         await page.setViewportSize({ width: 1440, height: 1000 });
         await saveForReview.click();
         await page.getByText('Transaction saved for manager review', { exact: true })
@@ -2005,10 +1941,6 @@ const runNayaxLookupStatusMatrixChecks = async ({
             'The single refund confirmation remains usable without mobile overflow',
             await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
           );
-          await page.screenshot({
-            path: path.join(artifactDir, 'refund-one-manager-decision-mobile.png'),
-            fullPage: false,
-          });
 
           const confirmRefund = page.getByTestId('refund-confirm-nayax-refund');
           await confirmRefund.click();
@@ -2060,10 +1992,6 @@ const runNayaxLookupStatusMatrixChecks = async ({
           !functionCalls.includes('nayax-card-refund') &&
           !functionCalls.includes('refund-case-message-send')
       );
-      await page.screenshot({
-        path: path.join(artifactDir, 'refund-simple-journey-machine-disabled-desktop.png'),
-        fullPage: false,
-      });
 
       simpleJourneyState.machineActivated = true;
       await reloadRefundPortalPage(page);
@@ -2096,10 +2024,6 @@ const runNayaxLookupStatusMatrixChecks = async ({
         'The post-activation refund confirmation remains usable without mobile overflow',
         await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
       );
-      await page.screenshot({
-        path: path.join(artifactDir, 'refund-one-manager-decision-mobile.png'),
-        fullPage: false,
-      });
       const confirmRefund = page.getByTestId('refund-confirm-nayax-refund');
       await confirmRefund.click();
       recorder.assert(
@@ -2133,10 +2057,6 @@ const runNayaxLookupStatusMatrixChecks = async ({
         .filter({ hasText: /^(Case complete|Completed)$/ });
       await terminalAction.waitFor({ state: 'visible', timeout: 10000 });
       const terminalActionText = (await terminalAction.innerText()).trim();
-      await page.screenshot({
-        path: path.join(artifactDir, 'refund-simple-journey-resumed-desktop.png'),
-        fullPage: false,
-      });
       await page.setViewportSize({ width: 390, height: 844 });
       recorder.assert(
         'Reloaded completed refund remains clear without mobile overflow',
@@ -2146,10 +2066,6 @@ const runNayaxLookupStatusMatrixChecks = async ({
           await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
         JSON.stringify({ terminalActionText })
       );
-      await page.screenshot({
-        path: path.join(artifactDir, 'refund-simple-journey-resumed-mobile.png'),
-        fullPage: false,
-      });
       await page.setViewportSize({ width: 1440, height: 1000 });
         recorder.assert(
           'Reload keeps one save, one provider request, and one settled browser path',
@@ -2471,19 +2387,11 @@ const runNayaxLookupStatusMatrixChecks = async ({
       staleFunctionCalls,
     })
   );
-  await stalePage.screenshot({
-    path: path.join(artifactDir, 'refund-manager-stale-evidence-recovery-desktop.png'),
-    fullPage: false,
-  });
   await stalePage.setViewportSize({ width: 390, height: 844 });
   recorder.assert(
     'Durable transaction evidence remains usable on mobile',
     await stalePage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
   );
-  await stalePage.screenshot({
-    path: path.join(artifactDir, 'refund-manager-stale-evidence-recovery-mobile.png'),
-    fullPage: false,
-  });
   await closeRefundPortalContext(staleContext);
 
   const guardedManagerContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
@@ -2563,19 +2471,11 @@ const runNayaxLookupStatusMatrixChecks = async ({
       directRefundActionCount: await blockedPage.getByRole('button', { name: /^Refund \$/i }).count(),
     })
   );
-  await blockedPage.screenshot({
-    path: path.join(artifactDir, 'refund-manager-confirmed-blocked-desktop.png'),
-    fullPage: false,
-  });
   await blockedPage.setViewportSize({ width: 390, height: 844 });
   recorder.assert(
     'Reviewed card-refund block remains clear without mobile overflow',
     await blockedPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
   );
-  await blockedPage.screenshot({
-    path: path.join(artifactDir, 'refund-manager-confirmed-blocked-mobile.png'),
-    fullPage: false,
-  });
   recorder.assert(
     'Unavailable API state makes no approval, provider, or customer call',
     blockedRpcCalls.every((name) => navigationReadOnlyRpcs.has(name)) &&
