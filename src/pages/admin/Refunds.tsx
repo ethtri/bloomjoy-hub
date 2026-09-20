@@ -3055,13 +3055,15 @@ export default function AdminRefundsPage() {
     ? selectedCase?.sunzeCashCorrelation
     : selectedCashCorrelation;
   const selectedCashEvidenceAmountCents =
-    selectedCashCorrelationForReview?.state === 'checking_sales_history'
-      ? undefined
-      : selectedCashCorrelationForReview?.selectedSale?.actualAmountCents;
+    selectedCashCorrelationForReview?.selectedSale?.actualAmountCents;
+  const hasDurableSelectedCashSale = selectedCashCorrelationForReview
+    ? selectedCashCorrelationForReview.selectedSalesFactId !== null
+    : selectedCase?.hasMatchedSalesFact === true;
   const cashCompletionAmountCents = selectedCase?.paymentMethod === 'cash'
     ? resolveCashReviewAmountCents(
         selectedCase.paymentAmountCents,
         selectedCashEvidenceAmountCents,
+        hasDurableSelectedCashSale,
       ) ?? null
     : null;
   const nayaxResolutionDefaultTimezone =

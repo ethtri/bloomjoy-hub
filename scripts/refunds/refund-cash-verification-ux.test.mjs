@@ -27,6 +27,11 @@ test('optional evidence loading keeps the reviewed estimate available', () => {
   assert.doesNotMatch(page, /cashEvidencePending|isCashCorrelationLoaded/);
   assert.match(read('src/lib/refundCashAmount.ts'), /typeof safeEvidenceAmountCents === 'undefined'/);
   assert.match(page, /resolveCashReviewAmountCents\(\s*selectedCase\.paymentAmountCents,\s*selectedCashEvidenceAmountCents/);
+  assert.match(page, /selectedCashCorrelationForReview\?\.selectedSale\?\.actualAmountCents/);
+  assert.match(page, /selectedCashCorrelationForReview\.selectedSalesFactId !== null/);
+  assert.match(page, /: selectedCase\?\.hasMatchedSalesFact === true/);
+  assert.match(page, /selectedCashEvidenceAmountCents,\s*hasDurableSelectedCashSale/);
+  assert.doesNotMatch(page, /selectedCashCorrelationForReview\?\.state === 'checking_sales_history'/);
   assert.match(page, /resolveCashReviewAmountCents\(refundCase\.paymentAmountCents, effectiveCashAmountCents\)/);
   assert.match(evidence, /The manager decision remains available from the reviewed case details/);
 });
