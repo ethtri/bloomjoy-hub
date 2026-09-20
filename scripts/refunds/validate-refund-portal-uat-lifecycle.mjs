@@ -26,10 +26,15 @@ const unknownProviderOutcomeSource = await readFile(
   'utf8'
 );
 const portalSource = `${portalDriverSource}\n${ordinarySuccessSource}\n${ambiguousSelectionSource}\n${duplicateIdempotencySource}\n${authorizationSource}\n${unknownProviderOutcomeSource}`;
-const refundsSource = await readFile(
+const refundsPageSource = await readFile(
   new URL('../../src/pages/admin/Refunds.tsx', import.meta.url),
   'utf8'
 );
+const refundCardManagerDecisionSource = await readFile(
+  new URL('../../src/components/refunds/RefundCardManagerDecisionPanel.tsx', import.meta.url),
+  'utf8'
+);
+const refundsSource = `${refundsPageSource}\n${refundCardManagerDecisionSource}`;
 const pollingSource = await readFile(
   new URL('../../src/lib/refundReadPolling.ts', import.meta.url), 'utf8'
 );

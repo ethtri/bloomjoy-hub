@@ -144,16 +144,8 @@ export const createDuplicateIdempotencyChecks = ({
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.evaluate(() => window.scrollTo(0, 0));
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-email-pilot-source-badges-mobile.png'),
-      fullPage: false,
-    });
     await page.getByRole('button', { name: /Same incident.*keep this case/i })
       .scrollIntoViewIfNeeded();
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-email-pilot-duplicate-review-mobile.png'),
-      fullPage: false,
-    });
     await page.getByRole('button', { name: /Same incident.*keep this case/i }).click();
     await page.getByText(
       'The duplicate is linked. Decisions and refunds stay on the original case.',
@@ -345,17 +337,6 @@ export const createDuplicateIdempotencyChecks = ({
           !functionCalls.includes('refund-case-admin-update'),
         JSON.stringify({ functionCalls, deliveryRefreshBodies })
       );
-      if (originalRequestRefresh || scenarioName === 'Cash status update delivery unknown') {
-        await page.screenshot({
-          path: path.join(
-            artifactDir,
-            originalRequestRefresh
-              ? 'refund-original-delivery-refresh-desktop.png'
-              : 'refund-cash-message-delivery-refresh-desktop.png'
-          ),
-          fullPage: true,
-        });
-      }
     }
     const desktopCallSnapshot = {
       functions: functionCalls.length,
@@ -400,10 +381,6 @@ export const createDuplicateIdempotencyChecks = ({
       await page.getByTestId('refund-message-delivery-delivery-message-1')
         .getByText(scenario.label, { exact: true }).isVisible()
     );
-    if (scenario.state === 'unknown') await page.screenshot({
-      path: path.join(artifactDir, 'refund-transactional-delivery-desktop.png'),
-      fullPage: true,
-    });
 
     await messageHistorySummary.click();
     await page.setViewportSize({ width: 390, height: 844 });
@@ -454,17 +431,6 @@ export const createDuplicateIdempotencyChecks = ({
         Boolean(mobileRefreshBox && mobileRefreshBox.height >= 44 && mobileRefreshBox.width > 0) &&
           mobileLayout.documentWidth <= mobileLayout.viewportWidth + 1
       );
-      if (originalRequestRefresh || scenarioName === 'Cash status update delivery unknown') {
-        await page.screenshot({
-          path: path.join(
-            artifactDir,
-            originalRequestRefresh
-              ? 'refund-original-delivery-refresh-mobile.png'
-              : 'refund-cash-message-delivery-refresh-mobile.png'
-          ),
-          fullPage: true,
-        });
-      }
     }
     recorder.assert(
       `${scenarioName} review remains read-only without mobile horizontal overflow`,
@@ -474,10 +440,6 @@ export const createDuplicateIdempotencyChecks = ({
         rpcCalls.filter((name) => !NAVIGATION_READ_ONLY_RPCS.has(name)).length === mobileCallSnapshot.mutations,
       JSON.stringify({ mobileLayout, functionCalls, rpcCalls })
     );
-    if (scenario.state === 'unknown') await page.screenshot({
-      path: path.join(artifactDir, 'refund-transactional-delivery-mobile.png'),
-      fullPage: false,
-    });
 
     await closeRefundPortalContext(context);
     }

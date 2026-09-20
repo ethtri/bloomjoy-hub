@@ -5,10 +5,12 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import { webcrypto } from 'node:crypto';
 const source=ts.createSourceFile('Refunds.tsx',fs.readFileSync(new URL('../../src/pages/admin/Refunds.tsx',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
+const queuePanelSource=ts.createSourceFile('RefundCaseQueuePanel.tsx',fs.readFileSync(new URL('../../src/components/refunds/RefundCaseQueuePanel.tsx',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
 function load(name,dependencies){
- let initializer;function visit(node){if(ts.isVariableDeclaration(node)&&node.name.getText(source)===name)initializer=node.initializer;ts.forEachChild(node,visit);}visit(source);
+ const handlerSource=name==='refundSearchViewLabel'?queuePanelSource:source;
+ let initializer;function visit(node){if(ts.isVariableDeclaration(node)&&node.name.getText(handlerSource)===name)initializer=node.initializer;ts.forEachChild(node,visit);}visit(handlerSource);
  assert.ok(initializer,`Actual handler ${name} exists`);
- const code=ts.transpile(`const handler=${initializer.getText(source)};globalThis.handler=handler;`,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None});
+ const code=ts.transpile(`const handler=${initializer.getText(handlerSource)};globalThis.handler=handler;`,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None});
  const context=vm.createContext({document:{activeElement:null,getElementById:()=>null},HTMLElement:class {},correctionDialogTriggerRef:{current:null},...dependencies,console,crypto:webcrypto});vm.runInContext(code,context);return context.handler;
 }
 const managerModule = { exports: {} };

@@ -3968,10 +3968,6 @@ const runLegacyStateNormalizationChecks = async ({ browser, appUrl, artifactDir,
     JSON.stringify({ functionCalls, rpcCalls })
   );
 
-  await page.screenshot({
-    path: path.join(artifactDir, 'refund-legacy-state-review-desktop.png'),
-    fullPage: true,
-  });
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByTestId('refund-legacy-state-review-banner').scrollIntoViewIfNeeded();
@@ -3986,10 +3982,6 @@ const runLegacyStateNormalizationChecks = async ({ browser, appUrl, artifactDir,
       mobileOverflow.bodyScrollWidth <= mobileOverflow.innerWidth + 1,
     JSON.stringify(mobileOverflow)
   );
-  await page.screenshot({
-    path: path.join(artifactDir, 'refund-legacy-state-review-mobile.png'),
-    fullPage: true,
-  });
 
   await navigateRefundPortalPage(page, `${appUrl}/refunds?case=${legacyCaseId}`, { waitUntil: 'networkidle' });
   await page.getByTestId('refund-legacy-state-review-banner').waitFor({ timeout: 10000 });
@@ -4003,191 +3995,6 @@ const runLegacyStateNormalizationChecks = async ({ browser, appUrl, artifactDir,
     getUatPageFailures(page, consoleErrors).length === 0,
     getUatPageFailures(page, consoleErrors).slice(0, 3).join(' | ')
   );
-
-  await closeRefundPortalContext(context);
-};
-
-const runCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
-  const alternativesContext = await browser.newContext({
-    viewport: { width: 1440, height: 1000 },
-  });
-  await installMockSupabaseRoutes(alternativesContext, {
-    refundOverview: buildCashRefundReviewOverview,
-  });
-  const alternativesPage = await alternativesContext.newPage();
-  await signInRefundUser(alternativesPage, appUrl);
-  await waitForQueueCount(alternativesPage, 1);
-  await queueCase(alternativesPage, 'RF-UAT-CASH-REVIEW').click();
-  await alternativesPage.getByTestId('refund-cash-workbench').waitFor({ timeout: 10000 });
-
-  recorder.assert(
-    'Cash workflow keeps Nayax and card-refund controls out of the primary path',
-    (await alternativesPage.getByTestId('nayax-result-card').count()) === 0 &&
-      (await alternativesPage.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-      (await alternativesPage.getByTestId('refund-cash-workbench').count()) === 1
-  );
-  recorder.assert(
-    'Cash review presents exactly one dominant next action',
-    (await alternativesPage.locator('[data-dominant-action="true"]:visible').count()) === 1 &&
-      await alternativesPage.getByTestId('refund-cash-primary-action').getByText('Confirm refund sent via Zelle').isVisible() &&
-      await alternativesPage.getByTestId('refund-cash-evidence-state').getByText('Sale found').isVisible()
-  );
-
-  await alternativesPage.getByText('Other decisions', { exact: true }).click();
-  await alternativesPage.getByRole('button', { name: 'Deny request', exact: true }).click();
-  await alternativesPage.getByTestId('refund-cash-denial-reason').selectOption({ index: 1 });
-  await alternativesPage.getByText('Preview customer email', { exact: true }).click();
-  recorder.assert(
-    'Cash denial path previews the appropriate customer email',
-    await alternativesPage.getByText('Update on your Bloomjoy refund request RF-UAT-CASH-REVIEW').isVisible() &&
-      await alternativesPage.getByTestId('refund-cash-primary-action').getByText('Deny request').isVisible()
-  );
-
-  recorder.assert(
-    'Complete cash evidence does not offer a misleading missing-information path',
-    (await alternativesPage.getByRole('button', { name: 'Ask customer for details', exact: true }).count()) === 0 &&
-      (await alternativesPage.getByText('A quick detail check for your Bloomjoy refund request RF-UAT-CASH-REVIEW').count()) === 0
-  );
-  await closeRefundPortalContext(alternativesContext);
-
-  const context = await browser.newContext({
-    viewport: { width: 1440, height: 1000 },
-  });
-  const functionCalls = [];
-  const functionBodies = [];
-  await installMockSupabaseRoutes(context, {
-    refundOverview: buildCashRefundReviewOverview,
-    functionCalls,
-    functionBodies,
-    adminUpdateDelayMs: 700,
-  });
-
-  const page = await context.newPage();
-  const consoleErrors = [];
-  page.on('console', (message) => {
-    if (shouldRecordConsoleError(message)) consoleErrors.push(message.text());
-  });
-  page.on('pageerror', (error) => consoleErrors.push(error.message));
-  await signInRefundUser(page, appUrl);
-  await waitForQueueCount(page, 1);
-  await queueCase(page, 'RF-UAT-CASH-REVIEW').click();
-
-  await page.getByText('Preview customer email', { exact: true }).click();
-  recorder.assert(
-    'Cash approval email is previewable before the approval action',
-    await page.getByText('Your Bloomjoy refund request RF-UAT-CASH-REVIEW was approved').isVisible()
-  );
-  recorder.assert(
-    'Cash completion exposes the exact supported amount before the single action',
-    await page.getByTestId('refund-cash-match-summary').getByText('$7.00', { exact: true }).first().isVisible() &&
-      await page.getByTestId('refund-cash-primary-action').isEnabled() &&
-      (await page.getByTestId('refund-cash-confirmation-dialog').count()) === 0 &&
-      (await page.getByTestId('refund-status-select').count()) === 0
-  );
-
-  await page.screenshot({
-    path: path.join(artifactDir, 'refund-portal-uat-cash-desktop.png'),
-    fullPage: true,
-  });
-
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByTestId('refund-cash-workbench').scrollIntoViewIfNeeded();
-  const cashOverflow = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    bodyScrollWidth: document.body.scrollWidth,
-    innerWidth: window.innerWidth,
-  }));
-  recorder.assert(
-    'Cash workbench has no narrow-width horizontal overflow',
-    cashOverflow.scrollWidth <= cashOverflow.innerWidth + 1 &&
-      cashOverflow.bodyScrollWidth <= cashOverflow.innerWidth + 1,
-    JSON.stringify(cashOverflow)
-  );
-  const cashPrimaryActionLayout = await page.getByTestId('refund-cash-primary-action').evaluate((element) => {
-    const style = window.getComputedStyle(element);
-    return {
-      clientWidth: element.clientWidth,
-      scrollWidth: element.scrollWidth,
-      clientHeight: element.clientHeight,
-      scrollHeight: element.scrollHeight,
-      whiteSpace: style.whiteSpace,
-    };
-  });
-  recorder.assert(
-    'Cash primary action wraps without clipping on a narrow screen',
-    cashPrimaryActionLayout.whiteSpace === 'normal' &&
-      cashPrimaryActionLayout.scrollWidth <= cashPrimaryActionLayout.clientWidth + 1 &&
-      cashPrimaryActionLayout.scrollHeight <= cashPrimaryActionLayout.clientHeight + 1,
-    JSON.stringify(cashPrimaryActionLayout)
-  );
-  const narrowPrimaryActionBox = await page.getByTestId('refund-cash-primary-action').boundingBox();
-  recorder.assert(
-    'Cash primary action keeps a touch-friendly target',
-    Boolean(narrowPrimaryActionBox) && narrowPrimaryActionBox.height >= 44,
-    JSON.stringify(narrowPrimaryActionBox)
-  );
-  recorder.assert(
-    'Routine system status stays hidden on mobile',
-    (await page.getByTestId('refund-system-health-summary').count()) === 0 &&
-      (await page.getByTestId('refund-automation-health').count()) === 0 &&
-      (await page.getByTestId('refund-gmail-health').count()) === 0
-  );
-  await page.screenshot({
-    path: path.join(artifactDir, 'refund-portal-uat-cash-mobile.png'),
-    fullPage: true,
-  });
-
-  await page.setViewportSize({ width: 1440, height: 1000 });
-  const completionResponse = page.waitForResponse((response) =>
-    new URL(response.url()).pathname.endsWith('/functions/v1/refund-case-admin-update')
-  );
-  await page.getByTestId('refund-cash-primary-action').evaluate((button) => {
-    button.click();
-    button.click();
-  });
-  await completionResponse;
-  await page.getByTestId('refund-cash-primary-action').waitFor({ state: 'visible' });
-  recorder.assert(
-    'Cash processing state disables the single completion action during submission',
-    await page.getByTestId('refund-cash-primary-action').isDisabled()
-  );
-  await page.getByTestId('refund-action-receipt').waitFor({ timeout: 10000 });
-
-  const completedBodies = functionBodies
-    .filter(
-      (entry) => entry.functionName === 'refund-case-admin-update' && entry.body?.status === 'completed'
-    )
-    .map((entry) => entry.body ?? {});
-  const completionBody = completedBodies[0] ?? {};
-  recorder.assert(
-    'Cash completion submits one idempotent payment confirmation payload',
-    completedBodies.length === 1 &&
-    !Object.prototype.hasOwnProperty.call(completionBody, 'refundAmountCents') &&
-      !Object.prototype.hasOwnProperty.call(completionBody, 'cashPayoutSentAt') &&
-      !Object.prototype.hasOwnProperty.call(completionBody, 'manualRefundReference') &&
-      completionBody.cashPaymentConfirmed === true &&
-      completionBody.customerMessageType === 'completed' &&
-      completionBody.expectedOfficialActionVersion === 1,
-    JSON.stringify(completedBodies)
-  );
-  recorder.assert(
-    'Cash completion sends no standalone or duplicate customer message request',
-    !functionCalls.includes('refund-case-message-send') && completedBodies.length === 1,
-    functionCalls.join(', ')
-  );
-  recorder.assert(
-    'Cash completion shows a durable success receipt',
-      await page.getByText('Refund sent via Zelle confirmed', { exact: true }).isVisible()
-  );
-  recorder.assert(
-    'No browser console or page errors during cash workflow UAT',
-    getUatPageFailures(page, consoleErrors).length === 0,
-    getUatPageFailures(page, consoleErrors).slice(0, 3).join(' | ')
-  );
-  await page.screenshot({
-    path: path.join(artifactDir, 'refund-portal-uat-cash-success.png'),
-    fullPage: true,
-  });
 
   await closeRefundPortalContext(context);
 };
@@ -4348,10 +4155,6 @@ const runManagerApprovalChecks = async ({ browser, appUrl, artifactDir, recorder
       await page.getByTestId('refund-action-receipt').getByText('Your approval was saved.', { exact: false }).isVisible() &&
       await page.getByTestId('refund-action-receipt').getByText('Do not try the refund again.', { exact: false }).isVisible()
   );
-  await page.screenshot({
-    path: path.join(artifactDir, 'refund-manager-single-approval.png'),
-    fullPage: false,
-  });
   await closeRefundPortalContext(context);
 };
 

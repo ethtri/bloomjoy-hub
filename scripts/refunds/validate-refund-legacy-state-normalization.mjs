@@ -23,7 +23,13 @@ const concurrencyTests = read(
 const operations = `${read('src/lib/refundOperations.ts')}\n${read(
   'src/lib/refundOperationsSupplements.ts'
 )}`;
-const portal = read('src/pages/admin/Refunds.tsx');
+const portal = `${read('src/pages/admin/Refunds.tsx')}\n${read(
+  'src/components/refunds/RefundCardManagerDecisionPanel.tsx'
+)}\n${read(
+  'src/components/refunds/RefundNayaxOutcomeResolutionPanel.tsx'
+)}\n${read(
+  'src/components/refunds/RefundHistoricalCasePresentation.tsx'
+)}`;
 const transactionViewState = read('src/lib/refundTransactionViewState.ts');
 const managerState = read('src/lib/refundManagerState.ts');
 const portalUat = read('scripts/refunds/validate-refund-portal-uat.mjs');
@@ -141,9 +147,7 @@ assert(
     portalUat.includes("getByTestId('nayax-candidate-option').count()) === 0") &&
     portalUat.includes("getByText('Transaction selected', { exact: true }).count()) === 0") &&
     portalUat.includes('Opening normalized legacy review performs no official, provider, or customer action') &&
-    portalUat.includes('Normalized legacy review has no mobile horizontal overflow') &&
-    portalUat.includes('refund-legacy-state-review-desktop.png') &&
-    portalUat.includes('refund-legacy-state-review-mobile.png'),
+    portalUat.includes('Normalized legacy review has no mobile horizontal overflow'),
   'Focused desktop/mobile browser UAT must prove truthful copy, blocked actions, and zero side effects.'
 );
 

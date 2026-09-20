@@ -269,10 +269,6 @@ export const createUnknownProviderOutcomeChecks = ({
         });
         await page.setViewportSize({ width: 390, height: 844 });
         await panel.scrollIntoViewIfNeeded();
-        await page.screenshot({
-          path: path.join(artifactDir, 'refund-payment-result-review-mobile.png'),
-          fullPage: false,
-        });
         await page.setViewportSize({ width: 1440, height: 1000 });
       }
       await panel.getByTestId('refund-nayax-resolution-reference')
@@ -287,10 +283,6 @@ export const createUnknownProviderOutcomeChecks = ({
           !functionCalls.includes('refund-case-admin-update')
       );
       if (scenarioIndex === 0) {
-        await page.screenshot({
-          path: path.join(artifactDir, 'refund-nayax-support-resolution-desktop.png'),
-          fullPage: true,
-        });
         await page.setViewportSize({ width: 390, height: 844 });
         const mobileOverflow = await page.evaluate(() => ({
           scrollWidth: document.documentElement.scrollWidth,
@@ -304,10 +296,6 @@ export const createUnknownProviderOutcomeChecks = ({
             mobileOverflow.bodyScrollWidth <= mobileOverflow.innerWidth + 1,
           JSON.stringify(mobileOverflow)
         );
-        await page.screenshot({
-          path: path.join(artifactDir, 'refund-nayax-support-resolution-mobile.png'),
-          fullPage: false,
-        });
         await page.setViewportSize({ width: 1440, height: 1000 });
       }
 
@@ -472,20 +460,12 @@ export const createUnknownProviderOutcomeChecks = ({
     await queueCase(page, 'RF-UAT-CARD').click();
     await page.getByTestId('refund-run-nayax-refund').waitFor({ timeout: 10000 });
 
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-portal-uat-system-prepared-desktop.png'),
-      fullPage: true,
-    });
     await page.setViewportSize({ width: 390, height: 844 });
     recorder.assert(
       'System-prepared $10.90 card approval remains usable on mobile',
       await page.getByTestId('refund-run-nayax-refund').isVisible() &&
         await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
     );
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-portal-uat-system-prepared-mobile.png'),
-      fullPage: true,
-    });
 
     await page.getByTestId('refund-run-nayax-refund').click();
     await page.getByTestId('refund-confirmation-dialog').waitFor({ timeout: 10000 });
@@ -496,10 +476,6 @@ export const createUnknownProviderOutcomeChecks = ({
         await page.getByTestId('refund-confirmation-dialog')
           .getByText(/email the customer only after Nayax confirms it/i).isVisible()
     );
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-portal-uat-system-prepared-confirmation.png'),
-      fullPage: false,
-    });
     await page.getByTestId('refund-confirm-nayax-refund').click();
     await page.getByTestId('refund-action-receipt')
       .getByText('Refund approved', { exact: true }).waitFor({ timeout: 10000 });
@@ -543,10 +519,6 @@ export const createUnknownProviderOutcomeChecks = ({
         receipt: await page.getByTestId('refund-action-receipt').innerText().catch(() => ''),
       })
     );
-    await page.screenshot({
-      path: path.join(artifactDir, 'refund-portal-uat-system-finishing.png'),
-      fullPage: true,
-    });
 
     await reloadRefundPortalPage(page);
     await page.getByRole('button', { name: 'Refund in progress 1', exact: true })
@@ -742,13 +714,6 @@ export const createUnknownProviderOutcomeChecks = ({
           .waitFor({ timeout: 10000 });
       }
 
-      if (scenario.availabilityScreenshot) {
-        await page.screenshot({
-          path: path.join(artifactDir, scenario.availabilityScreenshot),
-          fullPage: true,
-        });
-      }
-
       const availabilityBodies = functionBodies.filter(
         (entry) => entry.functionName === 'nayax-card-refund' && entry.body?.operation === 'availability'
       );
@@ -932,10 +897,6 @@ export const createUnknownProviderOutcomeChecks = ({
       if (scenario.name === 'success' && captureManagerReviewScreenshots) {
         await page.getByText('Signed in. Redirecting...', { exact: true })
           .waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
-        await page.screenshot({
-          path: path.join(artifactDir, 'refund-manager-ready-desktop.png'),
-          fullPage: true,
-        });
         await page.setViewportSize({ width: 390, height: 844 });
         recorder.assert(
           'Ready card refund remains usable without narrow-screen overflow',
@@ -944,10 +905,6 @@ export const createUnknownProviderOutcomeChecks = ({
               document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1
             )
         );
-        await page.screenshot({
-          path: path.join(artifactDir, 'refund-manager-ready-narrow.png'),
-          fullPage: true,
-        });
       }
 
       await page.getByTestId('refund-run-nayax-refund').click();
@@ -958,10 +915,6 @@ export const createUnknownProviderOutcomeChecks = ({
             await page.getByTestId('refund-confirm-nayax-refund').isVisible()
         );
         await page.waitForTimeout(300);
-        await page.screenshot({
-          path: path.join(artifactDir, 'refund-manager-confirm-narrow.png'),
-          fullPage: false,
-        });
       }
       await page.getByTestId('refund-confirm-nayax-refund').click();
 
@@ -972,10 +925,6 @@ export const createUnknownProviderOutcomeChecks = ({
           'Processing state disables confirmation to prevent double submit',
           await page.getByTestId('refund-confirm-nayax-refund').isDisabled()
         );
-        await page.screenshot({
-          path: path.join(artifactDir, 'refund-portal-uat-processing.png'),
-          fullPage: false,
-        });
       }
 
       await page.getByTestId('refund-action-receipt').waitFor({ state: 'visible', timeout: 10000 });

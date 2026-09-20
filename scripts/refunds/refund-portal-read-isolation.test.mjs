@@ -31,6 +31,10 @@ const pageSource = fs.readFileSync(
   new URL('../../src/pages/admin/Refunds.tsx', import.meta.url),
   'utf8',
 );
+const candidateReviewSource = fs.readFileSync(
+  new URL('../../src/components/refunds/RefundTransactionCandidateReview.tsx', import.meta.url),
+  'utf8',
+);
 const supplementSource = fs.readFileSync(
   new URL('../../src/lib/refundOperationsSupplements.ts', import.meta.url),
   'utf8',
@@ -290,10 +294,14 @@ test('one malformed lifecycle cannot discard the queue or revoke server capabili
   assert.match(pageSource, /canSelectCandidate:\s*candidateSelectionAuthorized/);
   assert.match(
     pageSource,
-    /!candidateSelectionAuthorized[\s\S]*You can review this result, but your current case access does not allow you to save it\./,
+    /canAccessCandidateSelection={candidateSelectionAuthorized}/,
+  );
+  assert.match(
+    candidateReviewSource,
+    /!canAccessCandidateSelection[\s\S]*You can review this result, but your current case access does not allow you to save it\./,
   );
   assert.doesNotMatch(
-    pageSource,
+    `${pageSource}\n${candidateReviewSource}`,
     /\(selectedCase\.canSelectNayaxCandidate \?\? selectedCase\.canPerformOfficialAction\) !== false/,
   );
   assert.match(pageSource, /data-testid="refund-lifecycle-read-status"/);

@@ -97,7 +97,8 @@ jobs:
           npm run dev:uat > /tmp/refund-uat-server.log 2>&1 &
           echo $! > /tmp/refund-uat-server.pid
           for attempt in {1..30}; do
-            if curl --fail --silent --show-error http://127.0.0.1:8081/ > /dev/null; then
+            if curl --fail --silent --show-error http://127.0.0.1:8081/ > /dev/null &&
+              test -s node_modules/.vite/deps/_metadata.json; then
               exit 0
             fi
             sleep 1

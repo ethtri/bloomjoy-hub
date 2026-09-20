@@ -33,6 +33,8 @@ test('source surfaces do not retain the overstated customer-updated phrase', () 
     '../../src/lib/refundManagerState.ts',
     '../../src/lib/refundLifecyclePresentation.ts',
     '../../src/pages/admin/Refunds.tsx',
+    '../../src/components/refunds/RefundCustomerDeliveryPanels.tsx',
+    '../../src/components/refunds/RefundCustomerMessageHistory.tsx',
   ]) {
     assert.doesNotMatch(fs.readFileSync(new URL(file, import.meta.url), 'utf8'), /customer updated/i);
   }
@@ -73,9 +75,17 @@ test('completion history keeps its neutral application record beside per-message
     new URL('../../src/pages/admin/Refunds.tsx', import.meta.url),
     'utf8',
   );
+  const history = fs.readFileSync(
+    new URL('../../src/components/refunds/RefundCustomerMessageHistory.tsx', import.meta.url),
+    'utf8',
+  );
   assert.match(
     refunds,
-    /message\.deliveryTransport === 'resend' && \(\s*<Badge[\s\S]*?data-testid=\{`refund-message-delivery-\$\{message\.id\}`\}[\s\S]*?transactionalDeliveryLabel\(message\.deliveryState\)/,
+    /deliveryBadge: message\.deliveryTransport === 'resend'[\s\S]*?testId: `refund-message-delivery-\$\{message\.id\}`[\s\S]*?label: deliveryLabel/,
   );
-  assert.doesNotMatch(refunds, /message\.deliveryTransport === 'resend' && !completionHistory/);
+  assert.match(
+    history,
+    /row\.deliveryBadge && \([\s\S]*?data-testid=\{row\.deliveryBadge\.testId\}[\s\S]*?\{row\.deliveryBadge\.label\}/,
+  );
+  assert.doesNotMatch(`${refunds}\n${history}`, /message\.deliveryTransport === 'resend' && !completionHistory/);
 });

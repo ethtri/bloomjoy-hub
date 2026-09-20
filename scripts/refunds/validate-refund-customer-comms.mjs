@@ -19,7 +19,14 @@ const includesAll = (text, needles) => needles.every((needle) => text.includes(n
 const run = async () => {
   const [
     adminUpdate,
-    portalPage,
+    portalPageSource,
+    refundCaseQueuePanel,
+    refundCardManagerDecisionPanel,
+    refundCustomerCommunicationActions,
+    refundCustomerDeliveryPanels,
+    refundCustomerMessageHistory,
+    refundHistoricalCasePresentation,
+    refundExceptionalRecoveryPanels,
     publicRequestPage,
     portalUatDriver,
     ordinarySuccessUat,
@@ -54,6 +61,13 @@ const run = async () => {
   ] = await Promise.all([
     readText('supabase/functions/refund-case-admin-update/index.ts'),
     readText('src/pages/admin/Refunds.tsx'),
+    readText('src/components/refunds/RefundCaseQueuePanel.tsx'),
+    readText('src/components/refunds/RefundCardManagerDecisionPanel.tsx'),
+    readText('src/components/refunds/RefundCustomerCommunicationActions.tsx'),
+    readText('src/components/refunds/RefundCustomerDeliveryPanels.tsx'),
+    readText('src/components/refunds/RefundCustomerMessageHistory.tsx'),
+    readText('src/components/refunds/RefundHistoricalCasePresentation.tsx'),
+    readText('src/components/refunds/RefundExceptionalRecoveryPanels.tsx'),
     readText('src/pages/RefundRequest.tsx'),
     readText('scripts/refunds/validate-refund-portal-uat.mjs'),
     readText('scripts/refunds/portal-uat/journeys/ordinary-success.mjs'),
@@ -87,6 +101,16 @@ const run = async () => {
     readText('supabase/tests/refund_receipt_trigger_privilege_boundary.sql'),
   ]);
   const portalUat = `${portalUatDriver}\n${ordinarySuccessUat}\n${duplicateIdempotencyUat}\n${authorizationUat}\n${unknownProviderOutcomeUat}`;
+  const portalPage = [
+    portalPageSource,
+    refundCaseQueuePanel,
+    refundCardManagerDecisionPanel,
+    refundCustomerCommunicationActions,
+    refundCustomerDeliveryPanels,
+    refundCustomerMessageHistory,
+    refundHistoricalCasePresentation,
+    refundExceptionalRecoveryPanels,
+  ].join('\n');
 
   assert(
     'Intake acknowledgements avoid the private receipt predicate without weakening its mutation boundary',
