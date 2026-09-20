@@ -91,6 +91,12 @@ export const createDuplicateIdempotencyChecks = ({
       rpcCalls,
       emailQueueStates,
       reconciliationContext,
+      nayaxCardRefundAvailabilityResponse: {
+        available: false,
+        status: 'unavailable',
+        blockReason: 'reconciliation_hold',
+        payloadRedacted: true,
+      },
     });
 
     const page = await context.newPage();
@@ -130,7 +136,8 @@ export const createDuplicateIdempotencyChecks = ({
     );
     recorder.assert(
       'Possible duplicate keeps official manager action disabled before resolution',
-      (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+      await page.getByTestId('refund-review-only-banner').isVisible() &&
+        (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
         await page.getByTestId('refund-action-status').isVisible()
     );
     await page.getByText('Signed in. Redirecting...', { exact: true })
@@ -183,7 +190,7 @@ export const createDuplicateIdempotencyChecks = ({
         ? {
             available: false,
             status: 'unavailable',
-            blockReason: 'manager_mapping_required',
+            blockReason: 'unauthorized',
             payloadRedacted: true,
           }
         : {

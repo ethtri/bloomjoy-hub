@@ -169,7 +169,7 @@ export const createUnknownProviderOutcomeChecks = ({
         nayaxCardRefundAvailabilityResponse: {
           available: false,
           status: 'unavailable',
-          blockReason: 'reconciliation_required',
+          blockReason: 'reconciliation_hold',
           payloadRedacted: true,
         },
         nayaxResolutionReadiness: {
@@ -891,7 +891,7 @@ export const createUnknownProviderOutcomeChecks = ({
               status: 'unavailable',
               blockReason: scenario.name === 'config_blocked'
                 ? 'globally_paused'
-                : 'reconciliation_required',
+                : 'reconciliation_hold',
               payloadRedacted: true,
             },
       });
