@@ -98,7 +98,10 @@ import {
   type RefundNayaxIncompleteHistoryRecoveryPresentation,
   type RefundNayaxTransactionRecoveryPresentation,
 } from '@/components/refunds/RefundExceptionalRecoveryPanels';
-import { fetchRefundSunzeCashCorrelation } from '@/lib/refundSunzeCashCorrelationApi';
+import {
+  fetchRefundSunzeCashCorrelation,
+  refundSunzeCashSelectionPendingQueryKey,
+} from '@/lib/refundSunzeCashCorrelationApi';
 import type { RefundSunzeCashCorrelation } from '@/lib/refundSunzeCashCorrelation';
 import { canRequestDistinctCashPayoutDestination } from '@/lib/refundCashPayoutRequest';
 import { resolveCashReviewAmountCents } from '@/lib/refundCashAmount';
@@ -3051,16 +3054,25 @@ export default function AdminRefundsPage() {
     staleTime: 10_000,
     retry: false,
   });
+  const { data: isCashSaleSelectionPending = false } = useQuery<boolean>({
+    queryKey: refundSunzeCashSelectionPendingQueryKey(selectedCase?.id ?? ''),
+    queryFn: async () => false,
+    enabled: false,
+    placeholderData: false,
+    gcTime: Infinity,
+  });
   const selectedCashCorrelationForReview = isUsingDemoData
     ? selectedCase?.sunzeCashCorrelation
     : selectedCashCorrelation;
   const selectedCashEvidenceAmountCents =
     selectedCashCorrelationForReview?.selectedSale?.actualAmountCents;
-  const hasDurableSelectedCashSale = selectedCashCorrelationForReview
-    ? selectedCashCorrelationForReview.selectedSalesFactId !== null
-    : selectedCase?.hasMatchedSalesFact === true;
+  const hasDurableSelectedCashSale =
+    selectedCase?.hasMatchedSalesFact === true ||
+    selectedCashCorrelationForReview?.selectedSalesFactId != null;
   const cashCompletionAmountCents = selectedCase?.paymentMethod === 'cash'
-    ? resolveCashReviewAmountCents(
+    ? isCashSaleSelectionPending
+      ? null
+      : resolveCashReviewAmountCents(
         selectedCase.paymentAmountCents,
         selectedCashEvidenceAmountCents,
         hasDurableSelectedCashSale,
@@ -6909,6 +6921,7 @@ export default function AdminRefundsPage() {
       isSaving ||
       isSendingCustomerMessage ||
       isCashCompletionSubmitting ||
+      isCashSaleSelectionPending ||
       isUsingDemoData ||
       !primaryAction ||
       primaryAction.disabled === true ||
@@ -6956,7 +6969,7 @@ export default function AdminRefundsPage() {
           label: actionLabel,
           isCompletion: isCashCompletion,
           disabled: isActionDisabled,
-          pending: isSaving || isCashCompletionSubmitting,
+          pending: isSaving || isCashCompletionSubmitting || isCashSaleSelectionPending,
           amountCents: cashCompletionAmountCents,
           hasSelectedSale: Boolean(selectedCashCorrelation?.selectedSale),
         }}
@@ -6976,6 +6989,7 @@ export default function AdminRefundsPage() {
         denialReasonDisabled={isUsingDemoData || isSaving}
         reportedTimeLabel={refundCustomerTimeDisplay(selectedCase, incidentTimezone)}
         venueTimezone={incidentTimezone}
+        isCashSaleSelectionPending={isCashSaleSelectionPending}
         correctionSummary={(
           <CustomerCorrectionSummary
             refundCase={selectedCase}

@@ -7,7 +7,7 @@ const [migration, timeMigration, optionalRationaleMigration, databaseTest, selec
   await Promise.all([
     read('supabase/migrations/20260901050000_refund_selected_nayax_transaction_evidence.sql'),
     read('supabase/migrations/20260914193919_refund_candidate_time_semantics.sql'),
-    read('supabase/migrations/20260919185714_refund_optional_candidate_rationale.sql'),
+    read('supabase/migrations/20260919223000_refund_optional_candidate_rationale.sql'),
     read('supabase/tests/refund_selected_nayax_transaction_evidence.sql'),
     read('supabase/tests/refund_contactless_review_selection.sql'),
     read('supabase/functions/refund-case-admin-update/index.ts'),

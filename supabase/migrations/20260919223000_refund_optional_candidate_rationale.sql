@@ -1,4 +1,4 @@
--- A manager's selection of an otherwise review-safe transaction must not be
+-- A manager's current selection of an otherwise review-safe transaction must not be
 -- rejected because an optional presentation rationale is absent, stale, or no
 -- longer supported by the candidate's timestamp evidence. The authoritative
 -- candidate RPC continues to own actor, case-version, exact identity, expiry,
