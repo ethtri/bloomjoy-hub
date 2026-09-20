@@ -135,7 +135,8 @@ const actualHelpers = extract(receiptClient, ['hasConfirmedRefundReceipt']) + ex
 for (const stage of ['refund_confirmed', 'customer_notified']) {
   const fixture = { status: 'card_refund_pending', paymentMethod: 'card', providerHold: true, providerOutcome: 'unconfirmed',
     lifecycle: { stage, reasonCode: 'settlement_time_unknown', paymentState: 'confirmed' } };
-  const result = vm.runInNewContext(`${actualHelpers}\n({ action: primaryActionConfig(fixture, {}, [], null), next: getSuggestedNextAction(fixture, []) })`, { fixture });
+  const editor = { clearNayaxMatch: false, matchedNayaxCandidateToken: '' };
+  const result = vm.runInNewContext(`${actualHelpers}\n({ action: primaryActionConfig(fixture, editor, [], null), next: getSuggestedNextAction(fixture, []) })`, { fixture, editor });
   assert.equal(result.action.disabled, true);
   assert.match(result.action.label, /Refund confirmed/);
   assert.match(result.next, /Refund confirmed/);
@@ -144,7 +145,7 @@ for (const stage of ['refund_confirmed', 'customer_notified']) {
 }
 assert.match(
   workbench,
-  /const managerState: RefundManagerState = hasConfirmedRefundReceipt\(selectedCase\) \|\|\s*hasProtectedRefundLifecycle\(selectedCase\)/,
+  /const cardManagerState: RefundManagerState = hasConfirmedRefundReceipt\(selectedCase\) \|\|\s*hasProtectedRefundLifecycle\(selectedCase\)/,
   'Protected payment states stay read-only while System owns approved continuation',
 );
 assert.doesNotMatch(
