@@ -1,6 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { createServer } from 'vite';
+
+process.env.VITE_SUPABASE_URL ??= 'http://127.0.0.1:54321';
+process.env.VITE_SUPABASE_ANON_KEY ??= 'local-refund-overview-test-key';
+
+let vite;
+let refundOperations;
+
+test.before(async () => {
+  vite = await createServer({
+    appType: 'custom',
+    logLevel: 'error',
+    optimizeDeps: { noDiscovery: true },
+    server: { middlewareMode: true },
+  });
+  refundOperations = await vite.ssrLoadModule('/src/lib/refundOperations.ts');
+});
+
+test.after(async () => {
+  await vite?.close();
+});
 
 const operationsSource = fs.readFileSync(
   new URL('../../src/lib/refundOperations.ts', import.meta.url),
@@ -74,6 +95,120 @@ test('optional reads cannot fail the critical refund overview read', () => {
   );
   assert.match(managerRead, /get_refund_manager_work_projection/);
   assert.match(managerRead, /return null/);
+});
+
+test('overview parser localizes optional skew while core identity and capability remain fail-closed', () => {
+  const fixture = refundOperations.buildLocalRefundDemoOverview();
+  const selectedIndex = fixture.cases.findIndex((refundCase) => refundCase.selectedNayaxTransaction);
+  assert.ok(selectedIndex >= 0);
+
+  const malformedSelection = structuredClone(fixture);
+  malformedSelection.cases[selectedIndex].selectedNayaxTransaction.transactionId = 'x';
+  const localizedSelection = refundOperations.parseRefundOperationsOverview(malformedSelection);
+  assert.equal(localizedSelection.cases.length, fixture.cases.length);
+  assert.equal(localizedSelection.cases[selectedIndex].selectedNayaxTransaction, null);
+  assert.equal(
+    localizedSelection.cases[selectedIndex].canPerformOfficialAction,
+    fixture.cases[selectedIndex].canPerformOfficialAction,
+  );
+  assert.equal(localizedSelection.cases[0].id, fixture.cases[0].id);
+
+  const malformedTime = structuredClone(fixture);
+  malformedTime.cases[selectedIndex].selectedNayaxTransaction.timeEvidence.providerTimestampSource = 'future_contract';
+  const localizedTime = refundOperations.parseRefundOperationsOverview(malformedTime);
+  assert.equal(
+    localizedTime.cases[selectedIndex].selectedNayaxTransaction.transactionId,
+    fixture.cases[selectedIndex].selectedNayaxTransaction.transactionId,
+  );
+  assert.equal(localizedTime.cases[selectedIndex].selectedNayaxTransaction.timeEvidence, null);
+
+  const skewedLifecycle = structuredClone(fixture);
+  skewedLifecycle.lifecycleContractVersion = 'refund_lifecycle_v99';
+  const localizedLifecycle = refundOperations.parseRefundOperationsOverview(skewedLifecycle);
+  assert.equal(localizedLifecycle.cases.length, fixture.cases.length);
+  assert.equal(localizedLifecycle.lifecycleContractVersion, undefined);
+  assert.ok(localizedLifecycle.lifecycleValidationFailureCount > 0);
+  assert.ok(localizedLifecycle.cases.every((refundCase) => refundCase.lifecycle === null));
+
+  const missingCapability = structuredClone(fixture);
+  delete missingCapability.cases[0].canPerformOfficialAction;
+  delete missingCapability.cases[0].canSelectNayaxCandidate;
+  const parsedWithoutCapability = refundOperations.parseRefundOperationsOverview(missingCapability);
+  assert.equal(parsedWithoutCapability.cases[0].canPerformOfficialAction, undefined);
+  assert.equal(parsedWithoutCapability.cases[0].canSelectNayaxCandidate, undefined);
+
+  const malformedIdentity = structuredClone(fixture);
+  malformedIdentity.cases[0].id = '';
+  assert.throws(
+    () => refundOperations.parseRefundOperationsOverview(malformedIdentity),
+    /Unsupported refund queue response/,
+  );
+
+  const duplicateBinding = structuredClone(fixture);
+  duplicateBinding.cases[1].id = duplicateBinding.cases[0].id;
+  assert.throws(
+    () => refundOperations.parseRefundOperationsOverview(duplicateBinding),
+    /Unsupported refund queue response/,
+  );
+
+  const unredactedSelection = structuredClone(fixture);
+  unredactedSelection.cases[selectedIndex].selectedNayaxTransaction.payloadRedacted = false;
+  assert.throws(
+    () => refundOperations.parseRefundOperationsOverview(unredactedSelection),
+    /Unsupported selected Nayax transaction response/,
+  );
+
+  const unredactedLegacyCandidateTime = structuredClone(fixture);
+  delete unredactedLegacyCandidateTime.candidateTimeContractVersion;
+  const candidateCase = unredactedLegacyCandidateTime.cases.find(
+    (refundCase) => refundCase.nayaxLookupCandidates.some((candidate) => candidate.timeEvidence),
+  );
+  assert.ok(candidateCase);
+  const candidateWithTime = candidateCase.nayaxLookupCandidates.find((candidate) => candidate.timeEvidence);
+  assert.ok(candidateWithTime);
+  candidateWithTime.timeEvidence.payloadRedacted = false;
+  assert.throws(
+    () => refundOperations.parseRefundOperationsOverview(unredactedLegacyCandidateTime),
+    /Unsupported refund candidate time response/,
+  );
+});
+
+test('overview parser omits only cases with malformed message or candidate collections', () => {
+  const fixture = refundOperations.buildLocalRefundDemoOverview();
+  const malformedIndex = fixture.cases.findIndex(
+    (refundCase) => refundCase.canPerformOfficialAction === true &&
+      refundCase.canSelectNayaxCandidate === true,
+  );
+  assert.ok(malformedIndex >= 0);
+  const malformedCaseId = fixture.cases[malformedIndex].id;
+  const healthyCases = fixture.cases.filter((refundCase) => refundCase.id !== malformedCaseId);
+
+  for (const collection of ['messages', 'nayaxLookupCandidates']) {
+    const malformed = structuredClone(fixture);
+    malformed.cases[malformedIndex][collection] = { unexpected: true };
+
+    const parsed = refundOperations.parseRefundOperationsOverview(malformed);
+    assert.equal(parsed.cases.length, healthyCases.length);
+    assert.equal(parsed.cases.some((refundCase) => refundCase.id === malformedCaseId), false);
+    for (const healthyCase of healthyCases) {
+      const parsedCase = parsed.cases.find((refundCase) => refundCase.id === healthyCase.id);
+      assert.ok(parsedCase);
+      assert.equal(parsedCase.canPerformOfficialAction, healthyCase.canPerformOfficialAction);
+      assert.equal(parsedCase.canSelectNayaxCandidate, healthyCase.canSelectNayaxCandidate);
+    }
+  }
+
+  const unredactedOmittedCase = structuredClone(fixture);
+  const selectedIndex = unredactedOmittedCase.cases.findIndex(
+    (refundCase) => refundCase.selectedNayaxTransaction,
+  );
+  assert.ok(selectedIndex >= 0);
+  unredactedOmittedCase.cases[selectedIndex].messages = { unexpected: true };
+  unredactedOmittedCase.cases[selectedIndex].selectedNayaxTransaction.payloadRedacted = false;
+  assert.throws(
+    () => refundOperations.parseRefundOperationsOverview(unredactedOmittedCase),
+    /Unsupported selected Nayax transaction response/,
+  );
 });
 
 test('the portal schedules manager work only after the core overview succeeds', () => {

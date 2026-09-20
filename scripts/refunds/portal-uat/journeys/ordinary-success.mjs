@@ -2104,8 +2104,8 @@ export const createOrdinarySuccessChecks = ({
             };
             overview.customerOutreachContractVersion = 'refund_customer_outreach_v1';
             overview.refundOperationsAccess = elevated;
-            overview.cases = overview.cases.map((refundCase) => ({
-              ...refundCase,
+            overview.cases = [{
+              ...overview.cases[0],
               id: `case-outreach-${scenario.state}`,
               publicReference: `RF-UAT-OUTREACH-${scenario.state.toUpperCase().replaceAll('_', '-')}`,
               status: scenario.state === 'waiting_for_customer' ? 'waiting_on_customer' : 'needs_review',
@@ -2116,7 +2116,7 @@ export const createOrdinarySuccessChecks = ({
                 : {}),
               nayaxLookupCandidates: scenario.returnedCandidates ? [candidate] : [],
               lifecycle,
-            }));
+            }];
             return overview;
           },
         });

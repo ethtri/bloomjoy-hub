@@ -1802,13 +1802,6 @@ export const fetchRefundCustomerStatus = async (
   };
 };
 
-const emptyOverview: RefundOperationsOverview = {
-  cases: [],
-  internalTestCases: [],
-  machines: [],
-  managerAssignments: [],
-};
-
 const emptyRefundManagerSetup: RefundManagerSetup = {
   machines: [],
   standardLaunchLimitCents: null,
@@ -2599,69 +2592,148 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
   };
 };
 
-export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsOverview> => {
-  const overviewResult = await supabaseClient.rpc('admin_get_refund_operations_overview');
-  if (overviewResult.error) {
-    throw new Error(overviewResult.error.message || 'Unable to load refund cases.');
-  }
+const refundOverviewCoreError = 'Unsupported refund queue response.';
 
-  const rawOverview = {
-    ...emptyOverview,
-    ...((overviewResult.data as Partial<RefundOperationsOverview> | null) ?? {}),
-  };
-  const overview = localizeRefundManagerQueueProjection(rawOverview);
-  if (
-    overview.lifecycleContractVersion !== undefined &&
-    overview.lifecycleContractVersion !== REFUND_LIFECYCLE_SCHEMA_VERSION
-  ) {
-    throw new Error('Unsupported refund lifecycle response.');
+const requireRefundOverviewProjectionRedaction = (value: unknown, message: string) => {
+  if (value == null) return;
+  if (typeof value !== 'object' || Array.isArray(value) ||
+      (value as Record<string, unknown>).payloadRedacted !== true) {
+    throw new Error(message);
   }
-  if (
-    overview.customerOutreachContractVersion !== undefined &&
-    overview.customerOutreachContractVersion !== 'refund_customer_outreach_v1'
-  ) {
-    throw new Error('Unsupported refund customer outreach response.');
+};
+
+const requireRefundOverviewCore = (overview: RefundOperationsOverview) => {
+  if (!Array.isArray(overview.cases)) {
+    throw new Error(refundOverviewCoreError);
   }
+  const seenCaseIds = new Set<string>();
+  const internalTestCases = Array.isArray(overview.internalTestCases)
+    ? overview.internalTestCases
+    : [];
+  for (const refundCase of [...overview.cases, ...internalTestCases]) {
+    if (!refundCase || typeof refundCase !== 'object' ||
+        typeof refundCase.id !== 'string' || refundCase.id.trim().length === 0 ||
+        typeof refundCase.publicReference !== 'string' || refundCase.publicReference.trim().length === 0 ||
+        seenCaseIds.has(refundCase.id)) {
+      throw new Error(refundOverviewCoreError);
+    }
+    seenCaseIds.add(refundCase.id);
+  }
+};
+
+const hasRefundOverviewCaseCollections = (refundCase: RefundCaseRecord) =>
+  Array.isArray(refundCase.messages) && Array.isArray(refundCase.nayaxLookupCandidates);
+
+const requireRefundOverviewCaseProjectionRedaction = (refundCase: RefundCaseRecord) => {
+  requireRefundOverviewProjectionRedaction(
+    refundCase.customerDeliveryException,
+    'Unsupported transactional delivery response.',
+  );
+  requireRefundOverviewProjectionRedaction(
+    refundCase.selectedNayaxTransaction,
+    'Unsupported selected Nayax transaction response.',
+  );
+  requireRefundOverviewProjectionRedaction(
+    refundCase.selectedNayaxTransaction?.timeEvidence,
+    'Unsupported refund candidate time response.',
+  );
+  if (Array.isArray(refundCase.nayaxLookupCandidates)) {
+    for (const candidate of refundCase.nayaxLookupCandidates) {
+      requireRefundOverviewProjectionRedaction(
+        candidate?.timeEvidence,
+        'Unsupported refund candidate time response.',
+      );
+    }
+  }
+  requireRefundOverviewProjectionRedaction(
+    refundCase.machineCorrection,
+    'Reload the saved machine correction evidence.',
+  );
+  requireRefundOverviewProjectionRedaction(
+    refundCase.inboundLinkReview,
+    'Unsupported inbound email linking review response.',
+  );
+};
+
+const withoutRefundTransactionalDelivery = (
+  refundCase: RefundCaseRecord,
+): RefundCaseRecord => ({
+  ...refundCase,
+  messages: refundCase.messages.map((message) => {
+    const safeMessage = { ...message };
+    delete safeMessage.deliveryTransport;
+    delete safeMessage.deliveryState;
+    delete safeMessage.deliveryStateUpdatedAt;
+    delete safeMessage.providerEvidenceAvailable;
+    return safeMessage;
+  }),
+  customerDeliveryException: null,
+});
+
+export const parseRefundOperationsOverview = (value: unknown): RefundOperationsOverview => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(refundOverviewCoreError);
+  }
+  const rawOverview = value as RefundOperationsOverview;
+  if (!Array.isArray(rawOverview.cases)) {
+    throw new Error(refundOverviewCoreError);
+  }
+  const overview = localizeRefundManagerQueueProjection({
+    cases: [],
+    internalTestCases: [],
+    machines: [],
+    managerAssignments: [],
+    ...rawOverview,
+  });
+  requireRefundOverviewCore(overview);
+
+  const lifecycleContractSkewed = overview.lifecycleContractVersion !== undefined &&
+    overview.lifecycleContractVersion !== REFUND_LIFECYCLE_SCHEMA_VERSION;
+  const customerOutreachContractSkewed = overview.customerOutreachContractVersion !== undefined &&
+    overview.customerOutreachContractVersion !== 'refund_customer_outreach_v1';
   if (
     overview.internalTestContractVersion !== undefined &&
     overview.internalTestContractVersion !== 'refund_internal_test_v1'
   ) {
     throw new Error('Unsupported Internal/test archive response.');
   }
-  if (
+  const selectedNayaxTransactionContractSkewed =
     overview.selectedNayaxTransactionContractVersion !== undefined &&
-    overview.selectedNayaxTransactionContractVersion !== 'refund_selected_nayax_transaction_v1'
-  ) {
-    throw new Error('Unsupported selected Nayax transaction response.');
-  }
-  if (
-    overview.candidateTimeContractVersion !== undefined &&
-    overview.candidateTimeContractVersion !== 'refund_candidate_time_v1'
-  ) {
-    throw new Error('Unsupported refund candidate time response.');
-  }
-  if (
+    overview.selectedNayaxTransactionContractVersion !== 'refund_selected_nayax_transaction_v1';
+  const candidateTimeContractCurrent =
+    overview.candidateTimeContractVersion === 'refund_candidate_time_v1';
+  const candidateTimeContractSkewed = overview.candidateTimeContractVersion !== undefined &&
+    !candidateTimeContractCurrent;
+  const nayaxScopeRecoveryContractSkewed =
     overview.nayaxScopeRecoveryContractVersion !== undefined &&
-    overview.nayaxScopeRecoveryContractVersion !== 'refund_nayax_scope_recovery_v1'
-  ) {
-    throw new Error('Unsupported Nayax scope recovery response.');
-  }
-  if (
+    overview.nayaxScopeRecoveryContractVersion !== 'refund_nayax_scope_recovery_v1';
+  const transactionalDeliveryContractCurrent =
+    overview.transactionalDeliveryContractVersion === 'refund_transactional_delivery_v1';
+  const transactionalDeliveryContractSkewed =
     overview.transactionalDeliveryContractVersion !== undefined &&
-    overview.transactionalDeliveryContractVersion !== 'refund_transactional_delivery_v1'
-  ) {
-    throw new Error('Unsupported transactional delivery response.');
-  }
-  if (
+    !transactionalDeliveryContractCurrent;
+  const inboundLinkReviewContractCurrent =
+    overview.inboundLinkReviewContractVersion === 'refund_gmail_case_link_review_v1';
+  const inboundLinkReviewContractSkewed =
     overview.inboundLinkReviewContractVersion !== undefined &&
-    overview.inboundLinkReviewContractVersion !== 'refund_gmail_case_link_review_v1'
-  ) {
-    throw new Error('Unsupported inbound email linking review response.');
-  }
+    !inboundLinkReviewContractCurrent;
+
   let lifecycleValidationFailureCount = 0;
   const applyLifecycleSafety = <T extends RefundCaseRecord>(refundCase: T): T => {
+    if ((lifecycleContractSkewed || customerOutreachContractSkewed) && refundCase.lifecycle != null) {
+      lifecycleValidationFailureCount += 1;
+      return { ...refundCase, lifecycle: null };
+    }
     const result = applyRefundLifecycleSafety(refundCase);
     if (result.invalidLifecycle) lifecycleValidationFailureCount += 1;
+    if (
+      overview.customerOutreachContractVersion === 'refund_customer_outreach_v1' &&
+      result.refundCase.lifecycle &&
+      !result.refundCase.lifecycle.customerOutreach
+    ) {
+      lifecycleValidationFailureCount += 1;
+      return { ...result.refundCase, lifecycle: null } as T;
+    }
     return result.refundCase as T;
   };
   const sanitizeIncidentTimeContract = <T extends RefundCaseRecord>(refundCase: T): T => ({
@@ -2679,72 +2751,146 @@ export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsO
         : null,
   });
   const internalTestCases = Array.isArray(overview.internalTestCases)
-    ? overview.internalTestCases.map((refundCase) => {
+    ? overview.internalTestCases.flatMap((refundCase) => {
+      const internalTest = requireRefundInternalTestContract(refundCase.internalTest);
+      if (!hasRefundOverviewCaseCollections(refundCase)) return [];
       return applyLifecycleSafety({
         ...refundCase,
-        internalTest: requireRefundInternalTestContract(refundCase.internalTest),
+        internalTest,
       });
     })
     : [];
-  if (
-    overview.customerOutreachContractVersion === 'refund_customer_outreach_v1' &&
-    internalTestCases.some((refundCase) => refundCase.lifecycle && !refundCase.lifecycle.customerOutreach)
-  ) {
-    throw new Error('Unsupported refund customer outreach response.');
-  }
-  const cases = overview.cases.map((rawRefundCase) => {
-    const deliverySafeRefundCase = overview.transactionalDeliveryContractVersion ===
-        'refund_transactional_delivery_v1'
-      ? requireRefundTransactionalDeliveryCase(rawRefundCase)
-      : rawRefundCase;
-    const refundCase = overview.candidateTimeContractVersion === 'refund_candidate_time_v1'
-      ? sanitizeIncidentTimeContract(deliverySafeRefundCase)
-      : deliverySafeRefundCase;
-    const selectedNayaxTransaction = refundCase.selectedNayaxTransaction
-      ? requireRefundSelectedNayaxTransaction(refundCase.selectedNayaxTransaction)
-      : null;
-    if (
-      overview.candidateTimeContractVersion === 'refund_candidate_time_v1' &&
-      selectedNayaxTransaction &&
-      !selectedNayaxTransaction.timeEvidence
-    ) {
-      throw new Error('Unsupported selected refund timestamp response.');
+  const cases = overview.cases.flatMap((rawRefundCase) => {
+    requireRefundOverviewCaseProjectionRedaction(rawRefundCase);
+    if (!hasRefundOverviewCaseCollections(rawRefundCase)) return [];
+    let deliverySafeRefundCase = rawRefundCase;
+    if (transactionalDeliveryContractCurrent) {
+      try {
+        deliverySafeRefundCase = requireRefundTransactionalDeliveryCase(rawRefundCase);
+      } catch {
+        deliverySafeRefundCase = withoutRefundTransactionalDelivery(rawRefundCase);
+      }
+    } else if (transactionalDeliveryContractSkewed) {
+      deliverySafeRefundCase = withoutRefundTransactionalDelivery(rawRefundCase);
     }
-    const nayaxLookupCandidates = overview.candidateTimeContractVersion === 'refund_candidate_time_v1'
-      ? refundCase.nayaxLookupCandidates.map((candidate) => ({
-          ...candidate,
-          timeEvidence: requireRefundCandidateTimeEvidence(candidate.timeEvidence),
-        }))
-      : refundCase.nayaxLookupCandidates;
+
+    const refundCase = candidateTimeContractCurrent
+      ? sanitizeIncidentTimeContract(deliverySafeRefundCase)
+      : candidateTimeContractSkewed
+      ? { ...deliverySafeRefundCase, incidentTimezone: null, incidentLocalDateTime: null }
+      : deliverySafeRefundCase;
+
+    const rawSelectedNayaxTransaction = refundCase.selectedNayaxTransaction;
+    const rawSelectedTimeEvidence = rawSelectedNayaxTransaction?.timeEvidence;
+    let selectedNayaxTransaction: RefundSelectedNayaxTransaction | null = null;
+    if (rawSelectedNayaxTransaction && !selectedNayaxTransactionContractSkewed) {
+      try {
+        if (candidateTimeContractCurrent || candidateTimeContractSkewed) {
+          const selectedWithoutTime = { ...rawSelectedNayaxTransaction };
+          delete selectedWithoutTime.timeEvidence;
+          selectedNayaxTransaction = requireRefundSelectedNayaxTransaction(selectedWithoutTime);
+          if (candidateTimeContractCurrent && rawSelectedTimeEvidence) {
+            try {
+              selectedNayaxTransaction = {
+                ...selectedNayaxTransaction,
+                timeEvidence: requireRefundCandidateTimeEvidence(rawSelectedTimeEvidence),
+              };
+            } catch {
+              selectedNayaxTransaction = { ...selectedNayaxTransaction, timeEvidence: null };
+            }
+          } else {
+            selectedNayaxTransaction = { ...selectedNayaxTransaction, timeEvidence: null };
+          }
+        } else {
+          selectedNayaxTransaction = requireRefundSelectedNayaxTransaction(rawSelectedNayaxTransaction);
+        }
+      } catch {
+        selectedNayaxTransaction = null;
+      }
+    }
+
+    const nayaxLookupCandidates = refundCase.nayaxLookupCandidates.map((candidate) => {
+      if (!candidateTimeContractCurrent && !candidateTimeContractSkewed) return candidate;
+      if (candidateTimeContractCurrent && candidate.timeEvidence) {
+        try {
+          return {
+            ...candidate,
+            timeEvidence: requireRefundCandidateTimeEvidence(candidate.timeEvidence),
+          };
+        } catch {
+          // Optional time detail cannot hide the candidate or its case.
+        }
+      }
+      const candidateWithoutTime = { ...candidate };
+      delete candidateWithoutTime.timeEvidence;
+      return candidateWithoutTime;
+    });
     const safeRefundCase = applyLifecycleSafety(refundCase);
     const lifecycle = safeRefundCase.lifecycle;
-    const machineCorrection = parseRefundMachineCorrectionEvidence(refundCase.machineCorrection);
-    const inboundLinkReview = overview.inboundLinkReviewContractVersion ===
-        'refund_gmail_case_link_review_v1'
-      ? requireRefundGmailCaseLinkReview(refundCase.inboundLinkReview)
-      : null;
+    let machineCorrection: RefundMachineCorrectionEvidence | null = null;
+    try {
+      machineCorrection = parseRefundMachineCorrectionEvidence(refundCase.machineCorrection);
+    } catch {
+      machineCorrection = null;
+    }
+    let inboundLinkReview: RefundGmailCaseLinkReview | null = null;
+    if (inboundLinkReviewContractCurrent) {
+      try {
+        inboundLinkReview = requireRefundGmailCaseLinkReview(refundCase.inboundLinkReview);
+      } catch {
+        inboundLinkReview = null;
+      }
+    } else if (inboundLinkReviewContractSkewed) {
+      inboundLinkReview = null;
+    }
     return {
       ...safeRefundCase,
       lifecycle,
       selectedNayaxTransaction,
       nayaxLookupCandidates,
+      nayaxLookupSummary: nayaxScopeRecoveryContractSkewed
+        ? null
+        : refundCase.nayaxLookupSummary,
       inboundLinkReview,
       machineCorrection,
     };
   });
-  if (
-    overview.customerOutreachContractVersion === 'refund_customer_outreach_v1' &&
-    cases.some((refundCase) => refundCase.lifecycle && !refundCase.lifecycle.customerOutreach)
-  ) {
-    throw new Error('Unsupported refund customer outreach response.');
-  }
 
   return {
     ...overview,
+    lifecycleContractVersion: lifecycleContractSkewed
+      ? undefined
+      : overview.lifecycleContractVersion,
+    customerOutreachContractVersion: customerOutreachContractSkewed
+      ? undefined
+      : overview.customerOutreachContractVersion,
+    selectedNayaxTransactionContractVersion: selectedNayaxTransactionContractSkewed
+      ? undefined
+      : overview.selectedNayaxTransactionContractVersion,
+    candidateTimeContractVersion: candidateTimeContractSkewed
+      ? undefined
+      : overview.candidateTimeContractVersion,
+    nayaxScopeRecoveryContractVersion: nayaxScopeRecoveryContractSkewed
+      ? undefined
+      : overview.nayaxScopeRecoveryContractVersion,
+    transactionalDeliveryContractVersion: transactionalDeliveryContractSkewed
+      ? undefined
+      : overview.transactionalDeliveryContractVersion,
+    inboundLinkReviewContractVersion: inboundLinkReviewContractSkewed
+      ? undefined
+      : overview.inboundLinkReviewContractVersion,
     cases,
     internalTestCases,
     lifecycleValidationFailureCount,
   };
+};
+
+export const fetchRefundOperationsOverview = async (): Promise<RefundOperationsOverview> => {
+  const overviewResult = await supabaseClient.rpc('admin_get_refund_operations_overview');
+  if (overviewResult.error) {
+    throw new Error(overviewResult.error.message || 'Unable to load refund cases.');
+  }
+  return parseRefundOperationsOverview(overviewResult.data);
 };
 
 export type RefundOperationsSupplements = {
