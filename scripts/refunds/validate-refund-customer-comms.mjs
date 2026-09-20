@@ -25,6 +25,8 @@ const run = async () => {
     refundCustomerCommunicationActions,
     refundCustomerDeliveryPanels,
     refundCustomerMessageHistory,
+    refundHistoricalCasePresentation,
+    refundExceptionalRecoveryPanels,
     publicRequestPage,
     portalUatDriver,
     ordinarySuccessUat,
@@ -64,6 +66,8 @@ const run = async () => {
     readText('src/components/refunds/RefundCustomerCommunicationActions.tsx'),
     readText('src/components/refunds/RefundCustomerDeliveryPanels.tsx'),
     readText('src/components/refunds/RefundCustomerMessageHistory.tsx'),
+    readText('src/components/refunds/RefundHistoricalCasePresentation.tsx'),
+    readText('src/components/refunds/RefundExceptionalRecoveryPanels.tsx'),
     readText('src/pages/RefundRequest.tsx'),
     readText('scripts/refunds/validate-refund-portal-uat.mjs'),
     readText('scripts/refunds/portal-uat/journeys/ordinary-success.mjs'),
@@ -104,6 +108,8 @@ const run = async () => {
     refundCustomerCommunicationActions,
     refundCustomerDeliveryPanels,
     refundCustomerMessageHistory,
+    refundHistoricalCasePresentation,
+    refundExceptionalRecoveryPanels,
   ].join('\n');
 
   assert(

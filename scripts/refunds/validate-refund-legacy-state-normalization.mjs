@@ -27,6 +27,8 @@ const portal = `${read('src/pages/admin/Refunds.tsx')}\n${read(
   'src/components/refunds/RefundCardManagerDecisionPanel.tsx'
 )}\n${read(
   'src/components/refunds/RefundNayaxOutcomeResolutionPanel.tsx'
+)}\n${read(
+  'src/components/refunds/RefundHistoricalCasePresentation.tsx'
 )}`;
 const transactionViewState = read('src/lib/refundTransactionViewState.ts');
 const managerState = read('src/lib/refundManagerState.ts');

@@ -116,6 +116,9 @@ assert.match(migration, /event.created_at<=a.created_at\+interval '1 minute'/);
 assert.match(panel, /refreshRefundReceiptViews/);
 const receiptClient = read('src/lib/refundAuthoritativeReceipt.ts');
 const workbench = read('src/pages/admin/Refunds.tsx');
+const historicalPresentation = read(
+  'src/components/refunds/RefundHistoricalCasePresentation.tsx'
+);
 const extract = (source, names) => {
   const ast = ts.createSourceFile('fixture.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const chunks = [];
@@ -149,7 +152,14 @@ assert.doesNotMatch(
   /refundOperationsBlockedCaseIds|paymentActionNeedsOperations|Approval permission mismatch/,
   'The retired Refund Operations approval gate must not reappear in the manager workflow',
 );
-assert.match(workbench, /hasConfirmedRefundReceipt\(selectedCase\) \? \(\s*<p data-testid="refund-receipt-accounting-only"/);
+assert.match(
+  workbench,
+  /hasConfirmedRefundReceipt\(selectedCase\) \? \(\s*<RefundHistoricalReceiptNotice presentation=\{\{ kind: 'accounting-only' \}\}/
+);
+assert.match(
+  historicalPresentation,
+  /presentation\.kind === 'accounting-only'[\s\S]*?data-testid="refund-receipt-accounting-only"/
+);
 assert.match(receiptClient, /\['admin-refund-operations-overview'\]/);
 assert.match(receiptClient, /\['nayax-card-refund-availability'\]/);
 assert.match(migration, /when n.receipt_id is null then 70 else 80/);

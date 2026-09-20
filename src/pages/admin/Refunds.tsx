@@ -77,6 +77,27 @@ import {
   RefundCustomerMessageHistory,
   type RefundCustomerMessageHistoryRow,
 } from '@/components/refunds/RefundCustomerMessageHistory';
+import {
+  RefundActionReceiptPanel,
+  RefundCardHistoricalNotices,
+  RefundHistoricalReceiptNotice,
+  RefundHistoricalReviewBanner,
+  RefundTerminalHistory,
+  type RefundActionReceiptPresentation,
+  type RefundCardHistoricalNoticesPresentation,
+  type RefundHistoricalReviewBannerPresentation,
+} from '@/components/refunds/RefundHistoricalCasePresentation';
+import {
+  RefundAcknowledgementExceptionPanel,
+  RefundDuplicateReconciliationPanel,
+  RefundNayaxIncompleteHistoryRecoveryPanel,
+  RefundNayaxTransactionRecoveryDetails,
+  RefundRevisionDeliveryReview,
+  type RefundAcknowledgementExceptionPresentation,
+  type RefundDuplicateReconciliationPresentation,
+  type RefundNayaxIncompleteHistoryRecoveryPresentation,
+  type RefundNayaxTransactionRecoveryPresentation,
+} from '@/components/refunds/RefundExceptionalRecoveryPanels';
 import { fetchRefundSunzeCashCorrelation } from '@/lib/refundSunzeCashCorrelationApi';
 import type { RefundSunzeCashCorrelation } from '@/lib/refundSunzeCashCorrelation';
 import { canRequestDistinctCashPayoutDestination } from '@/lib/refundCashPayoutRequest';
@@ -420,13 +441,6 @@ type CaseSaveSuccess = {
 };
 
 type CaseSaveResult = CaseSaveSuccess | null;
-
-type RefundActionReceipt = {
-  tone: 'success' | 'warning';
-  title: string;
-  message: string;
-  reference?: string | null;
-};
 
 type PrimaryActionConfig = {
   label: string;
@@ -2632,7 +2646,7 @@ export default function AdminRefundsPage() {
   const [isResolvingGmailDelivery, setIsResolvingGmailDelivery] = useState(false);
   const [isRefreshingCustomerDelivery, setIsRefreshingCustomerDelivery] = useState(false);
   const [isCashCompletionSubmitting, setIsCashCompletionSubmitting] = useState(false);
-  const [refundActionReceipt, setRefundActionReceipt] = useState<RefundActionReceipt | null>(null);
+  const [refundActionReceipt, setRefundActionReceipt] = useState<RefundActionReceiptPresentation | null>(null);
   const [isSendingCustomerMessage, setIsSendingCustomerMessage] = useState(false);
   const [correctionSelection, setCorrectionSelection] = useState<{ caseId: string; version: number; fields: RefundMissingField[]; requestId?: string; editing?: boolean } | null>(null);
   const correctionNoticeState = useRef<CorrectionNoticeState>({initialized:false,seen:new Set()});
@@ -3431,6 +3445,63 @@ export default function AdminRefundsPage() {
     enabled: !forceDemoData && Boolean(selectedCase?.id),
     staleTime: 1000 * 30,
   });
+  const historicalReviewBannerPresentation: RefundHistoricalReviewBannerPresentation | null =
+    !selectedCaseIsInternalTest &&
+    !selectedCaseIsResolvedDuplicate &&
+    selectedCaseIsReviewOnly &&
+    !selectedCaseIsTerminal &&
+    !selectedCase?.providerHold
+      ? {
+          testId: selectedCase?.legacyStateReviewRequired
+            ? 'refund-legacy-state-review-banner'
+            : 'refund-review-only-banner',
+          title: selectedCase?.legacyStateReviewRequired
+            ? 'Historical payment review'
+            : selectedCaseOfficialActionBlockReason === 'official_actions_disabled'
+              ? 'Refund actions unavailable'
+              : selectedCaseOfficialActionBlockReason === 'exact_machine_required'
+                ? 'Exact machine required'
+                : 'Review only',
+          message: `${selectedCaseOfficialActionBlockMessage} ${
+            selectedCase?.legacyStateReviewRequired
+              ? 'You can review the history and refresh the transaction results.'
+              : 'You can still review the case, check transactions, and request information from the customer.'
+          }`,
+        }
+      : null;
+  const acknowledgementExceptionPresentation: RefundAcknowledgementExceptionPresentation | null =
+    !selectedCaseIsInternalTest && selectedAcknowledgementException?.status === 'unresolved'
+      ? selectedAcknowledgementException.laterContactSent
+        ? {
+            kind: 'later-contact',
+            disabled:
+              isUsingDemoData ||
+              isDisposingAcknowledgementException ||
+              officialActionVersion <= 0,
+            pending: isDisposingAcknowledgementException,
+          }
+        : { kind: 'no-later-contact' }
+      : null;
+  const pendingReconciliationReviews = reconciliationContext?.reviews.filter(
+    (review) => review.status === 'pending'
+  ) ?? [];
+  const duplicateReconciliationPresentation: RefundDuplicateReconciliationPresentation | null =
+    !selectedCaseIsInternalTest &&
+    (reconciliationIsLoading || reconciliationError || pendingReconciliationReviews.length > 0)
+      ? {
+          loading: reconciliationIsLoading,
+          error: Boolean(reconciliationError),
+          disabled: isResolvingReconciliation,
+          reviews: pendingReconciliationReviews.map((review) => ({
+            id: review.id,
+            matchLabel: review.matchClass === 'exact' ? 'Strong possible match' : 'Possible match',
+            publicReference: review.otherPublicReference,
+            sourceLabel: review.otherIntakeSource === 'gmail' ? 'Support email' : 'Website form',
+            sharedSignals: review.reasonCodes.join(', ').replaceAll('_', ' '),
+            otherCaseHref: `/refunds?case=${review.otherCaseId}`,
+          })),
+        }
+      : null;
 
   const resolveReconciliation = async (
     reviewId: string,
@@ -5204,10 +5275,12 @@ export default function AdminRefundsPage() {
     } finally { setIsSendingCustomerMessage(false); }
   };
 
-  const revisionDeliveryReview = pendingRevision?.caseId === selectedCase?.id && <div role="status" className="border-b border-border p-4 text-sm">
-    <p>The revision result has not been confirmed. Check its existing delivery before sending another request.</p>
-    <Button variant="outline" className="mt-3" disabled={isSendingCustomerMessage} onClick={() => void handleInspectRevisionDelivery()}>Check revision delivery</Button>
-  </div>;
+  const revisionDeliveryReview = pendingRevision?.caseId === selectedCase?.id && (
+    <RefundRevisionDeliveryReview
+      disabled={isSendingCustomerMessage}
+      onInspect={() => void handleInspectRevisionDelivery()}
+    />
+  );
 
   const handleSendCustomerMessage = async (
     messageTypeOverride?: RefundCustomerPortalMessageType | null,
@@ -5613,6 +5686,31 @@ export default function AdminRefundsPage() {
       !incompleteHistory &&
       !automaticLookupPending &&
       !hasSelectedMatch;
+    const incompleteHistoryRecoveryPresentation: RefundNayaxIncompleteHistoryRecoveryPresentation | null =
+      incompleteHistoryRefreshAvailable
+        ? {
+            kind: 'refresh',
+            disabled: isLookingUpNayax || isUsingDemoData,
+            pending: isLookingUpNayax,
+          }
+        : incompleteHistoryRefreshExhausted
+          ? { kind: 'fallback' }
+          : null;
+    const transactionRecoveryPresentation: RefundNayaxTransactionRecoveryPresentation | null =
+      showManagerTransactionRecovery || (hasSelectedMatch && !systemSelectedClearMatch)
+        ? {
+            retry: showManagerTransactionRecovery
+              ? {
+                  disabled: isLookingUpNayax || isUsingDemoData,
+                  pending: isLookingUpNayax,
+                }
+              : null,
+            clearSelection: hasSelectedMatch && !systemSelectedClearMatch
+              ? { disabled: isUsingDemoData }
+              : null,
+            demo: isUsingDemoData,
+          }
+        : null;
     const customerTimeIsComparable =
       ['exact', 'legacy_absolute'].includes(selectedCase.incidentTimeResolution ?? '') &&
       selectedCase.incidentTimeConfidence !== 'rough';
@@ -5642,6 +5740,25 @@ export default function AdminRefundsPage() {
           : current
       );
     };
+    const clearSelectedTransaction = () => {
+      setEditor((current) =>
+        current
+          ? {
+              ...current,
+              status: 'needs_review',
+              decision: null,
+              decisionReason: '',
+              clearNayaxMatch: true,
+              matchedNayaxCandidateToken: '',
+              matchedNayaxMachineAuthTime: '',
+              matchedNayaxAmount: '',
+              matchedNayaxCardLast4: '',
+              matchedNayaxCurrencyCode: '',
+              nayaxDisagreementReason: '',
+            }
+          : current
+      );
+    };
     return (
       <div className="mt-3 space-y-3">
         {!hasPersistedSelectedMatch && (
@@ -5660,48 +5777,11 @@ export default function AdminRefundsPage() {
             {transactionView.description}
           </div>
         )}
-        {incompleteHistoryRefreshAvailable && (
-          <section
-            data-testid="nayax-incomplete-history-recovery"
-            className="rounded-lg border border-orange-300 bg-orange-50 p-3 text-sm text-orange-950"
-          >
-            <p className="font-semibold">Refresh the incomplete transaction history once</p>
-            <p className="mt-1 leading-6">
-              Bloomjoy will ask the Nayax API for this case again using the saved facts. This is read-only and cannot issue a refund or contact the customer.
-            </p>
-            <Button
-              data-testid="nayax-incomplete-history-refresh"
-              type="button"
-              variant="outline"
-              className="mt-3 h-auto min-h-11 w-full whitespace-normal border-orange-300 bg-white py-2 text-center leading-5 text-orange-950 hover:bg-orange-100 sm:w-auto"
-              onClick={() => void handleNayaxLookup()}
-              disabled={isLookingUpNayax || isUsingDemoData}
-            >
-              {isLookingUpNayax ? (
-                <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
-              ) : (
-                <RefreshCw className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
-              )}
-              Refresh transaction history
-            </Button>
-          </section>
-        )}
-        {incompleteHistoryRefreshExhausted && (
-          <section
-            data-testid="nayax-incomplete-history-fallback"
-            className="rounded-lg border border-orange-300 bg-orange-50 p-3 text-sm text-orange-950"
-          >
-            <p className="font-semibold">Read-only Nayax transaction research</p>
-            <p className="mt-1 leading-6">
-              The one internal refresh still did not return complete history. You may research the saved machine, amount, and time in Nayax, but never issue or record a refund there. Do not guess a transaction or ask the customer to repeat facts already on this case.
-            </p>
-            <Button asChild variant="outline" className="mt-3 h-auto min-h-11 w-full whitespace-normal border-orange-300 bg-white py-2 text-center leading-5 text-orange-950 hover:bg-orange-100 sm:w-auto">
-              <a href="https://my.nayax.com" target="_blank" rel="noreferrer">
-                <ExternalLink className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
-                Open Nayax for read-only research
-              </a>
-            </Button>
-          </section>
+        {incompleteHistoryRecoveryPresentation && (
+          <RefundNayaxIncompleteHistoryRecoveryPanel
+            presentation={incompleteHistoryRecoveryPresentation}
+            onRefresh={() => void handleNayaxLookup()}
+          />
         )}
         {(!selectedCase.hasMatchedNayaxTransaction || editor.clearNayaxMatch) && transactionView.showCandidates && (
           <RefundTransactionCandidateReview
@@ -5759,69 +5839,13 @@ export default function AdminRefundsPage() {
           </section>
         )}
 
-        {(showManagerTransactionRecovery || (hasSelectedMatch && !systemSelectedClearMatch)) && <details className="rounded-md border border-border bg-background p-2">
-          <summary className="cursor-pointer text-xs font-medium text-foreground">
-            Transaction search details
-          </summary>
-          <div className="mt-3 space-y-2">
-            <p className="text-xs leading-5 text-muted-foreground">
-              Transaction research is read-only here. Bloomjoy runs one automatic check and one retry after a temporary failure.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {showManagerTransactionRecovery && (
-                <Button
-                  data-testid="nayax-operations-recovery"
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void handleNayaxLookup()}
-                  disabled={isLookingUpNayax || isUsingDemoData}
-                >
-                  {isLookingUpNayax ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                  )}
-                  Run transaction check
-                </Button>
-              )}
-              {hasSelectedMatch && !systemSelectedClearMatch && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={isUsingDemoData}
-                  onClick={() =>
-                    setEditor((current) =>
-                      current
-                        ? {
-                            ...current,
-                            status: 'needs_review',
-                            decision: null,
-                            decisionReason: '',
-                            clearNayaxMatch: true,
-                            matchedNayaxCandidateToken: '',
-                            matchedNayaxMachineAuthTime: '',
-                            matchedNayaxAmount: '',
-                            matchedNayaxCardLast4: '',
-                            matchedNayaxCurrencyCode: '',
-                            nayaxDisagreementReason: '',
-                          }
-                        : current
-                    )
-                  }
-                >
-                  Clear selected transaction
-                </Button>
-              )}
-            </div>
-            {isUsingDemoData && (
-              <InfoHint>
-                Demo cases use fixed transaction results and cannot be refreshed.
-              </InfoHint>
-            )}
-          </div>
-        </details>}
+        {transactionRecoveryPresentation && (
+          <RefundNayaxTransactionRecoveryDetails
+            presentation={transactionRecoveryPresentation}
+            onRetry={() => void handleNayaxLookup()}
+            onClearSelection={clearSelectedTransaction}
+          />
+        )}
       </div>
     );
   };
@@ -5956,6 +5980,19 @@ export default function AdminRefundsPage() {
       !waitingOnCustomer &&
       !hasActiveCustomerOutreach &&
       ['checking', 'unavailable', 'waiting'].includes(transactionView.kind);
+    const cardHistoricalNotices: RefundCardHistoricalNoticesPresentation = {
+      savedApproval: hasUnchangedSavedApproval(selectedCase, editor) && hasUnpaidRefundReview(selectedCase)
+        ? {
+            amountLabel: formatCurrency(selectedCase.refundAmountCents),
+            reason: selectedCase.decisionReason?.trim()
+              ? selectedCase.decisionReason
+              : null,
+          }
+        : null,
+      customerMessageNeedsReview:
+        !selectedCase.customerDeliveryException &&
+        ['failed', 'skipped'].includes(getLatestCustomerMessage(selectedCase)?.status ?? ''),
+    };
     const managerState: RefundManagerState = hasConfirmedRefundReceipt(selectedCase) ||
       hasProtectedRefundLifecycle(selectedCase) ||
       (selectedCase.customerDeliveryException && !hasUnpaidRefundReview(selectedCase))
@@ -6281,19 +6318,7 @@ export default function AdminRefundsPage() {
 
           {!selectedCaseIsResolvedDuplicate && (
           <>
-          {hasUnchangedSavedApproval(selectedCase, editor) && hasUnpaidRefundReview(selectedCase) && (
-            <div data-testid="refund-existing-approval" className="border-b border-border px-4 py-3 text-sm text-muted-foreground">
-              <p>Existing approval: {formatCurrency(selectedCase.refundAmountCents)}</p>
-              {selectedCase.decisionReason?.trim() && <p className="mt-1">Recorded reason: {selectedCase.decisionReason}</p>}
-            </div>
-          )}
-
-          {!selectedCase.customerDeliveryException && ['failed', 'skipped'].includes(getLatestCustomerMessage(selectedCase)?.status ?? '') && (
-            <div data-testid="refund-secondary-delivery-review" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-              <p className="font-semibold">Customer message needs review</p>
-              <p className="mt-1">The latest customer message was not sent. Check the original customer email thread and the saved delivery record before sending anything again. The refund status and next step are shown above.</p>
-            </div>
-          )}
+          <RefundCardHistoricalNotices presentation={cardHistoricalNotices} />
           <CustomerCorrectionSummary refundCase={selectedCase} onReview={(trigger) => { correctionDialogTriggerRef.current={caseId:selectedCase.id,element:trigger}; setCorrectionSelection({caseId:selectedCase.id,version:officialActionVersion,fields:[...(selectedCase.customerCorrection?.requestedFields ?? [])],requestId:selectedCase.customerCorrection?.requestId,editing:false}); }} />
           {revisionDeliveryReview}
           <div className="grid gap-px bg-border">
@@ -6830,11 +6855,9 @@ export default function AdminRefundsPage() {
           )}
 
           {hasConfirmedRefundReceipt(selectedCase) ? (
-            <p data-testid="refund-receipt-accounting-only" className="mt-4 border-t border-border pt-4 text-sm text-muted-foreground">
-              Payment is confirmed. Accounting-date review is internal work. Review customer communication in the saved receipt section; no new payment is available here.
-            </p>
+            <RefundHistoricalReceiptNotice presentation={{ kind: 'accounting-only' }} />
           ) : receiptCorrectionReviewActive ? (
-            <p className="mt-4 border-t border-border pt-4 text-sm text-muted-foreground">Machine correction review only. No payment or customer message is available in this review.</p>
+            <RefundHistoricalReceiptNotice presentation={{ kind: 'machine-correction-review' }} />
           ) : hasNayaxOutcomeResolution ? (
             <RefundNayaxOutcomeResolutionPanel
               presentation={nayaxOutcomeResolutionPresentation}
@@ -7113,31 +7136,7 @@ export default function AdminRefundsPage() {
           )}
 
           {refundActionReceipt && (
-            <div
-              data-testid="refund-action-receipt"
-              role={refundActionReceipt.tone === 'warning' ? 'alert' : 'status'}
-              className={cn(
-                'mt-4 rounded-lg border px-4 py-3 text-sm',
-                refundActionReceipt.tone === 'success'
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-950'
-                  : 'border-orange-200 bg-orange-50 text-orange-950'
-              )}
-            >
-              <div className="flex items-start gap-3">
-                {refundActionReceipt.tone === 'success' ? (
-                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" />
-                ) : (
-                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-orange-800" />
-                )}
-                <div>
-                  <p className="font-semibold">{refundActionReceipt.title}</p>
-                  <p className="mt-1 leading-6">{refundActionReceipt.message}</p>
-                  {refundActionReceipt.reference && (
-                    <p className="mt-1 text-xs">Confirmation: {refundActionReceipt.reference}</p>
-                  )}
-                </div>
-              </div>
-            </div>
+            <RefundActionReceiptPanel presentation={refundActionReceipt} />
           )}
 
           <div className="mt-3 border-b border-border pb-3">
@@ -7359,143 +7358,26 @@ export default function AdminRefundsPage() {
                       </section>
                     )}
 
-                    {!selectedCaseIsInternalTest && !selectedCaseIsResolvedDuplicate && selectedCaseIsReviewOnly && !selectedCaseIsTerminal && !selectedCase.providerHold && (
-                      <div
-                        data-testid={
-                          selectedCase.legacyStateReviewRequired
-                            ? 'refund-legacy-state-review-banner'
-                            : 'refund-review-only-banner'
+                    {historicalReviewBannerPresentation && (
+                      <RefundHistoricalReviewBanner
+                        presentation={historicalReviewBannerPresentation}
+                      />
+                    )}
+
+                    {acknowledgementExceptionPresentation && (
+                      <RefundAcknowledgementExceptionPanel
+                        presentation={acknowledgementExceptionPresentation}
+                        onRecordLaterContact={() => void handleDisposeAcknowledgementException()}
+                      />
+                    )}
+
+                    {duplicateReconciliationPresentation && (
+                      <RefundDuplicateReconciliationPanel
+                        presentation={duplicateReconciliationPresentation}
+                        onResolve={(reviewId, resolution) =>
+                          void resolveReconciliation(reviewId, resolution)
                         }
-                        className="border-b border-border pb-4 text-sm text-muted-foreground"
-                      >
-                        <div>
-                            <p className="font-medium text-foreground">
-                              {selectedCase.legacyStateReviewRequired
-                                ? 'Historical payment review'
-                                : selectedCaseOfficialActionBlockReason === 'official_actions_disabled'
-                                  ? 'Refund actions unavailable'
-                                  : selectedCaseOfficialActionBlockReason === 'exact_machine_required'
-                                    ? 'Exact machine required'
-                                  : 'Review only'}
-                            </p>
-                            <p className="mt-1 leading-6">
-                              {selectedCaseOfficialActionBlockMessage}{' '}
-                              {selectedCase.legacyStateReviewRequired
-                                ? 'You can review the history and refresh the transaction results.'
-                                : 'You can still review the case, check transactions, and request information from the customer.'}
-                            </p>
-                        </div>
-                      </div>
-                    )}
-
-                    {!selectedCaseIsInternalTest && selectedAcknowledgementException?.status === 'unresolved' && (
-                      <section
-                        data-testid="refund-acknowledgement-delivery-exception"
-                        className="rounded-xl border border-orange-300 bg-orange-50 p-4 text-sm text-orange-950"
-                        role="status"
-                      >
-                        <div className="flex items-start gap-3">
-                          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
-                          <div className="min-w-0 flex-1">
-                            <p className="font-semibold">Customer acknowledgement was skipped</p>
-                            {selectedAcknowledgementException.laterContactSent ? (
-                              <>
-                                <p className="mt-1 leading-6">
-                                  A later customer message was sent. Do not resend the initial acknowledgement. Do not contact the customer again for this exception. Record the later contact as the recovery disposition.
-                                </p>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="mt-3 h-auto max-w-full whitespace-normal border-orange-300 bg-white py-2 text-left leading-5"
-                                  data-testid="refund-record-later-contact-disposition"
-                                  onClick={() => void handleDisposeAcknowledgementException()}
-                                  disabled={
-                                    isUsingDemoData ||
-                                    isDisposingAcknowledgementException ||
-                                    officialActionVersion <= 0
-                                  }
-                                >
-                                  {isDisposingAcknowledgementException ? (
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                  ) : (
-                                    <ShieldCheck className="mr-2 h-4 w-4" />
-                                  )}
-                                  Record later contact — do not resend
-                                </Button>
-                              </>
-                            ) : (
-                              <p className="mt-1 leading-6">
-                                No later customer message is confirmed. Review the customer acknowledgement action below. If Gmail delivery is uncertain, check the original thread before sending anything.
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </section>
-                    )}
-
-                    {!selectedCaseIsInternalTest && (reconciliationIsLoading || reconciliationError ||
-                      reconciliationContext?.reviews.some((review) => review.status === 'pending')) && (
-                      <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-950">
-                        <div className="flex items-start gap-3">
-                          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-                          <div className="min-w-0 flex-1">
-                            <p className="font-semibold">Possible duplicate review</p>
-                            <p className="mt-1 leading-6">
-                              Compare the linked cases before issuing a refund. This review does not issue one.
-                            </p>
-                            {reconciliationIsLoading && (
-                              <p className="mt-3 text-xs">Loading the linked cases...</p>
-                            )}
-                            {reconciliationError && (
-                              <p className="mt-3 text-xs font-medium">
-                                The linked case details are unavailable, so refund actions remain blocked.
-                              </p>
-                            )}
-                            <div className="mt-3 space-y-3">
-                              {reconciliationContext?.reviews
-                                .filter((review) => review.status === 'pending')
-                                .map((review) => (
-                                  <div key={review.id} className="rounded-md border border-rose-200 bg-white p-3">
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      <Badge className="border-rose-200 bg-rose-50 text-rose-900">
-                                        {review.matchClass === 'exact' ? 'Strong possible match' : 'Possible match'}
-                                      </Badge>
-                                      <span className="font-semibold">{review.otherPublicReference}</span>
-                                      <Badge className="border-slate-200 bg-slate-50 text-slate-700">
-                                        {review.otherIntakeSource === 'gmail' ? 'Support email' : 'Website form'}
-                                      </Badge>
-                                    </div>
-                                    <p className="mt-2 text-xs leading-5 text-rose-900">
-                                      Shared signals: {review.reasonCodes.join(', ').replaceAll('_', ' ')}.
-                                    </p>
-                                    <div className="mt-3 flex flex-wrap gap-2">
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        onClick={() => void resolveReconciliation(review.id, 'duplicate')}
-                                        disabled={isResolvingReconciliation}
-                                      >
-                                        Same incident — keep this case
-                                      </Button>
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() => void resolveReconciliation(review.id, 'distinct')}
-                                        disabled={isResolvingReconciliation}
-                                      >
-                                        Different purchases
-                                      </Button>
-                                      <Button asChild type="button" size="sm" variant="ghost">
-                                        <a href={`/refunds?case=${review.otherCaseId}`}>Open other case</a>
-                                      </Button>
-                                    </div>
-                                  </div>
-                                ))}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
+                      />
                     )}
 
                     {!selectedCaseIsInternalTest && customerDeliveryReviewPresentation && (
@@ -7507,24 +7389,13 @@ export default function AdminRefundsPage() {
                     )}
 
                     {!selectedCaseIsInternalTest && (selectedCaseIsTerminal ? (
-                      <section data-testid="refund-terminal-history" className="border-t border-border pt-4">
-                        <p data-testid="refund-terminal-primary-action" className="font-medium text-foreground">
-                          {primaryAction?.label}
-                        </p>
-                        <p data-testid="refund-terminal-primary-helper" className="mt-1 text-sm text-muted-foreground">
-                          {primaryAction?.helper}
-                        </p>
-                        {selectedCase.decisionReason && (
-                          <div className="mt-4">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                              Decision reason
-                            </p>
-                            <p className="mt-1 whitespace-pre-line text-sm text-foreground">
-                              {selectedCase.decisionReason}
-                            </p>
-                          </div>
-                        )}
-                      </section>
+                      <RefundTerminalHistory
+                        presentation={{
+                          primaryAction: primaryAction?.label,
+                          primaryHelper: primaryAction?.helper,
+                          decisionReason: selectedCase.decisionReason,
+                        }}
+                      />
                     ) : selectedCase.status === 'draft' || selectedCase.paymentMethod === 'unknown'
                         ? renderGmailDraftWorkbench()
                         : selectedCase.paymentMethod === 'card'
