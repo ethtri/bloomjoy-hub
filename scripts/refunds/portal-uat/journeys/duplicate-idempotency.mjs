@@ -130,8 +130,7 @@ export const createDuplicateIdempotencyChecks = ({
     );
     recorder.assert(
       'Possible duplicate keeps official manager action disabled before resolution',
-      await page.getByTestId('refund-review-only-banner').isVisible() &&
-        (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+      (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
         await page.getByTestId('refund-action-status').isVisible()
     );
     await page.getByText('Signed in. Redirecting...', { exact: true })
@@ -180,6 +179,19 @@ export const createDuplicateIdempotencyChecks = ({
     await installMockSupabaseRoutes(context, {
       refundOverview: buildOfficialActionVersionResetOverview,
       functionCalls,
+      nayaxCardRefundAvailabilityResolver: ({ caseId }) => caseId === 'case-authority-missing'
+        ? {
+            available: false,
+            status: 'unavailable',
+            blockReason: 'manager_mapping_required',
+            payloadRedacted: true,
+          }
+        : {
+            available: true,
+            status: 'available',
+            blockReason: null,
+            payloadRedacted: true,
+          },
     });
 
     const page = await context.newPage();

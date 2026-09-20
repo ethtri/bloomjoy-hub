@@ -4402,6 +4402,7 @@ export default function AdminRefundsPage() {
               amountCents: expectedSelection.saleAmountCents,
               currencyCode: expectedSelection.currencyCode,
               authorizedAt: expectedSelection.providerAuthorizedAt,
+              machineAuthorizationTime: expectedSelection.providerAuthorizedAt,
               cardLast4: expectedSelection.cardLast4 ?? '',
             },
           )
@@ -5873,13 +5874,6 @@ export default function AdminRefundsPage() {
       ) ??
       effectiveCandidates.find((candidate) => candidate.selectionAllowed !== false) ??
       null;
-    const comparisonCandidate = selectedCaseHasCurrentCardCapability || selectedCaseNeedsLegacyPaymentReview
-      ? null
-      : activeCandidate ??
-        selectableComparisonCandidate ??
-        effectiveCandidates.find((candidate) => candidate.isRecommended === true) ??
-        effectiveCandidates[0] ??
-        null;
     const hasSelectedMatch = selectedCaseNeedsLegacyPaymentReview
       ? false
       : hasSelectedCardEvidence(selectedCase, editor);
@@ -5889,6 +5883,17 @@ export default function AdminRefundsPage() {
     const selectedTransactionEvidence = hasPersistedSelectedMatch
       ? selectedCase.selectedNayaxTransaction ?? null
       : null;
+    const comparisonCandidate = selectedCaseNeedsLegacyPaymentReview
+      ? null
+      : selectedCaseHasCurrentCardCapability
+        ? activeCandidate && persistedNayaxSelectionMatchesCandidate(selectedTransactionEvidence, activeCandidate)
+          ? activeCandidate
+          : null
+        : activeCandidate ??
+          selectableComparisonCandidate ??
+          effectiveCandidates.find((candidate) => candidate.isRecommended === true) ??
+          effectiveCandidates[0] ??
+          null;
     const incidentTimezone = refundCaseTimezone(selectedCase);
     const comparisonTimeEvidence = comparisonCandidate?.timeEvidence ?? null;
     const providerMachineTimezone =

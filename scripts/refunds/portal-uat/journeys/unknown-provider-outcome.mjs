@@ -166,6 +166,12 @@ export const createUnknownProviderOutcomeChecks = ({
           actionBlocked: true,
           payloadRedacted: true,
         }],
+        nayaxCardRefundAvailabilityResponse: {
+          available: false,
+          status: 'unavailable',
+          blockReason: 'reconciliation_required',
+          payloadRedacted: true,
+        },
         nayaxResolutionReadiness: {
           visible: true,
           available: true,
@@ -878,14 +884,16 @@ export const createUnknownProviderOutcomeChecks = ({
         nayaxCardRefundStatus: 200,
         nayaxCardRefundDelayMs: scenario.name === 'success' ? 800 : 0,
         nayaxCardRefundResponse: scenario.response,
-        nayaxCardRefundAvailabilityAfterExecutionResponse: scenario.name === 'config_blocked'
-          ? {
+        nayaxCardRefundAvailabilityAfterExecutionResponse: scenario.name === 'success'
+          ? null
+          : {
               available: false,
               status: 'unavailable',
-              blockReason: 'globally_paused',
+              blockReason: scenario.name === 'config_blocked'
+                ? 'globally_paused'
+                : 'reconciliation_required',
               payloadRedacted: true,
-            }
-          : null,
+            },
       });
 
       const page = await context.newPage();

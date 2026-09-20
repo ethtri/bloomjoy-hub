@@ -896,6 +896,14 @@ const buildAcknowledgementRecoveryOverview = ({ resolved = false } = {}) => {
     decision: null,
     decisionReason: null,
     decidedAt: null,
+    hasMatchedNayaxTransaction: false,
+    nayaxMatchExecutionEligible: false,
+    selectedNayaxTransaction: null,
+    refundReadiness: {
+      transactionConfirmed: false,
+      canIssueCardRefund: false,
+      blockReason: 'transaction_selection_required',
+    },
     refundAmountCents: null,
     lifecycle: buildLifecycleFixture('matching', 10, 'review_customer_contact'),
     acknowledgementDeliveryException: {
@@ -2184,6 +2192,14 @@ const buildGmailUncertaintyPrecedenceOverview = ({ providerRejected = false } = 
     status: 'needs_review',
     providerHold: false,
     providerOutcome: providerRejected ? 'rejected' : 'unconfirmed',
+    hasMatchedNayaxTransaction: false,
+    nayaxMatchExecutionEligible: false,
+    selectedNayaxTransaction: null,
+    refundReadiness: {
+      transactionConfirmed: false,
+      canIssueCardRefund: false,
+      blockReason: 'transaction_selection_required',
+    },
     lifecycle,
     customerDeliveryException: null,
     messages: [{
@@ -2478,6 +2494,7 @@ const installMockSupabaseRoutes = async (
                 transactionConfirmed: true,
                 canIssueCardRefund: currentNayaxCardRefundAvailability.available === true,
                 blockReason: currentNayaxCardRefundAvailability.blockReason,
+                caseVersion: currentVersion,
               },
             }
           : {}),
@@ -2533,6 +2550,7 @@ const installMockSupabaseRoutes = async (
                 transactionConfirmed: true,
                 canIssueCardRefund: currentNayaxCardRefundAvailability.available === true,
                 blockReason: currentNayaxCardRefundAvailability.blockReason,
+                caseVersion: currentVersion,
               },
               ...(refundCase.lifecycle
                 ? {

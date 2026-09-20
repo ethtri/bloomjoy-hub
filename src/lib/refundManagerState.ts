@@ -44,6 +44,7 @@ type NayaxCandidateSelection = {
   amountCents: number | null;
   currencyCode: string;
   authorizedAt: string;
+  machineAuthorizationTime: string;
   cardLast4: string;
 };
 
@@ -115,7 +116,7 @@ export const persistedNayaxSelectionMatchesCandidate = (
     typeof candidate.amountCents === 'number' &&
     selection.saleAmountCents === candidate.amountCents &&
     selection.currencyCode.trim().toUpperCase() === candidate.currencyCode.trim().toUpperCase() &&
-    sameInstant(selection.providerAuthorizedAt, candidate.authorizedAt) &&
+    sameInstant(selection.providerAuthorizedAt, candidate.machineAuthorizationTime) &&
     (selection.cardLast4 ?? '') === candidate.cardLast4
 );
 

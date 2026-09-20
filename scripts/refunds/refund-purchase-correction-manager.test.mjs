@@ -142,10 +142,26 @@ test('current card capability remains visible in the composed manager presentati
   selectedCaseHasCurrentCardCapability:true,
   selectedCaseNeedsLegacyPaymentReview:false,
   activeCandidate:{amountCents:1000,cardLast4:'9999'},
+  selectedTransactionEvidence:freshPersistedSelection.selectedNayaxTransaction,
+  persistedNayaxSelectionMatchesCandidate:managerModule.exports.persistedNayaxSelectionMatchesCandidate,
   selectableComparisonCandidate:null,
   effectiveCandidates:[],
  });
  assert.equal(comparisonCandidate,null);
+ const exactCandidate={
+  amountCents:700,currencyCode:'USD',authorizedAt:'2026-09-12T18:31:00Z',
+  machineAuthorizationTime:'2026-09-12T18:30:00Z',cardLast4:'4242',
+ };
+ const selectedComparisonCandidate=load('comparisonCandidate',{
+  selectedCaseHasCurrentCardCapability:true,
+  selectedCaseNeedsLegacyPaymentReview:false,
+  activeCandidate:exactCandidate,
+  selectedTransactionEvidence:freshPersistedSelection.selectedNayaxTransaction,
+  persistedNayaxSelectionMatchesCandidate:managerModule.exports.persistedNayaxSelectionMatchesCandidate,
+  selectableComparisonCandidate:null,
+  effectiveCandidates:[],
+ });
+ assert.equal(selectedComparisonCandidate,exactCandidate);
  const transactionDecisionPending=load('transactionDecisionPending',{
   selectedCaseHasCurrentCardCapability:true,
   hasSelectedMatch:false,

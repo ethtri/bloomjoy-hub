@@ -156,14 +156,15 @@ Deno.test('fresh saved evidence must match the browser candidate exactly', () =>
   const candidate = {
     amountCents: 1090,
     currencyCode: 'usd',
-    authorizedAt: '2026-09-12T18:30:00Z',
+    authorizedAt: '2026-09-12T18:31:00Z',
+    machineAuthorizationTime: '2026-09-12T18:30:00Z',
     cardLast4: '6172',
   };
 
   assertEquals(
     persistedNayaxSelectionMatchesCandidate(selection, candidate),
     true,
-    'equivalent timestamps and normalized currency should match',
+    'the exact machine authorization time and normalized currency should match independently of the provider timestamp',
   );
   assertEquals(
     persistedNayaxSelectionMatchesCandidate(selection, { ...candidate, amountCents: 1000 }),
@@ -171,9 +172,9 @@ Deno.test('fresh saved evidence must match the browser candidate exactly', () =>
     'a different amount must fail closed',
   );
   assertEquals(
-    persistedNayaxSelectionMatchesCandidate(selection, { ...candidate, authorizedAt: '2026-09-12T18:31:00Z' }),
+    persistedNayaxSelectionMatchesCandidate(selection, { ...candidate, machineAuthorizationTime: '2026-09-12T18:32:00Z' }),
     false,
-    'a different provider authorization must fail closed',
+    'a different machine authorization time must fail closed',
   );
   assertEquals(
     persistedNayaxSelectionMatchesCandidate(selection, { ...candidate, cardLast4: '0000' }),
