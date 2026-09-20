@@ -25,6 +25,9 @@ const sweep = await read('supabase/functions/refund-case-automation-sweep/index.
 const outcome = await read('supabase/functions/refund-nayax-outcome-resolve/index.ts');
 const official = await read('supabase/functions/_shared/refund-official-action.ts');
 const portal = await read('src/pages/admin/Refunds.tsx');
+const outcomeResolutionPanel = await read(
+  'src/components/refunds/RefundNayaxOutcomeResolutionPanel.tsx',
+);
 const operations = await read('src/lib/refundOperations.ts');
 const evidenceTimeHelper = await read('src/lib/refundEvidenceTime.ts');
 const concurrency = await read('supabase/tests/refund_single_manager_gate_concurrency.sql');
@@ -405,7 +408,7 @@ test('case work and financial authority are distinct', () => {
 test('provider evidence time is explicit and independent from the reviewer browser timezone', () => {
   assert.match(portal, /evidenceLocalDateTimeToIso\(/);
   assert.doesNotMatch(portal, /new Date\(nayaxResolutionEvidenceOccurredAt\)/);
-  assert.match(portal, /machine timezone shown above, not your computer/);
+  assert.match(outcomeResolutionPanel, /machine timezone shown above, not your computer/);
   assert.match(evidenceTimeHelper, /canonicalizeEvidenceTimeZone/);
   assert.match(evidenceTimeHelper, /matches\.length > 1/);
   assert.match(outcome, /p_evidence_source_timezone: evidenceSourceTimezone/);
