@@ -1643,7 +1643,7 @@ assert(
     proofDatabaseBinding > proofMessageEnqueue &&
     proofTransportCall >= 0 &&
     sendFunction.includes('runToken: body?.syntheticProofRunToken') &&
-    sendFunction.includes('defaultTemplateOnly: !triageSuggestionId') &&
+    sendFunction.includes('defaultTemplateOnly: !effectiveTriageSuggestion &&') &&
     /syntheticProofAuthorizationId:\r?\n\s*message\.synthetic_gmail_proof_authorization_id/.test(
       manualMessageOutbox,
     ),
