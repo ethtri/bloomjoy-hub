@@ -9,6 +9,13 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8080,
   },
+  optimizeDeps: {
+    include: [
+      "input-otp",
+      "@radix-ui/react-alert-dialog",
+      "@radix-ui/react-checkbox",
+    ],
+  },
   build: {
     // Set an explicit JS chunk budget below Vite's default 500 kB.
     chunkSizeWarningLimit: 450,

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { loadConfigFromFile } from 'vite';
 
 import {
   closeUatSuiteResources,
@@ -17,6 +19,22 @@ import {
 } from './refund-browser-uat-network.mjs';
 
 const APP_URL = 'http://127.0.0.1:8081';
+
+test('refund manager route dependencies are prebundled before strict request tracking', async () => {
+  const loaded = await loadConfigFromFile(
+    { command: 'serve', mode: 'development' },
+    fileURLToPath(new URL('../../vite.config.ts', import.meta.url))
+  );
+  assert.ok(loaded);
+  const prebundled = new Set(loaded.config.optimizeDeps?.include ?? []);
+  for (const dependency of [
+    'input-otp',
+    '@radix-ui/react-alert-dialog',
+    '@radix-ui/react-checkbox',
+  ]) {
+    assert.equal(prebundled.has(dependency), true, `${dependency} must be prebundled`);
+  }
+});
 
 const mockRequest = ({
   url = `${APP_URL}/missing.svg`,
@@ -430,10 +448,10 @@ test('request drain fails closed after a request failure', async () => {
   contexts[0].emit('request', failed);
   contexts[0].emit('requestfailed', failed);
 
-  await assert.rejects(
-    waitForUatPageRequestDrain(page),
-    /refund_uat_request_failed_before_drain/
-  );
+  await assert.rejects(waitForUatPageRequestDrain(page), (error) => (
+    error.message ===
+      'refund_uat_request_failed_before_drain: NETWORK_FAILED ERR_ABORTED GET script /[redacted.svg]'
+  ));
   assert.deepEqual(failures, ['NETWORK_FAILED ERR_ABORTED GET script /[redacted.svg]']);
 });
 
