@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, Clock3, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
@@ -12,7 +13,9 @@ import type {
   RefundSunzeCashCandidate,
   RefundSunzeCashCorrelation,
   RefundSunzeCashSelectedSale,
+  RefundSunzeCashSelectionPending,
 } from '@/lib/refundSunzeCashCorrelation';
+import { refundSunzeCashSelectionRefreshIsAuthoritative } from '@/lib/refundSunzeCashCorrelation';
 import type { RefundCaseRecord } from '@/lib/refundOperations';
 import { formatRefundDateTime } from '@/lib/refundTimePresentation';
 import { cn } from '@/lib/utils';
@@ -111,19 +114,21 @@ export function CashRefundEvidencePanel({
   const queryClient = useQueryClient();
   const correlationQueryKey = ['refund-sunze-cash-correlation', refundCase.id] as const;
   const selectionPendingQueryKey = refundSunzeCashSelectionPendingQueryKey(refundCase.id);
-  const { data: isSelectionPending = false } = useQuery<boolean>({
+  const { data: selectionPending = null } = useQuery<RefundSunzeCashSelectionPending | null>({
     queryKey: selectionPendingQueryKey,
-    queryFn: async () => false,
+    queryFn: async () => null,
     enabled: false,
-    placeholderData: false,
+    placeholderData: null,
     gcTime: Infinity,
   });
+  const isSelectionPending = selectionPending !== null;
   const query = useQuery({
     queryKey: correlationQueryKey,
     queryFn: ({ signal }) => fetchRefundSunzeCashCorrelation(refundCase.id, signal),
     enabled: !isUsingDemoData,
     staleTime: 10_000,
     retry: false,
+    refetchOnMount: selectionPending?.recoveryAvailable ? 'always' : true,
   });
   const correlation = isUsingDemoData
     ? refundCase.sunzeCashCorrelation ?? null
@@ -136,9 +141,23 @@ export function CashRefundEvidencePanel({
     selectedId ? candidates.find((candidate) => candidate.salesFactId === selectedId) ?? null : null
   );
 
+  useEffect(() => {
+    if (refundSunzeCashSelectionRefreshIsAuthoritative(
+      selectionPending,
+      query.dataUpdatedAt,
+      query.isSuccess && Boolean(query.data),
+    )) {
+      queryClient.setQueryData(selectionPendingQueryKey, null);
+    }
+  }, [query.data, query.dataUpdatedAt, query.isSuccess, queryClient, selectionPending, selectionPendingQueryKey]);
+
   const handleSelect = async (candidate: RefundSunzeCashCandidate) => {
     if (!correlation?.attemptId || candidate.selectionConflict || isUsingDemoData || isSelectionPending) return;
-    queryClient.setQueryData(selectionPendingQueryKey, true);
+    const pendingMarker: RefundSunzeCashSelectionPending = {
+      afterDataUpdatedAt: query.dataUpdatedAt,
+      recoveryAvailable: false,
+    };
+    queryClient.setQueryData(selectionPendingQueryKey, pendingMarker);
     try {
       const selection = await selectRefundSunzeCashCandidate({
         caseId: refundCase.id,
@@ -165,12 +184,17 @@ export function CashRefundEvidencePanel({
         };
       });
       await queryClient.invalidateQueries({ queryKey: correlationQueryKey });
-      queryClient.setQueryData(selectionPendingQueryKey, false);
+      queryClient.setQueryData(selectionPendingQueryKey, null);
       toast.success('Sale evidence selected for review.');
     } catch (error) {
       const refreshed = await query.refetch();
       if (refreshed.isSuccess && refreshed.data) {
-        queryClient.setQueryData(selectionPendingQueryKey, false);
+        queryClient.setQueryData(selectionPendingQueryKey, null);
+      } else {
+        queryClient.setQueryData<RefundSunzeCashSelectionPending>(selectionPendingQueryKey, (current) => ({
+          afterDataUpdatedAt: current?.afterDataUpdatedAt ?? pendingMarker.afterDataUpdatedAt,
+          recoveryAvailable: true,
+        }));
       }
       toast.error(error instanceof Error ? error.message : 'The sale evidence could not be selected. Refresh and try again.');
     }
@@ -179,7 +203,7 @@ export function CashRefundEvidencePanel({
   const handleRefresh = async () => {
     const refreshed = await query.refetch();
     if (refreshed.isSuccess && refreshed.data) {
-      queryClient.setQueryData(selectionPendingQueryKey, false);
+      queryClient.setQueryData(selectionPendingQueryKey, null);
     }
   };
 
@@ -207,13 +231,13 @@ export function CashRefundEvidencePanel({
         {copy.detail}
       </p>
 
-      {query.isError && (
+      {(query.isError || selectionPending?.recoveryAvailable) && (
         <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-950" role="status">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <span>{isSelectionPending
             ? 'The sale selection outcome could not be refreshed. Cash confirmation stays unavailable until the selected sale is current.'
             : 'Sales history could not be refreshed. The manager decision remains available from the reviewed case details.'}</span>
-          <Button type="button" variant="ghost" size="sm" className="ml-auto min-h-8 shrink-0 px-2" onClick={() => void handleRefresh()}>
+          <Button type="button" variant="ghost" size="sm" className="ml-auto min-h-8 shrink-0 px-2" disabled={query.isFetching} onClick={() => void handleRefresh()}>
             <RefreshCw className="mr-1 h-3.5 w-3.5" /> Refresh
           </Button>
         </div>

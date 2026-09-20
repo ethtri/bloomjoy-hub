@@ -102,7 +102,10 @@ import {
   fetchRefundSunzeCashCorrelation,
   refundSunzeCashSelectionPendingQueryKey,
 } from '@/lib/refundSunzeCashCorrelationApi';
-import type { RefundSunzeCashCorrelation } from '@/lib/refundSunzeCashCorrelation';
+import type {
+  RefundSunzeCashCorrelation,
+  RefundSunzeCashSelectionPending,
+} from '@/lib/refundSunzeCashCorrelation';
 import { canRequestDistinctCashPayoutDestination } from '@/lib/refundCashPayoutRequest';
 import { resolveCashReviewAmountCents } from '@/lib/refundCashAmount';
 import { hasConfirmedRefundReceipt } from '@/lib/refundAuthoritativeReceipt';
@@ -3076,13 +3079,14 @@ export default function AdminRefundsPage() {
     staleTime: 10_000,
     retry: false,
   });
-  const { data: isCashSaleSelectionPending = false } = useQuery<boolean>({
+  const { data: cashSaleSelectionPending = null } = useQuery<RefundSunzeCashSelectionPending | null>({
     queryKey: refundSunzeCashSelectionPendingQueryKey(selectedCase?.id ?? ''),
-    queryFn: async () => false,
+    queryFn: async () => null,
     enabled: false,
-    placeholderData: false,
+    placeholderData: null,
     gcTime: Infinity,
   });
+  const isCashSaleSelectionPending = cashSaleSelectionPending !== null;
   const selectedCashCorrelationForReview = isUsingDemoData
     ? selectedCase?.sunzeCashCorrelation
     : selectedCashCorrelation;

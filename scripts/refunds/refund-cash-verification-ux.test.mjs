@@ -8,6 +8,7 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'u
 const page = read('src/pages/admin/Refunds.tsx');
 const evidence = read('src/components/refunds/CashRefundEvidencePanel.tsx');
 const correlationApi = read('src/lib/refundSunzeCashCorrelationApi.ts');
+const correlation = read('src/lib/refundSunzeCashCorrelation.ts');
 const migration = read('supabase/migrations/20260915010000_refund_cash_verification_ux.sql');
 const safetySql = read('supabase/tests/refund_manager_official_action_safety.sql');
 const edge = read('supabase/functions/refund-case-sunze-correlation/index.ts');
@@ -41,10 +42,16 @@ test('optional evidence loading keeps the reviewed estimate available', () => {
   assert.match(correlationApi, /selection\.salesFactId !== input\.salesFactId/);
   assert.match(page, /isCashSaleSelectionPending\s*\? null\s*: resolveCashReviewAmountCents/);
   assert.match(page, /isCashCompletionSubmitting \|\|\s*isCashSaleSelectionPending/);
-  assert.match(evidence, /queryClient\.setQueryData\(selectionPendingQueryKey, true\)/);
+  assert.match(evidence, /afterDataUpdatedAt: query\.dataUpdatedAt/);
+  assert.match(evidence, /recoveryAvailable: false/);
   assert.match(evidence, /const refreshed = await query\.refetch\(\)/);
   assert.match(evidence, /refreshed\.isSuccess && refreshed\.data/);
-  assert.match(evidence, /queryClient\.setQueryData\(selectionPendingQueryKey, false\)/);
+  assert.match(evidence, /recoveryAvailable: true/);
+  assert.match(evidence, /refetchOnMount: selectionPending\?\.recoveryAvailable \? 'always' : true/);
+  assert.match(evidence, /refundSunzeCashSelectionRefreshIsAuthoritative/);
+  assert.match(evidence, /queryClient\.setQueryData\(selectionPendingQueryKey, null\)/);
+  assert.match(correlation, /pending\.recoveryAvailable/);
+  assert.match(correlation, /dataUpdatedAt > pending\.afterDataUpdatedAt/);
   assert.match(page, /refundSunzeCashSelectionPendingQueryKey\(selectedCase\?\.id \?\? ''\)/);
   assert.match(page, /gcTime: Infinity/);
   assert.match(evidence, /Do not send the external payment yet/);
