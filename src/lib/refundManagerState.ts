@@ -380,6 +380,39 @@ export const getRefundManagerState = (
     );
   }
 
+  const nextWork = refundCase.lifecycle?.nextWork;
+  if (nextWork) {
+    if (!nextWork.isOpen) {
+      return state('completed', 'Refund work complete',
+        'No refund or customer-contact action is due.', nextWork.actionLabel, 'success');
+    }
+    if (nextWork.actor === 'manager') {
+      return state('ready_for_review', 'Action needed',
+        'The request is prepared for the assigned Manager’s final decision or cash payment.',
+        nextWork.actionLabel, 'warning');
+    }
+    if (nextWork.actor === 'customer') {
+      return state('waiting_on_customer', 'Waiting for customer',
+        'The customer has an unanswered delivered question.', nextWork.actionLabel, 'info');
+    }
+    const label = ({
+      reconcile_provider_outcome: 'Checking the Nayax result',
+      reconcile_integrity: 'Checking the payment record',
+      recover_customer_delivery: 'Recovering customer update',
+      review_customer_reply: 'Reviewing customer reply',
+      resolve_manager_assignment: 'Resolving Manager access',
+      repair_provider_setup: 'Repairing transaction search',
+      obtain_payout_destination: 'Obtaining payout details',
+      research_purchase: 'Researching the purchase',
+      run_lookup: 'Checking the purchase',
+      continue_refund: 'Continuing the refund',
+      deliver_customer_question: 'Sending customer question',
+    } as Record<string, string>)[nextWork.actionCode] ?? 'Bloomjoy follow-up';
+    return state(nextWork.blocker ? 'needs_refund_operations' : 'checking_nayax', label,
+      nextWork.blocker ? 'Bloomjoy has an internal step to resolve.' : 'Bloomjoy owns the next step.',
+      nextWork.actionLabel, nextWork.blocker ? 'warning' : 'info');
+  }
+
   if (refundCase.lifecycle?.stage === 'duplicate_resolved') {
     const canonicalReference = refundCase.lifecycle.duplicateOfPublicReference;
     return state(

@@ -45,6 +45,14 @@ export const findRefundDeepLinkedCase = <T extends { id: string }>(
 export const getRefundManagerQueueBucket = (
   refundCase: RefundQueueCase,
 ): RefundManagerQueueBucket => {
+  const work = refundCase.lifecycle?.nextWork;
+  if (work) {
+    if (!work.isOpen) return 'completed';
+    if (work.actor === 'customer') return 'waiting_on_customer';
+    if (work.actor === 'manager') return 'ready_to_pay';
+    if (work.blocker) return 'provider_hold';
+    return 'in_progress';
+  }
   if (refundCase.lifecycle) return refundCase.lifecycle.managerQueue.bucket;
   if (["completed", "denied", "closed"].includes(refundCase.status))
     return "completed";

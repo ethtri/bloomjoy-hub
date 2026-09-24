@@ -34,6 +34,28 @@ export const refundManagerQueueBuckets = [
 
 export type RefundManagerQueueBucket = typeof refundManagerQueueBuckets[number];
 
+export const refundNextWorkActors = ["system", "agent", "customer", "manager"] as const;
+export type RefundNextWorkActor = typeof refundNextWorkActors[number];
+export const refundNextWorkActionCodes = [
+  "none", "approve_or_deny_request", "send_cash_refund_and_confirm", "answer_question",
+  "deliver_customer_question", "review_customer_reply", "recover_customer_delivery",
+  "reconcile_provider_outcome", "reconcile_integrity", "continue_refund",
+  "resolve_manager_assignment", "obtain_payout_destination", "repair_provider_setup",
+  "research_purchase", "run_lookup",
+] as const;
+export type RefundNextWorkActionCode = typeof refundNextWorkActionCodes[number];
+export type RefundNextWork = {
+  schemaVersion: "refund_next_work_v1";
+  isOpen: boolean;
+  actor: RefundNextWorkActor;
+  actionCode: RefundNextWorkActionCode;
+  actionLabel: string;
+  lastProgressAt: string | null;
+  dueAt: string | null;
+  blocker: { code: string; owner: "Agent"; nextStep: string } | null;
+  payloadRedacted: true;
+};
+
 export type RefundManagerQueueContract = {
   schemaVersion: "refund_manager_queue_v2";
   bucket: RefundManagerQueueBucket;
@@ -153,6 +175,8 @@ export type RefundCustomerOutreachContract = {
 
 export type RefundLifecycleContract = {
   schemaVersion: typeof REFUND_LIFECYCLE_SCHEMA_VERSION;
+  /** Additive rollout field. Legacy v2 payloads remain readable. */
+  nextWork?: RefundNextWork;
   version: number;
   stage: RefundLifecycleStage;
   stageRank: number;
@@ -262,10 +286,37 @@ export const isRefundLifecycleContract = (
   const customerReported = locationEvidence?.customerReported as Record<string, unknown> | null;
   const normalizedLocation = locationEvidence?.normalized as Record<string, unknown> | null;
   const accountingState = contract.accountingState as Record<string, unknown> | null;
+  const nextWork = contract.nextWork as Record<string, unknown> | null;
   const customerOutreach = contract.customerOutreach as Record<string, unknown> | null;
   const hasAccountingState = contract.paymentWorkComplete !== undefined ||
     contract.accountingState !== undefined;
   const hasRestrictedManagerProjection = contract.managerVisibility !== undefined;
+  const validNextWork = !nextWork || (
+    exactObjectKeys(nextWork, [
+      "schemaVersion", "isOpen", "actor", "actionCode", "actionLabel",
+      "lastProgressAt", "dueAt", "blocker", "payloadRedacted",
+    ]) &&
+    nextWork.schemaVersion === "refund_next_work_v1" &&
+    typeof nextWork.isOpen === "boolean" &&
+    refundNextWorkActors.includes(nextWork.actor as RefundNextWorkActor) &&
+    refundNextWorkActionCodes.includes(nextWork.actionCode as RefundNextWorkActionCode) &&
+    typeof nextWork.actionLabel === "string" && nextWork.actionLabel.trim().length > 0 &&
+    (nextWork.lastProgressAt === null ||
+      (typeof nextWork.lastProgressAt === "string" && !Number.isNaN(Date.parse(nextWork.lastProgressAt)))) &&
+    (nextWork.dueAt === null ||
+      (typeof nextWork.dueAt === "string" && !Number.isNaN(Date.parse(nextWork.dueAt)))) &&
+    (nextWork.blocker === null || (
+      typeof nextWork.blocker === "object" && !Array.isArray(nextWork.blocker) &&
+      exactObjectKeys(nextWork.blocker as Record<string, unknown>, ["code", "owner", "nextStep"]) &&
+      typeof (nextWork.blocker as Record<string, unknown>).code === "string" &&
+      (nextWork.blocker as Record<string, unknown>).owner === "Agent" &&
+      typeof (nextWork.blocker as Record<string, unknown>).nextStep === "string"
+    )) &&
+    nextWork.payloadRedacted === true &&
+    (nextWork.actor !== "manager" ||
+      ["approve_or_deny_request", "send_cash_refund_and_confirm"].includes(String(nextWork.actionCode))) &&
+    (nextWork.actor !== "customer" || nextWork.actionCode === "answer_question")
+  );
   const nullableString = (candidate: unknown) => candidate === null || typeof candidate === "string";
   const customerOutreachKeys = [
     "caseFactVersion", "clarificationAttemptCount", "clarificationLimit", "cycleId",
@@ -477,6 +528,7 @@ export const isRefundLifecycleContract = (
           ? operations?.nextStep === null
           : appliedPendingNextSteps.includes(operations?.nextStep as string | null)));
   return contract.schemaVersion === REFUND_LIFECYCLE_SCHEMA_VERSION &&
+    validNextWork &&
     typeof contract.version === "number" && Number.isSafeInteger(contract.version) &&
     contract.version >= 1 &&
     typeof contract.stage === "string" && stageSet.has(contract.stage) &&

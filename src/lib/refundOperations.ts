@@ -1818,6 +1818,24 @@ const demoLifecycle = (
   operationsRequired = false
 ): RefundLifecycleContract => ({
   schemaVersion: REFUND_LIFECYCLE_SCHEMA_VERSION,
+  ...(typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('next-work') === 'on'
+    ? { nextWork: {
+      schemaVersion: 'refund_next_work_v1' as const,
+      isOpen: true,
+      actor: (stage === 'waiting_on_customer' ? 'customer' : stage === 'transaction_confirmed' ? 'manager' : 'agent') as 'customer' | 'manager' | 'agent',
+      actionCode: (stage === 'waiting_on_customer' ? 'answer_question' : stage === 'transaction_confirmed' ? 'approve_or_deny_request' : 'repair_provider_setup') as 'answer_question' | 'approve_or_deny_request' | 'repair_provider_setup',
+      actionLabel: stage === 'waiting_on_customer'
+        ? 'Waiting for the customer to answer the delivered question.'
+        : stage === 'transaction_confirmed'
+        ? 'Approve or deny the prepared refund request.'
+        : 'Correct the saved machine or provider mapping, then check the purchase.',
+      lastProgressAt: demoIsoHoursAgo(0.9), dueAt: null,
+      blocker: stage === 'matching'
+        ? { code: 'provider_mapping_required', owner: 'Agent' as const, nextStep: 'Correct the verified mapping.' }
+        : null,
+      payloadRedacted: true as const,
+    } }
+    : {}),
   version: 1,
   stage,
   stageRank,

@@ -67,6 +67,11 @@ historical fixtures cannot add product gates that the workflow does not contain.
 - [ ] System, mapping, timezone, provider, and delivery defects route to an
   internal issue without asking the customer to troubleshoot or repeat known
   facts.
+- [ ] In `/admin/refunds`, Action needed includes only a prepared final Manager
+  decision or cash send/confirm. A delivered unanswered question appears in
+  Waiting for customer; a verified reply, unknown Nayax outcome, missing Zelle
+  destination, failed customer delivery, and accounting-only follow-up do not
+  become Manager tasks. Refresh preserves the same tabs, counts, and case badge.
 - [ ] Customer and Manager views work at 390px and desktop widths, with readable
   evidence, keyboard access, no horizontal overflow, and no private provider or
   payment identifiers.

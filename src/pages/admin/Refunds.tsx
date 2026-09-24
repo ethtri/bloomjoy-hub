@@ -941,6 +941,7 @@ const canonicalQueueBucket = (refundCase: RefundCaseRecord) =>
   getRefundManagerQueueBucket(refundCase);
 
 const isReadyToPayCase = (refundCase: RefundCaseRecord) => {
+  if (refundCase.lifecycle?.nextWork) return canonicalQueueBucket(refundCase) === 'ready_to_pay';
   if (refundCase.paymentMethod === 'card' && refundCase.refundReadiness) {
     if (
       doneStatuses.has(refundCase.status) ||
@@ -966,7 +967,7 @@ const isReadyToPayCase = (refundCase: RefundCaseRecord) => {
 };
 
 const taskManagerState = (refundCase: RefundCaseRecord) =>
-  (isReadyToPayCase(refundCase)
+  (refundCase.lifecycle?.nextWork ? null : isReadyToPayCase(refundCase)
     ? getCurrentRefundCardManagerState(refundCase, refundCase.refundReadiness)
     : null) ?? getRefundManagerState(refundCase);
 
@@ -2327,6 +2328,8 @@ const messageStatusBadgeClass = (status: string) => {
 };
 
 const isNeedsActionCase = (refundCase: RefundCaseRecord) => {
+  if (refundCase.lifecycle?.nextWork) return refundCase.lifecycle.nextWork.isOpen &&
+    refundCase.lifecycle.nextWork.actor === 'manager';
   if (refundCase.lifecycle) return canonicalQueueBucket(refundCase) === 'needs_action';
   return openStatuses.has(refundCase.status) &&
     !isReadyToPayCase(refundCase) &&
@@ -2942,7 +2945,7 @@ export default function AdminRefundsPage() {
     provider_hold: overview.cases.filter(isManagerReviewCase).length,
     completed: overview.cases.filter(isDoneCase).length,
     internal_test: refundOperationsAccess ? internalTestCases.length : 0,
-    ...(overview.managerWork && (
+    ...(!overview.cases.some((refundCase) => refundCase.lifecycle?.nextWork) && overview.managerWork && (
       overview.cases.length === 0 ||
       Object.values(overview.managerWork.bucketCounts).some((count) => count > 0)
     ) ? overview.managerWork.bucketCounts : {}),
@@ -5951,7 +5954,7 @@ export default function AdminRefundsPage() {
       primaryAction?.mode === 'nayax_refund_execution' &&
       primaryAction.disabled !== true;
     const topActionLabel = primaryAction?.label ?? 'Review this request';
-    const baseManagerState = (!hasReadyRefund || isRunningNayaxRefund
+    const baseManagerState = (selectedCase.lifecycle?.nextWork || !hasReadyRefund || isRunningNayaxRefund
       ? null
       : getCurrentRefundCardManagerState(selectedCase, selectedRefundReadiness)) ?? getRefundManagerState(
       {
@@ -7165,7 +7168,7 @@ export default function AdminRefundsPage() {
               ['needs_action', 'Action needed'],
               ['ready_to_pay', 'Ready to approve'],
               ['in_progress', 'Refund in progress'],
-              ['provider_hold', 'Needs manager review'],
+              ['provider_hold', 'Bloomjoy follow-up'],
               ['waiting_on_customer', 'Waiting for customer'],
               ['completed', 'Done'],
             ] as const)
