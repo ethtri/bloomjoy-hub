@@ -55,6 +55,24 @@ begin
           )
           and (public.refund_lifecycle_contract(c.id) -> 'lookup')
             @> '{"status":"results_expired","safeRetryEligible":true}'::jsonb
+          and (
+            c.nayax_lookup_status <> 'manual_exception'
+            or (
+              c.nayax_lookup_started_at is not null
+              and c.nayax_lookup_correlation_digest ~ '^[a-f0-9]{64}$'
+              and nullif(c.nayax_recommendation_policy_version, '') is not null
+              and c.nayax_recommendation_policy_version <> 'manual-nayax-portal-v1'
+              and not exists (
+                select 1 from public.refund_case_events manual_event
+                where manual_event.refund_case_id = c.id
+                  and manual_event.event_type in (
+                    'manual_nayax_evidence_entered',
+                    'nayax_match_preselection_disputed'
+                  )
+                  and manual_event.created_at >= c.nayax_lookup_finished_at
+              )
+            )
+          )
         )
       )
       and c.reporting_location_id is not null
@@ -131,6 +149,24 @@ begin
           )
           and (public.refund_lifecycle_contract(c.id) -> 'lookup')
             @> '{"status":"results_expired","safeRetryEligible":true}'::jsonb
+          and (
+            c.nayax_lookup_status <> 'manual_exception'
+            or (
+              c.nayax_lookup_started_at is not null
+              and c.nayax_lookup_correlation_digest ~ '^[a-f0-9]{64}$'
+              and nullif(c.nayax_recommendation_policy_version, '') is not null
+              and c.nayax_recommendation_policy_version <> 'manual-nayax-portal-v1'
+              and not exists (
+                select 1 from public.refund_case_events manual_event
+                where manual_event.refund_case_id = c.id
+                  and manual_event.event_type in (
+                    'manual_nayax_evidence_entered',
+                    'nayax_match_preselection_disputed'
+                  )
+                  and manual_event.created_at >= c.nayax_lookup_finished_at
+              )
+            )
+          )
         )
       )
       and c.reporting_location_id is not null

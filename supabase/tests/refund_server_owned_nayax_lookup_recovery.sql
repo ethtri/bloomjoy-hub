@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(44);
+select plan(47);
 
 select ok(to_regclass('public.refund_nayax_lookup_recoveries') is null,
   'The duplicate lookup recovery table is removed');
@@ -253,6 +253,8 @@ select ok(
   and pg_get_functiondef('public.service_claim_due_refund_nayax_lookups(integer)'::regprocedure)
     like '%refund_lifecycle_contract(c.id)%results_expired%safeRetryEligible%'
   and pg_get_functiondef('public.service_claim_due_refund_nayax_lookups(integer)'::regprocedure)
+    like '%nayax_lookup_correlation_digest%manual_nayax_evidence_entered%nayax_match_preselection_disputed%'
+  and pg_get_functiondef('public.service_claim_due_refund_nayax_lookups(integer)'::regprocedure)
     like '%lookup_candidate.expires_at > statement_timestamp()%'
   and pg_get_functiondef('public.service_claim_due_refund_nayax_lookups(integer)'::regprocedure)
     like '%refund_authoritative_receipts%refund_case_nayax_refund_attempts%',
@@ -282,7 +284,25 @@ insert into public.refund_cases(
 ('a8800000-0000-4000-8000-000000000013','RF-ZERO-VALID','a8800000-0000-4000-8000-000000000003','a8800000-0000-4000-8000-000000000002','zero-valid@example.invalid','Valid zero result',statement_timestamp()-interval '8 hours','America/Los_Angeles','exact','card',700,'4242','needs_review','no_match','nayax',3,'no_match',statement_timestamp()-interval '4 hours','no_safe_match'),
 ('a8800000-0000-4000-8000-000000000014','RF-ORPHAN-EXCEPTION','a8800000-0000-4000-8000-000000000003','a8800000-0000-4000-8000-000000000002','orphan-exception@example.invalid','Orphan automatic exception',statement_timestamp()-interval '8 hours','America/Los_Angeles','exact','card',700,'4242','needs_review','manual_review','nayax',3,'manual_exception',statement_timestamp()-interval '3 hours','manual_exception'),
 ('a8800000-0000-4000-8000-000000000015','RF-MANUAL-EXCEPTION','a8800000-0000-4000-8000-000000000004','a8800000-0000-4000-8000-000000000002','manual-exception@example.invalid','Manual portal exception',statement_timestamp()-interval '8 hours','America/Los_Angeles','exact','card',700,'4242','needs_review','manual_review','nayax',3,'manual_exception',statement_timestamp()-interval '2 hours','manual_exception'),
-('a8800000-0000-4000-8000-000000000016','RF-PAYMENT-BLOCK','a8800000-0000-4000-8000-000000000003','a8800000-0000-4000-8000-000000000002','payment-block@example.invalid','Payment state blocks lookup',statement_timestamp()-interval '8 hours','America/Los_Angeles','exact','card',700,'4242','needs_review','multiple_candidates','nayax',3,'multiple_matches',statement_timestamp()-interval '1 hour','ambiguous');
+('a8800000-0000-4000-8000-000000000016','RF-PAYMENT-BLOCK','a8800000-0000-4000-8000-000000000003','a8800000-0000-4000-8000-000000000002','payment-block@example.invalid','Payment state blocks lookup',statement_timestamp()-interval '8 hours','America/Los_Angeles','exact','card',700,'4242','needs_review','multiple_candidates','nayax',3,'multiple_matches',statement_timestamp()-interval '1 hour','ambiguous'),
+('a8800000-0000-4000-8000-000000000017','RF-STALE-MANUAL','a8800000-0000-4000-8000-000000000003','a8800000-0000-4000-8000-000000000002','stale-manual@example.invalid','Manual portal provenance on now-automatic machine',statement_timestamp()-interval '8 hours','America/Los_Angeles','exact','card',700,'4242','needs_review','manual_review','nayax',3,'manual_exception',statement_timestamp()-interval '3 hours','manual_exception'),
+('a8800000-0000-4000-8000-000000000018','RF-DISPUTED-AUTO','a8800000-0000-4000-8000-000000000003','a8800000-0000-4000-8000-000000000002','disputed-auto@example.invalid','Previously automatic result was later disputed',statement_timestamp()-interval '8 hours','America/Los_Angeles','exact','card',700,'4242','needs_review','manual_review','nayax',3,'manual_exception',statement_timestamp()-interval '3 hours','manual_exception');
+
+update public.refund_cases set
+  nayax_lookup_started_at = statement_timestamp()-interval '4 hours',
+  nayax_lookup_correlation_digest = repeat('a',64),
+  nayax_recommendation_policy_version = 'automatic-lookup-v1'
+where id='a8800000-0000-4000-8000-000000000014';
+update public.refund_cases set
+  nayax_lookup_started_at = statement_timestamp()-interval '4 hours',
+  nayax_lookup_correlation_digest = repeat('b',64),
+  nayax_recommendation_policy_version = 'manual-nayax-portal-v1'
+where id='a8800000-0000-4000-8000-000000000017';
+update public.refund_cases set
+  nayax_lookup_started_at = statement_timestamp()-interval '4 hours',
+  nayax_lookup_correlation_digest = repeat('c',64),
+  nayax_recommendation_policy_version = 'automatic-lookup-v1'
+where id='a8800000-0000-4000-8000-000000000018';
 
 update public.refund_cases
 set nayax_refund_execution_status='requested'
@@ -292,6 +312,10 @@ insert into public.refund_case_events(refund_case_id,event_type,message,metadata
 values('a8800000-0000-4000-8000-000000000015','nayax_lookup_completed',
   'Manual portal exception once had candidates',
   jsonb_build_object('lookup_generation',3,'candidate_count',2,'payload_redacted',true));
+insert into public.refund_case_events(refund_case_id,event_type,message,metadata)
+values('a8800000-0000-4000-8000-000000000018',
+  'nayax_match_preselection_disputed','Current generation was disputed',
+  '{"payload_redacted":true}'::jsonb);
 
 alter table public.refund_nayax_lookup_candidates disable trigger user;
 insert into public.refund_nayax_lookup_candidates(
@@ -315,6 +339,10 @@ select is((public.refund_lifecycle_contract(
   'a8800000-0000-4000-8000-000000000014') #>> '{lookup,safeRetryEligible}')::boolean,
   true,
   'The canonical lifecycle permits a read-only refresh despite the missing event');
+select is((public.refund_lifecycle_contract(
+  'a8800000-0000-4000-8000-000000000017') #>> '{lookup,status}'),
+  'results_expired',
+  'A stale manual-portal case looks expired even on an automatic machine');
 
 create temporary table orphan_claim_result(result jsonb not null);
 insert into orphan_claim_result
@@ -348,6 +376,12 @@ select is((select nayax_lookup_status from public.refund_cases
 select is((select nayax_lookup_status from public.refund_cases
   where id='a8800000-0000-4000-8000-000000000016'),'multiple_matches',
   'Existing payment execution state blocks orphan recovery');
+select is((select nayax_lookup_status from public.refund_cases
+  where id='a8800000-0000-4000-8000-000000000017'),'manual_exception',
+  'Manual-portal provenance blocks automatic lookup after a machine mode change');
+select is((select nayax_lookup_status from public.refund_cases
+  where id='a8800000-0000-4000-8000-000000000018'),'manual_exception',
+  'A disputed automatic result does not silently restart provider research');
 
 select * from finish();
 rollback;
