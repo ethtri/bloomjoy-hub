@@ -69,6 +69,13 @@ begin
   for target in
     select c.id, c.deterministic_fact_version
     from public.refund_cases c
+    left join lateral (
+      select attempt.evaluated_at
+      from public.refund_sunze_cash_correlation_attempts attempt
+      where attempt.refund_case_id = c.id
+      order by attempt.evaluated_at desc, attempt.id desc
+      limit 1
+    ) last_evaluation on true
     where c.payment_method = 'cash'
       and c.status in ('submitted','needs_review','waiting_on_customer','correlated')
       and c.decision is null
@@ -86,7 +93,10 @@ begin
             public.refund_current_sunze_cash_source_key(
               c.reporting_machine_id,c.incident_at,statement_timestamp())
       )
-    order by c.created_at, c.id
+    -- A refreshed source can make old cases due again every sweep. Prioritize
+    -- never-evaluated cases, then the least recently evaluated case, so a
+    -- changing source cannot starve later requests beyond the bounded batch.
+    order by last_evaluation.evaluated_at nulls first, c.created_at, c.id
     limit p_limit
     for update of c skip locked
   loop

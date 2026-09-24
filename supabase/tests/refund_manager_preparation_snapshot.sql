@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(22);
+select plan(25);
 
 select ok(has_function_privilege('service_role',
   'public.refund_manager_preparation_snapshot(uuid,bigint)','execute')
@@ -211,6 +211,44 @@ select is(public.refund_manager_preparation_snapshot(
   null::jsonb,'Already approved case does not request a fresh decision proof');
 select is((public.service_prepare_due_refund_cash_cases(10)->>'evaluated')::integer,0,
   'Already approved case is not requeued for preparation');
+
+-- A changing source must not let the same oldest batch monopolize the sweep.
+-- Eleven new cases exceed the ten-case worker batch. Source refresh makes the
+-- first ten eligible again before the eleventh receives its first evaluation.
+insert into public.refund_cases(
+  id,public_reference,reporting_machine_id,reporting_location_id,
+  customer_email,issue_summary,incident_at,incident_timezone,
+  payment_method,payment_amount_cents,refund_amount_cents,
+  zelle_payment_contact,status,correlation_status
+)
+select ('e2900000-0000-4000-8000-' || lpad(n::text,12,'0'))::uuid,
+  'RF-PREP-FAIR-' || n,
+  'e2900000-0000-4000-8000-000000000004'::uuid,
+  'e2900000-0000-4000-8000-000000000002'::uuid,
+  'fair-' || n || '@example.invalid','Fair cash research',
+  statement_timestamp()-interval '11 hours','America/Los_Angeles',
+  'cash',900,900,'fair-' || n || '@example.invalid',
+  'needs_review','manual_review'
+from generate_series(31,41) n;
+select is((public.service_prepare_due_refund_cash_cases(10)->>'evaluated')::integer,10,
+  'Bounded worker handles only ten of eleven new cash cases');
+insert into public.sunze_cash_source_watermarks(
+  reporting_machine_id,coverage_started_at,covered_through,
+  last_successful_import_at,freshness_expires_at,payment_time_basis,
+  payment_time_timezone,timestamp_proof_scope,import_run_id
+) values ('e2900000-0000-4000-8000-000000000004',
+  statement_timestamp()-interval '14 hours',statement_timestamp()-interval '8 hours',
+  statement_timestamp(),statement_timestamp()+interval '1 day',
+  'validated_iana_timezone','America/Los_Angeles','account',
+  'e2900000-0000-4000-8000-000000000007');
+select is((public.service_prepare_due_refund_cash_cases(10)->>'evaluated')::integer,10,
+  'Changed source is researched in a bounded second batch');
+select is((select count(distinct attempt.refund_case_id)::integer
+  from public.refund_sunze_cash_correlation_attempts attempt
+  where attempt.refund_case_id in (
+    select ('e2900000-0000-4000-8000-' || lpad(n::text,12,'0'))::uuid
+    from generate_series(31,41) n
+  )),11,'An unattempted eleventh case progresses despite recurrent older work');
 
 select * from finish();
 rollback;
