@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(40);
+select plan(44);
 
 select ok(to_regclass('public.refund_nayax_lookup_recoveries') is null,
   'The duplicate lookup recovery table is removed');
@@ -251,12 +251,12 @@ select ok(
   and pg_get_functiondef('public.service_claim_due_refund_nayax_lookups(integer)'::regprocedure)
     like '%machine.nayax_manual_portal_enabled is not true%'
   and pg_get_functiondef('public.service_claim_due_refund_nayax_lookups(integer)'::regprocedure)
-    like '%completed_event.metadata ->> ''candidate_count''%'
+    like '%refund_lifecycle_contract(c.id)%results_expired%safeRetryEligible%'
   and pg_get_functiondef('public.service_claim_due_refund_nayax_lookups(integer)'::regprocedure)
     like '%lookup_candidate.expires_at > statement_timestamp()%'
   and pg_get_functiondef('public.service_claim_due_refund_nayax_lookups(integer)'::regprocedure)
     like '%refund_authoritative_receipts%refund_case_nayax_refund_attempts%',
-  'The case worker reclaims only orphaned automatic evidence and retains payment guards');
+  'The case worker reclaims canonically expired automatic evidence and retains payment guards');
 
 insert into public.customer_accounts(id,name,account_type)
 values('a8800000-0000-4000-8000-000000000001','Orphan lookup fixture','internal');
@@ -289,9 +289,9 @@ set nayax_refund_execution_status='requested'
 where id='a8800000-0000-4000-8000-000000000016';
 
 insert into public.refund_case_events(refund_case_id,event_type,message,metadata)
-values
-('a8800000-0000-4000-8000-000000000014','nayax_lookup_completed','Automatic exception once had candidates',jsonb_build_object('lookup_generation',3,'candidate_count',2,'payload_redacted',true)),
-('a8800000-0000-4000-8000-000000000015','nayax_lookup_completed','Manual portal exception once had candidates',jsonb_build_object('lookup_generation',3,'candidate_count',2,'payload_redacted',true));
+values('a8800000-0000-4000-8000-000000000015','nayax_lookup_completed',
+  'Manual portal exception once had candidates',
+  jsonb_build_object('lookup_generation',3,'candidate_count',2,'payload_redacted',true));
 
 alter table public.refund_nayax_lookup_candidates disable trigger user;
 insert into public.refund_nayax_lookup_candidates(
@@ -307,6 +307,15 @@ insert into public.refund_nayax_lookup_candidates(
 );
 alter table public.refund_nayax_lookup_candidates enable trigger user;
 
+select is((public.refund_lifecycle_contract(
+  'a8800000-0000-4000-8000-000000000014') #>> '{lookup,status}'),
+  'results_expired',
+  'An automatic exception with no completion event has canonically expired evidence');
+select is((public.refund_lifecycle_contract(
+  'a8800000-0000-4000-8000-000000000014') #>> '{lookup,safeRetryEligible}')::boolean,
+  true,
+  'The canonical lifecycle permits a read-only refresh despite the missing event');
+
 create temporary table orphan_claim_result(result jsonb not null);
 insert into orphan_claim_result
 select public.service_claim_due_refund_nayax_lookups(10);
@@ -317,11 +326,16 @@ select ok((select result @> '[{"caseId":"a8800000-0000-4000-8000-000000000010"}]
   and result @> '[{"caseId":"a8800000-0000-4000-8000-000000000011"}]'::jsonb
   and result @> '[{"caseId":"a8800000-0000-4000-8000-000000000014"}]'::jsonb
   from orphan_claim_result),
-  'Match, multiple-match, and evidenced automatic exception cases are reclaimed');
+  'Match, multiple-match, and eventless automatic exception cases are reclaimed');
 select is((select count(*)::integer from public.refund_cases
   where id in ('a8800000-0000-4000-8000-000000000010','a8800000-0000-4000-8000-000000000011','a8800000-0000-4000-8000-000000000014')
     and nayax_lookup_status='checking'),3,
   'Each reclaimed case advances into the ordinary read-only checking state');
+select is((select nayax_lookup_generation from public.refund_cases
+  where id='a8800000-0000-4000-8000-000000000014'),4::bigint,
+  'The eventless expired case advances to a new provider-read generation');
+select is(jsonb_array_length(public.service_claim_due_refund_nayax_lookups(10)),0,
+  'A repeated sweep cannot claim the newly checking generation');
 select is((select nayax_lookup_status from public.refund_cases
   where id='a8800000-0000-4000-8000-000000000012'),'multiple_matches',
   'A completed result with durable current evidence is not reclaimed');
