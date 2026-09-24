@@ -12,7 +12,8 @@ const ATTEMPT_ID = "b2400000-0000-4000-8000-000000000001";
 const THREAD_RECORD_ID = "b2500000-0000-4000-8000-000000000001";
 const PROVIDER_THREAD_ID = "synthetic-original-provider-thread";
 const CUSTOMER_EMAIL = "customer@example.test";
-const CANONICAL_BODY = "Your refund is on its way. The bank may take several days to post it.";
+const CANONICAL_BODY =
+  "Your refund is on its way. The bank may take several days to post it.";
 const SOURCE_MESSAGE_HEADER = "<synthetic-source@example.test>";
 
 const withEnvironment = async (
@@ -157,7 +158,8 @@ Deno.test("PR #1310 regression: completion validates its immutable body before s
               providerThreadId: PROVIDER_THREAD_ID,
               subject: "Refund conversation subject",
               inReplyTo: SOURCE_MESSAGE_HEADER,
-              references: "<synthetic-prior@example.test> " + SOURCE_MESSAGE_HEADER,
+              references: "<synthetic-prior@example.test> " +
+                SOURCE_MESSAGE_HEADER,
               recipientResolutionStatus: "resolved",
               managerCcEmails: ["manager@example.test"],
               managerRecipientOverlap: false,
@@ -193,24 +195,32 @@ Deno.test("PR #1310 regression: completion validates its immutable body before s
       const url = input instanceof Request ? input.url : String(input);
       if (url.includes("oauth2.googleapis.com/token")) {
         oauthCalls += 1;
-        return new Response(JSON.stringify({
-          access_token: "synthetic-access-token",
-          expires_in: 3600,
-        }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({
+            access_token: "synthetic-access-token",
+            expires_in: 3600,
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
       }
-      if (url.includes("gmail.googleapis.com/gmail/v1/users/me/messages/send")) {
+      if (
+        url.includes("gmail.googleapis.com/gmail/v1/users/me/messages/send")
+      ) {
         gmailSendCalls += 1;
         providerRequest = JSON.parse(String(init?.body ?? "{}"));
-        return new Response(JSON.stringify({
-          id: "synthetic-provider-message",
-          threadId: PROVIDER_THREAD_ID,
-        }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({
+            id: "synthetic-provider-message",
+            threadId: PROVIDER_THREAD_ID,
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
       }
       if (url.includes("/messages/synthetic-provider-message")) {
         return new Response("{}", { status: 503 });
@@ -234,11 +244,15 @@ Deno.test("PR #1310 regression: completion validates its immutable body before s
       assertEquals(providerRequest.threadId, PROVIDER_THREAD_ID);
       assertEquals(prepareRetryCalls, 0);
       assertEquals(
-        rpcCalls.filter((name) => name === "service_claim_refund_gmail_outbound_v3").length,
+        rpcCalls.filter((name) =>
+          name === "service_claim_refund_gmail_outbound_v3"
+        ).length,
         1,
       );
       assertEquals(
-        rpcCalls.filter((name) => name === "service_finish_nayax_refund_completion").length,
+        rpcCalls.filter((name) =>
+          name === "service_finish_nayax_refund_completion"
+        ).length,
         1,
       );
 
@@ -249,13 +263,18 @@ Deno.test("PR #1310 regression: completion validates its immutable body before s
       const plainBody = decodeMimePart(mime, "plain");
       const htmlBody = decodeMimePart(mime, "html");
       assertStringIncludes(mime, `In-Reply-To: ${SOURCE_MESSAGE_HEADER}`);
-      assertStringIncludes(mime, `References: <synthetic-prior@example.test> ${SOURCE_MESSAGE_HEADER}`);
+      assertStringIncludes(
+        mime,
+        `References: <synthetic-prior@example.test> ${SOURCE_MESSAGE_HEADER}`,
+      );
       assertStringIncludes(mime, "X-Bloomjoy-Refund-Operation:");
       assertStringIncludes(plainBody, CANONICAL_BODY);
       assertStringIncludes(plainBody, "/refunds/status#token=");
       assertStringIncludes(htmlBody, CANONICAL_BODY);
       assertStringIncludes(htmlBody, "/refunds/status#token=");
-      assert(!String(claimedIdentityBodies[0]).includes("/refunds/status#token="));
+      assert(
+        !String(claimedIdentityBodies[0]).includes("/refunds/status#token="),
+      );
     } finally {
       globalThis.fetch = originalFetch;
     }
