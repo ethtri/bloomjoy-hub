@@ -300,8 +300,8 @@ type SweepCounters = {
   actionsFailed: number;
   actionsSuppressed: number;
   reasonCounts: Record<string, number>;
-  cashPreparationsCompleted: number;
-  cashPreparationStaleSkipped: number;
+  cashCorrelationsEvaluated: number;
+  cashCorrelationStaleSkipped: number;
   nayaxLookupsRun: number;
   nayaxCandidatesFound: number;
   nayaxNoMatchMovedToWaiting: number;
@@ -367,8 +367,8 @@ const createCounters = (): SweepCounters => ({
   actionsFailed: 0,
   actionsSuppressed: 0,
   reasonCounts: {},
-  cashPreparationsCompleted: 0,
-  cashPreparationStaleSkipped: 0,
+  cashCorrelationsEvaluated: 0,
+  cashCorrelationStaleSkipped: 0,
   nayaxLookupsRun: 0,
   nayaxCandidatesFound: 0,
   nayaxNoMatchMovedToWaiting: 0,
@@ -410,8 +410,8 @@ const redactedSummary = (counters: SweepCounters) => ({
   actionsFailed: counters.actionsFailed,
   actionsSuppressed: counters.actionsSuppressed,
   reasonCounts: counters.reasonCounts,
-  cashPreparationsCompleted: counters.cashPreparationsCompleted,
-  cashPreparationStaleSkipped: counters.cashPreparationStaleSkipped,
+  cashCorrelationsEvaluated: counters.cashCorrelationsEvaluated,
+  cashCorrelationStaleSkipped: counters.cashCorrelationStaleSkipped,
   nayaxLookupsRun: counters.nayaxLookupsRun,
   nayaxCandidatesFound: counters.nayaxCandidatesFound,
   nayaxNoMatchMovedToWaiting: counters.nayaxNoMatchMovedToWaiting,
@@ -2582,17 +2582,17 @@ const runCashPreparationSweep = async (counters: SweepCounters) => {
   const result = data && typeof data === "object" && !Array.isArray(data)
     ? data as Record<string, unknown>
     : null;
-  const completed = result?.evaluated;
+  const evaluated = result?.evaluated;
   const staleSkipped = result?.staleSkipped;
-  if (typeof completed !== "number" || !Number.isSafeInteger(completed) || completed < 0 ||
+  if (typeof evaluated !== "number" || !Number.isSafeInteger(evaluated) || evaluated < 0 ||
     typeof staleSkipped !== "number" || !Number.isSafeInteger(staleSkipped) || staleSkipped < 0 ||
     result?.payloadRedacted !== true) {
     throw new Error("Invalid redacted cash preparation receipt.");
   }
-  counters.cashPreparationsCompleted += completed;
-  counters.cashPreparationStaleSkipped += staleSkipped;
-  if (completed > 0) {
-    addReason(counters, "cash_preparation_completed", completed);
+  counters.cashCorrelationsEvaluated += evaluated;
+  counters.cashCorrelationStaleSkipped += staleSkipped;
+  if (evaluated > 0) {
+    addReason(counters, "cash_correlation_evaluated", evaluated);
   }
 };
 
