@@ -333,7 +333,7 @@ export const buildRefundManagerDigestEmail = (
     ? "The refund was already sent. Bloomjoy is resolving the required customer notice. No further payment or manager action is needed."
     : item.actor === "customer"
     ? `Waiting for the customer. ${item.actionLabel} No action needed from you.`
-    : `Next for Bloomjoy: ${item.actionLabel} No action needed from you.`;
+    : `Waiting for Bloomjoy follow-up. Next step: ${item.actionLabel} No action needed from you.`;
   const summary = `${projection.actionCount} need your decision or payment; ${projection.openCount} open in total.`;
   const section = (heading: string, entries: RefundManagerDailyDigestItem[]) => {
     if (!entries.length) return { text: "", html: "" };
@@ -341,7 +341,7 @@ export const buildRefundManagerDigestEmail = (
     const rows = entries.map((item) => `<li style="margin:0 0 18px;padding:0;overflow-wrap:anywhere"><strong>${escapeHtml(item.publicReference)}</strong> · ${escapeHtml(amount(item.amountCents, item.currencyCode))}<br>${escapeHtml(item.machineLabel)} · ${escapeHtml(item.locationName)} · open ${escapeHtml(formatRefundManagerAge(item.ageMinutes))}<br>${escapeHtml(item.actor === "manager" ? actionText(item) : otherText(item))}<br><a href="${escapeHtml(caseUrl(item.caseId))}" style="color:#174a77">Open refund case ${escapeHtml(item.publicReference)}</a></li>`).join("");
     return { text: `${heading}\n\n${lines.join("\n\n")}`, html: `<h2 style="font-size:18px;line-height:1.3;margin:26px 0 12px">${heading}</h2><ol style="padding-left:24px;margin:0">${rows}</ol>` };
   };
-  const sections = [section("Your decision or payment", action), section("Bloomjoy is working on these", working), section("Waiting for the customer", waiting)];
+  const sections = [section("Your decision or payment", action), section("Awaiting Bloomjoy follow-up", working), section("Waiting for the customer", waiting)];
   const navigation =
     "Opening these links is navigation only. It does not approve, decline, complete, send, or retry a refund.";
   const subject = `Bloomjoy refunds: ${projection.actionCount} need your action, ${projection.openCount} open`;

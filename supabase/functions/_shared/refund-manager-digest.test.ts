@@ -22,7 +22,7 @@ const item = (index: number, actor: RefundManagerDailyDigestItem["actor"] = "sys
     actionCode: actor === "manager" ? "approve_or_deny_request"
       : actor === "customer" ? "answer_question" : "research_purchase",
     actionLabel: actor === "customer" ? "We asked one question and are waiting for a reply."
-      : "We are checking the purchase records.",
+      : "Check the purchase records.",
     paymentComplete: false,
     payloadRedacted: true,
   });
@@ -80,8 +80,12 @@ Deno.test("daily digest includes all 15 cases with decisions first and an exact 
 Deno.test("informational work names the actual next actor without asking manager to investigate", () => {
   const paid = { ...item(1), paymentComplete: true, actionCode: "recover_customer_delivery",
     actionLabel: "We are sending the customer the outcome." };
-  const message = render(projection([paid, item(2, "customer"), item(3, "manager")]));
+  const message = render(projection([paid, item(2, "customer"), item(3, "manager"), item(4)]));
   assert(message.text.includes("refund was already sent"), "paid case has no second payment request");
+  assert(message.text.includes("Awaiting Bloomjoy follow-up") &&
+    message.text.includes("Waiting for Bloomjoy follow-up. Next step: Check the purchase records."),
+    "internal next step is pending, not described as actively running");
+  assert(!message.text.includes("Bloomjoy is working"), "no unsupported active-work claim");
   assert(message.text.includes("Waiting for the customer"), "customer wait section");
   assert(message.text.includes("No action needed from you"), "internal and customer steps are FYI");
   assert(message.text.includes("approve or deny"), "prepared case asks for final decision");
