@@ -89,6 +89,8 @@ jobs:
           # prevent Ubuntu dependency installation before any UAT can run.
           sudo rm -f /etc/apt/sources.list.d/google-chrome.list
           npx playwright install --with-deps chromium
+      - name: Pre-optimize browser UAT dependencies
+        run: npx vite optimize --force
       - name: Start synthetic UAT app
         env:
           VITE_SUPABASE_URL: http://127.0.0.1:54321
