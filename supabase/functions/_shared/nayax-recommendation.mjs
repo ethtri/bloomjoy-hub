@@ -837,8 +837,7 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     mismatchPresent &&
     (!Number.isFinite(candidate.timeDeltaMinutes) ||
       candidate.timeDeltaMinutes <= policy.maximumOneClickTimeDeltaMinutes);
-  const neutralPhysicalContactlessMismatch =
-    identifierEvidence.customerCredentialClass === "customer_physical_contactless_pan" &&
+  const neutralUnprovenIdentifierMismatch =
     identifierEvidence.cardLast4Comparison === "mismatch_neutral_unproven_scope" &&
     identifierEvidence.cardNetworkComparison !== "mismatch_negative_unproven_equivalence";
   const managerSelectionSafetyCore =
@@ -865,7 +864,7 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     (customerTimeSupportsSelection || exactCardSupportsSelection);
   const evidenceAwareReviewEligible =
     corroboratedMismatchReviewEligible ||
-    (managerSelectionCore && neutralPhysicalContactlessMismatch);
+    (managerSelectionCore && neutralUnprovenIdentifierMismatch);
   const softTimeNeedsDistinguishingEvidence =
     managerSelectionSafetyCore &&
     !customerTimeSupportsSelection &&
@@ -1314,6 +1313,9 @@ export const buildNayaxRecommendation = ({
   } else if (qrTimeCandidates.length > 1) {
     recommendationState = "ambiguous";
     resultReasonCodes = ["multiple_qr_time_candidates", "plausible_runner_up"];
+  } else if (managerSelectableCandidates.length > 1) {
+    recommendationState = "ambiguous";
+    resultReasonCodes = ["multiple_manager_selectable_candidates", "plausible_runner_up"];
   } else if (evidenceAwareCandidates.length === 1) {
     recommendationState = "manual_exception";
     confidenceClass = "evidence_aware_review";
@@ -1329,9 +1331,6 @@ export const buildNayaxRecommendation = ({
       ...managerSelectableCandidates[0].reasonCodes,
       "unique_manager_selectable_candidate",
     ];
-  } else if (managerSelectableCandidates.length > 1) {
-    recommendationState = "ambiguous";
-    resultReasonCodes = ["multiple_manager_selectable_candidates", "plausible_runner_up"];
   } else if (candidatesNeedingDistinguishingCustomerFacts.length > 1) {
     recommendationState = "ambiguous";
     resultReasonCodes = ["multiple_candidates_need_distinguishing_fact", "plausible_runner_up"];
@@ -1349,7 +1348,7 @@ export const buildNayaxRecommendation = ({
     resultReasonCodes.push("transaction_after_customer_request");
   }
 
-  const finalizedCandidates = candidates.map((candidate) => {
+  const rankedCandidates = candidates.map((candidate) => {
     const isRecommended = Boolean(recommendedTransactionId && candidate.transactionId === recommendedTransactionId);
     const matchStrength = isRecommended
       ? "strong"
@@ -1380,8 +1379,11 @@ export const buildNayaxRecommendation = ({
     // Keep a uniquely recommended sale visible even when blocked rows score higher.
     .sort((left, right) => Number(right.isRecommended) - Number(left.isRecommended) ||
       Number(right.matchStrength === "compare") - Number(left.matchStrength === "compare") ||
-      left.recommendationRank - right.recommendationRank)
-    .slice(0, policy.candidateLimit);
+      left.recommendationRank - right.recommendationRank);
+  // The display cap applies only to blocked context. A safe reviewed sale must
+  // remain available even when amount-first ranking puts it below ten rows.
+  const finalizedCandidates = rankedCandidates.filter((candidate, index) =>
+    index < policy.candidateLimit || candidate.selectionAllowed);
 
   const copy = {
     high_confidence: hasProviderTotalPreference

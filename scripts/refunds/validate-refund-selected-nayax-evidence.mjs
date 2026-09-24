@@ -105,6 +105,7 @@ assert(
   selectionTest.includes("select plan(31)") &&
     selectionTest.includes('The database accepts the current v12 bounded identifier contract') &&
     selectionTest.includes('Rough DST-gap and noncomparable time remains selectable') &&
+    selectionTest.includes('Rough-time wallet token mismatch and estimated amount permit manager review without payment') &&
     selectionTest.includes('without a rationale hard stop') &&
     selectionTest.includes('covers missing timestamp comparability metadata') &&
     selectionTest.includes('Missing closer-time comparability is omitted') &&
