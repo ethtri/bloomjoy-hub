@@ -803,6 +803,35 @@ Deno.test('manager state consumes the canonical lifecycle for automatic progress
   }
 });
 
+Deno.test('unclaimed canonical internal work stays pending in queue and case copy', () => {
+  const contract = lifecycle('needs_transaction_selection', 20, 'select_transaction');
+  contract.nextWork = {
+    schemaVersion: 'refund_next_work_v1', isOpen: true, actor: 'agent',
+    actionCode: 'research_purchase', actionLabel: 'Review purchase evidence before asking the customer.',
+    lastProgressAt: null, dueAt: null, blocker: null, payloadRedacted: true,
+  };
+  const result = getRefundManagerState({ ...baseCase, lifecycle: contract });
+  assertEquals(result.id, 'needs_refund_operations', 'no executor claim means pending internal work');
+  assertEquals(result.label, 'Purchase research pending', 'case label does not imply active research');
+  assertEquals(result.explanation.includes('No Manager action is due.'), true, 'ownership is explicit');
+  assertEquals(result.nextStep, contract.nextWork.actionLabel, 'specific follow-up remains visible');
+
+  contract.nextWork = {
+    ...contract.nextWork, actor: 'system', actionCode: 'deliver_customer_question',
+    actionLabel: 'Deliver the prepared customer question.', dueAt: '2026-09-25T20:00:00.000Z',
+  };
+  assertEquals(getRefundManagerState({ ...baseCase, lifecycle: contract }).label,
+    'Customer question needs delivery', 'a due time alone does not imply an active send');
+
+  contract.paymentState = 'confirmed';
+  contract.nextWork = {
+    ...contract.nextWork, actionCode: 'recover_customer_delivery',
+    actionLabel: 'Deliver the completed-refund update.', dueAt: null,
+  };
+  assertEquals(getRefundManagerState({ ...baseCase, lifecycle: contract }).label,
+    'Refund sent · customer update pending', 'confirmed payment stays visible while notice is pending');
+});
+
 Deno.test('adopted unknown-date receipt keeps accounting internal without implying another customer send', () => {
   const result = getRefundManagerState({ ...baseCase, lifecycle: {
     ...lifecycle('customer_notified', 80, 'review_accounting_date'),

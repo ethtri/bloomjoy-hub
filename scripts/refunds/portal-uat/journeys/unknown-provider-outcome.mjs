@@ -219,7 +219,7 @@ export const createUnknownProviderOutcomeChecks = ({
       page.on('pageerror', (error) => consoleErrors.push(error.message));
 
       await signInRefundUser(page, appUrl);
-      await page.getByRole('button', { name: 'Needs manager review 1', exact: true })
+      await page.getByRole('button', { name: 'Bloomjoy follow-up 1', exact: true })
         .click();
       const caseButton = page.getByRole('button', { name: /RF-UAT-CARD/ }).first();
       await caseButton.waitFor({ timeout: 10000 })
@@ -990,7 +990,7 @@ export const createUnknownProviderOutcomeChecks = ({
         if (scenario.name === 'rejected') {
           await reloadRefundPortalPage(page);
           const heldQueue = page.getByRole('button', {
-            name: /^(Action needed|Needs manager review|Refund in progress) 1$/,
+            name: /^(Action needed|Bloomjoy follow-up|Refund in progress) 1$/,
           }).first();
           await heldQueue.waitFor({ timeout: 10000 });
           await heldQueue.click();

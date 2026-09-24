@@ -50,8 +50,9 @@ export const getRefundManagerQueueBucket = (
     if (!work.isOpen) return 'completed';
     if (work.actor === 'customer') return 'waiting_on_customer';
     if (work.actor === 'manager') return 'ready_to_pay';
-    if (work.blocker) return 'provider_hold';
-    return 'in_progress';
+    // A due time can name scheduled work but cannot prove a worker has claimed
+    // it. #1429 will add durable execution truth before a running label returns.
+    return 'provider_hold';
   }
   if (refundCase.lifecycle) return refundCase.lifecycle.managerQueue.bucket;
   if (["completed", "denied", "closed"].includes(refundCase.status))

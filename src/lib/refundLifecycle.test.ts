@@ -126,6 +126,8 @@ Deno.test('additive nextWork keeps v2 readable and removes internal work from Ma
   assert(isRefundLifecycleContract(fixture), 'legacy v2 remains valid');
   assert(isRefundLifecycleContract(internal), 'additive contract remains valid');
   assert(getRefundManagerQueueBucket({ lifecycle: requireRefundLifecycleContract(internal), status: 'needs_review', paymentMethod: 'card' }) === 'provider_hold', 'unknown payment is internal follow-up');
+  const scheduled = { ...internal, nextWork: { ...internal.nextWork, blocker: null, dueAt: '2026-09-25T20:00:00.000Z' } };
+  assert(getRefundManagerQueueBucket({ lifecycle: requireRefundLifecycleContract(scheduled), status: 'needs_review', paymentMethod: 'card' }) === 'provider_hold', 'a due time alone is not evidence of active execution');
   const waiting = { ...internal, nextWork: { ...internal.nextWork, actor: 'customer', actionCode: 'answer_question', blocker: null } };
   assert(isRefundLifecycleContract(waiting), 'customer question parses');
   assert(getRefundManagerQueueBucket({ lifecycle: requireRefundLifecycleContract(waiting), status: 'waiting_on_customer', paymentMethod: 'card' }) === 'waiting_on_customer', 'delivered unanswered question owns waiting view');

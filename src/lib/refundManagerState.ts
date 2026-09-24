@@ -395,21 +395,25 @@ export const getRefundManagerState = (
       return state('waiting_on_customer', 'Waiting for customer',
         'The customer has an unanswered delivered question.', nextWork.actionLabel, 'info');
     }
-    const label = ({
-      reconcile_provider_outcome: 'Checking the Nayax result',
-      reconcile_integrity: 'Checking the payment record',
-      recover_customer_delivery: 'Recovering customer update',
-      review_customer_reply: 'Reviewing customer reply',
-      resolve_manager_assignment: 'Resolving Manager access',
-      repair_provider_setup: 'Repairing transaction search',
-      obtain_payout_destination: 'Obtaining payout details',
-      research_purchase: 'Researching the purchase',
-      run_lookup: 'Checking the purchase',
-      continue_refund: 'Continuing the refund',
-      deliver_customer_question: 'Sending customer question',
-    } as Record<string, string>)[nextWork.actionCode] ?? 'Bloomjoy follow-up';
-    return state(nextWork.blocker ? 'needs_refund_operations' : 'checking_nayax', label,
-      nextWork.blocker ? 'Bloomjoy has an internal step to resolve.' : 'Bloomjoy owns the next step.',
+    const label = refundCase.lifecycle.paymentState === 'confirmed'
+      ? 'Refund sent · customer update pending'
+      : ({
+        reconcile_provider_outcome: 'Nayax result needs reconciliation',
+        reconcile_integrity: 'Payment record needs review',
+        recover_customer_delivery: 'Customer update needs follow-up',
+        review_customer_reply: 'Customer reply needs review',
+        resolve_manager_assignment: 'Manager assignment needs repair',
+        repair_provider_setup: 'Transaction search needs repair',
+        obtain_payout_destination: 'Payout details need follow-up',
+        research_purchase: 'Purchase research pending',
+        run_lookup: 'Transaction lookup pending',
+        continue_refund: 'Refund follow-up pending',
+        deliver_customer_question: 'Customer question needs delivery',
+      } as Record<string, string>)[nextWork.actionCode] ?? 'Bloomjoy follow-up pending';
+    return state('needs_refund_operations', label,
+      nextWork.blocker
+        ? 'Bloomjoy needs to resolve an internal dependency. No Manager action is due.'
+        : 'Bloomjoy owns this follow-up. No Manager action is due.',
       nextWork.actionLabel, nextWork.blocker ? 'warning' : 'info');
   }
 

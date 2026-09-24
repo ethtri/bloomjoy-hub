@@ -201,17 +201,17 @@ set search_path = ''
 as $$
 declare
   verified_reply_at timestamptz;
-  sent_at timestamptz := nullif(p_lifecycle -> 'customerOutreach' ->> 'requestSentAt', '')::timestamptz;
+  request_sent_at timestamptz := nullif(p_lifecycle -> 'customerOutreach' ->> 'requestSentAt', '')::timestamptz;
 begin
   if p_lifecycle is null then return null; end if;
-  if sent_at is not null then
+  if request_sent_at is not null then
     select max(message.received_at) into verified_reply_at
     from public.refund_gmail_messages message
     where message.refund_case_id = p_refund_case_id
       and message.direction = 'inbound'
       and message.participant_role = 'customer'
       and message.participant_trust = 'verified'
-      and message.received_at > sent_at;
+      and message.received_at > request_sent_at;
   end if;
   return p_lifecycle || jsonb_build_object(
     'nextWork', public.refund_next_work_projection(p_lifecycle, verified_reply_at)
@@ -298,7 +298,7 @@ begin
       base := jsonb_set(base, array[field_name], projected, true);
     end if;
   end loop;
-  return base || jsonb_build_object('nextWorkContractVersion', 'refund_next_work_v1');
+  return base;
 end;
 $$;
 revoke all on function public.admin_get_refund_operations_overview()

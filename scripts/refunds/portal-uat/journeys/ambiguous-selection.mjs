@@ -577,7 +577,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
         nextAttemptAt: null, failureClass: 'incomplete_history', payloadRedacted: true,
       },
       operationsAccess: true,
-      queueView: 'Needs manager review',
+      queueView: 'Bloomjoy follow-up',
       adminAccessContext: {
         isSuperAdmin: true,
         isScopedAdmin: false,
@@ -1094,7 +1094,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
         nextAttemptAt: null, failureClass: 'response_limit', payloadRedacted: true,
       },
       operationsAccess: true,
-      queueView: 'Needs manager review',
+      queueView: 'Bloomjoy follow-up',
       adminAccessContext: {
         isSuperAdmin: true,
         isScopedAdmin: false,
@@ -2295,7 +2295,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
   });
   const ordinaryRecoveryPage = await ordinaryRecoveryContext.newPage();
   await signInRefundUser(ordinaryRecoveryPage, appUrl);
-  const ordinaryManagerReviewQueue = ordinaryRecoveryPage.getByRole('button', { name: /^Needs manager review \d+$/ });
+  const ordinaryManagerReviewQueue = ordinaryRecoveryPage.getByRole('button', { name: /^Bloomjoy follow-up \d+$/ });
   await ordinaryManagerReviewQueue.waitFor();
   await ordinaryManagerReviewQueue.click();
   await openQueueCase(ordinaryRecoveryPage, 'RF-UAT-PENDING');
