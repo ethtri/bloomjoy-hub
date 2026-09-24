@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(13);
+select plan(14);
 
 with fixture as (
   select jsonb_build_object(
@@ -73,8 +73,15 @@ select is(public.refund_next_work_projection(jsonb_build_object(
 select is(public.refund_next_work_projection(jsonb_build_object(
   'payloadRedacted', true, 'stage', 'awaiting_payout', 'terminal', false,
   'reasonCode', 'external_payment_ready', 'paymentState', 'not_requested',
-  'messageState', jsonb_build_object('state', 'none')
+  'messageState', jsonb_build_object('state', 'none'),
+  'managerAction', jsonb_build_object('action', 'mark_external_refund')
 ))->>'actionCode', 'send_cash_refund_and_confirm', 'ready cash has one final Manager action');
+select is(public.refund_next_work_projection(jsonb_build_object(
+  'payloadRedacted', true, 'stage', 'awaiting_payout', 'terminal', false,
+  'reasonCode', 'external_payment_ready', 'paymentState', 'not_requested',
+  'messageState', jsonb_build_object('state', 'none'),
+  'managerAction', jsonb_build_object('action', 'resolve_manager_access')
+))->>'actor', 'agent', 'a saved destination without current Manager authority is internal assignment work');
 select is(public.refund_next_work_projection(jsonb_build_object(
   'payloadRedacted', true, 'stage', 'needs_transaction_selection', 'terminal', false,
   'paymentState', 'not_requested', 'messageState', jsonb_build_object('state', 'none')

@@ -123,7 +123,8 @@ begin
     actor_name := 'system';
     action_code := 'continue_refund';
     action_label := 'Continue the existing authorized refund attempt.';
-  elsif stage = 'awaiting_payout' and reason = 'external_payment_ready' then
+  elsif stage = 'awaiting_payout' and reason = 'external_payment_ready'
+    and p_lifecycle -> 'managerAction' ->> 'action' = 'mark_external_refund' then
     actor_name := 'manager';
     action_code := 'send_cash_refund_and_confirm';
     action_label := 'Send the cash refund through Zelle and confirm it was sent.';
