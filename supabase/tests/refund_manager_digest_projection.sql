@@ -316,7 +316,8 @@ insert into public.refund_cases (
   '12812000-0000-4000-8000-000000000001',
   'paid-notified@example.invalid', 'Synthetic settled refund',
   '2026-09-14T12:00:00Z', 'card', 500, 500, 'completed', 'approved',
-  statement_timestamp(), 'matched', 'nayax', 1, 'DIGEST-PAID-14',
+  statement_timestamp(), 'matched', 'nayax', 1, 'completed', 'approved',
+  false, 'DIGEST-PAID-14',
   '2026-09-14T12:00:00Z', 500, 'USD', 7001
 ), (
   '12815000-0000-4000-8000-000000000015', 'RF-DIGEST-DENIED',
@@ -324,8 +325,8 @@ insert into public.refund_cases (
   '12812000-0000-4000-8000-000000000001',
   'denied@example.invalid', 'Synthetic denied refund',
   '2026-09-15T12:00:00Z', 'card', 500, null, 'denied', 'denied',
-  null, 'no_match', null, 0, null,
-  null, null, null, null
+  null, 'no_match', null, 0, 'under_review', 'not_requested', false,
+  null, null, null, null, null
 );
 
 insert into public.sales_adjustment_facts (
