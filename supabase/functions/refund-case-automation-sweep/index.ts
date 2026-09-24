@@ -6,6 +6,7 @@ import { correctionLinkRequested, getCurrentRefundCorrectionFields, issueRefundC
 import { recheckSavedPurchaseCorrection } from "../_shared/refund-purchase-correction-handler.ts";
 import { sendInternalEmail, sendTransactionalEmail } from "../_shared/internal-email.ts";
 import { buildRefundManagerDigestEmail, parseRefundManagerDailyDigestProjection } from "../_shared/refund-manager-digest.ts";
+import { deliverRefundManagerReadyClaim } from "../_shared/refund-manager-ready-delivery.ts";
 import {
   bindRefundManagerNoticeReservationRouting,
   getRefundManagerCaseUrl,
@@ -108,6 +109,8 @@ const managerAgingNoticesEnabled =
     .toLowerCase() === "true";
 const managerDigestEnabled =
   (Deno.env.get("REFUND_MANAGER_DIGEST_ENABLED") || "false").toLowerCase() === "true";
+const managerReadyNoticesEnabled =
+  (Deno.env.get("REFUND_MANAGER_READY_NOTICES_ENABLED") || "false").toLowerCase() === "true";
 const managerReminderBusinessDays = Number(
   Deno.env.get("REFUND_MANAGER_REMINDER_BUSINESS_DAYS") || 2,
 );
@@ -326,6 +329,7 @@ type SweepCounters = {
   managerRemindersSent: number;
   managerRoutingExceptionsSent: number;
   managerNoticesFailed: number;
+  managerReadyNoticesSent: number;
   managerDigestsSent: number;
   managerDigestItemsSent: number;
   customerStatusUpdatesSent: number;
@@ -393,6 +397,7 @@ const createCounters = (): SweepCounters => ({
   managerRemindersSent: 0,
   managerRoutingExceptionsSent: 0,
   managerNoticesFailed: 0,
+  managerReadyNoticesSent: 0,
   managerDigestsSent: 0,
   managerDigestItemsSent: 0,
   customerStatusUpdatesSent: 0,
@@ -436,6 +441,7 @@ const redactedSummary = (counters: SweepCounters) => ({
   managerRemindersSent: counters.managerRemindersSent,
   managerRoutingExceptionsSent: counters.managerRoutingExceptionsSent,
   managerNoticesFailed: counters.managerNoticesFailed,
+  managerReadyNoticesSent: counters.managerReadyNoticesSent,
   managerDigestsSent: counters.managerDigestsSent,
   managerDigestItemsSent: counters.managerDigestItemsSent,
   customerStatusUpdatesSent: counters.customerStatusUpdatesSent,
@@ -4239,6 +4245,66 @@ const runManagerDigestSweep = async (observedAt: Date, counters: SweepCounters) 
   addReason(counters, "manager_digest_drain_limit_reached");
 };
 
+const runManagerReadyNoticeSweep = async (
+  observedAt: Date, counters: SweepCounters, caseId: string | null = null,
+  limit = 25,
+) => {
+  if (!supabase) return 0;
+  if (!managerReadyNoticesEnabled) {
+    addReason(counters, "manager_ready_notices_disabled");
+    return 0;
+  }
+  const { data: enqueued, error: enqueueError } = await supabase.rpc(
+    "service_enqueue_refund_manager_ready_notices", {
+      p_refund_case_id: caseId,
+      p_observed_at: observedAt.toISOString(),
+    },
+  );
+  if (enqueueError) throw enqueueError;
+  const enqueueResult = enqueued && typeof enqueued === "object"
+    ? enqueued as Record<string, unknown> : {};
+  if (Number(enqueueResult.queuedCount) > 0) {
+    addReason(counters, "manager_ready_notice_enqueued");
+  }
+  if (Number(enqueueResult.legacyReviewCount) > 0) {
+    addReason(counters, "manager_ready_notice_legacy_overlap_review");
+  }
+  let claimedCount = 0;
+  for (let index = 0; index < limit; index += 1) {
+    const { data, error } = await supabase.rpc("service_claim_next_refund_manager_ready_notice", {
+      p_refund_case_id: caseId,
+      p_observed_at: observedAt.toISOString(),
+    });
+    if (error) throw error;
+    const claim = data && typeof data === "object" ? data as Record<string, unknown> : {};
+    if (claim.claimed !== true) {
+      addReason(counters, `manager_ready_notice_${textValue(claim.reason) || "empty"}`);
+      return claimedCount;
+    }
+    claimedCount += 1;
+    try {
+      const outcome = await deliverRefundManagerReadyClaim({
+        client: supabase,
+        claim,
+        sendEmail: sendTransactionalEmail,
+        caseUrl: getRefundManagerCaseUrl,
+      });
+      if (outcome === "sent") {
+        counters.managerReadyNoticesSent += 1;
+        addReason(counters, "manager_ready_notice_sent");
+      } else {
+        addReason(counters, "manager_ready_notice_current_scope_changed");
+      }
+    } catch (sendError) {
+      counters.managerNoticesFailed += 1;
+      addReason(counters, "manager_ready_notice_delivery_failed_or_unknown");
+      throw sendError;
+    }
+  }
+  addReason(counters, "manager_ready_notice_drain_limit_reached");
+  return claimedCount;
+};
+
 const runManagerAgingSweep = async (
   runId: string,
   counters: SweepCounters,
@@ -4714,7 +4780,8 @@ serve(async (req) => {
 
     const body = await req.json().catch(() => ({} as Record<string, unknown>));
     const mode = body?.mode === "health_check" ||
-        body?.mode === "failure_test" || body?.mode === "completion_wakeup"
+        body?.mode === "failure_test" || body?.mode === "completion_wakeup" ||
+        body?.mode === "ready_wakeup"
       ? body.mode
       : "run";
     if (mode === "completion_wakeup") {
@@ -4740,6 +4807,15 @@ serve(async (req) => {
         claimedCount: results.length,
         payloadRedacted: true,
       });
+    }
+    if (mode === "ready_wakeup") {
+      const caseId = typeof body.caseId === "string" && UUID_PATTERN.test(body.caseId)
+        ? body.caseId : null;
+      if (!caseId) return jsonResponse({ error: "Valid ready notice wakeup required." }, 400);
+      failureStage = "manager_ready_notice_wakeup";
+      const claimedCount = await runManagerReadyNoticeSweep(new Date(), counters, caseId, 3);
+      return jsonResponse({ status: "ready_wakeup_processed", claimedCount,
+        ...redactedSummary(counters) });
     }
     const now = new Date();
     const scheduledAtCandidate = typeof body?.scheduledAt === "string" ? new Date(body.scheduledAt) : now;
@@ -4839,6 +4915,9 @@ serve(async (req) => {
     // Manager digests have independent environment and database kill switches.
     failureStage = "manager_digest";
     await runManagerDigestSweep(scheduledAt, counters);
+
+    failureStage = "manager_ready_notice";
+    await runManagerReadyNoticeSweep(scheduledAt, counters);
 
     if (!automationEnabled) {
       failureStage = "automation_gate";
