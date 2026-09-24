@@ -102,7 +102,7 @@ assert(
   'Database coverage must prove scope, tokenization, redaction, and the complete contract',
 );
 assert(
-  selectionTest.includes("select plan(31)") &&
+  selectionTest.includes("select plan(32)") &&
     selectionTest.includes('The database accepts the current v12 bounded identifier contract') &&
     selectionTest.includes('Rough DST-gap and noncomparable time remains selectable') &&
     selectionTest.includes('Rough-time wallet token mismatch and estimated amount permit manager review without payment') &&
