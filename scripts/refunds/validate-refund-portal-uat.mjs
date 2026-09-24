@@ -4017,6 +4017,44 @@ const runLegacyStateNormalizationChecks = async ({ browser, appUrl, artifactDir,
   await closeRefundPortalContext(context);
 };
 
+const runCanonicalNextWorkQueueChecks = async ({ browser, appUrl, recorder }) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await installMockSupabaseRoutes(context, {
+    refundOverview: () => {
+      const overview = buildPendingNayaxRefundOverview();
+      const refundCase = overview.cases[0];
+      overview.cases = [{
+        ...refundCase,
+        publicReference: 'RF-UAT-NEXT-WORK',
+        lifecycle: {
+          ...buildLifecycleFixture('needs_transaction_selection', 20, 'select_transaction'),
+          nextWork: {
+            schemaVersion: 'refund_next_work_v1', isOpen: true, actor: 'agent',
+            actionCode: 'research_purchase',
+            actionLabel: 'Compare the purchase evidence before asking the customer.',
+            lastProgressAt: null, dueAt: null, blocker: null, payloadRedacted: true,
+          },
+        },
+      }];
+      return overview;
+    },
+  });
+  const page = await context.newPage();
+  await signInRefundUser(page, appUrl);
+  await page.getByRole('button', { name: /Bloomjoy follow-up/i }).click();
+  await queueCase(page, 'RF-UAT-NEXT-WORK').click();
+  const managerState = page.getByTestId('refund-manager-state');
+  const primaryActionText = await page.getByTestId('refund-primary-action').innerText();
+  recorder.assert(
+    'Unclaimed canonical research renders as pending Bloomjoy follow-up on mobile',
+    await managerState.getByText('Purchase research pending', { exact: true }).isVisible() &&
+      primaryActionText.includes('No Manager action is due.') &&
+      (await page.getByRole('button', { name: /Action needed/i }).count()) === 1,
+    primaryActionText
+  );
+  await closeRefundPortalContext(context);
+};
+
 const runNayaxSelectionCompatibilityChecks = async ({ browser, appUrl, recorder }) => {
   for (const scenario of [
     { name: 'old backend without combined-selection capability', capabilityAvailable: false },
@@ -4412,6 +4450,11 @@ const run = async () => {
         recorder,
       });
     } else if (args.managerQueueOnly) {
+      await runCanonicalNextWorkQueueChecks({
+        browser,
+        appUrl: args.appUrl,
+        recorder,
+      });
       await runRefundOnlyChecks({
         browser,
         appUrl: args.appUrl,

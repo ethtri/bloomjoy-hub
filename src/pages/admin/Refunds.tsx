@@ -5996,7 +5996,8 @@ export default function AdminRefundsPage() {
         !selectedCase.customerDeliveryException &&
         ['failed', 'skipped'].includes(getLatestCustomerMessage(selectedCase)?.status ?? ''),
     };
-    const cardManagerState: RefundManagerState = hasConfirmedRefundReceipt(selectedCase) ||
+    const cardManagerState: RefundManagerState = selectedCase.lifecycle?.nextWork ||
+      hasConfirmedRefundReceipt(selectedCase) ||
       hasProtectedRefundLifecycle(selectedCase) ||
       (selectedCase.customerDeliveryException && !hasUnpaidRefundReview(selectedCase))
       ? baseManagerState
