@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(20);
+select plan(32);
 
 with fixture as (
   select jsonb_build_object(
@@ -106,6 +106,30 @@ select ok(not (public.refund_next_work_projection(jsonb_build_object(
   'accountingState', jsonb_build_object('state', 'pending'),
   'messageState', jsonb_build_object('state', 'sent')
 ))->>'isOpen')::boolean, 'paid and notified accounting-only case is closed to digest');
+select is(public.refund_next_work_projection(jsonb_build_object(
+  'payloadRedacted', true, 'stage', 'denied', 'terminal', true,
+  'denialNoticeState', 'pending'
+))->>'actor', 'agent', 'pending required denial notice stays Bloomjoy-owned');
+select is(public.refund_next_work_projection(jsonb_build_object(
+  'payloadRedacted', true, 'stage', 'denied', 'terminal', true,
+  'denialNoticeState', 'failed'
+))->>'actionCode', 'recover_customer_delivery',
+  'failed denial notice requires internal delivery reconciliation');
+select is(public.refund_next_work_projection(jsonb_build_object(
+  'payloadRedacted', true, 'stage', 'denied', 'terminal', true,
+  'denialNoticeState', 'unknown'
+))->>'isOpen', 'true', 'uncertain required denial notice is not marked closed');
+select is(public.refund_next_work_projection(jsonb_build_object(
+  'payloadRedacted', true, 'stage', 'denied', 'terminal', true,
+  'denialNoticeState', 'sent'
+))->>'isOpen', 'false', 'sent denial notice closes customer-contact work');
+select is(public.refund_next_work_projection(jsonb_build_object(
+  'payloadRedacted', true, 'stage', 'denied', 'terminal', true
+))->>'isOpen', 'false', 'historical denied case without a required notice stays closed');
+select is(public.refund_next_work_projection(jsonb_build_object(
+  'payloadRedacted', true, 'stage', 'duplicate_resolved', 'terminal', true,
+  'denialNoticeState', 'failed'
+))->>'isOpen', 'false', 'resolved duplicate has no denial-contact obligation');
 
 -- The service caller has no Manager JWT. Its read projection must use current
 -- exact-machine mappings, while the portal retains the authenticated user's
@@ -144,10 +168,25 @@ insert into public.refund_cases (
   statement_timestamp() - interval '1 hour', 'cash', 700, 700,
   'projection-zelle@example.invalid', 'needs_review', 'matched', 'manual'
 );
+set local role service_role;
 select is(public.refund_lifecycle_contract(
   'd8560000-0000-4000-8000-000000000001'
 )->'nextWork'->>'actionCode', 'send_cash_refund_and_confirm',
-  'service projection finds a current mapped Manager without a Manager JWT');
+  'actual service role finds a current mapped Manager without a Manager JWT');
+reset role;
+
+set local role anon;
+select throws_ok($$select public.refund_lifecycle_contract(
+  'd8560000-0000-4000-8000-000000000001')$$, '42501', null,
+  'anon cannot call the service-only lifecycle projection');
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claims', '{}', true);
+select throws_ok($$select public.get_refund_lifecycle_for_manager(
+  'd8560000-0000-4000-8000-000000000001')$$, '42501',
+  'Current refund case access required',
+  'authenticated caller without a Manager JWT cannot read the portal projection');
+reset role;
 
 set local role authenticated;
 select set_config('request.jwt.claims',
@@ -168,10 +207,12 @@ values ('d8550000-0000-4000-8000-000000000002',
 update public.reporting_machine_refund_managers
 set status = 'revoked', revoked_at = statement_timestamp(), revoke_reason = 'Fixture replacement'
 where id = 'd8550000-0000-4000-8000-000000000001';
+set local role service_role;
 select is(public.refund_lifecycle_contract(
   'd8560000-0000-4000-8000-000000000001'
 )->'nextWork'->>'actionCode', 'send_cash_refund_and_confirm',
   'service readiness follows current replacement mapping, not saved original assignee');
+reset role;
 set local role authenticated;
 select set_config('request.jwt.claims',
   '{"sub":"d8510000-0000-4000-8000-000000000002","role":"authenticated"}', true);
@@ -185,19 +226,70 @@ select set_config('request.jwt.claims', '{}', true);
 update public.reporting_machine_refund_managers
 set status = 'revoked', revoked_at = statement_timestamp(), revoke_reason = 'Fixture revocation'
 where id = 'd8550000-0000-4000-8000-000000000002';
+set local role service_role;
 select is(public.refund_lifecycle_contract(
   'd8560000-0000-4000-8000-000000000001'
 )->'nextWork'->>'actor', 'agent',
   'no active exact-machine Manager cannot create a worker Manager action');
+reset role;
 update public.reporting_machine_refund_managers
 set status = 'active', revoked_at = null, revoke_reason = null
 where id = 'd8550000-0000-4000-8000-000000000002';
 update public.refund_cases set zelle_payment_contact = null
 where id = 'd8560000-0000-4000-8000-000000000001';
+set local role service_role;
 select is(public.refund_lifecycle_contract(
   'd8560000-0000-4000-8000-000000000001'
 )->'nextWork'->>'actor', 'agent',
   'a current Manager mapping cannot make cash actionable without its saved destination');
+reset role;
+
+update public.refund_cases set status = 'denied', decision = 'denied'
+where id = 'd8560000-0000-4000-8000-000000000001';
+insert into public.refund_case_messages (
+  id, refund_case_id, message_type, status, recipient_email, subject, body
+) values (
+  'd8570000-0000-4000-8000-000000000001',
+  'd8560000-0000-4000-8000-000000000001',
+  'denied', 'pending', 'projection-customer@example.invalid',
+  'Refund decision', 'Fixture denial notice'
+);
+set local role service_role;
+select is(public.refund_lifecycle_contract(
+  'd8560000-0000-4000-8000-000000000001'
+)->'nextWork'->>'isOpen', 'true',
+  'service projection keeps an actual pending denial notice open');
+reset role;
+update public.refund_case_messages set status = 'failed'
+where id = 'd8570000-0000-4000-8000-000000000001';
+set local role service_role;
+select is(public.refund_lifecycle_contract(
+  'd8560000-0000-4000-8000-000000000001'
+)->'nextWork'->>'actionCode', 'recover_customer_delivery',
+  'service projection owns actual failed denial notice recovery');
+reset role;
+update public.refund_case_messages set status = 'sent', sent_at = statement_timestamp()
+where id = 'd8570000-0000-4000-8000-000000000001';
+set local role service_role;
+select is(public.refund_lifecycle_contract(
+  'd8560000-0000-4000-8000-000000000001'
+)->'nextWork'->>'isOpen', 'false',
+  'service projection closes contact after the actual denial notice is sent');
+reset role;
+insert into public.refund_case_messages (
+  id, refund_case_id, message_type, status, recipient_email, subject, body
+) values (
+  'd8570000-0000-4000-8000-000000000002',
+  'd8560000-0000-4000-8000-000000000001',
+  'manual_note', 'failed', 'projection-customer@example.invalid',
+  'Later note', 'Unrelated fixture note'
+);
+set local role service_role;
+select is(public.refund_lifecycle_contract(
+  'd8560000-0000-4000-8000-000000000001'
+)->'nextWork'->>'isOpen', 'false',
+  'a later unrelated message cannot reopen a sent denial notice');
+reset role;
 
 select * from finish();
 rollback;

@@ -23,6 +23,7 @@ declare
   payment_confirmed boolean := p_lifecycle ->> 'paymentState' = 'confirmed';
   notice_state text := p_lifecycle -> 'messageState' ->> 'state';
   notice_resolved boolean := coalesce(notice_state in ('sent', 'delivered'), false);
+  denial_notice_state text := p_lifecycle ->> 'denialNoticeState';
   is_open boolean;
   actor_name text := 'agent';
   action_code text := 'research_purchase';
@@ -43,7 +44,9 @@ begin
     and (reply_at = '-infinity'::timestamptz or reply_at <= request_sent_at);
 
   is_open := case
-    when stage in ('duplicate_resolved', 'internal_test_archived', 'denied', 'unable_to_complete') then false
+    when stage in ('duplicate_resolved', 'internal_test_archived', 'unable_to_complete') then false
+    when stage = 'denied' then coalesce(denial_notice_state in
+      ('pending', 'failed', 'skipped', 'delivery_unconfirmed', 'unknown'), false)
     when payment_confirmed then not notice_resolved
     else not coalesce((p_lifecycle ->> 'terminal')::boolean, false)
   end;
@@ -57,6 +60,8 @@ begin
   end if;
   if payment_confirmed then
     progress_at := nullif(p_lifecycle -> 'messageState' ->> 'lastUpdatedAt', '')::timestamptz;
+  elsif stage = 'denied' then
+    progress_at := nullif(p_lifecycle ->> 'denialNoticeAt', '')::timestamptz;
   end if;
   if progress_at = '-infinity'::timestamptz then progress_at := null; end if;
 
@@ -64,6 +69,14 @@ begin
     actor_name := 'system';
     action_code := 'none';
     action_label := 'No refund or customer-contact action is due.';
+  elsif stage = 'denied' then
+    actor_name := 'agent';
+    action_code := 'recover_customer_delivery';
+    action_label := 'Check the existing denial notice and complete or reconcile its delivery.';
+    blocker := jsonb_build_object(
+      'code', 'denial_notice_unresolved', 'owner', 'Agent',
+      'nextStep', 'Inspect the existing denial message and delivery evidence before any resend.'
+    );
   elsif payment_confirmed then
     actor_name := case when notice_state in ('failed', 'delivery_unconfirmed') then 'agent' else 'system' end;
     action_code := 'recover_customer_delivery';
@@ -205,8 +218,27 @@ declare
   request_sent_at timestamptz := nullif(p_lifecycle -> 'customerOutreach' ->> 'requestSentAt', '')::timestamptz;
   projected_lifecycle jsonb := p_lifecycle;
   current_manager_available boolean := false;
+  denial_notice_state text;
+  denial_notice_at timestamptz;
 begin
   if p_lifecycle is null then return null; end if;
+  -- A denied monetary decision is final, but the actual required denial
+  -- message can still need internal delivery recovery. The generic lifecycle
+  -- messageState selects the latest message of any type, so inspect the
+  -- denial message itself without exposing its body or recipient.
+  if p_lifecycle ->> 'stage' = 'denied' then
+    select message.status, coalesce(message.sent_at, message.created_at)
+      into denial_notice_state, denial_notice_at
+    from public.refund_case_messages message
+    where message.refund_case_id = p_refund_case_id
+      and message.message_type = 'denied'
+    order by message.created_at desc, message.id desc
+    limit 1;
+    projected_lifecycle := p_lifecycle || jsonb_build_object(
+      'denialNoticeState', denial_notice_state,
+      'denialNoticeAt', denial_notice_at
+    );
+  end if;
   -- Lifecycle v2 scopes managerAction to auth.uid(). A service worker has no
   -- manager JWT, so resolve read-only readiness against today's exact-machine
   -- mappings. The notice producer must still authorize each recipient and
