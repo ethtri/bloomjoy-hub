@@ -41,7 +41,7 @@ export const refundNextWorkActionCodes = [
   "deliver_customer_question", "review_customer_reply", "recover_customer_delivery",
   "reconcile_provider_outcome", "reconcile_integrity", "continue_refund",
   "resolve_manager_assignment", "obtain_payout_destination", "repair_provider_setup",
-  "research_purchase", "run_lookup",
+  "research_purchase", "prepare_manager_decision", "run_lookup",
 ] as const;
 export type RefundNextWorkActionCode = typeof refundNextWorkActionCodes[number];
 export type RefundNextWork = {

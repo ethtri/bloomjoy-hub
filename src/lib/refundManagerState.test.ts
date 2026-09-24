@@ -817,6 +817,15 @@ Deno.test('unclaimed canonical internal work stays pending in queue and case cop
   assertEquals(result.nextStep, contract.nextWork.actionLabel, 'specific follow-up remains visible');
 
   contract.nextWork = {
+    ...contract.nextWork, actionCode: 'prepare_manager_decision',
+    actionLabel: 'Complete the purchase research before asking the Manager for a final decision.',
+    blocker: { code: 'preparation_evidence_pending', owner: 'Agent',
+      nextStep: 'Finish current purchase research.' },
+  };
+  assertEquals(getRefundManagerState({ ...baseCase, lifecycle: contract }).label,
+    'Refund preparation pending', 'a legacy ready stage without proof does not become Manager work');
+
+  contract.nextWork = {
     ...contract.nextWork, actor: 'system', actionCode: 'deliver_customer_question',
     actionLabel: 'Deliver the prepared customer question.', dueAt: '2026-09-25T20:00:00.000Z',
   };

@@ -406,6 +406,7 @@ export const getRefundManagerState = (
         repair_provider_setup: 'Transaction search needs repair',
         obtain_payout_destination: 'Payout details need follow-up',
         research_purchase: 'Purchase research pending',
+        prepare_manager_decision: 'Refund preparation pending',
         run_lookup: 'Transaction lookup pending',
         continue_refund: 'Refund follow-up pending',
         deliver_customer_question: 'Customer question needs delivery',

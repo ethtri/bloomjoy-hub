@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(32);
+select plan(33);
 
 with fixture as (
   select jsonb_build_object(
@@ -171,8 +171,28 @@ insert into public.refund_cases (
 set local role service_role;
 select is(public.refund_lifecycle_contract(
   'd8560000-0000-4000-8000-000000000001'
-)->'nextWork'->>'actionCode', 'send_cash_refund_and_confirm',
-  'actual service role finds a current mapped Manager without a Manager JWT');
+)->'nextWork'->>'actionCode', 'prepare_manager_decision',
+  'destination-only cash intake is not prepared Manager work even with a live mapping');
+reset role;
+
+-- The independent producer may be installed after this migration on a clean
+-- replay. Before it exists the projection stays Agent-owned; once installed,
+-- an actual completed Sunze attempt makes the same case Manager-ready.
+do $prepare$
+begin
+  if pg_catalog.to_regprocedure('public.service_prepare_due_refund_cash_cases(integer)') is not null then
+    execute 'select public.service_prepare_due_refund_cash_cases(10)';
+  end if;
+end;
+$prepare$;
+set local role service_role;
+select is(public.refund_lifecycle_contract(
+  'd8560000-0000-4000-8000-000000000001'
+)->'nextWork'->>'actor',
+  case when pg_catalog.to_regprocedure(
+    'public.refund_manager_preparation_snapshot(uuid,bigint)') is not null
+    then 'manager' else 'agent' end,
+  'service readiness requires a completed current proof, never the saved destination alone');
 reset role;
 
 set local role anon;
@@ -193,7 +213,10 @@ select set_config('request.jwt.claims',
   '{"sub":"d8510000-0000-4000-8000-000000000001","role":"authenticated"}', true);
 select is(public.get_refund_lifecycle_for_manager(
   'd8560000-0000-4000-8000-000000000001'
-)->'nextWork'->>'actionCode', 'send_cash_refund_and_confirm',
+)->'nextWork'->>'actionCode',
+  case when pg_catalog.to_regprocedure(
+    'public.refund_manager_preparation_snapshot(uuid,bigint)') is not null
+    then 'send_cash_refund_and_confirm' else 'prepare_manager_decision' end,
   'the actual mapped Manager sees the prepared cash action in the portal');
 reset role;
 select set_config('request.jwt.claims', '{}', true);
@@ -210,7 +233,10 @@ where id = 'd8550000-0000-4000-8000-000000000001';
 set local role service_role;
 select is(public.refund_lifecycle_contract(
   'd8560000-0000-4000-8000-000000000001'
-)->'nextWork'->>'actionCode', 'send_cash_refund_and_confirm',
+)->'nextWork'->>'actionCode',
+  case when pg_catalog.to_regprocedure(
+    'public.refund_manager_preparation_snapshot(uuid,bigint)') is not null
+    then 'send_cash_refund_and_confirm' else 'prepare_manager_decision' end,
   'service readiness follows current replacement mapping, not saved original assignee');
 reset role;
 set local role authenticated;
@@ -218,7 +244,10 @@ select set_config('request.jwt.claims',
   '{"sub":"d8510000-0000-4000-8000-000000000002","role":"authenticated"}', true);
 select is(public.get_refund_lifecycle_for_manager(
   'd8560000-0000-4000-8000-000000000001'
-)->'nextWork'->>'actor', 'manager',
+)->'nextWork'->>'actor',
+  case when pg_catalog.to_regprocedure(
+    'public.refund_manager_preparation_snapshot(uuid,bigint)') is not null
+    then 'manager' else 'agent' end,
   'current co-manager retains exact-machine portal action');
 reset role;
 select set_config('request.jwt.claims', '{}', true);

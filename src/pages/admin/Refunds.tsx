@@ -1762,6 +1762,15 @@ const primaryActionConfig = (
 ): PrimaryActionConfig => {
   const hasUnsavedCardSelection = refundCase.paymentMethod === 'card' &&
     (editor.clearNayaxMatch || Boolean(editor.matchedNayaxCandidateToken.trim()));
+  const nextWork = refundCase.lifecycle?.nextWork;
+  const preparedFinalAction = !nextWork || (nextWork.isOpen && nextWork.actor === 'manager' &&
+    (nextWork.actionCode === 'approve_or_deny_request' ||
+      nextWork.actionCode === 'send_cash_refund_and_confirm'));
+  const preparationHoldAction: PrimaryActionConfig = {
+    label: 'Refund preparation pending',
+    helper: nextWork?.actionLabel ?? 'Bloomjoy is preparing the request for a final decision.',
+    disabled: true,
+  };
   if (refundCase.lifecycle?.stage === 'duplicate_resolved' || refundCase.confirmedDuplicate) {
     return {
       label: 'Duplicate resolved',
@@ -1811,6 +1820,7 @@ const primaryActionConfig = (
     };
   }
   if (editor.status === 'denied' || editor.decision === 'denied') {
+    if (!preparedFinalAction) return preparationHoldAction;
     return {
       label: 'Deny request',
       helper: 'Send a warm, specific denial reason based on the transaction review.',
@@ -1825,6 +1835,7 @@ const primaryActionConfig = (
     !hasUnsavedCardSelection &&
     hasCurrentRefundCardCapability(refundCase, refundReadiness)
   ) {
+    if (!preparedFinalAction) return preparationHoldAction;
     return {
       label: `Refund ${formatCurrency(refundReadiness?.refundAmountCents ?? refundCase.selectedNayaxTransaction?.saleAmountCents ?? refundCase.refundAmountCents ?? refundCase.paymentAmountCents)}`,
       helper: 'Approve this refund once. Bloomjoy will finish it automatically and email the customer only after Nayax confirms it.',
@@ -2000,6 +2011,7 @@ const primaryActionConfig = (
     helper: 'Bloomjoy will continue this same request when the customer responds. No new request is needed.', disabled: true,
   };
   if (editor.status === 'denied' || editor.decision === 'denied') {
+    if (!preparedFinalAction) return preparationHoldAction;
     return {
       label: 'Deny request',
       helper: 'Send a warm, specific denial reason based on the transaction review.',
@@ -2071,6 +2083,7 @@ const primaryActionConfig = (
       };
     }
 
+    if (!preparedFinalAction) return preparationHoldAction;
     return {
       label: 'Confirm refund sent via Zelle',
       helper: 'Send the refund through Zelle outside Bloomjoy Hub first. Then confirm it here to complete the case.',

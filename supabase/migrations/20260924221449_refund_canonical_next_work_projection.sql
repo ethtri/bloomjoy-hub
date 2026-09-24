@@ -136,6 +136,14 @@ begin
     actor_name := 'system';
     action_code := 'continue_refund';
     action_label := 'Continue the existing authorized refund attempt.';
+  elsif p_lifecycle ->> 'preparationPending' = 'true' then
+    actor_name := 'agent';
+    action_code := 'prepare_manager_decision';
+    action_label := 'Complete the purchase research before asking the Manager for a final decision.';
+    blocker := jsonb_build_object(
+      'code', 'preparation_evidence_pending', 'owner', 'Agent',
+      'nextStep', 'Finish or recover the existing purchase research and verify its current evidence.'
+    );
   elsif stage = 'awaiting_payout' and reason = 'external_payment_ready'
     and p_lifecycle -> 'managerAction' ->> 'action' = 'mark_external_refund' then
     actor_name := 'manager';
@@ -218,6 +226,9 @@ declare
   request_sent_at timestamptz := nullif(p_lifecycle -> 'customerOutreach' ->> 'requestSentAt', '')::timestamptz;
   projected_lifecycle jsonb := p_lifecycle;
   current_manager_available boolean := false;
+  case_action_version bigint;
+  case_fact_version bigint;
+  preparation jsonb;
   denial_notice_state text;
   denial_notice_at timestamptz;
 begin
@@ -259,6 +270,30 @@ begin
     elsif current_manager_available and p_lifecycle ->> 'stage' = 'awaiting_payout'
       and p_lifecycle ->> 'reasonCode' = 'external_payment_ready' then
       projected_lifecycle := jsonb_set(p_lifecycle, '{managerAction,action}', '"mark_external_refund"'::jsonb, true);
+    end if;
+  end if;
+  -- A saved amount/destination or legacy match is not preparation evidence.
+  -- The producer is deployed independently and later in clean migration
+  -- order. Until it exists and returns a current completed proof, no fresh
+  -- Manager decision appears in queues or alerts. Prior decisions/attempts
+  -- continue through their existing authority and are not reopened here.
+  if projected_lifecycle -> 'managerAction' ->> 'action' in ('refund', 'mark_external_refund')
+    and p_lifecycle ->> 'stage' in ('awaiting_payout', 'transaction_confirmed') then
+    select c.official_action_version, c.deterministic_fact_version
+      into case_action_version, case_fact_version
+    from public.refund_cases c where c.id = p_refund_case_id;
+    if pg_catalog.to_regprocedure(
+      'public.refund_manager_preparation_snapshot(uuid,bigint)') is not null then
+      execute 'select public.refund_manager_preparation_snapshot($1,$2)'
+        into preparation using p_refund_case_id, case_action_version;
+    end if;
+    if preparation ->> 'schemaVersion' is distinct from 'refund_manager_preparation_v1'
+      or preparation ->> 'proofId' is null
+      or preparation ->> 'officialActionVersion' is distinct from case_action_version::text
+      or preparation ->> 'deterministicFactVersion' is distinct from case_fact_version::text then
+      projected_lifecycle := jsonb_set(
+        projected_lifecycle, '{managerAction,action}', '"none"'::jsonb, true
+      ) || jsonb_build_object('preparationPending', true);
     end if;
   end if;
   if request_sent_at is not null then
