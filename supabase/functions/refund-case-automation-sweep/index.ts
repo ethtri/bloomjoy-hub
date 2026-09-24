@@ -300,6 +300,8 @@ type SweepCounters = {
   actionsFailed: number;
   actionsSuppressed: number;
   reasonCounts: Record<string, number>;
+  cashPreparationsCompleted: number;
+  cashPreparationStaleSkipped: number;
   nayaxLookupsRun: number;
   nayaxCandidatesFound: number;
   nayaxNoMatchMovedToWaiting: number;
@@ -365,6 +367,8 @@ const createCounters = (): SweepCounters => ({
   actionsFailed: 0,
   actionsSuppressed: 0,
   reasonCounts: {},
+  cashPreparationsCompleted: 0,
+  cashPreparationStaleSkipped: 0,
   nayaxLookupsRun: 0,
   nayaxCandidatesFound: 0,
   nayaxNoMatchMovedToWaiting: 0,
@@ -406,6 +410,8 @@ const redactedSummary = (counters: SweepCounters) => ({
   actionsFailed: counters.actionsFailed,
   actionsSuppressed: counters.actionsSuppressed,
   reasonCounts: counters.reasonCounts,
+  cashPreparationsCompleted: counters.cashPreparationsCompleted,
+  cashPreparationStaleSkipped: counters.cashPreparationStaleSkipped,
   nayaxLookupsRun: counters.nayaxLookupsRun,
   nayaxCandidatesFound: counters.nayaxCandidatesFound,
   nayaxNoMatchMovedToWaiting: counters.nayaxNoMatchMovedToWaiting,
@@ -2566,6 +2572,30 @@ const getPersistedNayaxCorrectionEvidence = async (
   });
 };
 
+const runCashPreparationSweep = async (counters: SweepCounters) => {
+  if (!supabase) return;
+  const { data, error } = await supabase.rpc(
+    "service_prepare_due_refund_cash_cases",
+    { p_limit: 10 },
+  );
+  if (error) throw error;
+  const result = data && typeof data === "object" && !Array.isArray(data)
+    ? data as Record<string, unknown>
+    : null;
+  const completed = result?.evaluated;
+  const staleSkipped = result?.staleSkipped;
+  if (typeof completed !== "number" || !Number.isSafeInteger(completed) || completed < 0 ||
+    typeof staleSkipped !== "number" || !Number.isSafeInteger(staleSkipped) || staleSkipped < 0 ||
+    result?.payloadRedacted !== true) {
+    throw new Error("Invalid redacted cash preparation receipt.");
+  }
+  counters.cashPreparationsCompleted += completed;
+  counters.cashPreparationStaleSkipped += staleSkipped;
+  if (completed > 0) {
+    addReason(counters, "cash_preparation_completed", completed);
+  }
+};
+
 const runCardNayaxLookupSweep = async (
   runId: string,
   counters: SweepCounters,
@@ -4672,6 +4702,8 @@ serve(async (req) => {
     // whenever automation is enabled so candidate recovery does not wait for
     // the customer-contact clock. Refund execution and every customer-facing
     // action remain in their existing guarded lanes below.
+    failureStage = "cash_preparation";
+    await runCashPreparationSweep(counters);
     failureStage = "card_nayax_lookup";
     await runCardNayaxLookupSweep(runId, counters, policyWindowStart);
 
