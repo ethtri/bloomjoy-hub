@@ -297,5 +297,123 @@ select is(public.service_begin_next_refund_manager_digest('2027-03-14T16:00:00Z'
 select is(public.service_begin_next_refund_manager_digest('2027-03-14T15:00:00Z') ->> 'claimed',
   'true', '08:00 America/Los_Angeles sends at the summer UTC hour');
 
+-- Exercise the daily projection against real lifecycle rows. A paid customer
+-- whose completion notice was delivered is closed to the digest even if an
+-- internal accounting follow-up remains; stale legacy queue buckets must not
+-- revive that case or a denied case.
+insert into public.refund_cases (
+  id, public_reference, reporting_machine_id, reporting_location_id,
+  customer_email, issue_summary, incident_at, payment_method,
+  payment_amount_cents, refund_amount_cents, status, decision,
+  refund_completed_at, correlation_status, correlation_source,
+  correlation_confidence, automation_state, nayax_refund_execution_status,
+  nayax_match_execution_eligible, matched_nayax_transaction_id,
+  matched_nayax_machine_auth_time, matched_nayax_amount_cents,
+  matched_nayax_currency_code, matched_nayax_site_id
+) values (
+  '12815000-0000-4000-8000-000000000014', 'RF-DIGEST-PAID-NOTIFIED',
+  '12813000-0000-4000-8000-000000000001',
+  '12812000-0000-4000-8000-000000000001',
+  'paid-notified@example.invalid', 'Synthetic settled refund',
+  '2026-09-14T12:00:00Z', 'card', 500, 500, 'completed', 'approved',
+  statement_timestamp(), 'matched', 'nayax', 1, 'DIGEST-PAID-14',
+  '2026-09-14T12:00:00Z', 500, 'USD', 7001
+), (
+  '12815000-0000-4000-8000-000000000015', 'RF-DIGEST-DENIED',
+  '12813000-0000-4000-8000-000000000001',
+  '12812000-0000-4000-8000-000000000001',
+  'denied@example.invalid', 'Synthetic denied refund',
+  '2026-09-15T12:00:00Z', 'card', 500, null, 'denied', 'denied',
+  null, 'no_match', null, 0, null,
+  null, null, null, null
+);
+
+insert into public.sales_adjustment_facts (
+  id, reporting_machine_id, reporting_location_id, adjustment_date,
+  adjustment_type, amount_cents, complaint_count, source,
+  source_row_hash, source_reference, source_row_reference, refund_case_id,
+  match_status, match_confidence, notes, raw_payload
+) values (
+  '12816000-0000-4000-8000-000000000014',
+  '12813000-0000-4000-8000-000000000001',
+  '12812000-0000-4000-8000-000000000001',
+  current_date, 'refund', 500, 1, 'refund_case',
+  'digest-paid-notified-14', 'refund_cases', 'RF-DIGEST-PAID-NOTIFIED',
+  '12815000-0000-4000-8000-000000000014', 'applied', 1,
+  'Synthetic committed payment', jsonb_build_object(
+    'refund_case_id', '12815000-0000-4000-8000-000000000014',
+    'refund_case_reference', 'RF-DIGEST-PAID-NOTIFIED',
+    'refund_case_status', 'completed', 'refund_case_decision', 'approved',
+    'payment_method', 'card', 'correlation_source', 'nayax',
+    'correlation_has_card_lookup', true, 'payload_redacted', true
+  )
+);
+update public.refund_cases
+set reporting_adjustment_id = '12816000-0000-4000-8000-000000000014'
+where id = '12815000-0000-4000-8000-000000000014';
+insert into public.refund_case_nayax_refund_attempts (
+  id, refund_case_id, execution_mode, status, idempotency_key, amount_cents,
+  provider_reference, provider_status, sanitized_response, provider_outcome,
+  provider_outcome_recorded_at, reconciliation_required,
+  reporting_adjustment_id, case_finalization_committed_at, completed_at
+) values (
+  '12817000-0000-4000-8000-000000000014',
+  '12815000-0000-4000-8000-000000000014',
+  'request_and_approve', 'succeeded', 'digest-settlement-14', 500,
+  'DIGEST-PROVIDER-14', 'approved',
+  '{"provider_outcome":"success","payload_redacted":true}'::jsonb,
+  'success', statement_timestamp(), false,
+  '12816000-0000-4000-8000-000000000014',
+  statement_timestamp(), statement_timestamp()
+);
+insert into public.refund_case_messages (
+  id, refund_case_id, nayax_refund_attempt_id, message_type, status,
+  recipient_email, subject, body, sent_at, delivery_transport,
+  provider_message_id, delivery_state, delivery_state_updated_at
+) values (
+  '12818000-0000-4000-8000-000000000014',
+  '12815000-0000-4000-8000-000000000014',
+  '12817000-0000-4000-8000-000000000014',
+  'completed', 'sent', 'paid-notified@example.invalid',
+  'Synthetic completion', 'Synthetic completion', statement_timestamp(),
+  'resend', 'digest-completion-14', 'delivered', statement_timestamp()
+);
+insert into public.refund_authoritative_receipts (
+  refund_case_id, nayax_refund_attempt_id, reporting_machine_id,
+  account_scope, provider_machine_id, original_transaction_id,
+  original_amount_cents, refunded_amount_cents, currency_code,
+  provider_status, evidence_reference_digest, recorded_by,
+  attempt_binding_kind, current_provider_observation_reviewed
+) values (
+  '12815000-0000-4000-8000-000000000014',
+  '12817000-0000-4000-8000-000000000014',
+  '12813000-0000-4000-8000-000000000001',
+  'DIGEST-TEST-ACCOUNT', 'DIGEST-TEST-MACHINE', 'DIGEST-PAID-14',
+  500, 500, 'USD', 62, repeat('d', 63) || '4',
+  '12810000-0000-4000-8000-000000000001',
+  'verified_authorized_api', true
+);
+
+select is(public.refund_lifecycle_contract(
+  '12815000-0000-4000-8000-000000000014') #>> '{accountingState,state}',
+  'pending', 'Receipt keeps its separate accounting follow-up pending');
+select is(public.refund_lifecycle_contract(
+  '12815000-0000-4000-8000-000000000014') #>> '{nextWork,isOpen}',
+  'false', 'Delivered paid case is canonically closed to the digest');
+select is(public.refund_lifecycle_contract(
+  '12815000-0000-4000-8000-000000000015') #>> '{nextWork,isOpen}',
+  'false', 'Denied case is canonically closed to the digest');
+set local role service_role;
+create temporary table terminal_projection as
+select public.refund_manager_daily_digest_projection_for(
+  '12810000-0000-4000-8000-000000000004',
+  '2027-03-15T15:00:00Z') as value;
+reset role;
+select is((select value ->> 'openCount' from terminal_projection), '12',
+  'Daily digest excludes paid-notified and denied cases while retaining unchanged open cases');
+select ok(not (select value::text from terminal_projection) like any (array[
+  '%RF-DIGEST-PAID-NOTIFIED%', '%RF-DIGEST-DENIED%'
+]), 'Neither terminal case appears in the actual daily digest projection');
+
 select * from finish();
 rollback;
