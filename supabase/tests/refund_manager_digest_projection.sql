@@ -378,6 +378,14 @@ insert into public.refund_case_messages (
   'Synthetic completion', 'Synthetic completion', statement_timestamp(),
   'resend', 'digest-completion-14', 'delivered', statement_timestamp()
 );
+insert into public.refund_transactional_delivery_events (
+  event_key_digest, provider_message_id, delivery_state, event_at,
+  matched_refund_case_message_id, applied_at
+) values (
+  repeat('d', 63) || '5', 'digest-completion-14', 'delivered',
+  statement_timestamp(), '12818000-0000-4000-8000-000000000014',
+  statement_timestamp()
+);
 insert into public.refund_authoritative_receipts (
   refund_case_id, nayax_refund_attempt_id, reporting_machine_id,
   account_scope, provider_machine_id, original_transaction_id,
