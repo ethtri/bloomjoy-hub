@@ -203,8 +203,32 @@ as $$
 declare
   verified_reply_at timestamptz;
   request_sent_at timestamptz := nullif(p_lifecycle -> 'customerOutreach' ->> 'requestSentAt', '')::timestamptz;
+  projected_lifecycle jsonb := p_lifecycle;
+  current_manager_available boolean := false;
 begin
   if p_lifecycle is null then return null; end if;
+  -- Lifecycle v2 scopes managerAction to auth.uid(). A service worker has no
+  -- manager JWT, so resolve read-only readiness against today's exact-machine
+  -- mappings. The notice producer must still authorize each recipient and
+  -- mutation against the live case/version; this is never execution authority.
+  if auth.uid() is null and p_lifecycle ->> 'stage' in ('awaiting_payout', 'transaction_confirmed') then
+    select exists (
+      select 1
+      from public.refund_cases refund_case
+      join public.reporting_machine_refund_managers manager
+        on manager.reporting_machine_id = refund_case.reporting_machine_id
+      where refund_case.id = p_refund_case_id
+        and manager.status = 'active'
+        and manager.revoked_at is null
+        and public.can_perform_refund_official_action(manager.manager_user_id, refund_case.id)
+    ) into current_manager_available;
+    if current_manager_available and p_lifecycle ->> 'stage' = 'transaction_confirmed' then
+      projected_lifecycle := jsonb_set(p_lifecycle, '{managerAction,action}', '"refund"'::jsonb, true);
+    elsif current_manager_available and p_lifecycle ->> 'stage' = 'awaiting_payout'
+      and p_lifecycle ->> 'reasonCode' = 'external_payment_ready' then
+      projected_lifecycle := jsonb_set(p_lifecycle, '{managerAction,action}', '"mark_external_refund"'::jsonb, true);
+    end if;
+  end if;
   if request_sent_at is not null then
     select max(message.received_at) into verified_reply_at
     from public.refund_gmail_messages message
@@ -215,7 +239,7 @@ begin
       and message.received_at > request_sent_at;
   end if;
   return p_lifecycle || jsonb_build_object(
-    'nextWork', public.refund_next_work_projection(p_lifecycle, verified_reply_at)
+    'nextWork', public.refund_next_work_projection(projected_lifecycle, verified_reply_at)
   );
 end;
 $$;

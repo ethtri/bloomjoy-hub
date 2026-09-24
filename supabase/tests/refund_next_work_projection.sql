@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(14);
+select plan(20);
 
 with fixture as (
   select jsonb_build_object(
@@ -106,6 +106,98 @@ select ok(not (public.refund_next_work_projection(jsonb_build_object(
   'accountingState', jsonb_build_object('state', 'pending'),
   'messageState', jsonb_build_object('state', 'sent')
 ))->>'isOpen')::boolean, 'paid and notified accounting-only case is closed to digest');
+
+-- The service caller has no Manager JWT. Its read projection must use current
+-- exact-machine mappings, while the portal retains the authenticated user's
+-- scoped read and all actual actions still require their versioned authority.
+insert into auth.users (id, aud, role, email, raw_app_meta_data, raw_user_meta_data)
+values
+  ('d8510000-0000-4000-8000-000000000001', 'authenticated', 'authenticated',
+   'projection-manager-a@example.invalid', '{}', '{}'),
+  ('d8510000-0000-4000-8000-000000000002', 'authenticated', 'authenticated',
+   'projection-manager-b@example.invalid', '{}', '{}');
+insert into public.customer_accounts (id, name, account_type)
+values ('d8520000-0000-4000-8000-000000000001', 'Next-work authority fixture', 'customer');
+insert into public.reporting_locations (id, account_id, name, timezone)
+values ('d8530000-0000-4000-8000-000000000001',
+  'd8520000-0000-4000-8000-000000000001', 'Next-work location', 'America/Los_Angeles');
+insert into public.reporting_machines (id, account_id, location_id, machine_label)
+values ('d8540000-0000-4000-8000-000000000001',
+  'd8520000-0000-4000-8000-000000000001',
+  'd8530000-0000-4000-8000-000000000001', 'Next-work machine');
+insert into public.reporting_machine_refund_managers
+  (id, reporting_machine_id, manager_user_id, manager_email, grant_reason)
+values ('d8550000-0000-4000-8000-000000000001',
+  'd8540000-0000-4000-8000-000000000001',
+  'd8510000-0000-4000-8000-000000000001',
+  'projection-manager-a@example.invalid', 'Next-work authority fixture');
+insert into public.refund_cases (
+  id, public_reference, reporting_machine_id, reporting_location_id,
+  customer_email, issue_summary, incident_at, payment_method,
+  payment_amount_cents, refund_amount_cents, zelle_payment_contact,
+  status, correlation_status, correlation_source
+) values (
+  'd8560000-0000-4000-8000-000000000001', 'RF-NEXT-WORK-AUTH',
+  'd8540000-0000-4000-8000-000000000001',
+  'd8530000-0000-4000-8000-000000000001',
+  'projection-customer@example.invalid', 'Prepared cash refund fixture',
+  statement_timestamp() - interval '1 hour', 'cash', 700, 700,
+  'projection-zelle@example.invalid', 'needs_review', 'matched', 'manual'
+);
+select is(public.refund_lifecycle_contract(
+  'd8560000-0000-4000-8000-000000000001'
+)->'nextWork'->>'actionCode', 'send_cash_refund_and_confirm',
+  'service projection finds a current mapped Manager without a Manager JWT');
+
+set local role authenticated;
+select set_config('request.jwt.claims',
+  '{"sub":"d8510000-0000-4000-8000-000000000001","role":"authenticated"}', true);
+select is(public.get_refund_lifecycle_for_manager(
+  'd8560000-0000-4000-8000-000000000001'
+)->'nextWork'->>'actionCode', 'send_cash_refund_and_confirm',
+  'the actual mapped Manager sees the prepared cash action in the portal');
+reset role;
+select set_config('request.jwt.claims', '{}', true);
+
+insert into public.reporting_machine_refund_managers
+  (id, reporting_machine_id, manager_user_id, manager_email, grant_reason)
+values ('d8550000-0000-4000-8000-000000000002',
+  'd8540000-0000-4000-8000-000000000001',
+  'd8510000-0000-4000-8000-000000000002',
+  'projection-manager-b@example.invalid', 'Next-work co-manager fixture');
+update public.reporting_machine_refund_managers
+set status = 'revoked', revoked_at = statement_timestamp(), revoke_reason = 'Fixture replacement'
+where id = 'd8550000-0000-4000-8000-000000000001';
+select is(public.refund_lifecycle_contract(
+  'd8560000-0000-4000-8000-000000000001'
+)->'nextWork'->>'actionCode', 'send_cash_refund_and_confirm',
+  'service readiness follows current replacement mapping, not saved original assignee');
+set local role authenticated;
+select set_config('request.jwt.claims',
+  '{"sub":"d8510000-0000-4000-8000-000000000002","role":"authenticated"}', true);
+select is(public.get_refund_lifecycle_for_manager(
+  'd8560000-0000-4000-8000-000000000001'
+)->'nextWork'->>'actor', 'manager',
+  'current co-manager retains exact-machine portal action');
+reset role;
+select set_config('request.jwt.claims', '{}', true);
+
+update public.reporting_machine_refund_managers
+set status = 'revoked', revoked_at = statement_timestamp(), revoke_reason = 'Fixture revocation'
+where id = 'd8550000-0000-4000-8000-000000000002';
+select is(public.refund_lifecycle_contract(
+  'd8560000-0000-4000-8000-000000000001'
+)->'nextWork'->>'actor', 'agent',
+  'no active exact-machine Manager cannot create a worker Manager action');
+update public.reporting_machine_refund_managers
+set status = 'active', revoked_at = null, revoke_reason = null
+where id = 'd8550000-0000-4000-8000-000000000002';
+update public.refund_cases set zelle_payment_contact = null
+where id = 'd8560000-0000-4000-8000-000000000001';
+select is(public.refund_lifecycle_contract(
+  'd8560000-0000-4000-8000-000000000001'
+)->'nextWork'->>'actor', 'agent',
+  'a current Manager mapping cannot make cash actionable without its saved destination');
 
 select * from finish();
 rollback;
