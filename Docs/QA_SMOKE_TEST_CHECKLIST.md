@@ -83,6 +83,13 @@ historical fixtures cannot add product gates that the workflow does not contain.
   Waiting for customer; a verified reply, unknown Nayax outcome, missing Zelle
   destination, failed customer delivery, and accounting-only follow-up do not
   become Manager tasks. Refresh preserves the same tabs, counts, and case badge.
+- [ ] A completed, current-version preparation sends at most one immediate
+  final-decision notice to each current Machine Manager. Cash copy says to send
+  Zelle before confirming it was sent; an unresolved customer question or
+  merely saved payout destination sends no ready notice. A revoked manager or
+  changed preparation before provider start sends nothing. A legacy wallet
+  notice with uncertain overlap stays in review, and an unknown provider send
+  is never retried blindly. The lane remains off until the release review.
 - [ ] Customer and Manager views work at 390px and desktop widths, with readable
   evidence, keyboard access, no horizontal overflow, and no private provider or
   payment identifiers.
