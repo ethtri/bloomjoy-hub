@@ -653,7 +653,7 @@ Deno.test("automatic transactional sent and unknown evidence reconcile before sh
   });
 });
 
-Deno.test("portal completion without an exact Gmail source uses one deterministic transactional send", async () => {
+Deno.test("PR #1051 regression: portal completion with a later Gmail thread uses one deterministic transactional send", async () => {
   await withAutomaticEnvironment("true", "true", async () => {
     const values: Record<string, string> = {
       REFUND_GMAIL_ENABLED: "true",
@@ -689,6 +689,12 @@ Deno.test("portal completion without an exact Gmail source uses one deterministi
             return singleRowQuery(claimedMessage(null));
           }
           if (table === "refund_cases") return singleRowQuery(currentCase);
+          if (table === "refund_gmail_threads") {
+            return singleRowQuery({
+              id: "unrelated-later-gmail-thread",
+              mailbox_hash: "synthetic-later-link-hash",
+            });
+          }
           throw new Error(`unexpected portal-completion table: ${table}`);
         },
         rpc: (name: string) => {
@@ -755,6 +761,7 @@ Deno.test("portal completion without an exact Gmail source uses one deterministi
         calls.includes("rpc:service_claim_refund_gmail_outbound_v3"),
         false,
       );
+      assertEquals(calls.includes("from:refund_gmail_threads"), false);
       assertEquals(
         calls.filter((call) =>
           call === "rpc:service_mark_refund_transactional_delivery_attempt"
