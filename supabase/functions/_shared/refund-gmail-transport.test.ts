@@ -60,7 +60,10 @@ const withFetch = async (
 };
 
 class FakeLinkQuery {
-  constructor(private readonly link: Record<string, unknown> | null) {}
+  constructor(
+    private readonly link: Record<string, unknown> | null,
+    private readonly lookupError: { message: string } | null = null,
+  ) {}
 
   select() {
     return this;
@@ -79,7 +82,7 @@ class FakeLinkQuery {
   }
 
   async maybeSingle() {
-    return { data: this.link, error: null };
+    return { data: this.link, error: this.lookupError };
   }
 }
 
@@ -400,7 +403,7 @@ Deno.test("disabled Gmail leaves the non-Gmail customer-delivery route available
   );
 });
 
-Deno.test("automatic delivery without an exact source uses transactional fallback even when the case has Gmail history", async () => {
+Deno.test("PR #1051 regression: ambiguous later Gmail linkage for an automatic portal message never guesses a thread", async () => {
   await withEnvironment(
     { ...SYNTHETIC_ENV, REFUND_GMAIL_ENABLED: "true" },
     async () => {
@@ -410,9 +413,8 @@ Deno.test("automatic delivery without an exact source uses transactional fallbac
       const supabase = {
         from: () => {
           linkLookups += 1;
-          return new FakeLinkQuery({
-            id: "unrelated-later-thread",
-            mailbox_hash: "must-not-be-read",
+          return new FakeLinkQuery(null, {
+            message: "multiple Gmail threads are linked to this case",
           });
         },
         rpc: async (name: string) => {
@@ -888,7 +890,7 @@ Deno.test("synthetic proof rejects a changed manager route after claim and befor
   );
 });
 
-Deno.test("enabled automatic linked delivery preserves the exact thread and suppresses manager CC", async () => {
+Deno.test("an explicit Gmail source preserves its exact thread and suppresses manager CC for automatic delivery", async () => {
   await withEnvironment(
     { ...SYNTHETIC_ENV, REFUND_GMAIL_ENABLED: "true" },
     async () => {
