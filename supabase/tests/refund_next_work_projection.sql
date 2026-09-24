@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(12);
+select plan(13);
 
 with fixture as (
   select jsonb_build_object(
@@ -89,6 +89,10 @@ select ok((public.refund_next_work_projection(jsonb_build_object(
   'payloadRedacted', true, 'stage', 'refund_confirmed', 'terminal', false,
   'paymentState', 'confirmed', 'messageState', jsonb_build_object('state', 'failed')
 ))->>'isOpen')::boolean, 'paid case with unresolved required notice remains open');
+select is(public.refund_next_work_projection(jsonb_build_object(
+  'payloadRedacted', true, 'stage', 'refund_confirmed', 'terminal', false,
+  'paymentState', 'confirmed', 'messageState', jsonb_build_object('state', null)
+))->>'isOpen', 'true', 'missing notice state remains an explicitly open customer obligation');
 select ok(not (public.refund_next_work_projection(jsonb_build_object(
   'payloadRedacted', true, 'stage', 'customer_notified', 'terminal', false,
   'reasonCode', 'settlement_time_unknown', 'paymentState', 'confirmed',

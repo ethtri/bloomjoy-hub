@@ -22,7 +22,7 @@ declare
   customer_wait boolean := false;
   payment_confirmed boolean := p_lifecycle ->> 'paymentState' = 'confirmed';
   notice_state text := p_lifecycle -> 'messageState' ->> 'state';
-  notice_resolved boolean := notice_state in ('sent', 'delivered');
+  notice_resolved boolean := coalesce(notice_state in ('sent', 'delivered'), false);
   is_open boolean;
   actor_name text := 'agent';
   action_code text := 'research_purchase';
