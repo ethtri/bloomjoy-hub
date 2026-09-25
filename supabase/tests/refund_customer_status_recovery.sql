@@ -215,6 +215,65 @@ $sql$, '23514', 'Automatic customer status update requires current deterministic
 select is(public.service_get_refund_status_contact_obligation_health()
   ->> 'unknownEffectCount','1',
   'The failed original status attempt with ambiguous effect remains an owned obligation');
+-- The provider can start while the parent message row is still pending. Such
+-- an exact transport attempt must not disappear during the first 60 minutes.
+alter table public.refund_case_messages disable trigger user;
+update public.refund_case_messages
+set delivery_transport='resend', delivery_state='unknown'
+where refund_case_id='d4000000-0000-4000-8000-000000000003'
+  and reason_code='provider_delay';
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'unknownEffectCount','2',
+  'A fresh pending parent with a recorded Resend provider-start is an immediate unknown-effect obligation');
+update public.refund_case_messages
+set delivery_state='accepted', provider_message_id='synthetic-status-accepted'
+where refund_case_id='d4000000-0000-4000-8000-000000000003'
+  and reason_code='provider_delay';
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'unknownEffectCount','1',
+  'Provider-accepted pending transport without a downstream webhook is not an unknown-effect obligation');
+update public.refund_case_messages
+set delivery_transport=null, delivery_state='unknown', provider_message_id=null
+where refund_case_id='d4000000-0000-4000-8000-000000000003'
+  and reason_code='provider_delay';
+alter table public.refund_case_messages enable trigger user;
+alter table public.refund_gmail_messages disable trigger user;
+insert into public.refund_gmail_threads(
+  id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,
+  first_message_at,latest_message_at,retention_expires_at
+) values (
+  'd7000000-0000-4000-8000-000000000003',
+  'd4000000-0000-4000-8000-000000000003',repeat('a',64),
+  'status-pending-parent-thread','Synthetic status transport',
+  now(),now(),now()+interval '30 days'
+);
+insert into public.refund_gmail_messages(
+  id,gmail_thread_id,refund_case_id,refund_case_message_id,
+  direction,status,sender_email,recipient_email,subject,plain_body,
+  received_at,retention_expires_at
+) values (
+  'd8000000-0000-4000-8000-000000000003',
+  'd7000000-0000-4000-8000-000000000003',
+  'd4000000-0000-4000-8000-000000000003',
+  (select id from public.refund_case_messages
+   where refund_case_id='d4000000-0000-4000-8000-000000000003'
+     and reason_code='provider_delay'),
+  'outbound','delivery_unknown','info@bloomjoysweets.com',
+  'status-provider-due@example.invalid','Synthetic status transport',
+  'Synthetic status transport',now(),now()+interval '30 days'
+);
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'unknownEffectCount','2',
+  'A linked Gmail unknown effect is visible while the parent remains pending');
+update public.refund_gmail_messages
+set status='sent',sent_at=now(),provider_message_id='synthetic-gmail-accepted'
+where id='d8000000-0000-4000-8000-000000000003';
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'unknownEffectCount','1',
+  'A linked accepted Gmail receipt is not made unknown by stale parent status');
+delete from public.refund_gmail_messages
+where id='d8000000-0000-4000-8000-000000000003';
+alter table public.refund_gmail_messages enable trigger user;
 update public.refund_case_messages set status='failed',
   error_message='gmail_source_thread_required'
 where refund_case_id='d4000000-0000-4000-8000-000000000003'

@@ -10,6 +10,13 @@ returns jsonb language sql stable security definer set search_path='' as $$
       exists(select 1 from public.refund_gmail_messages g
         where g.refund_case_message_id=m.id and g.direction='outbound'
           and g.status in ('pending_send','sent','delivery_unknown')) outbound_attempt,
+      exists(select 1 from public.refund_gmail_messages g
+        where g.refund_case_message_id=m.id and g.direction='outbound'
+          and g.status='sent' and g.sent_at is not null
+          and nullif(btrim(g.provider_message_id),'') is not null) gmail_accepted,
+      exists(select 1 from public.refund_gmail_messages g
+        where g.refund_case_message_id=m.id and g.direction='outbound'
+          and g.status='delivery_unknown') gmail_unknown,
       exists(select 1 from public.refund_case_messages later
         where later.refund_case_id=m.refund_case_id and later.id<>m.id
           and later.status='sent' and later.sent_at>m.created_at
@@ -44,6 +51,18 @@ returns jsonb language sql stable security definer set search_path='' as $$
           or provider_message_id is not null or delivery_transport is not null
           or outbound_attempt or error_message='delivery_unknown') then 'unknown_effect'
         when status='failed' then 'definite_failure'
+        when status='pending' and delivery_state in ('failed','bounced','complained')
+          then 'definite_failure'
+        -- The provider can finish while the parent status write fails. A linked
+        -- accepted Gmail receipt or accepted Resend receipt is still a send;
+        -- missing downstream webhook metadata alone creates no new obligation.
+        when status='pending' and (gmail_accepted or
+          (delivery_transport='resend' and delivery_state='accepted'
+            and provider_message_id is not null)) then 'accepted'
+        when status='pending' and (gmail_unknown
+          or manual_delivery_provider_attempted_at is not null
+          or provider_message_id is not null
+          or delivery_transport='resend') then 'unknown_effect'
         when status='pending' and created_at<statement_timestamp()-interval '60 minutes'
           then 'aging_queued'
         when status='pending' then 'queued'
