@@ -457,10 +457,10 @@ select is((select item->>'actionCode' from cash_projection,
     where item->>'publicReference'='RF-DIGEST-APPROVED-CASH'),
   'send_cash_refund_and_confirm',
   'Approved cash requires one payment confirmation, not a new approval');
-select like((select item->>'preparationSummary' from cash_projection,
+select matches((select item->>'preparationSummary' from cash_projection,
     jsonb_array_elements(value->'items') item
     where item->>'publicReference'='RF-DIGEST-APPROVED-CASH'),
-  '%already approved%', 'Historical cash summary names the saved decision');
+  'already approved', 'Historical cash summary names the saved decision');
 rollback to savepoint approved_cash_digest;
 
 select * from finish();
