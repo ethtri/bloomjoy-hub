@@ -200,7 +200,11 @@ test('negated customer text cannot become an affirmative fact', () => {
 test('directional time or wallet research cannot discard a supported amount', () => {
   for (const [body, reasonCode] of [
     ['I paid $10.90 around 4 PM', 'inexact_purchase_time_requires_research'],
+    ['I paid $10.90. I think it was 4 PM', 'inexact_purchase_time_requires_research'],
+    ['I paid $10.90, maybe 4 PM', 'inexact_purchase_time_requires_research'],
     ['I paid $10.90 with my Apple Pay device token ending in 4932',
+      'wallet_token_requires_research'],
+    ['I paid $10.90; the 4932 digits are an Apple Pay device token',
       'wallet_token_requires_research'],
   ]) {
     assert.throws(() => validateNoFactReview({ ...input,

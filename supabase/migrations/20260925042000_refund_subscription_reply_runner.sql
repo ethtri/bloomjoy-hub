@@ -488,7 +488,7 @@ begin
           public.refund_scoped_verified_reply_set(ctx.id)->'messages') item
         join public.refund_gmail_messages reply
           on reply.id=(item->>'messageId')::uuid
-        where reply.plain_body ~* '(around|about|roughly|remember)[^.?!]{0,50}([0-9]{1,2}([:][0-9]{2})?[[:space:]]*(am|pm)|morning|afternoon|evening)'
+        where reply.plain_body ~* '(around|about|roughly|remember|think|maybe|perhaps|possibly|not sure)[^.?!]{0,50}([0-9]{1,2}([:][0-9]{2})?[[:space:]]*(am|pm)|morning|afternoon|evening)'
       ) into rough_time_evidence;
     end if;
     update public.refund_wallet_correction_contexts set
@@ -611,7 +611,7 @@ begin
         'walletTokenLast4',token_match[1]);
     end if;
   elsif p_reason_code='inexact_purchase_time_requires_research' then
-    if p_source_quote !~* '(around|about|roughly|remember|morning|afternoon|evening)' then
+    if p_source_quote !~* '(around|about|roughly|remember|think|maybe|perhaps|possibly|not sure|morning|afternoon|evening)' then
       raise exception 'Inexact time research needs a source-backed time phrase';
     end if;
     directional_evidence:=jsonb_build_object('timeConfidence','rough',

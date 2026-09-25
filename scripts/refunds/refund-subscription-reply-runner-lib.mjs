@@ -295,7 +295,7 @@ export const validateNoFactReview = (input, proposal) => {
     throw new Error('wallet_research_source_not_supported');
   }
   if (proposal.reasonCode === 'inexact_purchase_time_requires_research' &&
-    !/(?:around|about|roughly|remember|morning|afternoon|evening)/iu.test(proposal.quote)) {
+    !/(?:around|about|roughly|remember|think|maybe|perhaps|possibly|not sure|morning|afternoon|evening)/iu.test(proposal.quote)) {
     throw new Error('time_research_source_not_supported');
   }
   return {
