@@ -136,6 +136,14 @@ begin
     actor_name := 'system';
     action_code := 'continue_refund';
     action_label := 'Continue the existing authorized refund attempt.';
+  elsif p_lifecycle ->> 'approvedCardContinuation' = 'true' then
+    actor_name := 'agent';
+    action_code := 'continue_refund';
+    action_label := 'Review the existing card approval and continue or reconcile its payment attempt.';
+    blocker := jsonb_build_object(
+      'code', 'approved_card_continuation_pending', 'owner', 'Agent',
+      'nextStep', 'Use the existing approved decision and payment evidence; do not ask for another approval.'
+    );
   elsif p_lifecycle ->> 'preparationPending' = 'true' then
     actor_name := 'agent';
     action_code := 'prepare_manager_decision';
@@ -228,6 +236,8 @@ declare
   current_manager_available boolean := false;
   case_action_version bigint;
   case_fact_version bigint;
+  case_decision text;
+  case_payment_method text;
   preparation jsonb;
   denial_notice_state text;
   denial_notice_at timestamptz;
@@ -272,6 +282,17 @@ begin
       projected_lifecycle := jsonb_set(p_lifecycle, '{managerAction,action}', '"mark_external_refund"'::jsonb, true);
     end if;
   end if;
+  -- A valid earlier card approval belongs to continuation even if no current
+  -- Manager is mapped. Mapping loss cannot create a second decision request.
+  if p_lifecycle ->> 'stage' = 'transaction_confirmed' then
+    select c.decision, c.payment_method into case_decision, case_payment_method
+    from public.refund_cases c where c.id = p_refund_case_id;
+    if case_decision = 'approved' and case_payment_method = 'card' then
+      projected_lifecycle := jsonb_set(
+        projected_lifecycle, '{managerAction,action}', '"none"'::jsonb, true
+      ) || jsonb_build_object('approvedCardContinuation', true);
+    end if;
+  end if;
   -- A saved amount/destination or legacy match is not preparation evidence.
   -- The producer is deployed independently and later in clean migration
   -- order. Until it exists and returns a current completed proof, no fresh
@@ -279,21 +300,29 @@ begin
   -- continue through their existing authority and are not reopened here.
   if projected_lifecycle -> 'managerAction' ->> 'action' in ('refund', 'mark_external_refund')
     and p_lifecycle ->> 'stage' in ('awaiting_payout', 'transaction_confirmed') then
-    select c.official_action_version, c.deterministic_fact_version
-      into case_action_version, case_fact_version
+    select c.official_action_version, c.deterministic_fact_version,
+        c.decision, c.payment_method
+      into case_action_version, case_fact_version,
+        case_decision, case_payment_method
     from public.refund_cases c where c.id = p_refund_case_id;
-    if pg_catalog.to_regprocedure(
-      'public.refund_manager_preparation_snapshot(uuid,bigint)') is not null then
-      execute 'select public.refund_manager_preparation_snapshot($1,$2)'
-        into preparation using p_refund_case_id, case_action_version;
-    end if;
-    if preparation ->> 'schemaVersion' is distinct from 'refund_manager_preparation_v1'
-      or preparation ->> 'proofId' is null
-      or preparation ->> 'officialActionVersion' is distinct from case_action_version::text
-      or preparation ->> 'deterministicFactVersion' is distinct from case_fact_version::text then
-      projected_lifecycle := jsonb_set(
-        projected_lifecycle, '{managerAction,action}', '"none"'::jsonb, true
-      ) || jsonb_build_object('preparationPending', true);
+    if case_decision is null then
+      if pg_catalog.to_regprocedure(
+        'public.refund_manager_preparation_snapshot(uuid,bigint)') is not null then
+        execute 'select public.refund_manager_preparation_snapshot($1,$2)'
+          into preparation using p_refund_case_id, case_action_version;
+      end if;
+      if preparation ->> 'schemaVersion' is distinct from 'refund_manager_preparation_v1'
+        or preparation ->> 'proofId' is null
+        or preparation ->> 'officialActionVersion' is distinct from case_action_version::text
+        or preparation ->> 'deterministicFactVersion' is distinct from case_fact_version::text then
+        projected_lifecycle := jsonb_set(
+          projected_lifecycle, '{managerAction,action}', '"none"'::jsonb, true
+        ) || jsonb_build_object('preparationPending', true);
+      end if;
+    else
+      -- A prior valid cash approval keeps its payout/confirmation path. No
+      -- second decision or newly inferred preparation proof is required.
+      null;
     end if;
   end if;
   if request_sent_at is not null then

@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(33);
+select plan(41);
 
 with fixture as (
   select jsonb_build_object(
@@ -251,6 +251,82 @@ select is(public.get_refund_lifecycle_for_manager(
   'current co-manager retains exact-machine portal action');
 reset role;
 select set_config('request.jwt.claims', '{}', true);
+
+-- Existing approved decisions are durable authority facts. A new preparation
+-- snapshot deliberately returns NULL for those cases and must not ask the
+-- Manager to decide again or hide a permitted cash payout confirmation.
+insert into public.refund_cases (
+  id, public_reference, reporting_machine_id, reporting_location_id,
+  customer_email, issue_summary, incident_at, payment_method,
+  payment_amount_cents, refund_amount_cents, zelle_payment_contact,
+  status, decision, correlation_status, correlation_source
+) values (
+  'd8560000-0000-4000-8000-000000000002', 'RF-NEXT-WORK-APPROVED-CASH',
+  'd8540000-0000-4000-8000-000000000001',
+  'd8530000-0000-4000-8000-000000000001',
+  'approved-cash@example.invalid', 'Previously approved cash payout',
+  statement_timestamp() - interval '1 hour', 'cash', 700, 700,
+  'approved-cash-zelle@example.invalid', 'cash_zelle_pending', 'approved',
+  'matched', 'manual'
+);
+insert into public.refund_cases (
+  id, public_reference, reporting_machine_id, reporting_location_id,
+  customer_email, issue_summary, incident_at, payment_method,
+  payment_amount_cents, refund_amount_cents, card_last4,
+  status, decision, correlation_status, correlation_source, automation_state,
+  nayax_refund_execution_status, nayax_match_execution_eligible,
+  matched_nayax_transaction_id, matched_nayax_site_id,
+  matched_nayax_machine_auth_time, matched_nayax_amount_cents,
+  matched_nayax_card_last4, matched_nayax_currency_code,
+  nayax_recommendation_state, nayax_recommendation_policy_version
+) values (
+  'd8560000-0000-4000-8000-000000000003', 'RF-NEXT-WORK-APPROVED-CARD',
+  'd8540000-0000-4000-8000-000000000001',
+  'd8530000-0000-4000-8000-000000000001',
+  'approved-card@example.invalid', 'Previously approved card refund',
+  statement_timestamp() - interval '1 hour', 'card', 700, 700, '4242',
+  'card_refund_pending', 'approved', 'matched', 'nayax', 'approved',
+  'not_requested', true, 'NEXT-WORK-APPROVED-CARD', 104,
+  statement_timestamp() - interval '1 hour', 700, '4242', 'USD',
+  'high_confidence', 'fixture-v1'
+);
+set local role service_role;
+select is(public.refund_lifecycle_contract(
+  'd8560000-0000-4000-8000-000000000002'
+)->>'stage', 'awaiting_payout', 'prior approved cash retains its payout stage');
+select is(public.refund_lifecycle_contract(
+  'd8560000-0000-4000-8000-000000000002'
+)->'nextWork'->>'actionCode', 'send_cash_refund_and_confirm',
+  'prior approved cash keeps only the existing Manager payout confirmation');
+select is(public.refund_lifecycle_contract(
+  'd8560000-0000-4000-8000-000000000003'
+)->>'stage', 'transaction_confirmed', 'prior approved card retains its selected transaction');
+select is(public.refund_lifecycle_contract(
+  'd8560000-0000-4000-8000-000000000003'
+)->'nextWork'->>'actor', 'agent',
+  'prior approved card continuation is internal, even with a live Manager mapping');
+select is(public.refund_lifecycle_contract(
+  'd8560000-0000-4000-8000-000000000003'
+)->'nextWork'->>'actionCode', 'continue_refund',
+  'prior approved card never asks the Manager to approve it again');
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claims',
+  '{"sub":"d8510000-0000-4000-8000-000000000002","role":"authenticated"}', true);
+select is(public.get_refund_lifecycle_for_manager(
+  'd8560000-0000-4000-8000-000000000002'
+)->'nextWork'->>'actionCode', 'send_cash_refund_and_confirm',
+  'current mapped Manager can finish a previously approved cash payout');
+select is(public.get_refund_lifecycle_for_manager(
+  'd8560000-0000-4000-8000-000000000003'
+)->'nextWork'->>'actionCode', 'continue_refund',
+  'portal agrees that prior approved card work is internal continuation');
+reset role;
+select set_config('request.jwt.claims', '{}', true);
+select ok((select bool_and(decision = 'approved') from public.refund_cases
+  where id in ('d8560000-0000-4000-8000-000000000002',
+    'd8560000-0000-4000-8000-000000000003')),
+  'read projections preserve both immutable approved decisions');
 
 update public.reporting_machine_refund_managers
 set status = 'revoked', revoked_at = statement_timestamp(), revoke_reason = 'Fixture revocation'
