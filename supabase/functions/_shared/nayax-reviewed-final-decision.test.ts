@@ -17,6 +17,15 @@ Deno.test("reviewed final decision needs an exact numeric version and two UUIDs"
     candidateToken,
   };
   assertEquals(parseReviewedFinalDecisionRequest(valid), valid);
+  // SQL's md5(completed event UUID : candidate-set digest) is cast to UUID
+  // without overwriting the version/variant nibbles. This real proof shape
+  // must pass the Edge parser before the protected RPC can revalidate it.
+  const deterministicProof =
+    'ffaae1b2-de39-8798-0e47-b24277e0b3af';
+  assertEquals(parseReviewedFinalDecisionRequest({
+    ...valid,
+    preparationProofId: deterministicProof,
+  })?.preparationProofId, deterministicProof);
   for (const invalid of [
     { ...valid, expectedOfficialActionVersion: "7" },
     { ...valid, expectedOfficialActionVersion: 0 },
