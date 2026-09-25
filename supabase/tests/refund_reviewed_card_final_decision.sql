@@ -1,0 +1,222 @@
+begin;
+create extension if not exists pgtap with schema extensions;
+set local search_path=public,extensions;
+select plan(19);
+
+create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
+begin
+  perform set_config('request.jwt.claim.sub',p_user_id::text,true);
+  perform set_config('request.jwt.claim.role','authenticated',true);
+  perform set_config('request.jwt.claims',jsonb_build_object(
+    'sub',p_user_id,'role','authenticated','is_anonymous',false)::text,true);
+end $$;
+create function pg_temp.capture_error(statement text) returns text language plpgsql as $$
+begin execute statement; return null; exception when others then return sqlstate||':'||sqlerrm; end $$;
+
+insert into auth.users(id,aud,role,email,raw_app_meta_data,raw_user_meta_data) values
+('e1410000-0000-4000-8000-000000000001','authenticated','authenticated','reviewed-manager@example.invalid','{}','{}'),
+('e1410000-0000-4000-8000-000000000002','authenticated','authenticated','revoked-manager@example.invalid','{}','{}');
+insert into public.customer_accounts(id,name,account_type)
+values('e1420000-0000-4000-8000-000000000001','Reviewed set fixture','internal');
+insert into public.reporting_locations(id,account_id,name,timezone)
+values('e1430000-0000-4000-8000-000000000001',
+  'e1420000-0000-4000-8000-000000000001','Reviewed location','America/Los_Angeles');
+insert into public.reporting_machines(id,account_id,location_id,machine_label,status,
+  nayax_machine_id,nayax_account_key,nayax_refunds_enabled)
+values
+('e1440000-0000-4000-8000-000000000001','e1420000-0000-4000-8000-000000000001',
+ 'e1430000-0000-4000-8000-000000000001','Reviewed machine','active',
+ 'REVIEWED-MACHINE','REVIEWED_ACCOUNT',true),
+('e1440000-0000-4000-8000-000000000002','e1420000-0000-4000-8000-000000000001',
+ 'e1430000-0000-4000-8000-000000000001','Other machine','active',
+ 'OTHER-MACHINE','OTHER_ACCOUNT',true);
+insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
+values('e1440000-0000-4000-8000-000000000001',
+  'e1410000-0000-4000-8000-000000000001','reviewed-manager@example.invalid','Fixture');
+insert into public.refund_nayax_machine_inventory(account_key,nayax_machine_id,reporting_machine_id)
+values('REVIEWED_ACCOUNT','REVIEWED-MACHINE','e1440000-0000-4000-8000-000000000001'),
+  ('OTHER_ACCOUNT','OTHER-MACHINE','e1440000-0000-4000-8000-000000000002');
+
+create function pg_temp.evidence(p_amount integer,p_rank integer) returns jsonb
+language sql stable as $$
+select jsonb_build_object(
+ 'source','nayax_api','selection_allowed',true,'is_recommended',false,'one_click_eligible',false,
+ 'recommendation_state','ambiguous','confidence_class','ambiguous_manual',
+ 'policy_version','2026-09-05.v11','identifier_policy_version','2026-09-05.identifier.v2',
+ 'customer_fact_version',1,'customer_credential_class','customer_physical_contactless_pan',
+ 'provider_identifier_class','last_sales_present_identifier_unverified',
+ 'card_last4_comparison','exact_support','card_network_comparison','missing',
+ 'payment_interaction_comparison','unknown','same_identifier_equivalence_proven',false,
+ 'identifier_review_state','exact_support','customer_correction_fields','[]'::jsonb,
+ 'hard_exclusions','[]'::jsonb,'manual_review_reasons','[]'::jsonb,
+ 'reason_codes','["machine_exact","provider_sale_approved"]'::jsonb,'match_factors','[]'::jsonb
+) || jsonb_build_object(
+ 'match_reason','One current machine sale reviewed with the request','recommendation_rank',p_rank,
+ 'is_top_ranked',p_rank=1,'lookup_account_scope','REVIEWED_ACCOUNT',
+ 'lookup_provider_machine_id','REVIEWED-MACHINE','provider_machine_id','REVIEWED-MACHINE',
+ 'machine_authorization_time_raw','2026-09-12T20:00:00Z',
+ 'machine_authorization_at','2026-09-12T20:00:00Z',
+ 'machine_authorization_time_source','MachineAuthorizationTime',
+ 'machine_time_resolution','exact','provider_time_resolution','exact',
+ 'provider_time_source','authorization_gmt','authorized_at','2026-09-12T20:00:00Z',
+ 'customer_request_received_at','2026-09-12T21:00:00Z',
+ 'customer_request_received_source','hosted_refund_intake',
+ 'transaction_occurrence_proof_source',null,'transaction_occurrence_timestamp_source',null,
+ 'transaction_occurrence_timezone_basis',null,'transaction_occurrence_lower_bound_at',null,
+ 'transaction_occurrence_upper_bound_at',null,'request_receipt_lower_bound_at',null,
+ 'request_receipt_upper_bound_at',null,'request_time_boundary','occurrence_time_uncertain',
+ 'transaction_occurrence_comparable',false,'transaction_occurrence_semantics','unknown',
+ 'time_delta_minutes',null,'amount_delta_cents',p_amount-1000,
+ 'provider_processing_time_delta_minutes',0,'payment_status','approved',
+ 'payment_status_evidence','last_sales_contract','provider_refund_state','clear',
+ 'duplicate_provider_record',false,'card_last4','4242','currency_code','USD',
+ 'amount_cents',p_amount)
+$$;
+
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
+  customer_email,issue_summary,incident_at,incident_timezone,incident_time_resolution,
+  incident_time_confidence,payment_method,payment_amount_cents,card_last4,
+  card_last4_provenance,payment_interaction,status,correlation_status,
+  deterministic_fact_version,intake_source,intake_meta,customer_request_received_at,
+  customer_request_received_source,nayax_lookup_generation,
+  nayax_lookup_status,nayax_refund_execution_status)
+values
+('e1450000-0000-4000-8000-000000000001','RF-REVIEWED-A',
+ 'e1440000-0000-4000-8000-000000000001','e1430000-0000-4000-8000-000000000001',
+ 'reviewed-a@example.invalid','Two reviewed purchases','2026-09-12T20:00:00Z',
+ 'America/Los_Angeles','exact','exact','card',1000,'4242','physical_card',
+ 'tap_card','needs_review','needs_nayax',1,'form','{}',
+ '2026-09-12T21:00:00Z','hosted_refund_intake',1,'checking','not_requested'),
+('e1450000-0000-4000-8000-000000000002','RF-REVIEWED-B',
+ 'e1440000-0000-4000-8000-000000000001','e1430000-0000-4000-8000-000000000001',
+ 'reviewed-b@example.invalid','Two reviewed purchases','2026-09-12T20:00:00Z',
+ 'America/Los_Angeles','exact','exact','card',1000,'4242','physical_card',
+ 'tap_card','needs_review','needs_nayax',1,'form','{}',
+ '2026-09-12T21:00:00Z','hosted_refund_intake',1,'checking','not_requested');
+insert into public.refund_nayax_lookup_candidates(
+ token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
+ provider_transaction_id,site_id,machine_authorization_time,amount_cents,
+ card_last4,currency_code,evidence_summary,expires_at)
+values
+('e1460000-0000-4000-8000-000000000001','e1450000-0000-4000-8000-000000000001',1,null,
+ 'e1440000-0000-4000-8000-000000000001','REVIEWED-A-SALE-1',17,
+ '2026-09-12T20:00:00Z',1090,'4242','USD',pg_temp.evidence(1090,1),now()+interval '1 hour'),
+('e1460000-0000-4000-8000-000000000002','e1450000-0000-4000-8000-000000000001',1,null,
+ 'e1440000-0000-4000-8000-000000000001','REVIEWED-A-SALE-2',17,
+ '2026-09-12T20:00:00Z',1190,'4242','USD',pg_temp.evidence(1190,2),now()+interval '1 hour'),
+('e1460000-0000-4000-8000-000000000003','e1450000-0000-4000-8000-000000000002',1,null,
+ 'e1440000-0000-4000-8000-000000000001','REVIEWED-B-SALE-1',17,
+ '2026-09-12T20:00:00Z',1090,'4242','USD',pg_temp.evidence(1090,1),now()+interval '1 hour'),
+('e1460000-0000-4000-8000-000000000004','e1450000-0000-4000-8000-000000000002',1,null,
+ 'e1440000-0000-4000-8000-000000000001','REVIEWED-B-SALE-2',17,
+ '2026-09-12T20:00:00Z',1190,'4242','USD',pg_temp.evidence(1190,2),now()+interval '1 hour');
+
+select is(public.refund_manager_preparation_snapshot(
+  'e1450000-0000-4000-8000-000000000001',
+  (select official_action_version from public.refund_cases where id='e1450000-0000-4000-8000-000000000001')
+),null::jsonb,'uncommitted candidate rows do not prove completed research');
+select is((public.service_commit_refund_nayax_lookup(
+  'e1450000-0000-4000-8000-000000000001',1,1,'multiple_matches','ambiguous',
+  '2026-09-05.v11',statement_timestamp(),'Two reviewed sales',null,2,'scheduled',null
+)->>'applied'),'true','first automatic lookup completion persists');
+select is((public.service_commit_refund_nayax_lookup(
+  'e1450000-0000-4000-8000-000000000002',1,1,'multiple_matches','ambiguous',
+  '2026-09-05.v11',statement_timestamp(),'Two reviewed sales',null,2,'scheduled',null
+)->>'applied'),'true','second automatic lookup completion persists');
+select is(public.refund_manager_preparation_snapshot(
+  'e1450000-0000-4000-8000-000000000001',
+  (select official_action_version from public.refund_cases where id='e1450000-0000-4000-8000-000000000001')
+)->>'evidenceBasis','card_reviewed_candidate_set',
+  'completed current automatic research prepares a set without preselection');
+select is((select matched_nayax_transaction_id from public.refund_cases
+  where id='e1450000-0000-4000-8000-000000000001'),null::text,
+  'completed review does not select or approve a purchase');
+select is((public.refund_manager_preparation_snapshot(
+  'e1450000-0000-4000-8000-000000000001',
+  (select official_action_version from public.refund_cases where id='e1450000-0000-4000-8000-000000000001')
+)->>'candidateCount')::integer,2,'both safe purchases are in the completed set');
+
+create temp table reviewed_initial on commit drop as
+select c.id case_id,c.official_action_version action_version,
+  (public.refund_manager_preparation_snapshot(c.id,c.official_action_version)->>'proofId')::uuid proof_id
+from public.refund_cases c
+where c.id in ('e1450000-0000-4000-8000-000000000001',
+  'e1450000-0000-4000-8000-000000000002');
+grant select on reviewed_initial to authenticated;
+create temp table reviewed_approval_a(result jsonb) on commit drop;
+create temp table reviewed_replay(result jsonb) on commit drop;
+create temp table reviewed_approval_b(result jsonb) on commit drop;
+grant select, insert on reviewed_approval_a, reviewed_replay,
+  reviewed_approval_b to authenticated;
+
+select pg_temp.set_actor('e1410000-0000-4000-8000-000000000001');
+set local role authenticated;
+select like(pg_temp.capture_error(format(
+  'select public.admin_approve_reviewed_nayax_candidate_v1(%L,%s,%L::uuid,%L::uuid)',
+  'e1450000-0000-4000-8000-000000000001',
+  (select official_action_version from public.refund_cases where id='e1450000-0000-4000-8000-000000000001'),
+  (select proof_id from reviewed_initial
+    where case_id='e1450000-0000-4000-8000-000000000001'),
+  'e1460000-0000-4000-8000-000000000004'
+)), 'P4620:%','a token from another case cannot be approved');
+reset role;
+
+set local role authenticated;
+insert into reviewed_approval_a
+select public.admin_approve_reviewed_nayax_candidate_v1(
+  case_id,action_version,proof_id,'e1460000-0000-4000-8000-000000000001') result
+from reviewed_initial where case_id='e1450000-0000-4000-8000-000000000001';
+select is((select result->>'approved' from reviewed_approval_a),'true',
+  'one final Manager decision approves the first exact reviewed sale');
+select is((select refund_amount_cents from public.refund_cases
+  where id='e1450000-0000-4000-8000-000000000001'),1090,
+  'the provider full charge, not the customer estimate, is frozen');
+select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
+  where refund_case_id='e1450000-0000-4000-8000-000000000001'),1,
+  'one protected provider-free attempt is queued');
+insert into reviewed_replay
+select public.admin_approve_reviewed_nayax_candidate_v1(
+  case_id,action_version,proof_id,'e1460000-0000-4000-8000-000000000001') result
+from reviewed_initial where case_id='e1450000-0000-4000-8000-000000000001';
+select is((select result->>'attemptId' from reviewed_replay),
+  (select result->>'attemptId' from reviewed_approval_a),
+  'duplicate final-action retry returns the same authoritative attempt');
+select is((select result->>'replayed' from reviewed_replay),'true',
+  'duplicate response is visibly acknowledged as a replay');
+select is((select count(*)::integer from public.refund_case_official_action_authorizations
+  where refund_case_id='e1450000-0000-4000-8000-000000000001' and action='approve'),1,
+  'replay creates no second official authorization');
+select like(pg_temp.capture_error(format(
+  'select public.admin_approve_reviewed_nayax_candidate_v1(%L,%s,%L::uuid,%L::uuid)',
+  'e1450000-0000-4000-8000-000000000001',
+  (select action_version from reviewed_initial where case_id='e1450000-0000-4000-8000-000000000001'),
+  (select proof_id from reviewed_initial where case_id='e1450000-0000-4000-8000-000000000001'),
+  'e1460000-0000-4000-8000-000000000002'
+)), 'P4620:%','a changed candidate after approval cannot create another attempt');
+insert into reviewed_approval_b
+select public.admin_approve_reviewed_nayax_candidate_v1(
+  case_id,action_version,proof_id,'e1460000-0000-4000-8000-000000000004') result
+from reviewed_initial where case_id='e1450000-0000-4000-8000-000000000002';
+select is((select result->>'approved' from reviewed_approval_b),'true',
+  'another case can approve the other safe reviewed sale');
+select is((select refund_amount_cents from public.refund_cases
+  where id='e1450000-0000-4000-8000-000000000002'),1190,
+  'the alternate exact provider total is preserved');
+reset role;
+
+select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
+  where refund_case_id in ('e1450000-0000-4000-8000-000000000001',
+    'e1450000-0000-4000-8000-000000000002')),2,
+  'two separate approved cases have exactly one attempt each');
+select is((select count(*)::integer from public.refund_case_events
+  where event_type='nayax_reviewed_set_final_decision_committed'
+    and refund_case_id in ('e1450000-0000-4000-8000-000000000001',
+      'e1450000-0000-4000-8000-000000000002')),2,
+  'each decision has one replayable immutable receipt');
+select is(public.refund_manager_preparation_snapshot(
+  'e1450000-0000-4000-8000-000000000001',
+  (select official_action_version from public.refund_cases where id='e1450000-0000-4000-8000-000000000001')
+),null::jsonb,'completed prior approval never opens another preparation decision');
+
+select * from finish();
+rollback;
