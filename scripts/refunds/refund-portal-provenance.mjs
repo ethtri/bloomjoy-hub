@@ -88,7 +88,8 @@ export function sourceBuildDiagnostics(root) {
     }
   }
   let vercelDirectory = { present: false, projectJson: false, readme: false,
-    environmentFileCount: 0, otherFileCount: 0, directoryCount: 0, projectIdentityMatches: false };
+    environmentFileCount: 0, otherFileCount: 0, directoryCount: 0,
+    directoryCategories: [], projectIdentityMatches: false };
   try {
     const entries = readdirSync(path.join(root, '.vercel'), { withFileTypes: true });
     vercelDirectory = { ...vercelDirectory, present: true,
@@ -97,7 +98,10 @@ export function sourceBuildDiagnostics(root) {
       environmentFileCount: entries.filter((entry) => entry.isFile() && entry.name.startsWith('.env')).length,
       otherFileCount: entries.filter((entry) => entry.isFile() && !['project.json', 'README.txt'].includes(entry.name)
         && !entry.name.startsWith('.env')).length,
-      directoryCount: entries.filter((entry) => !entry.isFile()).length };
+      directoryCount: entries.filter((entry) => !entry.isFile()).length,
+      directoryCategories: entries.filter((entry) => entry.isDirectory())
+        .map((entry) => ['output', 'cache', '.cache'].includes(entry.name) ? entry.name : 'other')
+        .sort() };
     if (vercelDirectory.projectJson) {
       const config = JSON.parse(readFileSync(path.join(root, '.vercel', 'project.json'), 'utf8'));
       vercelDirectory.projectIdentityMatches = config?.projectId === 'prj_YC3LjtHvqX2BAvFdt4iLV9ARs1bM' &&
