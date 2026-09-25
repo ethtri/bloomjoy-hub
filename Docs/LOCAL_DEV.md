@@ -295,7 +295,7 @@ Prereqs:
   real operations.
 - Server-side Nayax machine mapping must exist before the lookup button can return card candidates. Machine Managers use `/refunds` for case processing and do not see setup controls.
 - For mocked GPT triage validation, no live OpenAI API call is required. Run `npm run refunds:validate-gpt-triage` and `npm run db:validate-migrations`.
-- For local server-runner preflight, keep `OPENAI_API_KEY` only in the worktree's gitignored `.env.local`; also set local-only `OPENAI_REFUND_TRIAGE_SAFETY_SALT`, `REFUND_GPT_TRIAGE_SYNC_SECRET`, and `REFUND_GPT_TRIAGE_ENABLED=false`, then run `npm run refunds:preflight-gpt-triage -- --env-file .env.local`. Never use a `VITE_` name.
+- For the optional legacy API-backed GPT triage preflight only, keep `OPENAI_API_KEY` in the worktree's gitignored `.env.local`; also set local-only `OPENAI_REFUND_TRIAGE_SAFETY_SALT`, `REFUND_GPT_TRIAGE_SYNC_SECRET`, and `REFUND_GPT_TRIAGE_ENABLED=false`, then run `npm run refunds:preflight-gpt-triage -- --env-file .env.local`. The subscription-backed refund reply runner does not require an OpenAI API key. Never use a `VITE_` name.
 - A real sanitized OpenAI evaluation is a paid external action and requires explicit approval. Do not point it at production Gmail or customer content from local development.
 
 Steps:

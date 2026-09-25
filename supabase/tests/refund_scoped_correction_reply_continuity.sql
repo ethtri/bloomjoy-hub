@@ -121,6 +121,15 @@ select is(public.refund_customer_outreach_contract(pg_temp.cid(9))->>'owner','Sy
   'Unstructured reply belongs to internal System review, not manager decision');
 select is(public.refund_customer_outreach_contract(pg_temp.cid(9))->>'nextAction',
   'recheck_customer_reply','Public next action stays inside the strict outreach vocabulary');
+select is((select count(*)::integer
+  from public.service_list_refund_follow_up_customer_reply_candidates(25) candidate
+  where candidate.refund_case_id=pg_temp.cid(9)),0,
+  'Generic bounded reply page excludes the exact scoped request before LIMIT');
+select is(public.service_claim_refund_follow_up_customer_reply(
+    pg_temp.cid(9),(select id from public.refund_follow_up_cycles
+      where refund_case_id=pg_temp.cid(9)))->>'reason',
+  'scoped_purchase_reply_owned_by_system',
+  'Generic claim recheck cannot turn scoped free text into Manager review');
 select ok(not (public.refund_customer_outreach_contract(pg_temp.cid(9)) ?| array[
   'replyReviewDueAt','replyReviewState']),
   'Service-only due and claim state do not expand the strict public wire shape');
@@ -153,6 +162,61 @@ select ok(not has_function_privilege('authenticated',
     'public.service_get_refund_scoped_reply_research_input(uuid,uuid,uuid,bigint,text)',
     'execute'),
   'Research input containing customer content is service-only');
+select ok((select public.service_get_refund_scoped_reply_research_input(
+    (task->>'requestId')::uuid,(task->>'claimToken')::uuid,pg_temp.gid(9),
+    (task->>'factVersion')::bigint,task->>'bodySha256'
+  )->'researchEvidence' ?& array['recentEvents','currentCardCandidates','lookupStatus']
+  from scoped_reply_claim),
+  'Claim-bound interpreter receives bounded case history and read-only purchase evidence');
+savepoint source_bound_no_fact;
+select is(public.service_complete_refund_scoped_reply_no_fact(
+    (select (task->>'requestId')::uuid from scoped_reply_claim),
+    (select (task->>'claimToken')::uuid from scoped_reply_claim),pg_temp.gid(9),
+    (select (task->>'factVersion')::bigint from scoped_reply_claim),
+    (select task->>'bodySha256' from scoped_reply_claim),pg_temp.gid(9),
+    'I replied above; please review my earlier note.','no_supported_new_fact')->>'outcome',
+  'reviewed_no_fact','Grounded ordinary free text finishes one System reply review');
+select ok((select reply_review_state='resolved' and reply_review_result_code='no_supported_new_fact'
+    from public.refund_wallet_correction_contexts where refund_case_id=pg_temp.cid(9))
+  and (select status='needs_review' from public.refund_cases where id=pg_temp.cid(9))
+  and (select count(*)=0 from public.refund_case_nayax_refund_attempts
+    where refund_case_id=pg_temp.cid(9))
+  and (select count(*)=1 from public.refund_case_messages where refund_case_id=pg_temp.cid(9)),
+  'No-new-fact research clears Customer wait without a Manager, message or payment action');
+select is(public.refund_customer_outreach_contract(pg_temp.cid(9))->>'owner','System',
+  'Completed no-fact review remains System-owned rather than a customer re-question');
+select is(public.service_get_refund_scoped_reply_research_health()
+    ->>'stableEvidenceDependencyCount','1',
+  'No-new-fact result is visible as a stable owned evidence dependency');
+select is((public.service_claim_refund_scoped_reply_reviews(25)->'tasks')::text,'[]',
+  'Unchanged evidence does not requeue the same interpretation on the next sweep');
+update public.refund_cases set nayax_lookup_generation=1,
+  nayax_lookup_status='no_match',nayax_lookup_finished_at=statement_timestamp()
+  where id=pg_temp.cid(9);
+select is((select reply_review_state from public.refund_wallet_correction_contexts
+    where refund_case_id=pg_temp.cid(9)),'pending',
+  'A completed read-only card research result reopens the same source-bound task');
+create temp table changed_evidence_claim on commit drop as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task;
+select is((select count(*)::integer from changed_evidence_claim),1,
+  'Second cycle has one real fresh-evidence claim, not a parallel customer request');
+select is(public.service_complete_refund_scoped_reply_no_fact(
+    (select (task->>'requestId')::uuid from changed_evidence_claim),
+    (select (task->>'claimToken')::uuid from changed_evidence_claim),pg_temp.gid(9),
+    (select (task->>'factVersion')::bigint from changed_evidence_claim),
+    (select task->>'bodySha256' from changed_evidence_claim),pg_temp.gid(9),
+    'I replied above; please review my earlier note.','no_supported_new_fact')->>'outcome',
+  'reviewed_no_fact','Second evidence cycle records an honest stable dependency');
+select is((public.service_claim_refund_scoped_reply_reviews(25)->'tasks')::text,'[]',
+  'Two cycles do not create permanent hourly due churn without new evidence');
+rollback to savepoint source_bound_no_fact;
+select is(public.service_complete_refund_scoped_reply_no_fact(
+    (select (task->>'requestId')::uuid from scoped_reply_claim),
+    gen_random_uuid(),pg_temp.gid(9),
+    (select (task->>'factVersion')::bigint from scoped_reply_claim),
+    (select task->>'bodySha256' from scoped_reply_claim),pg_temp.gid(9),
+    'I replied above; please review my earlier note.','no_supported_new_fact')->>'outcome',
+  'stale_or_unsupported_source','A stolen or expired review claim cannot finish free-text research');
 select is(public.service_defer_refund_scoped_reply_review(
     (select (task->>'requestId')::uuid from scoped_reply_claim),
     gen_random_uuid(),pg_temp.gid(9),
@@ -210,6 +274,24 @@ select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(9),pg_tem
 select is((select count(*)::integer from public.refund_wallet_correction_contexts
     where refund_case_id=pg_temp.cid(9) and reply_review_state='pending'),1,
   'The later reply invalidates the old claim without making a parallel task');
+savepoint source_bound_semantic_fact;
+create temp table semantic_reply_claim on commit drop as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(9)::text;
+select is(public.service_apply_refund_scoped_reply_semantic_fact(
+    (select (task->>'requestId')::uuid from semantic_reply_claim),
+    (select (task->>'claimToken')::uuid from semantic_reply_claim),pg_temp.gid(17),
+    (select (task->>'factVersion')::bigint from semantic_reply_claim),
+    (select task->>'bodySha256' from semantic_reply_claim),pg_temp.gid(17),
+    'Amount: 7.00','{"payment_amount_cents":700,"refund_amount_cents":700}'::jsonb,
+    array['amount'])->>'outcome','applied',
+  'Source-bound semantic interpretation uses the existing immutable fact writer');
+select ok((select extraction_policy='verified_reply_semantic_v1'
+    from public.refund_customer_fact_applications where refund_case_id=pg_temp.cid(9))
+  and (select reply_review_state='resolved' from public.refund_wallet_correction_contexts
+    where refund_case_id=pg_temp.cid(9)),
+  'The semantic fact carries an explicit receipt policy and closes the exact review');
+rollback to savepoint source_bound_semantic_fact;
 select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(9),pg_temp.gid(9))->>'outcome',
   'already_received','Replay of an earlier message does not replace the latest task input');
 select is(public.service_apply_refund_gmail_customer_facts_v1(pg_temp.cid(9),pg_temp.gid(17),
@@ -396,5 +478,29 @@ select ok(not has_function_privilege('anon','public.service_apply_refund_gmail_c
 select ok(not has_function_privilege('authenticated',
   'public.service_get_refund_scoped_reply_research_health()','execute'),
   'Customer-content research health is visible only to the service worker');
+select is(public.service_start_refund_reply_subscription_run(date_trunc('hour',statement_timestamp()))->>'outcome',
+  'disabled','Subscription-backed hourly worker is default-off');
+update public.refund_reply_subscription_settings set enabled=true,
+  activated_at=statement_timestamp()-interval '1 hour' where singleton;
+create temp table subscription_run on commit drop as
+  select public.service_start_refund_reply_subscription_run(
+    date_trunc('hour',statement_timestamp())) receipt;
+select is((select receipt->>'outcome' from subscription_run),'started',
+  'An enabled hourly opportunity records one durable run receipt');
+select is(public.service_start_refund_reply_subscription_run(
+  date_trunc('hour',statement_timestamp()))->>'outcome','already_recorded',
+  'Scheduler replay cannot open a second receipt for the same hour');
+select is(public.service_finish_refund_reply_subscription_run(
+    (select (receipt->>'runId')::uuid from subscription_run),0,0,0,null)->>'status',
+  'succeeded','A no-task hourly run can finish with an explicit zero-work receipt');
+select is(public.service_get_refund_reply_subscription_health()->>'enabled','true',
+  'Service health exposes effective activation without customer content');
+select ok(not has_function_privilege('authenticated',
+  'public.service_apply_refund_scoped_reply_semantic_fact(uuid,uuid,uuid,bigint,text,uuid,text,jsonb,text[])','execute')
+  and not has_function_privilege('authenticated',
+  'public.service_complete_refund_scoped_reply_no_fact(uuid,uuid,uuid,bigint,text,uuid,text,text)','execute')
+  and not has_function_privilege('anon',
+  'public.service_start_refund_reply_subscription_run(timestamptz)','execute'),
+  'No browser or anonymous role can interpret or finish a scoped reply');
 select * from finish();
 rollback;

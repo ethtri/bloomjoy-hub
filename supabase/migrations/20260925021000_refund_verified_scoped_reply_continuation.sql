@@ -430,3 +430,53 @@ revoke all on function public.refund_customer_outreach_contract(uuid)
   from public,anon,authenticated,service_role;
 grant execute on function public.refund_customer_outreach_contract(uuid)
   to service_role;
+
+-- The existing generic follow-up reply sweep can acknowledge a reply and
+-- escalate unchanged facts to a Manager. A purchase correction has its own
+-- exact-request System task; exclude it before the bounded generic page and
+-- recheck after the generic cycle/case locks so two sweeps cannot race.
+create or replace function public.service_list_refund_follow_up_customer_reply_candidates(
+  p_limit integer default 25
+) returns table(id uuid,refund_case_id uuid)
+language sql stable security definer set search_path='' as $$
+  select cycle.id,cycle.refund_case_id
+  from public.refund_follow_up_cycles cycle
+  where cycle.status in ('waiting','customer_replied')
+    and cycle.request_sent_at is not null
+    and cycle.recheck_claimed_at is null
+    and not exists (select 1 from public.refund_authoritative_receipts receipt
+      where receipt.refund_case_id=cycle.refund_case_id)
+    and not exists (select 1 from public.refund_wallet_correction_contexts ctx
+      where ctx.refund_case_id=cycle.refund_case_id
+        and ctx.correction_message_id=cycle.request_message_id
+        and ctx.correction_kind='purchase' and ctx.status='pending')
+  order by cycle.request_sent_at,cycle.id
+  limit least(greatest(coalesce(p_limit,25),1),100);
+$$;
+revoke all on function public.service_list_refund_follow_up_customer_reply_candidates(integer)
+  from public,anon,authenticated;
+grant execute on function public.service_list_refund_follow_up_customer_reply_candidates(integer)
+  to service_role;
+
+do $migration$
+declare definition text; anchor text; replacement text;
+begin
+  definition:=pg_catalog.pg_get_functiondef(
+    'public.service_claim_refund_follow_up_customer_reply(uuid,uuid)'::regprocedure);
+  anchor:='  if cycle_row.reply_customer_message_id is not null then';
+  replacement:=$guard$
+  if exists (select 1 from public.refund_wallet_correction_contexts ctx
+    where ctx.refund_case_id=cycle_row.refund_case_id
+      and ctx.correction_message_id=cycle_row.request_message_id
+      and ctx.correction_kind='purchase' and ctx.status='pending') then
+    return jsonb_build_object('enabled',true,'claimed',false,
+      'reason','scoped_purchase_reply_owned_by_system');
+  end if;
+
+  if cycle_row.reply_customer_message_id is not null then$guard$;
+  if cardinality(string_to_array(definition,anchor))<>2 then
+    raise exception 'Unexpected generic refund reply claim source';
+  end if;
+  execute replace(definition,anchor,replacement);
+end;
+$migration$;

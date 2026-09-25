@@ -66,6 +66,13 @@ historical fixtures cannot add product gates that the workflow does not contain.
 - [ ] A verified customer email reply with corrected Card type or
   wallet/device-token last-four provenance updates the same case and restarts
   matching without creating a duplicate request.
+- [ ] The hourly subscription-backed reply task reads only the exact verified
+  request and complete later-reply set. Ordinary prose can yield a quoted,
+  version-bound fact receipt; a customer who cannot provide the requested fact
+  stays System-owned with a named evidence dependency. A later verified reply
+  or completed read-only purchase result reopens the same task once. No generic
+  follow-up sweep sends a Manager research notice, and no model output sends a
+  message, approves, pays, or retries an unknown payment.
 - [ ] System, mapping, timezone, provider, and delivery defects route to an
   internal issue without asking the customer to troubleshoot or repeat known
   facts.
@@ -87,6 +94,7 @@ npm run refunds:validate-nayax-execution
 npm run refunds:validate-cash-intake
 npm run refunds:validate-official-actions
 npm run refunds:validate-purchase-correction
+npm run refunds:validate-customer-correction-persistence
 npm run refunds:validate-deterministic-followup
 npm run refunds:validate-customer-comms
 npm run refunds:validate-manager-workbench
