@@ -74,7 +74,6 @@ language sql stable security definer set search_path = '' as $$
     and candidate.refund_business_fingerprint ~ '^[a-f0-9]{32}$'
     and candidate.nayax_lookup_finished_at is not null
     and candidate.nayax_lookup_started_at is not null
-    and candidate.nayax_lookup_correlation_digest ~ '^[a-f0-9]{64}$'
     and machine.status='active'
     and machine.nayax_manual_portal_enabled is not true
     and machine.location_id=candidate.reporting_location_id
@@ -106,6 +105,7 @@ language sql stable security definer set search_path = '' as $$
       where attempt.refund_case_id=candidate.id)
     and (
       (candidate.nayax_lookup_status='manual_exception'
+        and candidate.nayax_lookup_correlation_digest ~ '^[a-f0-9]{64}$'
         and nullif(candidate.nayax_recommendation_policy_version,'') is not null
         and candidate.nayax_recommendation_policy_version<>'manual-nayax-portal-v1'
         and (public.refund_lifecycle_contract(candidate.id)->'lookup')
@@ -180,7 +180,6 @@ begin
         where due.refund_case_id=c.id)
       or c.nayax_lookup_finished_at is null
       or c.nayax_lookup_started_at is null
-      or (c.nayax_lookup_correlation_digest ~ '^[a-f0-9]{64}$') is not true
       or not exists (select 1 from public.reporting_machines machine
         where machine.id=c.reporting_machine_id
           and machine.status='active'
