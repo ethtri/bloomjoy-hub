@@ -249,6 +249,18 @@ select is((select nayax_lookup_status||':'||nayax_lookup_failure_class
   'The recovery result remains authoritative after the stale failure');
 rollback to savepoint late_approved_failure;
 
+insert into public.refund_nayax_lookup_candidates(
+  token,refund_case_id,reporting_machine_id,lookup_generation,
+  provider_transaction_id,site_id,machine_authorization_time,
+  amount_cents,card_last4,currency_code,evidence_summary,expires_at
+) values(
+  'ab460000-0000-4000-8000-000000000001',
+  'ab450000-0000-4000-8000-000000000001',
+  'ab440000-0000-4000-8000-000000000001',
+  (select (result->0->>'lookupGeneration')::bigint from recovered_claim),
+  'APPROVED-READ-CANDIDATE-001',101,statement_timestamp()-interval '30 minutes',
+  963,'4242','USD','{"selection_allowed":false}'::jsonb,
+  statement_timestamp()+interval '30 minutes');
 set local role service_role;
 select is(public.service_commit_approved_card_nayax_research(
   'ab450000-0000-4000-8000-000000000001',
@@ -256,10 +268,33 @@ select is(public.service_commit_approved_card_nayax_research(
   (select (result->0->>'officialActionVersion')::bigint from recovered_claim),
   (select result->0->>'businessFingerprint' from recovered_claim),
   (select result->0->>'scopeDigest' from recovered_claim),963,
-  'no_match','no_safe_match','approved-research-v1',statement_timestamp(),
-  'The bounded recent-sales read found no supported purchase.',null,0,null
+  'match_found','ambiguous','approved-research-v1',statement_timestamp(),
+  'The bounded read found a candidate requiring review.',null,1,null
 ) ->> 'applied','true','A current read-only result commits through the version guard');
+select is(public.service_fail_approved_card_nayax_research(
+  'ab450000-0000-4000-8000-000000000001',
+  (select (result->0->>'lookupGeneration')::bigint from recovered_claim),1,
+  (select (result->0->>'officialActionVersion')::bigint from recovered_claim),
+  (select result->0->>'businessFingerprint' from recovered_claim),
+  (select result->0->>'scopeDigest' from recovered_claim),963,
+  'worker_interrupted',true)->>'stale','true',
+  'A late failure after a lost commit response is stale');
+select is(public.service_commit_approved_card_nayax_research(
+  'ab450000-0000-4000-8000-000000000001',
+  (select (result->0->>'lookupGeneration')::bigint from recovered_claim),1,
+  (select (result->0->>'officialActionVersion')::bigint from recovered_claim),
+  (select result->0->>'businessFingerprint' from recovered_claim),
+  (select result->0->>'scopeDigest' from recovered_claim),963,
+  'match_found','ambiguous','approved-research-v1',statement_timestamp(),
+  'The bounded read found a candidate requiring review.',null,1,null
+) ->> 'stale','true','An idempotent commit replay is stale');
 reset role;
+select is((select count(*)::integer from public.refund_nayax_lookup_candidates
+  where token='ab460000-0000-4000-8000-000000000001'),1,
+  'Late failure and commit replay preserve the completed candidate evidence');
+select is((select nayax_lookup_status from public.refund_cases
+  where id='ab450000-0000-4000-8000-000000000001'), 'match_found',
+  'Late calls preserve the completed lookup status');
 
 select ok((select c.decision=s.decision and c.decided_by=s.decided_by
   and c.decided_at=s.decided_at and c.decision_reason=s.decision_reason

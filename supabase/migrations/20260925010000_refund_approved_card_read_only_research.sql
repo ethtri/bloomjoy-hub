@@ -435,9 +435,8 @@ begin
         and (claim.metadata->>'decided_at')::timestamptz=c.decided_at
         and claim.metadata->>'payload_redacted'='true')
   then
-    delete from public.refund_nayax_lookup_candidates candidate
-      where candidate.refund_case_id=p_refund_case_id
-        and candidate.lookup_generation=p_lookup_generation;
+    -- A lost commit response can retry this exact generation after completion.
+    -- Rejection must not erase a committed read-only candidate set.
     return jsonb_build_object('applied',false,'stale',true,'payloadRedacted',true);
   end if;
 
@@ -525,9 +524,7 @@ begin
         and (claim.metadata->>'decided_at')::timestamptz=c.decided_at
         and claim.metadata->>'payload_redacted'='true')
   then
-    delete from public.refund_nayax_lookup_candidates candidate
-      where candidate.refund_case_id=p_refund_case_id
-        and candidate.lookup_generation=p_lookup_generation;
+    -- A late failure after a successful commit is stale, not candidate cleanup.
     return jsonb_build_object('applied',false,'stale',true,'payloadRedacted',true);
   end if;
   result := public.service_fail_refund_nayax_lookup(
