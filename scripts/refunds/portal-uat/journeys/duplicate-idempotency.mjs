@@ -101,6 +101,9 @@ export const createDuplicateIdempotencyChecks = ({
 
     const page = await context.newPage();
     await signInRefundUser(page, appUrl);
+    // The saved card approval is System-owned follow-up, even while its
+    // possible-duplicate evidence remains available for review.
+    await page.getByRole('button', { name: /^Bloomjoy follow-up \d+$/ }).click();
     await waitForQueueCount(page, 1);
     await queueCase(page, 'RF-UAT-CARD').click();
     await page.getByText('Possible duplicate review', { exact: true }).waitFor({ timeout: 10000 });
@@ -247,6 +250,16 @@ export const createDuplicateIdempotencyChecks = ({
     artifactDir,
     recorder,
   }) => {
+    const openDeliveryCase = async (page, publicReference) => {
+      // Delivery recovery can be System-owned follow-up, including after
+      // confirmed payment. Select the exact case instead of assuming a
+      // default Manager-action queue bucket.
+      await navigateRefundPortalPage(page, `${appUrl}/refunds?case=case-card-1`, {
+        waitUntil: 'domcontentloaded',
+      });
+      await waitForQueueCount(page, 1);
+      await queueCase(page, publicReference).click();
+    };
     const scenarios = [
       { state: 'unknown', label: 'Delivery unknown', confirmedPayment: true, accountingReview: true },
       { state: 'unknown', label: 'Delivery unknown', name: 'Original request delivery unknown', confirmedPayment: false, accountingReview: false, customerRequestDelivery: true },
@@ -290,8 +303,7 @@ export const createDuplicateIdempotencyChecks = ({
     await page.getByText('Signed in. Redirecting...', { exact: true })
       .waitFor({ state: 'hidden', timeout: 5000 })
       .catch(() => undefined);
-    await waitForQueueCount(page, 1);
-    await queueCase(page, `RF-UAT-DELIVERY-${scenario.state.toUpperCase()}`).click();
+    await openDeliveryCase(page, `RF-UAT-DELIVERY-${scenario.state.toUpperCase()}`);
 
     const review = page.getByTestId('refund-secondary-delivery-review');
     const reviewAction = page.getByTestId('refund-review-delivery-record');
@@ -488,8 +500,7 @@ export const createDuplicateIdempotencyChecks = ({
       await page.getByText('Signed in. Redirecting...', { exact: true })
         .waitFor({ state: 'hidden', timeout: 5000 })
         .catch(() => undefined);
-      await waitForQueueCount(page, 1);
-      await queueCase(page, 'RF-UAT-DELIVERY-UNKNOWN').click();
+      await openDeliveryCase(page, 'RF-UAT-DELIVERY-UNKNOWN');
 
       const refreshAction = page.getByTestId('refund-refresh-delivery-status');
       await refreshAction.getByText('Refresh customer message delivery', { exact: true })
@@ -541,8 +552,7 @@ export const createDuplicateIdempotencyChecks = ({
       await page.getByText('Signed in. Redirecting...', { exact: true })
         .waitFor({ state: 'hidden', timeout: 5000 })
         .catch(() => undefined);
-      await waitForQueueCount(page, 1);
-      await queueCase(page, 'RF-UAT-DELIVERY-UNKNOWN').click();
+      await openDeliveryCase(page, 'RF-UAT-DELIVERY-UNKNOWN');
 
       recorder.assert(
         `Delivery refresh fails closed with ${recoveryBlock.name}`,
@@ -580,8 +590,7 @@ export const createDuplicateIdempotencyChecks = ({
       await page.getByText('Signed in. Redirecting...', { exact: true })
         .waitFor({ state: 'hidden', timeout: 5000 })
         .catch(() => undefined);
-      await waitForQueueCount(page, 1);
-      await queueCase(page, 'RF-UAT-DELIVERY-BOUNCED').click();
+      await openDeliveryCase(page, 'RF-UAT-DELIVERY-BOUNCED');
 
       const callSnapshot = {
         functions: functionCalls.length,
@@ -653,8 +662,7 @@ export const createDuplicateIdempotencyChecks = ({
       await page.getByText('Signed in. Redirecting...', { exact: true })
         .waitFor({ state: 'hidden', timeout: 5000 })
         .catch(() => undefined);
-      await waitForQueueCount(page, 1);
-      await queueCase(page, scenario.publicReference).click();
+      await openDeliveryCase(page, scenario.publicReference);
 
       const expectedAction = page.getByRole(scenario.providerRejected ? 'status' : 'button', {
         name: scenario.expectedAction,

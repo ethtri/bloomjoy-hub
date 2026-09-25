@@ -179,6 +179,18 @@ Deno.test("old v2 approved actions preserve payment continuity without reapprova
     "Refund follow-up pending");
   approvedCard.lifecycle.paymentState = "submitted_pending";
   assertEquals(getRefundManagerQueueBucket(approvedCard), "in_progress");
+
+  const settledCard = {
+    ...approvedCard,
+    status: "completed",
+    lifecycle: lifecycle("customer_notified", "completed", "none"),
+  };
+  assertEquals(getRefundManagerQueueBucket(settledCard), "completed");
+  const unsettledNotice = {
+    ...settledCard,
+    lifecycle: lifecycle("customer_notified", "needs_action", "review_customer_delivery"),
+  };
+  assertEquals(getRefundManagerQueueBucket(unsettledNotice), "provider_hold");
 });
 
 Deno.test("a prepared Manager action counts only for a current authorized viewer and version", () => {

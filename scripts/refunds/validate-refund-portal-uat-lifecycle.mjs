@@ -147,7 +147,7 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /availabilityResponse = page\.waitForResponse[\s\S]*?\(error\) => \(\{ response: null, error \}\)[\s\S]*?initialQueueLabel = scenario\.response\?\.available === true[\s\S]*?refund_uat_availability_response_missing:\$\{scenario\.name\}/
+  /availabilityResponse = page\.waitForResponse[\s\S]*?\(error\) => \(\{ response: null, error \}\)[\s\S]*?name: \/\^Ready to approve \\d\+\$\/[\s\S]*?refund_uat_availability_response_missing:\$\{scenario\.name\}/
 );
 assert.match(
   portalSource,

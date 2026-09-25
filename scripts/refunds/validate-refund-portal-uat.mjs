@@ -450,6 +450,22 @@ const approvedCardSystemNextWork = () => ({
   payloadRedacted: true,
 });
 
+const providerReconciliationNextWork = () => ({
+  schemaVersion: 'refund_next_work_v1',
+  isOpen: true,
+  actor: 'agent',
+  actionCode: 'reconcile_provider_outcome',
+  actionLabel: 'Reconcile the exact Nayax attempt; do not retry payment.',
+  lastProgressAt: new Date(now.getTime() + 1_000).toISOString(),
+  dueAt: null,
+  blocker: {
+    code: 'provider_outcome_unknown',
+    owner: 'Agent',
+    nextStep: 'Check authoritative evidence for this exact payment attempt before any continuation.',
+  },
+  payloadRedacted: true,
+});
+
 const buildCashRefundLifecycleFixture = (readyToMarkRefunded = true) => {
   const lifecycle = buildLifecycleFixture(
     'matching',
@@ -3515,11 +3531,24 @@ const installMockSupabaseRoutes = async (
                       latestCustomerMessageStatus: 'sent',
                       latestCustomerMessageType: 'completed',
                       customerCommunicationStatus: 'sent',
-                      lifecycle: buildLifecycleFixture('customer_notified', 70, 'none'),
+                      lifecycle: {
+                        ...buildLifecycleFixture('customer_notified', 70, 'none'),
+                        // A completed settlement is newer than the pre-decision
+                        // snapshot. Keep the synthetic contact clock causal so
+                        // the portal's out-of-order read guard accepts it.
+                        lastUpdatedAt: new Date(now.getTime() + 1_000).toISOString(),
+                        messageState: {
+                          ...buildLifecycleFixture('customer_notified', 70, 'none').messageState,
+                          lastUpdatedAt: new Date(now.getTime() + 1_000).toISOString(),
+                        },
+                      },
                       updatedAt: now.toISOString(),
                     }
                   : {
                       ...refundCase,
+                      ...(providerCheckRequired(nayaxSettlementResult)
+                        ? { status: 'card_refund_pending', decision: 'approved' }
+                        : {}),
                       providerHold: providerCheckRequired(nayaxSettlementResult) ||
                         nayaxSettlementResult.providerAttempted === true ||
                         nayaxSettlementResult.replayed === true ||
@@ -3546,6 +3575,16 @@ const installMockSupabaseRoutes = async (
                                   60,
                                   'refund_operations'
                                 ),
+                                reasonCode: 'provider_outcome_unknown',
+                                paymentState: 'outcome_unknown',
+                                nextWork: providerReconciliationNextWork(),
+                                lastUpdatedAt: new Date(now.getTime() + 1_000).toISOString(),
+                                messageState: {
+                                  ...buildLifecycleFixture(
+                                    'needs_refund_operations', 60, 'refund_operations'
+                                  ).messageState,
+                                  lastUpdatedAt: new Date(now.getTime() + 1_000).toISOString(),
+                                },
                                 operations: {
                                   ...buildLifecycleFixture().operations,
                                   required: true,
@@ -4000,6 +4039,12 @@ const runLegacyStateNormalizationChecks = async ({ browser, appUrl, artifactDir,
     refundOverview: buildLegacyStateReviewOverview,
     functionCalls,
     rpcCalls,
+    // Stale matched fields are deliberately present in this historical row,
+    // but the current server capability must not authorize that old match.
+    nayaxCardRefundAvailabilityResponse: {
+      available: false, status: 'unavailable', blockReason: 'case_not_refundable',
+      payloadRedacted: true,
+    },
     emailQueueStates: [{
       caseId: legacyCaseId,
       intakeSource: 'form',
@@ -4033,27 +4078,26 @@ const runLegacyStateNormalizationChecks = async ({ browser, appUrl, artifactDir,
     .catch(() => undefined);
 
   recorder.assert(
-    'Normalized legacy case explains the truthful manager task in plain language',
+    'Normalized legacy case explains the expired evidence and internal research in plain language',
     await page.getByText('Historical payment review', { exact: true }).isVisible() &&
-      await page.getByText('Manager review needed', { exact: true }).last().isVisible() &&
-      await page.getByText('Transaction evidence needs review', { exact: true }).isVisible() &&
-      await page.getByText('Fresh check needed', { exact: true }).last().isVisible() &&
+      await page.getByText('Transaction results expired', { exact: true }).first().isVisible() &&
+      await page.getByText('Refresh pending', { exact: true }).isVisible() &&
       await page.getByText(
-        'No refund is recorded. Review the saved transaction details and refresh the case before making a decision.',
+        'Run a fresh transaction check before approving, declining, completing, issuing a refund, or contacting the customer. You can review the history and refresh the transaction results.',
         { exact: true }
       ).isVisible()
   );
   recorder.assert(
     'Normalized legacy case states that no provider refund was issued',
-    await page.getByText(/No refund has been issued\./).first().isVisible() &&
-      await page.getByText('Earlier approval sent', { exact: true }).isVisible() &&
+    await page.getByText(/No refund was issued\./).first().isVisible() &&
+      await page.getByText('Historical payment review', { exact: true }).isVisible() &&
       await page.getByTestId('refund-legacy-state-freeze').isVisible()
   );
   recorder.assert(
     'Normalized legacy case keeps provider research server-owned',
     (await page.getByTestId('nayax-check-transaction').count()) === 0 &&
       (await page.getByTestId('nayax-candidate-option').count()) === 0 &&
-      await page.getByText('Waiting for a fresh transaction check', { exact: true }).isVisible() &&
+      await page.getByText(/Bloomjoy will run a new read-only check automatically/).first().isVisible() &&
       (await page.getByText('Transaction selected', { exact: true }).count()) === 0 &&
       (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
       (await page.getByTestId('legacy-refund-run-nayax-refund').count()) === 0 &&

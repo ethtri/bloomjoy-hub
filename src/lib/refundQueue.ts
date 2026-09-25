@@ -74,6 +74,10 @@ export const getRefundManagerQueueBucket = (
     return 'provider_hold';
   }
   if (refundCase.decision === 'approved' && refundCase.paymentMethod === 'card') {
+    // Older lifecycle payloads lack nextWork. A settled, terminal customer case
+    // is done; an explicit unresolved delivery/work bucket still stays open.
+    if (refundCase.status === 'completed' &&
+        refundCase.lifecycle?.managerQueue.bucket === 'completed') return 'completed';
     return refundCase.lifecycle?.paymentState === 'submitted_pending'
       ? 'in_progress' : 'provider_hold';
   }
