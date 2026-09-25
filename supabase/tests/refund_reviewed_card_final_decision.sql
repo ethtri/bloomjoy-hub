@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(58);
+select plan(67);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -215,6 +215,13 @@ select is((public.refund_manager_preparation_snapshot(
   'e1450000-0000-4000-8000-000000000001',
   (select official_action_version from public.refund_cases where id='e1450000-0000-4000-8000-000000000001')
 )->>'candidateCount')::integer,2,'both safe purchases are in the completed set');
+select is((public.refund_manager_preparation_snapshot(
+  'e1450000-0000-4000-8000-000000000001',
+  (select official_action_version from public.refund_cases
+    where id='e1450000-0000-4000-8000-000000000001'))
+  ->'eligibleCandidateTokens'),
+  '["e1460000-0000-4000-8000-000000000001", "e1460000-0000-4000-8000-000000000002"]'::jsonb,
+  'the original prepared set exposes exactly its two safe opaque candidate tokens');
 select is(public.refund_manager_preparation_snapshot(
   'e1450000-0000-4000-8000-000000000003',
   (select official_action_version from public.refund_cases where id='e1450000-0000-4000-8000-000000000003')
@@ -282,6 +289,20 @@ select matches(pg_temp.capture_error($$
     where token='e1460000-0000-4000-8000-000000000001'$$),
   '^P0001:Nayax candidate evidence is immutable',
   'persisted refundability evidence cannot be rewritten');
+select matches(pg_temp.probe_rolled_back_decision(
+  $$insert into public.refund_nayax_transaction_allocations(
+      account_scope,provider_machine_id,original_transaction_id,refund_case_id)
+    values('REVIEWED-ACCOUNT','PUNCT-MACHINE','REVIEWED-PUNCT-SALE-1',
+      'e1450000-0000-4000-8000-000000000003')$$,
+  'e1450000-0000-4000-8000-000000000004',
+  (select official_action_version from public.refund_cases
+    where id='e1450000-0000-4000-8000-000000000004'),
+  (public.refund_manager_preparation_snapshot(
+    'e1450000-0000-4000-8000-000000000004',
+    (select official_action_version from public.refund_cases
+      where id='e1450000-0000-4000-8000-000000000004'))->>'proofId')::uuid,
+  'e1460000-0000-4000-8000-000000000006'
+), '^P4620:', 'raw punctuated execution account allocation blocks the exact reviewed sale');
 -- Unsafe evidence must be seeded as new immutable rows, never made reachable by
 -- rewriting a completed provider candidate. Case D is not a payment case.
 insert into public.refund_nayax_lookup_candidates(
@@ -293,16 +314,36 @@ values
  'e1440000-0000-4000-8000-000000000003','REVIEWED-PUNCT-EUR',17,
  '2026-09-12T20:00:00Z',1090,'4242','EUR',pg_temp.evidence(1090,1)||
  jsonb_build_object('lookup_provider_machine_id','PUNCT-MACHINE',
-   'provider_machine_id','PUNCT-MACHINE','currency_code','EUR'),now()+interval '1 hour'),
+   'provider_machine_id','PUNCT-MACHINE','currency_code','EUR',
+   'selection_allowed',false,'identifier_review_state','blocked_safety',
+   'hard_exclusions','["currency_not_usd"]'::jsonb,
+   'reason_codes','["machine_exact","provider_sale_approved","currency_not_usd"]'::jsonb),
+ now()+interval '1 hour'),
 ('e1460000-0000-4000-8000-000000000008','e1450000-0000-4000-8000-000000000004',1,null,
  'e1440000-0000-4000-8000-000000000002','REVIEWED-PUNCT-WRONG-MACHINE',17,
- '2026-09-12T20:00:00Z',1090,'4242','USD',pg_temp.evidence(1090,1),now()+interval '1 hour'),
+ '2026-09-12T20:00:00Z',1090,'4242','USD',pg_temp.evidence(1090,1)||
+ jsonb_build_object('lookup_account_scope','OTHER_ACCOUNT',
+   'lookup_provider_machine_id','OTHER-MACHINE',
+   'provider_machine_id','OTHER-MACHINE','selection_allowed',false,
+   'identifier_review_state','blocked_safety',
+   'hard_exclusions','["wrong_machine"]'::jsonb,
+   'reason_codes','["provider_machine_mismatch","provider_sale_approved"]'::jsonb),
+ now()+interval '1 hour'),
 ('e1460000-0000-4000-8000-000000000009','e1450000-0000-4000-8000-000000000004',1,null,
  'e1440000-0000-4000-8000-000000000003','REVIEWED-PUNCT-REFUNDED',17,
  '2026-09-12T20:00:00Z',1090,'4242','USD',pg_temp.evidence(1090,1)||
  jsonb_build_object('lookup_provider_machine_id','PUNCT-MACHINE',
-   'provider_machine_id','PUNCT-MACHINE','provider_refund_state','refunded'),
+   'provider_machine_id','PUNCT-MACHINE',
+   'provider_refund_state','already_refunded','selection_allowed',false,
+   'identifier_review_state','blocked_safety',
+   'hard_exclusions','["already_refunded"]'::jsonb,
+   'reason_codes','["machine_exact","provider_sale_approved","already_refunded"]'::jsonb),
  now()+interval '1 hour');
+select is((select count(*)::integer from public.refund_nayax_lookup_candidates
+  where token in ('e1460000-0000-4000-8000-000000000007',
+    'e1460000-0000-4000-8000-000000000008',
+    'e1460000-0000-4000-8000-000000000009')),3,
+  'three truthful unselectable provider rows passed the normal insert guard');
 select is(public.refund_reviewed_card_candidate_safe_v1(
   'e1450000-0000-4000-8000-000000000004','e1460000-0000-4000-8000-000000000007'),false,
   'non-USD provider sale cannot enter the reviewed execution set');
@@ -361,6 +402,74 @@ select matches(pg_temp.capture_error(format(
 )), '^P4620:','a token from another case cannot be approved');
 reset role;
 
+create function pg_temp.probe_mixed_allocation()
+returns jsonb language plpgsql security definer set search_path='' as $$
+declare
+  target_id constant uuid := 'e1450000-0000-4000-8000-000000000001';
+  original record;
+  current_proof jsonb;
+  stale_error text;
+  blocked_error text;
+  safe_approval jsonb;
+  outcome jsonb;
+begin
+  select action_version, proof_id into original
+    from pg_temp.reviewed_initial where case_id=target_id;
+  begin
+    insert into public.refund_nayax_transaction_allocations(
+      account_scope,provider_machine_id,original_transaction_id,refund_case_id
+    ) values('REVIEWED_ACCOUNT','REVIEWED-MACHINE','REVIEWED-A-SALE-2',
+      'e1450000-0000-4000-8000-000000000003');
+    current_proof := public.refund_reviewed_card_candidate_set_snapshot_v1(
+      target_id,original.action_version);
+    begin
+      perform public.admin_approve_reviewed_nayax_candidate_v1(
+        target_id,original.action_version,original.proof_id,
+        'e1460000-0000-4000-8000-000000000001');
+      stale_error := 'UNEXPECTED_APPROVAL';
+    exception when others then stale_error := sqlstate || ':' || sqlerrm;
+    end;
+    begin
+      perform public.admin_approve_reviewed_nayax_candidate_v1(
+        target_id,original.action_version,(current_proof->>'proofId')::uuid,
+        'e1460000-0000-4000-8000-000000000002');
+      blocked_error := 'UNEXPECTED_APPROVAL';
+    exception when others then blocked_error := sqlstate || ':' || sqlerrm;
+    end;
+    safe_approval := public.admin_approve_reviewed_nayax_candidate_v1(
+      target_id,original.action_version,(current_proof->>'proofId')::uuid,
+      'e1460000-0000-4000-8000-000000000001');
+    outcome := jsonb_build_object(
+      'oldProofChanged',current_proof->>'proofId'<>original.proof_id::text,
+      'eligibleTokens',current_proof->'eligibleCandidateTokens',
+      'candidateCount',current_proof->'candidateCount',
+      'staleError',stale_error,'blockedError',blocked_error,
+      'safeApproved',safe_approval->>'approved',
+      'attemptCount',(select count(*) from public.refund_case_nayax_refund_attempts
+        where refund_case_id=target_id));
+    raise exception 'rollback mixed allocation probe' using errcode='P0001';
+  exception when sqlstate 'P0001' then return outcome;
+  end;
+end $$;
+create temp table reviewed_mixed_probe(result jsonb) on commit drop;
+insert into reviewed_mixed_probe select pg_temp.probe_mixed_allocation();
+select is((select result->>'oldProofChanged' from reviewed_mixed_probe),'true',
+  'new exact allocation changes the completed-set proof without changing research provenance');
+select is((select result->'eligibleTokens' from reviewed_mixed_probe),
+  '["e1460000-0000-4000-8000-000000000001"]'::jsonb,
+  'remaining safe purchase alone is exposed as eligible in the completed set');
+select is((select (result->>'candidateCount')::integer from reviewed_mixed_probe),1,
+  'prepared candidate count reflects currently safe choices');
+select matches((select result->>'staleError' from reviewed_mixed_probe),'^P4620:',
+  'old proof cannot approve even the safe purchase after allocation changes');
+select matches((select result->>'blockedError' from reviewed_mixed_probe),'^P4620:',
+  'currently allocated purchase cannot be approved using the fresh proof');
+select ok((select result->>'safeApproved'='true'
+    and (result->>'attemptCount')::integer=1 from reviewed_mixed_probe)
+    and not exists(select 1 from public.refund_nayax_transaction_allocations
+      where original_transaction_id='REVIEWED-A-SALE-2'),
+  'remaining safe purchase approves once in probe while allocation and attempt roll back');
+
 set local role authenticated;
 insert into reviewed_approval_a
 select public.admin_approve_reviewed_nayax_candidate_v1(
@@ -388,7 +497,7 @@ select is((select count(*)::integer from public.refund_case_official_action_auth
   'replay creates no second official authorization');
 create function pg_temp.probe_approved_attempt_after_revocation()
 returns boolean language plpgsql security definer set search_path='' as $$
-declare claimed jsonb; held jsonb; result boolean := false;
+declare claimed jsonb; held jsonb; continued boolean := false;
 begin
   begin
     update public.reporting_machine_refund_managers
@@ -399,15 +508,17 @@ begin
       'reviewed-fixture-revoked-executor','REVIEWED_ACCOUNT',
       'exact_source','empty_string',2);
     if exists(select 1 from jsonb_array_elements(claimed->'claims') claim
-      where claim->>'attemptId'=(select result->>'attemptId' from pg_temp.reviewed_approval_a)) then
+      where claim->>'attemptId'=(select approval.result->>'attemptId'
+        from pg_temp.reviewed_approval_a approval)) then
       held := public.service_hold_nayax_refund_attempt_v1(
         'reviewed-fixture-revoked-executor',
-        (select (result->>'attemptId')::uuid from pg_temp.reviewed_approval_a),
+        (select (approval.result->>'attemptId')::uuid
+          from pg_temp.reviewed_approval_a approval),
         'provider_result_unknown');
-      result := held->>'held'='true';
+      continued := held->>'held'='true';
     end if;
     raise exception 'rollback post-approval service probe' using errcode='P0001';
-  exception when sqlstate 'P0001' then return result;
+  exception when sqlstate 'P0001' then return continued;
   end;
 end $$;
 select is(pg_temp.probe_approved_attempt_after_revocation(),true,

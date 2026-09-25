@@ -72,8 +72,7 @@ as $$
       )
       and not exists (
         select 1 from public.refund_nayax_transaction_allocations allocation
-        where allocation.account_scope =
-          regexp_replace(upper(btrim(m.nayax_account_key)), '[^A-Z0-9_]', '_', 'g')
+        where allocation.account_scope = m.nayax_account_key
           and allocation.provider_machine_id = m.nayax_machine_id
           and allocation.original_transaction_id = k.provider_transaction_id
           and allocation.allocation_state in ('reserved', 'refunded')
@@ -99,6 +98,7 @@ declare
   candidate_count integer;
   selectable_count integer;
   safe_count integer;
+  eligible_tokens jsonb;
   set_digest text;
   proof_uuid uuid;
 begin
@@ -163,6 +163,9 @@ begin
     count(*) filter (where k.evidence_summary ->> 'selection_allowed' = 'true')::integer,
     count(*) filter (where k.evidence_summary ->> 'selection_allowed' = 'true'
       and public.refund_reviewed_card_candidate_safe_v1(c.id, k.token))::integer,
+    jsonb_agg(k.token order by k.token) filter (
+      where k.evidence_summary ->> 'selection_allowed' = 'true'
+        and public.refund_reviewed_card_candidate_safe_v1(c.id, k.token)),
     encode(extensions.digest(convert_to(
       coalesce(string_agg(
         public.refund_nayax_candidate_evidence_hash(
@@ -170,20 +173,21 @@ begin
           k.site_id, k.machine_authorization_time, k.amount_cents,
           k.card_last4, k.currency_code, k.evidence_summary,
           k.expires_at, k.created_at
-        ), '|' order by k.token), ''),
+        ) || ':' || case when public.refund_reviewed_card_candidate_safe_v1(c.id,k.token)
+          then 'safe' else 'blocked' end, '|' order by k.token), ''),
       'UTF8'), 'sha256'), 'hex')
-    into candidate_count, selectable_count, safe_count, set_digest
+    into candidate_count, selectable_count, safe_count, eligible_tokens, set_digest
   from public.refund_nayax_lookup_candidates k
   where k.refund_case_id = c.id
     and k.lookup_generation = c.nayax_lookup_generation;
   if candidate_count is distinct from completed.count
-    or selectable_count < 1
-    or safe_count is distinct from selectable_count then
+    or safe_count < 1 then
     return null;
   end if;
 
-  -- The ID changes if any candidate evidence changes, while preparedAt still
-  -- names the actual completed read. This is not an independent ready marker.
+  -- The ID changes if candidate evidence or current safety changes, while
+  -- preparedAt still names the actual completed read. This is not an
+  -- independent ready marker.
   proof_uuid := (
     substr(md5(completed.id::text || ':' || set_digest), 1, 8) || '-' ||
     substr(md5(completed.id::text || ':' || set_digest), 9, 4) || '-' ||
@@ -204,7 +208,8 @@ begin
     'deterministicFactVersion', c.deterministic_fact_version,
     'lookupGeneration', c.nayax_lookup_generation,
     'candidateSetDigest', set_digest,
-    'candidateCount', selectable_count,
+    'candidateCount', safe_count,
+    'eligibleCandidateTokens', eligible_tokens,
     'payloadRedacted', true
   );
 end;
