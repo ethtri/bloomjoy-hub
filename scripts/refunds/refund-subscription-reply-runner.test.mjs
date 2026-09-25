@@ -160,6 +160,21 @@ test('a decimal amount between paid and card still requires both supported facts
     refund_amount_cents: 1090, payment_method: 'card' });
 });
 
+test('a wallet device token accompanying an amount cannot be omitted', () => {
+  const body = 'I paid $10.90 with my Apple Pay device token ending in 4932.';
+  const mixed = { ...input, replyMessages: [{ messageId, body }] };
+  assert.throws(() => deriveSourceBoundFacts(mixed, {
+    kind: 'fact', field: 'amount', messageId, quote: body,
+  }), /unrepresented_source_fact/);
+  const batch = deriveSourceBoundFacts(mixed, { kind: 'facts', facts: [
+    { field: 'amount', messageId, quote: body },
+    { field: 'wallet_token_last4', messageId, quote: body },
+  ] });
+  assert.deepEqual(batch.appliedFields, ['amount', 'card_last4']);
+  assert.equal(batch.updates.card_last4, '4932');
+  assert.equal(batch.updates.card_last4_provenance, 'wallet_device_token');
+});
+
 test('negated customer text cannot become an affirmative fact', () => {
   for (const [body, field] of [
     ['I was not charged $10.90', 'amount'],

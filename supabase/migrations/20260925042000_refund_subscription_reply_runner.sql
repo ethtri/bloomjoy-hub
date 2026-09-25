@@ -324,10 +324,10 @@ create function public.service_apply_refund_scoped_reply_semantic_fact(
 declare ctx public.refund_wallet_correction_contexts;
   c public.refund_cases; source public.refund_gmail_messages;
   evidence public.refund_gmail_messages; result jsonb;
-  item jsonb; field_name text; field_quote text; field_message_id uuid;
+  field_item jsonb; field_name text; field_quote text; field_message_id uuid;
   expected_keys text[]:='{}'::text[];
   amount_match text[]; method_match text[]; digits_match text[];
-  network_match text[];
+  network_match text[]; rough_time_evidence boolean:=false;
 begin
   select * into c from public.refund_cases
     where id=(select refund_case_id from public.refund_wallet_correction_contexts
@@ -381,20 +381,23 @@ begin
         and not 'card_last4'=any(p_applied_fields))
       or (reply.plain_body ~* '(visa|mastercard|amex|discover)'
         and not 'card_network'=any(p_applied_fields))
+      or (reply.plain_body ~* '(device token|wallet token)[^.?!]{0,40}[0-9]{4}'
+        and not exists(select 1 from jsonb_array_elements(p_field_evidence) wallet_item
+          where wallet_item->>'field'='wallet_token_last4'))
   ) then
     raise exception 'All supported reply facts must be applied together';
   end if;
-  for item in select value from jsonb_array_elements(p_field_evidence) loop
-    if jsonb_typeof(item)<>'object' or
-      (select array_agg(key order by key) from jsonb_object_keys(item) key)
+  for field_item in select value from jsonb_array_elements(p_field_evidence) loop
+    if jsonb_typeof(field_item)<>'object' or
+      (select array_agg(key order by key) from jsonb_object_keys(field_item) key)
         is distinct from array['field','messageId','quote']::text[]
-      or coalesce(item->>'messageId','') !~
+      or coalesce(field_item->>'messageId','') !~
         '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
       raise exception 'Exact supported field evidence required';
     end if;
-    field_name:=item->>'field';
-    field_quote:=item->>'quote';
-    field_message_id:=(item->>'messageId')::uuid;
+    field_name:=field_item->>'field';
+    field_quote:=field_item->>'quote';
+    field_message_id:=(field_item->>'messageId')::uuid;
     select * into evidence from public.refund_gmail_messages
       where id=field_message_id for update;
     if not (case when field_name='wallet_token_last4'
@@ -479,8 +482,28 @@ begin
     c.id,p_source_message_id,p_expected_fact_version,p_updates,
     p_applied_fields,'verified_reply_semantic_v1');
   if result->>'outcome' in ('applied','already_applied') then
+    if result->>'outcome'='applied' then
+      select exists (
+        select 1 from jsonb_array_elements(
+          public.refund_scoped_verified_reply_set(ctx.id)->'messages') item
+        join public.refund_gmail_messages reply
+          on reply.id=(item->>'messageId')::uuid
+        where reply.plain_body ~* '(around|about|roughly|remember)[^.?!]{0,50}([0-9]{1,2}([:][0-9]{2})?[[:space:]]*(am|pm)|morning|afternoon|evening)'
+      ) into rough_time_evidence;
+    end if;
     update public.refund_wallet_correction_contexts set
-      reply_review_state='resolved',reply_review_result_code='facts_applied',
+      reply_review_state='resolved',
+      reply_review_result_code=case when rough_time_evidence
+        then 'inexact_purchase_time_requires_research' else 'facts_applied' end,
+      reply_directional_evidence=case when rough_time_evidence
+        then jsonb_build_object('timeConfidence','rough',
+          'timeSource','customer_memory') else reply_directional_evidence end,
+      correction_fact_version=case when rough_time_evidence
+        then (select deterministic_fact_version from public.refund_cases
+          where id=c.id) else correction_fact_version end,
+      reply_review_action_version=case when rough_time_evidence
+        then (select official_action_version from public.refund_cases
+          where id=c.id) else reply_review_action_version end,
       reply_review_due_at=null,reply_review_claim_token=null,
       reply_review_claimed_at=null,updated_at=statement_timestamp()
       where id=ctx.id and reply_body_sha256=p_body_sha256;

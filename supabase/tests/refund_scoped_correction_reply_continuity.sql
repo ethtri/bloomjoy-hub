@@ -22,7 +22,7 @@ begin
     incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,payment_interaction,payment_amount_cents,card_last4,card_last4_provenance,card_network,card_wallet_used,status,correlation_status,intake_source)
   values(cid,'df000000-0000-4000-8000-000000000003','df000000-0000-4000-8000-000000000002','reply-customer@example.invalid','Scoped reply test',
     now()-interval '2 hours',to_char((now()-interval '2 hours') at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI'),
-    'America/Los_Angeles','exact','exact','card',case when n in (27,28,29) then 'phone_watch_wallet' else 'tap_card' end,case when n=34 then 1090 when n in (27,28,29,30) then 700 else null end,case when n in (8,15,27,28,29,30,34) then null else '1234' end,case when n in (8,15,27,28,29,30,34) then null else 'physical_card' end,case when n=26 then 'mastercard' else 'visa' end,n in (27,28,29),'needs_review','manual_review','form');
+    'America/Los_Angeles','exact','exact','card',case when n in (27,28,29,38) then 'phone_watch_wallet' else 'tap_card' end,case when n=34 then 1090 when n in (27,28,29,30) then 700 else null end,case when n in (8,15,27,28,29,30,34,38) then null else '1234' end,case when n in (8,15,27,28,29,30,34,38) then null else 'physical_card' end,case when n=26 then 'mastercard' else 'visa' end,n in (27,28,29,38),'needs_review','manual_review','form');
   if n in (27,28) then
     -- The earlier provider read precedes the delivered wallet question. A
     -- waiting-on-customer case cannot start an ordinary lookup afterward.
@@ -38,7 +38,7 @@ begin
       raise exception 'Fixture prior lookup rejected: %',lookup_result;
     end if;
   end if;
-  if n in (27,28,29) then
+  if n in (27,28,29,38) then
     -- Wallet detail is a scoped correction request, not the ordinary
     -- missing-information cycle, whose production guard rejects wallet work.
     fields:=array['wallet_provider']::text[];
@@ -48,9 +48,9 @@ begin
     fields:=public.refund_missing_follow_up_fields(cid);
   end if;
   insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,content_source,delivery_kind,reason_code,template_version,follow_up_cycle_id,requested_fields)
-  values(mid,cid,case when n in (27,28,29) then 'wallet_correction' else 'more_info' end,'pending','reply-customer@example.invalid','Update your request','[Secure refund correction link included at delivery]',
-    'deterministic_template','automatic',case when n in (27,28,29) then null else 'missing_information' end,
-    case when n in (27,28,29) then 'refund_wallet_correction_v1' else 'refund_follow_up_v2' end,
+  values(mid,cid,case when n in (27,28,29,38) then 'wallet_correction' else 'more_info' end,'pending','reply-customer@example.invalid','Update your request','[Secure refund correction link included at delivery]',
+    'deterministic_template','automatic',case when n in (27,28,29,38) then null else 'missing_information' end,
+    case when n in (27,28,29,38) then 'refund_wallet_correction_v1' else 'refund_follow_up_v2' end,
     (cycle#>>'{cycle,id}')::uuid,fields);
   perform public.service_issue_refund_purchase_correction(mid,lpad(to_hex(n),64,'0'),(select deterministic_fact_version from public.refund_cases where id=cid));
   insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,first_message_at,latest_message_at,retention_expires_at)
@@ -888,6 +888,9 @@ select is((select count(*)::integer from public.refund_customer_fact_application
 select ok(public.refund_verified_reply_quote_negated('None of this was charged as $10.90')
   and public.refund_verified_reply_quote_negated('Neither of my cards were Visa'),
   'Neither and none remain negative evidence, not affirmative amount or network facts');
+update public.reporting_machines set nayax_machine_id='REPLY-TEST-37',
+  nayax_account_key='REPLY_ACCOUNT',nayax_manual_portal_enabled=false
+  where id='df000000-0000-4000-8000-000000000003';
 select pg_temp.make_scope(37);
 update public.refund_gmail_messages set plain_body='I paid $10.90 around 4 PM.'
   where id=pg_temp.gid(37);
@@ -903,6 +906,31 @@ select throws_like($$select public.service_complete_refund_scoped_reply_no_fact(
     (select task->>'bodySha256' from mixed_time_task),pg_temp.gid(37),
     'I paid $10.90 around 4 PM.','inexact_purchase_time_requires_research')$$,
   '%supported reply fact%','Directional time research cannot discard the new amount');
+select is(public.service_apply_refund_scoped_reply_semantic_fact(
+    (select (task->>'requestId')::uuid from mixed_time_task),
+    (select (task->>'claimToken')::uuid from mixed_time_task),pg_temp.gid(37),
+    (select (task->>'factVersion')::bigint from mixed_time_task),
+    (select task->>'bodySha256' from mixed_time_task),
+    jsonb_build_array(jsonb_build_object('field','amount',
+      'messageId',pg_temp.gid(37),'quote','I paid $10.90 around 4 PM.')),
+    '{"payment_amount_cents":1090,"refund_amount_cents":1090}'::jsonb,
+    array['amount'])->>'outcome','applied',
+  'Mixed rough-time reply applies its grounded amount first');
+select ok((select status='submitted' and reply_review_state='resolved'
+    and reply_review_result_code='inexact_purchase_time_requires_research'
+    and reply_directional_evidence->>'timeConfidence'='rough'
+    and correction_fact_version=(select deterministic_fact_version
+      from public.refund_cases where id=pg_temp.cid(37))
+    from public.refund_wallet_correction_contexts
+    where refund_case_id=pg_temp.cid(37)),
+  'The same answered request retains due rough-time research at the new fact version');
+create temp table mixed_time_lookup on commit drop as
+  select claim from jsonb_array_elements(
+    public.service_claim_due_refund_reply_nayax_lookups(4)) claim
+  where claim->>'caseId'=pg_temp.cid(37)::text;
+select is((select claim#>>'{directionalEvidence,timeConfidence}'
+    from mixed_time_lookup),'rough',
+  'The existing scheduled provider read receives source-bound rough-time context');
 select pg_temp.make_scope(38);
 update public.refund_gmail_messages set plain_body=
   'I paid $10.90 with my Apple Pay device token ending in 4932.'
@@ -920,6 +948,34 @@ select throws_like($$select public.service_complete_refund_scoped_reply_no_fact(
     'I paid $10.90 with my Apple Pay device token ending in 4932.',
     'wallet_token_requires_research')$$,
   '%supported reply fact%','Directional wallet research cannot discard the new amount');
+select throws_like($$select public.service_apply_refund_scoped_reply_semantic_fact(
+    (select (task->>'requestId')::uuid from mixed_wallet_task),
+    (select (task->>'claimToken')::uuid from mixed_wallet_task),pg_temp.gid(38),
+    (select (task->>'factVersion')::bigint from mixed_wallet_task),
+    (select task->>'bodySha256' from mixed_wallet_task),
+    jsonb_build_array(jsonb_build_object('field','amount',
+      'messageId',pg_temp.gid(38),
+      'quote','I paid $10.90 with my Apple Pay device token ending in 4932.')),
+    '{"payment_amount_cents":1090,"refund_amount_cents":1090}'::jsonb,
+    array['amount'])$$,
+  '%All supported reply facts%','Amount-only settlement cannot discard the verified wallet token');
+select is(public.service_apply_refund_scoped_reply_semantic_fact(
+    (select (task->>'requestId')::uuid from mixed_wallet_task),
+    (select (task->>'claimToken')::uuid from mixed_wallet_task),pg_temp.gid(38),
+    (select (task->>'factVersion')::bigint from mixed_wallet_task),
+    (select task->>'bodySha256' from mixed_wallet_task),
+    jsonb_build_array(
+      jsonb_build_object('field','amount','messageId',pg_temp.gid(38),
+        'quote','I paid $10.90 with my Apple Pay device token ending in 4932.'),
+      jsonb_build_object('field','wallet_token_last4','messageId',pg_temp.gid(38),
+        'quote','I paid $10.90 with my Apple Pay device token ending in 4932.')),
+    '{"payment_amount_cents":1090,"refund_amount_cents":1090,"card_last4":"4932","card_last4_provenance":"wallet_device_token","card_wallet_used":true,"payment_interaction":"phone_watch_wallet"}'::jsonb,
+    array['amount','card_last4'])->>'outcome','applied',
+  'Mixed wallet reply atomically applies amount and device-token provenance');
+select ok((select payment_amount_cents=1090 and card_last4='4932'
+    and card_last4_provenance='wallet_device_token'
+    from public.refund_cases where id=pg_temp.cid(38)),
+  'Grounded wallet detail and amount both survive one immutable receipt');
 select pg_temp.make_scope(33);
 select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(33),pg_temp.gid(33))
   ->>'outcome','received','Original verified response starts the exact scoped task');

@@ -41,6 +41,7 @@ const supportedFieldsIn = (body) => [
   ['payment_method', /\b(?:paid|used|tapped|inserted|swiped)\b[^!?]{0,45}\b(?:cash|card)\b/iu],
   ['card_last4', /\bcard\b[^.!?]{0,35}\b(?:end(?:s|ing)? in|last four)\b[^.!?]{0,12}\d{4}\b/iu],
   ['card_network', /\b(?:visa|mastercard|amex|discover)\b/iu],
+  ['wallet_token_last4', /\b(?:device token|wallet token)\b[^.!?]{0,40}\d{4}\b|\b\d{4}\b[^.!?]{0,50}\b(?:apple pay device token|device token|wallet token)\b/iu],
 ].filter(([, pattern]) => pattern.test(body)).map(([field]) => field);
 
 export const deriveSourceBoundFacts = (input, proposal) => {

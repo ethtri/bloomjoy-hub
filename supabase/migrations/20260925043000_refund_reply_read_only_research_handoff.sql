@@ -22,7 +22,9 @@ begin
     join public.refund_cases c on c.id=r.refund_case_id
     join public.refund_gmail_messages m on m.id=r.reply_message_id
     join public.reporting_machines machine on machine.id=c.reporting_machine_id
-    where r.correction_kind='purchase' and r.status='pending'
+    where r.correction_kind='purchase'
+      and (r.status='pending' or (r.status='submitted'
+        and r.reply_review_result_code='inexact_purchase_time_requires_research'))
       and r.reply_review_state='resolved'
       and r.reply_lookup_generation is null
       and r.reply_review_result_code in (
@@ -81,7 +83,9 @@ begin
       where id=ctx.reply_message_id for update;
     -- Under the case lock, recheck the reply identity and read scope. The
     -- selector above contains all stable safety predicates before LIMIT.
-    if case_row.id is null or ctx.id is null or ctx.status is distinct from 'pending'
+    if case_row.id is null or ctx.id is null
+      or not (ctx.status='pending' or (ctx.status='submitted'
+        and ctx.reply_review_result_code='inexact_purchase_time_requires_research'))
       or ctx.reply_review_state is distinct from 'resolved'
       or ctx.reply_lookup_generation is not null
       or coalesce(ctx.reply_review_result_code,'') not in (
