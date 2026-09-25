@@ -26,6 +26,7 @@ type RefundTransactionCandidateReviewProps = {
   waitingOnCustomer: boolean;
   isDemoData: boolean;
   isSaving: boolean;
+  reviewedFinalDecision?: boolean;
   canSelectCandidates: boolean;
   canAccessCandidateSelection: boolean;
   disagreementReason: NayaxDisagreementReason | '';
@@ -64,6 +65,7 @@ export function RefundTransactionCandidateReview({
   waitingOnCustomer,
   isDemoData,
   isSaving,
+  reviewedFinalDecision = false,
   canSelectCandidates,
   canAccessCandidateSelection,
   disagreementReason,
@@ -75,7 +77,7 @@ export function RefundTransactionCandidateReview({
   onSaveForReview,
 }: RefundTransactionCandidateReviewProps) {
   const needsDisagreementReason = Boolean(
-    selectedCandidate && selectedCandidate.isRecommended !== true,
+    !reviewedFinalDecision && selectedCandidate && selectedCandidate.isRecommended !== true,
   );
 
   return (
@@ -83,7 +85,7 @@ export function RefundTransactionCandidateReview({
       {isDemoData && (
         <p className="mt-1 flex items-start gap-1.5 text-xs leading-5 text-muted-foreground">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>Demo cases are read-only, so a transaction cannot be saved.</span>
+          <span>Demo cases are read-only, so a transaction cannot be {reviewedFinalDecision ? 'chosen' : 'saved'}.</span>
         </p>
       )}
       <div data-testid="nayax-candidate-availability" className="mb-3">
@@ -95,7 +97,9 @@ export function RefundTransactionCandidateReview({
             ? 'Every current result is listed here, but none can be selected.'
             : waitingOnCustomer
               ? 'These are the current search results. Selection stays paused until the customer replies and the assistant runs the search again.'
-              : `${selectableCandidateCount} ${selectableCandidateCount === 1 ? 'result is' : 'results are'} selectable. Choose one only when the machine, amount, time, and payment evidence identify the same purchase.`}
+              : reviewedFinalDecision
+                ? `${selectableCandidateCount} ${selectableCandidateCount === 1 ? 'purchase is' : 'purchases are'} reviewed for this final decision. Choose the correct one only if approving; denial needs no purchase choice.`
+                : `${selectableCandidateCount} ${selectableCandidateCount === 1 ? 'result is' : 'results are'} selectable. Choose one only when the machine, amount, time, and payment evidence identify the same purchase.`}
         </p>
       </div>
       <div
@@ -115,10 +119,10 @@ export function RefundTransactionCandidateReview({
             : waitingOnCustomer
               ? 'Selection is paused while waiting for the customer. The assistant will run a fresh search after the reply.'
               : !canAccessCandidateSelection
-                ? 'You can review this result, but your current case access does not allow you to save it.'
+                ? `You can review this result, but your current case access does not allow you to ${reviewedFinalDecision ? 'decide this refund' : 'save it'}.`
                 : !canSelectCandidates
                   ? 'Selection is only available while the case is in manager review.'
-                  : 'Select this transaction';
+                  : reviewedFinalDecision ? 'Choose for the final Approve decision' : 'Select this transaction';
           const descriptionId =
             `nayax-candidate-${candidate.candidateToken.replace(/[^A-Za-z0-9_-]/g, '-')}-description`;
           const statusId =
@@ -256,7 +260,16 @@ export function RefundTransactionCandidateReview({
           </select>
         </div>
       )}
-      {selectedCandidate && (
+      {selectedCandidate && reviewedFinalDecision && (
+        <div data-testid="refund-reviewed-final-choice" className="mt-3 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">
+          <p className="font-semibold">Purchase chosen for this decision</p>
+          <p className="mt-1 leading-6">
+            Customer requested {formatCurrency(paymentAmountCents)}. Reviewed purchase: {formatCurrency(selectedCandidate.amountCents)}.
+          </p>
+          <p className="mt-1 text-xs leading-5">Approving below records this exact purchase and one final decision together. Denying the request needs no purchase choice.</p>
+        </div>
+      )}
+      {selectedCandidate && !reviewedFinalDecision && (
         <div
           data-testid="refund-prepare-transaction-panel"
           className="mt-3 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950"

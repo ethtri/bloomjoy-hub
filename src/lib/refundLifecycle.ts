@@ -53,6 +53,8 @@ export type RefundNextWork = {
   lastProgressAt: string | null;
   dueAt: string | null;
   blocker: { code: string; owner: "Agent"; nextStep: string } | null;
+  preparationProofId?: string;
+  eligibleCandidateTokens?: string[];
   payloadRedacted: true;
 };
 
@@ -295,6 +297,8 @@ export const isRefundLifecycleContract = (
     exactObjectKeys(nextWork, [
       "schemaVersion", "isOpen", "actor", "actionCode", "actionLabel",
       "lastProgressAt", "dueAt", "blocker", "payloadRedacted",
+      ...(nextWork.preparationProofId === undefined ? [] : ["preparationProofId"]),
+      ...(nextWork.eligibleCandidateTokens === undefined ? [] : ["eligibleCandidateTokens"]),
     ]) &&
     nextWork.schemaVersion === "refund_next_work_v1" &&
     typeof nextWork.isOpen === "boolean" &&
@@ -313,6 +317,22 @@ export const isRefundLifecycleContract = (
       typeof (nextWork.blocker as Record<string, unknown>).nextStep === "string"
     )) &&
     nextWork.payloadRedacted === true &&
+    (nextWork.preparationProofId === undefined || (
+      typeof nextWork.preparationProofId === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(nextWork.preparationProofId) &&
+      nextWork.actor === "manager" && nextWork.actionCode === "approve_or_deny_request"
+    )) &&
+    (nextWork.eligibleCandidateTokens === undefined || (
+      Array.isArray(nextWork.eligibleCandidateTokens) &&
+      nextWork.eligibleCandidateTokens.length > 0 &&
+      nextWork.eligibleCandidateTokens.length <= 100 &&
+      nextWork.eligibleCandidateTokens.every((token) =>
+        typeof token === "string" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token)
+      ) &&
+      new Set(nextWork.eligibleCandidateTokens).size === nextWork.eligibleCandidateTokens.length &&
+      nextWork.preparationProofId !== undefined
+    )) &&
     (nextWork.actor !== "manager" ||
       ["approve_or_deny_request", "send_cash_refund_and_confirm"].includes(String(nextWork.actionCode))) &&
     (nextWork.actor !== "customer" || nextWork.actionCode === "answer_question")

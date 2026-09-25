@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(43);
+select plan(46);
 
 with fixture as (
   select jsonb_build_object(
@@ -96,6 +96,30 @@ select is(public.refund_next_work_projection(jsonb_build_object(
   'payloadRedacted', true, 'stage', 'needs_transaction_selection', 'terminal', false,
   'paymentState', 'not_requested', 'messageState', jsonb_build_object('state', 'none')
 ))->>'actor', 'agent', 'candidate research is Agent work');
+select is(public.refund_next_work_projection(jsonb_build_object(
+  'payloadRedacted', true, 'stage', 'needs_transaction_selection', 'terminal', false,
+  'paymentState', 'not_requested', 'messageState', jsonb_build_object('state', 'none'),
+  'managerAction', jsonb_build_object('action','refund'),
+  'reviewedSetPrepared', true
+))->>'actor', 'manager', 'completed safe reviewed set belongs to one Manager decision');
+select ok(not (public.refund_next_work_projection(jsonb_build_object(
+  'payloadRedacted', true, 'stage', 'needs_transaction_selection', 'terminal', false,
+  'paymentState', 'not_requested', 'messageState', jsonb_build_object('state', 'none'),
+  'managerAction', jsonb_build_object('action','refund'),
+  'reviewedSetPrepared', true
+)) ? 'eligibleCandidateTokens'),
+  'service or other-viewer prepared label does not disclose executable tokens');
+select is(public.refund_next_work_projection(jsonb_build_object(
+  'payloadRedacted', true, 'stage', 'needs_transaction_selection', 'terminal', false,
+  'paymentState', 'not_requested', 'messageState', jsonb_build_object('state', 'none'),
+  'managerAction', jsonb_build_object('action','refund'),
+  'reviewedSetPrepared', true,
+  'reviewedSetProofId','ffaae1b2-de39-8798-0e47-b24277e0b3af',
+  'reviewedSetEligibleCandidateTokens',
+    jsonb_build_array('e1460000-0000-4000-8000-000000000001')
+))->'eligibleCandidateTokens',
+  '["e1460000-0000-4000-8000-000000000001"]'::jsonb,
+  'scoped prepared projection carries only eligible opaque purchase tokens');
 select is(public.refund_next_work_projection(jsonb_build_object(
   'payloadRedacted', true, 'stage', 'matching', 'terminal', false,
   'reasonCode', 'lookup_results_expired', 'paymentState', 'not_requested',

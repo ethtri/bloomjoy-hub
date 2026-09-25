@@ -364,7 +364,7 @@ serve(async (req) => {
     const body = await req.json();
     const operation = sanitizeText(body?.operation, 40) || "execute";
     if (
-      !new Set(["execute", "availability", "approve_reviewed"]).has(operation)
+      !new Set(["execute", "availability", "approve_reviewed", "approve_selected"]).has(operation)
     ) {
       return jsonResponse({ error: "Unsupported operation." }, 400);
     }
@@ -416,6 +416,57 @@ serve(async (req) => {
         errorCode: "authorization_failed",
         blocks: ["authorization_failed"],
       }, 403);
+    }
+
+    if (operation === "approve_selected") {
+      const expectedVersion = Number(body?.expectedOfficialActionVersion);
+      if (!Number.isSafeInteger(expectedVersion) || expectedVersion <= 0) {
+        return jsonResponse({
+          approved: false,
+          status: "preflight_blocked",
+          errorCode: "case_version_missing",
+          providerAttempted: false,
+          customerCompletionAttempted: false,
+          payloadRedacted: true,
+        }, 409);
+      }
+      // Existing SQL rechecks the immutable selected sale, candidate hash,
+      // current Manager mapping, machine/account identity, case version and
+      // prior effects under its approval lock. Machine availability belongs to
+      // the System claimant; this request only queues the protected attempt.
+      const { data, error } = await userClient.rpc(
+        "admin_approve_selected_nayax_refund_for_system_v1",
+        { p_case_id: refundCase.id, p_expected_case_version: expectedVersion },
+      );
+      const result = !error && data && typeof data === "object"
+        ? data as Record<string, unknown>
+        : null;
+      if (!result || result.approved !== true ||
+          result.status !== "system_finishing" ||
+          result.providerCallMade !== false ||
+          result.customerMessageCreated !== false ||
+          result.payloadRedacted !== true ||
+          typeof result.attemptId !== "string") {
+        return jsonResponse({
+          approved: false,
+          status: "preflight_blocked",
+          errorCode: error?.code === "42501"
+            ? "authorization_failed" : "selected_decision_changed",
+          providerAttempted: false,
+          customerCompletionAttempted: false,
+          payloadRedacted: true,
+        }, error?.code === "42501" ? 403 : 409);
+      }
+      return jsonResponse({
+        approved: true,
+        executed: false,
+        status: "system_finishing",
+        replayed: false,
+        providerAttempted: false,
+        customerCompletionAttempted: false,
+        message: "The exact saved purchase was approved. Bloomjoy will continue the protected refund attempt.",
+        payloadRedacted: true,
+      }, 202);
     }
 
     // A lost response must be readable after the protected attempt succeeds:

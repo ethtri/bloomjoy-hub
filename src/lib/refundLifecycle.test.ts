@@ -135,6 +135,24 @@ Deno.test('additive nextWork keeps v2 readable and removes internal work from Ma
   assert(isRefundLifecycleContract(manager), 'final Manager action parses');
   assert(getRefundManagerQueueBucket({ lifecycle: requireRefundLifecycleContract(manager), status: 'needs_review', paymentMethod: 'card', canPerformOfficialAction: true, officialActionVersion: 3 }) === 'ready_to_pay', 'final decision is actionable for the current authorized Manager');
   assert(getRefundManagerQueueBucket({ lifecycle: requireRefundLifecycleContract(manager), status: 'needs_review', paymentMethod: 'card', canPerformOfficialAction: false, officialActionVersion: 3 }) === 'provider_hold', 'another Manager decision does not enter this viewer action count');
+  const reviewed = { ...internal, nextWork: {
+    ...manager.nextWork,
+    preparationProofId: 'ffaae1b2-de39-8798-0e47-b24277e0b3af',
+    eligibleCandidateTokens: ['e1460000-0000-4000-8000-000000000001'],
+  } };
+  assert(isRefundLifecycleContract(reviewed), 'real deterministic reviewed-set proof and eligible token parse for the assigned Manager');
+  assert(!isRefundLifecycleContract({ ...reviewed, nextWork: {
+    ...reviewed.nextWork, eligibleCandidateTokens: []
+  } }), 'prepared set cannot advertise zero eligible purchases');
+  assert(!isRefundLifecycleContract({ ...reviewed, nextWork: {
+    ...reviewed.nextWork, eligibleCandidateTokens: [
+      'e1460000-0000-4000-8000-000000000001',
+      'e1460000-0000-4000-8000-000000000001',
+    ]
+  } }), 'prepared set cannot duplicate a purchase token');
+  assert(!isRefundLifecycleContract({ ...reviewed, nextWork: {
+    ...reviewed.nextWork, preparationProofId: undefined
+  } }), 'eligible tokens require a version-bound preparation proof');
   assert(!isRefundLifecycleContract({ ...internal, nextWork: { ...internal.nextWork, actor: 'manager', actionCode: 'research_purchase' } }), 'research cannot be a Manager action');
   assert(!isRefundLifecycleContract({ ...internal, nextWork: { ...internal.nextWork, actor: 'customer', actionCode: 'review_customer_reply' } }), 'reply review cannot be customer work');
 });

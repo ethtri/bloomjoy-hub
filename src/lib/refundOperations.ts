@@ -1549,6 +1549,29 @@ export type ExecuteNayaxCardRefundInput = {
   expectedOfficialActionVersion: number;
 };
 
+export type ApproveReviewedNayaxCandidateInput = {
+  caseId: string;
+  expectedOfficialActionVersion: number;
+  preparationProofId: string;
+  candidateToken: string;
+};
+
+export type ApproveReviewedNayaxCandidateResponse = {
+  approved: true;
+  executed: false;
+  status: 'system_finishing' | 'provider_hold' | 'completed';
+  replayed: boolean;
+  providerAttempted: false;
+  customerCompletionAttempted: false;
+  payloadRedacted: true;
+  message: string;
+};
+
+export type ApproveSelectedNayaxCandidateInput = {
+  caseId: string;
+  expectedOfficialActionVersion: number;
+};
+
 export type NayaxCustomerCompletionResult = {
   status: 'pending' | 'sent' | 'failed' | 'delivery_unknown' | 'already_sent' | 'deferred';
   transport: 'gmail_thread' | 'transactional_email' | null;
@@ -3852,6 +3875,51 @@ export const executeNayaxCardRefund = async ({
       authErrorMessage: 'Log in to execute Nayax card refunds.',
     }
   );
+
+export const approveReviewedNayaxCandidate = async ({
+  caseId,
+  expectedOfficialActionVersion,
+  preparationProofId,
+  candidateToken,
+}: ApproveReviewedNayaxCandidateInput): Promise<ApproveReviewedNayaxCandidateResponse> => {
+  const result = await invokeEdgeFunction<ApproveReviewedNayaxCandidateResponse>(
+    'nayax-card-refund',
+    { operation: 'approve_reviewed', caseId, expectedOfficialActionVersion,
+      preparationProofId, candidateToken },
+    {
+      requireUserAuth: true,
+      authErrorMessage: 'Log in to decide this reviewed card refund.',
+    }
+  );
+  if (result?.approved !== true || result.executed !== false ||
+      !['system_finishing', 'provider_hold', 'completed'].includes(result.status) ||
+      typeof result.replayed !== 'boolean' || result.providerAttempted !== false ||
+      result.customerCompletionAttempted !== false || result.payloadRedacted !== true) {
+    throw new Error('The final decision result could not be verified. Refresh this case before taking another action.');
+  }
+  return result;
+};
+
+export const approveSelectedNayaxCandidate = async ({
+  caseId,
+  expectedOfficialActionVersion,
+}: ApproveSelectedNayaxCandidateInput): Promise<ApproveReviewedNayaxCandidateResponse> => {
+  const result = await invokeEdgeFunction<ApproveReviewedNayaxCandidateResponse>(
+    'nayax-card-refund',
+    { operation: 'approve_selected', caseId, expectedOfficialActionVersion },
+    {
+      requireUserAuth: true,
+      authErrorMessage: 'Log in to approve this selected card refund.',
+    },
+  );
+  if (result?.approved !== true || result.executed !== false ||
+      result.status !== 'system_finishing' || result.replayed !== false ||
+      result.providerAttempted !== false ||
+      result.customerCompletionAttempted !== false || result.payloadRedacted !== true) {
+    throw new Error('The selected-card decision result could not be verified. Refresh this case before another action.');
+  }
+  return result;
+};
 
 export const fetchNayaxCardRefundAvailability = (caseId?: string | null) =>
   invokeEdgeFunction<NayaxCardRefundAvailabilityResponse>(

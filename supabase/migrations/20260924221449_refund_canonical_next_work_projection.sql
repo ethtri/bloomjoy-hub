@@ -161,6 +161,12 @@ begin
     actor_name := 'manager';
     action_code := 'approve_or_deny_request';
     action_label := 'Approve or deny the prepared refund request.';
+  elsif stage = 'needs_transaction_selection'
+    and p_lifecycle -> 'managerAction' ->> 'action' = 'refund'
+    and p_lifecycle ->> 'reviewedSetPrepared' = 'true' then
+    actor_name := 'manager';
+    action_code := 'approve_or_deny_request';
+    action_label := 'Choose the reviewed purchase if approving, or deny the request.';
   elsif p_lifecycle -> 'managerAction' ->> 'action' = 'resolve_manager_access' then
     actor_name := 'agent';
     action_code := 'resolve_manager_assignment';
@@ -213,7 +219,15 @@ begin
     'dueAt', due_at,
     'blocker', blocker,
     'payloadRedacted', true
-  );
+  ) || case when actor_name = 'manager'
+      and stage = 'needs_transaction_selection'
+      and p_lifecycle ->> 'reviewedSetProofId' is not null
+      and jsonb_typeof(p_lifecycle -> 'reviewedSetEligibleCandidateTokens') = 'array'
+    then jsonb_build_object(
+      'preparationProofId', p_lifecycle ->> 'reviewedSetProofId',
+      'eligibleCandidateTokens', p_lifecycle -> 'reviewedSetEligibleCandidateTokens'
+    )
+    else '{}'::jsonb end;
 end;
 $$;
 
@@ -280,6 +294,61 @@ begin
     elsif current_manager_available and p_lifecycle ->> 'stage' = 'awaiting_payout'
       and p_lifecycle ->> 'reasonCode' = 'external_payment_ready' then
       projected_lifecycle := jsonb_set(p_lifecycle, '{managerAction,action}', '"mark_external_refund"'::jsonb, true);
+    end if;
+  end if;
+  -- A completed automatic reviewed set is itself preparation. This branch
+  -- never saves a candidate on the Manager's behalf; exact choice belongs to
+  -- the protected final-decision transaction. An absent/stale proof remains
+  -- internal work, including during the producer-before-consumer rollout.
+  if p_lifecycle ->> 'stage' = 'needs_transaction_selection' then
+    select c.official_action_version, c.deterministic_fact_version,
+        c.decision, c.payment_method
+      into case_action_version, case_fact_version,
+        case_decision, case_payment_method
+    from public.refund_cases c where c.id = p_refund_case_id;
+    if case_decision is null and case_payment_method = 'card' then
+      select exists (
+        select 1 from public.refund_cases refund_case
+        join public.reporting_machine_refund_managers manager
+          on manager.reporting_machine_id = refund_case.reporting_machine_id
+        where refund_case.id = p_refund_case_id
+          and manager.status = 'active' and manager.revoked_at is null
+          and public.can_perform_refund_official_action(manager.manager_user_id, refund_case.id)
+      ) into current_manager_available;
+      if not current_manager_available then
+        projected_lifecycle := jsonb_set(projected_lifecycle,
+          '{managerAction,action}', '"resolve_manager_access"'::jsonb, true);
+      else
+        preparation := null;
+        if pg_catalog.to_regprocedure(
+          'public.refund_manager_preparation_snapshot(uuid,bigint)') is not null then
+          execute 'select public.refund_manager_preparation_snapshot($1,$2)'
+            into preparation using p_refund_case_id, case_action_version;
+        end if;
+        if preparation ->> 'schemaVersion' = 'refund_manager_preparation_v1'
+          and preparation ->> 'evidenceBasis' = 'card_reviewed_candidate_set'
+          and preparation ->> 'proofId' is not null
+          and jsonb_typeof(preparation -> 'eligibleCandidateTokens') = 'array'
+          and jsonb_array_length(preparation -> 'eligibleCandidateTokens') > 0
+          and preparation ->> 'officialActionVersion' = case_action_version::text
+          and preparation ->> 'deterministicFactVersion' = case_fact_version::text then
+          projected_lifecycle := jsonb_set(projected_lifecycle,
+            '{managerAction,action}', '"refund"'::jsonb, true)
+            || jsonb_build_object('reviewedSetPrepared', true);
+          if auth.uid() is not null and
+            public.can_perform_refund_official_action(auth.uid(), p_refund_case_id) then
+            projected_lifecycle := projected_lifecycle || jsonb_build_object(
+              'reviewedSetProofId', preparation ->> 'proofId',
+              'reviewedSetEligibleCandidateTokens',
+                preparation -> 'eligibleCandidateTokens'
+            );
+          end if;
+        else
+          projected_lifecycle := jsonb_set(projected_lifecycle,
+            '{managerAction,action}', '"none"'::jsonb, true)
+            || jsonb_build_object('preparationPending', true);
+        end if;
+      end if;
     end if;
   end if;
   -- A valid earlier card approval belongs to continuation even if no current
