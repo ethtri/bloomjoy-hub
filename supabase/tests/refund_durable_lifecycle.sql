@@ -249,6 +249,9 @@ select ok(
 select ok(
   pg_get_functiondef(
     'public.get_refund_lifecycle_for_manager(uuid)'::regprocedure
+  ) like '%get_refund_lifecycle_for_manager_pre_next_work_v1%'
+  and pg_get_functiondef(
+    'public.get_refund_lifecycle_for_manager_pre_next_work_v1(uuid)'::regprocedure
   ) like '%auth.uid()%'
   and pg_get_functiondef(
     'public.get_refund_lifecycle_for_manager_pre_customer_outreach_v1(uuid)'::regprocedure

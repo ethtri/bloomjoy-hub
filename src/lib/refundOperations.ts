@@ -978,6 +978,8 @@ export type RefundCaseRecord = {
     payloadRedacted: true;
   } | null;
   lifecycle?: RefundLifecycleContract | null;
+  /** A lifecycle response was present but could not be validated. */
+  workflowProjectionUnavailable?: boolean;
 };
 
 export type RefundAdminMachine = {
@@ -1547,6 +1549,29 @@ export type ExecuteNayaxCardRefundInput = {
   expectedOfficialActionVersion: number;
 };
 
+export type ApproveReviewedNayaxCandidateInput = {
+  caseId: string;
+  expectedOfficialActionVersion: number;
+  preparationProofId: string;
+  candidateToken: string;
+};
+
+export type ApproveReviewedNayaxCandidateResponse = {
+  approved: true;
+  executed: false;
+  status: 'system_finishing' | 'provider_hold' | 'completed';
+  replayed: boolean;
+  providerAttempted: false;
+  customerCompletionAttempted: false;
+  payloadRedacted: true;
+  message: string;
+};
+
+export type ApproveSelectedNayaxCandidateInput = {
+  caseId: string;
+  expectedOfficialActionVersion: number;
+};
+
 export type NayaxCustomerCompletionResult = {
   status: 'pending' | 'sent' | 'failed' | 'delivery_unknown' | 'already_sent' | 'deferred';
   transport: 'gmail_thread' | 'transactional_email' | null;
@@ -1818,6 +1843,25 @@ const demoLifecycle = (
   operationsRequired = false
 ): RefundLifecycleContract => ({
   schemaVersion: REFUND_LIFECYCLE_SCHEMA_VERSION,
+  ...(typeof window !== 'undefined' && (stage === 'transaction_confirmed' ||
+    new URLSearchParams(window.location.search).get('next-work') === 'on')
+    ? { nextWork: {
+      schemaVersion: 'refund_next_work_v1' as const,
+      isOpen: true,
+      actor: (stage === 'waiting_on_customer' ? 'customer' : stage === 'transaction_confirmed' ? 'manager' : 'agent') as 'customer' | 'manager' | 'agent',
+      actionCode: (stage === 'waiting_on_customer' ? 'answer_question' : stage === 'transaction_confirmed' ? 'approve_or_deny_request' : 'repair_provider_setup') as 'answer_question' | 'approve_or_deny_request' | 'repair_provider_setup',
+      actionLabel: stage === 'waiting_on_customer'
+        ? 'Waiting for the customer to answer the delivered question.'
+        : stage === 'transaction_confirmed'
+        ? 'Review the exact saved card purchase and make the final decision.'
+        : 'Correct the saved machine or provider mapping, then check the purchase.',
+      lastProgressAt: demoIsoHoursAgo(0.9), dueAt: null,
+      blocker: stage === 'matching'
+        ? { code: 'provider_mapping_required', owner: 'Agent' as const, nextStep: 'Correct the verified mapping.' }
+        : null,
+      payloadRedacted: true as const,
+    } }
+    : {}),
   version: 1,
   stage,
   stageRank,
@@ -2054,6 +2098,7 @@ export const buildLocalRefundPublicSelections = (): RefundPublicSelection[] => [
 
 export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
   const managerEmail = 'machine-manager@example.test';
+  const demoCardAuthorizationAt = demoIsoHoursAgo(5);
   const correctionDemo = isLocalUatDemoForced() ? new URLSearchParams(window.location.search).get('correction') : null;
   const timeDemo = isLocalUatDemoForced()
     ? new URLSearchParams(window.location.search).get('time-case')
@@ -2326,7 +2371,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
           caseVersion: 1,
         },
         nayaxRecommendationState: 'manual_exception',
-        matchedNayaxMachineAuthTime: demoIsoHoursAgo(5),
+        matchedNayaxMachineAuthTime: demoCardAuthorizationAt,
         matchedNayaxAmountCents: 700,
         matchedNayaxCardLast4: '4242',
         matchedNayaxCurrencyCode: 'USD',
@@ -2338,11 +2383,11 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
           machineLabel: 'Cotton Candy 01',
           locationName: 'Mall Atrium',
           customerReportedAt: demoIsoHoursAgo(5.05),
-          providerAuthorizedAt: demoIsoHoursAgo(5),
+          providerAuthorizedAt: demoCardAuthorizationAt,
           machineTimezone: 'America/Los_Angeles',
           providerTimeResolution: 'exact',
           customerTimezone: 'America/New_York',
-          providerTimestampAt: demoIsoHoursAgo(5),
+          providerTimestampAt: demoCardAuthorizationAt,
           timeEvidence: {
             schemaVersion: 'refund_candidate_time_v1',
             providerTimestampSource: 'authorization_gmt',
@@ -2372,8 +2417,8 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         nayaxLookupCandidates: [
           {
             candidateToken: '41000000-0000-4000-8000-000000000031',
-            authorizedAt: demoIsoHoursAgo(5),
-            machineAuthorizationTime: demoIsoHoursAgo(5),
+            authorizedAt: demoCardAuthorizationAt,
+            machineAuthorizationTime: demoCardAuthorizationAt,
             timeEvidence: {
               schemaVersion: 'refund_candidate_time_v1',
               providerTimestampSource: 'authorization_gmt',
@@ -2722,7 +2767,7 @@ export const parseRefundOperationsOverview = (value: unknown): RefundOperationsO
   const applyLifecycleSafety = <T extends RefundCaseRecord>(refundCase: T): T => {
     if ((lifecycleContractSkewed || customerOutreachContractSkewed) && refundCase.lifecycle != null) {
       lifecycleValidationFailureCount += 1;
-      return { ...refundCase, lifecycle: null };
+      return { ...refundCase, lifecycle: null, workflowProjectionUnavailable: true };
     }
     const result = applyRefundLifecycleSafety(refundCase);
     if (result.invalidLifecycle) lifecycleValidationFailureCount += 1;
@@ -2732,7 +2777,10 @@ export const parseRefundOperationsOverview = (value: unknown): RefundOperationsO
       !result.refundCase.lifecycle.customerOutreach
     ) {
       lifecycleValidationFailureCount += 1;
-      return { ...result.refundCase, lifecycle: null } as T;
+      return { ...result.refundCase, lifecycle: null, workflowProjectionUnavailable: true } as T;
+    }
+    if (result.invalidLifecycle) {
+      return { ...result.refundCase, workflowProjectionUnavailable: true } as T;
     }
     return result.refundCase as T;
   };
@@ -3828,6 +3876,51 @@ export const executeNayaxCardRefund = async ({
       authErrorMessage: 'Log in to execute Nayax card refunds.',
     }
   );
+
+export const approveReviewedNayaxCandidate = async ({
+  caseId,
+  expectedOfficialActionVersion,
+  preparationProofId,
+  candidateToken,
+}: ApproveReviewedNayaxCandidateInput): Promise<ApproveReviewedNayaxCandidateResponse> => {
+  const result = await invokeEdgeFunction<ApproveReviewedNayaxCandidateResponse>(
+    'nayax-card-refund',
+    { operation: 'approve_reviewed', caseId, expectedOfficialActionVersion,
+      preparationProofId, candidateToken },
+    {
+      requireUserAuth: true,
+      authErrorMessage: 'Log in to decide this reviewed card refund.',
+    }
+  );
+  if (result?.approved !== true || result.executed !== false ||
+      !['system_finishing', 'provider_hold', 'completed'].includes(result.status) ||
+      typeof result.replayed !== 'boolean' || result.providerAttempted !== false ||
+      result.customerCompletionAttempted !== false || result.payloadRedacted !== true) {
+    throw new Error('The final decision result could not be verified. Refresh this case before taking another action.');
+  }
+  return result;
+};
+
+export const approveSelectedNayaxCandidate = async ({
+  caseId,
+  expectedOfficialActionVersion,
+}: ApproveSelectedNayaxCandidateInput): Promise<ApproveReviewedNayaxCandidateResponse> => {
+  const result = await invokeEdgeFunction<ApproveReviewedNayaxCandidateResponse>(
+    'nayax-card-refund',
+    { operation: 'approve_selected', caseId, expectedOfficialActionVersion },
+    {
+      requireUserAuth: true,
+      authErrorMessage: 'Log in to approve this selected card refund.',
+    },
+  );
+  if (result?.approved !== true || result.executed !== false ||
+      result.status !== 'system_finishing' || result.replayed !== false ||
+      result.providerAttempted !== false ||
+      result.customerCompletionAttempted !== false || result.payloadRedacted !== true) {
+    throw new Error('The selected-card decision result could not be verified. Refresh this case before another action.');
+  }
+  return result;
+};
 
 export const fetchNayaxCardRefundAvailability = (caseId?: string | null) =>
   invokeEdgeFunction<NayaxCardRefundAvailabilityResponse>(

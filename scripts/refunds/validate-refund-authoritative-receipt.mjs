@@ -145,7 +145,7 @@ for (const stage of ['refund_confirmed', 'customer_notified']) {
 }
 assert.match(
   workbench,
-  /const cardManagerState: RefundManagerState = hasConfirmedRefundReceipt\(selectedCase\) \|\|\s*hasProtectedRefundLifecycle\(selectedCase\)/,
+  /const cardManagerState: RefundManagerState = selectedCase\.lifecycle\?\.nextWork \|\|\s*hasConfirmedRefundReceipt\(selectedCase\) \|\|\s*hasProtectedRefundLifecycle\(selectedCase\)/,
   'Protected payment states stay read-only while System owns approved continuation',
 );
 assert.doesNotMatch(

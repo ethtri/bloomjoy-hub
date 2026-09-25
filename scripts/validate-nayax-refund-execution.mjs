@@ -36,7 +36,7 @@ assert.match(migration, /service_settle_nayax_refund_attempt\(/);
 assert.match(migration, /provider_transport_unknown|provider_outcome_unknown/);
 assert.match(migration, /reconciliation_required=true/);
 
-assert.match(edge, /new Set\(\["execute", "availability", "approve_reviewed"\]\)/);
+assert.match(edge, /new Set\(\["execute", "availability", "approve_reviewed", "approve_selected"\]\)/);
 assert.match(edge, /admin_approve_selected_nayax_refund_for_system_v1/);
 assert.match(edge, /parseReviewedFinalDecisionRequest\(body\)/);
 assert.match(edge, /parseReviewedFinalDecisionReceipt\(data, refundCase\.id\)/);
@@ -46,11 +46,16 @@ assert.match(reviewedDecision, /refund_reviewed_card_candidate_set_snapshot_v1/)
 assert.match(gates, /NAYAX_REFUND_ATTEMPT_QUEUE_ENABLED/);
 assert.match(gates, /NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEY/);
 const executeReadinessCheck = edge.lastIndexOf('const executionReadiness = await resolveCaseRefundReadiness');
-const approvalWrite = edge.indexOf('"admin_approve_selected_nayax_refund_for_system_v1"');
+const selectedApprovalBranch = edge.indexOf('if (operation === "approve_selected")');
+const selectedApprovalWrite = edge.indexOf('"admin_approve_selected_nayax_refund_for_system_v1"', selectedApprovalBranch);
+const executeApprovalWrite = edge.lastIndexOf('"admin_approve_selected_nayax_refund_for_system_v1"');
 const reviewedWrite = edge.indexOf('"admin_approve_reviewed_nayax_candidate_v1"');
 const freshActionCheck = edge.indexOf('const { data: actorCanPerformOfficialAction');
-assert.ok(executeReadinessCheck >= 0 && approvalWrite > executeReadinessCheck,
+assert.ok(executeReadinessCheck >= 0 && executeApprovalWrite > executeReadinessCheck,
   'The execute request must recheck payment readiness before saving approval');
+assert.ok(selectedApprovalBranch >= 0 && selectedApprovalWrite > selectedApprovalBranch &&
+  selectedApprovalWrite < executeReadinessCheck,
+  'The selected final decision can queue a held attempt before processor availability');
 assert.ok(reviewedWrite >= 0 && reviewedWrite < executeReadinessCheck,
   'The reviewed final decision can queue a held attempt before processor availability');
 assert.ok(reviewedWrite < freshActionCheck,

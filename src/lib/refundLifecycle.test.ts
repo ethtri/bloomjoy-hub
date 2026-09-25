@@ -7,6 +7,7 @@ import {
   refundLifecycleStages,
 } from "./refundLifecycle.ts";
 import { getRefundLifecycleProgressPresentation } from './refundLifecyclePresentation.ts';
+import { getRefundManagerQueueBucket } from './refundQueue.ts';
 
 const assert = (condition: unknown, message: string) => {
   if (!condition) throw new Error(message);
@@ -108,6 +109,52 @@ Deno.test("the versioned lifecycle parser accepts the redacted operations contra
     requireRefundLifecycleContract(fixture).operations.slaMinutes === 60,
     "the parsed queue must retain its SLA",
   );
+});
+
+Deno.test('additive nextWork keeps v2 readable and removes internal work from Manager action', () => {
+  const internal = {
+    ...fixture,
+    nextWork: {
+      schemaVersion: 'refund_next_work_v1', isOpen: true, actor: 'agent',
+      actionCode: 'reconcile_provider_outcome',
+      actionLabel: 'Reconcile the exact Nayax attempt; do not retry payment.',
+      lastProgressAt: fixture.lookup.lastUpdatedAt, dueAt: null,
+      blocker: { code: 'provider_outcome_unknown', owner: 'Agent', nextStep: 'Check the exact attempt.' },
+      payloadRedacted: true,
+    },
+  };
+  assert(isRefundLifecycleContract(fixture), 'legacy v2 remains valid');
+  assert(isRefundLifecycleContract(internal), 'additive contract remains valid');
+  assert(getRefundManagerQueueBucket({ lifecycle: requireRefundLifecycleContract(internal), status: 'needs_review', paymentMethod: 'card' }) === 'provider_hold', 'unknown payment is internal follow-up');
+  const scheduled = { ...internal, nextWork: { ...internal.nextWork, blocker: null, dueAt: '2026-09-25T20:00:00.000Z' } };
+  assert(getRefundManagerQueueBucket({ lifecycle: requireRefundLifecycleContract(scheduled), status: 'needs_review', paymentMethod: 'card' }) === 'provider_hold', 'a due time alone is not evidence of active execution');
+  const waiting = { ...internal, nextWork: { ...internal.nextWork, actor: 'customer', actionCode: 'answer_question', blocker: null } };
+  assert(isRefundLifecycleContract(waiting), 'customer question parses');
+  assert(getRefundManagerQueueBucket({ lifecycle: requireRefundLifecycleContract(waiting), status: 'waiting_on_customer', paymentMethod: 'card' }) === 'waiting_on_customer', 'delivered unanswered question owns waiting view');
+  const manager = { ...internal, nextWork: { ...internal.nextWork, actor: 'manager', actionCode: 'approve_or_deny_request', blocker: null } };
+  assert(isRefundLifecycleContract(manager), 'final Manager action parses');
+  assert(getRefundManagerQueueBucket({ lifecycle: requireRefundLifecycleContract(manager), status: 'needs_review', paymentMethod: 'card', canPerformOfficialAction: true, officialActionVersion: 3 }) === 'ready_to_pay', 'final decision is actionable for the current authorized Manager');
+  assert(getRefundManagerQueueBucket({ lifecycle: requireRefundLifecycleContract(manager), status: 'needs_review', paymentMethod: 'card', canPerformOfficialAction: false, officialActionVersion: 3 }) === 'provider_hold', 'another Manager decision does not enter this viewer action count');
+  const reviewed = { ...internal, nextWork: {
+    ...manager.nextWork,
+    preparationProofId: 'ffaae1b2-de39-8798-0e47-b24277e0b3af',
+    eligibleCandidateTokens: ['e1460000-0000-4000-8000-000000000001'],
+  } };
+  assert(isRefundLifecycleContract(reviewed), 'real deterministic reviewed-set proof and eligible token parse for the assigned Manager');
+  assert(!isRefundLifecycleContract({ ...reviewed, nextWork: {
+    ...reviewed.nextWork, eligibleCandidateTokens: []
+  } }), 'prepared set cannot advertise zero eligible purchases');
+  assert(!isRefundLifecycleContract({ ...reviewed, nextWork: {
+    ...reviewed.nextWork, eligibleCandidateTokens: [
+      'e1460000-0000-4000-8000-000000000001',
+      'e1460000-0000-4000-8000-000000000001',
+    ]
+  } }), 'prepared set cannot duplicate a purchase token');
+  assert(!isRefundLifecycleContract({ ...reviewed, nextWork: {
+    ...reviewed.nextWork, preparationProofId: undefined
+  } }), 'eligible tokens require a version-bound preparation proof');
+  assert(!isRefundLifecycleContract({ ...internal, nextWork: { ...internal.nextWork, actor: 'manager', actionCode: 'research_purchase' } }), 'research cannot be a Manager action');
+  assert(!isRefundLifecycleContract({ ...internal, nextWork: { ...internal.nextWork, actor: 'customer', actionCode: 'review_customer_reply' } }), 'reply review cannot be customer work');
 });
 
 Deno.test("the lifecycle parser accepts optional receipt accounting separation", () => {

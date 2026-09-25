@@ -14,10 +14,13 @@ $sourceCommit = (git rev-parse HEAD).Trim()
 $worktreeRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 $ArtifactDir = "output/refund-uat-evidence"
 $FragmentDir = "output/refund-uat-fragments"
+$SeedDir = "output/refund-uat-seed"
 $artifactPath = [IO.Path]::GetFullPath((Join-Path $worktreeRoot $ArtifactDir))
 $fragmentPath = [IO.Path]::GetFullPath((Join-Path $worktreeRoot $FragmentDir))
+$seedPath = [IO.Path]::GetFullPath((Join-Path $worktreeRoot $SeedDir))
 $expectedArtifactPath = [IO.Path]::GetFullPath((Join-Path $worktreeRoot "output/refund-uat-evidence"))
 $expectedFragmentPath = [IO.Path]::GetFullPath((Join-Path $worktreeRoot "output/refund-uat-fragments"))
+$expectedSeedPath = [IO.Path]::GetFullPath((Join-Path $worktreeRoot "output/refund-uat-seed"))
 $serverOut = Join-Path $worktreeRoot "output/refund-uat-server-release.log"
 $serverErr = Join-Path $worktreeRoot "output/refund-uat-server-release-error.log"
 $portalLog = Join-Path $worktreeRoot "output/refund-portal-uat-release.log"
@@ -45,9 +48,10 @@ function Invoke-CheckedNpmWithLog {
 
 if (
   -not $artifactPath.Equals($expectedArtifactPath, [StringComparison]::OrdinalIgnoreCase) -or
-  -not $fragmentPath.Equals($expectedFragmentPath, [StringComparison]::OrdinalIgnoreCase)
+  -not $fragmentPath.Equals($expectedFragmentPath, [StringComparison]::OrdinalIgnoreCase) -or
+  -not $seedPath.Equals($expectedSeedPath, [StringComparison]::OrdinalIgnoreCase)
 ) {
-  throw "Refusing to reset any directory outside the two approved synthetic evidence targets."
+  throw "Refusing to reset any directory outside the approved synthetic UAT targets."
 }
 if (Test-Path -LiteralPath $artifactPath) {
   Remove-Item -LiteralPath $artifactPath -Recurse -Force
@@ -55,10 +59,13 @@ if (Test-Path -LiteralPath $artifactPath) {
 if (Test-Path -LiteralPath $fragmentPath) {
   Remove-Item -LiteralPath $fragmentPath -Recurse -Force
 }
+if (Test-Path -LiteralPath $seedPath) {
+  Remove-Item -LiteralPath $seedPath -Recurse -Force
+}
 if (Test-Path -LiteralPath $portalLog) {
   Remove-Item -LiteralPath $portalLog -Force
 }
-New-Item -ItemType Directory -Force -Path $artifactPath, $fragmentPath | Out-Null
+New-Item -ItemType Directory -Force -Path $artifactPath, $fragmentPath, $seedPath | Out-Null
 
 $refundUatBytes = New-Object byte[] 32
 $refundUatRng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
@@ -79,7 +86,10 @@ $env:VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoi
 $server = $null
 try {
   if (-not ($PortalOnly -or $QrOnly -or $ManagerOnly -or $ProviderOnly)) {
-    Invoke-CheckedNpm @("run", "db:validate-migrations", "--", "--evidence-dir", $FragmentDir)
+    Invoke-CheckedNpm @(
+      "run", "db:validate-migrations", "--", "--evidence-dir", $FragmentDir,
+      "--portal-seed-dir", $SeedDir
+    )
     Invoke-CheckedNpm @(
       "run",
       "refunds:build-manager-aging-kill-fragment",
@@ -161,8 +171,7 @@ try {
     return
   }
 
-  Invoke-CheckedNpmWithLog `
-    -Arguments @(
+  $portalValidationArgs = @(
       "run",
       "refunds:validate-portal-uat",
       "--",
@@ -172,7 +181,15 @@ try {
       $ArtifactDir,
       "--fragment-dir",
       $FragmentDir
-    ) `
+    )
+  if (-not $PortalOnly) {
+    $portalValidationArgs += @(
+      "--real-projection-seed-file",
+      "$SeedDir/refund-real-preparation-seed.json"
+    )
+  }
+  Invoke-CheckedNpmWithLog `
+    -Arguments $portalValidationArgs `
     -LogPath $portalLog
 
   if (-not $PortalOnly) {

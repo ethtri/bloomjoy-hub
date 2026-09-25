@@ -12,6 +12,7 @@ type RefundCaseQueuePanelProps = {
   hasSelectedCase: boolean;
   isMobileExpanded: boolean;
   isLoading: boolean;
+  isUnavailable?: boolean;
   isSearching: boolean;
   emptyTitle: string;
   emptyDescription: string;
@@ -124,6 +125,7 @@ export function RefundCaseQueuePanel({
   hasSelectedCase,
   isMobileExpanded,
   isLoading,
+  isUnavailable = false,
   isSearching,
   emptyTitle,
   emptyDescription,
@@ -195,7 +197,8 @@ export function RefundCaseQueuePanel({
             aria-atomic="true"
             className="mt-1 text-xs text-muted-foreground"
           >
-            {cases.length} {cases.length === 1 ? 'case' : 'cases'}
+            {isUnavailable ? 'Case list unavailable' :
+              `${cases.length} ${cases.length === 1 ? 'case' : 'cases'}`}
           </p>
         </div>
         {hasSelectedCase && (

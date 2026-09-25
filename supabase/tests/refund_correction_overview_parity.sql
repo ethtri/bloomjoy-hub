@@ -227,8 +227,10 @@ end;
 $$;
 
 select ok(
-  position('admin_get_refund_operations_overview_pre_cash_verification_ux_v1' in pg_get_functiondef(
+  position('admin_get_refund_operations_overview_pre_next_work_v1' in pg_get_functiondef(
     'public.admin_get_refund_operations_overview()'::regprocedure))>0
+  and position('admin_get_refund_operations_overview_pre_cash_verification_ux_v1' in pg_get_functiondef(
+    'public.admin_get_refund_operations_overview_pre_next_work_v1()'::regprocedure))>0
   and position('refund_project_candidate_time_evidence_v1' in pg_get_functiondef(
     'public.admin_get_refund_operations_overview_pre_cash_verification_ux_v1()'::regprocedure))>0
   and position('admin_get_refund_operations_overview_pre_candidate_time_v1' in pg_get_functiondef(
