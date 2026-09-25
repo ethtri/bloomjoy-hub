@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(12);
+select no_plan();
 
 insert into public.customer_accounts (id, name, account_type)
 values ('d1000000-0000-4000-8000-000000000001', 'Status recovery test', 'customer');
@@ -211,6 +211,58 @@ select throws_ok($sql$
   )
 $sql$, '23514', 'Automatic customer status update requires current deterministic evidence',
   'An approved pending refund cannot be mislabeled as an SLA-at-risk update');
+
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'unknownEffectCount','1',
+  'The failed original status attempt with ambiguous effect remains an owned obligation');
+update public.refund_case_messages set status='failed',
+  error_message='gmail_source_thread_required'
+where refund_case_id='d4000000-0000-4000-8000-000000000003'
+  and reason_code='provider_delay';
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'definiteFailureCount','1',
+  'The proven-unsent status transport failure is visible outside scheduler-run health');
+insert into public.refund_automation_runs(
+  run_key,trigger_source,scheduled_for,started_at,finished_at,status,reason_counts
+) values ('scheduled:status-obligation-noop','scheduled',now(),now(),now(),
+  'succeeded','{}'::jsonb);
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'unresolvedCount','2',
+  'A later healthy or no-op scheduler run cannot erase either old obligation');
+
+-- Synthetic ledger-only controls isolate supersession classification from the
+-- sender. No provider is called and no queued customer intent is created.
+alter table public.refund_case_messages disable trigger user;
+insert into public.refund_case_messages(
+  refund_case_id,message_type,status,recipient_email,subject,body,sent_at
+) values ('d4000000-0000-4000-8000-000000000003','manual_note','sent',
+  'status-provider-due@example.invalid','Unrelated note','Synthetic note',
+  statement_timestamp());
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'definiteFailureCount','1',
+  'An unrelated later contact does not discharge the required status purpose');
+insert into public.refund_case_messages(
+  refund_case_id,message_type,status,recipient_email,subject,body,sent_at,
+  delivery_state
+) values ('d4000000-0000-4000-8000-000000000003','denied','sent',
+  'status-provider-due@example.invalid','Final outcome','Synthetic terminal outcome',
+  statement_timestamp()+interval '1 minute','bounced');
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'definiteFailureCount','1',
+  'A terminal notice with explicit adverse delivery evidence cannot supersede status work');
+update public.refund_case_messages set delivery_state='delivered'
+where refund_case_id='d4000000-0000-4000-8000-000000000003'
+  and message_type='denied';
+alter table public.refund_case_messages enable trigger user;
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'definiteFailureCount','0',
+  'A later authoritative terminal outcome supersedes the obsolete failed status notice');
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'unknownEffectCount','1',
+  'A terminal outcome on another case cannot clear its unresolved unknown-effect notice');
+select ok(not has_function_privilege('authenticated',
+  'public.service_get_refund_status_contact_obligation_health()','execute'),
+  'The redacted obligation-health projection is service-only');
 
 select is(
   has_function_privilege(
