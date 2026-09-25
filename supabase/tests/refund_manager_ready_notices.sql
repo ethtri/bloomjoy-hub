@@ -286,6 +286,11 @@ select is((select count(*)::text from public.refund_manager_notification_actions
     where notice_reason='wallet_match_ready' and refund_case_id=
       '14255000-0000-4000-8000-000000000004'),
   '0','Sent ready outcome cannot create a second wallet action');
+select is((select delivery_state from public.refund_manager_notification_actions
+    where notice_reason='decision_ready' and refund_case_id=
+      '14255000-0000-4000-8000-000000000004'
+      and id<>(select (value->>'intentId')::uuid from sent_ready_claim)),
+  'reserved','The other co-manager keeps their independent ready delivery claim');
 
 create temporary table material_before as select
   public.refund_manager_decision_material_fingerprint(
