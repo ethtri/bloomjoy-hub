@@ -4154,6 +4154,10 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder }) => {
     ).isVisible() &&
       (await skewPage.getByTestId('refund-run-nayax-refund').count()) === 0 &&
       (await skewPage.getByRole('button', { name: /^Ready to approve 0$/ }).count()) === 1);
+  recorder.assert('Unsupported lifecycle response keeps a nonempty unavailable queue instead of reporting no cases',
+    (await skewPage.getByTestId('refund-queue-count').innerText()).trim() === '2 cases' &&
+      (await skewPage.getByText('No refund cases are assigned here yet.', { exact: true }).count()) === 0 &&
+      (await skewPage.getByText('Refund case list temporarily unavailable.', { exact: true }).count()) === 0);
   await closeRefundPortalContext(skewContext);
 
   const approvedContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });

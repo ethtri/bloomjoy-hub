@@ -212,14 +212,15 @@ export const createDuplicateIdempotencyChecks = ({
       await page.getByTestId('refund-run-nayax-refund').isEnabled()
     );
 
-    await page.getByRole('button', { name: /^Action needed \d+$/ }).click();
+    await page.getByRole('button', { name: /^Bloomjoy follow-up 2$/ }).click();
+    await waitForQueueCount(page, 2);
     await queueCase(page, 'RF-UAT-VERSION-MISSING').click();
     recorder.assert(
-      'A case with a missing review version cannot inherit the previous case version',
+      'A case with a missing review version leaves the actionable queue and cannot inherit the previous case version',
       (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
         await page.getByTestId('refund-action-status').isVisible() &&
         (await page.getByTestId('refund-manager-next-step').innerText()).includes(
-          'Refresh the case to load the current refund authorization. Do not issue a refund from stale details.'
+          'Refresh the case before taking a final action. Do not repeat a payment or approval.'
         ) &&
         !functionCalls.includes('nayax-card-refund'),
       functionCalls.join(', ')
@@ -227,11 +228,11 @@ export const createDuplicateIdempotencyChecks = ({
 
     await queueCase(page, 'RF-UAT-AUTHORITY-MISSING').click();
     recorder.assert(
-      'A case without manager authority shows the exact access recovery guidance',
+      'A case without current manager authority stays visible without suggesting this viewer can act',
       (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
         await page.getByTestId('refund-action-status').isVisible() &&
         (await page.getByTestId('refund-manager-next-step').innerText()).includes(
-          'Use the assigned Manager or a Super-admin. If this signed-in user already has one of those roles, report a portal or machine-assignment defect.'
+          'The currently assigned Manager or a Super-admin can take the saved final action.'
         ) &&
         !functionCalls.includes('nayax-card-refund'),
       functionCalls.join(', ')

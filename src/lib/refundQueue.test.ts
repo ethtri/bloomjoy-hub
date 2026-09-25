@@ -181,6 +181,23 @@ Deno.test("old v2 approved actions preserve payment continuity without reapprova
   assertEquals(getRefundManagerQueueBucket(approvedCard), "in_progress");
 });
 
+Deno.test("a prepared Manager action counts only for a current authorized viewer and version", () => {
+  const contract = lifecycle("transaction_confirmed", "ready_to_pay", "refund");
+  contract.nextWork = {
+    schemaVersion: "refund_next_work_v1", isOpen: true, actor: "manager",
+    actionCode: "approve_or_deny_request", actionLabel: "Review the prepared request",
+    lastProgressAt: null, dueAt: null, blocker: null, payloadRedacted: true,
+  };
+  const preparedCase = {
+    ...cardCase(contract), canPerformOfficialAction: true, officialActionVersion: 7,
+  };
+  assertEquals(getRefundManagerQueueBucket(preparedCase), "ready_to_pay");
+  assertEquals(getRefundQueueFilterForCase(preparedCase), "ready_to_pay");
+  assertEquals(getRefundManagerQueueBucket({ ...preparedCase, officialActionVersion: 0 }), "provider_hold");
+  assertEquals(getRefundManagerQueueBucket({ ...preparedCase, canPerformOfficialAction: false }), "provider_hold");
+  assertEquals(getRefundQueueFilterForCase({ ...preparedCase, canPerformOfficialAction: false }), "provider_hold");
+});
+
 Deno.test(
   "server queue projection wins over contradictory legacy case fields",
   () => {

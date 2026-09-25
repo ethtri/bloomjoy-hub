@@ -11,6 +11,8 @@ type RefundQueueCase = {
   zellePaymentContact?: string | null;
   decision?: "approved" | "denied" | null;
   workflowProjectionUnavailable?: boolean;
+  canPerformOfficialAction?: boolean | null;
+  officialActionVersion?: number | null;
 };
 
 /** An older RPC cannot prove who owns an undecided final-money action. */
@@ -63,7 +65,10 @@ export const getRefundManagerQueueBucket = (
   if (work) {
     if (!work.isOpen) return 'completed';
     if (work.actor === 'customer') return 'waiting_on_customer';
-    if (work.actor === 'manager') return 'ready_to_pay';
+    if (work.actor === 'manager') return refundCase.canPerformOfficialAction === true &&
+      Number.isSafeInteger(refundCase.officialActionVersion) &&
+      (refundCase.officialActionVersion ?? 0) > 0
+      ? 'ready_to_pay' : 'provider_hold';
     // A due time can name scheduled work but cannot prove a worker has claimed
     // it. #1429 will add durable execution truth before a running label returns.
     return 'provider_hold';

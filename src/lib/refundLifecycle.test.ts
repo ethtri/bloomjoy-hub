@@ -133,7 +133,8 @@ Deno.test('additive nextWork keeps v2 readable and removes internal work from Ma
   assert(getRefundManagerQueueBucket({ lifecycle: requireRefundLifecycleContract(waiting), status: 'waiting_on_customer', paymentMethod: 'card' }) === 'waiting_on_customer', 'delivered unanswered question owns waiting view');
   const manager = { ...internal, nextWork: { ...internal.nextWork, actor: 'manager', actionCode: 'approve_or_deny_request', blocker: null } };
   assert(isRefundLifecycleContract(manager), 'final Manager action parses');
-  assert(getRefundManagerQueueBucket({ lifecycle: requireRefundLifecycleContract(manager), status: 'needs_review', paymentMethod: 'card' }) === 'ready_to_pay', 'final decision is actionable');
+  assert(getRefundManagerQueueBucket({ lifecycle: requireRefundLifecycleContract(manager), status: 'needs_review', paymentMethod: 'card', canPerformOfficialAction: true, officialActionVersion: 3 }) === 'ready_to_pay', 'final decision is actionable for the current authorized Manager');
+  assert(getRefundManagerQueueBucket({ lifecycle: requireRefundLifecycleContract(manager), status: 'needs_review', paymentMethod: 'card', canPerformOfficialAction: false, officialActionVersion: 3 }) === 'provider_hold', 'another Manager decision does not enter this viewer action count');
   assert(!isRefundLifecycleContract({ ...internal, nextWork: { ...internal.nextWork, actor: 'manager', actionCode: 'research_purchase' } }), 'research cannot be a Manager action');
   assert(!isRefundLifecycleContract({ ...internal, nextWork: { ...internal.nextWork, actor: 'customer', actionCode: 'review_customer_reply' } }), 'reply review cannot be customer work');
 });

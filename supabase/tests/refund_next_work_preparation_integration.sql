@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(17);
+select plan(20);
 
 -- This fixture intentionally requires the independent completed-work producer.
 -- It runs only after #1429 has landed in the normal migration order.
@@ -142,21 +142,55 @@ select is(public.refund_lifecycle_contract(
   'completed current-source research restores the final Manager action');
 reset role;
 
+create temporary table refund_prior_preparation on commit drop as
+select c.deterministic_fact_version as fact_version,
+  public.refund_manager_preparation_snapshot(c.id,c.official_action_version)
+    ->> 'proofId' as proof_id
+from public.refund_cases c
+where c.id = 'd8660000-0000-4000-8000-000000000002';
+
 update public.refund_cases set payment_amount_cents = 950, refund_amount_cents = 950
+where id = 'd8660000-0000-4000-8000-000000000002';
+-- An amount correction invokes the existing AFTER UPDATE Sunze correlator. It
+-- completes new research synchronously, so readiness may remain actionable,
+-- but never on the previous fact version or proof.
+select ok((select c.deterministic_fact_version = prior.fact_version + 1
+  from public.refund_cases c cross join refund_prior_preparation prior
+  where c.id = 'd8660000-0000-4000-8000-000000000002'),
+  'corrected amount advances the case fact version');
+select ok((select proof_row.proof ->> 'proofId' is distinct from prior.proof_id
+    and (proof_row.proof ->> 'deterministicFactVersion')::bigint = c.deterministic_fact_version
+  from public.refund_cases c cross join refund_prior_preparation prior
+  cross join lateral public.refund_manager_preparation_snapshot(
+    c.id,c.official_action_version) as proof_row(proof)
+  where c.id = 'd8660000-0000-4000-8000-000000000002'),
+  'immediate amount research replaces the old proof with current-version evidence');
+set local role service_role;
+select is(public.refund_lifecycle_contract(
+  'd8660000-0000-4000-8000-000000000002'
+)->'nextWork'->>'actionCode', 'send_cash_refund_and_confirm',
+  'the corrected amount remains actionable only after immediate fresh research');
+reset role;
+
+-- Destination edits are versioned facts but do not trigger the immediate
+-- sales correlator. The old proof must disappear until the scheduled worker
+-- evaluates this exact version.
+update public.refund_cases
+set zelle_payment_contact = 'corrected-zelle@example.invalid'
 where id = 'd8660000-0000-4000-8000-000000000002';
 select is(public.refund_manager_preparation_snapshot(
   'd8660000-0000-4000-8000-000000000002',
   (select official_action_version from public.refund_cases
     where id = 'd8660000-0000-4000-8000-000000000002')),
-  null::jsonb, 'corrected case facts invalidate prior preparation');
+  null::jsonb, 'a versioned destination correction revokes the old completed proof');
 set local role service_role;
 select is(public.refund_lifecycle_contract(
   'd8660000-0000-4000-8000-000000000002'
 )->'nextWork'->>'actor', 'agent',
-  'the corrected amount cannot remain Manager-ready on stale evidence');
+  'without current-version research the case returns to Agent preparation');
 reset role;
 select is((public.service_prepare_due_refund_cash_cases(10)->>'evaluated')::integer, 1,
-  'the existing worker researches the corrected fact version');
+  'the existing worker researches the corrected destination fact version');
 set local role service_role;
 select is(public.refund_lifecycle_contract(
   'd8660000-0000-4000-8000-000000000002'
