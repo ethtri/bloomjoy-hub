@@ -165,6 +165,7 @@ begin
     or c.deterministic_fact_version is distinct from p_expected_fact_version
     or source.refund_case_id is distinct from ctx.refund_case_id
     or source.participant_role<>'customer' or source.participant_trust<>'verified'
+    or source.received_at is distinct from ctx.reply_received_at
     or source.content_deleted_at is not null
     or encode(extensions.digest(convert_to(source.plain_body,'UTF8'),'sha256'),'hex')
       is distinct from p_body_sha256 then
@@ -226,6 +227,7 @@ begin
     or source.direction<>'inbound' or source.message_kind<>'message'
     or source.status<>'received' or source.participant_role<>'customer'
     or source.participant_trust<>'verified' or source.content_deleted_at is not null
+    or source.received_at is distinct from ctx.reply_received_at
     or lower(btrim(source.sender_email)) is distinct from lower(btrim(c.customer_email))
     or encode(extensions.digest(convert_to(source.plain_body,'UTF8'),'sha256'),'hex')
       is distinct from p_body_sha256 then

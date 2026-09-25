@@ -251,5 +251,8 @@ select is(pg_temp.apply_reply(16)->>'reason','scoped_reply_superseded','Historic
 select is((select count(*)::integer from public.refund_customer_fact_applications where refund_case_id=any(array[pg_temp.cid(2),pg_temp.cid(3),pg_temp.cid(4),pg_temp.cid(5),pg_temp.cid(6),pg_temp.cid(7),pg_temp.cid(10),pg_temp.cid(12),pg_temp.cid(13)])),0,'Rejected replies produce no fact application');
 select ok(not has_function_privilege('anon','public.service_apply_refund_gmail_customer_facts_v1(uuid,uuid,bigint,jsonb,text[],text)','execute')
  and not has_function_privilege('authenticated','public.service_apply_refund_gmail_customer_facts_v1(uuid,uuid,bigint,jsonb,text[],text)','execute'),'Existing service-only boundary remains');
+select ok(not has_function_privilege('authenticated',
+  'public.service_get_refund_scoped_reply_research_health()','execute'),
+  'Customer-content research health is visible only to the service worker');
 select * from finish();
 rollback;
