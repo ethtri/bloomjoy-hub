@@ -8,31 +8,8 @@ import { test } from 'node:test';
 import { buildMetadata, independentArtifactComparison, METADATA_PATH, safePublicPath, sha256,
   sourceIdentity, successfulMainBuildRun, successfulProductionDeploymentSha,
   verifiedVercelAliasDeployment, verifyServedPortal } from './refund-portal-provenance.mjs';
-import { summarizeTrackedStatus, summarizeVercelConfigDelta } from './log-refund-portal-tracked-status.mjs';
 
 const SHA = 'a'.repeat(40);
-
-test('private build diagnostic logs only bounded tracked names and redacts sensitive paths', () => {
-  const summary = summarizeTrackedStatus(' M package-lock.json\n M .env.production\n M C:\\private\\config.json\n');
-  assert.equal(summary.changedTrackedCount, 3);
-  assert.deepEqual(summary.entries, [
-    { status: ' M', path: 'package-lock.json' },
-    { status: ' M', path: '[redacted]' },
-    { status: ' M', path: '[redacted]' },
-  ]);
-  assert.equal(summary.omittedCount, 0);
-});
-
-test('config diagnostic reports semantic key differences without serializing values', () => {
-  const summary = summarizeVercelConfigDelta(
-    Buffer.from('{"installCommand":"npm ci","routes":[]}\n'),
-    Buffer.from('{\r\n  "installCommand":"npm install", "routes": []\r\n}\r\n'));
-  assert.equal(summary.semanticEqual, false);
-  assert.deepEqual(summary.changedTopLevelKeys, ['installCommand']);
-  assert.equal(summary.committed.crlf, 0);
-  assert.equal(summary.checkout.crlf, 3);
-  assert.equal(JSON.stringify(summary).includes('npm install'), false);
-});
 const html = '<html><head><link rel="stylesheet" href="/assets/app.css"></head><body><script type="module" src="/assets/app.js"></script></body></html>';
 const files = new Map([
   ['/index.html', Buffer.from(html)],
@@ -90,9 +67,11 @@ test('a platform production SHA is a claim while local or missing identity stays
   const root = await mkdtemp(path.join(os.tmpdir(), 'refund-portal-no-git-'));
   try {
     assert.deepEqual(sourceIdentity(root, {}),
-      { sourceSha: null, provenance: 'unsupported', trackedSourceClean: null });
+      { sourceSha: null, provenance: 'unsupported', trackedSourceClean: null,
+        trackedSourceEquivalent: null });
     assert.deepEqual(sourceIdentity(root, { VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_SHA: SHA }),
-      { sourceSha: SHA, provenance: 'production_claimed', trackedSourceClean: null });
+      { sourceSha: SHA, provenance: 'production_claimed', trackedSourceClean: null,
+        trackedSourceEquivalent: null });
     assert.equal(sourceIdentity(root, { VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_SHA: 'short' }).provenance,
       'unsupported');
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -110,16 +89,44 @@ test('a clean local checkout and dirty source cannot be labeled as a verified Pr
     git('commit', '-qm', 'fixture');
     assert.equal(sourceIdentity(root, {}).provenance, 'local_clean');
     assert.equal(sourceIdentity(root, {}).trackedSourceClean, true);
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, true);
     const cleanSha = sourceIdentity(root, {}).sourceSha;
     assert.equal(sourceIdentity(root, { VERCEL_ENV: 'production',
       VERCEL_GIT_COMMIT_SHA: cleanSha }).provenance, 'production_claimed');
     await writeFile(path.join(root, 'generated-untracked.txt'), 'generated');
     assert.equal(sourceIdentity(root, {}).provenance, 'dirty');
     assert.equal(sourceIdentity(root, {}).trackedSourceClean, true);
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, false);
     await writeFile(path.join(root, 'source.txt'), 'changed');
     assert.equal(sourceIdentity(root, { VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_SHA: sourceIdentity(root, {}).sourceSha }).provenance,
       'dirty');
     assert.equal(sourceIdentity(root, {}).trackedSourceClean, false);
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, false);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('sole Vercel config formatting drift is equivalent but remains byte-dirty', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'refund-portal-vercel-config-'));
+  const git = (...args) => execFileSync('git', args, { cwd: root, stdio: 'ignore' });
+  try {
+    git('init', '-q');
+    git('config', 'user.email', 'fixture@example.invalid');
+    git('config', 'user.name', 'Fixture');
+    await writeFile(path.join(root, 'vercel.json'), '{\n  "installCommand": "npm ci",\n  "routes": []\n}\n');
+    await writeFile(path.join(root, 'source.txt'), 'same');
+    git('add', '.');
+    git('commit', '-qm', 'fixture');
+    await writeFile(path.join(root, 'vercel.json'), '{"routes":[],"installCommand":"npm ci"}\n');
+    assert.equal(sourceIdentity(root, {}).trackedSourceClean, false);
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, true);
+    await writeFile(path.join(root, 'vercel.json'), '{"routes":[],"installCommand":"npm install"}\n');
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, false);
+    await writeFile(path.join(root, 'vercel.json'), '{"routes":[],"installCommand":"npm ci"}\n');
+    await writeFile(path.join(root, 'source.txt'), 'changed');
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, false);
+    await writeFile(path.join(root, 'source.txt'), 'same');
+    await writeFile(path.join(root, 'extra.txt'), 'untracked input');
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, false);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

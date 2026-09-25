@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "node scripts/refunds/log-refund-portal-tracked-status.mjs checkout && npm ci && node scripts/refunds/log-refund-portal-tracked-status.mjs postinstall",
+  "installCommand": "npm ci",
   "routes": [
     {
       "src": "/(.*)",
