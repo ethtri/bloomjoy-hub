@@ -38,7 +38,7 @@ export const validateProposalShape = (proposal) => {
 };
 
 const supportedFieldsIn = (body) => [
-  ['amount', /\$\s*\d|\bamount\s*:\s*\d/iu],
+  ['amount', /\$\s*\d|\bamount\s*:\s*\d|\b\d+(?:\.\d{1,2})?\s*(?:dollars?|usd)\b/iu],
   ['payment_method', /\b(?:paid|used|tapped|inserted|swiped)\b[^!?]{0,45}\b(?:cash|card)\b/iu],
   ['card_last4', /\bcard\b[^.!?]{0,35}\b(?:end(?:s|ing)? in|last four)\b[^.!?]{0,12}\d{4}\b/iu],
   ['card_network', /\b(?:visa|mastercard|amex|discover)\b/iu],
@@ -53,8 +53,13 @@ const hasAmbiguousSupportedValues = (body) => {
   const suffixes = [...body.matchAll(/\b(?:physical\s+)?card\b[^.!?]{0,35}\b(?:end(?:s|ing)?\s+in|last\s+four)\b[^.!?]{0,12}\d{4}\b/giu)];
   const networks = [...body.matchAll(/\b(?:visa|master\s*card|amex|american\s+express|discover)\b/giu)];
   const walletTokens = [...body.matchAll(/\b(?:device token|wallet token)\b[^.!?]{0,40}\d{4}\b|\b\d{4}\b[^.!?]{0,50}\b(?:apple pay device token|device token|wallet token)\b/giu)];
-  return amounts.length > 1 || methods.length > 1 || suffixes.length > 1 ||
-    networks.length > 1 || walletTokens.length > 1 ||
+  const amountValues = amounts.map(([mention]) => mention.match(/\d+(?:\.\d+)?/u)?.[0]);
+  return amountValues.some((value) => !/^\d+(?:\.\d{2})?$/u.test(value ?? '')) ||
+    new Set(amountValues.map(Number)).size > 1 ||
+    new Set(methods.map(([mention]) => /\bcash\b/iu.test(mention) ? 'cash' : 'card')).size > 1 ||
+    suffixes.length > 1 ||
+    new Set(networks.map(([mention]) => mention.toLowerCase().replace(/\s+/gu, ''))).size > 1 ||
+    walletTokens.length > 1 ||
     (/\bcash\b/iu.test(body) && /\bcard\b/iu.test(body) && methods.length > 0);
 };
 
@@ -175,7 +180,7 @@ export const deriveSourceBoundFact = (input, proposal) => {
   }[proposal.field];
   let value = proposal.quote;
   if (proposal.field === 'amount') {
-    const match = proposal.quote.match(/(?:\$\s*([0-9]{1,7}(?:\.[0-9]{2})?)|\b([0-9]{1,7}(?:\.[0-9]{2})?)\s*(?:dollars?|usd)\b|\bamount\s*:\s*([0-9]{1,7}(?:\.[0-9]{2})?))/iu);
+    const match = proposal.quote.match(/(?:\$\s*([0-9]{1,7}(?:\.[0-9]{2})?)(?=$|[^\d.]|\.(?!\d))|(?<![\d.])\b([0-9]{1,7}(?:\.[0-9]{2})?)\s*(?:dollars?|usd)\b|\bamount\s*:\s*([0-9]{1,7}(?:\.[0-9]{2})?)(?=$|[^\d.]|\.(?!\d)))/iu);
     if (!match || !/(?:paid?|charged?|amount|total|cost|monto|cobr)/iu.test(proposal.quote)) {
       throw new Error('amount_not_supported');
     }
@@ -322,7 +327,7 @@ export const validateNoFactReview = (input, proposal) => {
     'conflicting_reply_evidence'].includes(proposal.reasonCode)) {
     const current = input.currentFacts ?? {};
     const signaledFields = [
-      ['amount', /\$\s*\d/u],
+      ['amount', /\$\s*\d|\bamount\s*:\s*\d|\b\d+(?:\.\d{1,2})?\s*(?:dollars?|usd)\b/iu],
       ['payment_method', /\b(?:paid|used|tapped|inserted|swiped)\b[^!?]{0,45}\b(?:cash|card)\b/iu],
       ['card_last4', /\bcard\b[^.!?]{0,35}\b(?:end(?:s|ing)? in|last four)\b[^.!?]{0,12}\d{4}\b/iu],
       ['card_network', /\b(?:visa|mastercard|amex|discover)\b/iu],

@@ -22,7 +22,7 @@ begin
     incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,payment_interaction,payment_amount_cents,card_last4,card_last4_provenance,card_network,card_wallet_used,status,correlation_status,intake_source)
   values(cid,'df000000-0000-4000-8000-000000000003','df000000-0000-4000-8000-000000000002','reply-customer@example.invalid','Scoped reply test',
     now()-interval '2 hours'-n*interval '7 hours',to_char((now()-interval '2 hours'-n*interval '7 hours') at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI'),
-    'America/Los_Angeles','exact','exact','card',case when n in (27,28,29,38,42,45) then 'phone_watch_wallet' else 'tap_card' end,case when n in (34,43,45) then 1090 when n=44 then 1000 when n in (27,28,29,30) then 700 else null end,case when n=45 then '4932' when n in (8,15,27,28,29,30,34,38,42,43,44) then null else '1234' end,case when n=45 then 'wallet_device_token' when n in (8,15,27,28,29,30,34,38,42,43,44) then null else 'physical_card' end,case when n=26 then 'mastercard' else 'visa' end,n in (27,28,29,38,42,45),'needs_review','manual_review','form');
+    'America/Los_Angeles','exact','exact','card',case when n in (27,28,29,38,42,45) then 'phone_watch_wallet' else 'tap_card' end,case when n in (34,43,45,48) then 1090 when n=44 then 1000 when n in (27,28,29,30) then 700 else null end,case when n=45 then '4932' when n in (8,15,27,28,29,30,34,38,42,43,44,48) then null else '1234' end,case when n=45 then 'wallet_device_token' when n in (8,15,27,28,29,30,34,38,42,43,44,48) then null else 'physical_card' end,case when n=26 then 'mastercard' else 'visa' end,n in (27,28,29,38,42,45),'needs_review','manual_review','form');
   if n in (27,28) then
     -- The earlier provider read precedes the delivered wallet question. A
     -- waiting-on-customer case cannot start an ordinary lookup afterward.
@@ -1113,7 +1113,9 @@ select ok(public.refund_verified_reply_quote_ambiguous_supported(
   and public.refund_verified_reply_quote_ambiguous_supported(
     'My card is Visa. Later I remembered it was Mastercard.')
   and not public.refund_verified_reply_quote_ambiguous_supported(
-    'I paid $10.90 with my physical card.'),
+    'I paid $10.90 with my physical card.')
+  and not public.refund_verified_reply_quote_ambiguous_supported(
+    'I paid $10.90 and 10.90 dollars.'),
   'SQL rejects repeated amount, method, suffix and network while retaining one complete answer');
 select pg_temp.make_scope(46);
 update public.refund_gmail_messages set plain_body='I paid $10.90 and 12 dollars.'
@@ -1137,6 +1139,83 @@ select throws_like($$select public.service_apply_refund_scoped_reply_semantic_fa
 select is((select count(*)::integer from public.refund_customer_fact_applications
     where refund_case_id=pg_temp.cid(46)),0,
   'Conflicting source creates no immutable positive fact receipt');
+select pg_temp.make_scope(47);
+update public.refund_gmail_messages set plain_body='I paid $10.900.'
+  where id=pg_temp.gid(47);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(47),pg_temp.gid(47))
+  ->>'outcome','received','Three-decimal text remains an exact verified reply');
+create temp table fractional_amount_task on commit drop as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(47)::text;
+select throws_like($$select public.service_apply_refund_scoped_reply_semantic_fact(
+    (select (task->>'requestId')::uuid from fractional_amount_task),
+    (select (task->>'claimToken')::uuid from fractional_amount_task),pg_temp.gid(47),
+    (select (task->>'factVersion')::bigint from fractional_amount_task),
+    (select task->>'bodySha256' from fractional_amount_task),
+    jsonb_build_array(jsonb_build_object('field','amount',
+      'messageId',pg_temp.gid(47),'quote','I paid $10.900.')),
+    '{"payment_amount_cents":1090,"refund_amount_cents":1090}'::jsonb,
+    array['amount'])$$,
+  '%Unsupported semantic amount source%',
+  'Protected writer cannot truncate a three-decimal amount to cents');
+select is((select count(*)::integer from public.refund_customer_fact_applications
+    where refund_case_id=pg_temp.cid(47)),0,
+  'Invalid decimal creates no immutable positive fact receipt');
+select pg_temp.make_scope(50);
+update public.refund_gmail_messages set plain_body='I paid 10.900 dollars.'
+  where id=pg_temp.gid(50);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(50),pg_temp.gid(50))
+  ->>'outcome','received','Malformed dollars phrasing remains an exact verified reply');
+create temp table fractional_dollars_task on commit drop as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(50)::text;
+select throws_like($$select public.service_apply_refund_scoped_reply_semantic_fact(
+    (select (task->>'requestId')::uuid from fractional_dollars_task),
+    (select (task->>'claimToken')::uuid from fractional_dollars_task),pg_temp.gid(50),
+    (select (task->>'factVersion')::bigint from fractional_dollars_task),
+    (select task->>'bodySha256' from fractional_dollars_task),
+    jsonb_build_array(jsonb_build_object('field','amount',
+      'messageId',pg_temp.gid(50),'quote','I paid 10.900 dollars.')),
+    '{"payment_amount_cents":90000,"refund_amount_cents":90000}'::jsonb,
+    array['amount'])$$,
+  '%Unsupported semantic amount source%',
+  'Protected writer cannot parse a 900-dollar suffix from a malformed decimal');
+select is((select count(*)::integer from public.refund_customer_fact_applications
+    where refund_case_id=pg_temp.cid(50)),0,
+  'Malformed dollars phrasing leaves no fact receipt');
+select pg_temp.make_scope(48);
+update public.refund_gmail_messages set plain_body='I paid $10.90.'
+  where id=pg_temp.gid(48);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(48),pg_temp.gid(48))
+  ->>'outcome','received','First current-amount confirmation binds the exact request');
+insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,
+  provider_message_id,references_header,direction,message_kind,status,
+  sender_email,recipient_email,participant_role,participant_trust,subject,
+  plain_body,received_at,retention_expires_at)
+select pg_temp.gid(49),gmail_thread_id,refund_case_id,'scoped-reply-49',
+  '<scoped-request-48@example.invalid>','inbound','message','received',
+  'reply-customer@example.invalid','info@bloomjoysweets.com',
+  'customer','verified','Reply','I paid 10.90 dollars, maybe 4 PM.',
+  now()+interval '2 minutes',now()+interval '30 days'
+from public.refund_gmail_messages where id=pg_temp.gid(48);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(48),pg_temp.gid(49))
+  ->>'outcome','received','Later same-amount reply updates one exact request');
+create temp table repeated_amount_task on commit drop as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(48)::text;
+select is(public.service_complete_refund_scoped_reply_no_fact(
+    (select (task->>'requestId')::uuid from repeated_amount_task),
+    (select (task->>'claimToken')::uuid from repeated_amount_task),pg_temp.gid(49),
+    (select (task->>'factVersion')::bigint from repeated_amount_task),
+    (select task->>'bodySha256' from repeated_amount_task),pg_temp.gid(49),
+    'maybe 4 PM.','inexact_purchase_time_requires_research')->>'outcome',
+  'reviewed_no_fact',
+  'Two equal verified amount answers do not suppress a new rough-time research clue');
+select ok((select reply_directional_evidence->>'timeConfidence'='rough'
+    from public.refund_wallet_correction_contexts where refund_case_id=pg_temp.cid(48))
+  and (select count(*)=0 from public.refund_customer_fact_applications
+    where refund_case_id=pg_temp.cid(48)),
+  'Repeated unchanged amount makes no fact receipt while time research stays owned');
 select pg_temp.make_scope(33);
 select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(33),pg_temp.gid(33))
   ->>'outcome','received','Original verified response starts the exact scoped task');
@@ -1180,6 +1259,9 @@ select ok((select payment_amount_cents=1090 from public.refund_cases
     where id=pg_temp.cid(34))
   and public.refund_verified_reply_quote_is_known_fact(
     'I paid $10.90.',(select c from public.refund_cases c where id=pg_temp.cid(34)))
+  and public.refund_verified_reply_quote_is_known_fact(
+    'I paid $10.90 and 10.90 dollars.',
+    (select c from public.refund_cases c where id=pg_temp.cid(34)))
   and not public.refund_verified_reply_quote_is_known_fact(
     'I paid $10.900.',(select c from public.refund_cases c where id=pg_temp.cid(34))),
   'Punctuated exact amount is known without truncating a longer decimal');

@@ -170,6 +170,24 @@ test('repeated or conflicting supported values cannot be reduced to the first so
   assert.throws(() => deriveSourceBoundFacts(repeatedReplies, {
     kind: 'fact', field: 'amount', messageId, quote: 'I paid $10.90',
   }), /ambiguous_supported_reply_values/);
+  for (const body of ['I paid $10.900.', 'I paid 10.900 dollars.',
+    'Amount: 10.900']) {
+    const source = { ...input, replyMessages: [{ messageId, body }] };
+    assert.throws(() => deriveSourceBoundFact(source, {
+      kind: 'fact', field: 'amount', messageId, quote: body,
+    }), /ambiguous_source_span|amount_not_supported/);
+  }
+  const repeatedSameAmount = { ...input, replyMessages: [
+    { messageId, body: 'I paid $10.90.' },
+    { messageId: 'ae000000-0000-4000-8000-000000000006',
+      body: 'I paid 10.90 dollars, maybe around 4 PM.' },
+  ] };
+  assert.equal(validateNoFactReview({ ...repeatedSameAmount,
+    currentFacts: { paymentAmountCents: 1090 } }, {
+    kind: 'reviewed_no_fact', reasonCode: 'inexact_purchase_time_requires_research',
+    messageId: repeatedSameAmount.replyMessages[1].messageId,
+    quote: 'maybe around 4 PM.',
+  }).reasonCode, 'inexact_purchase_time_requires_research');
 });
 
 test('a decimal amount between paid and card still requires both supported facts', () => {
