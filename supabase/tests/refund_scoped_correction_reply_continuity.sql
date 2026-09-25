@@ -168,6 +168,12 @@ select ok((select reply_review_state='pending' and reply_review_due_at>statement
     and reply_review_attempt_count=1
     from public.refund_wallet_correction_contexts where refund_case_id=pg_temp.cid(9)),
   'Provider absence is a visible pending task, not a completed research result');
+select is(public.service_get_refund_scoped_reply_research_health()
+  ->> 'providerConfigurationCount','1',
+  'Provider configuration absence appears in redacted reply research health');
+select is(public.service_get_refund_scoped_reply_research_health()
+  ->> 'status','action_needed',
+  'A pending configuration failure cannot look healthy during retry delay');
 update public.refund_wallet_correction_contexts set reply_review_due_at=statement_timestamp()
 where refund_case_id=pg_temp.cid(9);
 select is(jsonb_array_length(public.service_claim_refund_scoped_reply_reviews(25)->'tasks'),1,
@@ -186,6 +192,9 @@ select is(public.service_apply_refund_gmail_customer_facts_v1(pg_temp.cid(9),pg_
   'applied','Later parseable answer still uses the original fact writer and request');
 select is((select reply_review_state from public.refund_wallet_correction_contexts where refund_case_id=pg_temp.cid(9)),
   'resolved','A later safe fact application closes the earlier internal review task');
+select is(public.service_get_refund_scoped_reply_research_health()
+  ->> 'pendingCount','0',
+  'A genuine applied fact receipt clears the pending reply research obligation');
 select is((select count(*)::integer from public.refund_customer_fact_applications where refund_case_id=pg_temp.cid(9)),1,
   'Two verified replies produce one fact application');
 select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(2),pg_temp.gid(2))->>'outcome',

@@ -254,6 +254,42 @@ revoke all on function public.service_get_refund_scoped_reply_research_input(
 grant execute on function public.service_get_refund_scoped_reply_research_input(
   uuid,uuid,uuid,bigint,text) to service_role;
 
+create function public.service_get_refund_scoped_reply_research_health()
+returns jsonb language sql stable security definer set search_path='' as $$
+  with tasks as (
+    select r.reply_review_due_at,r.reply_review_state,
+      r.reply_review_claimed_at,r.reply_review_result_code
+    from public.refund_wallet_correction_contexts r
+    where r.correction_kind='purchase' and r.status='pending'
+      and r.reply_message_id is not null
+      and r.reply_review_state in ('pending','claimed')
+  )
+  select jsonb_build_object(
+    'status',case when count(*) filter(where reply_review_result_code in
+        ('provider_configuration_missing','provider_unavailable','provider_timeout',
+          'provider_schema_rejected','research_input_unavailable'))>0
+        or count(*) filter(where reply_review_due_at<=statement_timestamp())>0
+        or count(*) filter(where reply_review_state='claimed'
+          and reply_review_claimed_at<statement_timestamp()-interval '15 minutes')>0
+      then 'action_needed'
+      when count(*)>0 then 'waiting' else 'healthy' end,
+    'pendingCount',count(*),
+    'dueCount',count(*) filter(where reply_review_due_at<=statement_timestamp()),
+    'staleClaimedCount',count(*) filter(where reply_review_state='claimed'
+      and reply_review_claimed_at<statement_timestamp()-interval '15 minutes'),
+    'providerConfigurationCount',count(*) filter(
+      where reply_review_result_code='provider_configuration_missing'),
+    'oldestDueAgeSeconds',max(extract(epoch from
+      (statement_timestamp()-reply_review_due_at))) filter(
+        where reply_review_due_at<=statement_timestamp())::bigint,
+    'owner','Agent','payloadRedacted',true)
+  from tasks;
+$$;
+revoke all on function public.service_get_refund_scoped_reply_research_health()
+  from public,anon,authenticated;
+grant execute on function public.service_get_refund_scoped_reply_research_health()
+  to service_role;
+
 alter function public.service_apply_refund_gmail_customer_facts_v1(
   uuid,uuid,bigint,jsonb,text[],text)
   rename to service_apply_refund_gmail_customer_facts_pre_reply_continuation;
