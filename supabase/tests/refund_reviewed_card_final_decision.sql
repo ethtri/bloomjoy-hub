@@ -654,7 +654,7 @@ select pg_temp.set_actor('e1410000-0000-4000-8000-000000000001');
 select is((public.admin_record_nayax_system_outcome_evidence_v1(
   'e1450000-0000-4000-8000-000000000001',
   (select (result->>'attemptId')::uuid from reviewed_approval_a),
-  'provider_confirmed_success','nayax_dtm_transaction','DTM:REVIEWED-123456789',
+  'provider_confirmed_success','nayax_dtm_transaction','DTM:NAYAX-123456789',
   statement_timestamp(),'America/Los_Angeles','nayax_dtm_settled',
   (select official_action_version from public.refund_cases
     where id='e1450000-0000-4000-8000-000000000001'))->>'resolved'),'true',
@@ -662,7 +662,7 @@ select is((public.admin_record_nayax_system_outcome_evidence_v1(
 select is((public.admin_record_nayax_system_outcome_evidence_v1(
   'e1450000-0000-4000-8000-000000000002',
   (select (result->>'attemptId')::uuid from reviewed_approval_b),
-  'provider_confirmed_no_refund','nayax_dtm_transaction','DTM:REVIEWED-987654321',
+  'provider_confirmed_no_refund','nayax_dtm_transaction','DTM:NAYAX-987654321',
   statement_timestamp(),'America/Los_Angeles','nayax_dtm_not_refunded',
   (select official_action_version from public.refund_cases
     where id='e1450000-0000-4000-8000-000000000002'))->>'status'),'system_finishing',
