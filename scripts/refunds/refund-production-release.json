@@ -228,7 +228,8 @@
     "20260925040000_refund_verified_scoped_reply_continuation.sql",
     "20260925041000_refund_stored_scoped_reply_reconciliation.sql",
     "20260925042000_refund_subscription_reply_runner.sql",
-    "20260925043000_refund_reply_read_only_research_handoff.sql"
+    "20260925043000_refund_reply_read_only_research_handoff.sql",
+    "20260925044000_refund_info_inquiry_observability.sql"
   ],
   "migrationFilesSha256": "8fa062ee99c814e2d44c4c8eb6b90ec78a7f3ff66b5be6ebd11d7f875b2420e1",
   "migrationVersionSetSha256": "0dc63a0c325f8e5e64baa0afc28d57a12ccd657433f5ec296001741dcbf19e79",
