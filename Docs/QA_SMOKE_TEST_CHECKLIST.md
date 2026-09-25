@@ -830,9 +830,18 @@ npm run refunds:validate-portal-uat-lifecycle
 - [ ] A new direct-human message to `refunds@bloomjoysweets.com` is ingested and
   any acknowledgement is sent in the same thread from **Bloomjoy Refunds
   <refunds@bloomjoysweets.com>**.
-- [ ] A new direct-human message addressed only to `info@bloomjoysweets.com` or
-  `support@bloomjoysweets.com` is not ingested as refund contact and receives no
-  refund acknowledgement.
+- [ ] A controlled synthetic direct-human refund inquiry addressed only to
+  `info@bloomjoysweets.com` receives exactly one same-thread reply from the
+  Refunds sender with `https://app.bloomjoyusa.com/refunds/request`; the link
+  loads and the email alone creates no case. Repeat through Support only when
+  that alias is confirmed to reach the same mailbox.
+- [ ] Synthetic vendor, technician, marketing, and unrelated Info messages
+  receive no refund reply. A synthetic existing-case/status question is not
+  asked to submit another form.
+- [ ] Info-inquiry run counts reconcile considered, eligible, replied,
+  suppressed, review-held, and failed threads. A marked eligible inquiry with
+  no recorded sent response after 30 minutes makes Gmail health actionable;
+  a prior manual same-thread reply suppresses a duplicate.
 - [ ] A customer reply in an existing thread with a case-specific refund message
   is still ingested even if the historical thread began through the Info alias.
 - [ ] Automatic status and completion emails for portal-created requests without

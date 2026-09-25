@@ -591,8 +591,11 @@ assert(
 assert(gmailHelper.includes('GMAIL_SUPPORT_SEND_AS_ALIASES'), 'Approved mailbox aliases must be explicit server configuration');
 assert(
   gmailHelper.includes('isRefundGmailConversation') &&
-    syncFunction.includes('refundAddress: config.senderEmail'),
-  'New refund intake must be addressed to the refund alias while existing case threads remain eligible',
+    syncFunction.includes('refundAddress: config.senderEmail') &&
+    syncFunction.includes('listInfoRefundInquiryThreads') &&
+    syncFunction.includes('classifyRefundInfoInquiry') &&
+    syncFunction.includes('service_mark_refund_info_inquiry'),
+  'Refund-alias and classified Info/Support inquiries must both reach the existing intake ledger',
 );
 assert(
   gmailHelper.includes('providerSentEvidence') && gmailHelper.includes('labelIds') && gmailHelper.includes('"SENT"'),
@@ -836,7 +839,7 @@ assert(
     syncFunction.includes('service_claim_refund_gmail_contact_reconciliation_batch') &&
     syncFunction.includes('service_count_refund_gmail_contact_response_reconciliation') &&
     syncFunction.indexOf('await reconcileOutstandingFirstContacts') <
-      syncFunction.indexOf('while (customerThreadsScanned < maxThreads)'),
+      syncFunction.indexOf('while (customerThreadsScanned < maxThreads'),
   'Outstanding first-contact delivery must rotate and reconcile independently of new-send mode and sender eligibility',
 );
 assert(
@@ -892,7 +895,7 @@ assert(
     syncFunction.includes('service_finish_refund_gmail_outbound_reconciliation') &&
     syncFunction.includes('service_count_refund_gmail_outbound_reconciliation') &&
     syncFunction.indexOf('await reconcileOutstandingOutbound') <
-      syncFunction.indexOf('while (customerThreadsScanned < maxThreads)'),
+      syncFunction.indexOf('while (customerThreadsScanned < maxThreads'),
   'Gmail sync must reconcile generic manager replies before scanning for new customer work',
 );
 const outboundAmbiguousBranch = outboundReconciliationSync.indexOf(
@@ -1756,4 +1759,4 @@ assert(
   'The manager portal and client expose no arbitrary synthetic proof target or token setter',
 );
 
-console.log('Refund Gmail validation passed: default-off zero-call transport shutdown, label-only intake, no-CC automatic customer mail, private email-to-form linkage, participant-safe original threading, manager-authored conversation CC, deterministic follow-ups, bounce recovery, retention, health, and least-privilege boundaries are present.');
+console.log('Refund Gmail validation passed: default-off zero-call transport shutdown, classified Info/Support plus refund-alias intake, no-CC automatic customer mail, private email-to-form linkage, participant-safe original threading, manager-authored conversation CC, deterministic follow-ups, bounce recovery, retention, health, and least-privilege boundaries are present.');

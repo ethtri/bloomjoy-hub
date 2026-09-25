@@ -297,6 +297,7 @@ test('actual post-ingestion path preserves internal incoming notice and records 
   const { process } = execute(`exports.process = async () => { ${body} };`, {
     ingestion: { created: true, caseId: 'synthetic-case', messageId: 'new-reply', participantRole: 'customer' },
     sanitizeText: (value) => String(value ?? ''), intakeShadow: false, counters,
+    infoInquiry: null,
     from: { name: 'Synthetic', email: 'customer@example.invalid' },
     redactedBody: { text: 'Card type: Visa', redacted: false }, redactedSubject: { redacted: false },
     applyDeterministicCustomerReplyFacts: apply,

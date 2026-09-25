@@ -149,6 +149,15 @@ Deno.test("invalid modes, timestamps, and public links fail closed", () => {
   );
 });
 
+Deno.test("Info inquiry first contact always resolves the canonical hosted form URL", () => {
+  for (const configured of [undefined, "https://www.bloomjoyusa.com/refunds/request"] ) {
+    const config = resolveRefundFirstContactConfig({
+      REFUND_GMAIL_FIRST_CONTACT_REFUND_URL: configured,
+    });
+    assertEquals(config.refundRequestUrl, "https://app.bloomjoyusa.com/refunds/request");
+  }
+});
+
 Deno.test("first-contact copy is versioned, customer-first, and contains only public links", () => {
   const email = buildRefundFirstContactEmail({
     publicReference: "RF-SYNTH01",
