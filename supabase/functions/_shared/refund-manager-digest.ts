@@ -229,6 +229,7 @@ export type RefundManagerDailyDigestItem = {
   actor: "manager" | "system" | "agent" | "customer";
   actionCode: string;
   actionLabel: string;
+  preparationSummary: string | null;
   paymentComplete: boolean;
   payloadRedacted: true;
 };
@@ -252,7 +253,7 @@ export const parseRefundManagerDailyDigestProjection = (
     const item = objectValue(raw);
     exactKeys(item, ["caseId", "publicReference", "amountCents", "currencyCode",
       "machineLabel", "locationName", "ageMinutes", "actor", "actionCode",
-      "actionLabel", "paymentComplete", "payloadRedacted"]);
+      "actionLabel", "preparationSummary", "paymentComplete", "payloadRedacted"]);
     if (!["manager", "system", "agent", "customer"].includes(item.actor as string) ||
       typeof item.paymentComplete !== "boolean" || item.payloadRedacted !== true ||
       (item.amountCents !== null && !Number.isSafeInteger(item.amountCents)) ||
@@ -265,6 +266,16 @@ export const parseRefundManagerDailyDigestProjection = (
       !["approve_or_deny_request", "send_cash_refund_and_confirm"].includes(actionCode))) {
       throw new Error("Unsupported manager refund action.");
     }
+    if (actor === "manager"
+      ? typeof item.preparationSummary !== "string" ||
+        !item.preparationSummary.trim() || item.preparationSummary.length > 160 ||
+        Array.from(item.preparationSummary).some((character) => {
+          const code = character.charCodeAt(0);
+          return code < 32 || code === 127;
+        })
+      : item.preparationSummary !== null) {
+      throw new Error("Unsupported refund preparation summary.");
+    }
     return {
       caseId: stringValue(item.caseId),
       publicReference: stringValue(item.publicReference),
@@ -276,6 +287,7 @@ export const parseRefundManagerDailyDigestProjection = (
       actor,
       actionCode,
       actionLabel: stringValue(item.actionLabel),
+      preparationSummary: item.preparationSummary as string | null,
       paymentComplete: item.paymentComplete as boolean,
       payloadRedacted: true,
     };
@@ -337,8 +349,8 @@ export const buildRefundManagerDigestEmail = (
   const summary = `${projection.actionCount} need your decision or payment; ${projection.openCount} open in total.`;
   const section = (heading: string, entries: RefundManagerDailyDigestItem[]) => {
     if (!entries.length) return { text: "", html: "" };
-    const lines = entries.map((item) => `${item.publicReference} — ${amount(item.amountCents, item.currencyCode)} — ${item.machineLabel}, ${item.locationName} — open ${formatRefundManagerAge(item.ageMinutes)}\n${item.actor === "manager" ? actionText(item) : otherText(item)}\nOpen case: ${caseUrl(item.caseId)}`);
-    const rows = entries.map((item) => `<li style="margin:0 0 18px;padding:0;overflow-wrap:anywhere"><strong>${escapeHtml(item.publicReference)}</strong> · ${escapeHtml(amount(item.amountCents, item.currencyCode))}<br>${escapeHtml(item.machineLabel)} · ${escapeHtml(item.locationName)} · open ${escapeHtml(formatRefundManagerAge(item.ageMinutes))}<br>${escapeHtml(item.actor === "manager" ? actionText(item) : otherText(item))}<br><a href="${escapeHtml(caseUrl(item.caseId))}" style="color:#174a77">Open refund case ${escapeHtml(item.publicReference)}</a></li>`).join("");
+    const lines = entries.map((item) => `${item.publicReference} — ${amount(item.amountCents, item.currencyCode)} — ${item.machineLabel}, ${item.locationName} — open ${formatRefundManagerAge(item.ageMinutes)}\n${item.actor === "manager" ? `Prepared case summary: ${item.preparationSummary}\n${actionText(item)}` : otherText(item)}\nOpen case: ${caseUrl(item.caseId)}`);
+    const rows = entries.map((item) => `<li style="margin:0 0 18px;padding:0;overflow-wrap:anywhere"><strong>${escapeHtml(item.publicReference)}</strong> · ${escapeHtml(amount(item.amountCents, item.currencyCode))}<br>${escapeHtml(item.machineLabel)} · ${escapeHtml(item.locationName)} · open ${escapeHtml(formatRefundManagerAge(item.ageMinutes))}<br>${item.actor === "manager" ? `Prepared case summary: ${escapeHtml(item.preparationSummary!)}<br>` : ""}${escapeHtml(item.actor === "manager" ? actionText(item) : otherText(item))}<br><a href="${escapeHtml(caseUrl(item.caseId))}" style="color:#174a77">Open refund case ${escapeHtml(item.publicReference)}</a></li>`).join("");
     return { text: `${heading}\n\n${lines.join("\n\n")}`, html: `<h2 style="font-size:18px;line-height:1.3;margin:26px 0 12px">${heading}</h2><ol style="padding-left:24px;margin:0">${rows}</ol>` };
   };
   const sections = [section("Your decision or payment", action), section("Awaiting Bloomjoy follow-up", working), section("Waiting for the customer", waiting)];

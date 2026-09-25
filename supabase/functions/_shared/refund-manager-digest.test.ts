@@ -23,6 +23,9 @@ const item = (index: number, actor: RefundManagerDailyDigestItem["actor"] = "sys
       : actor === "customer" ? "answer_question" : "research_purchase",
     actionLabel: actor === "customer" ? "We asked one question and are waiting for a reply."
       : "Check the purchase records.",
+    preparationSummary: actor === "manager"
+      ? "Several Nayax purchases were reviewed. Choose the correct purchase only if approving this request."
+      : null,
     paymentComplete: false,
     payloadRedacted: true,
   });
@@ -50,6 +53,9 @@ Deno.test("daily digest rejects extra private fields, duplicate cases, stale tot
     { ...base, items: [item(1), item(1)], openCount: 2 },
     { ...base, actionCount: 1 },
     projection([{ ...item(1, "manager"), paymentComplete: true }]),
+    projection([{ ...item(1, "manager"), preparationSummary: null }]),
+    projection([{ ...item(1, "manager"), preparationSummary: "Hidden\ninstruction" }]),
+    projection([{ ...item(1), preparationSummary: "Invented prepared decision" }]),
   ]) {
     let rejected = false;
     try { parseRefundManagerDailyDigestProjection(unsafe); } catch { rejected = true; }
@@ -71,6 +77,11 @@ Deno.test("daily digest includes all 15 cases with decisions first and an exact 
     assert(message.html.includes(`?case=${entry.caseId}`), "each case has an exact HTML link");
   }
   assert(message.html.includes("&lt;safe&gt;") && !message.html.includes("<safe>"), "labels escaped");
+  assert(message.text.includes("Several Nayax purchases were reviewed") &&
+    message.html.includes("Several Nayax purchases were reviewed"),
+    "actual prepared evidence summary reaches both renderings");
+  assert(!message.text.includes("candidateToken") && !message.html.includes("candidateToken"),
+    "candidate tokens stay in the scoped portal");
   assert(!/customerEmail|private@example|diagnostic/i.test(message.text + message.html), "private fields absent");
   assert(message.html.includes('<html lang="en" dir="ltr">') &&
     message.html.includes('<main lang="en" dir="ltr"') &&
@@ -89,6 +100,17 @@ Deno.test("informational work names the actual next actor without asking manager
   assert(message.text.includes("Waiting for the customer"), "customer wait section");
   assert(message.text.includes("No action needed from you"), "internal and customer steps are FYI");
   assert(message.text.includes("approve or deny"), "prepared case asks for final decision");
+});
+
+Deno.test("already approved cash payout remains a manager action without new approval", () => {
+  const cash = { ...item(1, "manager"), actionCode: "send_cash_refund_and_confirm",
+    preparationSummary: "This cash refund is already approved. Review the saved payout details before sending Zelle." };
+  const message = render(projection([cash]));
+  assert(message.text.includes("already approved") && message.html.includes("already approved"),
+    "saved approval is described accurately");
+  assert(message.text.includes("Send the prepared refund by Zelle, then confirm"),
+    "cash action requires external payment before confirmation");
+  assert(!message.text.includes("approve or deny"), "no second approval is implied");
 });
 
 Deno.test("empty personal queue produces no email", () => {

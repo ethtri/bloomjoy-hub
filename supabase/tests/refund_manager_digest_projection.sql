@@ -424,5 +424,44 @@ select ok(not (select value::text from terminal_projection) like any (array[
   '%RF-DIGEST-PAID-NOTIFIED%', '%RF-DIGEST-DENIED%'
 ]), 'Neither terminal case appears in the actual daily digest projection');
 
+savepoint approved_cash_digest;
+insert into public.refund_cases (
+  id,public_reference,reporting_machine_id,reporting_location_id,
+  customer_email,issue_summary,incident_at,incident_timezone,
+  incident_time_resolution,payment_method,payment_amount_cents,
+  refund_amount_cents,zelle_payment_contact,status,decision,decided_by,
+  decided_at,correlation_status,correlation_source,automation_state,intake_source
+) values (
+  '12815000-0000-4000-8000-000000000016','RF-DIGEST-APPROVED-CASH',
+  '12813000-0000-4000-8000-000000000001',
+  '12812000-0000-4000-8000-000000000001',
+  'approved-cash@example.invalid','Synthetic saved cash decision',
+  statement_timestamp()-interval '2 hours','America/Los_Angeles',
+  'exact','cash',800,800,'synthetic-zelle-destination',
+  'cash_zelle_pending','approved',
+  '12810000-0000-4000-8000-000000000004',statement_timestamp(),
+  'manual_review','manual','approved','form'
+);
+set local role service_role;
+create temporary table cash_projection as
+select public.refund_manager_daily_digest_projection_for(
+  '12810000-0000-4000-8000-000000000004',
+  '2027-03-15T15:00:00Z') as value;
+reset role;
+select is((select item->>'actor' from cash_projection,
+    jsonb_array_elements(value->'items') item
+    where item->>'publicReference'='RF-DIGEST-APPROVED-CASH'),
+  'manager', 'Saved approved cash payout remains a current Manager action');
+select is((select item->>'actionCode' from cash_projection,
+    jsonb_array_elements(value->'items') item
+    where item->>'publicReference'='RF-DIGEST-APPROVED-CASH'),
+  'send_cash_refund_and_confirm',
+  'Approved cash requires one payment confirmation, not a new approval');
+select like((select item->>'preparationSummary' from cash_projection,
+    jsonb_array_elements(value->'items') item
+    where item->>'publicReference'='RF-DIGEST-APPROVED-CASH'),
+  '%already approved%', 'Historical cash summary names the saved decision');
+rollback to savepoint approved_cash_digest;
+
 select * from finish();
 rollback;
