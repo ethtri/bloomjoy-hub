@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "9f924eaadea21171e84b2c1e58b56ba607ff2363",
+  "sourceGitCommit": "43b0d82b4e634c9e2c6e5599c196bd5c8c063bd1",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -226,8 +226,8 @@
     "20260925032000_refund_ready_wallet_rollback_dedupe.sql",
     "20260925033000_refund_timezone_catalog_fastpath.sql"
   ],
-  "migrationFilesSha256": "e4810863a2907084dc9367ae054956846adf0aab77c30136cce9e8501b33160c",
-  "migrationVersionSetSha256": "e21716945ec9b0d76e5abfc53e084cf4fdd5c46187fe1bdf1bb554efa220518e",
+  "migrationFilesSha256": "5f7837acfd073e11b3ad7fcf06916904e83621fccd88dc25a956e242c65356f2",
+  "migrationVersionSetSha256": "15f0c28a6ee31a1037eed09f7433e83e70033aa2342d2d7f0b6169d3290e5256",
   "preMigrationCompatibility": {
     "releaseId": "refund-ops-2026-08-14-pre-controlled-nayax-pilot",
     "sourceGitCommit": "71eb076bc3ad95ccabd0c591b8140820bed6c393",
@@ -291,7 +291,7 @@
     {
       "slug": "refund-case-intake",
       "verifyJwt": false,
-      "sourceSha256": "d1ff71538851e6ad98ffea36db08a34a21e20740a04b3a7dcd6267eff6639ecf",
+      "sourceSha256": "fc31a74f02166f30db59ce478294f6a3800e84e3cc2434ea701ebf8d190a9e01",
       "production": {
         "version": 149,
         "ezbrSha256": "cde6b19553edf7972e8326011ef4322f4d1e20355a850773602ff39447a5ee95",
@@ -302,7 +302,7 @@
     {
       "slug": "nayax-transaction-lookup",
       "verifyJwt": false,
-      "sourceSha256": "8aa42e86b036285b97136500f995444721e9710306bbc19f4c4613634578787a",
+      "sourceSha256": "27473a4ce8146baab45b224ec3fd3647714352f9011a3cac37e616bf864f0c6e",
       "production": {
         "version": 138,
         "ezbrSha256": "21a0e24262cdadd7032b8610f137ec646c7317c6357b56d666b3a287d618ae88",
@@ -313,7 +313,7 @@
     {
       "slug": "refund-case-admin-update",
       "verifyJwt": false,
-      "sourceSha256": "018a6cbb3fdc59863b7e8a28549ad2b35e9f3fdce1a1e3193c7ffaea098d754a",
+      "sourceSha256": "3aa63771cbfc85ccee409cf1aa17180b6de9ab623b91524bafc6fcf160ac7899",
       "production": {
         "version": 147,
         "ezbrSha256": "7015addd56b745281994753f9cdbc0eaefedcb4ea49078e839d5656494c044fe",
@@ -324,7 +324,7 @@
     {
       "slug": "refund-case-message-send",
       "verifyJwt": false,
-      "sourceSha256": "dd62202c213142d9d4895a09f16c00e23ad326f7134c15435b9745b63d498d82",
+      "sourceSha256": "a9e01f2b8f4e2f44782d5da4f358c49b1a048dfedf9af1a9aa7a27b4659b20fc",
       "production": {
         "version": 141,
         "ezbrSha256": "125a745643ac02f5ca476dc6e69761dd28b79f7e5414cfec4b08328e155c38f9",
@@ -335,7 +335,7 @@
     {
       "slug": "refund-case-automation-sweep",
       "verifyJwt": false,
-      "sourceSha256": "fc327754b632f6786b30f7da71247598f4f96f0cb10d951eda4053a1c21686c2",
+      "sourceSha256": "54a89af137d651476e997c0a3c41715c3b1069769d761e35c0382f3988976d5d",
       "production": {
         "version": 152,
         "ezbrSha256": "e1bccf7a97b69a59d49e4da6da2bea0b31428c6173ba63973f79599014706727",
@@ -346,7 +346,7 @@
     {
       "slug": "refund-gmail-sync",
       "verifyJwt": false,
-      "sourceSha256": "61b751fc46d0baf3601fa57135bf72baead9ae6797c2515e8ab36f04c97dd7a4",
+      "sourceSha256": "f25aa2aa3d732cd0a6eb364649bb60f8c96e7a682ddc945a3993ae5bc4fd4c7e",
       "production": {
         "version": 146,
         "ezbrSha256": "099b701b26468fcebc2ecddf823246f732699d463f5985fe0b1ad905105d7084",
@@ -368,7 +368,7 @@
     {
       "slug": "nayax-card-refund",
       "verifyJwt": false,
-      "sourceSha256": "bd597b796cd50bd4cb0ed45b75d385f1601d643f69a920201c707e9857b2690b",
+      "sourceSha256": "e40c26b9c6ffa60ed6cfaf93fbde249dfb60cde0f99d2865ce1ed21076053020",
       "production": {
         "version": 147,
         "ezbrSha256": "e56ea0c6b2d135e73c19f65eb375908c304bff0b010ddcc4aa94b08ba52f2cc1",
@@ -401,7 +401,7 @@
     {
       "slug": "refund-nayax-outcome-resolve",
       "verifyJwt": false,
-      "sourceSha256": "a167eb851b37aa4a4955e982e5d330d4ae7be5f5ad4c013697059384e3349671",
+      "sourceSha256": "3a049098128d0a1705799d7181b9f8378fe4e11b69e55fdcca8cd9f241e74276",
       "production": {
         "version": 82,
         "ezbrSha256": "046f07a9ae6f6c12c94fd19cd94c5e8e99c76ccf329f2e59efcb21511334f4c1",
