@@ -67,9 +67,11 @@ test('a platform production SHA is a claim while local or missing identity stays
   const root = await mkdtemp(path.join(os.tmpdir(), 'refund-portal-no-git-'));
   try {
     assert.deepEqual(sourceIdentity(root, {}),
-      { sourceSha: null, provenance: 'unsupported', trackedSourceClean: null });
+      { sourceSha: null, provenance: 'unsupported', trackedSourceClean: null,
+        trackedSourceEquivalent: null });
     assert.deepEqual(sourceIdentity(root, { VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_SHA: SHA }),
-      { sourceSha: SHA, provenance: 'production_claimed', trackedSourceClean: null });
+      { sourceSha: SHA, provenance: 'production_claimed', trackedSourceClean: null,
+        trackedSourceEquivalent: null });
     assert.equal(sourceIdentity(root, { VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_SHA: 'short' }).provenance,
       'unsupported');
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -87,16 +89,44 @@ test('a clean local checkout and dirty source cannot be labeled as a verified Pr
     git('commit', '-qm', 'fixture');
     assert.equal(sourceIdentity(root, {}).provenance, 'local_clean');
     assert.equal(sourceIdentity(root, {}).trackedSourceClean, true);
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, true);
     const cleanSha = sourceIdentity(root, {}).sourceSha;
     assert.equal(sourceIdentity(root, { VERCEL_ENV: 'production',
       VERCEL_GIT_COMMIT_SHA: cleanSha }).provenance, 'production_claimed');
     await writeFile(path.join(root, 'generated-untracked.txt'), 'generated');
     assert.equal(sourceIdentity(root, {}).provenance, 'dirty');
     assert.equal(sourceIdentity(root, {}).trackedSourceClean, true);
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, false);
     await writeFile(path.join(root, 'source.txt'), 'changed');
     assert.equal(sourceIdentity(root, { VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_SHA: sourceIdentity(root, {}).sourceSha }).provenance,
       'dirty');
     assert.equal(sourceIdentity(root, {}).trackedSourceClean, false);
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, false);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('sole Vercel config formatting drift is equivalent but remains byte-dirty', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'refund-portal-vercel-config-'));
+  const git = (...args) => execFileSync('git', args, { cwd: root, stdio: 'ignore' });
+  try {
+    git('init', '-q');
+    git('config', 'user.email', 'fixture@example.invalid');
+    git('config', 'user.name', 'Fixture');
+    await writeFile(path.join(root, 'vercel.json'), '{\n  "installCommand": "npm ci",\n  "routes": []\n}\n');
+    await writeFile(path.join(root, 'source.txt'), 'same');
+    git('add', '.');
+    git('commit', '-qm', 'fixture');
+    await writeFile(path.join(root, 'vercel.json'), '{"routes":[],"installCommand":"npm ci"}\n');
+    assert.equal(sourceIdentity(root, {}).trackedSourceClean, false);
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, true);
+    await writeFile(path.join(root, 'vercel.json'), '{"routes":[],"installCommand":"npm install"}\n');
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, false);
+    await writeFile(path.join(root, 'vercel.json'), '{"routes":[],"installCommand":"npm ci"}\n');
+    await writeFile(path.join(root, 'source.txt'), 'changed');
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, false);
+    await writeFile(path.join(root, 'source.txt'), 'same');
+    await writeFile(path.join(root, 'extra.txt'), 'untracked input');
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, false);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -105,12 +135,43 @@ test('independent CI-byte equality is reported separately from served-byte check
     const noArtifact = await verifyServedPortal({ origin, expectedSha: SHA });
     assert.equal(noArtifact.servedAssetsConsistent, true);
     assert.equal(noArtifact.ciArtifactMatch, false);
+    assert.equal(noArtifact.sourceEvidenceVerified, false);
+    assert.match(noArtifact.sourceEvidenceReason, /Neither equivalent complete build inputs/);
     const changed = { ...trustedBuild, assets: trustedBuild.assets.map((asset) =>
       asset.path === '/assets/app.js' ? { ...asset, sha256: '0'.repeat(64) } : asset) };
     const compared = await verifyServedPortal({ origin, expectedSha: SHA, trustedBuild: changed });
     assert.equal(compared.ciArtifactMatch, false);
+    assert.equal(compared.sourceEvidenceVerified, false);
     assert.match(compared.ciArtifactReason, /Different build output/);
     assert.equal(independentArtifactComparison(trustedBuild, metadata, SHA).ciArtifactMatch, true);
+  });
+});
+
+test('equivalent tracked inputs verify source evidence when independent build bytes differ', async () => {
+  const served = { ...metadata, trackedSourceClean: false, trackedSourceEquivalent: true };
+  const differentBuild = { ...trustedBuild, assets: trustedBuild.assets.map((asset) =>
+    asset.path === '/assets/app.js' ? { ...asset, sha256: '0'.repeat(64) } : asset) };
+  await withServer([[METADATA_PATH, Buffer.from(JSON.stringify(served))]], async (origin) => {
+    const result = await verifyServedPortal({ origin, expectedSha: SHA, trustedBuild: differentBuild });
+    assert.equal(result.servedAssetsConsistent, true);
+    assert.equal(result.ciArtifactMatch, false);
+    assert.equal(result.trackedSourceClean, false);
+    assert.equal(result.trackedSourceEquivalent, true);
+    assert.equal(result.sourceEvidenceVerified, true);
+  });
+});
+
+test('tracked-clean metadata cannot verify source if untracked inputs remain', async () => {
+  const served = { ...metadata, trackedSourceClean: true, trackedSourceEquivalent: false };
+  const differentBuild = { ...trustedBuild, assets: trustedBuild.assets.map((asset) =>
+    asset.path === '/assets/app.js' ? { ...asset, sha256: '0'.repeat(64) } : asset) };
+  await withServer([[METADATA_PATH, Buffer.from(JSON.stringify(served))]], async (origin) => {
+    const result = await verifyServedPortal({ origin, expectedSha: SHA, trustedBuild: differentBuild });
+    assert.equal(result.servedAssetsConsistent, true);
+    assert.equal(result.trackedSourceClean, true);
+    assert.equal(result.trackedSourceEquivalent, false);
+    assert.equal(result.ciArtifactMatch, false);
+    assert.equal(result.sourceEvidenceVerified, false);
   });
 });
 
@@ -179,6 +240,7 @@ test('served canonical index and manifest assets verify against a successful Pro
     assert.equal(result.verifiedAssetCount, 3);
     assert.equal(result.servedAssetsConsistent, true);
     assert.equal(result.ciArtifactMatch, true);
+    assert.equal(result.sourceEvidenceVerified, true);
     assert.equal(result.servedIndexBuildPath, '/index.html');
     assert.deepEqual(result.verifiedAssetDigests,
       [{ path: '/refunds', sha256: sha256(files.get('/index.html')) },
@@ -238,6 +300,7 @@ test('dirty tracked-source evidence remains explicit while independent identity 
       assert.equal(result.claimedBuildProvenance, 'dirty');
       assert.equal(result.trackedSourceClean, false);
       assert.equal(result.ciArtifactMatch, true);
+      assert.equal(result.sourceEvidenceVerified, true);
     });
 });
 

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -43,6 +44,21 @@ function git(root, args) {
   catch { return null; }
 }
 
+const canonicalJson = (value) => value && typeof value === 'object'
+  ? Array.isArray(value)
+    ? value.map(canonicalJson)
+    : Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJson(value[key])]))
+  : value;
+
+function semanticallyUnchangedVercelConfig(root) {
+  try {
+    const committed = JSON.parse(execFileSync('git', ['show', 'HEAD:vercel.json'],
+      { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
+    const checkout = JSON.parse(readFileSync(path.join(root, 'vercel.json'), 'utf8'));
+    return JSON.stringify(canonicalJson(committed)) === JSON.stringify(canonicalJson(checkout));
+  } catch { return false; }
+}
+
 export function sourceIdentity(root, env = process.env) {
   const head = git(root, ['rev-parse', 'HEAD']);
   const dirty = git(root, ['status', '--porcelain', '--untracked-files=normal']);
@@ -50,18 +66,23 @@ export function sourceIdentity(root, env = process.env) {
   const deploySha = env.VERCEL_GIT_COMMIT_SHA?.toLowerCase();
   const sourceSha = deploySha || head?.toLowerCase() || null;
   const trackedSourceClean = trackedDirty === null ? null : trackedDirty.length === 0;
+  // Vercel's Git checkout reserializes only vercel.json into one-line JSON.
+  // Keep literal byte cleanliness false, but separately attest equivalent
+  // build inputs only if there are no other tracked or untracked changes.
+  const trackedSourceEquivalent = dirty === null ? null :
+    dirty.length === 0 || (dirty === 'M vercel.json' && semanticallyUnchangedVercelConfig(root));
   if (!SHA.test(sourceSha ?? '') || (deploySha && head && deploySha !== head.toLowerCase()))
     return { sourceSha: SHA.test(sourceSha ?? '') ? sourceSha : null,
-      provenance: 'unsupported', trackedSourceClean };
+      provenance: 'unsupported', trackedSourceClean, trackedSourceEquivalent };
   if (dirty === null && !head && env.VERCEL_ENV === 'production' && deploySha)
-    return { sourceSha, provenance: 'production_claimed', trackedSourceClean };
+    return { sourceSha, provenance: 'production_claimed', trackedSourceClean, trackedSourceEquivalent };
   if (dirty === null || dirty.length) return { sourceSha,
-    provenance: dirty === null ? 'unsupported' : 'dirty', trackedSourceClean };
+    provenance: dirty === null ? 'unsupported' : 'dirty', trackedSourceClean, trackedSourceEquivalent };
   if (env.VERCEL_ENV === 'production' && deploySha)
-    return { sourceSha, provenance: 'production_claimed', trackedSourceClean };
+    return { sourceSha, provenance: 'production_claimed', trackedSourceClean, trackedSourceEquivalent };
   if (env.VERCEL_ENV === 'production')
-    return { sourceSha, provenance: 'unsupported', trackedSourceClean };
-  return { sourceSha, provenance: 'local_clean', trackedSourceClean };
+    return { sourceSha, provenance: 'unsupported', trackedSourceClean, trackedSourceEquivalent };
+  return { sourceSha, provenance: 'local_clean', trackedSourceClean, trackedSourceEquivalent };
 }
 
 export function verifiedVercelAliasDeployment(alias, deployment, {
@@ -162,6 +183,10 @@ export function validateMetadata(metadata, expectedSha) {
       metadata.trackedSourceClean !== null &&
       typeof metadata.trackedSourceClean !== 'boolean')
     throw new Error('Invalid tracked-source cleanliness attestation');
+  if (metadata.trackedSourceEquivalent !== undefined &&
+      metadata.trackedSourceEquivalent !== null &&
+      typeof metadata.trackedSourceEquivalent !== 'boolean')
+    throw new Error('Invalid tracked-source equivalence attestation');
   if (!Array.isArray(metadata.assets) || !Array.isArray(metadata.manifestAssets) ||
       !Array.isArray(metadata.entryAssets) || !Array.isArray(metadata.portalIndexAssets) ||
       metadata.assets.length > 2000 || metadata.manifestAssets.length > 1000)
@@ -229,6 +254,8 @@ export async function verifyServedPortal({ origin, expectedSha, trustedBuild, fe
   const metadata = JSON.parse(metadataBytes.toString('utf8'));
   validateMetadata(metadata, expectedSha);
   const artifactComparison = independentArtifactComparison(trustedBuild, metadata, expectedSha);
+  const sourceEvidenceVerified = metadata.trackedSourceEquivalent === true ||
+    artifactComparison.ciArtifactMatch;
   const inventory = new Map(metadata.assets.map((asset) => [asset.path, asset]));
   const servedIndex = await fetchBytes(origin, PORTAL_INDEX_PATH, fetchImpl, 5_000_000);
   const indexDigest = sha256(servedIndex);
@@ -250,7 +277,12 @@ export async function verifyServedPortal({ origin, expectedSha, trustedBuild, fe
   }
   return { canonicalUrl: `${origin}${PORTAL_INDEX_PATH}`, observedAt: new Date().toISOString(), sourceSha: expectedSha,
     servedAssetsConsistent: true, claimedBuildProvenance: metadata.provenance,
-    trackedSourceClean: metadata.trackedSourceClean ?? null, ...artifactComparison,
+    trackedSourceClean: metadata.trackedSourceClean ?? null,
+    trackedSourceEquivalent: metadata.trackedSourceEquivalent ?? null,
+    sourceEvidenceVerified,
+    sourceEvidenceReason: sourceEvidenceVerified ? null :
+      'Neither equivalent complete build inputs nor identical independent CI bytes are proven',
+    ...artifactComparison,
     servedIndexBuildPath, inventoryAssetCount: metadata.assets.length,
     verifiedAssetCount: verifiedAssets.length, verifiedAssetDigests: verifiedAssets };
 }

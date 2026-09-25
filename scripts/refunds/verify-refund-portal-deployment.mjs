@@ -79,6 +79,7 @@ try {
     deploymentIdentityVerified: true, vercelDeploymentId: vercelIdentity.deploymentId,
     vercelProjectId: vercelIdentity.projectId, vercelDeploymentUrl: vercelIdentity.deploymentUrl,
     independentBuildRunId: trustedRun.databaseId, ...result }, null, 2));
+  if (!result.sourceEvidenceVerified) process.exitCode = 2;
 } finally {
   await rm(temporaryDirectory, { recursive: true, force: true });
 }
