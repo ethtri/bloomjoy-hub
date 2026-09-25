@@ -1134,6 +1134,22 @@ select is(public.service_finish_refund_reply_subscription_run(
   'succeeded','A no-task hourly run can finish with an explicit zero-work receipt');
 select is(public.service_get_refund_reply_subscription_health()->>'enabled','true',
   'Service health exposes effective activation without customer content');
+create temp table failed_subscription_run on commit drop as
+  select public.service_start_refund_reply_subscription_run(
+    date_trunc('hour',statement_timestamp())-interval '1 hour') receipt;
+select is((select receipt->>'outcome' from failed_subscription_run),'started',
+  'A separate due hour records a distinct scheduled opportunity');
+select is(public.service_finish_refund_reply_subscription_run(
+    (select (receipt->>'runId')::uuid from failed_subscription_run),0,0,0,
+    'research_failed')->>'status','failed',
+  'A failed run retains a bounded redacted failure category');
+select ok((select health->>'latestRunStatus'='succeeded'
+    and (health->>'failedRuns24h')::integer=1
+    and health->>'latestFailureCode'='research_failed'
+    and health->>'latestFailedAt' is not null
+    and (health->>'missedHours24h')::integer>=0
+    from (select public.service_get_refund_reply_subscription_health() health) h),
+  'Health exposes failed-run count/category separately from missed hours and latest status');
 select ok(not has_function_privilege('authenticated',
   'public.service_apply_refund_scoped_reply_semantic_fact(uuid,uuid,uuid,bigint,text,jsonb,jsonb,text[])','execute')
   and not has_function_privilege('authenticated',

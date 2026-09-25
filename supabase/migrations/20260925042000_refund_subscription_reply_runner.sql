@@ -122,7 +122,15 @@ returns jsonb language sql stable security definer set search_path='' as $$
     'activatedAt',s.activated_at,
     'latestStartedAt',(select max(r.started_at) from public.refund_reply_subscription_runs r),
     'latestFinishedAt',(select max(r.finished_at) from public.refund_reply_subscription_runs r),
+    'latestRunStatus',(select r.status from public.refund_reply_subscription_runs r
+      order by r.scheduled_hour desc limit 1),
     'missedHours24h',m.missed_count,
+    'failedRuns24h',(select count(*)::integer from public.refund_reply_subscription_runs r
+      where r.status='failed' and r.scheduled_hour>=date_trunc('hour',statement_timestamp())-interval '24 hours'),
+    'latestFailedAt',(select r.finished_at from public.refund_reply_subscription_runs r
+      where r.status='failed' order by r.finished_at desc limit 1),
+    'latestFailureCode',(select r.failure_code from public.refund_reply_subscription_runs r
+      where r.status='failed' order by r.finished_at desc limit 1),
     'staleRunningCount',(select count(*) from public.refund_reply_subscription_runs r
       where r.status='running' and r.started_at<statement_timestamp()-interval '90 minutes'),
     'replyTasks',public.service_get_refund_scoped_reply_research_health(),
