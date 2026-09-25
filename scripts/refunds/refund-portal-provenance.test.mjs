@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { buildMetadata, METADATA_PATH, safePublicPath, sha256, sourceIdentity, successfulProductionDeploymentSha, verifyServedPortal } from './refund-portal-provenance.mjs';
+import { buildMetadata, METADATA_PATH, safePublicPath, sha256, sourceIdentity, successfulMainBuildRun, successfulProductionDeploymentSha, verifyServedPortal } from './refund-portal-provenance.mjs';
 
 const SHA = 'a'.repeat(40);
 const html = '<html><head><link rel="stylesheet" href="/assets/app.css"></head><body><script type="module" src="/assets/app.js"></script></body></html>';
@@ -22,6 +22,7 @@ const metadata = {
   entryAssets: ['/assets/app.css', '/assets/app.js'],
   manifestAssets: ['/assets/app.css', '/assets/app.js'], assets: inventory,
 };
+const trustedBuild = { ...metadata, provenance: 'local_clean' };
 
 async function withServer(overrides, run) {
   const routes = new Map(files);
@@ -32,6 +33,7 @@ async function withServer(overrides, run) {
     const value = routes.get(request.url);
     if (value === null || value === undefined) { response.writeHead(404).end(); return; }
     if (value === 'unavailable') { response.writeHead(503).end(); return; }
+    if (value?.redirect) { response.writeHead(302, { location: value.redirect }).end(); return; }
     response.writeHead(200).end(value);
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -81,10 +83,40 @@ test('a clean local checkout and dirty source cannot be labeled as a verified Pr
     git('add', 'source.txt');
     git('commit', '-qm', 'fixture');
     assert.equal(sourceIdentity(root, {}).provenance, 'local_clean');
+    const cleanSha = sourceIdentity(root, {}).sourceSha;
+    assert.equal(sourceIdentity(root, { VERCEL_ENV: 'production',
+      VERCEL_GIT_COMMIT_SHA: cleanSha }).provenance, 'production_claimed');
     await writeFile(path.join(root, 'source.txt'), 'changed');
     assert.equal(sourceIdentity(root, { VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_SHA: sourceIdentity(root, {}).sourceSha }).provenance,
       'dirty');
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('spoofed production environment cannot verify without independent main-build evidence', async () => {
+  await withServer([], async (origin) => {
+    await assert.rejects(verifyServedPortal({ origin, expectedSha: SHA }),
+      /Independent main build source is missing/);
+    await assert.rejects(verifyServedPortal({ origin, expectedSha: SHA,
+      trustedBuild: { ...trustedBuild, sourceSha: 'b'.repeat(40) } }),
+    /Independent main build source is missing/);
+    await assert.rejects(verifyServedPortal({ origin, expectedSha: SHA,
+      trustedBuild: { ...trustedBuild, assets: trustedBuild.assets.map((asset) =>
+        asset.path === '/assets/app.js' ? { ...asset, sha256: '0'.repeat(64) } : asset) } }),
+    /Production build differs from independent main build/);
+  });
+});
+
+test('external canonical redirect is rejected without fetching its Location', async () => {
+  await withServer([['/refunds', { redirect: 'https://example.invalid/private' }]],
+    async (origin) => {
+      const requested = [];
+      await assert.rejects(verifyServedPortal({ origin, expectedSha: SHA, trustedBuild,
+        fetchImpl: (url, options) => {
+          requested.push(url.href);
+          return fetch(url, options);
+        } }), /Unavailable or redirected/);
+      assert.equal(requested.some((url) => url.startsWith('https://example.invalid/')), false);
+    });
 });
 
 test('GitHub source identity requires the exact latest successful Production deployment', () => {
@@ -99,9 +131,19 @@ test('GitHub source identity requires the exact latest successful Production dep
   ]) assert.throws(() => successfulProductionDeploymentSha(record, history, id), /successful GitHub Production/);
 });
 
+test('independent build anchor accepts only a successful main push at the exact SHA', () => {
+  const valid = { databaseId: 17, headSha: SHA, headBranch: 'main', event: 'push', conclusion: 'success' };
+  assert.deepEqual(successfulMainBuildRun([valid], SHA), valid);
+  for (const changed of [
+    { headSha: 'b'.repeat(40) }, { headBranch: 'feature' }, { event: 'pull_request' },
+    { conclusion: 'failure' }, { databaseId: 0 },
+  ]) assert.throws(() => successfulMainBuildRun([{ ...valid, ...changed }], SHA),
+    /No successful independent CI build/);
+});
+
 test('served canonical index and manifest assets verify against a successful Production SHA', async () => {
   await withServer([], async (origin) => {
-    const result = await verifyServedPortal({ origin, expectedSha: SHA });
+    const result = await verifyServedPortal({ origin, expectedSha: SHA, trustedBuild });
     assert.equal(result.sourceSha, SHA);
     assert.equal(result.verifiedAssetCount, 3);
     assert.equal(result.deploymentVerified, true);
@@ -123,7 +165,8 @@ test('canonical refund route may serve an emitted prerendered index with the sam
     ['/refunds', Buffer.from(prerendered)],
     [METADATA_PATH, Buffer.from(JSON.stringify(changed))],
   ], async (origin) => {
-    const result = await verifyServedPortal({ origin, expectedSha: SHA });
+    const result = await verifyServedPortal({ origin, expectedSha: SHA,
+      trustedBuild: { ...changed, provenance: 'local_clean' } });
     assert.equal(result.servedIndexBuildPath, altPath);
     assert.equal(result.verifiedAssetCount, 3);
   });
@@ -133,7 +176,7 @@ test('missing metadata or assets and unavailable responses fail', async () => {
   for (const override of [
     [[METADATA_PATH, null]], [['/assets/app.js', null]], [['/assets/app.css', 'unavailable']],
   ]) await withServer(override, async (origin) => {
-    await assert.rejects(verifyServedPortal({ origin, expectedSha: SHA }), /Unavailable or redirected/);
+    await assert.rejects(verifyServedPortal({ origin, expectedSha: SHA, trustedBuild }), /Unavailable or redirected/);
   });
 });
 
@@ -142,16 +185,16 @@ test('tampered bytes and mixed old index with new assets fail', async () => {
     [['/assets/app.js', Buffer.from('tampered')]],
     [['/refunds', Buffer.from(html.replace('app.js', 'old.js'))]],
   ]) await withServer(override, async (origin) => {
-    await assert.rejects(verifyServedPortal({ origin, expectedSha: SHA }), /digest mismatch/);
+    await assert.rejects(verifyServedPortal({ origin, expectedSha: SHA, trustedBuild }), /digest mismatch/);
   });
 });
 
 test('wrong or unsupported source provenance cannot pass as production', async () => {
   await withServer([], async (origin) => {
-    await assert.rejects(verifyServedPortal({ origin, expectedSha: 'b'.repeat(40) }), /source does not match/);
+    await assert.rejects(verifyServedPortal({ origin, expectedSha: 'b'.repeat(40), trustedBuild }), /source does not match/);
   });
   await withServer([[METADATA_PATH, Buffer.from(JSON.stringify({ ...metadata, provenance: 'local_clean' }))]],
-    async (origin) => assert.rejects(verifyServedPortal({ origin, expectedSha: SHA }), /source does not match/));
+    async (origin) => assert.rejects(verifyServedPortal({ origin, expectedSha: SHA, trustedBuild }), /source does not match/));
 });
 
 test('unsafe, external, encoded, and traversal paths are rejected before asset fetch', async () => {
@@ -160,7 +203,7 @@ test('unsafe, external, encoded, and traversal paths are rejected before asset f
     assert.throws(() => safePublicPath(unsafe), /Unsafe/);
     const malicious = { ...metadata, assets: [{ path: unsafe, sha256: '0'.repeat(64), size: 1 }, ...inventory] };
     await withServer([[METADATA_PATH, Buffer.from(JSON.stringify(malicious))]], async (origin) => {
-      await assert.rejects(verifyServedPortal({ origin, expectedSha: SHA }), /Unsafe/);
+      await assert.rejects(verifyServedPortal({ origin, expectedSha: SHA, trustedBuild }), /Unsafe/);
     });
   }
 });
@@ -174,6 +217,7 @@ test('a metadata-consistent external entry URL still fails the index relationshi
     ['/refunds', Buffer.from(unsafeHtml)],
     [METADATA_PATH, Buffer.from(JSON.stringify(changed))],
   ], async (origin) => {
-    await assert.rejects(verifyServedPortal({ origin, expectedSha: SHA }), /Unsafe/);
+    await assert.rejects(verifyServedPortal({ origin, expectedSha: SHA,
+      trustedBuild: { ...changed, provenance: 'local_clean' } }), /Unsafe/);
   });
 });

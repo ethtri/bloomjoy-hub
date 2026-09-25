@@ -18,6 +18,15 @@ export function successfulProductionDeploymentSha(deployment, statuses, requeste
   return deployment.sha;
 }
 
+export function successfulMainBuildRun(runs, expectedSha) {
+  const run = Array.isArray(runs) && runs.find((candidate) =>
+    candidate.headSha === expectedSha && candidate.headBranch === 'main' &&
+    candidate.event === 'push' && candidate.conclusion === 'success' &&
+    Number.isSafeInteger(candidate.databaseId) && candidate.databaseId > 0);
+  if (!run) throw new Error('No successful independent CI build on main for deployment SHA');
+  return run;
+}
+
 export function safePublicPath(value) {
   const isFile = typeof value === 'string' &&
     /\.(?:html|js|css|ico|jpe?g|png|svg|webp|mp4|txt|xml|json|webmanifest|woff2?|pdf)$/.test(value);
@@ -150,6 +159,17 @@ export function validateMetadata(metadata, expectedSha) {
     throw new Error('Index entry is not in the Vite manifest inventory');
 }
 
+export function validateTrustedBuild(trustedBuild, servedMetadata, expectedSha) {
+  if (trustedBuild?.sourceSha !== expectedSha ||
+      trustedBuild.provenance !== 'local_clean' ||
+      servedMetadata?.sourceSha !== expectedSha)
+    throw new Error('Independent main build source is missing or does not match the deployment');
+  for (const field of ['portalIndexAssets', 'entryAssets', 'manifestAssets', 'assets']) {
+    if (JSON.stringify(trustedBuild[field]) !== JSON.stringify(servedMetadata[field]))
+      throw new Error(`Production build differs from independent main build: ${field}`);
+  }
+}
+
 async function fetchBytes(origin, publicPath, fetchImpl, maxBytes) {
   const url = new URL(publicPath === METADATA_PATH ? METADATA_PATH : safePublicPath(publicPath), origin);
   if (url.origin !== origin) throw new Error(`Asset escapes canonical origin: ${publicPath}`);
@@ -167,7 +187,7 @@ async function fetchBytes(origin, publicPath, fetchImpl, maxBytes) {
   return Buffer.concat(chunks);
 }
 
-export async function verifyServedPortal({ origin, expectedSha, fetchImpl = fetch }) {
+export async function verifyServedPortal({ origin, expectedSha, trustedBuild, fetchImpl = fetch }) {
   const canonical = new URL(origin);
   if (canonical.protocol !== 'https:' && canonical.hostname !== '127.0.0.1' && canonical.hostname !== 'localhost')
     throw new Error('Portal origin must use HTTPS');
@@ -177,6 +197,7 @@ export async function verifyServedPortal({ origin, expectedSha, fetchImpl = fetc
   const metadataBytes = await fetchBytes(origin, METADATA_PATH, fetchImpl, 2_000_000);
   const metadata = JSON.parse(metadataBytes.toString('utf8'));
   validateMetadata(metadata, expectedSha);
+  validateTrustedBuild(trustedBuild, metadata, expectedSha);
   const inventory = new Map(metadata.assets.map((asset) => [asset.path, asset]));
   const servedIndex = await fetchBytes(origin, PORTAL_INDEX_PATH, fetchImpl, 5_000_000);
   const indexDigest = sha256(servedIndex);

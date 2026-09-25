@@ -2,6 +2,8 @@ name: CI
 
 on:
   pull_request:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -34,6 +36,14 @@ jobs:
         run: npm run refunds:validate-email-transport
       - name: Build
         run: npm run build
+      - name: Preserve independently built portal inventory
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: refund-portal-source-${{ github.sha }}
+          path: dist/refund-portal-build.json
+          if-no-files-found: error
+          retention-days: 30
       - name: TypeScript no-emit check
         run: npm run typecheck
       - name: SEO Regression Checks
