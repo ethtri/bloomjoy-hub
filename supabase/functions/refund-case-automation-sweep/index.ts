@@ -4668,6 +4668,26 @@ serve(async (req) => {
       });
     }
 
+    // Reconcile verified replies that Gmail linked before this continuation
+    // existed. The service RPC reuses the exact delivered-request receiver;
+    // it performs no customer contact or provider operation.
+    failureStage = "stored_scoped_reply_reconciliation";
+    const { data: storedReplyRecovery, error: storedReplyRecoveryError } = await supabase.rpc(
+      "service_reconcile_stored_refund_scoped_email_replies", { p_limit: 25, p_dry_run: false },
+    );
+    if (storedReplyRecoveryError) throw storedReplyRecoveryError;
+    const recoveredReplies = Number(storedReplyRecovery?.receivedCount);
+    const examinedReplies = Number(storedReplyRecovery?.examinedCount);
+    if (storedReplyRecovery?.dryRun !== false ||
+      !Number.isSafeInteger(recoveredReplies) || !Number.isSafeInteger(examinedReplies) ||
+      recoveredReplies < 0 || examinedReplies < recoveredReplies || examinedReplies > 25) {
+      throw new Error("refund_stored_reply_reconciliation_invalid_result");
+    }
+    counters.actionsAttempted += examinedReplies;
+    counters.actionsSucceeded += recoveredReplies;
+    counters.actionsSuppressed += examinedReplies - recoveredReplies;
+    if (recoveredReplies > 0) addReason(counters, "stored_verified_reply_reconciled", recoveredReplies);
+
     // Transaction discovery is a bounded read-only provider check. Run it
     // whenever automation is enabled so candidate recovery does not wait for
     // the customer-contact clock. Refund execution and every customer-facing

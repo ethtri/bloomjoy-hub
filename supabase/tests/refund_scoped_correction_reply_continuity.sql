@@ -249,6 +249,79 @@ update public.refund_wallet_correction_contexts set status='revoked',revoked_at=
 update public.refund_gmail_messages set sent_at=null where refund_case_id=pg_temp.cid(16) and direction='outbound';
 select is(pg_temp.apply_reply(16)->>'reason','scoped_reply_superseded','Historical sent Gmail record retains received-at fallback and cannot reopen revoked scope');
 select is((select count(*)::integer from public.refund_customer_fact_applications where refund_case_id=any(array[pg_temp.cid(2),pg_temp.cid(3),pg_temp.cid(4),pg_temp.cid(5),pg_temp.cid(6),pg_temp.cid(7),pg_temp.cid(10),pg_temp.cid(12),pg_temp.cid(13)])),0,'Rejected replies produce no fact application');
+-- Stored replies may predate the new Gmail ingestion call. The scheduled
+-- reconciler must seed the exact existing request once, even without an
+-- active follow-up cycle, and never reinterpret a foreign or stale reply.
+select pg_temp.make_scope(n) from generate_series(18,20) n;
+select pg_temp.make_scope(n) from generate_series(22,24) n;
+update public.refund_cases set status='waiting_on_customer',automation_state='more_info_needed'
+where id in (pg_temp.cid(18),pg_temp.cid(19),pg_temp.cid(20));
+update public.refund_follow_up_cycles set status='manual_review'
+where refund_case_id=pg_temp.cid(18);
+update public.refund_gmail_messages set plain_body='I answered in my own words above.'
+where id=pg_temp.gid(18);
+insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,provider_message_id,references_header,
+  direction,message_kind,status,sender_email,recipient_email,participant_role,participant_trust,subject,plain_body,received_at,retention_expires_at)
+select pg_temp.gid(21),gmail_thread_id,refund_case_id,'scoped-reply-21',references_header,
+  direction,message_kind,status,sender_email,recipient_email,participant_role,participant_trust,subject,
+  'My second answer gives more detail.',received_at+interval '1 minute',retention_expires_at
+from public.refund_gmail_messages where id=pg_temp.gid(18);
+update public.refund_gmail_messages set references_header='<unrelated-request@example.invalid>'
+where id=pg_temp.gid(19);
+update public.refund_cases set card_network='mastercard' where id=pg_temp.cid(20);
+update public.refund_gmail_messages set participant_trust='unverified' where id=pg_temp.gid(22);
+update public.refund_wallet_correction_contexts set status='revoked',revoked_at=now()
+where refund_case_id=pg_temp.cid(23);
+update public.refund_cases set status='closed' where id=pg_temp.cid(24);
+update public.refund_wallet_correction_contexts set issued_at=statement_timestamp()-interval '30 minutes'
+where refund_case_id=pg_temp.cid(19);
+select is(public.service_reconcile_stored_refund_scoped_email_replies(1)->>'examinedCount','1',
+  'Default dry run identifies only a current exact-request historical reply without exposing IDs');
+select ok((select reply_message_id is null from public.refund_wallet_correction_contexts
+  where refund_case_id=pg_temp.cid(18)),
+  'Read-only historical audit does not mutate the waiting request');
+select is(public.service_reconcile_stored_refund_scoped_email_replies(1,false)->>'receivedCount','1',
+  'Older unclaimable rows cannot starve the latest exact historical reply behind the sync cursor');
+select ok((select status='needs_review' and automation_state='customer_reply_review'
+  from public.refund_cases where id=pg_temp.cid(18)),
+  'Historical reply clears Customer waiting without an active follow-up cycle');
+select is((select reply_message_id from public.refund_wallet_correction_contexts
+  where refund_case_id=pg_temp.cid(18)),pg_temp.gid(21),
+  'Historical recovery binds the latest verified message to the existing request');
+select is((select reply_body_sha256 from public.refund_wallet_correction_contexts
+  where refund_case_id=pg_temp.cid(18)),
+  encode(extensions.digest(convert_to('My second answer gives more detail.','UTF8'),'sha256'),'hex'),
+  'Claim identity preserves the latest exact reply body hash');
+select is((select count(*)::integer from public.refund_case_events
+  where refund_case_id=pg_temp.cid(18)
+    and event_type='purchase_correction_verified_email_received'),1,
+  'Historical recovery emits one request-bound receipt event');
+select is(public.service_reconcile_stored_refund_scoped_email_replies(25,false)->>'receivedCount','0',
+  'Second historical reply and repeated sweep cannot duplicate the request task');
+select is((select count(*)::integer from public.refund_case_events
+  where refund_case_id=pg_temp.cid(18)
+    and event_type='purchase_correction_verified_email_received'),1,
+  'Repeated historical recovery adds no duplicate receipt');
+select ok((select reply_message_id is null from public.refund_wallet_correction_contexts
+  where refund_case_id=pg_temp.cid(19)) and
+  (select status='waiting_on_customer' from public.refund_cases where id=pg_temp.cid(19)),
+  'Unrelated later thread cannot seed a task or clear the exact customer wait');
+select ok((select reply_message_id is null from public.refund_wallet_correction_contexts
+  where refund_case_id=pg_temp.cid(20)) and
+  (select status='waiting_on_customer' from public.refund_cases where id=pg_temp.cid(20)),
+  'Stale fact version cannot seed a historical reply task');
+select ok((select reply_message_id is null from public.refund_wallet_correction_contexts
+  where refund_case_id=pg_temp.cid(22)),
+  'Unverified participant cannot seed a historical reply task');
+select ok((select reply_message_id is null from public.refund_wallet_correction_contexts
+  where refund_case_id=pg_temp.cid(23)),
+  'Superseded request cannot be reopened by an old reply');
+select ok((select reply_message_id is null from public.refund_wallet_correction_contexts
+  where refund_case_id=pg_temp.cid(24)),
+  'Closed case cannot be reopened by an old reply');
+select ok(not has_function_privilege('authenticated',
+  'public.service_reconcile_stored_refund_scoped_email_replies(integer,boolean)','execute'),
+  'Historical reply reconciliation remains service-only');
 select ok(not has_function_privilege('anon','public.service_apply_refund_gmail_customer_facts_v1(uuid,uuid,bigint,jsonb,text[],text)','execute')
  and not has_function_privilege('authenticated','public.service_apply_refund_gmail_customer_facts_v1(uuid,uuid,bigint,jsonb,text[],text)','execute'),'Existing service-only boundary remains');
 select ok(not has_function_privilege('authenticated',
