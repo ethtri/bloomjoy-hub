@@ -97,6 +97,7 @@ const parseArgs = (argv) => {
     demoOnly: false,
     managerQueueOnly: false,
     mixedVersionOnly: false,
+    realProjectionSeedFile: null,
     cashOnly: false,
     selectionCompatibilityOnly: false,
     deliveryTruthOnly: false,
@@ -174,6 +175,16 @@ const parseArgs = (argv) => {
 
     if (arg === '--mixed-version-only') {
       args.mixedVersionOnly = true;
+      continue;
+    }
+
+    if (arg === '--real-projection-seed-file') {
+      const seedFile = argv[index + 1];
+      if (!seedFile || seedFile.startsWith('--')) {
+        throw new Error('--real-projection-seed-file requires a path.');
+      }
+      args.realProjectionSeedFile = seedFile;
+      index += 1;
       continue;
     }
 
@@ -4084,7 +4095,7 @@ const runCanonicalNextWorkQueueChecks = async ({ browser, appUrl, recorder }) =>
   await closeRefundPortalContext(context);
 };
 
-const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder }) => {
+const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realProjectionSeed }) => {
   for (const withNextWork of [false, true]) {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const functionCalls = [];
@@ -4131,6 +4142,55 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder }) => {
       !functionCalls.includes('refund-case-admin-update') &&
       !functionCalls.includes('nayax-card-refund'));
     await closeRefundPortalContext(context);
+  }
+
+  if (realProjectionSeed) {
+    const { caseRecord, lifecycle, preparationProof } = realProjectionSeed;
+    recorder.assert('Disposable DB seed binds completed proof to the authenticated Manager RPC',
+      realProjectionSeed.source === 'disposable_db_completed_worker_and_authenticated_manager_rpc' &&
+        realProjectionSeed.managerId === mockUser.id &&
+        preparationProof?.schemaVersion === 'refund_manager_preparation_v1' &&
+        preparationProof?.evidenceBasis === 'cash_coverage_unavailable_researched' &&
+        caseRecord?.canPerformOfficialAction === true &&
+        Number(preparationProof?.officialActionVersion) === realProjectionSeed.officialActionVersion &&
+        Number(preparationProof?.deterministicFactVersion) === realProjectionSeed.deterministicFactVersion &&
+        lifecycle?.nextWork?.actor === 'manager' &&
+        lifecycle?.nextWork?.actionCode === 'send_cash_refund_and_confirm');
+    const realContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const functionCalls = [];
+    await installMockSupabaseRoutes(realContext, {
+      refundOverview: () => {
+        const overview = buildCashRefundReviewOverview();
+        overview.machines[0].id = caseRecord.reportingMachineId;
+        overview.managerAssignments[0].reportingMachineId = caseRecord.reportingMachineId;
+        overview.cases[0] = {
+          ...overview.cases[0], ...caseRecord,
+          id: realProjectionSeed.caseId,
+          publicReference: realProjectionSeed.publicReference,
+          officialActionVersion: realProjectionSeed.officialActionVersion,
+          lifecycle,
+          hasMatchedSalesFact: false,
+        };
+        return overview;
+      },
+      functionCalls,
+    });
+    const realPage = await realContext.newPage();
+    await signInRefundUser(realPage, appUrl);
+    await realPage.getByRole('button', { name: /^Ready to approve 1$/ }).click();
+    await waitForQueueCount(realPage, 1);
+    await queueCase(realPage, realProjectionSeed.publicReference).click();
+    const renderedState = await realPage.getByTestId('refund-manager-state').innerText();
+    const renderedAction = await realPage.getByTestId('refund-primary-action').innerText();
+    recorder.assert('Actual completed worker and Manager RPC render one cash action without a matched-sale gate',
+      renderedState.includes('Action needed') &&
+        renderedAction.includes(lifecycle.nextWork.actionLabel) &&
+        await realPage.getByTestId('refund-cash-primary-action')
+          .getByText('Confirm refund sent via Zelle').isVisible() &&
+        (await realPage.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+        functionCalls.length === 0,
+      JSON.stringify({ renderedState, renderedAction, functionCalls }));
+    await closeRefundPortalContext(realContext);
   }
 
   const skewContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
@@ -4519,6 +4579,13 @@ const {
 
 const run = async () => {
   const args = parseArgs(process.argv.slice(2));
+  const realProjectionSeed = args.realProjectionSeedFile
+    ? JSON.parse(await readFile(args.realProjectionSeedFile, 'utf8'))
+    : null;
+  if (realProjectionSeed &&
+      realProjectionSeed.schemaVersion !== 'refund_real_preparation_browser_seed_v1') {
+    throw new Error('Unsupported disposable Manager preparation seed version.');
+  }
   const recorder = createRecorder();
   const evidence = {
     navigationProviderCallCount: 0,
@@ -4612,9 +4679,9 @@ const run = async () => {
         recorder,
       });
     } else if (args.mixedVersionOnly) {
-      await runMixedVersionWorkflowChecks({ browser, appUrl: args.appUrl, recorder });
+      await runMixedVersionWorkflowChecks({ browser, appUrl: args.appUrl, recorder, realProjectionSeed });
     } else if (args.managerQueueOnly) {
-      await runMixedVersionWorkflowChecks({ browser, appUrl: args.appUrl, recorder });
+      await runMixedVersionWorkflowChecks({ browser, appUrl: args.appUrl, recorder, realProjectionSeed });
       await runCanonicalNextWorkQueueChecks({
         browser,
         appUrl: args.appUrl,
@@ -4777,6 +4844,12 @@ const run = async () => {
         ],
       });
     } else {
+      await runMixedVersionWorkflowChecks({
+        browser, appUrl: args.appUrl, recorder, realProjectionSeed,
+      });
+      await runCanonicalNextWorkQueueChecks({
+        browser, appUrl: args.appUrl, recorder,
+      });
       const commonCheckContext = {
         browser,
         appUrl: args.appUrl,

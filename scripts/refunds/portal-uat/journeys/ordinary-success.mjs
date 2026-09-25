@@ -1496,7 +1496,8 @@ export const createOrdinarySuccessChecks = ({
         (await variantsPage.getByTestId('refund-run-nayax-refund').count()) === 0
     );
 
-    await variantsPage.getByRole('button', { name: /Action needed/ }).click();
+    await variantsPage.locator('[aria-label="Refund case views"]')
+      .getByRole('button', { name: /^Action needed \d+$/ }).click();
     await waitForQueueCount(variantsPage, 1);
     await queueCase(variantsPage, 'RF-UAT-CASH-MISSING-AMOUNT').click();
     await variantsPage.getByTestId('refund-cash-evidence-state').getByText('No sale found').waitFor({ timeout: 10000 });

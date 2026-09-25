@@ -12,6 +12,7 @@ import { createAuthenticatedEvidenceFragment } from './refunds/refund-uat-fragme
 import { getRefundGmailIntakeShadowOwnerQuerySnapshots } from './refunds/refund-gmail-intake-shadow-runner-clients.mjs';
 import { writePopulatedDeliveryUpgradeTest, writeSettledCompletionDeliveryTest } from './refunds/refund-populated-delivery-upgrade.mjs';
 import { writeReceiptWrapperParityTest } from './refunds/refund-receipt-wrapper-parity.mjs';
+import { writeRealRefundPreparationSeed } from './refunds/refund-real-preparation-seed.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,6 +29,7 @@ Validates Supabase migrations by applying them to a disposable local database.
 Options:
   --debug                Pass --debug to Supabase CLI commands.
   --evidence-dir <path>  Write sanitized aggregate test evidence after a complete pass.
+  --portal-seed-dir <path>  Export a synthetic completed Manager RPC response for browser UAT.
   --keep-temp            Leave the temporary Supabase project on disk for troubleshooting.
   --help                 Show this help text.
 `);
@@ -41,6 +43,7 @@ export function parseArgs(argv) {
   const options = {
     debug: false,
     evidenceDir: null,
+    portalSeedDir: null,
     keepTemp: false,
     help: false,
   };
@@ -58,6 +61,16 @@ export function parseArgs(argv) {
         throw new Error('--evidence-dir requires a path.');
       }
       options.evidenceDir = path.resolve(process.cwd(), value);
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--portal-seed-dir') {
+      const value = argv[index + 1];
+      if (!value || value.startsWith('--')) {
+        throw new Error('--portal-seed-dir requires a path.');
+      }
+      options.portalSeedDir = path.resolve(process.cwd(), value);
       index += 1;
       continue;
     }
@@ -584,6 +597,12 @@ async function main() {
         testSummary,
       });
       log('Supabase database persona tests passed.');
+      if (options.portalSeedDir) {
+        await writeRealRefundPreparationSeed({
+          dbPort, outputDir: options.portalSeedDir,
+        });
+        log('Synthetic completed Manager RPC seed exported from the disposable database.');
+      }
     } else if (options.evidenceDir) {
       throw new Error('Database evidence requires at least one SQL test file.');
     }
