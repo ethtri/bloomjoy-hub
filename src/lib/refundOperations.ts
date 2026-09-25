@@ -2098,6 +2098,7 @@ export const buildLocalRefundPublicSelections = (): RefundPublicSelection[] => [
 
 export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
   const managerEmail = 'machine-manager@example.test';
+  const demoCardAuthorizationAt = demoIsoHoursAgo(5);
   const correctionDemo = isLocalUatDemoForced() ? new URLSearchParams(window.location.search).get('correction') : null;
   const timeDemo = isLocalUatDemoForced()
     ? new URLSearchParams(window.location.search).get('time-case')
@@ -2370,7 +2371,7 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
           caseVersion: 1,
         },
         nayaxRecommendationState: 'manual_exception',
-        matchedNayaxMachineAuthTime: demoIsoHoursAgo(5),
+        matchedNayaxMachineAuthTime: demoCardAuthorizationAt,
         matchedNayaxAmountCents: 700,
         matchedNayaxCardLast4: '4242',
         matchedNayaxCurrencyCode: 'USD',
@@ -2382,11 +2383,11 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
           machineLabel: 'Cotton Candy 01',
           locationName: 'Mall Atrium',
           customerReportedAt: demoIsoHoursAgo(5.05),
-          providerAuthorizedAt: demoIsoHoursAgo(5),
+          providerAuthorizedAt: demoCardAuthorizationAt,
           machineTimezone: 'America/Los_Angeles',
           providerTimeResolution: 'exact',
           customerTimezone: 'America/New_York',
-          providerTimestampAt: demoIsoHoursAgo(5),
+          providerTimestampAt: demoCardAuthorizationAt,
           timeEvidence: {
             schemaVersion: 'refund_candidate_time_v1',
             providerTimestampSource: 'authorization_gmt',
@@ -2416,8 +2417,8 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
         nayaxLookupCandidates: [
           {
             candidateToken: '41000000-0000-4000-8000-000000000031',
-            authorizedAt: demoIsoHoursAgo(5),
-            machineAuthorizationTime: demoIsoHoursAgo(5),
+            authorizedAt: demoCardAuthorizationAt,
+            machineAuthorizationTime: demoCardAuthorizationAt,
             timeEvidence: {
               schemaVersion: 'refund_candidate_time_v1',
               providerTimestampSource: 'authorization_gmt',

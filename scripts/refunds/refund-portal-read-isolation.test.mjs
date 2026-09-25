@@ -179,6 +179,18 @@ test('overview parser localizes optional skew while core identity and capability
   );
 });
 
+test('local demo card purchase keeps one exact provider authorization instant', () => {
+  const refundCase = refundOperations.buildLocalRefundDemoOverview().cases.find(
+    (entry) => entry.id === 'demo-card-match',
+  );
+  assert.ok(refundCase);
+  const candidate = refundCase.nayaxLookupCandidates?.[0];
+  assert.ok(candidate);
+  assert.equal(refundCase.matchedNayaxMachineAuthTime, candidate.machineAuthorizationTime);
+  assert.equal(refundCase.selectedNayaxTransaction?.providerAuthorizedAt, candidate.machineAuthorizationTime);
+  assert.equal(refundCase.selectedNayaxTransaction?.providerTimestampAt, candidate.authorizedAt);
+});
+
 test('overview parser omits only cases with malformed message or candidate collections', () => {
   const fixture = refundOperations.buildLocalRefundDemoOverview();
   const malformedIndex = fixture.cases.findIndex(
