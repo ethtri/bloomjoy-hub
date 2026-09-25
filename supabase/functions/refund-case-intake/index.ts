@@ -898,6 +898,12 @@ const sendWalletMatchReadyNotification = async ({
     noticeReason: "wallet_match_ready",
   });
 
+  if (notice.coalescedByReady) {
+    // The shared ledger has a sent or unknown ready decision for this same
+    // material payout and current manager. Rollback must not send it again.
+    return;
+  }
+
   await supabase.from("refund_case_events").insert({
     refund_case_id: refundCaseId,
     event_type: "wallet_correction_match_ready_notification_sent",

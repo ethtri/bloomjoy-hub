@@ -119,6 +119,35 @@ create index refund_manager_ready_notice_due_idx
   where notice_reason='decision_ready' and delivery_state in
     ('ready_queued','known_not_sent');
 
+-- The semantic decision key deliberately excludes action/fact versions and
+-- preparation copy. Metadata-only version changes and renewed research for the
+-- same payout must not generate another notice; changed purchase, amount,
+-- destination, or machine produces a distinct material decision.
+create function public.refund_manager_decision_material_fingerprint(
+  p_refund_case_id uuid,p_action_code text
+)
+returns text language plpgsql stable security definer set search_path='' as $$
+declare c public.refund_cases%rowtype;
+begin
+  select * into c from public.refund_cases where id=p_refund_case_id;
+  if c.id is null or not (
+    (p_action_code='approve_or_deny_request' and c.payment_method='card')
+    or (p_action_code='send_cash_refund_and_confirm' and c.payment_method='cash')
+  ) then return null; end if;
+  return encode(extensions.digest(convert_to(jsonb_build_array(
+    p_action_code,c.reporting_machine_id,
+    coalesce(c.refund_amount_cents,c.matched_nayax_amount_cents,c.payment_amount_cents),
+    c.matched_nayax_transaction_id,c.matched_nayax_site_id,
+    c.matched_nayax_machine_auth_time,c.matched_nayax_amount_cents,
+    c.matched_nayax_currency_code,c.matched_sales_fact_id,
+    c.zelle_payment_contact
+  )::text,'UTF8'),'sha256'),'hex');
+end $$;
+revoke all on function public.refund_manager_decision_material_fingerprint(uuid,text)
+  from public,anon,authenticated;
+grant execute on function public.refund_manager_decision_material_fingerprint(uuid,text)
+  to service_role;
+
 create function public.service_refund_manager_ready_notice_snapshot(
   p_refund_case_id uuid, p_manager_user_id uuid,
   p_observed_at timestamptz default statement_timestamp()
@@ -205,15 +234,8 @@ begin
   from public.reporting_machines machine
   join public.reporting_locations location on location.id=case_row.reporting_location_id
   where machine.id=case_row.reporting_machine_id;
-  fingerprint:=encode(extensions.digest(convert_to(jsonb_build_array(
-    action_code,case_row.reporting_machine_id,
-    case_row.matched_nayax_transaction_id,case_row.matched_nayax_site_id,
-    case_row.matched_nayax_machine_auth_time,case_row.matched_nayax_amount_cents,
-    case_row.matched_nayax_currency_code,case_row.refund_amount_cents,
-    case_row.matched_sales_fact_id,case_row.zelle_payment_contact,
-    case_row.nayax_recommendation_state,case_row.correlation_status,
-    preparation->>'evidenceBasis',preparation->>'summary'
-  )::text,'UTF8'),'sha256'),'hex');
+  fingerprint:=public.refund_manager_decision_material_fingerprint(
+    case_row.id,action_code);
   return jsonb_build_object('schemaVersion','refund_manager_ready_notice_v1',
     'caseId',case_row.id,'managerUserId',p_manager_user_id,
     'decisionFingerprint',fingerprint,'actionCode',action_code,

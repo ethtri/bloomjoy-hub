@@ -168,6 +168,43 @@ Deno.test("manager notice marks provider access before send and validates settle
   assertEquals(result.deliveryState, "sent", "settled delivery state");
 });
 
+Deno.test("legacy wallet notice coalesces a sent or unknown ready decision without provider access", async () => {
+  for (const deliveryState of ["sent", "delivery_unknown"] as const) {
+    const calls: string[] = [];
+    const supabase = {
+      rpc: async (name: string) => {
+        calls.push(name);
+        if (name !== "service_begin_refund_manager_notification") {
+          throw new Error(`Unexpected RPC: ${name}`);
+        }
+        return {
+          data: {
+            actionId: "92500000-0000-4000-8000-000000000002",
+            attentionVersion: 2,
+            channel: "immediate",
+            claimed: false,
+            deliveryState,
+            reason: "ready_decision_already_notified",
+          },
+          error: null,
+        };
+      },
+    };
+    const result = await sendRefundManagerActionNotice({
+      ...noticeInput,
+      noticeReason: "wallet_match_ready",
+      supabase: supabase as never,
+      sendEmail: async () => {
+        throw new Error("provider must not run after a ready decision");
+      },
+    });
+    assertEquals(result.coalescedByReady, true, "ready decision coalesced");
+    assertEquals(result.deliveryState, deliveryState, "accepted state preserved");
+    assertEquals(calls, ["service_begin_refund_manager_notification"],
+      "no provider or context access after coalescing");
+  }
+});
+
 Deno.test("manager notice never reaches provider when the start marker fails", async () => {
   let providerCalls = 0;
   const outcomes: unknown[] = [];

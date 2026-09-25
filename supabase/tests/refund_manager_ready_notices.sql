@@ -55,7 +55,8 @@ declare fact_version bigint;
 begin
   if p_refund_case_id not in ('14255000-0000-4000-8000-000000000001',
     '14255000-0000-4000-8000-000000000003',
-    '14255000-0000-4000-8000-000000000004') then return null; end if;
+    '14255000-0000-4000-8000-000000000004',
+    '14255000-0000-4000-8000-000000000006') then return null; end if;
   select deterministic_fact_version into fact_version from public.refund_cases
   where id=p_refund_case_id and official_action_version=p_expected_action_version;
   if fact_version is null then return null; end if;
@@ -240,6 +241,170 @@ select is((select count(*)::text from public.refund_manager_notification_actions
     where notice_reason='decision_ready' and refund_case_id=
       '14255000-0000-4000-8000-000000000004'),
   '2','Partial ready unique key admits exactly two manager rows');
+
+-- Disabling the new lane must not let the old wallet path resend an accepted
+-- or unknown outcome for the same material decision and current recipient.
+update public.refund_manager_ready_notice_settings set delivery_enabled=false
+where singleton;
+create temporary table unknown_ready_wallet_attempt as select
+  public.service_begin_refund_manager_notification(
+    '14255000-0000-4000-8000-000000000001','wallet_match_ready',
+    'private-customer@example.invalid',array['mailbox@example.invalid'],
+    array['ops@example.invalid']) as value;
+select is((select value->>'reason' from unknown_ready_wallet_attempt),
+  'ready_decision_already_notified',
+  'Unknown ready outcome suppresses the legacy wallet reservation after rollback');
+select is((select value->>'deliveryState' from unknown_ready_wallet_attempt),
+  'delivery_unknown','Unknown provider outcome remains explicitly unresolved');
+select is((select count(*)::text from public.refund_manager_notification_actions
+    where notice_reason='wallet_match_ready' and refund_case_id=
+      '14255000-0000-4000-8000-000000000001'),
+  '0','Unknown ready outcome cannot create a second wallet action');
+
+create temporary table sent_ready_claim as select value from co_manager_claims
+  order by value->>'recipient' limit 1;
+select is(public.service_mark_refund_manager_ready_notice_provider_started(
+  (select (value->>'intentId')::uuid from sent_ready_claim),
+  (select (value->>'claimToken')::uuid from sent_ready_claim),
+  (select value->>'routeFingerprint' from sent_ready_claim),
+  (select value->>'recipient' from sent_ready_claim))::text,'true',
+  'A current co-manager can start the prepared ready notice');
+select is(public.service_complete_refund_manager_ready_notice(
+  (select (value->>'intentId')::uuid from sent_ready_claim),
+  (select (value->>'claimToken')::uuid from sent_ready_claim),
+  'sent','synthetic-ready-provider-id')::text,'true',
+  'Accepted ready outcome is recorded on the shared ledger');
+create temporary table sent_ready_wallet_attempt as select
+  public.service_begin_refund_manager_notification(
+    '14255000-0000-4000-8000-000000000004','wallet_match_ready',
+    'co-manager-customer@example.invalid',array['mailbox@example.invalid'],
+    array['ops@example.invalid']) as value;
+select is((select value->>'reason' from sent_ready_wallet_attempt),
+  'ready_decision_already_notified',
+  'Sent ready outcome suppresses legacy wallet reservation after rollback');
+select is((select count(*)::text from public.refund_manager_notification_actions
+    where notice_reason='wallet_match_ready' and refund_case_id=
+      '14255000-0000-4000-8000-000000000004'),
+  '0','Sent ready outcome cannot create a second wallet action');
+
+create temporary table material_before as select
+  public.refund_manager_decision_material_fingerprint(
+    '14255000-0000-4000-8000-000000000004',
+    'send_cash_refund_and_confirm') as fingerprint;
+update public.refund_cases set customer_name='Updated customer name',
+  official_action_version=official_action_version+1
+where id='14255000-0000-4000-8000-000000000004';
+select is(public.refund_manager_decision_material_fingerprint(
+    '14255000-0000-4000-8000-000000000004',
+    'send_cash_refund_and_confirm'),
+  (select fingerprint from material_before),
+  'Contact metadata and official-action version alone are not a new payout decision');
+select is(public.service_begin_refund_manager_notification(
+    '14255000-0000-4000-8000-000000000004','wallet_match_ready',
+    'co-manager-customer@example.invalid',array['mailbox@example.invalid'],
+    array['ops@example.invalid'])->>'reason',
+  'ready_decision_already_notified',
+  'Nonmaterial version change does not reopen the old wallet send lane');
+update public.refund_cases set zelle_payment_contact='changed-payout-destination'
+where id='14255000-0000-4000-8000-000000000004';
+select isnt(public.refund_manager_decision_material_fingerprint(
+    '14255000-0000-4000-8000-000000000004',
+    'send_cash_refund_and_confirm'),
+  (select fingerprint from material_before),
+  'Changed payout destination creates a distinct material decision');
+create temporary table changed_wallet_attempt as select
+  public.service_begin_refund_manager_notification(
+    '14255000-0000-4000-8000-000000000004','wallet_match_ready',
+    'co-manager-customer@example.invalid',array['mailbox@example.invalid'],
+    array['ops@example.invalid']) as value;
+select is((select value->>'claimed' from changed_wallet_attempt),'true',
+  'A truly changed payout can enter the legacy lane after rollback');
+select is(public.service_mark_refund_manager_notification_provider_started(
+  (select (value->>'actionId')::uuid from changed_wallet_attempt),
+  (select (value->>'claimToken')::uuid from changed_wallet_attempt))::text,'true',
+  'Legacy provider boundary permits the genuinely changed payout');
+
+create temporary table amount_before as select
+  public.refund_manager_decision_material_fingerprint(
+    '14255000-0000-4000-8000-000000000004',
+    'send_cash_refund_and_confirm') as fingerprint;
+update public.refund_cases set payment_amount_cents=payment_amount_cents+100
+where id='14255000-0000-4000-8000-000000000004';
+select isnt(public.refund_manager_decision_material_fingerprint(
+    '14255000-0000-4000-8000-000000000004',
+    'send_cash_refund_and_confirm'),
+  (select fingerprint from amount_before),
+  'Changed payout amount is materially different');
+
+insert into public.refund_cases
+  (id,public_reference,reporting_machine_id,reporting_location_id,
+    customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,
+    status,automation_state,deterministic_fact_version,created_at)
+values ('14255000-0000-4000-8000-000000000005','RF-CARD-MATERIAL-5',
+  '14253000-0000-4000-8000-000000000001',
+  '14252000-0000-4000-8000-000000000001',
+  'card-customer@example.invalid','Private case details',
+  '2026-09-23T12:00:00Z','card',1025,
+  'needs_review','under_review',1,'2026-09-23T12:00:00Z');
+create temporary table purchase_before as select
+  public.refund_manager_decision_material_fingerprint(
+    '14255000-0000-4000-8000-000000000005',
+    'approve_or_deny_request') as fingerprint;
+update public.refund_cases set matched_nayax_transaction_id='synthetic-purchase-1'
+where id='14255000-0000-4000-8000-000000000005';
+select isnt(public.refund_manager_decision_material_fingerprint(
+    '14255000-0000-4000-8000-000000000005',
+    'approve_or_deny_request'),
+  (select fingerprint from purchase_before),
+  'Changed selected purchase creates a distinct material decision');
+
+-- A legacy sender may reserve first and pause before provider access. The
+-- ready lane may then send; the old provider-start marker must recheck.
+insert into public.refund_cases
+  (id,public_reference,reporting_machine_id,reporting_location_id,
+    customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,
+    zelle_payment_contact,status,automation_state,deterministic_fact_version,created_at)
+values ('14255000-0000-4000-8000-000000000006','RF-RACE-6',
+  '14253000-0000-4000-8000-000000000001',
+  '14252000-0000-4000-8000-000000000001',
+  'race-customer@example.invalid','Private case details',
+  '2026-09-23T12:00:00Z','cash',1125,'race-zelle-contact',
+  'needs_review','under_review',1,'2026-09-23T12:00:00Z');
+create temporary table race_old_reservation as select
+  public.service_begin_refund_manager_notification(
+    '14255000-0000-4000-8000-000000000006','wallet_match_ready',
+    'race-customer@example.invalid',array['mailbox@example.invalid'],
+    array['ops@example.invalid']) as value;
+select is((select value->>'claimed' from race_old_reservation),'true',
+  'Legacy wallet action can reserve before a ready notice starts');
+update public.refund_manager_ready_notice_settings set delivery_enabled=true
+where singleton;
+select is(public.service_enqueue_refund_manager_ready_notices(
+  '14255000-0000-4000-8000-000000000006')->>'queuedCount','2',
+  'Unstarted legacy reservation does not permanently block current managers');
+create temporary table race_ready_claim as select
+  public.service_claim_next_refund_manager_ready_notice(
+    '14255000-0000-4000-8000-000000000006') as value;
+select is(public.service_mark_refund_manager_ready_notice_provider_started(
+  (select (value->>'intentId')::uuid from race_ready_claim),
+  (select (value->>'claimToken')::uuid from race_ready_claim),
+  (select value->>'routeFingerprint' from race_ready_claim),
+  (select value->>'recipient' from race_ready_claim))::text,'true',
+  'Ready lane can start when legacy sender has not contacted provider');
+select is(public.service_complete_refund_manager_ready_notice(
+  (select (value->>'intentId')::uuid from race_ready_claim),
+  (select (value->>'claimToken')::uuid from race_ready_claim),
+  'sent','synthetic-race-ready-provider-id')::text,'true',
+  'Ready lane has accepted the same payout before legacy resumes');
+select is(public.service_mark_refund_manager_notification_provider_started(
+  (select (value->>'actionId')::uuid from race_old_reservation),
+  (select (value->>'claimToken')::uuid from race_old_reservation))::text,'false',
+  'Legacy provider boundary rejects a ready notice that won the race');
+select is(public.service_complete_refund_manager_notification(
+  (select (value->>'actionId')::uuid from race_old_reservation),
+  (select (value->>'claimToken')::uuid from race_old_reservation),
+  'known_not_sent')::text,'true',
+  'Rejected old reservation settles as known not sent');
 
 select * from finish();
 rollback;
