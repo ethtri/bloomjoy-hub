@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(66);
+select plan(68);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -226,6 +226,11 @@ select is((public.refund_case_nayax_manager_readiness(
     'a3410000-0000-4000-8000-000000000002',
     'a3470000-0000-4000-8000-000000000002')->>'canIssueCardRefund'),'true',
   'the assigned manager can make the one decision on a current System-preselected match');
+select is((public.refund_manager_preparation_snapshot(
+    'a3470000-0000-4000-8000-000000000002',
+    (select official_action_version from public.refund_cases
+      where id='a3470000-0000-4000-8000-000000000002'))->>'evidenceBasis'),
+  'card_exact_selected','completed System preselection supplies current exact card preparation');
 select pg_temp.set_actor('a3410000-0000-4000-8000-000000000001');
 select matches(pg_temp.capture_error($sql$select public.admin_select_refund_nayax_candidate_current_user_v1(
   'a3470000-0000-4000-8000-000000000002',
@@ -245,6 +250,11 @@ select ok((select matched_nayax_transaction_id is null and matched_nayax_amount_
       and event_type='nayax_match_preselection_disputed'
       and metadata->>'provider_call_made'='false' and metadata->>'approval_created'='false'),
   'dispute clears only the System match and records no payment side effect');
+select is(public.refund_manager_preparation_snapshot(
+    'a3470000-0000-4000-8000-000000000002',
+    (select official_action_version from public.refund_cases
+      where id='a3470000-0000-4000-8000-000000000002')),
+  null::jsonb,'disputed preselection revokes current card preparation');
 insert into public.refund_nayax_lookup_candidates(token,refund_case_id,lookup_generation,actor_user_id,
   reporting_machine_id,provider_transaction_id,site_id,machine_authorization_time,amount_cents,
   card_last4,currency_code,evidence_summary,expires_at)

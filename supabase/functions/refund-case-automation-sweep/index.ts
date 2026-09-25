@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
+import { reconcileApprovedCardResearchFailure } from "../_shared/refund-approved-card-research-failure.ts";
 import { correctionLinkRequested, getCurrentRefundCorrectionFields, issueRefundCorrectionForMessage, refundCorrectionLinksEnabled, STORED_CORRECTION_LINK_MARKER } from "../_shared/refund-correction-delivery.ts";
 import { recheckSavedPurchaseCorrection } from "../_shared/refund-purchase-correction-handler.ts";
 import { sendInternalEmail, sendTransactionalEmail } from "../_shared/internal-email.ts";
@@ -91,6 +92,8 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 import { runAutomaticNayaxLookupIfReady } from "../_shared/automatic-nayax-lookup.ts";
 import {
+  buildNayaxLookupDiagnostics,
+  classifyNayaxLookupFailure,
   failNayaxLookup,
   persistNayaxLookupResult,
 } from "../_shared/nayax-lookup-persistence.ts";
@@ -300,6 +303,8 @@ type SweepCounters = {
   actionsFailed: number;
   actionsSuppressed: number;
   reasonCounts: Record<string, number>;
+  cashCorrelationsEvaluated: number;
+  cashCorrelationStaleSkipped: number;
   nayaxLookupsRun: number;
   nayaxCandidatesFound: number;
   nayaxNoMatchMovedToWaiting: number;
@@ -365,6 +370,8 @@ const createCounters = (): SweepCounters => ({
   actionsFailed: 0,
   actionsSuppressed: 0,
   reasonCounts: {},
+  cashCorrelationsEvaluated: 0,
+  cashCorrelationStaleSkipped: 0,
   nayaxLookupsRun: 0,
   nayaxCandidatesFound: 0,
   nayaxNoMatchMovedToWaiting: 0,
@@ -406,6 +413,8 @@ const redactedSummary = (counters: SweepCounters) => ({
   actionsFailed: counters.actionsFailed,
   actionsSuppressed: counters.actionsSuppressed,
   reasonCounts: counters.reasonCounts,
+  cashCorrelationsEvaluated: counters.cashCorrelationsEvaluated,
+  cashCorrelationStaleSkipped: counters.cashCorrelationStaleSkipped,
   nayaxLookupsRun: counters.nayaxLookupsRun,
   nayaxCandidatesFound: counters.nayaxCandidatesFound,
   nayaxNoMatchMovedToWaiting: counters.nayaxNoMatchMovedToWaiting,
@@ -2566,6 +2575,30 @@ const getPersistedNayaxCorrectionEvidence = async (
   });
 };
 
+const runCashPreparationSweep = async (counters: SweepCounters) => {
+  if (!supabase) return;
+  const { data, error } = await supabase.rpc(
+    "service_prepare_due_refund_cash_cases",
+    { p_limit: 10 },
+  );
+  if (error) throw error;
+  const result = data && typeof data === "object" && !Array.isArray(data)
+    ? data as Record<string, unknown>
+    : null;
+  const evaluated = result?.evaluated;
+  const staleSkipped = result?.staleSkipped;
+  if (typeof evaluated !== "number" || !Number.isSafeInteger(evaluated) || evaluated < 0 ||
+    typeof staleSkipped !== "number" || !Number.isSafeInteger(staleSkipped) || staleSkipped < 0 ||
+    result?.payloadRedacted !== true) {
+    throw new Error("Invalid redacted cash preparation receipt.");
+  }
+  counters.cashCorrelationsEvaluated += evaluated;
+  counters.cashCorrelationStaleSkipped += staleSkipped;
+  if (evaluated > 0) {
+    addReason(counters, "cash_correlation_evaluated", evaluated);
+  }
+};
+
 const runCardNayaxLookupSweep = async (
   runId: string,
   counters: SweepCounters,
@@ -2865,6 +2898,157 @@ const runCardNayaxLookupSweep = async (
       }
       await finishAction(action, "failed", sanitizeFailureCategory(error), null, counters);
     }
+  }
+};
+
+const runApprovedCardNayaxResearchSweep = async (
+  runId: string,
+  counters: SweepCounters,
+  policyWindowStart: string,
+) => {
+  if (!supabase) return;
+  const { data, error } = await supabase.rpc(
+    "service_claim_due_approved_card_nayax_research", { p_limit: 4 },
+  );
+  if (error) throw error;
+  const claims = Array.isArray(data) ? data as Array<Record<string, unknown>> : [];
+  for (const claim of claims) {
+    const caseId = textValue(claim.caseId);
+    const lookupGeneration = Number(claim.lookupGeneration);
+    const factVersion = Number(claim.factVersion);
+    const actionVersion = Number(claim.officialActionVersion);
+    const amountCents = Number(claim.approvedAmountCents);
+    const fingerprint = textValue(claim.businessFingerprint);
+    const scopeDigest = textValue(claim.scopeDigest);
+    if (!UUID_PATTERN.test(caseId) || !Number.isSafeInteger(lookupGeneration) ||
+      !Number.isSafeInteger(factVersion) || !Number.isSafeInteger(actionVersion) ||
+      !Number.isSafeInteger(amountCents) || amountCents <= 0 ||
+      !/^[a-f0-9]{32}$/.test(fingerprint) ||
+      !/^[a-f0-9]{64}$/.test(scopeDigest) || claim.payloadRedacted !== true) {
+      throw new Error("Invalid approved-card research claim.");
+    }
+    counters.evaluatedCaseIds.add(caseId);
+    let action: ClaimedAction | null = null;
+    let persisted = false;
+    let providerReadStarted = false;
+    try {
+      action = await claimAction(
+        runId, caseId,
+        `approved_card_lookup:${caseId}:a${actionVersion}:f${factVersion}:g${lookupGeneration}`,
+        "nayax_lookup", "approved_research", policyWindowStart, counters,
+      );
+      if (!action.claimed) throw new Error("Approved-card research action was not claimed.");
+      const { data: start, error: startError } = await supabase.rpc(
+        "service_validate_approved_card_nayax_research_start", {
+          p_refund_case_id: caseId,
+          p_lookup_generation: lookupGeneration,
+          p_expected_fact_version: factVersion,
+          p_expected_action_version: actionVersion,
+          p_expected_fingerprint: fingerprint,
+          p_expected_scope_digest: scopeDigest,
+          p_expected_amount_cents: amountCents,
+        },
+      );
+      if (startError) throw startError;
+      if (start?.payloadRedacted !== true || typeof start?.ready !== "boolean") {
+        throw new Error("Invalid approved-card research start validation.");
+      }
+      if (!start.ready) {
+        counters.nayaxStaleResponsesRejected += 1;
+        await finishAction(action, "completed", "approved_card_research_stale", null, counters);
+        continue;
+      }
+      providerReadStarted = true;
+      const result = await lookupNayaxCandidatesForRefundCase({
+        supabase, caseId, actorUserId: null, lookupGeneration,
+        expectedFactVersion: factVersion,
+      });
+      const { data: committed, error: commitError } = await supabase.rpc(
+        "service_commit_approved_card_nayax_research", {
+          p_refund_case_id: caseId,
+          p_lookup_generation: lookupGeneration,
+          p_expected_fact_version: factVersion,
+          p_expected_action_version: actionVersion,
+          p_expected_fingerprint: fingerprint,
+          p_expected_scope_digest: scopeDigest,
+          p_expected_amount_cents: amountCents,
+          p_lookup_status: result.lookupStatus,
+          p_recommendation_state: result.recommendationState,
+          p_policy_version: result.policyVersion,
+          p_last_checked_at: result.lastCheckedAt,
+          p_summary: result.configured ? result.summary : result.message || result.summary,
+          p_resolved_machine_id: textValue(result.resolvedMachineId) || null,
+          p_candidate_count: result.candidateCount,
+          p_diagnostics: buildNayaxLookupDiagnostics(result),
+        },
+      );
+      if (commitError) throw commitError;
+      if (committed?.applied !== true) {
+        counters.nayaxStaleResponsesRejected += 1;
+        await finishAction(action, "completed", "approved_card_research_stale", null, counters);
+        continue;
+      }
+      persisted = true;
+      counters.nayaxLookupsRun += 1;
+      counters.nayaxCandidatesFound += result.candidates.length;
+      addReason(counters, "approved_card_read_only_research_completed");
+      await finishAction(action, "completed", "approved_card_research_recorded", null, counters);
+    } catch (lookupError) {
+      let failureDisposition: "completed" | "failed" | "unresolved" = "unresolved";
+      if (!persisted) {
+        const classification = providerReadStarted
+          ? classifyNayaxLookupFailure(lookupError)
+          : { failureClass: "worker_interrupted", safeRetryEligible: true };
+        failureDisposition = await reconcileApprovedCardResearchFailure(() =>
+          supabase.rpc(
+            "service_fail_approved_card_nayax_research", {
+              p_refund_case_id: caseId,
+              p_lookup_generation: lookupGeneration,
+              p_expected_fact_version: factVersion,
+              p_expected_action_version: actionVersion,
+              p_expected_fingerprint: fingerprint,
+              p_expected_scope_digest: scopeDigest,
+              p_expected_amount_cents: amountCents,
+              p_failure_class: classification.failureClass,
+              p_safe_retry_eligible: classification.safeRetryEligible,
+            },
+          ));
+        if (failureDisposition === "unresolved") {
+          console.error("Approved-card read-only research failure state was not recorded", {
+            errorType: lookupError instanceof Error ? lookupError.name : typeof lookupError,
+          });
+        }
+      }
+      if (failureDisposition === "completed" && action) {
+        addReason(counters, "approved_card_research_commit_response_reconciled");
+        await finishAction(action, "completed", "approved_card_research_recorded", null, counters);
+        continue;
+      }
+      counters.nayaxLookupFailures += 1;
+      console.error("Approved-card read-only research failed", {
+        errorType: lookupError instanceof Error ? lookupError.name : typeof lookupError,
+      });
+      if (action) {
+        await finishAction(action, "failed", sanitizeFailureCategory(lookupError), null, counters);
+      }
+    }
+  }
+  const { data: health, error: healthError } = await supabase.rpc(
+    "service_get_approved_card_nayax_research_health",
+  );
+  if (healthError) throw healthError;
+  const healthCounts = [health?.dueCount, health?.staleClaimCount, health?.heldFailureCount];
+  if (health?.payloadRedacted !== true ||
+    !["healthy", "action_needed"].includes(String(health?.status)) ||
+    healthCounts.some((value) => !Number.isSafeInteger(value) || value < 0)) {
+    throw new Error("Approved-card research health contract is invalid.");
+  }
+  if (health.dueCount > 0) addReason(counters, "approved_card_research_due", health.dueCount);
+  if (health.staleClaimCount > 0) {
+    addReason(counters, "approved_card_research_stale_claim", health.staleClaimCount);
+  }
+  if (health.heldFailureCount > 0) {
+    addReason(counters, "approved_card_research_held", health.heldFailureCount);
   }
 };
 
@@ -4692,8 +4876,12 @@ serve(async (req) => {
     // whenever automation is enabled so candidate recovery does not wait for
     // the customer-contact clock. Refund execution and every customer-facing
     // action remain in their existing guarded lanes below.
+    failureStage = "cash_preparation";
+    await runCashPreparationSweep(counters);
     failureStage = "card_nayax_lookup";
     await runCardNayaxLookupSweep(runId, counters, policyWindowStart);
+    failureStage = "approved_card_nayax_research";
+    await runApprovedCardNayaxResearchSweep(runId, counters, policyWindowStart);
 
     if (!policyWindowIsOpen(scheduledAt)) {
       failureStage = "policy_window";

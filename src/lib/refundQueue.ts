@@ -9,7 +9,23 @@ type RefundQueueCase = {
   paymentMethod: "card" | "cash" | "unknown";
   paymentAmountCents?: number | null;
   zellePaymentContact?: string | null;
+  decision?: "approved" | "denied" | null;
+  workflowProjectionUnavailable?: boolean;
+  canPerformOfficialAction?: boolean | null;
+  officialActionVersion?: number | null;
 };
+
+/** An older RPC cannot prove who owns an undecided final-money action. */
+export const isRefundWorkflowProjectionUnavailable = (
+  refundCase: RefundQueueCase,
+): boolean => refundCase.decision == null &&
+  (refundCase.workflowProjectionUnavailable === true || Boolean(refundCase.lifecycle &&
+    !refundCase.lifecycle.nextWork && !refundCase.lifecycle.definitiveNoRefund &&
+  refundCase.lifecycle.paymentState === 'not_requested' &&
+  refundCase.lifecycle.managerQueue.bucket === 'ready_to_pay' &&
+  (refundCase.paymentMethod === 'card' ||
+    (refundCase.paymentMethod === 'cash' &&
+      Boolean(refundCase.zellePaymentContact?.trim())))));
 
 export type RefundQueueFilter =
   | Exclude<RefundManagerQueueBucket, 'accounting_review' | 'integrity_hold' | 'internal_archive'>
@@ -45,6 +61,32 @@ export const findRefundDeepLinkedCase = <T extends { id: string }>(
 export const getRefundManagerQueueBucket = (
   refundCase: RefundQueueCase,
 ): RefundManagerQueueBucket => {
+  const work = refundCase.lifecycle?.nextWork;
+  if (work) {
+    if (!work.isOpen) return 'completed';
+    if (work.actor === 'customer') return 'waiting_on_customer';
+    if (work.actor === 'manager') return refundCase.canPerformOfficialAction === true &&
+      Number.isSafeInteger(refundCase.officialActionVersion) &&
+      (refundCase.officialActionVersion ?? 0) > 0
+      ? 'ready_to_pay' : 'provider_hold';
+    // A due time can name scheduled work but cannot prove a worker has claimed
+    // it. #1429 will add durable execution truth before a running label returns.
+    return 'provider_hold';
+  }
+  if (refundCase.decision === 'approved' && refundCase.paymentMethod === 'card') {
+    // Older lifecycle payloads lack nextWork. A settled, terminal customer case
+    // is done; an explicit unresolved delivery/work bucket still stays open.
+    if (refundCase.status === 'completed' &&
+        refundCase.lifecycle?.managerQueue.bucket === 'completed') return 'completed';
+    return refundCase.lifecycle?.paymentState === 'submitted_pending'
+      ? 'in_progress' : 'provider_hold';
+  }
+  if (refundCase.workflowProjectionUnavailable) return 'provider_hold';
+  if (refundCase.lifecycle &&
+      ['outcome_unknown', 'integrity_unknown', 'submitted_pending'].includes(refundCase.lifecycle.paymentState)) {
+    return 'provider_hold';
+  }
+  if (isRefundWorkflowProjectionUnavailable(refundCase)) return 'provider_hold';
   if (refundCase.lifecycle) return refundCase.lifecycle.managerQueue.bucket;
   if (["completed", "denied", "closed"].includes(refundCase.status))
     return "completed";

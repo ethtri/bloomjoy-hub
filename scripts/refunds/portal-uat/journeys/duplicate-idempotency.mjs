@@ -101,6 +101,9 @@ export const createDuplicateIdempotencyChecks = ({
 
     const page = await context.newPage();
     await signInRefundUser(page, appUrl);
+    // The saved card approval is System-owned follow-up, even while its
+    // possible-duplicate evidence remains available for review.
+    await page.getByRole('button', { name: /^Bloomjoy follow-up \d+$/ }).click();
     await waitForQueueCount(page, 1);
     await queueCase(page, 'RF-UAT-CARD').click();
     await page.getByText('Possible duplicate review', { exact: true }).waitFor({ timeout: 10000 });
@@ -212,14 +215,15 @@ export const createDuplicateIdempotencyChecks = ({
       await page.getByTestId('refund-run-nayax-refund').isEnabled()
     );
 
-    await page.getByRole('button', { name: /^Action needed \d+$/ }).click();
+    await page.getByRole('button', { name: /^Bloomjoy follow-up 2$/ }).click();
+    await waitForQueueCount(page, 2);
     await queueCase(page, 'RF-UAT-VERSION-MISSING').click();
     recorder.assert(
-      'A case with a missing review version cannot inherit the previous case version',
+      'A case with a missing review version leaves the actionable queue and cannot inherit the previous case version',
       (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
         await page.getByTestId('refund-action-status').isVisible() &&
         (await page.getByTestId('refund-manager-next-step').innerText()).includes(
-          'Refresh the case to load the current refund authorization. Do not issue a refund from stale details.'
+          'Refresh the case before taking a final action. Do not repeat a payment or approval.'
         ) &&
         !functionCalls.includes('nayax-card-refund'),
       functionCalls.join(', ')
@@ -227,11 +231,11 @@ export const createDuplicateIdempotencyChecks = ({
 
     await queueCase(page, 'RF-UAT-AUTHORITY-MISSING').click();
     recorder.assert(
-      'A case without manager authority shows the exact access recovery guidance',
+      'A case without current manager authority stays visible without suggesting this viewer can act',
       (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
         await page.getByTestId('refund-action-status').isVisible() &&
         (await page.getByTestId('refund-manager-next-step').innerText()).includes(
-          'Use the assigned Manager or a Super-admin. If this signed-in user already has one of those roles, report a portal or machine-assignment defect.'
+          'The currently assigned Manager or a Super-admin can take the saved final action.'
         ) &&
         !functionCalls.includes('nayax-card-refund'),
       functionCalls.join(', ')
@@ -246,6 +250,16 @@ export const createDuplicateIdempotencyChecks = ({
     artifactDir,
     recorder,
   }) => {
+    const openDeliveryCase = async (page, publicReference) => {
+      // Delivery recovery can be System-owned follow-up, including after
+      // confirmed payment. Select the exact case instead of assuming a
+      // default Manager-action queue bucket.
+      await navigateRefundPortalPage(page, `${appUrl}/refunds?case=case-card-1`, {
+        waitUntil: 'domcontentloaded',
+      });
+      await waitForQueueCount(page, 1);
+      await queueCase(page, publicReference).click();
+    };
     const scenarios = [
       { state: 'unknown', label: 'Delivery unknown', confirmedPayment: true, accountingReview: true },
       { state: 'unknown', label: 'Delivery unknown', name: 'Original request delivery unknown', confirmedPayment: false, accountingReview: false, customerRequestDelivery: true },
@@ -289,8 +303,7 @@ export const createDuplicateIdempotencyChecks = ({
     await page.getByText('Signed in. Redirecting...', { exact: true })
       .waitFor({ state: 'hidden', timeout: 5000 })
       .catch(() => undefined);
-    await waitForQueueCount(page, 1);
-    await queueCase(page, `RF-UAT-DELIVERY-${scenario.state.toUpperCase()}`).click();
+    await openDeliveryCase(page, `RF-UAT-DELIVERY-${scenario.state.toUpperCase()}`);
 
     const review = page.getByTestId('refund-secondary-delivery-review');
     const reviewAction = page.getByTestId('refund-review-delivery-record');
@@ -487,8 +500,7 @@ export const createDuplicateIdempotencyChecks = ({
       await page.getByText('Signed in. Redirecting...', { exact: true })
         .waitFor({ state: 'hidden', timeout: 5000 })
         .catch(() => undefined);
-      await waitForQueueCount(page, 1);
-      await queueCase(page, 'RF-UAT-DELIVERY-UNKNOWN').click();
+      await openDeliveryCase(page, 'RF-UAT-DELIVERY-UNKNOWN');
 
       const refreshAction = page.getByTestId('refund-refresh-delivery-status');
       await refreshAction.getByText('Refresh customer message delivery', { exact: true })
@@ -540,8 +552,7 @@ export const createDuplicateIdempotencyChecks = ({
       await page.getByText('Signed in. Redirecting...', { exact: true })
         .waitFor({ state: 'hidden', timeout: 5000 })
         .catch(() => undefined);
-      await waitForQueueCount(page, 1);
-      await queueCase(page, 'RF-UAT-DELIVERY-UNKNOWN').click();
+      await openDeliveryCase(page, 'RF-UAT-DELIVERY-UNKNOWN');
 
       recorder.assert(
         `Delivery refresh fails closed with ${recoveryBlock.name}`,
@@ -579,8 +590,7 @@ export const createDuplicateIdempotencyChecks = ({
       await page.getByText('Signed in. Redirecting...', { exact: true })
         .waitFor({ state: 'hidden', timeout: 5000 })
         .catch(() => undefined);
-      await waitForQueueCount(page, 1);
-      await queueCase(page, 'RF-UAT-DELIVERY-BOUNCED').click();
+      await openDeliveryCase(page, 'RF-UAT-DELIVERY-BOUNCED');
 
       const callSnapshot = {
         functions: functionCalls.length,
@@ -652,8 +662,7 @@ export const createDuplicateIdempotencyChecks = ({
       await page.getByText('Signed in. Redirecting...', { exact: true })
         .waitFor({ state: 'hidden', timeout: 5000 })
         .catch(() => undefined);
-      await waitForQueueCount(page, 1);
-      await queueCase(page, scenario.publicReference).click();
+      await openDeliveryCase(page, scenario.publicReference);
 
       const expectedAction = page.getByRole(scenario.providerRejected ? 'status' : 'button', {
         name: scenario.expectedAction,

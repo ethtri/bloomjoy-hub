@@ -17,7 +17,7 @@ export type RefundCardManagerCapabilityAction =
     }
   | {
       kind: 'button';
-      testId: 'refund-run-nayax-refund' | 'refund-save-case';
+      testId: 'refund-run-nayax-refund' | 'refund-save-case' | 'refund-approve-reviewed-purchase' | 'refund-approve-selected-purchase';
       label: string;
       disabled: boolean;
       pending: boolean;

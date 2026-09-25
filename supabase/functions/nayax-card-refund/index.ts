@@ -2,6 +2,10 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { parseNayaxRefundExecutionContext } from "../_shared/nayax-refund-context.ts";
+import {
+  parseReviewedFinalDecisionReceipt,
+  parseReviewedFinalDecisionRequest,
+} from "../_shared/nayax-reviewed-final-decision.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import {
   NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED,
@@ -360,7 +364,7 @@ serve(async (req) => {
     const body = await req.json();
     const operation = sanitizeText(body?.operation, 40) || "execute";
     if (
-      !new Set(["execute", "availability"]).has(operation)
+      !new Set(["execute", "availability", "approve_reviewed", "approve_selected"]).has(operation)
     ) {
       return jsonResponse({ error: "Unsupported operation." }, 400);
     }
@@ -412,6 +416,117 @@ serve(async (req) => {
         errorCode: "authorization_failed",
         blocks: ["authorization_failed"],
       }, 403);
+    }
+
+    if (operation === "approve_selected") {
+      const expectedVersion = Number(body?.expectedOfficialActionVersion);
+      if (!Number.isSafeInteger(expectedVersion) || expectedVersion <= 0) {
+        return jsonResponse({
+          approved: false,
+          status: "preflight_blocked",
+          errorCode: "case_version_missing",
+          providerAttempted: false,
+          customerCompletionAttempted: false,
+          payloadRedacted: true,
+        }, 409);
+      }
+      // Existing SQL rechecks the immutable selected sale, candidate hash,
+      // current Manager mapping, machine/account identity, case version and
+      // prior effects under its approval lock. Machine availability belongs to
+      // the System claimant; this request only queues the protected attempt.
+      const { data, error } = await userClient.rpc(
+        "admin_approve_selected_nayax_refund_for_system_v1",
+        { p_case_id: refundCase.id, p_expected_case_version: expectedVersion },
+      );
+      const result = !error && data && typeof data === "object"
+        ? data as Record<string, unknown>
+        : null;
+      if (!result || result.approved !== true ||
+          result.status !== "system_finishing" ||
+          result.providerCallMade !== false ||
+          result.customerMessageCreated !== false ||
+          result.payloadRedacted !== true ||
+          typeof result.attemptId !== "string") {
+        return jsonResponse({
+          approved: false,
+          status: "preflight_blocked",
+          errorCode: error?.code === "42501"
+            ? "authorization_failed" : "selected_decision_changed",
+          providerAttempted: false,
+          customerCompletionAttempted: false,
+          payloadRedacted: true,
+        }, error?.code === "42501" ? 403 : 409);
+      }
+      return jsonResponse({
+        approved: true,
+        executed: false,
+        status: "system_finishing",
+        replayed: false,
+        providerAttempted: false,
+        customerCompletionAttempted: false,
+        message: "The exact saved purchase was approved. Bloomjoy will continue the protected refund attempt.",
+        payloadRedacted: true,
+      }, 202);
+    }
+
+    // A lost response must be readable after the protected attempt succeeds:
+    // the general fresh-action capability intentionally closes on a receipt.
+    // This RPC separately requires the same authenticated actor, current
+    // machine mapping and immutable final-decision receipt before replaying.
+    if (operation === "approve_reviewed") {
+      const decision = parseReviewedFinalDecisionRequest(body);
+      if (!decision) {
+        return jsonResponse({
+          approved: false,
+          status: "preflight_blocked",
+          errorCode: "reviewed_decision_context_missing",
+          providerAttempted: false,
+          customerCompletionAttempted: false,
+          payloadRedacted: true,
+        }, 409);
+      }
+      // The authenticated SQL writer rechecks the completed lookup, current
+      // candidate set, Manager mapping, case/fact version and existing effects
+      // under one lock. It queues the already-supported protected attempt but
+      // never contacts Nayax or sends a customer message in this request.
+      const { data, error } = await userClient.rpc(
+        "admin_approve_reviewed_nayax_candidate_v1",
+        {
+          p_case_id: refundCase.id,
+          p_expected_case_version: decision.expectedOfficialActionVersion,
+          p_preparation_proof_id: decision.preparationProofId,
+          p_candidate_token: decision.candidateToken,
+        },
+      );
+      const result = !error
+        ? parseReviewedFinalDecisionReceipt(data, refundCase.id)
+        : null;
+      if (!result) {
+        return jsonResponse({
+          approved: false,
+          status: "preflight_blocked",
+          errorCode: error?.code === "42501"
+            ? "authorization_failed"
+            : "reviewed_decision_changed",
+          providerAttempted: false,
+          customerCompletionAttempted: false,
+          payloadRedacted: true,
+        }, error?.code === "42501" ? 403 : 409);
+      }
+      return jsonResponse({
+        approved: true,
+        executed: false,
+        status: result.status,
+        replayed: result.replayed,
+        providerAttempted: false,
+        customerCompletionAttempted: false,
+        message: result.status === "completed"
+          ? "The approved refund is complete. No second payment was attempted."
+          : result.status === "provider_hold"
+          ? "The earlier refund result needs reconciliation. Do not try it again."
+          : "One reviewed purchase was approved. Bloomjoy is finishing the protected refund automatically.",
+        payloadRedacted: true,
+      }, result.status === "completed" ? 200 : 202);
     }
 
     if (

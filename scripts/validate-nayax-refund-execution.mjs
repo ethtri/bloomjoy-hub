@@ -9,6 +9,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const read = (relativePath) => fs.readFileSync(path.join(repoRoot, relativePath), 'utf8').replace(/\r\n/g, '\n');
 
 const migration = read('supabase/migrations/20260913090000_refund_single_manager_gate.sql');
+const reviewedDecision = read('supabase/migrations/20260925020000_refund_reviewed_card_final_decision.sql');
 const hardening = read('supabase/migrations/20260914052555_refund_single_manager_db_guards.sql');
 const edge = read('supabase/functions/nayax-card-refund/index.ts');
 const sweep = read('supabase/functions/refund-case-automation-sweep/index.ts');
@@ -35,14 +36,30 @@ assert.match(migration, /service_settle_nayax_refund_attempt\(/);
 assert.match(migration, /provider_transport_unknown|provider_outcome_unknown/);
 assert.match(migration, /reconciliation_required=true/);
 
-assert.match(edge, /new Set\(\["execute", "availability"\]\)/);
+assert.match(edge, /new Set\(\["execute", "availability", "approve_reviewed", "approve_selected"\]\)/);
 assert.match(edge, /admin_approve_selected_nayax_refund_for_system_v1/);
+assert.match(edge, /parseReviewedFinalDecisionRequest\(body\)/);
+assert.match(edge, /parseReviewedFinalDecisionReceipt\(data, refundCase\.id\)/);
+assert.match(reviewedDecision, /admin_approve_reviewed_nayax_candidate_v1/);
+assert.match(reviewedDecision, /admin_approve_selected_nayax_refund_for_system_v1/);
+assert.match(reviewedDecision, /refund_reviewed_card_candidate_set_snapshot_v1/);
 assert.match(gates, /NAYAX_REFUND_ATTEMPT_QUEUE_ENABLED/);
 assert.match(gates, /NAYAX_REFUND_ATTEMPT_QUEUE_ACCOUNT_KEY/);
 const executeReadinessCheck = edge.lastIndexOf('const executionReadiness = await resolveCaseRefundReadiness');
-const approvalWrite = edge.indexOf('"admin_approve_selected_nayax_refund_for_system_v1"');
-assert.ok(executeReadinessCheck >= 0 && approvalWrite > executeReadinessCheck,
+const selectedApprovalBranch = edge.indexOf('if (operation === "approve_selected")');
+const selectedApprovalWrite = edge.indexOf('"admin_approve_selected_nayax_refund_for_system_v1"', selectedApprovalBranch);
+const executeApprovalWrite = edge.lastIndexOf('"admin_approve_selected_nayax_refund_for_system_v1"');
+const reviewedWrite = edge.indexOf('"admin_approve_reviewed_nayax_candidate_v1"');
+const freshActionCheck = edge.indexOf('const { data: actorCanPerformOfficialAction');
+assert.ok(executeReadinessCheck >= 0 && executeApprovalWrite > executeReadinessCheck,
   'The execute request must recheck payment readiness before saving approval');
+assert.ok(selectedApprovalBranch >= 0 && selectedApprovalWrite > selectedApprovalBranch &&
+  selectedApprovalWrite < executeReadinessCheck,
+  'The selected final decision can queue a held attempt before processor availability');
+assert.ok(reviewedWrite >= 0 && reviewedWrite < executeReadinessCheck,
+  'The reviewed final decision can queue a held attempt before processor availability');
+assert.ok(reviewedWrite < freshActionCheck,
+  'A lost reviewed-decision response remains readable after a terminal receipt closes fresh-action capability');
 assert.doesNotMatch(edge, /approve_pending_request|service_reserve_nayax_refund_manager_action|orchestrateNayaxRefund/);
 assert.match(sweep, /service_claim_due_nayax_refund_attempts_v1/);
 assert.match(sweep, /service_reclaim_nayax_refund_attempt_no_call_v1/);

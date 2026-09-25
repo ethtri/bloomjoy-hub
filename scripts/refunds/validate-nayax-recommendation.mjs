@@ -77,10 +77,11 @@ const exact = recommend([
   sale({ id: "exact" }),
   sale({ id: "exact-distractor", at: "2026-07-21T19:02:00.000Z", amount: 8.5, last4: "9999" }),
 ]);
-assert.equal(exact.recommendationState, "high_confidence");
-assert.equal(exact.confidenceClass, "strong_card");
+assert.equal(exact.recommendationState, "ambiguous");
+assert.equal(exact.confidenceClass, "ambiguous_manual");
 assert.equal(exact.candidates[0].transactionId, "exact");
-assert.equal(exact.candidates[0].oneClickEligible, true);
+assert.equal(exact.candidates[0].oneClickEligible, false);
+assert.equal(exact.candidates.filter((candidate) => candidate.selectionAllowed).length, 2);
 
 const roughCustomerTimeExactCard = recommend([sale({ id: "rough-time-exact-card" })], {
   incidentTimeConfidence: "rough",
@@ -797,6 +798,61 @@ for (const candidateLimit of [1, 10]) {
   assert.equal(result.candidates.some((candidate) => candidate.isRecommended), false);
 }
 
+const walletSaleOutsideAmountFirstTopTen = recommend([
+  ...Array.from({ length: 199 }, (_, index) => sale({
+    id: `amount-first-${index}`,
+    at: "2026-09-05T21:00:00.000Z",
+    amount: 10,
+    last4: String(7000 + index),
+  })),
+  sale({
+    id: "same-day-wallet-sale",
+    at: "2026-09-05T21:02:45.000Z",
+    amount: 10.6,
+    last4: "3247",
+  }),
+], {
+  incidentAt: "2026-09-05T21:07:00.000Z",
+  incidentTimeConfidence: "rough",
+  incidentTimeSource: "memory",
+  requestAmountCents: 1000,
+  requestCardLast4: "2776",
+  requestCardLast4Provenance: "wallet_device_token",
+  requestCardLast4Source: "wallet_device",
+  paymentInteraction: "phone_watch_wallet",
+  cardWalletUsed: true,
+  purchaseOccurrenceProof: null,
+});
+const reviewedWalletSale = walletSaleOutsideAmountFirstTopTen.candidates.find((candidate) =>
+  candidate.transactionId === "same-day-wallet-sale");
+assert.equal(walletSaleOutsideAmountFirstTopTen.providerParseableRecordCount, 200);
+assert.ok(reviewedWalletSale?.recommendationRank > NAYAX_RECOMMENDATION_POLICY.candidateLimit);
+assert.equal(reviewedWalletSale?.selectionAllowed, true,
+  "a neutral wallet suffix difference and rough time cannot veto manager review");
+assert.equal(walletSaleOutsideAmountFirstTopTen.oneClickEligible, false);
+
+const oldExactWalletSuffix = recommend([
+  sale({ id: "old-exact-wallet-suffix", at: "2026-08-29T15:09:00.000Z", amount: 10.6,
+    last4: "1003" }),
+  sale({ id: "same-day-different-token", at: "2026-09-05T20:59:46.000Z", amount: 10.6,
+    last4: "3121" }),
+], {
+  incidentAt: "2026-09-05T21:00:00.000Z",
+  incidentTimeConfidence: "rough",
+  incidentTimeSource: "memory",
+  requestAmountCents: 1060,
+  requestCardLast4: "1003",
+  requestCardLast4Provenance: "wallet_device_token",
+  requestCardLast4Source: "wallet_device",
+  paymentInteraction: "phone_watch_wallet",
+  cardWalletUsed: true,
+  purchaseOccurrenceProof: null,
+});
+assert.equal(oldExactWalletSuffix.recommendationState, "ambiguous");
+assert.equal(oldExactWalletSuffix.candidates.find((candidate) =>
+  candidate.transactionId === "same-day-different-token")?.selectionAllowed, true);
+assert.equal(oldExactWalletSuffix.oneClickEligible, false);
+
 const midnightEstimate = recommend([sale({
   id: "midnight-estimate", at: "2026-07-22T06:50:00Z", amount: 7.1,
   extra: { MachineAuthorizationTime: "2026-07-21T23:50:00" },
@@ -824,6 +880,18 @@ assert.match(
   exactWallet.recommendedAction,
   /normal guarded refund action becomes available after manager selection/i,
 );
+
+const competingWalletSales = recommend([
+  sale({ id: "wallet-exact-suffix", recognitionMethod: "Apple Pay" }),
+  sale({ id: "wallet-other-token", last4: "9999", recognitionMethod: "Apple Pay" }),
+], { cardWalletUsed: true, requestCardLast4Provenance: "wallet_device_token",
+  requestCardLast4Source: "wallet_device", paymentInteraction: "phone_watch_wallet" });
+assert.equal(competingWalletSales.recommendationState, "ambiguous",
+  "two distinct reviewed wallet sales cannot present one sale as certain");
+assert.equal(competingWalletSales.candidates.filter((candidate) => candidate.selectionAllowed).length, 2);
+assert.equal(competingWalletSales.candidates.some((candidate) => candidate.isRecommended), false);
+assert.equal(competingWalletSales.oneClickEligible, false);
+assert.match(competingWalletSales.summary, /multiple plausible card sales/i);
 
 const uniqueQrWallet = recommend(
   [sale({
@@ -1223,7 +1291,8 @@ const ambiguousIncident = recommend([sale({ id: "ambiguous-incident" })], {
 assert.equal(ambiguousIncident.recommendationState, "manual_exception");
 assert.equal(ambiguousIncident.oneClickEligible, false);
 
-const publicCandidate = toPublicNayaxCandidate(exact.candidates[0], "opaque-token");
+const publicCandidate = toPublicNayaxCandidate(
+  recommend([sale({ id: "exact-singleton" })]).candidates[0], "opaque-token");
 for (const missing of [null, undefined, "", false, 0]) {
   const result = recommend([sale({ id: "small-sale", amount: 2.5 })], { requestAmountCents: missing });
   assert.equal(result.oneClickEligible, false, "absent or zero reported amount is not a matching estimate");
@@ -1235,7 +1304,8 @@ const blockedRows = Array.from({ length: 10 }, (_, i) => sale({ id: `blocked-${i
 const blockedStates = Object.fromEntries(blockedRows.map((row) => [row.TransactionID, "already_refunded"]));
 const hiddenRows = [...blockedRows, sale({ id: "hidden-original", amount: 7.1, at: "2026-07-21T19:25:00Z" })];
 const preliminary = recommend(hiddenRows);
-assert.equal(preliminary.candidates.length, 10);
+assert.equal(preliminary.candidates.length, 11,
+  "the display cap cannot hide a sale that is safe for manager review");
 assert.equal(preliminary.consideredTransactionIds.length, 11, "private state lookup must include originals outside the display limit");
 const checkedStates = Object.fromEntries(preliminary.consideredTransactionIds.map((id) => [id, "already_refunded"]));
 assert.equal(recommend(hiddenRows, { transactionStates: checkedStates }).oneClickEligible, false,

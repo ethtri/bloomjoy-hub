@@ -219,7 +219,7 @@ export const createUnknownProviderOutcomeChecks = ({
       page.on('pageerror', (error) => consoleErrors.push(error.message));
 
       await signInRefundUser(page, appUrl);
-      await page.getByRole('button', { name: 'Needs manager review 1', exact: true })
+      await page.getByRole('button', { name: 'Bloomjoy follow-up 1', exact: true })
         .click();
       const caseButton = page.getByRole('button', { name: /RF-UAT-CARD/ }).first();
       await caseButton.waitFor({ timeout: 10000 })
@@ -365,15 +365,15 @@ export const createUnknownProviderOutcomeChecks = ({
           JSON.stringify({ functionCalls, scenario })
         );
         await reloadRefundPortalPage(page);
-        await page.getByRole('button', { name: 'Refund in progress 1', exact: true })
+        await page.getByRole('button', { name: 'Bloomjoy follow-up 1', exact: true })
           .waitFor({ timeout: 10000 });
-        await page.getByRole('button', { name: 'Refund in progress 1', exact: true }).click();
+        await page.getByRole('button', { name: 'Bloomjoy follow-up 1', exact: true }).click();
         await queueCase(page, 'RF-UAT-CARD').click();
         recorder.assert(
           'System continuation leaves no second Manager approval after no-refund evidence',
           (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
             await page.getByTestId('refund-manager-state')
-              .getByText('Refund in progress', { exact: true }).isVisible(),
+              .getByText('Refund follow-up pending', { exact: true }).isVisible(),
           JSON.stringify({ functionCalls, scenario })
         );
       }
@@ -394,7 +394,7 @@ export const createUnknownProviderOutcomeChecks = ({
     });
     const uncertainPage = await uncertainContext.newPage();
     await signInRefundUser(uncertainPage, appUrl);
-    await uncertainPage.getByRole('button', { name: 'Refund in progress 1', exact: true }).click();
+    await uncertainPage.getByRole('button', { name: 'Bloomjoy follow-up 1', exact: true }).click();
     await uncertainPage.getByRole('button', { name: /RF-UAT-CARD/ }).first().click();
     const uncertainGenericSend = uncertainPage.getByRole('button', {
       name: 'Send manual/retry email',
@@ -487,7 +487,7 @@ export const createUnknownProviderOutcomeChecks = ({
       .getByText('Refund approved', { exact: true }).waitFor({ timeout: 10000 });
     await page.getByTestId('refund-confirmation-dialog').waitFor({ state: 'hidden', timeout: 10000 });
     await page.getByTestId('refund-manager-state')
-      .getByText('Refund in progress', { exact: true })
+      .getByText('Refund follow-up pending', { exact: true })
       .waitFor({ state: 'visible', timeout: 10000 });
     await page.getByTestId('refund-run-nayax-refund').waitFor({ state: 'hidden', timeout: 10000 });
 
@@ -510,13 +510,13 @@ export const createUnknownProviderOutcomeChecks = ({
       JSON.stringify({ functionCalls, approvalBodies, systemFinishingResponse })
     );
     await page.getByTestId('refund-manager-state')
-      .getByText('Refund in progress', { exact: true })
+      .getByText('Refund follow-up pending', { exact: true })
       .waitFor({ timeout: 10000 });
     recorder.assert(
       'System handoff removes the second Manager action',
       (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
         await page.getByTestId('refund-manager-state')
-          .getByText('Refund in progress', { exact: true }).isVisible() &&
+          .getByText('Refund follow-up pending', { exact: true }).isVisible() &&
         /Do not try the refund again/i.test(
           await page.getByTestId('refund-action-receipt').innerText()
         ),
@@ -527,16 +527,16 @@ export const createUnknownProviderOutcomeChecks = ({
     );
 
     await reloadRefundPortalPage(page);
-    await page.getByRole('button', { name: 'Refund in progress 1', exact: true })
+    await page.getByRole('button', { name: 'Bloomjoy follow-up 1', exact: true })
       .waitFor({ timeout: 10000 });
-    await page.getByRole('button', { name: 'Refund in progress 1', exact: true }).click();
+    await page.getByRole('button', { name: 'Bloomjoy follow-up 1', exact: true }).click();
     await queueCase(page, 'RF-UAT-CARD').click();
     recorder.assert(
-      'Reload preserves one in-progress System attempt with no Ready or Refund action',
+      'Reload preserves one pending System attempt with no Ready or Refund action',
       (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
         (await page.getByText('Ready to approve', { exact: true }).count()) === 0 &&
         await page.getByTestId('refund-manager-state')
-          .getByText('Refund in progress', { exact: true }).isVisible() &&
+          .getByText('Refund follow-up pending', { exact: true }).isVisible() &&
         approvalBodies.length === 1,
       JSON.stringify({ functionCalls, approvalBodies })
     );
@@ -687,12 +687,9 @@ export const createUnknownProviderOutcomeChecks = ({
           (error) => ({ response: null, error })
         );
       });
-      const initialQueueLabel = scenario.response?.available === true
-        ? 'Ready to approve'
-        : 'Action needed';
-      await page.getByRole('button', {
-        name: new RegExp(`^${initialQueueLabel} \\d+$`),
-      }).click();
+      // A read/transport failure does not change the prepared Manager owner;
+      // the action itself still fails closed until availability is known.
+      await page.getByRole('button', { name: /^Ready to approve \d+$/ }).click();
       await waitForQueueCount(page, 1);
       await queueCase(page, 'RF-UAT-CARD').click();
 
@@ -737,7 +734,7 @@ export const createUnknownProviderOutcomeChecks = ({
             (await page.getByText('Card refunds unavailable', { exact: true }).count()) === 0 &&
             (await page.getByRole('status', { name: 'Refund temporarily unavailable', exact: true }).count()) === 0 &&
             await page.getByTestId('refund-manager-state')
-              .filter({ hasText: /^(Transaction confirmed|Ready to approve)$/ })
+              .getByText('Action needed', { exact: true })
               .isVisible() &&
             await page.getByText(/Payment: Not issued\./).first().isVisible()
           )),
@@ -961,7 +958,7 @@ export const createUnknownProviderOutcomeChecks = ({
       if (scenario.name === 'rejected') {
         await page.getByTestId('refund-confirmation-dialog').waitFor({ state: 'hidden', timeout: 10000 });
         await page.getByTestId('refund-manager-state')
-          .getByText('Refund result is being checked', { exact: true })
+          .getByText(/Refund result is being checked|Nayax result needs reconciliation/, { exact: true })
           .waitFor({ state: 'visible', timeout: 10000 });
         await page.getByTestId('refund-run-nayax-refund').waitFor({ state: 'hidden', timeout: 10000 });
         recorder.assert(
@@ -969,7 +966,7 @@ export const createUnknownProviderOutcomeChecks = ({
           await page.getByTestId('refund-action-receipt')
             .getByText('Refund status needs checking', { exact: true }).isVisible() &&
             await page.getByTestId('refund-manager-state')
-              .getByText('Refund result is being checked', { exact: true }).isVisible() &&
+              .getByText(/Refund result is being checked|Nayax result needs reconciliation/, { exact: true }).isVisible() &&
             (await page.getByText('Card refund is not available for this case.', { exact: true }).count()) === 0 &&
             (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
             !functionCalls.includes('refund-case-message-send')
@@ -990,7 +987,7 @@ export const createUnknownProviderOutcomeChecks = ({
         if (scenario.name === 'rejected') {
           await reloadRefundPortalPage(page);
           const heldQueue = page.getByRole('button', {
-            name: /^(Action needed|Needs manager review|Refund in progress) 1$/,
+            name: 'Bloomjoy follow-up 1', exact: true,
           }).first();
           await heldQueue.waitFor({ timeout: 10000 });
           await heldQueue.click();
@@ -1001,7 +998,7 @@ export const createUnknownProviderOutcomeChecks = ({
             (await heldCaseRow.getByText('Ready to approve', { exact: true }).count()) === 0 &&
               (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
               await page.getByTestId('refund-manager-state')
-                .getByText(/Refund result is being checked|Needs manager review|Refund in progress/, { exact: true }).isVisible() &&
+                .getByText(/Refund result is being checked|Nayax result needs reconciliation/, { exact: true }).isVisible() &&
               functionCalls.filter((name) => name === 'nayax-card-refund').length === 1 &&
               !functionCalls.includes('refund-case-message-send')
           );
@@ -1016,20 +1013,20 @@ export const createUnknownProviderOutcomeChecks = ({
         );
         const systemVerificationRequired = providerCheckRequired;
         if (systemVerificationRequired) {
-          await page.getByRole('button', { name: 'Action needed 1', exact: true })
+          await page.getByRole('button', { name: 'Bloomjoy follow-up 1', exact: true })
             .waitFor({ timeout: 10000 });
-          await page.getByRole('button', { name: 'Action needed 1', exact: true }).click();
+          await page.getByRole('button', { name: 'Bloomjoy follow-up 1', exact: true }).click();
           recorder.assert(
             `Synthetic browser ${scenario.name} enters the System verification hold`,
-            await page.getByRole('button', { name: 'Action needed 1', exact: true }).isVisible() &&
+            await page.getByRole('button', { name: 'Bloomjoy follow-up 1', exact: true }).isVisible() &&
               (await page.getByRole('button', { name: /Check refund result/ }).count()) === 0
           );
         } else {
-          await page.getByRole('button', { name: 'Action needed 1', exact: true }).waitFor({ timeout: 10000 });
-          await page.getByRole('button', { name: 'Action needed 1', exact: true }).click();
+          await page.getByRole('button', { name: 'Ready to approve 1', exact: true }).waitFor({ timeout: 10000 });
+          await page.getByRole('button', { name: 'Ready to approve 1', exact: true }).click();
           recorder.assert(
-            `Synthetic browser ${scenario.name} remains manager review without entering provider reconciliation`,
-            await page.getByRole('button', { name: 'Action needed 1', exact: true }).isVisible() &&
+            `Synthetic browser ${scenario.name} retains the prepared Manager decision but blocks execution`,
+            await page.getByRole('button', { name: 'Ready to approve 1', exact: true }).isVisible() &&
               (await page.getByRole('button', { name: /Check refund result/ }).count()) === 0
           );
         }
@@ -1043,12 +1040,12 @@ export const createUnknownProviderOutcomeChecks = ({
             ? 'Refund status not confirmed'
             : 'Manual card review required';
         recorder.assert(
-          `Synthetic browser ${scenario.name} suppresses contradictory ready badges and refund actions`,
+          `Synthetic browser ${scenario.name} suppresses contradictory ready badges and refund execution`,
             (await caseRow.getByText('Ready to approve', { exact: true }).count()) === 0 &&
             (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
             (systemVerificationRequired
               ? await page.getByTestId('refund-manager-state')
-                  .getByText('Refund result is being checked', { exact: true }).isVisible()
+                  .getByText(/Refund result is being checked|Nayax result needs reconciliation/, { exact: true }).isVisible()
               : await page.getByRole('status', { name: expectedDisabledAction, exact: true }).isVisible()) &&
             (await page.getByRole('button', { name: expectedDisabledAction, exact: true }).count()) === 0,
           JSON.stringify({ providerCheckRequired, expectedDisabledAction })
@@ -1068,15 +1065,15 @@ export const createUnknownProviderOutcomeChecks = ({
               (await page.getByText('Preview customer email', { exact: true }).count()) === 0
           );
           await reloadRefundPortalPage(page);
-          await page.getByRole('button', { name: 'Action needed 1', exact: true })
+          await page.getByRole('button', { name: 'Bloomjoy follow-up 1', exact: true })
             .waitFor({ timeout: 10000 });
-          await page.getByRole('button', { name: 'Action needed 1', exact: true }).click();
+          await page.getByRole('button', { name: 'Bloomjoy follow-up 1', exact: true }).click();
           const reloadedCaseRow = queueCase(page, 'RF-UAT-CARD');
           await reloadedCaseRow.click();
           recorder.assert(
             `Synthetic browser ${scenario.name} remains frozen after a full reload`,
             await page.getByTestId('refund-manager-state')
-                .getByText('Refund result is being checked', { exact: true }).isVisible() &&
+                .getByText(/Refund result is being checked|Nayax result needs reconciliation/, { exact: true }).isVisible() &&
               await page.getByTestId('refund-customer-decision-freeze').isVisible() &&
               (await page.getByRole('button', { name: 'Deny request', exact: true }).count()) === 0 &&
               (await page.getByTestId('refund-run-nayax-refund').count()) === 0

@@ -133,6 +133,8 @@ test('overview parser localizes optional skew while core identity and capability
   assert.equal(localizedLifecycle.lifecycleContractVersion, undefined);
   assert.ok(localizedLifecycle.lifecycleValidationFailureCount > 0);
   assert.ok(localizedLifecycle.cases.every((refundCase) => refundCase.lifecycle === null));
+  assert.ok(localizedLifecycle.cases.every((refundCase, index) =>
+    fixture.cases[index].lifecycle == null || refundCase.workflowProjectionUnavailable === true));
 
   const missingCapability = structuredClone(fixture);
   delete missingCapability.cases[0].canPerformOfficialAction;
@@ -175,6 +177,18 @@ test('overview parser localizes optional skew while core identity and capability
     () => refundOperations.parseRefundOperationsOverview(unredactedLegacyCandidateTime),
     /Unsupported refund candidate time response/,
   );
+});
+
+test('local demo card purchase keeps one exact provider authorization instant', () => {
+  const refundCase = refundOperations.buildLocalRefundDemoOverview().cases.find(
+    (entry) => entry.id === 'demo-card-match',
+  );
+  assert.ok(refundCase);
+  const candidate = refundCase.nayaxLookupCandidates?.[0];
+  assert.ok(candidate);
+  assert.equal(refundCase.matchedNayaxMachineAuthTime, candidate.machineAuthorizationTime);
+  assert.equal(refundCase.selectedNayaxTransaction?.providerAuthorizedAt, candidate.machineAuthorizationTime);
+  assert.equal(refundCase.selectedNayaxTransaction?.providerTimestampAt, candidate.authorizedAt);
 });
 
 test('overview parser omits only cases with malformed message or candidate collections', () => {
@@ -289,7 +303,7 @@ test('one malformed lifecycle cannot discard the queue or revoke server capabili
   );
   assert.match(
     pageSource,
-    /const candidateSelectionAuthorized\s*=\s*\(selectedCase\.canSelectNayaxCandidate \?\? selectedCase\.canPerformOfficialAction\) === true/,
+    /const candidateSelectionAuthorized\s*=\s*reviewedFinalDecisionReady\s*\? selectedCase\.canPerformOfficialAction === true\s*: \(selectedCase\.canSelectNayaxCandidate \?\? selectedCase\.canPerformOfficialAction\) === true/,
   );
   assert.match(pageSource, /canSelectCandidate:\s*candidateSelectionAuthorized/);
   assert.match(
@@ -298,7 +312,7 @@ test('one malformed lifecycle cannot discard the queue or revoke server capabili
   );
   assert.match(
     candidateReviewSource,
-    /!canAccessCandidateSelection[\s\S]*You can review this result, but your current case access does not allow you to save it\./,
+    /!canAccessCandidateSelection[\s\S]*You can review this result, but your current case access does not allow you to \$\{reviewedFinalDecision \? 'decide this refund' : 'save it'\}\./,
   );
   assert.doesNotMatch(
     `${pageSource}\n${candidateReviewSource}`,
@@ -306,8 +320,9 @@ test('one malformed lifecycle cannot discard the queue or revoke server capabili
   );
   assert.match(pageSource, /data-testid="refund-lifecycle-read-status"/);
   assert.match(pageSource, /lifecycle and progress detail is unavailable/);
-  assert.match(pageSource, /Action availability still follows each case/);
-  assert.doesNotMatch(pageSource, /Refund decisions are temporarily unavailable/);
+  assert.match(pageSource, /const refundQueueTruthUnavailable = !isUsingDemoData/);
+  assert.match(pageSource, /Refund case list temporarily unavailable/);
+  assert.match(pageSource, /isRefundWorkflowProjectionUnavailable\(refundCase\)/);
 });
 
 test('pending accounting ownership wins over historical outreach state', () => {

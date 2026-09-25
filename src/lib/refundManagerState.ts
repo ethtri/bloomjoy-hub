@@ -1,6 +1,7 @@
 import type { RefundLifecycleContract } from './refundLifecycle.ts';
 import { getRefundCompletionContactPresentation } from './refundCompletionContact.ts';
 import { getRefundCustomerOutreachPresentation } from './refundCustomerOutreach.ts';
+import { isRefundWorkflowProjectionUnavailable } from './refundQueue.ts';
 
 export type RefundManagerStateId =
   | 'needs_information'
@@ -154,6 +155,10 @@ export const getDisplayedRefundManagerNextStep = (
 };
 
 type RefundManagerCaseFacts = {
+  decision?: 'approved' | 'denied' | null;
+  workflowProjectionUnavailable?: boolean;
+  canPerformOfficialAction?: boolean | null;
+  officialActionVersion?: number | null;
   status:
     | 'draft'
     | 'submitted'
@@ -380,6 +385,64 @@ export const getRefundManagerState = (
     );
   }
 
+  const nextWork = refundCase.lifecycle?.nextWork;
+  if (nextWork) {
+    if (!nextWork.isOpen) {
+      return state('completed', 'Refund work complete',
+        'No refund or customer-contact action is due.', nextWork.actionLabel, 'success');
+    }
+    if (nextWork.actor === 'manager') {
+      if (!Number.isSafeInteger(refundCase.officialActionVersion) ||
+          (refundCase.officialActionVersion ?? 0) <= 0) {
+        return state('needs_refund_operations', 'Refund action temporarily unavailable',
+          'The current case version is unavailable, so this decision or cash action cannot be submitted safely.',
+          'Refresh the case before taking a final action. Do not repeat a payment or approval.', 'warning');
+      }
+      if (refundCase.canPerformOfficialAction !== true) {
+        return state('needs_refund_operations', 'Manager action assigned elsewhere',
+          'This signed-in account is not authorized for the saved machine Manager action.',
+          'The currently assigned Manager or a Super-admin can take the saved final action.', 'info');
+      }
+      return state('ready_for_review', 'Action needed',
+        'The request is prepared for the assigned Manager’s final decision or cash payment.',
+        nextWork.actionLabel, 'warning');
+    }
+    if (nextWork.actor === 'customer') {
+      return state('waiting_on_customer', 'Waiting for customer',
+        'The customer has an unanswered delivered question.', nextWork.actionLabel, 'info');
+    }
+    const label = refundCase.lifecycle.paymentState === 'confirmed'
+      ? 'Refund sent · customer update pending'
+      : ({
+        reconcile_provider_outcome: 'Nayax result needs reconciliation',
+        reconcile_integrity: 'Payment record needs review',
+        recover_customer_delivery: 'Customer update needs follow-up',
+        review_customer_reply: 'Customer reply needs review',
+        resolve_manager_assignment: 'Manager assignment needs repair',
+        repair_provider_setup: 'Transaction search needs repair',
+        obtain_payout_destination: 'Payout details need follow-up',
+        research_purchase: 'Purchase research pending',
+        prepare_manager_decision: 'Refund preparation pending',
+        run_lookup: 'Transaction lookup pending',
+        continue_refund: 'Refund follow-up pending',
+        deliver_customer_question: 'Customer question needs delivery',
+      } as Record<string, string>)[nextWork.actionCode] ?? 'Bloomjoy follow-up pending';
+    return state('needs_refund_operations', label,
+      nextWork.blocker
+        ? 'Bloomjoy needs to resolve an internal dependency. No Manager action is due.'
+        : 'Bloomjoy owns this follow-up. No Manager action is due.',
+      nextWork.actionLabel, nextWork.blocker ? 'warning' : 'info');
+  }
+
+  if (isRefundWorkflowProjectionUnavailable(refundCase) &&
+      !(refundCase.paymentMethod === 'cash' && options.cashCompletionAmountCents === null &&
+        !refundCase.workflowProjectionUnavailable)) {
+    return state('needs_refund_operations', 'Refund action temporarily unavailable',
+      'The current workflow action is not available from this version of the service. No new Manager decision is due.',
+      'Bloomjoy will restore the current action. Refresh after the update; do not repeat a payment or approval.',
+      'warning');
+  }
+
   if (refundCase.lifecycle?.stage === 'duplicate_resolved') {
     const canonicalReference = refundCase.lifecycle.duplicateOfPublicReference;
     return state(
@@ -466,6 +529,26 @@ export const getRefundManagerState = (
       'Keep the case open. Check the exact rejection in Nayax and record what Nayax confirms.',
       'danger'
     );
+  }
+
+  if (refundCase.lifecycle?.stage === 'transaction_confirmed' &&
+      ['outcome_unknown', 'integrity_unknown'].includes(refundCase.lifecycle.paymentState)) {
+    return state('needs_refund_operations', 'Payment result needs review',
+      'The payment result is not confirmed. A saved transaction does not authorize another refund.',
+      'Check the exact payment record and reconcile its result. Do not approve or retry payment.',
+      'warning');
+  }
+
+  // A saved card approval survives an older lifecycle response. It authorizes
+  // System continuation, never another Manager decision or browser retry.
+  if (refundCase.decision === 'approved' &&
+      refundCase.paymentMethod === 'card' &&
+      refundCase.status === 'card_refund_pending' &&
+      refundCase.lifecycle?.stage === 'transaction_confirmed' &&
+      ['not_requested', 'submitted_pending'].includes(refundCase.lifecycle.paymentState)) {
+    return state('refunding', 'Refund follow-up pending',
+      'The Manager approval is saved. Bloomjoy owns the payment follow-up.',
+      'Wait for the exact payment result. Do not approve or try the refund again.', 'info');
   }
 
   if (refundCase.lifecycle?.stage === 'waiting_on_customer') {

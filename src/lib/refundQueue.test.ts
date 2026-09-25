@@ -136,7 +136,7 @@ Deno.test(
 );
 
 Deno.test(
-  "ready lifecycle remains ready without selecting or opening the case",
+  "old v2 ready lifecycle cannot assert an undecided final money action",
   () => {
     const contract = lifecycle(
       "transaction_confirmed",
@@ -152,10 +152,63 @@ Deno.test(
         blockReason: null,
       },
     };
-    assertEquals(getRefundManagerQueueBucket(refundCase), "ready_to_pay");
-    assertEquals(getRefundManagerState(refundCase).id, "ready_to_refund");
+    assertEquals(getRefundManagerQueueBucket(refundCase), "provider_hold");
+  assertEquals(getRefundManagerState(refundCase).label, "Refund action temporarily unavailable");
+  contract.paymentState = "outcome_unknown";
+  assertEquals(getRefundManagerQueueBucket(refundCase), "provider_hold");
+  assertEquals(getRefundManagerState(refundCase).label, "Payment result needs review");
   },
 );
+
+Deno.test("old v2 approved actions preserve payment continuity without reapproval", () => {
+  const approvedCash = {
+    status: "cash_zelle_pending" as const,
+    paymentMethod: "cash" as const,
+    zellePaymentContact: "customer@example.test",
+    paymentAmountCents: 800,
+    decision: "approved" as const,
+    lifecycle: lifecycle("transaction_confirmed", "ready_to_pay", "mark_external_refund"),
+  };
+  const approvedCard = {
+    ...cardCase(lifecycle("transaction_confirmed", "ready_to_pay", "refund")),
+    decision: "approved" as const,
+  };
+  assertEquals(getRefundManagerQueueBucket(approvedCash), "ready_to_pay");
+  assertEquals(getRefundManagerQueueBucket(approvedCard), "provider_hold");
+  assertEquals(getRefundManagerState({ ...approvedCard, status: "card_refund_pending" }).label,
+    "Refund follow-up pending");
+  approvedCard.lifecycle.paymentState = "submitted_pending";
+  assertEquals(getRefundManagerQueueBucket(approvedCard), "in_progress");
+
+  const settledCard = {
+    ...approvedCard,
+    status: "completed",
+    lifecycle: lifecycle("customer_notified", "completed", "none"),
+  };
+  assertEquals(getRefundManagerQueueBucket(settledCard), "completed");
+  const unsettledNotice = {
+    ...settledCard,
+    lifecycle: lifecycle("customer_notified", "needs_action", "review_customer_delivery"),
+  };
+  assertEquals(getRefundManagerQueueBucket(unsettledNotice), "provider_hold");
+});
+
+Deno.test("a prepared Manager action counts only for a current authorized viewer and version", () => {
+  const contract = lifecycle("transaction_confirmed", "ready_to_pay", "refund");
+  contract.nextWork = {
+    schemaVersion: "refund_next_work_v1", isOpen: true, actor: "manager",
+    actionCode: "approve_or_deny_request", actionLabel: "Review the prepared request",
+    lastProgressAt: null, dueAt: null, blocker: null, payloadRedacted: true,
+  };
+  const preparedCase = {
+    ...cardCase(contract), canPerformOfficialAction: true, officialActionVersion: 7,
+  };
+  assertEquals(getRefundManagerQueueBucket(preparedCase), "ready_to_pay");
+  assertEquals(getRefundQueueFilterForCase(preparedCase), "ready_to_pay");
+  assertEquals(getRefundManagerQueueBucket({ ...preparedCase, officialActionVersion: 0 }), "provider_hold");
+  assertEquals(getRefundManagerQueueBucket({ ...preparedCase, canPerformOfficialAction: false }), "provider_hold");
+  assertEquals(getRefundQueueFilterForCase({ ...preparedCase, canPerformOfficialAction: false }), "provider_hold");
+});
 
 Deno.test(
   "server queue projection wins over contradictory legacy case fields",

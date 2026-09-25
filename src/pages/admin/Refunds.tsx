@@ -136,6 +136,8 @@ import {
   createRefundAttachmentSignedUrl,
   disputeRefundNayaxPreselection,
   disposeRefundAcknowledgementException,
+  approveReviewedNayaxCandidate,
+  approveSelectedNayaxCandidate,
   executeNayaxCardRefund,
   fetchNayaxCardRefundAvailability,
   fetchRefundCaseReconciliation,
@@ -202,6 +204,7 @@ import {
   findRefundDeepLinkedCase,
   getRefundManagerQueueBucket,
   getRefundQueueFilterForCase,
+  isRefundWorkflowProjectionUnavailable,
   type RefundQueueFilter as QueueFilter,
 } from '@/lib/refundQueue';
 import { cn } from '@/lib/utils';
@@ -457,7 +460,7 @@ type PrimaryActionConfig = {
   targetStatus?: RefundCaseStatus;
   targetDecision?: RefundDecision;
   messageType?: RefundCustomerPortalMessageType;
-  mode?: 'case_update' | 'retry_message' | 'nayax_refund_execution' | 'resolve_delivery_not_found' | 'review_transaction_evidence';
+  mode?: 'case_update' | 'retry_message' | 'nayax_refund_execution' | 'reviewed_nayax_final_decision' | 'selected_nayax_final_decision' | 'resolve_delivery_not_found' | 'review_transaction_evidence';
   disabled?: boolean;
 };
 
@@ -941,6 +944,18 @@ const canonicalQueueBucket = (refundCase: RefundCaseRecord) =>
   getRefundManagerQueueBucket(refundCase);
 
 const isReadyToPayCase = (refundCase: RefundCaseRecord) => {
+  if (refundCase.lifecycle?.nextWork) return canonicalQueueBucket(refundCase) === 'ready_to_pay' &&
+    refundCase.canPerformOfficialAction === true &&
+    Number.isSafeInteger(refundCase.officialActionVersion) &&
+    refundCase.officialActionVersion > 0;
+  // Older lifecycle responses cannot establish preparation or the next actor
+  // for a fresh decision. A card capability alone is execution permission,
+  // not evidence that the case belongs in the Manager decision queue.
+  if (refundCase.lifecycle && refundCase.decision == null) return false;
+  if (refundCase.lifecycle &&
+      ['outcome_unknown', 'integrity_unknown', 'submitted_pending'].includes(refundCase.lifecycle.paymentState)) return false;
+  if (isRefundWorkflowProjectionUnavailable(refundCase) ||
+      (refundCase.paymentMethod === 'card' && refundCase.decision === 'approved')) return false;
   if (refundCase.paymentMethod === 'card' && refundCase.refundReadiness) {
     if (
       doneStatuses.has(refundCase.status) ||
@@ -966,7 +981,7 @@ const isReadyToPayCase = (refundCase: RefundCaseRecord) => {
 };
 
 const taskManagerState = (refundCase: RefundCaseRecord) =>
-  (isReadyToPayCase(refundCase)
+  (refundCase.lifecycle?.nextWork ? null : isReadyToPayCase(refundCase)
     ? getCurrentRefundCardManagerState(refundCase, refundCase.refundReadiness)
     : null) ?? getRefundManagerState(refundCase);
 
@@ -983,6 +998,7 @@ const isRefundInProgressCase = (refundCase: RefundCaseRecord) => {
 };
 
 const isManagerReviewCase = (refundCase: RefundCaseRecord) => {
+  if (refundCase.workflowProjectionUnavailable) return true;
   if (refundCase.lifecycle) return ['accounting_review', 'provider_hold', 'integrity_hold'].includes(canonicalQueueBucket(refundCase));
   return refundCase.paymentMethod === 'card' &&
     refundCase.lifecycle?.stage === 'needs_refund_operations';
@@ -1761,6 +1777,19 @@ const primaryActionConfig = (
 ): PrimaryActionConfig => {
   const hasUnsavedCardSelection = refundCase.paymentMethod === 'card' &&
     (editor.clearNayaxMatch || Boolean(editor.matchedNayaxCandidateToken.trim()));
+  const nextWork = refundCase.lifecycle?.nextWork;
+  const preparedFinalAction = nextWork
+    ? nextWork.isOpen && nextWork.actor === 'manager' &&
+      (nextWork.actionCode === 'approve_or_deny_request' ||
+        nextWork.actionCode === 'send_cash_refund_and_confirm')
+    : refundCase.paymentMethod === 'cash' && refundCase.decision === 'approved' &&
+      refundCase.lifecycle?.managerAction.action === 'mark_external_refund';
+  const preparationHoldAction: PrimaryActionConfig = {
+    label: nextWork ? 'Refund preparation pending' : 'Refund action temporarily unavailable',
+    helper: nextWork?.actionLabel ??
+      'Bloomjoy is updating this case’s current action. Refresh after the update; do not repeat a payment or approval.',
+    disabled: true,
+  };
   if (refundCase.lifecycle?.stage === 'duplicate_resolved' || refundCase.confirmedDuplicate) {
     return {
       label: 'Duplicate resolved',
@@ -1798,6 +1827,14 @@ const primaryActionConfig = (
       disabled: true,
     };
   }
+  if (refundCase.lifecycle?.stage === 'transaction_confirmed' &&
+      ['outcome_unknown', 'integrity_unknown'].includes(refundCase.lifecycle.paymentState)) {
+    return {
+      label: 'Payment result needs review',
+      helper: 'Check the exact payment record and reconcile its result. Do not approve or retry payment.',
+      disabled: true,
+    };
+  }
   if (
     refundCase.paymentMethod === 'card' &&
     refundCase.status === 'card_refund_pending' &&
@@ -1810,6 +1847,7 @@ const primaryActionConfig = (
     };
   }
   if (editor.status === 'denied' || editor.decision === 'denied') {
+    if (!preparedFinalAction) return preparationHoldAction;
     return {
       label: 'Deny request',
       helper: 'Send a warm, specific denial reason based on the transaction review.',
@@ -1820,10 +1858,48 @@ const primaryActionConfig = (
     };
   }
   if (
+    refundCase.paymentMethod === 'card' && refundCase.decision == null &&
+    refundCase.lifecycle?.stage === 'needs_transaction_selection' &&
+    nextWork?.isOpen === true && nextWork.actor === 'manager' &&
+    nextWork.actionCode === 'approve_or_deny_request' &&
+    Boolean(nextWork.preparationProofId)
+  ) {
+    const candidate = selectedNayaxCandidate(editor, candidates);
+    const chosenIsEligible = Boolean(candidate && candidate.selectionAllowed !== false &&
+      nextWork.eligibleCandidateTokens?.includes(candidate.candidateToken));
+    return {
+      label: chosenIsEligible && candidate?.amountCents
+        ? `Approve ${formatCurrency(candidate.amountCents)} refund`
+        : 'Choose a reviewed purchase to approve',
+      helper: 'Choose one reviewed purchase within this final decision. Bloomjoy will issue the approved refund and notify the customer after payment is confirmed.',
+      targetStatus: 'card_refund_pending',
+      targetDecision: 'approved',
+      mode: 'reviewed_nayax_final_decision',
+    };
+  }
+  if (
+    refundCase.paymentMethod === 'card' && refundCase.decision == null &&
+    !hasUnsavedCardSelection && refundCase.lifecycle?.stage === 'transaction_confirmed' &&
+    refundCase.lifecycle.managerAction?.action === 'refund' &&
+    nextWork?.isOpen === true && nextWork.actor === 'manager' &&
+    nextWork.actionCode === 'approve_or_deny_request' &&
+    refundCase.canPerformOfficialAction === true &&
+    hasFreshPersistedNayaxSelection(refundCase, refundReadiness)
+  ) {
+    return {
+      label: `Approve ${formatCurrency(refundCase.selectedNayaxTransaction?.saleAmountCents ?? refundCase.refundAmountCents ?? refundCase.paymentAmountCents)} refund`,
+      helper: 'Approve the exact saved purchase once. Bloomjoy will queue the protected attempt; a paused machine waits for System activation before payment.',
+      targetStatus: 'card_refund_pending',
+      targetDecision: 'approved',
+      mode: 'selected_nayax_final_decision',
+    };
+  }
+  if (
     refundCase.paymentMethod === 'card' &&
     !hasUnsavedCardSelection &&
     hasCurrentRefundCardCapability(refundCase, refundReadiness)
   ) {
+    if (!preparedFinalAction) return preparationHoldAction;
     return {
       label: `Refund ${formatCurrency(refundReadiness?.refundAmountCents ?? refundCase.selectedNayaxTransaction?.saleAmountCents ?? refundCase.refundAmountCents ?? refundCase.paymentAmountCents)}`,
       helper: 'Approve this refund once. Bloomjoy will finish it automatically and email the customer only after Nayax confirms it.',
@@ -1999,6 +2075,7 @@ const primaryActionConfig = (
     helper: 'Bloomjoy will continue this same request when the customer responds. No new request is needed.', disabled: true,
   };
   if (editor.status === 'denied' || editor.decision === 'denied') {
+    if (!preparedFinalAction) return preparationHoldAction;
     return {
       label: 'Deny request',
       helper: 'Send a warm, specific denial reason based on the transaction review.',
@@ -2070,6 +2147,7 @@ const primaryActionConfig = (
       };
     }
 
+    if (!preparedFinalAction) return preparationHoldAction;
     return {
       label: 'Confirm refund sent via Zelle',
       helper: 'Send the refund through Zelle outside Bloomjoy Hub first. Then confirm it here to complete the case.',
@@ -2327,6 +2405,8 @@ const messageStatusBadgeClass = (status: string) => {
 };
 
 const isNeedsActionCase = (refundCase: RefundCaseRecord) => {
+  if (refundCase.workflowProjectionUnavailable) return false;
+  if (refundCase.lifecycle?.nextWork) return canonicalQueueBucket(refundCase) === 'needs_action';
   if (refundCase.lifecycle) return canonicalQueueBucket(refundCase) === 'needs_action';
   return openStatuses.has(refundCase.status) &&
     !isReadyToPayCase(refundCase) &&
@@ -2613,7 +2693,9 @@ const getPrimaryActionIssues = (
   if (
     hasConfirmedRefundReceipt(refundCase) ||
     action?.mode === 'retry_message' ||
-    action?.mode === 'nayax_refund_execution'
+    action?.mode === 'nayax_refund_execution' ||
+    action?.mode === 'reviewed_nayax_final_decision' ||
+    action?.mode === 'selected_nayax_final_decision'
   ) return [];
   const issues = getCaseSaveIssues(refundCase, editor, cashCompletionAmountCents);
   if (action?.disabled === true && !action.mode && hasUnchangedSavedApproval(refundCase, editor)) {
@@ -2942,17 +3024,20 @@ export default function AdminRefundsPage() {
     provider_hold: overview.cases.filter(isManagerReviewCase).length,
     completed: overview.cases.filter(isDoneCase).length,
     internal_test: refundOperationsAccess ? internalTestCases.length : 0,
-    ...(overview.managerWork && (
-      overview.cases.length === 0 ||
-      Object.values(overview.managerWork.bucketCounts).some((count) => count > 0)
-    ) ? overview.managerWork.bucketCounts : {}),
+    ...(overview.cases.length === 0 && overview.managerWork
+      ? overview.managerWork.bucketCounts : {}),
   }), [internalTestCases, overview.cases, overview.managerWork, refundOperationsAccess]);
 
   const hasAnyCases = overview.cases.length + internalTestCases.length > 0;
+  const refundQueueTruthUnavailable = !isUsingDemoData &&
+    overviewReadStatus === 'error' && !liveOverviewSnapshot;
   const isSearching = search.trim().length > 0;
   const searchScope = statusFilter === 'internal_test' ? 'the internal/test archive' : 'all your customer case views';
-  const emptyQueueTitle = isSearching ? 'No matching cases.' : hasAnyCases ? 'No refund cases match this filter.' : 'No refund cases are assigned here yet.';
-  const emptyQueueDescription = isSearching
+  const emptyQueueTitle = refundQueueTruthUnavailable ? 'Refund case list temporarily unavailable.'
+    : isSearching ? 'No matching cases.' : hasAnyCases ? 'No refund cases match this filter.' : 'No refund cases are assigned here yet.';
+  const emptyQueueDescription = refundQueueTruthUnavailable
+    ? 'The current case list could not be loaded. Refresh to check the latest work before taking action.'
+    : isSearching
     ? `No results in ${searchScope}. Check the reference or try a customer, machine, or location.`
     : hasAnyCases
     ? 'Try another status filter or search term.'
@@ -3098,6 +3183,10 @@ export default function AdminRefundsPage() {
   const cashCompletionAmountCents = selectedCase?.paymentMethod === 'cash'
     ? isCashSaleSelectionPending
       ? null
+      : selectedCase.decision === 'approved' && selectedCase.status === 'cash_zelle_pending' &&
+          typeof (selectedCase.refundAmountCents ?? selectedCase.paymentAmountCents) === 'number' &&
+          (selectedCase.refundAmountCents ?? selectedCase.paymentAmountCents ?? 0) > 0
+        ? selectedCase.refundAmountCents ?? selectedCase.paymentAmountCents
       : resolveCashReviewAmountCents(
         selectedCase.paymentAmountCents,
         selectedCashEvidenceAmountCents,
@@ -3647,7 +3736,9 @@ export default function AdminRefundsPage() {
         candidateCount: selectedCaseNeedsLegacyPaymentReview ? 0 : nayaxCandidates.length,
         selectableCandidateCount: selectedCaseNeedsLegacyPaymentReview
           ? 0
-          : nayaxCandidates.filter((candidate) => candidate.selectionAllowed !== false).length,
+          : nayaxCandidates.filter((candidate) => candidate.selectionAllowed !== false &&
+            (selectedCase.lifecycle?.nextWork?.preparationProofId == null ||
+              selectedCase.lifecycle.nextWork.eligibleCandidateTokens?.includes(candidate.candidateToken))).length,
         hasSelectedMatch:
           !selectedCaseNeedsLegacyPaymentReview &&
           selectedCase.hasMatchedNayaxTransaction &&
@@ -4353,6 +4444,114 @@ export default function AdminRefundsPage() {
     await availabilityRefresh;
   };
 
+  const handleApproveReviewedNayaxCandidate = async () => {
+    if (nayaxRefundInFlightRef.current || !selectedCase || !editor ||
+        selectedCase.paymentMethod !== 'card' || isUsingDemoData) return;
+    const selectedCandidate = selectedNayaxCandidate(editor, nayaxCandidates);
+    const proofId = selectedCase.lifecycle?.nextWork?.preparationProofId;
+    if (!selectedCandidate || selectedCandidate.selectionAllowed === false ||
+        !proofId || selectedCase.canPerformOfficialAction !== true ||
+        !selectedCase.lifecycle?.nextWork?.eligibleCandidateTokens?.includes(selectedCandidate.candidateToken) ||
+        selectedCase.decision != null || officialActionVersion <= 0) return;
+    const targetCaseId = selectedCase.id;
+    nayaxRefundInFlightRef.current = true;
+    setIsRunningNayaxRefund(true);
+    setNayaxExecutionNotice(null);
+    setRefundActionReceipt(null);
+    try {
+      const freshOverview = await readFreshRefundOverview();
+      const freshCase = freshOverview.cases.find((item) => item.id === targetCaseId);
+      const freshWork = freshCase?.lifecycle?.nextWork;
+      if (selectedIdRef.current !== targetCaseId || !freshCase ||
+          freshCase.decision != null || freshCase.canPerformOfficialAction !== true ||
+          freshCase.officialActionVersion !== officialActionVersion ||
+          freshWork?.isOpen !== true || freshWork.actor !== 'manager' ||
+          freshWork.actionCode !== 'approve_or_deny_request' ||
+          freshWork.preparationProofId !== proofId ||
+          !freshWork.eligibleCandidateTokens?.includes(selectedCandidate.candidateToken)) {
+        throw new Error('The reviewed purchase or case decision changed. Refresh before deciding again.');
+      }
+      const result = await approveReviewedNayaxCandidate({
+        caseId: targetCaseId,
+        expectedOfficialActionVersion: officialActionVersion,
+        preparationProofId: proofId,
+        candidateToken: selectedCandidate.candidateToken,
+      });
+      await refresh();
+      setRefundActionReceipt({
+        tone: result.status === 'provider_hold' ? 'warning' : 'success',
+        title: result.status === 'completed'
+          ? 'Refund already completed'
+          : result.status === 'provider_hold'
+            ? 'Refund result needs reconciliation'
+            : 'Final decision saved',
+        message: result.status === 'completed'
+          ? 'The original approved refund is complete. No second payment was attempted.'
+          : result.status === 'provider_hold'
+            ? 'The existing refund attempt needs payment-result review. Do not retry or approve again.'
+            : 'The exact reviewed purchase was approved once. Bloomjoy will continue the protected refund attempt; no payment was sent by this decision request.',
+      });
+    } catch (error) {
+      await refresh();
+      const message = error instanceof Error ? error.message :
+        'The decision result could not be confirmed. Refresh the case history before taking another action.';
+      setNayaxExecutionNotice({ tone: 'warning', message });
+      toast.error('Check the refreshed case before deciding again. No second payment should be attempted.');
+    } finally {
+      nayaxRefundInFlightRef.current = false;
+      setIsRunningNayaxRefund(false);
+    }
+  };
+
+  const handleApproveSelectedNayaxCandidate = async () => {
+    if (nayaxRefundInFlightRef.current || !selectedCase ||
+        selectedCase.paymentMethod !== 'card' || isUsingDemoData ||
+        selectedCase.canPerformOfficialAction !== true || officialActionVersion <= 0) return;
+    const targetCaseId = selectedCase.id;
+    const selectedTransactionId = selectedCase.matchedNayaxTransactionId;
+    const selectedAmountCents = selectedCase.matchedNayaxAmountCents;
+    if (!selectedTransactionId || !selectedAmountCents) return;
+    nayaxRefundInFlightRef.current = true;
+    setIsRunningNayaxRefund(true);
+    setNayaxExecutionNotice(null);
+    setRefundActionReceipt(null);
+    try {
+      const freshOverview = await readFreshRefundOverview();
+      const freshCase = freshOverview.cases.find((item) => item.id === targetCaseId);
+      const freshWork = freshCase?.lifecycle?.nextWork;
+      if (selectedIdRef.current !== targetCaseId || !freshCase ||
+          freshCase.decision != null || freshCase.canPerformOfficialAction !== true ||
+          freshCase.officialActionVersion !== officialActionVersion ||
+          freshCase.matchedNayaxTransactionId !== selectedTransactionId ||
+          freshCase.matchedNayaxAmountCents !== selectedAmountCents ||
+          freshCase.lifecycle?.stage !== 'transaction_confirmed' ||
+          freshCase.lifecycle.managerAction?.action !== 'refund' ||
+          freshWork?.isOpen !== true || freshWork.actor !== 'manager' ||
+          freshWork.actionCode !== 'approve_or_deny_request') {
+        throw new Error('The saved purchase or decision changed. Refresh this case before deciding again.');
+      }
+      await approveSelectedNayaxCandidate({
+        caseId: targetCaseId,
+        expectedOfficialActionVersion: officialActionVersion,
+      });
+      await refresh();
+      setRefundActionReceipt({
+        tone: 'success',
+        title: 'Final decision saved',
+        message: 'The exact saved purchase was approved once. Bloomjoy will continue the protected attempt when machine execution is available; no payment was sent by this decision request.',
+      });
+    } catch (error) {
+      await refresh();
+      const message = error instanceof Error ? error.message :
+        'The decision result could not be confirmed. Refresh the case history before another action.';
+      setNayaxExecutionNotice({ tone: 'warning', message });
+      toast.error('Check the refreshed case before deciding again. No second payment should be attempted.');
+    } finally {
+      nayaxRefundInFlightRef.current = false;
+      setIsRunningNayaxRefund(false);
+    }
+  };
+
   const handleRunNayaxRefund = async () => {
     if (nayaxRefundInFlightRef.current) return;
     if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return;
@@ -4581,6 +4780,14 @@ export default function AdminRefundsPage() {
 
   const handlePrimaryAction = async () => {
     if (!editor || !primaryAction || !primaryActionEditor) return;
+    if (primaryAction.mode === 'reviewed_nayax_final_decision') {
+      await handleApproveReviewedNayaxCandidate();
+      return;
+    }
+    if (primaryAction.mode === 'selected_nayax_final_decision') {
+      await handleApproveSelectedNayaxCandidate();
+      return;
+    }
     if (primaryAction.mode === 'resolve_delivery_not_found') {
       setIsGmailResolutionOpen(true);
       return;
@@ -5613,7 +5820,16 @@ export default function AdminRefundsPage() {
     // A normalized legacy case must never reuse lookup cache or match fields
     // captured before the repair. The database removes that cache as well;
     // this UI boundary keeps a stale response from hiding the fresh-check CTA.
-    const effectiveCandidates = selectedCaseNeedsLegacyPaymentReview ? [] : nayaxCandidates;
+    const reviewedFinalDecisionReady = primaryAction?.mode === 'reviewed_nayax_final_decision';
+    const eligibleReviewedTokens = new Set(selectedCase.lifecycle?.nextWork?.eligibleCandidateTokens ?? []);
+    const effectiveCandidates = selectedCaseNeedsLegacyPaymentReview ? [] :
+      reviewedFinalDecisionReady
+        ? nayaxCandidates.map((candidate) => ({
+            ...candidate,
+            selectionAllowed: candidate.selectionAllowed !== false &&
+              eligibleReviewedTokens.has(candidate.candidateToken),
+          }))
+        : nayaxCandidates;
     const hasSelectedMatch = selectedCaseNeedsLegacyPaymentReview
       ? false
       : hasSelectedCardEvidence(selectedCase, editor);
@@ -5628,17 +5844,20 @@ export default function AdminRefundsPage() {
     );
     const selectableCandidateCount = selectableCandidates.length;
     const waitingOnCustomer = isWaitingCase(selectedCase, refundOperationsAccess);
-    const candidateSelectionAuthorized =
-      (selectedCase.canSelectNayaxCandidate ?? selectedCase.canPerformOfficialAction) === true;
+    const candidateSelectionAuthorized = reviewedFinalDecisionReady
+      ? selectedCase.canPerformOfficialAction === true
+      : (selectedCase.canSelectNayaxCandidate ?? selectedCase.canPerformOfficialAction) === true;
     const caseAllowsCandidateSelection =
-      (canReviewSystemSelection ||
+      (reviewedFinalDecisionReady && candidateSelectionAuthorized &&
+        officialActionVersion > 0 && selectedCase.decision == null) ||
+      ((canReviewSystemSelection ||
         ['ambiguous', 'manual_exception'].includes(selectedCase.nayaxRecommendationState ?? '')) &&
       canConfirmRefundCandidate({
       persistedStatus: selectedCase.status,
       editorStatus: editor.status,
       decision: selectedCase.decision,
       canSelectCandidate: candidateSelectionAuthorized,
-      });
+      }));
     const selectedCandidate = selectedNayaxCandidate(editor, effectiveCandidates);
     const transactionView = selectedTransactionView ?? deriveRefundTransactionViewState({
       summary: selectedNayaxSummary,
@@ -5708,6 +5927,14 @@ export default function AdminRefundsPage() {
       customerTimeIsComparable && candidate?.timeEvidence?.occurrenceComparable === true;
     const selectCandidate = (candidate: NayaxLookupCandidate) => {
       if (!caseAllowsCandidateSelection || candidate.selectionAllowed === false) return;
+      if (reviewedFinalDecisionReady) {
+        setEditor((current) => current ? {
+          ...current,
+          matchedNayaxCandidateToken: candidate.candidateToken,
+          nayaxDisagreementReason: '',
+        } : current);
+        return;
+      }
       setEditor((current) =>
         current
           ? {
@@ -5773,7 +6000,8 @@ export default function AdminRefundsPage() {
             onRefresh={() => void handleNayaxLookup()}
           />
         )}
-        {(!selectedCase.hasMatchedNayaxTransaction || editor.clearNayaxMatch) && transactionView.showCandidates && (
+        {(!selectedCase.hasMatchedNayaxTransaction || editor.clearNayaxMatch) &&
+          (transactionView.showCandidates || reviewedFinalDecisionReady) && (
           <RefundTransactionCandidateReview
             candidates={effectiveCandidates}
             selectedCandidate={selectedCandidate}
@@ -5784,12 +6012,15 @@ export default function AdminRefundsPage() {
             waitingOnCustomer={waitingOnCustomer}
             isDemoData={isUsingDemoData}
             isSaving={isSaving}
+            reviewedFinalDecision={reviewedFinalDecisionReady}
             canSelectCandidates={caseAllowsCandidateSelection}
             canAccessCandidateSelection={candidateSelectionAuthorized}
             disagreementReason={editor.nayaxDisagreementReason}
             canUseCloserTimeReason={supportsCloserTimeReason(selectedCandidate)}
             describeUnavailableCandidate={(candidate) =>
-              candidateUnavailableReason(candidate, selectedCase)
+              reviewedFinalDecisionReady && !eligibleReviewedTokens.has(candidate.candidateToken)
+                ? 'This result is outside the current safe reviewed set.'
+                : candidateUnavailableReason(candidate, selectedCase)
             }
             describeMatchFactor={(factor, candidate) =>
               matchFactorDisplayLabel(factor, candidate, selectedCase)
@@ -5866,7 +6097,16 @@ export default function AdminRefundsPage() {
   const renderCardDecisionWorkbench = () => {
     if (!selectedCase || !editor || selectedCase.paymentMethod !== 'card') return null;
 
-    const effectiveCandidates = selectedCaseNeedsLegacyPaymentReview ? [] : nayaxCandidates;
+    const reviewedFinalDecisionReady = primaryAction?.mode === 'reviewed_nayax_final_decision';
+    const eligibleReviewedTokens = new Set(selectedCase.lifecycle?.nextWork?.eligibleCandidateTokens ?? []);
+    const effectiveCandidates = selectedCaseNeedsLegacyPaymentReview ? [] :
+      reviewedFinalDecisionReady
+        ? nayaxCandidates.map((candidate) => ({
+            ...candidate,
+            selectionAllowed: candidate.selectionAllowed !== false &&
+              eligibleReviewedTokens.has(candidate.candidateToken),
+          }))
+        : nayaxCandidates;
     const activeCandidate = activeNayaxCandidate(selectedCase, editor, effectiveCandidates);
     const selectableComparisonCandidate =
       effectiveCandidates.find(
@@ -5951,7 +6191,7 @@ export default function AdminRefundsPage() {
       primaryAction?.mode === 'nayax_refund_execution' &&
       primaryAction.disabled !== true;
     const topActionLabel = primaryAction?.label ?? 'Review this request';
-    const baseManagerState = (!hasReadyRefund || isRunningNayaxRefund
+    const baseManagerState = (selectedCase.lifecycle?.nextWork || !hasReadyRefund || isRunningNayaxRefund
       ? null
       : getCurrentRefundCardManagerState(selectedCase, selectedRefundReadiness)) ?? getRefundManagerState(
       {
@@ -5965,7 +6205,7 @@ export default function AdminRefundsPage() {
         canViewOperationsDetail: refundOperationsAccess,
       }
     );
-    const hasUnsavedTransactionChoice =
+    const hasUnsavedTransactionChoice = !reviewedFinalDecisionReady &&
       !selectedCase.hasMatchedNayaxTransaction &&
       Boolean(editor.matchedNayaxCandidateToken.trim());
     const selectedCandidateRefundUnavailable =
@@ -5993,7 +6233,8 @@ export default function AdminRefundsPage() {
         !selectedCase.customerDeliveryException &&
         ['failed', 'skipped'].includes(getLatestCustomerMessage(selectedCase)?.status ?? ''),
     };
-    const cardManagerState: RefundManagerState = hasConfirmedRefundReceipt(selectedCase) ||
+    const cardManagerState: RefundManagerState = selectedCase.lifecycle?.nextWork ||
+      hasConfirmedRefundReceipt(selectedCase) ||
       hasProtectedRefundLifecycle(selectedCase) ||
       (selectedCase.customerDeliveryException && !hasUnpaidRefundReview(selectedCase))
       ? baseManagerState
@@ -6072,12 +6313,20 @@ export default function AdminRefundsPage() {
     const currentCardDenialAction = selectedCaseHasCurrentCardDecisionAuthority &&
       primaryAction?.mode === 'case_update' &&
       primaryAction.targetDecision === 'denied';
+    const reviewedChoice = selectedNayaxCandidate(editor, effectiveCandidates);
     const cardActionDisabled = primaryAction?.mode === 'nayax_refund_execution'
       ? isRefundCardActionDisabled(selectedCase, selectedRefundReadiness, {
           busy: isSaving || isSendingCustomerMessage || isRunningNayaxRefund,
           demo: isUsingDemoData,
           hasUnsavedSelection: hasUnsavedCardSelection,
         })
+      : primaryAction?.mode === 'reviewed_nayax_final_decision' ||
+        primaryAction?.mode === 'selected_nayax_final_decision'
+        ? isSaving || isSendingCustomerMessage || isRunningNayaxRefund ||
+          isUsingDemoData || selectedCaseIsReviewOnly || officialActionVersion <= 0 ||
+          (primaryAction.mode === 'reviewed_nayax_final_decision' &&
+            (!reviewedChoice || reviewedChoice.selectionAllowed !== true)) ||
+          primaryActionIssues.length > 0
       : isSaving ||
         isSendingCustomerMessage ||
         isRunningNayaxRefund ||
@@ -6089,7 +6338,8 @@ export default function AdminRefundsPage() {
           (selectedCaseIsReviewOnly && !currentCardDenialAction)
         )) ||
         primaryActionIssues.length > 0;
-    const cardManagerCapabilityAction: RefundCardManagerCapabilityAction = transactionDecisionPending
+    const cardManagerCapabilityAction: RefundCardManagerCapabilityAction =
+      transactionDecisionPending && !reviewedFinalDecisionReady
       ? { kind: 'hidden' }
       : showDisabledActionStatus && primaryAction
         ? {
@@ -6100,7 +6350,11 @@ export default function AdminRefundsPage() {
         : primaryAction && primaryAction.disabled !== true
           ? {
               kind: 'button',
-              testId: hasReadyRefund ? 'refund-run-nayax-refund' : 'refund-save-case',
+              testId: reviewedFinalDecisionReady
+                ? 'refund-approve-reviewed-purchase'
+                : primaryAction.mode === 'selected_nayax_final_decision'
+                  ? 'refund-approve-selected-purchase'
+                : hasReadyRefund ? 'refund-run-nayax-refund' : 'refund-save-case',
               label: topActionLabel,
               disabled: cardActionDisabled,
               pending: isSaving || isRunningNayaxRefund,
@@ -7150,7 +7404,7 @@ export default function AdminRefundsPage() {
               The refund queue is available, but lifecycle and progress detail is unavailable for{' '}
               {liveOverview.lifecycleValidationFailureCount}{' '}
               {liveOverview.lifecycleValidationFailureCount === 1 ? 'case' : 'cases'} pending a data review.
-              Action availability still follows each case&apos;s authoritative capability.
+              New final decisions wait for current workflow detail; saved approvals and payment records remain visible.
             </div>
           )}
 
@@ -7165,7 +7419,7 @@ export default function AdminRefundsPage() {
               ['needs_action', 'Action needed'],
               ['ready_to_pay', 'Ready to approve'],
               ['in_progress', 'Refund in progress'],
-              ['provider_hold', 'Needs manager review'],
+              ['provider_hold', 'Bloomjoy follow-up'],
               ['waiting_on_customer', 'Waiting for customer'],
               ['completed', 'Done'],
             ] as const)
@@ -7186,7 +7440,7 @@ export default function AdminRefundsPage() {
               >
                 {label}
                 <span className="ml-2 rounded-full bg-background/80 px-2 py-0.5 text-xs tabular-nums text-foreground">
-                  {primaryQueueCounts[value]}
+                  {refundQueueTruthUnavailable ? '—' : primaryQueueCounts[value]}
                 </span>
               </Button>
             ))}
@@ -7222,6 +7476,7 @@ export default function AdminRefundsPage() {
               hasSelectedCase={Boolean(selectedCase)}
               isMobileExpanded={isMobileQueueExpanded}
               isLoading={pageIsLoading}
+              isUnavailable={refundQueueTruthUnavailable}
               isSearching={isSearching}
               emptyTitle={emptyQueueTitle}
               emptyDescription={emptyQueueDescription}
