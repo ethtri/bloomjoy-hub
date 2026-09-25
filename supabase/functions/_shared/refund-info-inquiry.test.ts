@@ -1,4 +1,4 @@
-import { classifyRefundInfoInquiry } from "./refund-info-inquiry.ts";
+import { classifyRefundInfoInquiry, infoRecoveryScanOutcome } from "./refund-info-inquiry.ts";
 import { infoRefundInquiryThreadQuery, type GmailMessage } from "./refund-gmail.ts";
 
 Deno.test("Info mailbox search is independent of the refund label and preserves pagination", () => {
@@ -49,6 +49,40 @@ const message = ({
 Deno.test("direct Info refund request is eligible for the form-link path", () => {
   assertRoute(message({ subject: "Refund please", body: "I was charged and would like a refund." }),
     "new_refund_inquiry");
+});
+
+Deno.test("an unrelated sync failure does not pin a completed Info recovery page", () => {
+  // The overall run may fail on labeled mail; Info cursor settlement uses only
+  // the independently observed Info page outcome.
+  const result = infoRecoveryScanOutcome({
+    initialCursor: "old-info-page", nextCursor: "next-info-page",
+    pagesFetched: true, allThreadsProcessed: true, scanFailed: false,
+  });
+  if (result.cursor !== "next-info-page" || result.fullScanCompleted) {
+    throw new Error("The Info cursor must reflect its own completed page");
+  }
+});
+
+Deno.test("failed or unprocessed Info pages retain the exact recovery cursor", () => {
+  for (const state of [
+    { pagesFetched: false, allThreadsProcessed: false, scanFailed: true },
+    { pagesFetched: true, allThreadsProcessed: false, scanFailed: false },
+    { pagesFetched: true, allThreadsProcessed: true, scanFailed: true },
+  ]) {
+    const result = infoRecoveryScanOutcome({
+      initialCursor: "old-info-page", nextCursor: null, ...state,
+    });
+    if (result.cursor !== "old-info-page" || result.fullScanCompleted) {
+      throw new Error("An incomplete Info page cannot advance the recovery cursor");
+    }
+  }
+  const complete = infoRecoveryScanOutcome({
+    initialCursor: "old-info-page", nextCursor: null,
+    pagesFetched: true, allThreadsProcessed: true, scanFailed: false,
+  });
+  if (complete.cursor !== null || !complete.fullScanCompleted) {
+    throw new Error("A completed final Info page must record the full scan");
+  }
 });
 
 Deno.test("Info in a secondary To or Cc recipient still routes through the verified mailbox", () => {
@@ -111,7 +145,22 @@ Deno.test("vendor, technician and marketing messages are not refund inquiries", 
     "I am a technician and the service ticket is ready for your machine.",
     "We offer marketing help for your cotton candy business.",
     "Our vendor refund policy changed; please review the attached terms.",
+    "I paid your vendor invoice and need a refund for our service ticket.",
   ]) assertRoute(message({ body }), "non_refund");
+});
+
+Deno.test("a later vendor request cannot inherit an older refund inquiry in one thread", () => {
+  const earlier = message({ body: "I need a refund for my Bloomjoy purchase." });
+  earlier.id = "older-customer-inquiry";
+  const later = message({ body: "I paid your vendor invoice and need a refund for our service ticket." });
+  later.id = "newer-business-request";
+  const result = classifyRefundInfoInquiry({
+    messages: [earlier, later],
+    mailboxIdentities: ["info@bloomjoysweets.com"],
+  });
+  if (result.route !== "non_refund") {
+    throw new Error("The current business request must not trigger an old form reply");
+  }
 });
 
 Deno.test("quoted customer refund text cannot turn unrelated current mail into an inquiry", () => {

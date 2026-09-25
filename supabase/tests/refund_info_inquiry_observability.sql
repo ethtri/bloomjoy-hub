@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(28);
+select plan(29);
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -202,8 +202,10 @@ select public.service_ingest_refund_gmail_contact_v1(
 ) as result;
 select ok(public.service_mark_refund_info_inquiry(
   (select (result->>'messageId')::uuid from answered_review_info),
-  'existing_case_question')
-  and (public.get_refund_gmail_health()->'infoInquiry'->>'reviewDueCount')::integer = 1,
+  'existing_case_question'),
+  'The current verified Info status question is recorded for review');
+select is((public.get_refund_gmail_health()->'infoInquiry'->>'reviewDueCount')::integer,
+  1,
   'A current unanswered Info status question remains reviewable after 30 minutes');
 select public.service_ingest_refund_gmail_contact_v1(
   repeat('5',64), 'info-inquiry-answered-review', 'info-inquiry-review-outbound',

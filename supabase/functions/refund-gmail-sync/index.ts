@@ -27,7 +27,7 @@ import {
   sha256Hex,
   verifyRefundGmailMailbox,
 } from "../_shared/refund-gmail.ts";
-import { classifyRefundInfoInquiry } from "../_shared/refund-info-inquiry.ts";
+import { classifyRefundInfoInquiry, infoRecoveryScanOutcome } from "../_shared/refund-info-inquiry.ts";
 import { ingestRefundGmailThreadBeforeFirstContact } from "../_shared/refund-gmail-orchestration.ts";
 import { ingestNayaxReportMail, isNayaxScheduledReportMessage, nayaxReportFailureCode } from "../_shared/nayax-report-mail.ts";
 import {
@@ -2102,6 +2102,10 @@ serve(async (request) => {
   let fatalError: RefundGmailError | null = null;
   let initialInfoScanCursor: string | null = null;
   let nextInfoScanCursor: string | null = null;
+  let infoScanPagesFetched = false;
+  let infoScanFailed = false;
+  let infoThreadRefs: Array<{ id?: string; historyId?: string }> = [];
+  const visitedThreadIds = new Set<string>();
   try {
     if (firstContact.mode === "blocked") {
       counters.firstContactFailed += 1;
@@ -2165,23 +2169,27 @@ serve(async (request) => {
     let nextPageToken: string | undefined;
     let labeledExhausted = false;
     let infoExhausted = Boolean(intakeShadow);
-    let infoThreadRefs: Array<{ id?: string; historyId?: string }> = [];
     if (!intakeShadow) {
-      initialInfoScanCursor = sanitizeText(
-        await rpc<string | null>("service_get_refund_info_inquiry_scan_cursor", {}),
-        2048,
-      ) || null;
-      const currentInfoPage = await listInfoRefundInquiryThreads(config);
-      infoThreadRefs = [...(currentInfoPage.threads ?? [])];
-      if (initialInfoScanCursor) {
-        const recoveryPage = await listInfoRefundInquiryThreads(config, initialInfoScanCursor);
-        infoThreadRefs.push(...(recoveryPage.threads ?? []));
-        nextInfoScanCursor = recoveryPage.nextPageToken ?? null;
-      } else {
-        nextInfoScanCursor = currentInfoPage.nextPageToken ?? null;
+      try {
+        initialInfoScanCursor = sanitizeText(
+          await rpc<string | null>("service_get_refund_info_inquiry_scan_cursor", {}),
+          2048,
+        ) || null;
+        const currentInfoPage = await listInfoRefundInquiryThreads(config);
+        infoThreadRefs = [...(currentInfoPage.threads ?? [])];
+        if (initialInfoScanCursor) {
+          const recoveryPage = await listInfoRefundInquiryThreads(config, initialInfoScanCursor);
+          infoThreadRefs.push(...(recoveryPage.threads ?? []));
+          nextInfoScanCursor = recoveryPage.nextPageToken ?? null;
+        } else {
+          nextInfoScanCursor = currentInfoPage.nextPageToken ?? null;
+        }
+        infoScanPagesFetched = true;
+      } catch (error) {
+        infoScanFailed = true;
+        throw error;
       }
     }
-    const visitedThreadIds = new Set<string>();
     let reportThreadRefs = intakeShadow ? [] : (await listNayaxScheduledReportThreads(config).catch(() => {
       counters.messagesFailed += 1;
       return { threads: [] };
@@ -2445,11 +2453,13 @@ serve(async (request) => {
                   } catch {
                     infoCounters.failed += 1;
                     counters.messagesFailed += 1;
+                    infoScanFailed = true;
                     allowRoutineContact = false;
                   }
                 } else {
                   infoCounters.failed += 1;
                   counters.messagesFailed += 1;
+                  infoScanFailed = true;
                   allowRoutineContact = false;
                 }
               }
@@ -2582,7 +2592,10 @@ serve(async (request) => {
           });
         } catch {
           counters.messagesFailed += 1;
-          if (infoThreadIds.has(providerThreadId)) infoCounters.failed += 1;
+          if (infoThreadIds.has(providerThreadId)) {
+            infoCounters.failed += 1;
+            infoScanFailed = true;
+          }
         }
       }
       nextPageToken = page.nextPageToken;
@@ -2615,8 +2628,17 @@ serve(async (request) => {
     counters.messagesFailed += 1;
   }
 
-  if (!intakeShadow) {
+  // A failed cursor read or page fetch has no trustworthy cursor to write back.
+  if (!intakeShadow && infoScanPagesFetched) {
     try {
+      const infoScan = infoRecoveryScanOutcome({
+        initialCursor: initialInfoScanCursor,
+        nextCursor: nextInfoScanCursor,
+        pagesFetched: infoScanPagesFetched,
+        allThreadsProcessed: infoThreadRefs.every((thread) =>
+          typeof thread.id === "string" && visitedThreadIds.has(thread.id)),
+        scanFailed: infoScanFailed,
+      });
       const recorded = await rpc<boolean>("service_record_refund_info_inquiry_run", {
         p_run_id: runId,
         p_considered: infoCounters.considered,
@@ -2627,11 +2649,8 @@ serve(async (request) => {
         p_review_held: infoCounters.reviewHeld,
         p_existing_case: infoCounters.existingCase,
         p_failed: infoCounters.failed,
-        p_next_scan_cursor: fatalError || counters.messagesFailed > 0
-          ? initialInfoScanCursor
-          : nextInfoScanCursor,
-        p_full_scan_completed: !fatalError && counters.messagesFailed === 0 &&
-          nextInfoScanCursor === null,
+        p_next_scan_cursor: infoScan.cursor,
+        p_full_scan_completed: infoScan.fullScanCompleted,
       });
       if (!recorded) counters.messagesFailed += 1;
     } catch {

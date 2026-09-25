@@ -13,6 +13,26 @@ export type RefundInfoInquiryRoute =
   | "existing_case_question"
   | "new_refund_inquiry";
 
+export function infoRecoveryScanOutcome({
+  initialCursor,
+  nextCursor,
+  pagesFetched,
+  allThreadsProcessed,
+  scanFailed,
+}: {
+  initialCursor: string | null;
+  nextCursor: string | null;
+  pagesFetched: boolean;
+  allThreadsProcessed: boolean;
+  scanFailed: boolean;
+}): { cursor: string | null; fullScanCompleted: boolean } {
+  const complete = pagesFetched && allThreadsProcessed && !scanFailed;
+  return {
+    cursor: complete ? nextCursor : initialCursor,
+    fullScanCompleted: complete && nextCursor === null,
+  };
+}
+
 const INFO_RECIPIENTS = new Set([
   "info@bloomjoysweets.com",
   "support@bloomjoysweets.com",
@@ -62,13 +82,18 @@ export function classifyRefundInfoInquiry({
     }
     const subject = getGmailHeader(message.payload?.headers, "Subject");
     const text = currentMessageText(`${subject}\n${extractPlainTextBody(message.payload)}`);
+    if (businessContext.test(text)) {
+      // A later vendor/business message also supersedes any older customer
+      // inquiry in this thread; it must never inherit a pending form reply.
+      latestApplicable = { route: "non_refund", sourceMessageId: null };
+      continue;
+    }
     if (publicReference.test(text) || statusQuestion.test(text)) {
       latestApplicable = { route: "existing_case_question", sourceMessageId: message.id ?? null };
       continue;
     }
     const personal = personalExperience.test(text);
-    if (personal && directRefundAsk.test(text) &&
-      (!businessContext.test(text) || purchaseExperience.test(text))) {
+    if (personal && directRefundAsk.test(text)) {
       latestApplicable = { route: "new_refund_inquiry", sourceMessageId: message.id ?? null };
       continue;
     }
