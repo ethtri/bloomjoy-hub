@@ -22,6 +22,8 @@ const safeField = new Set([
 export const validateProposalShape = (proposal) => {
   const allowed = proposal?.kind === 'fact'
     ? ['kind', 'field', 'messageId', 'quote']
+    : proposal?.kind === 'facts'
+    ? ['kind', 'facts']
     : proposal?.kind === 'reviewed_no_fact'
     ? ['kind', 'reasonCode', 'messageId', 'quote']
     : proposal?.kind === 'internal_research'
@@ -32,6 +34,43 @@ export const validateProposalShape = (proposal) => {
     throw new Error('invalid_reply_proposal_shape');
   }
   return proposal;
+};
+
+const supportedFieldsIn = (body) => [
+  ['amount', /\$\s*\d|\bamount\s*:\s*\d/iu],
+  ['payment_method', /\b(?:paid|used|tapped|inserted|swiped)\b[^!?]{0,45}\b(?:cash|card)\b/iu],
+  ['card_last4', /\bcard\b[^.!?]{0,35}\b(?:end(?:s|ing)? in|last four)\b[^.!?]{0,12}\d{4}\b/iu],
+  ['card_network', /\b(?:visa|mastercard|amex|discover)\b/iu],
+].filter(([, pattern]) => pattern.test(body)).map(([field]) => field);
+
+export const deriveSourceBoundFacts = (input, proposal) => {
+  const evidence = proposal?.kind === 'fact'
+    ? [{ field: proposal.field, messageId: proposal.messageId, quote: proposal.quote }]
+    : proposal?.facts;
+  if (!['fact', 'facts'].includes(proposal?.kind) || !Array.isArray(evidence) ||
+    evidence.length < 1 || evidence.length > 4 ||
+    evidence.some((item) => !item || typeof item !== 'object' ||
+      Array.isArray(item) ||
+      Object.keys(item).sort().join(',') !== 'field,messageId,quote' ||
+      !safeField.has(item.field)) ||
+    new Set(evidence.map((item) => item.field === 'wallet_token_last4'
+      ? 'card_last4' : item.field)).size !== evidence.length) {
+    throw new Error('unsupported_fact_batch');
+  }
+  const represented = new Set(evidence.map((item) => item.field));
+  const signaled = new Set(input.replyMessages.flatMap((message) =>
+    supportedFieldsIn(message.body ?? '')));
+  if ([...signaled].some((field) => !represented.has(field))) {
+    throw new Error('unrepresented_source_fact');
+  }
+  const updates = {};
+  for (const item of evidence) {
+    const fact = deriveSourceBoundFact(input, { kind: 'fact', ...item });
+    Object.assign(updates, fact.updates);
+  }
+  return { fieldEvidence: evidence,
+    appliedFields: evidence.map((item) => item.field === 'wallet_token_last4'
+      ? 'card_last4' : item.field), updates };
 };
 
 export const validateClaim = (task) => {
@@ -109,14 +148,14 @@ export const deriveSourceBoundFact = (input, proposal) => {
   }[proposal.field];
   let value = proposal.quote;
   if (proposal.field === 'amount') {
-    const match = proposal.quote.match(/(?:\$\s*([0-9]{1,7}(?:\.[0-9]{2})?)|\b([0-9]{1,7}(?:\.[0-9]{2})?)\s*(?:dollars?|usd)\b)/iu);
+    const match = proposal.quote.match(/(?:\$\s*([0-9]{1,7}(?:\.[0-9]{2})?)|\b([0-9]{1,7}(?:\.[0-9]{2})?)\s*(?:dollars?|usd)\b|\bamount\s*:\s*([0-9]{1,7}(?:\.[0-9]{2})?))/iu);
     if (!match || !/(?:paid?|charged?|amount|total|cost|monto|cobr)/iu.test(proposal.quote)) {
       throw new Error('amount_not_supported');
     }
-    value = `$${match[1] ?? match[2]}`;
+    value = `$${match[1] ?? match[2] ?? match[3]}`;
   } else if (proposal.field === 'payment_method') {
-    const cash = /\b(?:paid|used|inserted|put in|pagu[eé]|us[eé])\b[^.!?]{0,45}\b(?:cash|efectivo)\b/iu.test(proposal.quote);
-    const card = /\b(?:paid|used|tapped|inserted|swiped|pagu[eé]|us[eé])\b[^.!?]{0,45}\b(?:card|tarjeta)\b/iu.test(proposal.quote);
+    const cash = /\b(?:paid|used|inserted|put in|pagu[eé]|us[eé])\b[^!?]{0,45}\b(?:cash|efectivo)\b/iu.test(proposal.quote);
+    const card = /\b(?:paid|used|tapped|inserted|swiped|pagu[eé]|us[eé])\b[^!?]{0,45}\b(?:card|tarjeta)\b/iu.test(proposal.quote);
     if (cash === card) throw new Error('payment_method_not_supported');
     value = cash ? 'cash' : 'card';
   } else if (proposal.field === 'card_last4') {
@@ -204,15 +243,26 @@ export const validateNoFactReview = (input, proposal) => {
     /(?:\d|\bcash\b|\bcard\b|\bwallet\b|\bvisa\b|\bmastercard\b)/iu.test(proposal.quote)) {
     throw new Error('supported_fact_requires_fact_review');
   }
+  if (['inexact_purchase_time_requires_research',
+    'wallet_token_requires_research'].includes(proposal.reasonCode)) {
+    if (proposal.reasonCode === 'inexact_purchase_time_requires_research' &&
+      /\b(?:device token|wallet token)\b[^.!?]{0,40}\d{4}\b/iu.test(proposal.quote)) {
+      throw new Error('supported_fact_requires_fact_review');
+    }
+    for (const message of input.replyMessages) {
+      if (supportedFieldsIn(message.body ?? '').length > 0)
+        throw new Error('supported_fact_requires_fact_review');
+    }
+  }
   // Generic no-fact dispositions cannot discard a concrete amount, payment
   // method, physical-card suffix or network supplied in the cited span.
-  const quotedFact = /(?:\$\s*\d|\b(?:paid|charged|amount|total|cost|monto|cobr)\b[^.!?]{0,25}\d|\b(?:paid|used|tapped|inserted|swiped)\b[^.!?]{0,45}\b(?:cash|card)\b|\bcard\b[^.!?]{0,35}\b(?:end(?:s|ing)? in|last four)\b[^.!?]{0,12}\d{4}\b|\b(?:device token|wallet token)\b[^.!?]{0,40}\d{4}\b|\b(?:visa|mastercard|amex|discover)\b)/iu.test(proposal.quote);
+  const quotedFact = /(?:\$\s*\d|\b(?:paid|charged|amount|total|cost|monto|cobr)\b[^.!?]{0,25}\d|\b(?:paid|used|tapped|inserted|swiped)\b[^!?]{0,45}\b(?:cash|card)\b|\bcard\b[^.!?]{0,35}\b(?:end(?:s|ing)? in|last four)\b[^.!?]{0,12}\d{4}\b|\b(?:device token|wallet token)\b[^.!?]{0,40}\d{4}\b|\b(?:visa|mastercard|amex|discover)\b)/iu.test(proposal.quote);
   if (quotedFact && ['customer_cannot_provide', 'no_supported_new_fact',
     'conflicting_reply_evidence'].includes(proposal.reasonCode)) {
     const current = input.currentFacts ?? {};
     const signaledFields = [
       ['amount', /\$\s*\d/u],
-      ['payment_method', /\b(?:paid|used|tapped|inserted|swiped)\b[^.!?]{0,45}\b(?:cash|card)\b/iu],
+      ['payment_method', /\b(?:paid|used|tapped|inserted|swiped)\b[^!?]{0,45}\b(?:cash|card)\b/iu],
       ['card_last4', /\bcard\b[^.!?]{0,35}\b(?:end(?:s|ing)? in|last four)\b[^.!?]{0,12}\d{4}\b/iu],
       ['card_network', /\b(?:visa|mastercard|amex|discover)\b/iu],
     ].filter(([, pattern]) => pattern.test(proposal.quote)).map(([field]) => field);

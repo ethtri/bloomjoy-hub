@@ -228,7 +228,12 @@ $$;
 
 create function public.refund_verified_reply_quote_has_fact(p_quote text)
 returns boolean language sql immutable strict set search_path='' as $$
-  select p_quote ~* '(\$[[:space:]]*[0-9]|(paid|charged|amount|total|cost|monto|cobr)[^.?!]{0,25}[0-9]|(paid|used|tapped|inserted|swiped)[^.?!]{0,45}(cash|card)|card[^.?!]{0,35}(end(s|ing)? in|last four)[^.?!]{0,12}[0-9]{4}|(device token|wallet token)[^.?!]{0,40}[0-9]{4}|(visa|mastercard|amex|discover))';
+  select p_quote ~* '(\$[[:space:]]*[0-9]|(paid|charged|amount|total|cost|monto|cobr)[^.?!]{0,25}[0-9]|(paid|used|tapped|inserted|swiped)[^?!]{0,45}(cash|card)|card[^.?!]{0,35}(end(s|ing)? in|last four)[^.?!]{0,12}[0-9]{4}|(device token|wallet token)[^.?!]{0,40}[0-9]{4}|(visa|mastercard|amex|discover))';
+$$;
+
+create function public.refund_verified_reply_quote_has_independent_fact(p_quote text)
+returns boolean language sql immutable strict set search_path='' as $$
+  select p_quote ~* '(\$[[:space:]]*[0-9]|(paid|charged|amount|total|cost|monto|cobr)[^.?!]{0,25}[0-9]|(paid|used|tapped|inserted|swiped)[^?!]{0,45}(cash|card)|card[^.?!]{0,35}(end(s|ing)? in|last four)[^.?!]{0,12}[0-9]{4}|(visa|mastercard|amex|discover))';
 $$;
 
 -- An unchanged verified answer may settle as no new fact, but only when all
@@ -263,7 +268,7 @@ begin
       then return false; end if;
   end if;
   method_match:=regexp_match(lower(p_quote),
-    '(paid|used|tapped|inserted|swiped)[^.?!]{0,45}(cash|card)');
+    '(paid|used|tapped|inserted|swiped)[^?!]{0,45}(cash|card)');
   if method_match is not null then
     seen:=seen+1;
     if p_case.payment_method is distinct from method_match[2]
@@ -282,6 +287,8 @@ $$;
 revoke all on function public.refund_verified_reply_quote_negated(text)
   from public,anon,authenticated,service_role;
 revoke all on function public.refund_verified_reply_quote_has_fact(text)
+  from public,anon,authenticated,service_role;
+revoke all on function public.refund_verified_reply_quote_has_independent_fact(text)
   from public,anon,authenticated,service_role;
 revoke all on function public.refund_verified_reply_quote_is_known_fact(text,public.refund_cases)
   from public,anon,authenticated,service_role;
@@ -311,12 +318,16 @@ $migration$;
 create function public.service_apply_refund_scoped_reply_semantic_fact(
   p_request_id uuid,p_claim_token uuid,p_source_message_id uuid,
   p_expected_fact_version bigint,p_body_sha256 text,
-  p_evidence_message_id uuid,p_source_quote text,
+  p_field_evidence jsonb,
   p_updates jsonb,p_applied_fields text[]
 ) returns jsonb language plpgsql security definer set search_path='' as $$
 declare ctx public.refund_wallet_correction_contexts;
   c public.refund_cases; source public.refund_gmail_messages;
   evidence public.refund_gmail_messages; result jsonb;
+  item jsonb; field_name text; field_quote text; field_message_id uuid;
+  expected_keys text[]:='{}'::text[];
+  amount_match text[]; method_match text[]; digits_match text[];
+  network_match text[];
 begin
   select * into c from public.refund_cases
     where id=(select refund_case_id from public.refund_wallet_correction_contexts
@@ -325,8 +336,6 @@ begin
     where id=p_request_id for update;
   select * into source from public.refund_gmail_messages
     where id=p_source_message_id for update;
-  select * into evidence from public.refund_gmail_messages
-    where id=p_evidence_message_id for update;
   if c.id is null or ctx.id is null or ctx.refund_case_id<>c.id
     or ctx.correction_kind<>'purchase' or ctx.status<>'pending'
     or ctx.reply_review_state<>'claimed'
@@ -341,55 +350,133 @@ begin
     or source.direction<>'inbound' or source.status<>'received'
     or source.participant_role<>'customer' or source.participant_trust<>'verified'
     or source.content_deleted_at is not null or source.sensitive_data_redacted
-    or evidence.id is null or evidence.refund_case_id<>c.id
-    or evidence.direction<>'inbound' or evidence.status<>'received'
-    or evidence.participant_role<>'customer' or evidence.participant_trust<>'verified'
-    or evidence.content_deleted_at is not null
-    or evidence.sensitive_data_redacted
-    or coalesce(length(p_source_quote),0) not between 3 and 240
-    or position(p_source_quote in coalesce(evidence.plain_body,''))=0
-    or public.refund_verified_reply_quote_negated(p_source_quote)
-    or not (public.refund_scoped_verified_reply_set(ctx.id)->'messages'
-      @>jsonb_build_array(jsonb_build_object('messageId',evidence.id)))
     or public.refund_scoped_verified_reply_set(ctx.id)->>'bodySha256'
       is distinct from p_body_sha256 then
     return jsonb_build_object('outcome','stale_or_unsupported_source',
       'payloadRedacted',true);
   end if;
+  if pg_catalog.jsonb_typeof(p_field_evidence)<>'array' then
+    raise exception 'Exact supported field evidence array required';
+  end if;
   if pg_catalog.jsonb_typeof(p_updates)<>'object'
-    or cardinality(coalesce(p_applied_fields,'{}'::text[]))<>1
-    or p_applied_fields[1] not in ('amount','payment_method','card_last4','card_network')
-    or (p_applied_fields[1]='amount' and
-      ((p_updates - 'payment_amount_cents' - 'refund_amount_cents')<>'{}'::jsonb
-        or not (p_updates ?& array['payment_amount_cents','refund_amount_cents'])
-        or coalesce(p_updates->>'payment_amount_cents','') !~ '^[1-9][0-9]{0,8}$'
-        or p_updates->>'refund_amount_cents'
-          is distinct from p_updates->>'payment_amount_cents'))
-    or (p_applied_fields[1]='payment_method' and
-      ((p_updates - 'payment_method')<>'{}'::jsonb
-        or p_updates->>'payment_method' not in ('card','cash')))
-    or (p_applied_fields[1]='card_network' and
-      ((p_updates - 'card_network')<>'{}'::jsonb
-        or p_updates->>'card_network' not in
-          ('visa','mastercard','american_express','discover')))
-    or (p_applied_fields[1]='card_last4' and
-      (coalesce(p_updates->>'card_last4','') !~ '^[0-9]{4}$'
-        or not (
-          ((p_updates - 'card_last4' - 'card_last4_provenance')='{}'::jsonb
-            and p_updates->>'card_last4_provenance'='physical_card')
-          or ((p_updates - 'card_last4' - 'card_last4_provenance'
-              - 'card_wallet_used' - 'payment_interaction')='{}'::jsonb
-            and p_updates->>'card_last4_provenance'='wallet_device_token'
-            and p_updates->>'card_wallet_used'='true'
-            and p_updates->>'payment_interaction'='phone_watch_wallet'
-            and c.payment_method='card'
-            and p_source_quote ~* '(apple pay|google pay|wallet|device token)'
-            and public.refund_verified_wallet_token_last4(p_source_quote)
-              is not distinct from p_updates->>'card_last4')))) then
+    or pg_catalog.jsonb_array_length(p_field_evidence)
+      is distinct from cardinality(p_applied_fields)
+    or cardinality(coalesce(p_applied_fields,'{}'::text[])) not between 1 and 4
+    or cardinality(array(select distinct unnest(p_applied_fields)))
+      <>cardinality(p_applied_fields)
+    or exists(select 1 from unnest(p_applied_fields) field
+      where field not in ('amount','payment_method','card_last4','card_network')) then
     raise exception 'Unsupported semantic reply fact shape';
   end if;
+  if exists (
+    select 1 from jsonb_array_elements(
+      public.refund_scoped_verified_reply_set(ctx.id)->'messages') item
+    join public.refund_gmail_messages reply
+      on reply.id=(item->>'messageId')::uuid
+    where (reply.plain_body ~* '(\$[[:space:]]*[0-9]|amount:[[:space:]]*[0-9])'
+        and not 'amount'=any(p_applied_fields))
+      or (reply.plain_body ~* '(paid|used|tapped|inserted|swiped)[^?!]{0,45}(cash|card)'
+        and not 'payment_method'=any(p_applied_fields))
+      or (reply.plain_body ~* 'card[^.?!]{0,35}(end(s|ing)? in|last four)[^.?!]{0,12}[0-9]{4}'
+        and not 'card_last4'=any(p_applied_fields))
+      or (reply.plain_body ~* '(visa|mastercard|amex|discover)'
+        and not 'card_network'=any(p_applied_fields))
+  ) then
+    raise exception 'All supported reply facts must be applied together';
+  end if;
+  for item in select value from jsonb_array_elements(p_field_evidence) loop
+    if jsonb_typeof(item)<>'object' or
+      (select array_agg(key order by key) from jsonb_object_keys(item) key)
+        is distinct from array['field','messageId','quote']::text[]
+      or coalesce(item->>'messageId','') !~
+        '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+      raise exception 'Exact supported field evidence required';
+    end if;
+    field_name:=item->>'field';
+    field_quote:=item->>'quote';
+    field_message_id:=(item->>'messageId')::uuid;
+    select * into evidence from public.refund_gmail_messages
+      where id=field_message_id for update;
+    if not (case when field_name='wallet_token_last4'
+        then 'card_last4' else field_name end)=any(p_applied_fields)
+      or coalesce(length(field_quote),0) not between 3 and 240
+      or evidence.id is null or evidence.refund_case_id is distinct from c.id
+      or evidence.direction is distinct from 'inbound'
+      or evidence.status is distinct from 'received'
+      or evidence.participant_role is distinct from 'customer'
+      or evidence.participant_trust is distinct from 'verified'
+      or evidence.content_deleted_at is not null
+      or evidence.sensitive_data_redacted is distinct from false
+      or position(field_quote in coalesce(evidence.plain_body,''))=0
+      or public.refund_verified_reply_quote_negated(field_quote)
+      or not (public.refund_scoped_verified_reply_set(ctx.id)->'messages'
+        @>jsonb_build_array(jsonb_build_object('messageId',evidence.id))) then
+      return jsonb_build_object('outcome','stale_or_unsupported_source',
+        'payloadRedacted',true);
+    end if;
+    if field_name='amount' then
+      expected_keys:=expected_keys||array['payment_amount_cents','refund_amount_cents'];
+      amount_match:=regexp_match(field_quote,
+        '\$[[:space:]]*([0-9]{1,7})([.]([0-9]{2}))?');
+      if amount_match is null then
+        amount_match:=regexp_match(field_quote,
+          'amount:[[:space:]]*([0-9]{1,7})([.]([0-9]{2}))?','i');
+      end if;
+      if amount_match is null
+        or ((select count(*) from regexp_matches(
+          field_quote,'\$[[:space:]]*[0-9]','g'))+
+          (select count(*) from regexp_matches(
+          field_quote,'amount:[[:space:]]*[0-9]','gi')))<>1
+        or coalesce(p_updates->>'payment_amount_cents','') !~ '^[1-9][0-9]{0,8}$'
+        or p_updates->>'refund_amount_cents' is distinct from
+          p_updates->>'payment_amount_cents'
+        or (p_updates->>'payment_amount_cents')::integer is distinct from
+          (amount_match[1]::integer*100+coalesce(amount_match[3],'00')::integer)
+        then raise exception 'Unsupported semantic amount source'; end if;
+    elsif field_name='payment_method' then
+      expected_keys:=expected_keys||array['payment_method'];
+      method_match:=regexp_match(field_quote,
+        '(paid|used|tapped|inserted|swiped)[^?!]{0,45}(cash|card)','i');
+      if method_match is null or p_updates->>'payment_method' not in ('card','cash')
+        or p_updates->>'payment_method' is distinct from lower(method_match[2])
+        then raise exception 'Unsupported semantic payment method source'; end if;
+    elsif field_name='card_last4' then
+      expected_keys:=expected_keys||array['card_last4','card_last4_provenance'];
+      digits_match:=regexp_match(field_quote,
+        'card[^.?!]{0,35}(end(s|ing)? in|last four)[^0-9]{0,12}([0-9]{4})','i');
+      if digits_match is null or field_quote ~* '(wallet|apple pay|google pay|device token)'
+        or p_updates->>'card_last4_provenance' is distinct from 'physical_card'
+        or p_updates->>'card_last4' is distinct from digits_match[3]
+        then raise exception 'Unsupported semantic physical card source'; end if;
+    elsif field_name='wallet_token_last4' then
+      expected_keys:=expected_keys||array[
+        'card_last4','card_last4_provenance','card_wallet_used',
+        'payment_interaction'];
+      if c.payment_method is distinct from 'card'
+        or field_quote !~* '(apple pay|google pay|wallet|device token)'
+        or p_updates->>'card_last4_provenance' is distinct from 'wallet_device_token'
+        or p_updates->>'card_wallet_used' is distinct from 'true'
+        or p_updates->>'payment_interaction' is distinct from 'phone_watch_wallet'
+        or public.refund_verified_wallet_token_last4(field_quote)
+          is distinct from p_updates->>'card_last4'
+        then raise exception 'Unsupported semantic wallet token source'; end if;
+    elsif field_name='card_network' then
+      expected_keys:=expected_keys||array['card_network'];
+      network_match:=regexp_match(field_quote,'(visa|mastercard|amex|discover)','i');
+      if network_match is null or field_quote !~* '(card|network)'
+        or p_updates->>'card_network' is distinct from (case lower(network_match[1])
+          when 'amex' then 'american_express' else lower(network_match[1]) end)
+        then raise exception 'Unsupported semantic card network source'; end if;
+    else
+      raise exception 'Unsupported semantic reply field';
+    end if;
+  end loop;
+  if (select count(*) from jsonb_object_keys(p_updates))
+      <>cardinality(expected_keys)
+    or not (p_updates ?& expected_keys)
+    then raise exception 'Unsupported semantic reply fact keys'; end if;
   result:=public.service_apply_refund_gmail_customer_facts_v1(
-    c.id,p_evidence_message_id,p_expected_fact_version,p_updates,
+    c.id,p_source_message_id,p_expected_fact_version,p_updates,
     p_applied_fields,'verified_reply_semantic_v1');
   if result->>'outcome' in ('applied','already_applied') then
     update public.refund_wallet_correction_contexts set
@@ -402,10 +489,10 @@ begin
 end;
 $$;
 revoke all on function public.service_apply_refund_scoped_reply_semantic_fact(
-  uuid,uuid,uuid,bigint,text,uuid,text,jsonb,text[])
+  uuid,uuid,uuid,bigint,text,jsonb,jsonb,text[])
   from public,anon,authenticated;
 grant execute on function public.service_apply_refund_scoped_reply_semantic_fact(
-  uuid,uuid,uuid,bigint,text,uuid,text,jsonb,text[])
+  uuid,uuid,uuid,bigint,text,jsonb,jsonb,text[])
   to service_role;
 
 alter table public.refund_wallet_correction_contexts
@@ -466,6 +553,29 @@ begin
       is distinct from p_body_sha256 then
     return jsonb_build_object('outcome','stale_or_unsupported_source',
       'payloadRedacted',true);
+  end if;
+  if p_reason_code in ('inexact_purchase_time_requires_research',
+      'wallet_token_requires_research') and exists (
+    select 1 from jsonb_array_elements(
+      public.refund_scoped_verified_reply_set(ctx.id)->'messages') item
+    join public.refund_gmail_messages reply
+      on reply.id=(item->>'messageId')::uuid
+    where public.refund_verified_reply_quote_has_independent_fact(
+      coalesce(reply.plain_body,''))
+  ) then
+    raise exception 'A supported reply fact must be applied before directional research';
+  end if;
+  if p_reason_code in ('customer_cannot_provide','no_supported_new_fact',
+      'conflicting_reply_evidence') and exists (
+    select 1 from jsonb_array_elements(
+      public.refund_scoped_verified_reply_set(ctx.id)->'messages') item
+    join public.refund_gmail_messages reply
+      on reply.id=(item->>'messageId')::uuid
+    where public.refund_verified_reply_quote_has_fact(coalesce(reply.plain_body,''))
+      and (p_reason_code<>'no_supported_new_fact' or not
+        public.refund_verified_reply_quote_is_known_fact(reply.plain_body,c))
+  ) then
+    raise exception 'A supported reply fact cannot be discarded';
   end if;
   if p_reason_code='wallet_token_requires_research' then
     if p_source_quote !~* '(apple pay|google pay|wallet|device token)' then

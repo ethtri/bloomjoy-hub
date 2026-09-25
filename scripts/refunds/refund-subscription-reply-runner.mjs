@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 import {
-  deriveSourceBoundFact, validateClaim, validateDeferral, validateNoFactReview,
+  deriveSourceBoundFacts, validateClaim, validateDeferral, validateNoFactReview,
   validateProposalShape,
   validateResearchInput,
 } from './refund-subscription-reply-runner-lib.mjs';
@@ -104,17 +104,17 @@ export const submitResult = async (client, runId, requestId, proposal) => {
     result: state.results[requestId], payloadRedacted: true };
   const input = await getContext(client, runId, requestId);
   let result;
-  if (proposal?.kind === 'fact') {
-    const fact = deriveSourceBoundFact(input, proposal);
+  if (proposal?.kind === 'fact' || proposal?.kind === 'facts') {
+    const fact = deriveSourceBoundFacts(input, proposal);
     const current = input.currentFacts ?? {};
-    const unchanged = fact.appliedFields[0] === 'amount'
+    const unchanged = fact.appliedFields.every((field) => field === 'amount'
       ? Number(current.paymentAmountCents) === fact.updates.payment_amount_cents
-      : fact.appliedFields[0] === 'payment_method'
+      : field === 'payment_method'
       ? current.paymentMethod === fact.updates.payment_method
-      : fact.appliedFields[0] === 'card_network'
+      : field === 'card_network'
       ? current.cardNetwork === fact.updates.card_network
       : current.cardLast4 === fact.updates.card_last4 &&
-        current.cardLast4Provenance === fact.updates.card_last4_provenance;
+        current.cardLast4Provenance === fact.updates.card_last4_provenance);
     if (!unchanged) {
       result = await rpc(client, 'service_apply_refund_scoped_reply_semantic_fact', {
         p_request_id: task.requestId,
@@ -122,8 +122,7 @@ export const submitResult = async (client, runId, requestId, proposal) => {
         p_source_message_id: task.sourceMessageId,
         p_expected_fact_version: Number(task.factVersion),
         p_body_sha256: task.bodySha256,
-        p_evidence_message_id: fact.evidenceMessageId,
-        p_source_quote: fact.sourceQuote,
+        p_field_evidence: fact.fieldEvidence,
         p_updates: fact.updates,
         p_applied_fields: fact.appliedFields,
       });
@@ -133,7 +132,8 @@ export const submitResult = async (client, runId, requestId, proposal) => {
     }
     if (unchanged) proposal = {
       kind: 'reviewed_no_fact', reasonCode: 'no_supported_new_fact',
-      messageId: proposal.messageId, quote: proposal.quote,
+      messageId: fact.fieldEvidence[0].messageId,
+      quote: fact.fieldEvidence[0].quote,
     };
   }
   if (proposal?.kind === 'reviewed_no_fact') {

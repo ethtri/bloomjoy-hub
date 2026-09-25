@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
 import {
-  deriveSourceBoundFact, validateResearchInput, validateNoFactReview,
+  deriveSourceBoundFact, deriveSourceBoundFacts,
+  validateResearchInput, validateNoFactReview,
 } from './refund-subscription-reply-runner-lib.mjs';
 import {
   beginRun, getContext, submitResult, finishRun,
@@ -119,6 +120,46 @@ test('ordinary cannot-provide reply is a source-bound System result, not a Manag
   }), /unsupported_no_fact_review/);
 });
 
+test('a single guarded batch binds separate verified replies to separate field spans', () => {
+  const laterMessageId = 'ae000000-0000-4000-8000-000000000006';
+  const twoReplies = { ...input, replyMessages: [
+    { messageId, body: 'Amount: 10.90' },
+    { messageId: laterMessageId, body: 'My card is Visa' },
+  ] };
+  const result = deriveSourceBoundFacts(twoReplies, { kind: 'facts', facts: [
+    { field: 'amount', messageId, quote: 'Amount: 10.90' },
+    { field: 'card_network', messageId: laterMessageId, quote: 'My card is Visa' },
+  ] });
+  assert.deepEqual(result.appliedFields, ['amount', 'card_network']);
+  assert.deepEqual(result.updates, { payment_amount_cents: 1090,
+    refund_amount_cents: 1090, card_network: 'visa' });
+  assert.deepEqual(result.fieldEvidence.map(({ messageId: sourceId }) => sourceId),
+    [messageId, laterMessageId]);
+  assert.throws(() => deriveSourceBoundFacts(twoReplies, { kind: 'facts', facts: [
+    { field: 'amount', messageId: laterMessageId, quote: 'Amount: 10.90' },
+    { field: 'card_network', messageId: laterMessageId, quote: 'My card is Visa' },
+  ] }), /source_span_not_in_verified_reply/);
+  assert.throws(() => deriveSourceBoundFacts(twoReplies, { kind: 'fact',
+    field: 'amount', messageId, quote: 'Amount: 10.90' }),
+  /unrepresented_source_fact/);
+});
+
+test('a decimal amount between paid and card still requires both supported facts', () => {
+  const mixed = { ...input, replyMessages: [{ messageId,
+    body: 'I paid $10.90 with my physical card.' }] };
+  assert.throws(() => deriveSourceBoundFacts(mixed, {
+    kind: 'fact', field: 'amount', messageId,
+    quote: 'I paid $10.90 with my physical card.',
+  }), /unrepresented_source_fact/);
+  const batch = deriveSourceBoundFacts(mixed, { kind: 'facts', facts: [
+    { field: 'amount', messageId, quote: 'I paid $10.90 with my physical card.' },
+    { field: 'payment_method', messageId,
+      quote: 'I paid $10.90 with my physical card.' },
+  ] });
+  assert.deepEqual(batch.updates, { payment_amount_cents: 1090,
+    refund_amount_cents: 1090, payment_method: 'card' });
+});
+
 test('negated customer text cannot become an affirmative fact', () => {
   for (const [body, field] of [
     ['I was not charged $10.90', 'amount'],
@@ -141,7 +182,22 @@ test('negated customer text cannot become an affirmative fact', () => {
   }
 });
 
+test('directional time or wallet research cannot discard a supported amount', () => {
+  for (const [body, reasonCode] of [
+    ['I paid $10.90 around 4 PM', 'inexact_purchase_time_requires_research'],
+    ['I paid $10.90 with my Apple Pay device token ending in 4932',
+      'wallet_token_requires_research'],
+  ]) {
+    assert.throws(() => validateNoFactReview({ ...input,
+      replyMessages: [{ messageId, body }] }, {
+      kind: 'reviewed_no_fact', reasonCode, messageId, quote: body,
+    }), /supported_fact_requires_fact_review/);
+  }
+});
+
 test('hourly mocked run binds claim, fact writer, no send/payment RPC and durable receipt', async () => {
+  const hourlyInput = { ...input, replyMessages: [{ messageId,
+    body: 'I paid $10.90. I used my physical card ending in 1234.' }] };
   const calls = [];
   const client = { rpc: async (name, args) => {
     calls.push({ name, args });
@@ -152,13 +208,16 @@ test('hourly mocked run binds claim, fact writer, no send/payment RPC and durabl
       return { data: { tasks: [task] }, error: null };
     }
     if (name === 'service_get_refund_scoped_reply_research_input') {
-      return { data: input, error: null };
+      return { data: hourlyInput, error: null };
     }
     if (name === 'service_apply_refund_scoped_reply_semantic_fact') {
       assert.equal(args.p_claim_token, token);
       assert.equal(args.p_body_sha256, sha);
-      assert.equal(args.p_evidence_message_id, messageId);
-      assert.deepEqual(args.p_updates, { payment_amount_cents: 1090, refund_amount_cents: 1090 });
+      assert.deepEqual(args.p_field_evidence.map((item) => item.field),
+        ['amount','payment_method','card_last4']);
+      assert.deepEqual(args.p_updates, { payment_amount_cents: 1090,
+        refund_amount_cents: 1090, payment_method: 'card',
+        card_last4: '1234', card_last4_provenance: 'physical_card' });
       return { data: { outcome: 'applied', factVersion: 3 }, error: null };
     }
     if (name === 'service_finish_refund_reply_subscription_run') {
@@ -172,8 +231,11 @@ test('hourly mocked run binds claim, fact writer, no send/payment RPC and durabl
     assert.deepEqual(begun.requestIds, [requestId]);
     assert.equal((await getContext(client, runId, requestId)).bodySha256, sha);
     assert.equal((await submitResult(client, runId, requestId, {
-      kind: 'fact', field: 'amount', messageId,
-      quote: 'I paid $10.90 with my physical card',
+      kind: 'facts', facts: [
+        { field: 'amount', messageId, quote: 'I paid $10.90' },
+        { field: 'payment_method', messageId, quote: 'I used my physical card' },
+        { field: 'card_last4', messageId, quote: 'my physical card ending in 1234' },
+      ],
     })).outcome, 'resolved');
     assert.equal((await finishRun(client, runId)).status, 'succeeded');
     assert.equal(fs.existsSync(statePath), false);
@@ -217,7 +279,7 @@ test('hourly mocked run records a grounded no-new-fact reply without send or pay
 test('an exact already-known amount settles without a redundant fact write', async () => {
   const knownInput = { ...input, currentFacts: {
     paymentAmountCents: 1090, paymentMethod: 'card',
-  } };
+  }, replyMessages: [{ messageId, body: 'I paid $10.90.' }] };
   const calls = [];
   const client = { rpc: async (name) => {
     calls.push(name);
@@ -234,8 +296,7 @@ test('an exact already-known amount settles without a redundant fact write', asy
   try {
     await beginRun(client, new Date('2026-09-25T15:35:00Z'));
     assert.equal((await submitResult(client, runId, requestId, {
-      kind: 'fact', field: 'amount', messageId,
-      quote: 'I paid $10.90 with my physical card',
+      kind: 'fact', field: 'amount', messageId, quote: 'I paid $10.90.',
     })).outcome, 'resolved');
     assert.ok(calls.includes('service_complete_refund_scoped_reply_no_fact'));
     assert.ok(!calls.includes('service_apply_refund_scoped_reply_semantic_fact'));
