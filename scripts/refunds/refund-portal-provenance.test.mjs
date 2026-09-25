@@ -185,11 +185,11 @@ test('build diagnostic reports public tracked paths and redacts untracked privat
     const withDirectories = sourceBuildDiagnostics(root);
     assert.deepEqual(withDirectories.vercelDirectory.directoryCategories, ['other', 'output']);
     assert.deepEqual(withDirectories.vercelDirectory.subdirectories, [
-      { nameLength: 'output'.length, nameDigest: sha256('output'), fileCount: 0,
-        directoryCount: 0, environmentFileCount: 0, otherEntryCount: 0 },
-      { nameLength: 'private-unknown-directory'.length,
+      { name: 'output', nameLength: 'output'.length, nameDigest: sha256('output'), fileCount: 0,
+        directoryCount: 0, environmentFileCount: 0, files: [], otherEntryCount: 0 },
+      { name: '[redacted]', nameLength: 'private-unknown-directory'.length,
         nameDigest: sha256('private-unknown-directory'), fileCount: 1,
-        directoryCount: 0, environmentFileCount: 1, otherEntryCount: 0 },
+        directoryCount: 0, environmentFileCount: 1, files: ['[redacted]'], otherEntryCount: 0 },
     ].sort((a, b) => a.nameDigest.localeCompare(b.nameDigest)));
     assert.equal(JSON.stringify(withDirectories).includes('private-unknown-directory'), false);
     assert.equal(JSON.stringify(withDirectories).includes('SECRET=private'), false);

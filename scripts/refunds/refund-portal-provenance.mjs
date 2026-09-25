@@ -102,14 +102,19 @@ export function sourceBuildDiagnostics(root) {
       directoryCategories: entries.filter((entry) => entry.isDirectory())
         .map((entry) => ['output', 'cache', '.cache'].includes(entry.name) ? entry.name : 'other')
         .sort(),
-      // Diagnose an unknown generated directory without logging its name or
-      // contents. Never follow symlinks or recurse into build/private inputs.
+      // Direct platform paths are diagnostic; never log environment-file
+      // names, contents, symlink targets, or values from generated inputs.
       subdirectories: entries.filter((entry) => entry.isDirectory()).map((entry) => {
         const children = readdirSync(path.join(root, '.vercel', entry.name), { withFileTypes: true });
-        return { nameLength: entry.name.length, nameDigest: sha256(entry.name),
+        const safeName = (name) => /^[A-Za-z0-9._-]+$/.test(name) &&
+          !/^\.env(?:\.|$)/i.test(name) && !/^(?:secret|token|credential|private)/i.test(name);
+        return { name: safeName(entry.name) ? entry.name : '[redacted]',
+          nameLength: entry.name.length, nameDigest: sha256(entry.name),
           fileCount: children.filter((child) => child.isFile()).length,
           directoryCount: children.filter((child) => child.isDirectory()).length,
           environmentFileCount: children.filter((child) => child.isFile() && /^\.env(?:\.|$)/.test(child.name)).length,
+          files: children.filter((child) => child.isFile()).map((child) =>
+            safeName(child.name) ? child.name : '[redacted]').sort(),
           otherEntryCount: children.filter((child) => !child.isFile() && !child.isDirectory()).length };
       }).sort((a, b) => a.nameDigest.localeCompare(b.nameDigest)) };
     if (vercelDirectory.projectJson) {
