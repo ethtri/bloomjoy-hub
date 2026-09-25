@@ -191,6 +191,69 @@ revoke all on function public.service_defer_refund_scoped_reply_review(
 grant execute on function public.service_defer_refund_scoped_reply_review(
   uuid,uuid,uuid,bigint,text,text) to service_role;
 
+-- Content crosses to the existing scheduled service worker only after the
+-- exact verified request/reply claim has been rechecked. Callers must treat
+-- both bodies as untrusted data, redact before provider use, and never log
+-- this service-only result.
+create function public.service_get_refund_scoped_reply_research_input(
+  p_request_id uuid,p_claim_token uuid,p_source_message_id uuid,
+  p_expected_fact_version bigint,p_body_sha256 text
+) returns jsonb language plpgsql security definer set search_path='' as $$
+declare ctx public.refund_wallet_correction_contexts;
+  c public.refund_cases;
+  source public.refund_gmail_messages;
+  request public.refund_case_messages;
+begin
+  select * into ctx from public.refund_wallet_correction_contexts
+    where id=p_request_id for update;
+  select * into c from public.refund_cases where id=ctx.refund_case_id for update;
+  select * into source from public.refund_gmail_messages
+    where id=p_source_message_id for update;
+  select * into request from public.refund_case_messages
+    where id=ctx.correction_message_id for update;
+  if ctx.id is null or ctx.correction_kind<>'purchase' or ctx.status<>'pending'
+    or ctx.reply_review_state<>'claimed'
+    or ctx.reply_review_claim_token is distinct from p_claim_token
+    or ctx.reply_message_id is distinct from p_source_message_id
+    or ctx.correction_fact_version is distinct from p_expected_fact_version
+    or ctx.reply_body_sha256 is distinct from p_body_sha256
+    or c.id is null or c.deterministic_fact_version is distinct from p_expected_fact_version
+    or request.id is null or request.refund_case_id is distinct from c.id
+    or request.status<>'sent' or request.sent_at is null
+    or request.sent_at>=source.received_at
+    or request.requested_fields is distinct from ctx.correction_requested_fields
+    or source.id is null or source.refund_case_id is distinct from c.id
+    or source.direction<>'inbound' or source.message_kind<>'message'
+    or source.status<>'received' or source.participant_role<>'customer'
+    or source.participant_trust<>'verified' or source.content_deleted_at is not null
+    or lower(btrim(source.sender_email)) is distinct from lower(btrim(c.customer_email))
+    or encode(extensions.digest(convert_to(source.plain_body,'UTF8'),'sha256'),'hex')
+      is distinct from p_body_sha256 then
+    return jsonb_build_object('outcome','stale_claim');
+  end if;
+  return jsonb_build_object('outcome','ready',
+    'requestId',ctx.id,'refundCaseId',c.id,'sourceMessageId',source.id,
+    'factVersion',c.deterministic_fact_version,'bodySha256',ctx.reply_body_sha256,
+    'receivedAt',source.received_at,
+    'requestedFields',to_jsonb(ctx.correction_requested_fields),
+    'requestBody',regexp_replace(coalesce(request.body,''),
+      'https?://[^[:space:]<>]+','[secure link omitted]','gi'),
+    'replyBody',source.plain_body,
+    'sensitiveDataRedacted',source.sensitive_data_redacted,
+    'currentFacts',jsonb_build_object(
+      'paymentMethod',c.payment_method,
+      'paymentAmountCents',c.payment_amount_cents,
+      'cardLast4',c.card_last4,
+      'incidentAt',c.incident_at,
+      'reportingMachineId',c.reporting_machine_id),
+    'containsCustomerContent',true);
+end;
+$$;
+revoke all on function public.service_get_refund_scoped_reply_research_input(
+  uuid,uuid,uuid,bigint,text) from public,anon,authenticated;
+grant execute on function public.service_get_refund_scoped_reply_research_input(
+  uuid,uuid,uuid,bigint,text) to service_role;
+
 alter function public.service_apply_refund_gmail_customer_facts_v1(
   uuid,uuid,bigint,jsonb,text[],text)
   rename to service_apply_refund_gmail_customer_facts_pre_reply_continuation;

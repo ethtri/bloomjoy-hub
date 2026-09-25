@@ -115,6 +115,23 @@ select is((select task->>'bodySha256' from scoped_reply_claim),
   (select encode(extensions.digest(convert_to(plain_body,'UTF8'),'sha256'),'hex')
     from public.refund_gmail_messages where id=pg_temp.gid(9)),
   'Claim binds the exact verified reply body without returning its content');
+select is(public.service_get_refund_scoped_reply_research_input(
+    (select (task->>'requestId')::uuid from scoped_reply_claim),
+    (select (task->>'claimToken')::uuid from scoped_reply_claim),pg_temp.gid(9),
+    (select (task->>'factVersion')::bigint from scoped_reply_claim),
+    (select task->>'bodySha256' from scoped_reply_claim))->>'replyBody',
+  'I replied above; please review my earlier note.',
+  'Only the exact service claim can read the verified reply for research');
+select is(public.service_get_refund_scoped_reply_research_input(
+    (select (task->>'requestId')::uuid from scoped_reply_claim),
+    gen_random_uuid(),pg_temp.gid(9),
+    (select (task->>'factVersion')::bigint from scoped_reply_claim),
+    (select task->>'bodySha256' from scoped_reply_claim))->>'outcome',
+  'stale_claim','Another worker cannot read the claim-bound reply body');
+select ok(not has_function_privilege('authenticated',
+    'public.service_get_refund_scoped_reply_research_input(uuid,uuid,uuid,bigint,text)',
+    'execute'),
+  'Research input containing customer content is service-only');
 select is(public.service_defer_refund_scoped_reply_review(
     (select (task->>'requestId')::uuid from scoped_reply_claim),
     gen_random_uuid(),pg_temp.gid(9),
