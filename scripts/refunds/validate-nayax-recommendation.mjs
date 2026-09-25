@@ -77,10 +77,11 @@ const exact = recommend([
   sale({ id: "exact" }),
   sale({ id: "exact-distractor", at: "2026-07-21T19:02:00.000Z", amount: 8.5, last4: "9999" }),
 ]);
-assert.equal(exact.recommendationState, "high_confidence");
-assert.equal(exact.confidenceClass, "strong_card");
+assert.equal(exact.recommendationState, "ambiguous");
+assert.equal(exact.confidenceClass, "ambiguous_manual");
 assert.equal(exact.candidates[0].transactionId, "exact");
-assert.equal(exact.candidates[0].oneClickEligible, true);
+assert.equal(exact.candidates[0].oneClickEligible, false);
+assert.equal(exact.candidates.filter((candidate) => candidate.selectionAllowed).length, 2);
 
 const roughCustomerTimeExactCard = recommend([sale({ id: "rough-time-exact-card" })], {
   incidentTimeConfidence: "rough",
@@ -880,6 +881,18 @@ assert.match(
   /normal guarded refund action becomes available after manager selection/i,
 );
 
+const competingWalletSales = recommend([
+  sale({ id: "wallet-exact-suffix", recognitionMethod: "Apple Pay" }),
+  sale({ id: "wallet-other-token", last4: "9999", recognitionMethod: "Apple Pay" }),
+], { cardWalletUsed: true, requestCardLast4Provenance: "wallet_device_token",
+  requestCardLast4Source: "wallet_device", paymentInteraction: "phone_watch_wallet" });
+assert.equal(competingWalletSales.recommendationState, "ambiguous",
+  "two distinct reviewed wallet sales cannot present one sale as certain");
+assert.equal(competingWalletSales.candidates.filter((candidate) => candidate.selectionAllowed).length, 2);
+assert.equal(competingWalletSales.candidates.some((candidate) => candidate.isRecommended), false);
+assert.equal(competingWalletSales.oneClickEligible, false);
+assert.match(competingWalletSales.summary, /multiple plausible card sales/i);
+
 const uniqueQrWallet = recommend(
   [sale({
     id: "unique-qr-wallet",
@@ -1278,7 +1291,8 @@ const ambiguousIncident = recommend([sale({ id: "ambiguous-incident" })], {
 assert.equal(ambiguousIncident.recommendationState, "manual_exception");
 assert.equal(ambiguousIncident.oneClickEligible, false);
 
-const publicCandidate = toPublicNayaxCandidate(exact.candidates[0], "opaque-token");
+const publicCandidate = toPublicNayaxCandidate(
+  recommend([sale({ id: "exact-singleton" })]).candidates[0], "opaque-token");
 for (const missing of [null, undefined, "", false, 0]) {
   const result = recommend([sale({ id: "small-sale", amount: 2.5 })], { requestAmountCents: missing });
   assert.equal(result.oneClickEligible, false, "absent or zero reported amount is not a matching estimate");

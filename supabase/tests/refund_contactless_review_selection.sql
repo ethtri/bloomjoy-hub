@@ -162,7 +162,7 @@ select ok((select not (evidence_summary ? 'transaction_occurrence_comparable')
   'The optional-rationale regression covers missing timestamp comparability metadata');
 
 select is((public.service_commit_refund_nayax_lookup('fc150000-0000-4000-8000-000000000001',
-  (select generation from lookup_claim),2,'manual_exception','manual_exception','2026-09-13.v12',
+  (select generation from lookup_claim),2,'multiple_matches','ambiguous','2026-09-13.v12',
   statement_timestamp(),'Two contactless transactions need manager review',null,2,'manual',
   'fc110000-0000-4000-8000-000000000001')->>'applied'),'true',
   'Contactless review result commits through the generation guard');

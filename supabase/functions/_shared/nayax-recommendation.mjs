@@ -1284,6 +1284,12 @@ export const buildNayaxRecommendation = ({
   const qrTimeCandidates = candidates.filter((candidate) => candidate.uniqueQrTimeEligible);
   const evidenceAwareCandidates = candidates.filter((candidate) => candidate.evidenceAwareReviewEligible);
   const managerSelectableCandidates = candidates.filter((candidate) => candidate.selectionAllowed);
+  // A base-price row and its labelled full charge are two provider records of
+  // one purchase. Other selectable rows are competing purchases even when one
+  // has an exact card suffix and scores as a strong match.
+  const distinctSelectableCandidates = managerSelectableCandidates.filter((candidate) =>
+    candidate.providerTotalPreference !== "base_alternate"
+  );
   const hasProviderTotalPreference = candidates.some((candidate) =>
     candidate.providerTotalPreference === "preferred_total"
   );
@@ -1297,7 +1303,10 @@ export const buildNayaxRecommendation = ({
   let recommendedTransactionId = null;
   let resultReasonCodes = [];
 
-  if (strongCardCandidates.length === 1) {
+  if (distinctSelectableCandidates.length > 1) {
+    recommendationState = "ambiguous";
+    resultReasonCodes = ["multiple_manager_selectable_candidates", "plausible_runner_up"];
+  } else if (strongCardCandidates.length === 1) {
     recommendationState = "high_confidence";
     confidenceClass = "strong_card";
     recommendedTransactionId = strongCardCandidates[0].transactionId;
