@@ -20,13 +20,15 @@ historical fixtures cannot add product gates that the workflow does not contain.
   to repeat known facts.
 - [ ] A customer estimate of $10.00 with an otherwise identified $10.90 provider
   charge defaults to a $10.90 refund and does not trigger an amount question.
-- [ ] The System saves one clear candidate automatically based on the complete
-  evidence and explains it. For ambiguous results, a case worker with case-work
-  access can save a reviewed exact candidate; that triage actor may differ from
-  the approver.
-- [ ] The assigned Machine Manager or a Super-admin receives one **Approve refund**
-  or **Decline** decision. Approval binds the exact selected Nayax transaction and
-  full provider total and queues exactly one System-owned attempt.
+- [ ] The System prepares a clear exact candidate or a completed reviewed set
+  from current purchase evidence. A currently eligible ambiguous sale is chosen
+  within the assigned Manager's one final decision, without a prior Select/Save
+  chore; a blocked sale stays visible but cannot be approved.
+- [ ] The assigned Machine Manager or a Super-admin can **Approve refund** for
+  one eligible exact Nayax purchase or **Decline** without choosing a purchase.
+  Approval binds the full provider total and queues exactly one System-owned
+  attempt. A paused processor holds that attempt until activation without asking
+  for another Manager decision or calling the provider early.
 - [ ] A legacy selected transaction becomes refundable only when its unchanged
   current candidate and original manager event reconstruct one unique,
   top-ranked recommendation under the current proof rules. An ambiguous or
@@ -67,7 +69,7 @@ historical fixtures cannot add product gates that the workflow does not contain.
 - [ ] System, mapping, timezone, provider, and delivery defects route to an
   internal issue without asking the customer to troubleshoot or repeat known
   facts.
-- [ ] In `/admin/refunds`, Action needed includes only a prepared final Manager
+- [ ] In `/refunds`, Action needed includes only a prepared final Manager
   decision or cash send/confirm. A delivered unanswered question appears in
   Waiting for customer; a verified reply, unknown Nayax outcome, missing Zelle
   destination, failed customer delivery, and accounting-only follow-up do not
