@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, readdirSync } from 'node:fs';
+import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -102,19 +102,18 @@ export function sourceBuildDiagnostics(root) {
       directoryCategories: entries.filter((entry) => entry.isDirectory())
         .map((entry) => ['output', 'cache', '.cache'].includes(entry.name) ? entry.name : 'other')
         .sort(),
-      // Direct platform paths are diagnostic; never log environment-file
-      // names, contents, symlink targets, or values from generated inputs.
+      // Only the observed static-builder path may be named in build logs.
+      // Other platform paths remain hashes/categories, never raw names.
       subdirectories: entries.filter((entry) => entry.isDirectory()).map((entry) => {
         const children = readdirSync(path.join(root, '.vercel', entry.name), { withFileTypes: true });
-        const safeName = (name) => /^[A-Za-z0-9._-]+$/.test(name) &&
-          !/^\.env(?:\.|$)/i.test(name) && !/^(?:secret|token|credential|private)/i.test(name);
-        return { name: safeName(entry.name) ? entry.name : '[redacted]',
+        return { name: entry.name === 'static-build' ? entry.name : '[redacted]',
           nameLength: entry.name.length, nameDigest: sha256(entry.name),
           fileCount: children.filter((child) => child.isFile()).length,
           directoryCount: children.filter((child) => child.isDirectory()).length,
           environmentFileCount: children.filter((child) => child.isFile() && /^\.env(?:\.|$)/.test(child.name)).length,
           files: children.filter((child) => child.isFile()).map((child) =>
-            safeName(child.name) ? child.name : '[redacted]').sort(),
+            entry.name === 'static-build' && child.name === 'package-manifest.json'
+              ? child.name : '[redacted]').sort(),
           otherEntryCount: children.filter((child) => !child.isFile() && !child.isDirectory()).length };
       }).sort((a, b) => a.nameDigest.localeCompare(b.nameDigest)) };
     if (vercelDirectory.projectJson) {
@@ -127,6 +126,26 @@ export function sourceBuildDiagnostics(root) {
     vercelConfigEquivalent: semanticallyUnchangedVercelConfig(root), vercelDirectory };
 }
 
+// Vercel's static builder writes this manifest storage slot before the app
+// build. The app does not read .vercel; accept only the exact observed platform
+// tree, with no environment files, links, or additional source inputs.
+export function expectedVercelBuilderMetadata(root) {
+  try {
+    const directory = path.join(root, '.vercel');
+    if (!lstatSync(directory).isDirectory()) return false;
+    const entries = readdirSync(directory, { withFileTypes: true });
+    if (entries.length !== 2 ||
+        !entries.some((entry) => entry.name === 'project.json' && entry.isFile()) ||
+        !entries.some((entry) => entry.name === 'static-build' && entry.isDirectory())) return false;
+    const project = JSON.parse(readFileSync(path.join(directory, 'project.json'), 'utf8'));
+    if (project?.projectId !== 'prj_YC3LjtHvqX2BAvFdt4iLV9ARs1bM' ||
+        project?.orgId !== 'team_yYNgFg7KgTwoN97wCL7rhDIj') return false;
+    const manifestEntries = readdirSync(path.join(directory, 'static-build'), { withFileTypes: true });
+    return manifestEntries.length === 1 && manifestEntries[0].name === 'package-manifest.json' &&
+      manifestEntries[0].isFile();
+  } catch { return false; }
+}
+
 export function sourceIdentity(root, env = process.env) {
   const head = git(root, ['rev-parse', 'HEAD']);
   const dirty = git(root, ['status', '--porcelain', '--untracked-files=normal']);
@@ -134,11 +153,14 @@ export function sourceIdentity(root, env = process.env) {
   const deploySha = env.VERCEL_GIT_COMMIT_SHA?.toLowerCase();
   const sourceSha = deploySha || head?.toLowerCase() || null;
   const trackedSourceClean = trackedDirty === null ? null : trackedDirty.length === 0;
-  // Vercel's Git checkout reserializes only vercel.json into one-line JSON.
-  // Keep literal byte cleanliness false, but separately attest equivalent
-  // build inputs only if there are no other tracked or untracked changes.
+  // Vercel reserializes vercel.json and writes one static-builder manifest.
+  // Keep literal byte cleanliness false; reject every other dirty input.
+  const expectedPlatformOnly = dirty === '?? .vercel/' ||
+    dirty === 'M vercel.json\n?? .vercel/';
   const trackedSourceEquivalent = dirty === null ? null :
-    dirty.length === 0 || (dirty === 'M vercel.json' && semanticallyUnchangedVercelConfig(root));
+    dirty.length === 0 || (dirty === 'M vercel.json' && semanticallyUnchangedVercelConfig(root)) ||
+    (expectedPlatformOnly && expectedVercelBuilderMetadata(root) &&
+      (dirty === '?? .vercel/' || semanticallyUnchangedVercelConfig(root)));
   if (!SHA.test(sourceSha ?? '') || (deploySha && head && deploySha !== head.toLowerCase()))
     return { sourceSha: SHA.test(sourceSha ?? '') ? sourceSha : null,
       provenance: 'unsupported', trackedSourceClean, trackedSourceEquivalent };

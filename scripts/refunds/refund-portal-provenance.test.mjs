@@ -127,6 +127,31 @@ test('sole Vercel config formatting drift is equivalent but remains byte-dirty',
     await writeFile(path.join(root, 'source.txt'), 'same');
     await writeFile(path.join(root, 'extra.txt'), 'untracked input');
     assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, false);
+    await rm(path.join(root, 'extra.txt'));
+    await mkdir(path.join(root, '.vercel', 'static-build'), { recursive: true });
+    await writeFile(path.join(root, '.vercel', 'project.json'), JSON.stringify({
+      projectId: 'prj_YC3LjtHvqX2BAvFdt4iLV9ARs1bM',
+      orgId: 'team_yYNgFg7KgTwoN97wCL7rhDIj',
+    }));
+    await writeFile(path.join(root, '.vercel', 'static-build', 'package-manifest.json'), '{}');
+    assert.equal(sourceIdentity(root, {}).trackedSourceClean, false);
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, true);
+    await writeFile(path.join(root, '.vercel', '.env.production.local'), 'SECRET=private');
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, false);
+    await rm(path.join(root, '.vercel', '.env.production.local'));
+    await writeFile(path.join(root, '.vercel', 'static-build', 'extra.json'), '{}');
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, false);
+    await rm(path.join(root, '.vercel', 'static-build', 'extra.json'));
+    await writeFile(path.join(root, '.vercel', 'project.json'), JSON.stringify({
+      projectId: 'wrong', orgId: 'team_yYNgFg7KgTwoN97wCL7rhDIj',
+    }));
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, false);
+    await writeFile(path.join(root, '.vercel', 'project.json'), JSON.stringify({
+      projectId: 'prj_YC3LjtHvqX2BAvFdt4iLV9ARs1bM',
+      orgId: 'team_yYNgFg7KgTwoN97wCL7rhDIj',
+    }));
+    await writeFile(path.join(root, 'source.txt'), 'changed again');
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, false);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -185,7 +210,7 @@ test('build diagnostic reports public tracked paths and redacts untracked privat
     const withDirectories = sourceBuildDiagnostics(root);
     assert.deepEqual(withDirectories.vercelDirectory.directoryCategories, ['other', 'output']);
     assert.deepEqual(withDirectories.vercelDirectory.subdirectories, [
-      { name: 'output', nameLength: 'output'.length, nameDigest: sha256('output'), fileCount: 0,
+      { name: '[redacted]', nameLength: 'output'.length, nameDigest: sha256('output'), fileCount: 0,
         directoryCount: 0, environmentFileCount: 0, files: [], otherEntryCount: 0 },
       { name: '[redacted]', nameLength: 'private-unknown-directory'.length,
         nameDigest: sha256('private-unknown-directory'), fileCount: 1,
