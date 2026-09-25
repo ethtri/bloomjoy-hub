@@ -498,6 +498,12 @@ reset role;
 select is((select count(*)::integer from public.refund_case_official_action_authorizations
   where refund_case_id='e1450000-0000-4000-8000-000000000001' and action='approve'),1,
   'replay creates no second official authorization');
+insert into public.refund_nayax_provider_callers(caller_id,assertion_digest,status)
+values('nayax-card-refund',
+  encode(extensions.digest(convert_to('reviewed-fixture-executor','UTF8'),'sha256'),'hex'),
+  'active')
+on conflict(caller_id) do update set
+  assertion_digest=excluded.assertion_digest,status='active';
 create function pg_temp.probe_approved_attempt_after_revocation()
 returns boolean language plpgsql security definer set search_path='' as $$
 declare claimed jsonb; held jsonb; continued boolean := false;
@@ -520,8 +526,8 @@ begin
         'provider_result_unknown');
       continued := held->>'held'='true';
     end if;
-    raise exception 'rollback post-approval service probe' using errcode='P0001';
-  exception when sqlstate 'P0001' then return continued;
+    raise exception 'rollback post-approval service probe' using errcode='ZX001';
+  exception when sqlstate 'ZX001' then return continued;
   end;
 end $$;
 select is(pg_temp.probe_approved_attempt_after_revocation(),true,
@@ -560,6 +566,7 @@ select is((select refund_amount_cents from public.refund_cases
 
 create temp table reviewed_denial(authorization_id uuid) on commit drop;
 grant select, insert on reviewed_denial to authenticated;
+grant select on reviewed_denial to service_role;
 set local role authenticated;
 select pg_temp.set_actor('e1410000-0000-4000-8000-000000000001');
 insert into reviewed_denial
