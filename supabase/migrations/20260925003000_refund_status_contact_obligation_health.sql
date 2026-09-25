@@ -17,6 +17,10 @@ returns jsonb language sql stable security definer set search_path='' as $$
       exists(select 1 from public.refund_gmail_messages g
         where g.refund_case_message_id=m.id and g.direction='outbound'
           and g.status='delivery_unknown') gmail_unknown,
+      exists(select 1 from public.refund_gmail_messages g
+        where g.refund_case_message_id=m.id and g.direction='outbound'
+          and g.status='failed' and g.provider_message_id is null
+          and g.provider_message_header is null) gmail_known_failed,
       exists(select 1 from public.refund_case_messages later
         where later.refund_case_id=m.refund_case_id and later.id<>m.id
           and later.status='sent' and later.sent_at>m.created_at
@@ -42,23 +46,20 @@ returns jsonb language sql stable security definer set search_path='' as $$
     select issued.*,
       case
         when later_authoritative_contact then 'resolved_by_later_contact'
-        when status='sent' and sent_at is not null
-          and delivery_state in ('failed','bounced','complained') then 'definite_failure'
+        when delivery_state in ('failed','bounced','complained')
+          or gmail_known_failed then 'definite_failure'
+        -- An exact accepted transport receipt remains authoritative if the
+        -- subsequent parent sent/failed write did not commit.
+        when gmail_accepted or (delivery_transport='resend'
+          and delivery_state='accepted' and provider_message_id is not null)
+          then 'accepted'
         when status='sent' and sent_at is not null then 'accepted'
-        when status='failed' and delivery_state in ('failed','bounced','complained')
-          then 'definite_failure'
         when status='failed' and (manual_delivery_provider_attempted_at is not null
           or provider_message_id is not null or delivery_transport is not null
           or outbound_attempt or error_message='delivery_unknown') then 'unknown_effect'
         when status='failed' then 'definite_failure'
-        when status='pending' and delivery_state in ('failed','bounced','complained')
-          then 'definite_failure'
-        -- The provider can finish while the parent status write fails. A linked
-        -- accepted Gmail receipt or accepted Resend receipt is still a send;
-        -- missing downstream webhook metadata alone creates no new obligation.
-        when status='pending' and (gmail_accepted or
-          (delivery_transport='resend' and delivery_state='accepted'
-            and provider_message_id is not null)) then 'accepted'
+        -- A fresh provider-start/uncertain Gmail effect is not a queued send.
+        -- A mere Gmail pending_send reservation is still queued until it ages.
         when status='pending' and (gmail_unknown
           or manual_delivery_provider_attempted_at is not null
           or provider_message_id is not null

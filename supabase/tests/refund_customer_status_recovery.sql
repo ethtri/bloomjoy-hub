@@ -215,6 +215,9 @@ $sql$, '23514', 'Automatic customer status update requires current deterministic
 select is(public.service_get_refund_status_contact_obligation_health()
   ->> 'unknownEffectCount','1',
   'The failed original status attempt with ambiguous effect remains an owned obligation');
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'unresolvedCount','1',
+  'A fresh pending status message with no provider start remains queued');
 -- The provider can start while the parent message row is still pending. Such
 -- an exact transport attempt must not disappear during the first 60 minutes.
 alter table public.refund_case_messages disable trigger user;
@@ -232,6 +235,13 @@ where refund_case_id='d4000000-0000-4000-8000-000000000003'
 select is(public.service_get_refund_status_contact_obligation_health()
   ->> 'unknownEffectCount','1',
   'Provider-accepted pending transport without a downstream webhook is not an unknown-effect obligation');
+update public.refund_case_messages
+set delivery_state='bounced'
+where refund_case_id='d4000000-0000-4000-8000-000000000003'
+  and reason_code='provider_delay';
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'definiteFailureCount','1',
+  'Explicit adverse Resend delivery overrides a stale pending parent and accepted receipt');
 update public.refund_case_messages
 set delivery_transport=null, delivery_state='unknown', provider_message_id=null
 where refund_case_id='d4000000-0000-4000-8000-000000000003'
@@ -273,6 +283,26 @@ select is(public.service_get_refund_status_contact_obligation_health()
   'A linked accepted Gmail receipt is not made unknown by stale parent status');
 delete from public.refund_gmail_messages
 where id='d8000000-0000-4000-8000-000000000003';
+insert into public.refund_gmail_messages(
+  id,gmail_thread_id,refund_case_id,refund_case_message_id,
+  direction,status,sender_email,recipient_email,subject,plain_body,
+  received_at,retention_expires_at
+) values (
+  'd8000000-0000-4000-8000-000000000004',
+  'd7000000-0000-4000-8000-000000000003',
+  'd4000000-0000-4000-8000-000000000003',
+  (select id from public.refund_case_messages
+   where refund_case_id='d4000000-0000-4000-8000-000000000003'
+     and reason_code='provider_delay'),
+  'outbound','failed','info@bloomjoysweets.com',
+  'status-provider-due@example.invalid','Synthetic failed transport',
+  'Synthetic failed transport',now(),now()+interval '30 days'
+);
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'definiteFailureCount','1',
+  'A linked no-provider Gmail failure is actionable before the pending parent is finalized');
+delete from public.refund_gmail_messages
+where id='d8000000-0000-4000-8000-000000000004';
 alter table public.refund_gmail_messages enable trigger user;
 update public.refund_case_messages set status='failed',
   error_message='gmail_source_thread_required'
@@ -281,6 +311,35 @@ where refund_case_id='d4000000-0000-4000-8000-000000000003'
 select is(public.service_get_refund_status_contact_obligation_health()
   ->> 'definiteFailureCount','1',
   'The proven-unsent status transport failure is visible outside scheduler-run health');
+alter table public.refund_case_messages disable trigger user;
+update public.refund_case_messages
+set delivery_transport='resend',delivery_state='accepted',
+  provider_message_id='synthetic-failed-parent-accepted'
+where refund_case_id='d4000000-0000-4000-8000-000000000003'
+  and reason_code='provider_delay';
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'definiteFailureCount','0',
+  'An accepted receipt outranks a failed parent write when provider acceptance was saved');
+update public.refund_case_messages
+set status='sent',sent_at=now(),delivery_state='unknown'
+where refund_case_id='d4000000-0000-4000-8000-000000000003'
+  and reason_code='provider_delay';
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'unknownEffectCount','1',
+  'A provider-accepted sent message without downstream telemetry adds no unknown-effect obligation');
+update public.refund_case_messages
+set delivery_state='complained'
+where refund_case_id='d4000000-0000-4000-8000-000000000003'
+  and reason_code='provider_delay';
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'definiteFailureCount','1',
+  'Explicit adverse delivery after sent is still an actionable contact failure');
+update public.refund_case_messages
+set status='failed',sent_at=null,delivery_transport=null,
+  delivery_state='unknown',provider_message_id=null
+where refund_case_id='d4000000-0000-4000-8000-000000000003'
+  and reason_code='provider_delay';
+alter table public.refund_case_messages enable trigger user;
 insert into public.refund_automation_runs(
   run_key,trigger_source,scheduled_for,started_at,finished_at,status,reason_counts
 ) values ('scheduled:status-obligation-noop','scheduled',now(),now(),now(),
