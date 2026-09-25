@@ -8,7 +8,11 @@ alter table public.refund_wallet_correction_contexts
     check (reply_review_state in ('pending','claimed','resolved')),
   add column if not exists reply_review_claim_token uuid,
   add column if not exists reply_review_claimed_at timestamptz,
-  add column if not exists reply_review_result_code text;
+  add column if not exists reply_review_result_code text,
+  add column if not exists reply_body_sha256 text
+    check (reply_body_sha256 ~ '^[0-9a-f]{64}$'),
+  add column if not exists reply_review_attempt_count integer not null default 0
+    check (reply_review_attempt_count>=0);
 
 create index if not exists refund_purchase_reply_review_due_idx
   on public.refund_wallet_correction_contexts(reply_review_due_at, id)
@@ -77,6 +81,7 @@ begin
   update public.refund_wallet_correction_contexts set
     reply_message_id=source.id, reply_received_at=source.received_at,
     reply_review_due_at=statement_timestamp(), reply_review_state='pending',
+    reply_body_sha256=encode(extensions.digest(convert_to(source.plain_body,'UTF8'),'sha256'),'hex'),
     updated_at=statement_timestamp() where id=ctx.id;
   update public.refund_follow_up_cycles set status='customer_replied',
     reply_customer_message_id=source.id, reply_received_at=source.received_at
@@ -117,11 +122,14 @@ begin
     token:=gen_random_uuid();
     update public.refund_wallet_correction_contexts set
       reply_review_state='claimed',reply_review_claim_token=token,
-      reply_review_claimed_at=statement_timestamp(),updated_at=statement_timestamp()
+      reply_review_claimed_at=statement_timestamp(),
+      reply_review_attempt_count=reply_review_attempt_count+1,
+      updated_at=statement_timestamp()
       where id=ctx.id;
     tasks:=tasks||jsonb_build_array(jsonb_build_object('requestId',ctx.id,
       'refundCaseId',ctx.refund_case_id,'sourceMessageId',ctx.reply_message_id,
       'factVersion',ctx.correction_fact_version,'claimToken',token,
+      'bodySha256',ctx.reply_body_sha256,
       'dueAt',ctx.reply_review_due_at,'payloadRedacted',true));
   end loop;
   return jsonb_build_object('tasks',tasks,'payloadRedacted',true);
@@ -131,6 +139,57 @@ revoke all on function public.service_claim_refund_scoped_reply_reviews(integer)
   from public,anon,authenticated;
 grant execute on function public.service_claim_refund_scoped_reply_reviews(integer)
   to service_role;
+
+-- A provider/configuration failure releases only the exact claim for a later
+-- scheduled attempt. It never turns an ordinary free-text reply into a
+-- terminal technical exception or resumes customer waiting.
+create function public.service_defer_refund_scoped_reply_review(
+  p_request_id uuid,p_claim_token uuid,p_source_message_id uuid,
+  p_expected_fact_version bigint,p_body_sha256 text,p_reason_code text
+) returns jsonb language plpgsql security definer set search_path='' as $$
+declare ctx public.refund_wallet_correction_contexts;
+  source public.refund_gmail_messages;
+  c public.refund_cases;
+begin
+  select * into ctx from public.refund_wallet_correction_contexts
+    where id=p_request_id for update;
+  select * into c from public.refund_cases where id=ctx.refund_case_id for update;
+  select * into source from public.refund_gmail_messages
+    where id=p_source_message_id for update;
+  if ctx.id is null or ctx.status<>'pending'
+    or ctx.reply_review_state<>'claimed'
+    or ctx.reply_review_claim_token is distinct from p_claim_token
+    or ctx.reply_message_id is distinct from p_source_message_id
+    or ctx.correction_fact_version is distinct from p_expected_fact_version
+    or ctx.reply_body_sha256 is distinct from p_body_sha256
+    or c.deterministic_fact_version is distinct from p_expected_fact_version
+    or source.refund_case_id is distinct from ctx.refund_case_id
+    or source.participant_role<>'customer' or source.participant_trust<>'verified'
+    or source.content_deleted_at is not null
+    or encode(extensions.digest(convert_to(source.plain_body,'UTF8'),'sha256'),'hex')
+      is distinct from p_body_sha256 then
+    return jsonb_build_object('outcome','stale_claim','payloadRedacted',true);
+  end if;
+  if p_reason_code not in ('provider_configuration_missing','provider_unavailable',
+      'provider_timeout','provider_schema_rejected','research_input_unavailable',
+      'research_result_unresolved') then
+    raise exception 'Allowlisted redacted deferral reason required';
+  end if;
+  update public.refund_wallet_correction_contexts set
+    reply_review_state='pending',reply_review_claim_token=null,
+    reply_review_claimed_at=null,
+    reply_review_due_at=statement_timestamp()+make_interval(
+      mins=>least(60,5*greatest(1,ctx.reply_review_attempt_count))),
+    reply_review_result_code=p_reason_code,updated_at=statement_timestamp()
+    where id=ctx.id;
+  return jsonb_build_object('outcome','deferred','reasonCode',p_reason_code,
+    'requestId',ctx.id,'payloadRedacted',true);
+end;
+$$;
+revoke all on function public.service_defer_refund_scoped_reply_review(
+  uuid,uuid,uuid,bigint,text,text) from public,anon,authenticated;
+grant execute on function public.service_defer_refund_scoped_reply_review(
+  uuid,uuid,uuid,bigint,text,text) to service_role;
 
 alter function public.service_apply_refund_gmail_customer_facts_v1(
   uuid,uuid,bigint,jsonb,text[],text)

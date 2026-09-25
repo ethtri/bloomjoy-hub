@@ -111,6 +111,50 @@ select is((select reply_review_state from public.refund_wallet_correction_contex
   'claimed','Claim persists until an actual research outcome exists');
 select is((public.service_claim_refund_scoped_reply_reviews(25)->'tasks')::text,'[]',
   'Concurrent worker cannot re-claim the live research lease');
+select is((select task->>'bodySha256' from scoped_reply_claim),
+  (select encode(extensions.digest(convert_to(plain_body,'UTF8'),'sha256'),'hex')
+    from public.refund_gmail_messages where id=pg_temp.gid(9)),
+  'Claim binds the exact verified reply body without returning its content');
+select is(public.service_defer_refund_scoped_reply_review(
+    (select (task->>'requestId')::uuid from scoped_reply_claim),
+    gen_random_uuid(),pg_temp.gid(9),
+    (select (task->>'factVersion')::bigint from scoped_reply_claim),
+    (select task->>'bodySha256' from scoped_reply_claim),
+    'provider_unavailable')->>'outcome','stale_claim',
+  'A different worker cannot defer the live claim');
+select is(public.service_defer_refund_scoped_reply_review(
+    (select (task->>'requestId')::uuid from scoped_reply_claim),
+    (select (task->>'claimToken')::uuid from scoped_reply_claim),pg_temp.gid(9),
+    (select (task->>'factVersion')::bigint from scoped_reply_claim),
+    repeat('0',64),'provider_unavailable')->>'outcome','stale_claim',
+  'Changed reply content cannot settle the body-bound claim');
+update public.refund_gmail_messages set plain_body='A different body after claim'
+where id=pg_temp.gid(9);
+select is(public.service_defer_refund_scoped_reply_review(
+    (select (task->>'requestId')::uuid from scoped_reply_claim),
+    (select (task->>'claimToken')::uuid from scoped_reply_claim),pg_temp.gid(9),
+    (select (task->>'factVersion')::bigint from scoped_reply_claim),
+    (select task->>'bodySha256' from scoped_reply_claim),
+    'provider_unavailable')->>'outcome','stale_claim',
+  'A modified verified reply cannot be settled under the old body hash');
+update public.refund_gmail_messages set plain_body='I replied above; please review my earlier note.'
+where id=pg_temp.gid(9);
+select is(public.service_defer_refund_scoped_reply_review(
+    (select (task->>'requestId')::uuid from scoped_reply_claim),
+    (select (task->>'claimToken')::uuid from scoped_reply_claim),pg_temp.gid(9),
+    (select (task->>'factVersion')::bigint from scoped_reply_claim),
+    (select task->>'bodySha256' from scoped_reply_claim),
+    'provider_configuration_missing')->>'outcome','deferred',
+  'Missing model configuration leaves ordinary verified reply durably due for retry');
+select ok((select reply_review_state='pending' and reply_review_due_at>statement_timestamp()
+    and reply_review_result_code='provider_configuration_missing'
+    and reply_review_attempt_count=1
+    from public.refund_wallet_correction_contexts where refund_case_id=pg_temp.cid(9)),
+  'Provider absence is a visible pending task, not a completed research result');
+update public.refund_wallet_correction_contexts set reply_review_due_at=statement_timestamp()
+where refund_case_id=pg_temp.cid(9);
+select is(jsonb_array_length(public.service_claim_refund_scoped_reply_reviews(25)->'tasks'),1,
+  'Scheduled retry reclaims the same request after the bounded delay');
 insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,provider_message_id,references_header,
   direction,message_kind,status,sender_email,recipient_email,participant_role,participant_trust,subject,plain_body,received_at,retention_expires_at)
 select pg_temp.gid(17),gmail_thread_id,refund_case_id,'scoped-reply-17',references_header,
