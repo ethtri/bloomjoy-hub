@@ -22,7 +22,7 @@ begin
     incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,payment_interaction,payment_amount_cents,card_last4,card_last4_provenance,card_network,card_wallet_used,status,correlation_status,intake_source)
   values(cid,'df000000-0000-4000-8000-000000000003','df000000-0000-4000-8000-000000000002','reply-customer@example.invalid','Scoped reply test',
     now()-interval '2 hours'-n*interval '7 hours',to_char((now()-interval '2 hours'-n*interval '7 hours') at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI'),
-    'America/Los_Angeles','exact','exact','card',case when n in (27,28,29,38,42,45) then 'phone_watch_wallet' else 'tap_card' end,case when n in (34,43,45) then 1090 when n=44 then 1000 when n in (27,28,29,30) then 700 else null end,case when n=45 then '4932' when n in (8,15,27,28,29,30,34,38,42) then null else '1234' end,case when n=45 then 'wallet_device_token' when n in (8,15,27,28,29,30,34,38,42) then null else 'physical_card' end,case when n=26 then 'mastercard' else 'visa' end,n in (27,28,29,38,42,45),'needs_review','manual_review','form');
+    'America/Los_Angeles','exact','exact','card',case when n in (27,28,29,38,42,45) then 'phone_watch_wallet' else 'tap_card' end,case when n in (34,43,45) then 1090 when n=44 then 1000 when n in (27,28,29,30) then 700 else null end,case when n=45 then '4932' when n in (8,15,27,28,29,30,34,38,42,43,44) then null else '1234' end,case when n=45 then 'wallet_device_token' when n in (8,15,27,28,29,30,34,38,42,43,44) then null else 'physical_card' end,case when n=26 then 'mastercard' else 'visa' end,n in (27,28,29,38,42,45),'needs_review','manual_review','form');
   if n in (27,28) then
     -- The earlier provider read precedes the delivered wallet question. A
     -- waiting-on-customer case cannot start an ordinary lookup afterward.
@@ -1094,6 +1094,49 @@ select ok((select reply_directional_evidence->>'timeConfidence'='rough'
   and (select count(*)=0 from public.refund_customer_fact_applications
     where refund_case_id=pg_temp.cid(45)),
   'Known wallet detail stays immutable while time research remains due');
+select ok(not public.refund_verified_reply_quote_is_known_fact(
+    'I used card. Maybe around 4 PM? Several unrelated details about the machine. I used cash.',
+    (select c from public.refund_cases c where id=pg_temp.cid(43)))
+  and not public.refund_verified_reply_quote_is_known_fact(
+    'My physical card ends in 1234 and my card last four is 5678; maybe 4 PM.',
+    (select c from public.refund_cases c where id=pg_temp.cid(43)))
+  and not public.refund_verified_reply_quote_is_known_fact(
+    'Amount: 10.90; Amount: 12.00; maybe 4 PM.',
+    (select c from public.refund_cases c where id=pg_temp.cid(43))),
+  'Conflicting method, physical suffix or amount cannot be hidden as known evidence');
+select ok(public.refund_verified_reply_quote_ambiguous_supported(
+    'I paid $10.90 and 12 dollars')
+  and public.refund_verified_reply_quote_ambiguous_supported(
+    'I used card. After a long conversation about the arcade machine, I used cash.')
+  and public.refund_verified_reply_quote_ambiguous_supported(
+    'My physical card ends in 1234. Later I said my card ends in 5678.')
+  and public.refund_verified_reply_quote_ambiguous_supported(
+    'My card is Visa. Later I remembered it was Mastercard.')
+  and not public.refund_verified_reply_quote_ambiguous_supported(
+    'I paid $10.90 with my physical card.'),
+  'SQL rejects repeated amount, method, suffix and network while retaining one complete answer');
+select pg_temp.make_scope(46);
+update public.refund_gmail_messages set plain_body='I paid $10.90 and 12 dollars.'
+  where id=pg_temp.gid(46);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(46),pg_temp.gid(46))
+  ->>'outcome','received','Conflicting money answer remains an exact verified reply');
+create temp table conflicting_amount_task on commit drop as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(46)::text;
+select throws_like($$select public.service_apply_refund_scoped_reply_semantic_fact(
+    (select (task->>'requestId')::uuid from conflicting_amount_task),
+    (select (task->>'claimToken')::uuid from conflicting_amount_task),pg_temp.gid(46),
+    (select (task->>'factVersion')::bigint from conflicting_amount_task),
+    (select task->>'bodySha256' from conflicting_amount_task),
+    jsonb_build_array(jsonb_build_object('field','amount',
+      'messageId',pg_temp.gid(46),'quote','I paid $10.90 and 12 dollars.')),
+    '{"payment_amount_cents":1090,"refund_amount_cents":1090}'::jsonb,
+    array['amount'])$$,
+  '%Ambiguous supported reply values%',
+  'Protected writer cannot receipt only the first of two monetary answers');
+select is((select count(*)::integer from public.refund_customer_fact_applications
+    where refund_case_id=pg_temp.cid(46)),0,
+  'Conflicting source creates no immutable positive fact receipt');
 select pg_temp.make_scope(33);
 select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(33),pg_temp.gid(33))
   ->>'outcome','received','Original verified response starts the exact scoped task');

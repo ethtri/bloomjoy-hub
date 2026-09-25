@@ -244,20 +244,43 @@ returns boolean language sql immutable strict set search_path='' as $$
   select p_quote ~* '(\$[[:space:]]*[0-9]|(paid|charged|amount|total|cost|monto|cobr)[^.?!]{0,25}[0-9]|(paid|used|tapped|inserted|swiped)[^?!]{0,45}(cash|card)|card[^.?!]{0,35}(end(s|ing)? in|last four)[^.?!]{0,12}[0-9]{4}|(visa|mastercard|amex|discover))';
 $$;
 
+create function public.refund_verified_reply_quote_ambiguous_supported(p_quote text)
+returns boolean language sql immutable strict set search_path='' as $$
+  select
+    (select count(*) from regexp_matches(p_quote,
+      '(\$[[:space:]]*[0-9]+([.][0-9]{1,2})?|amount[[:space:]]*:[[:space:]]*[0-9]+([.][0-9]{1,2})?|[0-9]+([.][0-9]{1,2})?[[:space:]]*(dollars?|usd))','gi'))>1
+    or (select count(*) from regexp_matches(p_quote,
+      '(paid|used|tapped|inserted|swiped)[^.?!]{0,45}(cash|card)','gi'))>1
+    or (select count(*) from regexp_matches(p_quote,
+      '(physical[[:space:]]+)?card[^.?!]{0,35}(end(s|ing)?[[:space:]]+in|last[[:space:]]+four)[^.?!]{0,12}[0-9]{4}','gi'))>1
+    or (select count(*) from regexp_matches(p_quote,
+      '(visa|master[[:space:]]*card|amex|american[[:space:]]+express|discover)','gi'))>1
+    or (select count(*) from regexp_matches(p_quote,
+      '((device token|wallet token)[^.?!]{0,40}[0-9]{4}|[0-9]{4}[^.?!]{0,50}(apple pay device token|device token|wallet token))','gi'))>1
+    or (p_quote ~* '(^|[^[:alpha:]])cash([^[:alpha:]]|$)'
+      and p_quote ~* '(^|[^[:alpha:]])card([^[:alpha:]]|$)'
+      and p_quote ~* '(paid|used|tapped|inserted|swiped)[^.?!]{0,45}(cash|card)');
+$$;
+
 -- An unchanged verified answer may settle as no new fact, but only when all
 -- supported values in the cited span equal the current database facts.
 create function public.refund_verified_reply_quote_is_known_fact(
   p_quote text,p_case public.refund_cases
 ) returns boolean language plpgsql immutable strict set search_path='' as $$
 declare amount_match text[]; digits_match text[]; method_match text[];
-  network_match text[]; amount_value text; wallet_token text; seen integer:=0;
+  network_match text[]; amount_value text; wallet_token text;
+  four_digit_count integer; seen integer:=0;
 begin
   if public.refund_verified_reply_quote_negated(p_quote) then return false; end if;
+  if public.refund_verified_reply_quote_ambiguous_supported(p_quote) then return false; end if;
   if (select count(*) from regexp_matches(p_quote,'\$[[:space:]]*[0-9]','g'))>1
     or (select count(*) from regexp_matches(p_quote,
       '(\$[[:space:]]*[0-9]|amount[[:space:]]*:[[:space:]]*[0-9]|[0-9]+[[:space:]]*(dollars?|usd))','gi'))>1
     or (select count(*) from regexp_matches(lower(p_quote),
       '(visa|mastercard|amex|discover)','g'))>1 then return false; end if;
+  if (p_quote ~* '(^|[^[:alpha:]])cash([^[:alpha:]]|$)'
+      and p_quote ~* '(^|[^[:alpha:]])card([^[:alpha:]]|$)')
+    then return false; end if;
   amount_match:=regexp_match(p_quote,
     '\$[[:space:]]*([0-9]{1,4}([.][0-9]{1,2})?)($|[^0-9.])');
   if amount_match is null then
@@ -278,6 +301,12 @@ begin
         coalesce(nullif(rpad(split_part(amount_value,'.',2),2,'0'),''),'00')::integer)
       then return false; end if;
   end if;
+  select count(*) into four_digit_count
+    from regexp_matches(p_quote,'[0-9]{4}','g');
+  if amount_value is not null and length(split_part(amount_value,'.',1))=4 then
+    four_digit_count:=four_digit_count-1;
+  end if;
+  if four_digit_count>1 then return false; end if;
   wallet_token:=public.refund_verified_wallet_token_last4(p_quote);
   if wallet_token is not null then
     seen:=seen+1;
@@ -315,6 +344,8 @@ revoke all on function public.refund_verified_reply_quote_negated(text)
 revoke all on function public.refund_verified_reply_quote_has_fact(text)
   from public,anon,authenticated,service_role;
 revoke all on function public.refund_verified_reply_quote_has_independent_fact(text)
+  from public,anon,authenticated,service_role;
+revoke all on function public.refund_verified_reply_quote_ambiguous_supported(text)
   from public,anon,authenticated,service_role;
 revoke all on function public.refund_verified_reply_quote_is_known_fact(text,public.refund_cases)
   from public,anon,authenticated,service_role;
@@ -354,6 +385,7 @@ declare ctx public.refund_wallet_correction_contexts;
   expected_keys text[]:='{}'::text[];
   amount_match text[]; method_match text[]; digits_match text[];
   network_match text[]; rough_time_evidence boolean:=false;
+  verified_body text;
 begin
   select * into c from public.refund_cases
     where id=(select refund_case_id from public.refund_wallet_correction_contexts
@@ -394,6 +426,14 @@ begin
       where field not in ('amount','payment_method','card_last4','card_network')) then
     raise exception 'Unsupported semantic reply fact shape';
   end if;
+  select string_agg(coalesce(reply.plain_body,''), E'\n' order by item->>'messageId')
+    into verified_body
+    from jsonb_array_elements(
+      public.refund_scoped_verified_reply_set(ctx.id)->'messages') item
+    join public.refund_gmail_messages reply
+      on reply.id=(item->>'messageId')::uuid;
+  if public.refund_verified_reply_quote_ambiguous_supported(coalesce(verified_body,''))
+    then raise exception 'Ambiguous supported reply values'; end if;
   if exists (
     select 1 from jsonb_array_elements(
       public.refund_scoped_verified_reply_set(ctx.id)->'messages') item
@@ -438,6 +478,7 @@ begin
       or evidence.sensitive_data_redacted is distinct from false
       or position(field_quote in coalesce(evidence.plain_body,''))=0
       or public.refund_verified_reply_quote_negated(field_quote)
+      or public.refund_verified_reply_quote_ambiguous_supported(field_quote)
       or not (public.refund_scoped_verified_reply_set(ctx.id)->'messages'
         @>jsonb_build_array(jsonb_build_object('messageId',evidence.id))) then
       return jsonb_build_object('outcome','stale_or_unsupported_source',
@@ -451,11 +492,13 @@ begin
         amount_match:=regexp_match(field_quote,
           'amount:[[:space:]]*([0-9]{1,7})([.]([0-9]{2}))?','i');
       end if;
+      if amount_match is null then
+        amount_match:=regexp_match(field_quote,
+          '([0-9]{1,7})([.]([0-9]{2}))?[[:space:]]*(dollars?|usd)','i');
+      end if;
       if amount_match is null
-        or ((select count(*) from regexp_matches(
-          field_quote,'\$[[:space:]]*[0-9]','g'))+
-          (select count(*) from regexp_matches(
-          field_quote,'amount:[[:space:]]*[0-9]','gi')))<>1
+        or (select count(*) from regexp_matches(field_quote,
+          '(\$[[:space:]]*[0-9]|amount:[[:space:]]*[0-9]|[0-9]+([.][0-9]{1,2})?[[:space:]]*(dollars?|usd))','gi'))<>1
         or coalesce(p_updates->>'payment_amount_cents','') !~ '^[1-9][0-9]{0,8}$'
         or p_updates->>'refund_amount_cents' is distinct from
           p_updates->>'payment_amount_cents'

@@ -45,7 +45,22 @@ const supportedFieldsIn = (body) => [
   ['wallet_token_last4', /\b(?:device token|wallet token)\b[^.!?]{0,40}\d{4}\b|\b\d{4}\b[^.!?]{0,50}\b(?:apple pay device token|device token|wallet token)\b/iu],
 ].filter(([, pattern]) => pattern.test(body)).map(([field]) => field);
 
+// A first regex match is not authority for a whole verified reply. A later
+// amount, card suffix, method, or network must not be silently discarded.
+const hasAmbiguousSupportedValues = (body) => {
+  const amounts = [...body.matchAll(/\$\s*\d+(?:\.\d{1,2})?|\bamount\s*:\s*\d+(?:\.\d{1,2})?|\b\d+(?:\.\d{1,2})?\s*(?:dollars?|usd)\b/giu)];
+  const methods = [...body.matchAll(/\b(?:paid|used|tapped|inserted|swiped)\b[^.!?]{0,45}\b(?:cash|card)\b/giu)];
+  const suffixes = [...body.matchAll(/\b(?:physical\s+)?card\b[^.!?]{0,35}\b(?:end(?:s|ing)?\s+in|last\s+four)\b[^.!?]{0,12}\d{4}\b/giu)];
+  const networks = [...body.matchAll(/\b(?:visa|master\s*card|amex|american\s+express|discover)\b/giu)];
+  const walletTokens = [...body.matchAll(/\b(?:device token|wallet token)\b[^.!?]{0,40}\d{4}\b|\b\d{4}\b[^.!?]{0,50}\b(?:apple pay device token|device token|wallet token)\b/giu)];
+  return amounts.length > 1 || methods.length > 1 || suffixes.length > 1 ||
+    networks.length > 1 || walletTokens.length > 1 ||
+    (/\bcash\b/iu.test(body) && /\bcard\b/iu.test(body) && methods.length > 0);
+};
+
 export const deriveSourceBoundFacts = (input, proposal) => {
+  if (hasAmbiguousSupportedValues(input.replyMessages.map((entry) => entry.body ?? '').join('\n')))
+    throw new Error('ambiguous_supported_reply_values');
   const evidence = proposal?.kind === 'fact'
     ? [{ field: proposal.field, messageId: proposal.messageId, quote: proposal.quote }]
     : proposal?.facts;
@@ -128,6 +143,8 @@ export const deriveSourceBoundFact = (input, proposal) => {
   if (!proposal || proposal.kind !== 'fact' ||
     !safeField.has(proposal.field)) throw new Error('unsupported_fact_proposal');
   findSource(input, proposal.messageId, proposal.quote);
+  if (hasAmbiguousSupportedValues(proposal.quote))
+    throw new Error('ambiguous_source_span');
   // A source span that denies or corrects a value is evidence to investigate,
   // not authority to turn the mentioned value into a positive case fact.
   if (/(?:^|\W)(?:not|never|no|none|neither|didn't|did not|wasn't|was not|isn't|is not|don't|do not|doesn't|does not|cannot|can't|couldn't|could not|wrong|incorrect|no longer)(?:\W|$)/iu.test(proposal.quote)) {
@@ -244,6 +261,8 @@ export const validateNoFactReview = (input, proposal) => {
     throw new Error('unsupported_no_fact_review');
   }
   findSource(input, proposal.messageId, proposal.quote);
+  if (hasAmbiguousSupportedValues(input.replyMessages.map((entry) => entry.body ?? '').join('\n')))
+    throw new Error('supported_fact_requires_fact_review');
   if (proposal.reasonCode === 'customer_cannot_provide' &&
     !/(?:cannot|can't|could not|couldn't|unable to|not able to|do not have|don't have|no longer have|do not remember|don't remember|no tengo|no puedo)/iu.test(proposal.quote)) {
     throw new Error('cannot_provide_source_not_supported');
@@ -268,6 +287,17 @@ export const validateNoFactReview = (input, proposal) => {
             supportedFieldsIn(line).includes(field));
           if (!lines.length) throw new Error('supported_fact_requires_fact_review');
           for (const line of lines) {
+            if (field === 'payment_method' && /\bcash\b/iu.test(line) &&
+              /\bcard\b/iu.test(line)) throw new Error('supported_fact_requires_fact_review');
+            const amountWithFourWholeDigits = line.match(/(?:\$\s*|\bamount\s*:\s*)(\d{4})(?:\.\d{1,2})?\b|\b(\d{4})\s*(?:dollars?|usd)\b/iu);
+            const otherFourDigitCount = [...line.matchAll(/\d{4}/gu)].length -
+              (amountWithFourWholeDigits ? 1 : 0);
+            if (['card_last4','wallet_token_last4'].includes(field) &&
+              otherFourDigitCount > 1)
+              throw new Error('supported_fact_requires_fact_review');
+            if (field === 'amount' &&
+              [...line.matchAll(/\$\s*\d|\bamount\s*:\s*\d|\b\d+(?:\.\d{1,2})?\s*(?:dollars?|usd)\b/giu)].length > 1)
+              throw new Error('supported_fact_requires_fact_review');
             const fact = deriveSourceBoundFact(input, { kind: 'fact', field,
               messageId: message.messageId, quote: line.trim() });
             const current = input.currentFacts ?? {};

@@ -144,6 +144,34 @@ test('a single guarded batch binds separate verified replies to separate field s
   /unrepresented_source_fact/);
 });
 
+test('repeated or conflicting supported values cannot be reduced to the first source match', () => {
+  for (const [body, field] of [
+    ['I paid $10.90 and 12 dollars', 'amount'],
+    ['I used card. After a long conversation about the arcade machine, I used cash.', 'payment_method'],
+    ['My physical card ends in 1234. Later I said my card ends in 5678.', 'card_last4'],
+    ['My card is Visa. Later I remembered it was Mastercard.', 'card_network'],
+  ]) {
+    const source = { ...input, replyMessages: [{ messageId, body }] };
+    assert.throws(() => deriveSourceBoundFact(source, {
+      kind: 'fact', field, messageId, quote: body,
+    }), /ambiguous_source_span/);
+    assert.throws(() => deriveSourceBoundFacts(source, {
+      kind: 'fact', field, messageId, quote: body,
+    }), /ambiguous_supported_reply_values/);
+    assert.throws(() => validateNoFactReview(source, {
+      kind: 'reviewed_no_fact', reasonCode: 'inexact_purchase_time_requires_research',
+      messageId, quote: body,
+    }), /supported_fact_requires_fact_review/);
+  }
+  const repeatedReplies = { ...input, replyMessages: [
+    { messageId, body: 'I paid $10.90' },
+    { messageId: 'ae000000-0000-4000-8000-000000000006', body: 'I paid 12 dollars' },
+  ] };
+  assert.throws(() => deriveSourceBoundFacts(repeatedReplies, {
+    kind: 'fact', field: 'amount', messageId, quote: 'I paid $10.90',
+  }), /ambiguous_supported_reply_values/);
+});
+
 test('a decimal amount between paid and card still requires both supported facts', () => {
   const mixed = { ...input, replyMessages: [{ messageId,
     body: 'I paid $10.90 with my physical card.' }] };
@@ -384,6 +412,24 @@ test('labeled current amount or current wallet token can coexist with new rough 
     currentFacts: { ...wallet.currentFacts, cardLast4: '6789' },
   }, { kind: 'reviewed_no_fact', reasonCode: 'inexact_purchase_time_requires_research',
     messageId, quote: 'maybe 4 PM.' }), /supported_fact_requires_fact_review/);
+});
+
+test('conflicting repeated method and physical-card values cannot be called known', () => {
+  const currentFacts = { paymentAmountCents: 1090, paymentMethod: 'card',
+    cardLast4: '1234', cardLast4Provenance: 'physical_card' };
+  for (const [body, quote] of [
+    [`I used card. Maybe around 4 PM? ${'unrelated detail '.repeat(4)}I used cash.`,
+      'Maybe around 4 PM'],
+    ['My physical card ends in 1234 and my card last four is 5678; maybe 4 PM.',
+      'maybe 4 PM'],
+    ['Amount: 10.90; Amount: 12.00; maybe 4 PM.', 'maybe 4 PM'],
+  ]) {
+    assert.throws(() => validateNoFactReview({ ...input, currentFacts,
+      replyMessages: [{ messageId, body }] }, {
+      kind: 'reviewed_no_fact', reasonCode: 'inexact_purchase_time_requires_research',
+      messageId, quote,
+    }), /supported_fact_requires_fact_review/);
+  }
 });
 
 test('offline Luna fixture validates six model outcomes without a network client', () => {
