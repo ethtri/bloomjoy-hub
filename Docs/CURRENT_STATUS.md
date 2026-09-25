@@ -8,6 +8,10 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- On 2026-09-25 the authenticated production refund Case list began timing out
+  before it could load. P0 issue [#1453](https://github.com/ethtri/bloomjoy-hub/issues/1453)
+  tracks the database performance repair and authorized post-release readback;
+  a merged migration alone does not establish recovery.
 - Production recovery on 2026-09-19 restored the System card-attempt queue for
   the TGPaci enterprise account. Approval and processing now use the same queue
   readiness contract, and deterministic completion delivery claims the database
