@@ -98,7 +98,7 @@ assert(
     databaseTest.includes("not evidence ? 'providerPayload'") &&
     databaseTest.includes('full immutable sale identity') &&
     databaseTest.includes('without hiding the manager queue') &&
-    databaseTest.includes("select plan(22)"),
+    databaseTest.includes("select plan(25)"),
   'Database coverage must prove scope, tokenization, redaction, and the complete contract',
 );
 assert(
