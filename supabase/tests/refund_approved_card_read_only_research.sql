@@ -166,6 +166,22 @@ select is((select public.service_validate_approved_card_nayax_research_start(
 )->>'ready' from approved_claim),'true',
   'Exact saved approval, fact and account/machine scope permit a read-only provider start');
 reset role;
+update public.reporting_machines set nayax_manual_portal_enabled=true
+where id='ab440000-0000-4000-8000-000000000001';
+set local role service_role;
+select is((select public.service_validate_approved_card_nayax_research_start(
+  'ab450000-0000-4000-8000-000000000001',
+  (result->0->>'lookupGeneration')::bigint,1,
+  (result->0->>'officialActionVersion')::bigint,
+  result->0->>'businessFingerprint',result->0->>'scopeDigest',963
+)->>'ready' from approved_claim),'false',
+  'Switching the claimed machine to manual portal blocks the provider read');
+reset role;
+select is(public.refund_approved_card_research_scope_digest(
+  'ab450000-0000-4000-8000-000000000001'),null,
+  'Manual portal mode invalidates the private approved-read scope binding');
+update public.reporting_machines set nayax_manual_portal_enabled=false
+where id='ab440000-0000-4000-8000-000000000001';
 update public.reporting_machines set nayax_account_key='changed-account'
 where id='ab440000-0000-4000-8000-000000000001';
 set local role service_role;
@@ -202,6 +218,31 @@ select is((select count(*)::integer from public.refund_case_events
   where refund_case_id='ab450000-0000-4000-8000-000000000001'
     and event_type='approved_card_lookup_research_claimed'),2,
   'Crash recovery records a separate exact generation without another approval');
+
+-- The real stale-claim recovery writer can settle checking before the old
+-- worker reports a failure. The late failure must not overwrite recovery.
+savepoint late_approved_failure;
+update public.refund_cases
+set nayax_lookup_started_at=statement_timestamp()-interval '2 minutes'
+where id='ab450000-0000-4000-8000-000000000001';
+set local role service_role;
+select is(public.service_recover_stale_refund_nayax_lookups()
+  ->>'recoveredCount','1','The shared recovery writer settles the expired claim');
+select is(public.service_fail_approved_card_nayax_research(
+  'ab450000-0000-4000-8000-000000000001',
+  (select (result->0->>'lookupGeneration')::bigint from recovered_claim),1,
+  (select (result->0->>'officialActionVersion')::bigint from recovered_claim),
+  (select result->0->>'businessFingerprint' from recovered_claim),
+  (select result->0->>'scopeDigest' from recovered_claim),963,
+  'worker_interrupted',true)->>'stale','true',
+  'A late worker failure cannot overwrite the recovered checking state');
+reset role;
+select is((select nayax_lookup_status||':'||nayax_lookup_failure_class
+  from public.refund_cases
+  where id='ab450000-0000-4000-8000-000000000001'),
+  'lookup_failed:worker_interrupted',
+  'The recovery result remains authoritative after the stale failure');
+rollback to savepoint late_approved_failure;
 
 set local role service_role;
 select is(public.service_commit_approved_card_nayax_research(

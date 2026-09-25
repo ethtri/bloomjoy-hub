@@ -41,11 +41,13 @@ returns text language sql stable security definer set search_path = '' as $$
   select encode(extensions.digest(convert_to(jsonb_build_array(
     c.id,c.reporting_machine_id,c.reporting_location_id,
     c.intake_selection_key,c.refund_business_fingerprint,
-    m.account_id,m.location_id,m.nayax_account_key,m.nayax_machine_id
+    m.account_id,m.location_id,m.nayax_account_key,m.nayax_machine_id,
+    m.nayax_manual_portal_enabled
   )::text,'UTF8'),'sha256'),'hex')
   from public.refund_cases c
   join public.reporting_machines m on m.id=c.reporting_machine_id
   where c.id=p_refund_case_id and m.status='active'
+    and m.nayax_manual_portal_enabled is not true
     and m.location_id=c.reporting_location_id
     and nullif(btrim(m.nayax_account_key),'') is not null
     and nullif(btrim(m.nayax_machine_id),'') is not null;
@@ -297,6 +299,9 @@ begin
     and c.refund_business_fingerprint=p_expected_fingerprint
     and c.refund_amount_cents=p_expected_amount_cents
     and public.refund_approved_card_research_scope_digest(c.id)=p_expected_scope_digest
+    and exists (select 1 from public.reporting_machines machine
+      where machine.id=c.reporting_machine_id
+        and machine.nayax_manual_portal_enabled is not true)
     and c.nayax_refund_execution_status='not_requested'
     and c.refund_completed_at is null and c.reporting_adjustment_id is null
     and c.manual_refund_reference is null and c.duplicate_of_refund_case_id is null
@@ -488,6 +493,7 @@ begin
     'refund-nayax-lookup-v1|' || p_refund_case_id::text,0));
   select * into c from public.refund_cases where id=p_refund_case_id for update;
   if c.id is null or c.payment_method <> 'card' or c.decision <> 'approved'
+    or c.status not in ('needs_review','correlated','approved')
     or c.nayax_lookup_status <> 'checking'
     or c.nayax_lookup_generation is distinct from p_lookup_generation
     or c.deterministic_fact_version is distinct from p_expected_fact_version
