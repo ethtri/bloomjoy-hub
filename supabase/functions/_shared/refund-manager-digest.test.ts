@@ -1,136 +1,120 @@
 import {
   buildRefundManagerDigestEmail,
-  parseRefundManagerWorkProjection,
-  type RefundManagerWorkProjection,
+  parseRefundManagerDailyDigestProjection,
+  type RefundManagerDailyDigestItem,
+  type RefundManagerDailyDigestProjection,
 } from "./refund-manager-digest.ts";
 
 const assert = (condition: unknown, message: string) => {
   if (!condition) throw new Error(message);
 };
-const projection = (items = 1): RefundManagerWorkProjection => ({
-  schemaVersion: "refund_manager_work_v1",
-  observedAt: "2026-09-10T15:00:00.000Z",
-  bucketCounts: {
-    needs_action: items,
-    ready_to_pay: 0,
-    in_progress: 0,
-    provider_hold: 0,
-    waiting_on_customer: 0,
-    completed: 0,
-  },
-  digestCounts: {
-    needsDecision: items,
-    newInformation: items,
-    aging: 0,
-    exceptionsBeingHandled: 0,
-  },
-  oldestActionableAgeMinutes: items ? 180 : null,
-  recentMaterialChangeCount: items,
-  items: Array.from({ length: items }, (_, index) => ({
-    caseId: `12810000-0000-4000-8000-00000000000${index + 1}`,
-    publicReference: `RF-${index + 1}<safe>`,
-    amountCents: 700,
-    currencyCode: "USD",
+
+const item = (index: number, actor: RefundManagerDailyDigestItem["actor"] = "system"):
+  RefundManagerDailyDigestItem => ({
+    caseId: `12810000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+    publicReference: `RF-${index}<safe>`,
+    amountCents: actor === "manager" ? 700 : null,
+    currencyCode: actor === "manager" ? "USD" : null,
     machineLabel: "A very long public machine label & safe",
     locationName: "Public location",
-    ageMinutes: 180,
-    queueBucket: "needs_action" as const,
-    queueLabel: "Action needed",
-    actionCode: "refund",
-    actionOwner: "manager",
-    lifecycleActor: "system",
-    whatChanged: "The server recorded a verified customer reply.",
-    noticeReason: "customer_reply" as const,
-    attentionVersion: 2,
-    digestEligible: true,
-    urgentNoticeState: "none" as const,
-    payloadRedacted: true as const,
-  })),
-  metrics: {
-    emailsSentToday: 0,
-    digestEligibleCount: items,
-    duplicatesSuppressedToday: 0,
-    oldestActionableAgeMinutes: items ? 180 : null,
-    oldestDecisionAgeMinutes: items ? 180 : null,
+    ageMinutes: index * 60,
+    actor,
+    actionCode: actor === "manager" ? "approve_or_deny_request"
+      : actor === "customer" ? "answer_question" : "research_purchase",
+    actionLabel: actor === "customer" ? "We asked one question and are waiting for a reply."
+      : "Check the purchase records.",
+    preparationSummary: actor === "manager"
+      ? "Several Nayax purchases were reviewed. Choose the correct purchase only if approving this request."
+      : null,
+    paymentComplete: false,
     payloadRedacted: true,
-  },
+  });
+
+const projection = (items: RefundManagerDailyDigestItem[]): RefundManagerDailyDigestProjection => ({
+  schemaVersion: "refund_manager_daily_digest_v2",
+  observedAt: "2026-09-10T15:00:00.000Z",
+  actionCount: items.filter((entry) => entry.actor === "manager").length,
+  openCount: items.length,
+  items,
   payloadRedacted: true,
 });
 
-Deno.test("manager digest parser rejects unsafe extra fields", () => {
-  const raw = {
-    ...projection(),
-    customerEmail: "must-not-appear@example.test",
-  };
-  let rejected = false;
-  try {
-    parseRefundManagerWorkProjection(raw);
-  } catch {
-    rejected = true;
-  }
-  assert(rejected, "extra root fields must be rejected");
+const render = (input: RefundManagerDailyDigestProjection) => buildRefundManagerDigestEmail({
+  projection: parseRefundManagerDailyDigestProjection(input),
+  caseUrl: (id) => `https://portal.example/refunds?case=${id}`,
+  queueUrl: "https://portal.example/refunds",
+  localDate: "2026-09-10",
 });
 
-Deno.test("manager digest renders one and many items deterministically with exact links", () => {
-  for (const count of [1, 5]) {
-    const input = projection(count);
-    const first = buildRefundManagerDigestEmail({
-      projection: input,
-      caseUrl: (id) => `https://portal.example/refunds?case=${id}`,
-      queueUrl: "https://portal.example/refunds",
-      localDate: "2026-09-10",
-    });
-    const second = buildRefundManagerDigestEmail({
-      projection: input,
-      caseUrl: (id) => `https://portal.example/refunds?case=${id}`,
-      queueUrl: "https://portal.example/refunds",
-      localDate: "2026-09-10",
-    });
-    assert(
-      JSON.stringify(first) === JSON.stringify(second),
-      "render must be deterministic",
-    );
-    assert(first.itemCount === count, "item count parity");
-    assert(
-      first.html.includes("&lt;safe&gt;") && !first.html.includes("<safe>"),
-      "long labels are escaped",
-    );
-    assert(
-      first.text.includes("?case=12810000-0000-4000-8000-000000000001"),
-      "exact case link",
-    );
-    assert(first.text.includes("navigation only"), "non-action reassurance");
-    assert(
-      !/customerEmail|diagnostic|stack/i.test(first.text + first.html),
-      "no internal or customer fields",
-    );
+Deno.test("daily digest rejects extra private fields, duplicate cases, stale totals and paid action", () => {
+  const base = projection([item(1)]);
+  for (const unsafe of [
+    { ...base, customerEmail: "private@example.invalid" },
+    { ...base, items: [item(1), item(1)], openCount: 2 },
+    { ...base, actionCount: 1 },
+    projection([{ ...item(1, "manager"), paymentComplete: true }]),
+    projection([{ ...item(1, "manager"), preparationSummary: null }]),
+    projection([{ ...item(1, "manager"), preparationSummary: "Hidden\ninstruction" }]),
+    projection([{ ...item(1), preparationSummary: "Invented prepared decision" }]),
+  ]) {
+    let rejected = false;
+    try { parseRefundManagerDailyDigestProjection(unsafe); } catch { rejected = true; }
+    assert(rejected, "unsafe or inconsistent projection must be rejected");
   }
 });
 
-Deno.test("manager digest refuses zero items and uses no re-decision copy for waiting work", () => {
-  let rejected = false;
-  try {
-    buildRefundManagerDigestEmail({
-      projection: projection(0),
-      caseUrl: () => "",
-      queueUrl: "https://portal.example/refunds",
-      localDate: "2026-09-10",
-    });
-  } catch {
-    rejected = true;
+Deno.test("daily digest includes all 15 cases with decisions first and an exact link for each", () => {
+  const entries = Array.from({ length: 15 }, (_, index) =>
+    item(index + 1, index === 5 || index === 8 ? "manager" : index === 3 ? "customer" : "system"));
+  const message = render(projection(entries));
+  assert(message.itemCount === 15, "no eight-case cap");
+  assert(message.subject === "Bloomjoy refunds: 2 need your action, 15 open", "subject counts");
+  assert(message.text.indexOf("RF-9") < message.text.indexOf("RF-6") &&
+    message.text.indexOf("RF-6") < message.text.indexOf("RF-15"),
+    "oldest decisions first, before other work");
+  for (const entry of entries) {
+    assert(message.text.includes(`?case=${entry.caseId}`), "each case has an exact text link");
+    assert(message.html.includes(`?case=${entry.caseId}`), "each case has an exact HTML link");
   }
-  assert(rejected, "empty digest must not render");
-  const waiting = projection(1);
-  waiting.items[0].queueBucket = "waiting_on_customer";
-  waiting.items[0].actionCode = "wait_for_customer_reply";
-  const rendered = buildRefundManagerDigestEmail({
-    projection: waiting,
-    caseUrl: () => "https://portal.example/refunds?case=x",
-    queueUrl: "https://portal.example/refunds",
-    localDate: "2026-09-10",
-  });
-  assert(
-    rendered.text.includes("No manager action is due now"),
-    "waiting case must not be relabeled as a decision",
-  );
+  assert(message.html.includes("&lt;safe&gt;") && !message.html.includes("<safe>"), "labels escaped");
+  assert(message.text.includes("Several Nayax purchases were reviewed") &&
+    message.html.includes("Several Nayax purchases were reviewed"),
+    "actual prepared evidence summary reaches both renderings");
+  assert(!message.text.includes("candidateToken") && !message.html.includes("candidateToken"),
+    "candidate tokens stay in the scoped portal");
+  assert(!/customerEmail|private@example|diagnostic/i.test(message.text + message.html), "private fields absent");
+  assert(message.html.includes('<html lang="en" dir="ltr">') &&
+    message.html.includes('<main lang="en" dir="ltr"') &&
+    message.html.includes("<title>"), "accessible document structure");
+});
+
+Deno.test("informational work names the actual next actor without asking manager to investigate", () => {
+  const paid = { ...item(1), paymentComplete: true, actionCode: "recover_customer_delivery",
+    actionLabel: "We are sending the customer the outcome." };
+  const message = render(projection([paid, item(2, "customer"), item(3, "manager"), item(4)]));
+  assert(message.text.includes("refund was already sent"), "paid case has no second payment request");
+  assert(message.text.includes("Awaiting Bloomjoy follow-up") &&
+    message.text.includes("Waiting for Bloomjoy follow-up. Next step: Check the purchase records."),
+    "internal next step is pending, not described as actively running");
+  assert(!message.text.includes("Bloomjoy is working"), "no unsupported active-work claim");
+  assert(message.text.includes("Waiting for the customer"), "customer wait section");
+  assert(message.text.includes("No action needed from you"), "internal and customer steps are FYI");
+  assert(message.text.includes("approve or deny"), "prepared case asks for final decision");
+});
+
+Deno.test("already approved cash payout remains a manager action without new approval", () => {
+  const cash = { ...item(1, "manager"), actionCode: "send_cash_refund_and_confirm",
+    preparationSummary: "This cash refund is already approved. Review the saved payout details before sending Zelle." };
+  const message = render(projection([cash]));
+  assert(message.text.includes("already approved") && message.html.includes("already approved"),
+    "saved approval is described accurately");
+  assert(message.text.includes("Send the prepared refund by Zelle, then confirm"),
+    "cash action requires external payment before confirmation");
+  assert(!message.text.includes("approve or deny"), "no second approval is implied");
+});
+
+Deno.test("empty personal queue produces no email", () => {
+  let rejected = false;
+  try { render(projection([])); } catch { rejected = true; }
+  assert(rejected, "empty digest cannot render");
 });
