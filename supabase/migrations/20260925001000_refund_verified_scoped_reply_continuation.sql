@@ -5,10 +5,12 @@ alter table public.refund_wallet_correction_contexts
   add column if not exists reply_received_at timestamptz,
   add column if not exists reply_review_due_at timestamptz,
   add column if not exists reply_review_state text
-    check (reply_review_state in ('pending','claimed','resolved')),
+    check (reply_review_state in ('pending','claimed','question_proposed','resolved')),
   add column if not exists reply_review_claim_token uuid,
   add column if not exists reply_review_claimed_at timestamptz,
-  add column if not exists reply_review_result_code text;
+  add column if not exists reply_review_result_code text,
+  add column if not exists reply_review_proposed_field text,
+  add column if not exists reply_review_completed_at timestamptz;
 
 create index if not exists refund_purchase_reply_review_due_idx
   on public.refund_wallet_correction_contexts(reply_review_due_at, id)
@@ -132,6 +134,75 @@ revoke all on function public.service_claim_refund_scoped_reply_reviews(integer)
 grant execute on function public.service_claim_refund_scoped_reply_reviews(integer)
   to service_role;
 
+-- Research the current saved facts and every prior requested field before
+-- proposing another question. A proposal is internal work, never a send.
+create or replace function public.service_research_refund_scoped_reply(
+  p_request_id uuid,p_claim_token uuid
+) returns jsonb language plpgsql security definer set search_path='' as $$
+declare
+  ctx public.refund_wallet_correction_contexts;
+  c public.refund_cases;
+  proposed_field text;
+begin
+  select * into ctx from public.refund_wallet_correction_contexts
+    where id=p_request_id for update;
+  if ctx.id is null or ctx.reply_review_state<>'claimed'
+    or ctx.reply_review_claim_token is distinct from p_claim_token then
+    return jsonb_build_object('outcome','stale_claim');
+  end if;
+  select * into c from public.refund_cases where id=ctx.refund_case_id for update;
+  if c.id is null or ctx.status<>'pending'
+    or c.deterministic_fact_version is distinct from ctx.correction_fact_version then
+    update public.refund_wallet_correction_contexts set
+      reply_review_state='resolved',reply_review_result_code='superseded',
+      reply_review_completed_at=statement_timestamp(),updated_at=statement_timestamp()
+      where id=ctx.id;
+    return jsonb_build_object('outcome','superseded','payloadRedacted',true);
+  end if;
+  select field into proposed_field
+  from unnest(public.refund_purchase_correction_request_fields(c.id)) field
+  where not exists(select 1 from public.refund_case_messages previous_request
+    where previous_request.refund_case_id=c.id
+      and previous_request.message_type in ('more_info','no_safe_match')
+      and previous_request.status in ('pending','sent')
+      and field=any(coalesce(previous_request.requested_fields,'{}'::text[])))
+  order by case field when 'location_or_machine' then 1 when 'incident_date' then 2
+    when 'incident_time' then 3 when 'payment_method' then 4
+    when 'amount' then 5 when 'card_last4' then 6 else 7 end,field
+  limit 1;
+  if proposed_field is null then
+    -- Ordinary unparsed prose is not a technical failure. Keep the same
+    -- internal task due for semantic Agent research; never send a repeat ask.
+    update public.refund_wallet_correction_contexts set
+      reply_review_state='pending',reply_review_claim_token=null,
+      reply_review_claimed_at=null,
+      reply_review_due_at=statement_timestamp()+interval '1 hour',
+      reply_review_result_code='semantic_research_required',
+      updated_at=statement_timestamp() where id=ctx.id;
+    return jsonb_build_object('outcome','semantic_research_required',
+      'requestId',ctx.id,'payloadRedacted',true);
+  end if;
+  update public.refund_wallet_correction_contexts set
+    reply_review_state='question_proposed',reply_review_proposed_field=proposed_field,
+    reply_review_result_code='new_missing_field_after_history_review',
+    reply_review_completed_at=statement_timestamp(),updated_at=statement_timestamp()
+    where id=ctx.id;
+  insert into public.refund_case_events(refund_case_id,event_type,message,metadata)
+  values(c.id,'purchase_correction_new_question_proposed',
+    'Bloomjoy reviewed the verified reply and saved one new question proposal for internal review.',
+    jsonb_build_object('request_id',ctx.id,'gmail_message_id',ctx.reply_message_id,
+      'field',proposed_field,'fact_version',c.deterministic_fact_version,
+      'payload_redacted',true));
+  return jsonb_build_object('outcome','question_proposed','requestId',ctx.id,
+    'field',proposed_field,'factVersion',c.deterministic_fact_version,
+    'payloadRedacted',true);
+end;
+$$;
+revoke all on function public.service_research_refund_scoped_reply(uuid,uuid)
+  from public,anon,authenticated;
+grant execute on function public.service_research_refund_scoped_reply(uuid,uuid)
+  to service_role;
+
 alter function public.service_apply_refund_gmail_customer_facts_v1(
   uuid,uuid,bigint,jsonb,text[],text)
   rename to service_apply_refund_gmail_customer_facts_pre_reply_continuation;
@@ -151,7 +222,7 @@ begin
       updated_at=statement_timestamp()
       where ctx.refund_case_id=p_refund_case_id and ctx.correction_kind='purchase'
         and ctx.reply_message_id is not null
-        and ctx.reply_review_state in ('pending','claimed')
+        and ctx.reply_review_state in ('pending','claimed','question_proposed')
         and exists(select 1 from public.refund_gmail_messages source
           where source.id=p_gmail_message_id and source.refund_case_id=ctx.refund_case_id
             and source.received_at>=ctx.reply_received_at);
@@ -177,11 +248,12 @@ create or replace function public.refund_customer_outreach_contract(
 declare result jsonb; ctx public.refund_wallet_correction_contexts;
 begin
   result:=public.refund_customer_outreach_pre_verified_reply_continuation(p_refund_case_id);
-  if result is null or result->>'state'<>'waiting_for_customer' then return result; end if;
+  if result is null or result->>'state' not in ('waiting_for_customer','customer_replied')
+    then return result; end if;
   select * into ctx from public.refund_wallet_correction_contexts r
     where r.refund_case_id=p_refund_case_id and r.correction_kind='purchase'
       and r.status='pending' and r.reply_message_id is not null
-      and r.reply_review_state in ('pending','claimed')
+      and r.reply_review_state in ('pending','claimed','question_proposed')
       and r.correction_message_id=(result->>'requestMessageId')::uuid
     order by r.version desc,r.issued_at desc limit 1;
   if ctx.id is null then return result; end if;

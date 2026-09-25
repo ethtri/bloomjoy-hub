@@ -2270,6 +2270,35 @@ const runCashNoSafeMatchSweep = async (
   }
 };
 
+const runScopedReplyResearchSweep = async (counters: SweepCounters) => {
+  if (!supabase) return;
+  const { data, error } = await supabase.rpc(
+    "service_claim_refund_scoped_reply_reviews", { p_limit: 25 },
+  );
+  if (error) throw error;
+  const tasks = Array.isArray(data?.tasks)
+    ? data.tasks as Array<Record<string, unknown>> : [];
+  for (const task of tasks) {
+    const requestId = textValue(task.requestId);
+    const claimToken = textValue(task.claimToken);
+    if (!requestId || !claimToken) throw new Error("scoped_reply_research_claim_invalid");
+    const { data: result, error: resultError } = await supabase.rpc(
+      "service_research_refund_scoped_reply",
+      { p_request_id: requestId, p_claim_token: claimToken },
+    );
+    if (resultError) throw resultError;
+    if (result?.outcome === "question_proposed") {
+      counters.actionsSucceeded += 1;
+      addReason(counters, "scoped_reply_new_question_proposed");
+    } else if (result?.outcome === "semantic_research_required") {
+      addReason(counters, "scoped_reply_semantic_research_due");
+    } else if (result?.outcome === "superseded") {
+      counters.actionsSuppressed += 1;
+      addReason(counters, "scoped_reply_research_superseded");
+    }
+  }
+};
+
 const runCustomerReplyFollowUpSweep = async (
   runId: string,
   counters: SweepCounters,
@@ -4701,6 +4730,8 @@ serve(async (req) => {
     await settleStaleFollowUpClaims(counters);
     failureStage = "customer_reply_follow_up";
     await runCustomerReplyFollowUpSweep(runId, counters, policyWindowStart);
+    failureStage = "scoped_reply_research";
+    await runScopedReplyResearchSweep(counters);
     failureStage = "saved_purchase_corrections";
     {
       const { data: corrections, error } = await supabase.from("refund_wallet_correction_contexts")

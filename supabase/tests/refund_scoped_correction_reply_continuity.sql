@@ -22,7 +22,7 @@ begin
     incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,payment_interaction,payment_amount_cents,card_last4,card_last4_provenance,card_network,status,correlation_status,intake_source)
   values(cid,'df000000-0000-4000-8000-000000000003','df000000-0000-4000-8000-000000000002','reply-customer@example.invalid','Scoped reply test',
     now()-interval '2 hours',to_char((now()-interval '2 hours') at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI'),
-    'America/Los_Angeles','exact','exact','card','tap_card',null,case when n in (8,15) then null else '1234' end,case when n in (8,15) then null else 'physical_card' end,'visa','needs_review','manual_review','form');
+    'America/Los_Angeles','exact','exact','card','tap_card',null,case when n in (8,15,18) then null else '1234' end,case when n in (8,15,18) then null else 'physical_card' end,'visa','needs_review','manual_review','form');
   cycle:=public.service_claim_refund_follow_up_cycle(cid,'missing_information','refund_follow_up_v2',md5(n::text)||md5(n::text),null);
   if not coalesce((cycle->>'claimed')::boolean,false) then raise exception 'Fixture cycle rejected: %',cycle; end if;
   fields:=public.refund_missing_follow_up_fields(cid);
@@ -131,6 +131,34 @@ select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(2),pg_tem
   'unverified','Unverified sender cannot create a reply task');
 select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(7),pg_temp.gid(7))->>'outcome',
   'request_thread_mismatch','Wrong exact outbound header cannot create a reply task');
+select pg_temp.make_scope(18);
+update public.refund_case_messages set requested_fields=array['card_last4']::text[]
+  where refund_case_id=pg_temp.cid(18);
+update public.refund_wallet_correction_contexts set correction_requested_fields=array['card_last4']::text[]
+  where refund_case_id=pg_temp.cid(18);
+update public.refund_follow_up_cycles set requested_fields=array['card_last4']::text[]
+  where refund_case_id=pg_temp.cid(18);
+update public.refund_cases set status='waiting_on_customer',automation_state='more_info_needed'
+  where id=pg_temp.cid(18);
+update public.refund_gmail_messages set plain_body='I used my card, and the charge is somewhere in my statement.'
+  where id=pg_temp.gid(18);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(18),pg_temp.gid(18))->>'outcome',
+  'received','Ordinary verified free text enters the durable scheduled research path');
+create temp table scoped_reply_research_claim as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task;
+select is((select count(*)::integer from scoped_reply_research_claim),1,
+  'Normal sweep claims only the new due request');
+select is(public.service_research_refund_scoped_reply(
+  (select (task->>'requestId')::uuid from scoped_reply_research_claim),
+  (select (task->>'claimToken')::uuid from scoped_reply_research_claim))->>'outcome',
+  'question_proposed','Scheduled research finds a missing fact never asked in prior case history');
+select is((select reply_review_proposed_field from public.refund_wallet_correction_contexts
+  where refund_case_id=pg_temp.cid(18)),'amount',
+  'Proposal asks only for the new amount field, never repeats card digits');
+select is((select count(*)::integer from public.refund_case_messages where refund_case_id=pg_temp.cid(18)),1,
+  'Research proposal is internal only and does not send another customer message');
+select is((public.service_claim_refund_scoped_reply_reviews(25)->'tasks')::text,'[]',
+  'Completed proposal does not replay under a second sweep');
 update public.refund_gmail_messages set gmail_thread_id=(select gmail_thread_id from public.refund_gmail_messages where id=pg_temp.gid(1)) where id=pg_temp.gid(10);
 select is(pg_temp.apply_reply(10)->>'outcome','conflict','Foreign thread cannot settle current request');
 update public.refund_gmail_messages set received_at=now() where id=pg_temp.gid(11);
