@@ -395,7 +395,7 @@ create temporary table amount_before as select
   public.refund_manager_decision_material_fingerprint(
     '14255000-0000-4000-8000-000000000004',
     'send_cash_refund_and_confirm') as fingerprint;
-update public.refund_cases set payment_amount_cents=payment_amount_cents+100
+update public.refund_cases set refund_amount_cents=refund_amount_cents+100
 where id='14255000-0000-4000-8000-000000000004';
 select isnt(public.refund_manager_decision_material_fingerprint(
     '14255000-0000-4000-8000-000000000004',
@@ -476,7 +476,6 @@ select is(public.service_complete_refund_manager_notification(
 
 -- An existing valid approval is payout authority. It has no newly produced
 -- preparation snapshot and must neither disappear nor ask for another vote.
-savepoint approved_cash_notice;
 insert into public.refund_cases
   (id,public_reference,reporting_machine_id,reporting_location_id,
     customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,
@@ -506,16 +505,25 @@ select is(public.service_enqueue_refund_manager_ready_notices(
 create temporary table approved_first_claim as select
   public.service_claim_next_refund_manager_ready_notice(
     '14255000-0000-4000-8000-000000000007') as value;
-savepoint approved_cash_stale_destination;
-update public.refund_cases set zelle_payment_contact='changed-saved-destination'
-where id='14255000-0000-4000-8000-000000000007';
-select is(public.service_mark_refund_manager_ready_notice_provider_started(
-  (select (value->>'intentId')::uuid from approved_first_claim),
-  (select (value->>'claimToken')::uuid from approved_first_claim),
-  (select value->>'routeFingerprint' from approved_first_claim),
-  (select value->>'recipient' from approved_first_claim))::text,'false',
+create function pg_temp.approved_cash_stale_destination_probe()
+returns boolean language plpgsql as $$
+declare rejected boolean;
+begin
+  begin
+    update public.refund_cases set zelle_payment_contact='changed-saved-destination'
+    where id='14255000-0000-4000-8000-000000000007';
+    select public.service_mark_refund_manager_ready_notice_provider_started(
+      (select (value->>'intentId')::uuid from approved_first_claim),
+      (select (value->>'claimToken')::uuid from approved_first_claim),
+      (select value->>'routeFingerprint' from approved_first_claim),
+      (select value->>'recipient' from approved_first_claim)) into rejected;
+    raise exception using errcode='ZX001',message='restore approved payout fixture';
+  exception when sqlstate 'ZX001' then
+    return rejected;
+  end;
+end $$;
+select is(pg_temp.approved_cash_stale_destination_probe()::text,'false',
   'Changed approved payout details block stale provider access');
-rollback to savepoint approved_cash_stale_destination;
 select is(public.service_mark_refund_manager_ready_notice_provider_started(
   (select (value->>'intentId')::uuid from approved_first_claim),
   (select (value->>'claimToken')::uuid from approved_first_claim),
@@ -547,7 +555,5 @@ select is(public.service_complete_refund_manager_ready_notice(
 select is(public.service_claim_next_refund_manager_ready_notice(
   '14255000-0000-4000-8000-000000000007')->>'claimed','false',
   'Accepted and unknown approved-payout intents never blindly retry');
-rollback to savepoint approved_cash_notice;
-
 select * from finish();
 rollback;
