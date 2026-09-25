@@ -23,6 +23,7 @@ as $$
     where c.id = p_case_id
       and k.token = p_candidate_token
       and c.payment_method = 'card'
+      and c.case_population = 'customer'
       and c.decision is null
       and c.status in ('needs_review', 'correlated')
       and (
@@ -46,7 +47,8 @@ as $$
       and k.amount_cents > 0 and k.currency_code = 'USD'
       and m.nayax_machine_id is not null
       and nullif(btrim(m.nayax_account_key), '') is not null
-      and k.evidence_summary ->> 'lookup_account_scope' = m.nayax_account_key
+      and k.evidence_summary ->> 'lookup_account_scope' =
+        regexp_replace(upper(btrim(m.nayax_account_key)), '[^A-Z0-9_]', '_', 'g')
       and k.evidence_summary ->> 'lookup_provider_machine_id' = m.nayax_machine_id
       and coalesce(k.evidence_summary ->> 'source', '') <> 'manual_nayax_portal'
       and k.evidence_summary ->> 'selection_allowed' = 'true'
@@ -96,6 +98,7 @@ begin
   if not found or p_expected_action_version is null
     or c.official_action_version is distinct from p_expected_action_version
     or c.payment_method <> 'card'
+    or c.case_population <> 'customer'
     or c.decision is not null
     or c.status not in ('needs_review', 'correlated')
     or not (
@@ -104,6 +107,7 @@ begin
       or (c.nayax_lookup_status = 'manual_exception'
         and c.nayax_recommendation_state = 'manual_exception')
     )
+    or c.nayax_lookup_started_at is null
     or c.nayax_lookup_finished_at is null
     or c.nayax_lookup_correlation_digest is null
     or c.nayax_refund_execution_status <> 'not_requested'
@@ -114,7 +118,9 @@ begin
     return null;
   end if;
 
-  select e.id, e.created_at, (e.metadata ->> 'candidate_count')::integer as count
+  select e.id, e.created_at,
+    e.metadata ->> 'trigger_source' as trigger_source,
+    (e.metadata ->> 'candidate_count')::integer as count
     into completed
   from public.refund_case_events e
   where e.refund_case_id = c.id
@@ -132,6 +138,18 @@ begin
   order by e.created_at desc, e.id desc
   limit 1;
   if not found then return null; end if;
+  if not exists (
+    select 1 from public.refund_case_events started
+    where started.refund_case_id = c.id
+      and started.event_type = 'nayax_lookup_started'
+      and started.actor_user_id is null
+      and started.metadata ->> 'lookup_generation' = c.nayax_lookup_generation::text
+      and started.metadata ->> 'deterministic_fact_version' =
+        c.deterministic_fact_version::text
+      and started.metadata ->> 'trigger_source' = completed.trigger_source
+      and started.metadata ->> 'provider_call_kind' = 'read_only'
+      and started.metadata ->> 'payload_redacted' = 'true'
+  ) then return null; end if;
 
   select count(*)::integer,
     count(*) filter (where k.evidence_summary ->> 'selection_allowed' = 'true')::integer,
@@ -309,10 +327,27 @@ begin
     end if;
     return jsonb_build_object(
       'approved', true,
-      'status', case when prior.reconciliation_required
-          or prior.provider_outcome = 'unknown'
-          or prior.attempt_status in ('ambiguous','manual_review')
-        then 'provider_hold' else 'system_finishing' end,
+      'status', case
+        when c.status = 'completed'
+          and prior.attempt_status = 'succeeded'
+          and prior.provider_outcome = 'success'
+          and c.reporting_adjustment_id is not null
+          and (
+            exists (select 1 from public.refund_authoritative_receipts receipt
+              where receipt.refund_case_id = c.id
+                and receipt.nayax_refund_attempt_id = prior.attempt_id)
+            or exists (select 1 from public.refund_nayax_system_success_evidence evidence
+              where evidence.refund_case_id = c.id
+                and evidence.nayax_refund_attempt_id = prior.attempt_id)
+          )
+          then 'completed'
+        when c.status = 'card_refund_pending'
+          and prior.attempt_status in ('created','in_progress')
+          and prior.provider_outcome is null
+          and not prior.reconciliation_required
+          then 'system_finishing'
+        else 'provider_hold'
+      end,
       'refundCaseId', c.id,
       'authorizationId', prior.authorization_id,
       'attemptId', prior.attempt_id,
@@ -329,6 +364,7 @@ begin
       using errcode='42501';
   end if;
   if c.official_action_version is distinct from p_expected_case_version
+    or c.case_population <> 'customer'
     or c.decision is not null
     or c.status not in ('needs_review','correlated')
     or c.nayax_refund_execution_status <> 'not_requested'
