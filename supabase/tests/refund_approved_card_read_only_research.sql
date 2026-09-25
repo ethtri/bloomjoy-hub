@@ -41,7 +41,7 @@ insert into public.refund_cases(
   'manual_review','nayax',3,'manual_exception',
   statement_timestamp()-interval '4 hours',statement_timestamp()-interval '3 hours',
   repeat('a',64),'manual_exception','automatic-lookup-v1','not_requested',
-  statement_timestamp()-interval '9 hours','hosted_refund_intake'),
+  statement_timestamp()-interval '7 hours','hosted_refund_intake'),
 ('ab450000-0000-4000-8000-000000000002','RF-APPROVED-RESEARCH-MANUAL',
   'ab440000-0000-4000-8000-000000000001',
   'ab430000-0000-4000-8000-000000000001',
@@ -52,7 +52,7 @@ insert into public.refund_cases(
   'manual_review','nayax',3,'manual_exception',
   statement_timestamp()-interval '4 hours',statement_timestamp()-interval '3 hours',
   repeat('b',64),'manual_exception','manual-nayax-portal-v1','not_requested',
-  statement_timestamp()-interval '9 hours','hosted_refund_intake'),
+  statement_timestamp()-interval '7 hours','hosted_refund_intake'),
 ('ab450000-0000-4000-8000-000000000003','RF-APPROVED-RESEARCH-ATTEMPT',
   'ab440000-0000-4000-8000-000000000001',
   'ab430000-0000-4000-8000-000000000001',
@@ -63,7 +63,7 @@ insert into public.refund_cases(
   'manual_review','nayax',3,'manual_exception',
   statement_timestamp()-interval '4 hours',statement_timestamp()-interval '3 hours',
   repeat('c',64),'manual_exception','automatic-lookup-v1','requested',
-  statement_timestamp()-interval '9 hours','hosted_refund_intake');
+  statement_timestamp()-interval '7 hours','hosted_refund_intake');
 
 select ok(has_function_privilege('service_role',
   'public.service_claim_due_approved_card_nayax_research(integer)','execute')
