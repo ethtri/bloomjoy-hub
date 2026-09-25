@@ -2,7 +2,7 @@ import fs from 'node:fs';
 
 const read = (path) => fs.readFileSync(path, 'utf8');
 const migration = read('supabase/migrations/20260911005752_refund_manager_digest_projection.sql');
-const dailyMigration = read('supabase/migrations/20260924233100_refund_all_open_daily_manager_digest.sql');
+const dailyMigration = read('supabase/migrations/20260925030000_refund_all_open_daily_manager_digest.sql');
 const sweep = read('supabase/functions/refund-case-automation-sweep/index.ts');
 const renderer = read('supabase/functions/_shared/refund-manager-digest.ts');
 const portal = read('src/pages/admin/Refunds.tsx');
