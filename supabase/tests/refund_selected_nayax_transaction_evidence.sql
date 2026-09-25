@@ -450,7 +450,12 @@ begin
     started_at := clock_timestamp();
     select public.refund_project_candidate_time_evidence_v1(
       jsonb_agg(jsonb_build_object(
-        'id', '75140000-0000-4000-8000-000000000001'
+        'id', '75140000-0000-4000-8000-000000000001',
+        'nayaxLookupCandidates', jsonb_build_array(
+          jsonb_build_object('candidateToken', '75150000-0000-4000-8000-000000000001'),
+          jsonb_build_object('candidateToken', '75150000-0000-4000-8000-000000000002')
+        ),
+        'selectedNayaxTransaction', jsonb_build_object('transactionId', 'NAYAX-751000001')
       ))
     ) into projected
     from generate_series(1, case_count);
@@ -477,7 +482,7 @@ select is(
 );
 select ok(
   (select elapsed_ms < 4000 from refund_timezone_projection_benchmark where case_count = 200),
-  'Two hundred candidate-time projection items finish with margin under the authenticated eight-second timeout'
+  'Two hundred case items with two candidates and selected evidence finish with margin under the authenticated eight-second timeout'
 );
 select diag(format(
   'Candidate-time projection: 61 items %s ms; 200 items %s ms (synthetic repeated case)',
