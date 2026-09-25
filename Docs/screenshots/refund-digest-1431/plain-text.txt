@@ -1,0 +1,72 @@
+Bloomjoy refunds · 2026-09-10
+3 need your decision or payment; 15 open in total.
+
+Your decision or payment
+
+RF-PREVIEW-1 — USD 7.00 — Bloomjoy lobby machine, A very long synthetic location name that wraps across small screens without hiding the next step — open 15d
+Bloomjoy has prepared the case for your final decision. Review the saved purchase evidence and approve or deny it in the portal.
+Open case: https://portal.example/refunds?case=12810000-0000-4000-8000-000000000001
+
+RF-PREVIEW-2 — USD 7.00 — Bloomjoy lobby machine, A very long synthetic location name that wraps across small screens without hiding the next step — open 14d
+Bloomjoy has prepared the case for your final decision. Review the saved purchase evidence and approve or deny it in the portal.
+Open case: https://portal.example/refunds?case=12810000-0000-4000-8000-000000000002
+
+RF-PREVIEW-3 — USD 7.00 — Bloomjoy lobby machine, A very long synthetic location name that wraps across small screens without hiding the next step — open 13d
+Review the saved cash evidence and verified destination. Send the prepared refund by Zelle, then confirm it in the portal.
+Open case: https://portal.example/refunds?case=12810000-0000-4000-8000-000000000003
+
+Awaiting Bloomjoy follow-up
+
+RF-PREVIEW-4 — Amount not yet confirmed — Bloomjoy lobby machine, A very long synthetic location name that wraps across small screens without hiding the next step — open 12d
+The refund was already sent. Bloomjoy is resolving the required customer notice. No further payment or manager action is needed.
+Open case: https://portal.example/refunds?case=12810000-0000-4000-8000-000000000004
+
+RF-PREVIEW-5 — Amount not yet confirmed — Bloomjoy lobby machine, A very long synthetic location name that wraps across small screens without hiding the next step — open 11d
+Waiting for Bloomjoy follow-up. Next step: Check the purchase records. No action needed from you.
+Open case: https://portal.example/refunds?case=12810000-0000-4000-8000-000000000005
+
+RF-PREVIEW-6 — Amount not yet confirmed — Bloomjoy lobby machine, A very long synthetic location name that wraps across small screens without hiding the next step — open 10d
+Waiting for Bloomjoy follow-up. Next step: Check the purchase records. No action needed from you.
+Open case: https://portal.example/refunds?case=12810000-0000-4000-8000-000000000006
+
+RF-PREVIEW-7 — Amount not yet confirmed — Bloomjoy lobby machine, A very long synthetic location name that wraps across small screens without hiding the next step — open 9d
+Waiting for Bloomjoy follow-up. Next step: Check the purchase records. No action needed from you.
+Open case: https://portal.example/refunds?case=12810000-0000-4000-8000-000000000007
+
+RF-PREVIEW-8 — Amount not yet confirmed — Bloomjoy lobby machine, A very long synthetic location name that wraps across small screens without hiding the next step — open 8d
+Waiting for Bloomjoy follow-up. Next step: Check the purchase records. No action needed from you.
+Open case: https://portal.example/refunds?case=12810000-0000-4000-8000-000000000008
+
+RF-PREVIEW-9 — Amount not yet confirmed — Bloomjoy lobby machine, A very long synthetic location name that wraps across small screens without hiding the next step — open 7d
+Waiting for Bloomjoy follow-up. Next step: Check the purchase records. No action needed from you.
+Open case: https://portal.example/refunds?case=12810000-0000-4000-8000-000000000009
+
+RF-PREVIEW-10 — Amount not yet confirmed — Bloomjoy lobby machine, A very long synthetic location name that wraps across small screens without hiding the next step — open 6d
+Waiting for Bloomjoy follow-up. Next step: Check the purchase records. No action needed from you.
+Open case: https://portal.example/refunds?case=12810000-0000-4000-8000-000000000010
+
+RF-PREVIEW-11 — Amount not yet confirmed — Bloomjoy lobby machine, A very long synthetic location name that wraps across small screens without hiding the next step — open 5d
+Waiting for Bloomjoy follow-up. Next step: Check the purchase records. No action needed from you.
+Open case: https://portal.example/refunds?case=12810000-0000-4000-8000-000000000011
+
+RF-PREVIEW-12 — Amount not yet confirmed — Bloomjoy lobby machine, A very long synthetic location name that wraps across small screens without hiding the next step — open 4d
+Waiting for Bloomjoy follow-up. Next step: Check the purchase records. No action needed from you.
+Open case: https://portal.example/refunds?case=12810000-0000-4000-8000-000000000012
+
+RF-PREVIEW-13 — Amount not yet confirmed — Bloomjoy lobby machine, A very long synthetic location name that wraps across small screens without hiding the next step — open 3d
+Waiting for Bloomjoy follow-up. Next step: Check the purchase records. No action needed from you.
+Open case: https://portal.example/refunds?case=12810000-0000-4000-8000-000000000013
+
+Waiting for the customer
+
+RF-PREVIEW-14 — Amount not yet confirmed — Bloomjoy lobby machine, A very long synthetic location name that wraps across small screens without hiding the next step — open 2d
+Waiting for the customer. Answer the delivered question. No action needed from you.
+Open case: https://portal.example/refunds?case=12810000-0000-4000-8000-000000000014
+
+RF-PREVIEW-15 — Amount not yet confirmed — Bloomjoy lobby machine, A very long synthetic location name that wraps across small screens without hiding the next step — open 24h
+Waiting for the customer. Answer the delivered question. No action needed from you.
+Open case: https://portal.example/refunds?case=12810000-0000-4000-8000-000000000015
+
+Open your refund queue: https://portal.example/refunds
+
+Opening these links is navigation only. It does not approve, decline, complete, send, or retry a refund.

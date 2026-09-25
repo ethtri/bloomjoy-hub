@@ -5,6 +5,15 @@
 Use [REFUND_WORKFLOW.md](REFUND_WORKFLOW.md) as the expected behavior. Tests and
 historical fixtures cannot add product gates that the workflow does not contain.
 
+- [ ] The 08:00 America/Los_Angeles manager refund digest lists every canonically
+  open case on that manager's current machines, including unchanged cases on the
+  next day and more than eight cases. Prepared approve/deny and cash-payment
+  decisions appear first; all other rows name the System, Agent, or customer
+  next step and say no manager action is needed.
+- [ ] A manager with no scoped open cases gets no digest; co-managers get separate
+  correctly scoped messages, and an unmapped admin gets none. Reassignment or
+  changed case facts before provider start cancels a stale prepared message.
+  An unknown provider outcome is held for reconciliation without a blind retry.
 - [ ] Intake records one case and sends one prompt, friendly acknowledgement.
 - [ ] Card matching compares the exact machine and timezone-normalized time, uses
   comparable card details when available, treats contactless digit differences

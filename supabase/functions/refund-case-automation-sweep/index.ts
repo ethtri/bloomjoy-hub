@@ -5,7 +5,7 @@ import { reconcileApprovedCardResearchFailure } from "../_shared/refund-approved
 import { correctionLinkRequested, getCurrentRefundCorrectionFields, issueRefundCorrectionForMessage, refundCorrectionLinksEnabled, STORED_CORRECTION_LINK_MARKER } from "../_shared/refund-correction-delivery.ts";
 import { recheckSavedPurchaseCorrection } from "../_shared/refund-purchase-correction-handler.ts";
 import { sendInternalEmail, sendTransactionalEmail } from "../_shared/internal-email.ts";
-import { buildRefundManagerDigestEmail, parseRefundManagerWorkProjection } from "../_shared/refund-manager-digest.ts";
+import { buildRefundManagerDigestEmail, parseRefundManagerDailyDigestProjection } from "../_shared/refund-manager-digest.ts";
 import {
   bindRefundManagerNoticeReservationRouting,
   getRefundManagerCaseUrl,
@@ -4183,7 +4183,7 @@ const runManagerDigestSweep = async (observedAt: Date, counters: SweepCounters) 
       if (!UUID_PATTERN.test(batchId) || !UUID_PATTERN.test(claimToken) || !recipient ||
         !/^[a-f0-9]{64}$/.test(mappingFingerprint) || !/^\d{4}-\d{2}-\d{2}$/.test(localDate) ||
         claim.payloadRedacted !== true) throw new Error("manager_digest_claim_invalid");
-      const projection = parseRefundManagerWorkProjection(claim.projection);
+      const projection = parseRefundManagerDailyDigestProjection(claim.projection);
       const message = buildRefundManagerDigestEmail({
         projection,
         caseUrl: getRefundManagerCaseUrl,

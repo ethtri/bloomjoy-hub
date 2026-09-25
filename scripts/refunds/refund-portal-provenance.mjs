@@ -46,16 +46,41 @@ function git(root, args) {
 export function sourceIdentity(root, env = process.env) {
   const head = git(root, ['rev-parse', 'HEAD']);
   const dirty = git(root, ['status', '--porcelain', '--untracked-files=normal']);
+  const trackedDirty = git(root, ['status', '--porcelain', '--untracked-files=no']);
   const deploySha = env.VERCEL_GIT_COMMIT_SHA?.toLowerCase();
   const sourceSha = deploySha || head?.toLowerCase() || null;
+  const trackedSourceClean = trackedDirty === null ? null : trackedDirty.length === 0;
   if (!SHA.test(sourceSha ?? '') || (deploySha && head && deploySha !== head.toLowerCase()))
-    return { sourceSha: SHA.test(sourceSha ?? '') ? sourceSha : null, provenance: 'unsupported' };
+    return { sourceSha: SHA.test(sourceSha ?? '') ? sourceSha : null,
+      provenance: 'unsupported', trackedSourceClean };
   if (dirty === null && !head && env.VERCEL_ENV === 'production' && deploySha)
-    return { sourceSha, provenance: 'production_claimed' };
-  if (dirty === null || dirty.length) return { sourceSha, provenance: dirty === null ? 'unsupported' : 'dirty' };
-  if (env.VERCEL_ENV === 'production' && deploySha) return { sourceSha, provenance: 'production_claimed' };
-  if (env.VERCEL_ENV === 'production') return { sourceSha, provenance: 'unsupported' };
-  return { sourceSha, provenance: 'local_clean' };
+    return { sourceSha, provenance: 'production_claimed', trackedSourceClean };
+  if (dirty === null || dirty.length) return { sourceSha,
+    provenance: dirty === null ? 'unsupported' : 'dirty', trackedSourceClean };
+  if (env.VERCEL_ENV === 'production' && deploySha)
+    return { sourceSha, provenance: 'production_claimed', trackedSourceClean };
+  if (env.VERCEL_ENV === 'production')
+    return { sourceSha, provenance: 'unsupported', trackedSourceClean };
+  return { sourceSha, provenance: 'local_clean', trackedSourceClean };
+}
+
+export function verifiedVercelAliasDeployment(alias, deployment, {
+  aliasName, projectId, expectedSha, githubStatusUrl,
+}) {
+  const url = deployment?.url && `https://${deployment.url}`;
+  if (alias?.alias !== aliasName || alias?.projectId !== projectId ||
+      alias?.deploymentId !== deployment?.id ||
+      alias?.deployment?.id !== deployment?.id ||
+      alias?.deployment?.url !== deployment?.url ||
+      deployment?.projectId !== projectId || deployment?.target !== 'production' ||
+      deployment?.readyState !== 'READY' || deployment?.source !== 'git' ||
+      deployment?.meta?.githubCommitSha !== expectedSha ||
+      deployment?.meta?.githubCommitRef !== 'main' ||
+      !/^[a-z0-9-]+\.vercel\.app$/.test(deployment?.url ?? '') ||
+      githubStatusUrl !== url)
+    throw new Error('Canonical alias is not the expected READY Production deployment');
+  return { deploymentId: deployment.id, deploymentUrl: url,
+    projectId, sourceSha: expectedSha };
 }
 
 async function publicFiles(root, relative = '') {
@@ -129,9 +154,14 @@ export async function emitMetadata(options) {
 }
 
 export function validateMetadata(metadata, expectedSha) {
-  if (metadata?.schemaVersion !== 1 || metadata.provenance !== 'production_claimed' ||
+  if (metadata?.schemaVersion !== 1 ||
+      !['production_claimed', 'dirty'].includes(metadata.provenance) ||
       !SHA.test(metadata.sourceSha ?? '') || metadata.sourceSha !== expectedSha)
     throw new Error('Portal source does not match the successful Production deployment');
+  if (metadata.trackedSourceClean !== undefined &&
+      metadata.trackedSourceClean !== null &&
+      typeof metadata.trackedSourceClean !== 'boolean')
+    throw new Error('Invalid tracked-source cleanliness attestation');
   if (!Array.isArray(metadata.assets) || !Array.isArray(metadata.manifestAssets) ||
       !Array.isArray(metadata.entryAssets) || !Array.isArray(metadata.portalIndexAssets) ||
       metadata.assets.length > 2000 || metadata.manifestAssets.length > 1000)
@@ -159,15 +189,16 @@ export function validateMetadata(metadata, expectedSha) {
     throw new Error('Index entry is not in the Vite manifest inventory');
 }
 
-export function validateTrustedBuild(trustedBuild, servedMetadata, expectedSha) {
+export function independentArtifactComparison(trustedBuild, servedMetadata, expectedSha) {
   if (trustedBuild?.sourceSha !== expectedSha ||
       trustedBuild.provenance !== 'local_clean' ||
       servedMetadata?.sourceSha !== expectedSha)
-    throw new Error('Independent main build source is missing or does not match the deployment');
-  for (const field of ['portalIndexAssets', 'entryAssets', 'manifestAssets', 'assets']) {
-    if (JSON.stringify(trustedBuild[field]) !== JSON.stringify(servedMetadata[field]))
-      throw new Error(`Production build differs from independent main build: ${field}`);
-  }
+    return { ciArtifactMatch: false, ciArtifactReason: 'Independent main build source unavailable or mismatched' };
+  const fields = ['portalIndexAssets', 'entryAssets', 'manifestAssets', 'assets'];
+  const changed = fields.filter((field) =>
+    JSON.stringify(trustedBuild[field]) !== JSON.stringify(servedMetadata[field]));
+  return { ciArtifactMatch: changed.length === 0,
+    ciArtifactReason: changed.length ? `Different build output: ${changed.join(', ')}` : null };
 }
 
 async function fetchBytes(origin, publicPath, fetchImpl, maxBytes) {
@@ -197,7 +228,7 @@ export async function verifyServedPortal({ origin, expectedSha, trustedBuild, fe
   const metadataBytes = await fetchBytes(origin, METADATA_PATH, fetchImpl, 2_000_000);
   const metadata = JSON.parse(metadataBytes.toString('utf8'));
   validateMetadata(metadata, expectedSha);
-  validateTrustedBuild(trustedBuild, metadata, expectedSha);
+  const artifactComparison = independentArtifactComparison(trustedBuild, metadata, expectedSha);
   const inventory = new Map(metadata.assets.map((asset) => [asset.path, asset]));
   const servedIndex = await fetchBytes(origin, PORTAL_INDEX_PATH, fetchImpl, 5_000_000);
   const indexDigest = sha256(servedIndex);
@@ -218,6 +249,8 @@ export async function verifyServedPortal({ origin, expectedSha, trustedBuild, fe
     verifiedAssets.push({ path: asset.path, sha256: asset.sha256 });
   }
   return { canonicalUrl: `${origin}${PORTAL_INDEX_PATH}`, observedAt: new Date().toISOString(), sourceSha: expectedSha,
-    deploymentVerified: true, servedIndexBuildPath, inventoryAssetCount: metadata.assets.length,
+    servedAssetsConsistent: true, claimedBuildProvenance: metadata.provenance,
+    trackedSourceClean: metadata.trackedSourceClean ?? null, ...artifactComparison,
+    servedIndexBuildPath, inventoryAssetCount: metadata.assets.length,
     verifiedAssetCount: verifiedAssets.length, verifiedAssetDigests: verifiedAssets };
 }
