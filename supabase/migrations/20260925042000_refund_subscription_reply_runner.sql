@@ -250,22 +250,39 @@ create function public.refund_verified_reply_quote_is_known_fact(
   p_quote text,p_case public.refund_cases
 ) returns boolean language plpgsql immutable strict set search_path='' as $$
 declare amount_match text[]; digits_match text[]; method_match text[];
-  network_match text[]; seen integer:=0;
+  network_match text[]; amount_value text; wallet_token text; seen integer:=0;
 begin
   if public.refund_verified_reply_quote_negated(p_quote) then return false; end if;
-  if p_quote ~* '(device token|wallet token)[^.?!]{0,40}[0-9]{4}'
-    or p_quote ~* '[0-9]{4}[^.?!]{0,50}(apple pay device token|device token|wallet token)'
-    then return false; end if;
   if (select count(*) from regexp_matches(p_quote,'\$[[:space:]]*[0-9]','g'))>1
+    or (select count(*) from regexp_matches(p_quote,
+      '(\$[[:space:]]*[0-9]|amount[[:space:]]*:[[:space:]]*[0-9]|[0-9]+[[:space:]]*(dollars?|usd))','gi'))>1
     or (select count(*) from regexp_matches(lower(p_quote),
-      '(visa|mastercard|amex|discover)','g'))>1
-    or (p_quote ~* '(paid|charged|amount|total|cost|monto|cobr)[^.?!]{0,25}[0-9]'
-      and p_quote !~ '\$[[:space:]]*[0-9]') then return false; end if;
-  amount_match:=regexp_match(p_quote,'\$[[:space:]]*([0-9]{1,7})([.]([0-9]{2}))?');
+      '(visa|mastercard|amex|discover)','g'))>1 then return false; end if;
+  amount_match:=regexp_match(p_quote,
+    '\$[[:space:]]*([0-9]{1,4}([.][0-9]{1,2})?)($|[^0-9.])');
+  if amount_match is null then
+    amount_match:=regexp_match(p_quote,
+      'amount[[:space:]]*:[[:space:]]*([0-9]{1,4}([.][0-9]{1,2})?)($|[^0-9.])','i');
+  end if;
+  if amount_match is null then
+    amount_match:=regexp_match(p_quote,
+      '([0-9]{1,4}([.][0-9]{1,2})?)[[:space:]]*(dollars?|usd)([^[:alpha:]]|$)','i');
+  end if;
+  if p_quote ~* '(paid|charged|amount|total|cost|monto|cobr)[^.?!]{0,25}[0-9]'
+    and amount_match is null then return false; end if;
   if amount_match is not null then
+    amount_value:=amount_match[1];
     seen:=seen+1;
     if p_case.payment_amount_cents is distinct from
-      (amount_match[1]::integer*100+coalesce(amount_match[3],'00')::integer)
+      (split_part(amount_value,'.',1)::integer*100+
+        coalesce(nullif(rpad(split_part(amount_value,'.',2),2,'0'),''),'00')::integer)
+      then return false; end if;
+  end if;
+  wallet_token:=public.refund_verified_wallet_token_last4(p_quote);
+  if wallet_token is not null then
+    seen:=seen+1;
+    if p_case.card_last4 is distinct from wallet_token
+      or p_case.card_last4_provenance is distinct from 'wallet_device_token'
       then return false; end if;
   end if;
   digits_match:=regexp_match(lower(p_quote),
@@ -592,8 +609,10 @@ begin
       public.refund_scoped_verified_reply_set(ctx.id)->'messages') item
     join public.refund_gmail_messages reply
       on reply.id=(item->>'messageId')::uuid
-    where public.refund_verified_reply_quote_has_independent_fact(
-      coalesce(reply.plain_body,''))
+    where (public.refund_verified_reply_quote_has_independent_fact(
+      coalesce(reply.plain_body,'')) or
+      (p_reason_code='inexact_purchase_time_requires_research' and
+        public.refund_verified_wallet_token_last4(reply.plain_body) is not null))
       and not public.refund_verified_reply_quote_is_known_fact(reply.plain_body,c)
   ) then
     raise exception 'A supported reply fact must be applied before directional research';

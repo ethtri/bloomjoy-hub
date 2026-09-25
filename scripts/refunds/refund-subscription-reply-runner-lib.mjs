@@ -264,18 +264,23 @@ export const validateNoFactReview = (input, proposal) => {
         if (field === 'wallet_token_last4' &&
           proposal.reasonCode === 'wallet_token_requires_research') continue;
         try {
-          const fact = deriveSourceBoundFact(input, { kind: 'fact', field,
-            messageId: message.messageId, quote: message.body });
-          const current = input.currentFacts ?? {};
-          const known = field === 'amount'
-            ? Number(current.paymentAmountCents) === fact.updates.payment_amount_cents
-            : field === 'payment_method'
-            ? current.paymentMethod === fact.updates.payment_method
-            : field === 'card_network'
-            ? current.cardNetwork === fact.updates.card_network
-            : current.cardLast4 === fact.updates.card_last4 &&
-              current.cardLast4Provenance === fact.updates.card_last4_provenance;
-          if (!known) throw new Error('supported_fact_requires_fact_review');
+          const lines = message.body.split(/\r?\n/u).filter((line) =>
+            supportedFieldsIn(line).includes(field));
+          if (!lines.length) throw new Error('supported_fact_requires_fact_review');
+          for (const line of lines) {
+            const fact = deriveSourceBoundFact(input, { kind: 'fact', field,
+              messageId: message.messageId, quote: line.trim() });
+            const current = input.currentFacts ?? {};
+            const known = field === 'amount'
+              ? Number(current.paymentAmountCents) === fact.updates.payment_amount_cents
+              : field === 'payment_method'
+              ? current.paymentMethod === fact.updates.payment_method
+              : field === 'card_network'
+              ? current.cardNetwork === fact.updates.card_network
+              : current.cardLast4 === fact.updates.card_last4 &&
+                current.cardLast4Provenance === fact.updates.card_last4_provenance;
+            if (!known) throw new Error('supported_fact_requires_fact_review');
+          }
         } catch { throw new Error('supported_fact_requires_fact_review'); }
       }
     }

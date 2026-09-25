@@ -363,6 +363,29 @@ test('a known amount plus uncertain time starts source-bound research without a 
   } finally { fs.rmSync(statePath, { force: true }); }
 });
 
+test('labeled current amount or current wallet token can coexist with new rough time', () => {
+  const labeled = { ...input, currentFacts: {
+    paymentAmountCents: 1000, paymentMethod: 'card',
+  }, replyMessages: [{ messageId, body: 'Amount: 10.00\nMaybe 4 PM.' }] };
+  assert.equal(validateNoFactReview(labeled, {
+    kind: 'reviewed_no_fact', reasonCode: 'inexact_purchase_time_requires_research',
+    messageId, quote: 'Maybe 4 PM.',
+  }).reasonCode, 'inexact_purchase_time_requires_research');
+  const wallet = { ...input, currentFacts: {
+    paymentAmountCents: 1090, paymentMethod: 'card',
+    cardLast4: '4932', cardLast4Provenance: 'wallet_device_token',
+  }, replyMessages: [{ messageId,
+    body: 'My Apple Pay device token ends in 4932; maybe 4 PM.' }] };
+  assert.equal(validateNoFactReview(wallet, {
+    kind: 'reviewed_no_fact', reasonCode: 'inexact_purchase_time_requires_research',
+    messageId, quote: 'maybe 4 PM.',
+  }).reasonCode, 'inexact_purchase_time_requires_research');
+  assert.throws(() => validateNoFactReview({ ...wallet,
+    currentFacts: { ...wallet.currentFacts, cardLast4: '6789' },
+  }, { kind: 'reviewed_no_fact', reasonCode: 'inexact_purchase_time_requires_research',
+    messageId, quote: 'maybe 4 PM.' }), /supported_fact_requires_fact_review/);
+});
+
 test('offline Luna fixture validates six model outcomes without a network client', () => {
   const proposalPath = path.join(root, 'output', 'refund-subscription-reply-synthetic-proposals.json');
   const receiptPath = path.join(root, 'output', 'refund-subscription-reply-synthetic-receipt.json');
