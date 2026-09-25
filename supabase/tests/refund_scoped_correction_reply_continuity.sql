@@ -218,7 +218,7 @@ select is(public.service_complete_refund_scoped_reply_no_fact(
     'I replied above; please review my earlier note.','no_supported_new_fact')->>'outcome',
   'stale_or_unsupported_source','A stolen or expired review claim cannot finish free-text research');
 savepoint decided_reply_scope;
-update public.refund_cases set decision='approved',
+update public.refund_cases set status='denied',decision='denied',
   official_action_version=official_action_version+1 where id=pg_temp.cid(9);
 select is(public.service_get_refund_scoped_reply_research_input(
     (select (task->>'requestId')::uuid from scoped_reply_claim),
