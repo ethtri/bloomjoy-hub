@@ -514,13 +514,13 @@ begin
         revoke_reason='Fixture post-approval revocation'
       where manager_user_id='e1410000-0000-4000-8000-000000000001';
     claimed := public.service_claim_due_nayax_refund_attempts_v1(
-      'reviewed-fixture-revoked-executor','REVIEWED_ACCOUNT',
+      'reviewed-fixture-executor','REVIEWED_ACCOUNT',
       'exact_source','empty_string',2);
     if exists(select 1 from jsonb_array_elements(claimed->'claims') claim
       where claim->>'attemptId'=(select approval.result->>'attemptId'
         from pg_temp.reviewed_approval_a approval)) then
       held := public.service_hold_nayax_refund_attempt_v1(
-        'reviewed-fixture-revoked-executor',
+        'reviewed-fixture-executor',
         (select (approval.result->>'attemptId')::uuid
           from pg_temp.reviewed_approval_a approval),
         'provider_result_unknown');
