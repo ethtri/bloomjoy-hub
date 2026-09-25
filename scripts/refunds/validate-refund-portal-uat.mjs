@@ -4181,12 +4181,13 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
     await waitForQueueCount(realPage, 1);
     await queueCase(realPage, realProjectionSeed.publicReference).click();
     const renderedState = await realPage.getByTestId('refund-manager-state').innerText();
-    const renderedAction = await realPage.getByTestId('refund-primary-action').innerText();
+    const renderedAction = await realPage.getByTestId('refund-cash-primary-action-panel').innerText();
+    const cashAction = realPage.getByTestId('refund-cash-primary-action');
     recorder.assert('Actual completed worker and Manager RPC render one cash action without a matched-sale gate',
       renderedState.includes('Action needed') &&
-        renderedAction.includes(lifecycle.nextWork.actionLabel) &&
-        await realPage.getByTestId('refund-cash-primary-action')
-          .getByText('Confirm refund sent via Zelle').isVisible() &&
+        renderedAction.includes('Send the refund through Zelle outside Bloomjoy Hub') &&
+        await cashAction.getByText('Confirm refund sent via Zelle').isVisible() &&
+        await cashAction.isEnabled() &&
         (await realPage.getByTestId('refund-run-nayax-refund').count()) === 0 &&
         functionCalls.length === 0,
       JSON.stringify({ renderedState, renderedAction, functionCalls }));
