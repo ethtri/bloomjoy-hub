@@ -282,10 +282,10 @@ begin
       and p_quote ~* '(^|[^[:alpha:]])card([^[:alpha:]]|$)')
     then return false; end if;
   amount_match:=regexp_match(p_quote,
-    '\$[[:space:]]*([0-9]{1,4}([.][0-9]{1,2})?)($|[^0-9.])');
+    '\$[[:space:]]*([0-9]{1,4}([.][0-9]{1,2})?)($|[^0-9.]|[.]($|[^0-9]))');
   if amount_match is null then
     amount_match:=regexp_match(p_quote,
-      'amount[[:space:]]*:[[:space:]]*([0-9]{1,4}([.][0-9]{1,2})?)($|[^0-9.])','i');
+      'amount[[:space:]]*:[[:space:]]*([0-9]{1,4}([.][0-9]{1,2})?)($|[^0-9.]|[.]($|[^0-9]))','i');
   end if;
   if amount_match is null then
     amount_match:=regexp_match(p_quote,

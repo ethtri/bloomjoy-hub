@@ -1176,6 +1176,13 @@ update public.refund_gmail_messages set plain_body='I paid $10.90.'
   where id=pg_temp.gid(34);
 select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(34),pg_temp.gid(34))
   ->>'outcome','received','A repeated already-known amount still clears Customer wait');
+select ok((select payment_amount_cents=1090 from public.refund_cases
+    where id=pg_temp.cid(34))
+  and public.refund_verified_reply_quote_is_known_fact(
+    'I paid $10.90.',(select c from public.refund_cases c where id=pg_temp.cid(34)))
+  and not public.refund_verified_reply_quote_is_known_fact(
+    'I paid $10.900.',(select c from public.refund_cases c where id=pg_temp.cid(34))),
+  'Punctuated exact amount is known without truncating a longer decimal');
 create temp table known_reply_task on commit drop as
   select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task
   where task->>'refundCaseId'=pg_temp.cid(34)::text;
