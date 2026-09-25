@@ -250,9 +250,13 @@ insert into public.refund_case_messages(
 select is(public.service_get_refund_status_contact_obligation_health()
   ->> 'definiteFailureCount','1',
   'A terminal notice with explicit adverse delivery evidence cannot supersede status work');
-update public.refund_case_messages set delivery_state='delivered'
-where refund_case_id='d4000000-0000-4000-8000-000000000003'
-  and message_type='denied';
+insert into public.refund_case_messages(
+  refund_case_id,message_type,status,recipient_email,subject,body,sent_at,
+  delivery_state
+) values ('d4000000-0000-4000-8000-000000000003','denied','sent',
+  'status-provider-due@example.invalid','Reconciled final outcome',
+  'Synthetic later terminal delivery',statement_timestamp()+interval '2 minutes',
+  'delivered');
 alter table public.refund_case_messages enable trigger user;
 select is(public.service_get_refund_status_contact_obligation_health()
   ->> 'definiteFailureCount','0',
