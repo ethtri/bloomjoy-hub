@@ -112,7 +112,7 @@ select ok((select c.decision=s.decision and c.decided_by=s.decided_by
   'The saved approval actor, time, reason, amount and case fingerprint survive the claim');
 
 set local role service_role;
-select is((public.service_commit_approved_card_nayax_research(
+select is(public.service_commit_approved_card_nayax_research(
   'ab450000-0000-4000-8000-000000000001',
   (select (result->0->>'lookupGeneration')::bigint from approved_claim),1,
   (select (result->0->>'officialActionVersion')::bigint from approved_claim),
@@ -120,7 +120,7 @@ select is((public.service_commit_approved_card_nayax_research(
   (select result->0->>'scopeDigest' from approved_claim),963,
   'no_match','no_safe_match','approved-research-v1',statement_timestamp(),
   'The bounded recent-sales read found no supported purchase.',null,0,null
-))->>'applied'),'true','A current read-only result commits through the version guard');
+) ->> 'applied','true','A current read-only result commits through the version guard');
 reset role;
 
 select ok((select c.decision=s.decision and c.decided_by=s.decided_by
