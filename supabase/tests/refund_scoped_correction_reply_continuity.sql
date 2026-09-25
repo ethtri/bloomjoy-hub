@@ -22,12 +22,18 @@ begin
     incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,payment_interaction,payment_amount_cents,card_last4,card_last4_provenance,card_network,card_wallet_used,status,correlation_status,intake_source)
   values(cid,'df000000-0000-4000-8000-000000000003','df000000-0000-4000-8000-000000000002','reply-customer@example.invalid','Scoped reply test',
     now()-interval '2 hours',to_char((now()-interval '2 hours') at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI'),
-    'America/Los_Angeles','exact','exact','card',case when n in (27,28,29) then 'phone_watch_wallet' else 'tap_card' end,case when n in (27,28,29,30) then 700 else null end,case when n in (8,15,27,28,29,30) then null else '1234' end,case when n in (8,15,27,28,29,30) then null else 'physical_card' end,'visa',n in (27,28,29),'needs_review','manual_review','form');
-  cycle:=public.service_claim_refund_follow_up_cycle(cid,'missing_information','refund_follow_up_v2',md5(n::text)||md5(n::text),null);
-  if not coalesce((cycle->>'claimed')::boolean,false) then raise exception 'Fixture cycle rejected: %',cycle; end if;
-  fields:=public.refund_missing_follow_up_fields(cid);
+    'America/Los_Angeles','exact','exact','card',case when n in (27,28,29) then 'phone_watch_wallet' else 'tap_card' end,case when n in (27,28,29,30) then 700 else null end,case when n in (8,15,27,28,29,30) then null else '1234' end,case when n in (8,15,27,28,29,30) then null else 'physical_card' end,case when n=26 then 'mastercard' else 'visa' end,n in (27,28,29),'needs_review','manual_review','form');
+  if n in (27,28,29) then
+    -- Wallet detail is a scoped correction request, not the ordinary
+    -- missing-information cycle, whose production guard rejects wallet work.
+    fields:=array['wallet_provider']::text[];
+  else
+    cycle:=public.service_claim_refund_follow_up_cycle(cid,'missing_information','refund_follow_up_v2',md5(n::text)||md5(n::text),null);
+    if not coalesce((cycle->>'claimed')::boolean,false) then raise exception 'Fixture cycle rejected: %',cycle; end if;
+    fields:=public.refund_missing_follow_up_fields(cid);
+  end if;
   insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,content_source,delivery_kind,reason_code,template_version,follow_up_cycle_id,requested_fields)
-  values(mid,cid,'more_info','pending','reply-customer@example.invalid','Update your request','[Secure refund correction link included at delivery]',
+  values(mid,cid,case when n in (27,28,29) then 'wallet_correction' else 'more_info' end,'pending','reply-customer@example.invalid','Update your request','[Secure refund correction link included at delivery]',
     'deterministic_template','automatic','missing_information','refund_follow_up_v2',(cycle#>>'{cycle,id}')::uuid,fields);
   perform public.service_issue_refund_purchase_correction(mid,lpad(to_hex(n),64,'0'),(select deterministic_fact_version from public.refund_cases where id=cid));
   insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,first_message_at,latest_message_at,retention_expires_at)
@@ -534,7 +540,6 @@ select ok(not has_function_privilege('authenticated',
   'Customer-content research health is visible only to the service worker');
 savepoint ordinary_network_semantic_fact;
 select pg_temp.make_scope(26);
-update public.refund_cases set card_network='mastercard' where id=pg_temp.cid(26);
 update public.refund_gmail_messages set plain_body='My card is Visa; I tapped the physical card.'
   where id=pg_temp.gid(26);
 select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(26),pg_temp.gid(26))->>'outcome',
