@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(26);
+select plan(28);
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -188,6 +188,36 @@ select is(
     'Please use https://app.bloomjoyusa.com/refunds/request', true
   )->>'reason',
   'prior_mailbox_reply', 'The existing writer refuses a duplicate form-link response');
+
+create temporary table answered_review_info as
+select public.service_ingest_refund_gmail_contact_v1(
+  repeat('5',64), 'info-inquiry-answered-review', 'info-inquiry-review-source',
+  '<info-inquiry-review-source@example.test>', null, 'inbound', false,
+  'review-helped@example.test', 'Synthetic Customer',
+  'info@bloomjoysweets.com', 'Question about existing request',
+  'I asked about my refund request status.', false,
+  now() - interval '31 minutes', null, '[]'::jsonb, '{}'::text[],
+  array['info@bloomjoysweets.com','refunds@bloomjoysweets.com'],
+  'direct_human', false, false, '{}'::text[]
+) as result;
+select ok(public.service_mark_refund_info_inquiry(
+  (select (result->>'messageId')::uuid from answered_review_info),
+  'existing_case_question')
+  and (public.get_refund_gmail_health()->'infoInquiry'->>'reviewDueCount')::integer = 1,
+  'A current unanswered Info status question remains reviewable after 30 minutes');
+select public.service_ingest_refund_gmail_contact_v1(
+  repeat('5',64), 'info-inquiry-answered-review', 'info-inquiry-review-outbound',
+  '<info-inquiry-review-outbound@example.test>',
+  '<info-inquiry-review-source@example.test>', 'outbound', false,
+  'refunds@bloomjoysweets.com', 'Bloomjoy Refunds',
+  'review-helped@example.test', 'Question about existing request',
+  'We have your request and will follow up.', false,
+  now() - interval '1 minute', null, '[]'::jsonb, '{}'::text[],
+  array['info@bloomjoysweets.com','refunds@bloomjoysweets.com'],
+  'direct_human', true, false, '{}'::text[]
+);
+select ok((public.get_refund_gmail_health()->'infoInquiry'->>'reviewDueCount')::integer = 0,
+  'A confirmed later same-thread reply resolves a reviewable Info question');
 
 select * from finish();
 rollback;

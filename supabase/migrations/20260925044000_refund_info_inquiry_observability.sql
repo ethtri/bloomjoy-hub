@@ -196,7 +196,19 @@ begin
   from public.refund_gmail_intake_contacts contact
   where contact.status in ('awaiting_form', 'link_review')
     and contact.info_inquiry_route in ('needs_review', 'existing_case_question')
-    and contact.info_inquiry_observed_at <= statement_timestamp() - interval '30 minutes';
+    and contact.info_inquiry_observed_at <= statement_timestamp() - interval '30 minutes'
+    and not exists (
+      select 1 from public.refund_gmail_intake_contact_messages outbound
+      where outbound.contact_id = contact.id
+        and outbound.direction = 'outbound'
+        and outbound.status = 'sent'
+        and outbound.sent_at >= contact.info_inquiry_observed_at
+    )
+    and not exists (
+      select 1 from public.refund_gmail_intake_contact_operations op
+      where op.contact_id = contact.id and op.status = 'sent'
+        and op.sent_at >= contact.info_inquiry_observed_at
+    );
   select * into run_row from public.refund_gmail_sync_runs
   where id = (select state.last_run_id from public.refund_gmail_sync_state state where state.singleton);
   select * into state_row from public.refund_gmail_sync_state where singleton;
