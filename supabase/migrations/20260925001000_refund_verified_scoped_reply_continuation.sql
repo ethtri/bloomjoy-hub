@@ -177,7 +177,8 @@ create or replace function public.refund_customer_outreach_contract(
 declare result jsonb; ctx public.refund_wallet_correction_contexts;
 begin
   result:=public.refund_customer_outreach_pre_verified_reply_continuation(p_refund_case_id);
-  if result is null or result->>'state'<>'waiting_for_customer' then return result; end if;
+  if result is null or result->>'state' not in ('waiting_for_customer','customer_replied')
+    then return result; end if;
   select * into ctx from public.refund_wallet_correction_contexts r
     where r.refund_case_id=p_refund_case_id and r.correction_kind='purchase'
       and r.status='pending' and r.reply_message_id is not null
