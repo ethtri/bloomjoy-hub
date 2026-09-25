@@ -218,129 +218,105 @@ select is(public.service_get_refund_status_contact_obligation_health()
 select is(public.service_get_refund_status_contact_obligation_health()
   ->> 'unresolvedCount','1',
   'A fresh pending status message with no provider start remains queued');
--- The provider can start while the parent message row is still pending. Such
--- an exact transport attempt must not disappear during the first 60 minutes.
-alter table public.refund_case_messages disable trigger user;
-update public.refund_case_messages
-set delivery_transport='resend', delivery_state='unknown'
+-- Each transport outcome starts from the same guarded pending intent. Savepoints
+-- model separate production attempts; no terminal message is reset or retried.
+savepoint status_pending_resend_unknown;
+set local role service_role;
+select public.service_mark_refund_transactional_delivery_attempt(id)
+from public.refund_case_messages
 where refund_case_id='d4000000-0000-4000-8000-000000000003'
-  and reason_code='provider_delay';
+  and reason_code='provider_delay' and status='pending';
+reset role;
 select is(public.service_get_refund_status_contact_obligation_health()
   ->> 'unknownEffectCount','2',
-  'A fresh pending parent with a recorded Resend provider-start is an immediate unknown-effect obligation');
-update public.refund_case_messages
-set delivery_state='accepted', provider_message_id='synthetic-status-accepted'
+  'A pending parent with a recorded provider start is immediately unknown');
+rollback to savepoint status_pending_resend_unknown;
+
+savepoint status_pending_resend_accepted;
+set local role service_role;
+select public.service_mark_refund_transactional_delivery_attempt(id)
+from public.refund_case_messages
 where refund_case_id='d4000000-0000-4000-8000-000000000003'
-  and reason_code='provider_delay';
+  and reason_code='provider_delay' and status='pending';
+select public.service_bind_refund_transactional_delivery(
+  id,'status-pending-accepted',statement_timestamp())
+from public.refund_case_messages
+where refund_case_id='d4000000-0000-4000-8000-000000000003'
+  and reason_code='provider_delay' and status='pending';
+reset role;
 select is(public.service_get_refund_status_contact_obligation_health()
   ->> 'unknownEffectCount','1',
-  'Provider-accepted pending transport without a downstream webhook is not an unknown-effect obligation');
-update public.refund_case_messages
-set delivery_state='bounced'
-where refund_case_id='d4000000-0000-4000-8000-000000000003'
-  and reason_code='provider_delay';
+  'A saved accepted receipt outranks a stale pending parent');
+set local role service_role;
+select public.service_record_refund_transactional_delivery_event(
+  repeat('d',64),'status-pending-accepted','bounced',statement_timestamp());
+reset role;
 select is(public.service_get_refund_status_contact_obligation_health()
   ->> 'definiteFailureCount','1',
-  'Explicit adverse Resend delivery overrides a stale pending parent and accepted receipt');
-update public.refund_case_messages
-set delivery_transport=null, delivery_state='unknown', provider_message_id=null
+  'An adverse provider event outranks the accepted receipt');
+rollback to savepoint status_pending_resend_accepted;
+
+savepoint status_failed_before_parent_update;
+set local role service_role;
+select public.service_mark_refund_transactional_delivery_attempt(id)
+from public.refund_case_messages
 where refund_case_id='d4000000-0000-4000-8000-000000000003'
-  and reason_code='provider_delay';
-alter table public.refund_case_messages enable trigger user;
-alter table public.refund_gmail_messages disable trigger user;
-insert into public.refund_gmail_threads(
-  id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,
-  first_message_at,latest_message_at,retention_expires_at
-) values (
-  'd7000000-0000-4000-8000-000000000003',
-  'd4000000-0000-4000-8000-000000000003',repeat('a',64),
-  'status-pending-parent-thread','Synthetic status transport',
-  now(),now(),now()+interval '30 days'
-);
-insert into public.refund_gmail_messages(
-  id,gmail_thread_id,refund_case_id,refund_case_message_id,
-  direction,status,sender_email,recipient_email,subject,plain_body,
-  received_at,retention_expires_at
-) values (
-  'd8000000-0000-4000-8000-000000000003',
-  'd7000000-0000-4000-8000-000000000003',
-  'd4000000-0000-4000-8000-000000000003',
-  (select id from public.refund_case_messages
-   where refund_case_id='d4000000-0000-4000-8000-000000000003'
-     and reason_code='provider_delay'),
-  'outbound','delivery_unknown','info@bloomjoysweets.com',
-  'status-provider-due@example.invalid','Synthetic status transport',
-  'Synthetic status transport',now(),now()+interval '30 days'
-);
+  and reason_code='provider_delay' and status='pending';
+reset role;
+update public.refund_case_messages
+set status='failed',error_message='delivery_unknown'
+where refund_case_id='d4000000-0000-4000-8000-000000000003'
+  and reason_code='provider_delay' and status='pending';
 select is(public.service_get_refund_status_contact_obligation_health()
   ->> 'unknownEffectCount','2',
-  'A linked Gmail unknown effect is visible while the parent remains pending');
-update public.refund_gmail_messages
-set status='sent',sent_at=now(),provider_message_id='synthetic-gmail-accepted'
-where id='d8000000-0000-4000-8000-000000000003';
+  'A failed parent with provider-start evidence remains effect-unknown');
+set local role service_role;
+select public.service_bind_refund_transactional_delivery(
+  id,'status-failed-accepted',statement_timestamp())
+from public.refund_case_messages
+where refund_case_id='d4000000-0000-4000-8000-000000000003'
+  and reason_code='provider_delay' and status='failed';
+reset role;
 select is(public.service_get_refund_status_contact_obligation_health()
   ->> 'unknownEffectCount','1',
-  'A linked accepted Gmail receipt is not made unknown by stale parent status');
-delete from public.refund_gmail_messages
-where id='d8000000-0000-4000-8000-000000000003';
-insert into public.refund_gmail_messages(
-  id,gmail_thread_id,refund_case_id,refund_case_message_id,
-  direction,status,sender_email,recipient_email,subject,plain_body,
-  received_at,retention_expires_at
-) values (
-  'd8000000-0000-4000-8000-000000000004',
-  'd7000000-0000-4000-8000-000000000003',
-  'd4000000-0000-4000-8000-000000000003',
-  (select id from public.refund_case_messages
-   where refund_case_id='d4000000-0000-4000-8000-000000000003'
-     and reason_code='provider_delay'),
-  'outbound','failed','info@bloomjoysweets.com',
-  'status-provider-due@example.invalid','Synthetic failed transport',
-  'Synthetic failed transport',now(),now()+interval '30 days'
-);
+  'A delayed accepted receipt resolves transport uncertainty despite the failed parent');
+rollback to savepoint status_failed_before_parent_update;
+
+savepoint status_sent_delivery_events;
+set local role service_role;
+select public.service_mark_refund_transactional_delivery_attempt(id)
+from public.refund_case_messages
+where refund_case_id='d4000000-0000-4000-8000-000000000003'
+  and reason_code='provider_delay' and status='pending';
+select public.service_bind_refund_transactional_delivery(
+  id,'status-sent-accepted',statement_timestamp())
+from public.refund_case_messages
+where refund_case_id='d4000000-0000-4000-8000-000000000003'
+  and reason_code='provider_delay' and status='pending';
+reset role;
+update public.refund_case_messages
+set status='sent',sent_at=statement_timestamp()
+where refund_case_id='d4000000-0000-4000-8000-000000000003'
+  and reason_code='provider_delay' and status='pending';
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'unknownEffectCount','1',
+  'Provider-accepted sent contact without webhook telemetry is not unresolved');
+set local role service_role;
+select public.service_record_refund_transactional_delivery_event(
+  repeat('e',64),'status-sent-accepted','complained',statement_timestamp());
+reset role;
 select is(public.service_get_refund_status_contact_obligation_health()
   ->> 'definiteFailureCount','1',
-  'A linked no-provider Gmail failure is actionable before the pending parent is finalized');
-delete from public.refund_gmail_messages
-where id='d8000000-0000-4000-8000-000000000004';
-alter table public.refund_gmail_messages enable trigger user;
+  'An explicit adverse event after send is a required recovery');
+rollback to savepoint status_sent_delivery_events;
+
 update public.refund_case_messages set status='failed',
   error_message='gmail_source_thread_required'
 where refund_case_id='d4000000-0000-4000-8000-000000000003'
-  and reason_code='provider_delay';
+  and reason_code='provider_delay' and status='pending';
 select is(public.service_get_refund_status_contact_obligation_health()
   ->> 'definiteFailureCount','1',
-  'The proven-unsent status transport failure is visible outside scheduler-run health');
-alter table public.refund_case_messages disable trigger user;
-update public.refund_case_messages
-set delivery_transport='resend',delivery_state='accepted',
-  provider_message_id='synthetic-failed-parent-accepted'
-where refund_case_id='d4000000-0000-4000-8000-000000000003'
-  and reason_code='provider_delay';
-select is(public.service_get_refund_status_contact_obligation_health()
-  ->> 'definiteFailureCount','0',
-  'An accepted receipt outranks a failed parent write when provider acceptance was saved');
-update public.refund_case_messages
-set status='sent',sent_at=now(),delivery_state='unknown'
-where refund_case_id='d4000000-0000-4000-8000-000000000003'
-  and reason_code='provider_delay';
-select is(public.service_get_refund_status_contact_obligation_health()
-  ->> 'unknownEffectCount','1',
-  'A provider-accepted sent message without downstream telemetry adds no unknown-effect obligation');
-update public.refund_case_messages
-set delivery_state='complained'
-where refund_case_id='d4000000-0000-4000-8000-000000000003'
-  and reason_code='provider_delay';
-select is(public.service_get_refund_status_contact_obligation_health()
-  ->> 'definiteFailureCount','1',
-  'Explicit adverse delivery after sent is still an actionable contact failure');
-update public.refund_case_messages
-set status='failed',sent_at=null,delivery_transport=null,
-  delivery_state='unknown',provider_message_id=null
-where refund_case_id='d4000000-0000-4000-8000-000000000003'
-  and reason_code='provider_delay';
-alter table public.refund_case_messages enable trigger user;
-insert into public.refund_automation_runs(
+  'A guarded known-unsent pending-to-failed transition is actionable');insert into public.refund_automation_runs(
   run_key,trigger_source,scheduled_for,started_at,finished_at,status,reason_counts
 ) values ('scheduled:status-obligation-noop','scheduled',now(),now(),now(),
   'succeeded','{}'::jsonb);
@@ -348,55 +324,95 @@ select is(public.service_get_refund_status_contact_obligation_health()
   ->> 'unresolvedCount','2',
   'A later healthy or no-op scheduler run cannot erase either old obligation');
 
--- Synthetic ledger-only controls isolate supersession classification from the
--- sender. No provider is called and no queued customer intent is created.
-alter table public.refund_case_messages disable trigger user;
+-- A new guarded status intent does not itself resolve the failed old contact.
 insert into public.refund_case_messages(
-  refund_case_id,message_type,status,recipient_email,subject,body,sent_at
-) values ('d4000000-0000-4000-8000-000000000003','manual_note','sent',
-  'status-provider-due@example.invalid','Unrelated note','Synthetic note',
-  statement_timestamp());
-select is(public.service_get_refund_status_contact_obligation_health()
-  ->> 'definiteFailureCount','1',
-  'An unrelated later contact does not discharge the required status purpose');
-insert into public.refund_case_messages(
-  refund_case_id,message_type,status,recipient_email,subject,body,sent_at,
-  delivery_state
-) values ('d4000000-0000-4000-8000-000000000003','denied','sent',
-  'status-provider-due@example.invalid','Final outcome','Synthetic terminal outcome',
-  statement_timestamp()+interval '1 minute','bounced');
-select is(public.service_get_refund_status_contact_obligation_health()
-  ->> 'definiteFailureCount','1',
-  'A terminal notice with explicit adverse delivery evidence cannot supersede status work');
-insert into public.refund_case_messages(
-  refund_case_id,message_type,status,recipient_email,subject,body,sent_at,
-  delivery_state
-) values ('d4000000-0000-4000-8000-000000000003','denied','sent',
-  'status-provider-due@example.invalid','Reconciled final outcome',
-  'Synthetic later terminal delivery',statement_timestamp()+interval '2 minutes',
-  'delivered');
-alter table public.refund_case_messages enable trigger user;
-select is(public.service_get_refund_status_contact_obligation_health()
-  ->> 'definiteFailureCount','0',
-  'A later authoritative terminal outcome supersedes the obsolete failed status notice');
-select is(public.service_get_refund_status_contact_obligation_health()
-  ->> 'unknownEffectCount','1',
-  'A terminal outcome on another case cannot clear its unresolved unknown-effect notice');
-alter table public.refund_case_messages disable trigger user;
-insert into public.refund_case_messages(
-  refund_case_id,message_type,status,recipient_email,subject,body,sent_at,
+  refund_case_id,message_type,status,recipient_email,subject,body,
   template_key,content_source,delivery_kind,reason_code,template_version,
   requested_fields
-) values ('d4000000-0000-4000-8000-000000000001','status_update','sent',
-  'status-due@example.invalid','Later status','Synthetic same-purpose update',
-  statement_timestamp()+interval '1 minute','refund_status_update_sla_at_risk_v1',
+) values ('d4000000-0000-4000-8000-000000000003','status_update','pending',
+  'status-provider-due@example.invalid','Provider update',
+  'A person is following this.','refund_status_update_provider_delay_v1',
+  'deterministic_template','automatic','provider_delay',
+  'refund_customer_status_v1','{}');
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'definiteFailureCount','1',
+  'A queued same-purpose message cannot discharge the failed old contact');
+
+-- A real accepted receipt followed by an adverse event is not supersession.
+savepoint status_replacement_bounced;
+set local role service_role;
+select public.service_mark_refund_transactional_delivery_attempt(id)
+from public.refund_case_messages
+where refund_case_id='d4000000-0000-4000-8000-000000000003'
+  and reason_code='provider_delay' and status='pending';
+select public.service_bind_refund_transactional_delivery(
+  id,'status-replacement-bounced',statement_timestamp())
+from public.refund_case_messages
+where refund_case_id='d4000000-0000-4000-8000-000000000003'
+  and reason_code='provider_delay' and status='pending';
+reset role;
+update public.refund_case_messages
+set status='sent',sent_at=statement_timestamp()
+where refund_case_id='d4000000-0000-4000-8000-000000000003'
+  and reason_code='provider_delay' and status='pending';
+set local role service_role;
+select public.service_record_refund_transactional_delivery_event(
+  repeat('f',64),'status-replacement-bounced','bounced',statement_timestamp());
+reset role;
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'definiteFailureCount','2',
+  'Explicit adverse delivery cannot supersede an old required status contact');
+rollback to savepoint status_replacement_bounced;
+
+set local role service_role;
+select public.service_mark_refund_transactional_delivery_attempt(id)
+from public.refund_case_messages
+where refund_case_id='d4000000-0000-4000-8000-000000000003'
+  and reason_code='provider_delay' and status='pending';
+select public.service_bind_refund_transactional_delivery(
+  id,'status-replacement-accepted',statement_timestamp())
+from public.refund_case_messages
+where refund_case_id='d4000000-0000-4000-8000-000000000003'
+  and reason_code='provider_delay' and status='pending';
+reset role;
+update public.refund_case_messages
+set status='sent',sent_at=statement_timestamp()
+where refund_case_id='d4000000-0000-4000-8000-000000000003'
+  and reason_code='provider_delay' and status='pending';
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'definiteFailureCount','0',
+  'A later provider-accepted same-purpose send resolves the old failure');
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'unknownEffectCount','1',
+  'Contact on one case cannot clear another case’s unknown-effect obligation');
+
+insert into public.refund_case_messages(
+  refund_case_id,message_type,status,recipient_email,subject,body,
+  template_key,content_source,delivery_kind,reason_code,template_version,
+  requested_fields
+) values ('d4000000-0000-4000-8000-000000000001','status_update','pending',
+  'status-due@example.invalid','Later status',
+  'A person is following this.','refund_status_update_sla_at_risk_v1',
   'deterministic_template','automatic','sla_at_risk',
   'refund_customer_status_v1','{}');
-alter table public.refund_case_messages enable trigger user;
+set local role service_role;
+select public.service_mark_refund_transactional_delivery_attempt(id)
+from public.refund_case_messages
+where refund_case_id='d4000000-0000-4000-8000-000000000001'
+  and reason_code='sla_at_risk' and status='pending';
+select public.service_bind_refund_transactional_delivery(
+  id,'status-sla-replacement',statement_timestamp())
+from public.refund_case_messages
+where refund_case_id='d4000000-0000-4000-8000-000000000001'
+  and reason_code='sla_at_risk' and status='pending';
+reset role;
+update public.refund_case_messages
+set status='sent',sent_at=statement_timestamp()
+where refund_case_id='d4000000-0000-4000-8000-000000000001'
+  and reason_code='sla_at_risk' and status='pending';
 select is(public.service_get_refund_status_contact_obligation_health()
   ->> 'unresolvedCount','0',
-  'A later same-purpose accepted status resolves the old unknown-effect obligation without retrying it');
-select ok(not has_function_privilege('authenticated',
+  'A later same-purpose accepted status resolves the unknown-effect obligation without retrying it');select ok(not has_function_privilege('authenticated',
   'public.service_get_refund_status_contact_obligation_health()','execute'),
   'The redacted obligation-health projection is service-only');
 
