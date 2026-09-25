@@ -58,6 +58,19 @@ test('ordinary prose yields only a deterministic fact from an exact verified spa
     quote: 'my physical card ending in 1234',
   });
   assert.deepEqual(last4.updates, { card_last4: '1234', card_last4_provenance: 'physical_card' });
+  const walletInput = { replyMessages: [{ messageId,
+    body: 'The 4932 digits are an Apple Pay device token, not my physical card number.' }] };
+  assert.deepEqual(deriveSourceBoundFact(walletInput, {
+    kind: 'fact', field: 'wallet_token_last4', messageId,
+    quote: 'The 4932 digits are an Apple Pay device token',
+  }).updates, {
+    card_last4: '4932', card_last4_provenance: 'wallet_device_token',
+    card_wallet_used: true, payment_interaction: 'phone_watch_wallet',
+  });
+  assert.throws(() => deriveSourceBoundFact(walletInput, {
+    kind: 'fact', field: 'card_last4', messageId,
+    quote: 'The 4932 digits are an Apple Pay device token',
+  }), /physical_card_last4_not_supported/);
   assert.throws(() => deriveSourceBoundFact(input, {
     kind: 'fact', field: 'amount', messageId, quote: 'I paid $99.99',
   }), /source_span_not_in_verified_reply/);
@@ -157,7 +170,7 @@ test('hourly mocked run records a grounded no-new-fact reply without send or pay
   } finally { fs.rmSync(statePath, { force: true }); }
 });
 
-test('offline Luna fixture validates three model outcomes without a network client', () => {
+test('offline Luna fixture validates six model outcomes without a network client', () => {
   const proposalPath = path.join(root, 'output', 'refund-subscription-reply-synthetic-proposals.json');
   const receiptPath = path.join(root, 'output', 'refund-subscription-reply-synthetic-receipt.json');
   fs.mkdirSync(path.dirname(proposalPath), { recursive: true });
@@ -171,6 +184,17 @@ test('offline Luna fixture validates three model outcomes without a network clie
     { scenario: 'later_reply_changes_fact', kind: 'fact', field: 'amount',
       messageId: 'ac000000-0000-4000-8000-000000000024',
       quote: 'The amount charged was $7.00' },
+    { scenario: 'ordinary_card_network', kind: 'fact', field: 'card_network',
+      messageId: 'ac000000-0000-4000-8000-000000000033',
+      quote: 'My card is Visa' },
+    { scenario: 'inexact_time_source', kind: 'reviewed_no_fact',
+      reasonCode: 'inexact_purchase_time_requires_research',
+      messageId: 'ac000000-0000-4000-8000-000000000043',
+      quote: 'It was around 2 or 3 PM, from memory' },
+    { scenario: 'wallet_device_token_provenance', kind: 'fact',
+      field: 'wallet_token_last4',
+      messageId: 'ac000000-0000-4000-8000-000000000053',
+      quote: 'The 4932 digits are an Apple Pay device token' },
   ];
   try {
     fs.writeFileSync(proposalPath, JSON.stringify(proposals), { mode: 0o600 });
@@ -181,8 +205,8 @@ test('offline Luna fixture validates three model outcomes without a network clie
     });
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(fs.readFileSync(receiptPath, 'utf8')),
-      { syntheticOnly: true, status: 'passed', scenarioCount: 3,
-        sourceBoundFacts: 2, groundedNoFactReviews: 1,
+      { syntheticOnly: true, status: 'passed', scenarioCount: 6,
+        sourceBoundFacts: 4, groundedNoFactReviews: 2,
         networkCalls: 0, customerMessages: 0, paymentCalls: 0 });
     assert.ok(!result.stdout.includes('service_role'));
   } finally {

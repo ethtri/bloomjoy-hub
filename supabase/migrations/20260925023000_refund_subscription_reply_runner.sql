@@ -182,7 +182,8 @@ begin
           'amountCents',k.amount_cents,'currencyCode',k.currency_code,
           'cardLast4',k.card_last4) row_data
         from public.refund_nayax_lookup_candidates k
-        where k.refund_case_id=c.id and k.expires_at>statement_timestamp()
+        where k.refund_case_id=c.id and k.lookup_generation=c.nayax_lookup_generation
+          and k.expires_at>statement_timestamp()
         order by k.machine_authorization_time desc,k.token limit 10) candidates),'[]'::jsonb)
     ) into evidence from public.refund_cases c where c.id=case_id;
   if evidence is null then return jsonb_build_object('outcome','stale_claim'); end if;
@@ -204,6 +205,19 @@ alter table public.refund_customer_fact_applications
   check(extraction_policy in (
     'labeled_customer_correction_v3','labeled_routine_facts_v1',
     'verified_reply_semantic_v1'));
+
+create function public.refund_verified_wallet_token_last4(p_quote text)
+returns text language sql immutable strict set search_path='' as $$
+  with extracted as (
+    select (regexp_match(lower(p_quote),
+      '(?:device token|wallet token)[^0-9]{0,40}([0-9]{4})'))[1] after_token,
+      (regexp_match(lower(p_quote),
+      '([0-9]{4})[^0-9]{0,50}(?:apple pay device token|device token|wallet token)'))[1] before_token
+  )
+  select case when after_token is not null and before_token is not null
+      and after_token<>before_token then null
+    else coalesce(after_token,before_token) end from extracted;
+$$;
 
 do $migration$
 declare definition text; function_name text; anchor text;
@@ -249,6 +263,8 @@ begin
   if c.id is null or ctx.id is null or ctx.refund_case_id<>c.id
     or ctx.correction_kind<>'purchase' or ctx.status<>'pending'
     or ctx.reply_review_state<>'claimed'
+    or ctx.reply_review_action_version is distinct from c.official_action_version
+    or c.decision is not null or not public.refund_purchase_correction_eligible(c)
     or ctx.reply_review_claim_token is distinct from p_claim_token
     or ctx.reply_message_id is distinct from p_source_message_id
     or ctx.correction_fact_version is distinct from p_expected_fact_version
@@ -274,7 +290,7 @@ begin
   end if;
   if pg_catalog.jsonb_typeof(p_updates)<>'object'
     or cardinality(coalesce(p_applied_fields,'{}'::text[]))<>1
-    or p_applied_fields[1] not in ('amount','payment_method','card_last4')
+    or p_applied_fields[1] not in ('amount','payment_method','card_last4','card_network')
     or (p_applied_fields[1]='amount' and
       ((p_updates - 'payment_amount_cents' - 'refund_amount_cents')<>'{}'::jsonb
         or not (p_updates ?& array['payment_amount_cents','refund_amount_cents'])
@@ -284,10 +300,24 @@ begin
     or (p_applied_fields[1]='payment_method' and
       ((p_updates - 'payment_method')<>'{}'::jsonb
         or p_updates->>'payment_method' not in ('card','cash')))
+    or (p_applied_fields[1]='card_network' and
+      ((p_updates - 'card_network')<>'{}'::jsonb
+        or p_updates->>'card_network' not in
+          ('visa','mastercard','american_express','discover')))
     or (p_applied_fields[1]='card_last4' and
-      ((p_updates - 'card_last4' - 'card_last4_provenance')<>'{}'::jsonb
-        or p_updates->>'card_last4' !~ '^[0-9]{4}$'
-        or p_updates->>'card_last4_provenance' is distinct from 'physical_card')) then
+      (coalesce(p_updates->>'card_last4','') !~ '^[0-9]{4}$'
+        or not (
+          ((p_updates - 'card_last4' - 'card_last4_provenance')='{}'::jsonb
+            and p_updates->>'card_last4_provenance'='physical_card')
+          or ((p_updates - 'card_last4' - 'card_last4_provenance'
+              - 'card_wallet_used' - 'payment_interaction')='{}'::jsonb
+            and p_updates->>'card_last4_provenance'='wallet_device_token'
+            and p_updates->>'card_wallet_used'='true'
+            and p_updates->>'payment_interaction'='phone_watch_wallet'
+            and c.payment_method='card'
+            and p_source_quote ~* '(apple pay|google pay|wallet|device token)'
+            and public.refund_verified_wallet_token_last4(p_source_quote)
+              is not distinct from p_updates->>'card_last4')))) then
     raise exception 'Unsupported semantic reply fact shape';
   end if;
   result:=public.service_apply_refund_gmail_customer_facts_v1(
@@ -310,6 +340,9 @@ grant execute on function public.service_apply_refund_scoped_reply_semantic_fact
   uuid,uuid,uuid,bigint,text,uuid,text,jsonb,text[])
   to service_role;
 
+alter table public.refund_wallet_correction_contexts
+  add column if not exists reply_directional_evidence jsonb not null default '{}'::jsonb;
+
 -- Research can find that the customer cannot provide another useful fact.
 -- That is a completed reply review, not a new customer wait, Manager task or
 -- permission to repeat the original question. Existing matching/coverage
@@ -322,6 +355,8 @@ create function public.service_complete_refund_scoped_reply_no_fact(
 declare ctx public.refund_wallet_correction_contexts;
   c public.refund_cases; source public.refund_gmail_messages;
   evidence public.refund_gmail_messages;
+  token_match text[];
+  directional_evidence jsonb := '{}'::jsonb;
 begin
   select * into c from public.refund_cases
     where id=(select refund_case_id from public.refund_wallet_correction_contexts
@@ -333,12 +368,15 @@ begin
   select * into evidence from public.refund_gmail_messages
     where id=p_evidence_message_id for update;
   if p_reason_code not in ('customer_cannot_provide','no_supported_new_fact',
-      'conflicting_reply_evidence') then
+      'conflicting_reply_evidence','inexact_purchase_time_requires_research',
+      'wallet_token_requires_research') then
     raise exception 'Supported redacted research result required';
   end if;
   if c.id is null or ctx.id is null or ctx.refund_case_id<>c.id
     or ctx.correction_kind<>'purchase' or ctx.status<>'pending'
     or ctx.reply_review_state<>'claimed'
+    or ctx.reply_review_action_version is distinct from c.official_action_version
+    or c.decision is not null or not public.refund_purchase_correction_eligible(c)
     or ctx.reply_review_claim_token is distinct from p_claim_token
     or ctx.reply_message_id is distinct from p_source_message_id
     or ctx.correction_fact_version is distinct from p_expected_fact_version
@@ -361,8 +399,26 @@ begin
     return jsonb_build_object('outcome','stale_or_unsupported_source',
       'payloadRedacted',true);
   end if;
+  if p_reason_code='wallet_token_requires_research' then
+    if p_source_quote !~* '(apple pay|google pay|wallet|device token)' then
+      raise exception 'Wallet research needs a source-backed wallet phrase';
+    end if;
+    directional_evidence:=jsonb_build_object('walletContext',true);
+    token_match:=array[public.refund_verified_wallet_token_last4(p_source_quote)];
+    if token_match[1] is not null then
+      directional_evidence:=directional_evidence||jsonb_build_object(
+        'walletTokenLast4',token_match[1]);
+    end if;
+  elsif p_reason_code='inexact_purchase_time_requires_research' then
+    if p_source_quote !~* '(around|about|roughly|remember|morning|afternoon|evening)' then
+      raise exception 'Inexact time research needs a source-backed time phrase';
+    end if;
+    directional_evidence:=jsonb_build_object('timeConfidence','rough',
+      'timeSource','customer_memory');
+  end if;
   update public.refund_wallet_correction_contexts set
     reply_review_state='resolved',reply_review_result_code=p_reason_code,
+    reply_directional_evidence=directional_evidence,
     reply_review_due_at=null,reply_review_claim_token=null,
     reply_review_claimed_at=null,updated_at=statement_timestamp()
     where id=ctx.id;
@@ -371,6 +427,10 @@ begin
     automation_state='under_review',automation_follow_up_due_at=null
     where id=c.id and decision is null
       and status not in ('approved','denied','completed','closed');
+  update public.refund_wallet_correction_contexts set
+    reply_review_action_version=(select official_action_version
+      from public.refund_cases where id=c.id)
+    where id=ctx.id and reply_review_state='resolved';
   insert into public.refund_case_events(refund_case_id,event_type,message,metadata)
     values(c.id,'refund_verified_reply_research_completed',
       'The verified reply was reviewed against current case evidence; Bloomjoy owns further research.',
@@ -401,10 +461,12 @@ begin
       reply_review_state='pending',reply_review_due_at=statement_timestamp(),
       reply_review_claim_token=null,reply_review_claimed_at=null,
       reply_review_result_code='completed_card_research_changed',
+      reply_review_action_version=new.official_action_version,
       updated_at=statement_timestamp()
       where refund_case_id=new.id and correction_kind='purchase' and status='pending'
         and reply_review_state='resolved' and reply_review_result_code in (
-          'customer_cannot_provide','no_supported_new_fact','conflicting_reply_evidence');
+          'customer_cannot_provide','no_supported_new_fact','conflicting_reply_evidence',
+          'inexact_purchase_time_requires_research','wallet_token_requires_research');
   end if;
   return new;
 end;
@@ -424,11 +486,14 @@ begin
       reply_review_state='pending',reply_review_due_at=statement_timestamp(),
       reply_review_claim_token=null,reply_review_claimed_at=null,
       reply_review_result_code='completed_cash_research_changed',
+      reply_review_action_version=(select c.official_action_version
+        from public.refund_cases c where c.id=new.refund_case_id),
       updated_at=statement_timestamp()
       where refund_case_id=new.refund_case_id and correction_kind='purchase'
         and status='pending' and correction_fact_version=new.case_fact_version
         and reply_review_state='resolved' and reply_review_result_code in (
-          'customer_cannot_provide','no_supported_new_fact','conflicting_reply_evidence');
+          'customer_cannot_provide','no_supported_new_fact','conflicting_reply_evidence',
+          'inexact_purchase_time_requires_research','wallet_token_requires_research');
   end if;
   return new;
 end;
@@ -452,7 +517,8 @@ returns jsonb language sql stable security definer set search_path='' as $$
     from public.refund_wallet_correction_contexts r
     where r.correction_kind='purchase' and r.status='pending'
       and r.reply_review_state='resolved' and r.reply_review_result_code in (
-        'customer_cannot_provide','no_supported_new_fact','conflicting_reply_evidence'))
+        'customer_cannot_provide','no_supported_new_fact','conflicting_reply_evidence',
+        'inexact_purchase_time_requires_research','wallet_token_requires_research'))
   select prior.value||jsonb_build_object('stableEvidenceDependencyCount',deps.dependency_count,
     'recoveryTrigger','new_verified_reply_or_completed_purchase_research',
     'status',case when prior.value->>'status'='healthy' and deps.dependency_count>0

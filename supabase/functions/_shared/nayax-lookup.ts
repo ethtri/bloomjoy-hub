@@ -1076,6 +1076,7 @@ export const lookupNayaxCandidatesForRefundCase = async ({
   actorUserId,
   lookupGeneration,
   expectedFactVersion,
+  replyDirectionalEvidence,
   nayaxBaseUrl = getNayaxBaseUrl(),
   windowHours = getNayaxLookupWindowHours(),
 }: {
@@ -1084,6 +1085,10 @@ export const lookupNayaxCandidatesForRefundCase = async ({
   actorUserId: string | null;
   lookupGeneration: number;
   expectedFactVersion?: number;
+  replyDirectionalEvidence?: {
+    walletTokenLast4?: string;
+    timeConfidence?: "rough";
+  };
   nayaxBaseUrl?: string;
   windowHours?: number;
 }): Promise<NayaxLookupResult> => {
@@ -1137,6 +1142,12 @@ export const lookupNayaxCandidatesForRefundCase = async ({
 
   const incidentAt = parseIncidentAt(refundCase?.incident_at);
   if (!incidentAt) throw new NayaxLookupRequestError("Refund case incident time is required.", 400);
+  const replyWalletTokenLast4 =
+    refundCase?.card_wallet_used === true &&
+      /^[0-9]{4}$/.test(replyDirectionalEvidence?.walletTokenLast4 ?? "")
+      ? replyDirectionalEvidence?.walletTokenLast4 ?? null
+      : null;
+  const replyTimeIsRough = replyDirectionalEvidence?.timeConfidence === "rough";
   const machineId = sanitizeText(refundCase?.reporting_machine_id, 80);
   if (!machineId) {
     const groupedMachineIds = Array.isArray(refundCase?.intake_selection_machine_ids)
@@ -1228,7 +1239,8 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     customerRequestReceivedAt: refundCase?.customer_request_received_at ?? null,
     customerRequestReceivedSource: refundCase?.customer_request_received_source ?? null,
     incidentTimeResolution: sanitizeText(refundCase.incident_time_resolution, 40) || "legacy_absolute",
-    incidentTimeConfidence: sanitizeText(refundCase.incident_time_confidence, 40) || "rough",
+    incidentTimeConfidence: replyTimeIsRough
+      ? "rough" : sanitizeText(refundCase.incident_time_confidence, 40) || "rough",
     locationTimezone: sanitizeText(location?.timezone, 80),
     qrClaimOpenedAt,
   };
@@ -1355,9 +1367,11 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     locationTimezone: sanitizeText(location?.timezone, 80),
     providerClockContext,
     requestAmountCents: sanitizeInputCents(refundCase?.payment_amount_cents),
-    requestCardLast4: extractLast4(refundCase?.card_last4),
-    requestCardLast4Provenance: sanitizeText(refundCase?.card_last4_provenance, 40),
-    requestCardLast4Source: sanitizeText(refundCase?.card_last4_source, 40),
+    requestCardLast4: replyWalletTokenLast4 ?? extractLast4(refundCase?.card_last4),
+    requestCardLast4Provenance: replyWalletTokenLast4
+      ? "wallet_device_token" : sanitizeText(refundCase?.card_last4_provenance, 40),
+    requestCardLast4Source: replyWalletTokenLast4
+      ? "wallet_device" : sanitizeText(refundCase?.card_last4_source, 40),
     requestCardNetwork: sanitizeText(refundCase?.card_network, 40),
     cardWalletUsed: Boolean(refundCase?.card_wallet_used),
     paymentInteraction: sanitizeText(refundCase?.payment_interaction, 40),
@@ -1365,7 +1379,8 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     incidentTimeSource: sanitizeText(refundCase?.incident_time_source, 40),
     nearbyAttemptCount: sanitizeText(refundCase?.nearby_attempt_count, 40),
     customerFactVersion: initialFactVersion,
-    incidentTimeConfidence: sanitizeText(refundCase?.incident_time_confidence, 40) || "rough",
+    incidentTimeConfidence: replyTimeIsRough
+      ? "rough" : sanitizeText(refundCase?.incident_time_confidence, 40) || "rough",
     machineContext,
     qrClaimOpenedAt,
     qrClaimEvidenceStatus,

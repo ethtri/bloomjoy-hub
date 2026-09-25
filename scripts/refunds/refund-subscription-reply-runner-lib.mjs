@@ -1,8 +1,23 @@
-import { extractLabeledRefundEmailFacts } from '../../supabase/functions/_shared/refund-email-fact-extraction.ts';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
+
+// The hosted refund workflow uses Node 20, which cannot import .ts directly.
+// Transpile the existing checked-in deterministic parser in memory so the
+// subscription runner and Gmail intake share one value parser on that host.
+const parserSource = fs.readFileSync(new URL('../../supabase/functions/_shared/refund-email-fact-extraction.ts', import.meta.url), 'utf8');
+const parserJavaScript = ts.transpileModule(parserSource, {
+  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  fileName: fileURLToPath(new URL('../../supabase/functions/_shared/refund-email-fact-extraction.ts', import.meta.url)),
+}).outputText;
+const { extractLabeledRefundEmailFacts } = await import(`data:text/javascript;base64,${Buffer.from(parserJavaScript).toString('base64')}`);
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const digest = /^[0-9a-f]{64}$/u;
-const safeField = new Set(['amount', 'payment_method', 'card_last4']);
+const safeField = new Set([
+  'amount', 'payment_method', 'card_last4', 'card_network',
+  'wallet_token_last4',
+]);
 
 export const validateProposalShape = (proposal) => {
   const allowed = proposal?.kind === 'fact'
@@ -64,10 +79,28 @@ export const deriveSourceBoundFact = (input, proposal) => {
   if (!proposal || proposal.kind !== 'fact' ||
     !safeField.has(proposal.field)) throw new Error('unsupported_fact_proposal');
   findSource(input, proposal.messageId, proposal.quote);
+  if (proposal.field === 'wallet_token_last4') {
+    if (!/\b(?:apple pay|google pay|wallet|device token)\b/iu.test(proposal.quote))
+      throw new Error('wallet_context_not_supported');
+    const afterToken = proposal.quote.match(/\b(?:device token|wallet token)\b[^0-9]{0,40}([0-9]{4})\b/iu);
+    const beforeToken = proposal.quote.match(/\b([0-9]{4})\b[^0-9]{0,50}\b(?:apple pay device token|device token|wallet token)\b/iu);
+    const tokenDigits = afterToken?.[1] ?? beforeToken?.[1];
+    if (!tokenDigits || (afterToken?.[1] && beforeToken?.[1] && afterToken[1] !== beforeToken[1]))
+      throw new Error('wallet_token_digits_not_supported');
+    return {
+      evidenceMessageId: proposal.messageId, sourceQuote: proposal.quote,
+      appliedFields: ['card_last4'],
+      updates: {
+        card_last4: tokenDigits, card_last4_provenance: 'wallet_device_token',
+        card_wallet_used: true, payment_interaction: 'phone_watch_wallet',
+      },
+    };
+  }
   const label = {
     amount: 'Amount',
     payment_method: 'Payment method',
     card_last4: 'Card last four',
+    card_network: 'Card type',
   }[proposal.field];
   let value = proposal.quote;
   if (proposal.field === 'amount') {
@@ -81,14 +114,21 @@ export const deriveSourceBoundFact = (input, proposal) => {
     const card = /\b(?:paid|used|tapped|inserted|swiped|pagu[eé]|us[eé])\b[^.!?]{0,45}\b(?:card|tarjeta)\b/iu.test(proposal.quote);
     if (cash === card) throw new Error('payment_method_not_supported');
     value = cash ? 'cash' : 'card';
-  } else {
+  } else if (proposal.field === 'card_last4') {
     const match = proposal.quote.match(/(?:physical\s+)?card[^.!?]{0,35}(?:end(?:s|ing)?\s+in|last\s+four|últimos?\s+cuatro)[^0-9]{0,12}([0-9]{4})/iu);
     if (!match || /\b(?:wallet|apple pay|google pay|device token)\b/iu.test(proposal.quote)) {
       throw new Error('physical_card_last4_not_supported');
     }
     value = match[1];
+  } else {
+    const networks = [...proposal.quote.matchAll(/\b(?:visa|master\s*card|mastercard|amex|american\s+express|discover)\b/giu)];
+    if (networks.length !== 1 || !/\b(?:card|tarjeta|network)\b/iu.test(proposal.quote)) {
+      throw new Error('card_network_not_supported');
+    }
+    value = networks[0][0];
   }
-  const extracted = extractLabeledRefundEmailFacts(`${label}: ${value}${proposal.field === 'card_last4' ? '\nCard last four source: physical card' : ''}`);
+  const extracted = extractLabeledRefundEmailFacts(`${label}: ${value}${proposal.field === 'card_last4'
+    ? '\nCard last four source: physical card' : ''}`);
   if (extracted.manualReviewReason || extracted.ambiguousFields.length > 0) {
     throw new Error('ambiguous_source_span');
   }
@@ -112,10 +152,18 @@ export const deriveSourceBoundFact = (input, proposal) => {
       updates: { payment_method: method },
     };
   }
-  const last4 = extracted.cardLast4;
-  if (!last4 || extracted.cardLast4Provenance !== 'physical_card') {
-    throw new Error('physical_card_last4_not_supported');
+  if (proposal.field === 'card_network') {
+    if (!['visa', 'mastercard', 'american_express', 'discover'].includes(extracted.cardNetwork)) {
+      throw new Error('card_network_not_supported');
+    }
+    return {
+      evidenceMessageId: proposal.messageId, sourceQuote: proposal.quote,
+      appliedFields: ['card_network'], updates: { card_network: extracted.cardNetwork },
+    };
   }
+  const last4 = extracted.cardLast4;
+  if (!last4 || extracted.cardLast4Provenance !== 'physical_card')
+    throw new Error('card_last4_provenance_not_supported');
   return {
     evidenceMessageId: proposal.messageId,
     sourceQuote: proposal.quote,
@@ -137,10 +185,19 @@ export const validateDeferral = (proposal) => {
 export const validateNoFactReview = (input, proposal) => {
   if (!proposal || proposal.kind !== 'reviewed_no_fact' ||
     !['customer_cannot_provide', 'no_supported_new_fact',
-      'conflicting_reply_evidence'].includes(proposal.reasonCode)) {
+      'conflicting_reply_evidence','inexact_purchase_time_requires_research',
+      'wallet_token_requires_research'].includes(proposal.reasonCode)) {
     throw new Error('unsupported_no_fact_review');
   }
   findSource(input, proposal.messageId, proposal.quote);
+  if (proposal.reasonCode === 'wallet_token_requires_research' &&
+    !/(?:apple pay|google pay|wallet|device token)/iu.test(proposal.quote)) {
+    throw new Error('wallet_research_source_not_supported');
+  }
+  if (proposal.reasonCode === 'inexact_purchase_time_requires_research' &&
+    !/(?:around|about|roughly|remember|morning|afternoon|evening)/iu.test(proposal.quote)) {
+    throw new Error('time_research_source_not_supported');
+  }
   return {
     evidenceMessageId: proposal.messageId,
     sourceQuote: proposal.quote,

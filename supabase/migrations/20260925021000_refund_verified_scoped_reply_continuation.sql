@@ -9,6 +9,8 @@ alter table public.refund_wallet_correction_contexts
   add column if not exists reply_review_claim_token uuid,
   add column if not exists reply_review_claimed_at timestamptz,
   add column if not exists reply_review_result_code text,
+  add column if not exists reply_review_action_version bigint,
+  add column if not exists reply_lookup_generation bigint,
   add column if not exists reply_body_sha256 text
     check (reply_body_sha256 ~ '^[0-9a-f]{64}$'),
   add column if not exists reply_review_attempt_count integer not null default 0
@@ -151,6 +153,7 @@ begin
     reply_review_due_at=statement_timestamp(), reply_review_state='pending',
     reply_review_claim_token=null,reply_review_claimed_at=null,
     reply_review_result_code=null,
+    reply_lookup_generation=null,
     reply_body_sha256=reply_set->>'bodySha256',
     updated_at=statement_timestamp() where id=ctx.id;
   update public.refund_follow_up_cycles set status='customer_replied',
@@ -161,6 +164,10 @@ begin
     status=case when status='waiting_on_customer' then 'needs_review' else status end,
     automation_state='customer_reply_review', automation_follow_up_due_at=null
     where id=c.id;
+  update public.refund_wallet_correction_contexts set
+    reply_review_action_version=(select official_action_version
+      from public.refund_cases where id=c.id)
+    where id=ctx.id;
   insert into public.refund_case_events(refund_case_id,event_type,message,metadata)
     values(c.id,'purchase_correction_verified_email_received',
       'A verified reply to the current request is queued for Bloomjoy review.',
@@ -182,13 +189,45 @@ create or replace function public.service_claim_refund_scoped_reply_reviews(
 ) returns jsonb language plpgsql security definer set search_path='' as $$
 declare ctx public.refund_wallet_correction_contexts; tasks jsonb:='[]'::jsonb; token uuid;
 begin
+  -- An undecided case may acquire new read-only evidence without a new
+  -- customer answer. Invalidate an in-flight token and rebind the same task
+  -- to the current action version; a final decision is never rebound.
+  update public.refund_wallet_correction_contexts r set
+    reply_review_state='pending',reply_review_due_at=statement_timestamp(),
+    reply_review_claim_token=null,reply_review_claimed_at=null,
+    reply_review_action_version=c.official_action_version,
+    reply_review_result_code='current_case_evidence_changed',
+    updated_at=statement_timestamp()
+    from public.refund_cases c
+    where r.refund_case_id=c.id and r.correction_kind='purchase'
+      and r.status='pending' and r.reply_message_id is not null
+      and r.reply_review_state in ('pending','claimed')
+      and r.reply_review_action_version is distinct from c.official_action_version
+      and r.correction_fact_version=c.deterministic_fact_version
+      and c.decision is null and public.refund_purchase_correction_eligible(c);
+  update public.refund_wallet_correction_contexts r set
+    reply_review_state='resolved',reply_review_due_at=null,
+    reply_review_claim_token=null,reply_review_claimed_at=null,
+    reply_review_result_code='superseded_by_current_case',
+    updated_at=statement_timestamp()
+    from public.refund_cases c
+    where r.refund_case_id=c.id and r.correction_kind='purchase'
+      and r.status='pending' and r.reply_message_id is not null
+      and r.reply_review_state in ('pending','claimed')
+      and (r.reply_review_action_version is distinct from c.official_action_version
+        or r.correction_fact_version is distinct from c.deterministic_fact_version
+        or c.decision is not null or not public.refund_purchase_correction_eligible(c));
   for ctx in select r.* from public.refund_wallet_correction_contexts r
+    join public.refund_cases c on c.id=r.refund_case_id
     where r.correction_kind='purchase' and r.status='pending'
       and r.reply_message_id is not null and r.reply_review_due_at<=statement_timestamp()
       and (r.reply_review_state='pending' or
         (r.reply_review_state='claimed' and r.reply_review_claimed_at<statement_timestamp()-interval '15 minutes'))
+      and r.reply_review_action_version=c.official_action_version
+      and r.correction_fact_version=c.deterministic_fact_version
+      and c.decision is null and public.refund_purchase_correction_eligible(c)
     order by r.reply_review_due_at,r.id limit least(greatest(coalesce(p_limit,25),1),25)
-    for update skip locked
+    for update of r skip locked
   loop
     token:=gen_random_uuid();
     update public.refund_wallet_correction_contexts set
@@ -232,6 +271,8 @@ begin
     or ctx.reply_review_claim_token is distinct from p_claim_token
     or ctx.reply_message_id is distinct from p_source_message_id
     or ctx.correction_fact_version is distinct from p_expected_fact_version
+    or ctx.reply_review_action_version is distinct from c.official_action_version
+    or c.decision is not null or not public.refund_purchase_correction_eligible(c)
     or ctx.reply_body_sha256 is distinct from p_body_sha256
     or c.deterministic_fact_version is distinct from p_expected_fact_version
     or source.refund_case_id is distinct from ctx.refund_case_id
@@ -288,6 +329,8 @@ begin
     or ctx.reply_review_claim_token is distinct from p_claim_token
     or ctx.reply_message_id is distinct from p_source_message_id
     or ctx.correction_fact_version is distinct from p_expected_fact_version
+    or ctx.reply_review_action_version is distinct from c.official_action_version
+    or c.decision is not null or not public.refund_purchase_correction_eligible(c)
     or ctx.reply_body_sha256 is distinct from p_body_sha256
     or c.id is null or c.deterministic_fact_version is distinct from p_expected_fact_version
     or request.id is null or request.refund_case_id is distinct from c.id
@@ -318,6 +361,8 @@ begin
       'paymentMethod',c.payment_method,
       'paymentAmountCents',c.payment_amount_cents,
       'cardLast4',c.card_last4,
+      'cardLast4Provenance',c.card_last4_provenance,
+      'cardNetwork',c.card_network,
       'incidentAt',c.incident_at,
       'reportingMachineId',c.reporting_machine_id),
     'containsCustomerContent',true);

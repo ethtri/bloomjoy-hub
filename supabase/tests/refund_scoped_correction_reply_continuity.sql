@@ -19,10 +19,10 @@ create function pg_temp.make_scope(n integer) returns void language plpgsql as $
 declare cid uuid:=pg_temp.cid(n); mid uuid:=gen_random_uuid(); tid uuid:=gen_random_uuid(); cycle jsonb; fields text[];
 begin
   insert into public.refund_cases(id,reporting_machine_id,reporting_location_id,customer_email,issue_summary,incident_at,incident_local_datetime,
-    incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,payment_interaction,payment_amount_cents,card_last4,card_last4_provenance,card_network,status,correlation_status,intake_source)
+    incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,payment_interaction,payment_amount_cents,card_last4,card_last4_provenance,card_network,card_wallet_used,status,correlation_status,intake_source)
   values(cid,'df000000-0000-4000-8000-000000000003','df000000-0000-4000-8000-000000000002','reply-customer@example.invalid','Scoped reply test',
     now()-interval '2 hours',to_char((now()-interval '2 hours') at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI'),
-    'America/Los_Angeles','exact','exact','card','tap_card',null,case when n in (8,15) then null else '1234' end,case when n in (8,15) then null else 'physical_card' end,'visa','needs_review','manual_review','form');
+    'America/Los_Angeles','exact','exact','card',case when n in (27,28,29) then 'phone_watch_wallet' else 'tap_card' end,case when n in (27,28,29,30) then 700 else null end,case when n in (8,15,27,28,29,30) then null else '1234' end,case when n in (8,15,27,28,29,30) then null else 'physical_card' end,'visa',n in (27,28,29),'needs_review','manual_review','form');
   cycle:=public.service_claim_refund_follow_up_cycle(cid,'missing_information','refund_follow_up_v2',md5(n::text)||md5(n::text),null);
   if not coalesce((cycle->>'claimed')::boolean,false) then raise exception 'Fixture cycle rejected: %',cycle; end if;
   fields:=public.refund_missing_follow_up_fields(cid);
@@ -217,6 +217,60 @@ select is(public.service_complete_refund_scoped_reply_no_fact(
     (select task->>'bodySha256' from scoped_reply_claim),pg_temp.gid(9),
     'I replied above; please review my earlier note.','no_supported_new_fact')->>'outcome',
   'stale_or_unsupported_source','A stolen or expired review claim cannot finish free-text research');
+savepoint decided_reply_scope;
+update public.refund_cases set decision='approved',
+  official_action_version=official_action_version+1 where id=pg_temp.cid(9);
+select is(public.service_get_refund_scoped_reply_research_input(
+    (select (task->>'requestId')::uuid from scoped_reply_claim),
+    (select (task->>'claimToken')::uuid from scoped_reply_claim),pg_temp.gid(9),
+    (select (task->>'factVersion')::bigint from scoped_reply_claim),
+    (select task->>'bodySha256' from scoped_reply_claim))->>'outcome',
+  'stale_claim','An official decision revokes a live semantic research read');
+select is(public.service_defer_refund_scoped_reply_review(
+    (select (task->>'requestId')::uuid from scoped_reply_claim),
+    (select (task->>'claimToken')::uuid from scoped_reply_claim),pg_temp.gid(9),
+    (select (task->>'factVersion')::bigint from scoped_reply_claim),
+    (select task->>'bodySha256' from scoped_reply_claim),
+    'research_result_unresolved')->>'outcome','stale_claim',
+  'An obsolete decision-scoped reply cannot be deferred as current work');
+select is(public.service_complete_refund_scoped_reply_no_fact(
+    (select (task->>'requestId')::uuid from scoped_reply_claim),
+    (select (task->>'claimToken')::uuid from scoped_reply_claim),pg_temp.gid(9),
+    (select (task->>'factVersion')::bigint from scoped_reply_claim),
+    (select task->>'bodySha256' from scoped_reply_claim),pg_temp.gid(9),
+    'I replied above; please review my earlier note.','no_supported_new_fact')->>'outcome',
+  'stale_or_unsupported_source','An old reply cannot finish after a Manager decision');
+select is(public.service_apply_refund_scoped_reply_semantic_fact(
+    (select (task->>'requestId')::uuid from scoped_reply_claim),
+    (select (task->>'claimToken')::uuid from scoped_reply_claim),pg_temp.gid(9),
+    (select (task->>'factVersion')::bigint from scoped_reply_claim),
+    (select task->>'bodySha256' from scoped_reply_claim),pg_temp.gid(9),
+    'I replied above; please review my earlier note.',
+    '{"payment_amount_cents":700,"refund_amount_cents":700}'::jsonb,array['amount'])
+    ->>'outcome','stale_or_unsupported_source',
+  'A stale semantic proposal cannot write a fact after the final decision');
+select is((public.service_claim_refund_scoped_reply_reviews(25)->'tasks')::text,'[]',
+  'Current claim page excludes obsolete decided tasks before bounded selection');
+select is((select reply_review_result_code from public.refund_wallet_correction_contexts
+    where refund_case_id=pg_temp.cid(9)),'superseded_by_current_case',
+  'Decision transition records an internal supersession instead of an endless due task');
+rollback to savepoint decided_reply_scope;
+savepoint newer_read_only_evidence;
+update public.refund_cases set correlation_status='no_match' where id=pg_temp.cid(9);
+select is(public.service_get_refund_scoped_reply_research_input(
+    (select (task->>'requestId')::uuid from scoped_reply_claim),
+    (select (task->>'claimToken')::uuid from scoped_reply_claim),pg_temp.gid(9),
+    (select (task->>'factVersion')::bigint from scoped_reply_claim),
+    (select task->>'bodySha256' from scoped_reply_claim))->>'outcome',
+  'stale_claim','Read-only case evidence invalidates the old interpreter claim');
+create temp table rebound_evidence_claim on commit drop as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task;
+select is((select count(*)::integer from rebound_evidence_claim),1,
+  'An undecided case receives one fresh claim after newer evidence, not abandonment');
+select isnt((select task->>'claimToken' from rebound_evidence_claim),
+  (select task->>'claimToken' from scoped_reply_claim),
+  'Evidence-version rebinding revokes the former live claim token');
+rollback to savepoint newer_read_only_evidence;
 select is(public.service_defer_refund_scoped_reply_review(
     (select (task->>'requestId')::uuid from scoped_reply_claim),
     gen_random_uuid(),pg_temp.gid(9),
@@ -478,6 +532,233 @@ select ok(not has_function_privilege('anon','public.service_apply_refund_gmail_c
 select ok(not has_function_privilege('authenticated',
   'public.service_get_refund_scoped_reply_research_health()','execute'),
   'Customer-content research health is visible only to the service worker');
+savepoint ordinary_network_semantic_fact;
+select pg_temp.make_scope(26);
+update public.refund_cases set card_network='mastercard' where id=pg_temp.cid(26);
+update public.refund_gmail_messages set plain_body='My card is Visa; I tapped the physical card.'
+  where id=pg_temp.gid(26);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(26),pg_temp.gid(26))->>'outcome',
+  'received','Ordinary card-network prose creates one current verified task');
+create temp table network_reply_claim on commit drop as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(26)::text;
+select is(public.service_apply_refund_scoped_reply_semantic_fact(
+    (select (task->>'requestId')::uuid from network_reply_claim),
+    (select (task->>'claimToken')::uuid from network_reply_claim),pg_temp.gid(26),
+    (select (task->>'factVersion')::bigint from network_reply_claim),
+    (select task->>'bodySha256' from network_reply_claim),pg_temp.gid(26),
+    'My card is Visa','{"card_network":"visa"}'::jsonb,array['card_network'])
+    ->>'outcome','applied','Existing fact receipt accepts source-bound ordinary card network');
+select ok((select card_network='visa' from public.refund_cases where id=pg_temp.cid(26))
+  and (select extraction_policy='verified_reply_semantic_v1'
+    from public.refund_customer_fact_applications where refund_case_id=pg_temp.cid(26)),
+  'Card-network research advances real facts without Manager approval or payment');
+rollback to savepoint ordinary_network_semantic_fact;
+savepoint wallet_token_semantic_fact;
+select pg_temp.make_scope(29);
+update public.refund_gmail_messages set plain_body=
+  'The 4932 digits are an Apple Pay device token, not my physical card number.'
+  where id=pg_temp.gid(29);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(29),pg_temp.gid(29))
+  ->>'outcome','received','Wallet provenance reply creates one exact current task');
+create temp table wallet_fact_claim on commit drop as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(29)::text;
+select is(public.service_apply_refund_scoped_reply_semantic_fact(
+    (select (task->>'requestId')::uuid from wallet_fact_claim),
+    (select (task->>'claimToken')::uuid from wallet_fact_claim),pg_temp.gid(29),
+    (select (task->>'factVersion')::bigint from wallet_fact_claim),
+    (select task->>'bodySha256' from wallet_fact_claim),pg_temp.gid(29),
+    'The 4932 digits are an Apple Pay device token',
+    '{"card_last4":"4932","card_last4_provenance":"wallet_device_token", "card_wallet_used":true,"payment_interaction":"phone_watch_wallet"}'::jsonb,
+    array['card_last4'])->>'outcome','applied',
+  'Source-bound wallet token applies through the original immutable fact writer');
+select ok((select card_last4='4932' and card_last4_provenance='wallet_device_token'
+    and card_wallet_used and payment_interaction='phone_watch_wallet'
+    from public.refund_cases where id=pg_temp.cid(29))
+  and (select extraction_policy='verified_reply_semantic_v1'
+    from public.refund_customer_fact_applications
+    where refund_case_id=pg_temp.cid(29)),
+  'Wallet device token never masquerades as a physical-card identifier');
+rollback to savepoint wallet_token_semantic_fact;
+savepoint directional_reply_lookup;
+update public.reporting_machines set nayax_machine_id='REPLY-TEST-27',
+  nayax_account_key='REPLY_ACCOUNT',nayax_manual_portal_enabled=false
+  where id='df000000-0000-4000-8000-000000000003';
+select pg_temp.make_scope(27);
+create temp table reply_prior_lookup on commit drop as
+  select public.service_begin_refund_nayax_lookup(pg_temp.cid(27),
+    (select deterministic_fact_version from public.refund_cases where id=pg_temp.cid(27)),
+    'scheduled',null) receipt;
+select is(public.service_commit_refund_nayax_lookup(pg_temp.cid(27),
+    (select (receipt->>'lookupGeneration')::bigint from reply_prior_lookup),
+    (select deterministic_fact_version from public.refund_cases where id=pg_temp.cid(27)),
+    'no_match','no_safe_match','reply-fixture-v1',statement_timestamp(),
+    'Earlier read-only check found no safe purchase.',null,0,'scheduled',null)
+    ->>'applied','true','A completed prior automatic no-match is real research evidence');
+update public.refund_gmail_messages set plain_body=
+  'I used Apple Pay; the device token ends in 6789, not my plastic card.'
+  where id=pg_temp.gid(27);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(27),pg_temp.gid(27))
+  ->>'outcome','received','Verified wallet-token reply is bound to the current request');
+create temp table directional_reply_task on commit drop as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(27)::text;
+select is(public.service_complete_refund_scoped_reply_no_fact(
+    (select (task->>'requestId')::uuid from directional_reply_task),
+    (select (task->>'claimToken')::uuid from directional_reply_task),
+    pg_temp.gid(27),(select (task->>'factVersion')::bigint from directional_reply_task),
+    (select task->>'bodySha256' from directional_reply_task),pg_temp.gid(27),
+    'device token ends in 6789','wallet_token_requires_research')
+    ->>'outcome','reviewed_no_fact',
+  'Wallet token is retained as directional evidence without inventing physical card digits');
+create temp table directional_lookup_claim on commit drop as
+  select claim from jsonb_array_elements(
+    public.service_claim_due_refund_reply_nayax_lookups(2)) claim
+  where claim->>'caseId'=pg_temp.cid(27)::text;
+select ok((select claim->>'source'='verified_reply_research' from directional_lookup_claim)
+  and (select nayax_lookup_status='checking' from public.refund_cases
+    where id=pg_temp.cid(27)),
+  'Scheduled existing Nayax claimant starts one new read-only generation for the reply');
+select is((select claim#>>'{directionalEvidence,walletTokenLast4}'
+    from directional_lookup_claim),'6789',
+  'Read-only worker receives only the source-bound device token as soft wallet evidence');
+select is(jsonb_array_length(public.service_claim_due_refund_reply_nayax_lookups(2)),0,
+  'A second sweep cannot claim another read for the same verified reply');
+select is(public.service_commit_refund_nayax_lookup(pg_temp.cid(27),
+    (select (claim->>'lookupGeneration')::bigint from directional_lookup_claim),
+    (select deterministic_fact_version from public.refund_cases where id=pg_temp.cid(27)),
+    'no_match','no_safe_match','reply-fixture-v1',statement_timestamp(),
+    'Current read-only search found no safe purchase.',null,0,'scheduled',null)
+    ->>'applied','true','Existing result writer completes the reply-triggered read');
+select is((select reply_review_state from public.refund_wallet_correction_contexts
+    where refund_case_id=pg_temp.cid(27)),'pending',
+  'Completed provider read reopens the same reply task for current evidence interpretation');
+create temp table directional_second_review on commit drop as
+  select task from jsonb_array_elements(
+    public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(27)::text;
+select is((select count(*)::integer from directional_second_review),1,
+  'The second cycle claims the same request after the existing result writer commits');
+select is(public.service_complete_refund_scoped_reply_no_fact(
+    (select (task->>'requestId')::uuid from directional_second_review),
+    (select (task->>'claimToken')::uuid from directional_second_review),
+    pg_temp.gid(27),
+    (select (task->>'factVersion')::bigint from directional_second_review),
+    (select task->>'bodySha256' from directional_second_review),pg_temp.gid(27),
+    'device token ends in 6789','wallet_token_requires_research')
+    ->>'outcome','reviewed_no_fact',
+  'Exhausted second review settles to a specific internal dependency');
+select is(jsonb_array_length(public.service_claim_due_refund_reply_nayax_lookups(2)),0,
+  'Research result does not retrigger the provider for unchanged reply evidence');
+select is((select reply_lookup_generation from public.refund_wallet_correction_contexts
+    where refund_case_id=pg_temp.cid(27)),
+  (select (claim->>'lookupGeneration')::bigint from directional_lookup_claim),
+  'One source-bound reply retains its durable consumed lookup generation');
+select ok(not has_function_privilege('authenticated',
+    'public.service_claim_due_refund_reply_nayax_lookups(integer)','execute')
+  and not has_function_privilege('anon',
+    'public.service_claim_due_refund_reply_nayax_lookups(integer)','execute'),
+  'Only the scheduled service worker can claim reply-triggered provider reads');
+select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
+    where refund_case_id=pg_temp.cid(27)),0,
+  'Directional reply research creates no payment attempt');
+insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,
+  provider_message_id,references_header,direction,message_kind,status,
+  sender_email,recipient_email,participant_role,participant_trust,subject,
+  plain_body,received_at,retention_expires_at)
+select pg_temp.gid(30),gmail_thread_id,refund_case_id,'scoped-reply-30',
+  references_header,direction,message_kind,status,sender_email,recipient_email,
+  participant_role,participant_trust,subject,
+  'I found a more precise purchase detail.',received_at+interval '1 minute',
+  retention_expires_at from public.refund_gmail_messages where id=pg_temp.gid(27);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(27),pg_temp.gid(30))
+  ->>'outcome','received','A genuinely later verified reply starts a new research identity');
+select ok((select reply_lookup_generation is null and reply_review_state='pending'
+    from public.refund_wallet_correction_contexts where refund_case_id=pg_temp.cid(27)),
+  'New reply clears only the prior read marker without repeating the old one');
+rollback to savepoint directional_reply_lookup;
+savepoint inexact_time_lookup;
+update public.reporting_machines set nayax_machine_id='REPLY-TEST-28',
+  nayax_account_key='REPLY_ACCOUNT',nayax_manual_portal_enabled=false
+  where id='df000000-0000-4000-8000-000000000003';
+select pg_temp.make_scope(28);
+create temp table time_prior_lookup on commit drop as
+  select public.service_begin_refund_nayax_lookup(pg_temp.cid(28),
+    (select deterministic_fact_version from public.refund_cases where id=pg_temp.cid(28)),
+    'scheduled',null) receipt;
+select is(public.service_commit_refund_nayax_lookup(pg_temp.cid(28),
+    (select (receipt->>'lookupGeneration')::bigint from time_prior_lookup),
+    (select deterministic_fact_version from public.refund_cases where id=pg_temp.cid(28)),
+    'no_match','no_safe_match','reply-fixture-v1',statement_timestamp(),
+    'Earlier bounded check found no safe purchase.',null,0,'scheduled',null)
+    ->>'applied','true','Inexact-time fixture has a prior completed automatic read');
+update public.refund_gmail_messages set plain_body=
+  'I remember buying around the afternoon, but I do not have an exact time.'
+  where id=pg_temp.gid(28);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(28),pg_temp.gid(28))
+  ->>'outcome','received','Verified inexact time clears the exact customer wait');
+create temp table time_reply_task on commit drop as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(28)::text;
+select is(public.service_complete_refund_scoped_reply_no_fact(
+    (select (task->>'requestId')::uuid from time_reply_task),
+    (select (task->>'claimToken')::uuid from time_reply_task),
+    pg_temp.gid(28),(select (task->>'factVersion')::bigint from time_reply_task),
+    (select task->>'bodySha256' from time_reply_task),pg_temp.gid(28),
+    'remember buying around the afternoon',
+    'inexact_purchase_time_requires_research')->>'outcome','reviewed_no_fact',
+  'Inexact time stays source-bound without manufacturing an exact timestamp');
+create temp table time_lookup_claim on commit drop as
+  select claim from jsonb_array_elements(
+    public.service_claim_due_refund_reply_nayax_lookups(2)) claim
+  where claim->>'caseId'=pg_temp.cid(28)::text;
+select is((select claim#>>'{directionalEvidence,timeConfidence}'
+    from time_lookup_claim),'rough',
+  'Scheduled provider read uses the customer rough-time signal, not a hard exclusion');
+select ok((select nayax_lookup_status='checking' from public.refund_cases
+    where id=pg_temp.cid(28))
+  and (select count(*)=0 from public.refund_case_nayax_refund_attempts
+    where refund_case_id=pg_temp.cid(28)),
+  'Time research advances one real read-only generation with no payment attempt');
+rollback to savepoint inexact_time_lookup;
+savepoint cannot_provide_card_read;
+update public.reporting_machines set nayax_machine_id='REPLY-TEST-30',
+  nayax_account_key='REPLY_ACCOUNT',nayax_manual_portal_enabled=false
+  where id='df000000-0000-4000-8000-000000000003';
+select pg_temp.make_scope(30);
+update public.refund_gmail_messages set plain_body=
+  'I no longer have that physical card and cannot provide its last four digits.'
+  where id=pg_temp.gid(30);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(30),pg_temp.gid(30))
+  ->>'outcome','received','Cannot-provide reply clears the customer wait');
+create temp table no_card_reply_task on commit drop as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(30)::text;
+select is(public.service_complete_refund_scoped_reply_no_fact(
+    (select (task->>'requestId')::uuid from no_card_reply_task),
+    (select (task->>'claimToken')::uuid from no_card_reply_task),
+    pg_temp.gid(30),(select (task->>'factVersion')::bigint from no_card_reply_task),
+    (select task->>'bodySha256' from no_card_reply_task),pg_temp.gid(30),
+    'cannot provide its last four digits','customer_cannot_provide')
+    ->>'outcome','reviewed_no_fact',
+  'System records the genuine customer limitation without asking again');
+create temp table no_card_lookup_claim on commit drop as
+  select claim from jsonb_array_elements(
+    public.service_claim_due_refund_reply_nayax_lookups(2)) claim
+  where claim->>'caseId'=pg_temp.cid(30)::text;
+select ok((select claim->>'source'='verified_reply_research'
+    from no_card_lookup_claim)
+  and (select nayax_lookup_status='checking' from public.refund_cases
+    where id=pg_temp.cid(30))
+  and (select card_last4 is null from public.refund_cases where id=pg_temp.cid(30)),
+  'The scheduled worker starts a read-only machine/amount/time search without card digits');
+select is(jsonb_array_length(public.service_claim_due_refund_reply_nayax_lookups(2)),0,
+  'Cannot-provide reply cannot create duplicate provider reads');
+select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
+    where refund_case_id=pg_temp.cid(30)),0,
+  'Read-only missing-card search does not create payment authority or an attempt');
+rollback to savepoint cannot_provide_card_read;
 select is(public.service_start_refund_reply_subscription_run(date_trunc('hour',statement_timestamp()))->>'outcome',
   'disabled','Subscription-backed hourly worker is default-off');
 update public.refund_reply_subscription_settings set enabled=true,

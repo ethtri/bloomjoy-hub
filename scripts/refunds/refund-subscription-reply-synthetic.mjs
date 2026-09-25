@@ -18,27 +18,40 @@ if (command === 'context') {
   const outputRoot = path.join(root, 'output');
   assert.ok(candidate.startsWith(`${outputRoot}${path.sep}`), 'proposal_must_be_private_output');
   const proposals = JSON.parse(fs.readFileSync(candidate, 'utf8'));
-  assert.ok(Array.isArray(proposals) && proposals.length === 3, 'three_synthetic_proposals_required');
+  assert.ok(Array.isArray(proposals) && proposals.length === fixture.cases.length,
+    'all_synthetic_proposals_required');
   for (let i = 0; i < fixture.cases.length; i += 1) {
     const context = fixture.cases[i];
     const { scenario, ...proposal } = proposals[i];
     assert.equal(scenario, context.scenario);
     validateProposalShape(proposal);
-    if (context.scenario === 'customer_cannot_provide') {
+    if (['customer_cannot_provide', 'inexact_time_source'].includes(context.scenario)) {
       const result = validateNoFactReview(context, proposal);
-      assert.equal(result.reasonCode, 'customer_cannot_provide');
+      assert.equal(result.reasonCode, {
+        customer_cannot_provide: 'customer_cannot_provide',
+        inexact_time_source: 'inexact_purchase_time_requires_research',
+      }[context.scenario]);
       assert.equal(result.evidenceMessageId, context.sourceMessageId);
     } else {
       const result = deriveSourceBoundFact(context, proposal);
-      assert.deepEqual(result.appliedFields, ['amount']);
+      assert.deepEqual(result.appliedFields,
+        context.scenario === 'ordinary_card_network' ? ['card_network'] :
+          context.scenario === 'wallet_device_token_provenance' ? ['card_last4'] : ['amount']);
       assert.equal(result.evidenceMessageId, context.sourceMessageId);
-      assert.equal(result.updates.payment_amount_cents,
+      if (context.scenario === 'ordinary_card_network')
+        assert.equal(result.updates.card_network, 'visa');
+      else if (context.scenario === 'wallet_device_token_provenance')
+        assert.deepEqual(result.updates, {
+          card_last4: '4932', card_last4_provenance: 'wallet_device_token',
+          card_wallet_used: true, payment_interaction: 'phone_watch_wallet',
+        });
+      else assert.equal(result.updates.payment_amount_cents,
         context.scenario === 'ordinary_prose_amount' ? 1090 : 700);
     }
   }
   const receipt = {
     syntheticOnly: true, status: 'passed', scenarioCount: fixture.cases.length,
-    sourceBoundFacts: 2, groundedNoFactReviews: 1,
+    sourceBoundFacts: 4, groundedNoFactReviews: 2,
     networkCalls: 0, customerMessages: 0, paymentCalls: 0,
   };
   const receiptPath = path.join(outputRoot, 'refund-subscription-reply-synthetic-receipt.json');
