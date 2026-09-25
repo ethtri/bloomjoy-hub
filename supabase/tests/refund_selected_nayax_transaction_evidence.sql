@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(22);
+select plan(25);
 
 create function pg_temp.set_auth_claims(p_user_id uuid)
 returns void language plpgsql as $$
@@ -431,6 +431,59 @@ select is(
   0,
   'The unrelated manager overview contains no selected provider identifier'
 );
+
+reset role;
+
+create temporary table refund_timezone_projection_benchmark (
+  case_count integer not null,
+  projected_count integer not null,
+  elapsed_ms numeric not null
+) on commit drop;
+
+do $benchmark$
+declare
+  started_at timestamptz;
+  projected jsonb;
+  case_count integer;
+begin
+  foreach case_count in array array[61, 200] loop
+    started_at := clock_timestamp();
+    select public.refund_project_candidate_time_evidence_v1(
+      jsonb_agg(jsonb_build_object(
+        'id', '75140000-0000-4000-8000-000000000001'
+      ))
+    ) into projected
+    from generate_series(1, case_count);
+    insert into refund_timezone_projection_benchmark
+      (case_count, projected_count, elapsed_ms)
+    values (
+      case_count,
+      jsonb_array_length(projected),
+      extract(epoch from clock_timestamp() - started_at) * 1000
+    );
+  end loop;
+end;
+$benchmark$;
+
+select is(
+  (select projected_count from refund_timezone_projection_benchmark where case_count = 61),
+  61,
+  'A current-volume projection retains every authorized case item'
+);
+select is(
+  (select projected_count from refund_timezone_projection_benchmark where case_count = 200),
+  200,
+  'A larger projection retains every case item without truncating the queue'
+);
+select ok(
+  (select elapsed_ms < 4000 from refund_timezone_projection_benchmark where case_count = 200),
+  'Two hundred candidate-time projection items finish with margin under the authenticated eight-second timeout'
+);
+select diag(format(
+  'Candidate-time projection: 61 items %s ms; 200 items %s ms (synthetic repeated case)',
+  (select round(elapsed_ms, 1) from refund_timezone_projection_benchmark where case_count = 61),
+  (select round(elapsed_ms, 1) from refund_timezone_projection_benchmark where case_count = 200)
+));
 
 select * from finish();
 rollback;
