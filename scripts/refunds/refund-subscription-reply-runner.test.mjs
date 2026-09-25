@@ -106,6 +106,10 @@ test('ordinary cannot-provide reply is a source-bound System result, not a Manag
     messageId, quote: 'I paid $10.90 with my physical card',
   }).reasonCode, 'no_supported_new_fact');
   assert.throws(() => validateNoFactReview(input, {
+    kind: 'reviewed_no_fact', reasonCode: 'no_supported_new_fact',
+    messageId, quote: 'my physical card ending in 1234',
+  }), /supported_fact_requires_fact_review/);
+  assert.throws(() => validateNoFactReview(input, {
     kind: 'reviewed_no_fact', reasonCode: 'customer_cannot_provide',
     messageId, quote: 'I cannot provide any information',
   }), /source_span_not_in_verified_reply/);
@@ -122,6 +126,8 @@ test('negated customer text cannot become an affirmative fact', () => {
     ['My card is not Visa', 'card_network'],
     ['I did not pay with cash', 'payment_method'],
     ['The device token is not 4932 for Apple Pay', 'wallet_token_last4'],
+    ['None of this was charged as $10.90', 'amount'],
+    ['Neither of my cards were Visa', 'card_network'],
   ]) {
     assert.throws(() => deriveSourceBoundFact({ replyMessages: [{ messageId, body }] }, {
       kind: 'fact', field, messageId, quote: body,

@@ -81,7 +81,7 @@ export const deriveSourceBoundFact = (input, proposal) => {
   findSource(input, proposal.messageId, proposal.quote);
   // A source span that denies or corrects a value is evidence to investigate,
   // not authority to turn the mentioned value into a positive case fact.
-  if (/(?:^|\W)(?:not|never|no|didn't|did not|wasn't|was not|isn't|is not|don't|do not|doesn't|does not|cannot|can't|couldn't|could not|wrong|incorrect|no longer)(?:\W|$)/iu.test(proposal.quote)) {
+  if (/(?:^|\W)(?:not|never|no|none|neither|didn't|did not|wasn't|was not|isn't|is not|don't|do not|doesn't|does not|cannot|can't|couldn't|could not|wrong|incorrect|no longer)(?:\W|$)/iu.test(proposal.quote)) {
     throw new Error('negated_source_span_requires_research');
   }
   if (proposal.field === 'wallet_token_last4') {
@@ -200,22 +200,30 @@ export const validateNoFactReview = (input, proposal) => {
     throw new Error('cannot_provide_source_not_supported');
   }
   if (proposal.reasonCode === 'no_supported_new_fact' &&
-    /(?:^|\W)(?:not|never|no|didn't|did not|wasn't|was not|isn't|is not|don't|do not|doesn't|does not|cannot|can't|couldn't|could not|wrong|incorrect)(?:\W|$)/iu.test(proposal.quote) &&
+    /(?:^|\W)(?:not|never|no|none|neither|didn't|did not|wasn't|was not|isn't|is not|don't|do not|doesn't|does not|cannot|can't|couldn't|could not|wrong|incorrect)(?:\W|$)/iu.test(proposal.quote) &&
     /(?:\d|\bcash\b|\bcard\b|\bwallet\b|\bvisa\b|\bmastercard\b)/iu.test(proposal.quote)) {
     throw new Error('supported_fact_requires_fact_review');
   }
   // Generic no-fact dispositions cannot discard a concrete amount, payment
   // method, physical-card suffix or network supplied in the cited span.
-  const quotedFact = /(?:\$\s*\d|\b(?:paid|charged|amount|total|cost|monto|cobr)\b[^.!?]{0,25}\d|\b(?:paid|used|tapped|inserted|swiped)\b[^.!?]{0,45}\b(?:cash|card)\b|\bcard\b[^.!?]{0,35}\b(?:ends? in|last four)\b[^.!?]{0,12}\d{4}\b|\b(?:visa|mastercard|amex|discover)\b)/iu.test(proposal.quote);
+  const quotedFact = /(?:\$\s*\d|\b(?:paid|charged|amount|total|cost|monto|cobr)\b[^.!?]{0,25}\d|\b(?:paid|used|tapped|inserted|swiped)\b[^.!?]{0,45}\b(?:cash|card)\b|\bcard\b[^.!?]{0,35}\b(?:end(?:s|ing)? in|last four)\b[^.!?]{0,12}\d{4}\b|\b(?:device token|wallet token)\b[^.!?]{0,40}\d{4}\b|\b(?:visa|mastercard|amex|discover)\b)/iu.test(proposal.quote);
   if (quotedFact && ['customer_cannot_provide', 'no_supported_new_fact',
     'conflicting_reply_evidence'].includes(proposal.reasonCode)) {
     const current = input.currentFacts ?? {};
+    const signaledFields = [
+      ['amount', /\$\s*\d/u],
+      ['payment_method', /\b(?:paid|used|tapped|inserted|swiped)\b[^.!?]{0,45}\b(?:cash|card)\b/iu],
+      ['card_last4', /\bcard\b[^.!?]{0,35}\b(?:end(?:s|ing)? in|last four)\b[^.!?]{0,12}\d{4}\b/iu],
+      ['card_network', /\b(?:visa|mastercard|amex|discover)\b/iu],
+    ].filter(([, pattern]) => pattern.test(proposal.quote)).map(([field]) => field);
     const sameAsCurrent = proposal.reasonCode === 'no_supported_new_fact' &&
+      signaledFields.length > 0 &&
+      !/\b(?:device token|wallet token)\b[^.!?]{0,40}\d{4}\b/iu.test(proposal.quote) &&
       [...proposal.quote.matchAll(/\$\s*\d/gu)].length <= 1 &&
       [...proposal.quote.matchAll(/\b(?:visa|mastercard|amex|discover)\b/giu)].length <= 1 &&
       !(/\b(?:paid|charged|amount|total|cost|monto|cobr)\b[^.!?]{0,25}\d/iu.test(proposal.quote) &&
         !/\$\s*\d/u.test(proposal.quote)) &&
-      ['amount', 'payment_method', 'card_last4', 'card_network'].some((field) => {
+      signaledFields.every((field) => {
         try {
           const fact = deriveSourceBoundFact(input, { kind: 'fact', field,
             messageId: proposal.messageId, quote: proposal.quote });

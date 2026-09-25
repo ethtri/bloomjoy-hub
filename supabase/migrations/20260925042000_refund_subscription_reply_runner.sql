@@ -223,12 +223,12 @@ $$;
 -- positive fact receipt, even when a model proposes a supported field.
 create function public.refund_verified_reply_quote_negated(p_quote text)
 returns boolean language sql immutable strict set search_path='' as $$
-  select p_quote ~* '(^|[^[:alpha:]])(not|never|no|didn''t|did not|wasn''t|was not|isn''t|is not|don''t|do not|doesn''t|does not|cannot|can''t|couldn''t|could not|wrong|incorrect|no longer)([^[:alpha:]]|$)';
+  select p_quote ~* '(^|[^[:alpha:]])(not|never|no|none|neither|didn''t|did not|wasn''t|was not|isn''t|is not|don''t|do not|doesn''t|does not|cannot|can''t|couldn''t|could not|wrong|incorrect|no longer)([^[:alpha:]]|$)';
 $$;
 
 create function public.refund_verified_reply_quote_has_fact(p_quote text)
 returns boolean language sql immutable strict set search_path='' as $$
-  select p_quote ~* '(\$[[:space:]]*[0-9]|(paid|charged|amount|total|cost|monto|cobr)[^.?!]{0,25}[0-9]|(paid|used|tapped|inserted|swiped)[^.?!]{0,45}(cash|card)|card[^.?!]{0,35}(ends? in|last four)[^.?!]{0,12}[0-9]{4}|(visa|mastercard|amex|discover))';
+  select p_quote ~* '(\$[[:space:]]*[0-9]|(paid|charged|amount|total|cost|monto|cobr)[^.?!]{0,25}[0-9]|(paid|used|tapped|inserted|swiped)[^.?!]{0,45}(cash|card)|card[^.?!]{0,35}(end(s|ing)? in|last four)[^.?!]{0,12}[0-9]{4}|(device token|wallet token)[^.?!]{0,40}[0-9]{4}|(visa|mastercard|amex|discover))';
 $$;
 
 -- An unchanged verified answer may settle as no new fact, but only when all
@@ -240,6 +240,8 @@ declare amount_match text[]; digits_match text[]; method_match text[];
   network_match text[]; seen integer:=0;
 begin
   if public.refund_verified_reply_quote_negated(p_quote) then return false; end if;
+  if p_quote ~* '(device token|wallet token)[^.?!]{0,40}[0-9]{4}'
+    then return false; end if;
   if (select count(*) from regexp_matches(p_quote,'\$[[:space:]]*[0-9]','g'))>1
     or (select count(*) from regexp_matches(lower(p_quote),
       '(visa|mastercard|amex|discover)','g'))>1
@@ -253,10 +255,10 @@ begin
       then return false; end if;
   end if;
   digits_match:=regexp_match(lower(p_quote),
-    'card[^.?!]{0,35}(ends? in|last four)[^0-9]{0,12}([0-9]{4})');
+    'card[^.?!]{0,35}(end(s|ing)? in|last four)[^0-9]{0,12}([0-9]{4})');
   if digits_match is not null then
     seen:=seen+1;
-    if p_case.card_last4 is distinct from digits_match[2]
+    if p_case.card_last4 is distinct from digits_match[3]
       or p_case.card_last4_provenance is distinct from 'physical_card'
       then return false; end if;
   end if;
@@ -270,8 +272,8 @@ begin
   network_match:=regexp_match(lower(p_quote),'(visa|mastercard|amex|discover)');
   if network_match is not null then
     seen:=seen+1;
-    if p_case.card_network is distinct from case network_match[1]
-      when 'amex' then 'american_express' else network_match[1] end
+    if p_case.card_network is distinct from (case network_match[1]
+      when 'amex' then 'american_express' else network_match[1] end)
       then return false; end if;
   end if;
   return seen>0;

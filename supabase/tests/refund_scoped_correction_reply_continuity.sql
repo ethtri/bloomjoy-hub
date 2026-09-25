@@ -839,6 +839,9 @@ select is(public.service_apply_refund_scoped_reply_semantic_fact(
 select is((select count(*)::integer from public.refund_customer_fact_applications
     where refund_case_id=pg_temp.cid(32)),0,
   'Negated prose creates no immutable positive fact receipt');
+select ok(public.refund_verified_reply_quote_negated('None of this was charged as $10.90')
+  and public.refund_verified_reply_quote_negated('Neither of my cards were Visa'),
+  'Neither and none remain negative evidence, not affirmative amount or network facts');
 select pg_temp.make_scope(33);
 select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(33),pg_temp.gid(33))
   ->>'outcome','received','Original verified response starts the exact scoped task');
