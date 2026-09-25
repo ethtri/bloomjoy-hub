@@ -4303,13 +4303,16 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
         await reviewedAction.isDisabled() &&
         reviewedFunctionBodies.every(({ functionName, body }) =>
           functionName === 'nayax-card-refund' && body?.operation === 'availability'));
+    await reviewedPage.getByText('Other decisions', { exact: true }).click();
+    const reviewedDenial = reviewedPage.getByRole('button', { name: 'Deny request', exact: true });
+    recorder.assert('Deny remains available without choosing a reviewed purchase',
+      await reviewedDenial.isEnabled() && await reviewedAction.isDisabled());
     await reviewedPage.locator(
       `input[name="nayax-transaction-candidate"][value="${reviewedSeed.preparationProof.eligibleCandidateTokens[1]}"]`,
     ).check();
-    await reviewedPage.getByText('Other decisions', { exact: true }).click();
-    recorder.assert('Deny needs no purchase choice and the second reviewed sale is approvable',
+    recorder.assert('The second reviewed sale is approvable within the same final decision',
       await reviewedAction.isEnabled() &&
-        (await reviewedPage.getByRole('button', { name: 'Deny request', exact: true }).count()) === 1 &&
+        await reviewedDenial.isEnabled() &&
         (await reviewedPage.getByRole('button', { name: /^Approve\b/ }).count()) === 1);
     await reviewedAction.click();
     await reviewedPage.getByTestId('refund-action-receipt').waitFor({ state: 'visible', timeout: 10000 });
