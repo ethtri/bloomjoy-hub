@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { buildMetadata, independentArtifactComparison, METADATA_PATH, safePublicPath, sha256,
-  sourceIdentity, successfulMainBuildRun, successfulProductionDeploymentSha,
+  sourceBuildDiagnostics, sourceIdentity, successfulMainBuildRun, successfulProductionDeploymentSha,
   verifiedVercelAliasDeployment, verifyServedPortal } from './refund-portal-provenance.mjs';
 
 const SHA = 'a'.repeat(40);
@@ -127,6 +127,97 @@ test('sole Vercel config formatting drift is equivalent but remains byte-dirty',
     await writeFile(path.join(root, 'source.txt'), 'same');
     await writeFile(path.join(root, 'extra.txt'), 'untracked input');
     assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, false);
+    await rm(path.join(root, 'extra.txt'));
+    await mkdir(path.join(root, '.vercel', 'static-build'), { recursive: true });
+    await writeFile(path.join(root, '.vercel', 'project.json'), JSON.stringify({
+      projectId: 'prj_YC3LjtHvqX2BAvFdt4iLV9ARs1bM',
+      orgId: 'team_yYNgFg7KgTwoN97wCL7rhDIj',
+    }));
+    await writeFile(path.join(root, '.vercel', 'static-build', 'package-manifest.json'), '{}');
+    assert.equal(sourceIdentity(root, {}).trackedSourceClean, false);
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, true);
+    await writeFile(path.join(root, '.vercel', '.env.production.local'), 'SECRET=private');
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, false);
+    await rm(path.join(root, '.vercel', '.env.production.local'));
+    await writeFile(path.join(root, '.vercel', 'static-build', 'extra.json'), '{}');
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, false);
+    await rm(path.join(root, '.vercel', 'static-build', 'extra.json'));
+    await writeFile(path.join(root, '.vercel', 'project.json'), JSON.stringify({
+      projectId: 'wrong', orgId: 'team_yYNgFg7KgTwoN97wCL7rhDIj',
+    }));
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, false);
+    await writeFile(path.join(root, '.vercel', 'project.json'), JSON.stringify({
+      projectId: 'prj_YC3LjtHvqX2BAvFdt4iLV9ARs1bM',
+      orgId: 'team_yYNgFg7KgTwoN97wCL7rhDIj',
+    }));
+    await writeFile(path.join(root, 'source.txt'), 'changed again');
+    assert.equal(sourceIdentity(root, {}).trackedSourceEquivalent, false);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('build diagnostic reports public tracked paths and redacts untracked private names', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'refund-portal-diagnostic-'));
+  const git = (...args) => execFileSync('git', args, { cwd: root, stdio: 'ignore' });
+  try {
+    git('init', '-q');
+    git('config', 'user.email', 'fixture@example.invalid');
+    git('config', 'user.name', 'Fixture');
+    await writeFile(path.join(root, 'vercel.json'), '{\n  "installCommand": "npm ci"\n}\n');
+    await writeFile(path.join(root, 'source.txt'), 'same');
+    git('add', '.');
+    git('commit', '-qm', 'fixture');
+    assert.deepEqual(sourceBuildDiagnostics(root), {
+      gitAvailable: true, tracked: [], untracked: [], vercelConfigEquivalent: true,
+      vercelDirectory: { present: false, projectJson: false, readme: false,
+        environmentFileCount: 0, otherFileCount: 0, directoryCount: 0,
+        directoryCategories: [], subdirectories: [], projectIdentityMatches: false },
+    });
+    await writeFile(path.join(root, 'vercel.json'), '{"installCommand":"npm ci"}\n');
+    await writeFile(path.join(root, 'source.txt'), 'changed');
+    await writeFile(path.join(root, 'private-customer-name.txt'), 'not for build logs');
+    const diagnostic = sourceBuildDiagnostics(root);
+    assert.deepEqual(diagnostic.tracked, [
+      { status: '_M', path: 'source.txt' }, { status: '_M', path: 'vercel.json' },
+    ]);
+    assert.equal(diagnostic.untracked.length, 1);
+    assert.equal(diagnostic.untracked[0].category, 'other');
+    assert.equal(diagnostic.untracked[0].pathDigest, sha256('private-customer-name.txt'));
+    assert.equal(JSON.stringify(diagnostic).includes('private-customer-name'), false);
+    assert.equal(diagnostic.vercelConfigEquivalent, true);
+    const script = path.join(import.meta.dirname, 'log-refund-portal-build-inputs.mjs');
+    const output = execFileSync(process.execPath, [script, 'after'], {
+      cwd: root, encoding: 'utf8', env: { ...process.env, VERCEL_ENV: 'production' },
+    });
+    assert.match(output, /Portal source input diagnostic:/);
+    assert.equal(output.includes('private-customer-name'), false);
+    assert.equal(execFileSync(process.execPath, [script, 'before'], {
+      cwd: root, encoding: 'utf8', env: { ...process.env, VERCEL_ENV: '' },
+    }), '');
+    await mkdir(path.join(root, '.vercel'));
+    await writeFile(path.join(root, '.vercel', 'project.json'), JSON.stringify({
+      projectId: 'prj_YC3LjtHvqX2BAvFdt4iLV9ARs1bM',
+      orgId: 'team_yYNgFg7KgTwoN97wCL7rhDIj',
+    }));
+    await writeFile(path.join(root, '.vercel', '.env.preview.local'), 'PRIVATE_TEST_VALUE=do-not-print');
+    const withVercelFiles = sourceBuildDiagnostics(root);
+    assert.equal(withVercelFiles.vercelDirectory.projectIdentityMatches, true);
+    assert.equal(withVercelFiles.vercelDirectory.environmentFileCount, 1);
+    assert.equal(JSON.stringify(withVercelFiles).includes('PRIVATE_TEST_VALUE'), false);
+    assert.equal(JSON.stringify(withVercelFiles).includes('.env.preview.local'), false);
+    await mkdir(path.join(root, '.vercel', 'output'));
+    await mkdir(path.join(root, '.vercel', 'private-unknown-directory'));
+    await writeFile(path.join(root, '.vercel', 'private-unknown-directory', '.env.preview.local'), 'SECRET=private');
+    const withDirectories = sourceBuildDiagnostics(root);
+    assert.deepEqual(withDirectories.vercelDirectory.directoryCategories, ['other', 'output']);
+    assert.deepEqual(withDirectories.vercelDirectory.subdirectories, [
+      { name: '[redacted]', nameLength: 'output'.length, nameDigest: sha256('output'), fileCount: 0,
+        directoryCount: 0, environmentFileCount: 0, files: [], otherEntryCount: 0 },
+      { name: '[redacted]', nameLength: 'private-unknown-directory'.length,
+        nameDigest: sha256('private-unknown-directory'), fileCount: 1,
+        directoryCount: 0, environmentFileCount: 1, files: ['[redacted]'], otherEntryCount: 0 },
+    ].sort((a, b) => a.nameDigest.localeCompare(b.nameDigest)));
+    assert.equal(JSON.stringify(withDirectories).includes('private-unknown-directory'), false);
+    assert.equal(JSON.stringify(withDirectories).includes('SECRET=private'), false);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

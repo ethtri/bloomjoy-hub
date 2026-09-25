@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -50,12 +50,99 @@ const canonicalJson = (value) => value && typeof value === 'object'
     : Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJson(value[key])]))
   : value;
 
-function semanticallyUnchangedVercelConfig(root) {
+export function semanticallyUnchangedVercelConfig(root) {
   try {
     const committed = JSON.parse(execFileSync('git', ['show', 'HEAD:vercel.json'],
       { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
     const checkout = JSON.parse(readFileSync(path.join(root, 'vercel.json'), 'utf8'));
     return JSON.stringify(canonicalJson(committed)) === JSON.stringify(canonicalJson(checkout));
+  } catch { return false; }
+}
+
+// Build-log diagnostics only. Tracked paths are already public repository
+// inputs; untracked names may be private, so report their digest and safe
+// top-level category without writing names, contents, or environment values.
+export function sourceBuildDiagnostics(root) {
+  let porcelain;
+  try {
+    porcelain = execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=normal'],
+      { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch {
+    return { gitAvailable: false, tracked: [], untracked: [], vercelConfigEquivalent: false,
+      vercelDirectory: null };
+  }
+  const tracked = [];
+  const untracked = [];
+  for (const line of porcelain.split(/\r?\n/).filter(Boolean)) {
+    const status = line.slice(0, 2).replaceAll(' ', '_');
+    const rawPath = line.slice(3);
+    if (status === '??') {
+      const rootSegment = rawPath.split('/')[0];
+      untracked.push({ status, category: ['.vercel', 'dist', 'public', 'scripts', 'src',
+        'supabase'].includes(rootSegment) ? rootSegment : 'other', pathDigest: sha256(rawPath) });
+    } else {
+      const safePath = /^[A-Za-z0-9._/-]+$/.test(rawPath) &&
+        !rawPath.split('/').some((segment) => segment.startsWith('.env'));
+      tracked.push({ status, path: safePath ? rawPath : '[redacted]',
+        ...(!safePath ? { pathDigest: sha256(rawPath) } : {}) });
+    }
+  }
+  let vercelDirectory = { present: false, projectJson: false, readme: false,
+    environmentFileCount: 0, otherFileCount: 0, directoryCount: 0,
+    directoryCategories: [], subdirectories: [], projectIdentityMatches: false };
+  try {
+    const entries = readdirSync(path.join(root, '.vercel'), { withFileTypes: true });
+    vercelDirectory = { ...vercelDirectory, present: true,
+      projectJson: entries.some((entry) => entry.isFile() && entry.name === 'project.json'),
+      readme: entries.some((entry) => entry.isFile() && entry.name === 'README.txt'),
+      environmentFileCount: entries.filter((entry) => entry.isFile() && entry.name.startsWith('.env')).length,
+      otherFileCount: entries.filter((entry) => entry.isFile() && !['project.json', 'README.txt'].includes(entry.name)
+        && !entry.name.startsWith('.env')).length,
+      directoryCount: entries.filter((entry) => !entry.isFile()).length,
+      directoryCategories: entries.filter((entry) => entry.isDirectory())
+        .map((entry) => ['output', 'cache', '.cache'].includes(entry.name) ? entry.name : 'other')
+        .sort(),
+      // Only the observed static-builder path may be named in build logs.
+      // Other platform paths remain hashes/categories, never raw names.
+      subdirectories: entries.filter((entry) => entry.isDirectory()).map((entry) => {
+        const children = readdirSync(path.join(root, '.vercel', entry.name), { withFileTypes: true });
+        return { name: entry.name === 'static-build' ? entry.name : '[redacted]',
+          nameLength: entry.name.length, nameDigest: sha256(entry.name),
+          fileCount: children.filter((child) => child.isFile()).length,
+          directoryCount: children.filter((child) => child.isDirectory()).length,
+          environmentFileCount: children.filter((child) => child.isFile() && /^\.env(?:\.|$)/.test(child.name)).length,
+          files: children.filter((child) => child.isFile()).map((child) =>
+            entry.name === 'static-build' && child.name === 'package-manifest.json'
+              ? child.name : '[redacted]').sort(),
+          otherEntryCount: children.filter((child) => !child.isFile() && !child.isDirectory()).length };
+      }).sort((a, b) => a.nameDigest.localeCompare(b.nameDigest)) };
+    if (vercelDirectory.projectJson) {
+      const config = JSON.parse(readFileSync(path.join(root, '.vercel', 'project.json'), 'utf8'));
+      vercelDirectory.projectIdentityMatches = config?.projectId === 'prj_YC3LjtHvqX2BAvFdt4iLV9ARs1bM' &&
+        config?.orgId === 'team_yYNgFg7KgTwoN97wCL7rhDIj';
+    }
+  } catch { /* No file names, contents, or parser errors enter build logs. */ }
+  return { gitAvailable: true, tracked, untracked,
+    vercelConfigEquivalent: semanticallyUnchangedVercelConfig(root), vercelDirectory };
+}
+
+// Vercel's static builder writes this manifest storage slot before the app
+// build. The app does not read .vercel; accept only the exact observed platform
+// tree, with no environment files, links, or additional source inputs.
+export function expectedVercelBuilderMetadata(root) {
+  try {
+    const directory = path.join(root, '.vercel');
+    if (!lstatSync(directory).isDirectory()) return false;
+    const entries = readdirSync(directory, { withFileTypes: true });
+    if (entries.length !== 2 ||
+        !entries.some((entry) => entry.name === 'project.json' && entry.isFile()) ||
+        !entries.some((entry) => entry.name === 'static-build' && entry.isDirectory())) return false;
+    const project = JSON.parse(readFileSync(path.join(directory, 'project.json'), 'utf8'));
+    if (project?.projectId !== 'prj_YC3LjtHvqX2BAvFdt4iLV9ARs1bM' ||
+        project?.orgId !== 'team_yYNgFg7KgTwoN97wCL7rhDIj') return false;
+    const manifestEntries = readdirSync(path.join(directory, 'static-build'), { withFileTypes: true });
+    return manifestEntries.length === 1 && manifestEntries[0].name === 'package-manifest.json' &&
+      manifestEntries[0].isFile();
   } catch { return false; }
 }
 
@@ -66,11 +153,14 @@ export function sourceIdentity(root, env = process.env) {
   const deploySha = env.VERCEL_GIT_COMMIT_SHA?.toLowerCase();
   const sourceSha = deploySha || head?.toLowerCase() || null;
   const trackedSourceClean = trackedDirty === null ? null : trackedDirty.length === 0;
-  // Vercel's Git checkout reserializes only vercel.json into one-line JSON.
-  // Keep literal byte cleanliness false, but separately attest equivalent
-  // build inputs only if there are no other tracked or untracked changes.
+  // Vercel reserializes vercel.json and writes one static-builder manifest.
+  // Keep literal byte cleanliness false; reject every other dirty input.
+  const expectedPlatformOnly = dirty === '?? .vercel/' ||
+    dirty === 'M vercel.json\n?? .vercel/';
   const trackedSourceEquivalent = dirty === null ? null :
-    dirty.length === 0 || (dirty === 'M vercel.json' && semanticallyUnchangedVercelConfig(root));
+    dirty.length === 0 || (dirty === 'M vercel.json' && semanticallyUnchangedVercelConfig(root)) ||
+    (expectedPlatformOnly && expectedVercelBuilderMetadata(root) &&
+      (dirty === '?? .vercel/' || semanticallyUnchangedVercelConfig(root)));
   if (!SHA.test(sourceSha ?? '') || (deploySha && head && deploySha !== head.toLowerCase()))
     return { sourceSha: SHA.test(sourceSha ?? '') ? sourceSha : null,
       provenance: 'unsupported', trackedSourceClean, trackedSourceEquivalent };
