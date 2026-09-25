@@ -329,7 +329,7 @@ select is(public.service_get_refund_status_contact_obligation_health()
 rollback to savepoint status_sent_delivery_events;
 
 update public.refund_case_messages set status='failed',
-  error_message='gmail_source_thread_required'
+  error_message='customer_email_delivery_failed'
 where refund_case_id='d4000000-0000-4000-8000-000000000003'
   and reason_code='provider_delay' and status='pending';
 select is(public.service_get_refund_status_contact_obligation_health()
@@ -461,7 +461,7 @@ select ok(public.service_finish_refund_gmail_outbound(
        select id from public.refund_case_messages
        where refund_case_id='d4000000-0000-4000-8000-000000000001'
          and reason_code='sla_at_risk' and status='pending')),
-  'delivery_unknown',null,null,'provider_uncertain'),
+  'delivery_unknown',null,null,'gmail_delivery_record_failed'),
   'The Gmail writer records an exact unknown effect');
 reset role;
 select is(public.service_get_refund_status_contact_obligation_health()
@@ -489,7 +489,7 @@ select ok(public.service_finish_refund_gmail_outbound(
        select id from public.refund_case_messages
        where refund_case_id='d4000000-0000-4000-8000-000000000001'
          and reason_code='sla_at_risk' and status='pending')),
-  'failed',null,null,'gmail_source_thread_required'),
+  'failed',null,null,'gmail_send_failed'),
   'The Gmail writer records a known-unsent failure');
 reset role;
 select is(public.service_get_refund_status_contact_obligation_health()
