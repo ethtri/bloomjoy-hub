@@ -286,9 +286,21 @@ insert into public.refund_cases (
   'approved-card@example.invalid', 'Previously approved card refund',
   statement_timestamp() - interval '1 hour', 'card', 700, 700, '4242',
   'card_refund_pending', 'approved', 'matched', 'nayax', 'approved',
-  'not_requested', true, 'NEXT-WORK-APPROVED-CARD', 104,
+  'requested', true, 'NEXT-WORK-APPROVED-CARD', 104,
   statement_timestamp() - interval '1 hour', 700, '4242', 'USD',
   'high_confidence', 'fixture-v1'
+);
+insert into public.refund_case_nayax_refund_attempts (
+  id, refund_case_id, execution_mode, status, idempotency_key,
+  amount_cents, request_fingerprint, provider_claim_digest,
+  provider_claim_expires_at, reconciliation_required, created_at
+) values (
+  'd8580000-0000-4000-8000-000000000001',
+  'd8560000-0000-4000-8000-000000000003',
+  'request_and_approve', 'requested', 'next-work-approved-card-attempt',
+  700, repeat('1', 64), repeat('2', 64),
+  statement_timestamp() + interval '10 minutes', false,
+  statement_timestamp() - interval '3 minutes'
 );
 set local role service_role;
 select is(public.refund_lifecycle_contract(
@@ -300,11 +312,11 @@ select is(public.refund_lifecycle_contract(
   'prior approved cash keeps only the existing Manager payout confirmation');
 select is(public.refund_lifecycle_contract(
   'd8560000-0000-4000-8000-000000000003'
-)->>'stage', 'transaction_confirmed', 'prior approved card retains its selected transaction');
+)->>'stage', 'confirming_with_nayax', 'prior approved card retains its original provider attempt');
 select is(public.refund_lifecycle_contract(
   'd8560000-0000-4000-8000-000000000003'
 )->'nextWork'->>'actor', 'agent',
-  'prior approved card continuation is internal, even with a live Manager mapping');
+  'prior approved card attempt continuation is internal, even with a live Manager mapping');
 select is(public.refund_lifecycle_contract(
   'd8560000-0000-4000-8000-000000000003'
 )->'nextWork'->>'actionCode', 'continue_refund',
