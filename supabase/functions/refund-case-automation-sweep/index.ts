@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
 import { corsHeaders } from "../_shared/cors.ts";
+import { reconcileApprovedCardResearchFailure } from "../_shared/refund-approved-card-research-failure.ts";
 import { correctionLinkRequested, getCurrentRefundCorrectionFields, issueRefundCorrectionForMessage, refundCorrectionLinksEnabled, STORED_CORRECTION_LINK_MARKER } from "../_shared/refund-correction-delivery.ts";
 import { recheckSavedPurchaseCorrection } from "../_shared/refund-purchase-correction-handler.ts";
 import { sendInternalEmail, sendTransactionalEmail } from "../_shared/internal-email.ts";
@@ -2993,13 +2994,13 @@ const runApprovedCardNayaxResearchSweep = async (
       addReason(counters, "approved_card_read_only_research_completed");
       await finishAction(action, "completed", "approved_card_research_recorded", null, counters);
     } catch (lookupError) {
-      counters.nayaxLookupFailures += 1;
+      let failureDisposition: "completed" | "failed" | "unresolved" = "unresolved";
       if (!persisted) {
         const classification = providerReadStarted
           ? classifyNayaxLookupFailure(lookupError)
           : { failureClass: "worker_interrupted", safeRetryEligible: true };
-        try {
-          const { error: failError } = await supabase.rpc(
+        failureDisposition = await reconcileApprovedCardResearchFailure(() =>
+          supabase.rpc(
             "service_fail_approved_card_nayax_research", {
               p_refund_case_id: caseId,
               p_lookup_generation: lookupGeneration,
@@ -3011,14 +3012,19 @@ const runApprovedCardNayaxResearchSweep = async (
               p_failure_class: classification.failureClass,
               p_safe_retry_eligible: classification.safeRetryEligible,
             },
-          );
-          if (failError) throw failError;
-        } catch (recordError) {
+          ));
+        if (failureDisposition === "unresolved") {
           console.error("Approved-card read-only research failure state was not recorded", {
-            errorType: recordError instanceof Error ? recordError.name : typeof recordError,
+            errorType: lookupError instanceof Error ? lookupError.name : typeof lookupError,
           });
         }
       }
+      if (failureDisposition === "completed" && action) {
+        addReason(counters, "approved_card_research_commit_response_reconciled");
+        await finishAction(action, "completed", "approved_card_research_recorded", null, counters);
+        continue;
+      }
+      counters.nayaxLookupFailures += 1;
       console.error("Approved-card read-only research failed", {
         errorType: lookupError instanceof Error ? lookupError.name : typeof lookupError,
       });

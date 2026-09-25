@@ -525,7 +525,29 @@ begin
         and claim.metadata->>'payload_redacted'='true')
   then
     -- A late failure after a successful commit is stale, not candidate cleanup.
-    return jsonb_build_object('applied',false,'stale',true,'payloadRedacted',true);
+    return jsonb_build_object(
+      'applied',false,'stale',true,
+      'alreadyCompleted',coalesce(
+        c.id is not null
+        and c.payment_method='card' and c.decision='approved'
+        and c.status in ('needs_review','correlated','approved')
+        and c.nayax_lookup_generation=p_lookup_generation
+        and c.nayax_lookup_status in ('match_found','multiple_matches','no_match','manual_exception','setup_needed')
+        and c.nayax_lookup_finished_at is not null
+        and c.nayax_lookup_failure_class is null
+        and c.deterministic_fact_version=p_expected_fact_version
+        and c.official_action_version=p_expected_action_version
+        and c.refund_business_fingerprint=p_expected_fingerprint
+        and public.refund_approved_card_research_scope_digest(c.id)=p_expected_scope_digest
+        and c.refund_amount_cents=p_expected_amount_cents
+        and exists (select 1 from public.refund_case_events completed
+          where completed.refund_case_id=c.id
+            and completed.event_type='approved_card_lookup_research_completed'
+            and completed.metadata->>'lookup_generation'=p_lookup_generation::text
+            and completed.metadata->>'deterministic_fact_version'=p_expected_fact_version::text
+            and completed.metadata->>'official_action_version'=p_expected_action_version::text
+            and completed.metadata->>'lookup_status'=c.nayax_lookup_status),false),
+      'payloadRedacted',true);
   end if;
   result := public.service_fail_refund_nayax_lookup(
     p_refund_case_id,p_lookup_generation,p_expected_fact_version,

@@ -241,6 +241,14 @@ select is(public.service_fail_approved_card_nayax_research(
   (select result->0->>'scopeDigest' from recovered_claim),963,
   'worker_interrupted',true)->>'stale','true',
   'A late worker failure cannot overwrite the recovered checking state');
+select is(public.service_fail_approved_card_nayax_research(
+  'ab450000-0000-4000-8000-000000000001',
+  (select (result->0->>'lookupGeneration')::bigint from recovered_claim),1,
+  (select (result->0->>'officialActionVersion')::bigint from recovered_claim),
+  (select result->0->>'businessFingerprint' from recovered_claim),
+  (select result->0->>'scopeDigest' from recovered_claim),963,
+  'worker_interrupted',true)->>'alreadyCompleted','false',
+  'A recovered failed generation is not a completed provider read');
 reset role;
 select is((select nayax_lookup_status||':'||nayax_lookup_failure_class
   from public.refund_cases
@@ -258,8 +266,17 @@ insert into public.refund_nayax_lookup_candidates(
   'ab450000-0000-4000-8000-000000000001',
   'ab440000-0000-4000-8000-000000000001',
   (select (result->0->>'lookupGeneration')::bigint from recovered_claim),
-  'APPROVED-READ-CANDIDATE-001',101,statement_timestamp()-interval '30 minutes',
-  963,'4242','USD','{"selection_allowed":false}'::jsonb,
+  'APPROVED-READ-CANDIDATE-001',101,statement_timestamp()-interval '8 hours',
+  963,'4242','USD',(
+    select jsonb_build_object(
+      'policy_version','2026-09-05.v8',
+      'customer_request_received_at',c.customer_request_received_at,
+      'customer_request_received_source',c.customer_request_received_source,
+      'transaction_occurrence_comparable',false,
+      'request_time_boundary','occurrence_time_uncertain',
+      'one_click_eligible',false,'selection_allowed',false)
+    from public.refund_cases c
+    where c.id='ab450000-0000-4000-8000-000000000001'),
   statement_timestamp()+interval '30 minutes');
 set local role service_role;
 select is(public.service_commit_approved_card_nayax_research(
@@ -277,8 +294,8 @@ select is(public.service_fail_approved_card_nayax_research(
   (select (result->0->>'officialActionVersion')::bigint from recovered_claim),
   (select result->0->>'businessFingerprint' from recovered_claim),
   (select result->0->>'scopeDigest' from recovered_claim),963,
-  'worker_interrupted',true)->>'stale','true',
-  'A late failure after a lost commit response is stale');
+  'worker_interrupted',true)->>'alreadyCompleted','true',
+  'A late failure after a lost commit response identifies durable completion');
 select is(public.service_commit_approved_card_nayax_research(
   'ab450000-0000-4000-8000-000000000001',
   (select (result->0->>'lookupGeneration')::bigint from recovered_claim),1,
