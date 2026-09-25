@@ -1830,14 +1830,22 @@ export const createOrdinarySuccessChecks = ({
       await queueCase(page, 'RF-UAT-CARD').click();
       await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
       const demoRefundAction = page.getByTestId('refund-run-nayax-refund');
+      const demoPrimaryActionText = await page.getByTestId('refund-primary-action').innerText();
       recorder.assert(
         'Confirmed demo transaction has one clear refund action',
         (await demoRefundAction.count()) === 1 &&
           await demoRefundAction.isDisabled() &&
           (await demoRefundAction.innerText()).includes('Refund $7.00') &&
-          (await page.getByTestId('refund-manager-state').innerText()) === 'Ready to approve' &&
-          (await page.getByTestId('refund-primary-action').innerText()).includes('Transaction confirmed') &&
-          (await page.getByTestId('refund-primary-action').innerText()).includes('Payment: Not issued')
+          (await page.getByTestId('refund-manager-state').innerText()) === 'Action needed' &&
+          demoPrimaryActionText.includes('The request is prepared for the assigned Manager') &&
+          demoPrimaryActionText.includes('Review the exact saved card purchase and make the final decision.'),
+        JSON.stringify({
+          buttonCount: await demoRefundAction.count(),
+          buttonDisabled: await demoRefundAction.isDisabled(),
+          buttonText: await demoRefundAction.innerText(),
+          state: await page.getByTestId('refund-manager-state').innerText(),
+          primaryActionText: demoPrimaryActionText,
+        })
       );
       recorder.assert(
         'Demo exposes no advanced Nayax rerun action',

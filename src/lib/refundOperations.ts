@@ -1820,7 +1820,8 @@ const demoLifecycle = (
   operationsRequired = false
 ): RefundLifecycleContract => ({
   schemaVersion: REFUND_LIFECYCLE_SCHEMA_VERSION,
-  ...(typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('next-work') === 'on'
+  ...(typeof window !== 'undefined' && (stage === 'transaction_confirmed' ||
+    new URLSearchParams(window.location.search).get('next-work') === 'on')
     ? { nextWork: {
       schemaVersion: 'refund_next_work_v1' as const,
       isOpen: true,
@@ -1829,7 +1830,7 @@ const demoLifecycle = (
       actionLabel: stage === 'waiting_on_customer'
         ? 'Waiting for the customer to answer the delivered question.'
         : stage === 'transaction_confirmed'
-        ? 'Approve or deny the prepared refund request.'
+        ? 'Review the exact saved card purchase and make the final decision.'
         : 'Correct the saved machine or provider mapping, then check the purchase.',
       lastProgressAt: demoIsoHoursAgo(0.9), dueAt: null,
       blocker: stage === 'matching'

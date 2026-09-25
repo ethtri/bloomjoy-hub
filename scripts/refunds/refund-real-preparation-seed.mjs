@@ -61,7 +61,7 @@ export async function writeRealRefundPreparationSeed({ dbPort, outputDir }) {
         c.deterministic_fact_version::integer as "deterministicFactVersion",
         c.reporting_machine_id as "reportingMachineId",
         c.reporting_location_id as "reportingLocationId",
-        c.status, c.payment_method as "paymentMethod",
+        c.status, c.decision, c.payment_method as "paymentMethod",
         c.payment_amount_cents as "paymentAmountCents",
         c.refund_amount_cents as "refundAmountCents",
         c.zelle_payment_contact as "zellePaymentContact",

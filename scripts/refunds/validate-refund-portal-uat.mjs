@@ -4151,6 +4151,9 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
         realProjectionSeed.managerId === mockUser.id &&
         preparationProof?.schemaVersion === 'refund_manager_preparation_v1' &&
         preparationProof?.evidenceBasis === 'cash_coverage_unavailable_researched' &&
+        caseRecord?.status === 'needs_review' &&
+        caseRecord?.decision === null &&
+        caseRecord?.paymentMethod === 'cash' &&
         caseRecord?.canPerformOfficialAction === true &&
         Number(preparationProof?.officialActionVersion) === realProjectionSeed.officialActionVersion &&
         Number(preparationProof?.deterministicFactVersion) === realProjectionSeed.deterministicFactVersion &&
@@ -4160,6 +4163,7 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
         lifecycle?.managerAction?.action === 'mark_external_refund');
     const realContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const functionCalls = [];
+    const functionBodies = [];
     await installMockSupabaseRoutes(realContext, {
       refundOverview: () => {
         const overview = buildCashRefundReviewOverview();
@@ -4176,6 +4180,7 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
         return overview;
       },
       functionCalls,
+      functionBodies,
     });
     const realPage = await realContext.newPage();
     await signInRefundUser(realPage, appUrl);
@@ -4194,8 +4199,14 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
         await realPage.getByRole('button', { name: 'Deny request', exact: true }).isVisible() &&
         (await realPage.getByRole('button', { name: /^Approve\b/ }).count()) === 0 &&
         (await realPage.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-        functionCalls.length === 0,
-      JSON.stringify({ renderedState, renderedAction, functionCalls }));
+        functionCalls.length === 1 && functionBodies.length === 1 &&
+        functionBodies.every(({ functionName, body }) =>
+          functionName === 'refund-case-sunze-correlation' &&
+          body?.operation === 'read' && body?.caseId === realProjectionSeed.caseId &&
+          body?.candidateLimit === 8 &&
+          Object.keys(body).sort().join(',') === 'candidateLimit,caseId,operation') &&
+        functionCalls.every((functionName) => functionName === 'refund-case-sunze-correlation'),
+      JSON.stringify({ renderedState, renderedAction, functionCalls, functionBodies }));
     await closeRefundPortalContext(realContext);
   }
 
