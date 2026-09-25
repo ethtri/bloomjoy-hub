@@ -2312,6 +2312,7 @@ const installMockSupabaseRoutes = async (
     nayaxSelectedResponse = null,
     nayaxCardRefundAvailabilityResponse = null,
     nayaxCardRefundAvailabilityResolver = null,
+    projectConfirmedSelectedCardDecision = false,
     nayaxCardRefundAvailabilityIncludesSelectionApprovalCapability = true,
     nayaxCardRefundAvailabilityAfterExecutionResponse = null,
     nayaxCardRefundAvailabilityStatus = 200,
@@ -2617,7 +2618,8 @@ const installMockSupabaseRoutes = async (
                       stage: 'transaction_confirmed',
                       stageRank: 30,
                       managerNextAction: 'issue_refund',
-                      ...(refundCase.publicReference === simpleJourneyFixture.case.publicReference
+                      ...(projectConfirmedSelectedCardDecision &&
+                        refundCase.publicReference === simpleJourneyFixture.case.publicReference
                         ? {
                             managerAction: {
                               action: 'refund', owner: 'Machine Manager',
@@ -4238,12 +4240,19 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
         await realPage.getByRole('button', { name: 'Deny request', exact: true }).isVisible() &&
         (await realPage.getByRole('button', { name: /^Approve\b/ }).count()) === 0 &&
         (await realPage.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-        functionCalls.length === 1 && functionBodies.length === 1 &&
-        functionBodies.every(({ functionName, body }) =>
+        functionBodies.some(({ functionName, body }) =>
           functionName === 'refund-case-sunze-correlation' &&
           body?.operation === 'read' && body?.caseId === realProjectionSeed.caseId &&
           body?.candidateLimit === 8 &&
           Object.keys(body).sort().join(',') === 'candidateLimit,caseId,operation') &&
+        functionBodies.every(({ functionName, body }) =>
+          (functionName === 'refund-case-sunze-correlation' &&
+            body?.operation === 'read' && body?.caseId === realProjectionSeed.caseId &&
+            body?.candidateLimit === 8 &&
+            Object.keys(body).sort().join(',') === 'candidateLimit,caseId,operation') ||
+          (functionName === 'nayax-card-refund' &&
+            body?.operation === 'availability' && body?.caseId === realProjectionSeed.caseId &&
+            Object.keys(body).sort().join(',') === 'caseId,operation')) &&
         functionCalls.every((functionName) => functionName === 'refund-case-sunze-correlation'),
       JSON.stringify({ renderedState, renderedAction, functionCalls, functionBodies }));
     await closeRefundPortalContext(realContext);

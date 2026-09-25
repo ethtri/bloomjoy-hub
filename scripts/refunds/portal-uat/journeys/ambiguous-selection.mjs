@@ -1361,6 +1361,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
             payloadRedacted: true,
           }
         : null,
+      projectConfirmedSelectedCardDecision: scenario.simpleJourney === true,
       nayaxCardRefundResponse: scenario.simpleJourney || scenario.name === 'unique QR wallet recommendation'
         ? {
             executed: true,
@@ -1847,7 +1848,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
         );
         await page.getByTestId('selected-nayax-transaction-evidence')
           .waitFor({ state: 'visible', timeout: 10000 });
-        await page.getByRole('button', { name: /^Refund \$10\.90$/i })
+        await page.getByTestId('refund-primary-action')
           .waitFor({ state: 'visible', timeout: 10000 });
         const persistedEvidenceText = await page.getByTestId('selected-nayax-transaction-evidence').innerText();
         await page.getByTestId('selected-nayax-transaction-evidence-details').click();
@@ -1855,16 +1856,20 @@ const runNayaxLookupStatusMatrixChecks = async ({
           'selected-nayax-transaction-evidence-details'
         ).innerText();
         recorder.assert(
-          'Prepared provider-total selection survives reopen with the amount discrepancy evidence and remains ready for a manager decision',
+          'Legacy saved selection survives reopen without inventing a prepared Manager decision',
           persistedEvidenceText.includes('$10.90') &&
             persistedEvidenceDetails.includes('$10.00 base-price record') &&
             persistedEvidenceDetails.includes('$10.90 full provider charge') &&
             (await page.getByTestId('nayax-candidate-option').count()) === 0 &&
-            (await page.getByRole('button', { name: /^Refund \$10\.90$/i }).count()) === 1,
+            (await page.getByTestId('refund-primary-action').innerText()).includes('Refund action temporarily unavailable') &&
+            (await page.getByRole('button', { name: /^Refund \$10\.90$/i }).count()) === 0 &&
+            (await page.getByTestId('refund-approve-selected-purchase').count()) === 0 &&
+            (await page.getByTestId('refund-approve-reviewed-purchase').count()) === 0,
           JSON.stringify({
             persistedEvidenceText,
             persistedEvidenceDetails,
             candidateCount: await page.getByTestId('nayax-candidate-option').count(),
+            primaryAction: await page.getByTestId('refund-primary-action').innerText(),
             refundActionCount: await page.getByRole('button', { name: /^Refund \$10\.90$/i }).count(),
           })
         );
@@ -2089,9 +2094,15 @@ const runNayaxLookupStatusMatrixChecks = async ({
       );
     } else if (scenario.prepareCandidateOnly) {
       recorder.assert(
-        'Prepared server-owned evidence exposes one manager refund decision after reopen',
-        (await page.getByRole('button', { name: /^Refund \$10\.90$/i }).count()) === 1 &&
-          await page.getByRole('button', { name: /^Refund \$10\.90$/i }).isEnabled()
+        'Legacy selection alone does not expose a final money decision after reopen',
+        (await page.getByTestId('refund-primary-action').innerText()).includes('Refund action temporarily unavailable') &&
+          (await page.getByRole('button', { name: /^Refund \$10\.90$/i }).count()) === 0 &&
+          (await page.getByTestId('refund-approve-selected-purchase').count()) === 0 &&
+          (await page.getByTestId('refund-approve-reviewed-purchase').count()) === 0,
+        JSON.stringify({ primaryAction: await page.getByTestId('refund-primary-action').innerText(),
+          refundCount: await page.getByRole('button', { name: /^Refund \$10\.90$/i }).count(),
+          selectedApprovalCount: await page.getByTestId('refund-approve-selected-purchase').count(),
+          reviewedApprovalCount: await page.getByTestId('refund-approve-reviewed-purchase').count() })
       );
     } else {
       const unresolvedCompetingSelection = scenario.name === 'multiple candidates';
@@ -2127,7 +2138,8 @@ const runNayaxLookupStatusMatrixChecks = async ({
             (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0
           : scenario.prepareCandidateOnly
             ? (await page.getByTestId('nayax-candidate-option').count()) === 0 &&
-              (await page.getByRole('button', { name: /^Refund \$10\.90$/i }).count()) === 1
+              (await page.getByTestId('refund-primary-action').innerText()).includes('Refund action temporarily unavailable') &&
+              (await page.getByRole('button', { name: /^Refund \$10\.90$/i }).count()) === 0
           : scenario.expectedCandidateCount
             ? (await page.getByTestId('nayax-candidate-option').count()) === scenario.expectedCandidateCount &&
               (scenario.name === 'multiple candidates'
