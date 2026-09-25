@@ -143,6 +143,9 @@ test('build diagnostic reports public tracked paths and redacts untracked privat
     git('commit', '-qm', 'fixture');
     assert.deepEqual(sourceBuildDiagnostics(root), {
       gitAvailable: true, tracked: [], untracked: [], vercelConfigEquivalent: true,
+      vercelDirectory: { present: false, projectJson: false, readme: false,
+        environmentFileCount: 0, otherFileCount: 0, directoryCount: 0,
+        projectIdentityMatches: false },
     });
     await writeFile(path.join(root, 'vercel.json'), '{"installCommand":"npm ci"}\n');
     await writeFile(path.join(root, 'source.txt'), 'changed');
@@ -165,6 +168,17 @@ test('build diagnostic reports public tracked paths and redacts untracked privat
     assert.equal(execFileSync(process.execPath, [script, 'before'], {
       cwd: root, encoding: 'utf8', env: { ...process.env, VERCEL_ENV: '' },
     }), '');
+    await mkdir(path.join(root, '.vercel'));
+    await writeFile(path.join(root, '.vercel', 'project.json'), JSON.stringify({
+      projectId: 'prj_YC3LjtHvqX2BAvFdt4iLV9ARs1bM',
+      orgId: 'team_yYNgFg7KgTwoN97wCL7rhDIj',
+    }));
+    await writeFile(path.join(root, '.vercel', '.env.preview.local'), 'PRIVATE_TEST_VALUE=do-not-print');
+    const withVercelFiles = sourceBuildDiagnostics(root);
+    assert.equal(withVercelFiles.vercelDirectory.projectIdentityMatches, true);
+    assert.equal(withVercelFiles.vercelDirectory.environmentFileCount, 1);
+    assert.equal(JSON.stringify(withVercelFiles).includes('PRIVATE_TEST_VALUE'), false);
+    assert.equal(JSON.stringify(withVercelFiles).includes('.env.preview.local'), false);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

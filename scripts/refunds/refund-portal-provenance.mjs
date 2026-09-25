@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -68,7 +68,8 @@ export function sourceBuildDiagnostics(root) {
     porcelain = execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=normal'],
       { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   } catch {
-    return { gitAvailable: false, tracked: [], untracked: [], vercelConfigEquivalent: false };
+    return { gitAvailable: false, tracked: [], untracked: [], vercelConfigEquivalent: false,
+      vercelDirectory: null };
   }
   const tracked = [];
   const untracked = [];
@@ -86,8 +87,25 @@ export function sourceBuildDiagnostics(root) {
         ...(!safePath ? { pathDigest: sha256(rawPath) } : {}) });
     }
   }
+  let vercelDirectory = { present: false, projectJson: false, readme: false,
+    environmentFileCount: 0, otherFileCount: 0, directoryCount: 0, projectIdentityMatches: false };
+  try {
+    const entries = readdirSync(path.join(root, '.vercel'), { withFileTypes: true });
+    vercelDirectory = { ...vercelDirectory, present: true,
+      projectJson: entries.some((entry) => entry.isFile() && entry.name === 'project.json'),
+      readme: entries.some((entry) => entry.isFile() && entry.name === 'README.txt'),
+      environmentFileCount: entries.filter((entry) => entry.isFile() && entry.name.startsWith('.env')).length,
+      otherFileCount: entries.filter((entry) => entry.isFile() && !['project.json', 'README.txt'].includes(entry.name)
+        && !entry.name.startsWith('.env')).length,
+      directoryCount: entries.filter((entry) => !entry.isFile()).length };
+    if (vercelDirectory.projectJson) {
+      const config = JSON.parse(readFileSync(path.join(root, '.vercel', 'project.json'), 'utf8'));
+      vercelDirectory.projectIdentityMatches = config?.projectId === 'prj_YC3LjtHvqX2BAvFdt4iLV9ARs1bM' &&
+        config?.orgId === 'team_yYNgFg7KgTwoN97wCL7rhDIj';
+    }
+  } catch { /* No file names, contents, or parser errors enter build logs. */ }
   return { gitAvailable: true, tracked, untracked,
-    vercelConfigEquivalent: semanticallyUnchangedVercelConfig(root) };
+    vercelConfigEquivalent: semanticallyUnchangedVercelConfig(root), vercelDirectory };
 }
 
 export function sourceIdentity(root, env = process.env) {
