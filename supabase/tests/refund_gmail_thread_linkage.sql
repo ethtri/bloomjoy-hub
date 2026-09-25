@@ -477,8 +477,8 @@ select is(
 );
 select is(
   public.get_refund_gmail_health() ->> 'status',
-  'healthy',
-  'An authorized refund manager sees healthy Gmail intake state'
+  'waiting',
+  'An authorized refund manager sees that the new Info recovery scan is not yet complete'
 );
 select is(
   public.get_refund_gmail_health() ->> 'payloadRedacted',

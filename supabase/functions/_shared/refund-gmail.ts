@@ -754,6 +754,28 @@ export const listLabeledRefundThreads = async (
   }>(config, `/threads?${params.toString()}`);
 };
 
+export const listInfoRefundInquiryThreads = async (
+  config: RefundGmailConfig,
+  pageToken?: string,
+) => {
+  // Search the connected Info mailbox directly: the refund label is not a
+  // prerequisite for an inquiry that arrived at the public Info address.
+  const params = infoRefundInquiryThreadQuery(config.startAt, pageToken);
+  return await gmailRequest<{
+    threads?: Array<{ id?: string; historyId?: string }>;
+    nextPageToken?: string;
+  }>(config, `/threads?${params.toString()}`);
+};
+
+export const infoRefundInquiryThreadQuery = (startAt: Date, pageToken?: string) => {
+  const params = new URLSearchParams({
+    q: `after:${Math.floor(startAt.getTime() / 1000)} {to:info@bloomjoysweets.com cc:info@bloomjoysweets.com to:support@bloomjoysweets.com cc:support@bloomjoysweets.com}`,
+    maxResults: "50",
+  });
+  if (pageToken) params.set("pageToken", pageToken);
+  return params;
+};
+
 export const nayaxScheduledReportThreadQuery = (startAt: Date) => new URLSearchParams({
     q: `from:notifier@nayax.com subject:"Nayax Transactions Report" newer_than:7d after:${Math.floor(startAt.getTime() / 1000)}`,
     maxResults: "25",

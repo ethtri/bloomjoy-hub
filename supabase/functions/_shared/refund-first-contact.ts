@@ -30,10 +30,10 @@ export type RefundFirstContactEmailInput = {
 };
 
 const DEFAULT_REFUND_REQUEST_URL =
-  "https://www.bloomjoyusa.com/refunds/request";
+  "https://app.bloomjoyusa.com/refunds/request";
 const DEFAULT_SUPPORT_URL =
   "https://www.bloomjoyusa.com/resources#support-boundaries";
-const REFUND_HOSTS = new Set(["bloomjoyusa.com", "www.bloomjoyusa.com"]);
+const REFUND_HOSTS = new Set(["bloomjoyusa.com", "www.bloomjoyusa.com", "app.bloomjoyusa.com"]);
 const ACTIVE_DELIVERY_POLICY_INSTALLED = true;
 
 const sanitizeText = (value: unknown, maxLength: number) =>
@@ -103,11 +103,17 @@ const blockedConfig = (
 export const resolveRefundFirstContactConfig = (
   env: FirstContactEnvironment,
 ): RefundFirstContactConfig => {
-  const refundRequestUrl = httpsUrl(
+  const configuredRefundRequestUrl = httpsUrl(
     env.REFUND_GMAIL_FIRST_CONTACT_REFUND_URL,
     DEFAULT_REFUND_REQUEST_URL,
     REFUND_HOSTS,
   );
+  // Old deployments may still carry the www URL. It is a configuration
+  // input, not authority to send customers to a stale form route.
+  const refundRequestUrl = configuredRefundRequestUrl &&
+      new URL(configuredRefundRequestUrl).pathname === "/refunds/request"
+    ? DEFAULT_REFUND_REQUEST_URL
+    : "";
   const supportUrl = httpsUrl(
     env.REFUND_GMAIL_FIRST_CONTACT_SUPPORT_URL,
     DEFAULT_SUPPORT_URL,

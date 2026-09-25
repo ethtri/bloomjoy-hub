@@ -239,7 +239,7 @@ const run = () => {
       if (!value) continue;
       try {
         const parsed = new URL(value);
-        const allowedHosts = new Set(['bloomjoyusa.com', 'www.bloomjoyusa.com']);
+        const allowedHosts = new Set(['bloomjoyusa.com', 'www.bloomjoyusa.com', 'app.bloomjoyusa.com']);
         if (parsed.protocol !== 'https:' || parsed.username || parsed.password ||
           !allowedHosts.has(parsed.hostname.toLowerCase())) {
           errors.push(`${key} must use an approved public HTTPS host without embedded credentials.`);

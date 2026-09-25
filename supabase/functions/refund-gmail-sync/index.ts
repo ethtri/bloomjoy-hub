@@ -13,6 +13,7 @@ import {
   inspectRefundGmailParticipantSignals,
   inspectRefundGmailReplyByMessageHeader,
   isRefundGmailConversation,
+  listInfoRefundInquiryThreads,
   listLabeledRefundThreads,
   listNayaxScheduledReportThreads,
   redactPaymentCardNumbers,
@@ -26,6 +27,7 @@ import {
   sha256Hex,
   verifyRefundGmailMailbox,
 } from "../_shared/refund-gmail.ts";
+import { classifyRefundInfoInquiry, infoInquiryEnabled, infoInquiryMissingSource, infoInquirySourceMissingSender, infoRecoveryScanOutcome } from "../_shared/refund-info-inquiry.ts";
 import { ingestRefundGmailThreadBeforeFirstContact } from "../_shared/refund-gmail-orchestration.ts";
 import { ingestNayaxReportMail, isNayaxScheduledReportMessage, nayaxReportFailureCode } from "../_shared/nayax-report-mail.ts";
 import {
@@ -1867,6 +1869,11 @@ serve(async (request) => {
   }
   const baseConfig = getRefundGmailConfig();
   const firstContact = getFirstContactConfig();
+  // The shared first-contact mode may already be active. Info/Support discovery
+  // needs its own explicit activation so deploying this route cannot send mail.
+  const infoLaneEnabled = !intakeShadow && infoInquiryEnabled(
+    Deno.env.get("REFUND_GMAIL_INFO_INQUIRY_ENABLED"),
+  );
   if (intakeShadow) {
     try {
       await validateRefundGmailIntakeShadowRuntime({
@@ -2058,6 +2065,16 @@ serve(async (request) => {
     appealConfirmationsFailed: 0,
     appealConfirmationsSuppressed: 0,
   };
+  const infoCounters = {
+    considered: 0,
+    eligible: 0,
+    replied: 0,
+    duplicateSuppressed: 0,
+    nonRefundSuppressed: 0,
+    reviewHeld: 0,
+    existingCase: 0,
+    failed: 0,
+  };
 
   if (triggerSource === "failure_test") {
     await rpc("service_finish_refund_gmail_sync", {
@@ -2088,7 +2105,24 @@ serve(async (request) => {
 
   let profileHistoryId: string | null = null;
   let fatalError: RefundGmailError | null = null;
+  let initialInfoScanCursor: string | null = null;
+  let nextInfoScanCursor: string | null = null;
+  let infoScanPagesFetched = false;
+  let infoScanFailed = false;
+  let infoThreadRefs: Array<{ id?: string; historyId?: string }> = [];
+  const visitedThreadIds = new Set<string>();
   try {
+    if (!intakeShadow) {
+      const observed = await rpc<boolean>("service_set_refund_info_inquiry_enabled", {
+        p_enabled: infoLaneEnabled,
+      });
+      if (!observed) {
+        throw new RefundGmailError(
+          "gmail_info_inquiry_activation_readback_failed",
+          "Unable to record the Info inquiry activation state.",
+        );
+      }
+    }
     if (firstContact.mode === "blocked") {
       counters.firstContactFailed += 1;
       counters.messagesFailed += 1;
@@ -2138,33 +2172,69 @@ serve(async (request) => {
       await reconcileOutstandingContactResponses({ config, counters });
       await reconcileOutstandingOutbound({ config, counters });
     }
-    const maxThreads = intakeShadow ? 1 : Math.min(
+    const labeledThreadLimit = intakeShadow ? 1 : Math.min(
       Math.max(
         Number(Deno.env.get("GMAIL_REFUND_MAX_THREADS_PER_RUN") ?? 100),
         1,
       ),
       500,
     );
+    // Preserve the old refund-label budget while scanning up to two 50-thread
+    // Info pages: the current page and one durable historical recovery page.
+    const maxThreads = labeledThreadLimit + (infoLaneEnabled ? 100 : 0);
     let nextPageToken: string | undefined;
+    let labeledExhausted = false;
+    let infoExhausted = !infoLaneEnabled;
+    if (infoLaneEnabled) {
+      try {
+        initialInfoScanCursor = sanitizeText(
+          await rpc<string | null>("service_get_refund_info_inquiry_scan_cursor", {}),
+          2048,
+        ) || null;
+        const currentInfoPage = await listInfoRefundInquiryThreads(config);
+        infoThreadRefs = [...(currentInfoPage.threads ?? [])];
+        if (initialInfoScanCursor) {
+          const recoveryPage = await listInfoRefundInquiryThreads(config, initialInfoScanCursor);
+          infoThreadRefs.push(...(recoveryPage.threads ?? []));
+          nextInfoScanCursor = recoveryPage.nextPageToken ?? null;
+        } else {
+          nextInfoScanCursor = currentInfoPage.nextPageToken ?? null;
+        }
+        infoScanPagesFetched = true;
+      } catch (error) {
+        infoScanFailed = true;
+        throw error;
+      }
+    }
     let reportThreadRefs = intakeShadow ? [] : (await listNayaxScheduledReportThreads(config).catch(() => {
       counters.messagesFailed += 1;
       return { threads: [] };
     })).threads ?? [];
     const reportOnlyThreadIds = new Set<string>();
     let customerThreadsScanned = 0;
-    while (customerThreadsScanned < maxThreads) {
-      const page = intakeThreadRefs
+    while (customerThreadsScanned < maxThreads && (!labeledExhausted || !infoExhausted)) {
+      const page: { threads?: Array<{ id?: string; historyId?: string }>; nextPageToken?: string } = labeledExhausted
+        ? { threads: [], nextPageToken: undefined }
+        : intakeThreadRefs
         ? { threads: intakeThreadRefs, nextPageToken: undefined }
         : await listLabeledRefundThreads(config, nextPageToken);
+      const infoPage = infoExhausted ? [] : infoThreadRefs;
+      const infoThreadIds = new Set(infoPage.map((thread) => thread.id));
       const labeledIds = new Set((page.threads ?? []).map((thread) => thread.id));
       for (const id of labeledIds) if (id) reportOnlyThreadIds.delete(id);
       for (const thread of reportThreadRefs) if (thread.id && !labeledIds.has(thread.id)) reportOnlyThreadIds.add(thread.id);
-      const threadRefs = [...reportThreadRefs.filter((thread) => !labeledIds.has(thread.id)), ...(page.threads ?? [])];
+      const threadRefs = [
+        ...reportThreadRefs.filter((thread) => !labeledIds.has(thread.id)),
+        ...infoPage,
+        ...(page.threads ?? []),
+      ];
       reportThreadRefs = [];
       if (threadRefs.length === 0) break;
       for (const threadRef of threadRefs) {
         const providerThreadId = sanitizeText(threadRef.id, 255);
         if (!providerThreadId) continue;
+        if (visitedThreadIds.has(providerThreadId)) continue;
+        visitedThreadIds.add(providerThreadId);
         if (!reportOnlyThreadIds.has(providerThreadId)) {
           if (customerThreadsScanned >= maxThreads) break;
           customerThreadsScanned += 1;
@@ -2179,13 +2249,35 @@ serve(async (request) => {
           const hasScheduledNayaxReport = messages.some(
             isNayaxScheduledReportMessage,
           );
-          if (
-            !intakeShadow && !hasScheduledNayaxReport &&
-            !isRefundGmailConversation({
+          const isRefundAliasThread = isRefundGmailConversation({
               messages,
               refundAddress: config.senderEmail,
-            })
-          ) continue;
+            });
+          const infoInquiry = infoLaneEnabled && !hasScheduledNayaxReport && !isRefundAliasThread
+            ? classifyRefundInfoInquiry({ messages, mailboxIdentities: config.mailboxIdentities })
+            : null;
+          if (infoInquiry) {
+            infoCounters.considered += 1;
+            if (infoInquiryMissingSource(infoInquiry)) {
+              // An applicable message without its provider ID cannot enter the
+              // exact-source contact ledger. Keep this recovery page due.
+              infoCounters.failed += 1;
+              counters.messagesFailed += 1;
+              infoScanFailed = true;
+              continue;
+            }
+            if (infoInquiry.route === "non_refund" || infoInquiry.route === "untrusted" ||
+              infoInquiry.route === "not_info") {
+              infoCounters.nonRefundSuppressed += 1;
+            } else if (infoInquiry.route === "needs_review") {
+              infoCounters.reviewHeld += 1;
+            } else if (infoInquiry.route === "existing_case_question") {
+              infoCounters.existingCase += 1;
+            }
+          }
+          if (!intakeShadow && !hasScheduledNayaxReport && !isRefundAliasThread &&
+            (!infoInquiry || infoInquiry.route === "not_info" ||
+              infoInquiry.route === "untrusted" || infoInquiry.route === "non_refund")) continue;
           const threadHasOutbound = messages.some((message) =>
             (() => {
               const signals = inspectRefundGmailParticipantSignals({
@@ -2205,11 +2297,20 @@ serve(async (request) => {
             counters.mailboxAcknowledgementObserved =
               intakeThreadShape.mailboxAcknowledgementObserved;
           }
+          const messagesToIngest = infoInquiry
+            ? messages.filter((message) =>
+              message.id === infoInquiry.sourceMessageId ||
+              inspectRefundGmailParticipantSignals({
+                message,
+                mailboxIdentities: config.mailboxIdentities,
+              }).mailboxOrigin
+            )
+            : messages;
           await ingestRefundGmailThreadBeforeFirstContact<
             GmailMessage,
             FirstContactCandidate
           >({
-            messages,
+            messages: messagesToIngest,
             ingestMessage: async (message) => {
               counters.messagesSeen += 1;
               const providerMessageId = sanitizeText(message.id, 255);
@@ -2266,6 +2367,10 @@ serve(async (request) => {
               }
               if (!from.email && direction !== "system") {
                 counters.messagesFailed += 1;
+                if (infoInquirySourceMissingSender(infoInquiry, providerMessageId, from.email)) {
+                  infoCounters.failed += 1;
+                  infoScanFailed = true;
+                }
                 return null;
               }
               const rawSubject =
@@ -2306,8 +2411,11 @@ serve(async (request) => {
                   p_is_bounce: isBounce,
                   p_sender_email: from.email || null,
                   p_sender_name: from.name || null,
-                  p_recipient_email: participantSignals.toEmails[0] ||
-                    config.mailbox,
+                  p_recipient_email: (infoInquiry
+                    ? participantSignals.toEmails.find((email) =>
+                      email === "info@bloomjoysweets.com" ||
+                      email === "support@bloomjoysweets.com")
+                    : null) || participantSignals.toEmails[0] || config.mailbox,
                   p_subject: redactedSubject.text,
                   p_plain_body: redactedBody.text,
                   p_sensitive_data_redacted: redactedSubject.redacted ||
@@ -2356,6 +2464,33 @@ serve(async (request) => {
                 ingestion?.automaticCustomerContactPaused === true;
               let allowRoutineContact = true;
               let scopedReplyReceived = false;
+              if (infoInquiry && providerMessageId === infoInquiry.sourceMessageId &&
+                infoInquiry.route !== "not_info" &&
+                infoInquiry.route !== "non_refund" && infoInquiry.route !== "untrusted") {
+                if (caseId) {
+                  if (infoInquiry.route === "new_refund_inquiry") infoCounters.existingCase += 1;
+                  allowRoutineContact = false;
+                } else if (internalMessageId && contactId) {
+                  try {
+                    const marked = await rpc<boolean>("service_mark_refund_info_inquiry", {
+                      p_source_message_id: internalMessageId,
+                      p_route: infoInquiry.route,
+                    });
+                    if (!marked) throw new Error("Info inquiry contact marker rejected");
+                    if (infoInquiry.route === "new_refund_inquiry") infoCounters.eligible += 1;
+                  } catch {
+                    infoCounters.failed += 1;
+                    counters.messagesFailed += 1;
+                    infoScanFailed = true;
+                    allowRoutineContact = false;
+                  }
+                } else {
+                  infoCounters.failed += 1;
+                  counters.messagesFailed += 1;
+                  infoScanFailed = true;
+                  allowRoutineContact = false;
+                }
+              }
               const appealId = sanitizeText(ingestion?.appealId, 80);
               const appealReceived = ingestion?.appealReceived === true &&
                 Boolean(appealId);
@@ -2446,7 +2581,10 @@ serve(async (request) => {
               const firstContactContextReady = intakeShadow
                 ? Boolean(caseId)
                 : ingestion?.contactOnly === true && Boolean(contactId);
-              return participantRole === "customer" && allowRoutineContact &&
+              return (!infoInquiry ||
+                  (infoInquiry.route === "new_refund_inquiry" &&
+                    providerMessageId === infoInquiry.sourceMessageId)) &&
+                  participantRole === "customer" && allowRoutineContact &&
                   firstContactContextReady && internalMessageId
                 ? {
                   refundCaseId: caseId || undefined,
@@ -2459,6 +2597,8 @@ serve(async (request) => {
                 : null;
             },
             processFirstContact: async (firstContactCandidate) => {
+              const sentBefore = counters.firstContactSent;
+              const suppressedBefore = counters.firstContactSuppressed;
               const firstContactResult = await processFirstContact({
                 firstContact,
                 config,
@@ -2469,14 +2609,26 @@ serve(async (request) => {
                 runId,
               });
               if (firstContactResult.failed) counters.messagesFailed += 1;
+              if (infoInquiry?.route === "new_refund_inquiry") {
+                if (counters.firstContactSent > sentBefore) infoCounters.replied += 1;
+                if (counters.firstContactSuppressed > suppressedBefore) {
+                  infoCounters.duplicateSuppressed += 1;
+                }
+                if (firstContactResult.failed) infoCounters.failed += 1;
+              }
             },
           });
         } catch {
           counters.messagesFailed += 1;
+          if (infoThreadIds.has(providerThreadId)) {
+            infoCounters.failed += 1;
+            infoScanFailed = true;
+          }
         }
       }
       nextPageToken = page.nextPageToken;
-      if (!nextPageToken) break;
+      labeledExhausted = !nextPageToken;
+      infoExhausted = true;
     }
     if (
       intakeShadow &&
@@ -2502,6 +2654,36 @@ serve(async (request) => {
       ? error
       : new RefundGmailError("gmail_sync_failed", "Gmail sync failed.");
     counters.messagesFailed += 1;
+  }
+
+  // A failed cursor read or page fetch has no trustworthy cursor to write back.
+  if (infoLaneEnabled && infoScanPagesFetched) {
+    try {
+      const infoScan = infoRecoveryScanOutcome({
+        initialCursor: initialInfoScanCursor,
+        nextCursor: nextInfoScanCursor,
+        pagesFetched: infoScanPagesFetched,
+        allThreadsProcessed: infoThreadRefs.every((thread) =>
+          typeof thread.id === "string" && visitedThreadIds.has(thread.id)),
+        scanFailed: infoScanFailed,
+      });
+      const recorded = await rpc<boolean>("service_record_refund_info_inquiry_run", {
+        p_run_id: runId,
+        p_considered: infoCounters.considered,
+        p_eligible: infoCounters.eligible,
+        p_replied: infoCounters.replied,
+        p_duplicate_suppressed: infoCounters.duplicateSuppressed,
+        p_non_refund_suppressed: infoCounters.nonRefundSuppressed,
+        p_review_held: infoCounters.reviewHeld,
+        p_existing_case: infoCounters.existingCase,
+        p_failed: infoCounters.failed,
+        p_next_scan_cursor: infoScan.cursor,
+        p_full_scan_completed: infoScan.fullScanCompleted,
+      });
+      if (!recorded) counters.messagesFailed += 1;
+    } catch {
+      counters.messagesFailed += 1;
+    }
   }
 
   const succeeded = !fatalError &&
@@ -2547,12 +2729,14 @@ serve(async (request) => {
   console.info("refund-gmail-sync completed", {
     status: succeeded ? "succeeded" : "failed",
     ...counters,
+    infoInquiry: infoCounters,
     errorCode,
     payloadRedacted: true,
   });
   return jsonResponse({
     status: succeeded ? "succeeded" : "failed",
     ...counters,
+    infoInquiry: infoCounters,
     errorCode,
     payloadRedacted: true,
   }, succeeded ? 200 : 503);
