@@ -33,6 +33,17 @@ export function infoRecoveryScanOutcome({
   };
 }
 
+export function infoInquiryMissingSource({
+  route,
+  sourceMessageId,
+}: {
+  route: RefundInfoInquiryRoute;
+  sourceMessageId: string | null;
+}): boolean {
+  return (route === "new_refund_inquiry" || route === "needs_review" ||
+    route === "existing_case_question") && !sourceMessageId;
+}
+
 const INFO_RECIPIENTS = new Set([
   "info@bloomjoysweets.com",
   "support@bloomjoysweets.com",
@@ -83,9 +94,13 @@ export function classifyRefundInfoInquiry({
     const subject = getGmailHeader(message.payload?.headers, "Subject");
     const text = currentMessageText(`${subject}\n${extractPlainTextBody(message.payload)}`);
     if (businessContext.test(text)) {
-      // A later vendor/business message also supersedes any older customer
-      // inquiry in this thread; it must never inherit a pending form reply.
-      latestApplicable = { route: "non_refund", sourceMessageId: null };
+      // A later business message must not trigger an older automatic reply.
+      // Retain an already observed customer inquiry for human review instead
+      // of silently losing its unanswered obligation.
+      const prior = latestApplicable as { route: RefundInfoInquiryRoute; sourceMessageId: string | null } | null;
+      latestApplicable = prior && prior.route !== "non_refund"
+        ? { route: "needs_review", sourceMessageId: prior.sourceMessageId }
+        : { route: "non_refund", sourceMessageId: null };
       continue;
     }
     if (publicReference.test(text) || statusQuestion.test(text)) {

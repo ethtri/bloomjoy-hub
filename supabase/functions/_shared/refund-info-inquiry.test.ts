@@ -1,4 +1,4 @@
-import { classifyRefundInfoInquiry, infoRecoveryScanOutcome } from "./refund-info-inquiry.ts";
+import { classifyRefundInfoInquiry, infoInquiryMissingSource, infoRecoveryScanOutcome } from "./refund-info-inquiry.ts";
 import { infoRefundInquiryThreadQuery, type GmailMessage } from "./refund-gmail.ts";
 
 Deno.test("Info mailbox search is independent of the refund label and preserves pagination", () => {
@@ -85,6 +85,26 @@ Deno.test("failed or unprocessed Info pages retain the exact recovery cursor", (
   }
 });
 
+Deno.test("an applicable Info inquiry without a provider message ID keeps recovery due", () => {
+  const missingId = message({ body: "I need a refund for my Bloomjoy purchase." });
+  delete missingId.id;
+  const classified = classifyRefundInfoInquiry({
+    messages: [missingId], mailboxIdentities: ["info@bloomjoysweets.com"],
+  });
+  if (classified.route !== "new_refund_inquiry" ||
+    !infoInquiryMissingSource(classified)) {
+    throw new Error("The missing exact source must be an Info scan failure");
+  }
+  const scan = infoRecoveryScanOutcome({
+    initialCursor: "unread-page", nextCursor: "later-page",
+    pagesFetched: true, allThreadsProcessed: true,
+    scanFailed: infoInquiryMissingSource(classified),
+  });
+  if (scan.cursor !== "unread-page" || scan.fullScanCompleted) {
+    throw new Error("Missing source evidence must not advance the Info cursor");
+  }
+});
+
 Deno.test("Info in a secondary To or Cc recipient still routes through the verified mailbox", () => {
   assertRoute(message({ to: "helper@example.test, info@bloomjoysweets.com",
     body: "I need a refund. I was charged by your machine." }), "new_refund_inquiry");
@@ -158,8 +178,8 @@ Deno.test("a later vendor request cannot inherit an older refund inquiry in one 
     messages: [earlier, later],
     mailboxIdentities: ["info@bloomjoysweets.com"],
   });
-  if (result.route !== "non_refund") {
-    throw new Error("The current business request must not trigger an old form reply");
+  if (result.route !== "needs_review" || result.sourceMessageId !== "older-customer-inquiry") {
+    throw new Error("The old customer inquiry needs review without an automatic form reply");
   }
 });
 
