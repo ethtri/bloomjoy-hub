@@ -8,8 +8,20 @@ import { test } from 'node:test';
 import { buildMetadata, independentArtifactComparison, METADATA_PATH, safePublicPath, sha256,
   sourceIdentity, successfulMainBuildRun, successfulProductionDeploymentSha,
   verifiedVercelAliasDeployment, verifyServedPortal } from './refund-portal-provenance.mjs';
+import { summarizeTrackedStatus } from './log-refund-portal-tracked-status.mjs';
 
 const SHA = 'a'.repeat(40);
+
+test('private build diagnostic logs only bounded tracked names and redacts sensitive paths', () => {
+  const summary = summarizeTrackedStatus(' M package-lock.json\n M .env.production\n M C:\\private\\config.json\n');
+  assert.equal(summary.changedTrackedCount, 3);
+  assert.deepEqual(summary.entries, [
+    { status: ' M', path: 'package-lock.json' },
+    { status: ' M', path: '[redacted]' },
+    { status: ' M', path: '[redacted]' },
+  ]);
+  assert.equal(summary.omittedCount, 0);
+});
 const html = '<html><head><link rel="stylesheet" href="/assets/app.css"></head><body><script type="module" src="/assets/app.js"></script></body></html>';
 const files = new Map([
   ['/index.html', Buffer.from(html)],
