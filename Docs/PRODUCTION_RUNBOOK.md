@@ -400,6 +400,7 @@ Run immediately after deploy:
 - [ ] Public routes load (`/`, `/machines`, `/supplies`, `/plus`, `/resources`, `/contact`).
 - [ ] `https://www.bloomjoyusa.com/login` and `https://www.bloomjoyusa.com/portal` redirect to `https://app.bloomjoyusa.com/...`
 - [ ] `https://app.bloomjoyusa.com/` and public marketing paths on `app` redirect back to `https://www.bloomjoyusa.com/...`
+- [ ] After the intended GitHub `Production` deployment reports its latest status as `success`, run `npm run refunds:release:verify-portal -- <deployment-id>`. Save the read-only JSON result with the exact `https://app.bloomjoyusa.com/refunds` URL, observation time, full deployment SHA, and verified index/Vite-asset SHA-256 values in #1432. The public `/refund-portal-build.json` contains a deterministic inventory of built public files; the validator checks the served portal index and every manifest-referenced asset against it. A local/dirty/unsupported build, wrong SHA, missing file, redirect, or changed bytes fails. Keep portal attribution open until this succeeds against the deployed canonical host; a GitHub deployment record or local build alone is not live proof. This does not replace the Supabase migration/function checks above.
 - [ ] Login works, password recovery works, and protected routes redirect correctly on `app.bloomjoyusa.com`.
 - [ ] Auth launch sign-off checklist is completed with evidence (`Docs/AUTH_PRODUCTION_SIGNOFF.md`).
 - [ ] `Docs/QA_SMOKE_TEST_CHECKLIST.md` core payment/auth checks pass.
