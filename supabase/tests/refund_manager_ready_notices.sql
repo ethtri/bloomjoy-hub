@@ -60,7 +60,10 @@ begin
   select deterministic_fact_version into fact_version from public.refund_cases
   where id=p_refund_case_id and official_action_version=p_expected_action_version;
   if fact_version is null then return null; end if;
-  return jsonb_build_object('proofId',p_refund_case_id,
+  -- The producer's content digest is a PostgreSQL UUID and need not carry an
+  -- RFC version/variant nibble. Preserve the per-case identity in this stub.
+  return jsonb_build_object('proofId',
+    overlay(p_refund_case_id::text placing '0' from 20 for 1),
     'preparedAt','2026-09-24T14:59:00Z',
     'evidenceBasis','cash_coverage_unavailable_researched',
     'summary','Cash coverage was unavailable; the saved research is ready for decision.',
@@ -84,6 +87,11 @@ select is(public.service_refund_manager_ready_notice_snapshot(
   '14250000-0000-4000-8000-000000000001')->>'evidenceBasis',
   'cash_coverage_unavailable_researched',
   'Legitimate researched coverage-unavailable cash case can be prepared');
+select is(public.service_refund_manager_ready_notice_snapshot(
+  '14255000-0000-4000-8000-000000000001',
+  '14250000-0000-4000-8000-000000000001')->>'proofId',
+  '14255000-0000-4000-0000-000000000001',
+  'Prepared digest UUID proof is accepted without RFC variant constraints');
 
 update public.refund_manager_ready_notice_settings set delivery_enabled=true where singleton;
 select is(public.service_enqueue_refund_manager_ready_notices(

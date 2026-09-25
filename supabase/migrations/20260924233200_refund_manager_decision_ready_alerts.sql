@@ -212,13 +212,19 @@ begin
   if preparation is null then return null; end if;
   if preparation->>'payloadRedacted' is distinct from 'true'
     or coalesce(preparation->>'proofId','') !~
-      '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+      '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
     or preparation->>'officialActionVersion' is distinct from case_row.official_action_version::text
     or preparation->>'deterministicFactVersion' is distinct from case_row.deterministic_fact_version::text
     or preparation->>'evidenceBasis' is null
     or preparation->>'evidenceBasis' not in
-      ('card_exact_selected','cash_sale_found','cash_multiple_reviewed',
+      ('card_exact_selected','card_reviewed_candidate_set',
+        'cash_sale_found','cash_multiple_reviewed',
         'cash_researched_unmatched','cash_coverage_unavailable_researched')
+    or (action_code='approve_or_deny_request' and preparation->>'evidenceBasis'
+      not in ('card_exact_selected','card_reviewed_candidate_set'))
+    or (action_code='send_cash_refund_and_confirm' and preparation->>'evidenceBasis'
+      not in ('cash_sale_found','cash_multiple_reviewed',
+        'cash_researched_unmatched','cash_coverage_unavailable_researched'))
     or nullif(btrim(preparation->>'summary'),'') is null
     or length(preparation->>'summary')>160
     or nullif(preparation->>'preparedAt','') is null then

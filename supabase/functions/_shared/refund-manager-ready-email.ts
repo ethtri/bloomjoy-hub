@@ -7,7 +7,7 @@ export type RefundManagerReadyNotice = {
   officialActionVersion: number;
   deterministicFactVersion: number;
   actionCode: "approve_or_deny_request" | "send_cash_refund_and_confirm";
-  evidenceBasis: "card_exact_selected" | "cash_sale_found" |
+  evidenceBasis: "card_exact_selected" | "card_reviewed_candidate_set" | "cash_sale_found" |
     "cash_multiple_reviewed" | "cash_researched_unmatched" |
     "cash_coverage_unavailable_researched";
   preparationSummary: string;
@@ -24,6 +24,7 @@ const keys = ["schemaVersion", "caseId", "managerUserId", "decisionFingerprint",
   "actionCode", "evidenceBasis", "preparationSummary", "publicReference", "amountCents", "currencyCode",
   "machineLabel", "locationName", "payloadRedacted"].sort();
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const postgresUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const safeText = (value: unknown, label: string) => {
   if (typeof value !== "string" || value.length < 1 || value.length > 160 ||
     Array.from(value).some((character) => {
@@ -46,7 +47,7 @@ export const parseRefundManagerReadyNotice = (value: unknown): RefundManagerRead
     typeof data.caseId !== "string" || !uuid.test(data.caseId) ||
     typeof data.managerUserId !== "string" || !uuid.test(data.managerUserId) ||
     typeof data.decisionFingerprint !== "string" || !/^[a-f0-9]{64}$/.test(data.decisionFingerprint) ||
-    typeof data.proofId !== "string" || !uuid.test(data.proofId) ||
+    typeof data.proofId !== "string" || !postgresUuid.test(data.proofId) ||
     !Number.isSafeInteger(data.officialActionVersion) || (data.officialActionVersion as number) < 1 ||
     !Number.isSafeInteger(data.deterministicFactVersion) || (data.deterministicFactVersion as number) < 1 ||
     !Number.isSafeInteger(data.amountCents) || (data.amountCents as number) <= 0 ||
@@ -59,9 +60,15 @@ export const parseRefundManagerReadyNotice = (value: unknown): RefundManagerRead
   if (actionCode !== "approve_or_deny_request" && actionCode !== "send_cash_refund_and_confirm") {
     throw new Error("Ready notice action is not a final manager decision.");
   }
-  if (!["card_exact_selected", "cash_sale_found", "cash_multiple_reviewed",
+  if (!["card_exact_selected", "card_reviewed_candidate_set", "cash_sale_found", "cash_multiple_reviewed",
     "cash_researched_unmatched", "cash_coverage_unavailable_researched"].includes(evidenceBasis as string)) {
     throw new Error("Ready notice evidence basis is unsupported.");
+  }
+  if (actionCode === "approve_or_deny_request"
+    ? !["card_exact_selected", "card_reviewed_candidate_set"].includes(evidenceBasis as string)
+    : !["cash_sale_found", "cash_multiple_reviewed", "cash_researched_unmatched",
+      "cash_coverage_unavailable_researched"].includes(evidenceBasis as string)) {
+    throw new Error("Ready notice preparation does not match the decision type.");
   }
   return {
     schemaVersion: "refund_manager_ready_notice_v1",
