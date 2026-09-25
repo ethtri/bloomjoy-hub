@@ -24,6 +24,24 @@ values (
   'Status recovery machine'
 );
 
+insert into auth.users (
+  instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
+  raw_app_meta_data,raw_user_meta_data,created_at,updated_at
+) values (
+  '00000000-0000-0000-0000-000000000000',
+  'd9000000-0000-4000-8000-000000000001',
+  'authenticated','authenticated','status-manager@example.invalid','',now(),
+  '{}'::jsonb,'{}'::jsonb,now(),now()
+);
+insert into public.reporting_machine_refund_managers (
+  id,reporting_machine_id,manager_user_id,manager_email,grant_reason
+) values (
+  'da000000-0000-4000-8000-000000000001',
+  'd3000000-0000-4000-8000-000000000001',
+  'd9000000-0000-4000-8000-000000000001',
+  'status-manager@example.invalid','Synthetic status delivery test'
+);
+
 insert into public.refund_cases (
   id, public_reference, reporting_machine_id, reporting_location_id,
   customer_email, issue_summary, incident_at, payment_method,
@@ -395,6 +413,118 @@ insert into public.refund_case_messages(
   'A person is following this.','refund_status_update_sla_at_risk_v1',
   'deterministic_template','automatic','sla_at_risk',
   'refund_customer_status_v1','{}');
+-- The same issued status purpose can also use the original verified Gmail
+-- conversation. Claim and finish each outcome through its service writer;
+-- savepoints keep separate attempts from the same still-pending intent.
+insert into public.refund_gmail_threads(
+  id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,
+  first_message_at,latest_message_at,retention_expires_at
+) values (
+  'd7000000-0000-4000-8000-000000000001',
+  'd4000000-0000-4000-8000-000000000001',repeat('a',64),
+  'status-sla-source-thread','Refund status',
+  statement_timestamp(),statement_timestamp(),
+  statement_timestamp()+interval '30 days'
+);
+insert into public.refund_gmail_messages(
+  id,gmail_thread_id,refund_case_id,provider_message_id,direction,
+  message_kind,status,sender_email,recipient_email,participant_role,
+  participant_trust,subject,plain_body,received_at,retention_expires_at
+) values (
+  'd8000000-0000-4000-8000-000000000001',
+  'd7000000-0000-4000-8000-000000000001',
+  'd4000000-0000-4000-8000-000000000001','status-sla-source-inbound',
+  'inbound','message','received','status-due@example.invalid',
+  'info@bloomjoysweets.com','customer','verified','Refund status',
+  'Safe synthetic source message',statement_timestamp(),
+  statement_timestamp()+interval '30 days'
+);
+
+savepoint status_gmail_unknown;
+set local role service_role;
+select is(public.service_claim_refund_gmail_outbound_v3(
+  'd4000000-0000-4000-8000-000000000001',
+  (select id from public.refund_case_messages
+   where refund_case_id='d4000000-0000-4000-8000-000000000001'
+     and reason_code='sla_at_risk' and status='pending'),
+  (select 'refund-case-message:'||id::text from public.refund_case_messages
+   where refund_case_id='d4000000-0000-4000-8000-000000000001'
+     and reason_code='sla_at_risk' and status='pending'),
+  'info@bloomjoysweets.com','status-due@example.invalid',
+  'A person is following this.',array['info@bloomjoysweets.com'],
+  'automatic','d7000000-0000-4000-8000-000000000001'
+)->>'claimed','true','A verified source thread authorizes the exact Gmail status claim');
+select ok(public.service_finish_refund_gmail_outbound(
+  (select id from public.refund_gmail_messages
+   where refund_case_id='d4000000-0000-4000-8000-000000000001'
+     and direction='outbound' and refund_case_message_id=(
+       select id from public.refund_case_messages
+       where refund_case_id='d4000000-0000-4000-8000-000000000001'
+         and reason_code='sla_at_risk' and status='pending')),
+  'delivery_unknown',null,null,'provider_uncertain'),
+  'The Gmail writer records an exact unknown effect');
+reset role;
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'unknownEffectCount','2',
+  'A Gmail unknown effect is visible despite the pending parent');
+rollback to savepoint status_gmail_unknown;
+
+savepoint status_gmail_failed;
+set local role service_role;
+select public.service_claim_refund_gmail_outbound_v3(
+  'd4000000-0000-4000-8000-000000000001',
+  (select id from public.refund_case_messages
+   where refund_case_id='d4000000-0000-4000-8000-000000000001'
+     and reason_code='sla_at_risk' and status='pending'),
+  (select 'refund-case-message:'||id::text from public.refund_case_messages
+   where refund_case_id='d4000000-0000-4000-8000-000000000001'
+     and reason_code='sla_at_risk' and status='pending'),
+  'info@bloomjoysweets.com','status-due@example.invalid',
+  'A person is following this.',array['info@bloomjoysweets.com'],
+  'automatic','d7000000-0000-4000-8000-000000000001');
+select ok(public.service_finish_refund_gmail_outbound(
+  (select id from public.refund_gmail_messages
+   where refund_case_id='d4000000-0000-4000-8000-000000000001'
+     and direction='outbound' and refund_case_message_id=(
+       select id from public.refund_case_messages
+       where refund_case_id='d4000000-0000-4000-8000-000000000001'
+         and reason_code='sla_at_risk' and status='pending')),
+  'failed',null,null,'gmail_source_thread_required'),
+  'The Gmail writer records a known-unsent failure');
+reset role;
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'definiteFailureCount','1',
+  'A linked Gmail known-unsent failure is actionable before parent settlement');
+rollback to savepoint status_gmail_failed;
+
+savepoint status_gmail_accepted;
+set local role service_role;
+select public.service_claim_refund_gmail_outbound_v3(
+  'd4000000-0000-4000-8000-000000000001',
+  (select id from public.refund_case_messages
+   where refund_case_id='d4000000-0000-4000-8000-000000000001'
+     and reason_code='sla_at_risk' and status='pending'),
+  (select 'refund-case-message:'||id::text from public.refund_case_messages
+   where refund_case_id='d4000000-0000-4000-8000-000000000001'
+     and reason_code='sla_at_risk' and status='pending'),
+  'info@bloomjoysweets.com','status-due@example.invalid',
+  'A person is following this.',array['info@bloomjoysweets.com'],
+  'automatic','d7000000-0000-4000-8000-000000000001');
+select ok(public.service_finish_refund_gmail_outbound(
+  (select id from public.refund_gmail_messages
+   where refund_case_id='d4000000-0000-4000-8000-000000000001'
+     and direction='outbound' and refund_case_message_id=(
+       select id from public.refund_case_messages
+       where refund_case_id='d4000000-0000-4000-8000-000000000001'
+         and reason_code='sla_at_risk' and status='pending')),
+  'sent','status-gmail-accepted',null,null),
+  'The Gmail writer records an accepted provider receipt');
+reset role;
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'unknownEffectCount','1',
+  'A linked Gmail accepted receipt does not inherit the pending parent uncertainty');
+rollback to savepoint status_gmail_accepted;
+
 set local role service_role;
 select public.service_mark_refund_transactional_delivery_attempt(id)
 from public.refund_case_messages
@@ -412,7 +542,8 @@ where refund_case_id='d4000000-0000-4000-8000-000000000001'
   and reason_code='sla_at_risk' and status='pending';
 select is(public.service_get_refund_status_contact_obligation_health()
   ->> 'unresolvedCount','0',
-  'A later same-purpose accepted status resolves the unknown-effect obligation without retrying it');select ok(not has_function_privilege('authenticated',
+  'A later same-purpose accepted status resolves the unknown-effect obligation without retrying it');
+select ok(not has_function_privilege('authenticated',
   'public.service_get_refund_status_contact_obligation_health()','execute'),
   'The redacted obligation-health projection is service-only');
 
