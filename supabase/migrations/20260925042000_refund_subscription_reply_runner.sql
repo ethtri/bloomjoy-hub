@@ -254,6 +254,7 @@ declare amount_match text[]; digits_match text[]; method_match text[];
 begin
   if public.refund_verified_reply_quote_negated(p_quote) then return false; end if;
   if p_quote ~* '(device token|wallet token)[^.?!]{0,40}[0-9]{4}'
+    or p_quote ~* '[0-9]{4}[^.?!]{0,50}(apple pay device token|device token|wallet token)'
     then return false; end if;
   if (select count(*) from regexp_matches(p_quote,'\$[[:space:]]*[0-9]','g'))>1
     or (select count(*) from regexp_matches(lower(p_quote),
@@ -593,6 +594,7 @@ begin
       on reply.id=(item->>'messageId')::uuid
     where public.refund_verified_reply_quote_has_independent_fact(
       coalesce(reply.plain_body,''))
+      and not public.refund_verified_reply_quote_is_known_fact(reply.plain_body,c)
   ) then
     raise exception 'A supported reply fact must be applied before directional research';
   end if;
@@ -619,7 +621,7 @@ begin
         'walletTokenLast4',token_match[1]);
     end if;
   elsif p_reason_code='inexact_purchase_time_requires_research' then
-    if p_source_quote !~* '(around|about|roughly|remember|think|maybe|perhaps|possibly|not sure|morning|afternoon|evening)' then
+    if p_source_quote !~* '((around|about|roughly|remember|think|maybe|perhaps|possibly|not sure)[^.?!]{0,50}([0-9]{1,2}([:][0-9]{2})?[[:space:]]*(am|pm)|morning|afternoon|evening)|morning|afternoon|evening)' then
       raise exception 'Inexact time research needs a source-backed time phrase';
     end if;
     directional_evidence:=jsonb_build_object('timeConfidence','rough',

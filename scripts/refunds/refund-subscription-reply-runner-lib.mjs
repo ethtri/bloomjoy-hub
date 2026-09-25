@@ -18,6 +18,7 @@ const safeField = new Set([
   'amount', 'payment_method', 'card_last4', 'card_network',
   'wallet_token_last4',
 ]);
+const roughTimeSource = /\b(?:around|about|roughly|remember|think|maybe|perhaps|possibly|not sure)\b[^.!?]{0,50}\b(?:\d{1,2}(?::\d{2})?\s*(?:am|pm)|morning|afternoon|evening)\b|\b(?:morning|afternoon|evening)\b/iu;
 
 export const validateProposalShape = (proposal) => {
   const allowed = proposal?.kind === 'fact'
@@ -109,6 +110,14 @@ const findSource = (input, messageId, quote) => {
   if (!message || typeof message.body !== 'string' ||
     !message.body.includes(quote)) throw new Error('source_span_not_in_verified_reply');
   return message;
+};
+
+export const findKnownFactDirectionalTime = (input) => {
+  for (const message of input.replyMessages ?? []) {
+    const match = message.body?.match(roughTimeSource);
+    if (match) return { messageId: message.messageId, quote: match[0].trim() };
+  }
+  return null;
 };
 
 // The model chooses a source span and field. Only the existing deterministic
@@ -251,8 +260,24 @@ export const validateNoFactReview = (input, proposal) => {
       throw new Error('supported_fact_requires_fact_review');
     }
     for (const message of input.replyMessages) {
-      if (supportedFieldsIn(message.body ?? '').length > 0)
-        throw new Error('supported_fact_requires_fact_review');
+      for (const field of supportedFieldsIn(message.body ?? '')) {
+        if (field === 'wallet_token_last4' &&
+          proposal.reasonCode === 'wallet_token_requires_research') continue;
+        try {
+          const fact = deriveSourceBoundFact(input, { kind: 'fact', field,
+            messageId: message.messageId, quote: message.body });
+          const current = input.currentFacts ?? {};
+          const known = field === 'amount'
+            ? Number(current.paymentAmountCents) === fact.updates.payment_amount_cents
+            : field === 'payment_method'
+            ? current.paymentMethod === fact.updates.payment_method
+            : field === 'card_network'
+            ? current.cardNetwork === fact.updates.card_network
+            : current.cardLast4 === fact.updates.card_last4 &&
+              current.cardLast4Provenance === fact.updates.card_last4_provenance;
+          if (!known) throw new Error('supported_fact_requires_fact_review');
+        } catch { throw new Error('supported_fact_requires_fact_review'); }
+      }
     }
   }
   // Generic no-fact dispositions cannot discard a concrete amount, payment
@@ -295,7 +320,7 @@ export const validateNoFactReview = (input, proposal) => {
     throw new Error('wallet_research_source_not_supported');
   }
   if (proposal.reasonCode === 'inexact_purchase_time_requires_research' &&
-    !/(?:around|about|roughly|remember|think|maybe|perhaps|possibly|not sure|morning|afternoon|evening)/iu.test(proposal.quote)) {
+    !roughTimeSource.test(proposal.quote)) {
     throw new Error('time_research_source_not_supported');
   }
   return {

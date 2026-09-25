@@ -4,7 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 import {
-  deriveSourceBoundFacts, validateClaim, validateDeferral, validateNoFactReview,
+  deriveSourceBoundFacts, findKnownFactDirectionalTime, validateClaim,
+  validateDeferral, validateNoFactReview,
   validateProposalShape,
   validateResearchInput,
 } from './refund-subscription-reply-runner-lib.mjs';
@@ -130,11 +131,18 @@ export const submitResult = async (client, runId, requestId, proposal) => {
         fail('semantic_fact_not_applied');
       }
     }
-    if (unchanged) proposal = {
-      kind: 'reviewed_no_fact', reasonCode: 'no_supported_new_fact',
-      messageId: fact.fieldEvidence[0].messageId,
-      quote: fact.fieldEvidence[0].quote,
-    };
+    if (unchanged) {
+      const directionalTime = findKnownFactDirectionalTime(input);
+      proposal = directionalTime ? {
+        kind: 'reviewed_no_fact',
+        reasonCode: 'inexact_purchase_time_requires_research',
+        ...directionalTime,
+      } : {
+        kind: 'reviewed_no_fact', reasonCode: 'no_supported_new_fact',
+        messageId: fact.fieldEvidence[0].messageId,
+        quote: fact.fieldEvidence[0].quote,
+      };
+    }
   }
   if (proposal?.kind === 'reviewed_no_fact') {
     const review = validateNoFactReview(input, proposal);

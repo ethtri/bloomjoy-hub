@@ -22,7 +22,7 @@ begin
     incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,payment_interaction,payment_amount_cents,card_last4,card_last4_provenance,card_network,card_wallet_used,status,correlation_status,intake_source)
   values(cid,'df000000-0000-4000-8000-000000000003','df000000-0000-4000-8000-000000000002','reply-customer@example.invalid','Scoped reply test',
     now()-interval '2 hours'-n*interval '7 hours',to_char((now()-interval '2 hours'-n*interval '7 hours') at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI'),
-    'America/Los_Angeles','exact','exact','card',case when n in (27,28,29,38,42) then 'phone_watch_wallet' else 'tap_card' end,case when n=34 then 1090 when n in (27,28,29,30) then 700 else null end,case when n in (8,15,27,28,29,30,34,38,42) then null else '1234' end,case when n in (8,15,27,28,29,30,34,38,42) then null else 'physical_card' end,case when n=26 then 'mastercard' else 'visa' end,n in (27,28,29,38,42),'needs_review','manual_review','form');
+    'America/Los_Angeles','exact','exact','card',case when n in (27,28,29,38,42) then 'phone_watch_wallet' else 'tap_card' end,case when n in (34,43) then 1090 when n in (27,28,29,30) then 700 else null end,case when n in (8,15,27,28,29,30,34,38,42) then null else '1234' end,case when n in (8,15,27,28,29,30,34,38,42) then null else 'physical_card' end,case when n=26 then 'mastercard' else 'visa' end,n in (27,28,29,38,42),'needs_review','manual_review','form');
   if n in (27,28) then
     -- The earlier provider read precedes the delivered wallet question. A
     -- waiting-on-customer case cannot start an ordinary lookup afterward.
@@ -1027,6 +1027,31 @@ select throws_like($$select public.service_apply_refund_scoped_reply_semantic_fa
     array['amount'])$$,
   '%All supported reply facts%',
   'Amount-only settlement cannot discard digits-before-wallet evidence');
+select pg_temp.make_scope(43);
+update public.refund_gmail_messages set plain_body='I paid $10.90, maybe 4 PM.'
+  where id=pg_temp.gid(43);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(43),pg_temp.gid(43))
+  ->>'outcome','received','Known amount with a new rough-time clue binds the same request');
+create temp table known_amount_time_task on commit drop as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(43)::text;
+select is(public.service_complete_refund_scoped_reply_no_fact(
+    (select (task->>'requestId')::uuid from known_amount_time_task),
+    (select (task->>'claimToken')::uuid from known_amount_time_task),pg_temp.gid(43),
+    (select (task->>'factVersion')::bigint from known_amount_time_task),
+    (select task->>'bodySha256' from known_amount_time_task),pg_temp.gid(43),
+    'maybe 4 PM','inexact_purchase_time_requires_research')
+    ->>'outcome','reviewed_no_fact',
+  'An unchanged amount coexists with a newly source-backed time research task');
+select ok((select reply_directional_evidence->>'timeConfidence'='rough'
+    from public.refund_wallet_correction_contexts where refund_case_id=pg_temp.cid(43))
+  and (select count(*)=0 from public.refund_customer_fact_applications
+    where refund_case_id=pg_temp.cid(43)),
+  'Known amount is not rewritten, while uncertain time stays durable');
+select ok((select claim#>>'{directionalEvidence,timeConfidence}'='rough'
+    from jsonb_array_elements(public.service_claim_due_refund_reply_nayax_lookups(4)) claim
+    where claim->>'caseId'=pg_temp.cid(43)::text),
+  'One scheduled read-only lookup consumes the new rough-time clue');
 select pg_temp.make_scope(33);
 select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(33),pg_temp.gid(33))
   ->>'outcome','received','Original verified response starts the exact scoped task');

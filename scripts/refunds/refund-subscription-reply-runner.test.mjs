@@ -322,6 +322,47 @@ test('an exact already-known amount settles without a redundant fact write', asy
   } finally { fs.rmSync(statePath, { force: true }); }
 });
 
+test('a known amount plus uncertain time starts source-bound research without a fact rewrite', async () => {
+  const body = 'I paid $10.90, maybe 4 PM.';
+  const knownInput = { ...input, currentFacts: {
+    paymentAmountCents: 1090, paymentMethod: 'card',
+  }, replyMessages: [{ messageId, body }] };
+  assert.equal(validateNoFactReview(knownInput, {
+    kind: 'reviewed_no_fact', reasonCode: 'inexact_purchase_time_requires_research',
+    messageId, quote: 'maybe 4 PM',
+  }).reasonCode, 'inexact_purchase_time_requires_research');
+  assert.throws(() => validateNoFactReview({ ...knownInput,
+    currentFacts: { paymentAmountCents: 700, paymentMethod: 'card' },
+  }, { kind: 'reviewed_no_fact',
+    reasonCode: 'inexact_purchase_time_requires_research',
+    messageId, quote: 'maybe 4 PM' }), /supported_fact_requires_fact_review/);
+  const calls = [];
+  const client = { rpc: async (name, args) => {
+    calls.push(name);
+    if (name === 'service_start_refund_reply_subscription_run')
+      return { data: { outcome: 'started', runId }, error: null };
+    if (name === 'service_claim_refund_scoped_reply_reviews')
+      return { data: { tasks: [task] }, error: null };
+    if (name === 'service_get_refund_scoped_reply_research_input')
+      return { data: knownInput, error: null };
+    if (name === 'service_complete_refund_scoped_reply_no_fact') {
+      assert.equal(args.p_reason_code, 'inexact_purchase_time_requires_research');
+      assert.equal(args.p_source_quote, 'maybe 4 PM');
+      assert.equal(args.p_evidence_message_id, messageId);
+      return { data: { outcome: 'reviewed_no_fact' }, error: null };
+    }
+    throw new Error(`unexpected RPC ${name}`);
+  } };
+  try {
+    await beginRun(client, new Date('2026-09-25T15:36:00Z'));
+    assert.equal((await submitResult(client, runId, requestId, {
+      kind: 'fact', field: 'amount', messageId, quote: 'I paid $10.90',
+    })).outcome, 'resolved');
+    assert.ok(calls.includes('service_complete_refund_scoped_reply_no_fact'));
+    assert.ok(!calls.includes('service_apply_refund_scoped_reply_semantic_fact'));
+  } finally { fs.rmSync(statePath, { force: true }); }
+});
+
 test('offline Luna fixture validates six model outcomes without a network client', () => {
   const proposalPath = path.join(root, 'output', 'refund-subscription-reply-synthetic-proposals.json');
   const receiptPath = path.join(root, 'output', 'refund-subscription-reply-synthetic-receipt.json');
