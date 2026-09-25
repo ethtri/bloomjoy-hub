@@ -41,7 +41,8 @@ alter table public.refund_manager_notification_actions
       and ready_fact_version is null and ready_legacy_action_id is null)
     or (notice_reason = 'decision_ready' and ready_manager_user_id is not null
       and ready_decision_fingerprint ~ '^[a-f0-9]{64}$'
-      and ready_proof_id is not null
+      and (ready_proof_id is not null
+        or ready_action_code = 'send_cash_refund_and_confirm')
       and ready_action_code in ('approve_or_deny_request','send_cash_refund_and_confirm')
       and ready_official_action_version >= 1 and ready_fact_version >= 1
       and channel = 'immediate' and urgency = 'actionable')
@@ -231,34 +232,53 @@ begin
       and nullif(btrim(case_row.zelle_payment_contact),'') is not null)) then return null; end if;
   if coalesce(case_row.refund_amount_cents,case_row.matched_nayax_amount_cents,
     case_row.payment_amount_cents,0)<=0 then return null; end if;
-  -- #1429 owns this shared, fact/version-bound proof. A current action or
-  -- recorded payout destination alone does not mean preparation completed.
-  if pg_catalog.to_regprocedure(
-      'public.refund_manager_preparation_snapshot(uuid,bigint)') is null then
-    return null;
+  if action_code='send_cash_refund_and_confirm'
+    and case_row.decision='approved'
+    and case_row.status='cash_zelle_pending'
+    and case_row.refund_amount_cents>0
+    and lifecycle->>'stage'='awaiting_payout'
+    and lifecycle->>'reasonCode'='external_payment_ready' then
+    -- The saved approval is already a valid monetary decision. Its payout
+    -- confirmation needs no newly inferred research proof or second approval.
+    preparation:=jsonb_build_object(
+      'evidenceBasis','cash_approved_payout',
+      'summary','This cash refund was already approved. Send the saved amount to the verified Zelle destination, then confirm it was sent.',
+      'officialActionVersion',case_row.official_action_version,
+      'deterministicFactVersion',case_row.deterministic_fact_version,
+      'payloadRedacted',true);
+  else
+    -- New decisions need the shared, completed, fact/version-bound research.
+    -- A payout destination by itself is never preparation evidence.
+    if pg_catalog.to_regprocedure(
+        'public.refund_manager_preparation_snapshot(uuid,bigint)') is null then
+      return null;
+    end if;
+    execute 'select public.refund_manager_preparation_snapshot($1,$2)'
+      into preparation using case_row.id,case_row.official_action_version;
+    if preparation is null then return null; end if;
+    if preparation->>'schemaVersion' is distinct from 'refund_manager_preparation_v1'
+      or preparation->>'payloadRedacted' is distinct from 'true'
+      or coalesce(preparation->>'proofId','') !~
+        '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+      or preparation->>'officialActionVersion' is distinct from case_row.official_action_version::text
+      or preparation->>'deterministicFactVersion' is distinct from case_row.deterministic_fact_version::text
+      or preparation->>'evidenceBasis' is null
+      or preparation->>'evidenceBasis' not in
+        ('card_exact_selected','card_reviewed_candidate_set',
+          'cash_sale_found','cash_multiple_reviewed',
+          'cash_researched_unmatched','cash_coverage_unavailable_researched')
+      or (action_code='approve_or_deny_request' and preparation->>'evidenceBasis'
+        not in ('card_exact_selected','card_reviewed_candidate_set'))
+      or (action_code='send_cash_refund_and_confirm' and preparation->>'evidenceBasis'
+        not in ('cash_sale_found','cash_multiple_reviewed',
+          'cash_researched_unmatched','cash_coverage_unavailable_researched'))
+      or nullif(btrim(preparation->>'preparedAt'),'') is null then
+      raise exception 'Unsupported refund preparation proof' using errcode='P4652';
+    end if;
   end if;
-  execute 'select public.refund_manager_preparation_snapshot($1,$2)'
-    into preparation using case_row.id,case_row.official_action_version;
-  if preparation is null then return null; end if;
-  if preparation->>'payloadRedacted' is distinct from 'true'
-    or coalesce(preparation->>'proofId','') !~
-      '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-    or preparation->>'officialActionVersion' is distinct from case_row.official_action_version::text
-    or preparation->>'deterministicFactVersion' is distinct from case_row.deterministic_fact_version::text
-    or preparation->>'evidenceBasis' is null
-    or preparation->>'evidenceBasis' not in
-      ('card_exact_selected','card_reviewed_candidate_set',
-        'cash_sale_found','cash_multiple_reviewed',
-        'cash_researched_unmatched','cash_coverage_unavailable_researched')
-    or (action_code='approve_or_deny_request' and preparation->>'evidenceBasis'
-      not in ('card_exact_selected','card_reviewed_candidate_set'))
-    or (action_code='send_cash_refund_and_confirm' and preparation->>'evidenceBasis'
-      not in ('cash_sale_found','cash_multiple_reviewed',
-        'cash_researched_unmatched','cash_coverage_unavailable_researched'))
-    or nullif(btrim(preparation->>'summary'),'') is null
-    or length(preparation->>'summary')>160
-    or nullif(preparation->>'preparedAt','') is null then
-    raise exception 'Unsupported refund preparation proof' using errcode='P4652';
+  if nullif(btrim(preparation->>'summary'),'') is null
+    or length(preparation->>'summary')>160 then
+    raise exception 'Unsupported refund preparation summary' using errcode='P4652';
   end if;
   select coalesce(nullif(btrim(machine.refund_public_display_label),''),'Machine not recorded'),
     case when lower(btrim(location.name)) like 'unmapped %'

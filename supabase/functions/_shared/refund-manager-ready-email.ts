@@ -3,13 +3,13 @@ export type RefundManagerReadyNotice = {
   caseId: string;
   managerUserId: string;
   decisionFingerprint: string;
-  proofId: string;
+  proofId: string | null;
   officialActionVersion: number;
   deterministicFactVersion: number;
   actionCode: "approve_or_deny_request" | "send_cash_refund_and_confirm";
   evidenceBasis: "card_exact_selected" | "card_reviewed_candidate_set" | "cash_sale_found" |
     "cash_multiple_reviewed" | "cash_researched_unmatched" |
-    "cash_coverage_unavailable_researched";
+    "cash_coverage_unavailable_researched" | "cash_approved_payout";
   preparationSummary: string;
   publicReference: string;
   amountCents: number;
@@ -47,7 +47,7 @@ export const parseRefundManagerReadyNotice = (value: unknown): RefundManagerRead
     typeof data.caseId !== "string" || !uuid.test(data.caseId) ||
     typeof data.managerUserId !== "string" || !uuid.test(data.managerUserId) ||
     typeof data.decisionFingerprint !== "string" || !/^[a-f0-9]{64}$/.test(data.decisionFingerprint) ||
-    typeof data.proofId !== "string" || !postgresUuid.test(data.proofId) ||
+    (data.proofId !== null && (typeof data.proofId !== "string" || !postgresUuid.test(data.proofId))) ||
     !Number.isSafeInteger(data.officialActionVersion) || (data.officialActionVersion as number) < 1 ||
     !Number.isSafeInteger(data.deterministicFactVersion) || (data.deterministicFactVersion as number) < 1 ||
     !Number.isSafeInteger(data.amountCents) || (data.amountCents as number) <= 0 ||
@@ -61,20 +61,24 @@ export const parseRefundManagerReadyNotice = (value: unknown): RefundManagerRead
     throw new Error("Ready notice action is not a final manager decision.");
   }
   if (!["card_exact_selected", "card_reviewed_candidate_set", "cash_sale_found", "cash_multiple_reviewed",
-    "cash_researched_unmatched", "cash_coverage_unavailable_researched"].includes(evidenceBasis as string)) {
+    "cash_researched_unmatched", "cash_coverage_unavailable_researched",
+    "cash_approved_payout"].includes(evidenceBasis as string)) {
     throw new Error("Ready notice evidence basis is unsupported.");
   }
   if (actionCode === "approve_or_deny_request"
     ? !["card_exact_selected", "card_reviewed_candidate_set"].includes(evidenceBasis as string)
     : !["cash_sale_found", "cash_multiple_reviewed", "cash_researched_unmatched",
-      "cash_coverage_unavailable_researched"].includes(evidenceBasis as string)) {
+      "cash_coverage_unavailable_researched", "cash_approved_payout"].includes(evidenceBasis as string)) {
     throw new Error("Ready notice preparation does not match the decision type.");
+  }
+  if ((evidenceBasis === "cash_approved_payout") !== (data.proofId === null)) {
+    throw new Error("Saved cash approval must not imply a new preparation proof.");
   }
   return {
     schemaVersion: "refund_manager_ready_notice_v1",
     caseId: data.caseId, managerUserId: data.managerUserId,
     decisionFingerprint: data.decisionFingerprint,
-    proofId: data.proofId,
+    proofId: data.proofId as string | null,
     officialActionVersion: data.officialActionVersion as number,
     deterministicFactVersion: data.deterministicFactVersion as number,
     actionCode, evidenceBasis: evidenceBasis as RefundManagerReadyNotice["evidenceBasis"],
@@ -103,7 +107,9 @@ export const buildRefundManagerReadyEmail = ({ notice, caseUrl }: {
   const action = notice.actionCode === "approve_or_deny_request"
     ? "Review the prepared refund and approve or deny it in the portal."
     : "Review the saved cash evidence and payout destination. Send Zelle, then confirm it was sent in the portal.";
-  const reason = `Prepared case summary: ${notice.preparationSummary}`;
+  const reason = notice.evidenceBasis === "cash_approved_payout"
+    ? `Saved approval: ${notice.preparationSummary}`
+    : `Prepared case summary: ${notice.preparationSummary}`;
   const navigation = "Opening the case does not approve, deny, send, or repeat a refund.";
   const subject = `Refund decision ready: ${notice.publicReference} · ${amount}`;
   const text = `${action}\n${reason}\n\n${notice.publicReference} · ${amount}\n${notice.machineLabel}, ${notice.locationName}\nOpen case: ${caseUrl}\n\n${navigation}`;

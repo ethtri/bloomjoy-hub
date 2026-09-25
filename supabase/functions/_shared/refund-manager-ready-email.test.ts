@@ -85,3 +85,25 @@ Deno.test("cash message requires sending Zelle before confirmation and never req
   assert(!email.text.includes("contact@") && !email.html.includes("contact@"),
     "destination value is omitted");
 });
+
+Deno.test("existing approved cash payout uses saved authority without invented preparation", () => {
+  const parsed = parseRefundManagerReadyNotice({ ...notice,
+    actionCode: "send_cash_refund_and_confirm", evidenceBasis: "cash_approved_payout",
+    proofId: null,
+    preparationSummary: "This cash refund was already approved. Send the saved amount to the verified Zelle destination, then confirm it was sent." });
+  const email = buildRefundManagerReadyEmail({ notice: parsed,
+    caseUrl: `https://portal.example/refunds?case=${parsed.caseId}` });
+  assert(email.text.includes("Saved approval: This cash refund was already approved"),
+    "saved approval is named as the authority");
+  assert(email.text.includes("Send Zelle, then confirm"), "one existing payout action remains");
+  assert(!email.text.includes("approve or deny"), "there is no second approval");
+  for (const unsafe of [
+    { ...notice, proofId: null },
+    { ...notice, actionCode: "send_cash_refund_and_confirm",
+      evidenceBasis: "cash_approved_payout" },
+  ]) {
+    let rejected = false;
+    try { parseRefundManagerReadyNotice(unsafe); } catch { rejected = true; }
+    assert(rejected, "new decisions cannot borrow the saved-approval exception");
+  }
+});

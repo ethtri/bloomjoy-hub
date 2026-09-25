@@ -32,18 +32,21 @@ values ('14254000-0000-4000-8000-000000000001',
 insert into public.refund_cases
   (id,public_reference,reporting_machine_id,reporting_location_id,
     customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,
-    zelle_payment_contact,status,automation_state,deterministic_fact_version,created_at)
+    refund_amount_cents,zelle_payment_contact,status,correlation_status,
+    correlation_source,automation_state,deterministic_fact_version,created_at)
 values
   ('14255000-0000-4000-8000-000000000001','RF-READY-1',
     '14253000-0000-4000-8000-000000000001',
     '14252000-0000-4000-8000-000000000001',
     'private-customer@example.invalid','Private case details','2026-09-23T12:00:00Z',
-    'cash',725,'private-zelle-contact','needs_review','under_review',1,'2026-09-23T12:00:00Z'),
+    'cash',725,725,'private-zelle-contact','needs_review','matched','manual',
+    'under_review',1,'2026-09-23T12:00:00Z'),
   ('14255000-0000-4000-8000-000000000002','RF-UNPREPARED-2',
     '14253000-0000-4000-8000-000000000001',
     '14252000-0000-4000-8000-000000000001',
     'other-customer@example.invalid','Another private case','2026-09-23T12:00:00Z',
-    'cash',725,'other-private-contact','needs_review','under_review',1,'2026-09-23T12:00:00Z');
+    'cash',725,725,'other-private-contact','needs_review','matched','manual',
+    'under_review',1,'2026-09-23T12:00:00Z');
 
 -- The fixture substitutes only the #1429 service adapter to test the notice
 -- boundary. Production proof must come from a completed claimed preparation,
@@ -62,7 +65,7 @@ begin
   if fact_version is null then return null; end if;
   -- The producer's content digest is a PostgreSQL UUID and need not carry an
   -- RFC version/variant nibble. Preserve the per-case identity in this stub.
-  return jsonb_build_object('proofId',
+  return jsonb_build_object('schemaVersion','refund_manager_preparation_v1','proofId',
     overlay(p_refund_case_id::text placing '0' from 20 for 1),
     'preparedAt','2026-09-24T14:59:00Z',
     'evidenceBasis','cash_coverage_unavailable_researched',
@@ -160,13 +163,14 @@ select is((select count(*)::text from public.refund_manager_notification_actions
 insert into public.refund_cases
   (id,public_reference,reporting_machine_id,reporting_location_id,
     customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,
-    zelle_payment_contact,status,automation_state,deterministic_fact_version,created_at)
+    refund_amount_cents,zelle_payment_contact,status,correlation_status,
+    correlation_source,automation_state,deterministic_fact_version,created_at)
 values ('14255000-0000-4000-8000-000000000003','RF-LEGACY-READY-3',
   '14253000-0000-4000-8000-000000000001',
   '14252000-0000-4000-8000-000000000001',
   'legacy-customer@example.invalid','Private case details',
-  '2026-09-23T12:00:00Z','cash',825,'legacy-zelle-contact',
-  'needs_review','under_review',1,'2026-09-23T12:00:00Z');
+  '2026-09-23T12:00:00Z','cash',825,825,'legacy-zelle-contact',
+  'needs_review','matched','manual','under_review',1,'2026-09-23T12:00:00Z');
 create temporary table old_wallet_claim as select
   public.service_begin_refund_manager_notification(
     '14255000-0000-4000-8000-000000000003','wallet_match_ready',
@@ -221,13 +225,14 @@ values ('14254000-0000-4000-8000-000000000004',
 insert into public.refund_cases
   (id,public_reference,reporting_machine_id,reporting_location_id,
     customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,
-    zelle_payment_contact,status,automation_state,deterministic_fact_version,created_at)
+    refund_amount_cents,zelle_payment_contact,status,correlation_status,
+    correlation_source,automation_state,deterministic_fact_version,created_at)
 values ('14255000-0000-4000-8000-000000000004','RF-CO-MANAGER-READY-4',
   '14253000-0000-4000-8000-000000000001',
   '14252000-0000-4000-8000-000000000001',
   'co-manager-customer@example.invalid','Private case details',
-  '2026-09-23T12:00:00Z','cash',925,'co-manager-zelle-contact',
-  'needs_review','under_review',1,'2026-09-23T12:00:00Z');
+  '2026-09-23T12:00:00Z','cash',925,925,'co-manager-zelle-contact',
+  'needs_review','matched','manual','under_review',1,'2026-09-23T12:00:00Z');
 select is(public.service_enqueue_refund_manager_ready_notices(
   '14255000-0000-4000-8000-000000000004')->>'queuedCount','2',
   'One prepared decision enqueues a distinct row for each current co-manager');
@@ -425,13 +430,14 @@ select isnt(public.refund_manager_decision_material_fingerprint(
 insert into public.refund_cases
   (id,public_reference,reporting_machine_id,reporting_location_id,
     customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,
-    zelle_payment_contact,status,automation_state,deterministic_fact_version,created_at)
+    refund_amount_cents,zelle_payment_contact,status,correlation_status,
+    correlation_source,automation_state,deterministic_fact_version,created_at)
 values ('14255000-0000-4000-8000-000000000006','RF-RACE-6',
   '14253000-0000-4000-8000-000000000001',
   '14252000-0000-4000-8000-000000000001',
   'race-customer@example.invalid','Private case details',
-  '2026-09-23T12:00:00Z','cash',1125,'race-zelle-contact',
-  'needs_review','under_review',1,'2026-09-23T12:00:00Z');
+  '2026-09-23T12:00:00Z','cash',1125,1125,'race-zelle-contact',
+  'needs_review','matched','manual','under_review',1,'2026-09-23T12:00:00Z');
 create temporary table race_old_reservation as select
   public.service_begin_refund_manager_notification(
     '14255000-0000-4000-8000-000000000006','wallet_match_ready',
@@ -467,6 +473,81 @@ select is(public.service_complete_refund_manager_notification(
   (select (value->>'claimToken')::uuid from race_old_reservation),
   'known_not_sent')::text,'true',
   'Rejected old reservation settles as known not sent');
+
+-- An existing valid approval is payout authority. It has no newly produced
+-- preparation snapshot and must neither disappear nor ask for another vote.
+savepoint approved_cash_notice;
+insert into public.refund_cases
+  (id,public_reference,reporting_machine_id,reporting_location_id,
+    customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,
+    refund_amount_cents,zelle_payment_contact,status,decision,
+    correlation_status,correlation_source,deterministic_fact_version,created_at)
+values ('14255000-0000-4000-8000-000000000007','RF-APPROVED-PAYOUT-7',
+  '14253000-0000-4000-8000-000000000001',
+  '14252000-0000-4000-8000-000000000001',
+  'approved-payout@example.invalid','Previously approved cash payout',
+  '2026-09-23T12:00:00Z','cash',1325,1325,'verified-saved-zelle-contact',
+  'cash_zelle_pending','approved','matched','manual',1,'2026-09-23T12:00:00Z');
+select is(public.service_refund_manager_ready_notice_snapshot(
+  '14255000-0000-4000-8000-000000000007',
+  '14250000-0000-4000-8000-000000000002')->>'evidenceBasis',
+  'cash_approved_payout','Saved approval permits payout without a fresh research proof');
+select is(public.service_refund_manager_ready_notice_snapshot(
+  '14255000-0000-4000-8000-000000000007',
+  '14250000-0000-4000-8000-000000000002')->'proofId',
+  'null'::jsonb,'Approved payout does not invent a preparation proof');
+select is(public.service_refund_manager_ready_notice_snapshot(
+  '14255000-0000-4000-8000-000000000007',
+  '14250000-0000-4000-8000-000000000003')::text,null::text,
+  'Unmapped admin cannot borrow the saved cash approval');
+select is(public.service_enqueue_refund_manager_ready_notices(
+  '14255000-0000-4000-8000-000000000007')->>'queuedCount','2',
+  'Both current co-managers receive independent approved-payout intents');
+create temporary table approved_first_claim as select
+  public.service_claim_next_refund_manager_ready_notice(
+    '14255000-0000-4000-8000-000000000007') as value;
+savepoint approved_cash_stale_destination;
+update public.refund_cases set zelle_payment_contact='changed-saved-destination'
+where id='14255000-0000-4000-8000-000000000007';
+select is(public.service_mark_refund_manager_ready_notice_provider_started(
+  (select (value->>'intentId')::uuid from approved_first_claim),
+  (select (value->>'claimToken')::uuid from approved_first_claim),
+  (select value->>'routeFingerprint' from approved_first_claim),
+  (select value->>'recipient' from approved_first_claim))::text,'false',
+  'Changed approved payout details block stale provider access');
+rollback to savepoint approved_cash_stale_destination;
+select is(public.service_mark_refund_manager_ready_notice_provider_started(
+  (select (value->>'intentId')::uuid from approved_first_claim),
+  (select (value->>'claimToken')::uuid from approved_first_claim),
+  (select value->>'routeFingerprint' from approved_first_claim),
+  (select value->>'recipient' from approved_first_claim))::text,'true',
+  'Current saved approval passes the provider-start recheck');
+select is(public.service_complete_refund_manager_ready_notice(
+  (select (value->>'intentId')::uuid from approved_first_claim),
+  (select (value->>'claimToken')::uuid from approved_first_claim),
+  'sent','synthetic-approved-cash-provider-id')::text,'true',
+  'First approved-payout intent records an accepted send');
+create temporary table approved_second_claim as select
+  public.service_claim_next_refund_manager_ready_notice(
+    '14255000-0000-4000-8000-000000000007') as value;
+select isnt((select value->>'recipient' from approved_second_claim),
+  (select value->>'recipient' from approved_first_claim),
+  'First co-manager send does not suppress the second recipient');
+select is(public.service_mark_refund_manager_ready_notice_provider_started(
+  (select (value->>'intentId')::uuid from approved_second_claim),
+  (select (value->>'claimToken')::uuid from approved_second_claim),
+  (select value->>'routeFingerprint' from approved_second_claim),
+  (select value->>'recipient' from approved_second_claim))::text,'true',
+  'Second current co-manager also passes the exact provider boundary');
+select is(public.service_complete_refund_manager_ready_notice(
+  (select (value->>'intentId')::uuid from approved_second_claim),
+  (select (value->>'claimToken')::uuid from approved_second_claim),
+  'delivery_unknown')::text,'true',
+  'Unknown second-recipient effect is held, not treated as unsent');
+select is(public.service_claim_next_refund_manager_ready_notice(
+  '14255000-0000-4000-8000-000000000007')->>'claimed','false',
+  'Accepted and unknown approved-payout intents never blindly retry');
+rollback to savepoint approved_cash_notice;
 
 select * from finish();
 rollback;
