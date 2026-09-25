@@ -315,7 +315,7 @@ select is(public.refund_lifecycle_contract(
 )->>'stage', 'confirming_with_nayax', 'prior approved card retains its original provider attempt');
 select is(public.refund_lifecycle_contract(
   'd8560000-0000-4000-8000-000000000003'
-)->'nextWork'->>'actor', 'agent',
+)->'nextWork'->>'actor', 'system',
   'prior approved card attempt continuation is internal, even with a live Manager mapping');
 select is(public.refund_lifecycle_contract(
   'd8560000-0000-4000-8000-000000000003'
