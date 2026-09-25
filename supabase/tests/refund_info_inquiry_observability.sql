@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(23);
+select plan(26);
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -108,6 +108,50 @@ select ok(public.service_finish_refund_gmail_contact_first_response(
   null), 'The existing writer records the sent receipt');
 select is((public.get_refund_gmail_health()->'infoInquiry'->>'unansweredDueCount')::integer,
   0, 'A confirmed same-thread response resolves the unanswered obligation');
+
+create temporary table info_prior_status as
+select public.service_ingest_refund_gmail_contact_v1(
+  repeat('5',64), 'info-inquiry-later-new', 'info-inquiry-old-status',
+  '<info-inquiry-old-status@example.test>', null, 'inbound', false,
+  'later-new@example.test', 'Synthetic Customer',
+  'info@bloomjoysweets.com', 'Status question',
+  'What is the status of my refund?', false,
+  now() - interval '25 minutes', null, '[]'::jsonb, '{}'::text[],
+  array['info@bloomjoysweets.com','refunds@bloomjoysweets.com'],
+  'direct_human', false, false, '{}'::text[]
+) as result;
+create temporary table info_later_new as
+select public.service_ingest_refund_gmail_contact_v1(
+  repeat('5',64), 'info-inquiry-later-new', 'info-inquiry-later-new-message',
+  '<info-inquiry-later-new-message@example.test>',
+  '<info-inquiry-old-status@example.test>', 'inbound', false,
+  'later-new@example.test', 'Synthetic Customer',
+  'info@bloomjoysweets.com', 'New purchase issue',
+  'I made another purchase and need a refund.', false,
+  now() - interval '10 minutes', null, '[]'::jsonb, '{}'::text[],
+  array['info@bloomjoysweets.com','refunds@bloomjoysweets.com'],
+  'direct_human', false, false, '{}'::text[]
+) as result;
+select ok(public.service_mark_refund_info_inquiry(
+  (select (result->>'messageId')::uuid from info_later_new), 'new_refund_inquiry'),
+  'The latest verified Info inquiry is bound to its exact later message');
+create temporary table info_later_claim as
+select public.service_claim_refund_gmail_contact_first_response(
+  (select (result->>'messageId')::uuid from info_later_new), 'active',
+  now() - interval '1 hour', 'refund_first_contact_v1',
+  'refunds@bloomjoysweets.com',
+  'Please use https://app.bloomjoyusa.com/refunds/request', false
+) as result;
+select is((select result->>'claimed' from info_later_claim), 'true',
+  'A later genuine new inquiry can use the original-thread one-response ledger');
+select is(
+  public.service_claim_refund_gmail_contact_first_response(
+    (select (result->>'messageId')::uuid from info_later_new), 'active',
+    now() - interval '1 hour', 'refund_first_contact_v1',
+    'refunds@bloomjoysweets.com',
+    'Please use https://app.bloomjoyusa.com/refunds/request', false
+  )->>'reason', 'operation_already_exists',
+  'Replaying the later Info inquiry cannot claim a second response');
 
 create temporary table manually_answered_info as
 select public.service_ingest_refund_gmail_contact_v1(

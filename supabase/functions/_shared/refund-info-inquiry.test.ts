@@ -51,6 +51,15 @@ Deno.test("direct Info refund request is eligible for the form-link path", () =>
     "new_refund_inquiry");
 });
 
+Deno.test("Info in a secondary To or Cc recipient still routes through the verified mailbox", () => {
+  assertRoute(message({ to: "helper@example.test, info@bloomjoysweets.com",
+    body: "I need a refund. I was charged by your machine." }), "new_refund_inquiry");
+  const ccOnly = message({ to: "helper@example.test",
+    body: "I need a refund. I was charged by your machine.",
+    extraHeaders: [{ name: "Cc", value: "info@bloomjoysweets.com" }] });
+  assertRoute(ccOnly, "new_refund_inquiry");
+});
+
 Deno.test("direct Support product failure is eligible through the shared mailbox", () => {
   assertRoute(message({ to: "support@bloomjoysweets.com", subject: "Machine issue",
     body: "I bought cotton candy from your machine, but it did not dispense." }),

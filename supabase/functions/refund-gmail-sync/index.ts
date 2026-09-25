@@ -2375,8 +2375,11 @@ serve(async (request) => {
                   p_is_bounce: isBounce,
                   p_sender_email: from.email || null,
                   p_sender_name: from.name || null,
-                  p_recipient_email: participantSignals.toEmails[0] ||
-                    config.mailbox,
+                  p_recipient_email: (infoInquiry
+                    ? participantSignals.toEmails.find((email) =>
+                      email === "info@bloomjoysweets.com" ||
+                      email === "support@bloomjoysweets.com")
+                    : null) || participantSignals.toEmails[0] || config.mailbox,
                   p_subject: redactedSubject.text,
                   p_plain_body: redactedBody.text,
                   p_sensitive_data_redacted: redactedSubject.redacted ||

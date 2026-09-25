@@ -228,6 +228,174 @@ begin
 end;
 $$;
 
+-- A later verified Info inquiry in an existing pre-form thread can be the first
+-- response obligation. The same one-operation-per-contact and prior-outbound guards
+-- remain in the canonical first-contact writer.
+create or replace function public.service_claim_refund_gmail_contact_first_response(
+  p_source_message_id uuid,
+  p_mode text,
+  p_cutover_at timestamptz,
+  p_template_key text,
+  p_sender_email text,
+  p_plain_body text,
+  p_thread_has_outbound boolean default false
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  source_row public.refund_gmail_intake_contact_messages;
+  contact_row public.refund_gmail_intake_contacts;
+  operation_row public.refund_gmail_intake_contact_operations;
+  transport_row public.refund_gmail_intake_contact_messages;
+  normalized_mode text := lower(btrim(coalesce(p_mode, '')));
+  normalized_template_key text := left(btrim(coalesce(p_template_key, '')), 120);
+  normalized_sender_email text := lower(btrim(coalesce(p_sender_email, '')));
+  first_inbound_id uuid;
+  prior_mailbox_reply_present boolean := false;
+  operation_key_value text;
+  reply_subject text;
+  reply_references text;
+begin
+  if normalized_mode not in ('shadow', 'isolated_test', 'active') then
+    raise exception 'Valid first-contact mode required';
+  end if;
+  if normalized_mode <> 'shadow' and p_cutover_at is null then
+    raise exception 'First-contact cutover time required';
+  end if;
+
+  select * into source_row
+  from public.refund_gmail_intake_contact_messages message
+  where message.id = p_source_message_id
+  for update;
+  if source_row.id is null then
+    return jsonb_build_object('eligible', false, 'claimed', false, 'reason', 'source_not_found');
+  end if;
+
+  select * into contact_row
+  from public.refund_gmail_intake_contacts contact
+  where contact.id = source_row.contact_id
+  for update;
+  if contact_row.id is null or contact_row.status <> 'awaiting_form'
+    or source_row.direction <> 'inbound'
+    or source_row.message_kind <> 'message'
+    or source_row.status <> 'received'
+    or source_row.participant_role <> 'customer'
+    or source_row.participant_trust <> 'verified'
+    or lower(coalesce(source_row.sender_email, '')) <> contact_row.customer_email then
+    return jsonb_build_object('eligible', false, 'claimed', false, 'reason', 'contact_not_eligible');
+  end if;
+
+  select message.id into first_inbound_id
+  from public.refund_gmail_intake_contact_messages message
+  where message.contact_id = contact_row.id
+    and message.direction = 'inbound'
+    and message.message_kind = 'message'
+    and message.status = 'received'
+  order by message.received_at, message.id
+  limit 1;
+  if first_inbound_id is distinct from source_row.id
+    and not (
+      contact_row.info_inquiry_route = 'new_refund_inquiry'
+      and contact_row.info_inquiry_source_message_id = source_row.id
+    ) then
+    return jsonb_build_object('eligible', false, 'claimed', false, 'reason', 'later_thread_message');
+  end if;
+  if normalized_mode <> 'shadow' and source_row.received_at < p_cutover_at then
+    return jsonb_build_object('eligible', false, 'claimed', false, 'reason', 'before_cutover');
+  end if;
+
+  select * into operation_row
+  from public.refund_gmail_intake_contact_operations operation
+  where operation.contact_id = contact_row.id;
+  if operation_row.id is not null then
+    return jsonb_build_object(
+      'eligible', true,
+      'claimed', false,
+      'operationId', operation_row.id,
+      'status', operation_row.status,
+      'mode', operation_row.mode,
+      'operationKey', operation_row.operation_key,
+      'providerThreadId', contact_row.provider_thread_id,
+      'reason', 'operation_already_exists'
+    );
+  end if;
+
+  prior_mailbox_reply_present := coalesce(p_thread_has_outbound, false) or exists (
+    select 1 from public.refund_gmail_intake_contact_messages message
+    where message.contact_id = contact_row.id
+      and message.direction = 'outbound'
+      and message.message_kind = 'message'
+  );
+  if normalized_mode <> 'shadow' and prior_mailbox_reply_present then
+    return jsonb_build_object('eligible', false, 'claimed', false, 'reason', 'prior_mailbox_reply');
+  end if;
+
+  operation_key_value := 'refund-contact-first-response:' || contact_row.id::text;
+  insert into public.refund_gmail_intake_contact_operations (
+    contact_id, source_message_id, operation_key, mode, template_key,
+    prior_mailbox_reply_present, status, cutover_at
+  ) values (
+    contact_row.id, source_row.id, operation_key_value, normalized_mode,
+    normalized_template_key, prior_mailbox_reply_present,
+    case when normalized_mode = 'shadow' then 'shadowed' else 'pending_send' end,
+    case when normalized_mode = 'shadow' then null else p_cutover_at end
+  ) returning * into operation_row;
+
+  if normalized_mode = 'shadow' then
+    return jsonb_build_object(
+      'eligible', true, 'claimed', true, 'operationId', operation_row.id,
+      'status', operation_row.status, 'mode', operation_row.mode,
+      'templateKey', operation_row.template_key
+    );
+  end if;
+
+  if not public.refund_email_address_is_valid(normalized_sender_email)
+    or length(coalesce(p_plain_body, '')) not between 1 and 50000 then
+    raise exception 'Valid first-contact delivery values required';
+  end if;
+  if p_plain_body ~* '/refunds\?case=' then
+    raise exception 'Customer first-contact body must not contain an internal case link';
+  end if;
+
+  reply_subject := coalesce(nullif(btrim(source_row.subject), ''), contact_row.thread_subject);
+  reply_references := btrim(concat_ws(
+    ' ', nullif(btrim(coalesce(source_row.references_header, '')), ''),
+    nullif(btrim(coalesce(source_row.provider_message_header, '')), '')
+  ));
+  insert into public.refund_gmail_intake_contact_messages (
+    contact_id, operation_key, direction, message_kind, status, sender_email,
+    recipient_email, recipient_cc_emails, participant_role, participant_trust,
+    subject, plain_body, received_at, retention_expires_at
+  ) values (
+    contact_row.id, operation_key_value, 'outbound', 'message', 'pending_send',
+    normalized_sender_email, contact_row.customer_email, '{}'::text[], 'mailbox',
+    'verified', reply_subject, left(p_plain_body, 50000), clock_timestamp(),
+    clock_timestamp() + interval '30 days'
+  ) returning * into transport_row;
+
+  update public.refund_gmail_intake_contact_operations
+  set transport_message_id = transport_row.id
+  where id = operation_row.id
+  returning * into operation_row;
+
+  return jsonb_build_object(
+    'eligible', true, 'claimed', true, 'operationId', operation_row.id,
+    'status', operation_row.status, 'mode', operation_row.mode,
+    'templateKey', operation_row.template_key, 'operationKey', operation_row.operation_key,
+    'transportMessageId', transport_row.id,
+    'providerThreadId', contact_row.provider_thread_id,
+    'recipientEmail', contact_row.customer_email,
+    'subject', reply_subject,
+    'inReplyTo', source_row.provider_message_header,
+    'references', nullif(reply_references, '')
+  );
+end;
+$$;
+
+
 revoke execute on function public.service_mark_refund_info_inquiry(uuid,text) from public, anon, authenticated;
 revoke execute on function public.service_get_refund_info_inquiry_scan_cursor() from public, anon, authenticated;
 revoke execute on function public.service_record_refund_info_inquiry_run(uuid,integer,integer,integer,integer,integer,integer,integer,integer,text,boolean) from public, anon, authenticated;
