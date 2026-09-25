@@ -381,7 +381,7 @@ begin
         and not 'card_last4'=any(p_applied_fields))
       or (reply.plain_body ~* '(visa|mastercard|amex|discover)'
         and not 'card_network'=any(p_applied_fields))
-      or (reply.plain_body ~* '(device token|wallet token)[^.?!]{0,40}[0-9]{4}'
+      or (reply.plain_body ~* '((device token|wallet token)[^.?!]{0,40}[0-9]{4}|[0-9]{4}[^.?!]{0,50}(apple pay device token|device token|wallet token))'
         and not exists(select 1 from jsonb_array_elements(p_field_evidence) wallet_item
           where wallet_item->>'field'='wallet_token_last4'))
   ) then

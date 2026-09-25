@@ -560,7 +560,7 @@ select ok(not has_function_privilege('authenticated',
   'Customer-content research health is visible only to the service worker');
 savepoint ordinary_network_semantic_fact;
 select pg_temp.make_scope(26);
-update public.refund_gmail_messages set plain_body='My card is Visa; I tapped the physical card.'
+update public.refund_gmail_messages set plain_body='My card is Visa.'
   where id=pg_temp.gid(26);
 select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(26),pg_temp.gid(26))->>'outcome',
   'received','Ordinary card-network prose creates one current verified task');
