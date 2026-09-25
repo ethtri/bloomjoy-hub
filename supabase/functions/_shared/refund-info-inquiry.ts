@@ -40,8 +40,21 @@ export function infoInquiryMissingSource({
   route: RefundInfoInquiryRoute;
   sourceMessageId: string | null;
 }): boolean {
+  const normalizedId = sourceMessageId?.trim();
   return (route === "new_refund_inquiry" || route === "needs_review" ||
-    route === "existing_case_question") && !sourceMessageId;
+    route === "existing_case_question") &&
+    (!normalizedId || normalizedId !== sourceMessageId || normalizedId.length > 255);
+}
+
+export function infoInquirySourceMissingSender(
+  classified: { route: RefundInfoInquiryRoute; sourceMessageId: string | null } | null,
+  currentMessageId: string | null,
+  senderEmail: string,
+): boolean {
+  return classified !== null && !infoInquiryMissingSource(classified) &&
+    classified.sourceMessageId !== null &&
+    classified.sourceMessageId === currentMessageId &&
+    !senderEmail;
 }
 
 const INFO_RECIPIENTS = new Set([

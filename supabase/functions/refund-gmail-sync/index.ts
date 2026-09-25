@@ -27,7 +27,7 @@ import {
   sha256Hex,
   verifyRefundGmailMailbox,
 } from "../_shared/refund-gmail.ts";
-import { classifyRefundInfoInquiry, infoInquiryMissingSource, infoRecoveryScanOutcome } from "../_shared/refund-info-inquiry.ts";
+import { classifyRefundInfoInquiry, infoInquiryMissingSource, infoInquirySourceMissingSender, infoRecoveryScanOutcome } from "../_shared/refund-info-inquiry.ts";
 import { ingestRefundGmailThreadBeforeFirstContact } from "../_shared/refund-gmail-orchestration.ts";
 import { ingestNayaxReportMail, isNayaxScheduledReportMessage, nayaxReportFailureCode } from "../_shared/nayax-report-mail.ts";
 import {
@@ -2351,6 +2351,10 @@ serve(async (request) => {
               }
               if (!from.email && direction !== "system") {
                 counters.messagesFailed += 1;
+                if (infoInquirySourceMissingSender(infoInquiry, providerMessageId, from.email)) {
+                  infoCounters.failed += 1;
+                  infoScanFailed = true;
+                }
                 return null;
               }
               const rawSubject =

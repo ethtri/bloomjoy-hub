@@ -1,10 +1,12 @@
-import { classifyRefundInfoInquiry, infoInquiryMissingSource, infoRecoveryScanOutcome } from "./refund-info-inquiry.ts";
+import { classifyRefundInfoInquiry, infoInquiryMissingSource, infoInquirySourceMissingSender, infoRecoveryScanOutcome } from "./refund-info-inquiry.ts";
 import { infoRefundInquiryThreadQuery, type GmailMessage } from "./refund-gmail.ts";
 
 Deno.test("Info mailbox search is independent of the refund label and preserves pagination", () => {
   const params = infoRefundInquiryThreadQuery(new Date("2026-09-19T15:00:00Z"), "synthetic-page");
   if (!params.get("q")?.includes("to:info@bloomjoysweets.com") ||
+    !params.get("q")?.includes("cc:info@bloomjoysweets.com") ||
     !params.get("q")?.includes("to:support@bloomjoysweets.com") ||
+    !params.get("q")?.includes("cc:support@bloomjoysweets.com") ||
     params.get("pageToken") !== "synthetic-page" || params.has("labelIds")) {
     throw new Error("Info/Support recovery must search the connected mailbox, not the refund label");
   }
@@ -86,22 +88,42 @@ Deno.test("failed or unprocessed Info pages retain the exact recovery cursor", (
 });
 
 Deno.test("an applicable Info inquiry without a provider message ID keeps recovery due", () => {
-  const missingId = message({ body: "I need a refund for my Bloomjoy purchase." });
-  delete missingId.id;
+  for (const providerId of [undefined, "", "   ", " provider-id ", "x".repeat(256)]) {
+    const missingId = message({ body: "I need a refund for my Bloomjoy purchase." });
+    missingId.id = providerId;
+    const classified = classifyRefundInfoInquiry({
+      messages: [missingId], mailboxIdentities: ["info@bloomjoysweets.com"],
+    });
+    if (classified.route !== "new_refund_inquiry" ||
+      !infoInquiryMissingSource(classified)) {
+      throw new Error("The missing exact source must be an Info scan failure");
+    }
+    const scan = infoRecoveryScanOutcome({
+      initialCursor: "unread-page", nextCursor: "later-page",
+      pagesFetched: true, allThreadsProcessed: true,
+      scanFailed: infoInquiryMissingSource(classified),
+    });
+    if (scan.cursor !== "unread-page" || scan.fullScanCompleted) {
+      throw new Error("Missing source evidence must not advance the Info cursor");
+    }
+  }
+});
+
+Deno.test("an applicable Info inquiry without a verified sender keeps recovery due", () => {
+  const missingSender = message({ from: "", body: "I need a refund for my Bloomjoy purchase." });
   const classified = classifyRefundInfoInquiry({
-    messages: [missingId], mailboxIdentities: ["info@bloomjoysweets.com"],
+    messages: [missingSender], mailboxIdentities: ["info@bloomjoysweets.com"],
   });
-  if (classified.route !== "new_refund_inquiry" ||
-    !infoInquiryMissingSource(classified)) {
-    throw new Error("The missing exact source must be an Info scan failure");
+  if (!infoInquirySourceMissingSender(classified, missingSender.id ?? null, "")) {
+    throw new Error("An exact classified source without a sender cannot be ingested");
   }
   const scan = infoRecoveryScanOutcome({
     initialCursor: "unread-page", nextCursor: "later-page",
     pagesFetched: true, allThreadsProcessed: true,
-    scanFailed: infoInquiryMissingSource(classified),
+    scanFailed: infoInquirySourceMissingSender(classified, missingSender.id ?? null, ""),
   });
-  if (scan.cursor !== "unread-page" || scan.fullScanCompleted) {
-    throw new Error("Missing source evidence must not advance the Info cursor");
+  if (scan.cursor !== "unread-page") {
+    throw new Error("Missing sender evidence must not advance the Info cursor");
   }
 });
 
