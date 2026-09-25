@@ -110,7 +110,7 @@ Set the following values before launch.
 | `REFUND_MANAGER_AGING_NOTICES_ENABLED` | Server-only | `refund-case-automation-sweep` manager-aging lane | Default `false`; independent of other sweep actions | Release owner |
 | `REFUND_GMAIL_RETENTION_ENABLED` | Server-only | `refund-gmail-sync` retention-only lane | Default `false`; requires database owner approval and may run with Gmail sync/OAuth off | Privacy/security owner |
 | `REFUND_GMAIL_ATTACHMENT_SCANNER_ENABLED` | Server-only | Gmail quarantine scanning | Default `false`; requires an approved scanner version | Privacy/security owner |
-| `OPENAI_API_KEY` | Server-only | `refund-gpt-triage` | Production project-scoped OpenAI key; never supplied to the browser or GitHub Actions | Technical owner |
+| `OPENAI_API_KEY` | Server-only, optional legacy API triage | `refund-gpt-triage` only | Required only if the separate API-backed triage lane is activated; the subscription-backed refund reply runner does not use it. Never supplied to the browser or GitHub Actions | Technical owner |
 | `OPENAI_REFUND_TRIAGE_SAFETY_SALT` | Server-only | `refund-gpt-triage` | Random 32+ character salt for one-way safety identifiers | Privacy/security owner |
 | `OPENAI_REFUND_TRIAGE_DATA_CONTROLS_APPROVED` | Server-only | `refund-gpt-triage` | Default `false`; set `true` only after `#635` records the exact OpenAI project retention mode and privacy/security approval | Privacy/security owner |
 | `OPENAI_REFUND_TRIAGE_MODEL` | Server-only, optional | `refund-gpt-triage` | Approved `gpt-5.6-terra` default or explicitly reviewed family variant | Technical owner |

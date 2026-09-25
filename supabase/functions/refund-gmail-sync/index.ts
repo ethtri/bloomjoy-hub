@@ -941,11 +941,13 @@ const applyDeterministicCustomerReplyFacts = async ({
   sourceMessageId,
   body,
   sensitiveDataRedacted,
+  scopedReplyReceived,
 }: {
   refundCaseId: string;
   sourceMessageId: string;
   body: string;
   sensitiveDataRedacted: boolean;
+  scopedReplyReceived: boolean;
 }) => {
   if (!supabase) return { allowRoutineContact: false };
   const hasAuthoritativeReceipt = async () => {
@@ -965,6 +967,7 @@ const applyDeterministicCustomerReplyFacts = async ({
   try {
     return await applyUnreceiptedCustomerReplyFacts({
       refundCaseId, sourceMessageId, body, sensitiveDataRedacted,
+      scopedReplyReceived,
     });
   } catch (error) {
     // A receipt can commit after the initial read but before a direct routing
@@ -982,11 +985,13 @@ const applyUnreceiptedCustomerReplyFacts = async ({
   sourceMessageId,
   body,
   sensitiveDataRedacted,
+  scopedReplyReceived,
 }: {
   refundCaseId: string;
   sourceMessageId: string;
   body: string;
   sensitiveDataRedacted: boolean;
+  scopedReplyReceived: boolean;
 }) => {
   if (!supabase) return { allowRoutineContact: false };
   const extracted = extractLabeledRefundEmailFacts(body);
@@ -994,24 +999,22 @@ const applyUnreceiptedCustomerReplyFacts = async ({
     ? "sensitive_or_escalated_content"
     : extracted.manualReviewReason;
   if (manualReviewReason) {
+    // A scoped reply was atomically bound to its exact delivered question at
+    // ingestion. The scheduled internal review owns unsafe content; a manager
+    // must never be assigned email parsing as a final-decision action.
+    if (scopedReplyReceived) return { allowRoutineContact: false };
     const { error: updateError } = await supabase.from("refund_cases").update({
-      status: "needs_review",
-      automation_state: "under_review",
+      status: "needs_review", automation_state: "under_review",
       automation_follow_up_due_at: null,
     }).eq("id", refundCaseId);
     if (updateError) throw updateError;
-    const { error: eventError } = await supabase.from("refund_case_events")
-      .insert({
-        refund_case_id: refundCaseId,
-        event_type: "gmail_customer_message_routed_to_manager",
-        message:
-          "A verified customer email required manager handling instead of a routine automatic reply.",
-        metadata: {
-          reason: manualReviewReason,
-          ambiguous_fields: extracted.ambiguousFields,
-          payload_redacted: true,
-        },
-      });
+    const { error: eventError } = await supabase.from("refund_case_events").insert({
+      refund_case_id: refundCaseId,
+      event_type: "gmail_customer_message_routed_to_manager",
+      message: "A verified customer email required manual handling.",
+      metadata: { reason: manualReviewReason,
+        ambiguous_fields: extracted.ambiguousFields, payload_redacted: true },
+    });
     if (eventError) throw eventError;
     return { allowRoutineContact: false };
   }
@@ -1067,7 +1070,17 @@ const applyUnreceiptedCustomerReplyFacts = async ({
     .limit(1)
     .maybeSingle();
   if (correctionCycleError) throw correctionCycleError;
-  const allowCustomerCorrection = Boolean(correctionCycle);
+  const { data: pendingCorrection, error: pendingCorrectionError } = await supabase
+    .from("refund_wallet_correction_contexts")
+    .select("id")
+    .eq("refund_case_id", refundCaseId)
+    .eq("correction_kind", "purchase")
+    .eq("status", "pending")
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (pendingCorrectionError) throw pendingCorrectionError;
+  const allowCustomerCorrection = Boolean(correctionCycle || pendingCorrection);
 
   const currentPaymentMethod = String(current.payment_method ?? "")
     .toLowerCase();
@@ -1093,24 +1106,20 @@ const applyUnreceiptedCustomerReplyFacts = async ({
     storedWalletDigitsWouldBecomePhysical ||
     storedNonWalletDigitsWouldBecomeWallet
   ) {
-    const { error: updateError } = await supabase.from("refund_cases").update({
-      status: "needs_review",
-      automation_state: "under_review",
-      automation_follow_up_due_at: null,
-    }).eq("id", refundCaseId);
-    if (updateError) throw updateError;
-    const { error: eventError } = await supabase.from("refund_case_events")
-      .insert({
+    if (!scopedReplyReceived) {
+      const { error: updateError } = await supabase.from("refund_cases").update({
+        status: "needs_review", automation_state: "under_review",
+        automation_follow_up_due_at: null,
+      }).eq("id", refundCaseId);
+      if (updateError) throw updateError;
+      const { error: eventError } = await supabase.from("refund_case_events").insert({
         refund_case_id: refundCaseId,
         event_type: "gmail_customer_message_routed_to_manager",
-        message:
-          "A verified customer email contained payment facts that conflicted with the stored card-digit provenance.",
-        metadata: {
-          reason: "conflicting_stored_payment_provenance",
-          payload_redacted: true,
-        },
+        message: "A verified customer email conflicted with stored card-digit provenance.",
+        metadata: { reason: "conflicting_stored_payment_provenance", payload_redacted: true },
       });
-    if (eventError) throw eventError;
+      if (eventError) throw eventError;
+    }
     return { allowRoutineContact: false };
   }
 
@@ -2346,6 +2355,7 @@ serve(async (request) => {
               const automaticContactPaused =
                 ingestion?.automaticCustomerContactPaused === true;
               let allowRoutineContact = true;
+              let scopedReplyReceived = false;
               const appealId = sanitizeText(ingestion?.appealId, 80);
               const appealReceived = ingestion?.appealReceived === true &&
                 Boolean(appealId);
@@ -2368,6 +2378,18 @@ serve(async (request) => {
                 internalMessageId && participantRole === "customer"
               ) {
                 try {
+                  const scopedReply = await rpc<{ outcome?: string }>(
+                    "service_receive_refund_scoped_email_reply",
+                    {
+                      p_refund_case_id: caseId,
+                      p_gmail_message_id: internalMessageId,
+                    },
+                  );
+                  if (scopedReply?.outcome === "received" ||
+                    scopedReply?.outcome === "already_received") {
+                    scopedReplyReceived = true;
+                    allowRoutineContact = false;
+                  }
                   const factResult = await applyDeterministicCustomerReplyFacts(
                     {
                       refundCaseId: caseId,
@@ -2375,9 +2397,11 @@ serve(async (request) => {
                       body: redactedBody.text,
                       sensitiveDataRedacted: redactedSubject.redacted ||
                         redactedBody.redacted,
+                      scopedReplyReceived,
                     },
                   );
-                  allowRoutineContact = factResult.allowRoutineContact;
+                  allowRoutineContact = allowRoutineContact &&
+                    factResult.allowRoutineContact;
                 } catch (error) {
                   allowRoutineContact = false;
                   counters.messagesFailed += 1;
@@ -2393,7 +2417,7 @@ serve(async (request) => {
                 }
               }
               if (
-                !intakeShadow && ingestion?.created && caseId &&
+                !intakeShadow && !scopedReplyReceived && ingestion?.created && caseId &&
                 internalMessageId &&
                 (participantRole === "customer" || automaticContactPaused)
               ) {

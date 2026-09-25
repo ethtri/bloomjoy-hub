@@ -2611,17 +2611,31 @@ const runCardNayaxLookupSweep = async (
   policyWindowStart: string,
 ) => {
   if (!supabase) return;
+  // A verified reply can warrant one new read after a prior completed
+  // no-match. It uses the same provider worker and shares this four-read cap.
+  const { data: replyClaimData, error: replyClaimError } = await supabase.rpc(
+    "service_claim_due_refund_reply_nayax_lookups",
+    { p_limit: 2 },
+  );
+  // Main deploys before additive migrations on this host. Preserve the
+  // existing lookup lane during that short mixed-version interval; once the
+  // migration exists, any real claimant error still fails the sweep.
+  if (replyClaimError && replyClaimError.code !== "PGRST202") throw replyClaimError;
+  if (replyClaimError) {
+    console.warn("reply lookup claimant is not installed yet");
+  }
+  const replyClaims = Array.isArray(replyClaimData)
+    ? replyClaimData as Array<Record<string, unknown>>
+    : [];
+  if (replyClaims.length > 2) throw new Error("Reply lookup claim limit exceeded.");
   const { data: lookupClaimData, error: lookupClaimError } = await supabase.rpc(
     "service_claim_due_refund_nayax_lookups",
-    // Provider reads are intentionally sequential. Four keeps one invocation
-    // comfortably below the production Edge CPU ceiling even when every
-    // result includes the maximum candidate set.
-    { p_limit: 4 },
+    { p_limit: Math.max(1, 4 - replyClaims.length) },
   );
   if (lookupClaimError) throw lookupClaimError;
-  const lookupClaims = Array.isArray(lookupClaimData)
+  const lookupClaims = replyClaims.concat(Array.isArray(lookupClaimData)
     ? lookupClaimData as Array<Record<string, unknown>>
-    : [];
+    : []);
   const claimedCaseIds = lookupClaims.map((claim) => textValue(claim.caseId))
     .filter(Boolean);
   if (claimedCaseIds.length === 0) return;
@@ -2670,6 +2684,18 @@ const runCardNayaxLookupSweep = async (
         actorUserId: null,
         lookupGeneration,
         expectedFactVersion: refundCase.deterministic_fact_version,
+        replyDirectionalEvidence: lookupClaim.source === "verified_reply_research" &&
+            lookupClaim.directionalEvidence &&
+            typeof lookupClaim.directionalEvidence === "object" &&
+            !Array.isArray(lookupClaim.directionalEvidence)
+          ? {
+            walletTokenLast4: typeof (lookupClaim.directionalEvidence as Record<string, unknown>).walletTokenLast4 === "string"
+              ? (lookupClaim.directionalEvidence as Record<string, string>).walletTokenLast4
+              : undefined,
+            timeConfidence: (lookupClaim.directionalEvidence as Record<string, unknown>).timeConfidence === "rough"
+              ? "rough" : undefined,
+          }
+          : undefined,
       });
       await persistNayaxLookupResult({
         supabase,
@@ -4930,6 +4956,26 @@ serve(async (req) => {
         ...redactedSummary(counters),
       });
     }
+
+    // Reconcile verified replies that Gmail linked before this continuation
+    // existed. The service RPC reuses the exact delivered-request receiver;
+    // it performs no customer contact or provider operation.
+    failureStage = "stored_scoped_reply_reconciliation";
+    const { data: storedReplyRecovery, error: storedReplyRecoveryError } = await supabase.rpc(
+      "service_reconcile_stored_refund_scoped_email_replies", { p_limit: 25, p_dry_run: false },
+    );
+    if (storedReplyRecoveryError) throw storedReplyRecoveryError;
+    const recoveredReplies = Number(storedReplyRecovery?.receivedCount);
+    const examinedReplies = Number(storedReplyRecovery?.examinedCount);
+    if (storedReplyRecovery?.dryRun !== false ||
+      !Number.isSafeInteger(recoveredReplies) || !Number.isSafeInteger(examinedReplies) ||
+      recoveredReplies < 0 || examinedReplies < recoveredReplies || examinedReplies > 25) {
+      throw new Error("refund_stored_reply_reconciliation_invalid_result");
+    }
+    counters.actionsAttempted += examinedReplies;
+    counters.actionsSucceeded += recoveredReplies;
+    counters.actionsSuppressed += examinedReplies - recoveredReplies;
+    if (recoveredReplies > 0) addReason(counters, "stored_verified_reply_reconciled", recoveredReplies);
 
     // Transaction discovery is a bounded read-only provider check. Run it
     // whenever automation is enabled so candidate recovery does not wait for

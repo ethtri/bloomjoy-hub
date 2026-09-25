@@ -59,8 +59,8 @@ const copy: Record<RefundCustomerOutreachState, Omit<RefundCustomerOutreachPrese
   customer_replied: {
     label: 'New information received',
     explanation: 'The customer replied on the same case with updated purchase information.',
-    nextStep: 'Bloomjoy will recheck the updated details automatically.',
-    tone: 'success',
+    nextStep: 'Bloomjoy needs to review the reply and the saved purchase evidence. No manager action is needed yet.',
+    tone: 'info',
   },
   rechecking: {
     label: 'Rechecking the purchase',

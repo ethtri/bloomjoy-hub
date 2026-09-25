@@ -756,6 +756,20 @@ Deno.test("customer outreach accepts only the exact redacted v1 contract", () =>
     payloadRedacted: true,
   } as const;
   assert(isRefundLifecycleContract({ ...fixture, customerOutreach }), "exact outreach should parse");
+  const verifiedReplyOutreach = {
+    ...customerOutreach,
+    state: "customer_replied",
+    owner: "System",
+    nextAction: "recheck_customer_reply",
+    requestSentAt: "2026-09-10T18:01:00.000Z",
+    replyReceivedAt: "2026-09-10T19:00:00.000Z",
+    reasonCode: "verified_reply_review_due",
+  };
+  assert(isRefundLifecycleContract({ ...fixture, customerOutreach: verifiedReplyOutreach }),
+    "verified unparsed reply remains a supported internal outreach state");
+  assert(!isRefundLifecycleContract({ ...fixture, customerOutreach: {
+    ...verifiedReplyOutreach, replyReviewState: "claimed",
+  } }), "service-only reply claim state must not expand the public wire shape");
 
   for (const invalid of [
     { ...customerOutreach, state: "sent" },

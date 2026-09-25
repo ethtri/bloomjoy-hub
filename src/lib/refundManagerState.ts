@@ -464,7 +464,9 @@ export const getRefundManagerState = (
     return state(
       customerOutreach.state === 'waiting_for_customer'
         ? 'waiting_on_customer'
-        : customerOutreach.state === 'customer_replied' || customerOutreach.state === 'rechecking'
+        : customerOutreach.state === 'customer_replied'
+        ? 'needs_information'
+        : customerOutreach.state === 'rechecking'
         ? 'checking_nayax'
         : customerOutreach.nextAction === 'refund_operations'
         ? 'needs_refund_operations'
