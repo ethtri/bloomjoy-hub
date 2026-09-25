@@ -127,20 +127,50 @@ create function public.refund_manager_decision_material_fingerprint(
   p_refund_case_id uuid,p_action_code text
 )
 returns text language plpgsql stable security definer set search_path='' as $$
-declare c public.refund_cases%rowtype;
+declare
+  c public.refund_cases%rowtype;
+  preparation jsonb;
+  eligible_purchase_digest text;
 begin
   select * into c from public.refund_cases where id=p_refund_case_id;
   if c.id is null or not (
     (p_action_code='approve_or_deny_request' and c.payment_method='card')
     or (p_action_code='send_cash_refund_and_confirm' and c.payment_method='cash')
   ) then return null; end if;
+  if p_action_code='approve_or_deny_request'
+    and pg_catalog.to_regprocedure(
+      'public.refund_manager_preparation_snapshot(uuid,bigint)') is not null then
+    execute 'select public.refund_manager_preparation_snapshot($1,$2)'
+      into preparation using c.id,c.official_action_version;
+    if preparation->>'evidenceBasis'='card_reviewed_candidate_set' then
+      -- A reviewed set has no preselected purchase on the case row. Bind the
+      -- notice to eligible purchase identities, not volatile proof IDs,
+      -- candidate tokens, lookup generations, scores, or expiry timestamps.
+      -- The producer's current safety helper remains the sole eligibility gate.
+      select encode(extensions.digest(convert_to(
+        string_agg(purchase_identity,'|' order by purchase_identity),
+        'UTF8'),'sha256'),'hex')
+      into eligible_purchase_digest
+      from (
+        select distinct jsonb_build_array(
+          k.provider_transaction_id,k.site_id,k.machine_authorization_time,
+          k.amount_cents,k.currency_code)::text as purchase_identity
+        from public.refund_nayax_lookup_candidates k
+        where k.refund_case_id=c.id
+          and k.lookup_generation=c.nayax_lookup_generation
+          and k.evidence_summary->>'selection_allowed'='true'
+          and public.refund_reviewed_card_candidate_safe_v1(c.id,k.token)
+      ) eligible;
+      if eligible_purchase_digest is null then return null; end if;
+    end if;
+  end if;
   return encode(extensions.digest(convert_to(jsonb_build_array(
     p_action_code,c.reporting_machine_id,
     coalesce(c.refund_amount_cents,c.matched_nayax_amount_cents,c.payment_amount_cents),
     c.matched_nayax_transaction_id,c.matched_nayax_site_id,
     c.matched_nayax_machine_auth_time,c.matched_nayax_amount_cents,
     c.matched_nayax_currency_code,c.matched_sales_fact_id,
-    c.zelle_payment_contact
+    c.zelle_payment_contact,eligible_purchase_digest
   )::text,'UTF8'),'sha256'),'hex');
 end $$;
 revoke all on function public.refund_manager_decision_material_fingerprint(uuid,text)
