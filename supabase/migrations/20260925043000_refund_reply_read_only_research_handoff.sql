@@ -6,7 +6,7 @@ create function public.service_claim_due_refund_reply_nayax_lookups(
 ) returns jsonb language plpgsql security definer set search_path='' as $$
 declare
   due record;
-  c public.refund_cases;
+  case_row public.refund_cases;
   ctx public.refund_wallet_correction_contexts;
   source public.refund_gmail_messages;
   result jsonb;
@@ -74,25 +74,25 @@ begin
       'refund-nayax-lookup-v1|'||due.case_id::text,0)) then
       continue;
     end if;
-    select * into c from public.refund_cases where id=due.case_id for update;
+    select * into case_row from public.refund_cases where id=due.case_id for update;
     select * into ctx from public.refund_wallet_correction_contexts
       where id=due.request_id for update;
     select * into source from public.refund_gmail_messages
       where id=ctx.reply_message_id for update;
     -- Under the case lock, recheck the reply identity and read scope. The
     -- selector above contains all stable safety predicates before LIMIT.
-    if c.id is null or ctx.id is null or ctx.status is distinct from 'pending'
+    if case_row.id is null or ctx.id is null or ctx.status is distinct from 'pending'
       or ctx.reply_review_state is distinct from 'resolved'
       or ctx.reply_lookup_generation is not null
       or coalesce(ctx.reply_review_result_code,'') not in (
         'customer_cannot_provide','no_supported_new_fact',
         'conflicting_reply_evidence','inexact_purchase_time_requires_research',
         'wallet_token_requires_research')
-      or ctx.reply_review_action_version is distinct from c.official_action_version
-      or ctx.correction_fact_version is distinct from c.deterministic_fact_version
+      or ctx.reply_review_action_version is distinct from case_row.official_action_version
+      or ctx.correction_fact_version is distinct from case_row.deterministic_fact_version
       or ctx.reply_body_sha256 is distinct from
         public.refund_scoped_verified_reply_set(ctx.id)->>'bodySha256'
-      or source.id is null or source.refund_case_id is distinct from c.id
+      or source.id is null or source.refund_case_id is distinct from case_row.id
       or source.direction is distinct from 'inbound'
       or source.status is distinct from 'received'
       or source.participant_role is distinct from 'customer'
@@ -100,49 +100,50 @@ begin
       or source.content_deleted_at is not null
       or source.sensitive_data_redacted is distinct from false
       or source.received_at is distinct from ctx.reply_received_at
-      or c.decision is not null or not public.refund_purchase_correction_eligible(c)
-      or c.payment_method is distinct from 'card'
-      or coalesce(c.status,'') not in ('submitted','needs_review','correlated')
-      or c.reporting_location_id is null or c.incident_at is null
-      or c.incident_time_resolution is null or coalesce(c.payment_amount_cents,0)<=0
-      or c.matched_nayax_transaction_id is not null
-      or c.nayax_refund_execution_status is distinct from 'not_requested'
-      or c.refund_completed_at is not null
-      or c.reporting_adjustment_id is not null
-      or c.manual_refund_reference is not null
-      or c.duplicate_of_refund_case_id is not null
-      or not (coalesce(c.nayax_lookup_status,'')='not_started' or (
-        coalesce(c.nayax_lookup_status,'') in ('no_match','match_found','multiple_matches')
-        and c.nayax_lookup_finished_at is not null
-        and c.nayax_lookup_started_at is not null
-        and c.nayax_lookup_started_at<=ctx.reply_received_at
-        and coalesce(c.nayax_lookup_correlation_digest,'') ~ '^[a-f0-9]{64}$'
-        and nullif(c.nayax_recommendation_policy_version,'') is not null
-        and c.nayax_recommendation_policy_version<>'manual-nayax-portal-v1'))
+      or case_row.decision is not null
+      or not public.refund_purchase_correction_eligible(case_row)
+      or case_row.payment_method is distinct from 'card'
+      or coalesce(case_row.status,'') not in ('submitted','needs_review','correlated')
+      or case_row.reporting_location_id is null or case_row.incident_at is null
+      or case_row.incident_time_resolution is null or coalesce(case_row.payment_amount_cents,0)<=0
+      or case_row.matched_nayax_transaction_id is not null
+      or case_row.nayax_refund_execution_status is distinct from 'not_requested'
+      or case_row.refund_completed_at is not null
+      or case_row.reporting_adjustment_id is not null
+      or case_row.manual_refund_reference is not null
+      or case_row.duplicate_of_refund_case_id is not null
+      or not (coalesce(case_row.nayax_lookup_status,'')='not_started' or (
+        coalesce(case_row.nayax_lookup_status,'') in ('no_match','match_found','multiple_matches')
+        and case_row.nayax_lookup_finished_at is not null
+        and case_row.nayax_lookup_started_at is not null
+        and case_row.nayax_lookup_started_at<=ctx.reply_received_at
+        and coalesce(case_row.nayax_lookup_correlation_digest,'') ~ '^[a-f0-9]{64}$'
+        and nullif(case_row.nayax_recommendation_policy_version,'') is not null
+        and case_row.nayax_recommendation_policy_version<>'manual-nayax-portal-v1'))
       or exists (select 1 from public.refund_case_nayax_refund_attempts a
-        where a.refund_case_id=c.id)
+        where a.refund_case_id=case_row.id)
       or exists (select 1 from public.refund_authoritative_receipts receipt
-        where receipt.refund_case_id=c.id)
-      or public.refund_case_has_unresolved_reconciliation(c.id)
+        where receipt.refund_case_id=case_row.id)
+      or public.refund_case_has_unresolved_reconciliation(case_row.id)
       or not exists (select 1 from public.reporting_machines machine
-        where machine.id=c.reporting_machine_id and machine.status='active'
+        where machine.id=case_row.reporting_machine_id and machine.status='active'
           and machine.nayax_manual_portal_enabled is not true
           and nullif(btrim(machine.nayax_machine_id),'') is not null
           and nullif(btrim(machine.nayax_account_key),'') is not null)
     then continue; end if;
     result:=public.service_begin_refund_nayax_lookup(
-      c.id,c.deterministic_fact_version,'scheduled',null);
+      case_row.id,case_row.deterministic_fact_version,'scheduled',null);
     if result->>'status'='checking' then
       update public.refund_wallet_correction_contexts set
         reply_lookup_generation=(result->>'lookupGeneration')::bigint,
         reply_review_action_version=(select official_action_version
-          from public.refund_cases where id=c.id),
+          from public.refund_cases where id=case_row.id),
         updated_at=statement_timestamp()
         where id=ctx.id and reply_lookup_generation is null;
       claims:=claims||jsonb_build_array(jsonb_build_object(
-        'caseId',c.id,'factVersion',c.deterministic_fact_version,
+        'caseId',case_row.id,'factVersion',case_row.deterministic_fact_version,
         'lookupGeneration',(result->>'lookupGeneration')::bigint,
-        'retryCount',c.nayax_lookup_retry_count,
+        'retryCount',case_row.nayax_lookup_retry_count,
         'source','verified_reply_research',
         'directionalEvidence',ctx.reply_directional_evidence,
         'payloadRedacted',true));
