@@ -292,6 +292,55 @@ select is((select delivery_state from public.refund_manager_notification_actions
       and id<>(select (value->>'intentId')::uuid from sent_ready_claim)),
   'reserved','The other co-manager keeps their independent ready delivery claim');
 
+-- A delivered first recipient cannot consume the second recipient's exact
+-- decision. The second send still needs its own live machine mapping.
+savepoint second_co_manager_scope;
+update public.reporting_machine_refund_managers
+set status='revoked',revoked_at=statement_timestamp(),
+  revoke_reason='Synthetic provider-start scope race'
+where reporting_machine_id='14253000-0000-4000-8000-000000000001'
+  and manager_email=(select value->>'recipient' from co_manager_claims
+    where value->>'recipient'<>(select value->>'recipient' from sent_ready_claim));
+select is(public.service_mark_refund_manager_ready_notice_provider_started(
+  (select (value->>'intentId')::uuid from co_manager_claims
+   where value->>'recipient'<>(select value->>'recipient' from sent_ready_claim)),
+  (select (value->>'claimToken')::uuid from co_manager_claims
+   where value->>'recipient'<>(select value->>'recipient' from sent_ready_claim)),
+  (select value->>'routeFingerprint' from co_manager_claims
+   where value->>'recipient'<>(select value->>'recipient' from sent_ready_claim)),
+  (select value->>'recipient' from co_manager_claims
+   where value->>'recipient'<>(select value->>'recipient' from sent_ready_claim)))::text,
+  'false','A co-manager loses send authority immediately when their mapping is revoked');
+rollback to savepoint second_co_manager_scope;
+select is(public.service_mark_refund_manager_ready_notice_provider_started(
+  (select (value->>'intentId')::uuid from co_manager_claims
+   where value->>'recipient'<>(select value->>'recipient' from sent_ready_claim)),
+  (select (value->>'claimToken')::uuid from co_manager_claims
+   where value->>'recipient'<>(select value->>'recipient' from sent_ready_claim)),
+  (select value->>'routeFingerprint' from co_manager_claims
+   where value->>'recipient'<>(select value->>'recipient' from sent_ready_claim)),
+  (select value->>'recipient' from co_manager_claims
+   where value->>'recipient'<>(select value->>'recipient' from sent_ready_claim)))::text,
+  'true','The still-mapped second co-manager can start after the first is sent');
+select is(public.service_complete_refund_manager_ready_notice(
+  (select (value->>'intentId')::uuid from co_manager_claims
+   where value->>'recipient'<>(select value->>'recipient' from sent_ready_claim)),
+  (select (value->>'claimToken')::uuid from co_manager_claims
+   where value->>'recipient'<>(select value->>'recipient' from sent_ready_claim)),
+  'sent','synthetic-second-manager-provider-id')::text,'true',
+  'The second co-manager records a separate accepted delivery');
+select is((select count(*)::text
+  from public.refund_manager_notification_actions action
+  join public.refund_manager_notification_recipients recipient
+    on recipient.action_id=action.id
+  where action.refund_case_id='14255000-0000-4000-8000-000000000004'
+    and action.notice_reason='decision_ready'
+    and action.delivery_state='sent' and recipient.delivery_state='sent'),
+  '2','Both individual manager recipients retain sent evidence for one decision');
+select is(public.service_claim_next_refund_manager_ready_notice(
+  '14255000-0000-4000-8000-000000000004')->>'claimed','false',
+  'Neither accepted co-manager notice can be claimed a second time');
+
 create temporary table material_before as select
   public.refund_manager_decision_material_fingerprint(
     '14255000-0000-4000-8000-000000000004',
