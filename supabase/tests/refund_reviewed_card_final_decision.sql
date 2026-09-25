@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(50);
+select plan(58);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -265,32 +265,71 @@ select matches(pg_temp.probe_rolled_back_decision(
   (select proof_id from reviewed_initial where case_id='e1450000-0000-4000-8000-000000000001'),
   'e1460000-0000-4000-8000-000000000001'
 ), '^P4620:', 'a changed machine account cannot approve under prior proof');
-select matches(pg_temp.probe_rolled_back_decision(
-  $$update public.refund_nayax_lookup_candidates set currency_code='EUR'
-    where token='e1460000-0000-4000-8000-000000000001'$$,
-  (select case_id from reviewed_initial where case_id='e1450000-0000-4000-8000-000000000001'),
-  (select action_version from reviewed_initial where case_id='e1450000-0000-4000-8000-000000000001'),
-  (select proof_id from reviewed_initial where case_id='e1450000-0000-4000-8000-000000000001'),
-  'e1460000-0000-4000-8000-000000000001'
-), '^P4620:', 'changed candidate currency invalidates the exact reviewed set');
-select matches(pg_temp.probe_rolled_back_decision(
-  $$update public.refund_nayax_lookup_candidates
+select matches(pg_temp.capture_error($$
+  update public.refund_nayax_lookup_candidates set currency_code='EUR'
+    where token='e1460000-0000-4000-8000-000000000001'$$),
+  '^P0001:Nayax candidate evidence is immutable',
+  'persisted candidate currency cannot be rewritten after the provider read');
+select matches(pg_temp.capture_error($$
+  update public.refund_nayax_lookup_candidates
     set reporting_machine_id='e1440000-0000-4000-8000-000000000002'
-    where token='e1460000-0000-4000-8000-000000000001'$$,
-  (select case_id from reviewed_initial where case_id='e1450000-0000-4000-8000-000000000001'),
-  (select action_version from reviewed_initial where case_id='e1450000-0000-4000-8000-000000000001'),
-  (select proof_id from reviewed_initial where case_id='e1450000-0000-4000-8000-000000000001'),
-  'e1460000-0000-4000-8000-000000000001'
-), '^P4620:', 'a purchase moved to another machine cannot use the stale final-decision proof');
-select matches(pg_temp.probe_rolled_back_decision(
-  $$update public.refund_nayax_lookup_candidates set evidence_summary=
+    where token='e1460000-0000-4000-8000-000000000001'$$),
+  '^P0001:Nayax candidate evidence is immutable',
+  'persisted candidate machine cannot be reassigned');
+select matches(pg_temp.capture_error($$
+  update public.refund_nayax_lookup_candidates set evidence_summary=
     jsonb_set(evidence_summary,'{provider_refund_state}','"refunded"'::jsonb)
-    where token='e1460000-0000-4000-8000-000000000001'$$,
+    where token='e1460000-0000-4000-8000-000000000001'$$),
+  '^P0001:Nayax candidate evidence is immutable',
+  'persisted refundability evidence cannot be rewritten');
+-- Unsafe evidence must be seeded as new immutable rows, never made reachable by
+-- rewriting a completed provider candidate. Case D is not a payment case.
+insert into public.refund_nayax_lookup_candidates(
+ token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
+ provider_transaction_id,site_id,machine_authorization_time,amount_cents,
+ card_last4,currency_code,evidence_summary,expires_at)
+values
+('e1460000-0000-4000-8000-000000000007','e1450000-0000-4000-8000-000000000004',1,null,
+ 'e1440000-0000-4000-8000-000000000003','REVIEWED-PUNCT-EUR',17,
+ '2026-09-12T20:00:00Z',1090,'4242','EUR',pg_temp.evidence(1090,1)||
+ jsonb_build_object('lookup_provider_machine_id','PUNCT-MACHINE',
+   'provider_machine_id','PUNCT-MACHINE','currency_code','EUR'),now()+interval '1 hour'),
+('e1460000-0000-4000-8000-000000000008','e1450000-0000-4000-8000-000000000004',1,null,
+ 'e1440000-0000-4000-8000-000000000002','REVIEWED-PUNCT-WRONG-MACHINE',17,
+ '2026-09-12T20:00:00Z',1090,'4242','USD',pg_temp.evidence(1090,1),now()+interval '1 hour'),
+('e1460000-0000-4000-8000-000000000009','e1450000-0000-4000-8000-000000000004',1,null,
+ 'e1440000-0000-4000-8000-000000000003','REVIEWED-PUNCT-REFUNDED',17,
+ '2026-09-12T20:00:00Z',1090,'4242','USD',pg_temp.evidence(1090,1)||
+ jsonb_build_object('lookup_provider_machine_id','PUNCT-MACHINE',
+   'provider_machine_id','PUNCT-MACHINE','provider_refund_state','refunded'),
+ now()+interval '1 hour');
+select is(public.refund_reviewed_card_candidate_safe_v1(
+  'e1450000-0000-4000-8000-000000000004','e1460000-0000-4000-8000-000000000007'),false,
+  'non-USD provider sale cannot enter the reviewed execution set');
+select is(public.refund_reviewed_card_candidate_safe_v1(
+  'e1450000-0000-4000-8000-000000000004','e1460000-0000-4000-8000-000000000008'),false,
+  'different reporting machine cannot enter the reviewed execution set');
+select is(public.refund_reviewed_card_candidate_safe_v1(
+  'e1450000-0000-4000-8000-000000000004','e1460000-0000-4000-8000-000000000009'),false,
+  'already-refunded provider sale cannot enter the reviewed execution set');
+select is(public.refund_manager_preparation_snapshot(
+  'e1450000-0000-4000-8000-000000000004',
+  (select official_action_version from public.refund_cases
+   where id='e1450000-0000-4000-8000-000000000004')),null::jsonb,
+  'new unsafe evidence invalidates the previously completed candidate set');
+select matches(pg_temp.probe_rolled_back_decision(
+  $$insert into public.refund_nayax_transaction_allocations(
+      account_scope,provider_machine_id,original_transaction_id,refund_case_id)
+    values('REVIEWED_ACCOUNT','REVIEWED-MACHINE','REVIEWED-A-SALE-1',
+      'e1450000-0000-4000-8000-000000000003')$$,
   (select case_id from reviewed_initial where case_id='e1450000-0000-4000-8000-000000000001'),
   (select action_version from reviewed_initial where case_id='e1450000-0000-4000-8000-000000000001'),
   (select proof_id from reviewed_initial where case_id='e1450000-0000-4000-8000-000000000001'),
   'e1460000-0000-4000-8000-000000000001'
-), '^P4620:', 'new refund effect evidence invalidates the reviewed set');
+), '^P4620:', 'another case reserving the exact sale atomically blocks final approval');
+select is((select count(*)::integer from public.refund_nayax_transaction_allocations
+  where original_transaction_id='REVIEWED-A-SALE-1'),0,
+  'failed overlapping allocation probe rolled back its reservation');
 select matches(pg_temp.probe_rolled_back_decision(
   $$update public.refund_cases set nayax_refund_execution_status='ambiguous'
     where id='e1450000-0000-4000-8000-000000000001'$$,
@@ -347,6 +386,36 @@ select is((select result->>'replayed' from reviewed_replay),'true',
 select is((select count(*)::integer from public.refund_case_official_action_authorizations
   where refund_case_id='e1450000-0000-4000-8000-000000000001' and action='approve'),1,
   'replay creates no second official authorization');
+create function pg_temp.probe_approved_attempt_after_revocation()
+returns boolean language plpgsql security definer set search_path='' as $$
+declare claimed jsonb; held jsonb; result boolean := false;
+begin
+  begin
+    update public.reporting_machine_refund_managers
+      set status='revoked',revoked_at=statement_timestamp(),
+        revoke_reason='Fixture post-approval revocation'
+      where manager_user_id='e1410000-0000-4000-8000-000000000001';
+    claimed := public.service_claim_due_nayax_refund_attempts_v1(
+      'reviewed-fixture-revoked-executor','REVIEWED_ACCOUNT',
+      'exact_source','empty_string',2);
+    if exists(select 1 from jsonb_array_elements(claimed->'claims') claim
+      where claim->>'attemptId'=(select result->>'attemptId' from pg_temp.reviewed_approval_a)) then
+      held := public.service_hold_nayax_refund_attempt_v1(
+        'reviewed-fixture-revoked-executor',
+        (select (result->>'attemptId')::uuid from pg_temp.reviewed_approval_a),
+        'provider_result_unknown');
+      result := held->>'held'='true';
+    end if;
+    raise exception 'rollback post-approval service probe' using errcode='P0001';
+  exception when sqlstate 'P0001' then return result;
+  end;
+end $$;
+select is(pg_temp.probe_approved_attempt_after_revocation(),true,
+  'revoking the Manager after approval does not revoke the existing System attempt');
+select is((select count(*)::integer from public.reporting_machine_refund_managers
+  where manager_user_id='e1410000-0000-4000-8000-000000000001'
+    and status='revoked'),0,
+  'post-approval service probe restores the original Manager mapping');
 select matches(pg_temp.probe_rolled_back_decision(
   $$update public.reporting_machine_refund_managers set status='revoked',
     revoked_at=statement_timestamp(),revoke_reason='Fixture revocation'

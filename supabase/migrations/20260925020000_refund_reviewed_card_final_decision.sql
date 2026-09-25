@@ -70,6 +70,14 @@ as $$
         where other.id <> c.id
           and other.matched_nayax_transaction_id = k.provider_transaction_id
       )
+      and not exists (
+        select 1 from public.refund_nayax_transaction_allocations allocation
+        where allocation.account_scope =
+          regexp_replace(upper(btrim(m.nayax_account_key)), '[^A-Z0-9_]', '_', 'g')
+          and allocation.provider_machine_id = m.nayax_machine_id
+          and allocation.original_transaction_id = k.provider_transaction_id
+          and allocation.allocation_state in ('reserved', 'refunded')
+      )
   );
 $$;
 revoke all on function public.refund_reviewed_card_candidate_safe_v1(uuid,uuid)
@@ -424,7 +432,10 @@ begin
     correlation_source='nayax',
     correlation_confidence=0,
     correlation_summary='Manager chose one reviewed Nayax purchase within the final decision.',
-    nayax_recommendation_state=c.nayax_recommendation_state,
+    -- This state records the Manager's just-made choice, not a claim that
+    -- System research was performed by a Manager. The original automatic
+    -- lookup event and immutable candidate rows retain their provenance.
+    nayax_recommendation_state='manager_confirmed',
     nayax_recommendation_policy_version=c.nayax_recommendation_policy_version,
     nayax_recommendation_evaluated_at=statement_timestamp(),
     nayax_match_execution_eligible=false
