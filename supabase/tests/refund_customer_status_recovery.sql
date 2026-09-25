@@ -260,6 +260,20 @@ select is(public.service_get_refund_status_contact_obligation_health()
 select is(public.service_get_refund_status_contact_obligation_health()
   ->> 'unknownEffectCount','1',
   'A terminal outcome on another case cannot clear its unresolved unknown-effect notice');
+alter table public.refund_case_messages disable trigger user;
+insert into public.refund_case_messages(
+  refund_case_id,message_type,status,recipient_email,subject,body,sent_at,
+  template_key,content_source,delivery_kind,reason_code,template_version,
+  requested_fields
+) values ('d4000000-0000-4000-8000-000000000001','status_update','sent',
+  'status-due@example.invalid','Later status','Synthetic same-purpose update',
+  statement_timestamp()+interval '1 minute','refund_status_update_sla_at_risk_v1',
+  'deterministic_template','automatic','sla_at_risk',
+  'refund_customer_status_v1','{}');
+alter table public.refund_case_messages enable trigger user;
+select is(public.service_get_refund_status_contact_obligation_health()
+  ->> 'unresolvedCount','0',
+  'A later same-purpose accepted status resolves the old unknown-effect obligation without retrying it');
 select ok(not has_function_privilege('authenticated',
   'public.service_get_refund_status_contact_obligation_health()','execute'),
   'The redacted obligation-health projection is service-only');
