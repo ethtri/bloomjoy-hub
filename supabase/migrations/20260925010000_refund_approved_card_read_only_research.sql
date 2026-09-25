@@ -395,6 +395,7 @@ create function public.service_commit_approved_card_nayax_research(
 ) returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
   c public.refund_cases%rowtype;
+  completed_case public.refund_cases%rowtype;
   result jsonb;
 begin
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
@@ -447,6 +448,8 @@ begin
     p_diagnostics
   );
   if result->>'applied'='true' then
+    select * into completed_case from public.refund_cases
+    where id=p_refund_case_id;
     insert into public.refund_case_events
       (refund_case_id,actor_user_id,event_type,message,metadata)
     values(p_refund_case_id,null,'approved_card_lookup_research_completed',
@@ -455,6 +458,9 @@ begin
         'lookup_generation',p_lookup_generation,
         'deterministic_fact_version',p_expected_fact_version,
         'official_action_version',p_expected_action_version,
+        'completed_official_action_version',completed_case.official_action_version,
+        'completed_refund_business_fingerprint',completed_case.refund_business_fingerprint,
+        'completed_scope_digest',public.refund_approved_card_research_scope_digest(completed_case.id),
         'lookup_status',p_lookup_status,
         'candidate_count',p_candidate_count,
         'provider_call_kind','read_only',
@@ -536,7 +542,6 @@ begin
         and c.nayax_lookup_finished_at is not null
         and c.nayax_lookup_failure_class is null
         and c.deterministic_fact_version=p_expected_fact_version
-        and c.official_action_version=p_expected_action_version
         and c.refund_business_fingerprint=p_expected_fingerprint
         and public.refund_approved_card_research_scope_digest(c.id)=p_expected_scope_digest
         and c.refund_amount_cents=p_expected_amount_cents
@@ -546,6 +551,9 @@ begin
             and completed.metadata->>'lookup_generation'=p_lookup_generation::text
             and completed.metadata->>'deterministic_fact_version'=p_expected_fact_version::text
             and completed.metadata->>'official_action_version'=p_expected_action_version::text
+            and completed.metadata->>'completed_official_action_version'=c.official_action_version::text
+            and completed.metadata->>'completed_refund_business_fingerprint'=c.refund_business_fingerprint
+            and completed.metadata->>'completed_scope_digest'=p_expected_scope_digest
             and completed.metadata->>'lookup_status'=c.nayax_lookup_status),false),
       'payloadRedacted',true);
   end if;

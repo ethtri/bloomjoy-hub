@@ -334,6 +334,30 @@ select is(public.service_fail_approved_card_nayax_research(
   (select result->0->>'scopeDigest' from recovered_claim),963,
   'worker_interrupted',true)->>'alreadyCompleted','true',
   'A late failure after a lost commit response identifies durable completion');
+reset role;
+create temporary table completed_version as
+select official_action_version from public.refund_cases
+where id='ab450000-0000-4000-8000-000000000001';
+savepoint changed_completed_research;
+update public.refund_cases
+set correlation_summary=correlation_summary||' Reviewed after the read.'
+where id='ab450000-0000-4000-8000-000000000001';
+select ok((select c.official_action_version>v.official_action_version
+  from public.refund_cases c cross join completed_version v
+  where c.id='ab450000-0000-4000-8000-000000000001'),
+  'A later review legitimately advances the action version');
+set local role service_role;
+select is(public.service_fail_approved_card_nayax_research(
+  'ab450000-0000-4000-8000-000000000001',
+  (select (result->0->>'lookupGeneration')::bigint from recovered_claim),1,
+  (select (result->0->>'officialActionVersion')::bigint from recovered_claim),
+  (select result->0->>'businessFingerprint' from recovered_claim),
+  (select result->0->>'scopeDigest' from recovered_claim),963,
+  'worker_interrupted',true)->>'alreadyCompleted','false',
+  'Later changed work cannot masquerade as the original completed claim');
+reset role;
+rollback to savepoint changed_completed_research;
+set local role service_role;
 select is(public.service_commit_approved_card_nayax_research(
   'ab450000-0000-4000-8000-000000000001',
   (select (result->0->>'lookupGeneration')::bigint from recovered_claim),1,
