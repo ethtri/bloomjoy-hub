@@ -5,7 +5,9 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { buildMetadata, METADATA_PATH, safePublicPath, sha256, sourceIdentity, successfulMainBuildRun, successfulProductionDeploymentSha, verifyServedPortal } from './refund-portal-provenance.mjs';
+import { buildMetadata, independentArtifactComparison, METADATA_PATH, safePublicPath, sha256,
+  sourceIdentity, successfulMainBuildRun, successfulProductionDeploymentSha,
+  verifiedVercelAliasDeployment, verifyServedPortal } from './refund-portal-provenance.mjs';
 
 const SHA = 'a'.repeat(40);
 const html = '<html><head><link rel="stylesheet" href="/assets/app.css"></head><body><script type="module" src="/assets/app.js"></script></body></html>';
@@ -64,9 +66,10 @@ test('final build inventory is deterministic and excludes private Vite manifest 
 test('a platform production SHA is a claim while local or missing identity stays explicit', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'refund-portal-no-git-'));
   try {
-    assert.deepEqual(sourceIdentity(root, {}), { sourceSha: null, provenance: 'unsupported' });
+    assert.deepEqual(sourceIdentity(root, {}),
+      { sourceSha: null, provenance: 'unsupported', trackedSourceClean: null });
     assert.deepEqual(sourceIdentity(root, { VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_SHA: SHA }),
-      { sourceSha: SHA, provenance: 'production_claimed' });
+      { sourceSha: SHA, provenance: 'production_claimed', trackedSourceClean: null });
     assert.equal(sourceIdentity(root, { VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_SHA: 'short' }).provenance,
       'unsupported');
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -83,26 +86,31 @@ test('a clean local checkout and dirty source cannot be labeled as a verified Pr
     git('add', 'source.txt');
     git('commit', '-qm', 'fixture');
     assert.equal(sourceIdentity(root, {}).provenance, 'local_clean');
+    assert.equal(sourceIdentity(root, {}).trackedSourceClean, true);
     const cleanSha = sourceIdentity(root, {}).sourceSha;
     assert.equal(sourceIdentity(root, { VERCEL_ENV: 'production',
       VERCEL_GIT_COMMIT_SHA: cleanSha }).provenance, 'production_claimed');
+    await writeFile(path.join(root, 'generated-untracked.txt'), 'generated');
+    assert.equal(sourceIdentity(root, {}).provenance, 'dirty');
+    assert.equal(sourceIdentity(root, {}).trackedSourceClean, true);
     await writeFile(path.join(root, 'source.txt'), 'changed');
     assert.equal(sourceIdentity(root, { VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_SHA: sourceIdentity(root, {}).sourceSha }).provenance,
       'dirty');
+    assert.equal(sourceIdentity(root, {}).trackedSourceClean, false);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test('spoofed production environment cannot verify without independent main-build evidence', async () => {
+test('independent CI-byte equality is reported separately from served-byte checks', async () => {
   await withServer([], async (origin) => {
-    await assert.rejects(verifyServedPortal({ origin, expectedSha: SHA }),
-      /Independent main build source is missing/);
-    await assert.rejects(verifyServedPortal({ origin, expectedSha: SHA,
-      trustedBuild: { ...trustedBuild, sourceSha: 'b'.repeat(40) } }),
-    /Independent main build source is missing/);
-    await assert.rejects(verifyServedPortal({ origin, expectedSha: SHA,
-      trustedBuild: { ...trustedBuild, assets: trustedBuild.assets.map((asset) =>
-        asset.path === '/assets/app.js' ? { ...asset, sha256: '0'.repeat(64) } : asset) } }),
-    /Production build differs from independent main build/);
+    const noArtifact = await verifyServedPortal({ origin, expectedSha: SHA });
+    assert.equal(noArtifact.servedAssetsConsistent, true);
+    assert.equal(noArtifact.ciArtifactMatch, false);
+    const changed = { ...trustedBuild, assets: trustedBuild.assets.map((asset) =>
+      asset.path === '/assets/app.js' ? { ...asset, sha256: '0'.repeat(64) } : asset) };
+    const compared = await verifyServedPortal({ origin, expectedSha: SHA, trustedBuild: changed });
+    assert.equal(compared.ciArtifactMatch, false);
+    assert.match(compared.ciArtifactReason, /Different build output/);
+    assert.equal(independentArtifactComparison(trustedBuild, metadata, SHA).ciArtifactMatch, true);
   });
 });
 
@@ -131,6 +139,29 @@ test('GitHub source identity requires the exact latest successful Production dep
   ]) assert.throws(() => successfulProductionDeploymentSha(record, history, id), /successful GitHub Production/);
 });
 
+test('Vercel alias, project, READY deployment and GitHub target bind the canonical identity', () => {
+  const projectId = 'prj_expected';
+  const aliasName = 'app.bloomjoyusa.com';
+  const deployment = { id: 'dpl_expected', projectId, url: 'expected.vercel.app',
+    target: 'production', readyState: 'READY', source: 'git',
+    meta: { githubCommitSha: SHA, githubCommitRef: 'main' } };
+  const alias = { alias: aliasName, projectId, deploymentId: deployment.id,
+    deployment: { id: deployment.id, url: deployment.url } };
+  const expected = { aliasName, projectId, expectedSha: SHA,
+    githubStatusUrl: `https://${deployment.url}` };
+  assert.equal(verifiedVercelAliasDeployment(alias, deployment, expected).deploymentId,
+    deployment.id);
+  for (const [a, d, args] of [
+    [{ ...alias, alias: 'other.example.com' }, deployment, expected],
+    [{ ...alias, projectId: 'prj_other' }, deployment, expected],
+    [{ ...alias, deploymentId: 'dpl_old' }, deployment, expected],
+    [alias, { ...deployment, readyState: 'ERROR' }, expected],
+    [alias, { ...deployment, meta: { ...deployment.meta, githubCommitSha: 'b'.repeat(40) } }, expected],
+    [alias, { ...deployment, projectId: 'prj_other' }, expected],
+    [alias, deployment, { ...expected, githubStatusUrl: 'https://old.vercel.app' }],
+  ]) assert.throws(() => verifiedVercelAliasDeployment(a, d, args), /Canonical alias/);
+});
+
 test('independent build anchor accepts only a successful main push at the exact SHA', () => {
   const valid = { databaseId: 17, headSha: SHA, headBranch: 'main', event: 'push', conclusion: 'success' };
   assert.deepEqual(successfulMainBuildRun([valid], SHA), valid);
@@ -146,7 +177,8 @@ test('served canonical index and manifest assets verify against a successful Pro
     const result = await verifyServedPortal({ origin, expectedSha: SHA, trustedBuild });
     assert.equal(result.sourceSha, SHA);
     assert.equal(result.verifiedAssetCount, 3);
-    assert.equal(result.deploymentVerified, true);
+    assert.equal(result.servedAssetsConsistent, true);
+    assert.equal(result.ciArtifactMatch, true);
     assert.equal(result.servedIndexBuildPath, '/index.html');
     assert.deepEqual(result.verifiedAssetDigests,
       [{ path: '/refunds', sha256: sha256(files.get('/index.html')) },
@@ -195,6 +227,18 @@ test('wrong or unsupported source provenance cannot pass as production', async (
   });
   await withServer([[METADATA_PATH, Buffer.from(JSON.stringify({ ...metadata, provenance: 'local_clean' }))]],
     async (origin) => assert.rejects(verifyServedPortal({ origin, expectedSha: SHA, trustedBuild }), /source does not match/));
+});
+
+test('dirty tracked-source evidence remains explicit while independent identity can be checked', async () => {
+  const changed = { ...metadata, provenance: 'dirty', trackedSourceClean: false };
+  await withServer([[METADATA_PATH, Buffer.from(JSON.stringify(changed))]],
+    async (origin) => {
+      const result = await verifyServedPortal({ origin, expectedSha: SHA, trustedBuild });
+      assert.equal(result.servedAssetsConsistent, true);
+      assert.equal(result.claimedBuildProvenance, 'dirty');
+      assert.equal(result.trackedSourceClean, false);
+      assert.equal(result.ciArtifactMatch, true);
+    });
 });
 
 test('unsafe, external, encoded, and traversal paths are rejected before asset fetch', async () => {
