@@ -87,6 +87,50 @@ select is((select status from public.refund_follow_up_cycles where refund_case_i
 select throws_like($$select public.service_apply_refund_gmail_customer_facts_v1(pg_temp.cid(9),pg_temp.gid(9),1,'{}','{}','labeled_routine_facts_v1')$$,
   '%At least one approved applied field%','Unparsed reply cannot fabricate an applied response');
 select is((select status from public.refund_wallet_correction_contexts where refund_case_id=pg_temp.cid(9)),'pending','Unparsed reply does not mark fields answered');
+update public.refund_cases set status='waiting_on_customer',automation_state='more_info_needed' where id=pg_temp.cid(9);
+update public.refund_gmail_messages set plain_body='I replied above; please review my earlier note.' where id=pg_temp.gid(9);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(9),pg_temp.gid(9))->>'outcome',
+  'received','Verified unstructured reply binds the exact delivered request without a fact claim');
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(9),pg_temp.gid(9))->>'outcome',
+  'already_received','Same-message replay does not create a second review task');
+select ok((select status='needs_review' and automation_state='customer_reply_review'
+  from public.refund_cases where id=pg_temp.cid(9)),'Verified reply atomically clears customer waiting');
+select ok((select reply_review_state='pending' and reply_review_due_at is not null
+  and correction_response is null and status='pending'
+  from public.refund_wallet_correction_contexts where refund_case_id=pg_temp.cid(9)),
+  'Original request carries one due internal task without fabricated answers');
+select is(public.refund_customer_outreach_contract(pg_temp.cid(9))->>'state','customer_replied',
+  'Canonical outreach no longer calls a verified respondent Waiting for customer');
+select is(public.refund_customer_outreach_contract(pg_temp.cid(9))->>'owner','Agent',
+  'Unstructured reply belongs to internal review, not manager decision');
+create temp table scoped_reply_claim as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task;
+select is((select count(*)::integer from scoped_reply_claim),1,
+  'Scheduled selector claims one exact-request research task');
+select is((select reply_review_state from public.refund_wallet_correction_contexts where refund_case_id=pg_temp.cid(9)),
+  'claimed','Claim persists until an actual research outcome exists');
+select is((public.service_claim_refund_scoped_reply_reviews(25)->'tasks')::text,'[]',
+  'Concurrent worker cannot re-claim the live research lease');
+insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,provider_message_id,references_header,
+  direction,message_kind,status,sender_email,recipient_email,participant_role,participant_trust,subject,plain_body,received_at,retention_expires_at)
+select pg_temp.gid(17),gmail_thread_id,refund_case_id,'scoped-reply-17',references_header,
+  direction,message_kind,status,sender_email,recipient_email,participant_role,participant_trust,subject,
+  'Amount: 7.00',received_at+interval '1 minute',retention_expires_at
+  from public.refund_gmail_messages where id=pg_temp.gid(9);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(9),pg_temp.gid(17))->>'outcome',
+  'already_received','A second verified reply cannot duplicate the request task');
+select is(public.service_apply_refund_gmail_customer_facts_v1(pg_temp.cid(9),pg_temp.gid(17),
+  (select deterministic_fact_version from public.refund_cases where id=pg_temp.cid(9)),
+  '{"payment_amount_cents":700,"refund_amount_cents":700}',array['amount'],'labeled_customer_correction_v3')->>'outcome',
+  'applied','Later parseable answer still uses the original fact writer and request');
+select is((select reply_review_state from public.refund_wallet_correction_contexts where refund_case_id=pg_temp.cid(9)),
+  'resolved','A later safe fact application closes the earlier internal review task');
+select is((select count(*)::integer from public.refund_customer_fact_applications where refund_case_id=pg_temp.cid(9)),1,
+  'Two verified replies produce one fact application');
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(2),pg_temp.gid(2))->>'outcome',
+  'unverified','Unverified sender cannot create a reply task');
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(7),pg_temp.gid(7))->>'outcome',
+  'request_thread_mismatch','Wrong exact outbound header cannot create a reply task');
 update public.refund_gmail_messages set gmail_thread_id=(select gmail_thread_id from public.refund_gmail_messages where id=pg_temp.gid(1)) where id=pg_temp.gid(10);
 select is(pg_temp.apply_reply(10)->>'outcome','conflict','Foreign thread cannot settle current request');
 update public.refund_gmail_messages set received_at=now() where id=pg_temp.gid(11);
@@ -134,7 +178,7 @@ select is((select count(*)::integer from public.refund_case_messages where refun
 update public.refund_wallet_correction_contexts set status='revoked',revoked_at=now() where refund_case_id=pg_temp.cid(16);
 update public.refund_gmail_messages set sent_at=null where refund_case_id=pg_temp.cid(16) and direction='outbound';
 select is(pg_temp.apply_reply(16)->>'reason','scoped_reply_superseded','Historical sent Gmail record retains received-at fallback and cannot reopen revoked scope');
-select is((select count(*)::integer from public.refund_customer_fact_applications where refund_case_id=any(array[pg_temp.cid(2),pg_temp.cid(3),pg_temp.cid(4),pg_temp.cid(5),pg_temp.cid(6),pg_temp.cid(7),pg_temp.cid(9),pg_temp.cid(10),pg_temp.cid(12),pg_temp.cid(13)])),0,'Rejected replies produce no fact application');
+select is((select count(*)::integer from public.refund_customer_fact_applications where refund_case_id=any(array[pg_temp.cid(2),pg_temp.cid(3),pg_temp.cid(4),pg_temp.cid(5),pg_temp.cid(6),pg_temp.cid(7),pg_temp.cid(10),pg_temp.cid(12),pg_temp.cid(13)])),0,'Rejected replies produce no fact application');
 select ok(not has_function_privilege('anon','public.service_apply_refund_gmail_customer_facts_v1(uuid,uuid,bigint,jsonb,text[],text)','execute')
  and not has_function_privilege('authenticated','public.service_apply_refund_gmail_customer_facts_v1(uuid,uuid,bigint,jsonb,text[],text)','execute'),'Existing service-only boundary remains');
 select * from finish();

@@ -115,7 +115,7 @@ function harness() {
   }
   const supabase = {
     from: (table) => {
-      assert(['refund_cases', 'refund_follow_up_cycles'].includes(table), `Unexpected table: ${table}`);
+      assert(['refund_cases', 'refund_follow_up_cycles', 'refund_wallet_correction_contexts'].includes(table), `Unexpected table: ${table}`);
       const chain = {
         select: () => chain, eq: () => chain, not: () => chain,
         update: () => {
@@ -300,6 +300,10 @@ test('actual post-ingestion path preserves internal incoming notice and records 
     from: { name: 'Synthetic', email: 'customer@example.invalid' },
     redactedBody: { text: 'Card type: Visa', redacted: false }, redactedSubject: { redacted: false },
     applyDeterministicCustomerReplyFacts: apply,
+    rpc: async (name) => {
+      assert.equal(name, 'service_receive_refund_scoped_email_reply');
+      return { outcome: 'no_current_request' };
+    },
     sendGmailCaseActionNotice: async () => { internalNotices++; },
     console: { error: () => assert.fail('No false failure should be logged') },
   });
@@ -307,4 +311,31 @@ test('actual post-ingestion path preserves internal incoming notice and records 
   assert.equal(internalNotices, 1);
   assert.equal(counters.messagesFailed, 0);
   assert.equal(state.applications + state.events + state.lookups + state.routingUpdates, 0);
+});
+
+test('verified scoped free-text reply leaves a due internal task without a manager email', async () => {
+  const { state, apply } = harness();
+  const callerStart = sync.indexOf('const caseId = sanitizeText(ingestion?.caseId, 80);');
+  const callerEnd = sync.indexOf('            processFirstContact:', callerStart);
+  const body = sync.slice(callerStart, callerEnd).replace(/\},\s*$/, '');
+  const counters = { messagesFailed: 0, attachmentsQuarantined: 0 };
+  let managerNotices = 0;
+  const { process } = execute(`exports.process = async () => { ${body} };`, {
+    ingestion: { created: true, caseId: 'synthetic-case', messageId: 'scoped-reply', participantRole: 'customer' },
+    sanitizeText: (value) => String(value ?? ''), intakeShadow: false, counters,
+    from: { name: 'Synthetic', email: 'customer@example.invalid' },
+    redactedBody: { text: 'Please read my earlier note', redacted: true },
+    redactedSubject: { redacted: false },
+    applyDeterministicCustomerReplyFacts: apply,
+    rpc: async (name) => {
+      assert.equal(name, 'service_receive_refund_scoped_email_reply');
+      return { outcome: 'received', dueAt: '2026-09-25T00:00:00Z' };
+    },
+    sendGmailCaseActionNotice: async () => { managerNotices++; },
+    console: { error: () => assert.fail('No false failure should be logged') },
+  });
+  assert.equal(await process(), null);
+  assert.equal(managerNotices, 0);
+  assert.equal(counters.messagesFailed, 0);
+  assert.equal(state.routingUpdates + state.applications + state.events + state.lookups, 0);
 });
