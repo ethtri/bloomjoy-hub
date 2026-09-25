@@ -50,13 +50,44 @@ const canonicalJson = (value) => value && typeof value === 'object'
     : Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJson(value[key])]))
   : value;
 
-function semanticallyUnchangedVercelConfig(root) {
+export function semanticallyUnchangedVercelConfig(root) {
   try {
     const committed = JSON.parse(execFileSync('git', ['show', 'HEAD:vercel.json'],
       { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
     const checkout = JSON.parse(readFileSync(path.join(root, 'vercel.json'), 'utf8'));
     return JSON.stringify(canonicalJson(committed)) === JSON.stringify(canonicalJson(checkout));
   } catch { return false; }
+}
+
+// Build-log diagnostics only. Tracked paths are already public repository
+// inputs; untracked names may be private, so report their digest and safe
+// top-level category without writing names, contents, or environment values.
+export function sourceBuildDiagnostics(root) {
+  let porcelain;
+  try {
+    porcelain = execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=normal'],
+      { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch {
+    return { gitAvailable: false, tracked: [], untracked: [], vercelConfigEquivalent: false };
+  }
+  const tracked = [];
+  const untracked = [];
+  for (const line of porcelain.split(/\r?\n/).filter(Boolean)) {
+    const status = line.slice(0, 2).replaceAll(' ', '_');
+    const rawPath = line.slice(3);
+    if (status === '??') {
+      const rootSegment = rawPath.split('/')[0];
+      untracked.push({ status, category: ['.vercel', 'dist', 'public', 'scripts', 'src',
+        'supabase'].includes(rootSegment) ? rootSegment : 'other', pathDigest: sha256(rawPath) });
+    } else {
+      const safePath = /^[A-Za-z0-9._/-]+$/.test(rawPath) &&
+        !rawPath.split('/').some((segment) => segment.startsWith('.env'));
+      tracked.push({ status, path: safePath ? rawPath : '[redacted]',
+        ...(!safePath ? { pathDigest: sha256(rawPath) } : {}) });
+    }
+  }
+  return { gitAvailable: true, tracked, untracked,
+    vercelConfigEquivalent: semanticallyUnchangedVercelConfig(root) };
 }
 
 export function sourceIdentity(root, env = process.env) {
