@@ -145,7 +145,7 @@ test('build diagnostic reports public tracked paths and redacts untracked privat
       gitAvailable: true, tracked: [], untracked: [], vercelConfigEquivalent: true,
       vercelDirectory: { present: false, projectJson: false, readme: false,
         environmentFileCount: 0, otherFileCount: 0, directoryCount: 0,
-        directoryCategories: [], projectIdentityMatches: false },
+        directoryCategories: [], subdirectories: [], projectIdentityMatches: false },
     });
     await writeFile(path.join(root, 'vercel.json'), '{"installCommand":"npm ci"}\n');
     await writeFile(path.join(root, 'source.txt'), 'changed');
@@ -181,9 +181,18 @@ test('build diagnostic reports public tracked paths and redacts untracked privat
     assert.equal(JSON.stringify(withVercelFiles).includes('.env.preview.local'), false);
     await mkdir(path.join(root, '.vercel', 'output'));
     await mkdir(path.join(root, '.vercel', 'private-unknown-directory'));
+    await writeFile(path.join(root, '.vercel', 'private-unknown-directory', '.env.preview.local'), 'SECRET=private');
     const withDirectories = sourceBuildDiagnostics(root);
     assert.deepEqual(withDirectories.vercelDirectory.directoryCategories, ['other', 'output']);
+    assert.deepEqual(withDirectories.vercelDirectory.subdirectories, [
+      { nameLength: 'output'.length, nameDigest: sha256('output'), fileCount: 0,
+        directoryCount: 0, environmentFileCount: 0, otherEntryCount: 0 },
+      { nameLength: 'private-unknown-directory'.length,
+        nameDigest: sha256('private-unknown-directory'), fileCount: 1,
+        directoryCount: 0, environmentFileCount: 1, otherEntryCount: 0 },
+    ].sort((a, b) => a.nameDigest.localeCompare(b.nameDigest)));
     assert.equal(JSON.stringify(withDirectories).includes('private-unknown-directory'), false);
+    assert.equal(JSON.stringify(withDirectories).includes('SECRET=private'), false);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

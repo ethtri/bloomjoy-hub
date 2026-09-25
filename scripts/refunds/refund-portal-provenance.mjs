@@ -89,7 +89,7 @@ export function sourceBuildDiagnostics(root) {
   }
   let vercelDirectory = { present: false, projectJson: false, readme: false,
     environmentFileCount: 0, otherFileCount: 0, directoryCount: 0,
-    directoryCategories: [], projectIdentityMatches: false };
+    directoryCategories: [], subdirectories: [], projectIdentityMatches: false };
   try {
     const entries = readdirSync(path.join(root, '.vercel'), { withFileTypes: true });
     vercelDirectory = { ...vercelDirectory, present: true,
@@ -101,7 +101,17 @@ export function sourceBuildDiagnostics(root) {
       directoryCount: entries.filter((entry) => !entry.isFile()).length,
       directoryCategories: entries.filter((entry) => entry.isDirectory())
         .map((entry) => ['output', 'cache', '.cache'].includes(entry.name) ? entry.name : 'other')
-        .sort() };
+        .sort(),
+      // Diagnose an unknown generated directory without logging its name or
+      // contents. Never follow symlinks or recurse into build/private inputs.
+      subdirectories: entries.filter((entry) => entry.isDirectory()).map((entry) => {
+        const children = readdirSync(path.join(root, '.vercel', entry.name), { withFileTypes: true });
+        return { nameLength: entry.name.length, nameDigest: sha256(entry.name),
+          fileCount: children.filter((child) => child.isFile()).length,
+          directoryCount: children.filter((child) => child.isDirectory()).length,
+          environmentFileCount: children.filter((child) => child.isFile() && /^\.env(?:\.|$)/.test(child.name)).length,
+          otherEntryCount: children.filter((child) => !child.isFile() && !child.isDirectory()).length };
+      }).sort((a, b) => a.nameDigest.localeCompare(b.nameDigest)) };
     if (vercelDirectory.projectJson) {
       const config = JSON.parse(readFileSync(path.join(root, '.vercel', 'project.json'), 'utf8'));
       vercelDirectory.projectIdentityMatches = config?.projectId === 'prj_YC3LjtHvqX2BAvFdt4iLV9ARs1bM' &&
