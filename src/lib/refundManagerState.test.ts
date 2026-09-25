@@ -445,6 +445,13 @@ Deno.test('durable customer outreach truth takes precedence over lookup and lega
       lifecycle: contract,
     });
     assertEquals(result.label, expectedLabel, `${outreachState} label comes from server outreach`);
+    if (outreachState === 'customer_replied') {
+      assertEquals(result.id, 'needs_information', 'unparsed reply is pending internal review, not a running lookup');
+      assertEquals(result.nextStep.includes('recheck runs'), false,
+        'unparsed reply does not claim an executor is active');
+      assertEquals(result.nextStep.includes('No manager action is needed yet'), true,
+        'pending review remains internal work');
+    }
   }
 });
 

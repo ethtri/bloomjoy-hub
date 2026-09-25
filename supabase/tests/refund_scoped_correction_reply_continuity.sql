@@ -53,6 +53,22 @@ create function pg_temp.apply_reply(n integer) returns jsonb language sql as $$
     '{"payment_amount_cents":700,"refund_amount_cents":700}',array['amount'],'labeled_routine_facts_v1');
 $$;
 select pg_temp.make_scope(n) from generate_series(1,16) n;
+savepoint resend_receiver_control;
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(15),pg_temp.gid(15))->>'outcome',
+  'request_delivery_unverified',
+  'A Resend-backed reply without the public reference cannot bind the request');
+update public.refund_gmail_messages set subject=(select public_reference
+  from public.refund_cases where id=pg_temp.cid(15)) where id=pg_temp.gid(15);
+select is((select delivery_transport='resend' and provider_message_id is not null
+    and delivery_state in ('accepted','deferred','delivered')
+    from public.refund_case_messages where refund_case_id=pg_temp.cid(15)),true,
+  'Fallback uses one guarded accepted Resend request and no Gmail outbound row');
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(15),pg_temp.gid(15))->>'outcome',
+  'received', 'Verified same-case Resend reply with the public reference creates the exact task');
+select is((select reply_message_id from public.refund_wallet_correction_contexts
+    where refund_case_id=pg_temp.cid(15)),pg_temp.gid(15),
+  'Resend fallback binds the verified message to the issued correction context');
+rollback to savepoint resend_receiver_control;
 select is(pg_temp.apply_reply(1)->>'outcome','applied','Current scoped reply uses the original supported fact writer');
 select is((select status from public.refund_wallet_correction_contexts where refund_case_id=pg_temp.cid(1)),'submitted','Email settles the same current correction request');
 select is(public.service_get_refund_purchase_correction(lpad('1',64,'0'))->>'state','received','Old correction link shows received, not stale or a second task');
@@ -101,8 +117,13 @@ select ok((select reply_review_state='pending' and reply_review_due_at is not nu
   'Original request carries one due internal task without fabricated answers');
 select is(public.refund_customer_outreach_contract(pg_temp.cid(9))->>'state','customer_replied',
   'Canonical outreach no longer calls a verified respondent Waiting for customer');
-select is(public.refund_customer_outreach_contract(pg_temp.cid(9))->>'owner','Agent',
-  'Unstructured reply belongs to internal review, not manager decision');
+select is(public.refund_customer_outreach_contract(pg_temp.cid(9))->>'owner','System',
+  'Unstructured reply belongs to internal System review, not manager decision');
+select is(public.refund_customer_outreach_contract(pg_temp.cid(9))->>'nextAction',
+  'recheck_customer_reply','Public next action stays inside the strict outreach vocabulary');
+select ok(not (public.refund_customer_outreach_contract(pg_temp.cid(9)) ?| array[
+  'replyReviewDueAt','replyReviewState']),
+  'Service-only due and claim state do not expand the strict public wire shape');
 create temp table scoped_reply_claim as
   select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task;
 select is((select count(*)::integer from scoped_reply_claim),1,
@@ -112,9 +133,9 @@ select is((select reply_review_state from public.refund_wallet_correction_contex
 select is((public.service_claim_refund_scoped_reply_reviews(25)->'tasks')::text,'[]',
   'Concurrent worker cannot re-claim the live research lease');
 select is((select task->>'bodySha256' from scoped_reply_claim),
-  (select encode(extensions.digest(convert_to(plain_body,'UTF8'),'sha256'),'hex')
-    from public.refund_gmail_messages where id=pg_temp.gid(9)),
-  'Claim binds the exact verified reply body without returning its content');
+  public.refund_scoped_verified_reply_set((select (task->>'requestId')::uuid
+    from scoped_reply_claim))->>'bodySha256',
+  'Claim binds the exact verified reply set without returning its content');
 select is(public.service_get_refund_scoped_reply_research_input(
     (select (task->>'requestId')::uuid from scoped_reply_claim),
     (select (task->>'claimToken')::uuid from scoped_reply_claim),pg_temp.gid(9),
@@ -185,7 +206,12 @@ select pg_temp.gid(17),gmail_thread_id,refund_case_id,'scoped-reply-17',referenc
   'Amount: 7.00',received_at+interval '1 minute',retention_expires_at
   from public.refund_gmail_messages where id=pg_temp.gid(9);
 select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(9),pg_temp.gid(17))->>'outcome',
-  'already_received','A second verified reply cannot duplicate the request task');
+  'received','A later verified reply refreshes the same request task');
+select is((select count(*)::integer from public.refund_wallet_correction_contexts
+    where refund_case_id=pg_temp.cid(9) and reply_review_state='pending'),1,
+  'The later reply invalidates the old claim without making a parallel task');
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(9),pg_temp.gid(9))->>'outcome',
+  'already_received','Replay of an earlier message does not replace the latest task input');
 select is(public.service_apply_refund_gmail_customer_facts_v1(pg_temp.cid(9),pg_temp.gid(17),
   (select deterministic_fact_version from public.refund_cases where id=pg_temp.cid(9)),
   '{"payment_amount_cents":700,"refund_amount_cents":700}',array['amount'],'labeled_customer_correction_v3')->>'outcome',
@@ -290,8 +316,10 @@ select is((select reply_message_id from public.refund_wallet_correction_contexts
   'Historical recovery binds the latest verified message to the existing request');
 select is((select reply_body_sha256 from public.refund_wallet_correction_contexts
   where refund_case_id=pg_temp.cid(18)),
-  encode(extensions.digest(convert_to('My second answer gives more detail.','UTF8'),'sha256'),'hex'),
-  'Claim identity preserves the latest exact reply body hash');
+  public.refund_scoped_verified_reply_set((select id
+    from public.refund_wallet_correction_contexts
+    where refund_case_id=pg_temp.cid(18)))->>'bodySha256',
+  'Claim identity preserves all verified historical reply bodies');
 select is((select count(*)::integer from public.refund_case_events
   where refund_case_id=pg_temp.cid(18)
     and event_type='purchase_correction_verified_email_received'),1,
@@ -302,6 +330,47 @@ select is((select count(*)::integer from public.refund_case_events
   where refund_case_id=pg_temp.cid(18)
     and event_type='purchase_correction_verified_email_received'),1,
   'Repeated historical recovery adds no duplicate receipt');
+create temp table historical_reply_claim as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(18)::text;
+select is((select jsonb_array_length(public.service_get_refund_scoped_reply_research_input(
+    (h.task->>'requestId')::uuid,(h.task->>'claimToken')::uuid,
+    (h.task->>'sourceMessageId')::uuid,(h.task->>'factVersion')::bigint,
+    h.task->>'bodySha256')->'replyMessages') from historical_reply_claim h),2,
+  'Research input retains both verified historical free-text replies');
+insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,
+  provider_message_id,references_header,direction,message_kind,status,
+  sender_email,recipient_email,participant_role,participant_trust,subject,
+  plain_body,received_at,retention_expires_at)
+select pg_temp.gid(25),gmail_thread_id,refund_case_id,'scoped-reply-25',
+  references_header,direction,message_kind,status,sender_email,recipient_email,
+  participant_role,participant_trust,subject,
+  'I also remember the purchase was in the afternoon.',
+  received_at+interval '1 minute',retention_expires_at
+from public.refund_gmail_messages where id=pg_temp.gid(21);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(18),pg_temp.gid(25))->>'outcome',
+  'received', 'A later verified free-text reply refreshes the same request task');
+select is((select reply_message_id from public.refund_wallet_correction_contexts
+    where refund_case_id=pg_temp.cid(18)),pg_temp.gid(25),
+  'The task points at the latest reply without discarding earlier messages');
+select is((select reply_review_state from public.refund_wallet_correction_contexts
+    where refund_case_id=pg_temp.cid(18)),'pending',
+  'Later content invalidates the prior claim and remains due for research');
+select is((select public.service_get_refund_scoped_reply_research_input(
+    (h.task->>'requestId')::uuid,(h.task->>'claimToken')::uuid,
+    (h.task->>'sourceMessageId')::uuid,(h.task->>'factVersion')::bigint,
+    h.task->>'bodySha256')->>'outcome' from historical_reply_claim h),
+  'stale_claim','Prior worker cannot research or settle an obsolete reply set');
+create temp table refreshed_reply_claim as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(18)::text;
+select is((select jsonb_array_length(public.service_get_refund_scoped_reply_research_input(
+    (h.task->>'requestId')::uuid,(h.task->>'claimToken')::uuid,
+    (h.task->>'sourceMessageId')::uuid,(h.task->>'factVersion')::bigint,
+    h.task->>'bodySha256')->'replyMessages') from refreshed_reply_claim h),3,
+  'Fresh claim reads all three verified replies for the same current request');
+select is(public.service_reconcile_stored_refund_scoped_email_replies(25,false)->>'receivedCount','0',
+  'Replay of the enlarged verified reply set creates no duplicate task');
 select ok((select reply_message_id is null from public.refund_wallet_correction_contexts
   where refund_case_id=pg_temp.cid(19)) and
   (select status='waiting_on_customer' from public.refund_cases where id=pg_temp.cid(19)),

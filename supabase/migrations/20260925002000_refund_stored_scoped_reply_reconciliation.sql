@@ -51,7 +51,8 @@ begin
       order by g.received_at desc,g.id desc limit 1
     ) reply on true
     where r.correction_kind='purchase' and r.status='pending'
-      and r.reply_message_id is null
+      and r.reply_body_sha256 is distinct from
+        (public.refund_scoped_verified_reply_set(r.id)->>'bodySha256')
       and public.refund_purchase_correction_eligible(c)
       and r.correction_fact_version=c.deterministic_fact_version
       and r.correction_requested_fields=request.requested_fields

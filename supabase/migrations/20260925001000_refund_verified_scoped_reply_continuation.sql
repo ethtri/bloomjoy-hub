@@ -18,6 +18,67 @@ create index if not exists refund_purchase_reply_review_due_idx
   on public.refund_wallet_correction_contexts(reply_review_due_at, id)
   where correction_kind='purchase' and reply_review_state in ('pending','claimed');
 
+-- A request may receive several verified free-text messages. Read the whole
+-- currently bound message set from the existing Gmail evidence; one context
+-- remains the task and its digest invalidates any earlier claim. This helper
+-- can contain customer content and is callable only by security-definer code.
+create function public.refund_scoped_verified_reply_set(p_context_id uuid)
+returns jsonb language sql stable security definer set search_path='' as $$
+  with scope as (
+    select r.id,r.refund_case_id,r.expires_at,c.customer_email,c.public_reference,
+      request.id request_id,request.sent_at,request.delivery_transport,
+      request.provider_message_id,request.delivery_state
+    from public.refund_wallet_correction_contexts r
+    join public.refund_cases c on c.id=r.refund_case_id
+    join public.refund_case_messages request on request.id=r.correction_message_id
+      and request.refund_case_id=r.refund_case_id
+    where r.id=p_context_id and r.correction_kind='purchase'
+  ), verified as (
+    select g.id,g.received_at,g.plain_body
+    from scope s
+    join public.refund_gmail_messages g on g.refund_case_id=s.refund_case_id
+    where g.direction='inbound' and g.message_kind='message'
+      and g.status='received' and g.participant_role='customer'
+      and g.participant_trust='verified' and g.content_deleted_at is null
+      and lower(btrim(g.sender_email))=lower(btrim(s.customer_email))
+      and g.received_at>s.sent_at and g.received_at<=s.expires_at
+      and (
+        exists(select 1 from public.refund_gmail_messages outbound
+          where outbound.refund_case_message_id=s.request_id
+            and outbound.refund_case_id=s.refund_case_id
+            and outbound.direction='outbound' and outbound.message_kind='message'
+            and outbound.status='sent' and outbound.gmail_thread_id=g.gmail_thread_id
+            and coalesce(outbound.sent_at,outbound.received_at)<=g.received_at
+            and outbound.provider_message_header is not null
+            and outbound.provider_message_header=any(regexp_split_to_array(
+              coalesce(g.references_header,''),'[[:space:]]+')))
+        or (not exists(select 1 from public.refund_gmail_messages outbound
+              where outbound.refund_case_message_id=s.request_id
+                and outbound.direction='outbound')
+            and s.delivery_transport='resend'
+            and s.provider_message_id is not null
+            and s.delivery_state in ('accepted','deferred','delivered')
+            and not exists(select 1 from public.refund_wallet_correction_contexts prior
+              where prior.refund_case_id=s.refund_case_id and prior.id<>s.id)
+            and position(upper(s.public_reference) in upper(
+              coalesce(g.subject,'')||E'\n'||coalesce(g.plain_body,'')))>0)
+      )
+  ), ordered as (
+    select coalesce(jsonb_agg(jsonb_build_object(
+      'messageId',id,'receivedAt',received_at,'body',plain_body)
+      order by received_at,id),'[]'::jsonb) messages
+    from verified
+  )
+  select jsonb_build_object('messages',messages,
+    'bodySha256',encode(extensions.digest(convert_to(messages::text,'UTF8'),
+      'sha256'),'hex'),
+    'latestMessageId',messages->(jsonb_array_length(messages)-1)->>'messageId',
+    'latestReceivedAt',messages->(jsonb_array_length(messages)-1)->>'receivedAt')
+  from ordered;
+$$;
+revoke all on function public.refund_scoped_verified_reply_set(uuid)
+  from public,anon,authenticated,service_role;
+
 create or replace function public.service_receive_refund_scoped_email_reply(
   p_refund_case_id uuid, p_gmail_message_id uuid
 ) returns jsonb language plpgsql security definer set search_path='' as $$
@@ -26,6 +87,7 @@ declare
   source public.refund_gmail_messages;
   ctx public.refund_wallet_correction_contexts;
   request public.refund_case_messages;
+  reply_set jsonb;
 begin
   select * into c from public.refund_cases where id=p_refund_case_id for update;
   if c.id is null then return jsonb_build_object('outcome','not_found'); end if;
@@ -74,14 +136,22 @@ begin
     or position(upper(c.public_reference) in upper(coalesce(source.subject,'')||E'\n'||coalesce(source.plain_body,'')))=0 then
     return jsonb_build_object('outcome','request_delivery_unverified');
   end if;
-  if ctx.reply_message_id is not null then
+  reply_set:=public.refund_scoped_verified_reply_set(ctx.id);
+  if not (reply_set->'messages' @> jsonb_build_array(
+      jsonb_build_object('messageId',source.id))) then
+    return jsonb_build_object('outcome','request_not_current');
+  end if;
+  if ctx.reply_body_sha256=reply_set->>'bodySha256' then
     return jsonb_build_object('outcome','already_received','requestId',ctx.id,
       'replyMessageId',ctx.reply_message_id,'dueAt',ctx.reply_review_due_at);
   end if;
   update public.refund_wallet_correction_contexts set
-    reply_message_id=source.id, reply_received_at=source.received_at,
+    reply_message_id=(reply_set->>'latestMessageId')::uuid,
+    reply_received_at=(reply_set->>'latestReceivedAt')::timestamptz,
     reply_review_due_at=statement_timestamp(), reply_review_state='pending',
-    reply_body_sha256=encode(extensions.digest(convert_to(source.plain_body,'UTF8'),'sha256'),'hex'),
+    reply_review_claim_token=null,reply_review_claimed_at=null,
+    reply_review_result_code=null,
+    reply_body_sha256=reply_set->>'bodySha256',
     updated_at=statement_timestamp() where id=ctx.id;
   update public.refund_follow_up_cycles set status='customer_replied',
     reply_customer_message_id=source.id, reply_received_at=source.received_at
@@ -97,7 +167,8 @@ begin
       jsonb_build_object('request_id',ctx.id,'gmail_message_id',source.id,
         'fact_version',c.deterministic_fact_version,'payload_redacted',true));
   return jsonb_build_object('outcome','received','requestId',ctx.id,
-    'replyMessageId',source.id,'dueAt',statement_timestamp(),'payloadRedacted',true);
+    'replyMessageId',reply_set->>'latestMessageId',
+    'dueAt',statement_timestamp(),'payloadRedacted',true);
 end;
 $$;
 revoke all on function public.service_receive_refund_scoped_email_reply(uuid,uuid)
@@ -167,7 +238,7 @@ begin
     or source.participant_role<>'customer' or source.participant_trust<>'verified'
     or source.received_at is distinct from ctx.reply_received_at
     or source.content_deleted_at is not null
-    or encode(extensions.digest(convert_to(source.plain_body,'UTF8'),'sha256'),'hex')
+    or public.refund_scoped_verified_reply_set(ctx.id)->>'bodySha256'
       is distinct from p_body_sha256 then
     return jsonb_build_object('outcome','stale_claim','payloadRedacted',true);
   end if;
@@ -229,7 +300,7 @@ begin
     or source.participant_trust<>'verified' or source.content_deleted_at is not null
     or source.received_at is distinct from ctx.reply_received_at
     or lower(btrim(source.sender_email)) is distinct from lower(btrim(c.customer_email))
-    or encode(extensions.digest(convert_to(source.plain_body,'UTF8'),'sha256'),'hex')
+    or public.refund_scoped_verified_reply_set(ctx.id)->>'bodySha256'
       is distinct from p_body_sha256 then
     return jsonb_build_object('outcome','stale_claim');
   end if;
@@ -241,6 +312,7 @@ begin
     'requestBody',regexp_replace(coalesce(request.body,''),
       'https?://[^[:space:]<>]+','[secure link omitted]','gi'),
     'replyBody',source.plain_body,
+    'replyMessages',public.refund_scoped_verified_reply_set(ctx.id)->'messages',
     'sensitiveDataRedacted',source.sensitive_data_redacted,
     'currentFacts',jsonb_build_object(
       'paymentMethod',c.payment_method,
@@ -346,10 +418,10 @@ begin
       and r.correction_message_id=(result->>'requestMessageId')::uuid
     order by r.version desc,r.issued_at desc limit 1;
   if ctx.id is null then return result; end if;
-  return result||jsonb_build_object('state','customer_replied','owner','Agent',
-    'nextAction','review_customer_reply','replyReceivedAt',ctx.reply_received_at,
-    'replyReviewDueAt',ctx.reply_review_due_at,
-    'replyReviewState',ctx.reply_review_state,
+  -- The public lifecycle wire schema has a fixed field set. Internal claim and
+  -- due details remain in the service-only task/health contracts.
+  return result||jsonb_build_object('state','customer_replied','owner','System',
+    'nextAction','recheck_customer_reply','replyReceivedAt',ctx.reply_received_at,
     'reasonCode','verified_reply_review_due',
     'payloadRedacted',true);
 end;
