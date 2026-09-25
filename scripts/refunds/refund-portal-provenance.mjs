@@ -254,6 +254,8 @@ export async function verifyServedPortal({ origin, expectedSha, trustedBuild, fe
   const metadata = JSON.parse(metadataBytes.toString('utf8'));
   validateMetadata(metadata, expectedSha);
   const artifactComparison = independentArtifactComparison(trustedBuild, metadata, expectedSha);
+  const sourceEvidenceVerified = metadata.trackedSourceEquivalent === true ||
+    artifactComparison.ciArtifactMatch;
   const inventory = new Map(metadata.assets.map((asset) => [asset.path, asset]));
   const servedIndex = await fetchBytes(origin, PORTAL_INDEX_PATH, fetchImpl, 5_000_000);
   const indexDigest = sha256(servedIndex);
@@ -277,6 +279,9 @@ export async function verifyServedPortal({ origin, expectedSha, trustedBuild, fe
     servedAssetsConsistent: true, claimedBuildProvenance: metadata.provenance,
     trackedSourceClean: metadata.trackedSourceClean ?? null,
     trackedSourceEquivalent: metadata.trackedSourceEquivalent ?? null,
+    sourceEvidenceVerified,
+    sourceEvidenceReason: sourceEvidenceVerified ? null :
+      'Neither equivalent complete build inputs nor identical independent CI bytes are proven',
     ...artifactComparison,
     servedIndexBuildPath, inventoryAssetCount: metadata.assets.length,
     verifiedAssetCount: verifiedAssets.length, verifiedAssetDigests: verifiedAssets };

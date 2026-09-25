@@ -135,12 +135,43 @@ test('independent CI-byte equality is reported separately from served-byte check
     const noArtifact = await verifyServedPortal({ origin, expectedSha: SHA });
     assert.equal(noArtifact.servedAssetsConsistent, true);
     assert.equal(noArtifact.ciArtifactMatch, false);
+    assert.equal(noArtifact.sourceEvidenceVerified, false);
+    assert.match(noArtifact.sourceEvidenceReason, /Neither equivalent complete build inputs/);
     const changed = { ...trustedBuild, assets: trustedBuild.assets.map((asset) =>
       asset.path === '/assets/app.js' ? { ...asset, sha256: '0'.repeat(64) } : asset) };
     const compared = await verifyServedPortal({ origin, expectedSha: SHA, trustedBuild: changed });
     assert.equal(compared.ciArtifactMatch, false);
+    assert.equal(compared.sourceEvidenceVerified, false);
     assert.match(compared.ciArtifactReason, /Different build output/);
     assert.equal(independentArtifactComparison(trustedBuild, metadata, SHA).ciArtifactMatch, true);
+  });
+});
+
+test('equivalent tracked inputs verify source evidence when independent build bytes differ', async () => {
+  const served = { ...metadata, trackedSourceClean: false, trackedSourceEquivalent: true };
+  const differentBuild = { ...trustedBuild, assets: trustedBuild.assets.map((asset) =>
+    asset.path === '/assets/app.js' ? { ...asset, sha256: '0'.repeat(64) } : asset) };
+  await withServer([[METADATA_PATH, Buffer.from(JSON.stringify(served))]], async (origin) => {
+    const result = await verifyServedPortal({ origin, expectedSha: SHA, trustedBuild: differentBuild });
+    assert.equal(result.servedAssetsConsistent, true);
+    assert.equal(result.ciArtifactMatch, false);
+    assert.equal(result.trackedSourceClean, false);
+    assert.equal(result.trackedSourceEquivalent, true);
+    assert.equal(result.sourceEvidenceVerified, true);
+  });
+});
+
+test('tracked-clean metadata cannot verify source if untracked inputs remain', async () => {
+  const served = { ...metadata, trackedSourceClean: true, trackedSourceEquivalent: false };
+  const differentBuild = { ...trustedBuild, assets: trustedBuild.assets.map((asset) =>
+    asset.path === '/assets/app.js' ? { ...asset, sha256: '0'.repeat(64) } : asset) };
+  await withServer([[METADATA_PATH, Buffer.from(JSON.stringify(served))]], async (origin) => {
+    const result = await verifyServedPortal({ origin, expectedSha: SHA, trustedBuild: differentBuild });
+    assert.equal(result.servedAssetsConsistent, true);
+    assert.equal(result.trackedSourceClean, true);
+    assert.equal(result.trackedSourceEquivalent, false);
+    assert.equal(result.ciArtifactMatch, false);
+    assert.equal(result.sourceEvidenceVerified, false);
   });
 });
 
@@ -209,6 +240,7 @@ test('served canonical index and manifest assets verify against a successful Pro
     assert.equal(result.verifiedAssetCount, 3);
     assert.equal(result.servedAssetsConsistent, true);
     assert.equal(result.ciArtifactMatch, true);
+    assert.equal(result.sourceEvidenceVerified, true);
     assert.equal(result.servedIndexBuildPath, '/index.html');
     assert.deepEqual(result.verifiedAssetDigests,
       [{ path: '/refunds', sha256: sha256(files.get('/index.html')) },
@@ -268,6 +300,7 @@ test('dirty tracked-source evidence remains explicit while independent identity 
       assert.equal(result.claimedBuildProvenance, 'dirty');
       assert.equal(result.trackedSourceClean, false);
       assert.equal(result.ciArtifactMatch, true);
+      assert.equal(result.sourceEvidenceVerified, true);
     });
 });
 
