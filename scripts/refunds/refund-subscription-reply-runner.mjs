@@ -113,7 +113,8 @@ export const submitResult = async (client, runId, requestId, proposal) => {
       ? current.paymentMethod === fact.updates.payment_method
       : fact.appliedFields[0] === 'card_network'
       ? current.cardNetwork === fact.updates.card_network
-      : current.cardLast4 === fact.updates.card_last4;
+      : current.cardLast4 === fact.updates.card_last4 &&
+        current.cardLast4Provenance === fact.updates.card_last4_provenance;
     if (!unchanged) {
       result = await rpc(client, 'service_apply_refund_scoped_reply_semantic_fact', {
         p_request_id: task.requestId,

@@ -427,11 +427,14 @@ begin
       reply_review_state='resolved',reply_review_result_code='facts_applied',
       updated_at=statement_timestamp()
       where ctx.refund_case_id=p_refund_case_id and ctx.correction_kind='purchase'
-        and ctx.reply_message_id is not null
+        and ctx.reply_message_id=p_gmail_message_id
         and ctx.reply_review_state in ('pending','claimed')
+        and ctx.reply_body_sha256=public.refund_scoped_verified_reply_set(ctx.id)->>'bodySha256'
+        and public.refund_scoped_verified_reply_set(ctx.id)->'messages'
+          @>jsonb_build_array(jsonb_build_object('messageId',p_gmail_message_id))
         and exists(select 1 from public.refund_gmail_messages source
           where source.id=p_gmail_message_id and source.refund_case_id=ctx.refund_case_id
-            and source.received_at>=ctx.reply_received_at);
+            and source.received_at=ctx.reply_received_at);
   end if;
   return result;
 end;

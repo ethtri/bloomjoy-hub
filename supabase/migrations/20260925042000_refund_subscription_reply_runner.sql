@@ -219,6 +219,71 @@ returns text language sql immutable strict set search_path='' as $$
     else coalesce(after_token,before_token) end from extracted;
 $$;
 
+-- Source quotes are untrusted customer text. A negated value is not a
+-- positive fact receipt, even when a model proposes a supported field.
+create function public.refund_verified_reply_quote_negated(p_quote text)
+returns boolean language sql immutable strict set search_path='' as $$
+  select p_quote ~* '(^|[^[:alpha:]])(not|never|no|didn''t|did not|wasn''t|was not|isn''t|is not|don''t|do not|doesn''t|does not|cannot|can''t|couldn''t|could not|wrong|incorrect|no longer)([^[:alpha:]]|$)';
+$$;
+
+create function public.refund_verified_reply_quote_has_fact(p_quote text)
+returns boolean language sql immutable strict set search_path='' as $$
+  select p_quote ~* '(\$[[:space:]]*[0-9]|(paid|charged|amount|total|cost|monto|cobr)[^.?!]{0,25}[0-9]|(paid|used|tapped|inserted|swiped)[^.?!]{0,45}(cash|card)|card[^.?!]{0,35}(ends? in|last four)[^.?!]{0,12}[0-9]{4}|(visa|mastercard|amex|discover))';
+$$;
+
+-- An unchanged verified answer may settle as no new fact, but only when all
+-- supported values in the cited span equal the current database facts.
+create function public.refund_verified_reply_quote_is_known_fact(
+  p_quote text,p_case public.refund_cases
+) returns boolean language plpgsql immutable strict set search_path='' as $$
+declare amount_match text[]; digits_match text[]; method_match text[];
+  network_match text[]; seen integer:=0;
+begin
+  if public.refund_verified_reply_quote_negated(p_quote) then return false; end if;
+  if (select count(*) from regexp_matches(p_quote,'\$[[:space:]]*[0-9]','g'))>1
+    or (select count(*) from regexp_matches(lower(p_quote),
+      '(visa|mastercard|amex|discover)','g'))>1
+    or (p_quote ~* '(paid|charged|amount|total|cost|monto|cobr)[^.?!]{0,25}[0-9]'
+      and p_quote !~ '\$[[:space:]]*[0-9]') then return false; end if;
+  amount_match:=regexp_match(p_quote,'\$[[:space:]]*([0-9]{1,7})([.]([0-9]{2}))?');
+  if amount_match is not null then
+    seen:=seen+1;
+    if p_case.payment_amount_cents is distinct from
+      (amount_match[1]::integer*100+coalesce(amount_match[3],'00')::integer)
+      then return false; end if;
+  end if;
+  digits_match:=regexp_match(lower(p_quote),
+    'card[^.?!]{0,35}(ends? in|last four)[^0-9]{0,12}([0-9]{4})');
+  if digits_match is not null then
+    seen:=seen+1;
+    if p_case.card_last4 is distinct from digits_match[2]
+      or p_case.card_last4_provenance is distinct from 'physical_card'
+      then return false; end if;
+  end if;
+  method_match:=regexp_match(lower(p_quote),
+    '(paid|used|tapped|inserted|swiped)[^.?!]{0,45}(cash|card)');
+  if method_match is not null then
+    seen:=seen+1;
+    if p_case.payment_method is distinct from method_match[2]
+      then return false; end if;
+  end if;
+  network_match:=regexp_match(lower(p_quote),'(visa|mastercard|amex|discover)');
+  if network_match is not null then
+    seen:=seen+1;
+    if p_case.card_network is distinct from case network_match[1]
+      when 'amex' then 'american_express' else network_match[1] end
+      then return false; end if;
+  end if;
+  return seen>0;
+end;
+$$;
+revoke all on function public.refund_verified_reply_quote_negated(text)
+  from public,anon,authenticated,service_role;
+revoke all on function public.refund_verified_reply_quote_has_fact(text)
+  from public,anon,authenticated,service_role;
+revoke all on function public.refund_verified_reply_quote_is_known_fact(text,public.refund_cases)
+  from public,anon,authenticated,service_role;
+
 do $migration$
 declare definition text; function_name text; anchor text;
 begin
@@ -281,6 +346,7 @@ begin
     or evidence.sensitive_data_redacted
     or coalesce(length(p_source_quote),0) not between 3 and 240
     or position(p_source_quote in coalesce(evidence.plain_body,''))=0
+    or public.refund_verified_reply_quote_negated(p_source_quote)
     or not (public.refund_scoped_verified_reply_set(ctx.id)->'messages'
       @>jsonb_build_array(jsonb_build_object('messageId',evidence.id)))
     or public.refund_scoped_verified_reply_set(ctx.id)->>'bodySha256'
@@ -415,6 +481,18 @@ begin
     end if;
     directional_evidence:=jsonb_build_object('timeConfidence','rough',
       'timeSource','customer_memory');
+  elsif p_reason_code='customer_cannot_provide' then
+    if p_source_quote !~* '(cannot|can''t|could not|couldn''t|unable to|not able to|do not have|don''t have|no longer have|do not remember|don''t remember|no tengo|no puedo)'
+      or public.refund_verified_reply_quote_has_fact(p_source_quote) then
+      raise exception 'Cannot-provide disposition needs a source-backed limitation without an unanswered supported fact';
+    end if;
+  elsif (p_reason_code='no_supported_new_fact'
+      and public.refund_verified_reply_quote_negated(p_source_quote)
+      and p_source_quote ~* '([0-9]|cash|card|wallet|visa|mastercard)')
+    or public.refund_verified_reply_quote_has_fact(p_source_quote)
+    and (p_reason_code<>'no_supported_new_fact'
+      or not public.refund_verified_reply_quote_is_known_fact(p_source_quote,c)) then
+    raise exception 'A supported quoted fact requires fact review';
   end if;
   update public.refund_wallet_correction_contexts set
     reply_review_state='resolved',reply_review_result_code=p_reason_code,

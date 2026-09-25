@@ -22,7 +22,7 @@ begin
     incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,payment_interaction,payment_amount_cents,card_last4,card_last4_provenance,card_network,card_wallet_used,status,correlation_status,intake_source)
   values(cid,'df000000-0000-4000-8000-000000000003','df000000-0000-4000-8000-000000000002','reply-customer@example.invalid','Scoped reply test',
     now()-interval '2 hours',to_char((now()-interval '2 hours') at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI'),
-    'America/Los_Angeles','exact','exact','card',case when n in (27,28,29) then 'phone_watch_wallet' else 'tap_card' end,case when n in (27,28,29,30) then 700 else null end,case when n in (8,15,27,28,29,30) then null else '1234' end,case when n in (8,15,27,28,29,30) then null else 'physical_card' end,case when n=26 then 'mastercard' else 'visa' end,n in (27,28,29),'needs_review','manual_review','form');
+    'America/Los_Angeles','exact','exact','card',case when n in (27,28,29) then 'phone_watch_wallet' else 'tap_card' end,case when n=34 then 1090 when n in (27,28,29,30) then 700 else null end,case when n in (8,15,27,28,29,30,34) then null else '1234' end,case when n in (8,15,27,28,29,30,34) then null else 'physical_card' end,case when n=26 then 'mastercard' else 'visa' end,n in (27,28,29),'needs_review','manual_review','form');
   if n in (27,28) then
     -- The earlier provider read precedes the delivered wallet question. A
     -- waiting-on-customer case cannot start an ordinary lookup afterward.
@@ -627,6 +627,28 @@ select is(public.service_complete_refund_scoped_reply_no_fact(
     'device token ends in 6789','wallet_token_requires_research')
     ->>'outcome','reviewed_no_fact',
   'Wallet token is retained as directional evidence without inventing physical card digits');
+select diag('Synthetic reply lookup eligibility: ' || (
+  select jsonb_build_object(
+    'contextStatus',r.status,'reviewState',r.reply_review_state,
+    'resultCode',r.reply_review_result_code,
+    'lookupMarkerAbsent',r.reply_lookup_generation is null,
+    'actionVersionCurrent',r.reply_review_action_version=c.official_action_version,
+    'factVersionCurrent',r.correction_fact_version=c.deterministic_fact_version,
+    'replyDigestCurrent',r.reply_body_sha256=public.refund_scoped_verified_reply_set(r.id)->>'bodySha256',
+    'replyTimeCurrent',m.received_at=r.reply_received_at,
+    'caseStatus',c.status,'correctionEligible',public.refund_purchase_correction_eligible(c),
+    'lookupStatus',c.nayax_lookup_status,
+    'lookupBeforeReply',c.nayax_lookup_started_at<=r.reply_received_at,
+    'lookupDigestValid',c.nayax_lookup_correlation_digest ~ '^[a-f0-9]{64}$',
+    'policyPresent',nullif(c.nayax_recommendation_policy_version,'') is not null,
+    'machineReady',machine.status='active' and machine.nayax_manual_portal_enabled is not true
+      and nullif(btrim(machine.nayax_machine_id),'') is not null
+      and nullif(btrim(machine.nayax_account_key),'') is not null
+  )::text from public.refund_wallet_correction_contexts r
+    join public.refund_cases c on c.id=r.refund_case_id
+    join public.refund_gmail_messages m on m.id=r.reply_message_id
+    join public.reporting_machines machine on machine.id=c.reporting_machine_id
+  where c.id=pg_temp.cid(27)));
 create temp table directional_lookup_claim on commit drop as
   select claim from jsonb_array_elements(
     public.service_claim_due_refund_reply_nayax_lookups(2)) claim
@@ -767,6 +789,103 @@ select is((select count(*)::integer from public.refund_case_nayax_refund_attempt
     where refund_case_id=pg_temp.cid(30)),0,
   'Read-only missing-card search does not create payment authority or an attempt');
 rollback to savepoint cannot_provide_card_read;
+savepoint semantic_disposition_guards;
+select pg_temp.make_scope(31);
+update public.refund_gmail_messages set plain_body=
+  'I paid $10.90 with my physical card.' where id=pg_temp.gid(31);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(31),pg_temp.gid(31))
+  ->>'outcome','received','Affirmative ordinary prose becomes a source-bound task');
+create temp table affirmative_reply_task on commit drop as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(31)::text;
+select is((select count(*)::integer from affirmative_reply_task),1,
+  'Affirmative quote negative control owns one current scoped claim');
+select throws_like($$select public.service_complete_refund_scoped_reply_no_fact(
+    (select (task->>'requestId')::uuid from affirmative_reply_task),
+    (select (task->>'claimToken')::uuid from affirmative_reply_task),pg_temp.gid(31),
+    (select (task->>'factVersion')::bigint from affirmative_reply_task),
+    (select task->>'bodySha256' from affirmative_reply_task),pg_temp.gid(31),
+    'I paid $10.90 with my physical card.','no_supported_new_fact')$$,
+  '%supported quoted fact%','A generic no-fact reason cannot discard an affirmative amount');
+select throws_like($$select public.service_complete_refund_scoped_reply_no_fact(
+    (select (task->>'requestId')::uuid from affirmative_reply_task),
+    (select (task->>'claimToken')::uuid from affirmative_reply_task),pg_temp.gid(31),
+    (select task->>'factVersion' from affirmative_reply_task)::bigint,
+    (select task->>'bodySha256' from affirmative_reply_task),pg_temp.gid(31),
+    'I paid $10.90 with my physical card.','customer_cannot_provide')$$,
+  '%Cannot-provide disposition%','Cannot-provide needs an actual customer limitation');
+select is((select reply_review_state from public.refund_wallet_correction_contexts
+    where refund_case_id=pg_temp.cid(31)),'claimed',
+  'Rejected semantic dispositions leave the verified task claim open');
+select pg_temp.make_scope(32);
+update public.refund_gmail_messages set plain_body='I was not charged $10.90.'
+  where id=pg_temp.gid(32);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(32),pg_temp.gid(32))
+  ->>'outcome','received','A negated amount is still a verified reply for research');
+create temp table negated_reply_task on commit drop as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(32)::text;
+select is((select count(*)::integer from negated_reply_task),1,
+  'Negated quote negative control owns one current scoped claim');
+select is(public.service_apply_refund_scoped_reply_semantic_fact(
+    (select (task->>'requestId')::uuid from negated_reply_task),
+    (select (task->>'claimToken')::uuid from negated_reply_task),pg_temp.gid(32),
+    (select (task->>'factVersion')::bigint from negated_reply_task),
+    (select task->>'bodySha256' from negated_reply_task),pg_temp.gid(32),
+    'I was not charged $10.90.',
+    '{"payment_amount_cents":1090,"refund_amount_cents":1090}'::jsonb,array['amount'])
+    ->>'outcome','stale_or_unsupported_source',
+  'The protected writer rejects a negated amount as an affirmative fact');
+select is((select count(*)::integer from public.refund_customer_fact_applications
+    where refund_case_id=pg_temp.cid(32)),0,
+  'Negated prose creates no immutable positive fact receipt');
+select pg_temp.make_scope(33);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(33),pg_temp.gid(33))
+  ->>'outcome','received','Original verified response starts the exact scoped task');
+insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,
+  provider_thread_id,thread_subject,first_message_at,latest_message_at,retention_expires_at)
+values('df000000-0000-4000-8003-000000000033',pg_temp.cid(33),repeat('f',64),
+  'unrelated-reply-thread-33','Unrelated labeled reply',now(),now(),now()+interval '30 days');
+insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,
+  provider_message_id,references_header,direction,message_kind,status,
+  sender_email,recipient_email,participant_role,participant_trust,subject,
+  plain_body,received_at,retention_expires_at)
+values(pg_temp.gid(35),'df000000-0000-4000-8003-000000000033',pg_temp.cid(33),
+  'unrelated-labeled-reply-33','<unrelated@example.invalid>',
+  'inbound','message','received','reply-customer@example.invalid',
+  'info@bloomjoysweets.com','customer','verified','Unrelated reply',
+  'Amount: 10.90',now()+interval '2 minutes',now()+interval '30 days');
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(33),pg_temp.gid(35))
+  ->>'outcome','request_thread_mismatch',
+  'A later customer fact from another thread cannot bind this exact request');
+select is(public.service_apply_refund_gmail_customer_facts_v1(
+    pg_temp.cid(33),pg_temp.gid(35),
+    (select deterministic_fact_version from public.refund_cases where id=pg_temp.cid(33)),
+    '{"payment_amount_cents":1090,"refund_amount_cents":1090}'::jsonb,
+    array['amount'],'labeled_routine_facts_v1')->>'outcome','conflict',
+  'Generic labeled facts retain their existing guarded wrong-thread result');
+select is((select reply_review_state from public.refund_wallet_correction_contexts
+    where refund_case_id=pg_temp.cid(33)),'pending',
+  'Wrong-thread labeled content cannot settle the live scoped System task');
+select pg_temp.make_scope(34);
+update public.refund_gmail_messages set plain_body='I paid $10.90.'
+  where id=pg_temp.gid(34);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(34),pg_temp.gid(34))
+  ->>'outcome','received','A repeated already-known amount still clears Customer wait');
+create temp table known_reply_task on commit drop as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(34)::text;
+select is(public.service_complete_refund_scoped_reply_no_fact(
+    (select (task->>'requestId')::uuid from known_reply_task),
+    (select (task->>'claimToken')::uuid from known_reply_task),pg_temp.gid(34),
+    (select (task->>'factVersion')::bigint from known_reply_task),
+    (select task->>'bodySha256' from known_reply_task),pg_temp.gid(34),
+    'I paid $10.90.','no_supported_new_fact')->>'outcome','reviewed_no_fact',
+  'The current same amount can finish reply interpretation without a false fact write');
+select is((select count(*)::integer from public.refund_customer_fact_applications
+    where refund_case_id=pg_temp.cid(34)),0,
+  'Already-known amount does not manufacture a new immutable fact receipt');
+rollback to savepoint semantic_disposition_guards;
 select is(public.service_start_refund_reply_subscription_run(date_trunc('hour',statement_timestamp()))->>'outcome',
   'disabled','Subscription-backed hourly worker is default-off');
 update public.refund_reply_subscription_settings set enabled=true,

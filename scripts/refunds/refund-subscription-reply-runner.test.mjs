@@ -84,11 +84,27 @@ test('ordinary prose yields only a deterministic fact from an exact verified spa
 });
 
 test('ordinary cannot-provide reply is a source-bound System result, not a Manager task', () => {
-  const review = validateNoFactReview(input, {
+  const limitationInput = { ...input, replyMessages: [{ messageId,
+    body: 'I no longer have that physical card and cannot provide its last four digits.' }] };
+  const review = validateNoFactReview(limitationInput, {
     kind: 'reviewed_no_fact', reasonCode: 'customer_cannot_provide',
-    messageId, quote: 'I paid $10.90 with my physical card',
+    messageId, quote: 'cannot provide its last four digits',
   });
   assert.equal(review.reasonCode, 'customer_cannot_provide');
+  for (const reasonCode of ['customer_cannot_provide', 'no_supported_new_fact',
+    'conflicting_reply_evidence']) {
+    assert.throws(() => validateNoFactReview(input, {
+      kind: 'reviewed_no_fact', reasonCode, messageId,
+      quote: 'I paid $10.90 with my physical card',
+    }), /(?:cannot_provide_source_not_supported|supported_fact_requires_fact_review)/);
+  }
+  const knownInput = { ...input, currentFacts: {
+    paymentAmountCents: 1090, paymentMethod: 'card',
+  } };
+  assert.equal(validateNoFactReview(knownInput, {
+    kind: 'reviewed_no_fact', reasonCode: 'no_supported_new_fact',
+    messageId, quote: 'I paid $10.90 with my physical card',
+  }).reasonCode, 'no_supported_new_fact');
   assert.throws(() => validateNoFactReview(input, {
     kind: 'reviewed_no_fact', reasonCode: 'customer_cannot_provide',
     messageId, quote: 'I cannot provide any information',
@@ -97,6 +113,26 @@ test('ordinary cannot-provide reply is a source-bound System result, not a Manag
     kind: 'reviewed_no_fact', reasonCode: 'approve_refund',
     messageId, quote: 'I paid $10.90',
   }), /unsupported_no_fact_review/);
+});
+
+test('negated customer text cannot become an affirmative fact', () => {
+  for (const [body, field] of [
+    ['I was not charged $10.90', 'amount'],
+    ['My physical card does not end in 1234', 'card_last4'],
+    ['My card is not Visa', 'card_network'],
+    ['I did not pay with cash', 'payment_method'],
+    ['The device token is not 4932 for Apple Pay', 'wallet_token_last4'],
+  ]) {
+    assert.throws(() => deriveSourceBoundFact({ replyMessages: [{ messageId, body }] }, {
+      kind: 'fact', field, messageId, quote: body,
+    }), /negated_source_span_requires_research/);
+    assert.throws(() => validateNoFactReview({
+      currentFacts: { paymentAmountCents: 1090, paymentMethod: 'card',
+        cardLast4: '1234', cardLast4Provenance: 'physical_card', cardNetwork: 'visa' },
+      replyMessages: [{ messageId, body }],
+    }, { kind: 'reviewed_no_fact', reasonCode: 'no_supported_new_fact',
+      messageId, quote: body }), /supported_fact_requires_fact_review/);
+  }
 });
 
 test('hourly mocked run binds claim, fact writer, no send/payment RPC and durable receipt', async () => {
@@ -140,6 +176,8 @@ test('hourly mocked run binds claim, fact writer, no send/payment RPC and durabl
 });
 
 test('hourly mocked run records a grounded no-new-fact reply without send or payment calls', async () => {
+  const noFactInput = { ...input, replyMessages: [{ messageId,
+    body: 'I replied above; please review my earlier note.' }] };
   const calls = [];
   const client = { rpc: async (name, args) => {
     calls.push(name);
@@ -148,9 +186,9 @@ test('hourly mocked run records a grounded no-new-fact reply without send or pay
     if (name === 'service_claim_refund_scoped_reply_reviews')
       return { data: { tasks: [task] }, error: null };
     if (name === 'service_get_refund_scoped_reply_research_input')
-      return { data: input, error: null };
+      return { data: noFactInput, error: null };
     if (name === 'service_complete_refund_scoped_reply_no_fact') {
-      assert.equal(args.p_source_quote, 'I paid $10.90 with my physical card');
+      assert.equal(args.p_source_quote, 'I replied above; please review my earlier note.');
       assert.equal(args.p_body_sha256, sha);
       return { data: { outcome: 'reviewed_no_fact', payloadRedacted: true }, error: null };
     }
@@ -162,11 +200,39 @@ test('hourly mocked run records a grounded no-new-fact reply without send or pay
     await beginRun(client, new Date('2026-09-25T15:34:00Z'));
     const result = await submitResult(client, runId, requestId, {
       kind: 'reviewed_no_fact', reasonCode: 'no_supported_new_fact',
-      messageId, quote: 'I paid $10.90 with my physical card',
+      messageId, quote: 'I replied above; please review my earlier note.',
     });
     assert.equal(result.outcome, 'resolved');
     assert.equal((await finishRun(client, runId)).status, 'succeeded');
     assert.deepEqual(calls.filter((name) => /send|payment|manager|nayax/iu.test(name)), []);
+  } finally { fs.rmSync(statePath, { force: true }); }
+});
+
+test('an exact already-known amount settles without a redundant fact write', async () => {
+  const knownInput = { ...input, currentFacts: {
+    paymentAmountCents: 1090, paymentMethod: 'card',
+  } };
+  const calls = [];
+  const client = { rpc: async (name) => {
+    calls.push(name);
+    if (name === 'service_start_refund_reply_subscription_run')
+      return { data: { outcome: 'started', runId }, error: null };
+    if (name === 'service_claim_refund_scoped_reply_reviews')
+      return { data: { tasks: [task] }, error: null };
+    if (name === 'service_get_refund_scoped_reply_research_input')
+      return { data: knownInput, error: null };
+    if (name === 'service_complete_refund_scoped_reply_no_fact')
+      return { data: { outcome: 'reviewed_no_fact' }, error: null };
+    throw new Error(`unexpected RPC ${name}`);
+  } };
+  try {
+    await beginRun(client, new Date('2026-09-25T15:35:00Z'));
+    assert.equal((await submitResult(client, runId, requestId, {
+      kind: 'fact', field: 'amount', messageId,
+      quote: 'I paid $10.90 with my physical card',
+    })).outcome, 'resolved');
+    assert.ok(calls.includes('service_complete_refund_scoped_reply_no_fact'));
+    assert.ok(!calls.includes('service_apply_refund_scoped_reply_semantic_fact'));
   } finally { fs.rmSync(statePath, { force: true }); }
 });
 
