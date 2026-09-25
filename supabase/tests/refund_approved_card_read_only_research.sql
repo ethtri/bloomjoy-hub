@@ -166,7 +166,10 @@ select is((select public.service_validate_approved_card_nayax_research_start(
 )->>'ready' from approved_claim),'true',
   'Exact saved approval, fact and account/machine scope permit a read-only provider start');
 reset role;
-update public.reporting_machines set nayax_manual_portal_enabled=true
+-- The real portal-mode constraint requires removing API routing in the same write.
+update public.reporting_machines set nayax_manual_portal_enabled=true,
+  nayax_manual_account_scope='approved_research_manual',
+  nayax_refunds_enabled=false,nayax_machine_id=null,nayax_account_key=null
 where id='ab440000-0000-4000-8000-000000000001';
 set local role service_role;
 select is((select public.service_validate_approved_card_nayax_research_start(
@@ -180,7 +183,9 @@ reset role;
 select is(public.refund_approved_card_research_scope_digest(
   'ab450000-0000-4000-8000-000000000001'),null,
   'Manual portal mode invalidates the private approved-read scope binding');
-update public.reporting_machines set nayax_manual_portal_enabled=false
+update public.reporting_machines set nayax_manual_portal_enabled=false,
+  nayax_manual_account_scope=null,nayax_refunds_enabled=true,
+  nayax_machine_id='APPROVED-RESEARCH-MACHINE',nayax_account_key='default'
 where id='ab440000-0000-4000-8000-000000000001';
 update public.reporting_machines set nayax_account_key='changed-account'
 where id='ab440000-0000-4000-8000-000000000001';
