@@ -65,6 +65,38 @@ insert into public.refund_cases(
   repeat('c',64),'manual_exception','automatic-lookup-v1','requested',
   statement_timestamp()-interval '7 hours','hosted_refund_intake');
 
+insert into public.reporting_machines(
+  id,account_id,location_id,machine_label,status,nayax_refunds_enabled,
+  nayax_manual_portal_enabled
+) values('ab440000-0000-4000-8000-000000000002',
+  'ab420000-0000-4000-8000-000000000001',
+  'ab430000-0000-4000-8000-000000000001',
+  'Older unmapped approved research machine','active',false,false);
+insert into public.refund_cases(
+  id,public_reference,reporting_machine_id,reporting_location_id,customer_email,
+  issue_summary,incident_at,incident_timezone,incident_time_resolution,
+  payment_method,payment_amount_cents,refund_amount_cents,card_last4,
+  status,decision,decision_reason,decided_by,decided_at,
+  correlation_status,correlation_source,nayax_lookup_generation,
+  nayax_lookup_status,nayax_lookup_started_at,nayax_lookup_finished_at,
+  nayax_lookup_correlation_digest,nayax_recommendation_state,
+  nayax_recommendation_policy_version,nayax_refund_execution_status,
+  customer_request_received_at,customer_request_received_source
+) select 'ab450000-0000-4000-8000-000000000004',
+  'RF-APPROVED-RESEARCH-UNMAPPED',
+  'ab440000-0000-4000-8000-000000000002',reporting_location_id,
+  'approved-research-4@example.invalid',issue_summary,incident_at,
+  incident_timezone,incident_time_resolution,payment_method,
+  payment_amount_cents,refund_amount_cents,card_last4,status,decision,
+  decision_reason,decided_by,decided_at,correlation_status,correlation_source,
+  nayax_lookup_generation,nayax_lookup_status,
+  nayax_lookup_started_at-interval '1 hour',
+  nayax_lookup_finished_at-interval '1 hour',repeat('d',64),
+  nayax_recommendation_state,nayax_recommendation_policy_version,
+  nayax_refund_execution_status,
+  customer_request_received_at,customer_request_received_source
+from public.refund_cases where id='ab450000-0000-4000-8000-000000000001';
+
 select ok(has_function_privilege('service_role',
   'public.service_claim_due_approved_card_nayax_research(integer)','execute')
   and not has_function_privilege('authenticated',
@@ -72,6 +104,18 @@ select ok(has_function_privilege('service_role',
   and not has_function_privilege('anon',
   'public.service_claim_due_approved_card_nayax_research(integer)','execute'),
   'Only the service worker can claim approved-card read-only research');
+select ok(not has_function_privilege('authenticated',
+    'public.service_validate_approved_card_nayax_research_start(uuid,bigint,bigint,bigint,text,text,integer)',
+    'execute')
+  and not has_function_privilege('authenticated',
+    'public.service_get_approved_card_nayax_research_health()','execute')
+  and not has_function_privilege('authenticated',
+    'public.service_commit_approved_card_nayax_research(uuid,bigint,bigint,bigint,text,text,integer,text,text,text,timestamp with time zone,text,uuid,integer,jsonb)',
+    'execute')
+  and not has_function_privilege('authenticated',
+    'public.service_fail_approved_card_nayax_research(uuid,bigint,bigint,bigint,text,text,integer,text,boolean)',
+    'execute'),
+  'Start, health, commit and failure RPCs remain service-only');
 
 create temporary table saved_approval as
 select decision,decision_reason,decided_by,decided_at,refund_amount_cents,
@@ -82,17 +126,19 @@ select is((public.refund_lifecycle_contract('ab450000-0000-4000-8000-00000000000
   'The approved split-state has canonically expired read-only evidence');
 
 set local role service_role;
+select is(public.service_get_approved_card_nayax_research_health()->>'dueCount',
+  '1','An unmapped older case is excluded from the actual due count');
 select throws_ok($$select public.service_begin_refund_nayax_lookup(
   'ab450000-0000-4000-8000-000000000001',1,'approved_scheduled',null)$$,
   'P4622','This older approval is not tied to an exact transaction and cannot be reused. It needs separate review.',
   'The old service begin route still rejects an approved case');
 create temporary table approved_claim as
-select public.service_claim_due_approved_card_nayax_research(4) as result;
+select public.service_claim_due_approved_card_nayax_research(1) as result;
 select is((select jsonb_array_length(result) from approved_claim),1,
-  'One proven automatic-origin approved case is claimed');
+  'A later mapped approved case survives an older unmapped row at batch limit one');
 select ok((select result @> '[{"caseId":"ab450000-0000-4000-8000-000000000001"}]'::jsonb
   from approved_claim),'Manual provenance and prior execution remain excluded');
-select is(jsonb_array_length(public.service_claim_due_approved_card_nayax_research(4)),0,
+select is(jsonb_array_length(public.service_claim_due_approved_card_nayax_research(1)),0,
   'Repeated sweep cannot claim the active generation');
 reset role;
 
@@ -112,12 +158,58 @@ select ok((select c.decision=s.decision and c.decided_by=s.decided_by
   'The saved approval actor, time, reason, amount and case fingerprint survive the claim');
 
 set local role service_role;
+select is((select public.service_validate_approved_card_nayax_research_start(
+  'ab450000-0000-4000-8000-000000000001',
+  (result->0->>'lookupGeneration')::bigint,1,
+  (result->0->>'officialActionVersion')::bigint,
+  result->0->>'businessFingerprint',result->0->>'scopeDigest',963
+)->>'ready' from approved_claim),'true',
+  'Exact saved approval, fact and account/machine scope permit a read-only provider start');
+reset role;
+update public.reporting_machines set nayax_account_key='changed-account'
+where id='ab440000-0000-4000-8000-000000000001';
+set local role service_role;
+select is((select public.service_validate_approved_card_nayax_research_start(
+  'ab450000-0000-4000-8000-000000000001',
+  (result->0->>'lookupGeneration')::bigint,1,
+  (result->0->>'officialActionVersion')::bigint,
+  result->0->>'businessFingerprint',result->0->>'scopeDigest',963
+)->>'ready' from approved_claim),'false',
+  'A changed account mapping rejects the claimed provider read before it starts');
+reset role;
+update public.reporting_machines set nayax_account_key='default'
+where id='ab440000-0000-4000-8000-000000000001';
+
+-- Only the mutable lease clock advances in this synthetic crash fixture.
+-- This is the state reached naturally when the worker dies for two minutes.
+update public.refund_cases
+set nayax_lookup_started_at=statement_timestamp()-interval '2 minutes'
+where id='ab450000-0000-4000-8000-000000000001';
+set local role service_role;
+select is(public.service_get_approved_card_nayax_research_health()
+  ->>'staleClaimCount','1','An interrupted claim is visible as overdue work');
+create temporary table recovered_claim as
+select public.service_claim_due_approved_card_nayax_research(1) as result;
+select is((select jsonb_array_length(result) from recovered_claim),1,
+  'The existing recovery plus exact prior claim safely reclaims the interrupted read');
+select is((select result->0->>'caseId' from recovered_claim),
+  'ab450000-0000-4000-8000-000000000001',
+  'An unmapped older case does not starve the recovered approved case');
+select is(public.service_get_approved_card_nayax_research_health()
+  ->>'staleClaimCount','0','The new generation clears the stale-claim health state');
+reset role;
+select is((select count(*)::integer from public.refund_case_events
+  where refund_case_id='ab450000-0000-4000-8000-000000000001'
+    and event_type='approved_card_lookup_research_claimed'),2,
+  'Crash recovery records a separate exact generation without another approval');
+
+set local role service_role;
 select is(public.service_commit_approved_card_nayax_research(
   'ab450000-0000-4000-8000-000000000001',
-  (select (result->0->>'lookupGeneration')::bigint from approved_claim),1,
-  (select (result->0->>'officialActionVersion')::bigint from approved_claim),
-  (select result->0->>'businessFingerprint' from approved_claim),
-  (select result->0->>'scopeDigest' from approved_claim),963,
+  (select (result->0->>'lookupGeneration')::bigint from recovered_claim),1,
+  (select (result->0->>'officialActionVersion')::bigint from recovered_claim),
+  (select result->0->>'businessFingerprint' from recovered_claim),
+  (select result->0->>'scopeDigest' from recovered_claim),963,
   'no_match','no_safe_match','approved-research-v1',statement_timestamp(),
   'The bounded recent-sales read found no supported purchase.',null,0,null
 ) ->> 'applied','true','A current read-only result commits through the version guard');

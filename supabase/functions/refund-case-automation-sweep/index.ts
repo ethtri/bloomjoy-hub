@@ -2927,13 +2927,37 @@ const runApprovedCardNayaxResearchSweep = async (
       throw new Error("Invalid approved-card research claim.");
     }
     counters.evaluatedCaseIds.add(caseId);
-    const action = await claimAction(
-      runId, caseId,
-      `approved_card_lookup:${caseId}:a${actionVersion}:f${factVersion}:g${lookupGeneration}`,
-      "nayax_lookup", "approved_research", policyWindowStart, counters,
-    );
+    let action: ClaimedAction | null = null;
     let persisted = false;
+    let providerReadStarted = false;
     try {
+      action = await claimAction(
+        runId, caseId,
+        `approved_card_lookup:${caseId}:a${actionVersion}:f${factVersion}:g${lookupGeneration}`,
+        "nayax_lookup", "approved_research", policyWindowStart, counters,
+      );
+      if (!action.claimed) throw new Error("Approved-card research action was not claimed.");
+      const { data: start, error: startError } = await supabase.rpc(
+        "service_validate_approved_card_nayax_research_start", {
+          p_refund_case_id: caseId,
+          p_lookup_generation: lookupGeneration,
+          p_expected_fact_version: factVersion,
+          p_expected_action_version: actionVersion,
+          p_expected_fingerprint: fingerprint,
+          p_expected_scope_digest: scopeDigest,
+          p_expected_amount_cents: amountCents,
+        },
+      );
+      if (startError) throw startError;
+      if (start?.payloadRedacted !== true || typeof start?.ready !== "boolean") {
+        throw new Error("Invalid approved-card research start validation.");
+      }
+      if (!start.ready) {
+        counters.nayaxStaleResponsesRejected += 1;
+        await finishAction(action, "completed", "approved_card_research_stale", null, counters);
+        continue;
+      }
+      providerReadStarted = true;
       const result = await lookupNayaxCandidatesForRefundCase({
         supabase, caseId, actorUserId: null, lookupGeneration,
         expectedFactVersion: factVersion,
@@ -2971,7 +2995,9 @@ const runApprovedCardNayaxResearchSweep = async (
     } catch (lookupError) {
       counters.nayaxLookupFailures += 1;
       if (!persisted) {
-        const classification = classifyNayaxLookupFailure(lookupError);
+        const classification = providerReadStarted
+          ? classifyNayaxLookupFailure(lookupError)
+          : { failureClass: "worker_interrupted", safeRetryEligible: true };
         try {
           const { error: failError } = await supabase.rpc(
             "service_fail_approved_card_nayax_research", {
@@ -2996,8 +3022,27 @@ const runApprovedCardNayaxResearchSweep = async (
       console.error("Approved-card read-only research failed", {
         errorType: lookupError instanceof Error ? lookupError.name : typeof lookupError,
       });
-      await finishAction(action, "failed", sanitizeFailureCategory(lookupError), null, counters);
+      if (action) {
+        await finishAction(action, "failed", sanitizeFailureCategory(lookupError), null, counters);
+      }
     }
+  }
+  const { data: health, error: healthError } = await supabase.rpc(
+    "service_get_approved_card_nayax_research_health",
+  );
+  if (healthError) throw healthError;
+  const healthCounts = [health?.dueCount, health?.staleClaimCount, health?.heldFailureCount];
+  if (health?.payloadRedacted !== true ||
+    !["healthy", "action_needed"].includes(String(health?.status)) ||
+    healthCounts.some((value) => !Number.isSafeInteger(value) || value < 0)) {
+    throw new Error("Approved-card research health contract is invalid.");
+  }
+  if (health.dueCount > 0) addReason(counters, "approved_card_research_due", health.dueCount);
+  if (health.staleClaimCount > 0) {
+    addReason(counters, "approved_card_research_stale_claim", health.staleClaimCount);
+  }
+  if (health.heldFailureCount > 0) {
+    addReason(counters, "approved_card_research_held", health.heldFailureCount);
   }
 };
 
