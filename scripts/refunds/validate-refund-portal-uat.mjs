@@ -4155,7 +4155,9 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
         Number(preparationProof?.officialActionVersion) === realProjectionSeed.officialActionVersion &&
         Number(preparationProof?.deterministicFactVersion) === realProjectionSeed.deterministicFactVersion &&
         lifecycle?.nextWork?.actor === 'manager' &&
-        lifecycle?.nextWork?.actionCode === 'send_cash_refund_and_confirm');
+        lifecycle?.nextWork?.actionCode === 'send_cash_refund_and_confirm' &&
+        lifecycle?.nextWork?.actionLabel === 'Send the cash refund through Zelle and confirm it was sent.' &&
+        lifecycle?.managerAction?.action === 'mark_external_refund');
     const realContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const functionCalls = [];
     await installMockSupabaseRoutes(realContext, {
@@ -4183,11 +4185,14 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
     const renderedState = await realPage.getByTestId('refund-manager-state').innerText();
     const renderedAction = await realPage.getByTestId('refund-cash-primary-action-panel').innerText();
     const cashAction = realPage.getByTestId('refund-cash-primary-action');
+    await realPage.getByText('Other decisions', { exact: true }).click();
     recorder.assert('Actual completed worker and Manager RPC render one cash action without a matched-sale gate',
       renderedState.includes('Action needed') &&
         renderedAction.includes('Send the refund through Zelle outside Bloomjoy Hub') &&
         await cashAction.getByText('Confirm refund sent via Zelle').isVisible() &&
         await cashAction.isEnabled() &&
+        await realPage.getByRole('button', { name: 'Deny request', exact: true }).isVisible() &&
+        (await realPage.getByRole('button', { name: /^Approve\b/ }).count()) === 0 &&
         (await realPage.getByTestId('refund-run-nayax-refund').count()) === 0 &&
         functionCalls.length === 0,
       JSON.stringify({ renderedState, renderedAction, functionCalls }));
