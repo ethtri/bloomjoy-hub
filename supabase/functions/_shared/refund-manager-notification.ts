@@ -67,6 +67,7 @@ export type RefundManagerNoticeResult = {
   channel: RefundManagerNotificationChannel;
   deliveryState: RefundManagerNotificationDeliveryState;
   noticeReason: RefundManagerNotificationReason;
+  coalescedByReady?: boolean;
 };
 
 export type RefundManagerNotificationChannel =
@@ -391,6 +392,7 @@ export const sendRefundManagerActionNotice = async ({
         recipientCount: 0,
         resolutionStatus: "policy_suppressed",
         usedOpsFallback: false,
+        coalescedByReady: reservation.reason === "ready_decision_already_notified",
       };
     }
     claimToken = typeof reservation.claimToken === "string"

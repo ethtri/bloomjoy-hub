@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(67);
+select plan(74);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -232,6 +232,75 @@ select is(public.refund_manager_preparation_snapshot(
   (select official_action_version from public.refund_cases where id='e1450000-0000-4000-8000-000000000004')
 )->>'evidenceBasis','card_reviewed_candidate_set',
   'normalized provider account evidence matches its punctuated stored machine key');
+
+-- A new completed read may mint fresh tokens and a new proof for the same
+-- eligible purchases. The notification identity follows business evidence.
+create temp table ready_material_baseline on commit drop as
+select public.refund_manager_decision_material_fingerprint(
+  'e1450000-0000-4000-8000-000000000001',
+  'approve_or_deny_request') as fingerprint,
+  public.refund_manager_preparation_snapshot(
+    'e1450000-0000-4000-8000-000000000001',
+    (select official_action_version from public.refund_cases
+      where id='e1450000-0000-4000-8000-000000000001'))->>'proofId' as proof_id;
+select isnt((select fingerprint from ready_material_baseline),null::text,
+  'Completed reviewed set has a material decision fingerprint');
+savepoint ready_material_renewed_read;
+select is((public.service_begin_refund_nayax_lookup(
+  'e1450000-0000-4000-8000-000000000001',1,'scheduled',null
+)->>'lookupGeneration')::bigint,2::bigint,
+  'A new read creates a second generation without selecting a purchase');
+insert into public.refund_nayax_lookup_candidates(
+ token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
+ provider_transaction_id,site_id,machine_authorization_time,amount_cents,
+ card_last4,currency_code,evidence_summary,expires_at)
+select case k.token
+    when 'e1460000-0000-4000-8000-000000000001'::uuid
+      then 'e1460000-0000-4000-8000-000000000101'::uuid
+    else 'e1460000-0000-4000-8000-000000000102'::uuid end,
+  k.refund_case_id,2,k.actor_user_id,k.reporting_machine_id,
+  k.provider_transaction_id,k.site_id,k.machine_authorization_time,
+  k.amount_cents,k.card_last4,k.currency_code,k.evidence_summary,k.expires_at
+from public.refund_nayax_lookup_candidates k
+where k.refund_case_id='e1450000-0000-4000-8000-000000000001'
+  and k.lookup_generation=1;
+select is((public.service_commit_refund_nayax_lookup(
+  'e1450000-0000-4000-8000-000000000001',2,1,
+  'multiple_matches','ambiguous','2026-09-05.v11',statement_timestamp(),
+  'The same two purchases were reviewed again',null,2,'scheduled',null
+)->>'applied'),'true','Renewed read completes with the same purchases');
+select isnt(public.refund_manager_preparation_snapshot(
+  'e1450000-0000-4000-8000-000000000001',
+  (select official_action_version from public.refund_cases
+    where id='e1450000-0000-4000-8000-000000000001'))->>'proofId',
+  (select proof_id from ready_material_baseline),
+  'Renewed evidence has a distinct opaque proof');
+select is(public.refund_manager_decision_material_fingerprint(
+  'e1450000-0000-4000-8000-000000000001',
+  'approve_or_deny_request'),
+  (select fingerprint from ready_material_baseline),
+  'New token, proof and generation do not reopen the same decision');
+savepoint ready_material_unrelated_block;
+insert into public.refund_nayax_transaction_allocations(
+  account_scope,provider_machine_id,original_transaction_id,refund_case_id)
+values ('REVIEWED_ACCOUNT','REVIEWED-MACHINE','UNRELATED-BLOCKED-SALE',
+  'e1450000-0000-4000-8000-000000000001');
+select is(public.refund_manager_decision_material_fingerprint(
+  'e1450000-0000-4000-8000-000000000001',
+  'approve_or_deny_request'),
+  (select fingerprint from ready_material_baseline),
+  'Unrelated blocked evidence does not reopen the same decision');
+rollback to savepoint ready_material_unrelated_block;
+insert into public.refund_nayax_transaction_allocations(
+  account_scope,provider_machine_id,original_transaction_id,refund_case_id)
+values ('REVIEWED_ACCOUNT','REVIEWED-MACHINE','REVIEWED-A-SALE-2',
+  'e1450000-0000-4000-8000-000000000001');
+select isnt(public.refund_manager_decision_material_fingerprint(
+  'e1450000-0000-4000-8000-000000000001',
+  'approve_or_deny_request'),
+  (select fingerprint from ready_material_baseline),
+  'A changed current eligible purchase set is a new material decision');
+rollback to savepoint ready_material_renewed_read;
 
 create temp table reviewed_initial on commit drop as
 select c.id case_id,c.official_action_version action_version,

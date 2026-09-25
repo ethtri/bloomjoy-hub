@@ -1,0 +1,10 @@
+Subject: Refund decision ready: RF-SYNTHETIC-1425 · $7.25
+
+Review the prepared refund and approve or deny it in the portal.
+Prepared case summary: A specific Nayax card purchase is verified for the Manager's final decision.
+
+RF-SYNTHETIC-1425 · $7.25
+Public lobby treats, Synthetic Mall
+Open case: https://portal.example.invalid/refunds?case=14250000-0000-4000-8000-000000000001
+
+Opening the case does not approve, deny, send, or repeat a refund.

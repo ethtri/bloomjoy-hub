@@ -876,12 +876,33 @@ const sendWalletMatchReadyNotification = async ({
   confidenceClass: string;
 }) => {
   if (!supabase) return;
+  const { data: readyHealth, error: readyHealthError } = await supabase.rpc(
+    "service_get_refund_manager_ready_notice_health",
+  );
+  if (readyHealthError) throw readyHealthError;
+  if (!readyHealth || typeof readyHealth !== "object" ||
+    (readyHealth as Record<string, unknown>).schemaVersion !==
+      "refund_manager_ready_notice_health_v1" ||
+    typeof (readyHealth as Record<string, unknown>).deliveryEnabled !== "boolean") {
+    throw new Error("Refund manager ready-notice routing state is unavailable.");
+  }
+  if ((readyHealth as Record<string, unknown>).deliveryEnabled === true) {
+    // The current prepared-decision lane owns this material action. Its
+    // post-commit wakeup and scheduled drain use the shared notice ledger.
+    return;
+  }
   const notice = await sendRefundManagerActionNotice({
     supabase,
     refundCaseId,
     customerEmail,
     noticeReason: "wallet_match_ready",
   });
+
+  if (notice.coalescedByReady) {
+    // The shared ledger has a sent or unknown ready decision for this same
+    // material payout and current manager. Rollback must not send it again.
+    return;
+  }
 
   await supabase.from("refund_case_events").insert({
     refund_case_id: refundCaseId,

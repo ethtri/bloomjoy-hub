@@ -1,0 +1,10 @@
+Subject: Refund decision ready: RF-SYNTHETIC-1425 · $7.25
+
+Review the saved cash evidence and payout destination. Send Zelle, then confirm it was sent in the portal.
+Prepared case summary: Sunze cash sales coverage is unavailable for this window; the gap is recorded for review.
+
+RF-SYNTHETIC-1425 · $7.25
+Public lobby treats, Synthetic Mall
+Open case: https://portal.example.invalid/refunds?case=14250000-0000-4000-8000-000000000001
+
+Opening the case does not approve, deny, send, or repeat a refund.
