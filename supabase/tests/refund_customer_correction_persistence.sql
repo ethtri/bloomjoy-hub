@@ -547,10 +547,8 @@ select ok(
 
 select ok(
   pg_get_functiondef('public.service_apply_refund_gmail_customer_facts_v1(uuid,uuid,bigint,jsonb,text[],text)'::regprocedure)
-    like '%service_apply_refund_gmail_customer_facts_pre_reply_continuation(%'
-  and pg_get_functiondef('public.service_apply_refund_gmail_customer_facts_pre_reply_continuation(uuid,uuid,bigint,jsonb,text[],text)'::regprocedure)
     like '%service_apply_refund_gmail_customer_facts_pre_purchase_correction(%'
-  and pg_get_functiondef('public.service_apply_refund_gmail_customer_facts_pre_reply_continuation(uuid,uuid,bigint,jsonb,text[],text)'::regprocedure)
+  and pg_get_functiondef('public.service_apply_refund_gmail_customer_facts_v1(uuid,uuid,bigint,jsonb,text[],text)'::regprocedure)
     like '%newer_customer_form_response%'
   and   pg_get_functiondef('public.service_apply_refund_gmail_customer_facts_pre_purchase_correction(uuid,uuid,bigint,jsonb,text[],text)'::regprocedure)
     like '%for update%'
