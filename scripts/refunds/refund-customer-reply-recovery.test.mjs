@@ -324,6 +324,7 @@ test('verified scoped free-text reply leaves a due internal task without a manag
   const { process } = execute(`exports.process = async () => { ${body} };`, {
     ingestion: { created: true, caseId: 'synthetic-case', messageId: 'scoped-reply', participantRole: 'customer' },
     sanitizeText: (value) => String(value ?? ''), intakeShadow: false, counters,
+    infoInquiry: null,
     from: { name: 'Synthetic', email: 'customer@example.invalid' },
     redactedBody: { text: 'Please read my earlier note', redacted: true },
     redactedSubject: { redacted: false },
