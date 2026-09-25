@@ -540,6 +540,12 @@ For production deployment order and rollback, use `Docs/PRODUCTION_RUNBOOK.md`.
      a synthetic isolated test only, use a dedicated non-production label, a
      distinct production label ID, and an owner-controlled synthetic sender
      allowlist. The preflight rejects label overlap or a missing allowlist.
+   - Keep `REFUND_GMAIL_INFO_INQUIRY_ENABLED=false` until the separate Info/Support
+     mailbox route is reviewed for activation. This flag is independent of the
+     shared first-contact mode. Read `get_refund_gmail_health().infoInquiry` for
+     the last observed `enabled` state and `activationObservedAt`; a missing
+     observation does not prove that a scheduled scan ran. Use only a controlled
+     synthetic identity for an actual mailbox journey test.
 4) Run functions locally:
    - `supabase functions serve stripe-sugar-checkout --no-verify-jwt`
    - `supabase functions serve stripe-sticks-checkout --no-verify-jwt`

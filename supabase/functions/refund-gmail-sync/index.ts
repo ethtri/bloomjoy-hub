@@ -27,7 +27,7 @@ import {
   sha256Hex,
   verifyRefundGmailMailbox,
 } from "../_shared/refund-gmail.ts";
-import { classifyRefundInfoInquiry, infoInquiryMissingSource, infoInquirySourceMissingSender, infoRecoveryScanOutcome } from "../_shared/refund-info-inquiry.ts";
+import { classifyRefundInfoInquiry, infoInquiryEnabled, infoInquiryMissingSource, infoInquirySourceMissingSender, infoRecoveryScanOutcome } from "../_shared/refund-info-inquiry.ts";
 import { ingestRefundGmailThreadBeforeFirstContact } from "../_shared/refund-gmail-orchestration.ts";
 import { ingestNayaxReportMail, isNayaxScheduledReportMessage, nayaxReportFailureCode } from "../_shared/nayax-report-mail.ts";
 import {
@@ -1869,6 +1869,11 @@ serve(async (request) => {
   }
   const baseConfig = getRefundGmailConfig();
   const firstContact = getFirstContactConfig();
+  // The shared first-contact mode may already be active. Info/Support discovery
+  // needs its own explicit activation so deploying this route cannot send mail.
+  const infoLaneEnabled = !intakeShadow && infoInquiryEnabled(
+    Deno.env.get("REFUND_GMAIL_INFO_INQUIRY_ENABLED"),
+  );
   if (intakeShadow) {
     try {
       await validateRefundGmailIntakeShadowRuntime({
@@ -2107,6 +2112,17 @@ serve(async (request) => {
   let infoThreadRefs: Array<{ id?: string; historyId?: string }> = [];
   const visitedThreadIds = new Set<string>();
   try {
+    if (!intakeShadow) {
+      const observed = await rpc<boolean>("service_set_refund_info_inquiry_enabled", {
+        p_enabled: infoLaneEnabled,
+      });
+      if (!observed) {
+        throw new RefundGmailError(
+          "gmail_info_inquiry_activation_readback_failed",
+          "Unable to record the Info inquiry activation state.",
+        );
+      }
+    }
     if (firstContact.mode === "blocked") {
       counters.firstContactFailed += 1;
       counters.messagesFailed += 1;
@@ -2165,11 +2181,11 @@ serve(async (request) => {
     );
     // Preserve the old refund-label budget while scanning up to two 50-thread
     // Info pages: the current page and one durable historical recovery page.
-    const maxThreads = labeledThreadLimit + (intakeShadow ? 0 : 100);
+    const maxThreads = labeledThreadLimit + (infoLaneEnabled ? 100 : 0);
     let nextPageToken: string | undefined;
     let labeledExhausted = false;
-    let infoExhausted = Boolean(intakeShadow);
-    if (!intakeShadow) {
+    let infoExhausted = !infoLaneEnabled;
+    if (infoLaneEnabled) {
       try {
         initialInfoScanCursor = sanitizeText(
           await rpc<string | null>("service_get_refund_info_inquiry_scan_cursor", {}),
@@ -2237,7 +2253,7 @@ serve(async (request) => {
               messages,
               refundAddress: config.senderEmail,
             });
-          const infoInquiry = !intakeShadow && !hasScheduledNayaxReport && !isRefundAliasThread
+          const infoInquiry = infoLaneEnabled && !hasScheduledNayaxReport && !isRefundAliasThread
             ? classifyRefundInfoInquiry({ messages, mailboxIdentities: config.mailboxIdentities })
             : null;
           if (infoInquiry) {
@@ -2641,7 +2657,7 @@ serve(async (request) => {
   }
 
   // A failed cursor read or page fetch has no trustworthy cursor to write back.
-  if (!intakeShadow && infoScanPagesFetched) {
+  if (infoLaneEnabled && infoScanPagesFetched) {
     try {
       const infoScan = infoRecoveryScanOutcome({
         initialCursor: initialInfoScanCursor,

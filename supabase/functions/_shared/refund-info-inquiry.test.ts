@@ -1,5 +1,14 @@
-import { classifyRefundInfoInquiry, infoInquiryMissingSource, infoInquirySourceMissingSender, infoRecoveryScanOutcome } from "./refund-info-inquiry.ts";
+import { classifyRefundInfoInquiry, infoInquiryEnabled, infoInquiryMissingSource, infoInquirySourceMissingSender, infoRecoveryScanOutcome } from "./refund-info-inquiry.ts";
 import { infoRefundInquiryThreadQuery, type GmailMessage } from "./refund-gmail.ts";
+
+Deno.test("Info inquiry activation is explicitly true only", () => {
+  for (const disabled of [undefined, "", "false", "1", "yes", "active"]) {
+    if (infoInquiryEnabled(disabled)) throw new Error("Info inquiry activation must default off");
+  }
+  if (!infoInquiryEnabled(" true ") || !infoInquiryEnabled("TRUE")) {
+    throw new Error("Explicit true must activate Info discovery");
+  }
+});
 
 Deno.test("Info mailbox search is independent of the refund label and preserves pagination", () => {
   const params = infoRefundInquiryThreadQuery(new Date("2026-09-19T15:00:00Z"), "synthetic-page");

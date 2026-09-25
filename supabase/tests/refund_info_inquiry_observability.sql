@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(29);
+select plan(36);
 
 insert into auth.users (
   instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -33,6 +33,14 @@ select ok(not has_function_privilege('authenticated',
 select ok(not has_function_privilege('authenticated',
   'public.service_get_refund_info_inquiry_scan_cursor()', 'execute'),
   'The private Gmail backlog cursor is service-only');
+select ok(not has_function_privilege('authenticated',
+  'public.service_set_refund_info_inquiry_enabled(boolean)', 'execute'),
+  'Browser callers cannot activate Info inquiry delivery');
+select ok(has_function_privilege('service_role',
+  'public.service_set_refund_info_inquiry_enabled(boolean)', 'execute'),
+  'Only the trusted Gmail worker can report its Info activation state');
+select is(public.get_refund_gmail_health()->'infoInquiry'->>'enabled', 'false',
+  'Info discovery and replies are off by default');
 
 create temporary table info_case_baseline as
 select count(*)::integer as case_count from public.refund_cases;
@@ -61,6 +69,20 @@ select ok(public.service_mark_refund_info_inquiry(
 select ok(public.service_mark_refund_info_inquiry(
   (select (result->>'messageId')::uuid from info_source), 'new_refund_inquiry'),
   'Replaying the same classification does not create another obligation');
+select is(
+  public.service_claim_refund_gmail_contact_first_response(
+    (select (result->>'messageId')::uuid from info_source), 'active',
+    now() - interval '1 hour', 'refund_first_contact_v1',
+    'refunds@bloomjoysweets.com',
+    'Please use https://app.bloomjoyusa.com/refunds/request', false
+  )->>'reason', 'info_inquiry_disabled',
+  'A marked Info inquiry cannot claim mail while the separate lane is off');
+select ok(public.service_set_refund_info_inquiry_enabled(true),
+  'Trusted Gmail worker can observe explicit Info activation');
+select is(public.get_refund_gmail_health()->'infoInquiry'->>'enabled', 'true',
+  'Health reads back the effective Info activation observation');
+select ok((public.get_refund_gmail_health()->'infoInquiry'->>'activationObservedAt') is not null,
+  'Health dates the last observed activation state');
 select is((public.get_refund_gmail_health()->'infoInquiry'->>'unansweredDueCount')::integer,
   1, 'An eligible unanswered inquiry is due after 30 minutes');
 select is(public.get_refund_gmail_health()->>'status', 'failing',

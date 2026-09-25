@@ -31,7 +31,9 @@ alter table public.refund_gmail_sync_state
   add column info_inquiry_scan_cursor text check (
     info_inquiry_scan_cursor is null or length(info_inquiry_scan_cursor) between 1 and 2048
   ),
-  add column info_inquiry_full_scan_at timestamptz;
+  add column info_inquiry_full_scan_at timestamptz,
+  add column info_inquiry_enabled boolean not null default false,
+  add column info_inquiry_activation_observed_at timestamptz;
 
 create function public.service_get_refund_info_inquiry_scan_cursor()
 returns text
@@ -42,6 +44,22 @@ set search_path = ''
 as $$
   select state.info_inquiry_scan_cursor
   from public.refund_gmail_sync_state state where state.singleton
+$$;
+
+create function public.service_set_refund_info_inquiry_enabled(p_enabled boolean)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if p_enabled is null then return false; end if;
+  update public.refund_gmail_sync_state
+  set info_inquiry_enabled = p_enabled,
+      info_inquiry_activation_observed_at = statement_timestamp()
+  where singleton;
+  return found;
+end;
 $$;
 
 create or replace function public.service_mark_refund_info_inquiry(
@@ -216,10 +234,13 @@ begin
     'status', case
       when due_count > 0 or review_count > 0 then 'failing'
       when base_health->>'status' not in ('healthy', 'recovering') then base_health->>'status'
+      when not coalesce(state_row.info_inquiry_enabled, false) then 'waiting'
       when state_row.info_inquiry_full_scan_at is null then 'waiting'
       else base_health->>'status'
     end,
     'infoInquiry', jsonb_build_object(
+      'enabled', coalesce(state_row.info_inquiry_enabled, false),
+      'activationObservedAt', state_row.info_inquiry_activation_observed_at,
       'unansweredDueCount', due_count,
       'reviewDueCount', review_count,
       'oldestDueAt', oldest_due_at,
@@ -298,6 +319,12 @@ begin
     or source_row.participant_trust <> 'verified'
     or lower(coalesce(source_row.sender_email, '')) <> contact_row.customer_email then
     return jsonb_build_object('eligible', false, 'claimed', false, 'reason', 'contact_not_eligible');
+  end if;
+  if contact_row.info_inquiry_route is not null and not coalesce((
+    select state.info_inquiry_enabled
+    from public.refund_gmail_sync_state state where state.singleton
+  ), false) then
+    return jsonb_build_object('eligible', false, 'claimed', false, 'reason', 'info_inquiry_disabled');
   end if;
 
   select message.id into first_inbound_id
@@ -410,9 +437,11 @@ $$;
 
 revoke execute on function public.service_mark_refund_info_inquiry(uuid,text) from public, anon, authenticated;
 revoke execute on function public.service_get_refund_info_inquiry_scan_cursor() from public, anon, authenticated;
+revoke execute on function public.service_set_refund_info_inquiry_enabled(boolean) from public, anon, authenticated;
 revoke execute on function public.service_record_refund_info_inquiry_run(uuid,integer,integer,integer,integer,integer,integer,integer,integer,text,boolean) from public, anon, authenticated;
 grant execute on function public.service_mark_refund_info_inquiry(uuid,text) to service_role;
 grant execute on function public.service_get_refund_info_inquiry_scan_cursor() to service_role;
+grant execute on function public.service_set_refund_info_inquiry_enabled(boolean) to service_role;
 grant execute on function public.service_record_refund_info_inquiry_run(uuid,integer,integer,integer,integer,integer,integer,integer,integer,text,boolean) to service_role;
 revoke execute on function public.get_refund_gmail_health_base_1455() from public, anon, authenticated;
 revoke execute on function public.get_refund_gmail_health() from public, anon;

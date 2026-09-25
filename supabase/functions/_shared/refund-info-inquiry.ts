@@ -13,6 +13,9 @@ export type RefundInfoInquiryRoute =
   | "existing_case_question"
   | "new_refund_inquiry";
 
+export const infoInquiryEnabled = (value: string | undefined) =>
+  value?.trim().toLowerCase() === "true";
+
 export function infoRecoveryScanOutcome({
   initialCursor,
   nextCursor,

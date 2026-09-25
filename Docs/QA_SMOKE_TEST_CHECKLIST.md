@@ -835,6 +835,11 @@ npm run refunds:validate-portal-uat-lifecycle
   Refunds sender with `https://app.bloomjoyusa.com/refunds/request`; the link
   loads and the email alone creates no case. Repeat through Support only when
   that alias is confirmed to reach the same mailbox.
+- [ ] With `REFUND_GMAIL_INFO_INQUIRY_ENABLED` absent or false, a scheduled Gmail
+  run records `infoInquiry.enabled=false` with an observation time and never
+  searches Info/Support or claims its form-link response, even if the shared
+  first-contact mode is active. Enable the Info lane only for the reviewed
+  controlled journey; confirm the health readback before any real-mail rollout.
 - [ ] Synthetic vendor, technician, marketing, and unrelated Info messages
   receive no refund reply. A synthetic existing-case/status question is not
   asked to submit another form.
