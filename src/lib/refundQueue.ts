@@ -9,7 +9,21 @@ type RefundQueueCase = {
   paymentMethod: "card" | "cash" | "unknown";
   paymentAmountCents?: number | null;
   zellePaymentContact?: string | null;
+  decision?: "approved" | "denied" | null;
+  workflowProjectionUnavailable?: boolean;
 };
+
+/** An older RPC cannot prove who owns an undecided final-money action. */
+export const isRefundWorkflowProjectionUnavailable = (
+  refundCase: RefundQueueCase,
+): boolean => refundCase.decision == null &&
+  (refundCase.workflowProjectionUnavailable === true || Boolean(refundCase.lifecycle &&
+    !refundCase.lifecycle.nextWork && !refundCase.lifecycle.definitiveNoRefund &&
+  refundCase.lifecycle.paymentState === 'not_requested' &&
+  refundCase.lifecycle.managerQueue.bucket === 'ready_to_pay' &&
+  (refundCase.paymentMethod === 'card' ||
+    (refundCase.paymentMethod === 'cash' &&
+      Boolean(refundCase.zellePaymentContact?.trim())))));
 
 export type RefundQueueFilter =
   | Exclude<RefundManagerQueueBucket, 'accounting_review' | 'integrity_hold' | 'internal_archive'>
@@ -54,6 +68,16 @@ export const getRefundManagerQueueBucket = (
     // it. #1429 will add durable execution truth before a running label returns.
     return 'provider_hold';
   }
+  if (refundCase.decision === 'approved' && refundCase.paymentMethod === 'card') {
+    return refundCase.lifecycle?.paymentState === 'submitted_pending'
+      ? 'in_progress' : 'provider_hold';
+  }
+  if (refundCase.workflowProjectionUnavailable) return 'provider_hold';
+  if (refundCase.lifecycle &&
+      ['outcome_unknown', 'integrity_unknown', 'submitted_pending'].includes(refundCase.lifecycle.paymentState)) {
+    return 'provider_hold';
+  }
+  if (isRefundWorkflowProjectionUnavailable(refundCase)) return 'provider_hold';
   if (refundCase.lifecycle) return refundCase.lifecycle.managerQueue.bucket;
   if (["completed", "denied", "closed"].includes(refundCase.status))
     return "completed";

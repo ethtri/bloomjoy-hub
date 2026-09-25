@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(41);
+select plan(43);
 
 with fixture as (
   select jsonb_build_object(
@@ -64,6 +64,16 @@ select is(public.refund_next_work_projection(jsonb_build_object(
     'deliveryState', 'unknown', 'replyReceivedAt', null
   )
 ))->>'actor', 'agent', 'unknown question delivery stays internal');
+select is(public.refund_next_work_projection(jsonb_build_object(
+  'payloadRedacted', true, 'stage', 'transaction_confirmed', 'terminal', false,
+  'approvedCardContinuation', true, 'paymentState', 'not_requested',
+  'messageState', jsonb_build_object('state', 'none'),
+  'customerOutreach', jsonb_build_object(
+    'state', 'waiting_for_customer', 'requestSentAt', '2026-09-24T10:00:00Z',
+    'deliveryState', 'delivered', 'replyReceivedAt', null
+  )
+))->>'actionCode', 'continue_refund',
+  'a prior card approval cannot be demoted to a stale customer wait');
 
 select is(public.refund_next_work_projection(jsonb_build_object(
   'payloadRedacted', true, 'stage', 'awaiting_payout', 'terminal', false,
@@ -86,6 +96,14 @@ select is(public.refund_next_work_projection(jsonb_build_object(
   'payloadRedacted', true, 'stage', 'needs_transaction_selection', 'terminal', false,
   'paymentState', 'not_requested', 'messageState', jsonb_build_object('state', 'none')
 ))->>'actor', 'agent', 'candidate research is Agent work');
+select is(public.refund_next_work_projection(jsonb_build_object(
+  'payloadRedacted', true, 'stage', 'matching', 'terminal', false,
+  'reasonCode', 'lookup_results_expired', 'paymentState', 'not_requested',
+  'messageState', jsonb_build_object('state', 'none'),
+  'lookup', jsonb_build_object('status', 'results_expired'),
+  'managerAction', jsonb_build_object('action', 'retry_read_only_lookup')
+))->>'actionCode', 'research_purchase',
+  'expired approved-state research remains internal rather than a second Manager decision');
 select is(public.refund_next_work_projection(jsonb_build_object(
   'payloadRedacted', true, 'stage', 'transaction_confirmed', 'terminal', false,
   'paymentState', 'not_requested', 'messageState', jsonb_build_object('state', 'none'),

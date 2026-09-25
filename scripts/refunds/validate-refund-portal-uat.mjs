@@ -96,6 +96,7 @@ const parseArgs = (argv) => {
     duplicateOnly: false,
     demoOnly: false,
     managerQueueOnly: false,
+    mixedVersionOnly: false,
     cashOnly: false,
     selectionCompatibilityOnly: false,
     deliveryTruthOnly: false,
@@ -171,6 +172,11 @@ const parseArgs = (argv) => {
       continue;
     }
 
+    if (arg === '--mixed-version-only') {
+      args.mixedVersionOnly = true;
+      continue;
+    }
+
     if (arg === '--cash-only') {
       args.cashOnly = true;
       continue;
@@ -240,7 +246,7 @@ const parseArgs = (argv) => {
   args.appUrl = args.appUrl.replace(/\/+$/, '');
   args.artifactDir = path.resolve(process.cwd(), args.artifactDir);
   args.fragmentDir = path.resolve(process.cwd(), args.fragmentDir);
-  if (!args.managerApprovalOnly && !args.demoOnly && !args.managerQueueOnly && !args.cashOnly && !args.selectionCompatibilityOnly && !args.deliveryTruthOnly && !args.inboundLinkOnly && !args.dualRoleOnly && !args.providerOutcomesOnly &&
+  if (!args.managerApprovalOnly && !args.demoOnly && !args.managerQueueOnly && !args.mixedVersionOnly && !args.cashOnly && !args.selectionCompatibilityOnly && !args.deliveryTruthOnly && !args.inboundLinkOnly && !args.dualRoleOnly && !args.providerOutcomesOnly &&
     !args.legacyStateOnly && !args.nayaxResolutionOnly &&
     !args.nayaxLookupOnly && !args.duplicateOnly) {
     requireEvidenceRunToken(args.runToken);
@@ -403,6 +409,20 @@ const buildCustomerOutreachFixture = ({
   payloadRedacted: true,
 });
 
+const preparedManagerNextWork = (paymentMethod) => ({
+  schemaVersion: 'refund_next_work_v1',
+  isOpen: true,
+  actor: 'manager',
+  actionCode: 'approve_or_deny_request',
+  actionLabel: paymentMethod === 'cash'
+    ? 'Review the prepared cash request and make the final decision.'
+    : 'Review the exact saved card purchase and make the final decision.',
+  lastProgressAt: isoHoursAgo(1),
+  dueAt: null,
+  blocker: null,
+  payloadRedacted: true,
+});
+
 const buildCashRefundLifecycleFixture = (readyToMarkRefunded = true) => {
   const lifecycle = buildLifecycleFixture(
     'matching',
@@ -411,6 +431,7 @@ const buildCashRefundLifecycleFixture = (readyToMarkRefunded = true) => {
   );
   return {
     ...lifecycle,
+    ...(readyToMarkRefunded ? { nextWork: preparedManagerNextWork('cash') } : {}),
     managerQueue: {
       ...lifecycle.managerQueue,
       bucket: readyToMarkRefunded ? 'ready_to_pay' : 'needs_action',
@@ -767,6 +788,10 @@ const buildManagerReadyRefundOverview = () => {
     decision: null,
     decisionReason: null,
     decidedAt: null,
+    lifecycle: {
+      ...refundCase.lifecycle,
+      nextWork: preparedManagerNextWork('card'),
+    },
     events: [
       refundCase.events[0],
       {
@@ -829,6 +854,10 @@ const buildSystemPreparedCardRefundOverview = () => {
     decision: null,
     decisionReason: null,
     decidedAt: null,
+    lifecycle: {
+      ...refundCase.lifecycle,
+      nextWork: preparedManagerNextWork('card'),
+    },
     correlationSummary: 'System saved the exact $10.90 provider total for the $10.00 customer estimate.',
     matchedNayaxTransactionId: 'RF423906B2-SALE',
     matchedNayaxMachineAuthTime: providerTime,
@@ -4055,6 +4084,135 @@ const runCanonicalNextWorkQueueChecks = async ({ browser, appUrl, recorder }) =>
   await closeRefundPortalContext(context);
 };
 
+const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder }) => {
+  for (const withNextWork of [false, true]) {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const functionCalls = [];
+    await installMockSupabaseRoutes(context, {
+      refundOverview: () => {
+        const overview = buildManagerReadyRefundOverview();
+        if (!withNextWork) {
+          // Exact older v2 RPC shape: the case is retained, but nextWork is absent.
+          const { nextWork: _unused, ...oldLifecycle } = overview.cases[0].lifecycle;
+          overview.cases[0].lifecycle = oldLifecycle;
+        }
+        return overview;
+      },
+      functionCalls,
+    });
+    const page = await context.newPage();
+    await signInRefundUser(page, appUrl);
+    if (withNextWork) {
+      await page.getByRole('button', { name: /^Ready to approve 1$/ }).click();
+    } else {
+      await page.getByRole('button', { name: /Bloomjoy follow-up 1/i }).click();
+      recorder.assert('Old v2 RPC does not show a false Manager-ready count',
+        (await page.getByRole('button', { name: /^Ready to approve 0$/ }).count()) === 1);
+    }
+    await queueCase(page, 'RF-UAT-CARD').click();
+    if (withNextWork) {
+      await page.getByTestId('refund-run-nayax-refund').waitFor({ state: 'visible', timeout: 10000 });
+    } else {
+      await page.getByTestId('refund-action-status').waitFor({ state: 'visible', timeout: 10000 });
+    }
+    const stateText = await page.getByTestId('refund-manager-state').innerText();
+    const actionText = await page.getByTestId('refund-primary-action').innerText();
+    recorder.assert(withNextWork
+      ? 'Current proof-backed projection restores the one Manager decision'
+      : 'Old v2 RPC retains case with temporary unavailable action',
+    withNextWork
+      ? stateText.includes('Action needed') &&
+        (await page.getByTestId('refund-run-nayax-refund').count()) === 1
+      : stateText.includes('Refund action temporarily unavailable') &&
+        actionText.includes('Refund action temporarily unavailable') &&
+        (await page.getByTestId('refund-run-nayax-refund').count()) === 0,
+    JSON.stringify({ stateText, actionText }));
+    recorder.assert('Mixed-version page performs no decision or payment call',
+      !functionCalls.includes('refund-case-admin-update') &&
+      !functionCalls.includes('nayax-card-refund'));
+    await closeRefundPortalContext(context);
+  }
+
+  const skewContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await installMockSupabaseRoutes(skewContext, {
+    refundOverview: () => ({
+      ...buildManagerReadyRefundOverview(),
+      lifecycleContractVersion: 'refund_lifecycle_v99',
+    }),
+  });
+  const skewPage = await skewContext.newPage();
+  await signInRefundUser(skewPage, appUrl);
+  try {
+    await skewPage.getByRole('button', { name: /Bloomjoy follow-up 2/i }).click({ timeout: 10000 });
+  } catch (error) {
+    throw new Error(`Skewed lifecycle queue: ${(await skewPage.locator('body').innerText()).slice(0, 1200)} ${error}`);
+  }
+  await queueCase(skewPage, 'RF-UAT-CARD').click();
+  recorder.assert('Unsupported lifecycle version retains case but removes fresh money action',
+    await skewPage.getByTestId('refund-manager-state').getByText(
+      'Refund action temporarily unavailable', { exact: true },
+    ).isVisible() &&
+      (await skewPage.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+      (await skewPage.getByRole('button', { name: /^Ready to approve 0$/ }).count()) === 1);
+  await closeRefundPortalContext(skewContext);
+
+  const approvedContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await installMockSupabaseRoutes(approvedContext, { refundOverview: buildMockRefundOverview });
+  const approvedPage = await approvedContext.newPage();
+  await signInRefundUser(approvedPage, appUrl);
+  await approvedPage.getByRole('button', { name: /Bloomjoy follow-up/i }).click();
+  await queueCase(approvedPage, 'RF-UAT-CARD').click();
+  const approvedAction = await approvedPage.getByTestId('refund-primary-action').innerText();
+  recorder.assert('Old v2 saved card approval remains System-owned with no reapproval',
+    approvedAction.includes('System is finishing this approved refund') &&
+      approvedAction.includes('Refund follow-up pending') &&
+      (await approvedPage.getByTestId('refund-run-nayax-refund').count()) === 0,
+    approvedAction);
+  await closeRefundPortalContext(approvedContext);
+
+  const cashContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await installMockSupabaseRoutes(cashContext, {
+    refundOverview: () => {
+      const overview = buildCashRefundVariantsOverview();
+      overview.cases = overview.cases.filter((item) => item.id === CASH_CASE_IDS.legacyPending);
+      const { nextWork: _unused, ...oldLifecycle } = overview.cases[0].lifecycle;
+      overview.cases[0].lifecycle = oldLifecycle;
+      return overview;
+    },
+  });
+  const cashPage = await cashContext.newPage();
+  await signInRefundUser(cashPage, appUrl);
+  await cashPage.getByRole('button', { name: /^Ready to approve 1$/ }).click();
+  await queueCase(cashPage, 'RF-UAT-CASH-LEGACY-PENDING').click();
+  const cashAction = await cashPage.locator('body').innerText();
+  recorder.assert('Old v2 saved cash approval keeps only payout confirmation',
+    !cashAction.includes('Refund action temporarily unavailable') &&
+      !cashAction.includes('Approve request') &&
+      (await cashPage.getByRole('button', { name: /^Confirm refund sent via Zelle$/ }).count()) === 1,
+    cashAction.slice(-1600));
+  await closeRefundPortalContext(cashContext);
+
+  const unavailableContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await installMockSupabaseRoutes(unavailableContext, {
+    refundOverview: buildManagerReadyRefundOverview,
+    refundOverviewReadStatuses: [503],
+  });
+  const unavailablePage = await unavailableContext.newPage();
+  await signInRefundUser(unavailablePage, appUrl);
+  await unavailablePage.getByTestId('refund-overview-read-status').getByText(
+    'The latest refund information could not be loaded. Bloomjoy will keep trying.',
+    { exact: true },
+  ).waitFor({ timeout: 10000 });
+  const unavailableBody = await unavailablePage.locator('body').innerText();
+  recorder.assert('Unavailable overview does not become a healthy empty Manager queue',
+    unavailableBody.includes('Refund case list temporarily unavailable.') &&
+      unavailableBody.includes('Case list unavailable') &&
+      !unavailableBody.includes('No refund cases are assigned here yet.') &&
+      (await unavailablePage.getByRole('button', { name: /^Ready to approve 0$/ }).count()) === 0,
+    unavailableBody.slice(0, 400));
+  await closeRefundPortalContext(unavailableContext);
+};
+
 const runNayaxSelectionCompatibilityChecks = async ({ browser, appUrl, recorder }) => {
   for (const scenario of [
     { name: 'old backend without combined-selection capability', capabilityAvailable: false },
@@ -4402,7 +4560,7 @@ const run = async () => {
   await mkdir(args.artifactDir, { recursive: true });
   if (!args.managerApprovalOnly && !args.dualRoleOnly && !args.cashOnly &&
     !args.legacyStateOnly && !args.nayaxResolutionOnly && !args.nayaxLookupOnly &&
-    !args.gmailDraftOnly && !args.duplicateOnly && !args.managerQueueOnly &&
+    !args.gmailDraftOnly && !args.duplicateOnly && !args.managerQueueOnly && !args.mixedVersionOnly &&
     !args.selectionCompatibilityOnly &&
     !args.inboundLinkOnly && !args.customerOutreachOnly) {
     await mkdir(args.fragmentDir, { recursive: true });
@@ -4449,7 +4607,10 @@ const run = async () => {
         appUrl: args.appUrl,
         recorder,
       });
+    } else if (args.mixedVersionOnly) {
+      await runMixedVersionWorkflowChecks({ browser, appUrl: args.appUrl, recorder });
     } else if (args.managerQueueOnly) {
+      await runMixedVersionWorkflowChecks({ browser, appUrl: args.appUrl, recorder });
       await runCanonicalNextWorkQueueChecks({
         browser,
         appUrl: args.appUrl,
@@ -4729,6 +4890,17 @@ const run = async () => {
     }
     console.log('\nRefund delivery-truth UAT passed.');
     console.log(`Screenshots written to ${args.artifactDir}`);
+    return;
+  }
+
+  if (args.mixedVersionOnly) {
+    const focusedFailures = recorder.failed();
+    if (focusedFailures.length > 0) {
+      console.error(`\nRefund mixed-version UAT failed: ${focusedFailures.length} check(s).`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log('\nRefund mixed-version UAT passed.');
     return;
   }
 

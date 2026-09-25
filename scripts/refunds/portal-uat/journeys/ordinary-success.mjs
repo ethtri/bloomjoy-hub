@@ -423,7 +423,7 @@ export const createOrdinarySuccessChecks = ({
       'Machine transaction comparison is visible and explicit',
       await page.getByTestId('nayax-result-card').isVisible() &&
         await page.getByTestId('nayax-result-card').getByText('Machine transaction', { exact: true }).isVisible() &&
-        await page.getByTestId('refund-primary-action').getByText('Ready to approve', { exact: true }).isVisible() &&
+        await page.getByTestId('refund-primary-action').getByText('Action needed', { exact: true }).isVisible() &&
         await page.getByTestId('nayax-result-card').getByText('Transaction selected', { exact: true }).isVisible() &&
         await page.getByTestId('nayax-result-card').getByText('Selected', { exact: true }).isVisible()
     );
@@ -547,9 +547,8 @@ export const createOrdinarySuccessChecks = ({
     );
     recorder.assert(
       'Case header keeps one current state and one next step',
-      await page.getByTestId('refund-manager-state').getByText('Ready to approve', { exact: true }).isVisible() &&
-        (await page.getByTestId('refund-primary-action').innerText()).includes('Transaction confirmed') &&
-        (await page.getByTestId('refund-primary-action').innerText()).includes('Payment: Not issued') &&
+      await page.getByTestId('refund-manager-state').getByText('Action needed', { exact: true }).isVisible() &&
+        (await page.getByTestId('refund-primary-action').innerText()).includes('Refund $7.00') &&
         await page.getByTestId('refund-manager-next-step').getByText(/^Next: /).isVisible()
     );
     recorder.assert(
@@ -590,9 +589,8 @@ export const createOrdinarySuccessChecks = ({
           diagnostics.actionLabel === 'Refund $7.00' &&
           diagnostics.actionVisible &&
           diagnostics.actionDisabled === false &&
-          diagnostics.managerState === 'Ready to approve' &&
-          diagnostics.primaryActionText.includes('Transaction confirmed') &&
-          diagnostics.primaryActionText.includes('Payment: Not issued') &&
+          diagnostics.managerState === 'Action needed' &&
+          diagnostics.primaryActionText.includes('Refund $7.00') &&
           diagnostics.forbiddenCopyMatches.length === 0
         ? diagnostics
         : null;
@@ -603,9 +601,8 @@ export const createOrdinarySuccessChecks = ({
         inAppExecutionDiagnostics.actionLabel === 'Refund $7.00' &&
         inAppExecutionDiagnostics.actionVisible &&
         inAppExecutionDiagnostics.actionDisabled === false &&
-        inAppExecutionDiagnostics.managerState === 'Ready to approve' &&
-        inAppExecutionDiagnostics.primaryActionText.includes('Transaction confirmed') &&
-        inAppExecutionDiagnostics.primaryActionText.includes('Payment: Not issued') &&
+        inAppExecutionDiagnostics.managerState === 'Action needed' &&
+        inAppExecutionDiagnostics.primaryActionText.includes('Refund $7.00') &&
         inAppExecutionDiagnostics.forbiddenCopyMatches.length === 0,
       JSON.stringify(inAppExecutionDiagnostics)
     );

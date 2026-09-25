@@ -133,6 +133,8 @@ test('overview parser localizes optional skew while core identity and capability
   assert.equal(localizedLifecycle.lifecycleContractVersion, undefined);
   assert.ok(localizedLifecycle.lifecycleValidationFailureCount > 0);
   assert.ok(localizedLifecycle.cases.every((refundCase) => refundCase.lifecycle === null));
+  assert.ok(localizedLifecycle.cases.every((refundCase, index) =>
+    fixture.cases[index].lifecycle == null || refundCase.workflowProjectionUnavailable === true));
 
   const missingCapability = structuredClone(fixture);
   delete missingCapability.cases[0].canPerformOfficialAction;
@@ -306,8 +308,9 @@ test('one malformed lifecycle cannot discard the queue or revoke server capabili
   );
   assert.match(pageSource, /data-testid="refund-lifecycle-read-status"/);
   assert.match(pageSource, /lifecycle and progress detail is unavailable/);
-  assert.match(pageSource, /Action availability still follows each case/);
-  assert.doesNotMatch(pageSource, /Refund decisions are temporarily unavailable/);
+  assert.match(pageSource, /const refundQueueTruthUnavailable = !isUsingDemoData/);
+  assert.match(pageSource, /Refund case list temporarily unavailable/);
+  assert.match(pageSource, /isRefundWorkflowProjectionUnavailable\(refundCase\)/);
 });
 
 test('pending accounting ownership wins over historical outreach state', () => {

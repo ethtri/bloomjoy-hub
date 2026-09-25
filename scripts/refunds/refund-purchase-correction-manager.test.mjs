@@ -12,8 +12,13 @@ function load(name,dependencies,sourceFile=source){
  const context=vm.createContext({document:{activeElement:null,getElementById:()=>null},HTMLElement:class {},correctionDialogTriggerRef:{current:null},...dependencies,console,crypto:webcrypto});vm.runInContext(code,context);return context.handler;
 }
 const managerModule = { exports: {} };
+const queueModule = { exports: {} };
 const outreachModule = { exports: {} };
 const completionContactModule = { exports: {} };
+vm.runInNewContext(
+ ts.transpileModule(fs.readFileSync(new URL('../../src/lib/refundQueue.ts',import.meta.url),'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
+ queueModule,
+);
 vm.runInNewContext(
  ts.transpileModule(fs.readFileSync(new URL('../../src/lib/refundCompletionContact.ts',import.meta.url),'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
  completionContactModule,
@@ -31,15 +36,18 @@ vm.runInNewContext(
  {...managerModule,require:specifier=>{
  if(specifier==='./refundCustomerOutreach.ts') return {getRefundCustomerOutreachPresentation};
   if(specifier==='./refundCompletionContact.ts') return completionContactModule.exports;
+  if(specifier==='./refundQueue.ts') return queueModule.exports;
   throw new Error(`Unexpected refund manager dependency: ${specifier}`);
  }},
 );
-const dependencies={...managerModule.exports,canRequestRefundCustomerDetailsManually,hasConfirmedRefundReceipt:c=>c.receipt===true,getLatestCustomerMessage:()=>null,isDefinitiveNoRefundRetryReady:()=>false,transactionalDeliveryLabel:state=>state,hasTransactionMatch:c=>Boolean(c.matched),derivePortalRefundMissingFields:()=>[],isWaitingCase:()=>true,activeNayaxCandidate:()=>null,hasSelectedCardEvidence:()=>true,formatCurrency:amount=>`$${(amount/100).toFixed(2)}`};
+const dependencies={...managerModule.exports,...queueModule.exports,canRequestRefundCustomerDetailsManually,hasConfirmedRefundReceipt:c=>c.receipt===true,getLatestCustomerMessage:()=>null,isDefinitiveNoRefundRetryReady:()=>false,transactionalDeliveryLabel:state=>state,hasTransactionMatch:c=>Boolean(c.matched),derivePortalRefundMissingFields:()=>[],isWaitingCase:()=>true,activeNayaxCandidate:()=>null,hasSelectedCardEvidence:()=>true,formatCurrency:amount=>`$${(amount/100).toFixed(2)}`};
 const freshPersistedSelection = {
  hasMatchedNayaxTransaction:true,officialActionVersion:7,
  selectedNayaxTransaction:{saleAmountCents:700,currencyCode:'USD',providerAuthorizedAt:'2026-09-12T18:30:00Z',cardLast4:'4242'},
 };
 const freshAvailability = {transactionConfirmed:true,caseVersion:7,canIssueCardRefund:true,refundAmountCents:700};
+const preparedNextWork={schemaVersion:'refund_next_work_v1',isOpen:true,actor:'manager',actionCode:'approve_or_deny_request',actionLabel:'Review the exact saved purchase',lastProgressAt:null,dueAt:null,blocker:null,payloadRedacted:true};
+const preparedLifecycle={stage:'transaction_confirmed',paymentState:'not_requested',managerQueue:{bucket:'ready_to_pay'},nextWork:preparedNextWork};
 test('a late case-save response can update only the case that initiated it',()=>{
  let initializer;function visit(node){if(ts.isVariableDeclaration(node)&&node.name.getText(source)==='applyCaseUpdateResponse')initializer=node.initializer;ts.forEachChild(node,visit);}visit(source);
  assert.ok(initializer,'Actual response handler exists');
@@ -61,7 +69,7 @@ test('actual manager action respects current scope, delivery holds and terminal 
  const editor={status:'needs_review',decision:null,matchedNayaxCandidateToken:''};
  assert.equal(action(base,editor,[],null).label,'Waiting for customer response');
  assert.equal(action({...base,customerCorrection:{...base.customerCorrection,isActive:false,isUsable:false}},editor,[],null).label,'Manager review required');
- const readyAction=action({...base,...freshPersistedSelection,matched:true,customerCorrection:{state:'pending',isActive:false,isUsable:false},lifecycle:{managerQueue:{bucket:'waiting_on_customer'}}},editor,[],freshAvailability);
+ const readyAction=action({...base,...freshPersistedSelection,matched:true,customerCorrection:{state:'pending',isActive:false,isUsable:false},lifecycle:{...preparedLifecycle,managerQueue:{bucket:'waiting_on_customer'}}},editor,[],freshAvailability);
  assert.equal(readyAction.mode,'nayax_refund_execution');
  assert.equal(readyAction.label,'Refund $7.00');
  assert.notEqual(readyAction.label,'Customer follow-up unavailable');
@@ -85,7 +93,7 @@ test('current server capability wins over stale optional and privacy projections
   status:'needs_review',paymentMethod:'card',matched:true,...freshPersistedSelection,
   canPerformOfficialAction:false,reconciliationActionBlocked:true,providerHold:true,
   refundOperationsAccess:false,customerDeliveryException:{state:'bounced'},legacyStateReviewRequired:true,
-  lifecycle:{stage:'waiting_on_customer',paymentState:'not_requested',terminal:false,managerQueue:{bucket:'waiting_on_customer'}},
+  lifecycle:{...preparedLifecycle,stage:'waiting_on_customer',terminal:false,managerQueue:{bucket:'waiting_on_customer'}},
  };
  const result=action(staleOptional,editor,[],freshAvailability);
  assert.equal(result.mode,'nayax_refund_execution');
@@ -235,29 +243,28 @@ test('current card capability lets an explicit denial reach the versioned server
  assert.equal(updateInput.decision,'denied');
  assert.equal(updateInput.customerMessageType,'denied');
 });
-test('current card capability owns ready queue classification over stale lifecycle',()=>{
+test('canonical next work owns ready queue classification over stale lifecycle',()=>{
  const isReady=load('isReadyToPayCase',{
   doneStatuses:new Set(['completed','denied','closed']),
   hasConfirmedRefundReceipt:()=>false,
   hasCurrentRefundCardCapability:managerModule.exports.hasCurrentRefundCardCapability,
-  canonicalQueueBucket:refundCase=>refundCase.lifecycle.managerQueue.bucket,
+  canonicalQueueBucket:queueModule.exports.getRefundManagerQueueBucket,
+  isRefundWorkflowProjectionUnavailable:queueModule.exports.isRefundWorkflowProjectionUnavailable,
  });
  const staleWaitingCase={
   status:'needs_review',paymentMethod:'card',...freshPersistedSelection,
   refundReadiness:freshAvailability,
   lifecycle:{stage:'waiting_on_customer',managerQueue:{bucket:'waiting_on_customer'}},
  };
- assert.equal(isReady(staleWaitingCase),true);
+ assert.equal(isReady(staleWaitingCase),false);
+ const currentPreparedCase={...staleWaitingCase,lifecycle:{...staleWaitingCase.lifecycle,nextWork:preparedNextWork}};
+ assert.equal(isReady(currentPreparedCase),true);
  const taskState=load('taskManagerState',{
   isReadyToPayCase:isReady,
   getCurrentRefundCardManagerState:managerModule.exports.getCurrentRefundCardManagerState,
   getRefundManagerState:managerModule.exports.getRefundManagerState,
  });
- assert.equal(taskState(staleWaitingCase).id,'ready_to_refund');
- assert.equal(
-  isReady({...staleWaitingCase,refundReadiness:{...freshAvailability,canIssueCardRefund:false,blockReason:'reconciliation_hold'}}),
-  false,
- );
+ assert.equal(taskState(currentPreparedCase).id,'ready_for_review');
 });
 test('authoritative unavailable reasons stay disabled with their existing recovery copy',()=>{
  const action=load('primaryActionConfig',{...dependencies,isWaitingCase:()=>false});
@@ -315,6 +322,7 @@ test('RF-423906B2 shape keeps one visible refund action despite optional intake 
   hasMatchedNayaxTransaction:true,officialActionVersion:11,
   selectedNayaxTransaction:{saleAmountCents:1090,currencyCode:'USD',
    providerAuthorizedAt:'2026-09-12T18:30:00Z',cardLast4:'4242'},
+  lifecycle:preparedLifecycle,
  };
  const editor={status:'needs_review',decision:null,matchedNayaxCandidateToken:''};
  const readiness={transactionConfirmed:true,caseVersion:11,
@@ -343,7 +351,7 @@ test('selected candidate exposes one ordinary refund decision with no manual por
  assert.equal(combined.disabled,true);
  assert.equal(combined.mode,undefined);
 
- const selectedWallet={...pendingCase,...freshPersistedSelection,matched:true,refundAmountCents:1090};
+ const selectedWallet={...pendingCase,...freshPersistedSelection,matched:true,refundAmountCents:1090,lifecycle:preparedLifecycle};
  const savedEditor={...pendingEditor,matchedNayaxCandidateToken:''};
  assert.equal(
   action(selectedWallet,savedEditor,[],{...freshAvailability,refundAmountCents:1090}).mode,
@@ -638,7 +646,7 @@ test('inspection finishing after case switch cannot focus a different case',asyn
 });
 
 
-test('actual action preserves canonical unpaid readiness despite failed, skipped or uncertain customer notices',()=>{
+test('saved card approval never creates a second Manager payment action from stale v2 notice state',()=>{
  const editor={status:'needs_review',decision:null,matchedNayaxCandidateToken:''};
  const lifecycle={stage:'transaction_confirmed',terminal:false,paymentState:'not_requested',managerQueue:{bucket:'ready_to_pay'}};
  const base={status:'needs_review',decision:'approved',paymentMethod:'card',providerOutcome:'not_attempted',matched:true,...freshPersistedSelection,lifecycle};
@@ -646,13 +654,13 @@ test('actual action preserves canonical unpaid readiness despite failed, skipped
  for(const status of ['sent','failed','skipped']) for(const state of ['unknown','deferred','failed','bounced','complained']) {
   const action=load('primaryActionConfig',{...dependencies,getLatestCustomerMessage:()=>({status,messageType:'confirmation'}),isWaitingCase:()=>false});
   const result=action({...base,customerDeliveryException:{state}},editor,[],available);
-  assert.equal(result.mode,'nayax_refund_execution',`${status}/${state}`);
-  assert.equal(result.messageType,'completed');assert.notEqual(result.disabled,true);
+  assert.equal(result.mode,undefined,`${status}/${state}`);
+  assert.equal(result.disabled,true,`${status}/${state}`);
   assert.equal(action({...base,customerDeliveryException:{state}},editor,[],{...available,canIssueCardRefund:false,blockReason:'unauthorized'}).disabled,true);
  }
  const missing=load('primaryActionConfig',{...dependencies,derivePortalRefundMissingFields:()=>['incident_time']});
- assert.equal(missing({...base,customerDeliveryException:{state:'bounced'}},editor,[],available).mode,'nayax_refund_execution');
- assert.equal(load('primaryActionConfig',dependencies)({...base,lifecycle:{...lifecycle,stage:'waiting_on_customer'},customerDeliveryException:{state:'bounced'}},editor,[],available).mode,'nayax_refund_execution');
+ assert.equal(missing({...base,customerDeliveryException:{state:'bounced'}},editor,[],available).mode,undefined);
+ assert.equal(load('primaryActionConfig',dependencies)({...base,lifecycle:{...lifecycle,stage:'waiting_on_customer'},customerDeliveryException:{state:'bounced'}},editor,[],available).mode,undefined);
 });
 
 test('actual action gives payment holds, pending and terminal truth priority over a delivery task',()=>{

@@ -148,9 +148,11 @@ test('forward owner slice preserves support adopter, lifecycle and complete rece
 });
 test('actual manager summary records customer-notice evidence without claiming provider verification', () => {
   const contact = load('src/lib/refundCompletionContact.ts');
+  const queue = load('src/lib/refundQueue.ts');
   const manager = load('src/lib/refundManagerState.ts', {
     './refundCustomerOutreach.ts': outreach,
     './refundCompletionContact.ts': contact,
+    './refundQueue.ts': queue,
   });
   const result = manager.getRefundManagerState({ status: 'card_refund_pending', paymentMethod: 'card',
     correlationStatus: 'matched', providerHold: true, lifecycle: { schemaVersion: 'refund_lifecycle_v2',

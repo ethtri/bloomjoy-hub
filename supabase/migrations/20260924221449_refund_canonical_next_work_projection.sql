@@ -90,6 +90,14 @@ begin
         'nextStep', 'Inspect the existing message and delivery evidence; use the supported recovery action.'
       );
     end if;
+  elsif p_lifecycle ->> 'approvedCardContinuation' = 'true' then
+    actor_name := 'agent';
+    action_code := 'continue_refund';
+    action_label := 'Review the existing card approval and continue or reconcile its payment attempt.';
+    blocker := jsonb_build_object(
+      'code', 'approved_card_continuation_pending', 'owner', 'Agent',
+      'nextStep', 'Use the existing approved decision and payment evidence; do not ask for another approval.'
+    );
   elsif reply_at <> '-infinity'::timestamptz and request_sent_at is not null
     and reply_at > request_sent_at and outreach_state in ('waiting_for_customer', 'customer_replied', 'rechecking') then
     actor_name := 'agent';
@@ -136,14 +144,6 @@ begin
     actor_name := 'system';
     action_code := 'continue_refund';
     action_label := 'Continue the existing authorized refund attempt.';
-  elsif p_lifecycle ->> 'approvedCardContinuation' = 'true' then
-    actor_name := 'agent';
-    action_code := 'continue_refund';
-    action_label := 'Review the existing card approval and continue or reconcile its payment attempt.';
-    blocker := jsonb_build_object(
-      'code', 'approved_card_continuation_pending', 'owner', 'Agent',
-      'nextStep', 'Use the existing approved decision and payment evidence; do not ask for another approval.'
-    );
   elsif p_lifecycle ->> 'preparationPending' = 'true' then
     actor_name := 'agent';
     action_code := 'prepare_manager_decision';

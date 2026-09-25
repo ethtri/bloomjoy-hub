@@ -978,6 +978,8 @@ export type RefundCaseRecord = {
     payloadRedacted: true;
   } | null;
   lifecycle?: RefundLifecycleContract | null;
+  /** A lifecycle response was present but could not be validated. */
+  workflowProjectionUnavailable?: boolean;
 };
 
 export type RefundAdminMachine = {
@@ -2740,7 +2742,7 @@ export const parseRefundOperationsOverview = (value: unknown): RefundOperationsO
   const applyLifecycleSafety = <T extends RefundCaseRecord>(refundCase: T): T => {
     if ((lifecycleContractSkewed || customerOutreachContractSkewed) && refundCase.lifecycle != null) {
       lifecycleValidationFailureCount += 1;
-      return { ...refundCase, lifecycle: null };
+      return { ...refundCase, lifecycle: null, workflowProjectionUnavailable: true };
     }
     const result = applyRefundLifecycleSafety(refundCase);
     if (result.invalidLifecycle) lifecycleValidationFailureCount += 1;
@@ -2750,7 +2752,10 @@ export const parseRefundOperationsOverview = (value: unknown): RefundOperationsO
       !result.refundCase.lifecycle.customerOutreach
     ) {
       lifecycleValidationFailureCount += 1;
-      return { ...result.refundCase, lifecycle: null } as T;
+      return { ...result.refundCase, lifecycle: null, workflowProjectionUnavailable: true } as T;
+    }
+    if (result.invalidLifecycle) {
+      return { ...result.refundCase, workflowProjectionUnavailable: true } as T;
     }
     return result.refundCase as T;
   };

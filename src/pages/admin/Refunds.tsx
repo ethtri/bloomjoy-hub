@@ -202,6 +202,7 @@ import {
   findRefundDeepLinkedCase,
   getRefundManagerQueueBucket,
   getRefundQueueFilterForCase,
+  isRefundWorkflowProjectionUnavailable,
   type RefundQueueFilter as QueueFilter,
 } from '@/lib/refundQueue';
 import { cn } from '@/lib/utils';
@@ -942,6 +943,14 @@ const canonicalQueueBucket = (refundCase: RefundCaseRecord) =>
 
 const isReadyToPayCase = (refundCase: RefundCaseRecord) => {
   if (refundCase.lifecycle?.nextWork) return canonicalQueueBucket(refundCase) === 'ready_to_pay';
+  // Older lifecycle responses cannot establish preparation or the next actor
+  // for a fresh decision. A card capability alone is execution permission,
+  // not evidence that the case belongs in the Manager decision queue.
+  if (refundCase.lifecycle && refundCase.decision == null) return false;
+  if (refundCase.lifecycle &&
+      ['outcome_unknown', 'integrity_unknown', 'submitted_pending'].includes(refundCase.lifecycle.paymentState)) return false;
+  if (isRefundWorkflowProjectionUnavailable(refundCase) ||
+      (refundCase.paymentMethod === 'card' && refundCase.decision === 'approved')) return false;
   if (refundCase.paymentMethod === 'card' && refundCase.refundReadiness) {
     if (
       doneStatuses.has(refundCase.status) ||
@@ -984,6 +993,7 @@ const isRefundInProgressCase = (refundCase: RefundCaseRecord) => {
 };
 
 const isManagerReviewCase = (refundCase: RefundCaseRecord) => {
+  if (refundCase.workflowProjectionUnavailable) return true;
   if (refundCase.lifecycle) return ['accounting_review', 'provider_hold', 'integrity_hold'].includes(canonicalQueueBucket(refundCase));
   return refundCase.paymentMethod === 'card' &&
     refundCase.lifecycle?.stage === 'needs_refund_operations';
@@ -1763,12 +1773,16 @@ const primaryActionConfig = (
   const hasUnsavedCardSelection = refundCase.paymentMethod === 'card' &&
     (editor.clearNayaxMatch || Boolean(editor.matchedNayaxCandidateToken.trim()));
   const nextWork = refundCase.lifecycle?.nextWork;
-  const preparedFinalAction = !nextWork || (nextWork.isOpen && nextWork.actor === 'manager' &&
-    (nextWork.actionCode === 'approve_or_deny_request' ||
-      nextWork.actionCode === 'send_cash_refund_and_confirm'));
+  const preparedFinalAction = nextWork
+    ? nextWork.isOpen && nextWork.actor === 'manager' &&
+      (nextWork.actionCode === 'approve_or_deny_request' ||
+        nextWork.actionCode === 'send_cash_refund_and_confirm')
+    : refundCase.paymentMethod === 'cash' && refundCase.decision === 'approved' &&
+      refundCase.lifecycle?.managerAction.action === 'mark_external_refund';
   const preparationHoldAction: PrimaryActionConfig = {
-    label: 'Refund preparation pending',
-    helper: nextWork?.actionLabel ?? 'Bloomjoy is preparing the request for a final decision.',
+    label: nextWork ? 'Refund preparation pending' : 'Refund action temporarily unavailable',
+    helper: nextWork?.actionLabel ??
+      'Bloomjoy is updating this case’s current action. Refresh after the update; do not repeat a payment or approval.',
     disabled: true,
   };
   if (refundCase.lifecycle?.stage === 'duplicate_resolved' || refundCase.confirmedDuplicate) {
@@ -1805,6 +1819,14 @@ const primaryActionConfig = (
     return {
       label: 'Case closed',
       helper: 'This case is closed. Review the history if you need context.',
+      disabled: true,
+    };
+  }
+  if (refundCase.lifecycle?.stage === 'transaction_confirmed' &&
+      ['outcome_unknown', 'integrity_unknown'].includes(refundCase.lifecycle.paymentState)) {
+    return {
+      label: 'Payment result needs review',
+      helper: 'Check the exact payment record and reconcile its result. Do not approve or retry payment.',
       disabled: true,
     };
   }
@@ -2341,8 +2363,8 @@ const messageStatusBadgeClass = (status: string) => {
 };
 
 const isNeedsActionCase = (refundCase: RefundCaseRecord) => {
-  if (refundCase.lifecycle?.nextWork) return refundCase.lifecycle.nextWork.isOpen &&
-    refundCase.lifecycle.nextWork.actor === 'manager';
+  if (refundCase.workflowProjectionUnavailable) return false;
+  if (refundCase.lifecycle?.nextWork) return canonicalQueueBucket(refundCase) === 'needs_action';
   if (refundCase.lifecycle) return canonicalQueueBucket(refundCase) === 'needs_action';
   return openStatuses.has(refundCase.status) &&
     !isReadyToPayCase(refundCase) &&
@@ -2958,17 +2980,20 @@ export default function AdminRefundsPage() {
     provider_hold: overview.cases.filter(isManagerReviewCase).length,
     completed: overview.cases.filter(isDoneCase).length,
     internal_test: refundOperationsAccess ? internalTestCases.length : 0,
-    ...(!overview.cases.some((refundCase) => refundCase.lifecycle?.nextWork) && overview.managerWork && (
-      overview.cases.length === 0 ||
-      Object.values(overview.managerWork.bucketCounts).some((count) => count > 0)
-    ) ? overview.managerWork.bucketCounts : {}),
+    ...(overview.cases.length === 0 && overview.managerWork
+      ? overview.managerWork.bucketCounts : {}),
   }), [internalTestCases, overview.cases, overview.managerWork, refundOperationsAccess]);
 
   const hasAnyCases = overview.cases.length + internalTestCases.length > 0;
+  const refundQueueTruthUnavailable = !isUsingDemoData &&
+    overviewReadStatus === 'error' && !liveOverviewSnapshot;
   const isSearching = search.trim().length > 0;
   const searchScope = statusFilter === 'internal_test' ? 'the internal/test archive' : 'all your customer case views';
-  const emptyQueueTitle = isSearching ? 'No matching cases.' : hasAnyCases ? 'No refund cases match this filter.' : 'No refund cases are assigned here yet.';
-  const emptyQueueDescription = isSearching
+  const emptyQueueTitle = refundQueueTruthUnavailable ? 'Refund case list temporarily unavailable.'
+    : isSearching ? 'No matching cases.' : hasAnyCases ? 'No refund cases match this filter.' : 'No refund cases are assigned here yet.';
+  const emptyQueueDescription = refundQueueTruthUnavailable
+    ? 'The current case list could not be loaded. Refresh to check the latest work before taking action.'
+    : isSearching
     ? `No results in ${searchScope}. Check the reference or try a customer, machine, or location.`
     : hasAnyCases
     ? 'Try another status filter or search term.'
@@ -3114,6 +3139,10 @@ export default function AdminRefundsPage() {
   const cashCompletionAmountCents = selectedCase?.paymentMethod === 'cash'
     ? isCashSaleSelectionPending
       ? null
+      : selectedCase.decision === 'approved' && selectedCase.status === 'cash_zelle_pending' &&
+          typeof (selectedCase.refundAmountCents ?? selectedCase.paymentAmountCents) === 'number' &&
+          (selectedCase.refundAmountCents ?? selectedCase.paymentAmountCents ?? 0) > 0
+        ? selectedCase.refundAmountCents ?? selectedCase.paymentAmountCents
       : resolveCashReviewAmountCents(
         selectedCase.paymentAmountCents,
         selectedCashEvidenceAmountCents,
@@ -7167,7 +7196,7 @@ export default function AdminRefundsPage() {
               The refund queue is available, but lifecycle and progress detail is unavailable for{' '}
               {liveOverview.lifecycleValidationFailureCount}{' '}
               {liveOverview.lifecycleValidationFailureCount === 1 ? 'case' : 'cases'} pending a data review.
-              Action availability still follows each case&apos;s authoritative capability.
+              New final decisions wait for current workflow detail; saved approvals and payment records remain visible.
             </div>
           )}
 
@@ -7203,7 +7232,7 @@ export default function AdminRefundsPage() {
               >
                 {label}
                 <span className="ml-2 rounded-full bg-background/80 px-2 py-0.5 text-xs tabular-nums text-foreground">
-                  {primaryQueueCounts[value]}
+                  {refundQueueTruthUnavailable ? '—' : primaryQueueCounts[value]}
                 </span>
               </Button>
             ))}
@@ -7239,6 +7268,7 @@ export default function AdminRefundsPage() {
               hasSelectedCase={Boolean(selectedCase)}
               isMobileExpanded={isMobileQueueExpanded}
               isLoading={pageIsLoading}
+              isUnavailable={refundQueueTruthUnavailable}
               isSearching={isSearching}
               emptyTitle={emptyQueueTitle}
               emptyDescription={emptyQueueDescription}
