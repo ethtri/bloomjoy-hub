@@ -942,7 +942,10 @@ const canonicalQueueBucket = (refundCase: RefundCaseRecord) =>
   getRefundManagerQueueBucket(refundCase);
 
 const isReadyToPayCase = (refundCase: RefundCaseRecord) => {
-  if (refundCase.lifecycle?.nextWork) return canonicalQueueBucket(refundCase) === 'ready_to_pay';
+  if (refundCase.lifecycle?.nextWork) return canonicalQueueBucket(refundCase) === 'ready_to_pay' &&
+    refundCase.canPerformOfficialAction === true &&
+    Number.isSafeInteger(refundCase.officialActionVersion) &&
+    refundCase.officialActionVersion > 0;
   // Older lifecycle responses cannot establish preparation or the next actor
   // for a fresh decision. A card capability alone is execution permission,
   // not evidence that the case belongs in the Manager decision queue.

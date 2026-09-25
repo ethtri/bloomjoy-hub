@@ -257,8 +257,11 @@ test('canonical next work owns ready queue classification over stale lifecycle',
   lifecycle:{stage:'waiting_on_customer',managerQueue:{bucket:'waiting_on_customer'}},
  };
  assert.equal(isReady(staleWaitingCase),false);
- const currentPreparedCase={...staleWaitingCase,lifecycle:{...staleWaitingCase.lifecycle,nextWork:preparedNextWork}};
+ const currentPreparedCase={...staleWaitingCase,canPerformOfficialAction:true,
+  lifecycle:{...staleWaitingCase.lifecycle,nextWork:preparedNextWork}};
  assert.equal(isReady(currentPreparedCase),true);
+ assert.equal(isReady({...currentPreparedCase,officialActionVersion:0}),false);
+ assert.equal(isReady({...currentPreparedCase,canPerformOfficialAction:false}),false);
  const taskState=load('taskManagerState',{
   isReadyToPayCase:isReady,
   getCurrentRefundCardManagerState:managerModule.exports.getCurrentRefundCardManagerState,

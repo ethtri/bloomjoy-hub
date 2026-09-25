@@ -157,6 +157,8 @@ export const getDisplayedRefundManagerNextStep = (
 type RefundManagerCaseFacts = {
   decision?: 'approved' | 'denied' | null;
   workflowProjectionUnavailable?: boolean;
+  canPerformOfficialAction?: boolean | null;
+  officialActionVersion?: number | null;
   status:
     | 'draft'
     | 'submitted'
@@ -390,6 +392,17 @@ export const getRefundManagerState = (
         'No refund or customer-contact action is due.', nextWork.actionLabel, 'success');
     }
     if (nextWork.actor === 'manager') {
+      if (!Number.isSafeInteger(refundCase.officialActionVersion) ||
+          (refundCase.officialActionVersion ?? 0) <= 0) {
+        return state('needs_refund_operations', 'Refund action temporarily unavailable',
+          'The current case version is unavailable, so this decision or cash action cannot be submitted safely.',
+          'Refresh the case before taking a final action. Do not repeat a payment or approval.', 'warning');
+      }
+      if (refundCase.canPerformOfficialAction !== true) {
+        return state('needs_refund_operations', 'Manager action assigned elsewhere',
+          'This signed-in account is not authorized for the saved machine Manager action.',
+          'The currently assigned Manager or a Super-admin can take the saved final action.', 'info');
+      }
       return state('ready_for_review', 'Action needed',
         'The request is prepared for the assigned Manager’s final decision or cash payment.',
         nextWork.actionLabel, 'warning');
