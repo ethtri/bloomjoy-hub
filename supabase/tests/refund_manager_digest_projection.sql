@@ -424,7 +424,6 @@ select ok(not (select value::text from terminal_projection) like any (array[
   '%RF-DIGEST-PAID-NOTIFIED%', '%RF-DIGEST-DENIED%'
 ]), 'Neither terminal case appears in the actual daily digest projection');
 
-savepoint approved_cash_digest;
 insert into public.refund_cases (
   id,public_reference,reporting_machine_id,reporting_location_id,
   customer_email,issue_summary,incident_at,incident_timezone,
@@ -461,7 +460,5 @@ select matches((select item->>'preparationSummary' from cash_projection,
     jsonb_array_elements(value->'items') item
     where item->>'publicReference'='RF-DIGEST-APPROVED-CASH'),
   'already approved', 'Historical cash summary names the saved decision');
-rollback to savepoint approved_cash_digest;
-
 select * from finish();
 rollback;
