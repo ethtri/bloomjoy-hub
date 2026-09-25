@@ -291,7 +291,7 @@ test('one malformed lifecycle cannot discard the queue or revoke server capabili
   );
   assert.match(
     pageSource,
-    /const candidateSelectionAuthorized\s*=\s*\(selectedCase\.canSelectNayaxCandidate \?\? selectedCase\.canPerformOfficialAction\) === true/,
+    /const candidateSelectionAuthorized\s*=\s*reviewedFinalDecisionReady\s*\? selectedCase\.canPerformOfficialAction === true\s*: \(selectedCase\.canSelectNayaxCandidate \?\? selectedCase\.canPerformOfficialAction\) === true/,
   );
   assert.match(pageSource, /canSelectCandidate:\s*candidateSelectionAuthorized/);
   assert.match(
@@ -300,7 +300,7 @@ test('one malformed lifecycle cannot discard the queue or revoke server capabili
   );
   assert.match(
     candidateReviewSource,
-    /!canAccessCandidateSelection[\s\S]*You can review this result, but your current case access does not allow you to save it\./,
+    /!canAccessCandidateSelection[\s\S]*You can review this result, but your current case access does not allow you to \$\{reviewedFinalDecision \? 'decide this refund' : 'save it'\}\./,
   );
   assert.doesNotMatch(
     `${pageSource}\n${candidateReviewSource}`,

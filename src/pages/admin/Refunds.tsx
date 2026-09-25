@@ -1880,7 +1880,7 @@ const primaryActionConfig = (
   if (
     refundCase.paymentMethod === 'card' && refundCase.decision == null &&
     !hasUnsavedCardSelection && refundCase.lifecycle?.stage === 'transaction_confirmed' &&
-    refundCase.lifecycle.managerAction.action === 'refund' &&
+    refundCase.lifecycle.managerAction?.action === 'refund' &&
     nextWork?.isOpen === true && nextWork.actor === 'manager' &&
     nextWork.actionCode === 'approve_or_deny_request' &&
     refundCase.canPerformOfficialAction === true &&
@@ -4525,7 +4525,7 @@ export default function AdminRefundsPage() {
           freshCase.matchedNayaxTransactionId !== selectedTransactionId ||
           freshCase.matchedNayaxAmountCents !== selectedAmountCents ||
           freshCase.lifecycle?.stage !== 'transaction_confirmed' ||
-          freshCase.lifecycle.managerAction.action !== 'refund' ||
+          freshCase.lifecycle.managerAction?.action !== 'refund' ||
           freshWork?.isOpen !== true || freshWork.actor !== 'manager' ||
           freshWork.actionCode !== 'approve_or_deny_request') {
         throw new Error('The saved purchase or decision changed. Refresh this case before deciding again.');

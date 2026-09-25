@@ -181,8 +181,9 @@ test('current card capability remains visible in the composed manager presentati
  const topActionLabel=load('topActionLabel',{
   primaryAction:{mode:'nayax_refund_execution',label:'Refund $7.00'},
  });
- const presentedAction=load('cardManagerCapabilityAction',{
-  transactionDecisionPending,
+  const presentedAction=load('cardManagerCapabilityAction',{
+    transactionDecisionPending,
+    reviewedFinalDecisionReady:false,
   showDisabledActionStatus:false,
   primaryAction:{mode:'nayax_refund_execution',label:'Refund $7.00'},
   hasReadyRefund:true,
