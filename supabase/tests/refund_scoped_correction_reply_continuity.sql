@@ -16,13 +16,28 @@ update public.refund_customer_contact_settings set automatic_customer_contact_en
 create function pg_temp.cid(n integer) returns uuid language sql as $$ select ('df000000-0000-4000-8001-'||lpad(n::text,12,'0'))::uuid $$;
 create function pg_temp.gid(n integer) returns uuid language sql as $$ select ('df000000-0000-4000-8002-'||lpad(n::text,12,'0'))::uuid $$;
 create function pg_temp.make_scope(n integer) returns void language plpgsql as $$
-declare cid uuid:=pg_temp.cid(n); mid uuid:=gen_random_uuid(); tid uuid:=gen_random_uuid(); cycle jsonb; fields text[];
+declare cid uuid:=pg_temp.cid(n); mid uuid:=gen_random_uuid(); tid uuid:=gen_random_uuid(); cycle jsonb; fields text[]; lookup_receipt jsonb; lookup_result jsonb;
 begin
   insert into public.refund_cases(id,reporting_machine_id,reporting_location_id,customer_email,issue_summary,incident_at,incident_local_datetime,
     incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,payment_interaction,payment_amount_cents,card_last4,card_last4_provenance,card_network,card_wallet_used,status,correlation_status,intake_source)
   values(cid,'df000000-0000-4000-8000-000000000003','df000000-0000-4000-8000-000000000002','reply-customer@example.invalid','Scoped reply test',
     now()-interval '2 hours',to_char((now()-interval '2 hours') at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI'),
     'America/Los_Angeles','exact','exact','card',case when n in (27,28,29) then 'phone_watch_wallet' else 'tap_card' end,case when n in (27,28,29,30) then 700 else null end,case when n in (8,15,27,28,29,30) then null else '1234' end,case when n in (8,15,27,28,29,30) then null else 'physical_card' end,case when n=26 then 'mastercard' else 'visa' end,n in (27,28,29),'needs_review','manual_review','form');
+  if n in (27,28) then
+    -- The earlier provider read precedes the delivered wallet question. A
+    -- waiting-on-customer case cannot start an ordinary lookup afterward.
+    lookup_receipt:=public.service_begin_refund_nayax_lookup(cid,
+      (select deterministic_fact_version from public.refund_cases where id=cid),
+      'scheduled',null);
+    lookup_result:=public.service_commit_refund_nayax_lookup(cid,
+      (lookup_receipt->>'lookupGeneration')::bigint,
+      (select deterministic_fact_version from public.refund_cases where id=cid),
+      'no_match','no_safe_match','reply-fixture-v1',statement_timestamp(),
+      'Earlier read-only check found no safe purchase.',null,0,'scheduled',null);
+    if lookup_result->>'applied' is distinct from 'true' then
+      raise exception 'Fixture prior lookup rejected: %',lookup_result;
+    end if;
+  end if;
   if n in (27,28,29) then
     -- Wallet detail is a scoped correction request, not the ordinary
     -- missing-information cycle, whose production guard rejects wallet work.
@@ -593,16 +608,9 @@ update public.reporting_machines set nayax_machine_id='REPLY-TEST-27',
   nayax_account_key='REPLY_ACCOUNT',nayax_manual_portal_enabled=false
   where id='df000000-0000-4000-8000-000000000003';
 select pg_temp.make_scope(27);
-create temp table reply_prior_lookup on commit drop as
-  select public.service_begin_refund_nayax_lookup(pg_temp.cid(27),
-    (select deterministic_fact_version from public.refund_cases where id=pg_temp.cid(27)),
-    'scheduled',null) receipt;
-select is(public.service_commit_refund_nayax_lookup(pg_temp.cid(27),
-    (select (receipt->>'lookupGeneration')::bigint from reply_prior_lookup),
-    (select deterministic_fact_version from public.refund_cases where id=pg_temp.cid(27)),
-    'no_match','no_safe_match','reply-fixture-v1',statement_timestamp(),
-    'Earlier read-only check found no safe purchase.',null,0,'scheduled',null)
-    ->>'applied','true','A completed prior automatic no-match is real research evidence');
+select ok((select nayax_lookup_status='no_match' and nayax_lookup_finished_at is not null
+    from public.refund_cases where id=pg_temp.cid(27)),
+  'A completed prior automatic no-match is real research evidence');
 update public.refund_gmail_messages set plain_body=
   'I used Apple Pay; the device token ends in 6789, not my plastic card.'
   where id=pg_temp.gid(27);
@@ -690,16 +698,9 @@ update public.reporting_machines set nayax_machine_id='REPLY-TEST-28',
   nayax_account_key='REPLY_ACCOUNT',nayax_manual_portal_enabled=false
   where id='df000000-0000-4000-8000-000000000003';
 select pg_temp.make_scope(28);
-create temp table time_prior_lookup on commit drop as
-  select public.service_begin_refund_nayax_lookup(pg_temp.cid(28),
-    (select deterministic_fact_version from public.refund_cases where id=pg_temp.cid(28)),
-    'scheduled',null) receipt;
-select is(public.service_commit_refund_nayax_lookup(pg_temp.cid(28),
-    (select (receipt->>'lookupGeneration')::bigint from time_prior_lookup),
-    (select deterministic_fact_version from public.refund_cases where id=pg_temp.cid(28)),
-    'no_match','no_safe_match','reply-fixture-v1',statement_timestamp(),
-    'Earlier bounded check found no safe purchase.',null,0,'scheduled',null)
-    ->>'applied','true','Inexact-time fixture has a prior completed automatic read');
+select ok((select nayax_lookup_status='no_match' and nayax_lookup_finished_at is not null
+    from public.refund_cases where id=pg_temp.cid(28)),
+  'Inexact-time fixture has a prior completed automatic read');
 update public.refund_gmail_messages set plain_body=
   'I remember buying around the afternoon, but I do not have an exact time.'
   where id=pg_temp.gid(28);
