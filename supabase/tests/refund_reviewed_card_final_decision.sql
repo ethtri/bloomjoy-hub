@@ -477,12 +477,14 @@ select public.admin_approve_reviewed_nayax_candidate_v1(
 from reviewed_initial where case_id='e1450000-0000-4000-8000-000000000001';
 select is((select result->>'approved' from reviewed_approval_a),'true',
   'one final Manager decision approves the first exact reviewed sale');
+reset role;
 select is((select refund_amount_cents from public.refund_cases
   where id='e1450000-0000-4000-8000-000000000001'),1090,
   'the provider full charge, not the customer estimate, is frozen');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
   where refund_case_id='e1450000-0000-4000-8000-000000000001'),1,
   'one protected provider-free attempt is queued');
+set local role authenticated;
 insert into reviewed_replay
 select public.admin_approve_reviewed_nayax_candidate_v1(
   case_id,action_version,proof_id,'e1460000-0000-4000-8000-000000000001') result
@@ -492,6 +494,7 @@ select is((select result->>'attemptId' from reviewed_replay),
   'duplicate final-action retry returns the same authoritative attempt');
 select is((select result->>'replayed' from reviewed_replay),'true',
   'duplicate response is visibly acknowledged as a replay');
+reset role;
 select is((select count(*)::integer from public.refund_case_official_action_authorizations
   where refund_case_id='e1450000-0000-4000-8000-000000000001' and action='approve'),1,
   'replay creates no second official authorization');
@@ -527,6 +530,7 @@ select is((select count(*)::integer from public.reporting_machine_refund_manager
   where manager_user_id='e1410000-0000-4000-8000-000000000001'
     and status='revoked'),0,
   'post-approval service probe restores the original Manager mapping');
+set local role authenticated;
 select matches(pg_temp.probe_rolled_back_decision(
   $$update public.reporting_machine_refund_managers set status='revoked',
     revoked_at=statement_timestamp(),revoke_reason='Fixture revocation'
@@ -549,10 +553,10 @@ select public.admin_approve_reviewed_nayax_candidate_v1(
 from reviewed_initial where case_id='e1450000-0000-4000-8000-000000000002';
 select is((select result->>'approved' from reviewed_approval_b),'true',
   'another case can approve the other safe reviewed sale');
+reset role;
 select is((select refund_amount_cents from public.refund_cases
   where id='e1450000-0000-4000-8000-000000000002'),1190,
   'the alternate exact provider total is preserved');
-reset role;
 
 create temp table reviewed_denial(authorization_id uuid) on commit drop;
 grant select, insert on reviewed_denial to authenticated;
