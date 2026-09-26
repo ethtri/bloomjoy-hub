@@ -79,6 +79,9 @@ historical fixtures cannot add product gates that the workflow does not contain.
   purchase date and location timezone, records one source-bound fact receipt,
   and restarts System research. A conflicting time, stale claim, or DST fold/gap
   changes no facts; no Manager decision or provider payment is made by this step.
+- [ ] After that source-bound reply settles, the portal shows System purchase
+  recheck as next work while the new lookup is due or checking. It does not
+  still say to review the settled reply or wait for a customer answer.
 - [ ] The hourly subscription-backed reply task reads only the exact verified
   request and complete later-reply set. Ordinary prose can yield a quoted,
   version-bound fact receipt, including card network and a wallet-device token

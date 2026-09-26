@@ -8,6 +8,11 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- On 2026-09-26 the deployed reply worker applied a verified customer time to
+  RF-DF501B5B and settled its task, but the production portal still projected
+  both a stale reply-review step and a contradictory customer-wait warning.
+  The next safe step is the existing scheduled read-only purchase recheck;
+  issue #1361 tracks the owner/state correction and live case readback.
 - On 2026-09-26 the authenticated refund list loaded again, but five case
   workflow details were still unavailable. Three traced to a stale Nayax lookup
   projection: two searches need internal machine/duplicate-scope repair before

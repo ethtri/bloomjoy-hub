@@ -1,0 +1,63 @@
+-- A source-bound reply fact can settle its correction context while the
+-- original delivery remains recorded as waiting for a customer response.
+-- Keep the existing message history, but project the current System recheck.
+create or replace function public.refund_customer_outreach_contract(
+  p_refund_case_id uuid
+) returns jsonb language plpgsql stable security definer set search_path='' as $$
+declare result jsonb; ctx public.refund_wallet_correction_contexts;
+begin
+  result:=public.refund_customer_outreach_pre_verified_reply_continuation(p_refund_case_id);
+  if result is null or result->>'state' not in ('waiting_for_customer','customer_replied')
+    then return result; end if;
+  select * into ctx from public.refund_wallet_correction_contexts r
+    where r.refund_case_id=p_refund_case_id and r.correction_kind='purchase'
+      and r.reply_message_id is not null
+      and ((r.status='pending' and r.reply_review_state in ('pending','claimed','resolved'))
+        or (r.status='submitted' and r.reply_review_state='resolved'
+          and r.reply_review_result_code='facts_applied'))
+      and r.correction_message_id=(result->>'requestMessageId')::uuid
+    order by r.version desc,r.issued_at desc limit 1;
+  if ctx.id is null then return result; end if;
+  if ctx.status='submitted' and ctx.reply_review_result_code='facts_applied' then
+    return result||jsonb_build_object('state','rechecking','owner','System',
+      'nextAction','recheck_customer_reply','replyReceivedAt',ctx.reply_received_at,
+      'reasonCode','verified_reply_reviewed','payloadRedacted',true);
+  end if;
+  return result||jsonb_build_object('state','customer_replied','owner','System',
+    'nextAction','recheck_customer_reply','replyReceivedAt',ctx.reply_received_at,
+    'reasonCode',case when ctx.reply_review_state='resolved'
+      then 'verified_reply_reviewed' else 'verified_reply_review_due' end,
+    'payloadRedacted',true);
+end;
+$$;
+revoke all on function public.refund_customer_outreach_contract(uuid)
+  from public,anon,authenticated,service_role;
+grant execute on function public.refund_customer_outreach_contract(uuid)
+  to service_role;
+
+-- The canonical next-work projection must not reopen a completed reply task.
+-- It should point to the already scheduled read-only lookup while that lookup
+-- has not finished; later provider results use the ordinary case-stage rules.
+do $resolved_reply_next_work$
+declare body text; anchor text; replacement text;
+begin
+  body:=replace(pg_get_functiondef(
+    'public.refund_next_work_projection(jsonb,timestamptz)'::regprocedure),E'\r\n',E'\n');
+  anchor:=$anchor$  elsif reply_at <> '-infinity'::timestamptz and request_sent_at is not null
+    and reply_at > request_sent_at and outreach_state in ('waiting_for_customer', 'customer_replied', 'rechecking') then$anchor$;
+  replacement:=$replacement$  elsif outreach_state='rechecking' and outreach->>'reasonCode'='verified_reply_reviewed'
+    and p_lifecycle->'lookup'->>'status' in ('not_started','checking') then
+    actor_name := 'system';
+    action_code := 'run_lookup';
+    action_label := 'Recheck the purchase using the verified customer reply.';
+  elsif reply_at <> '-infinity'::timestamptz and request_sent_at is not null
+    and reply_at > request_sent_at and outreach_state in ('waiting_for_customer', 'customer_replied', 'rechecking')
+    and coalesce(outreach->>'reasonCode','') <> 'verified_reply_reviewed' then$replacement$;
+  if cardinality(string_to_array(body,anchor))<>2 then
+    raise exception 'Unexpected canonical reply next-work projection shape';
+  end if;
+  execute replace(body,anchor,replacement);
+end;
+$resolved_reply_next_work$;
+
+select pg_notify('pgrst','reload schema');

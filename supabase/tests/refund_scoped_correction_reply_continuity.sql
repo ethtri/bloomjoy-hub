@@ -1462,6 +1462,10 @@ select is((select status from public.refund_wallet_correction_contexts
 select is((select reply_review_state from public.refund_wallet_correction_contexts
     where refund_case_id=pg_temp.cid(60)),'resolved',
   'Applying an earlier verified message also resolves the latest claimed review task');
+select is(public.refund_customer_outreach_contract(pg_temp.cid(60))->>'state',
+  'rechecking','A resolved reply no longer tells staff to wait for the customer');
+select is(public.refund_lifecycle_contract(pg_temp.cid(60))->'nextWork'->>'actionCode',
+  'run_lookup','The next owner runs purchase research instead of reviewing the settled reply again');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
     where refund_case_id=pg_temp.cid(60)),0,
   'Time research never creates a payment attempt');
