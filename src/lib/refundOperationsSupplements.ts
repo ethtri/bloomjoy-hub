@@ -26,6 +26,12 @@ export const mergeRefundOperationsSupplements = (
   );
   const cases = [...gmailDrafts, ...overview.cases].map((refundCase) => {
     const state = queueStateByCaseId.get(refundCase.id);
+    const protectedApprovalAwaitingReadback =
+      refundCase.paymentMethod === 'card' &&
+      refundCase.decision === 'approved' &&
+      refundCase.status === 'card_refund_pending' &&
+      refundCase.lifecycle == null &&
+      refundCase.workflowProjectionUnavailable === true;
     const enrichedCase: RefundCaseRecord = {
       ...refundCase,
       ...(state ? {
@@ -36,8 +42,10 @@ export const mergeRefundOperationsSupplements = (
         confirmedDuplicate: state.confirmedDuplicate,
         duplicateOfCaseId: state.duplicateOfCaseId,
         aging: state.aging,
-        providerHold: state.providerHold,
-        providerOutcome: state.providerOutcome,
+        // This narrow local state comes from the protected approval response.
+        // A queue supplement can lag that response while the overview read fails.
+        providerHold: protectedApprovalAwaitingReadback ? refundCase.providerHold : state.providerHold,
+        providerOutcome: protectedApprovalAwaitingReadback ? refundCase.providerOutcome : state.providerOutcome,
         legacyStateReviewRequired: state.legacyStateReviewRequired,
         reconciliationActionBlocked: state.actionBlocked,
       } : {}),
