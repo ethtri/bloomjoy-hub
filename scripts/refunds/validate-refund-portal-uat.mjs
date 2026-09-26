@@ -4436,6 +4436,7 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
       await replayPage.getByTestId('refund-approve-reviewed-purchase').click();
       await replayPage.getByTestId('refund-action-receipt').waitFor({ state: 'visible', timeout: 10000 });
       const replayState = await replayPage.getByTestId('refund-manager-state').innerText();
+      const replayPanel = await replayPage.getByTestId('refund-primary-action').innerText();
       recorder.assert(`A ${replayStatus} protected replay survives a failed overview without reapproval`,
         replayReadLog.includes(503) &&
           replayFunctionBodies.filter(({ functionName, body }) =>
@@ -4445,8 +4446,8 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
           replayState.includes(replayStatus === 'provider_hold'
             ? 'Refund result needs reconciliation'
             : 'Refund completed · details refreshing') &&
-          (replayStatus !== 'completed' || replayState.includes('customer-contact details')),
-        JSON.stringify({ replayStatus, replayReadLog, replayState, replayFunctionBodies }),
+          (replayStatus !== 'completed' || replayPanel.includes('customer-contact details')),
+        JSON.stringify({ replayStatus, replayReadLog, replayState, replayPanel, replayFunctionBodies }),
       );
       await closeRefundPortalContext(replayContext);
     }
