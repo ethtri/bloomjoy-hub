@@ -6,6 +6,14 @@ The architecture below is a proposal; it is not an activation authorization.
 
 ## Recommendation in plain English
 
+**Confirmed operating choices:** refresh twice daily; backfill from January 1,
+2025; show month-to-date sales/earnings while the month is open; retain the
+existing post-month-end Pay Stub publication schedule. Late changes to issued
+statements alert the responsible manager to regenerate a corrected version,
+preserving the original. These replace earlier open questions about cadence,
+historical start and correction handling. Source retention and complete financial
+semantics still require verification; absent history must not be invented.
+
 **Owner update, September 26:** all 22 visible machines belong in the portal.
 Automatically import the complete accessible fleet into private staging and use
 the existing portal mapping workflow, extended for SnapCase, to attribute sales.
@@ -257,9 +265,10 @@ Start disabled, run shadow ingestion, then enable publication independently.
 Prefer supported API access; if unavailable, use a supported export adapter into
 the same normalized contract. Do not attach payment/print capabilities to the worker.
 
-Proposed initial cadence: daily with a backup trigger and rolling 35-day reads,
+Owner-confirmed cadence: twice daily, with separate failure recovery and proposed
+rolling 35-day reads,
 bounded by vendor limits; month-end sweeps cover the full just-closed period.
-Confirm latency needs before changing cadence. Require per-account concurrency
+Require per-account concurrency
 locks, request timeouts, bounded exponential retry/jitter, Retry-After handling,
 token refresh, resumable pages/chunks and independent scheduler heartbeat checks.
 Never advance coverage after partial pagination, truncation, rejected rows,
@@ -267,7 +276,8 @@ unverified empty responses, or missing expected devices. Late older corrections
 need an updated-since endpoint or scheduled deeper replay; 35 days is not universal
 refund completeness. Record queried-through coverage separately from last sale.
 
-Backfill owner-approved machine-active periods in bounded monthly chunks with
+Backfill from January 1, 2025 through the current period, respecting machine-active
+periods, in bounded monthly chunks with
 source totals/control counts, dry-run comparison, checkpoints and idempotent
 replay. Separate historic snapshots/Pay Stub corrections from current publication;
 do not silently revise issued payroll. Gaps become exceptions, never zeros.

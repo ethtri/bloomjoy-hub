@@ -1,5 +1,27 @@
 # Decisions
 
+## 2026-09-26 - SnapCase refresh cadence, historical scope and Pay Stub corrections
+
+Owner direction for #1474:
+
+- Refresh sales twice daily. Recovery/retries are additional failure handling,
+  not a substitute for the two regular refreshes.
+- Import history beginning January 1, 2025, through the current period, within
+  actual machine operating windows. Unavailable source history is an explicit
+  gap, not zero sales.
+- Show month-to-date sales and earnings during the open month. Pay Stubs become
+  available after month-end under the existing publication schedule. Do not add
+  a midmonth approval/hold workflow or treat future month-end coverage as an
+  error. Existing checks for required closed-period inputs still apply.
+- When late data changes an issued Pay Stub, alert the responsible manager to
+  regenerate it. Regeneration creates a corrected version and retains the
+  original; affected later year-to-date statements remain visibly stale until
+  corrected. Do not silently replace issued statements.
+
+These choices resolve the cadence, backfill-start and correction questions;
+they do not authorize implementation, production imports or deployment by
+the planning spike.
+
 ## 2026-09-26 - Import the SnapCase fleet automatically and map it in the portal
 
 Owner direction for #1474: all 22 machines currently visible through the configured
