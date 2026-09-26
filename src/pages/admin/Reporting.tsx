@@ -300,7 +300,7 @@ export default function AdminReportingPage() {
     const selectedPartnership = partnerships.find(
       (partnership) => partnership.id === form.partnershipId
     );
-    if (!selectedPartnership) {
+    if (setupMachine.provider === 'sunze' && !selectedPartnership) {
       toast.error('Choose the report this machine belongs to.');
       return;
     }
@@ -328,9 +328,10 @@ export default function AdminReportingPage() {
           locationId: form.mappingMode === 'new' ? form.locationId : null,
           locationName: form.mappingMode === 'new' ? form.locationName.trim() : null,
           machineLabel: form.mappingMode === 'new' ? form.machineLabel.trim() : null,
-          partnershipId: selectedPartnership.id,
-          effectiveStartDate: selectedPartnership.effective_start_date,
-          effectiveEndDate: selectedPartnership.effective_end_date,
+          partnershipId: selectedPartnership?.id ?? '',
+          effectiveStartDate:
+            selectedPartnership?.effective_start_date ?? setupMachine.machine.firstSeenAt?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
+          effectiveEndDate: selectedPartnership?.effective_end_date ?? null,
           reason: importedMachineSetupReason,
         });
         trackEvent('admin_snapcase_machine_mapping_completed', {
@@ -368,14 +369,14 @@ export default function AdminReportingPage() {
     try {
       const result = await mapSourceMachineToPartnershipAdmin({
         externalMachineId: setupMachine.machine.sunzeMachineId,
-        partnershipId: selectedPartnership.id,
+        partnershipId: selectedPartnership!.id,
         machineLabel: form.machineLabel.trim(),
         locationName: form.locationName.trim(),
         machineType: form.machineType,
         taxRatePercent,
-        assignmentStartDate: selectedPartnership.effective_start_date,
-        assignmentEndDate: selectedPartnership.effective_end_date,
-        taxEffectiveStartDate: selectedPartnership.effective_start_date,
+        assignmentStartDate: selectedPartnership!.effective_start_date,
+        assignmentEndDate: selectedPartnership!.effective_end_date,
+        taxEffectiveStartDate: selectedPartnership!.effective_start_date,
         reason: importedMachineSetupReason,
       });
 
@@ -1122,15 +1123,27 @@ function ImportedMachineSetupDialog({
     const currentSunzeMachine = machine.provider === 'sunze' ? machine.machine : null;
     const currentSnapCaseMachine = machine.provider === 'snapcase' ? machine.machine : null;
     const recommended = getRecommendedPartnership(currentSunzeMachine, partnerships);
+    const snapCaseText = normalizeComparableText(
+      `${currentSnapCaseMachine?.sourceLabel ?? ''} ${currentSnapCaseMachine?.sourceMerchantName ?? ''}`
+    );
+    const suggestedAccountName = snapCaseText.includes('preit')
+      ? 'bloomjoy enterprises'
+      : snapCaseText.includes('gilroy') || snapCaseText.includes('great mall')
+        ? 'tgpaci'
+        : null;
+    const suggestedAccountId = suggestedAccountName
+      ? accounts.find(([, name]) => normalizeComparableText(name) === suggestedAccountName)?.[0] ?? ''
+      : '';
     setForm({
       ...emptyImportedMachineSetupForm,
       partnershipId: currentSnapCaseMachine?.partnershipId ?? recommended?.partnership.id ?? '',
       mappingMode: currentSnapCaseMachine?.reportingMachineId ? 'existing' : 'new',
       reportingMachineId: currentSnapCaseMachine?.reportingMachineId ?? '',
+      accountId: suggestedAccountId,
       machineLabel: currentSnapCaseMachine?.sourceLabel ?? currentSunzeMachine?.sunzeMachineName ?? '',
       locationName: inferImportedMachineLocationName(currentSunzeMachine),
     });
-  }, [machine, partnerships]);
+  }, [machine, partnerships, accounts]);
 
   return (
     <Dialog open={Boolean(machine)} onOpenChange={onOpenChange}>
@@ -1185,7 +1198,9 @@ function ImportedMachineSetupDialog({
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <Label htmlFor="imported-machine-partnership">Report / partnership</Label>
+              <Label htmlFor="imported-machine-partnership">
+                Report / partnership{snapcaseMachine ? ' (optional)' : ''}
+              </Label>
               <select
                 id="imported-machine-partnership"
                 value={form.partnershipId}
@@ -1234,7 +1249,9 @@ function ImportedMachineSetupDialog({
                   className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
                 >
                   <option value="">Choose machine</option>
-                  {machines.map((item) => (
+                  {machines
+                    .filter((item) => item.machine_type === 'snapcase' && !item.sunze_machine_id)
+                    .map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.machine_label} — {item.customer_accounts?.name ?? 'Unknown account'} / {item.reporting_locations?.name ?? 'Unknown location'}
                     </option>
@@ -1351,7 +1368,7 @@ function ImportedMachineSetupDialog({
           <Button
             className="min-h-11"
             onClick={() => onSave(form)}
-            disabled={isSaving || !machine || partnerships.length === 0 || !form.partnershipId}
+            disabled={isSaving || !machine || (machine.provider === 'sunze' && !form.partnershipId)}
           >
             {isSaving ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
