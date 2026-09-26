@@ -2041,6 +2041,8 @@ serve(async (request) => {
     return jsonResponse({ error: "Refund Gmail sync claim was invalid." }, 500);
   }
   let firstReportFailureCode: string | null = null;
+  let reportFileAttempts = 0;
+  const maxReportFileAttemptsPerRun = 12;
   const counters = {
     threadsScanned: 0,
     messagesSeen: 0,
@@ -2315,11 +2317,15 @@ serve(async (request) => {
               // Vendor reports use the same scheduler/mailbox but never become
               // customer intake, first-contact mail, or payment instructions.
               if (!intakeShadow && isNayaxScheduledReportMessage(message)) {
+                if (reportFileAttempts >= maxReportFileAttemptsPerRun) return null;
+                reportFileAttempts += 1;
                 try {
                   const report = await ingestNayaxReportMail({ message, mailbox: config.mailbox, rpc,
                     getAttachment: async (id, attachmentId) => (await getRefundGmailAttachment(config, id, attachmentId)).bytes });
-                  if (report.duplicate) counters.messagesDeduplicated += 1;
-                  else counters.messagesCreated += 1;
+                  if (report.duplicate) {
+                    reportFileAttempts -= 1;
+                    counters.messagesDeduplicated += 1;
+                  } else counters.messagesCreated += 1;
                 } catch (error) {
                   firstReportFailureCode ??= nayaxReportFailureCode(error);
                   // One expired/invalid report must not starve newer reports or
