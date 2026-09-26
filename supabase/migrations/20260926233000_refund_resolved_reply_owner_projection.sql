@@ -88,8 +88,9 @@ create function public.refund_resolved_reply_internal_queue(
 ) returns jsonb language sql immutable set search_path='' as $$
   select case when p_lifecycle#>>'{customerOutreach,reasonCode}'='verified_reply_reviewed'
       and p_lifecycle#>>'{customerOutreach,state}'='none'
-      and p_lifecycle->>'stage'='needs_transaction_selection'
-      and p_projected_lifecycle->>'preparationPending'='true'
+      and p_lifecycle->>'stage' in ('matching','needs_transaction_selection')
+      and coalesce(p_projected_lifecycle#>>'{managerAction,action}','none')
+        not in ('refund','mark_external_refund')
     then p_lifecycle||jsonb_build_object(
       'managerAction',coalesce(p_lifecycle->'managerAction','{}'::jsonb)
         ||jsonb_build_object('action','none','owner','System'),
