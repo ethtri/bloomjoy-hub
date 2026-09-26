@@ -6,6 +6,17 @@ GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short
 orientation snapshot; it is not a backlog or release ledger.
 
+## Complete SnapCase sales (planning only)
+
+- P0 epic [#1474](https://github.com/ethtri/bloomjoy-hub/issues/1474) owns complete
+  cash/card sales reporting and payroll readiness. The September 26 read-only
+  spike found reusable checkout helpers in Snapcase_Web and a stale, unmerged
+  reporting prototype in #608; supported merchant reporting access remains
+  unverified. Nayax-only card ingestion #1471 cannot establish cash completeness.
+- [Discovery and proposed design](SNAPCASE_SALES_DISCOVERY.md) covers source
+  authority, reuse, coverage, reconciliation and month-end safeguards. No
+  integration implementation, activation or deployment is authorized by this spike.
+
 ## Refund workflow (current)
 
 - On 2026-09-25 the authenticated production refund Case list began timing out
