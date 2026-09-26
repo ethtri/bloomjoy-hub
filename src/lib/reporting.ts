@@ -346,7 +346,7 @@ type ExportSalesReportResponse = {
   rowCount?: number;
 };
 
-const expectedSalesReportPdfGeneratorVersion = 'sales-report-pdf/polished-v1';
+const expectedSalesReportPdfGeneratorVersion = 'sales-report-pdf/polished-v2';
 const reportExportBucket = 'sales-report-exports';
 
 const exportFormatOrder: Record<AdminReportExportFormat, number> = {

@@ -26,7 +26,7 @@ const adminReporting = read(files.adminReporting);
 const smokeChecklist = read(files.smokeChecklist);
 
 assert(
-  sharedBuilder.includes('SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/polished-v1"'),
+  sharedBuilder.includes('SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/polished-v2"'),
   'Operator PDF builder must expose the polished generator version.',
 );
 
@@ -56,12 +56,20 @@ assert(
 assert(
   exportFunction.includes('SALES_REPORT_PDF_GENERATOR_VERSION') &&
     exportFunction.includes('pdfGeneratorVersion: SALES_REPORT_PDF_GENERATOR_VERSION') &&
-    exportFunction.includes('buildSalesReportPdf({'),
+    exportFunction.includes('buildSalesReportPdf({') &&
+    exportFunction.includes('getSnapcaseProvisionalNotice') &&
+    exportFunction.includes('"get_reporting_dimensions"'),
   'sales-report-export must return the polished generator version from the shared builder.',
 );
 
 assert(
-  reportingClient.includes("expectedSalesReportPdfGeneratorVersion = 'sales-report-pdf/polished-v1'") &&
+  sharedBuilder.includes('context.provisionalDataNotice ? "Provisional data" : "Warning state"') &&
+    sharedBuilder.includes('context.provisionalDataNotice || (rows.length === 0'),
+  'Operator PDF exports must show the server-derived provisional SnapCase notice.',
+);
+
+assert(
+  reportingClient.includes("expectedSalesReportPdfGeneratorVersion = 'sales-report-pdf/polished-v2'") &&
     reportingClient.includes('response.pdfGeneratorVersion !== expectedSalesReportPdfGeneratorVersion') &&
     reportingClient.includes('outdated PDF generator'),
   'Portal report exports must block stale sales-report-export responses instead of opening them.',

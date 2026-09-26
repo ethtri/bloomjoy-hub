@@ -424,6 +424,9 @@ export const translations = {
     'reports.operatorPerformance': 'Operator performance',
     'reports.operatorPerformanceDescription':
       'Sales and transaction trends for the machines assigned to this account.',
+    'reports.snapcaseSalesIncomplete': 'SnapCase sales are incomplete.',
+    'reports.snapcaseTotalsProvisional':
+      'Totals are provisional until cash and card data are reconciled.',
     'reports.refresh': 'Refresh',
     'reports.exportPdf': 'Export polished PDF',
     'reports.dateRange': 'Date range',
@@ -1116,6 +1119,8 @@ export const translations = {
     'reports.loadErrorDescription': '请检查筛选条件并刷新。当前筛选会保留。',
     'reports.operatorPerformance': '操作员表现',
     'reports.operatorPerformanceDescription': '此账号已分配机器的销售和交易趋势。',
+    'reports.snapcaseSalesIncomplete': 'SnapCase 销售数据不完整。',
+    'reports.snapcaseTotalsProvisional': '在现金和刷卡数据完成核对前，总计为暂定数据。',
     'reports.refresh': '刷新',
     'reports.exportPdf': '导出 PDF',
     'reports.dateRange': '日期范围',

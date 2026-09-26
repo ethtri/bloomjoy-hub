@@ -108,6 +108,7 @@ import {
   type SalesReportFilters,
   type SalesReportRow,
 } from '@/lib/reporting';
+import { hasProvisionalSnapcaseSales } from '@/lib/snapcaseReportNotice';
 import {
   exportPartnerDashboardReport,
   fetchPartnerDashboardPartnerships,
@@ -949,6 +950,14 @@ function OperatorReportingView({
   });
 
   const machineOptions = useMemo(() => dimensions, [dimensions]);
+  const showSnapcaseProvisionalNotice = useMemo(
+    () =>
+      hasProvisionalSnapcaseSales(
+        dimensions,
+        machineId === 'all' ? [] : [machineId]
+      ),
+    [dimensions, machineId]
+  );
 
   useEffect(() => {
     if (machineId !== 'all' && !machineOptions.some((machine) => machine.machineId === machineId)) {
@@ -1317,6 +1326,17 @@ function OperatorReportingView({
           </CardContent>
         </Collapsible>
       </Card>
+
+      {showSnapcaseProvisionalNotice && (
+        <Alert
+          className="border-amber/40 bg-amber/5"
+          data-reporting-snapcase-provisional-notice
+        >
+          <AlertTriangle className="h-4 w-4 text-amber" />
+          <AlertTitle>{t('reports.snapcaseSalesIncomplete')}</AlertTitle>
+          <AlertDescription>{t('reports.snapcaseTotalsProvisional')}</AlertDescription>
+        </Alert>
+      )}
 
       <div
         className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"

@@ -9,6 +9,7 @@ import {
   summarizeSalesReportPdfRows,
   type SalesReportPdfRow,
 } from "../_shared/sales-report-pdf.ts";
+import { getSnapcaseProvisionalNotice } from "../_shared/snapcase-report-scope.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
@@ -171,6 +172,20 @@ serve(async (req) => {
       },
     });
 
+    const { data: reportingDimensions, error: dimensionsError } = await userSupabase.rpc(
+      "get_reporting_dimensions",
+    );
+    if (dimensionsError) {
+      return jsonResponse(
+        { error: dimensionsError.message || "Unable to verify report scope." },
+        400,
+      );
+    }
+    const provisionalDataNotice = getSnapcaseProvisionalNotice(
+      Array.isArray(reportingDimensions) ? reportingDimensions : [],
+      filters.machineIds,
+    );
+
     const { data: reportRows, error: reportError } = await userSupabase.rpc(
       "get_sales_report",
       {
@@ -241,6 +256,7 @@ serve(async (req) => {
         pluralFallback: "locations",
       }),
       paymentScopeLabel: formatPaymentScopeLabel(filters.paymentMethods),
+      provisionalDataNotice,
       rows,
       summary,
     });

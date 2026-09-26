@@ -50,6 +50,7 @@ type SalesReportPdfContext = {
   machineScopeLabel?: string;
   locationScopeLabel?: string;
   paymentScopeLabel?: string;
+  provisionalDataNotice?: string;
 };
 
 type PdfFonts = {
@@ -80,7 +81,7 @@ type MachineRollup = {
   transactionCount: number;
 };
 
-export const SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/polished-v1";
+export const SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/polished-v2";
 
 const COLORS = {
   page: rgb(0.995, 0.985, 0.99),
@@ -96,6 +97,8 @@ const COLORS = {
   sage: rgb(0.25, 0.48, 0.34),
   sageLight: rgb(0.9, 0.96, 0.92),
   slatePanel: rgb(0.12, 0.15, 0.22),
+  amber: rgb(0.66, 0.36, 0.04),
+  amberLight: rgb(1, 0.96, 0.84),
 } as const;
 
 const PAGE_WIDTH = 612;
@@ -879,20 +882,20 @@ const drawDashboardPage = (
     y: 58,
     width: CONTENT_WIDTH,
     height: 48,
-    color: COLORS.sageLight,
+    color: context.provisionalDataNotice ? COLORS.amberLight : COLORS.sageLight,
     borderColor: COLORS.border,
     borderWidth: 0.7,
   });
-  drawText(page, fonts, "Warning state", {
+  drawText(page, fonts, context.provisionalDataNotice ? "Provisional data" : "Warning state", {
     x: MARGIN + 14,
     y: 87,
     size: 8.5,
     font: fonts.bold,
-    color: COLORS.sage,
+    color: context.provisionalDataNotice ? COLORS.amber : COLORS.sage,
   });
-  drawText(page, fonts, rows.length === 0
+  drawText(page, fonts, context.provisionalDataNotice || (rows.length === 0
     ? "No sales rows were returned for this selected period and scope."
-    : "No blocking export warnings were returned. Use the appendix for row-level reconciliation.",
+    : "No blocking export warnings were returned. Use the appendix for row-level reconciliation."),
   {
     x: MARGIN + 14,
     y: 72,
@@ -1094,6 +1097,7 @@ const normalizeContext = (
         : "All accessible locations"),
     paymentScopeLabel: context.paymentScopeLabel ||
       (paymentLabels.length > 0 ? paymentLabels.join(", ") : "All payment methods"),
+    provisionalDataNotice: toAscii(context.provisionalDataNotice),
   };
 };
 
@@ -1111,6 +1115,7 @@ export const buildSalesReportPdf = async ({
   machineScopeLabel,
   locationScopeLabel,
   paymentScopeLabel,
+  provisionalDataNotice,
 }: SalesReportPdfContext & {
   rows: SalesReportPdfRow[];
   summary?: SalesReportPdfSummary;
@@ -1140,6 +1145,7 @@ export const buildSalesReportPdf = async ({
       machineScopeLabel,
       locationScopeLabel,
       paymentScopeLabel,
+      provisionalDataNotice,
     },
     rows,
   );

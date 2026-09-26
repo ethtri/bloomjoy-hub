@@ -36,6 +36,7 @@ const selectors = {
   operatorFreshness: '[data-reporting-operator-freshness-state]',
   operatorDetailsToggle: '[data-reporting-operator-details-toggle]',
   operatorDetailsContent: '[data-reporting-operator-details-content]',
+  snapcaseProvisionalNotice: '[data-reporting-snapcase-provisional-notice]',
   partnerMachinePicker: '[data-reporting-partner-machine-picker]',
   partnerMachineRow: '[data-reporting-partner-machine-row]',
   partnerMachineAction: '[data-reporting-partner-machine-action]',
@@ -101,7 +102,7 @@ const operatorDimensions = [
     location_name: 'North Hall',
     machine_id: 'operator-machine-north',
     machine_label: 'North Atrium',
-    machine_type: 'robotic_cotton_candy',
+    machine_type: 'commercial',
     sunze_machine_id: null,
     latest_sale_date: fixedDateTo,
     status: 'active',
@@ -113,7 +114,7 @@ const operatorDimensions = [
     location_name: 'Garden Hall',
     machine_id: 'operator-machine-garden',
     machine_label: 'Garden Annex',
-    machine_type: 'robotic_cotton_candy',
+    machine_type: 'snapcase',
     sunze_machine_id: null,
     latest_sale_date: fixedDateTo,
     status: 'active',
@@ -638,7 +639,7 @@ const createPageForPersona = async (
           snapshotId: 'operator-export-uat',
           storagePath: 'sanitized/operator-report.pdf',
           signedUrl: `${appUrl}/uat-export/operator-report.pdf`,
-          pdfGeneratorVersion: 'sales-report-pdf/polished-v1',
+          pdfGeneratorVersion: 'sales-report-pdf/polished-v2',
           rowCount: operatorReportResponse(body.filters).length,
         }),
       });
@@ -998,6 +999,17 @@ const assertOperatorDesktop = async (browser) => {
         'Operator-only reporting must not expose partner revenue-share data.',
       );
     });
+    await check('Mixed operator scope marks SnapCase totals provisional without hiding totals', async () => {
+      const notice = page.locator(selectors.snapcaseProvisionalNotice);
+      await notice.waitFor();
+      const noticeText = await textOf(notice);
+      assert(
+        noticeText.includes('SnapCase sales are incomplete.') &&
+          noticeText.includes('Totals are provisional until cash and card data are reconciled.'),
+        `Mixed operator scope must show the SnapCase provisional-data notice. Found: ${noticeText}`,
+      );
+      await page.locator(selectors.operatorMetrics).waitFor();
+    });
     await check('Operator default toolbar keeps advanced and custom controls out of the primary path', async () => {
       const dateRange = page.locator(selectors.operatorDateRange);
       const machine = await findOperatorMachineTrigger(page);
@@ -1135,6 +1147,10 @@ const assertOperatorDesktop = async (browser) => {
     await check('Operator machine and payment filters scope every total and export', async () => {
       const machineTrigger = await findOperatorMachineTrigger(page);
       await selectRadixOption(machineTrigger, 'North Atrium');
+      assert(
+        (await page.locator(selectors.snapcaseProvisionalNotice).count()) === 0,
+        'A selected Sunze-only machine must not show the SnapCase provisional-data notice.',
+      );
       await selectOperatorPayment(page, 'Credit');
       const metrics = page.locator(selectors.operatorMetrics);
       await expectCurrency(metrics, '$210.00', 'Filtered operator net KPI');
