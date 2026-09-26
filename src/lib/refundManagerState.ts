@@ -539,6 +539,27 @@ export const getRefundManagerState = (
       'warning');
   }
 
+  if (refundCase.decision === 'approved' &&
+      refundCase.paymentMethod === 'card' &&
+      refundCase.status === 'card_refund_pending' &&
+      refundCase.lifecycle == null &&
+      refundCase.workflowProjectionUnavailable === true &&
+      refundCase.providerOutcome === 'succeeded') {
+    return state('refund_confirmed', 'Refund completed · details refreshing',
+      'The protected decision response reports the original refund complete. Bloomjoy is checking the current receipt and customer-contact details.',
+      'Do not approve or try the refund again. Wait for the current case history.', 'info');
+  }
+  if (refundCase.decision === 'approved' &&
+      refundCase.paymentMethod === 'card' &&
+      refundCase.status === 'card_refund_pending' &&
+      refundCase.lifecycle == null &&
+      refundCase.workflowProjectionUnavailable === true &&
+      (refundCase.providerHold === true || refundCase.providerOutcome === 'unconfirmed')) {
+    return state('check_nayax_result', 'Refund result needs reconciliation',
+      'The protected decision response reports an unconfirmed payment result. Bloomjoy owns the exact-attempt reconciliation.',
+      'Do not approve or try the refund again. Wait for the current case history.', 'warning');
+  }
+
   // An acknowledged card approval survives a failed overview refresh. Until
   // the server projection returns, the saved decision belongs to System
   // continuation, never another Manager decision or browser retry.

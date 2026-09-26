@@ -1,5 +1,6 @@
 import { searchRefundCases } from '@/lib/refundCaseSearch';
 import {
+  type ConfirmedCardApprovalOutcome,
   createRefundReadPolling,
   REFUND_OVERVIEW_INITIAL_LOAD_ERROR,
   REFUND_OVERVIEW_UPDATE_DELAYED,
@@ -2819,7 +2820,7 @@ export default function AdminRefundsPage() {
   const [overviewReadMessage, setOverviewReadMessage] = useState('');
   const overviewPolling = useMemo(createRefundReadPolling, [selectedId]);
   const overviewTruthRef = useRef<RefundOperationsOverview>();
-  const confirmedCardApprovalIdsRef = useRef<Set<string>>(new Set());
+  const confirmedCardApprovalOutcomesRef = useRef<Map<string, ConfirmedCardApprovalOutcome>>(new Map());
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
   const retainConfirmedCardApprovals = (
@@ -2828,20 +2829,23 @@ export default function AdminRefundsPage() {
   ) => {
     for (const refundCase of incoming.cases) {
       if (refundCase.decision === 'approved') {
-        confirmedCardApprovalIdsRef.current.delete(refundCase.id);
+        confirmedCardApprovalOutcomesRef.current.delete(refundCase.id);
       }
     }
-    return preserveConfirmedCardApproval(merged, confirmedCardApprovalIdsRef.current) ?? merged;
+    return preserveConfirmedCardApproval(merged, confirmedCardApprovalOutcomesRef.current) ?? merged;
   };
-  const holdConfirmedCardApproval = (caseId: string) => {
-    confirmedCardApprovalIdsRef.current.add(caseId);
+  const holdConfirmedCardApproval = (
+    caseId: string,
+    outcome: ConfirmedCardApprovalOutcome = 'system_finishing',
+  ) => {
+    confirmedCardApprovalOutcomesRef.current.set(caseId, outcome);
     overviewTruthRef.current = preserveConfirmedCardApproval(
       overviewTruthRef.current,
-      confirmedCardApprovalIdsRef.current,
+      confirmedCardApprovalOutcomesRef.current,
     );
     queryClient.setQueryData<RefundOperationsOverview>(
       ['admin-refund-operations-overview'],
-      (current) => preserveConfirmedCardApproval(current, confirmedCardApprovalIdsRef.current),
+      (current) => preserveConfirmedCardApproval(current, confirmedCardApprovalOutcomesRef.current),
     );
   };
   const readFreshRefundOverview = async () => {
@@ -4508,7 +4512,7 @@ export default function AdminRefundsPage() {
         preparationProofId: proofId,
         candidateToken: selectedCandidate.candidateToken,
       });
-      if (result.approved === true) holdConfirmedCardApproval(targetCaseId);
+      if (result.approved === true) holdConfirmedCardApproval(targetCaseId, result.status);
       await refresh();
       setRefundActionReceipt({
         tone: result.status === 'provider_hold' ? 'warning' : 'success',

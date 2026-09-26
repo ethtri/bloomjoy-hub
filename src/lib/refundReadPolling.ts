@@ -188,7 +188,11 @@ type CardApprovalHoldCase = {
   lifecycle?: unknown;
   workflowProjectionUnavailable?: boolean;
   nayaxMatchExecutionEligible?: boolean;
+  providerHold?: boolean;
+  providerOutcome?: string;
 };
+
+export type ConfirmedCardApprovalOutcome = 'system_finishing' | 'provider_hold' | 'completed';
 
 /**
  * A protected approval response is authoritative even if the next overview read
@@ -197,13 +201,14 @@ type CardApprovalHoldCase = {
  */
 export const preserveConfirmedCardApproval = <T extends { cases: CardApprovalHoldCase[] }>(
   overview: T | undefined,
-  approvedCaseIds: ReadonlySet<string>,
+  approvedCaseOutcomes: ReadonlyMap<string, ConfirmedCardApprovalOutcome>,
 ): T | undefined => {
-  if (!overview || approvedCaseIds.size === 0) return overview;
+  if (!overview || approvedCaseOutcomes.size === 0) return overview;
   return {
     ...overview,
-    cases: overview.cases.map((refundCase) =>
-      approvedCaseIds.has(refundCase.id) &&
+    cases: overview.cases.map((refundCase) => {
+      const outcome = approvedCaseOutcomes.get(refundCase.id);
+      return outcome &&
       refundCase.paymentMethod === 'card' &&
       refundCase.decision == null &&
       !['completed', 'denied', 'closed'].includes(refundCase.status)
@@ -214,9 +219,12 @@ export const preserveConfirmedCardApproval = <T extends { cases: CardApprovalHol
             lifecycle: null,
             workflowProjectionUnavailable: true,
             nayaxMatchExecutionEligible: false,
+            providerHold: outcome === 'provider_hold',
+            providerOutcome: outcome === 'provider_hold' ? 'unconfirmed'
+              : outcome === 'completed' ? 'succeeded' : 'not_attempted',
           }
-        : refundCase
-    ),
+        : refundCase;
+    }),
   } as T;
 };
 

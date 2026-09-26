@@ -1179,6 +1179,16 @@ Deno.test('acknowledged approval with a failed overview refresh remains System f
     providerOutcome: 'unconfirmed' as const,
   });
   assertEquals(uncertain.id, 'check_nayax_result', 'unknown payment still takes the reconciliation path');
+  assertEquals(uncertain.nextStep.includes('Do not approve or try the refund again.'), true,
+    'provider-hold replay never offers another payment');
+  const completed = getRefundManagerState({
+    ...heldCase,
+    providerOutcome: 'succeeded' as const,
+  });
+  assertEquals(completed.label, 'Refund completed · details refreshing',
+    'completed replay keeps its stronger protected result');
+  assertEquals(completed.explanation.includes('customer-contact details'), true,
+    'completed replay does not invent delivered customer notice');
 });
 
 Deno.test('confirmed transaction takes precedence over an older manual-review recommendation', () => {

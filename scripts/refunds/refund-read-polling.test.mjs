@@ -17,7 +17,7 @@ test('a saved card approval cannot reappear as Manager work during a failed or s
    nayaxMatchExecutionEligible:true};
  const otherCase={...oldCase,id:'case-b'};
  const oldOverview={cases:[oldCase,otherCase]};
- const holds=new Set(['case-a']);
+ const holds=new Map([['case-a','system_finishing']]);
  const held=preserveConfirmedCardApproval(oldOverview,holds);
  assert.equal(held.cases[0].decision,'approved');
  assert.equal(held.cases[0].status,'card_refund_pending');
@@ -40,6 +40,18 @@ test('a saved card approval cannot reappear as Manager work during a failed or s
  const settledServerCase={...oldCase,status:'completed',decision:null};
  assert.deepEqual(preserveConfirmedCardApproval({cases:[settledServerCase]},holds).cases[0],settledServerCase,
    'a terminal server record is not rewritten as pending');
+ const unknown=preserveConfirmedCardApproval(oldOverview,new Map([['case-a','provider_hold']])).cases[0];
+ assert.equal(unknown.decision,'approved');
+ assert.equal(unknown.providerHold,true);
+ assert.equal(unknown.providerOutcome,'unconfirmed');
+ assert.equal(unknown.lifecycle,null,'unknown outcome cannot restore Manager approval');
+ const completed=preserveConfirmedCardApproval(oldOverview,new Map([['case-a','completed']])).cases[0];
+ assert.equal(completed.decision,'approved');
+ assert.equal(completed.providerOutcome,'succeeded');
+ assert.equal(completed.status,'card_refund_pending','customer-contact detail stays open until server readback');
+ assert.equal(completed.lifecycle,null,'completed replay cannot restore Manager approval');
+ assert.deepEqual(preserveConfirmedCardApproval({cases:[newServerCase]},new Map([['case-a','completed']])).cases[0],
+   newServerCase,'an authoritative approved case replaces even a stronger local replay hold');
  client.clear();
 });
 
