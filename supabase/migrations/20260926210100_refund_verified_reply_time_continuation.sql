@@ -50,12 +50,14 @@ begin
     or exists(select 1 from public.refund_authoritative_receipts receipt
       where receipt.refund_case_id=c.id)
     or source.id is null or source.refund_case_id is distinct from c.id
-    or source.direction<>'inbound' or source.status<>'received'
+    or source.direction<>'inbound' or source.message_kind<>'message'
+    or source.status<>'received'
     or source.participant_role<>'customer' or source.participant_trust<>'verified'
     or source.content_deleted_at is not null or source.sensitive_data_redacted
     or source.received_at is distinct from ctx.reply_received_at
     or evidence.id is null or evidence.refund_case_id is distinct from c.id
-    or evidence.direction<>'inbound' or evidence.status<>'received'
+    or evidence.direction<>'inbound' or evidence.message_kind<>'message'
+    or evidence.status<>'received'
     or evidence.participant_role<>'customer' or evidence.participant_trust<>'verified'
     or evidence.content_deleted_at is not null or evidence.sensitive_data_redacted
     or not (public.refund_scoped_verified_reply_set(ctx.id)->'messages'
@@ -64,6 +66,7 @@ begin
       is distinct from p_body_sha256
     or coalesce(length(p_source_quote),0) not between 10 and 40
     or position(p_source_quote in coalesce(evidence.plain_body,''))=0
+    or c.incident_at is null or c.incident_local_datetime is null
     or c.incident_local_datetime !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}$'
     or location_row.id is null or location_row.status<>'active'
     or c.incident_timezone is distinct from location_row.timezone
