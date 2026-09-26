@@ -3779,6 +3779,7 @@ export default function AdminRefundsPage() {
           editor?.clearNayaxMatch !== true,
         isLookingUp: isLookingUpNayax,
         legacyStateReviewRequired: selectedCaseNeedsLegacyPaymentReview,
+        lookupWorkFailureClass: selectedCase.nayaxLookupWork?.failureClass,
         lifecycleLookupStatus: selectedCase.lifecycle?.lookup.status,
         lifecycleReasonCode: selectedCase.lifecycle?.reasonCode,
         waitingOnCustomer: isWaitingCase(selectedCase, refundOperationsAccess),
@@ -5907,32 +5908,32 @@ export default function AdminRefundsPage() {
       hasSelectedMatch: hasPersistedSelectedMatch,
       isLookingUp: isLookingUpNayax,
       legacyStateReviewRequired: selectedCaseNeedsLegacyPaymentReview,
+      lookupWorkFailureClass: selectedCase.nayaxLookupWork?.failureClass,
       lifecycleLookupStatus: selectedCase.lifecycle?.lookup.status,
       lifecycleReasonCode: selectedCase.lifecycle?.reasonCode,
       waitingOnCustomer,
     });
     const automaticLookupPending = transactionView.kind === 'checking';
     const incompleteHistory = selectedNayaxSummary?.lookupStatus === 'inconclusive';
+    // Kept only for a mixed-version service response. Current projections assign
+    // exhausted or unsafe research to Refund Operations, without a Manager control.
+    const legacyManagerLookupAuthorized = selectedCase.nayaxLookupWork?.state === 'machine_manager';
     const incompleteHistoryRefreshAvailable = Boolean(
       incompleteHistory &&
+        legacyManagerLookupAuthorized &&
         (selectedCase.nayaxLookupWork?.automaticRetriesUsed ?? 0) < 1 &&
         !automaticLookupPending &&
         !hasSelectedMatch
     );
     const incompleteHistoryRefreshExhausted = Boolean(
       incompleteHistory &&
+        legacyManagerLookupAuthorized &&
         (selectedCase.nayaxLookupWork?.automaticRetriesUsed ?? 0) >= 1 &&
         !automaticLookupPending &&
         !hasSelectedMatch
     );
     const showManagerTransactionRecovery =
-      (
-        ['machine_manager', 'refund_operations'].includes(selectedCase.nayaxLookupWork?.state ?? '') ||
-        (
-          selectedCase.lifecycle?.managerQueue.safeRetryEligible === true &&
-          selectedCase.lifecycle.managerQueue.nextAction === 'retry_read_only_lookup'
-        )
-      ) &&
+      legacyManagerLookupAuthorized &&
       !incompleteHistory &&
       !automaticLookupPending &&
       !hasSelectedMatch;
@@ -6194,6 +6195,7 @@ export default function AdminRefundsPage() {
       hasSelectedMatch: hasPersistedSelectedMatch,
       isLookingUp: isLookingUpNayax,
       legacyStateReviewRequired: selectedCaseNeedsLegacyPaymentReview,
+      lookupWorkFailureClass: selectedCase.nayaxLookupWork?.failureClass,
       lifecycleLookupStatus: selectedCase.lifecycle?.lookup.status,
       lifecycleReasonCode: selectedCase.lifecycle?.reasonCode,
       waitingOnCustomer,

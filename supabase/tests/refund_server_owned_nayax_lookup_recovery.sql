@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(47);
+select plan(50);
 
 select ok(to_regclass('public.refund_nayax_lookup_recoveries') is null,
   'The duplicate lookup recovery table is removed');
@@ -105,8 +105,8 @@ select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
     'lifecycle',jsonb_build_object('managerAction','{}'::jsonb,'managerQueue','{}'::jsonb,
       'lookup','{}'::jsonb,'operations','{}'::jsonb),
     'nayaxLookupSummary',jsonb_build_object('lookupStatus','no_match'))),true)
-  ->0->'nayaxLookupWork'->>'state'),'machine_manager',
-  'Incomplete provider history is actionable Machine Manager work');
+  ->0->'nayaxLookupWork'->>'state'),'refund_operations',
+  'Incomplete provider history remains Bloomjoy-owned research');
 select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
   jsonb_build_array(jsonb_build_object('id','a8700000-0000-4000-8000-000000000011',
     'lifecycle',jsonb_build_object('managerAction','{}'::jsonb,'managerQueue','{}'::jsonb,
@@ -157,14 +157,14 @@ select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
   jsonb_build_array(jsonb_build_object('id','a8700000-0000-4000-8000-000000000012',
     'canSelectNayaxCandidate',true,'lifecycle',jsonb_build_object('managerAction','{}'::jsonb,
       'managerQueue','{}'::jsonb,'lookup','{}'::jsonb,'operations','{}'::jsonb),
-    'nayaxLookupSummary','{}'::jsonb)),true)->0->'nayaxLookupWork'->>'state'),'machine_manager',
-  'An exhausted automatic retry routes to the Machine Manager');
-select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
+    'nayaxLookupSummary','{}'::jsonb)),true)->0->'nayaxLookupWork'->>'state'),'refund_operations',
+  'An exhausted automatic retry remains an internal dependency');
+select ok((public.refund_project_nayax_lookup_recovery_cases_for_manager(
   jsonb_build_array(jsonb_build_object('id','a8700000-0000-4000-8000-000000000012',
-    'lifecycle',jsonb_build_object('managerAction','{}'::jsonb,'managerQueue','{}'::jsonb,
-      'lookup','{}'::jsonb,'operations','{}'::jsonb),'nayaxLookupSummary','{}'::jsonb)),true)
-  ->0->'lifecycle'->'managerAction'->>'owner'),'Machine Manager',
-  'Manager action and case-owned work agree on the owner');
+    'lifecycle',public.refund_lifecycle_contract('a8700000-0000-4000-8000-000000000012'),
+    'nayaxLookupSummary','{}'::jsonb)),true)->0->'lifecycle')
+  = public.refund_lifecycle_contract('a8700000-0000-4000-8000-000000000012'),
+  'Lookup recovery does not rewrite canonical Manager authority');
 
 select ok(not has_function_privilege('authenticated',
   'public.service_bind_refund_nayax_candidate_to_actor(uuid,uuid,uuid)','execute')
@@ -382,6 +382,31 @@ select is((select nayax_lookup_status from public.refund_cases
 select is((select nayax_lookup_status from public.refund_cases
   where id='a8800000-0000-4000-8000-000000000018'),'manual_exception',
   'A disputed automatic result does not silently restart provider research');
+
+select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
+  jsonb_build_array(jsonb_build_object('id','a8700000-0000-4000-8000-000000000012',
+    'lifecycle',jsonb_build_object('paymentWorkComplete',true),
+    'nayaxLookupSummary',jsonb_build_object('lookupStatus','lookup_failed'))),true)
+  ->0->'nayaxLookupWork'->>'state'),'complete',
+  'Existing payment work outranks stale lookup failure even when case status has not caught up');
+
+insert into public.reporting_locations(id,account_id,name,timezone)
+values('a8700000-0000-4000-8000-000000000004',
+  'a8700000-0000-4000-8000-000000000001','Other lookup place','America/Los_Angeles');
+update public.reporting_machines set location_id='a8700000-0000-4000-8000-000000000004'
+where id='a8700000-0000-4000-8000-000000000003';
+select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
+  jsonb_build_array(jsonb_build_object('id','a8700000-0000-4000-8000-000000000012',
+    'lifecycle',public.refund_lifecycle_contract('a8700000-0000-4000-8000-000000000012'),
+    'nayaxLookupSummary','{}'::jsonb)),true)
+  ->0->'nayaxLookupWork'->>'failureClass'),'reported_machine_location_mismatch',
+  'Wrong-location machine mapping is a precise internal dependency');
+select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
+  jsonb_build_array(jsonb_build_object('id','a8700000-0000-4000-8000-000000000012',
+    'lifecycle',public.refund_lifecycle_contract('a8700000-0000-4000-8000-000000000012'),
+    'nayaxLookupSummary','{}'::jsonb)),true)
+  ->0->'nayaxLookupWork'->>'state'),'refund_operations',
+  'Wrong-location lookup is not presented as due System provider work or Manager research');
 
 select * from finish();
 rollback;

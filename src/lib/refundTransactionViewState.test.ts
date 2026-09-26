@@ -103,6 +103,37 @@ Deno.test('authoritative no-match stays distinct from incomplete history', () =>
   assertEquals(unknown.heading, 'Transaction history is incomplete', 'unknown history heading');
   assertEquals(complete.kind, 'no_match', 'complete history state');
   assertEquals(unknown.kind, 'unavailable', 'unknown history fails closed');
+  assertEquals(unknown.description.includes('Bloomjoy owns the read-only research'), true,
+    'incomplete history stays with Bloomjoy');
+});
+
+Deno.test('blocked card search never assigns provider research or payment to the Manager', () => {
+  for (const lookupStatus of ['setup_needed', 'lookup_failed', 'response_limited'] as const) {
+    const state = deriveRefundTransactionViewState({
+      ...baseInput,
+      summary: summary(lookupStatus, { safeRetryEligible: false }),
+    });
+    assertEquals(state.kind, 'unavailable', `${lookupStatus} state`);
+    assertEquals(state.description.includes('Bloomjoy'), true, `${lookupStatus} internal owner`);
+    assertEquals(state.description.includes('No Manager transaction check or payment is due'), true,
+      `${lookupStatus} no Manager research`);
+  }
+});
+
+Deno.test('unsafe current lookup scope shows the exact internal dependency', () => {
+  for (const [failureClass, explanation] of [
+    ['duplicate_case_pending', 'duplicate-case link'],
+    ['reported_machine_location_mismatch', 'machine and location conflict'],
+  ]) {
+    const state = deriveRefundTransactionViewState({
+      ...baseInput,
+      summary: summary('lookup_failed', { safeRetryEligible: false }),
+      lookupWorkFailureClass: failureClass,
+    });
+    assertEquals(state.description.includes(explanation), true, `${failureClass} explanation`);
+    assertEquals(state.description.includes('No Manager transaction check or payment is due'), true,
+      `${failureClass} owner`);
+  }
 });
 
 Deno.test('selection and active checking take precedence over other lookup summaries', () => {

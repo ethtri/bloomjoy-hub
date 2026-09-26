@@ -8,6 +8,12 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- On 2026-09-26 the authenticated refund list loaded again, but five case
+  workflow details were still unavailable. Three traced to a stale Nayax lookup
+  projection: two searches need internal machine/duplicate-scope repair before
+  any provider read, and one case has confirmed payment that must not reopen
+  transaction search. Track the other two fallbacks separately under #628;
+  a loading list alone is not completion of the final-decision workflow.
 - On 2026-09-25 the authenticated production refund Case list began timing out
   before it could load. P0 issue [#1453](https://github.com/ethtri/bloomjoy-hub/issues/1453)
   tracks the database performance repair and authorized post-release readback;

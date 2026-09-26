@@ -517,6 +517,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
     navigationReadOnlyRpcs,
     simpleJourneyFixture,
     buildGroupedLivermorePendingOverview,
+    buildInternalLookupScopeLifecycle,
     buildManagerLookupRecoveryLifecycle,
     buildManagerReadyRefundOverview,
     buildMockRefundOverview,
@@ -1125,6 +1126,37 @@ const runNayaxLookupStatusMatrixChecks = async ({
       expectedAction: 'Run the available transaction check. If no check is available, search the same machine in Nayax and report the portal gap. No refund has been issued.',
     },
     {
+      name: 'current internal lookup scope hold',
+      refundOverview: () => {
+        const overview = buildPendingNayaxRefundOverview();
+        overview.cases = overview.cases.map((refundCase) => ({
+          ...refundCase,
+          lifecycle: buildInternalLookupScopeLifecycle(),
+        }));
+        return overview;
+      },
+      response: {
+        configured: true,
+        lookupStatus: 'lookup_failed',
+        lastCheckedAt: now.toISOString(),
+        candidateCount: 0,
+        windowHours: 6,
+        summary: 'No provider result is safe to use before the saved scope is repaired.',
+        recommendedAction: 'Keep the dependency inside Bloomjoy.',
+        candidates: [],
+      },
+      recovery: {
+        state: 'refund_operations', automaticRetriesUsed: 0,
+        nextAttemptAt: null, failureClass: 'reported_machine_location_mismatch', payloadRedacted: true,
+      },
+      queueView: 'Bloomjoy follow-up',
+      expectedHeading: 'Transaction results are unavailable',
+      expectedStatus: 'Needs attention',
+      expectedDescription: /saved machine and location conflict/i,
+      expectedAction: 'Next: Resolve the saved machine and location conflict before a provider read.',
+      expectedNoManagerRecovery: true,
+    },
+    {
       name: 'wallet waiting on customer',
       refundOverview: buildWalletMismatchWaitingRefundOverview,
       response: {
@@ -1482,6 +1514,20 @@ const runNayaxLookupStatusMatrixChecks = async ({
         managerState: await page.getByTestId('refund-manager-state').innerText(),
       })
     );
+    if (scenario.expectedNoManagerRecovery) {
+      recorder.assert(
+        'A current internal lookup scope hold exposes no Manager research or payment control',
+        (await page.getByTestId('nayax-operations-recovery').count()) === 0 &&
+          (await page.getByTestId('nayax-incomplete-history-refresh').count()) === 0 &&
+          (await page.getByTestId('nayax-check-transaction').count()) === 0 &&
+          (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+          !functionCalls.some((name) => [
+            'nayax-transaction-lookup', 'nayax-card-refund',
+            'refund-case-admin-update', 'refund-case-message-send',
+          ].includes(name)),
+        JSON.stringify({ functionCalls })
+      );
+    }
     if (scenario.expectedOperationsRecoveryControl) {
       recorder.assert(
         'The current manager keeps the full workbench without a duplicate manager summary',

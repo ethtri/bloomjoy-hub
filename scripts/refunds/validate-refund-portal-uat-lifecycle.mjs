@@ -251,7 +251,11 @@ assert.doesNotMatch(
 );
 assert.match(
   refundsSource,
-  /selectedCase\.lifecycle\?\.managerQueue\.safeRetryEligible === true &&[\s\S]*?nextAction === 'retry_read_only_lookup'/
+  /legacyManagerLookupAuthorized = selectedCase\.nayaxLookupWork\?\.state === 'machine_manager'/
+);
+assert.doesNotMatch(
+  refundsSource,
+  /\['machine_manager', 'refund_operations'\]\.includes\(selectedCase\.nayaxLookupWork\?\.state/
 );
 assert.doesNotMatch(
   refundsSource,

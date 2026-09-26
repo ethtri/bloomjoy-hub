@@ -881,6 +881,48 @@ const buildManagerLookupRecoveryLifecycle = () => {
   };
 };
 
+const buildInternalLookupScopeLifecycle = () => {
+  const lifecycle = buildLifecycleFixture('matching', 10, 'refund_operations');
+  return {
+    ...lifecycle,
+    reasonCode: 'lookup_failed',
+    managerAction: {
+      ...lifecycle.managerAction,
+      action: 'refund_operations',
+      owner: 'Refund Operations',
+      safeRetryEligible: false,
+    },
+    lookup: {
+      ...lifecycle.lookup,
+      status: 'lookup_failed',
+      safeRetryEligible: false,
+      failureClass: 'reported_machine_location_mismatch',
+    },
+    managerQueue: {
+      ...lifecycle.managerQueue,
+      bucket: 'provider_hold',
+      label: 'Bloomjoy follow-up',
+      nextAction: 'refund_operations',
+      safeRetryEligible: false,
+    },
+    nextWork: {
+      schemaVersion: 'refund_next_work_v1',
+      isOpen: true,
+      actor: 'agent',
+      actionCode: 'research_purchase',
+      actionLabel: 'Resolve the saved machine and location conflict before a provider read.',
+      lastProgressAt: now.toISOString(),
+      dueAt: null,
+      blocker: {
+        code: 'reported_machine_location_mismatch',
+        owner: 'Agent',
+        nextStep: 'Verify the saved machine and location before another provider read.',
+      },
+      payloadRedacted: true,
+    },
+  };
+};
+
 // This is the state immediately before the assigned Manager's one approval.
 // The case worker/System has already saved the exact provider total; no
 // financial decision or approval message exists yet.
@@ -4748,6 +4790,7 @@ const {
     buildAdamApiUnavailableRefundOverview,
     buildGroupedLivermorePendingOverview,
     buildManagerClarityRefundOverview,
+    buildInternalLookupScopeLifecycle,
     buildManagerLookupRecoveryLifecycle,
     buildManagerReadyRefundOverview,
     buildMockRefundOverview,
