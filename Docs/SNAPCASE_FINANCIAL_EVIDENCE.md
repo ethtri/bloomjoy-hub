@@ -111,13 +111,33 @@ marked this as an open item to verify. It may guide inactive implementation and
 tests, but it is not provider proof and does not activate cash business-date
 publication.
 
-The current Hub registry has eight SnapCase rows, six with Nayax IDs, but no
-configured exact Kexiaozhan-to-Hub machine mapping. SnapCase serials are absent,
-so the bounded three-day comparison had no independently proved same-machine
-cohort. This is a current configuration gap, not a requirement that future
-mappings use serials: a reviewed, unique source label/location lineage may also
-establish the cohort. Zero cross-provider identifier or time/amount matches from
-the unmatched cohort is not evidence that the fields are globally incomparable.
+The owner clarified that Nayax and Kexiaozhan are separate systems and are not
+expected to share IDs. The team intentionally aligns machine names across the
+systems. The supported mapping proposal is therefore a unique normalized machine
+name plus account/location context. A serial is optional corroboration. Duplicate
+or mismatched names are actionable mapping or naming-cleanup exceptions.
+
+After a human reviews that proposal, persist each provider's distinct stable
+machine ID in the effective mapping. A later rename must not change transaction
+identity or duplicate sales, so the mutable display name is never a transaction
+key. The current Hub registry has eight SnapCase rows, six with Nayax IDs. A
+read-only review found six unique Kexiaozhan name/context candidates for those
+six rows; it did not change a name or mapping.
+
+One bounded comparison used those six proposed cohorts and the half-open interval
+September 24 through September 27. It found five successful Kexiaozhan card rows
+and five positive-authorization USD Nayax rows. Four formed unique same-amount
+candidates within 3.74 seconds when Kexiaozhan `paymentTime` was compared with
+Nayax `MachineAuthorizationTime`; none formed a same-amount candidate within two
+minutes against `AuthorizationDateTimeGMT`. The four candidates occurred across
+two Eastern machines. On a Central machine, each source had one row but they did
+not form a same-amount candidate within two minutes. That difference remains an
+unexplained aggregate discrepancy.
+
+This strongly corroborates the owner's machine-local working assumption, but it
+does not create exact transaction links and does not close the owner's requested
+clock verification. Amount-and-time proximity remains aggregate/candidate
+evidence only. Publication stays inactive pending the verification below.
 
 The remaining owner/provider verification item before assigning a cash business
 date is either:
@@ -192,6 +212,9 @@ A Kexiaozhan machine/window is financially complete only when all of the
 following hold:
 
 - the exact source machine has an effective Hub mapping and source ownership;
+- that mapping was reviewed from a unique normalized name plus account/location
+  context, retains both providers' stable IDs, and has no unresolved duplicate or
+  naming exception;
 - `/v1/payments` pagination reaches the declared total with no rejected rows,
   truncation or cursor remaining;
 - the half-open source bounds and source clock are verified;
