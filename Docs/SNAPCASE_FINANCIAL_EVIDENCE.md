@@ -74,6 +74,15 @@ the collector `paymentAmount` remains the cash authority. Another currency or an
 unexplained inconsistent monetary relationship must remain an exception until
 that shape is proved.
 
+Item quantity remains unknown. The complete 46-row order sample contained no
+`quantity`, `qty`, `itemCount` or equivalent item-count field, and the merchant
+order UI exposes no quantity column. `materialCount` is material metadata and
+must not be treated as item quantity. Singular product fields do not prove one
+vend or item per order, and a payment's `orderNos` length is linked-order count,
+not item count. Keep order and payment `quantity` null unless a source quantity
+contract is proved. Cash gross remains independently publishable from the
+authoritative payment amount without per-item allocation or inferred unit cost.
+
 The vendor UI defines payment statuses as `0` unpaid, `1` paid, `2` failed, `3`
 refunding, `4` refunded and `5` refund failed. The day sample had 26 status-`1`
 payments. The order UI separately defines order lifecycle values, including
