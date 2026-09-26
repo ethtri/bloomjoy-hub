@@ -211,6 +211,8 @@ select is(public.refund_customer_outreach_contract(pg_temp.cid(9))->>'owner','Sy
   'Completed no-fact review remains System-owned rather than a customer re-question');
 select is(public.refund_lifecycle_contract(pg_temp.cid(9))->'nextWork'->>'actionCode',
   'research_purchase','A completed no-fact review exposes the evidence dependency, not another reply review');
+select is(public.refund_lifecycle_contract(pg_temp.cid(9))->'nextWork'->>'actor',
+  'agent','No-fact purchase research belongs to an internal Agent, never a Manager');
 select is(public.refund_lifecycle_contract(pg_temp.cid(9))->'nextWork'->'blocker'->>'code',
   'stable_evidence_dependency','New purchase evidence is required before replaying the reviewed reply');
 select is(public.service_get_refund_scoped_reply_research_health()
