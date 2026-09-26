@@ -1,5 +1,29 @@
 # Decisions
 
+## 2026-09-26 - Import the SnapCase fleet automatically and map it in the portal
+
+Owner direction for #1474: all 22 machines currently visible through the configured
+Kexiaozhan merchant reporting login belong in Bloomjoy Hub. Going forward, the
+importer should automatically discover and retain all machines and sales visible
+to that account. Do not require a separate per-machine or per-merchant approval
+before ingestion. Extend the existing portal mapping workflow to support
+SnapCase/Kexiaozhan as well as cotton-candy/Sunze machines.
+
+Initial mapping directions are PREIT (source label `Preit`) to Bloomjoy Enterprises,
+and Gilroy plus Great Mall to TGpaci. Resolve these labels to existing canonical
+Hub entities during implementation. Other machines remain available for portal
+mapping; their unresolved destination does not prevent private ingestion.
+
+Unmapped records stay private and outside account reports and payroll until
+mapped. Mapping does not create technician compensation assignments. Preserve
+source identity, effective dates, tenant access and Nayax reconciliation so a
+sale or refund is counted once. A new machine must enter the mapping queue
+automatically without a code change or manual source allowlist edit.
+
+This is an implementation design decision, not a production mapping change or
+deployment authorization. Discovery login/read access was proved in #1486;
+complete extraction and financial semantics remain implementation verification.
+
 ## 2026-09-26 - Nayax scheduled reports feed revenue for Nayax-only machines
 
 Authenticated Nayax transaction-report emails are an authoritative sales source

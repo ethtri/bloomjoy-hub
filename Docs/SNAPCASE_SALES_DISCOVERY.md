@@ -6,6 +6,18 @@ The architecture below is a proposal; it is not an activation authorization.
 
 ## Recommendation in plain English
 
+**Owner update, September 26:** all 22 visible machines belong in the portal.
+Automatically import the complete accessible fleet into private staging and use
+the existing portal mapping workflow, extended for SnapCase, to attribute sales.
+PREIT maps to Bloomjoy Enterprises; Gilroy and Great Mall map to TGpaci. Remaining
+destinations can be mapped in the portal without delaying ingestion. This
+supersedes earlier roster-approval/allowlist prerequisites for collecting data;
+mapping and reconciliation still control financial publication. See
+[the recorded decision](DECISIONS.md#2026-09-26---import-the-snapcase-fleet-automatically-and-map-it-in-the-portal).
+Credentials and the production read API were validated in #1486. That follow-up
+also proved the old prototype must use inventory `machineId`, not `id`, and handle
+the observed 50-row page cap. No implementation or live mapping changed.
+
 Bring complete SnapCase vending activity, including cash, from Kexiaozhan into
 Hub. Use Nayax to verify card payments and refunds. Count each purchase once.
 Keep Sunze's cotton-candy pipeline intact. Before publishing a commission-bearing
@@ -423,7 +435,7 @@ expanded rather than duplicated. See each issue for acceptance and rollback.
 | 2 | [#605: Establish supported Kexiaozhan reporting access and private secret provisioning](https://github.com/ethtri/bloomjoy-hub/issues/605) | #1475 |
 | 3 | [#604: Adapt the SnapCase normalized sales and reconciliation foundation](https://github.com/ethtri/bloomjoy-hub/issues/604) | #1475 |
 | 4 | [#1476: Map SnapCase provider identities and retain unmapped sales exceptions](https://github.com/ethtri/bloomjoy-hub/issues/1476) | #605, #604 |
-| 5 | [#1477: Implement the read-only SnapCase importer with complete-window evidence](https://github.com/ethtri/bloomjoy-hub/issues/1477) | #605, #604, #1476 |
+| 5 | [#1477: Implement the read-only SnapCase importer with complete-window evidence](https://github.com/ethtri/bloomjoy-hub/issues/1477) | #605, #604 for staging; #1476 for mapped publication |
 | 6 | [#1478: Reconcile SnapCase cash, Nayax card sales and refunds without double-counting](https://github.com/ethtri/bloomjoy-hub/issues/1478) | #604, #1476, #1477 |
 | 7 | [#1479: Backfill SnapCase sales with verified historical coverage and correction controls](https://github.com/ethtri/bloomjoy-hub/issues/1479) | #1477, #1478 |
 | 8 | [#607: Show complete SnapCase revenue and incomplete-data status in scoped reports](https://github.com/ethtri/bloomjoy-hub/issues/607) | #1476, #1478, #1480 |
