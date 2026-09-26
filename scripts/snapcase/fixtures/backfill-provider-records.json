@@ -1,0 +1,35 @@
+{
+  "machines": [
+    {
+      "id": "inventory-current",
+      "machineId": "machine-current",
+      "machineName": "Current fixture machine",
+      "timezone": "America/Chicago",
+      "currency": "USD"
+    }
+  ],
+  "orders": [
+    {
+      "orderNo": "history-order-retired",
+      "machineId": "machine-retired",
+      "status": 3,
+      "paymentStatus": 1,
+      "paymentMethod": 1,
+      "paymentTime": "2025-01-15 12:00:00",
+      "paymentAmount": "5.00"
+    }
+  ],
+  "payments": [
+    {
+      "outTradeNo": "history-payment-retired",
+      "transactionId": "history-transaction-retired",
+      "orderNos": ["history-order-retired"],
+      "machineId": "machine-retired",
+      "status": 1,
+      "paymentMethod": 1,
+      "paymentTime": "2025-01-15 12:00:00",
+      "paymentAmount": "5.00",
+      "currency": "USD"
+    }
+  ]
+}
