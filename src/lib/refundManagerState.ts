@@ -539,6 +539,20 @@ export const getRefundManagerState = (
       'warning');
   }
 
+  // An acknowledged card approval survives a failed overview refresh. Until
+  // the server projection returns, the saved decision belongs to System
+  // continuation, never another Manager decision or browser retry.
+  if (refundCase.decision === 'approved' &&
+      refundCase.paymentMethod === 'card' &&
+      refundCase.status === 'card_refund_pending' &&
+      refundCase.lifecycle == null &&
+      refundCase.providerHold !== true &&
+      refundCase.providerOutcome !== 'unconfirmed') {
+    return state('refunding', 'Refund follow-up pending',
+      'The Manager approval is saved. Bloomjoy is checking the current payment step.',
+      'Wait for the exact payment result. Do not approve or try the refund again.', 'info');
+  }
+
   // A saved card approval survives an older lifecycle response. It authorizes
   // System continuation, never another Manager decision or browser retry.
   if (refundCase.decision === 'approved' &&

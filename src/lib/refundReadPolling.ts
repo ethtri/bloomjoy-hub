@@ -180,6 +180,46 @@ export const mergeRefundOverviewContactTruth = <T extends {
   } as T;
 };
 
+type CardApprovalHoldCase = {
+  id: string;
+  paymentMethod: string;
+  decision?: string | null;
+  status: string;
+  lifecycle?: unknown;
+  workflowProjectionUnavailable?: boolean;
+  nayaxMatchExecutionEligible?: boolean;
+};
+
+/**
+ * A protected approval response is authoritative even if the next overview read
+ * times out. Hide the old Manager action until the server returns its new case
+ * projection; never infer that Nayax has completed payment.
+ */
+export const preserveConfirmedCardApproval = <T extends { cases: CardApprovalHoldCase[] }>(
+  overview: T | undefined,
+  approvedCaseIds: ReadonlySet<string>,
+): T | undefined => {
+  if (!overview || approvedCaseIds.size === 0) return overview;
+  return {
+    ...overview,
+    cases: overview.cases.map((refundCase) =>
+      approvedCaseIds.has(refundCase.id) &&
+      refundCase.paymentMethod === 'card' &&
+      refundCase.decision == null &&
+      !['completed', 'denied', 'closed'].includes(refundCase.status)
+        ? {
+            ...refundCase,
+            status: 'card_refund_pending',
+            decision: 'approved',
+            lifecycle: null,
+            workflowProjectionUnavailable: true,
+            nayaxMatchExecutionEligible: false,
+          }
+        : refundCase
+    ),
+  } as T;
+};
+
 export const refundAvailabilityIsTerminal = (
   overview: {cases: Array<{id: string; lifecycle?: {terminal: boolean} | null}>;
     internalTestCases?: Array<{id: string; lifecycle?: {terminal: boolean} | null}>;

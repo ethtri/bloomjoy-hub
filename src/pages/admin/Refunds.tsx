@@ -7,6 +7,7 @@ import {
   refundOverviewPollingInterval,
   refundOverviewReadMessage,
   mergeRefundOverviewContactTruth,
+  preserveConfirmedCardApproval,
 } from '@/lib/refundReadPolling';
 import {
   getRefundCompletionContactPresentation,
@@ -2818,11 +2819,37 @@ export default function AdminRefundsPage() {
   const [overviewReadMessage, setOverviewReadMessage] = useState('');
   const overviewPolling = useMemo(createRefundReadPolling, [selectedId]);
   const overviewTruthRef = useRef<RefundOperationsOverview>();
+  const confirmedCardApprovalIdsRef = useRef<Set<string>>(new Set());
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
+  const retainConfirmedCardApprovals = (
+    incoming: RefundOperationsOverview,
+    merged: RefundOperationsOverview,
+  ) => {
+    for (const refundCase of incoming.cases) {
+      if (refundCase.decision === 'approved') {
+        confirmedCardApprovalIdsRef.current.delete(refundCase.id);
+      }
+    }
+    return preserveConfirmedCardApproval(merged, confirmedCardApprovalIdsRef.current) ?? merged;
+  };
+  const holdConfirmedCardApproval = (caseId: string) => {
+    confirmedCardApprovalIdsRef.current.add(caseId);
+    overviewTruthRef.current = preserveConfirmedCardApproval(
+      overviewTruthRef.current,
+      confirmedCardApprovalIdsRef.current,
+    );
+    queryClient.setQueryData<RefundOperationsOverview>(
+      ['admin-refund-operations-overview'],
+      (current) => preserveConfirmedCardApproval(current, confirmedCardApprovalIdsRef.current),
+    );
+  };
   const readFreshRefundOverview = async () => {
     const incoming = await fetchRefundOperationsOverview();
-    const merged = mergeRefundOverviewContactTruth(overviewTruthRef.current, incoming);
+    const merged = retainConfirmedCardApprovals(
+      incoming,
+      mergeRefundOverviewContactTruth(overviewTruthRef.current, incoming),
+    );
     overviewTruthRef.current = merged;
     queryClient.setQueryData(['admin-refund-operations-overview'], merged);
     return merged;
@@ -2839,7 +2866,10 @@ export default function AdminRefundsPage() {
     queryKey: ['admin-refund-operations-overview'],
     queryFn: () => overviewPolling.read(async () => {
       const incoming = await fetchRefundOperationsOverview();
-      const merged = mergeRefundOverviewContactTruth(overviewTruthRef.current, incoming);
+      const merged = retainConfirmedCardApprovals(
+        incoming,
+        mergeRefundOverviewContactTruth(overviewTruthRef.current, incoming),
+      );
       overviewTruthRef.current = merged;
       return merged;
     }),
@@ -4311,6 +4341,7 @@ export default function AdminRefundsPage() {
       result.status === 'system_finishing' &&
       result.providerAttempted === false
     ) {
+      if (selectedCase) holdConfirmedCardApproval(selectedCase.id);
       setNayaxExecutionNotice(null);
       setRefundActionReceipt({
         tone: 'success',
@@ -4477,6 +4508,7 @@ export default function AdminRefundsPage() {
         preparationProofId: proofId,
         candidateToken: selectedCandidate.candidateToken,
       });
+      if (result.approved === true) holdConfirmedCardApproval(targetCaseId);
       await refresh();
       setRefundActionReceipt({
         tone: result.status === 'provider_hold' ? 'warning' : 'success',
@@ -4534,6 +4566,7 @@ export default function AdminRefundsPage() {
         caseId: targetCaseId,
         expectedOfficialActionVersion: officialActionVersion,
       });
+      holdConfirmedCardApproval(targetCaseId);
       await refresh();
       setRefundActionReceipt({
         tone: 'success',
