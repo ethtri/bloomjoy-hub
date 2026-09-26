@@ -554,7 +554,9 @@ export const hasCustomerFacingMailboxReply = ({
       mailboxIdentities,
     });
     return signals.mailboxOrigin && signals.providerSentEvidence &&
-      [...signals.toEmails, ...signals.ccEmails].includes(recipient);
+      [...signals.toEmails, ...signals.ccEmails, ...parseEmailAddressList(
+        getGmailHeader(message.payload?.headers, "Bcc"),
+      )].includes(recipient);
   });
 };
 

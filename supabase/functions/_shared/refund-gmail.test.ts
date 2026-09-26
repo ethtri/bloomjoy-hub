@@ -70,11 +70,12 @@ const messageWithHeaders = (headers: Record<string, string>): GmailMessage => ({
 Deno.test("an internal mailbox forward does not satisfy a customer's first reply", () => {
   const mailboxIdentities = ["info@bloomjoysweets.com"];
   const customerEmail = "customer@example.com";
-  const sent = (to: string, cc = "") => ({
+  const sent = (to: string, cc = "", bcc = "") => ({
     ...messageWithHeaders({
       From: "Info Account <info@bloomjoysweets.com>",
       To: to,
       Cc: cc,
+      Bcc: bcc,
     }),
     labelIds: ["SENT"],
   });
@@ -92,6 +93,8 @@ Deno.test("an internal mailbox forward does not satisfy a customer's first reply
     "a sent reply addressed to the customer suppresses a duplicate");
   assertEquals(hasReply([sent("agent@example.com", customerEmail)]), true,
     "a customer copied on a sent reply has received it");
+  assertEquals(hasReply([sent("agent@example.com", "", customerEmail)]), true,
+    "a customer blind-copied on a sent reply has received it");
   const unsent = sent(customerEmail);
   unsent.labelIds = ["DRAFT"];
   assertEquals(hasReply([unsent]), false,
