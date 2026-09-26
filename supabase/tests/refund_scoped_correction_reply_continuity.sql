@@ -22,7 +22,7 @@ begin
     incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,payment_interaction,payment_amount_cents,card_last4,card_last4_provenance,card_network,card_wallet_used,status,correlation_status,intake_source)
   values(cid,'df000000-0000-4000-8000-000000000003','df000000-0000-4000-8000-000000000002','reply-customer@example.invalid','Scoped reply test',
     now()-interval '2 hours'-n*interval '7 hours',to_char((now()-interval '2 hours'-n*interval '7 hours') at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI'),
-    'America/Los_Angeles','exact','exact','card',case when n in (27,28,29,38,42,45) then 'phone_watch_wallet' else 'tap_card' end,case when n in (34,43,45,48) then 1090 when n=44 then 1000 when n in (27,28,29,30) then 700 else null end,case when n=45 then '4932' when n in (8,15,27,28,29,30,34,38,42,43,44,48) then null else '1234' end,case when n=45 then 'wallet_device_token' when n in (8,15,27,28,29,30,34,38,42,43,44,48) then null else 'physical_card' end,case when n=26 then 'mastercard' else 'visa' end,n in (27,28,29,38,42,45),'needs_review','manual_review','form');
+    'America/Los_Angeles','exact',case when n=60 then 'rough' else 'exact' end,'card',case when n in (27,28,29,38,42,45) then 'phone_watch_wallet' else 'tap_card' end,case when n in (34,43,45,48) then 1090 when n=44 then 1000 when n in (27,28,29,30) then 700 else null end,case when n=45 then '4932' when n in (8,15,27,28,29,30,34,38,42,43,44,48) then null else '1234' end,case when n=45 then 'wallet_device_token' when n in (8,15,27,28,29,30,34,38,42,43,44,48) then null else 'physical_card' end,case when n=26 then 'mastercard' else 'visa' end,n in (27,28,29,38,42,45),'needs_review','manual_review','form');
   if n in (27,28) then
     -- The earlier provider read precedes the delivered wallet question. A
     -- waiting-on-customer case cannot start an ordinary lookup afterward.
@@ -1392,6 +1392,9 @@ select ok(not has_function_privilege('authenticated',
   'public.service_start_refund_reply_subscription_run(timestamptz)','execute'),
   'No browser or anonymous role can interpret or finish a scoped reply');
 select pg_temp.make_scope(60);
+select ok((select 'incident_time'=any(correction_requested_fields)
+    from public.refund_wallet_correction_contexts where refund_case_id=pg_temp.cid(60)),
+  'Fixture asks for the rough customer purchase time');
 create temp table exact_time_reply on commit drop as
   select case when extract(hour from incident_local_datetime::timestamp)*60+
       extract(minute from incident_local_datetime::timestamp)<10
@@ -1427,6 +1430,9 @@ select is((select incident_local_datetime from public.refund_cases where id=pg_t
 select is((select count(*)::integer from public.refund_customer_fact_applications
     where refund_case_id=pg_temp.cid(60) and applied_fields @> array['incident_time']),1,
   'The exact time has one immutable verified-reply fact receipt');
+select is((select status from public.refund_wallet_correction_contexts
+    where refund_case_id=pg_temp.cid(60)),'submitted',
+  'A time that answers the existing request settles that same customer task');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
     where refund_case_id=pg_temp.cid(60)),0,
   'Time research never creates a payment attempt');
