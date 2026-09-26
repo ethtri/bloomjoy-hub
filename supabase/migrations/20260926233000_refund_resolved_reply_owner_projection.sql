@@ -79,4 +79,49 @@ begin
 end;
 $resolved_reply_next_work$;
 
+-- The legacy queue still offers Manager transaction selection after purchase
+-- research, even when the canonical next work correctly stays internal. Keep
+-- the overview and detail queue aligned until a reviewed candidate-set proof
+-- makes one final Manager decision available.
+create function public.refund_resolved_reply_internal_queue(
+  p_lifecycle jsonb, p_projected_lifecycle jsonb
+) returns jsonb language sql immutable set search_path='' as $$
+  select case when p_lifecycle#>>'{customerOutreach,reasonCode}'='verified_reply_reviewed'
+      and p_lifecycle#>>'{customerOutreach,state}'='none'
+      and p_lifecycle->>'stage'='needs_transaction_selection'
+      and p_projected_lifecycle->>'preparationPending'='true'
+    then p_lifecycle||jsonb_build_object(
+      'managerAction',coalesce(p_lifecycle->'managerAction','{}'::jsonb)
+        ||jsonb_build_object('action','none','owner','System'),
+      'managerNextAction','research_purchase',
+      'managerQueue',coalesce(p_lifecycle->'managerQueue','{}'::jsonb)
+        ||jsonb_build_object('bucket','in_progress',
+          'label','Bloomjoy purchase research','nextAction','research_purchase',
+          'customerActionFields','[]'::jsonb))
+    else p_lifecycle end;
+$$;
+revoke all on function public.refund_resolved_reply_internal_queue(jsonb,jsonb)
+  from public,anon,authenticated;
+grant execute on function public.refund_resolved_reply_internal_queue(jsonb,jsonb)
+  to service_role;
+
+do $resolved_reply_queue$
+declare body text; anchor text; replacement text;
+begin
+  body:=replace(pg_get_functiondef(
+    'public.refund_next_work_for_case(uuid,jsonb)'::regprocedure),E'\r\n',E'\n');
+  anchor:=$anchor$  return p_lifecycle || jsonb_build_object(
+    'nextWork', public.refund_next_work_projection(projected_lifecycle, verified_reply_at)
+  );$anchor$;
+  replacement:=$replacement$  return public.refund_resolved_reply_internal_queue(p_lifecycle,projected_lifecycle)
+    || jsonb_build_object(
+      'nextWork', public.refund_next_work_projection(projected_lifecycle, verified_reply_at)
+    );$replacement$;
+  if cardinality(string_to_array(body,anchor))<>2 then
+    raise exception 'Unexpected next-work case wrapper shape';
+  end if;
+  execute replace(body,anchor,replacement);
+end;
+$resolved_reply_queue$;
+
 select pg_notify('pgrst','reload schema');

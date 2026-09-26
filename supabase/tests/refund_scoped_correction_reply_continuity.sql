@@ -1483,6 +1483,10 @@ select ok(public.refund_lifecycle_contract(pg_temp.cid(60))->'nextWork'->>'actio
   and public.refund_lifecycle_contract(pg_temp.cid(60))->'managerQueue'->>'label'
     <> 'Waiting for customer',
   'Completed lookup exposes its case stage instead of stale customer-wait or reply-review copy');
+select is(public.refund_lifecycle_contract(pg_temp.cid(60))->'managerQueue'->>'bucket',
+  'in_progress','Unprepared candidate research remains internal rather than a Manager selection task');
+select is(public.refund_lifecycle_contract(pg_temp.cid(60))->'managerAction'->>'action',
+  'none','Manager gets no separate purchase-selection action without reviewed-set proof');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
     where refund_case_id=pg_temp.cid(60)),0,
   'Time research never creates a payment attempt');
