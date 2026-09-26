@@ -52,6 +52,9 @@ test('a saved card approval cannot reappear as Manager work during a failed or s
  assert.equal(completed.lifecycle,null,'completed replay cannot restore Manager approval');
  assert.deepEqual(preserveConfirmedCardApproval({cases:[newServerCase]},new Map([['case-a','completed']])).cases[0],
    newServerCase,'an authoritative approved case replaces even a stronger local replay hold');
+ const serverUnknown={...newServerCase,providerHold:true,providerOutcome:'unconfirmed'};
+ assert.deepEqual(preserveConfirmedCardApproval({cases:[serverUnknown]},new Map([['case-a','provider_hold']])).cases[0],
+   serverUnknown,'authoritative reconciliation detail replaces the temporary unknown-result hold');
  client.clear();
 });
 

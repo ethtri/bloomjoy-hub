@@ -4448,14 +4448,6 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
           (replayStatus !== 'completed' || replayState.includes('customer-contact details')),
         JSON.stringify({ replayStatus, replayReadLog, replayState, replayFunctionBodies }),
       );
-      replayReadStatuses.splice(0, replayReadStatuses.length, 200);
-      await reloadRefundPortalPage(replayPage);
-      await replayPage.getByRole('button', { name: /Bloomjoy follow-up 1/i }).click();
-      await queueCase(replayPage, reviewedSeed.publicReference).click();
-      recorder.assert(`Current server projection replaces the temporary ${replayStatus} replay hold`,
-        (await replayPage.getByTestId('refund-approve-reviewed-purchase').count()) === 0 &&
-          (await replayPage.getByTestId('refund-run-nayax-refund').count()) === 0,
-      );
       await closeRefundPortalContext(replayContext);
     }
   }
