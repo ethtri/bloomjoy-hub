@@ -96,8 +96,10 @@ orientation snapshot; it is not a backlog or release ledger.
 - Refund automation authenticates through the Info Gmail account and sends as
   `refunds@bloomjoysweets.com`. P0 #1455 is correcting the deployed filter
   that skipped new Info-only refund inquiries; the three identified customers
-  have already received individual form links. Production Info-mailbox journey
-  proof and backlog reconciliation remain release checks.
+  have already received individual form links. A later charged-without-sticks
+  inquiry exposed a narrower classifier miss; it received a verified same-thread
+  form link through the hourly manual fallback. The classifier fix and production
+  Info-mailbox journey proof remain release checks.
 - Technician wall-clock entries are interpreted in the selected machine
   location's IANA timezone. This keeps completed Eastern and Central work from
   being rejected as future merely because Bloomjoy's month-close policy and

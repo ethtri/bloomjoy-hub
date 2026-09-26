@@ -151,6 +151,14 @@ Deno.test("direct Support product failure is eligible through the shared mailbox
   "new_refund_inquiry");
 });
 
+Deno.test("charged customer whose cotton candy machine ran out of sticks receives the form path", () => {
+  assertRoute(message({ subject: "Sticks",
+    body: "The cotton candy machine ran out of sticks but charged me." }),
+  "new_refund_inquiry");
+  assertRoute(message({ body: "Our vendor machine ran out of sticks but charged us for supplies." }),
+    "non_refund");
+});
+
 Deno.test("Support is not admitted unless it is a configured identity of this mailbox", () => {
   const result = classifyRefundInfoInquiry({
     messages: [message({ to: "support@bloomjoysweets.com", body: "I need a refund." })],
