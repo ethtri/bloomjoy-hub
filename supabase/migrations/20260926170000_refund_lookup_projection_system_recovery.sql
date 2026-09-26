@@ -169,7 +169,7 @@ begin
   end loop;
   return projected_cases;
 end;
-$function$
+$function$;
 revoke all on function public.refund_project_nayax_lookup_recovery_cases_for_manager(jsonb,boolean) from public,anon,authenticated,service_role;
 grant execute on function public.refund_project_nayax_lookup_recovery_cases_for_manager(jsonb,boolean) to service_role;
 comment on function public.refund_project_nayax_lookup_recovery_cases_for_manager(jsonb,boolean) is
