@@ -104,6 +104,11 @@ historical fixtures cannot add product gates that the workflow does not contain.
   Waiting for customer; a verified reply, unknown Nayax outcome, missing Zelle
   destination, failed customer delivery, and accounting-only follow-up do not
   become Manager tasks. Refresh preserves the same tabs, counts, and case badge.
+- [ ] A rough-time wallet request whose completed provider read contains no
+  hard-safe exact device suffix remains internal purchase research with a named
+  identifier blocker, even if many provider rows are individually hard-safe.
+  No reviewed-set approval proof or Manager ready notice is created; a later
+  completed read with a safe exact identifier can prepare the final decision.
 - [ ] A completed, current-version preparation sends at most one immediate
   final-decision notice to each current Machine Manager. Cash copy says to send
   Zelle before confirming it was sent; an unresolved customer question or
