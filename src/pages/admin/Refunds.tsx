@@ -6270,7 +6270,13 @@ export default function AdminRefundsPage() {
         !selectedCase.customerDeliveryException &&
         ['failed', 'skipped'].includes(getLatestCustomerMessage(selectedCase)?.status ?? ''),
     };
-    const cardManagerState: RefundManagerState = selectedCase.lifecycle?.nextWork ||
+    const cardManagerState: RefundManagerState = (
+      selectedCase.paymentMethod === 'card' &&
+      selectedCase.status === 'card_refund_pending' &&
+      selectedCase.decision === 'approved' &&
+      selectedCase.lifecycle == null &&
+      selectedCase.workflowProjectionUnavailable === true
+    ) || selectedCase.lifecycle?.nextWork ||
       hasConfirmedRefundReceipt(selectedCase) ||
       hasProtectedRefundLifecycle(selectedCase) ||
       (selectedCase.customerDeliveryException && !hasUnpaidRefundReview(selectedCase))
