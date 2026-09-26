@@ -302,6 +302,10 @@ create table private.snapcase_extraction_evidence (
   next_cursor_present boolean not null,
   response_truncated boolean not null,
   observed_count integer not null check (observed_count >= 0),
+  expected_total integer check (expected_total is null or expected_total >= 0),
+  effective_page_size integer check (
+    effective_page_size is null or effective_page_size between 1 and 50
+  ),
   rejected_count integer not null check (rejected_count >= 0),
   max_observed_time_raw text,
   max_observed_at timestamptz,
@@ -332,6 +336,8 @@ create table private.snapcase_extraction_evidence (
       not next_cursor_present
       and not response_truncated
       and rejected_count = 0
+      and expected_total is not null
+      and expected_total = observed_count
     )
   ),
   constraint snapcase_extraction_evidence_business_unverified check (
@@ -956,6 +962,8 @@ begin
           'nextCursor',
           'responseTruncated',
           'observedCount',
+          'expectedTotal',
+          'effectivePageSize',
           'rejectedCount',
           'maxObservedTimeRaw',
           'maxObservedAt'
@@ -964,6 +972,20 @@ begin
       or extraction_evidence ->> 'status' not in ('complete', 'partial', 'failed')
       or coalesce(extraction_evidence ->> 'pageCount', '') !~ '^[0-9]{1,9}$'
       or coalesce(extraction_evidence ->> 'observedCount', '') !~ '^[0-9]{1,9}$'
+      or (
+        extraction_evidence ? 'expectedTotal'
+        and (
+          jsonb_typeof(extraction_evidence -> 'expectedTotal') is distinct from 'number'
+          or coalesce(extraction_evidence ->> 'expectedTotal', '') !~ '^[0-9]{1,9}$'
+        )
+      )
+      or (
+        extraction_evidence ? 'effectivePageSize'
+        and (
+          jsonb_typeof(extraction_evidence -> 'effectivePageSize') is distinct from 'number'
+          or coalesce(extraction_evidence ->> 'effectivePageSize', '') !~ '^([1-9]|[1-4][0-9]|50)$'
+        )
+      )
       or coalesce(extraction_evidence ->> 'rejectedCount', '') !~ '^[0-9]{1,9}$'
       or jsonb_typeof(extraction_evidence -> 'responseTruncated') is distinct from 'boolean'
       or jsonb_typeof(extraction_evidence -> 'nextCursor') not in ('string', 'null')
@@ -977,6 +999,15 @@ begin
         or length(btrim(evidence ->> 'sourceMachineId')) not between 1 and 200
       )) then
       raise exception 'Invalid SnapCase extraction evidence';
+    end if;
+
+    if extraction_evidence ->> 'status' = 'complete'
+      and (
+        not (extraction_evidence ? 'expectedTotal')
+        or (extraction_evidence ->> 'expectedTotal')::integer
+          <> (extraction_evidence ->> 'observedCount')::integer
+      ) then
+      raise exception 'Invalid SnapCase complete extraction evidence totals';
     end if;
 
     if evidence ->> 'resource' in ('orders', 'payments') then
@@ -1015,6 +1046,8 @@ begin
       next_cursor_present,
       response_truncated,
       observed_count,
+      expected_total,
+      effective_page_size,
       rejected_count,
       max_observed_time_raw,
       max_observed_at,
@@ -1033,6 +1066,8 @@ begin
       extraction_evidence ->> 'nextCursor' is not null,
       (extraction_evidence ->> 'responseTruncated')::boolean,
       (extraction_evidence ->> 'observedCount')::integer,
+      nullif(extraction_evidence ->> 'expectedTotal', '')::integer,
+      nullif(extraction_evidence ->> 'effectivePageSize', '')::integer,
       (extraction_evidence ->> 'rejectedCount')::integer,
       nullif(extraction_evidence ->> 'maxObservedTimeRaw', ''),
       nullif(extraction_evidence ->> 'maxObservedAt', '')::timestamptz,
