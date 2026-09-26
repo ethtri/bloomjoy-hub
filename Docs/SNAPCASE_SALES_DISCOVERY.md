@@ -45,6 +45,56 @@ Reassess that code against current main; do not merge the stale branch wholesale
   authenticated vendor sessions, or source exports were retrieved for this spike.
   No report RPC that can refresh snapshots was invoked.
 
+### Authorized read-only credential follow-up (2026-09-26)
+
+The owner supplied a temporary local credential file for a bounded private check.
+Its username/password succeeded at the production **merchant** API: HTTP 200,
+application code 0, bearer token returned. The supplied US merchant portal's
+public application configuration points to `https://kxzus.kexiaozhan.com/mer`;
+the July prototype used the separate test host. No password, token, customer row,
+transaction reference or source export was retained in this plan. This proves
+current login ability, not that the account is dedicated to Bloomjoy, least
+privileged, vendor-approved for automation or ready for scheduled operation.
+The local file was not moved or installed in GitHub or Supabase. Existing
+`KEXIAOZHAN_MACHINE_KEY` remains a separate `/client` payment credential.
+
+Bearer-authenticated read-only `GET /v1/machines`, `/v1/orders`, and
+`/v1/payments` each returned HTTP 200 and application code 0 with `list` and
+`total`. The visible inventory reported 22 type-1 machines across five merchant
+IDs (machine counts 11, 8, 1, 1, 1). Global control totals were 13,742 orders
+and 7,828 payments at the moment of the check. The server returned at most 50
+rows despite requesting 1,000. Sampled first, middle and final pages retained
+the same totals; the last order/payment pages held 42/28 rows and the next pages
+were empty. These are account-wide historical counters, **not** Bloomjoy sales
+totals or proof of complete cash/card coverage. They can change over time.
+
+Across 178 sampled payment rows on spaced pages, 159 had card-like instrument
+labels and 19 had cash-like labels. Across 192 sampled order rows, 115 had
+card-like labels, 11 cash-like labels and 66 empty labels. This proves the
+current account exposes both tender families. It does not prove tender code
+semantics, successful-sale status, cash completeness, ownership, currency,
+refund treatment or matchability to Nayax. No revenue sums were calculated.
+
+**Critical prototype correction:** every returned inventory row had different
+`id` and `machineId` values. The sampled order/payment `machineId` values matched
+inventory `machineId`, never inventory `id`. Filtering one machine with its
+`machineId` returned 538 orders and 374 payments, with first-page rows matching
+that key. Filtering with its `id` returned zero orders and an application error
+for payments. The #608 worker currently normalizes the machine key from `id`
+and then filters order/payment reads with it; adapting that worker as-is would
+miss or fail sales. Keep both source fields distinct and use `machineId` for
+order/payment filters after contract confirmation.
+
+The Hub production registry previously showed eight SnapCase rows, while this
+login sees 22 machines across five merchants. The difference is not necessarily
+an error; the roster, legal account ownership and machine moves have not been
+reconciled. No source machine was approved for mapping or ingestion here. A
+sampled machine filter worked, but date-window filters, all-page extraction,
+retention, rate limits, token expiry/refresh and total consistency under
+concurrent sales remain unverified. Kexiaozhan's support for scheduled use of
+these private merchant endpoints and their financial field definitions also
+remain to be confirmed.
+
 ## What exists today
 
 ### Sunze
@@ -115,9 +165,10 @@ orders and payment-time filters, a 35-day overlap, a locked ingest Edge Function
 and shadow-only Postgres tables. It is neither browser scraping nor a scheduled
 vendor export. The XLSX adapter is only a proposed fallback.
 
-That prototype requires repair before reuse: it can accept an empty intermediate
-page as completion, lacks a demonstrated timeout/retry contract, assumes two
-decimal minor units and inferred numeric tender meanings, and has unproved
+That prototype requires repair before reuse: it uses the wrong inventory ID for
+order/payment filtering, can accept an empty intermediate page as completion,
+lacks a demonstrated timeout/retry contract, assumes two-decimal minor units and
+inferred numeric tender meanings, and has unproved
 timestamp/production-host semantics. It also needs current account scoping,
 strict response schemas, source-key hashing review and integration with #1471.
 Revalidate salted reference matching across providers; differently namespaced
@@ -125,7 +176,7 @@ hashes cannot establish equality without an explicit protected linking key.
 
 | Required field | Evidence available | Remaining proof |
 | --- | --- | --- |
-| Machine / merchant | #608 `id`, `machineSn`, `machineId`, `merchantId`, device type | Current ownership, stable keys, moves/replacements and production account |
+| Machine / merchant | Current production read confirms distinct `id` and `machineId`, five merchant IDs and working `machineId` filter | Bloomjoy ownership/roster, stable keys, moves/replacements and approved account scope |
 | Transaction identity | `orderNo`, `outTradeNo`, `orderNos[]`; payments may cover several orders | Stable ID scope, split/grouped payments and link semantics |
 | Time | `createTime`, `paymentTime`, `finishTime`; some naive strings | Clock basis, headers, offset/DST, updated-since semantics |
 | Cash / credit | `paymentMethod`, `paymentInstrument`; prototype infers cash/credit | Vendor-confirmed cash, coin, test/free, mixed and other-tender meanings |
@@ -134,9 +185,12 @@ hashes cannot establish equality without an explicit protected linking key.
 | Product / tax | `goodsName`, `taxRateAmount`, optional quantities | Product identity, tax-inclusive/exclusive basis and reliable quantity |
 | Settlement | Order/payment status and paid/unpaid query | Paid is not proved settled; Nayax supplies authoritative card state |
 
-The precise access blocker is a supported read-only merchant reporting contract,
-confirmed production endpoint/account and safely provisioned reporting credentials
-under #605. Existing machine payment keys do not solve this. The older issue
+The login and production merchant API base now work for a one-time read check.
+The remaining access blockers under #605 are vendor-supported read-only contract,
+confirmed Bloomjoy merchant/machine scope and safely provisioned reporting-only
+credentials for an implementation environment. A temporary local credential
+file is not scheduled-worker provisioning. Existing machine payment keys do not
+solve this. The older issue
 records a browser-snapshot credential rotation requirement; its completion was
 not verified. Do not reuse that snapshot or send credentials through GitHub/chat.
 
