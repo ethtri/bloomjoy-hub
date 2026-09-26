@@ -1630,7 +1630,7 @@ const nayaxNextActionText = (
     case 'inconclusive':
       return 'Next: Keep the case open. Nayax did not provide enough history to rule a matching transaction in or out.';
     case 'setup_needed':
-      return 'Next: Use read-only Nayax transaction research if needed, then report the blocked search. Never issue or record a refund there.';
+      return 'Next: Bloomjoy is resolving the saved machine or account setup before another transaction check. No Manager transaction check or payment is due.';
     case 'lookup_failed':
       return summary.safeRetryEligible
         ? 'Next: Bloomjoy will retry the read-only transaction check automatically. No refund has been issued.'
@@ -2179,7 +2179,7 @@ const primaryActionConfig = (
   ) {
     return {
       label: 'No customer action needed',
-      helper: 'Use the Nayax portal for read-only transaction research only if Bloomjoy Hub cannot search this case. Never issue or record a refund there.',
+      helper: 'Bloomjoy is resolving the saved machine or account setup before another transaction check. No Manager transaction check or payment is due.',
       disabled: true,
     };
   }
@@ -5915,9 +5915,9 @@ export default function AdminRefundsPage() {
     });
     const automaticLookupPending = transactionView.kind === 'checking';
     const incompleteHistory = selectedNayaxSummary?.lookupStatus === 'inconclusive';
-    // Kept only for a mixed-version service response. Current projections assign
-    // exhausted or unsafe research to Refund Operations, without a Manager control.
-    const legacyManagerLookupAuthorized = selectedCase.nayaxLookupWork?.state === 'machine_manager';
+    // Older service responses can still say machine_manager. A lookup is research,
+    // not a Manager decision; the current System-owned lane must resolve it.
+    const legacyManagerLookupAuthorized = false;
     const incompleteHistoryRefreshAvailable = Boolean(
       incompleteHistory &&
         legacyManagerLookupAuthorized &&
@@ -6297,8 +6297,8 @@ export default function AdminRefundsPage() {
               : transactionView.kind === 'waiting'
                 ? 'Wait for Bloomjoy to start the read-only check. No refund has been issued.'
               : transactionView.heading === 'Transaction search is unavailable'
-                ? 'Use Nayax for read-only transaction research if needed, then report the blocked search. Never issue or record a refund there. No customer follow-up is needed.'
-              : 'Run the available transaction check. If no check is available, search the same machine in Nayax and report the portal gap. No refund has been issued.',
+                ? 'Bloomjoy is resolving the saved machine or account setup before another transaction check. No Manager transaction check or payment is due. No customer follow-up is needed.'
+              : 'Bloomjoy owns the blocked transaction search using the saved case evidence. No Manager transaction check or payment is due. No refund has been issued.',
           tone: transactionView.kind === 'checking' ? 'info' : 'warning',
         }
       : selectedCandidateRefundUnavailable

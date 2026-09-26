@@ -174,11 +174,11 @@ assert(
   "the narrow endpoint must defer to exact current case authority and preserve payment guards",
 );
 assert(
-  portal.includes("selectedCase.nayaxLookupWork?.state === 'machine_manager'") &&
+  portal.includes('const legacyManagerLookupAuthorized = false') &&
     !portal.includes("['machine_manager', 'refund_operations'].includes") &&
     portal.includes('data-testid="nayax-operations-recovery"') &&
     portal.includes('Run transaction check'),
-  "internal lookup work cannot expose a Manager transaction check",
+  "older or current lookup work cannot authorize a Manager transaction check",
 );
 assert(
   gapRecoveryMigration.includes("incomplete_history") &&

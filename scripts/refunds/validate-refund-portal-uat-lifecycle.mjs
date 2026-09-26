@@ -251,7 +251,7 @@ assert.doesNotMatch(
 );
 assert.match(
   refundsSource,
-  /legacyManagerLookupAuthorized = selectedCase\.nayaxLookupWork\?\.state === 'machine_manager'/
+  /legacyManagerLookupAuthorized = false/
 );
 assert.doesNotMatch(
   refundsSource,

@@ -178,16 +178,17 @@ const runNayaxLookupNoticeChecks = async ({
   recorder.assert(
     'Unavailable transaction search is visible without exposing provider setup detail',
     await page.getByTestId('nayax-result-card').getByText('Transaction search is unavailable', { exact: true }).isVisible() &&
-      await page.getByTestId('nayax-transaction-status').getByText(/Never issue or record a refund there/).isVisible() &&
+      await page.getByTestId('nayax-transaction-status').getByText(/No Manager transaction check or payment is due/).isVisible() &&
       (await page.getByText('Nashville Nayax account scope', { exact: false }).count()) === 0
   );
   recorder.assert(
-    'Provider setup state stays manager-only and cannot trigger customer correction copy',
+    'Provider setup stays Bloomjoy-owned and cannot trigger customer correction copy',
       (await page.getByText('Ask customer for details', { exact: true }).count()) === 0 &&
       (await page.getByText('Ask for missing details', { exact: true }).count()) === 0 &&
       (await page.getByTestId('refund-manager-next-step').innerText()).includes('No customer follow-up is needed') &&
-      await page.getByTestId('nayax-transaction-status').getByText(/Never issue or record a refund there/).isVisible() &&
-      await page.getByTestId('nayax-transaction-status').getByText(/customer does not need to repeat details/).isVisible()
+      await page.getByTestId('nayax-transaction-status').getByText(/No Manager transaction check or payment is due/).isVisible() &&
+      await page.getByTestId('nayax-transaction-status').getByText(/customer does not need to repeat details/).isVisible() &&
+      (await page.getByTestId('nayax-operations-recovery').count()) === 0
   );
   recorder.assert(
     'Pending transaction result explains the unavailable state',
@@ -282,12 +283,13 @@ const runApiUnavailableCaseEvidenceChecks = async ({
   recorder.assert(
     'Adam-managed API-pending case removes portal transcription and keeps the blocker internal',
     await page.getByTestId('nayax-decision-heading').getByText('Transaction search is unavailable', { exact: true }).isVisible() &&
-      await setupSummary.getByText(/read-only transaction research/).isVisible() &&
-      await setupSummary.getByText(/Never issue or record a refund there/).isVisible() &&
+      await setupSummary.getByText(/resolving the saved machine or account setup/).isVisible() &&
+      await setupSummary.getByText(/No Manager transaction check or payment is due/).isVisible() &&
       await setupSummary.getByText(/customer does not need to repeat details/).isVisible() &&
       (await page.getByTestId('refund-manager-next-step').innerText()).includes('No customer follow-up is needed') &&
       (await page.getByText('Ask for missing details', { exact: true }).count()) === 0 &&
       (await page.getByTestId('manual-nayax-evidence-form').count()) === 0 &&
+      (await page.getByTestId('nayax-operations-recovery').count()) === 0 &&
       (await page.getByLabel('Transaction reference').count()) === 0 &&
       functionCalls.length === 0 &&
       !rpcCalls.includes('admin_create_refund_manual_nayax_candidate')
@@ -588,9 +590,9 @@ const runNayaxLookupStatusMatrixChecks = async ({
       expectedHeading: 'Transaction history is incomplete',
       expectedStatus: 'History incomplete',
       expectedDescription: /18 transactions were returned, but none covered the reported purchase window/i,
-      expectedAction: 'Run the available transaction check. If no check is available, search the same machine in Nayax and report the portal gap. No refund has been issued.',
+      expectedAction: 'Bloomjoy owns the blocked transaction search using the saved case evidence. No Manager transaction check or payment is due. No refund has been issued.',
       recovery: {
-        state: 'machine_manager', automaticRetriesUsed: 0,
+        state: 'refund_operations', automaticRetriesUsed: 0,
         nextAttemptAt: null, failureClass: 'incomplete_history', payloadRedacted: true,
       },
       operationsAccess: true,
@@ -602,7 +604,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
         allowedSurfaces: ['refunds'],
         scopedMachineIds: [],
       },
-      expectedIncompleteHistoryRefresh: true,
+      expectedNoManagerRecovery: true,
     },
     {
       name: 'stale multiple-match summary without current rows',
@@ -627,8 +629,9 @@ const runNayaxLookupStatusMatrixChecks = async ({
       },
       expectedHeading: 'Transaction results are unavailable',
       expectedStatus: 'Needs attention',
-      expectedDescription: /does not have current transaction results to show/i,
-      expectedAction: 'Run the available transaction check. If no check is available, search the same machine in Nayax and report the portal gap. No refund has been issued.',
+      expectedDescription: /Bloomjoy is resolving the blocked transaction search using the saved case evidence/i,
+      expectedAction: 'Bloomjoy owns the blocked transaction search using the saved case evidence. No Manager transaction check or payment is due. No refund has been issued.',
+      expectedNoManagerRecovery: true,
       expectedEmptyCandidateState: true,
     },
     {
@@ -1107,7 +1110,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
         candidates: [],
       },
       recovery: {
-        state: 'machine_manager', automaticRetriesUsed: 1,
+        state: 'refund_operations', automaticRetriesUsed: 1,
         nextAttemptAt: null, failureClass: 'response_limit', payloadRedacted: true,
       },
       operationsAccess: true,
@@ -1119,11 +1122,11 @@ const runNayaxLookupStatusMatrixChecks = async ({
         allowedSurfaces: ['refunds'],
         scopedMachineIds: [],
       },
-      expectedOperationsRecoveryControl: true,
+      expectedNoManagerRecovery: true,
       expectedHeading: 'Transaction results are unavailable',
       expectedStatus: 'Needs attention',
-      expectedDescription: /does not have current transaction results to show/i,
-      expectedAction: 'Run the available transaction check. If no check is available, search the same machine in Nayax and report the portal gap. No refund has been issued.',
+      expectedDescription: /Bloomjoy is resolving the blocked transaction search using the saved case evidence/i,
+      expectedAction: 'Bloomjoy owns the blocked transaction search using the saved case evidence. No Manager transaction check or payment is due. No refund has been issued.',
     },
     {
       name: 'current internal lookup scope hold',
@@ -1229,13 +1232,12 @@ const runNayaxLookupStatusMatrixChecks = async ({
   );
   scenarios.splice(2, 0, {
     ...incompleteHistoryScenario,
-    name: 'incomplete transaction history after refresh',
+    name: 'incomplete transaction history after exhausted automatic retry',
     recovery: {
       ...incompleteHistoryScenario.recovery,
       automaticRetriesUsed: 1,
     },
-    expectedIncompleteHistoryRefresh: false,
-    expectedIncompleteHistoryFallback: true,
+    expectedNoManagerRecovery: true,
   });
   const uniqueQrScenario = scenarios.find(
     (scenario) => scenario.name === 'unique QR wallet recommendation'
@@ -1516,7 +1518,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
     );
     if (scenario.expectedNoManagerRecovery) {
       recorder.assert(
-        'A current internal lookup scope hold exposes no Manager research or payment control',
+        'Blocked or older lookup work exposes no Manager research or payment control',
         (await page.getByTestId('nayax-operations-recovery').count()) === 0 &&
           (await page.getByTestId('nayax-incomplete-history-refresh').count()) === 0 &&
           (await page.getByTestId('nayax-check-transaction').count()) === 0 &&
@@ -2236,7 +2238,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
       );
     }
     recorder.assert(
-      `Nayax ${scenario.name} keeps one clear manager action`,
+      `Nayax ${scenario.name} keeps one safe next step`,
       (scenario.simpleJourney
         ? (await page.getByTestId('refund-primary-action').innerText()).includes('System is finishing') &&
           (await page.getByTestId('refund-approve-selected-purchase').count()) === 0 &&
@@ -2423,11 +2425,10 @@ const runNayaxLookupStatusMatrixChecks = async ({
   await ordinaryManagerReviewQueue.waitFor();
   await ordinaryManagerReviewQueue.click();
   await openQueueCase(ordinaryRecoveryPage, 'RF-UAT-PENDING');
-  await ordinaryRecoveryPage.getByText('Transaction search details', { exact: true }).click();
-  const ordinaryManagerRecovery = ordinaryRecoveryPage.getByTestId('nayax-operations-recovery');
   recorder.assert(
-    'The current Machine Manager can run the same narrow read-only transaction check without another role',
-    await ordinaryManagerRecovery.isEnabled() &&
+    'An older Machine Manager lookup response cannot assign research to the Manager',
+    (await ordinaryRecoveryPage.getByTestId('nayax-operations-recovery').count()) === 0 &&
+      (await ordinaryRecoveryPage.getByTestId('nayax-incomplete-history-refresh').count()) === 0 &&
       (await ordinaryRecoveryPage.getByTestId('nayax-check-transaction').count()) === 0 &&
       (await ordinaryRecoveryPage.getByTestId('nayax-refresh-expired-results').count()) === 0 &&
       ordinaryRecoveryFunctionCalls.filter((name) => name === 'nayax-transaction-lookup').length === 0,
@@ -2436,22 +2437,15 @@ const runNayaxLookupStatusMatrixChecks = async ({
       functionBodies: ordinaryRecoveryFunctionBodies,
     })
   );
-  await ordinaryManagerRecovery.click();
-  await ordinaryRecoveryPage.waitForTimeout(100);
-  const ordinaryLookupBodies = ordinaryRecoveryFunctionBodies.filter(
-    ({ functionName }) => functionName === 'nayax-transaction-lookup'
-  );
   recorder.assert(
-    'The manager check sends only the case id and cannot refund, change the decision, or message the customer',
-    ordinaryLookupBodies.length === 1 &&
-      ordinaryLookupBodies[0].body?.caseId === 'case-card-pending' &&
-      JSON.stringify(Object.keys(ordinaryLookupBodies[0].body ?? {}).sort()) === JSON.stringify(['caseId']) &&
-      !ordinaryRecoveryFunctionCalls.some((name) => [
-        'nayax-card-refund', 'refund-case-admin-update', 'refund-case-message-send',
-      ].includes(name)),
+    'The older lookup response makes no provider, payment, decision, or customer-message call',
+    !ordinaryRecoveryFunctionCalls.some((name) => [
+      'nayax-transaction-lookup', 'nayax-card-refund',
+      'refund-case-admin-update', 'refund-case-message-send',
+    ].includes(name)),
     JSON.stringify({
       functionCalls: ordinaryRecoveryFunctionCalls,
-      lookupBodies: ordinaryLookupBodies,
+      functionBodies: ordinaryRecoveryFunctionBodies,
     })
   );
   await closeRefundPortalContext(ordinaryRecoveryContext);

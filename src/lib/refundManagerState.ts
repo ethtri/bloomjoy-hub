@@ -630,7 +630,7 @@ export const getRefundManagerState = (
             'match_attention',
             'Transaction history incomplete',
             'Nayax did not provide enough historical coverage to confirm whether a matching transaction exists.',
-            'Run the available transaction check. If no check is available, search the same machine in Nayax and report the portal gap.',
+            'Bloomjoy owns the blocked transaction search using the saved case evidence. No Manager transaction check or payment is due.',
             'warning'
           );
         }
@@ -678,7 +678,7 @@ export const getRefundManagerState = (
             'match_attention',
             'Transaction search unavailable',
             'Bloomjoy cannot check this machine\'s transactions right now.',
-            'Use Nayax for read-only transaction research only and report the blocked search. Never issue or record a refund there. No customer follow-up is needed.',
+            'Bloomjoy is resolving the saved machine or account setup before another transaction check. No Manager transaction check or payment is due. No customer follow-up is needed.',
             'warning'
           );
         }
@@ -1070,7 +1070,7 @@ export const getRefundManagerState = (
         'match_attention',
         'Transaction history incomplete',
         'Nayax did not provide enough historical coverage to confirm whether a matching transaction exists.',
-        'Run the available transaction check. If no check is available, search the same machine in Nayax and report the portal gap.',
+        'Bloomjoy owns the blocked transaction search using the saved case evidence. No Manager transaction check or payment is due.',
         'warning'
       );
     }
@@ -1089,7 +1089,7 @@ export const getRefundManagerState = (
         'match_attention',
         'Transaction search unavailable',
         'Bloomjoy cannot check this machine\'s transactions right now.',
-        'Use Nayax for read-only transaction research only and report the blocked search. Never issue or record a refund there.',
+        'Bloomjoy is resolving the saved machine or account setup before another transaction check. No Manager transaction check or payment is due.',
         'warning'
       );
     }
