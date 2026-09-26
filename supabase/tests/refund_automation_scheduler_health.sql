@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(20);
+select plan(22);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -290,9 +290,21 @@ select is(
 select set_config('request.jwt.claim.sub', '76000000-0000-4000-8000-000000000001', true);
 
 select is(
-  public.get_refund_automation_health() ->> 'status',
+  public.get_refund_automation_health() ->> 'schedulerStatus',
   'healthy',
-  'An authorized refund manager sees a healthy scheduler state'
+  'An authorized refund manager sees the healthy scheduler lane'
+);
+
+select is(
+  public.get_refund_automation_health() ->> 'status',
+  'failing',
+  'A healthy scheduler does not hide the nonempty disabled digest lane'
+);
+
+select is(
+  public.get_refund_automation_health() -> 'dueWork' ->> 'status',
+  'instrumentation_unavailable',
+  'The scheduler fixture does not fabricate per-case due-work evidence'
 );
 
 select is(
