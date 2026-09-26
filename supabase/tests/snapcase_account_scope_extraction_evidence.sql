@@ -67,6 +67,8 @@ as $$
   );
 $$;
 
+select set_config('request.jwt.claim.role', 'service_role', true);
+
 select lives_ok(
   $$select public.service_ingest_snapcase_observations(pg_temp.account_scope_payload())$$,
   'account-wide empty extraction receipts are accepted without inventing a machine'
