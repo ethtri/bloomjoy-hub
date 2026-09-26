@@ -9,7 +9,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(145);
+select plan(146);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -2081,6 +2081,30 @@ select is(
   'an open month keeps the SnapCase estimate visible without treating unfinished coverage as a publication blocker'
 )
 from snapcase_card_only_report;
+
+-- Current assignment status must not erase the effective-dated historical
+-- scope that the pay calculator still includes for this closed month.
+update public.operator_machine_assignments
+set
+  status = 'revoked',
+  revoked_by = 'a1000000-0000-0000-0000-000000000003',
+  revoked_at = '2026-08-15 00:00:00+00',
+  revoke_reason = 'Synthetic post-period revocation'
+where id = 'a6100000-0000-0000-0000-000000000001';
+
+select ok(
+  exists (
+    select 1
+    from jsonb_array_elements(private.calculate_technician_pay_report(
+      'a2000000-0000-0000-0000-000000000001',
+      'a6000000-0000-0000-0000-000000000001',
+      '2026-07-01',
+      '2026-07-31'
+    ) -> 'blockers') blocker(item)
+    where blocker.item ->> 'code' = 'snapcase_sales_incomplete'
+  ),
+  'a post-period assignment revocation cannot erase historical SnapCase commission scope'
+);
 
 insert into public.pay_stub_generation_requests (
   id, account_id, operator_profile_id, payout_period_id, trigger_kind,
