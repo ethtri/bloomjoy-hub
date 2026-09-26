@@ -478,6 +478,7 @@ export const isRefundLifecycleContract = (
   const appliedReviewNextSteps = [
     "Refund confirmed. Review the existing completion message delivery and accounting date; do not retry payment or create another message.",
     "Refund confirmed. The customer completion has one saved delivery record. Resolve the accounting date internally; do not retry payment.",
+    "Review customer delivery evidence. Do not resend the message blindly. Follow the current refund step separately.",
   ];
   const appliedPendingNextSteps = [null, appliedReviewNextSteps[1]];
   const accountingDate = accountingState?.accountingDate;
