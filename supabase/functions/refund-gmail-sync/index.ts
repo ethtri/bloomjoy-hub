@@ -28,7 +28,7 @@ import {
   sha256Hex,
   verifyRefundGmailMailbox,
 } from "../_shared/refund-gmail.ts";
-import { classifyRefundInfoInquiry, infoInquiryEnabled, infoInquiryMissingSource, infoInquirySourceMissingSender, infoRecoveryScanOutcome } from "../_shared/refund-info-inquiry.ts";
+import { classifyRefundInfoInquiry, infoInquiryEnabled, infoInquiryMissingSource, infoInquiryNonCustomerSkipped, infoInquirySourceMissingSender, infoRecoveryScanOutcome } from "../_shared/refund-info-inquiry.ts";
 import { ingestRefundGmailThreadBeforeFirstContact } from "../_shared/refund-gmail-orchestration.ts";
 import { ingestNayaxReportMail, isNayaxScheduledReportMessage, nayaxReportFailureCode } from "../_shared/nayax-report-mail.ts";
 import {
@@ -2482,6 +2482,14 @@ serve(async (request) => {
                     infoScanFailed = true;
                     allowRoutineContact = false;
                   }
+                } else if (infoInquiryNonCustomerSkipped(ingestion)) {
+                  // The intake RPC intentionally excludes active managers and
+                  // other non-customer senders, even when their text sounds like
+                  // a refund inquiry. Do not turn that exclusion into a failed scan.
+                  if (infoInquiry.route === "new_refund_inquiry") {
+                    infoCounters.nonRefundSuppressed += 1;
+                  }
+                  allowRoutineContact = false;
                 } else {
                   infoCounters.failed += 1;
                   counters.messagesFailed += 1;

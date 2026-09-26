@@ -60,6 +60,11 @@ export function infoInquirySourceMissingSender(
     !senderEmail;
 }
 
+export const infoInquiryNonCustomerSkipped = (
+  ingestion: { skipped?: boolean; reason?: string } | null,
+): boolean => ingestion?.skipped === true &&
+  ingestion.reason === "unlinked_non_customer_message";
+
 const INFO_RECIPIENTS = new Set([
   "info@bloomjoysweets.com",
   "support@bloomjoysweets.com",

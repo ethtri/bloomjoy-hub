@@ -108,8 +108,10 @@ orientation snapshot; it is not a backlog or release ledger.
   that skipped new Info-only refund inquiries; the three identified customers
   have already received individual form links. A later charged-without-sticks
   inquiry exposed a narrower classifier miss; it received a verified same-thread
-  form link through the hourly manual fallback. The classifier fix and production
-  Info-mailbox journey proof remain release checks.
+  form link through the hourly manual fallback and the customer submitted the
+  form. The classifier is deployed, but a manager-sender synthetic test exposed
+  an intentional non-customer skip counted as a failed scan. A fresh non-manager
+  Info-mailbox reply journey and backlog proof remain release checks.
 - Technician wall-clock entries are interpreted in the selected machine
   location's IANA timezone. This keeps completed Eastern and Central work from
   being rejected as future merely because Bloomjoy's month-close policy and

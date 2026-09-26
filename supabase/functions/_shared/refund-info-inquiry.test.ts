@@ -1,4 +1,4 @@
-import { classifyRefundInfoInquiry, infoInquiryEnabled, infoInquiryMissingSource, infoInquirySourceMissingSender, infoRecoveryScanOutcome } from "./refund-info-inquiry.ts";
+import { classifyRefundInfoInquiry, infoInquiryEnabled, infoInquiryMissingSource, infoInquiryNonCustomerSkipped, infoInquirySourceMissingSender, infoRecoveryScanOutcome } from "./refund-info-inquiry.ts";
 import { infoRefundInquiryThreadQuery, type GmailMessage } from "./refund-gmail.ts";
 
 Deno.test("Info inquiry activation is explicitly true only", () => {
@@ -60,6 +60,20 @@ const message = ({
 Deno.test("direct Info refund request is eligible for the form-link path", () => {
   assertRoute(message({ subject: "Refund please", body: "I was charged and would like a refund." }),
     "new_refund_inquiry");
+});
+
+Deno.test("an intentionally excluded non-customer sender does not fail Info recovery", () => {
+  const managerText = message({ body: "I bought cotton candy from your machine, but it ran out of sticks and charged me." });
+  assertRoute(managerText, "new_refund_inquiry");
+  if (!infoInquiryNonCustomerSkipped({ skipped: true, reason: "unlinked_non_customer_message" })) {
+    throw new Error("The contact RPC's verified non-customer exclusion must be suppressed");
+  }
+  for (const other of [null, { skipped: true, reason: "attachments_disabled" },
+    { skipped: false, reason: "unlinked_non_customer_message" }]) {
+    if (infoInquiryNonCustomerSkipped(other)) {
+      throw new Error("A different ingestion outcome must keep the Info scan due");
+    }
+  }
 });
 
 Deno.test("an unrelated sync failure does not pin a completed Info recovery page", () => {
