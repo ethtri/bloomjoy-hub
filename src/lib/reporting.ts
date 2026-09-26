@@ -182,7 +182,27 @@ export type AdminReportingOverview = {
   snapshots: AdminReportViewSnapshot[];
   entitlements: AdminReportingEntitlement[];
   sunzeMachineQueue: AdminSunzeMachineQueueItem[];
+  snapcaseMachineQueue: AdminSnapCaseMachineQueueItem[];
   refundReviewRows: AdminRefundAdjustmentReviewRow[];
+};
+
+export type AdminSnapCaseMachineQueueItem = {
+  providerAccountId: string;
+  sourceAccountKey: string;
+  sourceMachineId: string;
+  sourceInventoryId: string | null;
+  sourceMerchantId: string | null;
+  sourceMerchantName: string | null;
+  sourceLabel: string | null;
+  sourceStatus: string | null;
+  firstSeenAt: string | null;
+  lastSeenAt: string | null;
+  stagedObservationCount: number;
+  mappingStatus: 'pending' | 'mapped';
+  reportingMachineId: string | null;
+  partnershipId: string | null;
+  effectiveStartDate: string | null;
+  effectiveEndDate: string | null;
 };
 
 export type AdminSunzeMachineQueueItem = {
@@ -548,6 +568,32 @@ type MapSourceMachineToPartnershipInput = {
   reason: string;
 };
 
+type MapSnapCaseMachineInput = {
+  providerAccountId: string;
+  sourceMachineId: string;
+  reportingMachineId?: string | null;
+  accountId?: string | null;
+  locationId?: string | null;
+  locationName?: string | null;
+  machineLabel?: string | null;
+  partnershipId: string;
+  effectiveStartDate: string;
+  effectiveEndDate?: string | null;
+  reason: string;
+};
+
+export type MapSnapCaseMachineResult = {
+  machineId: string;
+  machineLabel: string;
+  partnershipId: string;
+  partnershipName: string;
+  providerAccountId: string;
+  sourceMachineId: string;
+  createdMachine: boolean;
+  replayed: boolean;
+  publishedObservationCount: number;
+};
+
 export type MapSourceMachineToPartnershipResult = {
   machineId: string;
   machineLabel: string;
@@ -639,6 +685,29 @@ const mapSunzeMachineQueue = (records: unknown): AdminSunzeMachineQueueItem[] =>
     }))
     .filter((record) => record.sunzeMachineId);
 
+const mapSnapCaseMachineQueue = (records: unknown): AdminSnapCaseMachineQueueItem[] =>
+  (Array.isArray(records) ? records : [])
+    .filter((record): record is Record<string, unknown> => typeof record === 'object' && record !== null)
+    .map((record) => ({
+      providerAccountId: String(record.providerAccountId ?? ''),
+      sourceAccountKey: String(record.sourceAccountKey ?? ''),
+      sourceMachineId: String(record.sourceMachineId ?? ''),
+      sourceInventoryId: asTrimmedString(record.sourceInventoryId),
+      sourceMerchantId: asTrimmedString(record.sourceMerchantId),
+      sourceMerchantName: asTrimmedString(record.sourceMerchantName),
+      sourceLabel: asTrimmedString(record.sourceLabel),
+      sourceStatus: asTrimmedString(record.sourceStatus),
+      firstSeenAt: asTrimmedString(record.firstSeenAt),
+      lastSeenAt: asTrimmedString(record.lastSeenAt),
+      stagedObservationCount: Number(record.stagedObservationCount ?? 0),
+      mappingStatus: record.mappingStatus === 'mapped' ? 'mapped' : 'pending',
+      reportingMachineId: asTrimmedString(record.reportingMachineId),
+      partnershipId: asTrimmedString(record.partnershipId),
+      effectiveStartDate: asTrimmedString(record.effectiveStartDate),
+      effectiveEndDate: asTrimmedString(record.effectiveEndDate),
+    }))
+    .filter((record) => record.providerAccountId && record.sourceMachineId);
+
 export const summarizeSalesReport = (rows: SalesReportRow[]): SalesReportSummary =>
   rows.reduce<SalesReportSummary>(
     (summary, row) => ({
@@ -727,6 +796,7 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
     partnerSnapshotsResult,
     entitlementsResult,
     sunzeQueueResult,
+    snapcaseQueueResult,
     refundReviewResult,
   ] = await Promise.all([
     supabaseClient
@@ -765,6 +835,7 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
       .order('created_at', { ascending: false })
       .limit(20),
     supabaseClient.rpc('admin_get_sunze_machine_mapping_queue'),
+    supabaseClient.rpc('admin_get_snapcase_machine_mapping_queue'),
     supabaseClient
       .from('refund_adjustment_review_rows')
       .select('id, source_reference, source_row_reference, source_reporting_machine_id, source_location, refund_date, amount_cents, source_status, match_status, match_confidence, match_reason, candidate_machine_ids, matched_machine_id, resolution_status, applied_adjustment_id, imported_at, reporting_machines(machine_label)')
@@ -781,6 +852,7 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
     partnerSnapshotsResult.error ||
     entitlementsResult.error ||
     sunzeQueueResult.error ||
+    snapcaseQueueResult.error ||
     refundReviewResult.error;
 
   if (firstError) {
@@ -861,7 +933,43 @@ export const fetchAdminReportingOverview = async (): Promise<AdminReportingOverv
     snapshots,
     entitlements: (entitlementsResult.data ?? []) as AdminReportingEntitlement[],
     sunzeMachineQueue: mapSunzeMachineQueue(sunzeQueueResult.data),
+    snapcaseMachineQueue: mapSnapCaseMachineQueue(snapcaseQueueResult.data),
     refundReviewRows: (refundReviewResult.data ?? []) as AdminRefundAdjustmentReviewRow[],
+  };
+};
+
+export const mapSnapCaseMachineAdmin = async (
+  input: MapSnapCaseMachineInput
+): Promise<MapSnapCaseMachineResult> => {
+  const { data, error } = await supabaseClient.rpc('admin_map_snapcase_machine', {
+    p_provider_account_id: input.providerAccountId,
+    p_source_machine_id: input.sourceMachineId,
+    p_reporting_machine_id: input.reportingMachineId || null,
+    p_account_id: input.accountId || null,
+    p_location_id: input.locationId || null,
+    p_location_name: input.locationName || null,
+    p_machine_label: input.machineLabel || null,
+    p_partnership_id: input.partnershipId,
+    p_effective_start_date: input.effectiveStartDate,
+    p_effective_end_date: input.effectiveEndDate || null,
+    p_reason: input.reason,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Unable to map SnapCase machine.');
+  }
+
+  const record = data as Partial<MapSnapCaseMachineResult>;
+  return {
+    machineId: String(record.machineId ?? ''),
+    machineLabel: String(record.machineLabel ?? ''),
+    partnershipId: String(record.partnershipId ?? input.partnershipId),
+    partnershipName: String(record.partnershipName ?? ''),
+    providerAccountId: String(record.providerAccountId ?? input.providerAccountId),
+    sourceMachineId: String(record.sourceMachineId ?? input.sourceMachineId),
+    createdMachine: Boolean(record.createdMachine),
+    replayed: Boolean(record.replayed),
+    publishedObservationCount: Number(record.publishedObservationCount ?? 0),
   };
 };
 
