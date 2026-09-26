@@ -4515,6 +4515,7 @@ export default function AdminRefundsPage() {
     setIsRunningNayaxRefund(true);
     setNayaxExecutionNotice(null);
     setRefundActionReceipt(null);
+    let approvalRequestStarted = false;
     try {
       const freshOverview = await readFreshRefundOverview();
       const freshCase = freshOverview.cases.find((item) => item.id === targetCaseId);
@@ -4530,6 +4531,7 @@ export default function AdminRefundsPage() {
           freshWork.actionCode !== 'approve_or_deny_request') {
         throw new Error('The saved purchase or decision changed. Refresh this case before deciding again.');
       }
+      approvalRequestStarted = true;
       await approveSelectedNayaxCandidate({
         caseId: targetCaseId,
         expectedOfficialActionVersion: officialActionVersion,
@@ -4541,11 +4543,13 @@ export default function AdminRefundsPage() {
         message: 'The exact saved purchase was approved once. Bloomjoy will continue the protected attempt when machine execution is available; no payment was sent by this decision request.',
       });
     } catch (error) {
-      await refresh();
       const message = error instanceof Error ? error.message :
         'The decision result could not be confirmed. Refresh the case history before another action.';
       setNayaxExecutionNotice({ tone: 'warning', message });
-      toast.error('Check the refreshed case before deciding again. No second payment should be attempted.');
+      toast.error(approvalRequestStarted
+        ? 'The decision result is unconfirmed. Check the refreshed case before deciding again.'
+        : 'Approval was not submitted. The latest case check failed; review the refreshed case before deciding again.');
+      await refresh();
     } finally {
       nayaxRefundInFlightRef.current = false;
       setIsRunningNayaxRefund(false);

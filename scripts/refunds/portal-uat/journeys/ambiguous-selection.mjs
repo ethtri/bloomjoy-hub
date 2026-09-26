@@ -1308,6 +1308,8 @@ const runNayaxLookupStatusMatrixChecks = async ({
     const functionCalls = [];
     const functionBodies = [];
     const simpleJourneyState = { machineActivated: false };
+    const approvalPreflightReadStatuses = [200];
+    const approvalPreflightReadLog = [];
     await installMockSupabaseRoutes(context, {
       refundOverview: () => {
         const overview = (scenario.refundOverview ?? buildPendingNayaxRefundOverview)();
@@ -1325,6 +1327,8 @@ const runNayaxLookupStatusMatrixChecks = async ({
       },
       functionCalls,
       functionBodies,
+      refundOverviewReadStatuses: scenario.simpleJourney ? approvalPreflightReadStatuses : null,
+      refundOverviewReadLog: approvalPreflightReadLog,
       nayaxLookupResponse: scenario.response,
       persistedNayaxLookupResponse: scenario.queueView === 'Waiting for customer' ? null : scenario.response,
       persistedNayaxLookupWork: scenario.recovery ?? null,
@@ -2039,6 +2043,24 @@ const runNayaxLookupStatusMatrixChecks = async ({
         await pausedApproval.isEnabled() &&
           await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
       );
+      approvalPreflightReadStatuses.splice(0, approvalPreflightReadStatuses.length, 503);
+      await pausedApproval.click();
+      await page.getByText(
+        'Approval was not submitted. The latest case check failed; review the refreshed case before deciding again.',
+        { exact: true },
+      ).waitFor({ timeout: 10000 });
+      recorder.assert(
+        'A failed fresh case check explains the blocked decision before any provider request',
+        approvalPreflightReadLog.includes(503) &&
+          !functionBodies.some((entry) => entry.functionName === 'nayax-card-refund' &&
+            entry.body?.operation === 'approve_selected') &&
+          !functionCalls.includes('refund-case-message-send'),
+        JSON.stringify({ overviewReadStatuses: approvalPreflightReadLog, functionBodies }),
+      );
+      approvalPreflightReadStatuses.splice(0, approvalPreflightReadStatuses.length, 200);
+      await reloadRefundPortalPage(page);
+      await page.getByRole('heading', { name: simpleJourneyFixture.case.publicReference }).waitFor({ timeout: 10000 });
+      await page.getByTestId('refund-approve-selected-purchase').waitFor({ state: 'visible', timeout: 10000 });
       await pausedApproval.click();
       await page.getByTestId('refund-action-receipt').waitFor({ state: 'visible', timeout: 10000 });
       const decisionCalls = functionBodies.filter((entry) =>
