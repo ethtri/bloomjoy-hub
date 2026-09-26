@@ -34,6 +34,8 @@ const evidence = ({ resource, sourceMachineId = null, start, end, timezone, page
     nextCursor: page.nextCursor,
     responseTruncated: page.responseTruncated,
     observedCount: page.observedCount,
+    expectedTotal: page.expectedTotal,
+    effectivePageSize: page.effectivePageSize,
     rejectedCount,
     maxObservedTimeRaw: null,
     maxObservedAt: null,
