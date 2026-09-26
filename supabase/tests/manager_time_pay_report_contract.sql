@@ -1966,6 +1966,20 @@ select is(
 -- card facts and their refreshed snapshot agree. Imported month-to-date amounts
 -- remain available as estimates while cash + card completeness is unverified.
 reset role;
+-- Earlier historical-report cases deliberately inactivate this Technician and
+-- revoke this assignment. Restore an independently eligible payroll state so
+-- these safeguards prove positive-rate SnapCase behavior instead of inheriting
+-- unrelated fixture mutations.
+update public.operator_payout_profiles
+set status = 'active'
+where id = 'a6000000-0000-0000-0000-000000000001';
+update public.operator_machine_assignments
+set
+  status = 'active',
+  revoked_by = null,
+  revoked_at = null,
+  revoke_reason = null
+where id = 'a6100000-0000-0000-0000-000000000001';
 update public.reporting_machines
 set machine_type = 'snapcase'
 where id = 'a4000000-0000-0000-0000-000000000001';
@@ -1979,17 +1993,17 @@ select private.calculate_technician_pay_report(
 ) as payload;
 
 select is(
-  concat(
+  jsonb_build_array(
     exists (
       select 1
       from snapcase_card_only_report report
       cross join lateral jsonb_array_elements(report.payload -> 'blockers') blocker(item)
       where blocker.item ->> 'code' = 'snapcase_sales_incomplete'
-    ), ':',
-    payload #>> '{machines,0,snapshotMatchesFacts}', ':',
-    payload ->> 'publishable'
+    ),
+    coalesce((payload #>> '{machines,0,snapshotMatchesFacts}')::boolean, false),
+    coalesce((payload ->> 'publishable')::boolean, false)
   ),
-  'true:true:false',
+  '[true, true, false]'::jsonb,
   'card-only facts and a matching snapshot cannot certify complete SnapCase commission sales'
 )
 from snapcase_card_only_report;
@@ -2019,7 +2033,7 @@ select ok(
 );
 
 select is(
-  concat(
+  jsonb_build_array(
     exists (
       select 1
       from snapcase_card_only_report report
@@ -2032,7 +2046,7 @@ select is(
         ) -> 'blockers'
       ) blocker(item)
       where blocker.item ->> 'code' = 'snapcase_sales_incomplete'
-    ), ':',
+    ),
     exists (
       select 1
       from snapcase_card_only_report report
@@ -2046,15 +2060,15 @@ select is(
       ) warning(item)
       where warning.item ->> 'code' = 'snapcase_sales_incomplete'
         and warning.item ->> 'severity' = 'warning'
-    ), ':',
-    private.normalize_technician_pay_report_status(
+    ),
+    coalesce((private.normalize_technician_pay_report_status(
       payload,
       '2026-07-01',
       '2026-07-31',
       '2026-07-15'
-    ) #>> '{machines,0,commissionEarningsCents}'
+    ) #>> '{machines,0,commissionEarningsCents}')::integer, 0)
   ),
-  'false:true:1240',
+  '[false, true, 1240]'::jsonb,
   'an open month keeps the SnapCase estimate visible without treating unfinished coverage as a publication blocker'
 )
 from snapcase_card_only_report;
@@ -2072,13 +2086,24 @@ values (
   'a1000000-0000-0000-0000-000000000003', 1, now()
 );
 
-select is(
-  public.service_prepare_pay_stub(
+with prepared as (
+  select public.service_prepare_pay_stub(
     'ad000000-0000-0000-0000-000000000010'
-  ) ->> 'status',
-  'blocked',
+  ) as payload
+)
+select is(
+  jsonb_build_array(
+    payload ->> 'status',
+    exists (
+      select 1
+      from jsonb_array_elements(coalesce(payload -> 'blockers', '[]'::jsonb)) blocker(item)
+      where blocker.item ->> 'code' = 'snapcase_sales_incomplete'
+    )
+  ),
+  '["blocked", true]'::jsonb,
   'Pay Stub preparation blocks incomplete SnapCase commission sales server-side'
-);
+)
+from prepared;
 
 update public.payout_runs
 set status = 'review'
