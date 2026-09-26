@@ -1,0 +1,35 @@
+name: SnapCase Contract Tests
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/snapcase/**'
+      - '.github/workflows/snapcase-contract-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/snapcase/**'
+      - '.github/workflows/snapcase-contract-tests.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snapcase-contract-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+      - name: Test SnapCase extractor contract
+        run: node --test scripts/snapcase/snapcase-extractor.test.mjs

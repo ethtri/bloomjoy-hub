@@ -1,0 +1,41 @@
+{
+  "machines": [{
+    "id": "inventory-row-17",
+    "machineId": "machine-filter-key-901",
+    "merchantId": "merchant-demo",
+    "machineSn": "SYNTHETIC-001",
+    "machineName": "Synthetic SnapCase",
+    "type": 1,
+    "timezone": "America/Los_Angeles",
+    "currency": "USD",
+    "deliveryAddress": "must-be-dropped",
+    "lastConnectIp": "must-be-dropped"
+  }],
+  "orders": [{
+    "orderNo": "synthetic-order-1",
+    "machineId": "machine-filter-key-901",
+    "merchantId": "merchant-demo",
+    "paymentTime": "2026-09-20 10:00:00",
+    "paymentMethod": 7,
+    "paymentInstrument": "Cash-like label requiring review",
+    "status": 3,
+    "paymentStatus": 1,
+    "paymentAmount": "12.34",
+    "symbol": "$",
+    "customerEmail": "must-be-dropped"
+  }],
+  "payments": [{
+    "outTradeNo": "synthetic-payment-1",
+    "transactionId": "synthetic-transaction-1",
+    "orderNos": ["synthetic-order-1"],
+    "machineId": "machine-filter-key-901",
+    "merchantId": "merchant-demo",
+    "paymentTime": "2026-09-20T17:00:00Z",
+    "paymentMethod": 9,
+    "paymentInstrument": "Card-like label requiring review",
+    "status": 1,
+    "paymentAmount": "12.34",
+    "currency": "USD",
+    "cardLast4": "must-be-dropped"
+  }]
+}
