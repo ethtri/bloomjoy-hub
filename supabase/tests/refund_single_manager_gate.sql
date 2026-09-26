@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(68);
+select plan(69);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
