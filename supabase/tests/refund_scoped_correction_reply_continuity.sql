@@ -744,6 +744,41 @@ select ok((select reply_lookup_generation is null and reply_review_state='pendin
     from public.refund_wallet_correction_contexts where refund_case_id=pg_temp.cid(27)),
   'New reply clears only the prior read marker without repeating the old one');
 rollback to savepoint directional_reply_lookup;
+savepoint reply_wrong_location_scope;
+update public.reporting_machines set nayax_machine_id='REPLY-TEST-27',
+  nayax_account_key='REPLY_ACCOUNT',nayax_manual_portal_enabled=false
+  where id='df000000-0000-4000-8000-000000000003';
+select pg_temp.make_scope(27);
+update public.refund_gmail_messages set plain_body=
+  'I used Apple Pay; the device token ends in 6789, not my plastic card.'
+  where id=pg_temp.gid(27);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(27),pg_temp.gid(27))
+  ->>'outcome','received','Wrong-location control starts with a verified exact-request reply');
+create temp table wrong_location_reply_task on commit drop as
+  select task from jsonb_array_elements(
+    public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(27)::text;
+select is(public.service_complete_refund_scoped_reply_no_fact(
+    (select (task->>'requestId')::uuid from wrong_location_reply_task),
+    (select (task->>'claimToken')::uuid from wrong_location_reply_task),
+    pg_temp.gid(27),(select (task->>'factVersion')::bigint from wrong_location_reply_task),
+    (select task->>'bodySha256' from wrong_location_reply_task),pg_temp.gid(27),
+    'device token ends in 6789','wallet_token_requires_research')
+    ->>'outcome','reviewed_no_fact',
+  'Wrong-location control reaches the real post-reply research due state');
+insert into public.reporting_locations(id,account_id,name,timezone,status)
+values('df000000-0000-4000-8000-000000000005',
+  'df000000-0000-4000-8000-000000000001','Other reply fixture location',
+  'America/Los_Angeles','active');
+update public.reporting_machines set location_id='df000000-0000-4000-8000-000000000005'
+where id='df000000-0000-4000-8000-000000000003';
+select ok(jsonb_array_length(public.service_claim_due_refund_reply_nayax_lookups(2))=0
+    and (select reply_lookup_generation is null from public.refund_wallet_correction_contexts
+      where refund_case_id=pg_temp.cid(27))
+    and (select nayax_lookup_status='no_match' from public.refund_cases
+      where id=pg_temp.cid(27)),
+  'Reply-triggered claimant rejects wrong-location scope before a provider read');
+rollback to savepoint reply_wrong_location_scope;
 savepoint inexact_time_lookup;
 update public.reporting_machines set nayax_machine_id='REPLY-TEST-28',
   nayax_account_key='REPLY_ACCOUNT',nayax_manual_portal_enabled=false

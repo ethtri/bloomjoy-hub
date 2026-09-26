@@ -11,6 +11,7 @@ const lookupEndpoint = read("supabase/functions/nayax-transaction-lookup/index.t
 const recoveryMigration = read("supabase/migrations/20260911210036_simplify_refund_nayax_lookup.sql");
 const gapRecoveryMigration = read("supabase/migrations/20260912205646_refund_gap_recovery_paths.sql");
 const managerSystemCutover = read("supabase/migrations/20260914100000_refund_manager_system_cutover.sql");
+const internalLookupProjection = read("supabase/migrations/20260926170000_refund_lookup_projection_system_recovery.sql");
 const recoveryConcurrency = read("supabase/tests/refund_server_owned_nayax_lookup_concurrency.sql");
 const recoverySql = read("supabase/tests/refund_server_owned_nayax_lookup_recovery.sql");
 const migration = read("supabase/migrations/202608150001_refund_automatic_nayax_lookup.sql");
@@ -159,7 +160,9 @@ assert(
 assert(
   recoveryMigration.includes("'{canSelectNayaxCandidate}','false'::jsonb") &&
     recoverySql.includes('Unknown historical coverage is not presented as a proved no-match') &&
-    recoverySql.includes('An exhausted automatic retry routes to the Machine Manager'),
+    recoverySql.includes('An exhausted automatic retry remains an internal dependency') &&
+    internalLookupProjection.includes("work_owner := 'refund_operations'") &&
+    internalLookupProjection.includes('payment_effect_exists'),
   "case-owned work must disable selection while active and distinguish inconclusive history",
 );
 assert(
@@ -171,10 +174,11 @@ assert(
   "the narrow endpoint must defer to exact current case authority and preserve payment guards",
 );
 assert(
-  portal.includes("['machine_manager', 'refund_operations'].includes") &&
+  portal.includes('const legacyManagerLookupAuthorized = false') &&
+    !portal.includes("['machine_manager', 'refund_operations'].includes") &&
     portal.includes('data-testid="nayax-operations-recovery"') &&
     portal.includes('Run transaction check'),
-  "the assigned manager projection exposes the deliberate read-only recovery",
+  "older or current lookup work cannot authorize a Manager transaction check",
 );
 assert(
   gapRecoveryMigration.includes("incomplete_history") &&
@@ -190,10 +194,10 @@ assert(
   "incomplete provider history must get one guarded internal refresh before explicitly read-only Nayax research",
 );
 assert(
-  transactionViewState.includes('read-only transaction research only') &&
-    transactionViewState.includes('The customer does not need to repeat details.') &&
+  transactionViewState.includes('Bloomjoy is resolving the saved machine or account setup') &&
+    transactionViewState.includes('the customer does not need to repeat details.') &&
     !portal.includes("Try again or ask the customer for more details."),
-  "mapping and account failures must be manager-owned without customer repetition"
+  "mapping and account failures remain Bloomjoy-owned without customer repetition"
 );
 
 console.log("Automatic Nayax lookup integration validation passed.");

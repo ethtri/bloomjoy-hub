@@ -45,6 +45,7 @@ type DeriveRefundTransactionViewStateInput = {
   hasSelectedMatch: boolean;
   isLookingUp: boolean;
   legacyStateReviewRequired: boolean;
+  lookupWorkFailureClass?: string | null;
   lifecycleLookupStatus?: string | null;
   lifecycleReasonCode?: string | null;
   waitingOnCustomer: boolean;
@@ -69,6 +70,7 @@ export const deriveRefundTransactionViewState = ({
   hasSelectedMatch,
   isLookingUp,
   legacyStateReviewRequired,
+  lookupWorkFailureClass,
   lifecycleLookupStatus,
   lifecycleReasonCode,
   waitingOnCustomer,
@@ -141,7 +143,7 @@ export const deriveRefundTransactionViewState = ({
     const historicalCoverageComplete = summary.historicalCoverage === 'complete';
     const description = historicalCoverageComplete
       ? 'Bloomjoy checked the recorded purchase period and found no matching transaction.'
-      : 'No usable transaction was returned, and Nayax did not confirm complete coverage of the purchase period. Run the available transaction check or search the same machine in Nayax.';
+      : 'No usable transaction was returned, and Nayax did not confirm complete coverage of the purchase period. Bloomjoy owns the read-only research and will resolve any machine or account dependency before another check. No refund was issued.';
     return {
       ...base,
       kind: historicalCoverageComplete ? 'no_match' : 'unavailable',
@@ -167,6 +169,11 @@ export const deriveRefundTransactionViewState = ({
     const incompleteDescription = summary?.providerWindowRecordCount === 0 && typeof summary.providerRecordCount === 'number'
       ? `${plural(summary.providerRecordCount, 'transaction')} ${summary.providerRecordCount === 1 ? 'was' : 'were'} returned, but none covered the reported purchase window. The provider did not confirm complete history.`
       : 'The provider did not return enough history to determine whether a matching transaction exists.';
+    const scopeDependencyDescription = lookupWorkFailureClass === 'duplicate_case_pending'
+      ? 'This request has a possible duplicate-case link. Bloomjoy must resolve that link before another provider check. No Manager transaction check or payment is due.'
+      : lookupWorkFailureClass === 'reported_machine_location_mismatch'
+        ? 'The saved machine and location conflict. Bloomjoy must resolve the mapping before another provider check. No Manager transaction check or payment is due.'
+        : null;
     return {
       ...base,
       kind: 'unavailable',
@@ -182,13 +189,13 @@ export const deriveRefundTransactionViewState = ({
           : retryAvailable
             ? 'Retry pending'
             : 'Needs attention',
-      description: setupNeeded
-        ? 'Use Nayax for read-only transaction research only and report the blocked search. Never issue or record a refund there. The customer does not need to repeat details.'
+      description: scopeDependencyDescription ?? (setupNeeded
+        ? 'Bloomjoy is resolving the saved machine or account setup before any further read-only transaction search. No Manager transaction check or payment is due, and the customer does not need to repeat details.'
         : historyIncomplete
           ? incompleteDescription
         : retryAvailable
           ? 'Bloomjoy does not have current transaction results to show. It will run one more read-only check automatically. No refund was issued.'
-          : 'Bloomjoy does not have current transaction results to show. Report the blocked card-refund search. No refund was issued and no manual card completion is available.',
+          : 'Bloomjoy is resolving the blocked transaction search using the saved case evidence. No Manager transaction check or payment is due. No refund was issued.'),
       tone: 'warning',
       showCandidates: false,
     };
