@@ -1472,6 +1472,17 @@ select is(public.refund_customer_outreach_contract(pg_temp.cid(60))->>'state',
   'rechecking','A resolved reply no longer tells staff to wait for the customer');
 select is(public.refund_lifecycle_contract(pg_temp.cid(60))->'nextWork'->>'actionCode',
   'run_lookup','The next owner runs purchase research instead of reviewing the settled reply again');
+update public.refund_cases set nayax_lookup_status='multiple_matches',
+  nayax_lookup_generation=nayax_lookup_generation+1,
+  nayax_lookup_finished_at=statement_timestamp()
+  where id=pg_temp.cid(60);
+select is(public.refund_customer_outreach_contract(pg_temp.cid(60))->>'state',
+  'none','Completed provider research closes active customer outreach without erasing its history');
+select ok(public.refund_lifecycle_contract(pg_temp.cid(60))->'nextWork'->>'actionCode'
+    <> 'review_customer_reply'
+  and public.refund_lifecycle_contract(pg_temp.cid(60))->'managerQueue'->>'label'
+    <> 'Waiting for customer',
+  'Completed lookup exposes its case stage instead of stale customer-wait or reply-review copy');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
     where refund_case_id=pg_temp.cid(60)),0,
   'Time research never creates a payment attempt');

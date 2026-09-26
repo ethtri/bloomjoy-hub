@@ -5,6 +5,7 @@ create or replace function public.refund_customer_outreach_contract(
   p_refund_case_id uuid
 ) returns jsonb language plpgsql stable security definer set search_path='' as $$
 declare result jsonb; ctx public.refund_wallet_correction_contexts;
+  lookup_status text; case_payment_method text;
 begin
   result:=public.refund_customer_outreach_pre_verified_reply_continuation(p_refund_case_id);
   if result is null or result->>'state' not in ('waiting_for_customer','customer_replied')
@@ -19,8 +20,18 @@ begin
     order by r.version desc,r.issued_at desc limit 1;
   if ctx.id is null then return result; end if;
   if ctx.status='submitted' and ctx.reply_review_result_code='facts_applied' then
-    return result||jsonb_build_object('state','rechecking','owner','System',
-      'nextAction','recheck_customer_reply','replyReceivedAt',ctx.reply_received_at,
+    select c.nayax_lookup_status,c.payment_method into lookup_status,case_payment_method
+      from public.refund_cases c
+      where c.id=p_refund_case_id;
+    if case_payment_method='card' and lookup_status in ('not_started','checking') then
+      return result||jsonb_build_object('state','rechecking','owner','System',
+        'nextAction','recheck_customer_reply','replyReceivedAt',ctx.reply_received_at,
+        'reasonCode','verified_reply_reviewed','payloadRedacted',true);
+    end if;
+    -- The subsequent provider result now owns the case stage. Preserve the
+    -- delivered request history without presenting an active customer wait.
+    return result||jsonb_build_object('state','none','owner','None',
+      'nextAction','none','replyReceivedAt',ctx.reply_received_at,
       'reasonCode','verified_reply_reviewed','payloadRedacted',true);
   end if;
   return result||jsonb_build_object('state','customer_replied','owner','System',
