@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 import {
   deriveSourceBoundFacts, findKnownFactDirectionalTime, validateClaim,
-  validateDeferral, validateNoFactReview,
+  validateDeferral, validateIncidentTime, validateNoFactReview,
   validateProposalShape,
   validateResearchInput,
 } from './refund-subscription-reply-runner-lib.mjs';
@@ -157,6 +157,30 @@ export const submitResult = async (client, runId, requestId, proposal) => {
       p_reason_code: review.reasonCode,
     });
     if (result?.outcome !== 'reviewed_no_fact') fail('no_fact_review_not_completed');
+  }
+  if (proposal?.kind === 'incident_time') {
+    const time = validateIncidentTime(input, proposal);
+    result = await rpc(client, 'service_apply_refund_scoped_reply_incident_time', {
+      p_request_id: task.requestId,
+      p_claim_token: task.claimToken,
+      p_source_message_id: task.sourceMessageId,
+      p_expected_fact_version: Number(task.factVersion),
+      p_body_sha256: task.bodySha256,
+      p_evidence_message_id: time.evidenceMessageId,
+      p_source_quote: time.sourceQuote,
+    });
+    if (result?.outcome === 'time_requires_research') {
+      result = await rpc(client, 'service_defer_refund_scoped_reply_review', {
+        p_request_id: task.requestId,
+        p_claim_token: task.claimToken,
+        p_source_message_id: task.sourceMessageId,
+        p_expected_fact_version: Number(task.factVersion),
+        p_body_sha256: task.bodySha256,
+        p_reason_code: 'research_result_unresolved',
+      });
+    }
+    if (!['applied', 'already_applied', 'deferred'].includes(result?.outcome))
+      fail('incident_time_not_applied');
   }
   if (proposal?.kind === 'internal_research') {
     const reasonCode = validateDeferral(proposal);

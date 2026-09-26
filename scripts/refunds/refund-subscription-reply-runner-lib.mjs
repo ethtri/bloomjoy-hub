@@ -25,6 +25,8 @@ export const validateProposalShape = (proposal) => {
     ? ['kind', 'field', 'messageId', 'quote']
     : proposal?.kind === 'facts'
     ? ['kind', 'facts']
+    : proposal?.kind === 'incident_time'
+    ? ['kind', 'messageId', 'quote']
     : proposal?.kind === 'reviewed_no_fact'
     ? ['kind', 'reasonCode', 'messageId', 'quote']
     : proposal?.kind === 'internal_research'
@@ -256,6 +258,24 @@ export const validateDeferral = (proposal) => {
       'research_input_unavailable', 'research_result_unresolved',
     ].includes(proposal.reasonCode)) throw new Error('unsupported_research_deferral');
   return proposal.reasonCode;
+};
+
+// The database resolves this customer-supplied wall-clock time against the
+// case's existing date and canonical location timezone. The runner supplies
+// only an exact verified quote, never a UTC instant or a replacement date.
+export const validateIncidentTime = (input, proposal) => {
+  if (proposal?.kind !== 'incident_time')
+    throw new Error('unsupported_incident_time_proposal');
+  findSource(input, proposal.messageId, proposal.quote);
+  const match = proposal.quote.match(/^Time:\s*(\d{1,2}):(\d{2})\s*(am|pm)\s*$/iu);
+  if (!match || Number(match[1]) < 1 || Number(match[1]) > 12 ||
+    Number(match[2]) > 59) throw new Error('incident_time_source_not_supported');
+  const observed = new Set(input.replyMessages.flatMap((message) =>
+    [...(message.body ?? '').matchAll(/^Time:\s*(\d{1,2}):(\d{2})\s*(am|pm)\s*$/gimu)]
+      .map((item) => `${Number(item[1])}:${item[2]} ${item[3].toLowerCase()}`)));
+  if (observed.size !== 1 || !observed.has(`${Number(match[1])}:${match[2]} ${match[3].toLowerCase()}`))
+    throw new Error('ambiguous_incident_time_source');
+  return { evidenceMessageId: proposal.messageId, sourceQuote: proposal.quote };
 };
 
 export const validateNoFactReview = (input, proposal) => {

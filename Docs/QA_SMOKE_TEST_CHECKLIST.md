@@ -75,6 +75,10 @@ historical fixtures cannot add product gates that the workflow does not contain.
 - [ ] A verified customer email reply with corrected Card type or
   wallet/device-token last-four provenance updates the same case and restarts
   matching without creating a duplicate request.
+- [ ] A verified `Time: 5:03 pm` reply corrects the same case using its saved
+  purchase date and location timezone, records one source-bound fact receipt,
+  and restarts System research. A conflicting time, stale claim, or DST fold/gap
+  changes no facts; no Manager decision or provider payment is made by this step.
 - [ ] The hourly subscription-backed reply task reads only the exact verified
   request and complete later-reply set. Ordinary prose can yield a quoted,
   version-bound fact receipt, including card network and a wallet-device token

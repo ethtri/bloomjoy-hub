@@ -1391,5 +1391,47 @@ select ok(not has_function_privilege('authenticated',
   and not has_function_privilege('anon',
   'public.service_start_refund_reply_subscription_run(timestamptz)','execute'),
   'No browser or anonymous role can interpret or finish a scoped reply');
+select pg_temp.make_scope(60);
+create temp table exact_time_reply on commit drop as
+  select case when extract(hour from incident_local_datetime::timestamp)*60+
+      extract(minute from incident_local_datetime::timestamp)<10
+    then incident_local_datetime::timestamp+interval '4 minutes'
+    else incident_local_datetime::timestamp-interval '4 minutes' end local_stamp
+  from public.refund_cases where id=pg_temp.cid(60);
+update public.refund_gmail_messages set plain_body=
+  (select 'Time: '||to_char(local_stamp,'FMHH12:MI am') from exact_time_reply)
+  where id=pg_temp.gid(60);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(60),pg_temp.gid(60))->>'outcome',
+  'received','A verified labeled time uses the existing same-case reply claim');
+update public.refund_wallet_correction_contexts set
+  reply_review_due_at=statement_timestamp()-interval '1 hour'
+  where refund_case_id=pg_temp.cid(60);
+create temp table exact_time_claim on commit drop as
+  select task from jsonb_array_elements(
+    public.service_claim_refund_scoped_reply_reviews(25)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(60)::text;
+select is((select count(*)::integer from exact_time_claim),1,
+  'One current claimed task owns the source-quoted time correction');
+create temp table exact_time_result on commit drop as
+  select public.service_apply_refund_scoped_reply_incident_time(
+    (task->>'requestId')::uuid,(task->>'claimToken')::uuid,
+    (task->>'sourceMessageId')::uuid,(task->>'factVersion')::bigint,
+    task->>'bodySha256',pg_temp.gid(60),
+    (select plain_body from public.refund_gmail_messages where id=pg_temp.gid(60))) receipt
+  from exact_time_claim;
+select is((select receipt->>'outcome' from exact_time_result),'applied',
+  'Exact verified time is applied through the existing protected fact writer');
+select is((select incident_local_datetime from public.refund_cases where id=pg_temp.cid(60)),
+  (select to_char(local_stamp,'YYYY-MM-DD"T"HH24:MI') from exact_time_reply),
+  'The case now uses the verified local time on its existing date');
+select is((select count(*)::integer from public.refund_customer_fact_applications
+    where refund_case_id=pg_temp.cid(60) and applied_fields @> array['incident_time']),1,
+  'The exact time has one immutable verified-reply fact receipt');
+select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
+    where refund_case_id=pg_temp.cid(60)),0,
+  'Time research never creates a payment attempt');
+select ok(not has_function_privilege('authenticated',
+  'public.service_apply_refund_scoped_reply_incident_time(uuid,uuid,uuid,bigint,text,uuid,text)','execute'),
+  'The browser cannot call the protected reply-time writer');
 select * from finish();
 rollback;
