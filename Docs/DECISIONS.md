@@ -1,5 +1,51 @@
 # Decisions
 
+## 2026-09-26 - SnapCase refresh cadence, historical scope and Pay Stub corrections
+
+Owner direction for #1474:
+
+- Refresh sales twice daily. Recovery/retries are additional failure handling,
+  not a substitute for the two regular refreshes.
+- Import history beginning January 1, 2025, through the current period, within
+  actual machine operating windows. Unavailable source history is an explicit
+  gap, not zero sales.
+- Show month-to-date sales and earnings during the open month. Pay Stubs become
+  available after month-end under the existing publication schedule. Do not add
+  a midmonth approval/hold workflow or treat future month-end coverage as an
+  error. Existing checks for required closed-period inputs still apply.
+- When late data changes an issued Pay Stub, alert the responsible manager to
+  regenerate it. Regeneration creates a corrected version and retains the
+  original; affected later year-to-date statements remain visibly stale until
+  corrected. Do not silently replace issued statements.
+
+These choices resolve the cadence, backfill-start and correction questions;
+they do not authorize implementation, production imports or deployment by
+the planning spike.
+
+## 2026-09-26 - Import the SnapCase fleet automatically and map it in the portal
+
+Owner direction for #1474: all 22 machines currently visible through the configured
+Kexiaozhan merchant reporting login belong in Bloomjoy Hub. Going forward, the
+importer should automatically discover and retain all machines and sales visible
+to that account. Do not require a separate per-machine or per-merchant approval
+before ingestion. Extend the existing portal mapping workflow to support
+SnapCase/Kexiaozhan as well as cotton-candy/Sunze machines.
+
+Initial mapping directions are PREIT (source label `Preit`) to Bloomjoy Enterprises,
+and Gilroy plus Great Mall to TGpaci. Resolve these labels to existing canonical
+Hub entities during implementation. Other machines remain available for portal
+mapping; their unresolved destination does not prevent private ingestion.
+
+Unmapped records stay private and outside account reports and payroll until
+mapped. Mapping does not create technician compensation assignments. Preserve
+source identity, effective dates, tenant access and Nayax reconciliation so a
+sale or refund is counted once. A new machine must enter the mapping queue
+automatically without a code change or manual source allowlist edit.
+
+This is an implementation design decision, not a production mapping change or
+deployment authorization. Discovery login/read access was proved in #1486;
+complete extraction and financial semantics remain implementation verification.
+
 ## 2026-09-26 - Nayax scheduled reports feed revenue for Nayax-only machines
 
 Authenticated Nayax transaction-report emails are an authoritative sales source
