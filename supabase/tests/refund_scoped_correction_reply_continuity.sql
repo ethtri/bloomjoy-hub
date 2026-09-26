@@ -1451,6 +1451,8 @@ select is((select receipt->>'outcome' from exact_time_result),'applied',
 select is((select incident_local_datetime from public.refund_cases where id=pg_temp.cid(60)),
   (select to_char(local_stamp,'YYYY-MM-DD"T"HH24:MI') from exact_time_reply),
   'The case now uses the verified local time on its existing date');
+select is((select incident_time_confidence from public.refund_cases where id=pg_temp.cid(60)),
+  'rough','A stated minute does not turn customer memory into independently precise occurrence evidence');
 select is((select count(*)::integer from public.refund_customer_fact_applications
     where refund_case_id=pg_temp.cid(60) and applied_fields @> array['incident_time']),1,
   'The exact time has one immutable verified-reply fact receipt');
