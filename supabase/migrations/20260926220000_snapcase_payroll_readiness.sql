@@ -35,8 +35,6 @@ as $$
   ) assigned_day(value)
   where assignment.account_id = p_account_id
     and assignment.operator_profile_id = p_operator_profile_id
-    and assignment.status = 'active'
-    and assignment.revoked_at is null
     and assignment.effective_start_date <= p_period_end
     and coalesce(assignment.effective_end_date, 'infinity'::date) >= p_period_start
     and machine.machine_type = 'snapcase'
