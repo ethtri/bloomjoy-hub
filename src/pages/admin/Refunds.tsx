@@ -1,5 +1,6 @@
 import { searchRefundCases } from '@/lib/refundCaseSearch';
 import {
+  type ConfirmedCardApprovalOutcome,
   createRefundReadPolling,
   REFUND_OVERVIEW_INITIAL_LOAD_ERROR,
   REFUND_OVERVIEW_UPDATE_DELAYED,
@@ -7,6 +8,7 @@ import {
   refundOverviewPollingInterval,
   refundOverviewReadMessage,
   mergeRefundOverviewContactTruth,
+  preserveConfirmedCardApproval,
 } from '@/lib/refundReadPolling';
 import {
   getRefundCompletionContactPresentation,
@@ -2818,11 +2820,40 @@ export default function AdminRefundsPage() {
   const [overviewReadMessage, setOverviewReadMessage] = useState('');
   const overviewPolling = useMemo(createRefundReadPolling, [selectedId]);
   const overviewTruthRef = useRef<RefundOperationsOverview>();
+  const confirmedCardApprovalOutcomesRef = useRef<Map<string, ConfirmedCardApprovalOutcome>>(new Map());
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
+  const retainConfirmedCardApprovals = (
+    incoming: RefundOperationsOverview,
+    merged: RefundOperationsOverview,
+  ) => {
+    for (const refundCase of incoming.cases) {
+      if (refundCase.decision === 'approved') {
+        confirmedCardApprovalOutcomesRef.current.delete(refundCase.id);
+      }
+    }
+    return preserveConfirmedCardApproval(merged, confirmedCardApprovalOutcomesRef.current) ?? merged;
+  };
+  const holdConfirmedCardApproval = (
+    caseId: string,
+    outcome: ConfirmedCardApprovalOutcome = 'system_finishing',
+  ) => {
+    confirmedCardApprovalOutcomesRef.current.set(caseId, outcome);
+    overviewTruthRef.current = preserveConfirmedCardApproval(
+      overviewTruthRef.current,
+      confirmedCardApprovalOutcomesRef.current,
+    );
+    queryClient.setQueryData<RefundOperationsOverview>(
+      ['admin-refund-operations-overview'],
+      (current) => preserveConfirmedCardApproval(current, confirmedCardApprovalOutcomesRef.current),
+    );
+  };
   const readFreshRefundOverview = async () => {
     const incoming = await fetchRefundOperationsOverview();
-    const merged = mergeRefundOverviewContactTruth(overviewTruthRef.current, incoming);
+    const merged = retainConfirmedCardApprovals(
+      incoming,
+      mergeRefundOverviewContactTruth(overviewTruthRef.current, incoming),
+    );
     overviewTruthRef.current = merged;
     queryClient.setQueryData(['admin-refund-operations-overview'], merged);
     return merged;
@@ -2839,7 +2870,10 @@ export default function AdminRefundsPage() {
     queryKey: ['admin-refund-operations-overview'],
     queryFn: () => overviewPolling.read(async () => {
       const incoming = await fetchRefundOperationsOverview();
-      const merged = mergeRefundOverviewContactTruth(overviewTruthRef.current, incoming);
+      const merged = retainConfirmedCardApprovals(
+        incoming,
+        mergeRefundOverviewContactTruth(overviewTruthRef.current, incoming),
+      );
       overviewTruthRef.current = merged;
       return merged;
     }),
@@ -4311,6 +4345,7 @@ export default function AdminRefundsPage() {
       result.status === 'system_finishing' &&
       result.providerAttempted === false
     ) {
+      if (selectedCase) holdConfirmedCardApproval(selectedCase.id);
       setNayaxExecutionNotice(null);
       setRefundActionReceipt({
         tone: 'success',
@@ -4477,6 +4512,7 @@ export default function AdminRefundsPage() {
         preparationProofId: proofId,
         candidateToken: selectedCandidate.candidateToken,
       });
+      if (result.approved === true) holdConfirmedCardApproval(targetCaseId, result.status);
       await refresh();
       setRefundActionReceipt({
         tone: result.status === 'provider_hold' ? 'warning' : 'success',
@@ -4536,6 +4572,7 @@ export default function AdminRefundsPage() {
         caseId: targetCaseId,
         expectedOfficialActionVersion: officialActionVersion,
       });
+      holdConfirmedCardApproval(targetCaseId);
       await refresh();
       setRefundActionReceipt({
         tone: 'success',
@@ -6237,7 +6274,13 @@ export default function AdminRefundsPage() {
         !selectedCase.customerDeliveryException &&
         ['failed', 'skipped'].includes(getLatestCustomerMessage(selectedCase)?.status ?? ''),
     };
-    const cardManagerState: RefundManagerState = selectedCase.lifecycle?.nextWork ||
+    const cardManagerState: RefundManagerState = (
+      selectedCase.paymentMethod === 'card' &&
+      selectedCase.status === 'card_refund_pending' &&
+      selectedCase.decision === 'approved' &&
+      selectedCase.lifecycle == null &&
+      selectedCase.workflowProjectionUnavailable === true
+    ) || selectedCase.lifecycle?.nextWork ||
       hasConfirmedRefundReceipt(selectedCase) ||
       hasProtectedRefundLifecycle(selectedCase) ||
       (selectedCase.customerDeliveryException && !hasUnpaidRefundReview(selectedCase))

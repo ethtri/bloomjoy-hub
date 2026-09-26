@@ -1308,8 +1308,8 @@ const runNayaxLookupStatusMatrixChecks = async ({
     const functionCalls = [];
     const functionBodies = [];
     const simpleJourneyState = { machineActivated: false };
-    const approvalPreflightReadStatuses = [200];
-    const approvalPreflightReadLog = [];
+    const approvalOverviewReadStatuses = [200];
+    const approvalOverviewReadLog = [];
     await installMockSupabaseRoutes(context, {
       refundOverview: () => {
         const overview = (scenario.refundOverview ?? buildPendingNayaxRefundOverview)();
@@ -1327,8 +1327,6 @@ const runNayaxLookupStatusMatrixChecks = async ({
       },
       functionCalls,
       functionBodies,
-      refundOverviewReadStatuses: scenario.simpleJourney ? approvalPreflightReadStatuses : null,
-      refundOverviewReadLog: approvalPreflightReadLog,
       nayaxLookupResponse: scenario.response,
       persistedNayaxLookupResponse: scenario.queueView === 'Waiting for customer' ? null : scenario.response,
       persistedNayaxLookupWork: scenario.recovery ?? null,
@@ -1364,6 +1362,11 @@ const runNayaxLookupStatusMatrixChecks = async ({
             customerCompletionAttempted: false,
             payloadRedacted: true,
           }
+        : null,
+      refundOverviewReadStatuses: scenario.simpleJourney ? approvalOverviewReadStatuses : null,
+      refundOverviewReadLog: approvalOverviewReadLog,
+      onNayaxSelectedApproval: scenario.simpleJourney
+        ? () => approvalOverviewReadStatuses.splice(0, approvalOverviewReadStatuses.length, 503)
         : null,
       projectConfirmedSelectedCardDecision: scenario.simpleJourney === true,
       nayaxCardRefundResponse: scenario.simpleJourney || scenario.name === 'unique QR wallet recommendation'
@@ -2043,7 +2046,8 @@ const runNayaxLookupStatusMatrixChecks = async ({
         await pausedApproval.isEnabled() &&
           await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
       );
-      approvalPreflightReadStatuses.splice(0, approvalPreflightReadStatuses.length, 503);
+      const preflightReadStart = approvalOverviewReadLog.length;
+      approvalOverviewReadStatuses.splice(0, approvalOverviewReadStatuses.length, 503);
       await pausedApproval.click();
       await page.getByText(
         'Approval was not submitted. The latest case check failed; review the refreshed case before deciding again.',
@@ -2051,16 +2055,17 @@ const runNayaxLookupStatusMatrixChecks = async ({
       ).waitFor({ timeout: 10000 });
       recorder.assert(
         'A failed fresh case check explains the blocked decision before any provider request',
-        approvalPreflightReadLog.includes(503) &&
+        approvalOverviewReadLog.slice(preflightReadStart).includes(503) &&
           !functionBodies.some((entry) => entry.functionName === 'nayax-card-refund' &&
             entry.body?.operation === 'approve_selected') &&
           !functionCalls.includes('refund-case-message-send'),
-        JSON.stringify({ overviewReadStatuses: approvalPreflightReadLog, functionBodies }),
+        JSON.stringify({ overviewReadStatuses: approvalOverviewReadLog, functionBodies }),
       );
-      approvalPreflightReadStatuses.splice(0, approvalPreflightReadStatuses.length, 200);
+      approvalOverviewReadStatuses.splice(0, approvalOverviewReadStatuses.length, 200);
       await reloadRefundPortalPage(page);
       await page.getByRole('heading', { name: simpleJourneyFixture.case.publicReference }).waitFor({ timeout: 10000 });
       await page.getByTestId('refund-approve-selected-purchase').waitFor({ state: 'visible', timeout: 10000 });
+      const postApprovalReadStart = approvalOverviewReadLog.length;
       await pausedApproval.click();
       await page.getByTestId('refund-action-receipt').waitFor({ state: 'visible', timeout: 10000 });
       const decisionCalls = functionBodies.filter((entry) =>
@@ -2079,6 +2084,17 @@ const runNayaxLookupStatusMatrixChecks = async ({
           !(await page.getByTestId('refund-confirmation-dialog').isVisible()),
         JSON.stringify({ functionBodies })
       );
+      recorder.assert(
+        'A failed overview refresh cannot restore the saved case as Manager approval work',
+        approvalOverviewReadLog.slice(postApprovalReadStart).includes(503) &&
+          (await page.getByTestId('refund-approve-selected-purchase').count()) === 0 &&
+          (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+          (await page.getByTestId('refund-manager-state').innerText()).includes('Refund follow-up pending') &&
+          functionBodies.filter((entry) => entry.functionName === 'nayax-card-refund' &&
+            entry.body?.operation === 'approve_selected').length === 1,
+        JSON.stringify({ overviewReadStatuses: approvalOverviewReadLog, functionBodies })
+      );
+      approvalOverviewReadStatuses.splice(0, approvalOverviewReadStatuses.length, 200);
       await page.setViewportSize({ width: 1440, height: 1000 });
       await reloadRefundPortalPage(page);
       await page.getByRole('heading', { name: simpleJourneyFixture.case.publicReference }).waitFor({ timeout: 10000 });

@@ -31,6 +31,7 @@ export const createUnknownProviderOutcomeChecks = ({
     waitForQueueCount,
   },
 }) => {
+  const heldPaymentResultLabel = /Refund result is being checked|Nayax result needs reconciliation|Refund result needs reconciliation/;
   const runCustomerCommsFailureChecks = async ({ browser, appUrl, recorder }) => {
     const context = await browser.newContext({
       viewport: { width: 1440, height: 1000 },
@@ -958,7 +959,7 @@ export const createUnknownProviderOutcomeChecks = ({
       if (scenario.name === 'rejected') {
         await page.getByTestId('refund-confirmation-dialog').waitFor({ state: 'hidden', timeout: 10000 });
         await page.getByTestId('refund-manager-state')
-          .getByText(/Refund result is being checked|Nayax result needs reconciliation/, { exact: true })
+          .getByText(heldPaymentResultLabel, { exact: true })
           .waitFor({ state: 'visible', timeout: 10000 });
         await page.getByTestId('refund-run-nayax-refund').waitFor({ state: 'hidden', timeout: 10000 });
         recorder.assert(
@@ -966,7 +967,7 @@ export const createUnknownProviderOutcomeChecks = ({
           await page.getByTestId('refund-action-receipt')
             .getByText('Refund status needs checking', { exact: true }).isVisible() &&
             await page.getByTestId('refund-manager-state')
-              .getByText(/Refund result is being checked|Nayax result needs reconciliation/, { exact: true }).isVisible() &&
+              .getByText(heldPaymentResultLabel, { exact: true }).isVisible() &&
             (await page.getByText('Card refund is not available for this case.', { exact: true }).count()) === 0 &&
             (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
             !functionCalls.includes('refund-case-message-send')
@@ -998,7 +999,7 @@ export const createUnknownProviderOutcomeChecks = ({
             (await heldCaseRow.getByText('Ready to approve', { exact: true }).count()) === 0 &&
               (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
               await page.getByTestId('refund-manager-state')
-                .getByText(/Refund result is being checked|Nayax result needs reconciliation/, { exact: true }).isVisible() &&
+                .getByText(heldPaymentResultLabel, { exact: true }).isVisible() &&
               functionCalls.filter((name) => name === 'nayax-card-refund').length === 1 &&
               !functionCalls.includes('refund-case-message-send')
           );
@@ -1045,7 +1046,7 @@ export const createUnknownProviderOutcomeChecks = ({
             (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
             (systemVerificationRequired
               ? await page.getByTestId('refund-manager-state')
-                  .getByText(/Refund result is being checked|Nayax result needs reconciliation/, { exact: true }).isVisible()
+                  .getByText(heldPaymentResultLabel, { exact: true }).isVisible()
               : await page.getByRole('status', { name: expectedDisabledAction, exact: true }).isVisible()) &&
             (await page.getByRole('button', { name: expectedDisabledAction, exact: true }).count()) === 0,
           JSON.stringify({ providerCheckRequired, expectedDisabledAction })
@@ -1073,7 +1074,7 @@ export const createUnknownProviderOutcomeChecks = ({
           recorder.assert(
             `Synthetic browser ${scenario.name} remains frozen after a full reload`,
             await page.getByTestId('refund-manager-state')
-                .getByText(/Refund result is being checked|Nayax result needs reconciliation/, { exact: true }).isVisible() &&
+                .getByText(heldPaymentResultLabel, { exact: true }).isVisible() &&
               await page.getByTestId('refund-customer-decision-freeze').isVisible() &&
               (await page.getByRole('button', { name: 'Deny request', exact: true }).count()) === 0 &&
               (await page.getByTestId('refund-run-nayax-refund').count()) === 0

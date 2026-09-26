@@ -177,6 +177,14 @@ Deno.test("old v2 approved actions preserve payment continuity without reapprova
   assertEquals(getRefundManagerQueueBucket(approvedCard), "provider_hold");
   assertEquals(getRefundManagerState({ ...approvedCard, status: "card_refund_pending" }).label,
     "Refund follow-up pending");
+  const heldDuringFailedRead = {
+    ...approvedCard,
+    status: "card_refund_pending" as const,
+    lifecycle: null,
+    workflowProjectionUnavailable: true,
+  };
+  assertEquals(getRefundManagerQueueBucket(heldDuringFailedRead), "provider_hold");
+  assertEquals(getRefundManagerState(heldDuringFailedRead).label, "Refund follow-up pending");
   approvedCard.lifecycle.paymentState = "submitted_pending";
   assertEquals(getRefundManagerQueueBucket(approvedCard), "in_progress");
 

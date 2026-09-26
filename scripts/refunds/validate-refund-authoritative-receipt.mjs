@@ -145,7 +145,7 @@ for (const stage of ['refund_confirmed', 'customer_notified']) {
 }
 assert.match(
   workbench,
-  /const cardManagerState: RefundManagerState = selectedCase\.lifecycle\?\.nextWork \|\|\s*hasConfirmedRefundReceipt\(selectedCase\) \|\|\s*hasProtectedRefundLifecycle\(selectedCase\)/,
+  /const cardManagerState: RefundManagerState = \(\s*selectedCase\.paymentMethod === 'card' &&\s*selectedCase\.status === 'card_refund_pending' &&\s*selectedCase\.decision === 'approved' &&\s*selectedCase\.lifecycle == null &&\s*selectedCase\.workflowProjectionUnavailable === true\s*\) \|\| selectedCase\.lifecycle\?\.nextWork \|\|\s*hasConfirmedRefundReceipt\(selectedCase\) \|\|\s*hasProtectedRefundLifecycle\(selectedCase\)/,
   'Protected payment states stay read-only while System owns approved continuation',
 );
 assert.doesNotMatch(
