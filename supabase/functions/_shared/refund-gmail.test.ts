@@ -1,6 +1,7 @@
 import {
   buildRefundGmailReplyMime,
   extractPlainTextBody,
+  hasCustomerFacingMailboxReply,
   type GmailMessage,
   inspectRefundGmailParticipantSignals,
   isRefundGmailConversation,
@@ -64,6 +65,37 @@ const messageWithHeaders = (headers: Record<string, string>): GmailMessage => ({
   payload: {
     headers: Object.entries(headers).map(([name, value]) => ({ name, value })),
   },
+});
+
+Deno.test("an internal mailbox forward does not satisfy a customer's first reply", () => {
+  const mailboxIdentities = ["info@bloomjoysweets.com"];
+  const customerEmail = "customer@example.com";
+  const sent = (to: string, cc = "") => ({
+    ...messageWithHeaders({
+      From: "Info Account <info@bloomjoysweets.com>",
+      To: to,
+      Cc: cc,
+    }),
+    labelIds: ["SENT"],
+  });
+  const hasReply = (messages: GmailMessage[]) => hasCustomerFacingMailboxReply({
+    messages,
+    mailboxIdentities,
+    customerEmail,
+  });
+
+  assertEquals(hasReply([sent("agent@example.com")]), false,
+    "an internal forward is not a customer-facing reply");
+  assertEquals(hasReply([sent("other-customer@example.com")]), false,
+    "another recipient cannot satisfy this customer");
+  assertEquals(hasReply([sent(customerEmail)]), true,
+    "a sent reply addressed to the customer suppresses a duplicate");
+  assertEquals(hasReply([sent("agent@example.com", customerEmail)]), true,
+    "a customer copied on a sent reply has received it");
+  const unsent = sent(customerEmail);
+  unsent.labelIds = ["DRAFT"];
+  assertEquals(hasReply([unsent]), false,
+    "an address alone cannot prove a sent reply");
 });
 
 const encodeBody = (value: string) =>

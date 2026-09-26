@@ -8,6 +8,7 @@ import {
   getRefundGmailAttachment,
   getRefundGmailConfig,
   getRefundGmailThread,
+  hasCustomerFacingMailboxReply,
   type GmailMessage,
   type GmailMessagePart,
   inspectRefundGmailParticipantSignals,
@@ -2278,15 +2279,6 @@ serve(async (request) => {
           if (!intakeShadow && !hasScheduledNayaxReport && !isRefundAliasThread &&
             (!infoInquiry || infoInquiry.route === "not_info" ||
               infoInquiry.route === "untrusted" || infoInquiry.route === "non_refund")) continue;
-          const threadHasOutbound = messages.some((message) =>
-            (() => {
-              const signals = inspectRefundGmailParticipantSignals({
-                message,
-                mailboxIdentities: config.mailboxIdentities,
-              });
-              return signals.mailboxOrigin && signals.providerSentEvidence;
-            })()
-          );
           if (intakeShadow) {
             const intakeThreadShape =
               await validateRefundGmailIntakeShadowThread({
@@ -2597,6 +2589,11 @@ serve(async (request) => {
                 : null;
             },
             processFirstContact: async (firstContactCandidate) => {
+              const threadHasOutbound = hasCustomerFacingMailboxReply({
+                messages,
+                mailboxIdentities: config.mailboxIdentities,
+                customerEmail: firstContactCandidate.customerEmail,
+              });
               const sentBefore = counters.firstContactSent;
               const suppressedBefore = counters.firstContactSuppressed;
               const firstContactResult = await processFirstContact({
