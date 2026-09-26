@@ -231,6 +231,14 @@ select is((public.refund_manager_preparation_snapshot(
     (select official_action_version from public.refund_cases
       where id='a3470000-0000-4000-8000-000000000002'))->>'evidenceBasis'),
   'card_exact_selected','completed System preselection supplies current exact card preparation');
+set local role service_role;
+select is((select item->>'actionCode' from jsonb_array_elements(
+    public.refund_manager_daily_digest_projection_for(
+      'a3410000-0000-4000-8000-000000000002',statement_timestamp())->'items') item
+    where item->>'publicReference'='RF-SYSTEM-PRESELECT'),
+  'approve_or_deny_request',
+  'Daily digest includes an exact-selected decision without a nextWork proofId');
+reset role;
 select pg_temp.set_actor('a3410000-0000-4000-8000-000000000001');
 select matches(pg_temp.capture_error($sql$select public.admin_select_refund_nayax_candidate_current_user_v1(
   'a3470000-0000-4000-8000-000000000002',
