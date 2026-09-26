@@ -50,6 +50,14 @@ begin
     actor_name := 'system';
     action_code := 'run_lookup';
     action_label := 'Recheck the purchase using the verified customer reply.';
+  elsif outreach_state='customer_replied' and outreach->>'reasonCode'='verified_reply_reviewed' then
+    actor_name := 'agent';
+    action_code := 'research_purchase';
+    action_label := 'Continue purchase research; the verified reply has already been reviewed.';
+    blocker := jsonb_build_object(
+      'code', 'stable_evidence_dependency', 'owner', 'Agent',
+      'nextStep', 'Find new verified purchase evidence or wait for a completed read-only lookup before continuing.'
+    );
   elsif reply_at <> '-infinity'::timestamptz and request_sent_at is not null
     and reply_at > request_sent_at and outreach_state in ('waiting_for_customer', 'customer_replied', 'rechecking')
     and coalesce(outreach->>'reasonCode','') <> 'verified_reply_reviewed' then$replacement$;

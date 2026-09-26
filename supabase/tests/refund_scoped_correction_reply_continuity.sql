@@ -209,6 +209,10 @@ select ok((select reply_review_state='resolved' and reply_review_result_code='no
   'No-new-fact research clears Customer wait without a Manager, message or payment action');
 select is(public.refund_customer_outreach_contract(pg_temp.cid(9))->>'owner','System',
   'Completed no-fact review remains System-owned rather than a customer re-question');
+select is(public.refund_lifecycle_contract(pg_temp.cid(9))->'nextWork'->>'actionCode',
+  'research_purchase','A completed no-fact review exposes the evidence dependency, not another reply review');
+select is(public.refund_lifecycle_contract(pg_temp.cid(9))->'nextWork'->'blocker'->>'code',
+  'stable_evidence_dependency','New purchase evidence is required before replaying the reviewed reply');
 select is(public.service_get_refund_scoped_reply_research_health()
     ->>'stableEvidenceDependencyCount','1',
   'No-new-fact result is visible as a stable owned evidence dependency');
