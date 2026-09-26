@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(52);
+select plan(57);
 
 select ok(to_regclass('public.refund_nayax_lookup_recoveries') is null,
   'The duplicate lookup recovery table is removed');
@@ -410,6 +410,28 @@ select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
 
 update public.refund_cases set nayax_lookup_status='not_started'
 where id='a8700000-0000-4000-8000-000000000012';
+select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
+  jsonb_build_array(jsonb_build_object('id','a8700000-0000-4000-8000-000000000012',
+    'lifecycle',public.refund_lifecycle_contract('a8700000-0000-4000-8000-000000000012'),
+    'nayaxLookupSummary','{}'::jsonb)),true)
+  ->0->'nayaxLookupWork'->>'state'),'refund_operations',
+  'Wrong-location scope before a first lookup remains an owned internal dependency');
+select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
+  jsonb_build_array(jsonb_build_object('id','a8700000-0000-4000-8000-000000000012',
+    'lifecycle',public.refund_lifecycle_contract('a8700000-0000-4000-8000-000000000012'),
+    'nayaxLookupSummary','{}'::jsonb)),true)
+  ->0->'nayaxLookupWork'->>'failureClass'),'reported_machine_location_mismatch',
+  'Unstarted wrong-location scope retains its precise dependency reason');
+update public.refund_cases set nayax_lookup_status='checking'
+where id='a8700000-0000-4000-8000-000000000012';
+select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
+  jsonb_build_array(jsonb_build_object('id','a8700000-0000-4000-8000-000000000012',
+    'lifecycle',public.refund_lifecycle_contract('a8700000-0000-4000-8000-000000000012'),
+    'nayaxLookupSummary','{}'::jsonb)),true)
+  ->0->'nayaxLookupWork'->>'state'),'refund_operations',
+  'A changed mapping during checking is not presented as healthy System work');
+update public.refund_cases set nayax_lookup_status='not_started'
+where id='a8700000-0000-4000-8000-000000000012';
 select ok(not (public.service_claim_due_refund_nayax_lookups(1)
     @> '[{"caseId":"a8700000-0000-4000-8000-000000000012"}]'::jsonb)
     and (select nayax_lookup_status='not_started' from public.refund_cases
@@ -422,6 +444,23 @@ select throws_ok($$select public.service_begin_refund_nayax_lookup(
     'scheduled',null)$$,'P4622',
   'Current reported machine and location do not agree',
   'Protected lookup begin blocks a wrong-location direct caller too');
+
+update public.reporting_machines set location_id='a8700000-0000-4000-8000-000000000002'
+where id='a8700000-0000-4000-8000-000000000003';
+update public.refund_cases set duplicate_of_refund_case_id='a8700000-0000-4000-8000-000000000010'
+where id='a8700000-0000-4000-8000-000000000012';
+select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
+  jsonb_build_array(jsonb_build_object('id','a8700000-0000-4000-8000-000000000012',
+    'lifecycle',public.refund_lifecycle_contract('a8700000-0000-4000-8000-000000000012'),
+    'nayaxLookupSummary','{}'::jsonb)),true)
+  ->0->'nayaxLookupWork'->>'state'),'refund_operations',
+  'An unstarted duplicate link remains an owned internal dependency');
+select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
+  jsonb_build_array(jsonb_build_object('id','a8700000-0000-4000-8000-000000000012',
+    'lifecycle',public.refund_lifecycle_contract('a8700000-0000-4000-8000-000000000012'),
+    'nayaxLookupSummary','{}'::jsonb)),true)
+  ->0->'nayaxLookupWork'->>'failureClass'),'duplicate_case_pending',
+  'An unstarted duplicate link retains its precise dependency reason');
 
 select * from finish();
 rollback;

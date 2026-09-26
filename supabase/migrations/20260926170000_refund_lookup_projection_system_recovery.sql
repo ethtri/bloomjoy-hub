@@ -61,6 +61,16 @@ begin
         );
 
       if not payment_effect_exists
+        and lookup_scope_failure is not null
+        and case_row.payment_method = 'card'
+        and case_row.status in ('submitted','needs_review','correlated')
+        and case_row.decision is null
+        and case_row.nayax_refund_execution_status = 'not_requested'
+        and case_row.refund_completed_at is null then
+        -- An unsafe scope is an owned dependency even before the first lookup.
+        -- The claim/start writers separately refuse provider access.
+        work_owner := 'refund_operations';
+      elsif not payment_effect_exists
         and lookup_scope_failure is null
         and case_row.payment_method = 'card'
         and case_row.status in ('submitted','needs_review','correlated')
