@@ -1084,6 +1084,10 @@ export type RefundAutomationHealthStatus =
 
 export type RefundAutomationHealth = {
   status: RefundAutomationHealthStatus;
+  schedulerStatus?: RefundAutomationHealthStatus;
+  workflowStatus?: 'healthy' | 'degraded' | 'instrumentation_unavailable';
+  deliveryStatus?: 'healthy' | 'degraded' | 'instrumentation_unavailable';
+  blockedReasons?: string[];
   lastRunAt: string | null;
   lastSuccessAt: string | null;
   lastRunStatus: 'running' | 'succeeded' | 'failed' | 'suppressed' | null;
@@ -3102,6 +3106,20 @@ export const fetchRefundAutomationHealth = async (): Promise<RefundAutomationHea
     status: validStatuses.includes(health.status as RefundAutomationHealthStatus)
       ? (health.status as RefundAutomationHealthStatus)
       : 'waiting',
+    schedulerStatus: validStatuses.includes(health.schedulerStatus as RefundAutomationHealthStatus)
+      ? (health.schedulerStatus as RefundAutomationHealthStatus)
+      : 'waiting',
+    workflowStatus: health.workflowStatus === 'healthy' ||
+      health.workflowStatus === 'degraded' ||
+      health.workflowStatus === 'instrumentation_unavailable'
+      ? health.workflowStatus : 'instrumentation_unavailable',
+    deliveryStatus: health.deliveryStatus === 'healthy' ||
+      health.deliveryStatus === 'degraded' ||
+      health.deliveryStatus === 'instrumentation_unavailable'
+      ? health.deliveryStatus : 'instrumentation_unavailable',
+    blockedReasons: Array.isArray(health.blockedReasons)
+      ? health.blockedReasons.filter((value): value is string => typeof value === 'string')
+      : [],
     lastRunAt: typeof health.lastRunAt === 'string' ? health.lastRunAt : null,
     lastSuccessAt: typeof health.lastSuccessAt === 'string' ? health.lastSuccessAt : null,
     lastRunStatus:

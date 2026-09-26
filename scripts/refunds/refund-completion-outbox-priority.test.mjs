@@ -103,8 +103,8 @@ test('database tests cover replay, priority, crash semantics, privacy, and races
   assert.ok(read('supabase/tests/refund_receipt_automatic_completion.sql')
     .includes('disable trigger refund_completion_outbox_postcommit_wakeup'));
   for (const marker of [
-    'Seeded completion health calculates exact median latency',
-    'Seeded completion health calculates exact p95 latency',
+    'All required completion intents contribute to median latency',
+    'All required completion intents contribute to p95 latency',
     'The 60-second boundary is healthy',
     'The 10-minute boundary is healthy',
     'Runtime automation shutdown',

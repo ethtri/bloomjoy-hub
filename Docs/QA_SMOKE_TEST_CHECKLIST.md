@@ -103,6 +103,11 @@ historical fixtures cannot add product gates that the workflow does not contain.
   changed preparation before provider start sends nothing. A legacy wallet
   notice with uncertain overlap stays in review, and an unknown provider send
   is never retried blindly. The lane remains off until the release review.
+- [ ] Refund workflow health shows the scheduler and delivery obligations
+  separately. A successful scheduled run with an open Manager queue and a
+  disabled digest, or a missed 08:00 local digest without a settled batch,
+  remains degraded. Unknown sends remain visible; unavailable per-case due
+  evidence is labelled unavailable rather than counted as healthy progress.
 - [ ] Customer and Manager views work at 390px and desktop widths, with readable
   evidence, keyboard access, no horizontal overflow, and no private provider or
   payment identifiers.

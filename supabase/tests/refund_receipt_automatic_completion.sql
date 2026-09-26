@@ -362,6 +362,12 @@ select ok((select public.refund_lifecycle_contract(id)#>>'{messageState,state}'=
     and public.refund_lifecycle_contract(id)->>'refreshAfterSeconds'='5'
   from public.refund_cases where id='ce400000-0000-4000-8000-000000000002'),
   'An unknown delivery remains observable and polling');
+select is(public.service_get_refund_completion_outbox_health('{}'::text[],true,true,true)
+    ->> 'status','action_needed',
+  'An exact completion-intent outbox row with unknown provider effect needs action');
+select is(public.service_get_refund_completion_outbox_health('{}'::text[],true,true,true)
+    ->> 'deliveryUnknownCount','1',
+  'Unknown-effect health counts the durable completion intent, not generic message telemetry');
 
 select pg_temp.authorize(5);
 insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,
@@ -496,20 +502,20 @@ alter table public.refund_case_messages enable trigger user;
 
 create temp table receipt_auto_health as select
   public.service_get_refund_completion_outbox_health('{}'::text[],true,true,true) payload;
-select is((select (payload->>'sampleCount')::integer from receipt_auto_health),5,
-  'Seeded completion health counts queue-to-first-provider samples');
-select is((select (payload->>'queueToFirstProviderAttemptMedianSeconds')::numeric from receipt_auto_health),30.000,
-  'Seeded completion health calculates exact median latency');
-select is((select (payload->>'queueToFirstProviderAttemptP95Seconds')::numeric from receipt_auto_health),88.000,
-  'Seeded completion health calculates exact p95 latency');
+select is((select (payload->>'sampleCount')::integer from receipt_auto_health),6,
+  'Completion health includes queue-to-provider samples from automatic and human-reviewed intents');
+select is((select (payload->>'queueToFirstProviderAttemptMedianSeconds')::numeric from receipt_auto_health),25.000,
+  'All required completion intents contribute to median latency');
+select is((select (payload->>'queueToFirstProviderAttemptP95Seconds')::numeric from receipt_auto_health),85.000,
+  'All required completion intents contribute to p95 latency');
 select is((select (payload->>'agingQueuedCount')::integer from receipt_auto_health),1,
   'The 60-second boundary is healthy while an older queued completion is aging');
 select is((select (payload->>'staleClaimedCount')::integer from receipt_auto_health),1,
   'The 10-minute boundary is healthy while an older claim is stale');
 select is((select (payload->>'definiteFailedCount')::integer from receipt_auto_health),3,
   'Seeded completion health counts definite failures');
-select is((select (payload->>'deliveryUnknownCount')::integer from receipt_auto_health),1,
-  'Seeded completion health keeps unknown delivery separate');
+select is((select (payload->>'deliveryUnknownCount')::integer from receipt_auto_health),2,
+  'Automatic and human-reviewed unknown-effect intents stay visible together');
 select is((select (payload->>'missingRouteCount')::integer from receipt_auto_health),1,
   'A post-drain failed row retains route classification after the current route is valid');
 select ok((select payload::text not like '%manager_cc_required%'

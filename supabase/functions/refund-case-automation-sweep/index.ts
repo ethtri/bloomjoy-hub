@@ -347,6 +347,10 @@ type ClaimedAction = {
 
 type RefundAutomationHealth = {
   status?: string;
+  schedulerStatus?: string;
+  workflowStatus?: "healthy" | "degraded" | "instrumentation_unavailable";
+  deliveryStatus?: "healthy" | "degraded" | "instrumentation_unavailable";
+  blockedReasons?: string[];
   lastRunAt?: string | null;
   lastSuccessAt?: string | null;
   consecutiveFailures?: number;
@@ -354,7 +358,7 @@ type RefundAutomationHealth = {
 
 type RefundAutomationHealthNotification = {
   notificationType: "initial" | "reminder" | "recovery" | "none";
-  alertKind: "stale" | "repeated_failure" | null;
+  alertKind: "stale" | "repeated_failure" | "workflow_degraded" | null;
   incidentId: string | null;
   actionKey: string | null;
 };
@@ -859,9 +863,25 @@ const finishRun = async (
 
 const getAutomationHealth = async (): Promise<RefundAutomationHealth> => {
   if (!supabase) throw new Error("Refund automation is not configured.");
-  const { data, error } = await supabase.rpc("service_get_refund_automation_health");
+  const { data, error } = await supabase.rpc("service_get_refund_workflow_health", {
+    p_automation_enabled: automationEnabled,
+    p_customer_contact_enabled: automaticCustomerContactEnabled,
+    p_manual_outbox_enabled: refundManualMessageOutboxEnabled(),
+    p_manager_digest_enabled: managerDigestEnabled,
+    p_manager_ready_enabled: managerReadyNoticesEnabled,
+    p_mailbox_identities: getRefundGmailMailboxIdentities(),
+  });
   if (error) throw error;
-  return (data ?? {}) as RefundAutomationHealth;
+  const health = (data ?? {}) as RefundAutomationHealth;
+  if (health.workflowStatus !== "healthy" &&
+      health.workflowStatus !== "degraded" &&
+      health.workflowStatus !== "instrumentation_unavailable" ||
+      health.deliveryStatus !== "healthy" &&
+        health.deliveryStatus !== "degraded" &&
+        health.deliveryStatus !== "instrumentation_unavailable") {
+    throw new Error("Refund workflow health contract is unavailable.");
+  }
+  return health;
 };
 
 const claimAutomationHealthNotification = async (
@@ -879,7 +899,8 @@ const claimAutomationHealthNotification = async (
       claim.notificationType === "recovery"
     ? claim.notificationType
     : "none";
-  const alertKind = claim.alertKind === "stale" || claim.alertKind === "repeated_failure"
+  const alertKind = claim.alertKind === "stale" || claim.alertKind === "repeated_failure" ||
+      claim.alertKind === "workflow_degraded"
     ? claim.alertKind
     : null;
   return {
@@ -1996,29 +2017,38 @@ const sendWalletCorrectionMessage = async (
 };
 
 const sendAutomationHealthAlert = async (
-  alertKind: "stale" | "repeated_failure" | "failure_test",
+  alertKind: "stale" | "repeated_failure" | "workflow_degraded" | "failure_test",
   health: RefundAutomationHealth,
   notificationType: "initial" | "reminder" | "recovery" = "initial",
 ) => {
   const label = alertKind === "failure_test"
     ? "failure-test alert"
+    : alertKind === "workflow_degraded"
+      ? "blocked refund workflow delivery"
     : alertKind === "stale"
       ? "stale scheduler"
       : "repeated scheduler failures";
   const subject = alertKind === "failure_test"
     ? `[Action needed] Refund automation ${label}`
     : notificationType === "recovery"
-      ? "[Recovered] Refund automation scheduler healthy"
+      ? alertKind === "workflow_degraded"
+        ? "[Recovered] Refund workflow delivery restored"
+        : "[Recovered] Refund automation scheduler healthy"
       : notificationType === "reminder"
         ? `[Reminder] Refund automation ${label}`
         : `[Action needed] Refund automation ${label}`;
   const opening = notificationType === "recovery"
-    ? "Bloomjoy refund automation has remained healthy for one hour."
+    ? alertKind === "workflow_degraded"
+      ? "Observed refund delivery obligations have remained resolved for one hour. Workflow progression may still need separate monitoring."
+      : "Bloomjoy refund automation scheduler has remained healthy for one hour."
     : notificationType === "reminder"
-      ? "Bloomjoy refund automation still needs the assigned Manager's attention."
-      : "Bloomjoy refund automation needs the assigned Manager's attention.";
+      ? "Bloomjoy refund automation still needs an operations owner to resolve a technical blocker."
+      : "Bloomjoy refund automation needs an operations owner to resolve a technical blocker.";
   const closing = notificationType === "recovery"
-    ? "No action is needed. A future distinct scheduler incident can alert again."
+    ? alertKind === "workflow_degraded" &&
+        health.workflowStatus === "instrumentation_unavailable"
+      ? "The delivery incident is resolved. Continue tracking the separately reported progression instrumentation gap."
+      : "No action is needed for this incident. A future distinct scheduler incident can alert again."
     : "The core refund case workflow remains available. Check the Refunds health banner and the primary Supabase schedule.";
   await sendInternalEmail({
     subject,
@@ -2027,6 +2057,9 @@ const sendAutomationHealthAlert = async (
       "",
       `Alert category: ${label}`,
       `Health state: ${health.status ?? "unknown"}`,
+      `Scheduler state: ${health.schedulerStatus ?? "unavailable"}`,
+      `Workflow state: ${health.workflowStatus ?? "unavailable"}`,
+      `Blocked lanes: ${(health.blockedReasons ?? []).join(", ") || "none recorded"}`,
       `Last run: ${health.lastRunAt ?? "not recorded"}`,
       `Last successful run: ${health.lastSuccessAt ?? "not recorded"}`,
       `Consecutive failures: ${health.consecutiveFailures ?? 0}`,
@@ -4352,10 +4385,21 @@ const runHealthCheck = async (
 ) => {
   const health = await getAutomationHealth();
   const notificationHealthStatus = health.status === "failing" &&
+      health.workflowStatus !== "degraded" &&
       (health.consecutiveFailures ?? 0) < 2
     ? "waiting"
     : health.status ?? "waiting";
-  const notification = await claimAutomationHealthNotification(notificationHealthStatus);
+  const notification = await claimAutomationHealthNotification(
+    notificationHealthStatus === "failing" && health.schedulerStatus === "healthy" &&
+        health.workflowStatus === "degraded"
+      ? "workflow_degraded"
+      : health.schedulerStatus === "healthy" &&
+          health.workflowStatus === "instrumentation_unavailable" &&
+          health.deliveryStatus === "healthy" &&
+          (health.blockedReasons?.length ?? 0) === 0
+      ? "healthy"
+      : notificationHealthStatus,
+  );
 
   if (
     notification.notificationType === "none" ||
