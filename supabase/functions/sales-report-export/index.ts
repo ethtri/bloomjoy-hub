@@ -184,6 +184,7 @@ serve(async (req) => {
     const provisionalDataNotice = getSnapcaseProvisionalNotice(
       Array.isArray(reportingDimensions) ? reportingDimensions : [],
       filters.machineIds,
+      filters.locationIds,
     );
 
     const { data: reportRows, error: reportError } = await userSupabase.rpc(

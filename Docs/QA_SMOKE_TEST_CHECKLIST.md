@@ -535,6 +535,7 @@ npm run refunds:validate-portal-uat-lifecycle
 - [ ] Partner Dashboard preview/export respects the partnership effective window: `effective_end_date = null` is open-ended, fully outside weeks/months show one `No report for this period` state without duplicate machine/setup errors, and partial weeks/months show a trimming warning while including only active-window dates
 - [ ] Revoked Corporate Partner membership removes portal reporting access after refresh/re-login
 - [ ] `/portal/reports` export creates a private signed PDF link that matches the selected filters
+- [ ] Reports whose authorized machine/location scope includes SnapCase show **SnapCase sales are incomplete** while keeping totals visible; Sunze-only scopes do not. Operator PDFs derive the same notice from the server-authorized machine and location intersection, and import freshness alone does not clear it.
 - [ ] `npm run reporting:validate-provider-parser` passes with the sanitized provider `.xlsx` fixture
 - [ ] `npm run refunds:validate-scheduled-reports` proves authenticated Nayax reports retain settled sales separately from refund observations, replay without duplicate facts, and reject malformed or non-settled rows
 - [ ] A production Nayax report replay creates `nayax_scheduled_report` import runs and revenue facts for active published Nayax-only machines, reports unmapped rows, and skips every Sunze-backed overlap without changing Sunze facts
