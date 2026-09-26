@@ -99,6 +99,13 @@ orientation snapshot; it is not a backlog or release ledger.
   is a fail-closed bridge; verified zero windows and coverage-based release stay
   with the SnapCase importer/reconciliation work, and production behavior still
   requires the migration to merge and deploy.
+- Issue #1478 now has a proof-gated projection contract for Kexiaozhan cash only;
+  existing Nayax scheduled facts remain the sole card authority and existing
+  sales adjustments remain the sole refund deduction. Gross cash amount and
+  half-open payment query bounds are supported, while business-date publication
+  remains disabled because machine-local timestamp semantics and complete-window
+  coverage are still unverified. The owner identified machine local time as the
+  working assumption and will verify it; this does not make payroll ready.
 - Refund automation authenticates through the Info Gmail account and sends as
   `refunds@bloomjoysweets.com`. P0 #1455 is correcting the deployed filter
   that skipped new Info-only refund inquiries; the three identified customers
