@@ -927,9 +927,11 @@ assert(
   'Generic reconciliation counters and outstanding work must keep Gmail health degraded',
 );
 assert(
-  syncFunction.includes('threadHasOutbound') &&
+  syncFunction.includes('hasCustomerFacingMailboxReply({') &&
+    syncFunction.includes('customerEmail: firstContactCandidate.customerEmail') &&
+    syncFunction.includes('threadHasOutbound') &&
     syncFunction.includes('p_thread_has_outbound: threadHasOutbound'),
-  'Fetched legacy or manual mailbox replies must suppress a new automatic acknowledgement',
+  'Only a provider-SENT mailbox reply addressed to this customer may suppress a first response',
 );
 assert(
   syncFunction.includes('mailboxOrigin && providerSentEvidence') &&
