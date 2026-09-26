@@ -310,9 +310,9 @@ test('window extraction discovers every machine and queries sales with machineId
   const fakeClient = {
     async getAll(path, query) {
       queries.push({ path, query });
-      if (path === '/v1/machines') return { rows: fixture.machines, evidence: { status: 'complete', pageCount: 1, observedCount: 1, nextCursor: null, responseTruncated: false } };
-      if (path === '/v1/orders') return { rows: fixture.orders, evidence: { status: 'complete', pageCount: 1, observedCount: 1, nextCursor: null, responseTruncated: false } };
-      return { rows: fixture.payments, evidence: { status: 'complete', pageCount: 1, observedCount: 1, nextCursor: null, responseTruncated: false } };
+      if (path === '/v1/machines') return { rows: fixture.machines, evidence: { status: 'complete', pageCount: 1, observedCount: 1, expectedTotal: 1, effectivePageSize: 1, nextCursor: null, responseTruncated: false } };
+      if (path === '/v1/orders') return { rows: fixture.orders, evidence: { status: 'complete', pageCount: 1, observedCount: 1, expectedTotal: 1, effectivePageSize: 1, nextCursor: null, responseTruncated: false } };
+      return { rows: fixture.payments, evidence: { status: 'complete', pageCount: 1, observedCount: 1, expectedTotal: 1, effectivePageSize: 1, nextCursor: null, responseTruncated: false } };
     },
   };
   const result = await extractSnapcaseWindow({
@@ -329,6 +329,8 @@ test('window extraction discovers every machine and queries sales with machineId
   assert.equal(queries[1].query.machineId, 'machine-filter-key-901');
   assert.equal(queries[2].query.machineId, 'machine-filter-key-901');
   assert.notEqual(queries[1].query.machineId, 'inventory-row-17');
+  assert.equal(result.evidence[1].extraction.expectedTotal, 1);
+  assert.equal(result.evidence[1].extraction.effectivePageSize, 1);
   for (const item of result.evidence) {
     assert.equal(item.extraction.status, 'complete');
     assert.equal(item.businessCoverageStatus, 'unverified');
@@ -339,8 +341,8 @@ test('window extraction discovers every machine and queries sales with machineId
 test('a rejected observation prevents complete extraction evidence', async () => {
   const fakeClient = {
     async getAll(path) {
-      if (path === '/v1/machines') return { rows: fixture.machines, evidence: { status: 'complete', pageCount: 1, observedCount: 1, nextCursor: null, responseTruncated: false } };
-      return { rows: [{}], evidence: { status: 'complete', pageCount: 1, observedCount: 1, nextCursor: null, responseTruncated: false } };
+      if (path === '/v1/machines') return { rows: fixture.machines, evidence: { status: 'complete', pageCount: 1, observedCount: 1, expectedTotal: 1, effectivePageSize: 1, nextCursor: null, responseTruncated: false } };
+      return { rows: [{}], evidence: { status: 'complete', pageCount: 1, observedCount: 1, expectedTotal: 1, effectivePageSize: 1, nextCursor: null, responseTruncated: false } };
     },
   };
   const result = await extractSnapcaseWindow({
@@ -386,7 +388,7 @@ test('ingest envelopes are bounded and defer completion evidence to the final ba
       resource: 'machines',
       sourceMachineId: null,
       query: { requestedStart: '2026-09-01', requestedEnd: '2026-09-26', requestedTimezone: null },
-      extraction: { status: 'complete', pageCount: 1, nextCursor: null, responseTruncated: false, observedCount: 51, rejectedCount: 0, maxObservedTimeRaw: null, maxObservedAt: null },
+      extraction: { status: 'complete', pageCount: 1, nextCursor: null, responseTruncated: false, observedCount: 51, expectedTotal: 51, effectivePageSize: 50, rejectedCount: 0, maxObservedTimeRaw: null, maxObservedAt: null },
       businessCoverageStatus: 'unverified',
       coverageReasonCode: 'source_time_semantics_unverified',
     }],
@@ -410,5 +412,10 @@ test('ingest envelopes are bounded and defer completion evidence to the final ba
   assert.deepEqual(Object.keys(batches[2].evidence[0]).sort(), [
     'businessCoverageStatus', 'coverageReasonCode', 'extraction', 'query',
     'resource', 'sourceMachineId',
+  ]);
+  assert.deepEqual(Object.keys(batches[2].evidence[0].extraction).sort(), [
+    'effectivePageSize', 'expectedTotal', 'maxObservedAt', 'maxObservedTimeRaw',
+    'nextCursor', 'observedCount', 'pageCount', 'rejectedCount',
+    'responseTruncated', 'status',
   ]);
 });
