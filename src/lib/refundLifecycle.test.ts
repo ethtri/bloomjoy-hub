@@ -551,6 +551,21 @@ Deno.test("the lifecycle parser accepts exact applied accounting delivery states
   };
   assert(isRefundLifecycleContract(appliedFailed), "a failed applied receipt should parse");
 
+  const liveDeliveryReview = {
+    ...appliedFailed,
+    operations: {
+      ...reviewOperations,
+      nextStep:
+        "Review customer delivery evidence. Do not resend the message blindly. Follow the current refund step separately.",
+    },
+  };
+  assert(isRefundLifecycleContract(liveDeliveryReview),
+    "the current failed-delivery projection must retain the paid case and its operations recovery");
+  assert(!isRefundLifecycleContract({
+    ...liveDeliveryReview,
+    operations: { ...liveDeliveryReview.operations, nextStep: "Resend the message." },
+  }), "a new unreviewed delivery action must still fail closed");
+
   const appliedUnknown = {
     ...appliedFailed,
     stage: "customer_notified",
