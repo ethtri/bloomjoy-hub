@@ -246,6 +246,7 @@ const unresolvedCommissionCodes = new Set([
   'partial_period_assignment_scope',
   'shared_machine_compensation_scope',
   'missing_revenue_snapshot',
+  'snapcase_sales_incomplete',
   'missing_commission_sales_facts',
   'stale_commission_sales_facts',
   'revenue_snapshot_fact_mismatch',
