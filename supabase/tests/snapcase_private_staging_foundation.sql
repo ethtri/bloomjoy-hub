@@ -108,6 +108,8 @@ as $$
           'nextCursor', null,
           'responseTruncated', false,
           'observedCount', 1,
+          'expectedTotal', 1,
+          'effectivePageSize', 50,
           'rejectedCount', 0,
           'maxObservedTimeRaw', null,
           'maxObservedAt', null
@@ -129,6 +131,8 @@ as $$
           'nextCursor', null,
           'responseTruncated', false,
           'observedCount', 1,
+          'expectedTotal', 1,
+          'effectivePageSize', 50,
           'rejectedCount', 0,
           'maxObservedTimeRaw', '2026-09-25 09:15:00',
           'maxObservedAt', null
@@ -150,6 +154,8 @@ as $$
           'nextCursor', null,
           'responseTruncated', false,
           'observedCount', 1,
+          'expectedTotal', 1,
+          'effectivePageSize', 50,
           'rejectedCount', 0,
           'maxObservedTimeRaw', '2026-09-25 09:15:30',
           'maxObservedAt', null
@@ -324,6 +330,8 @@ select is(
       'requestedEnd', requested_end,
       'maxObservedAt', max_observed_at,
       'maxObservedTimeRaw', max_observed_time_raw,
+      'expectedTotal', expected_total,
+      'effectivePageSize', effective_page_size,
       'extractionStatus', extraction_status,
       'businessCoverageStatus', business_coverage_status
     )
@@ -337,6 +345,8 @@ select is(
     'requestedEnd', '2026-10-01T00:00:00+00'::timestamptz,
     'maxObservedAt', null,
     'maxObservedTimeRaw', '2026-09-25 09:15:00',
+    'expectedTotal', 1,
+    'effectivePageSize', 50,
     'extractionStatus', 'complete',
     'businessCoverageStatus', 'unverified'
   ),
@@ -363,6 +373,32 @@ select throws_like(
   )$$,
   '%snapcase_extraction_evidence_complete_is_extraction_only%',
   'an extraction with rejected rows cannot be recorded as complete'
+);
+
+select throws_ok(
+  $$select public.service_ingest_snapcase_observations(
+    jsonb_set(
+      pg_temp.snapcase_payload(repeat('9', 64), repeat('a', 64), repeat('b', 64)),
+      '{evidence,1,extraction,expectedTotal}',
+      '2'::jsonb
+    )
+  )$$,
+  'P0001',
+  'Invalid SnapCase complete extraction evidence totals',
+  'complete extraction evidence reconciles the provider total to observed rows'
+);
+
+select throws_ok(
+  $$select public.service_ingest_snapcase_observations(
+    jsonb_set(
+      pg_temp.snapcase_payload(repeat('c', 64), repeat('d', 64), repeat('e', 64)),
+      '{evidence,1,extraction,effectivePageSize}',
+      '51'::jsonb
+    )
+  )$$,
+  'P0001',
+  'Invalid SnapCase extraction evidence',
+  'provider effective page size is bounded to the observed API maximum'
 );
 
 select is(
