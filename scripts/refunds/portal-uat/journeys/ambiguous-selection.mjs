@@ -1310,6 +1310,12 @@ const runNayaxLookupStatusMatrixChecks = async ({
     const simpleJourneyState = { machineActivated: false };
     const approvalOverviewReadStatuses = [200];
     const approvalOverviewReadLog = [];
+    let holdPreflightRefresh = false;
+    let failedPreflightReads = 0;
+    let signalPreflightRefreshStarted;
+    const preflightRefreshStarted = new Promise((resolve) => { signalPreflightRefreshStarted = resolve; });
+    let releasePreflightRefresh;
+    const preflightRefreshGate = new Promise((resolve) => { releasePreflightRefresh = resolve; });
     await installMockSupabaseRoutes(context, {
       refundOverview: () => {
         const overview = (scenario.refundOverview ?? buildPendingNayaxRefundOverview)();
@@ -1365,6 +1371,14 @@ const runNayaxLookupStatusMatrixChecks = async ({
         : null,
       refundOverviewReadStatuses: scenario.simpleJourney ? approvalOverviewReadStatuses : null,
       refundOverviewReadLog: approvalOverviewReadLog,
+      onRefundOverviewFailedRead: scenario.simpleJourney ? async () => {
+        if (!holdPreflightRefresh) return;
+        failedPreflightReads += 1;
+        if (failedPreflightReads === 2) {
+          signalPreflightRefreshStarted();
+          await preflightRefreshGate;
+        }
+      } : null,
       onNayaxSelectedApproval: scenario.simpleJourney
         ? () => approvalOverviewReadStatuses.splice(0, approvalOverviewReadStatuses.length, 503)
         : null,
@@ -2046,6 +2060,40 @@ const runNayaxLookupStatusMatrixChecks = async ({
         await pausedApproval.isEnabled() &&
           await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
       );
+      const preflightReadStart = approvalOverviewReadLog.length;
+      holdPreflightRefresh = true;
+      approvalOverviewReadStatuses.splice(0, approvalOverviewReadStatuses.length, 503);
+      await pausedApproval.click();
+      const refreshStarted = await Promise.race([
+        preflightRefreshStarted.then(() => true),
+        new Promise((resolve) => setTimeout(() => resolve(false), 10000)),
+      ]);
+      try {
+        if (refreshStarted) {
+          await page.getByText(
+            'Approval was not submitted. The latest case check failed; review the refreshed case before deciding again.',
+            { exact: true },
+          ).waitFor({ timeout: 3000 });
+        }
+        recorder.assert(
+          'A failed fresh case check is explained before its follow-up refresh completes',
+          refreshStarted &&
+            failedPreflightReads === 2 &&
+            approvalOverviewReadLog.slice(preflightReadStart).includes(503) &&
+            !functionBodies.some((entry) => entry.functionName === 'nayax-card-refund' &&
+              entry.body?.operation === 'approve_selected') &&
+            !functionCalls.includes('refund-case-message-send'),
+          JSON.stringify({ overviewReadStatuses: approvalOverviewReadLog, functionBodies }),
+        );
+      } finally {
+        releasePreflightRefresh();
+        holdPreflightRefresh = false;
+      }
+      approvalOverviewReadStatuses.splice(0, approvalOverviewReadStatuses.length, 200);
+      await reloadRefundPortalPage(page);
+      await page.getByRole('heading', { name: simpleJourneyFixture.case.publicReference }).waitFor({ timeout: 10000 });
+      await page.getByTestId('refund-approve-selected-purchase').waitFor({ state: 'visible', timeout: 10000 });
+      const postApprovalReadStart = approvalOverviewReadLog.length;
       await pausedApproval.click();
       await page.getByTestId('refund-action-receipt').waitFor({ state: 'visible', timeout: 10000 });
       const decisionCalls = functionBodies.filter((entry) =>
@@ -2066,7 +2114,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
       );
       recorder.assert(
         'A failed overview refresh cannot restore the saved case as Manager approval work',
-        approvalOverviewReadLog.includes(503) &&
+        approvalOverviewReadLog.slice(postApprovalReadStart).includes(503) &&
           (await page.getByTestId('refund-approve-selected-purchase').count()) === 0 &&
           (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
           (await page.getByTestId('refund-manager-state').innerText()).includes('Refund follow-up pending') &&

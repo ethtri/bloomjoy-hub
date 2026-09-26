@@ -2373,6 +2373,7 @@ const installMockSupabaseRoutes = async (
     internalTestClassificationHandler = null,
     refundOverviewReadStatuses = null,
     refundOverviewReadLog = [],
+    onRefundOverviewFailedRead = null,
   } = {}
 ) => {
   const officialActionVersions = new Map();
@@ -3471,6 +3472,7 @@ const installMockSupabaseRoutes = async (
         : 200;
       refundOverviewReadLog.push(overviewReadStatus);
       if (overviewReadStatus >= 400) {
+        await onRefundOverviewFailedRead?.({ status: overviewReadStatus, readIndex: overviewReadIndex });
         return route.fulfill({
           ...jsonResponse({ message: 'Synthetic refund overview read failure.' }),
           status: overviewReadStatus,
