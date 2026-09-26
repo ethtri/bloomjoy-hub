@@ -2326,6 +2326,7 @@ const installMockSupabaseRoutes = async (
     nayaxCardRefundResponse = null,
     nayaxReviewedResponse = null,
     nayaxSelectedResponse = null,
+    onNayaxSelectedApproval = null,
     nayaxCardRefundAvailabilityResponse = null,
     nayaxCardRefundAvailabilityResolver = null,
     projectConfirmedSelectedCardDecision = false,
@@ -2954,6 +2955,7 @@ const installMockSupabaseRoutes = async (
       if (requestBody?.operation === 'approve_selected' && nayaxSelectedResponse) {
         systemFinishingCaseIds.add(requestBody.caseId);
         approvedPendingExecutionCaseIds.add(requestBody.caseId);
+        onNayaxSelectedApproval?.(requestBody.caseId);
         return route.fulfill(jsonResponse(nayaxSelectedResponse));
       }
       if (requestBody?.operation === 'approve_reviewed' && nayaxReviewedResponse) {
