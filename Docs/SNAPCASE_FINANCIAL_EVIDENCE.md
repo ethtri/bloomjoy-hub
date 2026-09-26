@@ -113,16 +113,19 @@ publication.
 
 The owner clarified that Nayax and Kexiaozhan are separate systems and are not
 expected to share IDs. The team intentionally aligns machine names across the
-systems. The supported mapping proposal is therefore a unique normalized machine
-name plus account/location context. A serial is optional corroboration. Duplicate
-or mismatched names are actionable mapping or naming-cleanup exceptions.
+systems. The supported mapping proposal is therefore fuzzy normalized-name
+similarity plus account/location context. A serial is optional corroboration.
+Ambiguous candidates require human review; duplicate or mismatched names are
+actionable mapping or naming-cleanup exceptions. The owner applies this same
+proposal policy to Nayax-to-Sunze mapping.
 
 After a human reviews that proposal, persist each provider's distinct stable
 machine ID in the effective mapping. A later rename must not change transaction
 identity or duplicate sales, so the mutable display name is never a transaction
-key. The current Hub registry has eight SnapCase rows, six with Nayax IDs. A
-read-only review found six unique Kexiaozhan name/context candidates for those
-six rows; it did not change a name or mapping.
+key. Machine-name similarity proposes a machine mapping only; it never links
+payments. The current Hub registry has eight SnapCase rows, six with Nayax IDs.
+A read-only review found six unambiguous Kexiaozhan name/context candidates for
+those six rows; it did not change a name or mapping.
 
 One bounded comparison used those six proposed cohorts and the half-open interval
 September 24 through September 27. It found five successful Kexiaozhan card rows
@@ -212,9 +215,9 @@ A Kexiaozhan machine/window is financially complete only when all of the
 following hold:
 
 - the exact source machine has an effective Hub mapping and source ownership;
-- that mapping was reviewed from a unique normalized name plus account/location
-  context, retains both providers' stable IDs, and has no unresolved duplicate or
-  naming exception;
+- that mapping was confirmed after fuzzy normalized-name and account/location
+  review, retains both providers' stable IDs, and has no unresolved ambiguity,
+  duplicate or naming exception;
 - `/v1/payments` pagination reaches the declared total with no rejected rows,
   truncation or cursor remaining;
 - the half-open source bounds and source clock are verified;
