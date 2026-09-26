@@ -5,11 +5,58 @@ import ts from 'typescript';
 const source=fs.readFileSync(new URL('../../src/lib/refundReadPolling.ts',import.meta.url),'utf8');
 const compiled=ts.transpile(source,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022});
 const {createRefundReadPolling,refundOverviewPollingInterval,refundAvailabilityIsTerminal,refundOverviewReadMessage,
- mergeRefundOverviewContactTruth,parseRefundAvailabilityRead,REFUND_OVERVIEW_INITIAL_LOAD_ERROR,REFUND_OVERVIEW_UPDATE_DELAYED,REFUND_OVERVIEW_RECOVERED}=await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+ mergeRefundOverviewContactTruth,preserveConfirmedCardApproval,parseRefundAvailabilityRead,REFUND_OVERVIEW_INITIAL_LOAD_ERROR,REFUND_OVERVIEW_UPDATE_DELAYED,REFUND_OVERVIEW_RECOVERED}=await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
 // QueryObserver only schedules browser intervals when a window exists at import.
 globalThis.window={};
 const {QueryClient,QueryObserver,focusManager,onlineManager}=await import('@tanstack/query-core');
 const flush=async()=>{for(let i=0;i<20;i++)await Promise.resolve();};
+
+test('a saved card approval cannot reappear as Manager work during a failed or stale overview read',async()=>{
+ const oldCase={id:'case-a',paymentMethod:'card',status:'needs_review',decision:null,
+   lifecycle:{nextWork:{isOpen:true,actor:'manager',actionCode:'approve_or_deny_request'}},
+   nayaxMatchExecutionEligible:true};
+ const otherCase={...oldCase,id:'case-b'};
+ const oldOverview={cases:[oldCase,otherCase]};
+ const holds=new Map([['case-a','system_finishing']]);
+ const held=preserveConfirmedCardApproval(oldOverview,holds);
+ assert.equal(held.cases[0].decision,'approved');
+ assert.equal(held.cases[0].status,'card_refund_pending');
+ assert.equal(held.cases[0].lifecycle,null);
+ assert.equal(held.cases[0].nayaxMatchExecutionEligible,false);
+ assert.deepEqual(held.cases[1],otherCase);
+ assert.deepEqual(oldOverview.cases[0],oldCase,'original server snapshot is not rewritten');
+
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ client.setQueryData(['overview'],held);
+ await assert.rejects(client.fetchQuery({queryKey:['overview'],queryFn:async()=>{throw Error('overview timed out');},staleTime:0}),/overview timed out/);
+ assert.equal(client.getQueryData(['overview']).cases[0].decision,'approved');
+ const lateOldRead=preserveConfirmedCardApproval(oldOverview,holds);
+ assert.equal(lateOldRead.cases[0].lifecycle,null,'late old data cannot restore the Manager action');
+
+ const newServerCase={...oldCase,status:'card_refund_pending',decision:'approved',
+   lifecycle:{nextWork:{isOpen:true,actor:'system',actionCode:'continue_refund'}}};
+ const current=preserveConfirmedCardApproval({cases:[newServerCase]},holds);
+ assert.deepEqual(current.cases[0],newServerCase,'current server continuation replaces the temporary hold');
+ const settledServerCase={...oldCase,status:'completed',decision:null};
+ assert.deepEqual(preserveConfirmedCardApproval({cases:[settledServerCase]},holds).cases[0],settledServerCase,
+   'a terminal server record is not rewritten as pending');
+ const unknown=preserveConfirmedCardApproval(oldOverview,new Map([['case-a','provider_hold']])).cases[0];
+ assert.equal(unknown.decision,'approved');
+ assert.equal(unknown.providerHold,true);
+ assert.equal(unknown.providerOutcome,'unconfirmed');
+ assert.equal(unknown.lifecycle,null,'unknown outcome cannot restore Manager approval');
+ const completed=preserveConfirmedCardApproval(oldOverview,new Map([['case-a','completed']])).cases[0];
+ assert.equal(completed.decision,'approved');
+ assert.equal(completed.providerOutcome,'succeeded');
+ assert.equal(completed.status,'card_refund_pending','customer-contact detail stays open until server readback');
+ assert.equal(completed.lifecycle,null,'completed replay cannot restore Manager approval');
+ assert.deepEqual(preserveConfirmedCardApproval({cases:[newServerCase]},new Map([['case-a','completed']])).cases[0],
+   newServerCase,'an authoritative approved case replaces even a stronger local replay hold');
+ const serverUnknown={...newServerCase,providerHold:true,providerOutcome:'unconfirmed'};
+ assert.deepEqual(preserveConfirmedCardApproval({cases:[serverUnknown]},new Map([['case-a','provider_hold']])).cases[0],
+   serverUnknown,'authoritative reconciliation detail replaces the temporary unknown-result hold');
+ client.clear();
+});
 
 // Node20's experimental MockTimers can resurrect an interval cleared/replaced
 // inside its own callback. Use browser-style cancellation for the real observer.

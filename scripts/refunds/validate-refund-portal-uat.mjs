@@ -2326,6 +2326,8 @@ const installMockSupabaseRoutes = async (
     nayaxCardRefundResponse = null,
     nayaxReviewedResponse = null,
     nayaxSelectedResponse = null,
+    onNayaxSelectedApproval = null,
+    onNayaxReviewedApproval = null,
     nayaxCardRefundAvailabilityResponse = null,
     nayaxCardRefundAvailabilityResolver = null,
     projectConfirmedSelectedCardDecision = false,
@@ -2954,11 +2956,13 @@ const installMockSupabaseRoutes = async (
       if (requestBody?.operation === 'approve_selected' && nayaxSelectedResponse) {
         systemFinishingCaseIds.add(requestBody.caseId);
         approvedPendingExecutionCaseIds.add(requestBody.caseId);
+        onNayaxSelectedApproval?.(requestBody.caseId);
         return route.fulfill(jsonResponse(nayaxSelectedResponse));
       }
       if (requestBody?.operation === 'approve_reviewed' && nayaxReviewedResponse) {
         systemFinishingCaseIds.add(requestBody.caseId);
         approvedPendingExecutionCaseIds.add(requestBody.caseId);
+        onNayaxReviewedApproval?.(requestBody.caseId);
         return route.fulfill(jsonResponse(nayaxReviewedResponse));
       }
       if (isNayaxAvailabilityRequest) {
@@ -4393,6 +4397,60 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
       (await reviewedPage.getByTestId('refund-approve-reviewed-purchase').count()) === 0 &&
         (await reviewedPage.getByRole('button', { name: /^Ready to approve 0$/ }).count()) === 1);
     await closeRefundPortalContext(reviewedContext);
+
+    for (const replayStatus of ['provider_hold', 'completed']) {
+      const replayContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+      const replayReadStatuses = [200];
+      const replayReadLog = [];
+      const replayFunctionBodies = [];
+      await installMockSupabaseRoutes(replayContext, {
+        refundOverview: () => {
+          const overview = buildManagerReadyRefundOverview();
+          overview.machines[0].id = reviewedSeed.caseRecord.reportingMachineId;
+          overview.managerAssignments[0].reportingMachineId =
+            reviewedSeed.caseRecord.reportingMachineId;
+          overview.cases = [reviewedSeed.caseRecord];
+          return overview;
+        },
+        refundOverviewReadStatuses: replayReadStatuses,
+        refundOverviewReadLog: replayReadLog,
+        functionBodies: replayFunctionBodies,
+        nayaxReviewedResponse: {
+          approved: true,
+          executed: false,
+          status: replayStatus,
+          replayed: true,
+          providerAttempted: false,
+          customerCompletionAttempted: false,
+          payloadRedacted: true,
+        },
+        onNayaxReviewedApproval: () => replayReadStatuses.splice(0, replayReadStatuses.length, 503),
+      });
+      const replayPage = await replayContext.newPage();
+      await signInRefundUser(replayPage, appUrl);
+      await replayPage.getByRole('button', { name: /^Ready to approve 1$/ }).click();
+      await queueCase(replayPage, reviewedSeed.publicReference).click();
+      await replayPage.locator(
+        `input[name="nayax-transaction-candidate"][value="${reviewedSeed.preparationProof.eligibleCandidateTokens[1]}"]`,
+      ).check();
+      await replayPage.getByTestId('refund-approve-reviewed-purchase').click();
+      await replayPage.getByTestId('refund-action-receipt').waitFor({ state: 'visible', timeout: 10000 });
+      const replayState = await replayPage.getByTestId('refund-manager-state').innerText();
+      const replayPanel = await replayPage.getByTestId('refund-primary-action').innerText();
+      recorder.assert(`A ${replayStatus} protected replay survives a failed overview without reapproval`,
+        replayReadLog.includes(503) &&
+          replayFunctionBodies.filter(({ functionName, body }) =>
+            functionName === 'nayax-card-refund' && body?.operation === 'approve_reviewed').length === 1 &&
+          (await replayPage.getByTestId('refund-approve-reviewed-purchase').count()) === 0 &&
+          (await replayPage.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+          replayState.includes(replayStatus === 'provider_hold'
+            ? 'Refund result needs reconciliation'
+            : 'Refund completed · details refreshing') &&
+          (replayStatus !== 'completed' || replayPanel.includes('customer-contact details')),
+        JSON.stringify({ replayStatus, replayReadLog, replayState, replayPanel, replayFunctionBodies }),
+      );
+      await closeRefundPortalContext(replayContext);
+    }
   }
 
   const skewContext = await browser.newContext({ viewport: { width: 390, height: 844 } });

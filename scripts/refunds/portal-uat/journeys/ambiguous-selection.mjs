@@ -1308,6 +1308,8 @@ const runNayaxLookupStatusMatrixChecks = async ({
     const functionCalls = [];
     const functionBodies = [];
     const simpleJourneyState = { machineActivated: false };
+    const approvalOverviewReadStatuses = [200];
+    const approvalOverviewReadLog = [];
     await installMockSupabaseRoutes(context, {
       refundOverview: () => {
         const overview = (scenario.refundOverview ?? buildPendingNayaxRefundOverview)();
@@ -1360,6 +1362,11 @@ const runNayaxLookupStatusMatrixChecks = async ({
             customerCompletionAttempted: false,
             payloadRedacted: true,
           }
+        : null,
+      refundOverviewReadStatuses: scenario.simpleJourney ? approvalOverviewReadStatuses : null,
+      refundOverviewReadLog: approvalOverviewReadLog,
+      onNayaxSelectedApproval: scenario.simpleJourney
+        ? () => approvalOverviewReadStatuses.splice(0, approvalOverviewReadStatuses.length, 503)
         : null,
       projectConfirmedSelectedCardDecision: scenario.simpleJourney === true,
       nayaxCardRefundResponse: scenario.simpleJourney || scenario.name === 'unique QR wallet recommendation'
@@ -2057,6 +2064,17 @@ const runNayaxLookupStatusMatrixChecks = async ({
           !(await page.getByTestId('refund-confirmation-dialog').isVisible()),
         JSON.stringify({ functionBodies })
       );
+      recorder.assert(
+        'A failed overview refresh cannot restore the saved case as Manager approval work',
+        approvalOverviewReadLog.includes(503) &&
+          (await page.getByTestId('refund-approve-selected-purchase').count()) === 0 &&
+          (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+          (await page.getByTestId('refund-manager-state').innerText()).includes('Refund follow-up pending') &&
+          functionBodies.filter((entry) => entry.functionName === 'nayax-card-refund' &&
+            entry.body?.operation === 'approve_selected').length === 1,
+        JSON.stringify({ overviewReadStatuses: approvalOverviewReadLog, functionBodies })
+      );
+      approvalOverviewReadStatuses.splice(0, approvalOverviewReadStatuses.length, 200);
       await page.setViewportSize({ width: 1440, height: 1000 });
       await reloadRefundPortalPage(page);
       await page.getByRole('heading', { name: simpleJourneyFixture.case.publicReference }).waitFor({ timeout: 10000 });

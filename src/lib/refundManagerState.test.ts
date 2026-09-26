@@ -1160,6 +1160,37 @@ Deno.test('uncertain provider result blocks a second action even when old status
   assertEquals(getRefundPaymentStateLabel({ ...baseCase, providerHold: true }), 'Result unclear', 'payment label');
 });
 
+Deno.test('acknowledged approval with a failed overview refresh remains System follow-up', () => {
+  const heldCase = {
+    ...baseCase,
+    status: 'card_refund_pending' as const,
+    decision: 'approved' as const,
+    lifecycle: null,
+    workflowProjectionUnavailable: true,
+    hasMatchedNayaxTransaction: true,
+  };
+  const result = getRefundManagerState(heldCase);
+  assertEquals(result.label, 'Refund follow-up pending', 'saved approval remains visible');
+  assertEquals(result.nextStep.includes('Do not approve or try the refund again.'), true,
+    'failed refresh never asks for a second decision');
+  const uncertain = getRefundManagerState({
+    ...heldCase,
+    providerHold: true,
+    providerOutcome: 'unconfirmed' as const,
+  });
+  assertEquals(uncertain.id, 'check_nayax_result', 'unknown payment still takes the reconciliation path');
+  assertEquals(uncertain.nextStep.includes('Do not approve or try the refund again.'), true,
+    'provider-hold replay never offers another payment');
+  const completed = getRefundManagerState({
+    ...heldCase,
+    providerOutcome: 'succeeded' as const,
+  });
+  assertEquals(completed.label, 'Refund completed · details refreshing',
+    'completed replay keeps its stronger protected result');
+  assertEquals(completed.explanation.includes('customer-contact details'), true,
+    'completed replay does not invent delivered customer notice');
+});
+
 Deno.test('confirmed transaction takes precedence over an older manual-review recommendation', () => {
   const currentCase = {
     ...baseCase,
