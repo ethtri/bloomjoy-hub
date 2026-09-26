@@ -537,6 +537,29 @@ export const isRefundGmailBounceMessage = (message: GmailMessage) =>
     mailboxIdentities: [],
   }).isBounce;
 
+export const hasCustomerFacingMailboxReply = ({
+  messages,
+  mailboxIdentities,
+  customerEmail,
+}: {
+  messages: GmailMessage[];
+  mailboxIdentities: string[];
+  customerEmail: string;
+}): boolean => {
+  const recipient = customerEmail.trim().toLowerCase();
+  if (!recipient) return false;
+  return messages.some((message) => {
+    const signals = inspectRefundGmailParticipantSignals({
+      message,
+      mailboxIdentities,
+    });
+    return signals.mailboxOrigin && signals.providerSentEvidence &&
+      [...signals.toEmails, ...signals.ccEmails, ...parseEmailAddressList(
+        getGmailHeader(message.payload?.headers, "Bcc"),
+      )].includes(recipient);
+  });
+};
+
 export const isRefundGmailAutomatedMessage = (message: GmailMessage) =>
   inspectRefundGmailParticipantSignals({
     message,
