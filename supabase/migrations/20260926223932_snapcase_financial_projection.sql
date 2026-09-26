@@ -127,6 +127,7 @@ declare
   financial_key text;
   publication_digest text;
   reporting_machine_ids uuid[] := '{}'::uuid[];
+  qualified_payment_keys text[] := '{}'::text[];
   cash_observation_count integer := 0;
   cash_published_count integer := 0;
   cash_sales_cents bigint := 0;
@@ -139,6 +140,9 @@ declare
   cash_exception_count integer := 0;
   card_difference_count integer := 0;
   card_context_exception_count integer := 0;
+  quantity_unknown_count integer := 0;
+  card_window_comparable boolean := false;
+  stale_fact_row record;
   exception_count integer := 0;
   projection_status text;
   reason_code text;
@@ -296,6 +300,7 @@ begin
       payment.amount_minor,
       order_context.revision_digest as order_revision_digest,
       order_context.item_quantity,
+      order_context.quantity_complete,
       mapping.id as mapping_id,
       mapping.mapped_at,
       machine.id as reporting_machine_id,
@@ -309,7 +314,12 @@ begin
           string_agg(order_observation.revision_digest, '|' order by order_observation.source_key),
           'UTF8'
         ), 'sha256'), 'hex') as revision_digest,
-        sum(order_observation.quantity)::integer as item_quantity
+        case
+          when count(order_observation.quantity) = count(*)
+            then sum(order_observation.quantity)::integer
+          else 0
+        end as item_quantity,
+        count(order_observation.quantity) = count(*) as quantity_complete
       from private.snapcase_sales_observations order_observation
       where order_observation.provider_account_id = payment.provider_account_id
         and order_observation.resource = 'order'
@@ -322,14 +332,12 @@ begin
         and not (order_observation.exception_codes && array[
           'amount_unit_unverified', 'currency_unverified',
           'invalid_amount_text',
-          'product_unverified',
           'refund_semantics_unverified', 'source_clock_offset_missing',
           'source_time_semantics_unverified'
         ]::text[])
       having count(*) = cardinality(payment.related_order_keys)
         and count(*) > 0
-        and count(order_observation.quantity) = count(*)
-        and sum(order_observation.quantity) between 1 and 2147483647
+        and coalesce(sum(order_observation.quantity), 0) between 0 and 2147483647
         and sum(order_observation.amount_minor) = payment.amount_minor
     ) order_context on true
     join private.snapcase_machine_mappings mapping
@@ -371,6 +379,10 @@ begin
       )
     order by payment.id
   loop
+    qualified_payment_keys := array_append(
+      qualified_payment_keys,
+      payment_row.payment_source_key
+    );
     financial_key := encode(extensions.digest(convert_to(
       'snapcase-cash-v1|' || p_provider_account_id::text || '|' || payment_row.payment_source_key,
       'UTF8'
@@ -413,6 +425,10 @@ begin
           'contractVersion', contract_version,
           'amountBasis', contract ->> 'amountBasis',
           'timestampBasis', contract ->> 'timestampBasis',
+          'itemQuantityBasis', case
+            when payment_row.quantity_complete then 'linked_order_quantity_sum'
+            else 'unknown_zero'
+          end,
           'taxBasis', 'hub_machine_effective_rate_derived_downstream',
           'publicationState', 'active',
           'payloadRedacted', true
@@ -439,6 +455,10 @@ begin
         'contractVersion', contract_version,
         'amountBasis', contract ->> 'amountBasis',
         'timestampBasis', contract ->> 'timestampBasis',
+        'itemQuantityBasis', case
+          when payment_row.quantity_complete then 'linked_order_quantity_sum'
+          else 'unknown_zero'
+        end,
         'taxBasis', 'hub_machine_effective_rate_derived_downstream',
         'publicationState', 'active',
         'payloadRedacted', true
@@ -464,6 +484,10 @@ begin
             'contractVersion', contract_version,
             'amountBasis', contract ->> 'amountBasis',
             'timestampBasis', contract ->> 'timestampBasis',
+            'itemQuantityBasis', case
+              when payment_row.quantity_complete then 'linked_order_quantity_sum'
+              else 'unknown_zero'
+            end,
             'taxBasis', 'hub_machine_effective_rate_derived_downstream',
             'publicationState', 'active',
             'payloadRedacted', true
@@ -476,18 +500,142 @@ begin
     existing_fact := null;
   end loop;
 
-  -- A later refund/pending state is not proof that the original collected cash
-  -- disappeared. Refund money remains owned by sales_adjustment_facts, so keep
-  -- the known gross fact and report the changed source state for review.
+  -- Reconcile later source revisions without turning uncertain corrections into
+  -- silent revenue changes. Refunds remain owned by sales_adjustment_facts.
+  for stale_fact_row in
+    select
+      fact.id as fact_id,
+      fact.raw_payload,
+      payment.revision_digest as current_revision_digest,
+      payment.source_machine_id as current_source_machine_id,
+      payment.source_status,
+      payment.normalized_tender,
+      payment.source_tender_code,
+      payment.refund_amount_minor,
+      payment.exception_codes
+    from public.machine_sales_facts fact
+    left join private.snapcase_sales_observations payment
+      on payment.provider_account_id = p_provider_account_id
+      and payment.resource = 'payment'
+      and payment.source_key = fact.raw_payload ->> 'sourcePaymentKey'
+    where fact.source = 'snapcase_cash'
+      and fact.raw_payload ->> 'providerAccountId' = p_provider_account_id::text
+      and fact.raw_payload ->> 'sourceMachineId' = btrim(p_source_machine_id)
+      and fact.payment_time >= p_requested_start
+      and fact.payment_time < p_requested_end
+      and (
+        not (fact.raw_payload ->> 'sourcePaymentKey' = any(qualified_payment_keys))
+        or fact.raw_payload ->> 'publicationState' is distinct from 'active'
+      )
+    order by fact.id
+  loop
+    if stale_fact_row.current_revision_digest is not null
+      and (
+        coalesce(stale_fact_row.refund_amount_minor, 0) > 0
+        or stale_fact_row.source_status in ('refunding', 'refund_success', 'refund_failed')
+      ) then
+      update public.machine_sales_facts fact
+      set source_payment_status = 'review_preserved',
+          raw_payload = fact.raw_payload || jsonb_build_object(
+            'publicationState', 'review_preserved',
+            'reviewReason', 'refund_source_revision',
+            'reviewedSourcePaymentRevisionDigest', stale_fact_row.current_revision_digest
+          ),
+          updated_at = statement_timestamp()
+      where fact.id = stale_fact_row.fact_id
+        and (
+          fact.source_payment_status is distinct from 'review_preserved'
+          or fact.raw_payload ->> 'publicationState' is distinct from 'review_preserved'
+          or fact.raw_payload ->> 'reviewReason' is distinct from 'refund_source_revision'
+          or fact.raw_payload ->> 'reviewedSourcePaymentRevisionDigest'
+            is distinct from stale_fact_row.current_revision_digest
+        );
+    elsif stale_fact_row.current_revision_digest is not null
+      and stale_fact_row.current_source_machine_id = btrim(p_source_machine_id)
+      and stale_fact_row.source_status = contract ->> 'successfulPaymentStatus'
+      and stale_fact_row.normalized_tender = 'card'
+      and stale_fact_row.source_tender_code = contract ->> 'cardTenderCode'
+      and not (stale_fact_row.exception_codes && array[
+        'amount_unit_unverified', 'currency_unverified',
+        'financial_tender_semantics_unverified', 'invalid_amount_text',
+        'refund_semantics_unverified', 'source_clock_offset_missing',
+        'source_time_semantics_unverified'
+      ]::text[]) then
+      update public.machine_sales_facts fact
+      set net_sales_cents = 0,
+          transaction_count = 0,
+          item_quantity = 0,
+          source_payment_status = 'superseded_non_cash',
+          raw_payload = fact.raw_payload || jsonb_build_object(
+            'publicationState', 'superseded',
+            'reviewReason', 'proved_card_tender_correction',
+            'reviewedSourcePaymentRevisionDigest', stale_fact_row.current_revision_digest
+          ),
+          updated_at = statement_timestamp()
+      where fact.id = stale_fact_row.fact_id
+        and (
+          fact.net_sales_cents <> 0
+          or fact.transaction_count <> 0
+          or fact.item_quantity <> 0
+          or fact.source_payment_status is distinct from 'superseded_non_cash'
+          or fact.raw_payload ->> 'publicationState' is distinct from 'superseded'
+          or fact.raw_payload ->> 'reviewReason' is distinct from 'proved_card_tender_correction'
+          or fact.raw_payload ->> 'reviewedSourcePaymentRevisionDigest'
+            is distinct from stale_fact_row.current_revision_digest
+        );
+    else
+      update public.machine_sales_facts fact
+      set source_payment_status = 'stale_review',
+          raw_payload = fact.raw_payload || jsonb_build_object(
+            'publicationState', 'stale_review',
+            'reviewReason', case
+              when stale_fact_row.current_revision_digest is null
+                then 'source_observation_missing'
+              else 'source_revision_not_projectable'
+            end,
+            'reviewedSourcePaymentRevisionDigest', stale_fact_row.current_revision_digest
+          ),
+          updated_at = statement_timestamp()
+      where fact.id = stale_fact_row.fact_id
+        and (
+          fact.source_payment_status is distinct from 'stale_review'
+          or fact.raw_payload ->> 'publicationState' is distinct from 'stale_review'
+          or fact.raw_payload ->> 'reviewReason' is distinct from case
+            when stale_fact_row.current_revision_digest is null
+              then 'source_observation_missing'
+            else 'source_revision_not_projectable'
+          end
+          or fact.raw_payload ->> 'reviewedSourcePaymentRevisionDigest'
+            is distinct from stale_fact_row.current_revision_digest
+        );
+    end if;
+
+    get diagnostics exception_count = row_count;
+    changed_fact_count := changed_fact_count + exception_count;
+  end loop;
+  exception_count := 0;
+
+  -- Known gross remains visible while a refund or another uncertain revision is
+  -- reviewed. A proved card correction is superseded above and contributes zero.
   select
-    count(*)::integer,
+    count(*) filter (where fact.net_sales_cents > 0)::integer,
     coalesce(sum(fact.net_sales_cents), 0)::bigint
   into cash_published_count, cash_sales_cents
   from public.machine_sales_facts fact
   where fact.source = 'snapcase_cash'
     and fact.raw_payload ->> 'providerAccountId' = p_provider_account_id::text
     and fact.raw_payload ->> 'sourceMachineId' = btrim(p_source_machine_id)
-    and fact.raw_payload ->> 'publicationState' = 'active'
+    and fact.payment_time >= p_requested_start
+    and fact.payment_time < p_requested_end;
+
+  select count(*)::integer
+  into quantity_unknown_count
+  from public.machine_sales_facts fact
+  where fact.source = 'snapcase_cash'
+    and fact.raw_payload ->> 'providerAccountId' = p_provider_account_id::text
+    and fact.raw_payload ->> 'sourceMachineId' = btrim(p_source_machine_id)
+    and fact.raw_payload ->> 'itemQuantityBasis' = 'unknown_zero'
+    and fact.net_sales_cents > 0
     and fact.payment_time >= p_requested_start
     and fact.payment_time < p_requested_end;
 
@@ -499,7 +647,6 @@ begin
     where fact.source = 'snapcase_cash'
       and fact.raw_payload ->> 'providerAccountId' = p_provider_account_id::text
       and fact.raw_payload ->> 'sourceMachineId' = btrim(p_source_machine_id)
-      and fact.raw_payload ->> 'publicationState' = 'active'
       and fact.payment_time >= p_requested_start
       and fact.payment_time < p_requested_end
     union
@@ -524,24 +671,56 @@ begin
           and coalesce(mapping.effective_end_date, 'infinity'::date)
   ) scope;
 
+  select count(*) > 0
+    and bool_and(
+      (p_requested_start at time zone location.timezone)::time = time '00:00'
+      and (p_requested_end at time zone location.timezone)::time = time '00:00'
+    )
+  into card_window_comparable
+  from public.reporting_machines machine
+  join public.reporting_locations location on location.id = machine.location_id
+  where machine.id = any(reporting_machine_ids);
+
   select count(*)::integer
   into cash_exception_count
-  from private.snapcase_sales_observations payment
-  where payment.provider_account_id = p_provider_account_id
-    and payment.source_machine_id = btrim(p_source_machine_id)
-    and payment.resource = 'payment'
-    and payment.occurred_at >= p_requested_start
-    and payment.occurred_at < p_requested_end
-    and payment.normalized_tender = contract ->> 'cashTender'
-    and not exists (
-      select 1
-      from public.machine_sales_facts fact
-      where fact.source = 'snapcase_cash'
-        and fact.raw_payload ->> 'providerAccountId' = p_provider_account_id::text
-        and fact.raw_payload ->> 'sourceMachineId' = btrim(p_source_machine_id)
-        and fact.raw_payload ->> 'sourcePaymentKey' = payment.source_key
-        and fact.raw_payload ->> 'publicationState' = 'active'
-    );
+  from (
+    select payment.source_key
+    from private.snapcase_sales_observations payment
+    where payment.provider_account_id = p_provider_account_id
+      and payment.source_machine_id = btrim(p_source_machine_id)
+      and payment.resource = 'payment'
+      and payment.occurred_at >= p_requested_start
+      and payment.occurred_at < p_requested_end
+      and payment.normalized_tender = contract ->> 'cashTender'
+      and not exists (
+        select 1
+        from public.machine_sales_facts fact
+        where fact.source = 'snapcase_cash'
+          and fact.raw_payload ->> 'providerAccountId' = p_provider_account_id::text
+          and fact.raw_payload ->> 'sourceMachineId' = btrim(p_source_machine_id)
+          and fact.raw_payload ->> 'sourcePaymentKey' = payment.source_key
+          and fact.raw_payload ->> 'publicationState' = 'active'
+          and fact.raw_payload ->> 'sourcePaymentRevisionDigest' = payment.revision_digest
+      )
+    union
+    select fact.raw_payload ->> 'sourcePaymentKey'
+    from public.machine_sales_facts fact
+    left join private.snapcase_sales_observations payment
+      on payment.provider_account_id = p_provider_account_id
+      and payment.resource = 'payment'
+      and payment.source_key = fact.raw_payload ->> 'sourcePaymentKey'
+    where fact.source = 'snapcase_cash'
+      and fact.raw_payload ->> 'providerAccountId' = p_provider_account_id::text
+      and fact.raw_payload ->> 'sourceMachineId' = btrim(p_source_machine_id)
+      and fact.payment_time >= p_requested_start
+      and fact.payment_time < p_requested_end
+      and (
+        fact.raw_payload ->> 'publicationState' is distinct from 'active'
+        or payment.id is null
+        or fact.raw_payload ->> 'sourcePaymentRevisionDigest'
+          is distinct from payment.revision_digest
+      )
+  ) unresolved_cash;
 
   select count(*)::integer
   into mapping_exception_count
@@ -564,20 +743,23 @@ begin
             and coalesce(mapping.effective_end_date, 'infinity'::date)
     );
 
-  select
-    count(*)::integer,
-    coalesce(sum(fact.net_sales_cents), 0)::bigint
-  into nayax_card_fact_count, nayax_card_sales_cents
-  from public.machine_sales_facts fact
-  join public.reporting_machines machine on machine.id = fact.reporting_machine_id
-  join public.reporting_locations location on location.id = machine.location_id
-  where fact.source = 'nayax_scheduled_report'
-    and fact.payment_method = 'credit'
-    and fact.reporting_machine_id = any(reporting_machine_ids)
-    and fact.sale_date >= (p_requested_start at time zone location.timezone)::date
-    and fact.sale_date < (p_requested_end at time zone location.timezone)::date;
+  if card_window_comparable then
+    select
+      count(*)::integer,
+      coalesce(sum(fact.net_sales_cents), 0)::bigint
+    into nayax_card_fact_count, nayax_card_sales_cents
+    from public.machine_sales_facts fact
+    join public.reporting_machines machine on machine.id = fact.reporting_machine_id
+    join public.reporting_locations location on location.id = machine.location_id
+    where fact.source = 'nayax_scheduled_report'
+      and fact.payment_method = 'credit'
+      and fact.reporting_machine_id = any(reporting_machine_ids)
+      and fact.sale_date >= (p_requested_start at time zone location.timezone)::date
+      and fact.sale_date < (p_requested_end at time zone location.timezone)::date;
+  end if;
 
-  if card_observation_count > 0
+  if card_window_comparable
+    and card_observation_count > 0
     and card_observed_amount_cents is not null
     and (card_observation_count <> nayax_card_fact_count
       or card_observed_amount_cents <> nayax_card_sales_cents) then
@@ -590,12 +772,12 @@ begin
   if mapping_exception_count > 0 then
     projection_status := 'needs_review';
     reason_code := 'mapping_incomplete';
-  elsif cash_exception_count > 0 then
-    projection_status := 'needs_review';
-    reason_code := 'cash_projection_incomplete';
   elsif refund_candidate_count > 0 then
     projection_status := 'needs_review';
     reason_code := 'refund_semantics_unverified';
+  elsif cash_exception_count > 0 then
+    projection_status := 'needs_review';
+    reason_code := 'cash_projection_incomplete';
   elsif card_difference_count > 0 or card_context_exception_count > 0 then
     projection_status := 'needs_review';
     reason_code := 'card_window_difference';
@@ -619,6 +801,7 @@ begin
     card_observation_count::text, coalesce(card_observed_amount_cents::text, 'unknown'),
     nayax_card_fact_count::text, nayax_card_sales_cents::text,
     refund_candidate_count::text, card_context_exception_count::text,
+    quantity_unknown_count::text, card_window_comparable::text,
     exception_count::text, reason_code
   ), 'UTF8'), 'sha256'), 'hex');
 
@@ -629,6 +812,8 @@ begin
     'queryWindow', '[start,end)',
     'mappingExceptionCount', mapping_exception_count,
     'cashExceptionCount', cash_exception_count,
+    'quantityUnknownCount', quantity_unknown_count,
+    'cardWindowComparable', card_window_comparable,
     'cardDifferenceCount', card_difference_count,
     'cardContextExceptionCount', card_context_exception_count,
     'exactCardReferenceRequired', false,

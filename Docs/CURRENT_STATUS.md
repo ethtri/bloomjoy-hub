@@ -106,6 +106,8 @@ orientation snapshot; it is not a backlog or release ledger.
   remains disabled because machine-local timestamp semantics and complete-window
   coverage are still unverified. The owner identified machine local time as the
   working assumption and will verify it; this does not make payroll ready.
+  Unknown item quantity uses a marked zero storage fallback without hiding gross
+  cash, and later unproved source revisions preserve known gross as review work.
 - Refund automation authenticates through the Info Gmail account and sends as
   `refunds@bloomjoysweets.com`. P0 #1455 is correcting the deployed filter
   that skipped new Info-only refund inquiries; the three identified customers
