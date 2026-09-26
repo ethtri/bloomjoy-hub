@@ -321,7 +321,7 @@ for (const snippet of [
   'fetchTechnicianPayReportContext',
   'fetchTimekeepingSetupContext',
   'setupTimekeepingTechnicianAdmin',
-  "'admin_setup_timekeeping_technician_arrangements'",
+  "'admin_setup_timekeeping_technician_arrangements_with_contact'",
   'machineCompensation',
   "`${month}-01`",
   'supersedeOperatorCompensationRateAdmin',
