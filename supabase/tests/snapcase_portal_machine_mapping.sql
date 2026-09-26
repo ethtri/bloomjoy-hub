@@ -15,7 +15,9 @@ values ('14761000-0000-4000-8000-000000000001','SnapCase mapping fixture','inter
 insert into public.reporting_locations(id, account_id, name, timezone, status)
 values ('14762000-0000-4000-8000-000000000001','14761000-0000-4000-8000-000000000001','Fixture Mall','America/Los_Angeles','active');
 insert into public.reporting_machines(id, account_id, location_id, machine_label, machine_type, status)
-values ('14763000-0000-4000-8000-000000000001','14761000-0000-4000-8000-000000000001','14762000-0000-4000-8000-000000000001','Existing SnapCase','snapcase','active');
+values
+  ('14763000-0000-4000-8000-000000000001','14761000-0000-4000-8000-000000000001','14762000-0000-4000-8000-000000000001','Existing SnapCase','snapcase','active'),
+  ('14763000-0000-4000-8000-000000000002','14761000-0000-4000-8000-000000000001','14762000-0000-4000-8000-000000000001','Cotton fixture','commercial','active');
 insert into public.reporting_partnerships(id, name, partnership_type, effective_start_date, status)
 values ('14764000-0000-4000-8000-000000000001','SnapCase mapping report','internal','2025-01-01','active');
 insert into private.snapcase_provider_accounts(id, source_account_key)
@@ -29,6 +31,9 @@ insert into private.snapcase_source_machines(
 ), (
   '14765000-0000-4000-8000-000000000001','second-inventory-id','future-machine-key',
   'merchant-fixture','Fixture merchant','Future source machine','active'
+), (
+  '14765000-0000-4000-8000-000000000001','wrong-type-inventory','wrong-type-key',
+  'merchant-fixture','Fixture merchant','Wrong type source','active'
 );
 
 select set_config('request.jwt.claim.role', 'authenticated', true);
@@ -54,9 +59,9 @@ select ok(
 );
 
 select set_config('request.jwt.claim.sub', '14760000-0000-4000-8000-000000000001', true);
-select is(
-  public.admin_get_snapcase_machine_mapping_queue() -> 0 ->> 'sourceMachineId',
-  'machine-filter-key',
+select ok(
+  public.admin_get_snapcase_machine_mapping_queue()
+    @> '[{"sourceMachineId":"machine-filter-key","sourceInventoryId":"inventory-not-machine"}]'::jsonb,
   'the admin queue uses source_machine_id rather than inventory id'
 );
 
@@ -95,6 +100,39 @@ select is(
    where machine_id = '14763000-0000-4000-8000-000000000001'),
   1,
   'mapping replay creates exactly one reporting assignment'
+);
+select throws_ok(
+  $$select public.admin_map_snapcase_machine(
+    '14765000-0000-4000-8000-000000000001','wrong-type-key',
+    '14763000-0000-4000-8000-000000000002',null,null,null,null,
+    '14764000-0000-4000-8000-000000000001','2025-01-01',null,'wrong type fixture'
+  )$$,
+  'P0001', 'Choose a SnapCase Hub machine that is not bound to Sunze',
+  'SnapCase mappings reject a cotton-candy canonical target'
+);
+select throws_ok(
+  $$select public.admin_map_snapcase_machine(
+    '14765000-0000-4000-8000-000000000001','future-machine-key',
+    '14763000-0000-4000-8000-000000000001',null,null,null,null,
+    '14764000-0000-4000-8000-000000000001','2025-01-01',null,'overlap fixture'
+  )$$,
+  'P0001', 'This Hub machine already has an overlapping SnapCase source mapping',
+  'a second source cannot overlap the same canonical machine window'
+);
+select lives_ok(
+  $$select public.admin_map_snapcase_machine(
+    '14765000-0000-4000-8000-000000000001','machine-filter-key',
+    '14763000-0000-4000-8000-000000000001',null,null,null,null,
+    '14764000-0000-4000-8000-000000000001','2024-01-01','2024-12-31','historical fixture mapping'
+  )$$,
+  'a nonoverlapping historical source window is preserved'
+);
+select is(
+  (select count(*)::integer from private.snapcase_machine_mappings
+   where provider_account_id = '14765000-0000-4000-8000-000000000001'
+     and source_machine_id = 'machine-filter-key'),
+  2,
+  'current and historical effective mappings coexist'
 );
 select lives_ok(
   $$select public.admin_map_snapcase_machine(

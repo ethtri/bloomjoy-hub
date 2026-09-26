@@ -2,12 +2,13 @@
 -- and are not promoted to reporting or payroll facts by this workflow.
 
 create table private.snapcase_machine_mappings (
+  id uuid primary key default gen_random_uuid(),
   provider_account_id uuid not null
     references private.snapcase_provider_accounts (id) on delete restrict,
   source_machine_id text not null,
   reporting_machine_id uuid not null
     references public.reporting_machines (id) on delete restrict,
-  partnership_id uuid not null
+  partnership_id uuid
     references public.reporting_partnerships (id) on delete restrict,
   effective_start_date date not null,
   effective_end_date date,
@@ -15,7 +16,9 @@ create table private.snapcase_machine_mappings (
   mapping_reason text not null,
   mapped_at timestamptz not null default statement_timestamp(),
   updated_at timestamptz not null default statement_timestamp(),
-  primary key (provider_account_id, source_machine_id),
+  constraint snapcase_machine_mappings_window_unique unique (
+    provider_account_id, source_machine_id, effective_start_date
+  ),
   constraint snapcase_machine_mappings_source_fkey
     foreign key (provider_account_id, source_machine_id)
     references private.snapcase_source_machines (provider_account_id, source_machine_id)
@@ -88,6 +91,14 @@ begin
     left join private.snapcase_machine_mappings mapping
       on mapping.provider_account_id = source.provider_account_id
      and mapping.source_machine_id = source.source_machine_id
+     and mapping.id = (
+       select latest.id
+       from private.snapcase_machine_mappings latest
+       where latest.provider_account_id = source.provider_account_id
+         and latest.source_machine_id = source.source_machine_id
+       order by latest.effective_start_date desc, latest.mapped_at desc, latest.id
+       limit 1
+     )
   ), '[]'::jsonb);
 end;
 $$;
@@ -141,40 +152,48 @@ begin
     raise exception 'SnapCase source machine not found';
   end if;
 
-  if p_partnership_id is null or p_effective_start_date is null then
-    raise exception 'Partnership and effective start date are required';
+  if p_effective_start_date is null then
+    raise exception 'Effective start date is required';
   end if;
 
   if p_effective_end_date is not null and p_effective_end_date < p_effective_start_date then
     raise exception 'Effective end date must be on or after the start date';
   end if;
 
-  select * into partnership_row
-  from public.reporting_partnerships partnership
-  where partnership.id = p_partnership_id
-    and partnership.status in ('draft', 'active');
+  if p_partnership_id is not null then
+    select * into partnership_row
+    from public.reporting_partnerships partnership
+    where partnership.id = p_partnership_id
+      and partnership.status in ('draft', 'active');
 
-  if partnership_row.id is null then
-    raise exception 'Reporting partnership not found';
+    if partnership_row.id is null then
+      raise exception 'Reporting partnership not found';
+    end if;
   end if;
 
   select * into before_mapping
   from private.snapcase_machine_mappings mapping
   where mapping.provider_account_id = p_provider_account_id
-    and mapping.source_machine_id = normalized_source_machine_id;
+    and mapping.source_machine_id = normalized_source_machine_id
+    and mapping.effective_start_date = p_effective_start_date;
 
   if p_reporting_machine_id is not null then
     select * into machine_row
     from public.reporting_machines machine
-    where machine.id = p_reporting_machine_id;
+    where machine.id = p_reporting_machine_id
+    for update;
 
     if machine_row.id is null then
       raise exception 'Reporting machine not found';
     end if;
+    if machine_row.machine_type <> 'snapcase' or machine_row.sunze_machine_id is not null then
+      raise exception 'Choose a SnapCase Hub machine that is not bound to Sunze';
+    end if;
   elsif before_mapping.reporting_machine_id is not null then
     select * into machine_row
     from public.reporting_machines machine
-    where machine.id = before_mapping.reporting_machine_id;
+    where machine.id = before_mapping.reporting_machine_id
+    for update;
   else
     if p_account_id is null or normalized_machine_label = '' then
       raise exception 'Account and machine label are required when creating a machine';
@@ -246,9 +265,23 @@ begin
     raise exception 'This Hub machine already has an overlapping SnapCase source mapping';
   end if;
 
+  if exists (
+    select 1
+    from private.snapcase_machine_mappings existing
+    where existing.provider_account_id = p_provider_account_id
+      and existing.source_machine_id = normalized_source_machine_id
+      and existing.id is distinct from before_mapping.id
+      and public.reporting_date_windows_overlap(
+        existing.effective_start_date, existing.effective_end_date,
+        p_effective_start_date, p_effective_end_date
+      )
+  ) then
+    raise exception 'This SnapCase source already has an overlapping effective mapping';
+  end if;
+
   if before_mapping.reporting_machine_id is not null
     and before_mapping.reporting_machine_id = machine_row.id
-    and before_mapping.partnership_id = partnership_row.id
+    and before_mapping.partnership_id is not distinct from partnership_row.id
     and before_mapping.effective_start_date = p_effective_start_date
     and before_mapping.effective_end_date is not distinct from p_effective_end_date then
     return jsonb_build_object(
@@ -265,7 +298,12 @@ begin
   if machine_row.id is null then
     if location_row.id is null then
       insert into public.reporting_locations (account_id, name, timezone, status)
-      values (account_row.id, normalized_location_name, partnership_row.timezone, 'active')
+      values (
+        account_row.id,
+        normalized_location_name,
+        coalesce((select name from pg_timezone_names where name = source_row.source_timezone), 'America/Los_Angeles'),
+        'active'
+      )
       returning * into location_row;
     end if;
 
@@ -297,21 +335,53 @@ begin
     );
   end if;
 
+  if partnership_row.id is not null then
   select * into assignment_row
   from public.reporting_machine_partnership_assignments assignment
   where assignment.machine_id = machine_row.id
     and assignment.partnership_id = partnership_row.id
     and assignment.assignment_role = 'primary_reporting'
-    and public.reporting_date_windows_overlap(
-      assignment.effective_start_date,
-      assignment.effective_end_date,
-      p_effective_start_date,
-      p_effective_end_date
-    )
+    and assignment.status = 'active'
+    and assignment.effective_start_date <= p_effective_start_date
+    and (assignment.effective_end_date is null or (
+      p_effective_end_date is not null and assignment.effective_end_date >= p_effective_end_date
+    ))
   order by assignment.created_at desc
   limit 1;
 
   if assignment_row.id is null then
+    select * into assignment_row
+    from public.reporting_machine_partnership_assignments assignment
+    where assignment.machine_id = machine_row.id
+      and assignment.partnership_id = partnership_row.id
+      and assignment.assignment_role = 'primary_reporting'
+      and assignment.status = 'active'
+      and public.reporting_date_windows_overlap(
+        assignment.effective_start_date, assignment.effective_end_date,
+        p_effective_start_date, p_effective_end_date
+      )
+    order by assignment.created_at desc
+    limit 1
+    for update;
+  end if;
+
+  if assignment_row.id is not null
+    and not (
+      assignment_row.effective_start_date <= p_effective_start_date
+      and (assignment_row.effective_end_date is null or (
+        p_effective_end_date is not null and assignment_row.effective_end_date >= p_effective_end_date
+      ))
+    ) then
+    update public.reporting_machine_partnership_assignments
+    set effective_start_date = least(effective_start_date, p_effective_start_date),
+        effective_end_date = case
+          when effective_end_date is null or p_effective_end_date is null then null
+          else greatest(effective_end_date, p_effective_end_date)
+        end,
+        notes = coalesce(nullif(notes, ''), 'Extended from explicit SnapCase portal mapping.')
+    where id = assignment_row.id
+    returning * into assignment_row;
+  elsif assignment_row.id is null then
     insert into public.reporting_machine_partnership_assignments (
       machine_id, partnership_id, assignment_role, effective_start_date,
       effective_end_date, status, notes, created_by
@@ -319,6 +389,7 @@ begin
       machine_row.id, partnership_row.id, 'primary_reporting', p_effective_start_date,
       p_effective_end_date, 'active', 'Created from explicit SnapCase portal mapping.', auth.uid()
     ) returning * into assignment_row;
+  end if;
   end if;
 
   insert into private.snapcase_machine_mappings as mapping (
@@ -328,10 +399,9 @@ begin
     p_provider_account_id, normalized_source_machine_id, machine_row.id, partnership_row.id,
     p_effective_start_date, p_effective_end_date, auth.uid(), normalized_reason
   )
-  on conflict (provider_account_id, source_machine_id) do update set
+  on conflict on constraint snapcase_machine_mappings_window_unique do update set
     reporting_machine_id = excluded.reporting_machine_id,
     partnership_id = excluded.partnership_id,
-    effective_start_date = excluded.effective_start_date,
     effective_end_date = excluded.effective_end_date,
     mapped_by = excluded.mapped_by,
     mapping_reason = excluded.mapping_reason,
