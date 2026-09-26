@@ -229,7 +229,9 @@
     "20260925041000_refund_stored_scoped_reply_reconciliation.sql",
     "20260925042000_refund_subscription_reply_runner.sql",
     "20260925043000_refund_reply_read_only_research_handoff.sql",
-    "20260925044000_refund_info_inquiry_observability.sql"
+    "20260925044000_refund_info_inquiry_observability.sql",
+    "20260926152715_refund_digest_exact_selected_proof_parity.sql",
+    "20260926210000_nayax_scheduled_sales_ingest.sql"
   ],
   "migrationFilesSha256": "6fddb951153faa01f5f0fb0d6cb64d90370253b054b65d02f4f3e728e0a690d6",
   "migrationVersionSetSha256": "2e23b1406b23aa965a86fb9f572579c427d10c04597cd37ce0fdf8589302934b",
