@@ -1966,10 +1966,9 @@ select is(
 -- card facts and their refreshed snapshot agree. Imported month-to-date amounts
 -- remain available as estimates while cash + card completeness is unverified.
 reset role;
--- Earlier historical-report cases deliberately inactivate this Technician and
--- revoke this assignment. Restore an independently eligible payroll state so
--- these safeguards prove positive-rate SnapCase behavior instead of inheriting
--- unrelated fixture mutations.
+-- Earlier cases deliberately inactivate this Technician, revoke the assignment,
+-- and make a refund allocation ambiguous. Restore an independently eligible and
+-- calculable payroll state so these safeguards do not inherit those mutations.
 update public.operator_payout_profiles
 set status = 'active'
 where id = 'a6000000-0000-0000-0000-000000000001';
@@ -1980,6 +1979,16 @@ set
   revoked_at = null,
   revoke_reason = null
 where id = 'a6100000-0000-0000-0000-000000000001';
+update public.sales_adjustment_facts
+set amount_cents = 1000
+where id = 'a9200000-0000-0000-0000-000000000001';
+update public.payout_period_machine_revenue_snapshots
+set
+  refund_adjustment_cents = 1000,
+  tax_cents = 1000,
+  net_revenue_cents = 8000,
+  eligible_commission_revenue_cents = 8000
+where id = 'aa000000-0000-0000-0000-000000000001';
 update public.reporting_machines
 set machine_type = 'snapcase'
 where id = 'a4000000-0000-0000-0000-000000000001';
