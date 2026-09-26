@@ -38,16 +38,22 @@ const routineWindow = (now) => {
   };
 };
 
-const fixtureClient = (fixture) => ({
+export const fixtureClient = (fixture) => ({
   async getAll(path, query = {}, { pageSize = 50 } = {}) {
     const source = path === '/v1/machines'
       ? fixture.machines ?? []
       : path === '/v1/orders'
         ? fixture.orders ?? []
         : fixture.payments ?? [];
-    const rows = query.machineId
+    const machineRows = query.machineId
       ? source.filter((row) => String(row?.machineId ?? '') === String(query.machineId))
       : source;
+    const rows = query.paymentTimeStart && query.paymentTimeEnd
+      ? machineRows.filter((row) => {
+        const paymentTime = String(row?.paymentTime ?? '');
+        return paymentTime >= query.paymentTimeStart && paymentTime < query.paymentTimeEnd;
+      })
+      : machineRows;
     return {
       rows,
       evidence: {
@@ -65,7 +71,7 @@ const fixtureClient = (fixture) => ({
 
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-const postBatch = async ({ batch, ingestUrl, ingestToken, fetchImpl, sleep }) => {
+export const postBatch = async ({ batch, ingestUrl, ingestToken, fetchImpl, sleep }) => {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15_000);

@@ -329,6 +329,8 @@ test('window extraction discovers every machine and queries sales with machineId
   assert.equal(queries[1].query.machineId, 'machine-filter-key-901');
   assert.equal(queries[2].query.machineId, 'machine-filter-key-901');
   assert.notEqual(queries[1].query.machineId, 'inventory-row-17');
+  assert.equal(queries[1].query.paymentTimeEnd, '2026-09-27 00:00:00');
+  assert.equal(queries[2].query.paymentTimeEnd, '2026-09-27 00:00:00');
   assert.equal(result.evidence[1].extraction.expectedTotal, 1);
   assert.equal(result.evidence[1].extraction.effectivePageSize, 1);
   for (const item of result.evidence) {
@@ -336,6 +338,39 @@ test('window extraction discovers every machine and queries sales with machineId
     assert.equal(item.businessCoverageStatus, 'unverified');
     assert.equal(item.coverageReasonCode, 'source_time_semantics_unverified');
   }
+});
+
+test('exclusive provider end includes the final second and excludes next midnight', async () => {
+  const boundaryRows = [
+    { orderNo: 'last-second', outTradeNo: 'last-second-payment', machineId: 'boundary-machine', paymentTime: '2026-09-26 23:59:59' },
+    { orderNo: 'next-midnight', outTradeNo: 'next-midnight-payment', machineId: 'boundary-machine', paymentTime: '2026-09-27 00:00:00' },
+  ];
+  const fakeClient = {
+    async getAll(path, query) {
+      const rows = path === '/v1/machines'
+        ? [{ id: 'boundary-inventory', machineId: 'boundary-machine' }]
+        : boundaryRows.filter((row) =>
+          row.paymentTime >= query.paymentTimeStart && row.paymentTime < query.paymentTimeEnd);
+      return {
+        rows,
+        evidence: {
+          status: 'complete', pageCount: 1, observedCount: rows.length,
+          expectedTotal: rows.length, effectivePageSize: 50,
+          nextCursor: null, responseTruncated: false,
+        },
+      };
+    },
+  };
+  const result = await extractSnapcaseWindow({
+    client: fakeClient,
+    sourceAccountKey: 'synthetic-account',
+    hmacSecret: 'synthetic-test-secret-only',
+    startDate: '2026-09-26',
+    endDate: '2026-09-26',
+  });
+  assert.equal(result.orders.length, 1);
+  assert.equal(result.payments.length, 1);
+  assert.equal(result.orders[0].occurredTimeRaw, '2026-09-26 23:59:59');
 });
 
 test('a rejected observation prevents complete extraction evidence', async () => {

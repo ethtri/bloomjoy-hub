@@ -8,6 +8,12 @@ const isoDate = (value, field) => {
   return result;
 };
 
+const nextDate = (value) => {
+  const date = new Date(`${value}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
+};
+
 export const monthlyWindows = (startDate, endDate) => {
   const start = isoDate(startDate, 'startDate');
   const end = isoDate(endDate, 'endDate');
@@ -27,7 +33,13 @@ export const monthlyWindows = (startDate, endDate) => {
 const evidence = ({ resource, sourceMachineId = null, start, end, timezone, page, rejectedCount }) => ({
   resource,
   sourceMachineId,
-  query: { requestedStart: start, requestedEnd: end, requestedTimezone: timezone },
+  // The provider request is half-open: inclusive start, exclusive next-day end.
+  // requestedTimezone records the header we sent, not a proved source clock basis.
+  query: {
+    requestedStart: `${start}T00:00:00Z`,
+    requestedEnd: `${nextDate(end)}T00:00:00Z`,
+    requestedTimezone: timezone,
+  },
   extraction: {
     status: page.status === 'complete' && rejectedCount === 0 ? 'complete' : 'partial',
     pageCount: page.pageCount,
@@ -54,6 +66,7 @@ export const extractSnapcaseWindow = async ({
   requestedTimezone = null,
   pageSize = 50,
   maxPages = 1_000,
+  accountWideSales = false,
 }) => {
   if (!client) throw new Error('client is required');
   const account = String(sourceAccountKey ?? '').trim();
@@ -76,11 +89,33 @@ export const extractSnapcaseWindow = async ({
     evidence: [evidence({ resource: 'machines', start, end, timezone: requestedTimezone, page: inventory.evidence, rejectedCount: machines.rejected.length })],
   };
 
+  if (accountWideSales) {
+    const query = {
+      paymentTimeStart: `${start} 00:00:00`,
+      paymentTimeEnd: `${nextDate(end)} 00:00:00`,
+    };
+    const [orderPage, paymentPage] = await Promise.all([
+      client.getAll('/v1/orders', query, { pageSize, maxPages }),
+      client.getAll('/v1/payments', query, { pageSize, maxPages }),
+    ]);
+    const orders = normalizeBatch(orderPage.rows, (row) => normalizeOrder(row, context));
+    const payments = normalizeBatch(paymentPage.rows, (row) => normalizePayment(row, context));
+    result.orders.push(...orders.accepted);
+    result.payments.push(...payments.accepted);
+    result.rejected.orders.push(...orders.rejected);
+    result.rejected.payments.push(...payments.rejected);
+    result.evidence.push(
+      evidence({ resource: 'orders', start, end, timezone: requestedTimezone, page: orderPage.evidence, rejectedCount: orders.rejected.length }),
+      evidence({ resource: 'payments', start, end, timezone: requestedTimezone, page: paymentPage.evidence, rejectedCount: payments.rejected.length }),
+    );
+    return result;
+  }
+
   for (const machine of machines.accepted) {
     const query = {
       machineId: machine.sourceMachineId,
       paymentTimeStart: `${start} 00:00:00`,
-      paymentTimeEnd: `${end} 23:59:59`,
+      paymentTimeEnd: `${nextDate(end)} 00:00:00`,
     };
     const [orderPage, paymentPage] = await Promise.all([
       client.getAll('/v1/orders', query, { pageSize, maxPages }),

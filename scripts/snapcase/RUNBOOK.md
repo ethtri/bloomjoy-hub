@@ -46,3 +46,30 @@ Errors expose only a bounded code.
 provider call while repository variable `SNAPCASE_SYNC_ENABLED` is absent or not
 `true`. No activation values are configured by this change. Activation, secret
 provisioning, deployment, and live imports require a separate reviewed release.
+
+## Historical backfill
+
+The historical runner defaults to a fixture-only dry run from `2025-01-01`.
+It queries sales account-wide in bounded monthly windows so history for retired
+or currently unlisted machines is not omitted.
+
+```powershell
+node scripts/snapcase/backfill-snapcase.mjs --date-end 2025-03-31
+```
+
+An activated private-staging run would additionally require
+`--live-provider --ingest`. It writes the local ignored checkpoint
+`snapcase-backfill-checkpoint.local` only after every batch for a window has
+returned matching acknowledgement counts. Use `--checkpoint <path>` to isolate
+different targets or ranges. A resumed run reuses the checkpoint's original end
+date when `--date-end` is omitted; an explicit account, target, contract, or
+range mismatch fails closed.
+
+Account-wide order/payment receipts use `sourceMachineId: null`. They preserve
+the provider's actual pagination totals, including an empty response, while
+remaining `businessCoverageStatus: "unverified"`. They do not prove zero sales,
+machine operating state, financial meaning, or complete per-machine coverage.
+Receipt bounds record the actual half-open request (`start 00:00:00` through the
+next day after the inclusive window end at `00:00:00`). `requestedTimezone`
+records the request header only and is not treated as proof of source clock
+conversion.
