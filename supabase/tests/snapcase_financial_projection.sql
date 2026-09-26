@@ -70,38 +70,38 @@ insert into private.snapcase_sales_observations(
   source_tender_code, source_tender_label, normalized_tender,
   occurred_time_raw, occurred_at, source_currency, currency_code,
   source_amount_text, amount_minor, source_refund_amount_text,
-  refund_amount_minor, quantity, exception_codes, revision_digest,
+  refund_amount_minor, product_label, quantity, exception_codes, revision_digest,
   first_seen_batch_id, last_seen_batch_id
 ) values
   (
     '14787000-0000-4000-8000-000000000001', '14784000-0000-4000-8000-000000000001',
     'order', repeat('a', 64), 1, 'finance-machine', 'print_failed', 'success',
     '1', 'cash', 'cash', '2026-09-20T19:00:00Z', '2026-09-20T19:00:00Z',
-    'USD', 'USD', '10.00', 1000, null, null, 1,
-    array['financial_status_semantics_unverified'], repeat('a', 64),
+    'USD', 'USD', '10.00', 1000, null, null, 'Phone case', null,
+    array['financial_status_semantics_unverified', 'product_unverified'], repeat('a', 64),
     '14785000-0000-4000-8000-000000000001', '14785000-0000-4000-8000-000000000001'
   ),
   (
     '14787000-0000-4000-8000-000000000002', '14784000-0000-4000-8000-000000000001',
     'order', repeat('b', 64), 1, 'finance-machine', 'complete', 'success',
     '0', 'creditCard', 'card', '2026-09-20T20:00:00Z', '2026-09-20T20:00:00Z',
-    'USD', 'USD', '20.00', 2000, null, null, 1,
+    'USD', 'USD', '20.00', 2000, null, null, null, 1,
     array['financial_status_semantics_unverified'], repeat('b', 64),
     '14785000-0000-4000-8000-000000000001', '14785000-0000-4000-8000-000000000001'
   ),
   (
     '14787000-0000-4000-8000-000000000003', '14784000-0000-4000-8000-000000000001',
     'order', repeat('c', 64), 1, 'finance-machine', 'complete', 'success',
-    '1', 'cash', 'cash', '2026-09-21T00:00:00Z', '2026-09-21T00:00:00Z',
-    'USD', 'USD', '7.50', 750, null, null, 1,
+    '1', 'cash', 'cash', '2026-09-21T07:00:00Z', '2026-09-21T07:00:00Z',
+    'USD', 'USD', '7.50', 750, null, null, null, 1,
     array['financial_status_semantics_unverified'], repeat('c', 64),
     '14785000-0000-4000-8000-000000000001', '14785000-0000-4000-8000-000000000001'
   ),
   (
     '14787000-0000-4000-8000-000000000004', '14784000-0000-4000-8000-000000000001',
     'order', repeat('d', 64), 1, 'finance-machine', 'complete', 'success',
-    '1', 'cash', 'cash', '2026-09-21T00:00:00Z', '2026-09-21T00:00:00Z',
-    'USD', 'USD', '7.50', 750, null, null, 1,
+    '1', 'cash', 'cash', '2026-09-21T07:00:00Z', '2026-09-21T07:00:00Z',
+    'USD', 'USD', '7.50', 750, null, null, null, 1,
     array['financial_status_semantics_unverified'], repeat('d', 64),
     '14785000-0000-4000-8000-000000000001', '14785000-0000-4000-8000-000000000001'
   );
@@ -137,7 +137,7 @@ insert into private.snapcase_sales_observations(
     '14788000-0000-4000-8000-000000000003', '14784000-0000-4000-8000-000000000001',
     'payment', repeat('6', 64), 1, 'finance-machine', 'success', null,
     array[repeat('c', 64), repeat('d', 64)], '1', 'cash', 'cash',
-    '2026-09-21T00:00:00Z', '2026-09-21T00:00:00Z', 'USD', 'USD',
+    '2026-09-21T07:00:00Z', '2026-09-21T07:00:00Z', 'USD', 'USD',
     '15.00', 1500, null, null,
     array['financial_status_semantics_unverified'], repeat('6', 64),
     '14785000-0000-4000-8000-000000000001', '14785000-0000-4000-8000-000000000001'
@@ -176,7 +176,7 @@ select set_config('request.jwt.claim.role', 'authenticated', true);
 select throws_ok(
   $$select public.service_project_snapcase_financial_window(
     '14784000-0000-4000-8000-000000000001', 'finance-machine',
-    '2026-09-20T00:00:00Z', '2026-09-21T00:00:00Z'
+    '2026-09-20T07:00:00Z', '2026-09-21T07:00:00Z'
   )$$,
   'P0001', 'Service role required',
   'clients cannot invoke the financial projector'
@@ -186,7 +186,7 @@ select set_config('request.jwt.claim.role', 'service_role', true);
 select is(
   public.service_project_snapcase_financial_window(
     '14784000-0000-4000-8000-000000000001', 'finance-machine',
-    '2026-09-20T00:00:00Z', '2026-09-21T00:00:00Z'
+    '2026-09-20T07:00:00Z', '2026-09-21T07:00:00Z'
   ) ->> 'reasonCode',
   'financial_contract_unverified',
   'the runtime proof contract keeps current source data disabled'
@@ -231,17 +231,42 @@ $$;
 create temporary table first_projection as
 select public.service_project_snapcase_financial_window(
   '14784000-0000-4000-8000-000000000001', 'finance-machine',
-  '2026-09-20T00:00:00Z', '2026-09-21T00:00:00Z'
+  '2026-09-20T07:00:00Z', '2026-09-21T07:00:00Z'
 ) as result;
 
 select is((select result ->> 'cashPublishedCount' from first_projection), '1',
   'one proved 1:1 cash payment is published');
 select is((select result ->> 'cashSalesCents' from first_projection), '1000',
   'cash uses the collected payment amount rather than grouped tender guesses');
+select is(
+  (select item_quantity from public.machine_sales_facts where source = 'snapcase_cash'),
+  0,
+  'unknown source quantity uses the explicit zero storage fallback'
+);
+select is(
+  (select raw_payload ->> 'itemQuantityBasis'
+   from public.machine_sales_facts where source = 'snapcase_cash'),
+  'unknown_zero',
+  'the zero fallback is marked unknown rather than presented as a proved quantity'
+);
+select is(
+  (select details ->> 'quantityUnknownCount'
+   from private.snapcase_financial_window_revisions
+   where source_machine_id = 'finance-machine'),
+  '1',
+  'quantity and product-label uncertainty do not hide proved gross cash'
+);
 select is((select result ->> 'cardObservationCount' from first_projection), '1',
   'only the proved POS-card tender stays comparison evidence');
 select is((select result ->> 'nayaxCardSalesCents' from first_projection), '2000',
   'existing Nayax remains the card-money authority');
+select is(
+  (select details ->> 'cardWindowComparable'
+   from private.snapcase_financial_window_revisions
+   where source_machine_id = 'finance-machine'),
+  'true',
+  'card aggregates compare only across aligned machine-local business days'
+);
 select is((select result ->> 'financialReady' from first_projection), 'false',
   'projection never unlocks payroll before the coverage-binding slice');
 
@@ -287,7 +312,7 @@ select is(
 create temporary table replay_projection as
 select public.service_project_snapcase_financial_window(
   '14784000-0000-4000-8000-000000000001', 'finance-machine',
-  '2026-09-20T00:00:00Z', '2026-09-21T00:00:00Z'
+  '2026-09-20T07:00:00Z', '2026-09-21T07:00:00Z'
 ) as result;
 select is((select result ->> 'changedFactCount' from replay_projection), '0',
   'replaying the same window does not rewrite its cash fact');
@@ -313,13 +338,15 @@ where id = '14788000-0000-4000-8000-000000000001';
 create temporary table partial_refund_projection as
 select public.service_project_snapcase_financial_window(
   '14784000-0000-4000-8000-000000000001', 'finance-machine',
-  '2026-09-20T00:00:00Z', '2026-09-21T00:00:00Z'
+  '2026-09-20T07:00:00Z', '2026-09-21T07:00:00Z'
 ) as result;
 select is((select result ->> 'reasonCode' from partial_refund_projection),
   'refund_semantics_unverified',
   'a late partial refund is reviewable instead of silently changing gross sales');
 select is((select result ->> 'suppressedFactCount' from partial_refund_projection), '0',
   'a refund candidate does not suppress the known original cash charge');
+select is((select result ->> 'cashSalesCents' from partial_refund_projection), '1000',
+  'review-preserved cash stays in the known gross window summary');
 select is(
   (select net_sales_cents from public.machine_sales_facts where source = 'snapcase_cash'),
   1000,
@@ -335,7 +362,7 @@ select is(
 select is(
   public.service_project_snapcase_financial_window(
     '14784000-0000-4000-8000-000000000001', 'finance-machine',
-    '2026-09-20T00:00:00Z', '2026-09-21T00:00:00Z'
+    '2026-09-20T07:00:00Z', '2026-09-21T07:00:00Z'
   ) ->> 'changedFactCount',
   '0',
   'replaying a partial-refund review does not rewrite the cash fact'
@@ -349,7 +376,7 @@ where id = '14788000-0000-4000-8000-000000000001';
 select is(
   public.service_project_snapcase_financial_window(
     '14784000-0000-4000-8000-000000000001', 'finance-machine',
-    '2026-09-20T00:00:00Z', '2026-09-21T00:00:00Z'
+    '2026-09-20T07:00:00Z', '2026-09-21T07:00:00Z'
   ) ->> 'reasonCode',
   'refund_semantics_unverified',
   'a late full-refund state also remains reviewable'
@@ -369,7 +396,7 @@ select is(
 select is(
   public.service_project_snapcase_financial_window(
     '14784000-0000-4000-8000-000000000001', 'finance-machine',
-    '2026-09-20T00:00:00Z', '2026-09-21T00:00:00Z'
+    '2026-09-20T07:00:00Z', '2026-09-21T07:00:00Z'
   ) ->> 'changedFactCount',
   '0',
   'replaying a full-refund review also leaves the known gross fact unchanged'
@@ -383,7 +410,7 @@ where id = '14786000-0000-4000-8000-000000000001';
 select is(
   public.service_project_snapcase_financial_window(
     '14784000-0000-4000-8000-000000000001', 'finance-machine',
-    '2026-09-20T00:00:00Z', '2026-09-21T00:00:00Z'
+    '2026-09-20T07:00:00Z', '2026-09-21T07:00:00Z'
   ) ->> 'reasonCode',
   'refund_semantics_unverified',
   'a remap during refund review keeps the affected scope visibly unresolved'
@@ -418,7 +445,7 @@ where id = '14788000-0000-4000-8000-000000000001';
 select lives_ok(
   $$select public.service_project_snapcase_financial_window(
     '14784000-0000-4000-8000-000000000001', 'finance-machine',
-    '2026-09-20T00:00:00Z', '2026-09-21T00:00:00Z'
+    '2026-09-20T07:00:00Z', '2026-09-21T07:00:00Z'
   )$$,
   'the proved cash identity reprojects after the refund exception is cleared'
 );
@@ -426,6 +453,145 @@ select is(
   (select reporting_machine_id from public.machine_sales_facts where source = 'snapcase_cash'),
   '14783000-0000-4000-8000-000000000002'::uuid,
   'the one cash fact moves only after its source state is proved eligible again'
+);
+
+update private.snapcase_sales_observations
+set related_order_keys = '{}'::text[],
+    revision_digest = repeat('4', 64)
+where id = '14788000-0000-4000-8000-000000000001';
+
+create temporary table invalid_revision_projection as
+select public.service_project_snapcase_financial_window(
+  '14784000-0000-4000-8000-000000000001', 'finance-machine',
+  '2026-09-20T07:00:00Z', '2026-09-21T07:00:00Z'
+) as result;
+select is((select result ->> 'reasonCode' from invalid_revision_projection),
+  'cash_projection_incomplete',
+  'an invalid non-refund revision is explicit review work');
+select is((select result ->> 'cashSalesCents' from invalid_revision_projection), '1000',
+  'an unproved linkage revision preserves the last known gross cash');
+select is(
+  (select raw_payload ->> 'publicationState'
+   from public.machine_sales_facts where source = 'snapcase_cash'),
+  'stale_review',
+  'the preserved cash fact is no longer presented as current');
+select is(
+  public.service_project_snapcase_financial_window(
+    '14784000-0000-4000-8000-000000000001', 'finance-machine',
+    '2026-09-20T07:00:00Z', '2026-09-21T07:00:00Z'
+  ) ->> 'changedFactCount',
+  '0',
+  'replaying an unresolved source revision leaves the preserved fact unchanged'
+);
+
+update private.snapcase_sales_observations
+set related_order_keys = array[repeat('a', 64)],
+    revision_digest = repeat('5', 64)
+where id = '14788000-0000-4000-8000-000000000001';
+select lives_ok(
+  $$select public.service_project_snapcase_financial_window(
+    '14784000-0000-4000-8000-000000000001', 'finance-machine',
+    '2026-09-20T07:00:00Z', '2026-09-21T07:00:00Z'
+  )$$,
+  'the exact linkage restores the same cash fact to active state'
+);
+
+update private.snapcase_sales_observations
+set source_amount_text = '9.00',
+    amount_minor = 900,
+    revision_digest = repeat('8', 64)
+where id = '14787000-0000-4000-8000-000000000001';
+
+create temporary table changed_order_projection as
+select public.service_project_snapcase_financial_window(
+  '14784000-0000-4000-8000-000000000001', 'finance-machine',
+  '2026-09-20T07:00:00Z', '2026-09-21T07:00:00Z'
+) as result;
+select is((select result ->> 'reasonCode' from changed_order_projection),
+  'cash_projection_incomplete',
+  'a linked-order-only revision that no longer reconciles is reviewable');
+select is((select result ->> 'cashSalesCents' from changed_order_projection), '1000',
+  'the linked-order-only revision preserves the last proved payment gross');
+select is(
+  (select raw_payload ->> 'publicationState'
+   from public.machine_sales_facts where source = 'snapcase_cash'),
+  'stale_review',
+  'an unchanged payment digest cannot hide an ineligible linked-order revision'
+);
+
+update private.snapcase_sales_observations
+set source_amount_text = '10.00',
+    amount_minor = 1000,
+    revision_digest = repeat('9', 64)
+where id = '14787000-0000-4000-8000-000000000001';
+select lives_ok(
+  $$select public.service_project_snapcase_financial_window(
+    '14784000-0000-4000-8000-000000000001', 'finance-machine',
+    '2026-09-20T07:00:00Z', '2026-09-21T07:00:00Z'
+  )$$,
+  'a reconciled linked order restores the same payment-keyed cash fact'
+);
+
+update private.snapcase_sales_observations
+set source_tender_code = '0',
+    source_tender_label = 'creditCard',
+    normalized_tender = 'card',
+    revision_digest = repeat('6', 64)
+where id = '14788000-0000-4000-8000-000000000001';
+
+create temporary table corrected_tender_projection as
+select public.service_project_snapcase_financial_window(
+  '14784000-0000-4000-8000-000000000001', 'finance-machine',
+  '2026-09-20T07:00:00Z', '2026-09-21T07:00:00Z'
+) as result;
+select is((select result ->> 'reasonCode' from corrected_tender_projection),
+  'cash_projection_incomplete',
+  'a proved cash-to-card correction remains reviewable until card authority reconciles');
+select is((select result ->> 'cashSalesCents' from corrected_tender_projection), '0',
+  'the corrected tender supersedes the old Kexiaozhan cash amount');
+select is(
+  (select raw_payload ->> 'publicationState'
+   from public.machine_sales_facts where source = 'snapcase_cash'),
+  'superseded',
+  'the corrected cash fact is explicitly superseded');
+select is(
+  (select count(*)::integer from public.machine_sales_facts
+   where source = 'snapcase_cash' and payment_method = 'credit'),
+  0,
+  'the tender correction does not create a Kexiaozhan card fact');
+select is(
+  (select net_sales_cents from public.machine_sales_facts
+   where source = 'nayax_scheduled_report'),
+  2000,
+  'the existing Nayax card fact remains unchanged');
+select is(
+  (private.operator_machine_tax_snapshot(
+    '14783000-0000-4000-8000-000000000001', '2026-09-20', '2026-09-20'
+  ) ->> 'netRevenueCents')::bigint,
+  1500::bigint,
+  'the corrected Kexiaozhan cash cannot double count the Nayax card authority'
+);
+select is(
+  public.service_project_snapcase_financial_window(
+    '14784000-0000-4000-8000-000000000001', 'finance-machine',
+    '2026-09-20T07:00:00Z', '2026-09-21T07:00:00Z'
+  ) ->> 'changedFactCount',
+  '0',
+  'replaying the tender correction leaves the superseded fact unchanged'
+);
+
+update private.snapcase_sales_observations
+set source_tender_code = '1',
+    source_tender_label = 'cash',
+    normalized_tender = 'cash',
+    revision_digest = repeat('7', 64)
+where id = '14788000-0000-4000-8000-000000000001';
+select lives_ok(
+  $$select public.service_project_snapcase_financial_window(
+    '14784000-0000-4000-8000-000000000001', 'finance-machine',
+    '2026-09-20T07:00:00Z', '2026-09-21T07:00:00Z'
+  )$$,
+  'a later proved cash revision restores the same payment-keyed fact'
 );
 
 select set_config('request.jwt.claim.role', 'authenticated', true);
@@ -440,7 +606,7 @@ select set_config('request.jwt.claim.role', 'service_role', true);
 create temporary table grouped_projection as
 select public.service_project_snapcase_financial_window(
   '14784000-0000-4000-8000-000000000001', 'finance-machine',
-  '2026-09-21T00:00:00Z', '2026-09-22T00:00:00Z'
+  '2026-09-21T07:00:00Z', '2026-09-22T07:00:00Z'
 ) as result;
 select is((select result ->> 'cashPublishedCount' from grouped_projection), '1',
   'one exact grouped payment publishes as one payment-keyed cash fact');
