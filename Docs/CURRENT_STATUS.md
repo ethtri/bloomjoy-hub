@@ -93,6 +93,12 @@ orientation snapshot; it is not a backlog or release ledger.
 - Timekeeping, Technician Pay Reports, Pay Stubs, partner reporting, access
   management, training, commerce, and machine administration remain active
   product areas. Their current work belongs on the board, not in this snapshot.
+- Issue #1480 Phase A keeps open-month SnapCase sales and commission visible as
+  estimates, then blocks closed-period publication when a positive commission
+  rate still depends on sales whose cash + card coverage is not verified. This
+  is a fail-closed bridge; verified zero windows and coverage-based release stay
+  with the SnapCase importer/reconciliation work, and production behavior still
+  requires the migration to merge and deploy.
 - Refund automation authenticates through the Info Gmail account and sends as
   `refunds@bloomjoysweets.com`. P0 #1455 is correcting the deployed filter
   that skipped new Info-only refund inquiries; the three identified customers
