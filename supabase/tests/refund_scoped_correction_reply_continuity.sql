@@ -38,19 +38,20 @@ begin
       raise exception 'Fixture prior lookup rejected: %',lookup_result;
     end if;
   end if;
-  if n in (27,28,29,38,42,45) then
+  if n in (27,28,29,38,42,45,60) then
     -- Wallet detail is a scoped correction request, not the ordinary
     -- missing-information cycle, whose production guard rejects wallet work.
-    fields:=array['wallet_provider']::text[];
+    fields:=case when n=60 then array['incident_time']::text[]
+      else array['wallet_provider']::text[] end;
   else
     cycle:=public.service_claim_refund_follow_up_cycle(cid,'missing_information','refund_follow_up_v2',md5(n::text)||md5(n::text),null);
     if not coalesce((cycle->>'claimed')::boolean,false) then raise exception 'Fixture cycle rejected: %',cycle; end if;
     fields:=public.refund_missing_follow_up_fields(cid);
   end if;
   insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,subject,body,content_source,delivery_kind,reason_code,template_version,follow_up_cycle_id,requested_fields)
-  values(mid,cid,case when n in (27,28,29,38,42,45) then 'wallet_correction' else 'more_info' end,'pending','reply-customer@example.invalid','Update your request','[Secure refund correction link included at delivery]',
-    'deterministic_template','automatic',case when n in (27,28,29,38,42,45) then null else 'missing_information' end,
-    case when n in (27,28,29,38,42,45) then 'refund_wallet_correction_v1' else 'refund_follow_up_v2' end,
+  values(mid,cid,case when n in (27,28,29,38,42,45,60) then 'wallet_correction' else 'more_info' end,'pending','reply-customer@example.invalid','Update your request','[Secure refund correction link included at delivery]',
+    'deterministic_template','automatic',case when n in (27,28,29,38,42,45,60) then null else 'missing_information' end,
+    case when n in (27,28,29,38,42,45,60) then 'refund_wallet_correction_v1' else 'refund_follow_up_v2' end,
     (cycle#>>'{cycle,id}')::uuid,fields);
   perform public.service_issue_refund_purchase_correction(mid,lpad(to_hex(n),64,'0'),(select deterministic_fact_version from public.refund_cases where id=cid));
   insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,first_message_at,latest_message_at,retention_expires_at)
