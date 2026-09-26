@@ -6,7 +6,7 @@ import test from 'node:test';
 import { spawnSync } from 'node:child_process';
 import {
   deriveSourceBoundFact, deriveSourceBoundFacts,
-  validateResearchInput, validateNoFactReview,
+  validateResearchInput, validateIncidentTime, validateNoFactReview,
 } from './refund-subscription-reply-runner-lib.mjs';
 import {
   beginRun, getContext, submitResult, finishRun,
@@ -338,6 +338,48 @@ test('hourly mocked run records a grounded no-new-fact reply without send or pay
     assert.equal(result.outcome, 'resolved');
     assert.equal((await finishRun(client, runId)).status, 'succeeded');
     assert.deepEqual(calls.filter((name) => /send|payment|manager|nayax/iu.test(name)), []);
+  } finally { fs.rmSync(statePath, { force: true }); }
+});
+
+test('exact labeled reply time is source-bound and uses only the protected time writer', async () => {
+  const source = 'Time: 5:03 pm';
+  const timeInput = { ...input, replyMessages: [{ messageId, body: source }] };
+  assert.deepEqual(validateIncidentTime(timeInput, {
+    kind: 'incident_time', messageId, quote: source,
+  }), { evidenceMessageId: messageId, sourceQuote: source });
+  assert.throws(() => validateIncidentTime({ ...timeInput, replyMessages: [
+    { messageId, body: `${source}\nTime: 4:59 pm` },
+  ] }, { kind: 'incident_time', messageId, quote: source }),
+  /ambiguous_incident_time_source/);
+  assert.throws(() => validateIncidentTime(timeInput, {
+    kind: 'incident_time', messageId, quote: 'Time: 5:07 pm',
+  }), /source_span_not_in_verified_reply/);
+  const calls = [];
+  const client = { rpc: async (name, args) => {
+    calls.push({ name, args });
+    if (name === 'service_start_refund_reply_subscription_run')
+      return { data: { outcome: 'started', runId }, error: null };
+    if (name === 'service_claim_refund_scoped_reply_reviews')
+      return { data: { tasks: [task] }, error: null };
+    if (name === 'service_get_refund_scoped_reply_research_input')
+      return { data: timeInput, error: null };
+    if (name === 'service_apply_refund_scoped_reply_incident_time') {
+      assert.equal(args.p_source_quote, source);
+      assert.equal(args.p_evidence_message_id, messageId);
+      assert.equal(args.p_expected_fact_version, task.factVersion);
+      return { data: { outcome: 'applied', factVersion: 3 }, error: null };
+    }
+    if (name === 'service_finish_refund_reply_subscription_run')
+      return { data: { outcome: 'finished', status: 'succeeded' }, error: null };
+    throw new Error(`unexpected RPC ${name}`);
+  } };
+  try {
+    await beginRun(client, new Date('2026-09-25T16:34:00Z'));
+    assert.equal((await submitResult(client, runId, requestId, {
+      kind: 'incident_time', messageId, quote: source,
+    })).outcome, 'resolved');
+    assert.equal((await finishRun(client, runId)).status, 'succeeded');
+    assert.deepEqual(calls.filter(({ name }) => /send|payment|nayax|select_candidate/iu.test(name)), []);
   } finally { fs.rmSync(statePath, { force: true }); }
 });
 
