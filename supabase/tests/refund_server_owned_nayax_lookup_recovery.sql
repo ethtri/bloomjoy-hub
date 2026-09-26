@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(50);
+select plan(52);
 
 select ok(to_regclass('public.refund_nayax_lookup_recoveries') is null,
   'The duplicate lookup recovery table is removed');
@@ -407,6 +407,21 @@ select is((public.refund_project_nayax_lookup_recovery_cases_for_manager(
     'nayaxLookupSummary','{}'::jsonb)),true)
   ->0->'nayaxLookupWork'->>'state'),'refund_operations',
   'Wrong-location lookup is not presented as due System provider work or Manager research');
+
+update public.refund_cases set nayax_lookup_status='not_started'
+where id='a8700000-0000-4000-8000-000000000012';
+select ok(not (public.service_claim_due_refund_nayax_lookups(1)
+    @> '[{"caseId":"a8700000-0000-4000-8000-000000000012"}]'::jsonb)
+    and (select nayax_lookup_status='not_started' from public.refund_cases
+      where id='a8700000-0000-4000-8000-000000000012'),
+  'Scheduled lookup excludes wrong-location scope before any provider claim');
+select throws_ok($$select public.service_begin_refund_nayax_lookup(
+    'a8700000-0000-4000-8000-000000000012',
+    (select deterministic_fact_version from public.refund_cases
+      where id='a8700000-0000-4000-8000-000000000012'),
+    'scheduled',null)$$,'P4622',
+  'Current reported machine and location do not agree',
+  'Protected lookup begin blocks a wrong-location direct caller too');
 
 select * from finish();
 rollback;
