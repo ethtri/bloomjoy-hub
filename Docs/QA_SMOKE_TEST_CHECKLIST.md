@@ -527,6 +527,8 @@ npm run refunds:validate-portal-uat-lifecycle
 - [ ] Revoked Corporate Partner membership removes portal reporting access after refresh/re-login
 - [ ] `/portal/reports` export creates a private signed PDF link that matches the selected filters
 - [ ] `npm run reporting:validate-provider-parser` passes with the sanitized provider `.xlsx` fixture
+- [ ] `npm run refunds:validate-scheduled-reports` proves authenticated Nayax reports retain settled sales separately from refund observations, replay without duplicate facts, and reject malformed or non-settled rows
+- [ ] A production Nayax report replay creates `nayax_scheduled_report` import runs and revenue facts for active published Nayax-only machines, reports unmapped rows, and skips every Sunze-backed overlap without changing Sunze facts
 - [ ] `npm run reporting:validate-refund-adjustments` passes with sanitized exact-match, fuzzy-alias, ambiguous, unmatched, duplicate/idempotent, same-content different-request, invalid-row, `Closed + Approve`, approved `Request Amount` fallback, `Open`, `Deny`, missing-decision, current customer-service export header, live sheet-shaped rows, removed live-source review reconciliation, sanitized-payload, and partner-settlement fixtures
 - [ ] Refund Adjustment Sync GitHub Action can be run manually with `dry_run=true`, pages through the source rows, and returns aggregate counts only, with no customer names, emails, payment IDs, card digits, or free-text incident descriptions in logs
 - [ ] Sales Import Sync GitHub Action manual dispatch defaults to `dry_run=true` and rejects manual live imports unless `confirm_live=true` is explicitly set

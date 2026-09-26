@@ -126,7 +126,9 @@ export async function normalizeNayaxScheduledReport(bytes: Uint8Array) {
     new TextDecoder("utf-8", { fatal: true }).decode(bytes),
   );
   const observations: Array<Record<string, string | number | null>> = [];
+  const sales: Array<Record<string, string | number | null>> = [];
   const identities = new Map<string, string>();
+  const saleIdentities = new Set<string>();
   const actorCounts: Record<string, number> = {};
   for (const row of rows) {
     const actorId = identifier(row.actor_id);
@@ -182,6 +184,36 @@ export async function normalizeNayaxScheduledReport(bytes: Uint8Array) {
     }
     identities.set(identity, digest);
     if (
+      normalized.originalTransactionId === null &&
+      normalized.providerStatus === 12 &&
+      normalized.providerStatusName === "Settled" &&
+      normalized.authorizationAmountCents > 0 &&
+      normalized.authorizationAmountCents ===
+        normalized.settlementAmountCents &&
+      normalized.paidAmountCents === normalized.settlementAmountCents &&
+      normalized.providerSettledAt !== null
+    ) {
+      const sale = {
+        transactionId: normalized.transactionId,
+        siteId: normalized.siteId,
+        actorId: normalized.actorId,
+        providerMachineId: normalized.providerMachineId,
+        currencyCode: normalized.currencyCode,
+        authorizationAmountCents: normalized.authorizationAmountCents,
+        settlementAmountCents: normalized.settlementAmountCents,
+        paidAmountCents: normalized.paidAmountCents,
+        providerSettledAt: normalized.providerSettledAt,
+        providerStatus: normalized.providerStatus,
+        providerStatusName: normalized.providerStatusName,
+        sourceOrderHash: await reportDigest(`nayax:${identity}`),
+        sourceRowHash: digest,
+      };
+      if (!saleIdentities.has(sale.sourceOrderHash)) {
+        sales.push(sale);
+        saleIdentities.add(sale.sourceOrderHash);
+      }
+    }
+    if (
       normalized.originalTransactionId ||
       (normalized.paidAmountCents !== null &&
         normalized.paidAmountCents < 0) ||
@@ -198,6 +230,7 @@ export async function normalizeNayaxScheduledReport(bytes: Uint8Array) {
     rowCount: rows.length,
     actorCounts,
     observations,
+    sales,
     terminalEvidenceProven: false as const,
     reportingPeriod: null,
     settlementTimePrecision: "unknown" as const,

@@ -1,5 +1,18 @@
 # Decisions
 
+## 2026-09-26 - Nayax scheduled reports feed revenue for Nayax-only machines
+
+Authenticated Nayax transaction-report emails are an authoritative sales source
+for active, published Nayax machine mappings that do not have a Sunze machine ID.
+Only exact positive rows reported as `Settled` are imported. Each provider
+transaction and each report file is idempotent, location timezones determine the
+reporting date, and stored payloads exclude payment-method identifiers.
+
+Machines with a Sunze ID remain on Sunze sales ingestion. Nayax rows for those
+machines are counted as overlap and skipped, so enabling this source cannot count
+the same sale twice. Unmapped and overlap counts remain visible in the import-run
+ledger instead of being presented as zero sales.
+
 ## 2026-09-13 - One simple customer-first refund workflow (`#1364`)
 
 [REFUND_WORKFLOW.md](REFUND_WORKFLOW.md) is the durable product source of truth.
