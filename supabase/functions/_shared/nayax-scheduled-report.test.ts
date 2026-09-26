@@ -32,7 +32,7 @@ Deno.test("scheduled discovery needs no manual label and remains bounded to the 
   assertEquals(query.get("maxResults"), "25");
   assertEquals(
     query.get("q"),
-    'from:notifier@nayax.com subject:"Nayax Transactions Report" newer_than:7d after:1788220800',
+    'from:notifier@nayax.com subject:"Nayax Transactions Report" newer_than:14d after:1788220800',
   );
 });
 const signed =
@@ -67,7 +67,7 @@ Deno.test("only the first receiver authentication result counts, never a later s
     mailbox: "info@bloomjoysweets.com",
     getAttachment: () => Promise.reject(),
     download: () => Promise.reject(),
-    rpc: async () => ({ recorded: true }),
+    rpc: async () => ({ recorded: true, salesRecorded: true, duplicate: true }),
   };
   assertEquals(
     (await ingestNayaxReportMail({ ...deps, message: m })).duplicate,
@@ -84,6 +84,11 @@ Deno.test("actual seven-row shape keeps parent/child coverage, day-first UTC and
   assertEquals(r.rowCount, 7);
   assertEquals(r.actorCounts, { "2001508696": 2, "2003563806": 5 });
   assertEquals(r.observations.length, 1);
+  assertEquals(r.sales.length, 6);
+  assertEquals(r.sales[0].providerStatusName, "Settled");
+  assertEquals(r.sales[0].settlementAmountCents, 1100);
+  assertEquals(String(r.sales[0].sourceOrderHash).length, 64);
+  assertEquals(String(r.sales[0].sourceRowHash).length, 64);
   const o = r.observations[0];
   assertEquals(o.originalTransactionId, "7000000001");
   assertEquals(o.paidAmountCents, -3210);
@@ -150,6 +155,7 @@ Deno.test("blank paid value is accepted only for rows without refund signals", a
   );
   assertEquals(normalized.rowCount, 1);
   assertEquals(normalized.observations, []);
+  assertEquals(normalized.sales, []);
 
   for (
     const refundSignal of <Record<string, string>[]> [
@@ -245,7 +251,11 @@ Deno.test("existing scheduled Gmail path downloads one linked report, stores no 
       calls.push(name);
       assert(!JSON.stringify(args).includes("synthetic_reference"));
       if (name === "service_get_nayax_report_message") {
-        return { recorded: false };
+        return { recorded: false, salesRecorded: false };
+      }
+      if (name === "service_ingest_nayax_scheduled_sales") {
+        assertEquals((args.p_sales as unknown[]).length, 6);
+        return { recorded: true, duplicate: false };
       }
       assertEquals(
         (args.p_report as { observations: unknown[] }).observations.length,
@@ -259,6 +269,7 @@ Deno.test("existing scheduled Gmail path downloads one linked report, stores no 
   assertEquals(calls, [
     "service_get_nayax_report_message",
     "service_record_nayax_scheduled_report",
+    "service_ingest_nayax_scheduled_sales",
   ]);
   assertEquals(
     await ingestNayaxReportMail({
@@ -266,7 +277,11 @@ Deno.test("existing scheduled Gmail path downloads one linked report, stores no 
       mailbox: "info@bloomjoysweets.com",
       getAttachment: () => Promise.reject(),
       download: () => Promise.reject(),
-      rpc: async () => ({ recorded: true }),
+      rpc: async () => ({
+        recorded: true,
+        salesRecorded: true,
+        duplicate: true,
+      }),
     }),
     { handled: true, duplicate: true },
   );
@@ -286,7 +301,9 @@ Deno.test("CSV attachments share normalization, sender failures and ambiguous li
       getAttachment: async () => fixture,
       download: () => Promise.reject(),
       rpc: async (name) => ({
-        recorded: name === "service_record_nayax_scheduled_report",
+        recorded: name !== "service_get_nayax_report_message",
+        salesRecorded: false,
+        duplicate: false,
       }),
     })).handled,
     true,
@@ -435,13 +452,23 @@ Deno.test("report diagnostic codes identify validation stages without loosening 
 Deno.test("a failed report leaves the next report eligible and an existing message immutable on replay", async () => {
   const codes: string[] = [];
   const stored = new Map<string, string>();
+  const salesStored = new Set<string>();
   let downloads = 0;
+  let currentMessageId = "";
   const rpc = async (name: string, args: Record<string, unknown>) => {
     const id = String(args.p_message_id);
     if (name === "service_get_nayax_report_message") {
-      return { recorded: stored.has(id) };
+      currentMessageId = id;
+      return {
+        recorded: stored.has(id),
+        salesRecorded: salesStored.has(id),
+      };
     }
-    stored.set(id, String(args.p_received_at));
+    if (name === "service_record_nayax_scheduled_report") {
+      stored.set(id, String(args.p_received_at));
+      return { recorded: true, duplicate: false };
+    }
+    salesStored.add(currentMessageId);
     return { recorded: true, duplicate: false };
   };
   for (const id of ["bad1", "aabb22"]) {

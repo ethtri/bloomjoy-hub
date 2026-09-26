@@ -22,6 +22,7 @@ const reportStages = [
   "download",
   "normalize",
   "record",
+  "sales",
 ] as const;
 type ReportStage = typeof reportStages[number];
 const reportErrorCodes = new Set([
@@ -33,6 +34,7 @@ const reportErrorCodes = new Set([
   "nayax_report_contract_invalid",
   "nayax_report_download_unavailable",
   "nayax_report_observations_not_recorded",
+  "nayax_report_sales_not_recorded",
   "authorization_revoked",
   "gmail_permission_denied",
   "gmail_resource_not_found",
@@ -119,8 +121,10 @@ export async function ingestNayaxReportMail(
     stage = "deduplicate";
     const prior = await rpc("service_get_nayax_report_message", {
       p_message_id: id,
-    }) as { recorded?: boolean } | null;
-    if (prior?.recorded) return { handled: true, duplicate: true };
+    }) as { recorded?: boolean; salesRecorded?: boolean } | null;
+    if (prior?.recorded && prior.salesRecorded) {
+      return { handled: true, duplicate: true };
+    }
     stage = "receipt_time";
     const date = new Date(Number(message.internalDate));
     if (!Number.isFinite(date.getTime())) {
@@ -166,7 +170,8 @@ export async function ingestNayaxReportMail(
       } else throw new Error("nayax_report_attachment_unavailable");
     } else bytes = await download(links[0]);
     stage = "normalize";
-    const report = await normalizeNayaxScheduledReport(bytes);
+    const normalized = await normalizeNayaxScheduledReport(bytes);
+    const { sales, ...report } = normalized;
     stage = "record";
     const result = await rpc("service_record_nayax_scheduled_report", {
       p_message_id: id,
@@ -177,7 +182,18 @@ export async function ingestNayaxReportMail(
     if (result?.recorded !== true) {
       throw new Error("nayax_report_observations_not_recorded");
     }
-    return { handled: true, duplicate: result.duplicate === true };
+    stage = "sales";
+    const salesResult = await rpc("service_ingest_nayax_scheduled_sales", {
+      p_file_digest: report.fileDigest,
+      p_sales: sales,
+    }) as { recorded?: boolean; duplicate?: boolean };
+    if (salesResult?.recorded !== true) {
+      throw new Error("nayax_report_sales_not_recorded");
+    }
+    return {
+      handled: true,
+      duplicate: result.duplicate === true && salesResult.duplicate === true,
+    };
   } catch (error) {
     throw new NayaxReportMailError(stage, error);
   }

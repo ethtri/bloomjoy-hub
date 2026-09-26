@@ -800,7 +800,7 @@ export const infoRefundInquiryThreadQuery = (startAt: Date, pageToken?: string) 
 };
 
 export const nayaxScheduledReportThreadQuery = (startAt: Date) => new URLSearchParams({
-    q: `from:notifier@nayax.com subject:"Nayax Transactions Report" newer_than:7d after:${Math.floor(startAt.getTime() / 1000)}`,
+    q: `from:notifier@nayax.com subject:"Nayax Transactions Report" newer_than:14d after:${Math.floor(startAt.getTime() / 1000)}`,
     maxResults: "25",
   });
 export const listNayaxScheduledReportThreads = async (config: RefundGmailConfig) => {
