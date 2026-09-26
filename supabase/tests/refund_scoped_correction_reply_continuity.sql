@@ -1403,10 +1403,21 @@ create temp table exact_time_reply on commit drop as
     else incident_local_datetime::timestamp-interval '4 minutes' end local_stamp
   from public.refund_cases where id=pg_temp.cid(60);
 update public.refund_gmail_messages set plain_body=
-  (select 'Time: '||to_char(local_stamp,'FMHH12:MI am') from exact_time_reply)
+  (select 'Time: '||to_char(local_stamp,'FMHH12:MI am')||
+    E'\nPlease compare Time: 4:40 pm only as the old note' from exact_time_reply)
   where id=pg_temp.gid(60);
 select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(60),pg_temp.gid(60))->>'outcome',
   'received','A verified labeled time uses the existing same-case reply claim');
+insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,provider_message_id,
+  references_header,direction,message_kind,status,sender_email,recipient_email,
+  participant_role,participant_trust,subject,plain_body,received_at,retention_expires_at)
+select pg_temp.gid(61),gmail_thread_id,refund_case_id,'scoped-reply-time-followup-60',
+  references_header,direction,message_kind,status,sender_email,recipient_email,
+  participant_role,participant_trust,'Reply with image','See the attached image.',
+  received_at+interval '1 minute',retention_expires_at
+from public.refund_gmail_messages where id=pg_temp.gid(60);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(60),pg_temp.gid(61))->>'outcome',
+  'received','The later verified reply is the current claim while earlier facts remain in its set');
 update public.refund_wallet_correction_contexts set
   reply_review_due_at=statement_timestamp()-interval '1 hour'
   where refund_case_id=pg_temp.cid(60);
@@ -1416,12 +1427,24 @@ create temp table exact_time_claim on commit drop as
   where task->>'refundCaseId'=pg_temp.cid(60)::text;
 select is((select count(*)::integer from exact_time_claim),1,
   'One current claimed task owns the source-quoted time correction');
+select is((select task->>'sourceMessageId' from exact_time_claim),pg_temp.gid(61)::text,
+  'The latest verified reply, not the earlier time message, is the claimed task source');
+select is((select public.service_apply_refund_scoped_reply_incident_time(
+    (task->>'requestId')::uuid,(task->>'claimToken')::uuid,
+    (task->>'sourceMessageId')::uuid,(task->>'factVersion')::bigint,
+    task->>'bodySha256',pg_temp.gid(60),'Time: 4:40 pm')->>'outcome'
+    from exact_time_claim),'stale_or_unsupported_source',
+  'An embedded prose substring cannot override the only anchored time line');
+select is((select count(*)::integer from public.refund_customer_fact_applications
+    where refund_case_id=pg_temp.cid(60)),0,
+  'A rejected embedded quote does not create a fact receipt');
 create temp table exact_time_result on commit drop as
   select public.service_apply_refund_scoped_reply_incident_time(
     (task->>'requestId')::uuid,(task->>'claimToken')::uuid,
     (task->>'sourceMessageId')::uuid,(task->>'factVersion')::bigint,
     task->>'bodySha256',pg_temp.gid(60),
-    (select plain_body from public.refund_gmail_messages where id=pg_temp.gid(60))) receipt
+    (select split_part(plain_body,E'\n',1) from public.refund_gmail_messages
+      where id=pg_temp.gid(60))) receipt
   from exact_time_claim;
 select is((select receipt->>'outcome' from exact_time_result),'applied',
   'Exact verified time is applied through the existing protected fact writer');
@@ -1434,6 +1457,9 @@ select is((select count(*)::integer from public.refund_customer_fact_application
 select is((select status from public.refund_wallet_correction_contexts
     where refund_case_id=pg_temp.cid(60)),'submitted',
   'A time that answers the existing request settles that same customer task');
+select is((select reply_review_state from public.refund_wallet_correction_contexts
+    where refund_case_id=pg_temp.cid(60)),'resolved',
+  'Applying an earlier verified message also resolves the latest claimed review task');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
     where refund_case_id=pg_temp.cid(60)),0,
   'Time research never creates a payment attempt');

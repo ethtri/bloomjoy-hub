@@ -19,6 +19,7 @@ declare
   old_local timestamp;
   local_stamp timestamp;
   instant timestamptz;
+  observed_times text[];
   result jsonb;
 begin
   select * into c from public.refund_cases
@@ -65,7 +66,8 @@ begin
     or public.refund_scoped_verified_reply_set(ctx.id)->>'bodySha256'
       is distinct from p_body_sha256
     or coalesce(length(p_source_quote),0) not between 10 and 40
-    or position(p_source_quote in coalesce(evidence.plain_body,''))=0
+    or not exists(select 1 from regexp_split_to_table(coalesce(evidence.plain_body,''),E'\\r?\\n') line
+      where btrim(line)=p_source_quote)
     or c.incident_at is null or c.incident_local_datetime is null
     or c.incident_local_datetime !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}$'
     or location_row.id is null or location_row.status<>'active'
@@ -82,12 +84,15 @@ begin
   end if;
   -- Repeated quoted copies of the same answer are harmless; distinct labeled
   -- times in this verified set need human research rather than a chosen value.
-  if (select count(distinct (capture[1])::integer::text||':'||capture[2]||' '||lower(capture[3]))
+  select array_agg(distinct (capture[1])::integer::text||':'||capture[2]||' '||lower(capture[3]))
+    into observed_times
       from jsonb_array_elements(public.refund_scoped_verified_reply_set(ctx.id)->'messages') item
       join public.refund_gmail_messages reply on reply.id=(item->>'messageId')::uuid
       cross join lateral regexp_matches(coalesce(reply.plain_body,''),
         '^Time:[[:space:]]*([0-9]{1,2}):([0-9]{2})[[:space:]]*(am|pm)[[:space:]]*$','gim') as matches(capture)
-    )<>1 then
+    ;
+  if cardinality(observed_times)<>1 or observed_times[1] is distinct from
+    (parts[1])::integer::text||':'||parts[2]||' '||lower(parts[3]) then
     raise exception 'Conflicting labeled purchase times require research';
   end if;
   hour_value:=parts[1]::integer % 12 + case when lower(parts[3])='pm' then 12 else 0 end;
@@ -117,6 +122,21 @@ begin
       'incident_timezone',c.incident_timezone,
       'incident_time_resolution','exact'),
     array['incident_time']::text[],'verified_reply_semantic_v1');
+  if result->>'outcome'='already_applied' and not exists(
+    select 1 from public.refund_customer_fact_applications application
+    where application.gmail_message_id=evidence.id and application.refund_case_id=c.id
+      and 'incident_time'=any(application.applied_fields)) then
+    return jsonb_build_object('outcome','stale_or_unsupported_source','payloadRedacted',true);
+  end if;
+  if result->>'outcome' in ('applied','already_applied') then
+    update public.refund_wallet_correction_contexts set
+      reply_review_state='resolved',reply_review_result_code='facts_applied',
+      updated_at=statement_timestamp()
+    where id=ctx.id and reply_review_state='claimed'
+      and reply_review_claim_token=p_claim_token
+      and reply_message_id=p_source_message_id
+      and reply_body_sha256=p_body_sha256;
+  end if;
   return result||jsonb_build_object('payloadRedacted',true);
 end;
 $$;
