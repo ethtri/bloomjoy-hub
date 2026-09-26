@@ -231,6 +231,8 @@
     "20260925043000_refund_reply_read_only_research_handoff.sql",
     "20260925044000_refund_info_inquiry_observability.sql",
     "20260926152715_refund_digest_exact_selected_proof_parity.sql",
+    "20260926170000_refund_lookup_projection_system_recovery.sql",
+    "20260926170100_refund_nayax_lookup_location_execution_guard.sql",
     "20260926210000_nayax_scheduled_sales_ingest.sql"
   ],
   "migrationFilesSha256": "cf658301bf89d6ffdd96f10e6dd80c831deb84c15fa3006e9f6702f1390a31f5",
