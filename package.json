@@ -162,6 +162,10 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "refunds:validate-scheduled-reports": "deno test --no-lock --allow-env --allow-read supabase/functions/_shared/nayax-scheduled-report.test.ts && node --test scripts/refunds/refund-report-freshness.test.mjs",
+    "nayax:validate-dtm-history": "node --test scripts/nayax/dtm-history.test.mjs scripts/nayax/dtm-history-import.test.mjs",
+    "nayax:reconcile-dtm-history": "node scripts/nayax/reconcile-dtm-history.mjs",
+    "nayax:build-dtm-history-import": "node scripts/nayax/dtm-history-import.mjs",
+    "nayax:apply-dtm-history-import": "node scripts/nayax/apply-dtm-history-import.mjs",
     "refunds:validate-location-binding-repair": "node --test scripts/refunds/refund-location-binding-repair.test.mjs"
   },
   "dependencies": {
