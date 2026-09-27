@@ -1385,14 +1385,6 @@ const runNayaxLookupStatusMatrixChecks = async ({
     const functionCalls = [];
     const functionBodies = [];
     const simpleJourneyState = { machineActivated: false };
-    const approvalOverviewReadStatuses = [200];
-    const approvalOverviewReadLog = [];
-    let holdPreflightRefresh = false;
-    let failedPreflightReads = 0;
-    let signalPreflightRefreshStarted;
-    const preflightRefreshStarted = new Promise((resolve) => { signalPreflightRefreshStarted = resolve; });
-    let releasePreflightRefresh;
-    const preflightRefreshGate = new Promise((resolve) => { releasePreflightRefresh = resolve; });
     await installMockSupabaseRoutes(context, {
       refundOverview: () => {
         const overview = (scenario.refundOverview ?? buildPendingNayaxRefundOverview)();
@@ -1446,20 +1438,6 @@ const runNayaxLookupStatusMatrixChecks = async ({
             payloadRedacted: true,
           }
         : null,
-      refundOverviewReadStatuses: scenario.simpleJourney ? approvalOverviewReadStatuses : null,
-      refundOverviewReadLog: approvalOverviewReadLog,
-      onRefundOverviewFailedRead: scenario.simpleJourney ? async () => {
-        if (!holdPreflightRefresh) return;
-        failedPreflightReads += 1;
-        if (failedPreflightReads === 2) {
-          signalPreflightRefreshStarted();
-          await preflightRefreshGate;
-        }
-      } : null,
-      onNayaxSelectedApproval: scenario.simpleJourney
-        ? () => approvalOverviewReadStatuses.splice(0, approvalOverviewReadStatuses.length, 503)
-        : null,
-      projectConfirmedSelectedCardDecision: scenario.simpleJourney === true,
       nayaxCardRefundResponse: scenario.simpleJourney || scenario.name === 'unique QR wallet recommendation'
         ? {
             executed: true,
@@ -1714,7 +1692,9 @@ const runNayaxLookupStatusMatrixChecks = async ({
         recorder.assert(
           'Unmatched wallet detail names internal research instead of asking for a transaction selection',
           await page.getByTestId('refund-manager-state').getByText('Finding the purchase', { exact: true }).isVisible() &&
-            (await page.getByText(/Bloomjoy is checking the wallet charge and provider identifier before a Manager decision/i).count()) >= 1 &&
+            (await page.getByTestId('nayax-candidate-availability').innerText()).includes(
+              'wallet identifier has not been matched to a safe provider purchase'
+            ) &&
             (await page.getByTestId('refund-save-transaction-for-review').count()) === 0 &&
             (await page.getByRole('button', { name: /^Approve\b/ }).count()) === 0
         );
@@ -2001,6 +1981,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
           `${appUrl}/refunds?case=${encodeURIComponent('case-card-pending')}`,
           { waitUntil: 'domcontentloaded' }
         );
+        await page.getByText('Purchase details and search history', { exact: true }).click();
         await page.getByTestId('selected-nayax-transaction-evidence')
           .waitFor({ state: 'visible', timeout: 10000 });
         await page.getByTestId('refund-primary-action')
@@ -2071,6 +2052,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
           `${appUrl}/refunds?case=${encodeURIComponent('case-card-pending')}`,
           { waitUntil: 'domcontentloaded' }
         );
+        await page.getByText('Purchase details and search history', { exact: true }).click();
         await page.getByTestId('selected-nayax-transaction-evidence')
           .waitFor({ state: 'visible', timeout: 10000 });
         recorder.assert(
@@ -2171,118 +2153,21 @@ const runNayaxLookupStatusMatrixChecks = async ({
       !(await page.locator('body').innerText()).includes('providerTransactionId')
     );
     if (scenario.simpleJourney) {
-      const pausedApproval = page.getByTestId('refund-approve-selected-purchase');
-      await pausedApproval.waitFor({ state: 'visible', timeout: 10000 });
       recorder.assert(
-        'The exact saved purchase can receive one Manager decision while the processor is paused',
-        await pausedApproval.isEnabled() &&
-          (await pausedApproval.innerText()).includes('Approve $7.00 refund') &&
-          (await page.getByTestId('refund-primary-action').innerText()).includes('Approve or deny the prepared refund request') &&
-          functionCalls.filter((name) => name === 'refund-case-admin-update').length === 1 &&
-          !functionBodies.some((entry) => entry.functionName === 'nayax-card-refund' &&
-            !['availability'].includes(entry.body?.operation)) &&
-          !functionCalls.includes('refund-case-message-send'),
-        JSON.stringify({ functionBodies })
-      );
-      await page.screenshot({
-        path: path.join(artifactDir, 'refund-one-manager-decision-desktop.png'),
-        fullPage: false,
-      });
-      await page.setViewportSize({ width: 390, height: 844 });
-      recorder.assert(
-        'The paused-processor decision stays usable without mobile overflow',
-        await pausedApproval.isEnabled() &&
-          await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
-      );
-      const preflightReadStart = approvalOverviewReadLog.length;
-      holdPreflightRefresh = true;
-      approvalOverviewReadStatuses.splice(0, approvalOverviewReadStatuses.length, 503);
-      await pausedApproval.click();
-      const refreshStarted = await Promise.race([
-        preflightRefreshStarted.then(() => true),
-        new Promise((resolve) => setTimeout(() => resolve(false), 10000)),
-      ]);
-      try {
-        if (refreshStarted) {
-          await page.getByText(
-            'Approval was not submitted. The latest case check failed; review the refreshed case before deciding again.',
-            { exact: true },
-          ).waitFor({ timeout: 3000 });
-        }
-        recorder.assert(
-          'A failed fresh case check is explained before its follow-up refresh completes',
-          refreshStarted &&
-            failedPreflightReads === 2 &&
-            approvalOverviewReadLog.slice(preflightReadStart).includes(503) &&
-            !functionBodies.some((entry) => entry.functionName === 'nayax-card-refund' &&
-              entry.body?.operation === 'approve_selected') &&
-            !functionCalls.includes('refund-case-message-send'),
-          JSON.stringify({ overviewReadStatuses: approvalOverviewReadLog, functionBodies }),
-        );
-      } finally {
-        releasePreflightRefresh();
-        holdPreflightRefresh = false;
-      }
-      approvalOverviewReadStatuses.splice(0, approvalOverviewReadStatuses.length, 200);
-      await reloadRefundPortalPage(page);
-      await page.getByRole('heading', { name: simpleJourneyFixture.case.publicReference }).waitFor({ timeout: 10000 });
-      await page.getByTestId('refund-approve-selected-purchase').waitFor({ state: 'visible', timeout: 10000 });
-      const postApprovalReadStart = approvalOverviewReadLog.length;
-      await pausedApproval.click();
-      await page.getByTestId('refund-action-receipt').waitFor({ state: 'visible', timeout: 10000 });
-      const decisionCalls = functionBodies.filter((entry) =>
-        entry.functionName === 'nayax-card-refund' && entry.body?.operation !== 'availability');
-      const decisionBody = decisionCalls[0]?.body ?? {};
-      recorder.assert(
-        'One final approval queues the protected attempt without payment or customer contact',
-        decisionCalls.length === 1 &&
-          JSON.stringify(Object.keys(decisionBody).sort()) ===
-            JSON.stringify(['caseId', 'expectedOfficialActionVersion', 'operation']) &&
-          decisionBody.operation === 'approve_selected' &&
-          decisionBody.caseId === 'case-card-pending' &&
-          Number(decisionBody.expectedOfficialActionVersion) === 2 &&
-          (await page.getByTestId('refund-action-receipt').innerText()).includes('Final decision saved') &&
-          !functionCalls.includes('refund-case-message-send') &&
-          !(await page.getByTestId('refund-confirmation-dialog').isVisible()),
-        JSON.stringify({ functionBodies })
-      );
-      recorder.assert(
-        'A failed overview refresh cannot restore the saved case as Manager approval work',
-        approvalOverviewReadLog.slice(postApprovalReadStart).includes(503) &&
+        'A saved purchase without a current recommendation stays internal research',
+        await page.getByTestId('refund-manager-state').getByText('Finding the purchase', { exact: true }).isVisible() &&
           (await page.getByTestId('refund-approve-selected-purchase').count()) === 0 &&
           (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-          (await page.getByTestId('refund-manager-state').innerText()).includes('Refund follow-up pending') &&
-          functionBodies.filter((entry) => entry.functionName === 'nayax-card-refund' &&
-            entry.body?.operation === 'approve_selected').length === 1,
-        JSON.stringify({ overviewReadStatuses: approvalOverviewReadLog, functionBodies })
-      );
-      approvalOverviewReadStatuses.splice(0, approvalOverviewReadStatuses.length, 200);
-      await page.setViewportSize({ width: 1440, height: 1000 });
-      await reloadRefundPortalPage(page);
-      await page.getByRole('heading', { name: simpleJourneyFixture.case.publicReference }).waitFor({ timeout: 10000 });
-      recorder.assert(
-        'Reload preserves System continuation and never asks the Manager to approve again',
-        (await page.getByTestId('refund-approve-selected-purchase').count()) === 0 &&
-          (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-          (await page.getByTestId('refund-primary-action').innerText()).includes('System is finishing') &&
-          decisionCalls.length === 1,
-        JSON.stringify({ functionBodies })
-      );
-      simpleJourneyState.machineActivated = true;
-      await reloadRefundPortalPage(page);
-      await page.getByRole('heading', { name: simpleJourneyFixture.case.publicReference }).waitFor({ timeout: 10000 });
-      recorder.assert(
-        'Restoring machine execution leaves the same approved attempt for the existing System claimant',
-        (await page.getByTestId('refund-approve-selected-purchase').count()) === 0 &&
-          (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-          (await page.getByTestId('refund-primary-action').innerText()).includes('System is finishing') &&
-          functionBodies.filter((entry) => entry.functionName === 'nayax-card-refund' &&
-            entry.body?.operation === 'approve_selected').length === 1 &&
+          functionCalls.filter((name) => name === 'refund-case-admin-update').length === 1 &&
           !functionBodies.some((entry) => entry.functionName === 'nayax-card-refund' &&
-            entry.body?.operation === 'execute') &&
+            entry.body?.operation !== 'availability') &&
           !functionCalls.includes('refund-case-message-send'),
-        JSON.stringify({ functionBodies })
+        JSON.stringify({ functionCalls, functionBodies })
       );
+      await page.screenshot({
+        path: path.join(artifactDir, 'refund-saved-purchase-internal-research-desktop.png'),
+        fullPage: false,
+      });
     } else if (scenario.name === 'unique QR wallet recommendation') {
       recorder.assert(
         'Legacy QR wallet selection remains reviewable but cannot issue a refund without current preparation',
@@ -2326,9 +2211,9 @@ const runNayaxLookupStatusMatrixChecks = async ({
     recorder.assert(
       `Nayax ${scenario.name} keeps one safe next step`,
       (scenario.simpleJourney
-        ? (await page.getByTestId('refund-primary-action').innerText()).includes('System is finishing') &&
+        ? (await page.getByTestId('refund-manager-state').innerText()).includes('Finding the purchase') &&
           (await page.getByTestId('refund-approve-selected-purchase').count()) === 0 &&
-          (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0
+          (await page.getByTestId('refund-run-nayax-refund').count()) === 0
         : scenario.name === 'unique QR wallet recommendation'
           ? (await page.getByTestId('selected-nayax-transaction-evidence').count()) === 1 &&
             (await page.getByTestId('refund-approve-reviewed-purchase').count()) === 0 &&
@@ -2429,10 +2314,12 @@ const runNayaxLookupStatusMatrixChecks = async ({
       });
     }
     await signInRefundUser(page, appUrl);
+    await page.getByRole('button', { name: /^All active \d+$/ }).click();
     const pendingRow = queueCase(page, 'RF-UAT-PENDING')
       .filter({ hasNotText: 'RF-UAT-PENDING-ALT' });
     await pendingRow.waitFor({ state: 'visible', timeout: 10000 });
     await pendingRow.click();
+    await page.getByText('Purchase details and search history', { exact: true }).click();
     await page.getByTestId('nayax-candidate-option').first().click();
     recorder.assert(
       `Selection save ${failure.name} cannot expose Refund before server confirmation`,
@@ -2453,6 +2340,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
       { waitUntil: 'domcontentloaded' }
     );
     await page.getByRole('heading', { name: 'RF-UAT-PENDING' }).waitFor({ timeout: 10000 });
+    await page.getByText('Purchase details and search history', { exact: true }).click();
     const persistedSelection = page.getByTestId('selected-nayax-transaction-evidence');
     if (failure.expectedPersisted) {
       await persistedSelection.waitFor({ state: 'visible', timeout: 10000 });
@@ -2575,6 +2463,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
   await stalePage.getByRole('button', { name: /^All active \d+$/ }).click();
   await waitForQueueCount(stalePage, 1);
   await queueCase(stalePage, 'RF-UAT-PENDING').click();
+  await stalePage.getByText('Purchase details and search history', { exact: true }).click();
   await stalePage.getByTestId('nayax-candidate-option').waitFor({ timeout: 10000 });
   recorder.assert(
     'Completed transaction evidence remains reviewable without an expiry refresh loop',

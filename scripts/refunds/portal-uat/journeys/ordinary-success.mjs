@@ -94,9 +94,9 @@ export const createOrdinarySuccessChecks = ({
         await demoLocation.locator('option', { hasText: 'Capital City Mall' }).count() === 1 &&
         await demoLocation.locator('option', { hasText: 'Carolina Place' }).count() === 1 &&
         await demoLocation.locator('option', { hasText: 'Columbiana Centre' }).count() === 1 &&
-        await demoLocation.locator('option', { hasText: 'San Francisco Premium Outlets — Cotton candy' }).count() === 1 &&
-        await demoLocation.locator('option', { hasText: 'South Hills Village — Cotton candy' }).count() === 1 &&
-        await demoLocation.locator('option', { hasText: 'South Hills Village — Phone cases (SnapCase)' }).count() === 1 &&
+        await demoLocation.locator('option', { hasText: 'San Francisco Premium Outlets â€” Cotton candy' }).count() === 1 &&
+        await demoLocation.locator('option', { hasText: 'South Hills Village â€” Cotton candy' }).count() === 1 &&
+        await demoLocation.locator('option', { hasText: 'South Hills Village â€” Phone cases (SnapCase)' }).count() === 1 &&
         await demoLocation.locator('option', { hasText: /unmapped|unknown/i }).count() === 0
     );
     await demoLocation.selectOption('demo-livermore-pair');
@@ -460,8 +460,8 @@ export const createOrdinarySuccessChecks = ({
     const purchaseComparisonText = await purchaseComparison.innerText();
     recorder.assert(
       'Customer, venue, and provider-machine times are labeled without browser-local ambiguity',
-      purchaseComparisonText.includes('Customer report · America/New_York') &&
-        purchaseComparisonText.includes('Nayax authorization time · shown in venue time') &&
+      purchaseComparisonText.includes('Customer report Â· America/New_York') &&
+        purchaseComparisonText.includes('Nayax authorization time Â· shown in venue time') &&
         purchaseComparisonText.includes('Provider machine clock:') &&
         purchaseComparisonText.includes('America/Los_Angeles') &&
         purchaseComparisonText.includes('does not prove when the purchase happened')
@@ -663,11 +663,11 @@ export const createOrdinarySuccessChecks = ({
       await confirmationDialog.isVisible() &&
         !functionCalls.includes('nayax-card-refund') &&
         await confirmationDialog.getByText('Cotton Candy 01').isVisible() &&
-        await confirmationDialog.getByText('$7.00 · card ending 4242').isVisible() &&
+        await confirmationDialog.getByText('$7.00 Â· card ending 4242').isVisible() &&
         await confirmationDialog
           .getByText('Nayax authorization time', { exact: true })
           .isVisible() &&
-        (await confirmationDialog.innerText()).includes('Shown in venue time · America/New_York') &&
+        (await confirmationDialog.innerText()).includes('Shown in venue time Â· America/New_York') &&
         (await confirmationDialog.innerText()).includes('does not prove when the purchase happened') &&
         (await confirmationDialog.innerText()).includes('Provider machine clock:')
     );
@@ -1055,7 +1055,7 @@ export const createOrdinarySuccessChecks = ({
     });
     const initialDraftSubject = await page.getByTestId('refund-gpt-draft-subject').inputValue();
     const initialDraftBody = await page.getByTestId('refund-gpt-draft-body').inputValue();
-    const draftSubject = 'Private UAT draft — do not send';
+    const draftSubject = 'Private UAT draft â€” do not send';
     const draftBody = 'This is unsent manager text for navigation testing only.';
     await page.getByTestId('refund-gpt-draft-subject').fill(draftSubject);
     await page.getByTestId('refund-gpt-draft-body').fill(draftBody);
@@ -1726,17 +1726,17 @@ export const createOrdinarySuccessChecks = ({
 
   const runCustomerOutreachStateChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
     const scenarios = [
-      { state: 'preparing', owner: 'System', nextAction: 'wait_for_queue', label: 'Preparing the request', returnedCandidates: 'customer_correctable' },
-      { state: 'queued', owner: 'System', nextAction: 'wait_for_delivery', label: 'Request queued' },
-      { state: 'sent_unconfirmed', owner: 'System', nextAction: 'wait_for_delivery', label: 'Confirming delivery' },
-      { state: 'waiting_for_customer', owner: 'Customer', nextAction: 'wait_for_customer', label: 'Waiting for customer' },
-      { state: 'delivery_failed', owner: 'Refund Operations', nextAction: 'refund_operations', label: 'Customer request not delivered', failureCode: 'delivery_transport' },
-      { state: 'delivery_unknown', owner: 'Refund Operations', nextAction: 'refund_operations', label: 'Customer request delivery unknown', failureCode: 'delivery_unconfirmed' },
-      { state: 'customer_replied', owner: 'System', nextAction: 'recheck_customer_reply', label: 'New information received' },
-      { state: 'rechecking', owner: 'System', nextAction: 'recheck_customer_reply', label: 'Rechecking the purchase' },
-      { state: 'clarification_exhausted', owner: 'Refund Operations', nextAction: 'refund_operations', label: 'Customer follow-up needs a decision' },
-      { state: 'policy_suppressed', owner: 'Refund Operations', nextAction: 'refund_operations', label: 'Customer request suppressed', reasonCode: 'internal_evidence_exception', returnedCandidates: 'internal_exception' },
-      { state: 'manual_fallback', owner: 'Machine Manager', nextAction: 'request_details', label: 'Customer details needed', manualFallbackEligible: true },
+      { state: 'preparing', owner: 'System', nextAction: 'wait_for_queue', label: 'Finding the purchase', returnedCandidates: 'customer_correctable' },
+      { state: 'queued', owner: 'System', nextAction: 'wait_for_delivery', label: 'Finding the purchase' },
+      { state: 'sent_unconfirmed', owner: 'System', nextAction: 'wait_for_delivery', label: 'Finding the purchase' },
+      { state: 'waiting_for_customer', owner: 'Customer', nextAction: 'wait_for_customer', label: 'Finding the purchase' },
+      { state: 'delivery_failed', owner: 'Refund Operations', nextAction: 'refund_operations', label: 'Finding the purchase', failureCode: 'delivery_transport' },
+      { state: 'delivery_unknown', owner: 'Refund Operations', nextAction: 'refund_operations', label: 'Finding the purchase', failureCode: 'delivery_unconfirmed' },
+      { state: 'customer_replied', owner: 'System', nextAction: 'recheck_customer_reply', label: 'Finding the purchase' },
+      { state: 'rechecking', owner: 'System', nextAction: 'recheck_customer_reply', label: 'Finding the purchase' },
+      { state: 'clarification_exhausted', owner: 'Refund Operations', nextAction: 'refund_operations', label: 'Finding the purchase' },
+      { state: 'policy_suppressed', owner: 'Refund Operations', nextAction: 'refund_operations', label: 'Finding the purchase', reasonCode: 'internal_evidence_exception', returnedCandidates: 'internal_exception' },
+      { state: 'manual_fallback', owner: 'Machine Manager', nextAction: 'request_details', label: 'Finding the purchase', manualFallbackEligible: true },
     ];
 
     const candidate = {
@@ -1917,7 +1917,7 @@ export const createOrdinarySuccessChecks = ({
               { exact: true }
             ).isVisible() &&
               await deliveryRoute.getByText(
-                'To this customer · CC every current assigned Machine Manager · saved in Activity and messages.',
+                'To this customer Â· CC every current assigned Machine Manager Â· saved in Activity and messages.',
                 { exact: true }
               ).isVisible() &&
               await deliveryRoute.getByText(

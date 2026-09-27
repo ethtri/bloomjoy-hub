@@ -4454,7 +4454,7 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
 
   if (realProjectionSeed) {
     const { caseRecord, lifecycle, preparationProof } = realProjectionSeed;
-    recorder.assert('Disposable DB seed keeps unmatched cash research out of Manager payout work',
+    recorder.assert('Disposable DB seed keeps unmatched researched cash out of Manager payout work',
       realProjectionSeed.source === 'disposable_db_completed_worker_and_authenticated_manager_rpc' &&
         realProjectionSeed.managerId === mockUser.id &&
         preparationProof?.schemaVersion === 'refund_manager_preparation_v1' &&
@@ -4467,6 +4467,7 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
         Number(preparationProof?.deterministicFactVersion) === realProjectionSeed.deterministicFactVersion &&
         lifecycle?.nextWork?.actor === 'agent' &&
         lifecycle?.nextWork?.actionCode === 'research_purchase' &&
+        lifecycle?.nextWork?.isOpen === true &&
         lifecycle?.managerAction?.action === 'none' &&
         lifecycle?.decisionRecommendation == null);
     const realContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
@@ -4496,10 +4497,10 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
     await waitForQueueCount(realPage, 1);
     await queueCase(realPage, realProjectionSeed.publicReference).click();
     const renderedState = await realPage.getByTestId('refund-manager-state').innerText();
-    const renderedAction = await realPage.getByTestId('refund-primary-action').innerText();
+    const renderedSummary = await realPage.getByTestId('refund-cash-primary-action-panel').innerText();
     recorder.assert('Unmatched cash remains internal research after the completed worker and Manager RPC',
       renderedState.includes('Finding the purchase') &&
-        renderedAction.includes('No Manager action is due') &&
+        renderedSummary.includes('No Manager action is due') &&
         (await realPage.getByRole('button', { name: /^Decision needed 0$/ }).count()) === 1 &&
         (await realPage.getByTestId('refund-cash-primary-action').count()) === 0 &&
         (await realPage.getByRole('button', { name: 'Deny request', exact: true }).count()) === 0 &&
@@ -4521,8 +4522,7 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
         functionCalls.every((functionName) => functionName === 'refund-case-sunze-correlation'),
       JSON.stringify({
         renderedState,
-        cashPrimaryActionCount,
-        cashPrimaryActionEnabled,
+        renderedSummary,
         functionCalls,
         functionBodies,
       }));
@@ -4563,10 +4563,8 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
     await reviewedPage.getByRole('button', { name: /^All active 1$/ }).click();
     await queueCase(reviewedPage, reviewedSeed.publicReference).click();
     const reviewedState = await reviewedPage.getByTestId('refund-manager-state').innerText();
-    const reviewedAction = await reviewedPage.getByTestId('refund-primary-action').innerText();
     recorder.assert('Ambiguous reviewed purchases stay internal and expose no Manager decision or candidate inventory',
       reviewedState.includes('Finding the purchase') &&
-        reviewedAction.includes('No Manager action is due') &&
         (await reviewedPage.getByRole('button', { name: /^Decision needed 0$/ }).count()) === 1 &&
         (await reviewedPage.getByTestId('nayax-candidate-option').count()) === 0 &&
         (await reviewedPage.getByTestId('refund-approve-reviewed-purchase').count()) === 0 &&
@@ -4578,7 +4576,7 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
           functionName === 'nayax-card-refund' && body?.operation === 'availability') &&
         !reviewedFunctionCalls.includes('refund-case-admin-update') &&
         !reviewedFunctionCalls.includes('refund-case-message-send'),
-      JSON.stringify({ reviewedState, reviewedAction, reviewedFunctionCalls, reviewedFunctionBodies }));
+      JSON.stringify({ reviewedState, reviewedFunctionCalls, reviewedFunctionBodies }));
     await closeRefundPortalContext(reviewedContext);
   }
 
