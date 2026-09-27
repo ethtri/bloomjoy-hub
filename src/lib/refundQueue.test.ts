@@ -6,7 +6,7 @@ import type {
   RefundManagerQueueBucket,
 } from "./refundLifecycle.ts";
 import { getRefundManagerState } from "./refundManagerState.ts";
-import { findRefundDeepLinkedCase, getRefundManagerQueueBucket, getRefundQueueFilterForCase } from "./refundQueue.ts";
+import { findRefundDeepLinkedCase, getRefundManagerQueueBucket, getRefundQueueFilterForCase, isRefundCaseOpen } from "./refundQueue.ts";
 
 const lifecycle = (
   stage: RefundLifecycleContract["stage"],
@@ -97,6 +97,42 @@ const cardCase = (contract: RefundLifecycleContract) => ({
   paymentMethod: "card" as const,
   correlationStatus: "needs_nayax" as const,
   lifecycle: contract,
+});
+
+Deno.test('All open includes each unresolved owner and preserves completed history', () => {
+  const manager = lifecycle('needs_transaction_selection', 'ready_to_pay', 'refund');
+  manager.nextWork = {
+    schemaVersion: 'refund_next_work_v1', isOpen: true, actor: 'manager',
+    actionCode: 'approve_or_deny_request', actionLabel: 'Decide the refund',
+    lastProgressAt: null, dueAt: null, blocker: null, payloadRedacted: true,
+  };
+  const customer = lifecycle('waiting_on_customer', 'waiting_on_customer', 'wait');
+  customer.nextWork = { ...manager.nextWork, actor: 'customer', actionCode: 'answer_question' };
+  const system = lifecycle('matching', 'provider_hold', 'research_purchase');
+  system.nextWork = { ...manager.nextWork, actor: 'agent', actionCode: 'research_purchase' };
+  const done = lifecycle('customer_notified', 'completed', 'none');
+  done.nextWork = { ...manager.nextWork, isOpen: false, actor: 'system', actionCode: 'none' };
+  const accountingOnly = lifecycle('refund_confirmed', 'accounting_review', 'review_accounting_date');
+  accountingOnly.paymentState = 'confirmed';
+  accountingOnly.accountingState = {
+    state: 'pending', owner: 'Refund Operations', settlementTimePrecision: 'unknown',
+    settledAt: null, blocksPaymentCompletion: false, blocksCustomerNotice: false,
+    payloadRedacted: true,
+  };
+  accountingOnly.messageState = {
+    state: 'delivered', messageType: 'completed', lastUpdatedAt: null, payloadRedacted: true,
+  };
+  const failedContact = { ...accountingOnly, messageState: {
+    ...accountingOnly.messageState, state: 'failed',
+  } };
+
+  for (const contract of [manager, customer, system, failedContact]) {
+    assertEquals(isRefundCaseOpen(cardCase(contract)), true);
+  }
+  assertEquals(isRefundCaseOpen(cardCase(done)), false);
+  assertEquals(isRefundCaseOpen(cardCase(accountingOnly)), false);
+  assertEquals(getRefundQueueFilterForCase(cardCase(accountingOnly)), 'completed');
+  assertEquals(isRefundCaseOpen({ ...cardCase(done), workflowProjectionUnavailable: true }), true);
 });
 
 Deno.test('manager review buckets stay visible while archive deep links remain restricted', () => {

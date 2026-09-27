@@ -30,7 +30,19 @@ export const isRefundWorkflowProjectionUnavailable = (
 export type RefundQueueFilter =
   | Exclude<RefundManagerQueueBucket, 'accounting_review' | 'integrity_hold' | 'internal_archive'>
   | 'missing_information' | 'possible_duplicate' | 'aging' | 'blocked'
-  | 'internal_test' | 'all';
+  | 'internal_test' | 'all' | 'all_open';
+
+/** One authorized overview case belongs in either All open or history. */
+export const isRefundCaseOpen = (refundCase: RefundQueueCase): boolean => {
+  if (refundCase.workflowProjectionUnavailable) return true;
+  const lifecycle = refundCase.lifecycle;
+  // A confirmed refund with delivered customer notice stays in history even
+  // when Refund Operations still needs to finish an accounting-only task.
+  if (lifecycle?.paymentState === 'confirmed' &&
+      lifecycle.accountingState?.state === 'pending' &&
+      ['sent', 'delivered'].includes(lifecycle.messageState.state)) return false;
+  return getRefundManagerQueueBucket(refundCase) !== 'completed';
+};
 
 /** Adapt server buckets to the existing visible filters without widening access. */
 export const getRefundQueueFilterForCase = (
@@ -39,6 +51,7 @@ export const getRefundQueueFilterForCase = (
 ): RefundQueueFilter => {
   const bucket = getRefundManagerQueueBucket(refundCase);
   if (bucket === 'internal_archive') return refundOperationsAccess ? 'internal_test' : 'all';
+  if (!isRefundCaseOpen(refundCase)) return 'completed';
   if (bucket === 'accounting_review' || bucket === 'integrity_hold' || bucket === 'provider_hold') {
     return 'provider_hold';
   }
