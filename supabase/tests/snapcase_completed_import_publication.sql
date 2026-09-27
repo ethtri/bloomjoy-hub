@@ -142,7 +142,7 @@ select is((select net_sales_cents from public.machine_sales_facts where source='
 
 -- Unknown status can hide revenue; known pending is nonrevenue and does not
 -- make an otherwise complete payment query fail.
-select pg_temp.add_batch('15014000-0000-4000-8000-000000000005', repeat('3',64), repeat('3',64), 1, 0);
+select pg_temp.add_batch('15014000-0000-4000-8000-000000000005', repeat('3',64), repeat('3',64), 2, 0);
 select pg_temp.add_batch('15014000-0000-4000-8000-000000000006', repeat('3',64), repeat('4',64), 0, 1);
 insert into private.snapcase_sales_observations(
   id, provider_account_id, resource, source_key, source_key_version,
@@ -150,12 +150,21 @@ insert into private.snapcase_sales_observations(
   normalized_tender, occurred_time_raw, occurred_at, source_currency,
   currency_code, source_amount_text, amount_minor, exception_codes,
   revision_digest, first_seen_batch_id, last_seen_batch_id
-) values (
+) values
+(
   '15016000-0000-4000-8000-000000000002',
   '15013000-0000-4000-8000-000000000001', 'payment', repeat('1',64), 1,
   'completion-machine', 'mystery', '1', 'cash', 'cash',
   '2026-09-21 12:00:00', '2026-09-21T19:00:00Z', 'USD', 'USD',
   '5.00', 500, array['financial_status_semantics_unverified'], repeat('2',64),
+  '15014000-0000-4000-8000-000000000005', '15014000-0000-4000-8000-000000000005'
+),
+(
+  '15016000-0000-4000-8000-000000000004',
+  '15013000-0000-4000-8000-000000000001', 'payment', repeat('a',64), 1,
+  'completion-machine', 'success', '1', 'cash', 'cash',
+  '2026-09-21 13:00:00', '2026-09-21T20:00:00Z', 'USD', 'USD',
+  '6.00', 600, array['financial_status_semantics_unverified'], repeat('b',64),
   '15014000-0000-4000-8000-000000000005', '15014000-0000-4000-8000-000000000005'
 );
 insert into private.snapcase_extraction_evidence(
@@ -167,7 +176,7 @@ insert into private.snapcase_extraction_evidence(
 ) values (
   '15013000-0000-4000-8000-000000000001', '15014000-0000-4000-8000-000000000006',
   'payments', 'completion-machine', '2026-09-21T07:00:00Z', '2026-09-22T07:00:00Z',
-  'America/Los_Angeles', 'complete', 1, false, false, 1, 1, 50, 0,
+  'America/Los_Angeles', 'complete', 1, false, false, 2, 2, 50, 0,
   'unverified', 'source_time_semantics_unverified'
 );
 select is(
@@ -177,6 +186,16 @@ select is(
 select is((select count(*)::integer from private.snapcase_completed_import_windows
   where local_start_date='2026-09-21'), 0,
   'the unknown-status date has no completion record');
+select is((select count(*)::integer from public.machine_sales_facts
+  where source='snapcase_cash' and net_sales_cents=600), 1,
+  'a valid cash row in the incomplete window still publishes for MTD reporting');
+select is(
+  public.service_finalize_snapcase_import_run('completion-fixture', repeat('3',64)) ->> 'completedWindowCount',
+  '0', 'retry keeps the mixed window incomplete while preserving valid cash'
+);
+select is((select count(*)::integer from public.machine_sales_facts
+  where source='snapcase_cash' and net_sales_cents=600), 1,
+  'retry does not duplicate valid cash from the incomplete window');
 
 update private.snapcase_sales_observations
 set source_status='pending', normalized_tender='unknown', source_tender_code=null,
