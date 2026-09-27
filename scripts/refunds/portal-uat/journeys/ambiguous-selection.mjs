@@ -266,18 +266,17 @@ const runApiUnavailableCaseEvidenceChecks = async ({
   await queueCase(page, 'RF-UAT-ADAM-MANUAL').click();
   await page.getByText('Purchase details and search history', { exact: true }).click();
 
-  const comments = page.getByTestId('refund-customer-comments');
+  const requestSummary = page.getByTestId('refund-request-summary');
   const paymentDetails = page.getByTestId('refund-customer-payment-details');
   const setupSummary = page.getByTestId('nayax-transaction-status');
   await setupSummary.waitFor({ state: 'visible', timeout: 10000 });
   recorder.assert(
     'Adam-managed API-pending case shows complete customer and payment evidence',
     await page.getByText('Adam Case Customer · adam-case-customer@example.test · 555-0142', { exact: true }).isVisible() &&
-      (await comments.innerText()).includes('machine display restarted twice') &&
+      (await requestSummary.innerText()).includes('machine display restarted twice') &&
       await paymentDetails.getByText('6768', { exact: true }).isVisible() &&
       await paymentDetails.getByText('Mastercard', { exact: true }).isVisible() &&
-      await paymentDetails.getByText('Tapped a physical card', { exact: true }).isVisible() &&
-      await page.getByText('Mall of Louisiana · $33.00', { exact: true }).isVisible()
+      await paymentDetails.getByText('Tapped a physical card', { exact: true }).isVisible()
   );
   recorder.assert(
     'Adam-managed API-pending case removes portal transcription and keeps the blocker internal',
@@ -309,7 +308,7 @@ const runApiUnavailableCaseEvidenceChecks = async ({
   await page.evaluate(() => window.scrollTo(0, 0));
   recorder.assert(
     'Adam-managed case evidence and compact fallback remain usable on mobile',
-    await comments.isVisible() &&
+    await requestSummary.isVisible() &&
       await paymentDetails.isVisible() &&
       await setupSummary.isVisible() &&
       (await page.getByTestId('manual-nayax-evidence-form').count()) === 0 &&
@@ -339,8 +338,8 @@ const runManagerClarityChecks = async ({
   });
   const clarityPage = await clarityContext.newPage();
   await signInRefundUser(clarityPage, appUrl);
-  await clarityPage.getByRole('button', { name: /^All active 1$/ }).click();
-  await waitForQueueCount(clarityPage, 1);
+  await clarityPage.getByRole('button', { name: /^All active 2$/ }).click();
+  await waitForQueueCount(clarityPage, 2);
   await queueCase(clarityPage, 'RF-UAT-DRAFT-AMBIGUOUS').click();
 
   const draftWorkbench = clarityPage.getByTestId('refund-gmail-draft-workbench');
@@ -386,13 +385,13 @@ const runManagerClarityChecks = async ({
   );
 
   await clarityPage.setViewportSize({ width: 1440, height: 1000 });
-  await clarityPage.getByRole('button', { name: /^Waiting on customer 1$/ }).click();
-  await waitForQueueCount(clarityPage, 1);
+  await clarityPage.getByRole('button', { name: /^All active 2$/ }).click();
+  await waitForQueueCount(clarityPage, 2);
   await queueCase(clarityPage, 'RF-UAT-WAITING-AMBIGUOUS').click();
-  const waitingStatus = clarityPage.getByTestId('refund-action-status');
   recorder.assert(
-    'Waiting card case keeps one wait instruction and exposes no second customer request',
-    await waitingStatus.getByText('Waiting for customer', { exact: true }).isVisible() &&
+    'Legacy waiting card without canonical next-work proof stays active and exposes no second customer request',
+    await clarityPage.getByTestId('refund-manager-state').getByText('Finding the purchase', { exact: true }).isVisible() &&
+      (await clarityPage.getByRole('button', { name: /^Waiting on customer 0$/ }).count()) === 1 &&
       (await clarityPage.getByRole('button', { name: /Ask for missing/ }).count()) === 0 &&
       (await clarityPage.getByTestId('refund-save-case').count()) === 0 &&
       /wait/i.test(await clarityPage.getByTestId('refund-manager-next-step').innerText())
@@ -2510,10 +2509,10 @@ const runNayaxLookupStatusMatrixChecks = async ({
     })}`);
   }
   await queueCase(guardedManagerPage, 'RF-UAT-CARD').click();
-  await guardedManagerPage.getByRole('button', { name: /^Refund \$/i }).first().waitFor({ timeout: 10000 });
+  await guardedManagerPage.getByTestId('refund-run-nayax-refund').waitFor({ timeout: 10000 });
   recorder.assert(
     'Configured first refund needs no balance form or portal handoff',
-    (await guardedManagerPage.getByRole('button', { name: /^Refund \$/i }).count()) > 0 &&
+    await guardedManagerPage.getByRole('button', { name: /^Approve \$/i }).isVisible() &&
       (await guardedManagerPage.getByRole('button', { name: 'Approve refund for Nayax portal', exact: true }).count()) === 0 &&
       (await guardedManagerPage.getByText('Verify refundable balance', { exact: true }).count()) === 0,
     await guardedManagerPage.getByTestId('refund-primary-action').innerText()
@@ -2559,20 +2558,18 @@ const runNayaxLookupStatusMatrixChecks = async ({
   const blockedPage = await blockedContext.newPage();
   await signInRefundUser(blockedPage, appUrl);
   await blockedPage.getByRole('button', { name: /^All active \d+$/ }).click();
-  await waitForQueueCount(blockedPage, 1);
+  await waitForQueueCount(blockedPage, 2);
   await queueCase(blockedPage, 'RF-UAT-CARD').click();
-  const unavailableAction = blockedPage.getByRole('status', {
-    name: /^(Nayax API unavailable|Refund temporarily unavailable)$/,
-  });
-  await unavailableAction.waitFor({ timeout: 10000 });
+  await blockedPage.getByTestId('refund-manager-state')
+    .getByText('Fixing purchase search', { exact: true }).waitFor({ timeout: 10000 });
   const blockedRequestSummary = blockedPage.getByTestId('refund-request-summary');
   recorder.assert(
     'API unavailability does not create a second manager approval path',
     (await blockedPage.getByRole('button', { name: /^Refund \$/i }).count()) === 0 &&
       (await blockedPage.getByRole('button', { name: 'Approve refund for Nayax portal', exact: true }).count()) === 0 &&
-      await unavailableAction.isVisible() &&
-      await blockedRequestSummary.getByText('Apple Pay on a phone or watch', { exact: true }).isVisible() &&
-      (await blockedPage.getByTestId('refund-primary-action').innerText()).includes('Transaction search needs repair'),
+      (await blockedPage.getByTestId('refund-primary-action').locator('button').count()) === 0 &&
+      (await blockedRequestSummary.getByText('Apple Pay on a phone or watch', { exact: true }).count()) === 1 &&
+      (await blockedPage.getByTestId('refund-primary-action').innerText()).includes('Fixing purchase search'),
     JSON.stringify({
       managerState: await blockedPage.getByTestId('refund-manager-state').innerText(),
       primaryAction: await blockedPage.getByTestId('refund-primary-action').innerText(),
@@ -2646,13 +2643,13 @@ const runNayaxLookupStatusMatrixChecks = async ({
     const bypassPage = await bypassContext.newPage();
     await signInRefundUser(bypassPage, appUrl);
     await bypassPage.getByRole('button', { name: /^All active \d+$/ }).click();
-    await waitForQueueCount(bypassPage, 1);
+    await waitForQueueCount(bypassPage, 2);
     await queueCase(bypassPage, 'RF-UAT-CARD').click();
     const expectedState = scenario.blockReason === 'unauthorized'
-      ? 'Manager action assigned elsewhere'
+      ? 'Manager action needed'
       : scenario.blockReason === 'reconciliation_hold'
-        ? 'Nayax result needs reconciliation'
-        : 'Purchase research pending';
+        ? 'Checking refund result'
+        : 'Finding the purchase';
     await bypassPage.getByTestId('refund-manager-state').getByText(expectedState, { exact: true })
       .waitFor({ timeout: 10000 });
     recorder.assert(

@@ -94,9 +94,9 @@ export const createOrdinarySuccessChecks = ({
         await demoLocation.locator('option', { hasText: 'Capital City Mall' }).count() === 1 &&
         await demoLocation.locator('option', { hasText: 'Carolina Place' }).count() === 1 &&
         await demoLocation.locator('option', { hasText: 'Columbiana Centre' }).count() === 1 &&
-        await demoLocation.locator('option', { hasText: 'San Francisco Premium Outlets â€” Cotton candy' }).count() === 1 &&
-        await demoLocation.locator('option', { hasText: 'South Hills Village â€” Cotton candy' }).count() === 1 &&
-        await demoLocation.locator('option', { hasText: 'South Hills Village â€” Phone cases (SnapCase)' }).count() === 1 &&
+        await demoLocation.locator('option', { hasText: 'San Francisco Premium Outlets — Cotton candy' }).count() === 1 &&
+        await demoLocation.locator('option', { hasText: 'South Hills Village — Cotton candy' }).count() === 1 &&
+        await demoLocation.locator('option', { hasText: 'South Hills Village — Phone cases (SnapCase)' }).count() === 1 &&
         await demoLocation.locator('option', { hasText: /unmapped|unknown/i }).count() === 0
     );
     await demoLocation.selectOption('demo-livermore-pair');
@@ -460,8 +460,8 @@ export const createOrdinarySuccessChecks = ({
     const purchaseComparisonText = await purchaseComparison.innerText();
     recorder.assert(
       'Customer, venue, and provider-machine times are labeled without browser-local ambiguity',
-      purchaseComparisonText.includes('Customer report Â· America/New_York') &&
-        purchaseComparisonText.includes('Nayax authorization time Â· shown in venue time') &&
+      purchaseComparisonText.includes('Customer report · America/New_York') &&
+        purchaseComparisonText.includes('Nayax authorization time · shown in venue time') &&
         purchaseComparisonText.includes('Provider machine clock:') &&
         purchaseComparisonText.includes('America/Los_Angeles') &&
         purchaseComparisonText.includes('does not prove when the purchase happened')
@@ -663,11 +663,11 @@ export const createOrdinarySuccessChecks = ({
       await confirmationDialog.isVisible() &&
         !functionCalls.includes('nayax-card-refund') &&
         await confirmationDialog.getByText('Cotton Candy 01').isVisible() &&
-        await confirmationDialog.getByText('$7.00 Â· card ending 4242').isVisible() &&
+        await confirmationDialog.getByText('$7.00 · card ending 4242').isVisible() &&
         await confirmationDialog
           .getByText('Nayax authorization time', { exact: true })
           .isVisible() &&
-        (await confirmationDialog.innerText()).includes('Shown in venue time Â· America/New_York') &&
+        (await confirmationDialog.innerText()).includes('Shown in venue time · America/New_York') &&
         (await confirmationDialog.innerText()).includes('does not prove when the purchase happened') &&
         (await confirmationDialog.innerText()).includes('Provider machine clock:')
     );
@@ -1055,7 +1055,7 @@ export const createOrdinarySuccessChecks = ({
     });
     const initialDraftSubject = await page.getByTestId('refund-gpt-draft-subject').inputValue();
     const initialDraftBody = await page.getByTestId('refund-gpt-draft-body').inputValue();
-    const draftSubject = 'Private UAT draft â€” do not send';
+    const draftSubject = 'Private UAT draft — do not send';
     const draftBody = 'This is unsent manager text for navigation testing only.';
     await page.getByTestId('refund-gpt-draft-subject').fill(draftSubject);
     await page.getByTestId('refund-gpt-draft-body').fill(draftBody);
@@ -1877,10 +1877,9 @@ export const createOrdinarySuccessChecks = ({
         );
         const requestDetails = page.getByRole('button', { name: 'Request details', exact: true });
         recorder.assert(
-          `${scenario.state} exposes manual outreach only for the explicit fallback`,
-          scenario.manualFallbackEligible === true
-            ? (await requestDetails.count()) === 1 && await requestDetails.isEnabled()
-            : (await requestDetails.count()) === 0,
+          `${scenario.state} cannot create a Manager action from outreach metadata alone`,
+          (await requestDetails.count()) === 0 &&
+            functionCalls.filter((name) => name === 'refund-case-message-send').length === 0,
         );
         if (scenario.returnedCandidates) {
           recorder.assert(
@@ -1895,73 +1894,6 @@ export const createOrdinarySuccessChecks = ({
               ? statePanelText.includes(scenario.failureCode.replaceAll('_', ' '))
               : !statePanelText.includes(scenario.failureCode.replaceAll('_', ' ')),
             statePanelText,
-          );
-        }
-        if (scenario.manualFallbackEligible) {
-          await requestDetails.focus();
-          recorder.assert(
-            'Manual fallback is keyboard reachable and has one focused action',
-            await requestDetails.evaluate((element) => document.activeElement === element),
-          );
-          await requestDetails.click();
-          const deliveryRoute = page.getByTestId('refund-correction-delivery-route');
-          const sendCorrectionRequest = page.getByRole('button', {
-            name: 'Send correction request',
-            exact: true,
-          });
-          await deliveryRoute.waitFor({ state: 'visible', timeout: 10000 });
-          recorder.assert(
-            'Manual fallback shows the one auditable official sender and exact recipient policy before delivery',
-            await deliveryRoute.getByText(
-              'From Bloomjoy Refunds <refunds@bloomjoysweets.com>',
-              { exact: true }
-            ).isVisible() &&
-              await deliveryRoute.getByText(
-                'To this customer Â· CC every current assigned Machine Manager Â· saved in Activity and messages.',
-                { exact: true }
-              ).isVisible() &&
-              await deliveryRoute.getByText(
-                'If this official sender or the exact recipients cannot be verified, Bloomjoy stops before delivery.',
-                { exact: true }
-              ).isVisible() &&
-              await sendCorrectionRequest.isEnabled() &&
-              functionCalls.filter((name) => name === 'refund-case-message-send').length === 0 &&
-              !functionCalls.some((name) => [
-                'nayax-transaction-lookup', 'nayax-card-refund', 'refund-case-admin-update',
-              ].includes(name)),
-            JSON.stringify({ functionCalls, routeText: await deliveryRoute.innerText() }),
-          );
-          await page.setViewportSize({ width: 390, height: 844 });
-          await deliveryRoute.scrollIntoViewIfNeeded();
-          const mobileRouteVisible = await deliveryRoute.isVisible();
-          const mobileLayoutFits = await page.evaluate(
-            () => document.documentElement.scrollWidth <= window.innerWidth
-          );
-          await sendCorrectionRequest.scrollIntoViewIfNeeded();
-          const mobileSendBox = await sendCorrectionRequest.boundingBox();
-          recorder.assert(
-            'Official customer-message route remains readable and actionable on mobile',
-            mobileRouteVisible &&
-              Boolean(mobileSendBox && mobileSendBox.height >= 44) &&
-              mobileLayoutFits,
-            JSON.stringify({ mobileRouteVisible, mobileSendBox, mobileLayoutFits }),
-          );
-          await page.setViewportSize({ width: 1440, height: 1000 });
-          await sendCorrectionRequest.click();
-          await page.waitForTimeout(100);
-          const messageBodies = functionBodies.filter(
-            (entry) => entry.functionName === 'refund-case-message-send'
-          );
-          recorder.assert(
-            'Manual fallback dispatches one saved same-case request without lookup or payment effects',
-            messageBodies.length === 1 &&
-              messageBodies[0].body?.caseId === `case-outreach-${scenario.state}` &&
-              messageBodies[0].body?.messageType === 'more_info' &&
-              JSON.stringify(messageBodies[0].body?.missingFields) === JSON.stringify(['incident_time']) &&
-              !functionCalls.some((name) => [
-                'nayax-transaction-lookup', 'nayax-card-refund', 'refund-case-admin-update',
-              ].includes(name)),
-            JSON.stringify({ functionCalls, messageBodies }),
           );
         }
         await page.setViewportSize({ width: 390, height: 844 });

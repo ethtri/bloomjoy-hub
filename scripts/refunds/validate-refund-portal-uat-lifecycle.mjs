@@ -103,7 +103,7 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /manualFallbackEligible === true[\s\S]*?requestDetails\.count\(\)[\s\S]*?document\.documentElement\.style\.fontSize = '200%'/
+  /cannot create a Manager action from outreach metadata alone[\s\S]*?requestDetails\.count\(\)\) === 0[\s\S]*?refund-case-message-send[\s\S]*?document\.documentElement\.style\.fontSize = '200%'/
 );
 assert.match(
   portalSource,
