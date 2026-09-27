@@ -110,7 +110,7 @@ export const runSnapcaseHealthCheck = async ({
   }
   const run = await readLatestScheduledRun({
     repository: env.GITHUB_REPOSITORY,
-    token: env.GITHUB_TOKEN,
+    token: env.GH_TOKEN,
     apiUrl: env.GITHUB_API_URL,
     fetchImpl,
   });

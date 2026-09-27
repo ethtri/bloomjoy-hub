@@ -20,7 +20,7 @@ jobs:
     env:
       SNAPCASE_SYNC_ENABLED: ${{ vars.SNAPCASE_SYNC_ENABLED || 'false' }}
       SNAPCASE_SYNC_STALE_HOURS: '12.25'
-      GITHUB_TOKEN: ${{ github.token }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Keep monitoring aligned with disabled sync
         if: env.SNAPCASE_SYNC_ENABLED != 'true'
