@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import test from 'node:test';
-import { parseNonfinancialTestPaymentSourceKeys, runSnapcaseSync } from './sync-snapcase.mjs';
+import {
+  parseNonfinancialTestPaymentSourceKeys,
+  parseUsdInterpretationPaymentSourceKeys,
+  runSnapcaseSync,
+} from './sync-snapcase.mjs';
 
 const withServer = async (handler, run) => {
   const server = createServer(handler);
@@ -38,6 +42,7 @@ test('fixture dry run is the default and performs no network request', async () 
     orderCount: 1,
     paymentCount: 1,
     nonfinancialTestPaymentCount: 0,
+    usdInterpretedPaymentCount: 0,
     rejectedCount: 0,
     evidenceCount: 3,
     batchCount: 2,
@@ -62,6 +67,21 @@ test('nonfinancial test payment configuration accepts only bounded source keys',
   );
 });
 
+test('USD interpretation configuration accepts only bounded source keys', () => {
+  const first = 'c'.repeat(64);
+  const second = 'd'.repeat(64);
+  assert.deepEqual([...parseUsdInterpretationPaymentSourceKeys(`${first}, ${second}\n${first}`)], [first, second]);
+  assert.deepEqual([...parseUsdInterpretationPaymentSourceKeys('')], []);
+  assert.throws(
+    () => parseUsdInterpretationPaymentSourceKeys('raw-provider-payment-id'),
+    { code: 'invalid_usd_interpretation_payment_source_keys' },
+  );
+  assert.throws(
+    () => parseUsdInterpretationPaymentSourceKeys(Array.from({ length: 51 }, (_, index) => `${index}`.padStart(64, '0')).join(',')),
+    { code: 'invalid_usd_interpretation_payment_source_keys' },
+  );
+});
+
 test('invalid exact-test configuration fails before provider access', async () => {
   let requests = 0;
   await assert.rejects(() => runSnapcaseSync({
@@ -78,6 +98,25 @@ test('invalid exact-test configuration fails before provider access', async () =
       throw new Error('provider access should not run');
     },
   }), { code: 'invalid_nonfinancial_test_payment_source_keys' });
+  assert.equal(requests, 0);
+});
+
+test('invalid USD interpretation configuration fails before provider access', async () => {
+  let requests = 0;
+  await assert.rejects(() => runSnapcaseSync({
+    args: ['--live-provider'],
+    env: {
+      KEXIAOZHAN_REPORTING_USERNAME: 'unused',
+      KEXIAOZHAN_REPORTING_PASSWORD: 'unused',
+      SNAPCASE_ACCOUNT_KEY: 'unused',
+      REPORTING_ROW_HASH_SALT: 'unused',
+      SNAPCASE_USD_INTERPRETATION_PAYMENT_SOURCE_KEYS: 'raw-provider-payment-id',
+    },
+    fetchImpl: async () => {
+      requests += 1;
+      throw new Error('provider access should not run');
+    },
+  }), { code: 'invalid_usd_interpretation_payment_source_keys' });
   assert.equal(requests, 0);
 });
 

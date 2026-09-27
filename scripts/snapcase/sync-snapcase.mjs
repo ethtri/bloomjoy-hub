@@ -14,15 +14,21 @@ export class SnapcaseSyncError extends Error {
   }
 }
 
-export const parseNonfinancialTestPaymentSourceKeys = (value) => {
+const parsePaymentSourceKeys = (value, errorCode) => {
   const input = String(value ?? '').trim();
   if (!input) return new Set();
   const keys = input.split(/[\s,]+/).filter(Boolean);
   if (keys.length > 50 || keys.some((key) => !/^[a-f0-9]{64}$/.test(key))) {
-    throw new SnapcaseSyncError('invalid_nonfinancial_test_payment_source_keys');
+    throw new SnapcaseSyncError(errorCode);
   }
   return new Set(keys);
 };
+
+export const parseNonfinancialTestPaymentSourceKeys = (value) =>
+  parsePaymentSourceKeys(value, 'invalid_nonfinancial_test_payment_source_keys');
+
+export const parseUsdInterpretationPaymentSourceKeys = (value) =>
+  parsePaymentSourceKeys(value, 'invalid_usd_interpretation_payment_source_keys');
 
 const option = (args, name) => {
   const index = args.indexOf(name);
@@ -153,6 +159,9 @@ export const runSnapcaseSync = async ({
   const nonfinancialTestPaymentSourceKeys = parseNonfinancialTestPaymentSourceKeys(
     env.SNAPCASE_NONFINANCIAL_TEST_PAYMENT_SOURCE_KEYS,
   );
+  const usdInterpretationPaymentSourceKeys = parseUsdInterpretationPaymentSourceKeys(
+    env.SNAPCASE_USD_INTERPRETATION_PAYMENT_SOURCE_KEYS,
+  );
 
   let client;
   let sourceAccountKey;
@@ -183,6 +192,7 @@ export const runSnapcaseSync = async ({
     endDate: window.endDate,
     requestedTimezone: 'UTC',
     nonfinancialTestPaymentSourceKeys,
+    usdInterpretationPaymentSourceKeys,
   });
   const batches = buildIngestBatches(extraction, { runNonce });
   const summary = {
@@ -192,6 +202,7 @@ export const runSnapcaseSync = async ({
     orderCount: extraction.orders.length,
     paymentCount: extraction.payments.length,
     nonfinancialTestPaymentCount: extraction.nonfinancialTestPaymentCount,
+    usdInterpretedPaymentCount: extraction.usdInterpretedPaymentCount,
     rejectedCount:
       extraction.rejected.machines.length +
       extraction.rejected.orders.length +

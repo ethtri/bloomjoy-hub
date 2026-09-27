@@ -124,6 +124,113 @@ test('machine inventory USD fills an omitted or blank row currency but never ove
   assert.ok(conflicting.exceptionCodes.includes('currency_unverified'));
 });
 
+test('only exact configured AUD or A$ cash payments use the owner-confirmed USD interpretation', () => {
+  const base = {
+    outTradeNo: 'valley-aud-cash', machineId: 'machine-filter-key-901',
+    paymentTime: '2025-09-18 10:15:30', paymentMethod: 1,
+    paymentInstrument: 'cash', status: 1, paymentAmount: '10.05', currency: 'AUD',
+  };
+  const unlisted = normalizePayment(base, context);
+  const listed = normalizePayment(base, {
+    ...context,
+    usdInterpretationPaymentSourceKeys: new Set([unlisted.sourceKey]),
+  });
+  const aDollar = normalizePayment({ ...base, outTradeNo: 'valley-a-dollar', currency: 'A$' }, context);
+  const listedADollar = normalizePayment({ ...base, outTradeNo: 'valley-a-dollar', currency: 'A$' }, {
+    ...context,
+    usdInterpretationPaymentSourceKeys: new Set([aDollar.sourceKey]),
+  });
+  const eur = normalizePayment({ ...base, outTradeNo: 'listed-eur', currency: 'EUR' }, context);
+  const listedEur = normalizePayment({ ...base, outTradeNo: 'listed-eur', currency: 'EUR' }, {
+    ...context,
+    usdInterpretationPaymentSourceKeys: new Set([eur.sourceKey]),
+  });
+  const missingRowCurrency = normalizePayment({
+    ...base, outTradeNo: 'listed-missing-row-currency', currency: undefined,
+  }, { ...context, machineCurrency: 'AUD' });
+  const listedMissingRowCurrency = normalizePayment({
+    ...base, outTradeNo: 'listed-missing-row-currency', currency: undefined,
+  }, {
+    ...context,
+    machineCurrency: 'AUD',
+    usdInterpretationPaymentSourceKeys: new Set([missingRowCurrency.sourceKey]),
+  });
+  const card = normalizePayment({
+    ...base, outTradeNo: 'listed-card', paymentMethod: 0, paymentInstrument: 'credit card',
+  }, context);
+  const listedCard = normalizePayment({
+    ...base, outTradeNo: 'listed-card', paymentMethod: 0, paymentInstrument: 'credit card',
+  }, {
+    ...context,
+    usdInterpretationPaymentSourceKeys: new Set([card.sourceKey]),
+  });
+
+  assert.equal(unlisted.sourceCurrency, 'AUD');
+  assert.equal(unlisted.currencyCode, null);
+  assert.ok(unlisted.exceptionCodes.includes('currency_unverified'));
+  assert.equal(listed.sourceCurrency, 'AUD');
+  assert.equal(listed.currencyCode, 'USD');
+  assert.equal(listed.exceptionCodes.includes('currency_unverified'), false);
+  assert.equal(listed.sourceKey, unlisted.sourceKey);
+  assert.notEqual(listed.revisionDigest, unlisted.revisionDigest);
+  assert.equal(listedADollar.sourceCurrency, 'A$');
+  assert.equal(listedADollar.currencyCode, 'USD');
+  assert.equal(listedEur.currencyCode, null);
+  assert.ok(listedEur.exceptionCodes.includes('currency_unverified'));
+  assert.equal(listedMissingRowCurrency.sourceCurrency, 'AUD');
+  assert.equal(listedMissingRowCurrency.currencyCode, null);
+  assert.ok(listedMissingRowCurrency.exceptionCodes.includes('currency_unverified'));
+  assert.equal(listedCard.normalizedTender, 'card');
+  assert.equal(listedCard.currencyCode, null);
+  assert.ok(listedCard.exceptionCodes.includes('currency_unverified'));
+});
+
+test('exact USD interpretation reaches the ingest envelope while retaining raw provider currency', async () => {
+  const paymentRecord = {
+    outTradeNo: 'valley-envelope-cash', orderNos: ['valley-envelope-order'],
+    machineId: 'machine-filter-key-901', paymentTime: '2025-10-08 10:15:30',
+    paymentMethod: 1, paymentInstrument: 'cash', status: 1,
+    paymentAmount: '12.00', currency: 'AUD',
+  };
+  const paymentSourceKey = normalizePayment(paymentRecord, context).sourceKey;
+  const fakeClient = {
+    async getAll(path) {
+      const rows = path === '/v1/machines'
+        ? fixture.machines
+        : path === '/v1/payments'
+          ? [paymentRecord]
+          : [];
+      return {
+        rows,
+        evidence: {
+          status: 'complete', pageCount: 1, observedCount: rows.length,
+          expectedTotal: rows.length, effectivePageSize: rows.length || 50,
+          nextCursor: null, responseTruncated: false,
+        },
+      };
+    },
+  };
+  const extraction = await extractSnapcaseWindow({
+    client: fakeClient,
+    sourceAccountKey: context.sourceAccountKey,
+    hmacSecret: context.secret,
+    startDate: '2025-10-01',
+    endDate: '2025-10-31',
+    usdInterpretationPaymentSourceKeys: new Set([paymentSourceKey]),
+  });
+  const batches = buildIngestBatches(extraction, { runNonce: 'valley-envelope-run' });
+  const emitted = batches.flatMap((batch) => batch.payments);
+
+  assert.equal(extraction.usdInterpretedPaymentCount, 1);
+  assert.equal(emitted.length, 1);
+  assert.equal(emitted[0].normalizedTender, 'cash');
+  assert.equal(emitted[0].sourceCurrency, 'AUD');
+  assert.equal(emitted[0].currencyCode, 'USD');
+  assert.equal(emitted[0].exceptionCodes.includes('currency_unverified'), false);
+  assert.equal(Object.hasOwn(extraction, 'usdInterpretationPaymentSourceKeys'), false);
+  assert.equal(batches.some((batch) => Object.hasOwn(batch, 'usdInterpretationPaymentSourceKeys')), false);
+});
+
 test('only an exact configured method-17 webhook payment becomes nonfinancial', () => {
   const webhookRecord = {
     outTradeNo: 'verified-test-payment',

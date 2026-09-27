@@ -8,6 +8,7 @@ import { sha256 } from './kexiazhan-contract.mjs';
 import {
   fixtureClient,
   parseNonfinancialTestPaymentSourceKeys,
+  parseUsdInterpretationPaymentSourceKeys,
   postBatch,
   SnapcaseSyncError,
 } from './sync-snapcase.mjs';
@@ -105,6 +106,9 @@ export const runSnapcaseBackfill = async ({
   const nonfinancialTestPaymentSourceKeys = parseNonfinancialTestPaymentSourceKeys(
     env.SNAPCASE_NONFINANCIAL_TEST_PAYMENT_SOURCE_KEYS,
   );
+  const usdInterpretationPaymentSourceKeys = parseUsdInterpretationPaymentSourceKeys(
+    env.SNAPCASE_USD_INTERPRETATION_PAYMENT_SOURCE_KEYS,
+  );
 
   let client;
   let sourceAccountKey;
@@ -143,6 +147,7 @@ export const runSnapcaseBackfill = async ({
     orderCount: 0,
     paymentCount: 0,
     nonfinancialTestPaymentCount: 0,
+    usdInterpretedPaymentCount: 0,
     evidenceCount: 0,
     batchCount: 0,
     completedWindowCount: 0,
@@ -166,6 +171,7 @@ export const runSnapcaseBackfill = async ({
       requestedTimezone: 'UTC',
       accountWideSales: true,
       nonfinancialTestPaymentSourceKeys,
+      usdInterpretationPaymentSourceKeys,
     });
     const rejectedCount = Object.values(extraction.rejected)
       .reduce((count, rows) => count + rows.length, 0);
@@ -175,6 +181,7 @@ export const runSnapcaseBackfill = async ({
     totals.orderCount += extraction.orders.length;
     totals.paymentCount += extraction.payments.length;
     totals.nonfinancialTestPaymentCount += extraction.nonfinancialTestPaymentCount;
+    totals.usdInterpretedPaymentCount += extraction.usdInterpretedPaymentCount;
     totals.evidenceCount += extraction.evidence.length;
     totals.batchCount += batches.length;
     if (!ingest) continue;

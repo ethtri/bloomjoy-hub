@@ -32,6 +32,10 @@ configure these server or GitHub environment values privately:
 - `SNAPCASE_NONFINANCIAL_TEST_PAYMENT_SOURCE_KEYS` (optional, comma-separated
   account-scoped HMAC source keys for individually verified nonfinancial test
   payments; leave empty by default)
+- `SNAPCASE_USD_INTERPRETATION_PAYMENT_SOURCE_KEYS` (optional, comma-separated
+  account-scoped HMAC source keys for owner-verified cash payments whose raw
+  `AUD`/`A$` marker is retained but whose amount is interpreted as USD; leave
+  empty by default)
 
 The Edge Function also needs the standard server-only `SUPABASE_URL`,
 `SUPABASE_SERVICE_ROLE_KEY`, and existing `REPORTING_INGEST_TOKEN`. Never use a
