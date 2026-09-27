@@ -102,3 +102,11 @@ Receipt bounds record the actual half-open request (`start 00:00:00` through the
 next day after the inclusive window end at `00:00:00`). `requestedTimezone`
 records the request header only and is not treated as proof of source clock
 conversion.
+
+After activation, GitHub Actions can run the same history path by manually
+starting `SnapCase Sync`, choosing `history-backfill`, and supplying both
+`date_start` and `date_end`. The existing concurrency group keeps this run from
+overlapping routine sync. The runner processes monthly windows sequentially and
+marks a window delivered only after every batch is acknowledged. Historical
+backfills are separate from routine recovery health and cannot clear a failed
+scheduled import.
