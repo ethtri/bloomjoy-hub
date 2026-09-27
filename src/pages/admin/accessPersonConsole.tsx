@@ -14,6 +14,7 @@ import {
   Globe2,
   Loader2,
   Mail,
+  MapPin,
   Maximize2,
   Minimize2,
   MoreHorizontal,
@@ -25,6 +26,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
+  Phone,
   Users,
   UserPlus,
   UserRound,
@@ -1208,6 +1210,8 @@ function AdminPersonAccessConsoleInner({
                 {selectedDirectoryPerson.attentionReason && <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"><AlertTriangle className="mr-2 inline h-4 w-4" />{selectedDirectoryPerson.attentionReason}</div>}
                 {effectiveAccessQuery.error && <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{getErrorMessage(effectiveAccessQuery.error, 'Unable to load effective access.')}</div>}
 
+                <PersonContactCard person={selectedDirectoryPerson} />
+
                 <section className="overflow-hidden rounded-xl border border-border bg-card">
                   <div className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
                     <div><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Machine assignments</p><h3 className="mt-1 font-display text-lg font-semibold text-foreground">{pluralize(activeMachineAssignments.length, 'current machine')}</h3></div>
@@ -1312,9 +1316,10 @@ function getPersonInitials(person: AdminAccessPerson) {
 }
 
 function PersonDirectoryRow({ person, onOpen }: { person: AdminAccessPerson; onOpen: () => void }) {
+  const contactEmail = person.contactEmail ?? person.email;
   return (
     <tr tabIndex={0} role="button" aria-label={`Open ${person.displayName}`} onClick={onOpen} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') onOpen(); }} className="cursor-pointer transition-colors hover:bg-muted/30 focus:bg-muted/30 focus:outline-none">
-      <td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{getPersonInitials(person)}</div><div className="min-w-0"><p className="font-medium text-foreground">{person.displayName}</p><p className="max-w-56 truncate text-xs text-muted-foreground">{person.email ?? 'No email yet'}</p></div></div></td>
+      <td className="px-5 py-4"><div className="flex items-center gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{getPersonInitials(person)}</div><div className="min-w-0"><p className="font-medium text-foreground">{person.displayName}</p><p className="max-w-56 truncate text-xs text-muted-foreground">{contactEmail ?? 'No email yet'}</p>{person.email && contactEmail !== person.email && <p className="mt-0.5 max-w-56 truncate text-xs text-muted-foreground">Access: {person.email}</p>}{person.contactPhone && <p className="mt-0.5 max-w-56 truncate text-xs text-muted-foreground">{person.contactPhone}</p>}</div></div></td>
       <td className="px-4 py-4"><div className="flex max-w-56 flex-wrap gap-1">{person.roles.slice(0, 2).map((item) => <Badge key={item} variant="outline" className="font-normal">{item}</Badge>)}{person.roles.length > 2 && <Badge variant="secondary">+{person.roles.length - 2}</Badge>}</div></td>
       <td className="max-w-56 px-4 py-4 text-muted-foreground">{person.accountNames.join(', ') || 'Global or source-based'}</td>
       <td className="px-4 py-4 font-medium text-foreground">{person.machineCount}</td>
@@ -1325,7 +1330,61 @@ function PersonDirectoryRow({ person, onOpen }: { person: AdminAccessPerson; onO
 }
 
 function PersonDirectoryCard({ person, onOpen }: { person: AdminAccessPerson; onOpen: () => void }) {
-  return <button type="button" onClick={onOpen} className="w-full p-4 text-left transition hover:bg-muted/30"><div className="flex items-start justify-between gap-3"><div className="flex min-w-0 gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{getPersonInitials(person)}</div><div className="min-w-0"><p className="font-medium text-foreground">{person.displayName}</p><p className="truncate text-xs text-muted-foreground">{person.email ?? 'No email yet'}</p></div></div><PersonStatusBadge status={person.status} /></div><div className="mt-3 flex flex-wrap gap-1">{person.roles.map((item) => <Badge key={item} variant="outline" className="font-normal">{item}</Badge>)}</div><p className="mt-2 text-sm text-muted-foreground">{person.accountNames.join(', ') || 'Global or source-based'} · {pluralize(person.machineCount, 'machine')}</p></button>;
+  const contactEmail = person.contactEmail ?? person.email;
+  return <button type="button" onClick={onOpen} className="w-full p-4 text-left transition hover:bg-muted/30"><div className="flex items-start justify-between gap-3"><div className="flex min-w-0 gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{getPersonInitials(person)}</div><div className="min-w-0"><p className="font-medium text-foreground">{person.displayName}</p><p className="truncate text-xs text-muted-foreground">{contactEmail ?? 'No email yet'}</p>{person.email && contactEmail !== person.email && <p className="mt-0.5 truncate text-xs text-muted-foreground">Access: {person.email}</p>}{person.contactPhone && <p className="mt-0.5 truncate text-xs text-muted-foreground">{person.contactPhone}</p>}</div></div><PersonStatusBadge status={person.status} /></div><div className="mt-3 flex flex-wrap gap-1">{person.roles.map((item) => <Badge key={item} variant="outline" className="font-normal">{item}</Badge>)}</div><p className="mt-2 text-sm text-muted-foreground">{person.accountNames.join(', ') || 'Global or source-based'} · {pluralize(person.machineCount, 'machine')}</p></button>;
+}
+
+function PersonContactCard({ person }: { person: AdminAccessPerson }) {
+  const contactEmail = person.contactEmail ?? person.email;
+  const phoneHref = person.contactPhone?.replace(/[^\d+]/g, '') ?? '';
+
+  return (
+    <section className="overflow-hidden rounded-xl border border-border bg-card">
+      <div className="border-b border-border px-4 py-4">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Contact</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Contact details available for this person in your admin scope.
+        </p>
+      </div>
+      <div className="grid gap-4 p-4 sm:grid-cols-2">
+        <div className="flex min-w-0 items-start gap-3">
+          <Mail className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-muted-foreground">Email</p>
+            {contactEmail ? (
+              <a className="mt-1 block break-all text-sm font-medium text-foreground underline-offset-4 hover:underline" href={`mailto:${contactEmail}`}>
+                {contactEmail}
+              </a>
+            ) : (
+              <p className="mt-1 text-sm text-muted-foreground">Not on file</p>
+            )}
+          </div>
+        </div>
+        <div className="flex min-w-0 items-start gap-3">
+          <Phone className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-muted-foreground">Phone</p>
+            {person.contactPhone ? (
+              <a className="mt-1 block break-words text-sm font-medium text-foreground underline-offset-4 hover:underline" href={`tel:${phoneHref}`}>
+                {person.contactPhone}
+              </a>
+            ) : (
+              <p className="mt-1 text-sm text-muted-foreground">Not on file</p>
+            )}
+          </div>
+        </div>
+        <div className="flex min-w-0 items-start gap-3 sm:col-span-2">
+          <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-muted-foreground">Address</p>
+            <p className="mt-1 whitespace-pre-line break-words text-sm text-foreground">
+              {person.mailingAddress ?? <span className="text-muted-foreground">Not on file</span>}
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function LegacyAdminPersonAccessConsoleInner({
