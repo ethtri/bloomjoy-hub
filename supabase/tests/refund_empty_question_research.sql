@@ -118,9 +118,9 @@ select 'b9200000-0000-4000-8003-000000000003',c.id,'no_safe_match','failed',
 from public.refund_cases c join public.refund_follow_up_cycles cycle
   on cycle.refund_case_id=c.id
 where c.id='b9200000-0000-4000-8001-000000000003';
-update public.refund_follow_up_cycles
-set status='manual_review',failed_at=statement_timestamp(),failure_code='request_claim_abandoned'
-where id='b9200000-0000-4000-8002-000000000003';
+
+-- The message-binding trigger now owns this cycle's request evidence. Its
+-- normal state cannot be forced into the legacy abandoned shape.
 
 create temp table rejected_evidence as
 select id,to_jsonb(cycle) as cycle_value from public.refund_follow_up_cycles cycle
