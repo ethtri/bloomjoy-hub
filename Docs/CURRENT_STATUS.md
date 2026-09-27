@@ -85,17 +85,18 @@ orientation snapshot; it is not a backlog or release ledger.
 
 - Bloomjoy Hub remains a Vite, React, TypeScript, Tailwind, shadcn/ui application
   backed by Supabase.
-- Nayax scheduled transaction reports have a reviewed ingestion path for exact
-  settled card sales on active, published mappings. The next authority migration
-  stages those rows for Sunze-backed machines too, while one nullable machine-local
-  date keeps legacy Sunze card revenue in place until actual Nayax replacement
-  history is available. On and after that date, Nayax supplies card money and
-  Sunze supplies cash; one daily card-authority fact combines the Nayax amount
-  with paid Sunze order/item/tax metrics while zero-value operational rows stay
-  separate. Original values remain reversible. Production behavior still requires the migration and
-  `refund-gmail-sync` release plus a verified bounded replay. Current stored Nayax
-  facts do not cover the older Sunze card history, so no overlap-machine cutover
-  has been authorized or performed.
+- Nayax scheduled transaction reports now stage exact settled card sales for
+  active, published Sunze mappings. All 16 current exact mappings have a
+  prospective machine-local authority date: older Sunze card history remains in
+  place, while Nayax supplies card money and Sunze supplies cash on and after the
+  boundary. One daily fact combines the Nayax amount with paid Sunze order/item/tax
+  metrics while zero-value operational rows stay separate, and original values
+  remain reversible. Publishing a future exact active mapping defaults the same
+  boundary to the next local day; withdrawing the mapping restores Sunze, and an
+  explicit boundary clear remains the rollback. Thirteen other active Sunze
+  machines still lack an exact published Nayax mapping, including ten with recent
+  Sunze card sales, so they remain on Sunze until their provider identities are
+  mapped rather than guessed.
 - Sunze cash-sale evidence now has a private, server-owned timestamp, freshness,
   coverage, and five-state match contract. Timezone-less `Payment time` values
   remain an explicitly unvalidated compatibility assumption and cannot prove a
