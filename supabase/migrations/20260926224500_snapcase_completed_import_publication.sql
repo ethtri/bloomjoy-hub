@@ -1097,6 +1097,21 @@ begin
       continue;
     end if;
 
+    projection := public.service_project_snapcase_financial_window(
+      provider_account.id,
+      payment_evidence.source_machine_id,
+      payment_evidence.requested_start,
+      payment_evidence.requested_end
+    );
+
+    if coalesce((projection ->> 'changedFactCount')::integer, 0) > 0 then
+      perform private.refresh_snapcase_payout_snapshots(
+        projection -> 'affectedReportingMachineIds',
+        local_start,
+        local_end
+      );
+    end if;
+
     select count(distinct payment.id)::integer
     into unresolved_revenue_count
     from private.snapcase_observation_ingest_memberships membership
@@ -1141,23 +1156,8 @@ begin
       continue;
     end if;
 
-    projection := public.service_project_snapcase_financial_window(
-      provider_account.id,
-      payment_evidence.source_machine_id,
-      payment_evidence.requested_start,
-      payment_evidence.requested_end
-    );
-
     if not coalesce((projection ->> 'financialReady')::boolean, false) then
       continue;
-    end if;
-
-    if coalesce((projection ->> 'changedFactCount')::integer, 0) > 0 then
-      perform private.refresh_snapcase_payout_snapshots(
-        projection -> 'affectedReportingMachineIds',
-        local_start,
-        local_end
-      );
     end if;
 
     select encode(extensions.digest(convert_to(concat_ws('|',
