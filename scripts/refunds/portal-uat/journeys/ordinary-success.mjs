@@ -1771,6 +1771,36 @@ export const createOrdinarySuccessChecks = ({
           await page.getByRole('button', { name: /^Waiting for customer 1$/ }).isVisible() &&
           await page.getByRole('button', { name: /^Done 1$/ }).isVisible()
       );
+      await page.getByRole('button', { name: /^All open 3$/ }).click();
+      await waitForQueueCount(page, 3);
+      const allOpenRows = await page.getByTestId('refund-case-queue-item')
+        .filter({ visible: true }).allInnerTexts();
+      recorder.assert(
+        'All open shows each unresolved case once, decision first, and keeps history separate',
+        allOpenRows.length === 3 &&
+          allOpenRows[0].includes('RF-UAT-CARD') &&
+          ['RF-UAT-SETUP', 'RF-UAT-WAIT'].every((reference) =>
+            allOpenRows.filter((row) => row.includes(reference)).length === 1) &&
+          allOpenRows.every((row) => !row.includes('RF-UAT-CASH')) &&
+          (await page.getByTestId('refund-case-next-work')
+            .filter({ visible: true }).count()) === 3,
+        JSON.stringify(allOpenRows.map((row) => row.slice(0, 160)))
+      );
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.evaluate(() => { document.documentElement.style.zoom = '2'; });
+      const mobileAllOpenRows = page.getByTestId('refund-case-queue-item').filter({ visible: true });
+      recorder.assert(
+        'All open remains discoverable and readable at 390px and 200 percent zoom',
+        await page.getByRole('button', { name: /^All open 3$/ }).isVisible() &&
+          (await mobileAllOpenRows.count()) === 3 &&
+          (await page.getByTestId('refund-case-next-work').filter({ visible: true }).count()) === 3 &&
+          !(await page.evaluate(() =>
+            document.documentElement.scrollWidth > document.documentElement.clientWidth))
+      );
+      await page.evaluate(() => { document.documentElement.style.zoom = ''; });
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await page.getByRole('button', { name: /^Action needed 1$/ }).click();
+      await waitForQueueCount(page, 1);
       await page.setViewportSize({ width: 390, height: 844 });
       await page.evaluate(() => { document.documentElement.style.zoom = '2'; });
       const mobileActionNeededFilter = page.getByRole('button', { name: /^Action needed 1$/ });
@@ -1938,6 +1968,12 @@ export const createOrdinarySuccessChecks = ({
       recorder.assert(
         'Demo mode off shows the true empty state',
         (await demoOffPage.getByTestId('refund-queue-count').innerText()) === '0 cases'
+      );
+      await demoOffPage.getByRole('button', { name: /^All open 0$/ }).click();
+      recorder.assert(
+        'All open gives the same honest empty state when there are no assigned cases',
+        (await demoOffPage.getByTestId('refund-queue-count').innerText()) === '0 cases' &&
+          await demoOffPage.getByText('No refund cases are assigned here yet.').last().isVisible()
       );
     });
 

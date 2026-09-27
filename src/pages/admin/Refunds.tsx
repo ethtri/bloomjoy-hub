@@ -206,6 +206,7 @@ import {
   findRefundDeepLinkedCase,
   getRefundManagerQueueBucket,
   getRefundQueueFilterForCase,
+  isRefundCaseOpen,
   isRefundWorkflowProjectionUnavailable,
   type RefundQueueFilter as QueueFilter,
 } from '@/lib/refundQueue';
@@ -1019,10 +1020,7 @@ const isWaitingCase = (
 };
 
 const isDoneCase = (refundCase: RefundCaseRecord) => {
-  if (refundCase.lifecycle) return canonicalQueueBucket(refundCase) === 'completed';
-  return doneStatuses.has(refundCase.status) ||
-    refundCase.lifecycle?.stage === 'customer_notified' ||
-    refundCase.lifecycle?.stage === 'denied';
+  return !isRefundCaseOpen(refundCase);
 };
 
 const isBlockedCase = (refundCase: RefundCaseRecord) => {
@@ -3022,6 +3020,7 @@ export default function AdminRefundsPage() {
         const needsManagerReview = isManagerReviewCase(refundCase);
         const waiting = isWaitingCase(refundCase, refundOperationsAccess);
         const done = isDoneCase(refundCase);
+        if (statusFilter === 'all_open' && !isRefundCaseOpen(refundCase)) return false;
         if (
           statusFilter !== 'internal_test' &&
           statusFilter === 'needs_action' &&
@@ -3043,6 +3042,10 @@ export default function AdminRefundsPage() {
         return true;
       },
     }).sort((left, right) => {
+      if (statusFilter === 'all_open') {
+        const decisionDelta = Number(isReadyToPayCase(right)) - Number(isReadyToPayCase(left));
+        if (decisionDelta !== 0) return decisionDelta;
+      }
       const rankDelta = caseUrgencyRank(left) - caseUrgencyRank(right);
       if (rankDelta !== 0) return rankDelta;
       return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
@@ -3056,6 +3059,7 @@ export default function AdminRefundsPage() {
   ]);
 
   const primaryQueueCounts = useMemo(() => ({
+    all_open: overview.cases.filter(isRefundCaseOpen).length,
     needs_action: overview.cases.filter(isNeedsActionCase).length,
     ready_to_pay: overview.cases.filter(isReadyToPayCase).length,
     in_progress: overview.cases.filter(isRefundInProgressCase).length,
@@ -7479,6 +7483,7 @@ export default function AdminRefundsPage() {
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex min-w-0 flex-nowrap gap-1 overflow-x-auto pb-1" aria-label="Refund case views">
             {([
+              ['all_open', 'All open'],
               ['needs_action', 'Action needed'],
               ['ready_to_pay', 'Ready to approve'],
               ['in_progress', 'Refund in progress'],
@@ -7535,6 +7540,8 @@ export default function AdminRefundsPage() {
           <div className="mt-4 grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(19rem,22rem)_minmax(0,1fr)]">
             <RefundCaseQueuePanel
               cases={filteredCases}
+              viewTitle={statusFilter === 'all_open' ? 'All open cases' : undefined}
+              showWorkflowSummary={statusFilter === 'all_open' && !isSearching}
               selectedCaseId={selectedId}
               hasSelectedCase={Boolean(selectedCase)}
               isMobileExpanded={isMobileQueueExpanded}

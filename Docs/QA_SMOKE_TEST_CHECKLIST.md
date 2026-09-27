@@ -104,6 +104,11 @@ historical fixtures cannot add product gates that the workflow does not contain.
   Waiting for customer; a verified reply, unknown Nayax outcome, missing Zelle
   destination, failed customer delivery, and accounting-only follow-up do not
   become Manager tasks. Refresh preserves the same tabs, counts, and case badge.
+- [ ] `/refunds` has a one-click All open view. It contains each authorized
+  unresolved customer case once, with final Manager decisions first, the next
+  owner/action and latest known progress. Waiting customer and Bloomjoy work
+  remain visible; completed refunds with only accounting work stay in Done.
+  A missing workflow projection says status unavailable instead of disappearing.
 - [ ] A rough-time wallet request whose completed provider read contains no
   hard-safe exact device suffix or uniquely verified same-machine QR purchase
   remains internal purchase research with a named

@@ -8,6 +8,8 @@ import { cn } from '@/lib/utils';
 
 type RefundCaseQueuePanelProps = {
   cases: RefundCaseRecord[];
+  viewTitle?: string;
+  showWorkflowSummary?: boolean;
   selectedCaseId: string | null;
   hasSelectedCase: boolean;
   isMobileExpanded: boolean;
@@ -45,6 +47,7 @@ const refundSearchViewLabel = (refundCase: RefundCaseRecord) => {
 
 type RefundCaseQueueItemProps = {
   refundCase: RefundCaseRecord;
+  showWorkflowSummary: boolean;
   isSelected: boolean;
   isSearching: boolean;
   onSelect: () => void;
@@ -58,6 +61,7 @@ type RefundCaseQueueItemProps = {
 
 function RefundCaseQueueItem({
   refundCase,
+  showWorkflowSummary,
   isSelected,
   isSearching,
   onSelect,
@@ -68,6 +72,13 @@ function RefundCaseQueueItem({
   amountLabel,
   ageLabel,
 }: RefundCaseQueueItemProps) {
+  const nextWork = refundCase.lifecycle?.nextWork;
+  const progressAt = nextWork?.lastProgressAt ? new Date(nextWork.lastProgressAt) : null;
+  const progressLabel = progressAt && !Number.isNaN(progressAt.getTime())
+    ? progressAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+    : 'unavailable';
+  const nextOwner = nextWork?.actor === 'manager' ? 'Manager'
+    : nextWork?.actor === 'customer' ? 'Customer' : 'Bloomjoy';
   return (
     <button
       data-testid="refund-case-queue-item"
@@ -114,6 +125,16 @@ function RefundCaseQueueItem({
           Current view: {refundSearchViewLabel(refundCase)}
         </p>
       )}
+      {showWorkflowSummary && (
+        <div data-testid="refund-case-next-work" className="mt-2 space-y-1 text-xs leading-relaxed text-muted-foreground">
+          {refundCase.workflowProjectionUnavailable || !nextWork ? (
+            <p>Status unavailable. Refresh to check who acts next.</p>
+          ) : (
+            <p><span className="font-semibold text-foreground">{nextOwner} next:</span> {nextWork.actionLabel}</p>
+          )}
+          <p>Last meaningful update: {progressLabel}</p>
+        </div>
+      )}
       <div className="mt-3 flex items-center justify-between gap-3 text-xs">
         <span className="font-medium text-foreground">
           {amountLabel}
@@ -126,6 +147,8 @@ function RefundCaseQueueItem({
 
 export function RefundCaseQueuePanel({
   cases,
+  viewTitle,
+  showWorkflowSummary = false,
   selectedCaseId,
   hasSelectedCase,
   isMobileExpanded,
@@ -166,6 +189,7 @@ export function RefundCaseQueuePanel({
       <RefundCaseQueueItem
         key={refundCase.id}
         refundCase={refundCase}
+        showWorkflowSummary={showWorkflowSummary}
         isSelected={refundCase.id === selectedCaseId}
         isSearching={isSearching}
         onSelect={() => onSelectCase(refundCase)}
@@ -193,7 +217,7 @@ export function RefundCaseQueuePanel({
       <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 py-3">
         <div>
           <h2 className="text-sm font-semibold text-foreground">
-            {isSearching ? 'Search results' : 'Queue'}
+            {isSearching ? 'Search results' : viewTitle ?? 'Queue'}
           </h2>
           <p
             data-testid="refund-queue-count"
