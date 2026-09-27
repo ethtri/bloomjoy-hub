@@ -206,6 +206,23 @@ test('current card capability remains visible in the composed manager presentati
  assert.deepEqual({...presentedAction},{
   kind:'button',testId:'refund-run-nayax-refund',label:'Refund $7.00',disabled:false,pending:false,
  });
+ const denialAfterRecommendation=load('cardManagerCapabilityAction',{
+  transactionDecisionPending:false,
+  reviewedFinalDecisionReady:false,
+  showDisabledActionStatus:false,
+  primaryAction:{mode:'case_update',targetDecision:'denied',label:'Deny request'},
+  recommendation:{kind:'refund'},
+  recommendedPurchase:{amountCents:700,currencyCode:'USD'},
+  formatProviderCurrency:dependencies.formatProviderCurrency,
+  cardAmountCents:700,
+  editor:{decision:'denied'},
+  hasReadyRefund:false,
+  topActionLabel:'Deny request',
+  cardActionDisabled:false,
+  isSaving:false,
+  isRunningNayaxRefund:false,
+ });
+ assert.equal(denialAfterRecommendation.label,'Deny request');
  const denialAction={mode:'case_update',targetDecision:'denied',label:'Deny request'};
  const currentCardDenialAction=load('currentCardDenialAction',{
   selectedCaseHasCurrentCardDecisionAuthority,

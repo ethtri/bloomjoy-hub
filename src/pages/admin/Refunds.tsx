@@ -6455,7 +6455,7 @@ export default function AdminRefundsPage() {
                 : primaryAction.mode === 'selected_nayax_final_decision'
                   ? 'refund-approve-selected-purchase'
                 : hasReadyRefund ? 'refund-run-nayax-refund' : 'refund-save-case',
-              label: recommendation?.kind === 'refund'
+              label: recommendation?.kind === 'refund' && editor.decision !== 'denied'
                 ? `Approve ${formatProviderCurrency(recommendedPurchase?.amountCents ?? cardAmountCents, recommendedPurchase?.currencyCode ?? 'USD')} refund`
                 : topActionLabel,
               disabled: cardActionDisabled,
