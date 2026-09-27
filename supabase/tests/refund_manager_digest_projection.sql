@@ -89,7 +89,7 @@ select public.refund_manager_daily_digest_projection_for(
   '12810000-0000-4000-8000-000000000001', '2026-09-10T15:00:00Z') as value;
 reset role;
 select is((select value ->> 'schemaVersion' from first_projection),
-  'refund_manager_daily_digest_v2', 'Digest consumes its separate canonical snapshot');
+  'refund_manager_daily_digest_v3', 'Digest consumes its separate canonical snapshot');
 select is((select value ->> 'openCount' from first_projection), '2',
   'All current open cases appear even without notification actions');
 select ok(not (select value::text from first_projection) like any (array[

@@ -4,7 +4,7 @@ import { buildRefundManagerReadyEmail, parseRefundManagerReadyNotice } from
 const directory = "Docs/screenshots/refund-ready-1425";
 const caseId = "14250000-0000-4000-8000-000000000001";
 const base = {
-  schemaVersion: "refund_manager_ready_notice_v1",
+  schemaVersion: "refund_manager_ready_notice_v2",
   caseId,
   managerUserId: "14250000-0000-4000-8000-000000000002",
   decisionFingerprint: "a".repeat(64),
@@ -17,6 +17,8 @@ const base = {
   machineLabel: "Public lobby treats",
   locationName: "Synthetic Mall",
   payloadRedacted: true,
+  recommendationKind: null,
+  recommendationReasonCode: null,
 };
 
 await Deno.mkdir(directory, { recursive: true });

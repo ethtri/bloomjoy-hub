@@ -23,6 +23,9 @@ const item = (index: number, actor: RefundManagerDailyDigestItem["actor"] = "sys
       : actor === "customer" ? "answer_question" : "research_purchase",
     actionLabel: actor === "customer" ? "We asked one question and are waiting for a reply."
       : "Check the purchase records.",
+    recommendationKind: null,
+    recommendationReasonCode: null,
+    evidenceBasis: actor === "manager" ? "card_reviewed_candidate_set" : null,
     preparationSummary: actor === "manager"
       ? "Several Nayax purchases were reviewed. Choose the correct purchase only if approving this request."
       : null,
@@ -31,7 +34,7 @@ const item = (index: number, actor: RefundManagerDailyDigestItem["actor"] = "sys
   });
 
 const projection = (items: RefundManagerDailyDigestItem[]): RefundManagerDailyDigestProjection => ({
-  schemaVersion: "refund_manager_daily_digest_v2",
+  schemaVersion: "refund_manager_daily_digest_v3",
   observedAt: "2026-09-10T15:00:00.000Z",
   actionCount: items.filter((entry) => entry.actor === "manager").length,
   openCount: items.length,
@@ -104,6 +107,7 @@ Deno.test("informational work names the actual next actor without asking manager
 
 Deno.test("already approved cash payout remains a manager action without new approval", () => {
   const cash = { ...item(1, "manager"), actionCode: "send_cash_refund_and_confirm",
+    evidenceBasis: "cash_approved_payout" as const,
     preparationSummary: "This cash refund is already approved. Review the saved payout details before sending Zelle." };
   const message = render(projection([cash]));
   assert(message.text.includes("already approved") && message.html.includes("already approved"),
@@ -111,6 +115,35 @@ Deno.test("already approved cash payout remains a manager action without new app
   assert(message.text.includes("Send the prepared refund by Zelle, then confirm"),
     "cash action requires external payment before confirmation");
   assert(!message.text.includes("approve or deny"), "no second approval is implied");
+});
+
+Deno.test("digest distinguishes cash refund and decline recommendations", () => {
+  const cash = { ...item(1, "manager"), recommendationKind: "refund" as const,
+    recommendationReasonCode: "clear_purchase_match" as const,
+    evidenceBasis: "cash_sale_found" as const,
+    preparationSummary: "A matching cash purchase was found. We recommend refunding this purchase." };
+  const reject = { ...item(2, "manager"), actionCode: "reject_request",
+    recommendationKind: "reject" as const, recommendationReasonCode: "no_match_after_30_days" as const,
+    evidenceBasis: "decision_recommendation_reject" as const,
+    amountCents: null, currencyCode: null,
+    preparationSummary: "No clear purchase match was found after 30 days." };
+  const message = render(projection([cash, reject]));
+  assert(message.text.includes("No payment has been sent"), "cash recommendation does not imply payout");
+  assert(message.text.includes("final decision remains yours"), "decline recommendation stays advisory");
+  assert(message.text.includes("No matched purchase amount"), "decline does not invent an amount");
+  assert(!message.text.includes("Send the prepared refund by Zelle"), "cash recommendation is not payout execution");
+  let rejected = false;
+  try { render(projection([{ ...reject, amountCents: 700, currencyCode: "USD" }])); } catch { rejected = true; }
+  assert(rejected, "decline recommendation rejects an unrelated case amount");
+  for (const unsafe of [
+    { ...item(3, "manager"), actionCode: "send_cash_refund_and_confirm",
+      evidenceBasis: "cash_sale_found" as const },
+    { ...cash, evidenceBasis: "cash_approved_payout" as const },
+  ]) {
+    let unsafeRejected = false;
+    try { render(projection([unsafe])); } catch { unsafeRejected = true; }
+    assert(unsafeRejected, "digest cannot turn research or a recommendation into approved payout authority");
+  }
 });
 
 Deno.test("empty personal queue produces no email", () => {

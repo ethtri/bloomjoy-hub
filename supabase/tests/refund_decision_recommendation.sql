@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(26);
+select plan(34);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -220,7 +220,21 @@ set local role service_role;
 select is(public.refund_lifecycle_contract(
  'f1050000-0000-4000-8000-000000000001')#>>'{nextWork,actionCode}',
  'approve_or_deny_request','clear recommendation becomes one Manager decision');
+select ok((select snapshot->>'schemaVersion'='refund_manager_ready_notice_v2'
+    and snapshot->>'actionCode'='approve_or_deny_request'
+    and snapshot->>'recommendationKind'='refund'
+    and snapshot->>'recommendationReasonCode'='clear_purchase_match'
+    and snapshot->>'evidenceBasis' in ('card_exact_selected','card_reviewed_candidate_set')
+  from (select public.service_refund_manager_ready_notice_snapshot(
+    'f1050000-0000-4000-8000-000000000001',
+    'f1010000-0000-4000-8000-000000000001') snapshot) q),
+  'ready notice consumes the current card refund recommendation');
 reset role;
+select is(public.refund_manager_decision_material_fingerprint(
+    'f1050000-0000-4000-8000-000000000001','approve_or_deny_request'),
+  public.refund_manager_decision_fingerprint_pre_recommendation_v1(
+    'f1050000-0000-4000-8000-000000000001','approve_or_deny_request'),
+  'an unchanged card decision preserves its prior one-notice identity');
 select is(public.refund_decision_recommendation_for_case(
  'f1050000-0000-4000-8000-000000000002'),null::jsonb,
  'two recommended candidates remain ambiguous despite candidate count');
@@ -299,6 +313,25 @@ select is(public.refund_lifecycle_contract(
  'f1050000-0000-4000-8000-000000000012')#>>'{nextWork,actionCode}',
  'research_purchase',
  'multiple current Sunze candidates stay in Agent research');
+select is(public.service_refund_manager_ready_notice_snapshot(
+  'f1050000-0000-4000-8000-000000000012',
+  'f1010000-0000-4000-8000-000000000001'),null::jsonb,
+  'unapproved ambiguous cash research cannot emit a payout notice');
+select ok((select snapshot->>'actionCode'='approve_or_deny_request'
+    and snapshot->>'recommendationKind'='refund'
+    and snapshot->>'evidenceBasis'='cash_sale_found'
+    and snapshot->>'proofId' is not null
+  from (select public.service_refund_manager_ready_notice_snapshot(
+    'f1050000-0000-4000-8000-000000000011',
+    'f1010000-0000-4000-8000-000000000001') snapshot) q),
+  'cash purchase recommendation is a decision notice, not a payout notice');
+select ok((select item->>'actionCode'='approve_or_deny_request'
+    and item->>'recommendationKind'='refund'
+    and item->>'evidenceBasis'='cash_sale_found'
+  from jsonb_array_elements(public.refund_manager_daily_digest_projection_for(
+    'f1010000-0000-4000-8000-000000000001')->'items') item
+  where item->>'caseId'='f1050000-0000-4000-8000-000000000011'),
+  'daily digest renders the cash match as a Manager decision');
 reset role;
 insert into public.sales_import_runs(
  id,source,status,rows_seen,rows_imported,meta,completed_at)
@@ -416,6 +449,29 @@ select ok((select lifecycle#>>'{nextWork,actionCode}'='reject_request'
       'customerOutreach',public.refund_customer_outreach_contract(
         'f1050000-0000-4000-8000-000000000003'))) lifecycle) q),
   'eligible no-match recommendation exposes one Manager reject action');
+select ok((select snapshot->>'actionCode'='reject_request'
+    and snapshot->>'recommendationKind'='reject'
+    and snapshot->>'recommendationReasonCode'='no_match_after_30_days'
+    and snapshot->>'proofId' is null
+    and snapshot->'amountCents'='null'::jsonb
+    and snapshot->'currencyCode'='null'::jsonb
+    and snapshot->>'evidenceBasis'='decision_recommendation_reject'
+  from (select public.service_refund_manager_ready_notice_snapshot(
+    'f1050000-0000-4000-8000-000000000003',
+    'f1010000-0000-4000-8000-000000000001') snapshot) q),
+  'ready notice keeps the 30-day decline recommendation advisory');
+select is(public.service_enqueue_refund_manager_ready_notices(
+  'f1050000-0000-4000-8000-000000000003')->>'queuedCount','1',
+  'recommendation-only rejection satisfies the notification ledger constraint');
+select ok((select item->>'actionCode'='reject_request'
+    and item->>'recommendationKind'='reject'
+    and item->>'evidenceBasis'='decision_recommendation_reject'
+    and item->'amountCents'='null'::jsonb
+    and item->'currencyCode'='null'::jsonb
+  from jsonb_array_elements(public.refund_manager_daily_digest_projection_for(
+    'f1010000-0000-4000-8000-000000000001')->'items') item
+  where item->>'caseId'='f1050000-0000-4000-8000-000000000003'),
+  'daily digest carries the advisory decline recommendation');
 reset role;
 insert into public.refund_gmail_messages(
  id,gmail_thread_id,refund_case_id,provider_message_id,direction,message_kind,
