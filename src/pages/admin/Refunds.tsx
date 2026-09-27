@@ -7539,7 +7539,6 @@ export default function AdminRefundsPage() {
               ['in_progress', 'Refund in progress'],
               ['provider_hold', 'Bloomjoy follow-up'],
               ['waiting_on_customer', 'Waiting for customer'],
-              ['completed', 'Done'],
             ] as const)
               .filter(([value]) => value !== 'provider_hold' || primaryQueueCounts.provider_hold > 0)
               .map(([value, label]) => (

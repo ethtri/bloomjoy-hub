@@ -977,10 +977,10 @@ export const createUnknownProviderOutcomeChecks = ({
       // intentionally normalize ambiguous outcomes into the same persisted queue state.
       await page.screenshot({ path: path.join(artifactDir, scenario.screenshot), fullPage: true });
       if (scenario.name === 'success') {
-        await page.getByRole('button', { name: 'Done 1', exact: true }).waitFor({ timeout: 10000 });
+        await page.getByRole('button', { name: 'History 1', exact: true }).waitFor({ timeout: 10000 });
         recorder.assert(
           'Successful card refund leaves no repeat action and moves the case to Done',
-          await page.getByRole('button', { name: 'Done 1', exact: true }).isVisible() &&
+          await page.getByRole('button', { name: 'History 1', exact: true }).isVisible() &&
             await page.getByRole('button', { name: 'Action needed 0', exact: true }).isVisible() &&
             (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0
         );

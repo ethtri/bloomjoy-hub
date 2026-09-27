@@ -344,7 +344,7 @@ export const createOrdinarySuccessChecks = ({
         await page.getByRole('button', { name: /^Ready to approve \d+$/ }).isVisible() &&
         await page.getByRole('button', { name: /^Refund in progress \d+$/ }).isVisible() &&
         await page.getByRole('button', { name: /^Waiting for customer \d+$/ }).isVisible() &&
-        await page.getByRole('button', { name: /^Done \d+$/ }).isVisible()
+        await page.getByRole('button', { name: /^History \d+$/ }).isVisible()
     );
 
     await queueCase(page, 'RF-UAT-CARD').click();
@@ -1794,7 +1794,7 @@ export const createOrdinarySuccessChecks = ({
           await page.getByRole('button', { name: /^Action needed 1$/ }).isVisible() &&
           await page.getByRole('button', { name: /^Ready to approve 1$/ }).isVisible() &&
           await page.getByRole('button', { name: /^Waiting for customer 1$/ }).isVisible() &&
-          await page.getByRole('button', { name: /^Done 1$/ }).isVisible()
+          await page.getByRole('button', { name: /^History 1$/ }).isVisible()
       );
       await page.getByRole('button', { name: /^All open 3$/ }).click();
       await waitForQueueCount(page, 3);
