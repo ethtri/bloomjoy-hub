@@ -8,6 +8,7 @@ on:
       - 'supabase/config.toml'
       - '.github/workflows/snapcase-contract-tests.yml'
       - '.github/workflows/snapcase-sync.yml'
+      - '.github/workflows/snapcase-import-health.yml'
   push:
     branches: [main]
     paths:
@@ -16,6 +17,7 @@ on:
       - 'supabase/config.toml'
       - '.github/workflows/snapcase-contract-tests.yml'
       - '.github/workflows/snapcase-sync.yml'
+      - '.github/workflows/snapcase-import-health.yml'
 
 permissions:
   contents: read

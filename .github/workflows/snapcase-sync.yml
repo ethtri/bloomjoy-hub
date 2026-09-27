@@ -13,6 +13,14 @@ on:
         options:
           - fixture-dry-run
           - live-ingest
+      date_start:
+        description: 'Optional inclusive start date for a scoped live rerun (YYYY-MM-DD)'
+        required: false
+        type: string
+      date_end:
+        description: 'Optional inclusive end date for a scoped live rerun (YYYY-MM-DD)'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -27,6 +35,8 @@ jobs:
     timeout-minutes: 20
     env:
       SNAPCASE_SYNC_ENABLED: ${{ vars.SNAPCASE_SYNC_ENABLED || 'false' }}
+      SNAPCASE_DATE_START: ${{ inputs.date_start || '' }}
+      SNAPCASE_DATE_END: ${{ inputs.date_end || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -53,7 +63,17 @@ jobs:
           REPORTING_ROW_HASH_SALT: ${{ secrets.REPORTING_ROW_HASH_SALT }}
           SNAPCASE_INGEST_URL: ${{ secrets.SNAPCASE_INGEST_URL }}
           REPORTING_INGEST_TOKEN: ${{ secrets.REPORTING_INGEST_TOKEN }}
-        run: node scripts/snapcase/sync-snapcase.mjs --live-provider --ingest
+        shell: bash
+        run: |
+          args=(--live-provider --ingest)
+          if [[ -n "$SNAPCASE_DATE_START" || -n "$SNAPCASE_DATE_END" ]]; then
+            if [[ -z "$SNAPCASE_DATE_START" || -z "$SNAPCASE_DATE_END" ]]; then
+              echo "Provide both date_start and date_end for a scoped rerun." >&2
+              exit 1
+            fi
+            args+=(--date-start "$SNAPCASE_DATE_START" --date-end "$SNAPCASE_DATE_END")
+          fi
+          node scripts/snapcase/sync-snapcase.mjs "${args[@]}"
       - name: Reject live request while disabled
         if: github.event_name == 'workflow_dispatch' && inputs.mode == 'live-ingest' && env.SNAPCASE_SYNC_ENABLED != 'true'
         run: |

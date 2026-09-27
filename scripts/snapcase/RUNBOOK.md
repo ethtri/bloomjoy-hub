@@ -47,6 +47,24 @@ provider call while repository variable `SNAPCASE_SYNC_ENABLED` is absent or not
 `true`. No activation values are configured by this change. Activation, secret
 provisioning, deployment, and live imports require a separate reviewed release.
 
+## Import health and recovery
+
+`SnapCase Import Health` runs independently after each expected sync. It checks
+GitHub run/job metadata and counts a run as successful only when the private
+staging sync step completed. A successful import with no provider rows is healthy;
+a disabled no-op schedule is not an import. While `SNAPCASE_SYNC_ENABLED` is
+false, both sync and health stay inert.
+
+Health failures appear as failed GitHub Actions checks and workflow summaries.
+Whether a person receives a GitHub notification depends on their repository
+notification settings; this slice does not add a separate messaging channel.
+
+For a bounded recovery after activation, manually run `SnapCase Sync`, choose
+`live-ingest`, and optionally provide both `date_start` and `date_end`. The same
+ACK-checked, idempotent runner is used. A partial delivery fails the run; rerunning
+the same window safely upserts the same source observations with a new run key.
+The result remains private and business coverage remains unverified.
+
 ## Historical backfill
 
 The historical runner defaults to a fixture-only dry run from `2025-01-01`.
