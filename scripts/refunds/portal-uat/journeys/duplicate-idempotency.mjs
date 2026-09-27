@@ -128,7 +128,7 @@ export const createDuplicateIdempotencyChecks = ({
       (await page.getByLabel('Filter refund cases by status').count()) === 0 &&
         await page.getByRole('button', { name: /Action needed/ }).isVisible() &&
         await page.getByRole('button', { name: /^Waiting for customer \d+$/ }).isVisible() &&
-        await page.getByRole('button', { name: /Done/ }).isVisible()
+        await page.getByRole('button', { name: /History/ }).isVisible()
     );
     recorder.assert(
       'Possible website/email duplicate presents two decisions and the linked case',

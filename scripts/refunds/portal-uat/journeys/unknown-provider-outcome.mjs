@@ -979,7 +979,7 @@ export const createUnknownProviderOutcomeChecks = ({
       if (scenario.name === 'success') {
         await page.getByRole('button', { name: 'History 1', exact: true }).waitFor({ timeout: 10000 });
         recorder.assert(
-          'Successful card refund leaves no repeat action and moves the case to Done',
+          'Successful card refund leaves no repeat action and moves the case to History',
           await page.getByRole('button', { name: 'History 1', exact: true }).isVisible() &&
             await page.getByRole('button', { name: 'Action needed 0', exact: true }).isVisible() &&
             (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0

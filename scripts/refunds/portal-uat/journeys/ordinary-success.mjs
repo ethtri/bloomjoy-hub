@@ -1954,10 +1954,10 @@ export const createOrdinarySuccessChecks = ({
       await customerFactEvidence.scrollIntoViewIfNeeded();
       await page.setViewportSize({ width: 1440, height: 1000 });
 
-      await page.getByRole('button', { name: /Done/ }).click();
+      await page.getByRole('button', { name: /History/ }).click();
       await waitForQueueCount(page, 1);
       recorder.assert(
-        'Demo visual review completed cash case appears under Done',
+        'Demo visual review completed cash case appears under History',
         (await page.getByText('RF-UAT-CASH').count()) > 0
       );
       recorder.assert(

@@ -7509,7 +7509,7 @@ export default function AdminRefundsPage() {
                       key={value}
                       type="button"
                       variant={statusFilter === value ? 'default' : 'outline'}
-                      className="min-h-11"
+                      className="min-h-11 min-w-0 max-w-full whitespace-normal text-center"
                       aria-pressed={statusFilter === value}
                       onClick={() => setStatusFilter(value)}
                     >
