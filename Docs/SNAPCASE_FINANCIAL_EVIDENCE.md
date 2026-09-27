@@ -6,9 +6,14 @@ was changed. No raw transaction or payment identifier is recorded here.
 
 ## Publication policy supported by current evidence
 
-- Publish Kexiaozhan cash only from a successful `/v1/payments` row with
-  `paymentMethod=1`, `paymentInstrument=cash`, `status=1`, `currency=USD` and a
-  valid two-decimal `paymentAmount`. Treat that amount as gross cash collected.
+- Publish Kexiaozhan cash from the payment's known cash tender and original
+  collected amount, using the enumerated paid/refund lifecycle states. Treat
+  `paymentAmount` as gross cash collected; a refund-state revision does not erase
+  that original gross or create a second deduction.
+- Use explicit payment currency first. As an implementation rule, a missing row
+  currency may use the source machine's configured USD currency. Preserve that
+  provenance; never override an explicit conflicting currency. The direct sample
+  below had row-level USD throughout, so it did not exercise this fallback.
 - Publish card money only from the existing canonical Nayax scheduled-report
   fact. Kexiaozhan card rows provide order and coverage context; they do not add
   another amount.
@@ -43,9 +48,9 @@ machines and stayed below the observed 50-row page cap.
 - For those 26 joins, payment amount and payment time equaled the linked order's
   payment amount and payment time.
 - Grouped payments remain part of the provider shape because `orderNos` is an
-  array. The sample does not prove they cannot occur. A payment-keyed financial
-  fact does not need an order-level allocation, but every linked order must have
-  exact membership and must not be reused by another admitted payment.
+  array. The sample does not prove they cannot occur. Publish once by payment
+  identity; linked orders are optional context, not another revenue source or a
+  prerequisite for publishing the payment's known cash amount.
 - `outTradeNo` was present, but `transactionId` was empty on all 26 sampled
   payment rows. Neither `outTradeNo` nor `orderNo` can currently be treated as a
   shared Nayax reference. A shared reference would strengthen reconciliation,
