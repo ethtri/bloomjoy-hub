@@ -25,6 +25,11 @@ values (
   'e3100000-0000-4000-8000-000000000001',
   'Card authority location',
   'America/Los_Angeles'
+), (
+  'e3200000-0000-4000-8000-000000000002',
+  'e3100000-0000-4000-8000-000000000001',
+  'Card authority second location',
+  'America/Los_Angeles'
 );
 
 insert into public.reporting_machines (
@@ -46,6 +51,44 @@ insert into public.refund_nayax_machine_inventory (
 ) values (
   'TGPACI_USA_DB', '700000001', true, 'cotton_candy',
   'e3300000-0000-4000-8000-000000000001', 'published', 'test_fixture'
+);
+
+insert into public.reporting_machines (
+  id, account_id, location_id, machine_label,
+  sunze_machine_id, nayax_machine_id, nayax_account_key,
+  nayax_card_sales_started_on
+) values (
+  'e3300000-0000-4000-8000-000000000002',
+  'e3100000-0000-4000-8000-000000000001',
+  'e3200000-0000-4000-8000-000000000002',
+  'Preconfigured authority fixture',
+  'sunze-preconfigured-fixture',
+  '700000002',
+  'TGPACI_USA_DB',
+  '2025-06-01'
+);
+
+insert into public.refund_nayax_machine_inventory (
+  account_key, nayax_machine_id, provider_is_active, refund_category,
+  reporting_machine_id, reconciliation_state, setup_reason
+) values (
+  'TGPACI_USA_DB', '700000002', true, 'cotton_candy',
+  'e3300000-0000-4000-8000-000000000002', 'needs_setup', 'test_fixture'
+);
+
+update public.refund_nayax_machine_inventory
+set reconciliation_state = 'published'
+where account_key = 'TGPACI_USA_DB'
+  and nayax_machine_id = '700000002';
+
+select is(
+  (
+    select nayax_card_sales_started_on
+    from public.reporting_machines
+    where id = 'e3300000-0000-4000-8000-000000000002'
+  ),
+  date '2025-06-01',
+  'Publishing preserves an explicit preconfigured authority boundary'
 );
 
 insert into public.nayax_scheduled_report_files (
@@ -554,6 +597,16 @@ set reconciliation_state = 'needs_setup',
 where account_key = 'TGPACI_USA_DB'
   and nayax_machine_id = '700000001';
 
+select is(
+  (
+    select nayax_card_sales_started_on
+    from public.reporting_machines
+    where id = 'e3300000-0000-4000-8000-000000000001'
+  ),
+  null::date,
+  'Withdrawing the exact active mapping restores legacy Sunze authority'
+);
+
 select throws_ok(
   $$select public.service_ingest_nayax_scheduled_sales(
     repeat('2', 64),
@@ -572,6 +625,81 @@ set reconciliation_state = 'published',
     setup_reason = 'test_fixture'
 where account_key = 'TGPACI_USA_DB'
   and nayax_machine_id = '700000001';
+
+select is(
+  (
+    select nayax_card_sales_started_on
+    from public.reporting_machines
+    where id = 'e3300000-0000-4000-8000-000000000001'
+  ),
+  (statement_timestamp() at time zone 'America/Los_Angeles')::date + 1,
+  'Publishing an exact active mapping defaults to next-local-day Nayax authority'
+);
+
+update public.reporting_machines
+set nayax_card_sales_started_on = null
+where id = 'e3300000-0000-4000-8000-000000000001';
+
+select is(
+  (
+    select nayax_card_sales_started_on
+    from public.reporting_machines
+    where id = 'e3300000-0000-4000-8000-000000000001'
+  ),
+  null::date,
+  'A deliberate boundary clear remains a reversible authority rollback'
+);
+
+update public.refund_nayax_machine_inventory
+set provider_is_active = true
+where account_key = 'TGPACI_USA_DB'
+  and nayax_machine_id = '700000001';
+
+select is(
+  (
+    select nayax_card_sales_started_on
+    from public.reporting_machines
+    where id = 'e3300000-0000-4000-8000-000000000001'
+  ),
+  null::date,
+  'An ordinary inventory refresh does not overwrite an explicit rollback'
+);
+
+update public.reporting_machines
+set location_id = 'e3200000-0000-4000-8000-000000000002'
+where id = 'e3300000-0000-4000-8000-000000000001';
+
+select is(
+  (
+    select nayax_card_sales_started_on
+    from public.reporting_machines
+    where id = 'e3300000-0000-4000-8000-000000000001'
+  ),
+  null::date,
+  'Eligible location metadata changes do not overwrite an explicit rollback'
+);
+
+update public.reporting_machines
+set location_id = 'e3200000-0000-4000-8000-000000000001'
+where id = 'e3300000-0000-4000-8000-000000000001';
+
+update public.reporting_machines
+set sunze_machine_id = null
+where id = 'e3300000-0000-4000-8000-000000000001';
+
+update public.reporting_machines
+set sunze_machine_id = 'sunze-authority-fixture'
+where id = 'e3300000-0000-4000-8000-000000000001';
+
+select is(
+  (
+    select nayax_card_sales_started_on
+    from public.reporting_machines
+    where id = 'e3300000-0000-4000-8000-000000000001'
+  ),
+  (statement_timestamp() at time zone 'America/Los_Angeles')::date + 1,
+  'Completing the Sunze side of an already-published exact mapping also defaults authority'
+);
 
 select is(
   (

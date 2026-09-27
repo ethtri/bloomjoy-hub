@@ -19,12 +19,15 @@ so they do not acquire fees or item costs from unrelated card revenue. Original
 provider values remain in the fact payload so clearing or moving the boundary
 restores the prior facts.
 
-Do not set a boundary until the machine's working Nayax feed covers that date.
-Missing historical Nayax input remains an explicit backfill gap; it does not
-authorize deleting legacy Sunze revenue. Previously authenticated report files
-whose Sunze overlap was skipped may be downloaded and replayed once through the
-service-owned idempotent receipt path. No transaction-level identity is inferred
-between separate providers.
+An exact active Nayax inventory mapping for a Sunze machine defaults this boundary
+to the next machine-local day. Withdrawing that mapping clears the boundary and
+restores Sunze. A manager may still clear the boundary deliberately for rollback;
+an ordinary inventory refresh does not overwrite that explicit rollback. Missing
+historical Nayax input remains an explicit backfill gap and does not authorize
+deleting legacy Sunze revenue. Previously authenticated report files whose Sunze
+overlap was skipped may be downloaded and replayed once through the service-owned
+idempotent receipt path. No transaction-level identity is inferred between
+separate providers.
 
 ## 2026-09-13 - One simple customer-first refund workflow (`#1364`)
 
