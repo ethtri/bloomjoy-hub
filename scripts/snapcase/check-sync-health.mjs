@@ -22,7 +22,23 @@ export const evaluateSnapcaseSyncHealth = ({
   now = new Date(),
   staleHours = 30,
 } = {}) => {
-  if (!run) return { ok: false, status: 'missed', reason: 'no_scheduled_run' };
+  const recoveryStartedAt = timestamp(recoveryRun?.createdAt);
+  const recoveryHealthy = recoveryStartedAt !== null &&
+    recoveryRun.conclusion === 'success' &&
+    recoveryRun.importStepConclusion === 'success' &&
+    now.getTime() - recoveryStartedAt <= staleHours * 60 * 60_000;
+  if (!run) {
+    if (recoveryHealthy) {
+      return {
+        ok: true,
+        status: 'recovered',
+        runId: String(recoveryRun.id ?? ''),
+        runUrl: String(recoveryRun.url ?? ''),
+        startedAt: new Date(recoveryStartedAt).toISOString(),
+      };
+    }
+    return { ok: false, status: 'missed', reason: 'no_scheduled_run' };
+  }
 
   const startedAt = timestamp(run.createdAt);
   if (startedAt === null) return { ok: false, status: 'missed', reason: 'invalid_run_time' };
@@ -43,13 +59,9 @@ export const evaluateSnapcaseSyncHealth = ({
     run.importStepConclusion === 'success' && ageMs <= staleHours * 60 * 60_000;
   if (scheduledHealthy) return { ok: true, status: 'healthy', ...summary };
 
-  const recoveryStartedAt = timestamp(recoveryRun?.createdAt);
   if (
-    recoveryStartedAt !== null &&
-    recoveryStartedAt > startedAt &&
-    recoveryRun.conclusion === 'success' &&
-    recoveryRun.importStepConclusion === 'success' &&
-    now.getTime() - recoveryStartedAt <= staleHours * 60 * 60_000
+    recoveryHealthy &&
+    recoveryStartedAt > startedAt
   ) {
     return {
       ok: true,
@@ -118,7 +130,7 @@ export const readRelevantSyncRuns = async ({
 } = {}) => {
   if (!repository || !token) throw new SnapcaseHealthError('health_configuration_missing');
   const runsBody = await githubRequest(
-    `${apiUrl}/repos/${repository}/actions/workflows/snapcase-sync.yml/runs?per_page=20`,
+    `${apiUrl}/repos/${repository}/actions/workflows/snapcase-sync.yml/runs?branch=main&per_page=100`,
     token,
     fetchImpl,
   );
