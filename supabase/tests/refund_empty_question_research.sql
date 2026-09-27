@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(16);
+select plan(19);
 update public.refund_customer_contact_settings
 set automatic_customer_contact_enabled=true,correction_links_enabled=true
 where singleton;
@@ -64,6 +64,10 @@ update public.refund_follow_up_cycles
 set status='manual_review',failed_at=statement_timestamp(),failure_code='request_claim_abandoned'
 where id='b9200000-0000-4000-8002-000000000001';
 
+select is(public.service_get_refund_clarification_contact_obligation_health(
+  true,true,statement_timestamp())->>'unresolvedCount','0',
+  'A current empty claim has no customer delivery obligation');
+
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
   customer_email,issue_summary,status,intake_source,incident_at,incident_local_datetime,
   incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,
@@ -73,29 +77,38 @@ select ('b9200000-0000-4000-8001-'||lpad(n::text,12,'0'))::uuid,'RF-EMPTY-'||n,
   c.issue_summary,c.status,c.intake_source,c.incident_at,c.incident_local_datetime,
   c.incident_timezone,c.incident_time_resolution,c.incident_time_confidence,
   c.payment_method,c.payment_interaction,c.payment_amount_cents,'manual_review'
-from public.refund_cases c cross join generate_series(2,3) n
+from public.refund_cases c cross join generate_series(2,4) n
 where c.id='b9200000-0000-4000-8001-000000000001';
 update public.refund_cases
 set correlation_status='no_match',correlation_source='sunze',
   correlation_summary='No matching local cash sale.'
 where id in ('b9200000-0000-4000-8001-000000000002',
-  'b9200000-0000-4000-8001-000000000003');
+  'b9200000-0000-4000-8001-000000000003',
+  'b9200000-0000-4000-8001-000000000004');
 update public.refund_cases
 set cash_match_evaluated_fact_version=deterministic_fact_version
 where id in ('b9200000-0000-4000-8001-000000000002',
-  'b9200000-0000-4000-8001-000000000003');
+  'b9200000-0000-4000-8001-000000000003',
+  'b9200000-0000-4000-8001-000000000004');
 insert into public.refund_follow_up_cycles(id,refund_case_id,cycle_number,trigger_fingerprint,
   reason_code,requested_fields,template_version,case_fact_version,reminder_delay_hours)
 select ('b9200000-0000-4000-8002-'||lpad(n::text,12,'0'))::uuid,c.id,1,
   repeat(n::text,64),'no_safe_match','{}'::text[],settings.template_version,
   c.deterministic_fact_version,settings.reminder_delay_hours
 from public.refund_cases c cross join public.refund_customer_contact_settings settings
-cross join generate_series(2,3) n
+cross join generate_series(2,4) n
 where c.id=('b9200000-0000-4000-8001-'||lpad(n::text,12,'0'))::uuid
   and settings.singleton;
 update public.refund_follow_up_cycles
 set status='manual_review',failed_at=statement_timestamp(),failure_code='request_claim_abandoned'
 where id='b9200000-0000-4000-8002-000000000002';
+update public.refund_follow_up_cycles
+set status='manual_review',failed_at=statement_timestamp(),
+  failure_code='pre_message_suppressed:no_customer_correctable_fact'
+where id='b9200000-0000-4000-8002-000000000004';
+select is(public.service_get_refund_clarification_contact_obligation_health(
+  true,true,statement_timestamp())->>'policySuppressedCount','0',
+  'An explicit no-correctable-fact suppression has no customer delivery obligation');
 
 -- One cycle is stale because the customer facts changed after its claim.
 update public.refund_cases set payment_amount_cents=150
@@ -112,6 +125,10 @@ select 'b9200000-0000-4000-8003-000000000003',c.id,'no_safe_match','failed',
 from public.refund_cases c join public.refund_follow_up_cycles cycle
   on cycle.refund_case_id=c.id
 where c.id='b9200000-0000-4000-8001-000000000003';
+
+select is(public.service_get_refund_clarification_contact_obligation_health(
+  true,true,statement_timestamp())->>'definiteFailureCount','1',
+  'The same no-question exclusion retains a real saved question failure');
 
 -- The message-binding trigger now owns this cycle's request evidence. Its
 -- normal state cannot be forced into the legacy abandoned shape.
