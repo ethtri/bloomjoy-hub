@@ -210,13 +210,14 @@ const runNayaxLookupNoticeChecks = async ({
 
   const callsBeforeManualPortalDemo = functionCalls.length;
   await navigateRefundPortalPage(page, `${appUrl}/refunds?demo=on`, { waitUntil: 'networkidle' });
+  await page.getByRole('button', { name: /^All open 3$/ }).click();
   const routineManagerSetupSignals = {
     setupCaseCount: await queueCase(page, 'RF-UAT-SETUP').count(),
     manualEvidenceFormCount: await page.getByTestId('manual-nayax-evidence-form').count(),
     transactionReferenceInputCount: await page.getByLabel('Transaction reference').count(),
   };
   recorder.assert(
-    'Routine managers can see setup work without manual payment or provider-evidence controls',
+    'Routine managers can find internal setup work in All open without manual payment controls',
     routineManagerSetupSignals.setupCaseCount === 1 &&
       routineManagerSetupSignals.manualEvidenceFormCount === 0 &&
       routineManagerSetupSignals.transactionReferenceInputCount === 0,
