@@ -267,8 +267,11 @@ insert into private.snapcase_extraction_evidence(
 );
 select is(
   public.service_finalize_snapcase_import_run('completion-fixture', repeat('2',64)) ->> 'completedWindowCount',
-  '0', 'unmapped cash is not called complete before canonical publication'
+  '1', 'the run-wide result still counts its other mapped completed machine'
 );
+select is((select count(*)::integer from private.snapcase_completed_import_windows
+  where source_machine_id='previously-unmapped'), 0,
+  'unmapped cash is not called complete before canonical publication');
 select pg_temp.add_batch('15014000-0000-4000-8000-000000000010', repeat('6',64), repeat('a',63) || '1', 1, 0);
 update private.snapcase_sales_observations
 set last_seen_batch_id='15014000-0000-4000-8000-000000000010'
