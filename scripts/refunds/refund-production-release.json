@@ -241,7 +241,10 @@
     "20260926210100_refund_verified_reply_time_continuation.sql",
     "20260926233000_refund_resolved_reply_owner_projection.sql",
     "20260926234500_refund_wallet_unmatched_identifier_research.sql",
-    "20260927020000_sunze_nayax_card_authority.sql"
+    "20260927020000_sunze_nayax_card_authority.sql",
+    "20260927050000_sunze_nayax_card_authority_mapping_default.sql",
+    "20260927143809_refund_exhausted_completion_recovery.sql",
+    "20260927150900_refund_empty_question_research_projection.sql"
   ],
   "migrationFilesSha256": "9366f7fb5c6e5f1f7892bc12ea6c9fb1e88b28574471a26bac776bea135d5e07",
   "migrationVersionSetSha256": "5448e335f93669bf8912ae79d3967c11cb6bf20cbaeefa81f7b0950f1ab6cf41",
