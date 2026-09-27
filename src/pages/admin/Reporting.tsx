@@ -339,9 +339,7 @@ export default function AdminReportingPage() {
           machine_id: result.machineId,
           created_machine: result.createdMachine,
         });
-        toast.success(
-          `${result.machineLabel || 'SnapCase machine'} mapped to ${result.partnershipName}. Staged sales remain private.`
-        );
+        toast.success(`${result.machineLabel || 'SnapCase machine'} mapped to ${result.partnershipName}.`);
         setSetupMachine(null);
         await refresh();
       } catch (setupError) {
@@ -1152,7 +1150,6 @@ function ImportedMachineSetupDialog({
           <DialogTitle>Set Up Imported Machine</DialogTitle>
           <DialogDescription>
             Choose the canonical Hub machine and reporting scope for this provider identity.
-            SnapCase observations stay private until a separate publication workflow is approved.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4">
