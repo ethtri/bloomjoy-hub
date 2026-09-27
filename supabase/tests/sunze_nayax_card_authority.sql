@@ -549,7 +549,8 @@ select is(
 );
 
 update public.refund_nayax_machine_inventory
-set provider_is_active = false
+set reconciliation_state = 'needs_setup',
+    setup_reason = 'test_temporarily_unmapped'
 where account_key = 'TGPACI_USA_DB'
   and nayax_machine_id = '700000001';
 
@@ -567,7 +568,8 @@ select throws_ok(
 );
 
 update public.refund_nayax_machine_inventory
-set provider_is_active = true
+set reconciliation_state = 'published',
+    setup_reason = 'test_fixture'
 where account_key = 'TGPACI_USA_DB'
   and nayax_machine_id = '700000001';
 

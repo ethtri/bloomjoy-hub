@@ -22,6 +22,7 @@ alter table public.machine_sales_facts
       'manual_csv',
       'sunze_browser',
       'nayax_scheduled_report',
+      'snapcase_cash',
       'card_authority_daily',
       'sample_seed'
     )
