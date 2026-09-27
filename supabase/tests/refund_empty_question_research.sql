@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(10);
+select plan(15);
 
 create function pg_temp.capture_error(statement text) returns text language plpgsql as $$
 begin execute statement; return null; exception when others then return sqlstate||':'||sqlerrm; end; $$;
@@ -52,14 +52,83 @@ values('b9200000-0000-4000-8001-000000000001','RF-EMPTY-1',
   to_char((statement_timestamp()-interval '2 hours') at time zone 'America/Los_Angeles',
     'YYYY-MM-DD"T"HH24:MI'),
   'America/Los_Angeles','exact','exact','cash','cash',100,'manual_review');
+update public.refund_cases
+set correlation_status='no_match',correlation_source='sunze',
+  correlation_summary='No matching local cash sale.'
+where id='b9200000-0000-4000-8001-000000000001';
+update public.refund_cases
+set cash_match_evaluated_fact_version=deterministic_fact_version
+where id='b9200000-0000-4000-8001-000000000001';
 insert into public.refund_follow_up_cycles(id,refund_case_id,cycle_number,trigger_fingerprint,
-  reason_code,requested_fields,template_version,case_fact_version,reminder_delay_hours,
-  status,failed_at,failure_code)
+  reason_code,requested_fields,template_version,case_fact_version,reminder_delay_hours)
 select 'b9200000-0000-4000-8002-000000000001',c.id,1,repeat('b',64),
   'no_safe_match','{}'::text[],settings.template_version,c.deterministic_fact_version,
-  settings.reminder_delay_hours,'manual_review',statement_timestamp(),'request_claim_abandoned'
+  settings.reminder_delay_hours
 from public.refund_cases c cross join public.refund_customer_contact_settings settings
 where c.id='b9200000-0000-4000-8001-000000000001' and settings.singleton;
+update public.refund_follow_up_cycles
+set status='manual_review',failed_at=statement_timestamp(),failure_code='request_claim_abandoned'
+where id='b9200000-0000-4000-8002-000000000001';
+
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
+  customer_email,issue_summary,status,intake_source,incident_at,incident_local_datetime,
+  incident_timezone,incident_time_resolution,incident_time_confidence,payment_method,
+  payment_interaction,payment_amount_cents,correlation_status)
+select ('b9200000-0000-4000-8001-'||lpad(n::text,12,'0'))::uuid,'RF-EMPTY-'||n,
+  c.reporting_machine_id,c.reporting_location_id,'empty-question-'||n||'@example.invalid',
+  c.issue_summary,c.status,c.intake_source,c.incident_at,c.incident_local_datetime,
+  c.incident_timezone,c.incident_time_resolution,c.incident_time_confidence,
+  c.payment_method,c.payment_interaction,c.payment_amount_cents,'manual_review'
+from public.refund_cases c cross join generate_series(2,3) n
+where c.id='b9200000-0000-4000-8001-000000000001';
+update public.refund_cases
+set correlation_status='no_match',correlation_source='sunze',
+  correlation_summary='No matching local cash sale.'
+where id in ('b9200000-0000-4000-8001-000000000002',
+  'b9200000-0000-4000-8001-000000000003');
+update public.refund_cases
+set cash_match_evaluated_fact_version=deterministic_fact_version
+where id in ('b9200000-0000-4000-8001-000000000002',
+  'b9200000-0000-4000-8001-000000000003');
+insert into public.refund_follow_up_cycles(id,refund_case_id,cycle_number,trigger_fingerprint,
+  reason_code,requested_fields,template_version,case_fact_version,reminder_delay_hours)
+select ('b9200000-0000-4000-8002-'||lpad(n::text,12,'0'))::uuid,c.id,1,
+  repeat(n::text,64),'no_safe_match','{}'::text[],settings.template_version,
+  c.deterministic_fact_version,settings.reminder_delay_hours
+from public.refund_cases c cross join public.refund_customer_contact_settings settings
+cross join generate_series(2,3) n
+where c.id=('b9200000-0000-4000-8001-'||lpad(n::text,12,'0'))::uuid
+  and settings.singleton;
+update public.refund_follow_up_cycles
+set status='manual_review',failed_at=statement_timestamp(),failure_code='request_claim_abandoned'
+where id='b9200000-0000-4000-8002-000000000002';
+
+-- One cycle is stale because the customer facts changed after its claim.
+update public.refund_cases set payment_amount_cents=150
+where id='b9200000-0000-4000-8001-000000000002';
+
+-- The other has a linked saved request. The service must not erase its evidence.
+insert into public.refund_case_messages(id,refund_case_id,message_type,status,recipient_email,
+  subject,body,content_source,delivery_kind,reason_code,template_version,
+  follow_up_cycle_id,requested_fields)
+select 'b9200000-0000-4000-8003-000000000003',c.id,'no_safe_match','failed',
+  c.customer_email,'Purchase detail request','Fixture question body',
+  'deterministic_template','automatic','no_safe_match',cycle.template_version,
+  cycle.id,cycle.requested_fields
+from public.refund_cases c join public.refund_follow_up_cycles cycle
+  on cycle.refund_case_id=c.id
+where c.id='b9200000-0000-4000-8001-000000000003';
+update public.refund_follow_up_cycles
+set status='manual_review',failed_at=statement_timestamp(),failure_code='request_claim_abandoned'
+where id='b9200000-0000-4000-8002-000000000003';
+
+create temp table rejected_evidence as
+select id,to_jsonb(cycle) as cycle_value from public.refund_follow_up_cycles cycle
+where id in ('b9200000-0000-4000-8002-000000000002',
+  'b9200000-0000-4000-8002-000000000003');
+create temp table rejected_message as
+select id,to_jsonb(message) as message_value from public.refund_case_messages message
+where id='b9200000-0000-4000-8003-000000000003';
 
 select is(cardinality(public.refund_purchase_correction_request_fields(
   'b9200000-0000-4000-8001-000000000001')),0,
@@ -82,6 +151,25 @@ select is((select count(*) from public.refund_case_events where refund_case_id=
   'b9200000-0000-4000-8001-000000000001'
   and event_type='refund_empty_question_reclassified'),1::bigint,
   'Exactly one audit event records the no-send correction');
+select ok(pg_temp.capture_error($q$select public.service_reclassify_unsent_empty_refund_question(
+  'b9200000-0000-4000-8001-000000000002',
+  'b9200000-0000-4000-8002-000000000002')$q$) like 'P0001:%',
+  'A cycle from older customer facts is refused');
+select ok((select to_jsonb(c) = e.cycle_value from public.refund_follow_up_cycles c
+  join rejected_evidence e on e.id=c.id
+  where c.id='b9200000-0000-4000-8002-000000000002'),
+  'Stale-cycle rejection preserves the exact prior cycle');
+select ok(pg_temp.capture_error($q$select public.service_reclassify_unsent_empty_refund_question(
+  'b9200000-0000-4000-8001-000000000003',
+  'b9200000-0000-4000-8002-000000000003')$q$) like 'P0001:%',
+  'A cycle with a linked saved message is refused');
+select ok((select to_jsonb(c) = e.cycle_value from public.refund_follow_up_cycles c
+  join rejected_evidence e on e.id=c.id
+  where c.id='b9200000-0000-4000-8002-000000000003'),
+  'Saved-message rejection preserves the exact prior cycle');
+select ok((select to_jsonb(m) = e.message_value from public.refund_case_messages m
+  join rejected_message e on e.id=m.id),
+  'Saved-message rejection preserves the message and delivery evidence');
 
 select * from finish();
 rollback;
