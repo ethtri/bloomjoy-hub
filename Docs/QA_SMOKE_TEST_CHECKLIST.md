@@ -883,3 +883,9 @@ npm run refunds:validate-portal-uat-lifecycle
   `gmail_source_thread_required` or attach to unrelated Gmail history.
 - [ ] Automatic messages created from a Gmail request retain the exact original
   Gmail thread binding and never fall back to a different linked conversation.
+- [ ] An exhausted completion with a confirmed payment and no exact provider or
+  Gmail send record can prepare one exceptional recovery of its original saved
+  message after original-thread review. A second preparation, any uncertain or
+  sent effect, a different recipient/thread, or an incomplete payment is
+  rejected; preparation makes no Nayax call or customer send. Any authorized
+  delivery then settles only against exact original-thread Gmail proof.

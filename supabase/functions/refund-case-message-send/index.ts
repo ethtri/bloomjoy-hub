@@ -5,9 +5,12 @@ import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { correctionLinkRequested, getCurrentRefundCorrectionFields, refundCorrectionLinksEnabled, STORED_CORRECTION_LINK_MARKER } from "../_shared/refund-correction-delivery.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
+import { verifiedUnsentCompletionThreadHistory } from "../_shared/refund-exhausted-completion-recovery.ts";
 import { drainRefundManualMessageOutbox } from "../_shared/refund-manual-message-outbox.ts";
 import {
   getRefundGmailMailboxIdentities,
+  getRefundGmailConfig,
+  getRefundGmailThread,
   REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE,
   RefundGmailError,
 } from "../_shared/refund-gmail.ts";
@@ -390,11 +393,16 @@ serve(async (req) => {
       body?.nayaxCompletionMessageId,
       80,
     );
+    const nayaxExhaustedCompletionMessageId = sanitizeText(
+      body?.nayaxExhaustedCompletionMessageId,
+      80,
+    );
     const nayaxCompletionRecoveryMessageId = sanitizeText(
       body?.nayaxCompletionRecoveryMessageId,
       80,
     );
-    if (nayaxCompletionMessageId && nayaxCompletionRecoveryMessageId) {
+    if ([nayaxCompletionMessageId, nayaxExhaustedCompletionMessageId,
+      nayaxCompletionRecoveryMessageId].filter(Boolean).length > 1) {
       return jsonResponse({
         error: "Choose one exact customer-completion recovery action.",
       }, 400);
@@ -562,11 +570,21 @@ serve(async (req) => {
 
       return jsonResponse({ recovery });
     }
-    if (nayaxCompletionMessageId) {
+    if (nayaxCompletionMessageId || nayaxExhaustedCompletionMessageId) {
+      const completionMessageId = nayaxExhaustedCompletionMessageId ||
+        nayaxCompletionMessageId;
+      const exhaustedRecovery = Boolean(nayaxExhaustedCompletionMessageId);
+      const originalThreadHistoryId = sanitizeText(
+        body?.originalThreadHistoryId,
+        30,
+      );
       if (
-        !isUuid(nayaxCompletionMessageId) ||
+        !isUuid(completionMessageId) ||
+        (exhaustedRecovery && !/^[0-9]{3,30}$/.test(originalThreadHistoryId)) ||
         Object.keys(body ?? {}).some((key) =>
-          !["caseId", "nayaxCompletionMessageId"].includes(key)
+          !(exhaustedRecovery
+            ? ["caseId", "nayaxExhaustedCompletionMessageId", "originalThreadHistoryId"]
+            : ["caseId", "nayaxCompletionMessageId"]).includes(key)
         )
       ) {
         return jsonResponse({
@@ -579,12 +597,69 @@ serve(async (req) => {
         }, 503);
       }
 
+      if (exhaustedRecovery) {
+        const { data: messageEvidence, error: messageEvidenceError } = await supabase
+          .from("refund_case_messages")
+          .select("id,refund_case_id,nayax_refund_attempt_id,recipient_email,created_at")
+          .eq("id", completionMessageId)
+          .eq("refund_case_id", caseId)
+          .maybeSingle();
+        const { data: attemptEvidence, error: attemptEvidenceError } = await supabase
+          .from("refund_case_nayax_refund_attempts")
+          .select("completion_gmail_thread_id")
+          .eq("id", messageEvidence?.nayax_refund_attempt_id ?? "")
+          .eq("refund_case_id", caseId)
+          .maybeSingle();
+        const { data: threadLink, error: threadLinkError } = await supabase
+          .from("refund_gmail_threads")
+          .select("id,provider_thread_id,mailbox_hash")
+          .eq("id", attemptEvidence?.completion_gmail_thread_id ?? "")
+          .eq("refund_case_id", caseId)
+          .maybeSingle();
+        const gmailConfig = getRefundGmailConfig();
+        if (messageEvidenceError || attemptEvidenceError || threadLinkError ||
+          !messageEvidence || !attemptEvidence || !threadLink || !gmailConfig ||
+          threadLink.mailbox_hash !== await sha256Hex(gmailConfig.mailbox)) {
+          return jsonResponse({ error: "Original completion thread evidence is unavailable." }, 409);
+        }
+        let providerThread;
+        try {
+          providerThread = await getRefundGmailThread(
+            gmailConfig,
+            threadLink.provider_thread_id,
+          );
+        } catch {
+          return jsonResponse({ error: "Original Gmail history could not be checked." }, 502);
+        }
+        if (!verifiedUnsentCompletionThreadHistory({
+          thread: providerThread,
+          providerThreadId: threadLink.provider_thread_id,
+          reviewedHistoryId: originalThreadHistoryId,
+          recipientEmail: messageEvidence.recipient_email,
+          completionCreatedAt: messageEvidence.created_at,
+          completionMessageId,
+        })) {
+          return jsonResponse({
+            error: "Original Gmail history changed or contains later sent mail. Reconcile delivery before recovery.",
+          }, 409);
+        }
+      }
+
       const { data: prepared, error: prepareError } = await supabase.rpc(
-        "service_prepare_nayax_completion_retry",
-        {
-          p_executor_assertion: nayaxExecutorAssertion,
-          p_refund_case_message_id: nayaxCompletionMessageId,
-        },
+        exhaustedRecovery
+          ? "service_prepare_exhausted_nayax_completion_recovery"
+          : "service_prepare_nayax_completion_retry",
+        exhaustedRecovery
+          ? {
+            p_executor_assertion: nayaxExecutorAssertion,
+            p_refund_case_message_id: completionMessageId,
+            p_original_thread_history_id: originalThreadHistoryId,
+            p_actor_user_id: user.id,
+          }
+          : {
+            p_executor_assertion: nayaxExecutorAssertion,
+            p_refund_case_message_id: completionMessageId,
+          },
       );
       const retry = prepared && typeof prepared === "object"
         ? prepared as Record<string, unknown>
@@ -592,7 +667,8 @@ serve(async (req) => {
       if (
         prepareError || retry?.prepared !== true ||
         retry.refundCaseId !== caseId ||
-        retry.refundCaseMessageId !== nayaxCompletionMessageId ||
+        retry.refundCaseMessageId !== completionMessageId ||
+        (exhaustedRecovery && retry.exhaustedRecovery !== true) ||
         typeof retry.attemptId !== "string" || !isUuid(retry.attemptId) ||
         typeof retry.gmailThreadId !== "string" ||
         !isUuid(retry.gmailThreadId) ||
@@ -616,7 +692,7 @@ serve(async (req) => {
           const gmailDelivery = await dispatchRefundCaseGmailReply({
             supabase,
             refundCaseId: caseId,
-            refundCaseMessageId: nayaxCompletionMessageId,
+            refundCaseMessageId: completionMessageId,
             recipientEmail: retryRecipientEmail,
             email: {
               subject: retrySubject,
@@ -657,7 +733,7 @@ serve(async (req) => {
       ) {
         return jsonResponse({
           message: {
-            id: nayaxCompletionMessageId,
+            id: completionMessageId,
             type: "completed",
             status: "sent",
             subject: retrySubject,
