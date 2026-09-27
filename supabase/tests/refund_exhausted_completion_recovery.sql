@@ -59,7 +59,7 @@ select ('e5250000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
     'refund_case_reference','RF-EXHAUSTED-'||n,
     'refund_case_status','completed','refund_case_decision','approved',
     'payment_method','card','correlation_source','nayax',
-    'correlation_has_card_lookup',true,'payload_redacted',true))
+    'correlation_has_card_lookup',true,'payload_redacted',true)
 from generate_series(1,3) n;
 update public.refund_cases c set reporting_adjustment_id=a.id
 from public.sales_adjustment_facts a where a.refund_case_id=c.id
