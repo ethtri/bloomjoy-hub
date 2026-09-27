@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "a271e22ac84d5155181906faba34e2339879771d",
+  "sourceGitCommit": "085c6672f576353a1e54102ba803dca6b59b4307",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -235,13 +235,16 @@
     "20260926170100_refund_nayax_lookup_location_execution_guard.sql",
     "20260926180000_refund_workflow_delivery_health.sql",
     "20260926181000_refund_all_completion_intent_health.sql",
+    "20260926182000_refund_status_contact_workflow_health.sql",
+    "20260926183000_refund_clarification_contact_health.sql",
     "20260926210000_nayax_scheduled_sales_ingest.sql",
     "20260926210100_refund_verified_reply_time_continuation.sql",
     "20260926233000_refund_resolved_reply_owner_projection.sql",
-    "20260926234500_refund_wallet_unmatched_identifier_research.sql"
+    "20260926234500_refund_wallet_unmatched_identifier_research.sql",
+    "20260927020000_sunze_nayax_card_authority.sql"
   ],
-  "migrationFilesSha256": "65b0fe298d3cdf19626ab2538faa5f4a0ee89642cb1905037a2715699f51beaa",
-  "migrationVersionSetSha256": "7edf502d4d2c7ace39da6eb0f2280b26ce04e5ce081539519e642998152dfd2f",
+  "migrationFilesSha256": "9366f7fb5c6e5f1f7892bc12ea6c9fb1e88b28574471a26bac776bea135d5e07",
+  "migrationVersionSetSha256": "5448e335f93669bf8912ae79d3967c11cb6bf20cbaeefa81f7b0950f1ab6cf41",
   "preMigrationCompatibility": {
     "releaseId": "refund-ops-2026-08-14-pre-controlled-nayax-pilot",
     "sourceGitCommit": "71eb076bc3ad95ccabd0c591b8140820bed6c393",
