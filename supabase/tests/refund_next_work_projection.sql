@@ -231,10 +231,8 @@ set local role service_role;
 select is(public.refund_lifecycle_contract(
   'd8560000-0000-4000-8000-000000000001'
 )->'nextWork'->>'actor',
-  case when pg_catalog.to_regprocedure(
-    'public.refund_manager_preparation_snapshot(uuid,bigint)') is not null
-    then 'manager' else 'agent' end,
-  'service readiness requires a completed current proof, never the saved destination alone');
+  'agent',
+  'completed cash research without a current sale remains Agent-owned');
 reset role;
 
 set local role anon;
@@ -256,10 +254,8 @@ select set_config('request.jwt.claims',
 select is(public.get_refund_lifecycle_for_manager(
   'd8560000-0000-4000-8000-000000000001'
 )->'nextWork'->>'actionCode',
-  case when pg_catalog.to_regprocedure(
-    'public.refund_manager_preparation_snapshot(uuid,bigint)') is not null
-    then 'send_cash_refund_and_confirm' else 'prepare_manager_decision' end,
-  'the actual mapped Manager sees the prepared cash action in the portal');
+  'research_purchase',
+  'the mapped Manager cannot receive unapproved payout work');
 reset role;
 select set_config('request.jwt.claims', '{}', true);
 
@@ -276,10 +272,8 @@ set local role service_role;
 select is(public.refund_lifecycle_contract(
   'd8560000-0000-4000-8000-000000000001'
 )->'nextWork'->>'actionCode',
-  case when pg_catalog.to_regprocedure(
-    'public.refund_manager_preparation_snapshot(uuid,bigint)') is not null
-    then 'send_cash_refund_and_confirm' else 'prepare_manager_decision' end,
-  'service readiness follows current replacement mapping, not saved original assignee');
+  'research_purchase',
+  'replacement mapping does not turn cash research into payout authority');
 reset role;
 set local role authenticated;
 select set_config('request.jwt.claims',
@@ -287,10 +281,8 @@ select set_config('request.jwt.claims',
 select is(public.get_refund_lifecycle_for_manager(
   'd8560000-0000-4000-8000-000000000001'
 )->'nextWork'->>'actor',
-  case when pg_catalog.to_regprocedure(
-    'public.refund_manager_preparation_snapshot(uuid,bigint)') is not null
-    then 'manager' else 'agent' end,
-  'current co-manager retains exact-machine portal action');
+  'agent',
+  'current co-manager sees the truthful Agent research owner');
 reset role;
 select set_config('request.jwt.claims', '{}', true);
 

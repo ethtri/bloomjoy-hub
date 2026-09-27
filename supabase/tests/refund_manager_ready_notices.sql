@@ -47,6 +47,8 @@ values
     'other-customer@example.invalid','Another private case','2026-09-23T12:00:00Z',
     'cash',725,725,'other-private-contact','needs_review','matched','manual',
     'under_review',1,'2026-09-23T12:00:00Z');
+update public.refund_cases set decision='approved',status='cash_zelle_pending'
+where id='14255000-0000-4000-8000-000000000001';
 
 -- The fixture substitutes only the #1429 service adapter to test the notice
 -- boundary. Production proof must come from a completed claimed preparation,
@@ -88,13 +90,13 @@ select is(public.service_refund_manager_ready_notice_snapshot(
 select is(public.service_refund_manager_ready_notice_snapshot(
   '14255000-0000-4000-8000-000000000001',
   '14250000-0000-4000-8000-000000000001')->>'evidenceBasis',
-  'cash_coverage_unavailable_researched',
-  'Legitimate researched coverage-unavailable cash case can be prepared');
+  'cash_approved_payout',
+  'A previously approved cash payout can be prepared');
 select is(public.service_refund_manager_ready_notice_snapshot(
   '14255000-0000-4000-8000-000000000001',
-  '14250000-0000-4000-8000-000000000001')->>'proofId',
-  '14255000-0000-4000-0000-000000000001',
-  'Prepared digest UUID proof is accepted without RFC variant constraints');
+  '14250000-0000-4000-8000-000000000001')->'proofId',
+  'null'::jsonb,
+  'Approved payout does not invent a preparation proof');
 
 update public.refund_manager_ready_notice_settings set delivery_enabled=true where singleton;
 select is(public.service_enqueue_refund_manager_ready_notices(
@@ -171,6 +173,8 @@ values ('14255000-0000-4000-8000-000000000003','RF-LEGACY-READY-3',
   'legacy-customer@example.invalid','Private case details',
   '2026-09-23T12:00:00Z','cash',825,825,'legacy-zelle-contact',
   'needs_review','matched','manual','under_review',1,'2026-09-23T12:00:00Z');
+update public.refund_cases set decision='approved',status='cash_zelle_pending'
+where id='14255000-0000-4000-8000-000000000003';
 create temporary table old_wallet_claim as select
   public.service_begin_refund_manager_notification(
     '14255000-0000-4000-8000-000000000003','wallet_match_ready',
@@ -233,6 +237,8 @@ values ('14255000-0000-4000-8000-000000000004','RF-CO-MANAGER-READY-4',
   'co-manager-customer@example.invalid','Private case details',
   '2026-09-23T12:00:00Z','cash',925,925,'co-manager-zelle-contact',
   'needs_review','matched','manual','under_review',1,'2026-09-23T12:00:00Z');
+update public.refund_cases set decision='approved',status='cash_zelle_pending'
+where id='14255000-0000-4000-8000-000000000004';
 select is(public.service_enqueue_refund_manager_ready_notices(
   '14255000-0000-4000-8000-000000000004')->>'queuedCount','2',
   'One prepared decision enqueues a distinct row for each current co-manager');
@@ -438,6 +444,8 @@ values ('14255000-0000-4000-8000-000000000006','RF-RACE-6',
   'race-customer@example.invalid','Private case details',
   '2026-09-23T12:00:00Z','cash',1125,1125,'race-zelle-contact',
   'needs_review','matched','manual','under_review',1,'2026-09-23T12:00:00Z');
+update public.refund_cases set decision='approved',status='cash_zelle_pending'
+where id='14255000-0000-4000-8000-000000000006';
 create temporary table race_old_reservation as select
   public.service_begin_refund_manager_notification(
     '14255000-0000-4000-8000-000000000006','wallet_match_ready',

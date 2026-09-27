@@ -4279,7 +4279,7 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
 
   if (realProjectionSeed) {
     const { caseRecord, lifecycle, preparationProof } = realProjectionSeed;
-    recorder.assert('Disposable DB seed binds completed proof to the authenticated Manager RPC',
+    recorder.assert('Disposable DB seed keeps unmatched cash research out of Manager payout work',
       realProjectionSeed.source === 'disposable_db_completed_worker_and_authenticated_manager_rpc' &&
         realProjectionSeed.managerId === mockUser.id &&
         preparationProof?.schemaVersion === 'refund_manager_preparation_v1' &&
@@ -4290,10 +4290,10 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
         caseRecord?.canPerformOfficialAction === true &&
         Number(preparationProof?.officialActionVersion) === realProjectionSeed.officialActionVersion &&
         Number(preparationProof?.deterministicFactVersion) === realProjectionSeed.deterministicFactVersion &&
-        lifecycle?.nextWork?.actor === 'manager' &&
-        lifecycle?.nextWork?.actionCode === 'send_cash_refund_and_confirm' &&
-        lifecycle?.nextWork?.actionLabel === 'Send the cash refund through Zelle and confirm it was sent.' &&
-        lifecycle?.managerAction?.action === 'mark_external_refund');
+        lifecycle?.nextWork?.actor === 'agent' &&
+        lifecycle?.nextWork?.actionCode === 'research_purchase' &&
+        lifecycle?.managerAction?.action === 'none' &&
+        lifecycle?.decisionRecommendation == null);
     const realContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const functionCalls = [];
     const functionBodies = [];
@@ -4317,19 +4317,19 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
     });
     const realPage = await realContext.newPage();
     await signInRefundUser(realPage, appUrl);
-    await realPage.getByRole('button', { name: /^Ready to approve 1$/ }).click();
+    await realPage.getByRole('button', { name: /^Bloomjoy follow-up 1$/ }).click();
     await waitForQueueCount(realPage, 1);
     await queueCase(realPage, realProjectionSeed.publicReference).click();
     const renderedState = await realPage.getByTestId('refund-manager-state').innerText();
-    const renderedAction = await realPage.getByTestId('refund-cash-primary-action-panel').innerText();
-    const cashAction = realPage.getByTestId('refund-cash-primary-action');
-    await realPage.getByText('Other decisions', { exact: true }).click();
-    recorder.assert('Actual completed worker and Manager RPC render one cash action without a matched-sale gate',
-      renderedState.includes('Action needed') &&
-        renderedAction.includes('Send the refund through Zelle outside Bloomjoy Hub') &&
-        await cashAction.getByText('Confirm refund sent via Zelle').isVisible() &&
-        await cashAction.isEnabled() &&
-        await realPage.getByRole('button', { name: 'Deny request', exact: true }).isVisible() &&
+    const cashPrimaryAction = realPage.getByTestId('refund-cash-primary-action');
+    const cashPrimaryActionCount = await cashPrimaryAction.count();
+    const cashPrimaryActionEnabled = cashPrimaryActionCount > 0
+      ? await cashPrimaryAction.first().isEnabled()
+      : false;
+    recorder.assert('Actual unmatched cash projection renders research with no enabled decision or payout action',
+      renderedState.includes('Purchase research pending') &&
+        !cashPrimaryActionEnabled &&
+        (await realPage.getByRole('button', { name: 'Deny request', exact: true }).count()) === 0 &&
         (await realPage.getByRole('button', { name: /^Approve\b/ }).count()) === 0 &&
         (await realPage.getByTestId('refund-run-nayax-refund').count()) === 0 &&
         functionBodies.some(({ functionName, body }) =>
@@ -4346,27 +4346,29 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
             body?.operation === 'availability' && body?.caseId === realProjectionSeed.caseId &&
             Object.keys(body).sort().join(',') === 'caseId,operation')) &&
         functionCalls.every((functionName) => functionName === 'refund-case-sunze-correlation'),
-      JSON.stringify({ renderedState, renderedAction, functionCalls, functionBodies }));
+      JSON.stringify({
+        renderedState,
+        cashPrimaryActionCount,
+        cashPrimaryActionEnabled,
+        functionCalls,
+        functionBodies,
+      }));
     await closeRefundPortalContext(realContext);
 
     const reviewedSeed = realProjectionSeed.reviewedCard;
-    recorder.assert('Disposable DB exported a completed automatic reviewed set and one protected final decision',
+    recorder.assert('Disposable DB keeps an ambiguous reviewed set in Agent research with no payment attempt',
       reviewedSeed?.preparationProof?.evidenceBasis === 'card_reviewed_candidate_set' &&
         reviewedSeed.preparationProof.candidateCount === 2 &&
         reviewedSeed.caseRecord?.decision === null &&
         reviewedSeed.caseRecord?.matchedNayaxTransactionId == null &&
-        reviewedSeed.caseRecord?.lifecycle?.nextWork?.actor === 'manager' &&
-        reviewedSeed.caseRecord.lifecycle.nextWork.actionCode === 'approve_or_deny_request' &&
-        reviewedSeed.caseRecord.lifecycle.nextWork.preparationProofId ===
-          reviewedSeed.preparationProof.proofId &&
-        reviewedSeed.caseRecord.lifecycle.nextWork.eligibleCandidateTokens?.length === 2 &&
+        reviewedSeed.caseRecord?.lifecycle?.nextWork?.actor === 'agent' &&
+        reviewedSeed.caseRecord.lifecycle.nextWork.actionCode === 'research_purchase' &&
+        reviewedSeed.caseRecord.lifecycle.nextWork.preparationProofId == null &&
+        reviewedSeed.caseRecord.lifecycle.nextWork.eligibleCandidateTokens == null &&
+        reviewedSeed.caseRecord.lifecycle.managerAction?.action === 'none' &&
+        reviewedSeed.caseRecord.lifecycle.decisionRecommendation == null &&
         reviewedSeed.caseRecord.nayaxLookupCandidates?.length === 2 &&
-        reviewedSeed.finalDecisionResult?.approved === true &&
-        reviewedSeed.finalDecisionResult?.providerCallMade === false &&
-        reviewedSeed.finalDecisionResult?.customerMessageCreated === false &&
-        reviewedSeed.finalDecisionResult?.selectedCandidateToken ===
-          reviewedSeed.preparationProof.eligibleCandidateTokens[1] &&
-        Boolean(reviewedSeed.finalDecisionResult?.attemptId));
+        reviewedSeed.finalDecisionResult == null && reviewedSeed.attemptCount === 0);
     const reviewedContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
     const reviewedFunctionCalls = [];
     const reviewedFunctionBodies = [];
@@ -4381,120 +4383,24 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
       },
       functionCalls: reviewedFunctionCalls,
       functionBodies: reviewedFunctionBodies,
-      nayaxReviewedResponse: {
-        approved: reviewedSeed.finalDecisionResult.approved,
-        executed: false,
-        status: reviewedSeed.finalDecisionResult.status,
-        replayed: reviewedSeed.finalDecisionResult.replayed,
-        providerAttempted: false,
-        customerCompletionAttempted: false,
-        payloadRedacted: true,
-        message: 'The reviewed purchase was approved once; Bloomjoy will continue the protected attempt.',
-      },
     });
     const reviewedPage = await reviewedContext.newPage();
     await signInRefundUser(reviewedPage, appUrl);
-    await reviewedPage.getByRole('button', { name: /^Ready to approve 1$/ }).click();
+    await reviewedPage.getByRole('button', { name: /^Bloomjoy follow-up 1$/ }).click();
     await queueCase(reviewedPage, reviewedSeed.publicReference).click();
-    const reviewedAction = reviewedPage.getByTestId('refund-approve-reviewed-purchase');
-    await reviewedAction.waitFor({ state: 'visible', timeout: 10000 });
-    recorder.assert('Real completed set renders two choices inside one final decision, with no prior Select or Save',
+    const reviewedState = await reviewedPage.getByTestId('refund-manager-state').innerText();
+    recorder.assert('Real ambiguous set remains visible for research without a final decision control',
+      reviewedState.includes('Purchase research pending') &&
       (await reviewedPage.getByTestId('nayax-candidate-option').count()) === 2 &&
-        (await reviewedPage.getByTestId('refund-save-transaction-for-review').count()) === 0 &&
-        await reviewedAction.isDisabled() &&
+        (await reviewedPage.getByTestId('refund-approve-reviewed-purchase').count()) === 0 &&
+        (await reviewedPage.getByRole('button', { name: 'Deny request', exact: true }).count()) === 0 &&
+        (await reviewedPage.getByRole('button', { name: /^Approve\b/ }).count()) === 0 &&
         reviewedFunctionBodies.every(({ functionName, body }) =>
-          functionName === 'nayax-card-refund' && body?.operation === 'availability'));
-    await reviewedPage.getByText('Other decisions', { exact: true }).click();
-    const reviewedDenial = reviewedPage.getByRole('button', { name: 'Deny request', exact: true });
-    recorder.assert('Deny remains available without choosing a reviewed purchase',
-      await reviewedDenial.isEnabled() && await reviewedAction.isDisabled());
-    await reviewedPage.locator(
-      `input[name="nayax-transaction-candidate"][value="${reviewedSeed.preparationProof.eligibleCandidateTokens[1]}"]`,
-    ).check();
-    recorder.assert('The second reviewed sale is approvable within the same final decision',
-      await reviewedAction.isEnabled() &&
-        await reviewedDenial.isEnabled() &&
-        (await reviewedPage.getByRole('button', { name: /^Approve\b/ }).count()) === 1);
-    await reviewedAction.click();
-    await reviewedPage.getByTestId('refund-action-receipt').waitFor({ state: 'visible', timeout: 10000 });
-    const decisions = reviewedFunctionBodies.filter(({ functionName, body }) =>
-      functionName === 'nayax-card-refund' && body?.operation === 'approve_reviewed');
-    recorder.assert('Real reviewed choice sends one exact final decision and no provider or customer effect',
-      decisions.length === 1 &&
-        decisions[0].body.caseId === reviewedSeed.caseId &&
-        decisions[0].body.expectedOfficialActionVersion ===
-          reviewedSeed.caseRecord.officialActionVersion &&
-        decisions[0].body.preparationProofId === reviewedSeed.preparationProof.proofId &&
-        decisions[0].body.candidateToken ===
-          reviewedSeed.preparationProof.eligibleCandidateTokens[1] &&
-        Object.keys(decisions[0].body).sort().join(',') ===
-          'candidateToken,caseId,expectedOfficialActionVersion,operation,preparationProofId' &&
-        reviewedFunctionBodies.every(({ functionName, body }) =>
-          functionName === 'nayax-card-refund' &&
-          ['availability', 'approve_reviewed'].includes(body?.operation)) &&
+          functionName === 'nayax-card-refund' && body?.operation === 'availability') &&
         !reviewedFunctionCalls.includes('refund-case-admin-update') &&
-        !reviewedFunctionCalls.includes('refund-case-message-send'));
-    await reloadRefundPortalPage(reviewedPage);
-    await reviewedPage.getByRole('button', { name: /Bloomjoy follow-up 1/i }).click();
-    await queueCase(reviewedPage, reviewedSeed.publicReference).click();
-    recorder.assert('Reload keeps the approved reviewed purchase in System continuation, without reapproval',
-      (await reviewedPage.getByTestId('refund-approve-reviewed-purchase').count()) === 0 &&
-        (await reviewedPage.getByRole('button', { name: /^Ready to approve 0$/ }).count()) === 1);
+        !reviewedFunctionCalls.includes('refund-case-message-send'),
+      JSON.stringify({ reviewedState, reviewedFunctionCalls, reviewedFunctionBodies }));
     await closeRefundPortalContext(reviewedContext);
-
-    for (const replayStatus of ['provider_hold', 'completed']) {
-      const replayContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
-      const replayReadStatuses = [200];
-      const replayReadLog = [];
-      const replayFunctionBodies = [];
-      await installMockSupabaseRoutes(replayContext, {
-        refundOverview: () => {
-          const overview = buildManagerReadyRefundOverview();
-          overview.machines[0].id = reviewedSeed.caseRecord.reportingMachineId;
-          overview.managerAssignments[0].reportingMachineId =
-            reviewedSeed.caseRecord.reportingMachineId;
-          overview.cases = [reviewedSeed.caseRecord];
-          return overview;
-        },
-        refundOverviewReadStatuses: replayReadStatuses,
-        refundOverviewReadLog: replayReadLog,
-        functionBodies: replayFunctionBodies,
-        nayaxReviewedResponse: {
-          approved: true,
-          executed: false,
-          status: replayStatus,
-          replayed: true,
-          providerAttempted: false,
-          customerCompletionAttempted: false,
-          payloadRedacted: true,
-        },
-        onNayaxReviewedApproval: () => replayReadStatuses.splice(0, replayReadStatuses.length, 503),
-      });
-      const replayPage = await replayContext.newPage();
-      await signInRefundUser(replayPage, appUrl);
-      await replayPage.getByRole('button', { name: /^Ready to approve 1$/ }).click();
-      await queueCase(replayPage, reviewedSeed.publicReference).click();
-      await replayPage.locator(
-        `input[name="nayax-transaction-candidate"][value="${reviewedSeed.preparationProof.eligibleCandidateTokens[1]}"]`,
-      ).check();
-      await replayPage.getByTestId('refund-approve-reviewed-purchase').click();
-      await replayPage.getByTestId('refund-action-receipt').waitFor({ state: 'visible', timeout: 10000 });
-      const replayState = await replayPage.getByTestId('refund-manager-state').innerText();
-      const replayPanel = await replayPage.getByTestId('refund-primary-action').innerText();
-      recorder.assert(`A ${replayStatus} protected replay survives a failed overview without reapproval`,
-        replayReadLog.includes(503) &&
-          replayFunctionBodies.filter(({ functionName, body }) =>
-            functionName === 'nayax-card-refund' && body?.operation === 'approve_reviewed').length === 1 &&
-          (await replayPage.getByTestId('refund-approve-reviewed-purchase').count()) === 0 &&
-          (await replayPage.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-          replayState.includes(replayStatus === 'provider_hold'
-            ? 'Refund result needs reconciliation'
-            : 'Refund completed · details refreshing') &&
-          (replayStatus !== 'completed' || replayPanel.includes('customer-contact details')),
-        JSON.stringify({ replayStatus, replayReadLog, replayState, replayPanel, replayFunctionBodies }),
-      );
-      await closeRefundPortalContext(replayContext);
-    }
   }
 
   const skewContext = await browser.newContext({ viewport: { width: 390, height: 844 } });

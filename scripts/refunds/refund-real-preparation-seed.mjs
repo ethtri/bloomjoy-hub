@@ -4,7 +4,7 @@ import pg from 'pg';
 
 export const REAL_PREPARATION_SEED_FILENAME = 'refund-real-preparation-seed.json';
 
-/** Export one synthetic, actually prepared Manager RPC result from disposable DB. */
+/** Export synthetic, current lifecycle projections from the disposable DB. */
 export async function writeRealRefundPreparationSeed({ dbPort, outputDir }) {
   const client = new pg.Client({
     host: '127.0.0.1', port: dbPort, database: 'postgres',
@@ -94,10 +94,11 @@ export async function writeRealRefundPreparationSeed({ dbPort, outputDir }) {
     );
     await client.query('reset role');
     const lifecycle = lifecycleResult.rows[0]?.lifecycle;
-    if (lifecycle?.nextWork?.actor !== 'manager' ||
-        lifecycle.nextWork.actionCode !== 'send_cash_refund_and_confirm' ||
+    if (lifecycle?.nextWork?.actor !== 'agent' ||
+        lifecycle.nextWork.actionCode !== 'research_purchase' ||
+        lifecycle?.managerAction?.action !== 'none' ||
         lifecycle.nextWork.isOpen !== true) {
-      throw new Error('Authenticated mapped Manager projection is not the prepared cash action.');
+      throw new Error('Unmatched cash research incorrectly became Manager payout work.');
     }
 
     await client.query(`
@@ -246,40 +247,24 @@ export async function writeRealRefundPreparationSeed({ dbPort, outputDir }) {
     if (cardCase?.canPerformOfficialAction !== true ||
         cardCase?.decision !== null ||
         cardCase?.matchedNayaxTransactionId != null ||
-        cardCase?.lifecycle?.nextWork?.actor !== 'manager' ||
-        cardCase?.lifecycle?.nextWork?.actionCode !== 'approve_or_deny_request' ||
-        cardCase?.lifecycle?.nextWork?.preparationProofId !== cardProof.proofId ||
-        JSON.stringify(cardCase.lifecycle.nextWork.eligibleCandidateTokens) !==
-          JSON.stringify(cardProof.eligibleCandidateTokens) ||
+        cardCase?.lifecycle?.nextWork?.actor !== 'agent' ||
+        cardCase?.lifecycle?.nextWork?.actionCode !== 'research_purchase' ||
+        cardCase?.lifecycle?.nextWork?.preparationProofId != null ||
+        cardCase?.lifecycle?.nextWork?.eligibleCandidateTokens != null ||
+        cardCase?.lifecycle?.managerAction?.action !== 'none' ||
+        cardCase?.lifecycle?.decisionRecommendation != null ||
         cardCase?.nayaxLookupCandidates?.length !== 2 ||
         JSON.stringify(cardCase.nayaxLookupCandidates
           .map((candidate) => candidate.candidateToken).sort()) !==
           JSON.stringify([...cardProof.eligibleCandidateTokens].sort())) {
-      throw new Error('Authenticated Manager overview does not expose the current reviewed set.');
+      throw new Error('Ambiguous reviewed purchases incorrectly became a Manager decision.');
     }
-    await client.query('set local role authenticated');
-    await client.query(`select set_config('request.jwt.claims',$1,true)`, [
-      JSON.stringify({ sub: managerId, role: 'authenticated' }),
-    ]);
-    const cardDecisionResult = await client.query(`
-      select public.admin_approve_reviewed_nayax_candidate_v1(
-        $1,$2,$3::uuid,$4::uuid) as result
-    `, [reviewedCardCaseId, cardCase.officialActionVersion,
-      cardProof.proofId, cardProof.eligibleCandidateTokens[1]]);
-    await client.query('reset role');
-    const cardFinalDecision = cardDecisionResult.rows[0]?.result;
     const cardAttemptResult = await client.query(`
-      select count(*)::integer as count,
-        bool_and(status='created' and provider_outcome is null) as provider_free
+      select count(*)::integer as count
       from public.refund_case_nayax_refund_attempts where refund_case_id=$1
     `, [reviewedCardCaseId]);
-    if (cardFinalDecision?.approved !== true ||
-        cardFinalDecision?.providerCallMade !== false ||
-        cardFinalDecision?.customerMessageCreated !== false ||
-        cardFinalDecision?.selectedCandidateToken !== cardProof.eligibleCandidateTokens[1] ||
-        !cardFinalDecision?.attemptId || cardAttemptResult.rows[0]?.count !== 1 ||
-        cardAttemptResult.rows[0]?.provider_free !== true) {
-      throw new Error('Synthetic reviewed card final decision did not create one protected attempt.');
+    if (cardAttemptResult.rows[0]?.count !== 0) {
+      throw new Error('Ambiguous reviewed purchases created an unauthorized payment attempt.');
     }
 
     const seed = {
@@ -293,7 +278,8 @@ export async function writeRealRefundPreparationSeed({ dbPort, outputDir }) {
         publicReference: 'RF-UAT-REAL-REVIEWED',
         preparationProof: cardProof,
         caseRecord: cardCase,
-        finalDecisionResult: cardFinalDecision,
+        finalDecisionResult: null,
+        attemptCount: cardAttemptResult.rows[0].count,
       },
     };
     fs.mkdirSync(outputDir, { recursive: true });
