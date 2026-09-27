@@ -14,7 +14,9 @@ values('f1200000-0000-4000-8000-000000000001','f1100000-0000-4000-8000-000000000
   'Historical location','America/Los_Angeles');
 insert into public.reporting_machines(id,account_id,location_id,machine_label,nayax_machine_id,nayax_account_key,status)
 values('f1300000-0000-4000-8000-000000000001','f1100000-0000-4000-8000-000000000001',
-  'f1200000-0000-4000-8000-000000000001','Inactive historical machine','900000001','TGPACI_USA_DB','inactive');
+  'f1200000-0000-4000-8000-000000000001','Inactive historical machine','900000001','TGPACI_USA_DB','inactive'),
+  ('f1300000-0000-4000-8000-000000000002','f1100000-0000-4000-8000-000000000001',
+  'f1200000-0000-4000-8000-000000000001','Later mapped historical machine','900000002','TGPACI_USA_DB','active');
 insert into public.refund_nayax_machine_inventory(account_key,nayax_machine_id,provider_is_active,refund_category,
   reporting_machine_id,reconciliation_state,setup_reason,exclusion_reason)
 values('TGPACI_USA_DB','900000001',false,'snapcase','f1300000-0000-4000-8000-000000000001','excluded',
@@ -137,16 +139,25 @@ where account_key='TGPACI_USA_DB' and nayax_machine_id='900000001';
 
 -- Case-first order: the provider event links to the existing case adjustment.
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,
-  issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,status)
+  issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,
+  status,decision,refund_completed_at,correlation_status,correlation_source,correlation_confidence,
+  automation_state,nayax_refund_execution_status,nayax_match_execution_eligible,
+  matched_nayax_transaction_id,matched_nayax_machine_auth_time,matched_nayax_amount_cents,
+  matched_nayax_currency_code,matched_nayax_site_id)
 values('f1400000-0000-4000-8000-000000000001','RF-DTM-1','f1300000-0000-4000-8000-000000000001',
   'f1200000-0000-4000-8000-000000000001','case-first@example.invalid','Synthetic case-first refund',
-  '2025-01-02T20:00:00Z','card',1000,1000,'completed');
+  '2025-01-02T20:00:00Z','card',1000,1000,'completed','approved',statement_timestamp(),
+  'matched','nayax',1,'completed','approved',false,'920000001','2025-01-02T20:00:00Z',1000,'USD',4);
 insert into public.sales_adjustment_facts(reporting_machine_id,reporting_location_id,adjustment_date,adjustment_type,
   amount_cents,complaint_count,source,source_row_hash,source_reference,source_row_reference,refund_case_id,
   match_status,match_confidence,raw_payload)
 values('f1300000-0000-4000-8000-000000000001','f1200000-0000-4000-8000-000000000001','2025-01-03',
   'refund',1000,1,'refund_case','f1400000-0000-4000-8000-000000000001','refund_cases','RF-DTM-1',
-  'f1400000-0000-4000-8000-000000000001','applied',1,'{"payload_redacted":true}');
+  'f1400000-0000-4000-8000-000000000001','applied',1,
+  '{"refund_case_id":"f1400000-0000-4000-8000-000000000001","refund_case_reference":"RF-DTM-1","refund_case_status":"completed","refund_case_decision":"approved","payment_method":"card","correlation_source":"nayax","correlation_has_card_lookup":true,"payload_redacted":true}');
+update public.refund_cases set reporting_adjustment_id=(select id from public.sales_adjustment_facts
+  where refund_case_id='f1400000-0000-4000-8000-000000000001')
+where id='f1400000-0000-4000-8000-000000000001';
 insert into public.refund_authoritative_receipts(refund_case_id,reporting_machine_id,account_scope,provider_machine_id,
   original_transaction_id,original_amount_cents,refunded_amount_cents,currency_code,provider_status,
   evidence_reference_digest,recorded_by,attempt_binding_kind,current_provider_observation_reviewed)
@@ -176,16 +187,22 @@ select repeat('1',64),repeat('3',64),refund_identity_hash,'2003563806','90000000
   'historical_inactive_exact_link','eligible','in_scope','refund_applied',adjustment_id
 from public.nayax_provider_refund_events where refund_identity_hash=repeat('3',64);
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,customer_email,
-  issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,status)
+  issue_summary,incident_at,payment_method,payment_amount_cents,refund_amount_cents,
+  status,decision,refund_completed_at,correlation_status,correlation_source,correlation_confidence,
+  automation_state,nayax_refund_execution_status,nayax_match_execution_eligible,
+  matched_nayax_transaction_id,matched_nayax_machine_auth_time,matched_nayax_amount_cents,
+  matched_nayax_currency_code,matched_nayax_site_id)
 values('f1400000-0000-4000-8000-000000000002','RF-DTM-2','f1300000-0000-4000-8000-000000000001',
   'f1200000-0000-4000-8000-000000000001','event-first@example.invalid','Synthetic event-first refund',
-  '2025-01-03T20:00:00Z','card',900,900,'completed');
+  '2025-01-03T20:00:00Z','card',900,900,'completed','approved',statement_timestamp(),
+  'matched','nayax',1,'completed','approved',false,'920000002','2025-01-03T20:00:00Z',900,'USD',4);
 insert into public.sales_adjustment_facts(reporting_machine_id,reporting_location_id,adjustment_date,adjustment_type,
   amount_cents,complaint_count,source,source_row_hash,source_reference,source_row_reference,refund_case_id,
   match_status,match_confidence,raw_payload)
 values('f1300000-0000-4000-8000-000000000001','f1200000-0000-4000-8000-000000000001','2025-09-09',
   'refund',900,1,'refund_case','f1400000-0000-4000-8000-000000000002','refund_cases','RF-DTM-2',
-  'f1400000-0000-4000-8000-000000000002','applied',1,'{"payload_redacted":true}');
+  'f1400000-0000-4000-8000-000000000002','applied',1,
+  '{"refund_case_id":"f1400000-0000-4000-8000-000000000002","refund_case_reference":"RF-DTM-2","refund_case_status":"completed","refund_case_decision":"approved","payment_method":"card","correlation_source":"nayax","correlation_has_card_lookup":true,"payload_redacted":true}');
 update public.refund_cases set reporting_adjustment_id=(select id from public.sales_adjustment_facts
   where refund_case_id='f1400000-0000-4000-8000-000000000002')
 where id='f1400000-0000-4000-8000-000000000002';
@@ -241,7 +258,7 @@ select private.record_nayax_provider_refund(repeat('a',64),'TGPACI_USA_DB','2003
   'manual_dtm_export',null,repeat('1',64),repeat('a',64),null);
 select is((select disposition from public.nayax_provider_refund_events where refund_identity_hash=repeat('a',64)),
   'held_unmapped','An unmapped provider refund is held without a deduction');
-update public.refund_nayax_machine_inventory set reporting_machine_id='f1300000-0000-4000-8000-000000000001',
+update public.refund_nayax_machine_inventory set reporting_machine_id='f1300000-0000-4000-8000-000000000002',
   reconciliation_state='published' where account_key='TGPACI_USA_DB' and nayax_machine_id='900000002';
 select public.service_promote_nayax_pending_sales(100);
 select is((select disposition from public.nayax_provider_refund_events where refund_identity_hash=repeat('a',64)),
@@ -249,12 +266,24 @@ select is((select disposition from public.nayax_provider_refund_events where ref
 select is((select count(*) from public.sales_adjustment_facts where source='nayax_provider_refund'
   and source_row_hash=repeat('a',64)),1::bigint,'Repeated promotion has one financial effect');
 
+insert into public.refund_adjustment_review_rows(
+  id,source,source_reference,source_row_reference,source_row_hash,source_location,
+  refund_date,amount_cents,source_status,match_status,match_confidence,
+  matched_machine_id,matched_location_id,resolution_status,reviewed_by,reviewed_at
+) values(
+  'f1400000-0000-4000-8000-000000000003','sheet_export','fixture','sheet-row',repeat('d',64),
+  'Historical location','2025-01-08',500,'closed','applied',1,
+  'f1300000-0000-4000-8000-000000000001','f1200000-0000-4000-8000-000000000001',
+  'approved','f1000000-0000-4000-8000-000000000001',now()
+);
+
 insert into public.sales_adjustment_facts(reporting_machine_id,reporting_location_id,adjustment_date,adjustment_type,
   amount_cents,complaint_count,source,source_row_hash,source_reference,source_row_reference,
-  match_status,match_confidence,raw_payload)
+  refund_review_row_id,match_status,match_confidence,raw_payload)
 values('f1300000-0000-4000-8000-000000000001','f1200000-0000-4000-8000-000000000001',
   '2025-01-08','refund',500,0,'google_sheets',repeat('b',64),'fixture','sheet-row',
-  'applied',1,'{"payload_redacted":true}');
+  'f1400000-0000-4000-8000-000000000003','applied',1,
+  '{"source_location":"Historical location","refund_date":"2025-01-08","amount_source":"fixture","source_status":"closed","source_decision":"approved","payload_redacted":true}');
 select private.record_nayax_provider_refund(repeat('c',64),'TGPACI_USA_DB','2003563806','900000001',
   '920000006','930000006',500,'2025-01-08 12:00:00','2025-01-08T20:00:00Z','native_event',
   'manual_dtm_export',null,repeat('1',64),repeat('c',64),null);
