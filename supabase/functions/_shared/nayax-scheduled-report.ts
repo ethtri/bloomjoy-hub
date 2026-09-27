@@ -185,12 +185,9 @@ export async function normalizeNayaxScheduledReport(bytes: Uint8Array) {
     identities.set(identity, digest);
     if (
       normalized.originalTransactionId === null &&
-      normalized.providerStatus === 12 &&
-      normalized.providerStatusName === "Settled" &&
-      normalized.authorizationAmountCents > 0 &&
-      normalized.authorizationAmountCents ===
-        normalized.settlementAmountCents &&
-      normalized.paidAmountCents === normalized.settlementAmountCents &&
+      [12, 62, 63].includes(normalized.providerStatus ?? 0) &&
+      normalized.settlementAmountCents > 0 &&
+      normalized.machineSettledAt !== null &&
       normalized.providerSettledAt !== null
     ) {
       const sale = {
@@ -202,7 +199,11 @@ export async function normalizeNayaxScheduledReport(bytes: Uint8Array) {
         authorizationAmountCents: normalized.authorizationAmountCents,
         settlementAmountCents: normalized.settlementAmountCents,
         paidAmountCents: normalized.paidAmountCents,
+        machineSettledAt: normalized.machineSettledAt,
         providerSettledAt: normalized.providerSettledAt,
+        // Keep the provider's actual revision clock. This remains null when
+        // Nayax omits updated_dt; transaction time is not a substitute.
+        providerUpdatedAt: normalized.updatedAt,
         providerStatus: normalized.providerStatus,
         providerStatusName: normalized.providerStatusName,
         sourceOrderHash: await reportDigest(`nayax:${identity}`),

@@ -118,7 +118,12 @@ as $$
     'authorizationAmountCents', p_amount_cents,
     'settlementAmountCents', p_amount_cents,
     'paidAmountCents', p_amount_cents,
+    'machineSettledAt', to_char(
+      p_settled_at::timestamptz at time zone 'America/Los_Angeles',
+      'YYYY-MM-DD"T"HH24:MI:SS'
+    ),
     'providerSettledAt', p_settled_at,
+    'providerUpdatedAt', p_settled_at,
     'providerStatus', 12,
     'providerStatusName', 'Settled',
     'sourceOrderHash', p_order_hash,

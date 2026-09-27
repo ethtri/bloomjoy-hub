@@ -2116,6 +2116,16 @@ serve(async (request) => {
   const visitedThreadIds = new Set<string>();
   try {
     if (!intakeShadow) {
+      try {
+        // The Gmail scheduler also advances sales that arrived before their
+        // machine mapping, including quiet hours with no new report file.
+        await rpc("service_promote_nayax_pending_sales", {});
+      } catch {
+        firstReportFailureCode ??= "nayax_report:promote_pending:unknown";
+        counters.messagesFailed += 1;
+      }
+    }
+    if (!intakeShadow) {
       const observed = await rpc<boolean>("service_set_refund_info_inquiry_enabled", {
         p_enabled: infoLaneEnabled,
       });

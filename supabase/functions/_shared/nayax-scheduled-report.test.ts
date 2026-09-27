@@ -87,6 +87,8 @@ Deno.test("actual seven-row shape keeps parent/child coverage, day-first UTC and
   assertEquals(r.sales.length, 6);
   assertEquals(r.sales[0].providerStatusName, "Settled");
   assertEquals(r.sales[0].settlementAmountCents, 1100);
+  assertEquals(r.sales[0].machineSettledAt, "2026-09-03T12:45:52");
+  assertEquals(r.sales[0].providerUpdatedAt, "2026-09-03T19:45:57Z");
   assertEquals(String(r.sales[0].sourceOrderHash).length, 64);
   assertEquals(String(r.sales[0].sourceRowHash).length, 64);
   const o = r.observations[0];
@@ -172,6 +174,43 @@ Deno.test("blank paid value is accepted only for rows without refund signals", a
       )
     );
   }
+});
+Deno.test("a refunded positive original remains a gross sale beside its linked negative event", async () => {
+  const rows = parseNayaxReportCsv(new TextDecoder().decode(fixture));
+  const original = rows.find((row) => !row.original_transaction_id)!;
+  const negative = rows.find((row) => row.original_transaction_id)!;
+  const headers = Object.keys(original);
+  const csv = [
+    headers,
+    headers.map((header) =>
+      ({
+        ...original,
+        auValue: "12.0000",
+        seValue: "11.0000",
+        payed_value: "0.0000",
+        tran_status_id: "62",
+        tran_status_name: "Refunded",
+      })[header]
+    ),
+    headers.map((header) =>
+      ({
+        ...negative,
+        original_transaction_id: original.transaction_id,
+      })[header]
+    ),
+  ].map((values) =>
+    values.map((value) => `"${(value ?? "").replaceAll('"', '""')}"`).join(",")
+  ).join("\r\n");
+
+  const normalized = await normalizeNayaxScheduledReport(
+    new TextEncoder().encode(csv),
+  );
+  assertEquals(normalized.sales.length, 1);
+  assertEquals(normalized.sales[0].providerStatus, 62);
+  assertEquals(normalized.sales[0].authorizationAmountCents, 1200);
+  assertEquals(normalized.sales[0].settlementAmountCents, 1100);
+  assertEquals(normalized.sales[0].paidAmountCents, 0);
+  assertEquals(normalized.observations.length, 2);
 });
 Deno.test("duplicate rows deduplicate, conflicting same identities and unknown actors fail closed", async () => {
   const text = new TextDecoder().decode(fixture);
@@ -286,6 +325,20 @@ Deno.test("existing scheduled Gmail path downloads one linked report, stores no 
     { handled: true, duplicate: true },
   );
 });
+
+Deno.test("the periodic Gmail run promotes mapped pending sales even without a new report file", async () => {
+  const source = await Deno.readTextFile(
+    new URL("../refund-gmail-sync/index.ts", import.meta.url),
+  );
+  const promotion = source.indexOf(
+    'await rpc("service_promote_nayax_pending_sales", {});',
+  );
+  const reportDiscovery = source.indexOf("let reportThreadRefs");
+  assert(promotion >= 0);
+  assert(reportDiscovery >= 0);
+  assert(promotion < reportDiscovery);
+});
+
 Deno.test("CSV attachments share normalization, sender failures and ambiguous links never fetch or record", async () => {
   const m = message();
   m.payload!.parts = [{
