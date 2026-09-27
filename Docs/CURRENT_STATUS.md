@@ -138,6 +138,13 @@ orientation snapshot; it is not a backlog or release ledger.
   Those exact delivery histories still need reconciliation; the health signal
   does not establish that a customer reply or refund was completed. The first
   two natural daily Manager digest cycles remain to be observed.
+- The two completed-card cases have a successful Nayax refund but an exhausted,
+  unsent completion email. Their original Info conversations have no completion
+  reply, and the exact database messages have no provider or Gmail send record.
+  An operator-only, one-time recovery is being reviewed; no replacement email
+  or payment has been sent. Six other clarification cycles never formed a
+  customer question, one was correctly policy-suppressed, and one historical
+  Resend effect remains unknown. None should be blindly resent.
 - Technician wall-clock entries are interpreted in the selected machine
   location's IANA timezone. This keeps completed Eastern and Central work from
   being rejected as future merely because Bloomjoy's month-close policy and

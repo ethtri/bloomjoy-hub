@@ -390,11 +390,16 @@ serve(async (req) => {
       body?.nayaxCompletionMessageId,
       80,
     );
+    const nayaxExhaustedCompletionMessageId = sanitizeText(
+      body?.nayaxExhaustedCompletionMessageId,
+      80,
+    );
     const nayaxCompletionRecoveryMessageId = sanitizeText(
       body?.nayaxCompletionRecoveryMessageId,
       80,
     );
-    if (nayaxCompletionMessageId && nayaxCompletionRecoveryMessageId) {
+    if ([nayaxCompletionMessageId, nayaxExhaustedCompletionMessageId,
+      nayaxCompletionRecoveryMessageId].filter(Boolean).length > 1) {
       return jsonResponse({
         error: "Choose one exact customer-completion recovery action.",
       }, 400);
@@ -562,11 +567,21 @@ serve(async (req) => {
 
       return jsonResponse({ recovery });
     }
-    if (nayaxCompletionMessageId) {
+    if (nayaxCompletionMessageId || nayaxExhaustedCompletionMessageId) {
+      const completionMessageId = nayaxExhaustedCompletionMessageId ||
+        nayaxCompletionMessageId;
+      const exhaustedRecovery = Boolean(nayaxExhaustedCompletionMessageId);
+      const originalThreadHistoryId = sanitizeText(
+        body?.originalThreadHistoryId,
+        30,
+      );
       if (
-        !isUuid(nayaxCompletionMessageId) ||
+        !isUuid(completionMessageId) ||
+        (exhaustedRecovery && !/^[0-9]{3,30}$/.test(originalThreadHistoryId)) ||
         Object.keys(body ?? {}).some((key) =>
-          !["caseId", "nayaxCompletionMessageId"].includes(key)
+          !(exhaustedRecovery
+            ? ["caseId", "nayaxExhaustedCompletionMessageId", "originalThreadHistoryId"]
+            : ["caseId", "nayaxCompletionMessageId"]).includes(key)
         )
       ) {
         return jsonResponse({
@@ -580,11 +595,19 @@ serve(async (req) => {
       }
 
       const { data: prepared, error: prepareError } = await supabase.rpc(
-        "service_prepare_nayax_completion_retry",
-        {
-          p_executor_assertion: nayaxExecutorAssertion,
-          p_refund_case_message_id: nayaxCompletionMessageId,
-        },
+        exhaustedRecovery
+          ? "service_prepare_exhausted_nayax_completion_recovery"
+          : "service_prepare_nayax_completion_retry",
+        exhaustedRecovery
+          ? {
+            p_executor_assertion: nayaxExecutorAssertion,
+            p_refund_case_message_id: completionMessageId,
+            p_original_thread_history_id: originalThreadHistoryId,
+          }
+          : {
+            p_executor_assertion: nayaxExecutorAssertion,
+            p_refund_case_message_id: completionMessageId,
+          },
       );
       const retry = prepared && typeof prepared === "object"
         ? prepared as Record<string, unknown>
@@ -592,7 +615,8 @@ serve(async (req) => {
       if (
         prepareError || retry?.prepared !== true ||
         retry.refundCaseId !== caseId ||
-        retry.refundCaseMessageId !== nayaxCompletionMessageId ||
+        retry.refundCaseMessageId !== completionMessageId ||
+        (exhaustedRecovery && retry.exhaustedRecovery !== true) ||
         typeof retry.attemptId !== "string" || !isUuid(retry.attemptId) ||
         typeof retry.gmailThreadId !== "string" ||
         !isUuid(retry.gmailThreadId) ||
@@ -616,7 +640,7 @@ serve(async (req) => {
           const gmailDelivery = await dispatchRefundCaseGmailReply({
             supabase,
             refundCaseId: caseId,
-            refundCaseMessageId: nayaxCompletionMessageId,
+            refundCaseMessageId: completionMessageId,
             recipientEmail: retryRecipientEmail,
             email: {
               subject: retrySubject,
@@ -657,7 +681,7 @@ serve(async (req) => {
       ) {
         return jsonResponse({
           message: {
-            id: nayaxCompletionMessageId,
+            id: completionMessageId,
             type: "completed",
             status: "sent",
             subject: retrySubject,
