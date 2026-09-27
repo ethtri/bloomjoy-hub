@@ -104,7 +104,11 @@ export const postBatch = async ({ batch, ingestUrl, ingestToken, fetchImpl, slee
       if (Object.entries(expected).some(([key, value]) => Number(payload[key]) !== value)) {
         throw new SnapcaseSyncError('ingest_ack_mismatch');
       }
-      return;
+      return {
+        completedWindowCount: Number(payload.completedWindowCount) || 0,
+        changedWindowCount: Number(payload.changedWindowCount) || 0,
+        publishedCashFactCount: Number(payload.publishedCashFactCount) || 0,
+      };
     } catch (error) {
       if (error instanceof SnapcaseSyncError) throw error;
       if (attempt === 3) throw new SnapcaseSyncError('ingest_transport_failed');
@@ -179,8 +183,9 @@ export const runSnapcaseSync = async ({
       extraction.rejected.payments.length,
     evidenceCount: extraction.evidence.length,
     batchCount: batches.length,
-    businessCoverageStatus: 'unverified',
-    published: false,
+    completedWindowCount: 0,
+    changedWindowCount: 0,
+    publishedCashFactCount: 0,
   };
   if (!ingest) return summary;
 
@@ -188,7 +193,10 @@ export const runSnapcaseSync = async ({
   const ingestToken = String(env.REPORTING_INGEST_TOKEN ?? '');
   if (!ingestUrl || !ingestToken) throw new SnapcaseSyncError('ingest_configuration_missing');
   for (const batch of batches) {
-    await postBatch({ batch, ingestUrl, ingestToken, fetchImpl, sleep });
+    const finalization = await postBatch({ batch, ingestUrl, ingestToken, fetchImpl, sleep });
+    summary.completedWindowCount += finalization.completedWindowCount;
+    summary.changedWindowCount += finalization.changedWindowCount;
+    summary.publishedCashFactCount += finalization.publishedCashFactCount;
   }
   return summary;
 };

@@ -8,6 +8,7 @@ type RpcResult = {
 type HandlerOptions = {
   ingestToken: string | null | undefined;
   ingest: (payload: JsonObject) => Promise<RpcResult>;
+  finalize: (sourceAccountKey: string, runKey: string) => Promise<RpcResult>;
 };
 
 const jsonResponse = (body: JsonObject, status = 200) =>
@@ -41,7 +42,12 @@ const isEnvelope = (value: unknown): value is JsonObject => {
   return [value.machines, value.orders, value.payments, value.evidence].every(isBoundedBatch);
 };
 
-export const createSnapcaseIngestHandler = ({ ingestToken, ingest }: HandlerOptions) =>
+const hasPaymentEvidence = (payload: JsonObject) =>
+  (payload.evidence as unknown[]).some((item) =>
+    isObject(item) && item.resource === "payments"
+  );
+
+export const createSnapcaseIngestHandler = ({ ingestToken, ingest, finalize }: HandlerOptions) =>
   async (request: Request) => {
     if (request.method !== "POST") {
       return jsonResponse({ error: "Method not allowed." }, 405);
@@ -70,6 +76,27 @@ export const createSnapcaseIngestHandler = ({ ingestToken, ingest }: HandlerOpti
       return jsonResponse({ error: "SnapCase batch was not recorded." }, 502);
     }
 
+    let finalization: JsonObject = {};
+    if (hasPaymentEvidence(payload)) {
+      let finalized: RpcResult;
+      try {
+        finalized = await finalize(
+          payload.sourceAccountKey as string,
+          payload.runKey as string,
+        );
+      } catch {
+        return jsonResponse({ error: "SnapCase payment import was not finalized." }, 502);
+      }
+      if (finalized.error || !isObject(finalized.data)) {
+        return jsonResponse({ error: "SnapCase payment import was not finalized." }, 502);
+      }
+      finalization = {
+        completedWindowCount: safeCount(finalized.data.completedWindowCount),
+        changedWindowCount: safeCount(finalized.data.changedWindowCount),
+        publishedCashFactCount: safeCount(finalized.data.publishedCashFactCount),
+      };
+    }
+
     return jsonResponse({
       ok: result.data.recorded === true,
       duplicate: result.data.duplicate === true,
@@ -77,7 +104,6 @@ export const createSnapcaseIngestHandler = ({ ingestToken, ingest }: HandlerOpti
       orderCount: safeCount(result.data.orderCount),
       paymentCount: safeCount(result.data.paymentCount),
       evidenceCount: safeCount(result.data.evidenceCount),
-      businessCoverageStatus: "unverified",
-      published: false,
+      ...finalization,
     });
   };

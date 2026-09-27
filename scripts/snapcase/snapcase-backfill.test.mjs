@@ -81,6 +81,15 @@ test('account-wide extraction retains retired machine sales and honest empty glo
   assert.equal(paymentEvidence.query.requestedEnd, '2025-02-01T00:00:00Z');
   assert.equal(paymentEvidence.extraction.expectedTotal, 0);
   assert.equal(paymentEvidence.businessCoverageStatus, 'unverified');
+  assert.ok(queries.some((entry) =>
+    entry.path === '/v1/payments' && entry.query.machineId === 'machine-current'
+  ));
+  const machinePaymentEvidence = result.evidence.find((entry) =>
+    entry.resource === 'payments' && entry.sourceMachineId === 'machine-current'
+  );
+  assert.equal(machinePaymentEvidence.extraction.status, 'complete');
+  assert.equal(machinePaymentEvidence.extraction.observedCount, 0);
+  assert.equal(machinePaymentEvidence.query.requestedTimezone, null);
 });
 
 test('interrupted delivery leaves no window checkpoint and resume uses a new attempt run', async () => {

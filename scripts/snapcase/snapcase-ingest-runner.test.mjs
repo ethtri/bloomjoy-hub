@@ -40,8 +40,9 @@ test('fixture dry run is the default and performs no network request', async () 
     rejectedCount: 0,
     evidenceCount: 3,
     batchCount: 2,
-    businessCoverageStatus: 'unverified',
-    published: false,
+    completedWindowCount: 0,
+    changedWindowCount: 0,
+    publishedCashFactCount: 0,
   });
 });
 

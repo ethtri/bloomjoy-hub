@@ -130,7 +130,16 @@ export const runSnapcaseBackfill = async ({
     : { ...binding, deliveredWindows: [] };
   const delivered = new Set(checkpoint.deliveredWindows.map((entry) => entry.window));
 
-  const totals = { machineCount: 0, orderCount: 0, paymentCount: 0, evidenceCount: 0, batchCount: 0 };
+  const totals = {
+    machineCount: 0,
+    orderCount: 0,
+    paymentCount: 0,
+    evidenceCount: 0,
+    batchCount: 0,
+    completedWindowCount: 0,
+    changedWindowCount: 0,
+    publishedCashFactCount: 0,
+  };
   let skippedWindowCount = 0;
   let deliveredWindowCount = 0;
   for (const window of windows) {
@@ -160,7 +169,10 @@ export const runSnapcaseBackfill = async ({
     if (!ingest) continue;
 
     for (const batch of batches) {
-      await postBatch({ batch, ingestUrl, ingestToken, fetchImpl, sleep });
+      const finalization = await postBatch({ batch, ingestUrl, ingestToken, fetchImpl, sleep });
+      totals.completedWindowCount += finalization.completedWindowCount;
+      totals.changedWindowCount += finalization.changedWindowCount;
+      totals.publishedCashFactCount += finalization.publishedCashFactCount;
     }
     checkpoint.deliveredWindows.push({ window: key, batchCount: batches.length });
     await writeCheckpoint(checkpointPath, checkpoint);
@@ -175,8 +187,6 @@ export const runSnapcaseBackfill = async ({
     deliveredWindowCount,
     skippedWindowCount,
     ...totals,
-    businessCoverageStatus: 'unverified',
-    published: false,
   };
 };
 

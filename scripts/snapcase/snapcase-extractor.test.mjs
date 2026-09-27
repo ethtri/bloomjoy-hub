@@ -17,6 +17,8 @@ const context = {
   sourceAccountKey: 'synthetic-account',
   secret: 'synthetic-test-secret-only',
   keyVersion: 1,
+  machineTimezone: 'America/Los_Angeles',
+  machineCurrency: 'USD',
 };
 
 const response = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), {
@@ -47,7 +49,7 @@ test('normalization keeps machine inventory id distinct from the sales query mac
   assert.equal(JSON.stringify(machine).includes('must-be-dropped'), false);
 });
 
-test('normalization allowlists fields and does not invent tender, status, time, or amount semantics', () => {
+test('normalization applies confirmed machine-local time, USD minor units, and known statuses', () => {
   const order = normalizeOrder(fixture.orders[0], context);
   const payment = normalizePayment(fixture.payments[0], context);
   assert.equal(order.normalizedTender, 'unknown');
@@ -55,22 +57,24 @@ test('normalization allowlists fields and does not invent tender, status, time, 
   assert.equal(order.sourcePaymentStatus, 'success');
   assert.equal(order.sourceTenderCode, '7');
   assert.equal(order.sourceTenderLabel, 'Cash-like label requiring review');
-  assert.equal(order.amountMinor, null);
+  assert.equal(order.amountMinor, 1234);
   assert.equal(order.sourceAmountText, '12.34');
-  assert.equal(order.occurredAt, null);
+  assert.equal(order.occurredAt, '2026-09-20T17:00:00.000Z');
   assert.equal(Object.hasOwn(order, 'settledTimeRaw'), false);
-  assert.equal(order.sourceCurrency, null);
-  assert.ok(order.exceptionCodes.includes('source_clock_offset_missing'));
+  assert.equal(order.sourceCurrency, 'USD');
+  assert.equal(order.currencyCode, 'USD');
+  assert.equal(order.exceptionCodes.includes('source_time_semantics_unverified'), false);
   assert.equal(payment.occurredAt, '2026-09-20T17:00:00.000Z');
   assert.equal(payment.sourceStatus, 'success');
   assert.equal(payment.sourceTenderCode, '9');
   assert.equal(payment.sourceTenderLabel, 'Card-like label requiring review');
   assert.equal(payment.sourceCurrency, 'USD');
-  assert.ok(payment.exceptionCodes.includes('currency_unverified'));
+  assert.equal(payment.currencyCode, 'USD');
+  assert.equal(payment.exceptionCodes.includes('currency_unverified'), false);
   assert.equal(payment.relatedOrderKeys.length, 1);
   assert.match(payment.relatedOrderKeys[0], /^[a-f0-9]{64}$/);
   assert.match(payment.sourceTransactionKey, /^[a-f0-9]{64}$/);
-  assert.equal(payment.amountMinor, null);
+  assert.equal(payment.amountMinor, 1234);
   assert.match(payment.sourceKey, /^[a-f0-9]{64}$/);
   assert.equal(payment.keyVersion, 1);
   assert.equal(JSON.stringify({ order, payment }).includes('customerEmail'), false);
@@ -78,6 +82,69 @@ test('normalization allowlists fields and does not invent tender, status, time, 
   assert.equal(JSON.stringify({ order, payment }).includes('synthetic-order-1'), false);
   assert.equal(JSON.stringify({ order, payment }).includes('synthetic-payment-1'), false);
   assert.ok(payment.exceptionCodes.includes('financial_tender_semantics_unverified'));
+});
+
+test('proved Kexiaozhan cash normalizes without product or quantity requirements', () => {
+  const payment = normalizePayment({
+    outTradeNo: 'cash-payment',
+    orderNos: ['cash-order'],
+    machineId: 'machine-filter-key-901',
+    paymentTime: '2026-11-02 10:15:30',
+    paymentMethod: 1,
+    paymentInstrument: 'cash',
+    status: 1,
+    paymentAmount: '10.05',
+    currency: 'USD',
+  }, context);
+  assert.equal(payment.normalizedTender, 'cash');
+  assert.equal(payment.amountMinor, 1005);
+  assert.equal(payment.occurredAt, '2026-11-02T18:15:30.000Z');
+  assert.equal(payment.quantity, null);
+  assert.equal(payment.productLabel, null);
+  assert.deepEqual(payment.exceptionCodes, ['financial_status_semantics_unverified']);
+});
+
+test('machine inventory USD fills an omitted row currency but never overrides a conflict', () => {
+  const base = {
+    outTradeNo: 'currency-payment', machineId: 'machine-filter-key-901',
+    paymentTime: '2026-11-02 10:15:30', paymentMethod: 1,
+    paymentInstrument: 'cash', status: 1, paymentAmount: '10.05',
+  };
+  const inherited = normalizePayment(base, context);
+  const conflicting = normalizePayment({ ...base, outTradeNo: 'currency-conflict', currency: 'EUR' }, context);
+  assert.equal(inherited.sourceCurrency, 'USD');
+  assert.equal(inherited.currencyCode, 'USD');
+  assert.equal(inherited.exceptionCodes.includes('currency_unverified'), false);
+  assert.equal(conflicting.sourceCurrency, 'EUR');
+  assert.equal(conflicting.currencyCode, null);
+  assert.ok(conflicting.exceptionCodes.includes('currency_unverified'));
+});
+
+test('machine-local normalization keeps DST gaps and folds on their local business date', () => {
+  const gap = normalizePayment({
+    outTradeNo: 'gap-payment', machineId: 'machine-filter-key-901',
+    paymentTime: '2026-03-08 02:30:00', paymentMethod: 1,
+    paymentInstrument: 'cash', status: 1, paymentAmount: '1.00', currency: 'USD',
+  }, context);
+  const fold = normalizePayment({
+    outTradeNo: 'fold-payment', machineId: 'machine-filter-key-901',
+    paymentTime: '2026-11-01 01:30:00', paymentMethod: 1,
+    paymentInstrument: 'cash', status: 1, paymentAmount: '1.00', currency: 'USD',
+  }, context);
+  assert.match(gap.occurredAt, /^2026-03-08T/);
+  assert.match(fold.occurredAt, /^2026-11-01T/);
+  assert.equal(gap.exceptionCodes.includes('source_time_semantics_unverified'), false);
+  assert.equal(fold.exceptionCodes.includes('source_time_semantics_unverified'), false);
+});
+
+test('invalid machine-local dates remain scoped normalization exceptions', () => {
+  const invalid = normalizePayment({
+    outTradeNo: 'invalid-date-payment', machineId: 'machine-filter-key-901',
+    paymentTime: '2026-02-30 10:00:00', paymentMethod: 1,
+    paymentInstrument: 'cash', status: 1, paymentAmount: '1.00', currency: 'USD',
+  }, context);
+  assert.equal(invalid.occurredAt, null);
+  assert.ok(invalid.exceptionCodes.includes('source_time_semantics_unverified'));
 });
 
 test('normalized records match the locked private-ingest allowlist exactly', () => {
@@ -333,11 +400,47 @@ test('window extraction discovers every machine and queries sales with machineId
   assert.equal(queries[2].query.paymentTimeEnd, '2026-09-27 00:00:00');
   assert.equal(result.evidence[1].extraction.expectedTotal, 1);
   assert.equal(result.evidence[1].extraction.effectivePageSize, 1);
+  assert.equal(result.evidence[2].query.requestedStart, '2026-09-01T07:00:00.000Z');
+  assert.equal(result.evidence[2].query.requestedEnd, '2026-09-27T07:00:00.000Z');
+  assert.equal(result.evidence[2].query.requestedTimezone, 'America/Los_Angeles');
   for (const item of result.evidence) {
     assert.equal(item.extraction.status, 'complete');
     assert.equal(item.businessCoverageStatus, 'unverified');
     assert.equal(item.coverageReasonCode, 'source_time_semantics_unverified');
   }
+});
+
+test('optional order fetch failure does not cancel complete payment extraction', async () => {
+  const fakeClient = {
+    async getAll(path) {
+      if (path === '/v1/machines') return {
+        rows: fixture.machines,
+        evidence: { status: 'complete', pageCount: 1, observedCount: 1, expectedTotal: 1, effectivePageSize: 1, nextCursor: null, responseTruncated: false },
+      };
+      if (path === '/v1/orders') throw new Error('optional order endpoint unavailable');
+      return {
+        rows: [{
+          ...fixture.payments[0],
+          paymentMethod: 1,
+          paymentInstrument: 'cash',
+          paymentTime: '2026-09-20 10:00:00',
+        }],
+        evidence: { status: 'complete', pageCount: 1, observedCount: 1, expectedTotal: 1, effectivePageSize: 1, nextCursor: null, responseTruncated: false },
+      };
+    },
+  };
+  const result = await extractSnapcaseWindow({
+    client: fakeClient,
+    sourceAccountKey: 'synthetic-account',
+    hmacSecret: 'synthetic-test-secret-only',
+    startDate: '2026-09-20',
+    endDate: '2026-09-20',
+  });
+  assert.equal(result.orders.length, 0);
+  assert.equal(result.payments.length, 1);
+  assert.equal(result.payments[0].normalizedTender, 'cash');
+  assert.equal(result.evidence[1].extraction.status, 'failed');
+  assert.equal(result.evidence[2].extraction.status, 'complete');
 });
 
 test('exclusive provider end includes the final second and excludes next midnight', async () => {

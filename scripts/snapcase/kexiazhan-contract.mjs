@@ -1,4 +1,5 @@
 import { createHash, createHmac } from 'node:crypto';
+import { resolveLocalDateTimeInZone } from '../../supabase/functions/_shared/timezone-resolution.mjs';
 
 const cleanText = (value, maxLength) => {
   if (value === null || value === undefined) return null;
@@ -33,14 +34,54 @@ const rawAmount = (value) => {
   return result && /^-?\d+(?:\.\d+)?$/.test(result) ? result : null;
 };
 
-const rawTimestamp = (value) => {
+const rawTimestamp = (value, timeZone) => {
   const raw = cleanText(value, 80);
-  if (!raw) return { raw: null, utc: null, ambiguous: false };
-  if (!/(?:Z|[+-]\d{2}:\d{2})$/i.test(raw)) return { raw, utc: null, ambiguous: true };
-  const parsed = new Date(raw);
-  return Number.isFinite(parsed.getTime())
-    ? { raw, utc: parsed.toISOString(), ambiguous: false }
-    : { raw, utc: null, ambiguous: true };
+  if (!raw) return { raw: null, utc: null, resolution: 'missing' };
+  if (/(?:Z|[+-]\d{2}:\d{2})$/i.test(raw)) {
+    const parsed = new Date(raw);
+    return Number.isFinite(parsed.getTime())
+      ? { raw, utc: parsed.toISOString(), resolution: 'exact' }
+      : { raw, utc: null, resolution: 'invalid' };
+  }
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)$/);
+  if (!match || !timeZone) return { raw, utc: null, resolution: 'invalid' };
+  const resolved = resolveLocalDateTimeInZone({
+    localDate: match[1],
+    localTime: match[2],
+    timeZone,
+  });
+  return {
+    raw,
+    utc: ['exact', 'ambiguous', 'nonexistent'].includes(resolved.resolution)
+      ? resolved.instant
+      : null,
+    resolution: resolved.resolution,
+  };
+};
+
+const decimalAmount = (value) => {
+  const raw = rawAmount(value);
+  if (raw === null) return { raw: null, minor: null, valid: value === null || value === undefined || value === '' };
+  const match = raw.match(/^(0|[1-9]\d*)(?:\.(\d{1,2}))?$/);
+  if (!match) return { raw, minor: null, valid: false };
+  const minor = BigInt(match[1]) * 100n + BigInt((match[2] ?? '').padEnd(2, '0') || '0');
+  if (minor > BigInt(Number.MAX_SAFE_INTEGER)) return { raw, minor: null, valid: false };
+  return { raw, minor: Number(minor), valid: true };
+};
+
+const normalizedCurrency = (recordCurrency, machineCurrency) => {
+  const source = cleanText(recordCurrency ?? machineCurrency, 20);
+  return { source, code: source?.toUpperCase() === 'USD' ? 'USD' : null };
+};
+
+const normalizedTender = (code, label) => {
+  const normalizedCode = rawScalar(code);
+  const normalizedLabel = cleanText(label, 160)?.toLowerCase().replace(/[^a-z]/g, '') ?? '';
+  if (normalizedCode === '1' && normalizedLabel === 'cash') return 'cash';
+  if (normalizedCode === '0' && ['creditcard', 'pos'].includes(normalizedLabel)) return 'card';
+  if (normalizedCode === '3' && ['creditcard', 'paymentboard'].includes(normalizedLabel)) return 'card';
+  if (normalizedCode !== null && PAYMENT_METHOD_LABELS[normalizedCode] !== undefined) return 'other';
+  return 'unknown';
 };
 
 const unique = (values) => [...new Set(values)];
@@ -126,47 +167,47 @@ export const normalizeMachine = (record) => {
 
 export const normalizeOrder = (record, context) => {
   const identity = eventIdentity(record, context, 'order', 'orderNo');
-  const paid = rawTimestamp(record?.paymentTime);
-  const sourceCurrency = cleanText(record?.currency, 20);
-  const sourceRefundAmountText = rawAmount(record?.refundAmount);
+  const paid = rawTimestamp(record?.paymentTime, context.machineTimezone);
+  const currency = normalizedCurrency(record?.currency, context.machineCurrency);
+  const amount = decimalAmount(record?.paymentAmount);
+  const refund = decimalAmount(record?.refundAmount);
   const productLabel = cleanText(record?.goodsName, 240);
-  const amountValues = [record?.paymentAmount, record?.refundAmount];
-  const exceptionCodes = [
-    'source_time_semantics_unverified',
-    'amount_unit_unverified',
-    'financial_status_semantics_unverified',
-    'financial_tender_semantics_unverified',
-  ];
-  if (amountValues.some((value) => value !== null && value !== undefined && rawAmount(value) === null)) {
-    exceptionCodes.push('invalid_amount_text');
+  const sourceStatus = enumLabel(ORDER_STATUS_LABELS, record?.status);
+  const sourcePaymentStatus = enumLabel(PAYMENT_STATUS_LABELS, record?.paymentStatus);
+  const sourceTenderCode = rawScalar(record?.paymentMethod);
+  const sourceTenderLabel = cleanText(record?.paymentInstrument, 160)
+    ?? enumLabel(PAYMENT_METHOD_LABELS, record?.paymentMethod);
+  const tender = normalizedTender(sourceTenderCode, sourceTenderLabel);
+  const exceptionCodes = [];
+  if (!paid.utc) exceptionCodes.push('source_time_semantics_unverified');
+  if (!amount.valid || amount.minor === null) exceptionCodes.push('amount_unit_unverified');
+  if (!amount.valid) exceptionCodes.push('invalid_amount_text');
+  if (!currency.code) exceptionCodes.push('currency_unverified');
+  // The staging contract retains this provenance marker whenever raw provider
+  // status fields are present. Financial publication interprets only the
+  // explicitly enumerated labels below.
+  if (rawScalar(record?.status) !== null || rawScalar(record?.paymentStatus) !== null) {
+    exceptionCodes.push('financial_status_semantics_unverified');
   }
-  if (paid.ambiguous) {
-    exceptionCodes.push('source_clock_offset_missing');
-  }
-  if (sourceCurrency) exceptionCodes.push('currency_unverified');
-  if (sourceRefundAmountText !== null) exceptionCodes.push('refund_semantics_unverified');
-  if (productLabel) exceptionCodes.push('product_unverified');
+  if (tender === 'unknown') exceptionCodes.push('financial_tender_semantics_unverified');
+  if (refund.raw !== null) exceptionCodes.push('refund_semantics_unverified');
   const normalized = {
     ...identity,
     sourceMachineId: requiredText(record?.machineId, 'machineId'),
     sourceMerchantId: cleanText(record?.merchantId, 180),
-    sourceStatus:
-      enumLabel(ORDER_STATUS_LABELS, record?.status) ?? rawScalar(record?.status),
-    sourcePaymentStatus:
-      enumLabel(PAYMENT_STATUS_LABELS, record?.paymentStatus) ?? rawScalar(record?.paymentStatus),
-    sourceTenderCode: rawScalar(record?.paymentMethod),
-    sourceTenderLabel:
-      cleanText(record?.paymentInstrument, 160) ??
-      enumLabel(PAYMENT_METHOD_LABELS, record?.paymentMethod),
-    normalizedTender: 'unknown',
+    sourceStatus: sourceStatus ?? rawScalar(record?.status),
+    sourcePaymentStatus: sourcePaymentStatus ?? rawScalar(record?.paymentStatus),
+    sourceTenderCode,
+    sourceTenderLabel,
+    normalizedTender: tender,
     occurredTimeRaw: paid.raw,
     occurredAt: paid.utc,
-    sourceCurrency,
-    currencyCode: null,
-    sourceAmountText: rawAmount(record?.paymentAmount),
-    amountMinor: null,
-    sourceRefundAmountText,
-    refundAmountMinor: null,
+    sourceCurrency: currency.source,
+    currencyCode: currency.code,
+    sourceAmountText: amount.raw,
+    amountMinor: amount.minor,
+    sourceRefundAmountText: refund.raw,
+    refundAmountMinor: refund.minor,
     productLabel,
     quantity: null,
     exceptionCodes: unique(exceptionCodes),
@@ -185,22 +226,25 @@ export const normalizePayment = (record, context) => {
       .map((orderNo) => sourceKey({ ...context, resource: 'order', sourceId: orderNo }))
     : [];
   const transactionId = optionalIdentifier(record?.transactionId, 'transactionId', 200);
-  const paid = rawTimestamp(record?.paymentTime);
-  const sourceCurrency = cleanText(record?.currency, 20);
-  const sourceRefundAmountText = rawAmount(record?.refundAmount);
-  const amountValues = [record?.paymentAmount, record?.refundAmount, record?.tipAmount];
-  const exceptionCodes = [
-    'source_time_semantics_unverified',
-    'amount_unit_unverified',
-    'financial_status_semantics_unverified',
-    'financial_tender_semantics_unverified',
-  ];
-  if (amountValues.some((value) => value !== null && value !== undefined && rawAmount(value) === null)) {
-    exceptionCodes.push('invalid_amount_text');
+  const paid = rawTimestamp(record?.paymentTime, context.machineTimezone);
+  const currency = normalizedCurrency(record?.currency, context.machineCurrency);
+  const amount = decimalAmount(record?.paymentAmount);
+  const refund = decimalAmount(record?.refundAmount);
+  const sourceStatus = enumLabel(PAYMENT_STATUS_LABELS, record?.status ?? record?.paymentStatus);
+  const sourceTenderCode = rawScalar(record?.paymentMethod);
+  const sourceTenderLabel = cleanText(record?.paymentInstrument, 160)
+    ?? enumLabel(PAYMENT_METHOD_LABELS, record?.paymentMethod);
+  const tender = normalizedTender(sourceTenderCode, sourceTenderLabel);
+  const exceptionCodes = [];
+  if (!paid.utc) exceptionCodes.push('source_time_semantics_unverified');
+  if (!amount.valid || amount.minor === null) exceptionCodes.push('amount_unit_unverified');
+  if (!amount.valid) exceptionCodes.push('invalid_amount_text');
+  if (!currency.code) exceptionCodes.push('currency_unverified');
+  if (rawScalar(record?.status ?? record?.paymentStatus) !== null) {
+    exceptionCodes.push('financial_status_semantics_unverified');
   }
-  if (paid.ambiguous) exceptionCodes.push('source_clock_offset_missing');
-  if (sourceCurrency) exceptionCodes.push('currency_unverified');
-  if (sourceRefundAmountText !== null) exceptionCodes.push('refund_semantics_unverified');
+  if (tender === 'unknown') exceptionCodes.push('financial_tender_semantics_unverified');
+  if (refund.raw !== null) exceptionCodes.push('refund_semantics_unverified');
   const normalized = {
     ...identity,
     relatedOrderKeys,
@@ -209,22 +253,18 @@ export const normalizePayment = (record, context) => {
       : null,
     sourceMachineId: requiredText(record?.machineId, 'machineId'),
     sourceMerchantId: cleanText(record?.merchantId, 180),
-    sourceStatus:
-      enumLabel(PAYMENT_STATUS_LABELS, record?.status ?? record?.paymentStatus) ??
-      rawScalar(record?.status ?? record?.paymentStatus),
-    sourceTenderCode: rawScalar(record?.paymentMethod),
-    sourceTenderLabel:
-      cleanText(record?.paymentInstrument, 160) ??
-      enumLabel(PAYMENT_METHOD_LABELS, record?.paymentMethod),
-    normalizedTender: 'unknown',
+    sourceStatus: sourceStatus ?? rawScalar(record?.status ?? record?.paymentStatus),
+    sourceTenderCode,
+    sourceTenderLabel,
+    normalizedTender: tender,
     occurredTimeRaw: paid.raw,
     occurredAt: paid.utc,
-    sourceCurrency,
-    currencyCode: null,
-    sourceAmountText: rawAmount(record?.paymentAmount),
-    amountMinor: null,
-    sourceRefundAmountText,
-    refundAmountMinor: null,
+    sourceCurrency: currency.source,
+    currencyCode: currency.code,
+    sourceAmountText: amount.raw,
+    amountMinor: amount.minor,
+    sourceRefundAmountText: refund.raw,
+    refundAmountMinor: refund.minor,
     productLabel: null,
     quantity: null,
     exceptionCodes: unique(exceptionCodes),

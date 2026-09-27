@@ -98,19 +98,18 @@ orientation snapshot; it is not a backlog or release ledger.
 - Timekeeping, Technician Pay Reports, Pay Stubs, partner reporting, access
   management, training, commerce, and machine administration remain active
   product areas. Their current work belongs on the board, not in this snapshot.
-- Issue #1480 Phase A keeps open-month SnapCase sales and commission visible as
-  estimates, then blocks closed-period publication when a positive commission
-  rate still depends on sales whose cash + card coverage is not verified. This
-  is a fail-closed bridge; verified zero windows and coverage-based release stay
-  with the SnapCase importer/reconciliation work, and production behavior still
-  requires the migration to merge and deploy.
-- Issue #1478 now has a proof-gated projection contract for Kexiaozhan cash only;
+- Issue #1480 keeps normal open-month SnapCase sales and commission estimates
+  visible without a SnapCase-specific warning. Closed positive-commission dates
+  block only when their mapped machine lacks a completed payment import and
+  successful cash publication. Production behavior still requires the related
+  migrations to merge and deploy.
+- Issue #1478 now has a source-connected projection contract for Kexiaozhan cash only;
   existing Nayax scheduled facts remain the sole card authority and existing
   sales adjustments remain the sole refund deduction. Gross cash amount and
-  half-open payment query bounds are supported, while business-date publication
-  remains disabled because machine-local timestamp semantics and complete-window
-  coverage are still unverified. The owner identified machine local time as the
-  working assumption and will verify it; this does not make payroll ready.
+  half-open payment query bounds are supported, and the owner confirmed provider
+  timestamps use each machine's IANA timezone. Complete acknowledged per-machine
+  payment windows, including zero rows, bind normalized cash publication before
+  they can release the matching closed payroll dates.
   Unknown item quantity uses a marked zero storage fallback without hiding gross
   cash, and later unproved source revisions preserve known gross as review work.
 - Refund automation authenticates through the Info Gmail account and sends as

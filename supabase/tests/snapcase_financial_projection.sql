@@ -183,50 +183,6 @@ select throws_ok(
 );
 
 select set_config('request.jwt.claim.role', 'service_role', true);
-select is(
-  public.service_project_snapcase_financial_window(
-    '14784000-0000-4000-8000-000000000001', 'finance-machine',
-    '2026-09-20T07:00:00Z', '2026-09-21T07:00:00Z'
-  ) ->> 'reasonCode',
-  'financial_contract_unverified',
-  'the runtime proof contract keeps current source data disabled'
-);
-select is(
-  (select count(*)::integer from public.machine_sales_facts where source = 'snapcase_cash'),
-  0,
-  'an unverified contract cannot publish cash'
-);
-select is(
-  (select financial_ready from private.snapcase_financial_window_revisions
-   where source_machine_id = 'finance-machine'),
-  false,
-  'the first projection revision cannot claim financial readiness'
-);
-
--- Synthetic proof only. Production stays on the migration's disabled contract
--- until a later evidence-backed migration replaces it.
-create or replace function private.snapcase_financial_contract()
-returns jsonb
-language sql
-immutable
-security definer
-set search_path = ''
-as $$
-  select jsonb_build_object(
-    'verified', true,
-    'contractVersion', 'snapcase.financial.synthetic.v1',
-    'proofDigest', repeat('a', 64),
-    'queryWindow', 'half_open',
-    'cashTenderCode', '1',
-    'cashTender', 'cash',
-    'cardTenderCode', '0',
-    'successfulPaymentStatus', 'success',
-    'currencyCode', 'USD',
-    'amountBasis', 'gross_customer_charge_minor',
-    'timestampBasis', 'verified_occurrence_instant',
-    'cardComparisonBasis', 'nayax_settlement_business_date'
-  );
-$$;
 
 create temporary table first_projection as
 select public.service_project_snapcase_financial_window(
@@ -235,7 +191,7 @@ select public.service_project_snapcase_financial_window(
 ) as result;
 
 select is((select result ->> 'cashPublishedCount' from first_projection), '1',
-  'one proved 1:1 cash payment is published');
+  'one proved cash payment is published without optional order context');
 select is((select result ->> 'cashSalesCents' from first_projection), '1000',
   'cash uses the collected payment amount rather than grouped tender guesses');
 select is(
@@ -267,8 +223,8 @@ select is(
   'true',
   'card aggregates compare only across aligned machine-local business days'
 );
-select is((select result ->> 'financialReady' from first_projection), 'false',
-  'projection never unlocks payroll before the coverage-binding slice');
+select is((select result ->> 'financialReady' from first_projection), 'true',
+  'mapped authoritative cash can complete despite nonblocking card diagnostics');
 
 select is(
   (select count(*)::integer from public.machine_sales_facts where source = 'snapcase_cash'),
@@ -466,22 +422,22 @@ select public.service_project_snapcase_financial_window(
   '2026-09-20T07:00:00Z', '2026-09-21T07:00:00Z'
 ) as result;
 select is((select result ->> 'reasonCode' from invalid_revision_projection),
-  'cash_projection_incomplete',
-  'an invalid non-refund revision is explicit review work');
+  'card_window_difference',
+  'optional order linkage does not invalidate authoritative cash payment gross');
 select is((select result ->> 'cashSalesCents' from invalid_revision_projection), '1000',
   'an unproved linkage revision preserves the last known gross cash');
 select is(
   (select raw_payload ->> 'publicationState'
    from public.machine_sales_facts where source = 'snapcase_cash'),
-  'stale_review',
-  'the preserved cash fact is no longer presented as current');
+  'active',
+  'the cash payment remains current when only optional order context changes');
 select is(
   public.service_project_snapcase_financial_window(
     '14784000-0000-4000-8000-000000000001', 'finance-machine',
     '2026-09-20T07:00:00Z', '2026-09-21T07:00:00Z'
   ) ->> 'changedFactCount',
   '0',
-  'replaying an unresolved source revision leaves the preserved fact unchanged'
+  'replaying unchanged optional context leaves the cash fact unchanged'
 );
 
 update private.snapcase_sales_observations
@@ -508,15 +464,15 @@ select public.service_project_snapcase_financial_window(
   '2026-09-20T07:00:00Z', '2026-09-21T07:00:00Z'
 ) as result;
 select is((select result ->> 'reasonCode' from changed_order_projection),
-  'cash_projection_incomplete',
-  'a linked-order-only revision that no longer reconciles is reviewable');
+  'card_window_difference',
+  'a linked-order-only amount revision does not invalidate payment gross');
 select is((select result ->> 'cashSalesCents' from changed_order_projection), '1000',
   'the linked-order-only revision preserves the last proved payment gross');
 select is(
   (select raw_payload ->> 'publicationState'
    from public.machine_sales_facts where source = 'snapcase_cash'),
-  'stale_review',
-  'an unchanged payment digest cannot hide an ineligible linked-order revision'
+  'active',
+  'the unchanged payment remains active across optional order revisions'
 );
 
 update private.snapcase_sales_observations
@@ -598,7 +554,7 @@ select set_config('request.jwt.claim.role', 'authenticated', true);
 select set_config('request.jwt.claim.sub', '14780000-0000-4000-8000-000000000001', true);
 select ok(
   public.admin_get_snapcase_machine_mapping_queue()
-    @> '[{"sourceMachineId":"finance-machine","financialReady":false,"financialReasonCode":"card_window_difference"}]'::jsonb,
+    @> '[{"sourceMachineId":"finance-machine","financialReady":true,"financialReasonCode":"card_window_difference"}]'::jsonb,
   'the existing mapping queue exposes the sanitized remap discrepancy'
 );
 
@@ -626,8 +582,8 @@ select is(
 select is(
   (select item_quantity from public.machine_sales_facts
    where source = 'snapcase_cash' and net_sales_cents = 1500),
-  2,
-  'grouped payment item count is the exact sum of linked order quantities'
+  0,
+  'grouped payment quantity remains explicitly unknown without source proof'
 );
 
 select * from finish();

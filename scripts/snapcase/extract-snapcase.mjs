@@ -1,4 +1,5 @@
 import { normalizeBatch, normalizeMachine, normalizeOrder, normalizePayment, sha256 } from './kexiazhan-contract.mjs';
+import { resolveLocalDateTimeInZone } from '../../supabase/functions/_shared/timezone-resolution.mjs';
 
 const isoDate = (value, field) => {
   const result = String(value ?? '').trim();
@@ -12,6 +13,17 @@ const nextDate = (value) => {
   const date = new Date(`${value}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + 1);
   return date.toISOString().slice(0, 10);
+};
+
+const localMidnight = (date, timezone) => {
+  if (!timezone) return `${date}T00:00:00Z`;
+  const resolved = resolveLocalDateTimeInZone({
+    localDate: date,
+    localTime: '00:00:00',
+    timeZone: timezone,
+  });
+  if (resolved.resolution !== 'exact') throw new Error('machine timezone cannot resolve the import boundary');
+  return resolved.instant;
 };
 
 export const monthlyWindows = (startDate, endDate) => {
@@ -33,21 +45,23 @@ export const monthlyWindows = (startDate, endDate) => {
 const evidence = ({ resource, sourceMachineId = null, start, end, timezone, page, rejectedCount }) => ({
   resource,
   sourceMachineId,
-  // The provider request is half-open: inclusive start, exclusive next-day end.
-  // requestedTimezone records the header we sent, not a proved source clock basis.
+  // The provider request is half-open in the machine's confirmed local clock.
+  // Evidence stores the corresponding UTC instants for unambiguous DB matching.
   query: {
-    requestedStart: `${start}T00:00:00Z`,
-    requestedEnd: `${nextDate(end)}T00:00:00Z`,
+    requestedStart: localMidnight(start, timezone),
+    requestedEnd: localMidnight(nextDate(end), timezone),
     requestedTimezone: timezone,
   },
   extraction: {
-    status: page.status === 'complete' && rejectedCount === 0 ? 'complete' : 'partial',
+    status: page.status === 'complete' && rejectedCount === 0
+      ? 'complete'
+      : page.status === 'failed' ? 'failed' : 'partial',
     pageCount: page.pageCount,
     nextCursor: page.nextCursor,
     responseTruncated: page.responseTruncated,
     observedCount: page.observedCount,
-    expectedTotal: page.expectedTotal,
-    effectivePageSize: page.effectivePageSize,
+    ...(Number.isInteger(page.expectedTotal) ? { expectedTotal: page.expectedTotal } : {}),
+    ...(Number.isInteger(page.effectivePageSize) ? { effectivePageSize: page.effectivePageSize } : {}),
     rejectedCount,
     maxObservedTimeRaw: null,
     maxObservedAt: null,
@@ -55,6 +69,24 @@ const evidence = ({ resource, sourceMachineId = null, start, end, timezone, page
   businessCoverageStatus: 'unverified',
   coverageReasonCode: 'source_time_semantics_unverified',
 });
+
+const failedPage = Object.freeze({
+  status: 'failed',
+  pageCount: 0,
+  nextCursor: null,
+  responseTruncated: false,
+  observedCount: 0,
+  expectedTotal: null,
+  effectivePageSize: null,
+});
+
+const optionalOrders = async (client, query, options) => {
+  try {
+    return await client.getAll('/v1/orders', query, options);
+  } catch {
+    return { rows: [], evidence: failedPage };
+  }
+};
 
 export const extractSnapcaseWindow = async ({
   client,
@@ -95,11 +127,16 @@ export const extractSnapcaseWindow = async ({
       paymentTimeEnd: `${nextDate(end)} 00:00:00`,
     };
     const [orderPage, paymentPage] = await Promise.all([
-      client.getAll('/v1/orders', query, { pageSize, maxPages }),
+      optionalOrders(client, query, { pageSize, maxPages }),
       client.getAll('/v1/payments', query, { pageSize, maxPages }),
     ]);
-    const orders = normalizeBatch(orderPage.rows, (row) => normalizeOrder(row, context));
-    const payments = normalizeBatch(paymentPage.rows, (row) => normalizePayment(row, context));
+    const machineById = new Map(machines.accepted.map((machine) => [machine.sourceMachineId, machine]));
+    const rowContext = (row) => {
+      const machine = machineById.get(String(row?.machineId ?? ''));
+      return { ...context, machineTimezone: machine?.sourceTimezone, machineCurrency: machine?.sourceCurrency };
+    };
+    const orders = normalizeBatch(orderPage.rows, (row) => normalizeOrder(row, rowContext(row)));
+    const payments = normalizeBatch(paymentPage.rows, (row) => normalizePayment(row, rowContext(row)));
     result.orders.push(...orders.accepted);
     result.payments.push(...payments.accepted);
     result.rejected.orders.push(...orders.rejected);
@@ -108,7 +145,6 @@ export const extractSnapcaseWindow = async ({
       evidence({ resource: 'orders', start, end, timezone: requestedTimezone, page: orderPage.evidence, rejectedCount: orders.rejected.length }),
       evidence({ resource: 'payments', start, end, timezone: requestedTimezone, page: paymentPage.evidence, rejectedCount: payments.rejected.length }),
     );
-    return result;
   }
 
   for (const machine of machines.accepted) {
@@ -117,20 +153,32 @@ export const extractSnapcaseWindow = async ({
       paymentTimeStart: `${start} 00:00:00`,
       paymentTimeEnd: `${nextDate(end)} 00:00:00`,
     };
+    const machineContext = {
+      ...context,
+      machineTimezone: machine.sourceTimezone,
+      machineCurrency: machine.sourceCurrency,
+    };
     const [orderPage, paymentPage] = await Promise.all([
-      client.getAll('/v1/orders', query, { pageSize, maxPages }),
+      optionalOrders(client, query, { pageSize, maxPages }),
       client.getAll('/v1/payments', query, { pageSize, maxPages }),
     ]);
-    const orders = normalizeBatch(orderPage.rows, (row) => normalizeOrder(row, context));
-    const payments = normalizeBatch(paymentPage.rows, (row) => normalizePayment(row, context));
+    const orders = normalizeBatch(orderPage.rows, (row) => normalizeOrder(row, machineContext));
+    const payments = normalizeBatch(paymentPage.rows, (row) => normalizePayment(row, machineContext));
     result.orders.push(...orders.accepted);
     result.payments.push(...payments.accepted);
     result.rejected.orders.push(...orders.rejected.map((row) => ({ ...row, sourceMachineId: machine.sourceMachineId })));
     result.rejected.payments.push(...payments.rejected.map((row) => ({ ...row, sourceMachineId: machine.sourceMachineId })));
     result.evidence.push(
-      evidence({ resource: 'orders', sourceMachineId: machine.sourceMachineId, start, end, timezone: requestedTimezone, page: orderPage.evidence, rejectedCount: orders.rejected.length }),
-      evidence({ resource: 'payments', sourceMachineId: machine.sourceMachineId, start, end, timezone: requestedTimezone, page: paymentPage.evidence, rejectedCount: payments.rejected.length }),
+      evidence({ resource: 'orders', sourceMachineId: machine.sourceMachineId, start, end, timezone: machine.sourceTimezone, page: orderPage.evidence, rejectedCount: orders.rejected.length }),
+      evidence({ resource: 'payments', sourceMachineId: machine.sourceMachineId, start, end, timezone: machine.sourceTimezone, page: paymentPage.evidence, rejectedCount: payments.rejected.length }),
     );
+  }
+  if (accountWideSales) {
+    // Account-wide rows retain retired-machine discovery. The later
+    // per-machine copies win for current inventory because their complete
+    // machine-local evidence is what can publish cash and prove zero rows.
+    result.orders = [...new Map(result.orders.map((row) => [row.sourceKey, row])).values()];
+    result.payments = [...new Map(result.payments.map((row) => [row.sourceKey, row])).values()];
   }
   return result;
 };

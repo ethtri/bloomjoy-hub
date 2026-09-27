@@ -18,4 +18,11 @@ serve(createSnapcaseIngestHandler({
       p_payload: payload,
     });
   },
+  finalize: async (sourceAccountKey, runKey) => {
+    if (!supabase) return { data: null, error: { message: "not_configured" } };
+    return await supabase.rpc("service_finalize_snapcase_import_run", {
+      p_source_account_key: sourceAccountKey,
+      p_run_key: runKey,
+    });
+  },
 }));
