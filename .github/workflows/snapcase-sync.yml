@@ -8,13 +8,22 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Fixture dry run is safe; live ingest also requires the disabled environment flag'
+        description: 'Fixture dry run is safe; live modes also require the disabled environment flag'
         required: true
         default: fixture-dry-run
         type: choice
         options:
           - fixture-dry-run
           - live-ingest
+          - history-backfill
+      date_start:
+        description: 'Inclusive YYYY-MM-DD start; required with date_end for history backfill'
+        required: false
+        type: string
+      date_end:
+        description: 'Inclusive YYYY-MM-DD end; required with date_start for history backfill'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -26,7 +35,7 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: ${{ inputs.mode == 'history-backfill' && 360 || 20 }}
     env:
       SNAPCASE_SYNC_ENABLED: ${{ vars.SNAPCASE_SYNC_ENABLED || 'false' }}
     steps:
@@ -38,6 +47,22 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '20'
+      - name: Validate manual date range
+        if: github.event_name == 'workflow_dispatch' && inputs.mode != 'fixture-dry-run'
+        env:
+          DATE_START: ${{ inputs.date_start || '' }}
+          DATE_END: ${{ inputs.date_end || '' }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          if [[ -n "$DATE_START" || -n "$DATE_END" ]]; then
+            if [[ -z "$DATE_START" || -z "$DATE_END" ]]; then
+              echo "date_start and date_end must be provided together." >&2
+              exit 1
+            fi
+          elif [[ "$MODE" == "history-backfill" ]]; then
+            echo "history-backfill requires date_start and date_end." >&2
+            exit 1
+          fi
       - name: Keep scheduled sync disabled until production activation
         if: github.event_name == 'schedule' && env.SNAPCASE_SYNC_ENABLED != 'true'
         run: echo "SnapCase sync is disabled."
@@ -55,9 +80,40 @@ jobs:
           REPORTING_ROW_HASH_SALT: ${{ secrets.REPORTING_ROW_HASH_SALT }}
           SNAPCASE_INGEST_URL: ${{ secrets.SNAPCASE_INGEST_URL }}
           REPORTING_INGEST_TOKEN: ${{ secrets.REPORTING_INGEST_TOKEN }}
-        run: node scripts/snapcase/sync-snapcase.mjs --live-provider --ingest
+          DATE_START: ${{ inputs.date_start || '' }}
+          DATE_END: ${{ inputs.date_end || '' }}
+        run: |
+          args=(--live-provider --ingest)
+          if [[ -n "$DATE_START" ]]; then
+            args+=(--date-start "$DATE_START" --date-end "$DATE_END")
+          fi
+          node scripts/snapcase/sync-snapcase.mjs "${args[@]}"
+      - name: Run enabled historical backfill
+        if: >-
+          github.event_name == 'workflow_dispatch' &&
+          inputs.mode == 'history-backfill' &&
+          env.SNAPCASE_SYNC_ENABLED == 'true'
+        env:
+          KEXIAOZHAN_REPORTING_USERNAME: ${{ secrets.KEXIAOZHAN_REPORTING_USERNAME }}
+          KEXIAOZHAN_REPORTING_PASSWORD: ${{ secrets.KEXIAOZHAN_REPORTING_PASSWORD }}
+          SNAPCASE_ACCOUNT_KEY: ${{ secrets.SNAPCASE_ACCOUNT_KEY }}
+          REPORTING_ROW_HASH_SALT: ${{ secrets.REPORTING_ROW_HASH_SALT }}
+          SNAPCASE_INGEST_URL: ${{ secrets.SNAPCASE_INGEST_URL }}
+          REPORTING_INGEST_TOKEN: ${{ secrets.REPORTING_INGEST_TOKEN }}
+          DATE_START: ${{ inputs.date_start || '' }}
+          DATE_END: ${{ inputs.date_end || '' }}
+        run: |
+          node scripts/snapcase/backfill-snapcase.mjs \
+            --live-provider \
+            --ingest \
+            --date-start "$DATE_START" \
+            --date-end "$DATE_END" \
+            --checkpoint "$RUNNER_TEMP/snapcase-backfill-checkpoint.local"
       - name: Reject live request while disabled
-        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'live-ingest' && env.SNAPCASE_SYNC_ENABLED != 'true'
+        if: >-
+          github.event_name == 'workflow_dispatch' &&
+          inputs.mode != 'fixture-dry-run' &&
+          env.SNAPCASE_SYNC_ENABLED != 'true'
         run: |
           echo "SnapCase live ingest remains disabled."
           exit 1
