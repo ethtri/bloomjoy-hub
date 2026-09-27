@@ -702,6 +702,7 @@ npm run refunds:validate-portal-uat-lifecycle
 - [ ] `/admin/machines` presents one compact machine list (not a second Nayax table), defaults to the operational portfolio view, and preserves search/view filters when returning from a machine detail
 - [ ] Machine rows show identity, the highest-priority attention item, refund readiness, reporting status, latest activity, and one `Manage` action without exposing manager emails or provider IDs in the list
 - [ ] `/admin/machines/:machineId` separates Overview, Refunds, Managers, Reporting, and Activity; browser Back returns to the preserved list state
+- [ ] An unmapped machine's Refunds setup leaves the Nayax account blank and requires the exact provider account when a new machine ID is entered; existing mappings retain their saved account, and legacy mappings with an ID but no stored account retain the effective TGPACI account
 - [ ] Machine Manager additions/removals remain pending until `Save managers`; Cancel restores saved assignments, and changing tasks or leaving with pending edits requires an explicit discard decision
 - [ ] `/admin/machines/inventory` is Super Admin-only, defaults to `Needs review`, and keeps Published, Excluded, All, search, and per-row Review controls available
 - [ ] `/admin/machines` has no page-level horizontal overflow at 360x800, 390x844, 414x896, 1024x768, or 1440x900; mobile and 1024px rows show only machine, attention, refunds, and one 44px `Manage` action
