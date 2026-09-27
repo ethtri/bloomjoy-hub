@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(74);
+select plan(95);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -764,5 +764,208 @@ select is((select count(*)::integer from public.refund_case_nayax_refund_attempt
     'e1450000-0000-4000-8000-000000000002')),2,
   'terminal and no-refund replay retain exactly the original two attempts');
 
+-- A wallet-device suffix with rough occurrence time and no safe provider
+-- identifier match is internal research, even if every returned row is safe
+-- in isolation. A later exact safe result restores the final-decision set.
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
+  customer_email,issue_summary,incident_at,incident_timezone,incident_time_resolution,
+  incident_time_confidence,payment_method,payment_amount_cents,card_last4,
+  card_last4_provenance,card_wallet_used,payment_interaction,status,correlation_status,
+  deterministic_fact_version,intake_source,intake_meta,customer_request_received_at,
+  customer_request_received_source,nayax_lookup_generation,
+  nayax_lookup_status,nayax_refund_execution_status)
+values('e1450000-0000-4000-8000-000000000005','RF-REVIEWED-WALLET',
+  'e1440000-0000-4000-8000-000000000001','e1430000-0000-4000-8000-000000000001',
+  'reviewed-wallet@example.invalid','Wallet identifier needs research',
+  '2026-09-12T20:00:00Z','America/Los_Angeles','exact','rough','card',1000,
+  '2776','wallet_device_token',true,'phone_watch_wallet','needs_review','needs_nayax',
+  1,'form','{}','2026-09-12T21:00:00Z','hosted_refund_intake',0,
+  'not_started','not_requested');
+select is((public.service_begin_refund_nayax_lookup(
+  'e1450000-0000-4000-8000-000000000005',1,'scheduled',null
+)->>'lookupGeneration')::bigint,1::bigint,
+  'Wallet research starts through the read-only scheduled claimant');
+insert into public.refund_nayax_lookup_candidates(
+  token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
+  provider_transaction_id,site_id,machine_authorization_time,amount_cents,
+  card_last4,currency_code,evidence_summary,expires_at)
+values
+('e1460000-0000-4000-8000-000000000071','e1450000-0000-4000-8000-000000000005',1,null,
+ 'e1440000-0000-4000-8000-000000000001','REVIEWED-WALLET-SALE-1',17,
+ '2026-09-12T20:00:00Z',1000,'7703','USD',
+ pg_temp.evidence(1000,1)||jsonb_build_object('card_last4','7703',
+   'policy_version','2026-09-13.v12',
+   'customer_credential_class','customer_wallet_device_token',
+   'card_last4_comparison','mismatch_neutral_unproven_scope',
+   'identifier_review_state','reviewable_uncertainty'),now()+interval '1 hour'),
+('e1460000-0000-4000-8000-000000000072','e1450000-0000-4000-8000-000000000005',1,null,
+ 'e1440000-0000-4000-8000-000000000001','REVIEWED-WALLET-SALE-2',17,
+ '2026-09-12T20:00:00Z',1060,'7908','USD',
+ pg_temp.evidence(1060,2)||jsonb_build_object('card_last4','7908',
+   'policy_version','2026-09-13.v12',
+   'customer_credential_class','customer_wallet_device_token',
+   'card_last4_comparison','mismatch_neutral_unproven_scope',
+   'identifier_review_state','reviewable_uncertainty'),now()+interval '1 hour');
+select is((public.service_commit_refund_nayax_lookup(
+  'e1450000-0000-4000-8000-000000000005',1,1,'multiple_matches','ambiguous',
+  '2026-09-13.v12',statement_timestamp(),'Two ambiguous wallet sales',null,2,'scheduled',null
+)->>'applied'),'true','Unmatched wallet lookup completes without a payment attempt');
+select is((select count(*)::integer from public.refund_nayax_lookup_candidates k
+  where k.refund_case_id='e1450000-0000-4000-8000-000000000005'
+    and k.lookup_generation=1
+    and public.refund_reviewed_card_candidate_safe_v1(k.refund_case_id,k.token)),2,
+  'Both mismatched wallet candidates pass hard provider checks yet lack identity corroboration');
+select is(public.refund_wallet_identifier_research_required(
+  'e1450000-0000-4000-8000-000000000005'),true,
+  'Rough wallet time with no safe exact provider suffix requires internal research');
+select is(public.refund_manager_preparation_snapshot(
+  'e1450000-0000-4000-8000-000000000005',
+  (select official_action_version from public.refund_cases
+    where id='e1450000-0000-4000-8000-000000000005')),null::jsonb,
+  'An unmatched wallet set cannot mint a Manager final-decision proof');
+select is(public.refund_lifecycle_contract(
+  'e1450000-0000-4000-8000-000000000005')->'nextWork'->>'actor',
+  'agent','Unmatched wallet case stays with the internal Agent');
+select is(public.refund_lifecycle_contract(
+  'e1450000-0000-4000-8000-000000000005')->'nextWork'->'blocker'->>'code',
+  'wallet_identifier_unverified','Internal research has a specific, truthful blocker');
+select is(public.refund_lifecycle_contract(
+  'e1450000-0000-4000-8000-000000000005')->'managerQueue'->>'bucket',
+  'in_progress','Unmatched wallet does not appear as a Manager decision task');
+select is(public.refund_lifecycle_contract(
+  'e1450000-0000-4000-8000-000000000005')->'managerAction'->>'action',
+  'none','Manager cannot choose an unrelated wallet purchase');
+select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
+    where refund_case_id='e1450000-0000-4000-8000-000000000005'),0,
+  'Research gate never starts a provider payment');
+select is((public.service_begin_refund_nayax_lookup(
+  'e1450000-0000-4000-8000-000000000005',1,'scheduled',null
+)->>'lookupGeneration')::bigint,2::bigint,
+  'A later supported read can reconsider newly returned provider evidence');
+insert into public.refund_nayax_lookup_candidates(
+  token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
+  provider_transaction_id,site_id,machine_authorization_time,amount_cents,
+  card_last4,currency_code,evidence_summary,expires_at)
+select case k.token when 'e1460000-0000-4000-8000-000000000071'::uuid
+    then 'e1460000-0000-4000-8000-000000000081'::uuid
+    else 'e1460000-0000-4000-8000-000000000082'::uuid end,
+  k.refund_case_id,2,k.actor_user_id,k.reporting_machine_id,
+  k.provider_transaction_id,k.site_id,k.machine_authorization_time,
+  k.amount_cents,k.card_last4,k.currency_code,k.evidence_summary,k.expires_at
+from public.refund_nayax_lookup_candidates k
+where k.refund_case_id='e1450000-0000-4000-8000-000000000005'
+  and k.lookup_generation=1;
+insert into public.refund_nayax_lookup_candidates(
+  token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
+  provider_transaction_id,site_id,machine_authorization_time,amount_cents,
+  card_last4,currency_code,evidence_summary,expires_at)
+values('e1460000-0000-4000-8000-000000000083',
+  'e1450000-0000-4000-8000-000000000005',2,null,
+  'e1440000-0000-4000-8000-000000000001','REVIEWED-WALLET-EXACT',17,
+  '2026-09-12T20:00:00Z',1000,'2776','USD',
+  pg_temp.evidence(1000,3)||jsonb_build_object('card_last4','2776',
+    'policy_version','2026-09-13.v12',
+    'customer_credential_class','customer_wallet_device_token'),now()+interval '1 hour');
+select is((public.service_commit_refund_nayax_lookup(
+  'e1450000-0000-4000-8000-000000000005',2,1,'multiple_matches','ambiguous',
+  '2026-09-13.v12',statement_timestamp(),'Later exact wallet sale',null,3,'scheduled',null
+)->>'applied'),'true','Later lookup records the exact safe wallet candidate');
+select is(public.refund_wallet_identifier_research_required(
+  'e1450000-0000-4000-8000-000000000005'),false,
+  'An exact hard-safe provider suffix clears the research-only gate');
+select is(public.refund_manager_preparation_snapshot(
+  'e1450000-0000-4000-8000-000000000005',
+  (select official_action_version from public.refund_cases
+    where id='e1450000-0000-4000-8000-000000000005'))->>'evidenceBasis',
+  'card_reviewed_candidate_set','Exact safe wallet evidence restores one final Manager decision set');
+
+-- A server-consumed QR claim supplies independent time and machine evidence.
+-- The tokenized wallet suffix is context, not a veto, when exactly one safe
+-- current sale is corroborated by the verified QR window.
+update public.refund_nayax_machine_inventory
+set provider_is_active=true,refund_category='cotton_candy',
+  reconciliation_state='published'
+where reporting_machine_id='e1440000-0000-4000-8000-000000000001';
+select ok(exists(select 1 from public.public_refund_machine_options()
+  where machine_id='e1440000-0000-4000-8000-000000000001'),
+  'The synthetic QR machine is published for public intake');
+insert into public.refund_machine_qr_codes(
+  id,reporting_machine_id,public_code,version)
+values('e1470000-0000-4000-8000-000000000001',
+  'e1440000-0000-4000-8000-000000000001',
+  'refund_reviewed_wallet_qr_fixture_0001',1);
+insert into public.refund_qr_claim_contexts(
+  id,qr_code_id,reporting_machine_id,claim_token_hash,opened_at,expires_at)
+values('e1470000-0000-4000-8000-000000000002',
+  'e1470000-0000-4000-8000-000000000001',
+  'e1440000-0000-4000-8000-000000000001',repeat('e',64),
+  date_trunc('second',statement_timestamp())-interval '5 minutes',
+  date_trunc('second',statement_timestamp())+interval '25 minutes');
+insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
+  customer_email,issue_summary,incident_at,incident_timezone,incident_time_resolution,
+  incident_time_confidence,payment_method,payment_amount_cents,card_last4,
+  card_last4_provenance,card_wallet_used,payment_interaction,status,correlation_status,
+  deterministic_fact_version,intake_source,intake_meta,customer_request_received_at,
+  customer_request_received_source,nayax_lookup_generation,
+  nayax_lookup_status,nayax_refund_execution_status,refund_qr_claim_context_id)
+select 'e1450000-0000-4000-8000-000000000006'::uuid,'RF-REVIEWED-WALLET-QR',
+  'e1440000-0000-4000-8000-000000000001','e1430000-0000-4000-8000-000000000001',
+  'reviewed-wallet-qr@example.invalid','QR corroborates a tokenized wallet sale',
+  q.opened_at-interval '5 minutes','America/Los_Angeles','exact','rough',
+  'card',1000,'2776','wallet_device_token',true,'phone_watch_wallet',
+  'needs_review','needs_nayax',1,'form','{}',q.opened_at+interval '5 minutes',
+  'hosted_refund_intake',0,'not_started','not_requested',
+  q.id
+from public.refund_qr_claim_contexts q
+where q.id='e1470000-0000-4000-8000-000000000002';
+select ok((select consumed_at is not null from public.refund_qr_claim_contexts
+  where id='e1470000-0000-4000-8000-000000000002'),
+  'The QR context is consumed by this same-machine case');
+select is((public.service_begin_refund_nayax_lookup(
+  'e1450000-0000-4000-8000-000000000006',1,'scheduled',null
+)->>'lookupGeneration')::bigint,1::bigint,
+  'QR-backed wallet case uses the ordinary read-only lookup');
+insert into public.refund_nayax_lookup_candidates(
+  token,refund_case_id,lookup_generation,actor_user_id,reporting_machine_id,
+  provider_transaction_id,site_id,machine_authorization_time,amount_cents,
+  card_last4,currency_code,evidence_summary,expires_at)
+select 'e1460000-0000-4000-8000-000000000091'::uuid,
+  'e1450000-0000-4000-8000-000000000006'::uuid,1,null,
+  'e1440000-0000-4000-8000-000000000001'::uuid,
+  'REVIEWED-WALLET-QR-SALE',17,q.opened_at-interval '5 minutes',1000,
+  '7703','USD',pg_temp.evidence(1000,1)||jsonb_build_object(
+    'card_last4','7703','policy_version','2026-09-13.v12',
+    'customer_credential_class','customer_wallet_device_token',
+    'card_last4_comparison','mismatch_neutral_unproven_scope',
+    'identifier_review_state','reviewable_uncertainty',
+    'machine_authorization_time_raw',to_char(
+      (q.opened_at-interval '5 minutes') at time zone 'UTC',
+      'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+    'machine_authorization_at',q.opened_at-interval '5 minutes',
+    'authorized_at',q.opened_at-interval '5 minutes',
+    'customer_request_received_at',c.customer_request_received_at,
+    'reason_codes','["machine_exact","provider_sale_approved","qr_time_within_30m"]'::jsonb,
+    'qr_time_delta_minutes',5),now()+interval '1 hour'
+from public.refund_qr_claim_contexts q
+join public.refund_cases c on c.refund_qr_claim_context_id=q.id
+where c.id='e1450000-0000-4000-8000-000000000006';
+select is((public.service_commit_refund_nayax_lookup(
+  'e1450000-0000-4000-8000-000000000006',1,1,'multiple_matches','ambiguous',
+  '2026-09-13.v12',statement_timestamp(),'Unique QR corroborated wallet sale',null,1,
+  'scheduled',null)->>'applied'),'true',
+  'QR-backed provider lookup completes without a payment');
+select is((select count(*)::integer from public.refund_nayax_lookup_candidates k
+  where k.refund_case_id='e1450000-0000-4000-8000-000000000006'
+    and public.refund_reviewed_card_candidate_safe_v1(k.refund_case_id,k.token)),1,
+  'The mismatched-suffix QR sale independently passes hard provider checks');
+select is(public.refund_wallet_identifier_research_required(
+  'e1450000-0000-4000-8000-000000000006'),false,
+  'One verified QR-correlated safe sale clears the wallet research-only gate');
+select is(public.refund_manager_preparation_snapshot(
+  'e1450000-0000-4000-8000-000000000006',
+  (select official_action_version from public.refund_cases
+    where id='e1450000-0000-4000-8000-000000000006'))->>'evidenceBasis',
+  'card_reviewed_candidate_set',
+  'QR-backed mismatch preserves the reviewed final-decision path without payment');
 select * from finish();
 rollback;
