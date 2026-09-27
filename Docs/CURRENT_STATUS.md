@@ -137,14 +137,21 @@ orientation snapshot; it is not a backlog or release ledger.
   customer-status notices and eight current clarification-contact obligations.
   Those exact delivery histories still need reconciliation; the health signal
   does not establish that a customer reply or refund was completed. The first
-  two natural daily Manager digest cycles remain to be observed.
+  natural daily Manager digest cycle on September 27 sent four scoped digests
+  for 73 recipient-case entries (41 distinct cases); all four provider receipts
+  were delivered, and the mapped Manager with no open cases received none.
+  The September 28 cycle remains.
 - The two completed-card cases have a successful Nayax refund but an exhausted,
   unsent completion email. Their original Info conversations have no completion
   reply, and the exact database messages have no provider or Gmail send record.
-  An operator-only, one-time recovery is being reviewed; no replacement email
+  An operator-only, one-time recovery is merged but not yet deployed; no replacement email
   or payment has been sent. Six other clarification cycles never formed a
   customer question, one was correctly policy-suppressed, and one historical
   Resend effect remains unknown. None should be blindly resent.
+- Historical no-safe-match follow-up cycles that stopped before creating any
+  customer question can be reclassified only after current facts and absent
+  send evidence are checked. They remain open Agent purchase-research work;
+  the task no longer suggests recovering delivery of a nonexistent question.
 - Technician wall-clock entries are interpreted in the selected machine
   location's IANA timezone. This keeps completed Eastern and Central work from
   being rejected as future merely because Bloomjoy's month-close policy and
