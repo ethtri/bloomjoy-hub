@@ -1002,6 +1002,7 @@ export const createOrdinarySuccessChecks = ({
     page.on('pageerror', (error) => consoleErrors.push(error.message));
 
     await signInRefundUser(page, appUrl);
+    await page.getByRole('button', { name: /^All active 2$/ }).click();
     await waitForQueueCount(page, 2);
     await queueCase(page, 'RF-UAT-GMAIL').click();
     await page.getByTestId('refund-gmail-draft-workbench').waitFor({ timeout: 10000 });
@@ -1303,6 +1304,8 @@ export const createOrdinarySuccessChecks = ({
 
     await page.setViewportSize({ width: 390, height: 844 });
     await navigateRefundPortalPage(page, `${appUrl}/refunds`, { waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: /^All active 2$/ }).click();
+    await waitForQueueCount(page, 2);
     await page.getByRole('button', { name: /RF-UAT-GMAIL/ }).click();
     await page.getByTestId('refund-gmail-draft-workbench').waitFor({ timeout: 10000 });
     await settleRefundPortalPage(page);
@@ -1403,6 +1406,8 @@ export const createOrdinarySuccessChecks = ({
     });
     const rejectionPage = await rejectionContext.newPage();
     await signInRefundUser(rejectionPage, appUrl);
+    await rejectionPage.getByRole('button', { name: /^All active 1$/ }).click();
+    await waitForQueueCount(rejectionPage, 1);
     await queueCase(rejectionPage, 'RF-UAT-GMAIL').click();
     await rejectionPage.getByTestId('refund-gpt-reject-draft').click();
     await rejectionPage.getByTestId('refund-gpt-reject-reason').selectOption('wrong_missing_fields');
@@ -1423,6 +1428,8 @@ export const createOrdinarySuccessChecks = ({
     });
     const humanReviewPage = await humanReviewContext.newPage();
     await signInRefundUser(humanReviewPage, appUrl);
+    await humanReviewPage.getByRole('button', { name: /^All active 1$/ }).click();
+    await waitForQueueCount(humanReviewPage, 1);
     await queueCase(humanReviewPage, 'RF-UAT-GMAIL').click();
     await humanReviewPage.getByTestId('refund-gpt-triage-review').waitFor({ timeout: 10000 });
     recorder.assert(
