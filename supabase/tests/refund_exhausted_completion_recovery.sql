@@ -118,15 +118,21 @@ from generate_series(1,3) n;
 create function pg_temp.capture_error(statement text) returns text
 language plpgsql as $$ begin execute statement; return null;
 exception when others then return sqlstate; end $$;
+select ok(to_regprocedure(
+  'public.service_prepare_exhausted_nayax_completion_recovery(text,uuid,text,uuid)') is null,
+  'The stale-copy exhausted recovery signature is removed');
 select ok(has_function_privilege('service_role',
-  'public.service_prepare_exhausted_nayax_completion_recovery(text,uuid,text,uuid)',
+  'public.service_prepare_exhausted_nayax_completion_recovery(text,uuid,text,uuid,text,text)',
   'execute') and not has_function_privilege('authenticated',
-  'public.service_prepare_exhausted_nayax_completion_recovery(text,uuid,text,uuid)',
+  'public.service_prepare_exhausted_nayax_completion_recovery(text,uuid,text,uuid,text,text)',
   'execute'),'Only the service executor can prepare an exhausted recovery');
 select is(public.service_prepare_exhausted_nayax_completion_recovery(
   'synthetic-exhausted-recovery-executor',
   'e5280000-0000-4000-8000-000000000001','673955',
-  'e5290000-0000-4000-8000-000000000001')->>'prepared','true',
+  'e5290000-0000-4000-8000-000000000001','Re: Recovery fixture',
+  $copy$Nayax confirmed your $5.00 refund on September 19.
+
+Reference: RF-EXHAUSTED-1$copy$)->>'currentCopy','true',
   'Exact unsent completion prepares once');
 select is((select actor_user_id from public.refund_case_events where
   event_type='nayax_customer_completion_exhausted_recovery_prepared'
@@ -136,30 +142,86 @@ select is((select actor_user_id from public.refund_case_events where
 select is((select status from public.refund_case_messages where id=
   'e5280000-0000-4000-8000-000000000001'),'pending',
   'Original saved message is the only message prepared');
+select is((select subject from public.refund_case_messages where id=
+  'e5280000-0000-4000-8000-000000000001'),'Re: Recovery fixture',
+  'The original ledger message receives the reviewed subject');
+select is((select body from public.refund_case_messages where id=
+  'e5280000-0000-4000-8000-000000000001'),
+  $copy$Nayax confirmed your $5.00 refund on September 19.
+
+Reference: RF-EXHAUSTED-1$copy$,
+  'The original ledger message receives the reviewed current body without stale copy');
+select is((select template_key from public.refund_case_messages where id=
+  'e5280000-0000-4000-8000-000000000001'),
+  'refund_nayax_completed_current_v1',
+  'The amended message records the current-copy template identity');
+select ok((select metadata->>'copy_sha256' ~ '^[a-f0-9]{64}$'
+  and not metadata ? 'subject' and not metadata ? 'body'
+  and metadata->>'payment_action_taken'='false'
+  from public.refund_case_events where
+  event_type='nayax_customer_completion_exhausted_recovery_prepared'
+  and refund_case_id='e5240000-0000-4000-8000-000000000001'),
+  'The recovery event stores only a redacted copy digest and no payment action');
 select is((select completion_delivery_retry_count from public.refund_case_nayax_refund_attempts
   where id='e5260000-0000-4000-8000-000000000001'),1,
   'Recovery does not reset the bounded retry count');
 select is(pg_temp.capture_error($$select public.service_prepare_exhausted_nayax_completion_recovery(
   'synthetic-exhausted-recovery-executor',
   'e5280000-0000-4000-8000-000000000001','673955',
-  'e5290000-0000-4000-8000-000000000001')$$),'P0001',
+  'e5290000-0000-4000-8000-000000000001','Re: Recovery fixture',
+  $copy$Nayax confirmed your $5.00 refund on September 19.
+
+Reference: RF-EXHAUSTED-1$copy$)$$),'P0001',
   'A second preparation fails closed');
 update public.refund_case_messages set provider_message_id='possible-provider-effect'
 where id='e5280000-0000-4000-8000-000000000002';
 select is(pg_temp.capture_error($$select public.service_prepare_exhausted_nayax_completion_recovery(
   'synthetic-exhausted-recovery-executor',
   'e5280000-0000-4000-8000-000000000002','673955',
-  'e5290000-0000-4000-8000-000000000001')$$),'P0001',
+  'e5290000-0000-4000-8000-000000000001','Re: Recovery fixture',
+  $copy$Nayax confirmed your $5.00 refund on September 19.
+
+Reference: RF-EXHAUSTED-2$copy$)$$),'P0001',
   'Possible provider effect cannot be retried');
 select is(pg_temp.capture_error($$select public.service_prepare_exhausted_nayax_completion_recovery(
   'synthetic-exhausted-recovery-executor',
+  'e5280000-0000-4000-8000-000000000003','673955',
+  'e5290000-0000-4000-8000-000000000001','Re: Recovery fixture',
+  $copy$Your $5.00 refund is on its way and may take four business days.
+
+Reference: RF-EXHAUSTED-3$copy$)$$),'P0001',
+  'Stale timing language cannot be rebound to the saved message');
+select is(pg_temp.capture_error($$select public.service_prepare_exhausted_nayax_completion_recovery(
+  'synthetic-exhausted-recovery-executor',
+  'e5280000-0000-4000-8000-000000000003','673955',
+  'e5290000-0000-4000-8000-000000000001','Re: Recovery fixture',
+  $copy$Your refund is not confirmed. We confirmed no refund.
+
+Reference: RF-EXHAUSTED-3$copy$)$$),'P0001',
+  'Negated confirmation wording cannot be rebound to the saved message');
+select is(pg_temp.capture_error($$select public.service_prepare_exhausted_nayax_completion_recovery(
+  'synthetic-exhausted-recovery-executor',
+  'e5280000-0000-4000-8000-000000000003','673955',
+  'e5290000-0000-4000-8000-000000000001','Re: Recovery fixture',
+  $copy$Nayax confirmed your $5.00 refund on September 19. It was not processed.
+
+Reference: RF-EXHAUSTED-3$copy$)$$),'P0001',
+  'A canonical sentence followed by contradictory wording is rejected');
+select is(pg_temp.capture_error($$select public.service_prepare_exhausted_nayax_completion_recovery(
+  'synthetic-exhausted-recovery-executor',
   'e5280000-0000-4000-8000-000000000003','wrong-history',
-  'e5290000-0000-4000-8000-000000000001')$$),'P0001',
+  'e5290000-0000-4000-8000-000000000001','Re: Recovery fixture',
+  $copy$Nayax confirmed your $5.00 refund on September 19.
+
+Reference: RF-EXHAUSTED-3$copy$)$$),'P0001',
   'Unreviewed history shape is rejected');
 select is(pg_temp.capture_error($$select public.service_prepare_exhausted_nayax_completion_recovery(
   'synthetic-exhausted-recovery-executor',
   'e5280000-0000-4000-8000-000000000003','673955',
-  'e5290000-0000-4000-8000-000000000002')$$),'P0001',
+  'e5290000-0000-4000-8000-000000000002','Re: Recovery fixture',
+  $copy$Nayax confirmed your $5.00 refund on September 19.
+
+Reference: RF-EXHAUSTED-3$copy$)$$),'P0001',
   'An unauthorized recovery actor cannot be attributed to the event');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
   where refund_case_id::text like 'e5240000%'),3,
