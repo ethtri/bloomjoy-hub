@@ -155,7 +155,7 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /scenario\.queueView === 'Waiting for customer'[\s\S]*?preserves the customer wait without exposing transaction-search controls[\s\S]*?continue;[\s\S]*?else \{[\s\S]*?renders durable server lookup evidence without a browser lookup/
+  /scenario\.queueView === 'Waiting on customer'[\s\S]*?preserves the customer wait without exposing transaction-search controls[\s\S]*?continue;[\s\S]*?else \{[\s\S]*?renders durable server lookup evidence without a browser lookup/
 );
 assert.equal(
   [...portalSource.matchAll(/url\.includes\('\/admin_get_refund_operations_overview'\)/g)].length,

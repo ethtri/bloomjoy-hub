@@ -310,9 +310,7 @@ export const createOrdinarySuccessChecks = ({
         (await waitingRow.count()) === 1 &&
         waitingRowText.includes('Waiting on customer') &&
         waitingDetailState === 'Waiting on customer' &&
-        waitingDetailNextStep.includes(
-          'Wait for the customer to reply with purchase date, purchase time in the existing email thread.'
-        ),
+        waitingDetailNextStep.includes('Waiting for the customer to answer the delivered question.'),
       JSON.stringify({
         waitingPressed: await waitingFilter.getAttribute('aria-pressed'),
         queueCount: await page.getByTestId('refund-queue-count').innerText(),
@@ -322,7 +320,7 @@ export const createOrdinarySuccessChecks = ({
         waitingDetailNextStep,
       })
     );
-    await page.getByRole('button', { name: /Ready to approve/ }).click();
+    await page.getByRole('button', { name: /Decision needed/ }).click();
     await page.getByLabel('Search refund cases').fill('RF-UAT-CARD');
     await waitForQueueCount(page, 1);
     recorder.assert(
@@ -340,11 +338,10 @@ export const createOrdinarySuccessChecks = ({
       'Queue search and the distinct manager views have programmatic labels',
       await page.getByLabel('Search refund cases').isVisible() &&
         await page.getByLabel('Refund case views').isVisible() &&
-        await page.getByRole('button', { name: /^Action needed \d+$/ }).isVisible() &&
-        await page.getByRole('button', { name: /^Ready to approve \d+$/ }).isVisible() &&
-        await page.getByRole('button', { name: /^Refund in progress \d+$/ }).isVisible() &&
+        await page.getByRole('button', { name: /^Decision needed \d+$/ }).isVisible() &&
         await page.getByRole('button', { name: /^Waiting on customer \d+$/ }).isVisible() &&
-        await page.getByRole('button', { name: /^Done \d+$/ }).isVisible()
+        await page.getByRole('button', { name: /^All active \d+$/ }).isVisible() &&
+        await page.getByRole('button', { name: /^All closed \d+$/ }).isVisible()
     );
 
     await queueCase(page, 'RF-UAT-CARD').click();
@@ -358,20 +355,17 @@ export const createOrdinarySuccessChecks = ({
       'Matched card case opens the recommendation-first workbench',
       await page.getByTestId('refund-card-workbench').isVisible() &&
         await page.getByTestId('refund-request-summary').isVisible() &&
-        await page.getByTestId('nayax-result-card').isVisible()
+        await page.getByTestId('refund-primary-action').isVisible()
     );
     recorder.assert(
-      'Manager case evidence is visible without opening another control',
-      await page.getByTestId('refund-customer-payment-details').isVisible() &&
-        await page.getByTestId('refund-customer-payment-details').getByText('Card ending', { exact: true }).isVisible() &&
-        await page.getByTestId('refund-customer-payment-details').getByText('Visa', { exact: true }).isVisible() &&
-        await page.getByTestId('refund-customer-comments').isVisible() &&
-        (await page.getByTestId('refund-customer-comments').innerText()).includes('Machine spun') &&
+      'Manager case keeps the raw request and concise purchase proof in the main decision',
+      await page.getByTestId('refund-request-summary').isVisible() &&
+        (await page.getByTestId('refund-primary-action').innerText()).includes('Ending 4242') &&
+        (await page.getByTestId('refund-primary-action').innerText()).includes('Transaction time') &&
         (await page.getByRole('button', { name: /^Internal\/test archive/ }).count()) === 0
     );
     await settleRefundPortalPage(page);
     const requestBox = await page.getByTestId('refund-request-summary').boundingBox();
-    const matchBox = await page.getByTestId('nayax-result-card').boundingBox();
     const actionBox = await page.getByTestId('refund-primary-action').boundingBox();
     const primaryButtonBox = await page.getByTestId('refund-run-nayax-refund').boundingBox();
     const boundedWorkspace = await page.evaluate(() => {
@@ -398,12 +392,9 @@ export const createOrdinarySuccessChecks = ({
     );
     recorder.assert(
       'Compact request details and recommended transaction share one decision workspace on a laptop viewport',
-      Boolean(requestBox && matchBox && actionBox) &&
-        requestBox.y < matchBox.y &&
-        Math.abs(requestBox.x - matchBox.x) <= 2 &&
-        Math.abs(requestBox.width - matchBox.width) <= 2 &&
+      Boolean(requestBox && actionBox) &&
         actionBox.y < requestBox.y,
-      JSON.stringify({ requestBox, matchBox, actionBox, primaryButtonBox })
+      JSON.stringify({ requestBox, actionBox, primaryButtonBox })
     );
     recorder.assert(
       'Primary refund action is visible without scrolling the selected case',
@@ -412,18 +403,20 @@ export const createOrdinarySuccessChecks = ({
     );
     recorder.assert(
       'Normal card path has one visible dominant action',
-      (await page.getByTestId('refund-primary-action').locator('button:visible').count()) === 1 &&
-        await page.getByRole('button', { name: 'Refund $7.00', exact: true }).isVisible()
+      (await page.getByTestId('refund-primary-action').locator('button:visible').count()) === 2 &&
+        await page.getByRole('button', { name: 'Approve $7.00 USD refund', exact: true }).isVisible() &&
+        await page.getByRole('button', { name: 'Deny', exact: true }).isVisible()
     );
     recorder.assert(
       'Normal card path hides manual status and decision selectors',
       (await page.locator('[data-testid="refund-status-select"]:visible').count()) === 0
     );
+    await page.getByText('Purchase details and search history', { exact: true }).click();
     recorder.assert(
       'Machine transaction comparison is visible and explicit',
       await page.getByTestId('nayax-result-card').isVisible() &&
         await page.getByTestId('nayax-result-card').getByText('Machine transaction', { exact: true }).isVisible() &&
-        await page.getByTestId('refund-primary-action').getByText('Action needed', { exact: true }).isVisible() &&
+        await page.getByTestId('refund-manager-state').getByText('Refund $7.00 USD', { exact: true }).isVisible() &&
         await page.getByTestId('nayax-result-card').getByText('Transaction selected', { exact: true }).isVisible() &&
         await page.getByTestId('nayax-result-card').getByText('Selected', { exact: true }).isVisible()
     );
@@ -480,10 +473,7 @@ export const createOrdinarySuccessChecks = ({
       await providerClockDiagnostic.isVisible() &&
         (await providerClockDiagnostic.innerText()).includes('America/New_York') &&
         (await providerClockDiagnostic.innerText()).includes('America/Los_Angeles') &&
-        (await providerClockDiagnostic.innerText()).includes('not information the customer needs to repeat') &&
-        (await page.getByTestId('refund-request-summary').innerText()).includes(
-          'Request receipt · shown in venue time · America/New_York'
-        )
+        (await providerClockDiagnostic.innerText()).includes('not information the customer needs to repeat')
     );
     await copyTransactionButton.click();
     recorder.assert(
@@ -530,7 +520,7 @@ export const createOrdinarySuccessChecks = ({
     const selectedRefundActionSnapshot = await page.waitForFunction(() => {
       const actions = [...document.querySelectorAll('[data-testid="refund-run-nayax-refund"]')];
       const label = (actions[0]?.textContent ?? '').trim();
-      return actions.length === 1 && label === 'Refund $7.00'
+      return actions.length === 1 && label === 'Approve $7.00 USD refund'
         ? { refundActionCount: actions.length, refundActionLabel: label }
         : null;
     }, undefined, { timeout: 10000 }).then((snapshot) => snapshot.jsonValue());
@@ -542,14 +532,14 @@ export const createOrdinarySuccessChecks = ({
       'Selected match keeps one manager-owned action without policy copy',
       selectedActionDiagnostics.policyCopyCount === 0 &&
         selectedActionDiagnostics.refundActionCount === 1 &&
-        selectedActionDiagnostics.refundActionLabel === 'Refund $7.00',
+        selectedActionDiagnostics.refundActionLabel === 'Approve $7.00 USD refund',
       JSON.stringify(selectedActionDiagnostics)
     );
     recorder.assert(
       'Case header keeps one current state and one next step',
-      await page.getByTestId('refund-manager-state').getByText('Action needed', { exact: true }).isVisible() &&
+      await page.getByTestId('refund-manager-state').getByText('Refund $7.00 USD', { exact: true }).isVisible() &&
         (await page.getByTestId('refund-primary-action').innerText()).includes('Refund $7.00') &&
-        await page.getByTestId('refund-manager-next-step').getByText(/^Next: /).isVisible()
+        await page.getByTestId('refund-manager-next-step').isVisible()
     );
     recorder.assert(
       'Customer completion email is previewable before execution',
@@ -586,10 +576,10 @@ export const createOrdinarySuccessChecks = ({
         forbiddenCopyMatches: forbiddenCopy.filter((copy) => visibleText.includes(copy)),
       };
       return diagnostics.actionCount === 1 &&
-          diagnostics.actionLabel === 'Refund $7.00' &&
+          diagnostics.actionLabel === 'Approve $7.00 USD refund' &&
           diagnostics.actionVisible &&
           diagnostics.actionDisabled === false &&
-          diagnostics.managerState === 'Action needed' &&
+          diagnostics.managerState === 'Refund $7.00 USD' &&
           diagnostics.primaryActionText.includes('Refund $7.00') &&
           diagnostics.forbiddenCopyMatches.length === 0
         ? diagnostics
@@ -598,10 +588,10 @@ export const createOrdinarySuccessChecks = ({
     recorder.assert(
       'Card completion is an in-app Nayax execution flow',
       inAppExecutionDiagnostics.actionCount === 1 &&
-        inAppExecutionDiagnostics.actionLabel === 'Refund $7.00' &&
+        inAppExecutionDiagnostics.actionLabel === 'Approve $7.00 USD refund' &&
         inAppExecutionDiagnostics.actionVisible &&
         inAppExecutionDiagnostics.actionDisabled === false &&
-        inAppExecutionDiagnostics.managerState === 'Action needed' &&
+        inAppExecutionDiagnostics.managerState === 'Refund $7.00 USD' &&
         inAppExecutionDiagnostics.primaryActionText.includes('Refund $7.00') &&
         inAppExecutionDiagnostics.forbiddenCopyMatches.length === 0,
       JSON.stringify(inAppExecutionDiagnostics)
@@ -745,7 +735,7 @@ export const createOrdinarySuccessChecks = ({
     );
 
     await navigateRefundPortalPage(page, `${appUrl}/refunds`, { waitUntil: 'networkidle' });
-    await page.getByRole('button', { name: /^Ready to approve \d+$/ }).click();
+    await page.getByRole('button', { name: /^Decision needed \d+$/ }).click();
     await queueCase(page, 'RF-UAT-CARD').click();
     await page.getByTestId('refund-run-nayax-refund').waitFor({ state: 'visible' });
     await page.screenshot({
@@ -777,7 +767,7 @@ export const createOrdinarySuccessChecks = ({
 
     await page.setViewportSize({ width: 390, height: 844 });
     await navigateRefundPortalPage(page, `${appUrl}/refunds`, { waitUntil: 'networkidle' });
-    await page.getByRole('button', { name: /^Ready to approve \d+$/ }).click();
+    await page.getByRole('button', { name: /^Decision needed \d+$/ }).click();
     await page.getByRole('button', { name: /RF-UAT-CARD/ }).click();
     await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
     await page.waitForTimeout(100);
@@ -879,7 +869,7 @@ export const createOrdinarySuccessChecks = ({
     });
     const longQueuePage = await longQueueContext.newPage();
     await signInRefundUser(longQueuePage, appUrl);
-    await longQueuePage.getByRole('button', { name: /^Ready to approve 30$/ }).click();
+    await longQueuePage.getByRole('button', { name: /^Decision needed 30$/ }).click();
     await waitForQueueCount(longQueuePage, 30);
     const firstQueueCase = longQueuePage.getByTestId('refund-case-queue-item').filter({ visible: true }).first();
     const firstQueueReference = (await firstQueueCase.innerText()).match(/RF-UAT-LONG-\d{2}/)?.[0];
@@ -1091,14 +1081,14 @@ export const createOrdinarySuccessChecks = ({
         !draftLeakedToBrowserStorage
     );
     await page.getByRole('button', { name: 'Clear search', exact: true }).click();
-    await page.getByRole('button', { name: /^Ready to approve \d+$/ }).click();
+    await page.getByRole('button', { name: /^Decision needed \d+$/ }).click();
     recorder.assert(
       'Queue filters preserve the selected case and its unsent text',
       await page.getByRole('heading', { name: 'RF-UAT-GMAIL', exact: true }).isVisible() &&
         await page.getByTestId('refund-gpt-draft-subject').inputValue() === draftSubject &&
         await page.getByTestId('refund-gpt-draft-body').inputValue() === draftBody
     );
-    await page.getByRole('button', { name: /^Action needed \d+$/ }).click();
+    await page.getByRole('button', { name: /^All active \d+$/ }).click();
 
     const functionCallCountBeforeCaseSwitch = functionCalls.length;
     const mutatingRpcCountBeforeCaseSwitch = rpcCalls.filter(

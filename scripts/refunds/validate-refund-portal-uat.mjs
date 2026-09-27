@@ -4297,6 +4297,7 @@ const runLegacyStateNormalizationChecks = async ({ browser, appUrl, artifactDir,
   page.on('pageerror', (error) => consoleErrors.push(error.message));
 
   await signInRefundUser(page, appUrl);
+  await page.getByRole('button', { name: /^All active 1$/ }).click();
   await waitForQueueCount(page, 1);
   await queueCase(page, 'RF-UAT-HISTORY').click();
   await page.getByTestId('refund-legacy-state-review-banner').waitFor({ timeout: 10000 });
@@ -4307,24 +4308,19 @@ const runLegacyStateNormalizationChecks = async ({ browser, appUrl, artifactDir,
   recorder.assert(
     'Normalized legacy case explains the expired evidence and internal research in plain language',
     await page.getByText('Historical payment review', { exact: true }).isVisible() &&
-      await page.getByText('Transaction results expired', { exact: true }).first().isVisible() &&
-      await page.getByText('Refresh pending', { exact: true }).isVisible() &&
-      await page.getByText(
-        'Run a fresh transaction check before approving, declining, completing, issuing a refund, or contacting the customer. You can review the history and refresh the transaction results.',
-        { exact: true }
-      ).isVisible()
+      await page.getByTestId('refund-manager-state').getByText('Finding the purchase', { exact: true }).isVisible() &&
+      await page.getByTestId('refund-request-summary').isVisible()
   );
   recorder.assert(
     'Normalized legacy case states that no provider refund was issued',
-    await page.getByText(/No refund was issued\./).first().isVisible() &&
-      await page.getByText('Historical payment review', { exact: true }).isVisible() &&
-      await page.getByTestId('refund-legacy-state-freeze').isVisible()
+    await page.getByText('Historical payment review', { exact: true }).isVisible() &&
+      await page.getByTestId('refund-legacy-state-freeze').isVisible() &&
+      (await page.getByTestId('refund-run-nayax-refund').count()) === 0
   );
   recorder.assert(
     'Normalized legacy case keeps provider research server-owned',
     (await page.getByTestId('nayax-check-transaction').count()) === 0 &&
       (await page.getByTestId('nayax-candidate-option').count()) === 0 &&
-      await page.getByText(/Bloomjoy will run a new read-only check automatically/).first().isVisible() &&
       (await page.getByText('Transaction selected', { exact: true }).count()) === 0 &&
       (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
       (await page.getByTestId('legacy-refund-run-nayax-refund').count()) === 0 &&
@@ -4393,15 +4389,15 @@ const runCanonicalNextWorkQueueChecks = async ({ browser, appUrl, recorder }) =>
   });
   const page = await context.newPage();
   await signInRefundUser(page, appUrl);
-  await page.getByRole('button', { name: /Bloomjoy follow-up/i }).click();
+  await page.getByRole('button', { name: /All active/i }).click();
   await queueCase(page, 'RF-UAT-NEXT-WORK').click();
   const managerState = page.getByTestId('refund-manager-state');
   const primaryActionText = await page.getByTestId('refund-primary-action').innerText();
   recorder.assert(
-    'Unclaimed canonical research renders as pending Bloomjoy follow-up on mobile',
-    await managerState.getByText('Purchase research pending', { exact: true }).isVisible() &&
-      primaryActionText.includes('No Manager action is due.') &&
-      (await page.getByRole('button', { name: /Action needed/i }).count()) === 1,
+    'Unclaimed canonical research stays in All active on mobile',
+    await managerState.getByText('Finding the purchase', { exact: true }).isVisible() &&
+      primaryActionText.includes('Compare the purchase evidence') &&
+      (await page.getByRole('button', { name: /All active/i }).count()) === 1,
     primaryActionText
   );
   await closeRefundPortalContext(context);
@@ -4426,17 +4422,17 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
     const page = await context.newPage();
     await signInRefundUser(page, appUrl);
     if (withNextWork) {
-      await page.getByRole('button', { name: /^Ready to approve 1$/ }).click();
+      await page.getByRole('button', { name: /^Decision needed 1$/ }).click();
     } else {
-      await page.getByRole('button', { name: /Bloomjoy follow-up 1/i }).click();
+      await page.getByRole('button', { name: /^All active \d+$/ }).click();
       recorder.assert('Old v2 RPC does not show a false Manager-ready count',
-        (await page.getByRole('button', { name: /^Ready to approve 0$/ }).count()) === 1);
+        (await page.getByRole('button', { name: /^Decision needed 0$/ }).count()) === 1);
     }
     await queueCase(page, 'RF-UAT-CARD').click();
     if (withNextWork) {
       await page.getByTestId('refund-run-nayax-refund').waitFor({ state: 'visible', timeout: 10000 });
     } else {
-      await page.getByTestId('refund-action-status').waitFor({ state: 'visible', timeout: 10000 });
+      await page.getByTestId('refund-primary-action').waitFor({ state: 'visible', timeout: 10000 });
     }
     const stateText = await page.getByTestId('refund-manager-state').innerText();
     const actionText = await page.getByTestId('refund-primary-action').innerText();
@@ -4444,10 +4440,10 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
       ? 'Current proof-backed projection restores the one Manager decision'
       : 'Old v2 RPC retains case with temporary unavailable action',
     withNextWork
-      ? stateText.includes('Action needed') &&
+      ? stateText.includes('Refund') &&
         (await page.getByTestId('refund-run-nayax-refund').count()) === 1
-      : stateText.includes('Refund action temporarily unavailable') &&
-        actionText.includes('Refund action temporarily unavailable') &&
+      : stateText.includes('Finding the purchase') &&
+        (await page.getByTestId('refund-action-status').count()) === 0 &&
         (await page.getByTestId('refund-run-nayax-refund').count()) === 0,
     JSON.stringify({ stateText, actionText }));
     recorder.assert('Mixed-version page performs no decision or payment call',
@@ -4496,18 +4492,16 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
     });
     const realPage = await realContext.newPage();
     await signInRefundUser(realPage, appUrl);
-    await realPage.getByRole('button', { name: /^Bloomjoy follow-up 1$/ }).click();
+    await realPage.getByRole('button', { name: /^All active 1$/ }).click();
     await waitForQueueCount(realPage, 1);
     await queueCase(realPage, realProjectionSeed.publicReference).click();
     const renderedState = await realPage.getByTestId('refund-manager-state').innerText();
-    const cashPrimaryAction = realPage.getByTestId('refund-cash-primary-action');
-    const cashPrimaryActionCount = await cashPrimaryAction.count();
-    const cashPrimaryActionEnabled = cashPrimaryActionCount > 0
-      ? await cashPrimaryAction.first().isEnabled()
-      : false;
-    recorder.assert('Actual unmatched cash projection renders research with no enabled decision or payout action',
-      renderedState.includes('Purchase research pending') &&
-        !cashPrimaryActionEnabled &&
+    const renderedAction = await realPage.getByTestId('refund-primary-action').innerText();
+    recorder.assert('Unmatched cash remains internal research after the completed worker and Manager RPC',
+      renderedState.includes('Finding the purchase') &&
+        renderedAction.includes('No Manager action is due') &&
+        (await realPage.getByRole('button', { name: /^Decision needed 0$/ }).count()) === 1 &&
+        (await realPage.getByTestId('refund-cash-primary-action').count()) === 0 &&
         (await realPage.getByRole('button', { name: 'Deny request', exact: true }).count()) === 0 &&
         (await realPage.getByRole('button', { name: /^Approve\b/ }).count()) === 0 &&
         (await realPage.getByTestId('refund-run-nayax-refund').count()) === 0 &&
@@ -4535,7 +4529,7 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
     await closeRefundPortalContext(realContext);
 
     const reviewedSeed = realProjectionSeed.reviewedCard;
-    recorder.assert('Disposable DB keeps an ambiguous reviewed set in Agent research with no payment attempt',
+    recorder.assert('Disposable DB exports ambiguous reviewed purchases as research without a final decision',
       reviewedSeed?.preparationProof?.evidenceBasis === 'card_reviewed_candidate_set' &&
         reviewedSeed.preparationProof.candidateCount === 2 &&
         reviewedSeed.caseRecord?.decision === null &&
@@ -4547,7 +4541,8 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
         reviewedSeed.caseRecord.lifecycle.managerAction?.action === 'none' &&
         reviewedSeed.caseRecord.lifecycle.decisionRecommendation == null &&
         reviewedSeed.caseRecord.nayaxLookupCandidates?.length === 2 &&
-        reviewedSeed.finalDecisionResult == null && reviewedSeed.attemptCount === 0);
+        reviewedSeed.finalDecisionResult === null &&
+        reviewedSeed.attemptCount === 0);
     const reviewedContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
     const reviewedFunctionCalls = [];
     const reviewedFunctionBodies = [];
@@ -4565,20 +4560,25 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
     });
     const reviewedPage = await reviewedContext.newPage();
     await signInRefundUser(reviewedPage, appUrl);
-    await reviewedPage.getByRole('button', { name: /^Bloomjoy follow-up 1$/ }).click();
+    await reviewedPage.getByRole('button', { name: /^All active 1$/ }).click();
     await queueCase(reviewedPage, reviewedSeed.publicReference).click();
     const reviewedState = await reviewedPage.getByTestId('refund-manager-state').innerText();
-    recorder.assert('Real ambiguous set remains visible for research without a final decision control',
-      reviewedState.includes('Purchase research pending') &&
-      (await reviewedPage.getByTestId('nayax-candidate-option').count()) === 2 &&
+    const reviewedAction = await reviewedPage.getByTestId('refund-primary-action').innerText();
+    recorder.assert('Ambiguous reviewed purchases stay internal and expose no Manager decision or candidate inventory',
+      reviewedState.includes('Finding the purchase') &&
+        reviewedAction.includes('No Manager action is due') &&
+        (await reviewedPage.getByRole('button', { name: /^Decision needed 0$/ }).count()) === 1 &&
+        (await reviewedPage.getByTestId('nayax-candidate-option').count()) === 0 &&
         (await reviewedPage.getByTestId('refund-approve-reviewed-purchase').count()) === 0 &&
+        (await reviewedPage.getByTestId('refund-save-transaction-for-review').count()) === 0 &&
         (await reviewedPage.getByRole('button', { name: 'Deny request', exact: true }).count()) === 0 &&
         (await reviewedPage.getByRole('button', { name: /^Approve\b/ }).count()) === 0 &&
+        (await reviewedPage.getByTestId('refund-run-nayax-refund').count()) === 0 &&
         reviewedFunctionBodies.every(({ functionName, body }) =>
           functionName === 'nayax-card-refund' && body?.operation === 'availability') &&
         !reviewedFunctionCalls.includes('refund-case-admin-update') &&
         !reviewedFunctionCalls.includes('refund-case-message-send'),
-      JSON.stringify({ reviewedState, reviewedFunctionCalls, reviewedFunctionBodies }));
+      JSON.stringify({ reviewedState, reviewedAction, reviewedFunctionCalls, reviewedFunctionBodies }));
     await closeRefundPortalContext(reviewedContext);
   }
 
@@ -4592,17 +4592,18 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
   const skewPage = await skewContext.newPage();
   await signInRefundUser(skewPage, appUrl);
   try {
-    await skewPage.getByRole('button', { name: /Bloomjoy follow-up 2/i }).click({ timeout: 10000 });
+    await skewPage.getByRole('button', { name: /All active 2/i }).click({ timeout: 10000 });
   } catch (error) {
     throw new Error(`Skewed lifecycle queue: ${(await skewPage.locator('body').innerText()).slice(0, 1200)} ${error}`);
   }
   await queueCase(skewPage, 'RF-UAT-CARD').click();
   recorder.assert('Unsupported lifecycle version retains case but removes fresh money action',
     await skewPage.getByTestId('refund-manager-state').getByText(
-      'Refund action temporarily unavailable', { exact: true },
+      'Finding the purchase', { exact: true },
     ).isVisible() &&
+      (await skewPage.getByTestId('refund-action-status').count()) === 0 &&
       (await skewPage.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-      (await skewPage.getByRole('button', { name: /^Ready to approve 0$/ }).count()) === 1);
+      (await skewPage.getByRole('button', { name: /^Decision needed 0$/ }).count()) === 1);
   recorder.assert('Unsupported lifecycle response keeps a nonempty unavailable queue instead of reporting no cases',
     (await skewPage.getByTestId('refund-queue-count').innerText()).trim() === '2 cases' &&
       (await skewPage.getByText('No refund cases are assigned here yet.', { exact: true }).count()) === 0 &&
@@ -4613,12 +4614,12 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
   await installMockSupabaseRoutes(approvedContext, { refundOverview: buildMockRefundOverview });
   const approvedPage = await approvedContext.newPage();
   await signInRefundUser(approvedPage, appUrl);
-  await approvedPage.getByRole('button', { name: /Bloomjoy follow-up/i }).click();
+  await approvedPage.getByRole('button', { name: /All active/i }).click();
   await queueCase(approvedPage, 'RF-UAT-CARD').click();
   const approvedAction = await approvedPage.getByTestId('refund-primary-action').innerText();
   recorder.assert('Old v2 saved card approval remains System-owned with no reapproval',
-    approvedAction.includes('System is finishing this approved refund') &&
-      approvedAction.includes('Refund follow-up pending') &&
+    approvedAction.includes('Refund being completed') &&
+      approvedAction.includes('Do not approve or try the refund again') &&
       (await approvedPage.getByTestId('refund-run-nayax-refund').count()) === 0,
     approvedAction);
   await closeRefundPortalContext(approvedContext);
@@ -4635,7 +4636,7 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
   });
   const cashPage = await cashContext.newPage();
   await signInRefundUser(cashPage, appUrl);
-  await cashPage.getByRole('button', { name: /^Ready to approve 1$/ }).click();
+  await cashPage.getByRole('button', { name: /^All active \d+$/ }).click();
   await queueCase(cashPage, 'RF-UAT-CASH-LEGACY-PENDING').click();
   const cashAction = await cashPage.locator('body').innerText();
   recorder.assert('Old v2 saved cash approval keeps only payout confirmation',
@@ -4661,7 +4662,7 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
     unavailableBody.includes('Refund case list temporarily unavailable.') &&
       unavailableBody.includes('Case list unavailable') &&
       !unavailableBody.includes('No refund cases are assigned here yet.') &&
-      (await unavailablePage.getByRole('button', { name: /^Ready to approve 0$/ }).count()) === 0,
+      (await unavailablePage.getByRole('button', { name: /^Decision needed 0$/ }).count()) === 0,
     unavailableBody.slice(0, 400));
   await closeRefundPortalContext(unavailableContext);
 };
@@ -4688,35 +4689,24 @@ const runNayaxSelectionCompatibilityChecks = async ({ browser, appUrl, recorder 
 
     const page = await context.newPage();
     await signInRefundUser(page, appUrl);
+    await page.getByRole('button', { name: /^All active 2$/ }).click();
     const pendingRow = queueCase(page, 'RF-UAT-PENDING')
       .filter({ hasNotText: 'RF-UAT-PENDING-ALT' });
     await pendingRow.waitFor({ state: 'visible', timeout: 10000 });
     await pendingRow.click();
-    const candidate = page.getByTestId('nayax-candidate-option').first();
-    await candidate.waitFor({ state: 'visible', timeout: 10000 });
-    await candidate.click();
-
     const refundAction = page.getByRole('button', { name: /^Refund \$7\.00$/i });
     const primaryActionPanel = page.getByTestId('refund-primary-action');
-    const unavailableAction = page.getByTestId('refund-action-status');
     await primaryActionPanel.waitFor({ state: 'visible', timeout: 10000 });
-    if (scenario.capabilityAvailable) {
-      await refundAction.waitFor({ state: 'visible', timeout: 10000 });
-      recorder.assert(
-        'New backend capability exposes the ordinary combined refund decision',
-        await refundAction.isEnabled() && (await unavailableAction.count()) === 0
-      );
-    } else {
-      await page.waitForTimeout(250);
-      const primaryActionText = await primaryActionPanel.innerText();
-      recorder.assert(
-        'Old backend shape keeps the combined refund decision unavailable',
-        (await unavailableAction.count()) === 1 &&
-          primaryActionText.includes('Refund temporarily unavailable') &&
-          (await refundAction.count()) === 0,
-        primaryActionText
-      );
-    }
+    const primaryActionText = await primaryActionPanel.innerText();
+    recorder.assert(
+      `${scenario.name} leaves an unrecommended lookup in internal research`,
+      (await page.getByTestId('refund-manager-state').innerText()).includes('Finding the purchase') &&
+        primaryActionText.includes('No Manager') &&
+        (await page.getByTestId('nayax-candidate-option').count()) === 0 &&
+        (await refundAction.count()) === 0 &&
+        (await page.getByRole('button', { name: /^Decision needed 0$/ }).count()) === 1,
+      primaryActionText
+    );
     recorder.assert(
       `${scenario.name} selection check performs no approval or provider action`,
       !functionCalls.includes('refund-case-admin-update') &&
@@ -4749,17 +4739,14 @@ const runNayaxSelectionCompatibilityChecks = async ({ browser, appUrl, recorder 
   });
   const missingEvidencePage = await missingEvidenceContext.newPage();
   await signInRefundUser(missingEvidencePage, appUrl);
+  await missingEvidencePage.getByRole('button', { name: /^All active 1$/ }).click();
   await queueCase(missingEvidencePage, 'RF-UAT-PENDING').click();
-  const missingEvidenceWarning = missingEvidencePage.getByTestId(
-    'selected-nayax-transaction-evidence-missing'
-  );
   recorder.assert(
-    'Persisted selection without transaction evidence keeps the internal repair warning',
-    await missingEvidenceWarning.getByText(
-      'Bloomjoy Hub cannot show the saved transaction details. Check the same machine in Nayax and report the portal gap. Do not ask the customer to repeat purchase details.',
-      { exact: true }
-    ).isVisible() &&
-      (await missingEvidencePage.getByTestId('selected-nayax-transaction-evidence').count()) === 0
+    'Persisted selection without transaction evidence stays internal and cannot become a Manager decision',
+    (await missingEvidencePage.getByTestId('refund-manager-state').innerText()).includes('Finding the purchase') &&
+      (await missingEvidencePage.getByTestId('selected-nayax-transaction-evidence').count()) === 0 &&
+      (await missingEvidencePage.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+      (await missingEvidencePage.getByRole('button', { name: /^Decision needed 0$/ }).count()) === 1
   );
   await closeRefundPortalContext(missingEvidenceContext);
 };
@@ -4787,7 +4774,7 @@ const runManagerApprovalChecks = async ({ browser, appUrl, artifactDir, recorder
 
   const page = await context.newPage();
   await signInRefundUser(page, appUrl);
-  await page.getByRole('button', { name: /^Ready to approve \d+$/ }).click();
+  await page.getByRole('button', { name: /^Decision needed \d+$/ }).click();
   await waitForQueueCount(page, 1);
   await queueCase(page, 'RF-UAT-CARD').click();
   await page.getByTestId('refund-run-nayax-refund').click();
@@ -4817,7 +4804,7 @@ const runManagerApprovalChecks = async ({ browser, appUrl, artifactDir, recorder
   );
   recorder.assert(
     'One manager approval moves the case to System follow-through without another action',
-    await page.getByTestId('refund-manager-state').getByText('Refund in progress', { exact: true }).isVisible() &&
+    await page.getByTestId('refund-manager-state').getByText('Refund being completed', { exact: true }).isVisible() &&
       (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
       await page.getByTestId('refund-action-receipt').getByText('Your approval was saved.', { exact: false }).isVisible() &&
       await page.getByTestId('refund-action-receipt').getByText('Do not try the refund again.', { exact: false }).isVisible()

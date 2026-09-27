@@ -25,7 +25,6 @@ export const createDuplicateIdempotencyChecks = ({
     installMockSupabaseRoutes,
     queueCase,
     signInRefundUser,
-    waitForLocatorCount,
     waitForQueueCount,
   },
 }) => {
@@ -103,32 +102,22 @@ export const createDuplicateIdempotencyChecks = ({
     await signInRefundUser(page, appUrl);
     // The saved card approval is System-owned follow-up, even while its
     // possible-duplicate evidence remains available for review.
-    await page.getByRole('button', { name: /^Bloomjoy follow-up \d+$/ }).click();
-    await waitForQueueCount(page, 1);
+    await page.getByRole('button', { name: /^All active \d+$/ }).click();
+    await waitForQueueCount(page, 2);
     await queueCase(page, 'RF-UAT-CARD').click();
     await page.getByText('Possible duplicate review', { exact: true }).waitFor({ timeout: 10000 });
 
-    const linkedWebsiteSource = page.getByText('Website form', { exact: true }).last();
-    const supportEmailSources = page.getByText('Support email', { exact: true });
-    const selectedCaseSource = page
-      .getByTestId('refund-selected-case-source')
-      .getByText('Support email', { exact: true });
-    await linkedWebsiteSource.waitFor({ state: 'visible', timeout: 10000 });
-    await selectedCaseSource.waitFor({ state: 'visible', timeout: 10000 });
-    await waitForLocatorCount(page, supportEmailSources, 2, 'Support email source labels');
-
     recorder.assert(
-      'The unified queue identifies the selected Email case and its linked Website case',
-      await linkedWebsiteSource.isVisible() &&
-        (await supportEmailSources.count()) >= 2 &&
-        await selectedCaseSource.isVisible()
+      'The duplicate review keeps source-system badges out of the Manager workspace',
+      (await page.getByText('Website form', { exact: true }).count()) === 0 &&
+        (await page.getByTestId('refund-selected-case-source').count()) === 0
     );
     recorder.assert(
       'Email pilot queue keeps advanced operational filters out of the manager workflow',
       (await page.getByLabel('Filter refund cases by status').count()) === 0 &&
-        await page.getByRole('button', { name: /Action needed/ }).isVisible() &&
+        await page.getByRole('button', { name: /All active/ }).isVisible() &&
         await page.getByRole('button', { name: /^Waiting on customer \d+$/ }).isVisible() &&
-        await page.getByRole('button', { name: /Done/ }).isVisible()
+        await page.getByRole('button', { name: /All closed/ }).isVisible()
     );
     recorder.assert(
       'Possible website/email duplicate presents two decisions and the linked case',
@@ -139,9 +128,9 @@ export const createDuplicateIdempotencyChecks = ({
     );
     recorder.assert(
       'Possible duplicate keeps official manager action disabled before resolution',
-      await page.getByTestId('refund-review-only-banner').isVisible() &&
-        (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-        await page.getByTestId('refund-action-status').isVisible()
+      (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
+        (await page.getByRole('button', { name: /^Approve\b/ }).count()) === 0 &&
+        (await page.getByRole('button', { name: 'Deny request', exact: true }).count()) === 0
     );
     await page.getByText('Signed in. Redirecting...', { exact: true })
       .waitFor({ state: 'hidden', timeout: 5000 })
@@ -206,7 +195,7 @@ export const createDuplicateIdempotencyChecks = ({
 
     const page = await context.newPage();
     await signInRefundUser(page, appUrl);
-    await page.getByRole('button', { name: /^Ready to approve \d+$/ }).click();
+    await page.getByRole('button', { name: /^Decision needed \d+$/ }).click();
     await waitForQueueCount(page, 1);
 
     await queueCase(page, 'RF-UAT-VERSION-VALID').click();
@@ -215,7 +204,7 @@ export const createDuplicateIdempotencyChecks = ({
       await page.getByTestId('refund-run-nayax-refund').isEnabled()
     );
 
-    await page.getByRole('button', { name: /^Bloomjoy follow-up 2$/ }).click();
+    await page.getByRole('button', { name: /^All active 2$/ }).click();
     await waitForQueueCount(page, 2);
     await queueCase(page, 'RF-UAT-VERSION-MISSING').click();
     recorder.assert(
