@@ -123,6 +123,7 @@ test('GitHub reader recognizes only a full routine manual import during startup'
   assert.equal(latest.scheduledRun, null);
   assert.equal(latest.recoveryRun.id, 102);
   assert.equal(result.status, 'recovered');
+  assert.match(requests[0], /branch=main&per_page=100/);
   assert.match(requests[1], /runs\/102\/jobs/);
 });
 
@@ -153,5 +154,6 @@ test('GitHub reader requires the live import step rather than workflow success a
   assert.equal(latest.scheduledRun.importStepConclusion, 'skipped');
   assert.equal(latest.recoveryRun, null);
   assert.doesNotMatch(requests[0], /event=schedule/);
+  assert.match(requests[0], /branch=main&per_page=100/);
   assert.match(requests[1], /runs\/91\/jobs/);
 });

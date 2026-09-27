@@ -130,7 +130,7 @@ export const readRelevantSyncRuns = async ({
 } = {}) => {
   if (!repository || !token) throw new SnapcaseHealthError('health_configuration_missing');
   const runsBody = await githubRequest(
-    `${apiUrl}/repos/${repository}/actions/workflows/snapcase-sync.yml/runs?per_page=20`,
+    `${apiUrl}/repos/${repository}/actions/workflows/snapcase-sync.yml/runs?branch=main&per_page=100`,
     token,
     fetchImpl,
   );
