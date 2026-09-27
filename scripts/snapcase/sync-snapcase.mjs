@@ -14,6 +14,16 @@ export class SnapcaseSyncError extends Error {
   }
 }
 
+export const parseNonfinancialTestPaymentSourceKeys = (value) => {
+  const input = String(value ?? '').trim();
+  if (!input) return new Set();
+  const keys = input.split(/[\s,]+/).filter(Boolean);
+  if (keys.length > 50 || keys.some((key) => !/^[a-f0-9]{64}$/.test(key))) {
+    throw new SnapcaseSyncError('invalid_nonfinancial_test_payment_source_keys');
+  }
+  return new Set(keys);
+};
+
 const option = (args, name) => {
   const index = args.indexOf(name);
   return index >= 0 ? args[index + 1] : null;
@@ -140,6 +150,9 @@ export const runSnapcaseSync = async ({
   const window = requestedStart
     ? { startDate: isoDate(requestedStart), endDate: isoDate(requestedEnd) }
     : routineWindow(now);
+  const nonfinancialTestPaymentSourceKeys = parseNonfinancialTestPaymentSourceKeys(
+    env.SNAPCASE_NONFINANCIAL_TEST_PAYMENT_SOURCE_KEYS,
+  );
 
   let client;
   let sourceAccountKey;
@@ -169,6 +182,7 @@ export const runSnapcaseSync = async ({
     startDate: window.startDate,
     endDate: window.endDate,
     requestedTimezone: 'UTC',
+    nonfinancialTestPaymentSourceKeys,
   });
   const batches = buildIngestBatches(extraction, { runNonce });
   const summary = {
@@ -177,6 +191,7 @@ export const runSnapcaseSync = async ({
     machineCount: extraction.machines.length,
     orderCount: extraction.orders.length,
     paymentCount: extraction.payments.length,
+    nonfinancialTestPaymentCount: extraction.nonfinancialTestPaymentCount,
     rejectedCount:
       extraction.rejected.machines.length +
       extraction.rejected.orders.length +

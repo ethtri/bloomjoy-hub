@@ -5,7 +5,12 @@ import { pathToFileURL } from 'node:url';
 import { buildIngestBatches, extractSnapcaseWindow, monthlyWindows } from './extract-snapcase.mjs';
 import { KexiazhanReadOnlyClient } from './kexiazhan-client.mjs';
 import { sha256 } from './kexiazhan-contract.mjs';
-import { fixtureClient, postBatch, SnapcaseSyncError } from './sync-snapcase.mjs';
+import {
+  fixtureClient,
+  parseNonfinancialTestPaymentSourceKeys,
+  postBatch,
+  SnapcaseSyncError,
+} from './sync-snapcase.mjs';
 
 const HISTORY_START = '2025-01-01';
 const defaultFixtureUrl = new URL('./fixtures/backfill-provider-records.json', import.meta.url);
@@ -97,6 +102,9 @@ export const runSnapcaseBackfill = async ({
   if (startDate < HISTORY_START) throw new SnapcaseSyncError('date_before_supported_history');
   if (startDate > endDate || endDate > today) throw new SnapcaseSyncError('invalid_date_range');
   const windows = backfillWindows(startDate, endDate);
+  const nonfinancialTestPaymentSourceKeys = parseNonfinancialTestPaymentSourceKeys(
+    env.SNAPCASE_NONFINANCIAL_TEST_PAYMENT_SOURCE_KEYS,
+  );
 
   let client;
   let sourceAccountKey;
@@ -134,6 +142,7 @@ export const runSnapcaseBackfill = async ({
     machineCount: 0,
     orderCount: 0,
     paymentCount: 0,
+    nonfinancialTestPaymentCount: 0,
     evidenceCount: 0,
     batchCount: 0,
     completedWindowCount: 0,
@@ -156,6 +165,7 @@ export const runSnapcaseBackfill = async ({
       endDate: window.end,
       requestedTimezone: 'UTC',
       accountWideSales: true,
+      nonfinancialTestPaymentSourceKeys,
     });
     const rejectedCount = Object.values(extraction.rejected)
       .reduce((count, rows) => count + rows.length, 0);
@@ -164,6 +174,7 @@ export const runSnapcaseBackfill = async ({
     totals.machineCount += extraction.machines.length;
     totals.orderCount += extraction.orders.length;
     totals.paymentCount += extraction.payments.length;
+    totals.nonfinancialTestPaymentCount += extraction.nonfinancialTestPaymentCount;
     totals.evidenceCount += extraction.evidence.length;
     totals.batchCount += batches.length;
     if (!ingest) continue;

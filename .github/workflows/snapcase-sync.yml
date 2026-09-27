@@ -80,6 +80,7 @@ jobs:
           REPORTING_ROW_HASH_SALT: ${{ secrets.REPORTING_ROW_HASH_SALT }}
           SNAPCASE_INGEST_URL: ${{ secrets.SNAPCASE_INGEST_URL }}
           REPORTING_INGEST_TOKEN: ${{ secrets.REPORTING_INGEST_TOKEN }}
+          SNAPCASE_NONFINANCIAL_TEST_PAYMENT_SOURCE_KEYS: ${{ secrets.SNAPCASE_NONFINANCIAL_TEST_PAYMENT_SOURCE_KEYS }}
           DATE_START: ${{ inputs.date_start || '' }}
           DATE_END: ${{ inputs.date_end || '' }}
         run: |
@@ -100,6 +101,7 @@ jobs:
           REPORTING_ROW_HASH_SALT: ${{ secrets.REPORTING_ROW_HASH_SALT }}
           SNAPCASE_INGEST_URL: ${{ secrets.SNAPCASE_INGEST_URL }}
           REPORTING_INGEST_TOKEN: ${{ secrets.REPORTING_INGEST_TOKEN }}
+          SNAPCASE_NONFINANCIAL_TEST_PAYMENT_SOURCE_KEYS: ${{ secrets.SNAPCASE_NONFINANCIAL_TEST_PAYMENT_SOURCE_KEYS }}
           DATE_START: ${{ inputs.date_start || '' }}
           DATE_END: ${{ inputs.date_end || '' }}
         run: |

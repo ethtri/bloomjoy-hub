@@ -124,6 +124,108 @@ test('machine inventory USD fills an omitted or blank row currency but never ove
   assert.ok(conflicting.exceptionCodes.includes('currency_unverified'));
 });
 
+test('only an exact configured method-17 webhook payment becomes nonfinancial', () => {
+  const webhookRecord = {
+    outTradeNo: 'verified-test-payment',
+    orderNos: ['verified-test-order'],
+    machineId: 'machine-filter-key-901',
+    transactionId: 'verified-test-transaction',
+    paymentTime: '2026-07-16 10:00:00',
+    paymentMethod: 17,
+    paymentInstrument: 'webhook',
+    status: 1,
+    paymentAmount: '30.00',
+    currency: 'USD',
+  };
+  const unlisted = normalizePayment(webhookRecord, context);
+  const listed = normalizePayment(webhookRecord, {
+    ...context,
+    nonfinancialTestPaymentSourceKeys: new Set([unlisted.sourceKey]),
+  });
+  const cash = normalizePayment({
+    ...webhookRecord,
+    outTradeNo: 'ordinary-cash',
+    paymentMethod: 1,
+    paymentInstrument: 'cash',
+  }, context);
+  const listedCash = normalizePayment({
+    ...webhookRecord,
+    outTradeNo: 'ordinary-cash',
+    paymentMethod: 1,
+    paymentInstrument: 'cash',
+  }, {
+    ...context,
+    nonfinancialTestPaymentSourceKeys: new Set([cash.sourceKey]),
+  });
+
+  assert.equal(unlisted.normalizedTender, 'unknown');
+  assert.equal(listed.normalizedTender, 'other');
+  assert.equal(listed.sourceKey, unlisted.sourceKey);
+  assert.notEqual(listed.revisionDigest, unlisted.revisionDigest);
+  assert.equal(normalizePayment(webhookRecord, {
+    ...context,
+    nonfinancialTestPaymentSourceKeys: new Set([unlisted.sourceKey]),
+  }).revisionDigest, listed.revisionDigest);
+  assert.equal(listed.sourceTenderCode, '17');
+  assert.equal(listed.sourceTenderLabel, 'webhook');
+  assert.ok(listed.exceptionCodes.includes('financial_tender_semantics_unverified'));
+  assert.equal(listedCash.normalizedTender, 'cash');
+  assert.equal(listedCash.sourceKey, cash.sourceKey);
+  assert.equal(listedCash.revisionDigest, cash.revisionDigest);
+});
+
+test('exact test-payment configuration reaches the private ingest envelope without exposing config', async () => {
+  const webhookRecord = {
+    outTradeNo: 'verified-envelope-payment',
+    orderNos: ['verified-envelope-order'],
+    machineId: 'machine-filter-key-901',
+    transactionId: 'verified-envelope-transaction',
+    paymentTime: '2026-07-16 10:00:00',
+    paymentMethod: 17,
+    paymentInstrument: 'webhook',
+    status: 1,
+    paymentAmount: '30.00',
+    currency: 'USD',
+  };
+  const sourceKey = normalizePayment(webhookRecord, context).sourceKey;
+  const fakeClient = {
+    async getAll(path) {
+      const rows = path === '/v1/machines'
+        ? fixture.machines
+        : path === '/v1/payments'
+          ? [webhookRecord]
+          : [];
+      return {
+        rows,
+        evidence: {
+          status: 'complete', pageCount: 1, observedCount: rows.length,
+          expectedTotal: rows.length, effectivePageSize: rows.length || 50,
+          nextCursor: null, responseTruncated: false,
+        },
+      };
+    },
+  };
+  const extraction = await extractSnapcaseWindow({
+    client: fakeClient,
+    sourceAccountKey: context.sourceAccountKey,
+    hmacSecret: context.secret,
+    startDate: '2026-07-01',
+    endDate: '2026-07-31',
+    nonfinancialTestPaymentSourceKeys: new Set([sourceKey]),
+  });
+  const batches = buildIngestBatches(extraction, { runNonce: 'verified-envelope-run' });
+  const emitted = batches.flatMap((batch) => batch.payments);
+
+  assert.equal(extraction.nonfinancialTestPaymentCount, 1);
+  assert.equal(emitted.length, 1);
+  assert.equal(emitted[0].normalizedTender, 'other');
+  assert.equal(emitted[0].sourceTenderCode, '17');
+  assert.equal(emitted[0].sourceTenderLabel, 'webhook');
+  assert.ok(emitted[0].exceptionCodes.includes('financial_tender_semantics_unverified'));
+  assert.equal(Object.hasOwn(extraction, 'nonfinancialTestPaymentSourceKeys'), false);
+  assert.equal(batches.some((batch) => Object.hasOwn(batch, 'nonfinancialTestPaymentSourceKeys')), false);
+});
+
 test('machine-local normalization keeps DST gaps and folds on their local business date', () => {
   const gap = normalizePayment({
     outTradeNo: 'gap-payment', machineId: 'machine-filter-key-901',

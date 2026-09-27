@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import test from 'node:test';
-import { runSnapcaseSync } from './sync-snapcase.mjs';
+import { parseNonfinancialTestPaymentSourceKeys, runSnapcaseSync } from './sync-snapcase.mjs';
 
 const withServer = async (handler, run) => {
   const server = createServer(handler);
@@ -37,6 +37,7 @@ test('fixture dry run is the default and performs no network request', async () 
     machineCount: 1,
     orderCount: 1,
     paymentCount: 1,
+    nonfinancialTestPaymentCount: 0,
     rejectedCount: 0,
     evidenceCount: 3,
     batchCount: 2,
@@ -44,6 +45,40 @@ test('fixture dry run is the default and performs no network request', async () 
     changedWindowCount: 0,
     publishedCashFactCount: 0,
   });
+});
+
+test('nonfinancial test payment configuration accepts only bounded source keys', () => {
+  const first = 'a'.repeat(64);
+  const second = 'b'.repeat(64);
+  assert.deepEqual([...parseNonfinancialTestPaymentSourceKeys(`${first}, ${second}\n${first}`)], [first, second]);
+  assert.deepEqual([...parseNonfinancialTestPaymentSourceKeys('')], []);
+  assert.throws(
+    () => parseNonfinancialTestPaymentSourceKeys('raw-provider-payment-id'),
+    { code: 'invalid_nonfinancial_test_payment_source_keys' },
+  );
+  assert.throws(
+    () => parseNonfinancialTestPaymentSourceKeys(Array.from({ length: 51 }, (_, index) => `${index}`.padStart(64, '0')).join(',')),
+    { code: 'invalid_nonfinancial_test_payment_source_keys' },
+  );
+});
+
+test('invalid exact-test configuration fails before provider access', async () => {
+  let requests = 0;
+  await assert.rejects(() => runSnapcaseSync({
+    args: ['--live-provider'],
+    env: {
+      KEXIAOZHAN_REPORTING_USERNAME: 'unused',
+      KEXIAOZHAN_REPORTING_PASSWORD: 'unused',
+      SNAPCASE_ACCOUNT_KEY: 'unused',
+      REPORTING_ROW_HASH_SALT: 'unused',
+      SNAPCASE_NONFINANCIAL_TEST_PAYMENT_SOURCE_KEYS: 'raw-provider-payment-id',
+    },
+    fetchImpl: async () => {
+      requests += 1;
+      throw new Error('provider access should not run');
+    },
+  }), { code: 'invalid_nonfinancial_test_payment_source_keys' });
+  assert.equal(requests, 0);
 });
 
 test('fixture ingest waits for every acknowledged batch before succeeding', async () => {

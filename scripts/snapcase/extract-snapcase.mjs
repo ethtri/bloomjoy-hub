@@ -99,6 +99,7 @@ export const extractSnapcaseWindow = async ({
   pageSize = 50,
   maxPages = 1_000,
   accountWideSales = false,
+  nonfinancialTestPaymentSourceKeys = new Set(),
 }) => {
   if (!client) throw new Error('client is required');
   const account = String(sourceAccountKey ?? '').trim();
@@ -108,7 +109,12 @@ export const extractSnapcaseWindow = async ({
   if (start > end) throw new Error('startDate must not follow endDate');
   const windowDays = ((new Date(`${end}T00:00:00Z`) - new Date(`${start}T00:00:00Z`)) / 86_400_000) + 1;
   if (windowDays > 35) throw new Error('SnapCase extraction windows must not exceed 35 days');
-  const context = { secret: hmacSecret, keyVersion, sourceAccountKey: account };
+  const context = {
+    secret: hmacSecret,
+    keyVersion,
+    sourceAccountKey: account,
+    nonfinancialTestPaymentSourceKeys,
+  };
   const inventory = await client.getAll('/v1/machines', {}, { pageSize, maxPages });
   const machines = normalizeBatch(inventory.rows, normalizeMachine);
   const result = {
@@ -180,6 +186,11 @@ export const extractSnapcaseWindow = async ({
     result.orders = [...new Map(result.orders.map((row) => [row.sourceKey, row])).values()];
     result.payments = [...new Map(result.payments.map((row) => [row.sourceKey, row])).values()];
   }
+  result.nonfinancialTestPaymentCount = result.payments
+    .filter((row) => nonfinancialTestPaymentSourceKeys.has(row.sourceKey)
+      && row.sourceTenderCode === '17'
+      && row.sourceTenderLabel?.trim().toLowerCase() === 'webhook'
+      && row.normalizedTender === 'other').length;
   return result;
 };
 
