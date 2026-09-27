@@ -1217,7 +1217,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
       },
       expectedHeading: '1 transaction found',
       expectedStatus: '1 result',
-      expectedAction: 'Next: Wait for the customer to reply with purchase date, purchase time in the existing email thread.',
+      expectedAction: 'Waiting for the customer to answer the delivered question.',
       expectedCandidateCount: 1,
       expectedAmountMismatch: '$0.90',
       expectedWalletCardMismatch: true,
@@ -1503,7 +1503,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
           (await page.getByText('Transaction search details', { exact: true }).count()) === 0 &&
           (await page.getByTestId('nayax-check-transaction').count()) === 0 &&
           await page.getByTestId('refund-manager-state').getByText('Waiting on customer', { exact: true }).isVisible() &&
-          (await page.getByTestId('refund-manager-next-step').innerText()).includes('Wait for the customer to reply'),
+          (await page.getByTestId('refund-manager-next-step').innerText()) === scenario.expectedAction,
         functionCalls.join(', ')
       );
       await closeRefundPortalContext(context);

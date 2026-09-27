@@ -2289,12 +2289,38 @@ const buildWalletMismatchRefundOverview = () => {
 
 const buildWalletMismatchWaitingRefundOverview = () => {
   const overview = buildWalletMismatchRefundOverview();
+  const requestSentAt = isoHoursAgo(1);
   overview.cases[0].status = 'waiting_on_customer';
-  overview.cases[0].lifecycle = buildLifecycleFixture(
-    'waiting_on_customer',
-    15,
-    'wait_for_customer_reply'
-  );
+  overview.cases[0].lifecycle = {
+    ...buildLifecycleFixture(
+      'waiting_on_customer',
+      15,
+      'wait_for_customer_reply'
+    ),
+    nextWork: {
+      schemaVersion: 'refund_next_work_v1',
+      isOpen: true,
+      actor: 'customer',
+      actionCode: 'answer_question',
+      actionLabel: 'Waiting for the customer to answer the delivered question.',
+      lastProgressAt: requestSentAt,
+      dueAt: null,
+      blocker: null,
+      payloadRedacted: true,
+    },
+    customerOutreach: {
+      ...buildCustomerOutreachFixture({
+        state: 'waiting_for_customer',
+        owner: 'Customer',
+        nextAction: 'wait_for_customer',
+        requestedFields: ['amount'],
+      }),
+      requestMessageId: 'wallet-correction-message-1',
+      requestCreatedAt: requestSentAt,
+      requestSentAt,
+      deliveryStateUpdatedAt: requestSentAt,
+    },
+  };
   overview.cases[0].messages = [
     {
       id: 'wallet-correction-message-1',
@@ -2303,9 +2329,9 @@ const buildWalletMismatchWaitingRefundOverview = () => {
       recipientEmail: overview.cases[0].customerEmail,
       subject: `A quick question about refund request ${overview.cases[0].publicReference}`,
       body: 'Please confirm the charged amount shown in your wallet.',
-      sentAt: isoHoursAgo(1),
+      sentAt: requestSentAt,
       errorMessage: null,
-      createdAt: isoHoursAgo(1),
+      createdAt: requestSentAt,
     },
   ];
   return overview;
