@@ -15,6 +15,7 @@ const managerModule = { exports: {} };
 const queueModule = { exports: {} };
 const outreachModule = { exports: {} };
 const completionContactModule = { exports: {} };
+const managerPresentationModule = { exports: {} };
 vm.runInNewContext(
  ts.transpileModule(fs.readFileSync(new URL('../../src/lib/refundQueue.ts',import.meta.url),'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
  queueModule,
@@ -26,6 +27,13 @@ vm.runInNewContext(
 vm.runInNewContext(
  ts.transpileModule(fs.readFileSync(new URL('../../src/lib/refundCustomerOutreach.ts',import.meta.url),'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
  outreachModule,
+);
+vm.runInNewContext(
+ ts.transpileModule(fs.readFileSync(new URL('../../src/lib/refundManagerPresentation.ts',import.meta.url),'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
+ {...managerPresentationModule,require:specifier=>{
+  if(specifier==='./refundQueue.ts') return queueModule.exports;
+  throw new Error(`Unexpected refund manager presentation dependency: ${specifier}`);
+ }},
 );
 const {
  canRequestRefundCustomerDetailsManually,
@@ -40,7 +48,7 @@ vm.runInNewContext(
   throw new Error(`Unexpected refund manager dependency: ${specifier}`);
  }},
 );
-const dependencies={...managerModule.exports,...queueModule.exports,canRequestRefundCustomerDetailsManually,hasConfirmedRefundReceipt:c=>c.receipt===true,getLatestCustomerMessage:()=>null,isDefinitiveNoRefundRetryReady:()=>false,transactionalDeliveryLabel:state=>state,hasTransactionMatch:c=>Boolean(c.matched),derivePortalRefundMissingFields:()=>[],isWaitingCase:()=>true,activeNayaxCandidate:()=>null,hasSelectedCardEvidence:()=>true,formatCurrency:amount=>`$${(amount/100).toFixed(2)}`};
+const dependencies={...managerModule.exports,...managerPresentationModule.exports,...queueModule.exports,canRequestRefundCustomerDetailsManually,hasConfirmedRefundReceipt:c=>c.receipt===true,getLatestCustomerMessage:()=>null,isDefinitiveNoRefundRetryReady:()=>false,transactionalDeliveryLabel:state=>state,hasTransactionMatch:c=>Boolean(c.matched),derivePortalRefundMissingFields:()=>[],isWaitingCase:()=>true,activeNayaxCandidate:()=>null,hasSelectedCardEvidence:()=>true,formatCurrency:amount=>`$${(amount/100).toFixed(2)}`,formatProviderCurrency:(amount,currencyCode)=>`$${(amount/100).toFixed(2)} ${currencyCode}`};
 const freshPersistedSelection = {
  hasMatchedNayaxTransaction:true,officialActionVersion:7,
  selectedNayaxTransaction:{saleAmountCents:700,currencyCode:'USD',providerAuthorizedAt:'2026-09-12T18:30:00Z',cardLast4:'4242'},
@@ -57,11 +65,10 @@ test('a late case-save response can update only the case that initiated it',()=>
  assert.match(handlerSource,/targetStillSelected && !options\.quietTransactionConfirmation/);
  assert.doesNotMatch(handlerSource,/selectedCase\.id/);
 });
-test('actual workbench names the accounting correction directly',()=>{
- const refundCase={lifecycle:{managerQueue:{bucket:'accounting_review'}}};
- const bucket=caseValue=>caseValue.lifecycle.managerQueue.bucket;
- const queueSource=ts.createSourceFile('RefundCaseQueuePanel.tsx',fs.readFileSync(new URL('../../src/components/refunds/RefundCaseQueuePanel.tsx',import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
- assert.equal(load('refundSearchViewLabel',{getRefundManagerQueueBucket:bucket},queueSource)(refundCase),'Fix refund accounting');
+test('actual workbench removes the redundant current-view system label',()=>{
+ const queueSource=fs.readFileSync(new URL('../../src/components/refunds/RefundCaseQueuePanel.tsx',import.meta.url),'utf8');
+ assert.doesNotMatch(queueSource,/Current view:/);
+ assert.doesNotMatch(queueSource,/refundSearchViewLabel/);
 });
 test('actual manager action respects current scope, delivery holds and terminal truth',()=>{
  const action=load('primaryActionConfig',dependencies);
@@ -186,6 +193,10 @@ test('current card capability remains visible in the composed manager presentati
     reviewedFinalDecisionReady:false,
   showDisabledActionStatus:false,
   primaryAction:{mode:'nayax_refund_execution',label:'Refund $7.00'},
+  recommendation:null,
+  recommendedPurchase:null,
+  formatProviderCurrency:dependencies.formatProviderCurrency,
+  cardAmountCents:700,
   hasReadyRefund:true,
   topActionLabel,
   cardActionDisabled:false,
@@ -212,6 +223,7 @@ test('current card capability remains visible in the composed manager presentati
  assert.equal(cardActionDisabled,false);
  const customerCommunicationActions=load('customerCommunicationActions',{
   nextCustomerDraft:null,canAskForCustomerDetails:false,primaryAction:{label:'Refund $7.00'},
+  recommendation:null,
   isUsingDemoData:false,selectedCaseIsReviewOnly:true,selectedCaseHasCurrentCardDecisionAuthority,
   selectedCase:staleOptionalCase,
  });
