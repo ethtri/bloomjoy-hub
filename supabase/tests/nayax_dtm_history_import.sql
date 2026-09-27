@@ -131,7 +131,8 @@ select is((select count(*) from public.nayax_pending_sales where source_order_ha
   repeat('1',63)||'a',repeat('1',63)||'c')),2::bigint,
   'Ordinary excluded inactive rows stay in the shared hold queue');
 
-update public.refund_nayax_machine_inventory set reconciliation_state='published'
+update public.refund_nayax_machine_inventory
+set reconciliation_state='published',provider_is_active=true,exclusion_reason=null
 where account_key='TGPACI_USA_DB' and nayax_machine_id='900000001';
 
 -- Case-first order: the provider event links to the existing case adjustment.
