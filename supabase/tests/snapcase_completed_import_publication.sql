@@ -319,5 +319,58 @@ select is((select count(*)::integer from public.machine_sales_facts
   where source='snapcase_cash' and net_sales_cents=700), 1,
   'mapping replay publishes the previously unmapped cash exactly once');
 
+-- A privately configured, individually verified nonfinancial test payment keeps
+-- its raw provider tender and reason, but it neither publishes revenue nor
+-- prevents an otherwise complete payment window from closing.
+select pg_temp.add_batch('15014000-0000-4000-8000-000000000020', repeat('7',64), repeat('a',63) || '3', 1, 0);
+select pg_temp.add_batch('15014000-0000-4000-8000-000000000021', repeat('7',64), repeat('a',63) || '4', 0, 1);
+insert into private.snapcase_sales_observations(
+  id, provider_account_id, resource, source_key, source_key_version,
+  source_machine_id, source_status, source_tender_code, source_tender_label,
+  normalized_tender, occurred_time_raw, occurred_at, source_currency,
+  currency_code, source_amount_text, amount_minor, exception_codes,
+  revision_digest, first_seen_batch_id, last_seen_batch_id
+) values (
+  '15016000-0000-4000-8000-000000000020',
+  '15013000-0000-4000-8000-000000000001', 'payment', repeat('7',64), 1,
+  'completion-machine', 'success', '17', 'webhook', 'other',
+  '2026-07-16 10:00:00', '2026-07-16T17:00:00Z', 'USD', 'USD',
+  '30.00', 3000, array[
+    'financial_status_semantics_unverified',
+    'financial_tender_semantics_unverified'
+  ], repeat('8',64),
+  '15014000-0000-4000-8000-000000000020', '15014000-0000-4000-8000-000000000020'
+);
+insert into private.snapcase_extraction_evidence(
+  provider_account_id, ingest_batch_id, resource, source_machine_id,
+  requested_start, requested_end, requested_timezone, extraction_status,
+  page_count, next_cursor_present, response_truncated, observed_count,
+  expected_total, effective_page_size, rejected_count,
+  business_coverage_status, coverage_reason_code
+) values (
+  '15013000-0000-4000-8000-000000000001', '15014000-0000-4000-8000-000000000021',
+  'payments', 'completion-machine', '2026-07-16T07:00:00Z', '2026-07-17T07:00:00Z',
+  'America/Los_Angeles', 'complete', 1, false, false, 1, 1, 50, 0,
+  'unverified', 'source_time_semantics_unverified'
+);
+create temporary table nonfinancial_finalize as
+select public.service_finalize_snapcase_import_run(
+  'completion-fixture', repeat('7',64)
+) result;
+select is(
+  (select result ->> 'completedWindowCount' from nonfinancial_finalize),
+  '1', 'an exact nonfinancial test payment permits completed coverage'
+);
+select is(
+  (select result ->> 'publishedCashFactCount' from nonfinancial_finalize),
+  '0', 'the nonfinancial test payment publishes no cash'
+);
+select is((select count(*)::integer from private.snapcase_completed_import_windows
+  where local_start_date='2026-07-16'), 1,
+  'the complete nonfinancial payment window has a durable receipt');
+select is((select count(*)::integer from public.machine_sales_facts
+  where source='snapcase_cash' and raw_payload ->> 'sourcePaymentKey'=repeat('7',64)), 0,
+  'the nonfinancial test payment creates no canonical revenue fact');
+
 select * from finish();
 rollback;

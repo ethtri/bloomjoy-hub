@@ -1,8 +1,8 @@
-# SnapCase staging runner
+# SnapCase import runner
 
-This runner is inactive by default. When explicitly activated, it stages private
-observations, finalizes acknowledged per-machine payment windows, and publishes
-normalized Kexiaozhan cash for existing mappings. Nayax remains card authority.
+The production runner stages private observations, finalizes acknowledged
+per-machine payment windows, and publishes normalized Kexiaozhan cash for
+existing mappings. Nayax remains card authority.
 
 ## Local synthetic check
 
@@ -18,7 +18,7 @@ The first command uses the checked-in synthetic fixture and performs no write.
 Its output contains extraction counts plus completed-window and published-cash
 counts. A dry run reports zero publication counts and performs no write.
 
-## Future private staging run
+## Private staging run
 
 The operator must deliberately provide `--live-provider --ingest` together and
 configure these server or GitHub environment values privately:
@@ -29,6 +29,9 @@ configure these server or GitHub environment values privately:
 - `REPORTING_ROW_HASH_SALT`
 - `SNAPCASE_INGEST_URL`
 - `REPORTING_INGEST_TOKEN`
+- `SNAPCASE_NONFINANCIAL_TEST_PAYMENT_SOURCE_KEYS` (optional, comma-separated
+  account-scoped HMAC source keys for individually verified nonfinancial test
+  payments; leave empty by default)
 
 The Edge Function also needs the standard server-only `SUPABASE_URL`,
 `SUPABASE_SERVICE_ROLE_KEY`, and existing `REPORTING_INGEST_TOKEN`. Never use a
@@ -42,12 +45,18 @@ The CLI sends batches sequentially and reports success only after every batch is
 acknowledged with matching counts. A retry reuses the exact batch key and digest.
 Errors expose only a bounded code.
 
-## Disabled schedule
+## Production schedule
 
-`SnapCase Sync` has two UTC triggers per day. The scheduled job exits without a
-provider call while repository variable `SNAPCASE_SYNC_ENABLED` is absent or not
-`true`. No activation values are configured by this change. Activation, secret
-provisioning, deployment, and live imports require a separate reviewed release.
+`SnapCase Sync` is enabled in production at 05:17 and 17:17 UTC. The scheduled
+job exits without a provider call if repository variable `SNAPCASE_SYNC_ENABLED`
+is absent or not `true`.
+
+The owner or technical operator maintains the encrypted GitHub login secrets. On
+a provider-credential incident, set `SNAPCASE_SYNC_ENABLED` to `false`, replace
+the provider password and matching GitHub secret, verify one routine import, and
+then re-enable the schedule. Do not rotate `REPORTING_ROW_HASH_SALT` as ordinary
+password maintenance, because it defines stable source identities. Do not change
+the shared `REPORTING_INGEST_TOKEN` in only one consumer.
 
 ## Import health and recovery
 

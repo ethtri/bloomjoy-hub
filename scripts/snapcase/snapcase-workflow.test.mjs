@@ -27,3 +27,9 @@ test('history remains disabled by the existing flag and distinct from routine he
   assert.doesNotMatch(health, /mode=history-backfill/);
   assert.match(health, /mode=live-ingest/);
 });
+
+test('routine and history runners receive only the server-side exact test-payment source keys', () => {
+  const matches = workflow.match(/SNAPCASE_NONFINANCIAL_TEST_PAYMENT_SOURCE_KEYS:\s*\$\{\{ secrets\.SNAPCASE_NONFINANCIAL_TEST_PAYMENT_SOURCE_KEYS \}\}/g) ?? [];
+  assert.equal(matches.length, 2);
+  assert.doesNotMatch(workflow, /echo[^\n]*SNAPCASE_NONFINANCIAL_TEST_PAYMENT_SOURCE_KEYS/);
+});

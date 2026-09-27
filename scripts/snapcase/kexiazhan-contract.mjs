@@ -234,7 +234,11 @@ export const normalizePayment = (record, context) => {
   const sourceTenderCode = rawScalar(record?.paymentMethod);
   const sourceTenderLabel = cleanText(record?.paymentInstrument, 160)
     ?? enumLabel(PAYMENT_METHOD_LABELS, record?.paymentMethod);
-  const tender = normalizedTender(sourceTenderCode, sourceTenderLabel);
+  const sourceTender = normalizedTender(sourceTenderCode, sourceTenderLabel);
+  const configuredNonfinancialTest = context.nonfinancialTestPaymentSourceKeys?.has(identity.sourceKey) === true
+    && sourceTenderCode === '17'
+    && sourceTenderLabel?.trim().toLowerCase() === 'webhook';
+  const tender = configuredNonfinancialTest ? 'other' : sourceTender;
   const exceptionCodes = [];
   if (!paid.utc) exceptionCodes.push('source_time_semantics_unverified');
   if (!amount.valid || amount.minor === null) exceptionCodes.push('amount_unit_unverified');
@@ -243,7 +247,7 @@ export const normalizePayment = (record, context) => {
   if (rawScalar(record?.status ?? record?.paymentStatus) !== null) {
     exceptionCodes.push('financial_status_semantics_unverified');
   }
-  if (tender === 'unknown') exceptionCodes.push('financial_tender_semantics_unverified');
+  if (sourceTender === 'unknown') exceptionCodes.push('financial_tender_semantics_unverified');
   if (refund.raw !== null) exceptionCodes.push('refund_semantics_unverified');
   const normalized = {
     ...identity,
