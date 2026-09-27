@@ -229,12 +229,16 @@ export type RefundManagerDailyDigestItem = {
   actor: "manager" | "system" | "agent" | "customer";
   actionCode: string;
   actionLabel: string;
+  recommendationKind: "refund" | "reject" | null;
+  recommendationReasonCode: "clear_purchase_match" | "no_match_after_30_days" | null;
+  evidenceBasis: "card_exact_selected" | "card_reviewed_candidate_set" | "cash_sale_found" |
+    "cash_approved_payout" | "decision_recommendation_reject" | null;
   preparationSummary: string | null;
   paymentComplete: boolean;
   payloadRedacted: true;
 };
 export type RefundManagerDailyDigestProjection = {
-  schemaVersion: "refund_manager_daily_digest_v2";
+  schemaVersion: "refund_manager_daily_digest_v3";
   observedAt: string;
   actionCount: number;
   openCount: number;
@@ -247,13 +251,13 @@ export const parseRefundManagerDailyDigestProjection = (
 ): RefundManagerDailyDigestProjection => {
   const root = objectValue(value);
   exactKeys(root, ["schemaVersion", "observedAt", "actionCount", "openCount", "items", "payloadRedacted"]);
-  if (root.schemaVersion !== "refund_manager_daily_digest_v2" || root.payloadRedacted !== true ||
+  if (root.schemaVersion !== "refund_manager_daily_digest_v3" || root.payloadRedacted !== true ||
     !Array.isArray(root.items)) throw new Error("Unsupported refund daily digest response.");
   const items = root.items.map((raw): RefundManagerDailyDigestItem => {
     const item = objectValue(raw);
     exactKeys(item, ["caseId", "publicReference", "amountCents", "currencyCode",
       "machineLabel", "locationName", "ageMinutes", "actor", "actionCode",
-      "actionLabel", "preparationSummary", "paymentComplete", "payloadRedacted"]);
+      "actionLabel", "recommendationKind", "recommendationReasonCode", "evidenceBasis", "preparationSummary", "paymentComplete", "payloadRedacted"]);
     if (!["manager", "system", "agent", "customer"].includes(item.actor as string) ||
       typeof item.paymentComplete !== "boolean" || item.payloadRedacted !== true ||
       (item.amountCents !== null && !Number.isSafeInteger(item.amountCents)) ||
@@ -263,8 +267,34 @@ export const parseRefundManagerDailyDigestProjection = (
     const actor = item.actor as RefundManagerDailyDigestItem["actor"];
     const actionCode = stringValue(item.actionCode);
     if (actor === "manager" && (item.paymentComplete === true ||
-      !["approve_or_deny_request", "send_cash_refund_and_confirm"].includes(actionCode))) {
+      !["approve_or_deny_request", "reject_request", "send_cash_refund_and_confirm"].includes(actionCode))) {
       throw new Error("Unsupported manager refund action.");
+    }
+    const recommendationKind = item.recommendationKind;
+    const recommendationReasonCode = item.recommendationReasonCode;
+    const evidenceBasis = item.evidenceBasis;
+    if (recommendationKind === null
+      ? recommendationReasonCode !== null || actionCode === "reject_request"
+      : recommendationKind === "refund"
+      ? recommendationReasonCode !== "clear_purchase_match" || actionCode !== "approve_or_deny_request"
+      : recommendationKind === "reject"
+      ? recommendationReasonCode !== "no_match_after_30_days" || actionCode !== "reject_request"
+      : true) throw new Error("Unsupported refund decision recommendation.");
+    if (actor === "manager"
+      ? recommendationKind === null && actionCode === "approve_or_deny_request"
+        ? !["card_exact_selected", "card_reviewed_candidate_set"].includes(evidenceBasis as string)
+        : recommendationKind === null && actionCode === "send_cash_refund_and_confirm"
+        ? evidenceBasis !== "cash_approved_payout"
+        : recommendationKind === "refund"
+        ? !["card_exact_selected", "card_reviewed_candidate_set", "cash_sale_found"].includes(evidenceBasis as string)
+        : evidenceBasis !== "decision_recommendation_reject"
+      : evidenceBasis !== null) {
+      throw new Error("Unsupported refund decision evidence basis.");
+    }
+    if (recommendationKind === "reject"
+      ? item.amountCents !== null || item.currencyCode !== null
+      : actor === "manager" && item.amountCents === null) {
+      throw new Error("Unsupported refund decision amount.");
     }
     if (actor === "manager"
       ? typeof item.preparationSummary !== "string" ||
@@ -287,6 +317,9 @@ export const parseRefundManagerDailyDigestProjection = (
       actor,
       actionCode,
       actionLabel: stringValue(item.actionLabel),
+      recommendationKind: recommendationKind as RefundManagerDailyDigestItem["recommendationKind"],
+      recommendationReasonCode: recommendationReasonCode as RefundManagerDailyDigestItem["recommendationReasonCode"],
+      evidenceBasis: evidenceBasis as RefundManagerDailyDigestItem["evidenceBasis"],
       preparationSummary: item.preparationSummary as string | null,
       paymentComplete: item.paymentComplete as boolean,
       payloadRedacted: true,
@@ -298,7 +331,7 @@ export const parseRefundManagerDailyDigestProjection = (
     new Set(items.map((item) => item.caseId)).size !== items.length) {
     throw new Error("Refund daily digest counts or cases disagree.");
   }
-  return { schemaVersion: "refund_manager_daily_digest_v2", observedAt: stringValue(root.observedAt),
+  return { schemaVersion: "refund_manager_daily_digest_v3", observedAt: stringValue(root.observedAt),
     actionCount, openCount, items, payloadRedacted: true };
 };
 
@@ -340,6 +373,10 @@ export const buildRefundManagerDigestEmail = (
   const waiting = sorted.filter((item) => item.actor === "customer");
   const actionText = (item: RefundManagerDailyDigestItem) => item.actionCode === "send_cash_refund_and_confirm"
     ? "Review the saved cash evidence and verified destination. Send the prepared refund by Zelle, then confirm it in the portal."
+    : item.actionCode === "reject_request"
+    ? "Review the recommendation to decline this request. The final decision remains yours."
+    : item.recommendationKind === "refund"
+    ? "Review the matching-purchase recommendation and approve or deny it in the portal. No payment has been sent."
     : "Bloomjoy has prepared the case for your final decision. Review the saved purchase evidence and approve or deny it in the portal.";
   const otherText = (item: RefundManagerDailyDigestItem) => item.paymentComplete
     ? "The refund was already sent. Bloomjoy is resolving the required customer notice. No further payment or manager action is needed."
@@ -349,8 +386,11 @@ export const buildRefundManagerDigestEmail = (
   const summary = `${projection.actionCount} need your decision or payment; ${projection.openCount} open in total.`;
   const section = (heading: string, entries: RefundManagerDailyDigestItem[]) => {
     if (!entries.length) return { text: "", html: "" };
-    const lines = entries.map((item) => `${item.publicReference} — ${amount(item.amountCents, item.currencyCode)} — ${item.machineLabel}, ${item.locationName} — open ${formatRefundManagerAge(item.ageMinutes)}\n${item.actor === "manager" ? `Prepared case summary: ${item.preparationSummary}\n${actionText(item)}` : otherText(item)}\nOpen case: ${caseUrl(item.caseId)}`);
-    const rows = entries.map((item) => `<li style="margin:0 0 18px;padding:0;overflow-wrap:anywhere"><strong>${escapeHtml(item.publicReference)}</strong> · ${escapeHtml(amount(item.amountCents, item.currencyCode))}<br>${escapeHtml(item.machineLabel)} · ${escapeHtml(item.locationName)} · open ${escapeHtml(formatRefundManagerAge(item.ageMinutes))}<br>${item.actor === "manager" ? `Prepared case summary: ${escapeHtml(item.preparationSummary!)}<br>` : ""}${escapeHtml(item.actor === "manager" ? actionText(item) : otherText(item))}<br><a href="${escapeHtml(caseUrl(item.caseId))}" style="color:#174a77">Open refund case ${escapeHtml(item.publicReference)}</a></li>`).join("");
+    const itemAmount = (item: RefundManagerDailyDigestItem) => item.recommendationKind === "reject"
+      ? "No matched purchase amount"
+      : amount(item.amountCents, item.currencyCode);
+    const lines = entries.map((item) => `${item.publicReference} — ${itemAmount(item)} — ${item.machineLabel}, ${item.locationName} — open ${formatRefundManagerAge(item.ageMinutes)}\n${item.actor === "manager" ? `Prepared case summary: ${item.preparationSummary}\n${actionText(item)}` : otherText(item)}\nOpen case: ${caseUrl(item.caseId)}`);
+    const rows = entries.map((item) => `<li style="margin:0 0 18px;padding:0;overflow-wrap:anywhere"><strong>${escapeHtml(item.publicReference)}</strong> · ${escapeHtml(itemAmount(item))}<br>${escapeHtml(item.machineLabel)} · ${escapeHtml(item.locationName)} · open ${escapeHtml(formatRefundManagerAge(item.ageMinutes))}<br>${item.actor === "manager" ? `Prepared case summary: ${escapeHtml(item.preparationSummary!)}<br>` : ""}${escapeHtml(item.actor === "manager" ? actionText(item) : otherText(item))}<br><a href="${escapeHtml(caseUrl(item.caseId))}" style="color:#174a77">Open refund case ${escapeHtml(item.publicReference)}</a></li>`).join("");
     return { text: `${heading}\n\n${lines.join("\n\n")}`, html: `<h2 style="font-size:18px;line-height:1.3;margin:26px 0 12px">${heading}</h2><ol style="padding-left:24px;margin:0">${rows}</ol>` };
   };
   const sections = [section("Your decision or payment", action), section("Awaiting Bloomjoy follow-up", working), section("Waiting for the customer", waiting)];

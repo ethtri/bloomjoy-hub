@@ -4,7 +4,7 @@ const assert = (condition: unknown, message: string) => {
   if (!condition) throw new Error(message);
 };
 const projection = {
-  schemaVersion: "refund_manager_ready_notice_v1",
+  schemaVersion: "refund_manager_ready_notice_v2",
   caseId: "12810000-0000-4000-8000-000000000001",
   managerUserId: "12810000-0000-4000-8000-000000000002",
   decisionFingerprint: "a".repeat(64),
@@ -12,6 +12,8 @@ const projection = {
   officialActionVersion: 1,
   deterministicFactVersion: 1,
   actionCode: "approve_or_deny_request",
+  recommendationKind: null,
+  recommendationReasonCode: null,
   evidenceBasis: "card_exact_selected",
   preparationSummary: "Purchase research was completed; review the saved evidence before deciding.",
   publicReference: "RF-SYNTHETIC-1",
