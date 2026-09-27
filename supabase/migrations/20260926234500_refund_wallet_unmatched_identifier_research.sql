@@ -19,6 +19,21 @@ returns boolean language sql stable security definer set search_path='' as $$
         where k.refund_case_id=c.id and k.lookup_generation=c.nayax_lookup_generation
           and k.card_last4=c.card_last4
           and public.refund_reviewed_card_candidate_safe_v1(c.id,k.token))
+      -- A consumed, machine-bound QR claim can independently identify one
+      -- current safe sale despite a tokenized wallet suffix mismatch.
+      and not (
+        select count(*)=1
+        from public.refund_qr_claim_contexts q
+        join public.refund_nayax_lookup_candidates k
+          on k.refund_case_id=c.id and k.lookup_generation=c.nayax_lookup_generation
+        where q.id=c.refund_qr_claim_context_id
+          and q.reporting_machine_id=c.reporting_machine_id
+          and q.consumed_at is not null and q.consumed_at>=q.opened_at
+          and q.opened_at-k.machine_authorization_time
+            between interval '0 minutes' and interval '30 minutes'
+          and k.evidence_summary->'reason_codes' ? 'qr_time_within_30m'
+          and public.refund_reviewed_card_candidate_safe_v1(c.id,k.token)
+      )
   );
 $$;
 revoke all on function public.refund_wallet_identifier_research_required(uuid)
