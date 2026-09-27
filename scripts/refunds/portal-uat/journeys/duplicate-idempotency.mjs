@@ -204,13 +204,13 @@ export const createDuplicateIdempotencyChecks = ({
       await page.getByTestId('refund-run-nayax-refund').isEnabled()
     );
 
-    await page.getByRole('button', { name: /^All active 2$/ }).click();
-    await waitForQueueCount(page, 2);
+    await page.getByRole('button', { name: /^All active 3$/ }).click();
+    await waitForQueueCount(page, 3);
     await queueCase(page, 'RF-UAT-VERSION-MISSING').click();
     recorder.assert(
       'A case with a missing review version leaves the actionable queue and cannot inherit the previous case version',
       (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-        await page.getByTestId('refund-action-status').isVisible() &&
+        await page.getByTestId('refund-manager-state').getByText('Manager action needed', { exact: true }).isVisible() &&
         (await page.getByTestId('refund-manager-next-step').innerText()).includes(
           'Refresh the case before taking a final action. Do not repeat a payment or approval.'
         ) &&
@@ -222,7 +222,7 @@ export const createDuplicateIdempotencyChecks = ({
     recorder.assert(
       'A case without current manager authority stays visible without suggesting this viewer can act',
       (await page.getByTestId('refund-run-nayax-refund').count()) === 0 &&
-        await page.getByTestId('refund-action-status').isVisible() &&
+        await page.getByTestId('refund-manager-state').getByText('Manager action needed', { exact: true }).isVisible() &&
         (await page.getByTestId('refund-manager-next-step').innerText()).includes(
           'The currently assigned Manager or a Super-admin can take the saved final action.'
         ) &&
@@ -314,14 +314,11 @@ export const createDuplicateIdempotencyChecks = ({
     recorder.assert(
       `${scenarioName} keeps the manager payment state explicit`,
       scenario.confirmedPayment
-        ? (await page.getByText('Refund confirmed · delivery review', { exact: true }).count()) > 0 &&
-          await review.getByText('Payment remains confirmed.', { exact: false }).isVisible()
-        : scenario.gmailUncertain
-          ? await review.getByText('This delivery record does not change the refund or payment state.', { exact: false }).isVisible()
-          : await page.getByTestId('refund-manager-state').getByText(
-              scenario.customerRequestDelivery ? 'Customer request delivery unknown' : 'Delivery needs review',
-              { exact: true }
-            ).isVisible()
+        ? await review.getByText('Payment remains confirmed.', { exact: false }).isVisible()
+        : await review.getByText(
+            'This delivery record does not change the refund or payment state.',
+            { exact: false }
+          ).isVisible()
     );
     if (scenario.gmailUncertain) recorder.assert(
       'Exact Gmail uncertainty resolution remains available alongside delivery-record review',

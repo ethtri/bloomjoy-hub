@@ -2250,6 +2250,13 @@ const buildOfficialActionVersionResetOverview = () => {
     publicReference: 'RF-UAT-VERSION-VALID',
     officialActionVersion: 7,
     canPerformOfficialAction: true,
+    lifecycle: {
+      ...overview.cases[0].lifecycle,
+      decisionRecommendation: {
+        ...overview.cases[0].lifecycle.decisionRecommendation,
+        officialActionVersion: 7,
+      },
+    },
   };
   const missingVersionCase = {
     ...overview.cases[0],

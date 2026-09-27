@@ -6462,6 +6462,9 @@ export default function AdminRefundsPage() {
               pending: isSaving || isRunningNayaxRefund,
             }
           : { kind: 'empty' };
+    const showNonDecisionCardAction =
+      primaryAction?.mode === 'resolve_delivery_not_found' ||
+      (primaryAction?.disabled === true && selectedCase.providerOutcome === 'rejected');
     const hasNayaxOutcomeResolution = !selectedCaseHasCurrentCardCapability && (
       selectedCaseNeedsLegacyPaymentReview ||
       selectedCase.providerHold ||
@@ -6677,7 +6680,11 @@ export default function AdminRefundsPage() {
           <RefundCardManagerDecisionPanel
             managerState={plainManagerState}
             managerNextStep={displayedManagerNextStep}
-            action={recommendation?.kind === 'reject' && editor.decision !== 'denied' ? {kind: 'empty'} : recommendation || editor.decision === 'denied' ? cardManagerCapabilityAction : {kind: 'hidden'}}
+            action={recommendation?.kind === 'reject' && editor.decision !== 'denied'
+              ? { kind: 'empty' }
+              : recommendation || editor.decision === 'denied' || showNonDecisionCardAction
+                ? cardManagerCapabilityAction
+                : { kind: 'hidden' }}
             purchase={recommendedPurchase ? {
               amount: formatProviderCurrency(recommendedPurchase.amountCents, recommendedPurchase.currencyCode),
               time: recommendedPurchase.transactionAt ? formatRefundDateTime(recommendedPurchase.transactionAt, incidentTimezone) : null,

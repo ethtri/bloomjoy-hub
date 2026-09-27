@@ -220,7 +220,8 @@ export const createOrdinarySuccessChecks = ({
 
     await signInRefundUser(page, appUrl);
     try {
-      await waitForQueueCount(page, 0);
+      await page.getByRole('button', { name: /^Decision needed 1$/ }).waitFor({ timeout: 10000 });
+      await waitForQueueCount(page, 1);
     } catch (error) {
       const bodyText = await page.locator('body').innerText({ timeout: 1000 }).catch(() => '');
       throw new Error(

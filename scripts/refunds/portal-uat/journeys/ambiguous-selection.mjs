@@ -264,6 +264,7 @@ const runApiUnavailableCaseEvidenceChecks = async ({
   await page.getByRole('button', { name: /^All active 1$/ }).click();
   await waitForQueueCount(page, 1);
   await queueCase(page, 'RF-UAT-ADAM-MANUAL').click();
+  await page.getByText('Customer purchase details', { exact: true }).click();
   await page.getByText('Purchase details and search history', { exact: true }).click();
 
   const requestSummary = page.getByTestId('refund-request-summary');
@@ -443,8 +444,8 @@ const runManagerClarityChecks = async ({
   });
   const pollingPage = await pollingContext.newPage();
   await signInRefundUser(pollingPage, appUrl);
-  await pollingPage.getByRole('button', { name: /^All active 1$/ }).click();
-  await waitForQueueCount(pollingPage, 1);
+  await pollingPage.getByRole('button', { name: /^All active 2$/ }).click();
+  await waitForQueueCount(pollingPage, 2);
   await queueCase(pollingPage, 'RF-UAT-DRAFT-AMBIGUOUS').click();
   const pollingStatus = pollingPage.getByTestId('refund-overview-read-status');
   await pollingStatus.evaluate((element) => {

@@ -401,7 +401,7 @@ export const createAuthorizationChecks = ({
       'The manager view clears the warning only after the disposition is recorded',
       (await page.getByTestId('refund-acknowledgement-delivery-exception').count()) === 0 &&
         !(await page.locator('body').innerText()).includes('Acknowledgement needs review') &&
-        (await page.locator('body').innerText()).includes('Checking transactions')
+        (await page.locator('body').innerText()).includes('Finding the purchase')
     );
 
     await closeRefundPortalContext(context);
@@ -444,7 +444,8 @@ export const createAuthorizationChecks = ({
       'Decision content stays ahead of optional case administration',
       !(await administration.evaluate((element) => element.open)) &&
         !(await localeSection.isVisible()) &&
-        await page.getByText('Current state', { exact: true }).isVisible() &&
+        (await page.getByText('Current state', { exact: true }).count()) === 0 &&
+        await page.getByTestId('refund-primary-action').isVisible() &&
         await page.getByTestId('refund-request-summary').isVisible() &&
         await administration.evaluate((element) => {
           const requestSummary = document.querySelector('[data-testid="refund-request-summary"]');
@@ -561,7 +562,8 @@ export const createAuthorizationChecks = ({
       'Internal/test controls stay on demand behind the case decision',
       !(await administration.evaluate((element) => element.open)) &&
         !(await disposition.isVisible()) &&
-        await page.getByText('Current state', { exact: true }).isVisible()
+        (await page.getByText('Current state', { exact: true }).count()) === 0 &&
+        await page.getByTestId('refund-primary-action').isVisible()
     );
     await administration.locator(':scope > summary').click();
     recorder.assert(
