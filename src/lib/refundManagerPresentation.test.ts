@@ -143,6 +143,26 @@ Deno.test('stale action or fact versions cannot enter Decision needed', () => {
   assertEquals(refundManagerView(staleFacts), 'all_open');
 });
 
+Deno.test('an unknown payment method cannot inherit a cash recommendation', () => {
+  const item = refundCase({
+    paymentMethod: 'unknown',
+    lifecycle: {
+      ...refundCase().lifecycle,
+      decisionRecommendation: refundRecommendation({
+        purchase: {
+          source: 'sunze',
+          amountCents: 650,
+          currencyCode: 'USD',
+          transactionAt: '2026-09-24T21:15:00Z',
+          timeMeaning: 'purchase',
+        },
+      }),
+    },
+  });
+  assertEquals(refundNeedsDecision(item), false);
+  assertEquals(refundManagerView(item), 'all_open');
+});
+
 Deno.test('30-day rejection stays advisory until the current Manager makes the final decision', () => {
   const recommendation = refundRecommendation({
     kind: 'reject',

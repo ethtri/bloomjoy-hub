@@ -7,7 +7,7 @@ import { isRefundCaseOpen } from './refundQueue.ts';
 export type RefundManagerPresentationCase = {
   lifecycle?: RefundLifecycleContract | null;
   status: string;
-  paymentMethod: 'card' | 'cash';
+  paymentMethod: 'card' | 'cash' | 'unknown';
   paymentAmountCents?: number | null;
   zellePaymentContact?: string | null;
   decision?: 'approved' | 'denied' | null;
@@ -22,6 +22,7 @@ const recommendationMatchesCase = (
   recommendation: RefundDecisionRecommendation,
 ) => {
   const nextWork = item.lifecycle?.nextWork;
+  if (item.paymentMethod !== 'card' && item.paymentMethod !== 'cash') return false;
   const expectedAction = recommendation.kind === 'refund'
     ? 'approve_or_deny_request'
     : 'reject_request';
