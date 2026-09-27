@@ -209,6 +209,12 @@ select ok((select reply_review_state='resolved' and reply_review_result_code='no
   'No-new-fact research clears Customer wait without a Manager, message or payment action');
 select is(public.refund_customer_outreach_contract(pg_temp.cid(9))->>'owner','System',
   'Completed no-fact review remains System-owned rather than a customer re-question');
+select is(public.refund_lifecycle_contract(pg_temp.cid(9))->'nextWork'->>'actionCode',
+  'research_purchase','A completed no-fact review exposes the evidence dependency, not another reply review');
+select is(public.refund_lifecycle_contract(pg_temp.cid(9))->'nextWork'->>'actor',
+  'agent','No-fact purchase research belongs to an internal Agent, never a Manager');
+select is(public.refund_lifecycle_contract(pg_temp.cid(9))->'nextWork'->'blocker'->>'code',
+  'stable_evidence_dependency','New purchase evidence is required before replaying the reviewed reply');
 select is(public.service_get_refund_scoped_reply_research_health()
     ->>'stableEvidenceDependencyCount','1',
   'No-new-fact result is visible as a stable owned evidence dependency');
@@ -1462,6 +1468,25 @@ select is((select status from public.refund_wallet_correction_contexts
 select is((select reply_review_state from public.refund_wallet_correction_contexts
     where refund_case_id=pg_temp.cid(60)),'resolved',
   'Applying an earlier verified message also resolves the latest claimed review task');
+select is(public.refund_customer_outreach_contract(pg_temp.cid(60))->>'state',
+  'rechecking','A resolved reply no longer tells staff to wait for the customer');
+select is(public.refund_lifecycle_contract(pg_temp.cid(60))->'nextWork'->>'actionCode',
+  'run_lookup','The next owner runs purchase research instead of reviewing the settled reply again');
+update public.refund_cases set nayax_lookup_status='multiple_matches',
+  nayax_lookup_generation=nayax_lookup_generation+1,
+  nayax_lookup_finished_at=statement_timestamp()
+  where id=pg_temp.cid(60);
+select is(public.refund_customer_outreach_contract(pg_temp.cid(60))->>'state',
+  'none','Completed provider research closes active customer outreach without erasing its history');
+select ok(public.refund_lifecycle_contract(pg_temp.cid(60))->'nextWork'->>'actionCode'
+    <> 'review_customer_reply'
+  and public.refund_lifecycle_contract(pg_temp.cid(60))->'managerQueue'->>'label'
+    <> 'Waiting for customer',
+  'Completed lookup exposes its case stage instead of stale customer-wait or reply-review copy');
+select is(public.refund_lifecycle_contract(pg_temp.cid(60))->'managerQueue'->>'bucket',
+  'in_progress','Unprepared candidate research remains internal rather than a Manager selection task');
+select is(public.refund_lifecycle_contract(pg_temp.cid(60))->'managerAction'->>'action',
+  'none','Manager gets no separate purchase-selection action without reviewed-set proof');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
     where refund_case_id=pg_temp.cid(60)),0,
   'Time research never creates a payment attempt');
