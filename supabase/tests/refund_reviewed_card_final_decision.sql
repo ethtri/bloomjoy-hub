@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(94);
+select plan(95);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -882,6 +882,13 @@ select is(public.refund_manager_preparation_snapshot(
 -- A server-consumed QR claim supplies independent time and machine evidence.
 -- The tokenized wallet suffix is context, not a veto, when exactly one safe
 -- current sale is corroborated by the verified QR window.
+update public.refund_nayax_machine_inventory
+set provider_is_active=true,refund_category='cotton_candy',
+  reconciliation_state='published'
+where reporting_machine_id='e1440000-0000-4000-8000-000000000001';
+select ok(exists(select 1 from public.public_refund_machine_options()
+  where machine_id='e1440000-0000-4000-8000-000000000001'),
+  'The synthetic QR machine is published for public intake');
 insert into public.refund_machine_qr_codes(
   id,reporting_machine_id,public_code,version)
 values('e1470000-0000-4000-8000-000000000001',
