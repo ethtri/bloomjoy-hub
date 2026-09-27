@@ -9,7 +9,7 @@ orientation snapshot; it is not a backlog or release ledger.
 ## Refund workflow (current)
 
 - A fresh read-only provider result exposed a broad, ambiguous wallet candidate
-  set with no hard-safe match to the reported device identifier. The current
+  set with no independently corroborated purchase. The current
   reviewed-set proof would otherwise route it to a Manager before internal
   research. Issue #1359 tracks the backend readiness guard and case recovery;
   a completed lookup alone is not authority to choose a purchase or pay.
