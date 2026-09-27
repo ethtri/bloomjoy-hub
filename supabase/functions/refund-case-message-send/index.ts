@@ -5,7 +5,10 @@ import { resolveSupabaseAccessToken } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import { correctionLinkRequested, getCurrentRefundCorrectionFields, refundCorrectionLinksEnabled, STORED_CORRECTION_LINK_MARKER } from "../_shared/refund-correction-delivery.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
-import { verifiedUnsentCompletionThreadHistory } from "../_shared/refund-exhausted-completion-recovery.ts";
+import {
+  reviewedCurrentCompletionCopy,
+  verifiedUnsentCompletionThreadHistory,
+} from "../_shared/refund-exhausted-completion-recovery.ts";
 import { drainRefundManualMessageOutbox } from "../_shared/refund-manual-message-outbox.ts";
 import {
   getRefundGmailMailboxIdentities,
@@ -578,12 +581,19 @@ serve(async (req) => {
         body?.originalThreadHistoryId,
         30,
       );
+      const currentCompletionCopy = exhaustedRecovery
+        ? reviewedCurrentCompletionCopy({
+            subject: body?.recoverySubject,
+            body: body?.recoveryBody,
+          })
+        : null;
       if (
         !isUuid(completionMessageId) ||
         (exhaustedRecovery && !/^[0-9]{3,30}$/.test(originalThreadHistoryId)) ||
+        (exhaustedRecovery && !currentCompletionCopy) ||
         Object.keys(body ?? {}).some((key) =>
           !(exhaustedRecovery
-            ? ["caseId", "nayaxExhaustedCompletionMessageId", "originalThreadHistoryId"]
+            ? ["caseId", "nayaxExhaustedCompletionMessageId", "originalThreadHistoryId", "recoverySubject", "recoveryBody"]
             : ["caseId", "nayaxCompletionMessageId"]).includes(key)
         )
       ) {
@@ -655,6 +665,8 @@ serve(async (req) => {
             p_refund_case_message_id: completionMessageId,
             p_original_thread_history_id: originalThreadHistoryId,
             p_actor_user_id: user.id,
+            p_replacement_subject: currentCompletionCopy!.subject,
+            p_replacement_body: currentCompletionCopy!.body,
           }
           : {
             p_executor_assertion: nayaxExecutorAssertion,
@@ -669,6 +681,7 @@ serve(async (req) => {
         retry.refundCaseId !== caseId ||
         retry.refundCaseMessageId !== completionMessageId ||
         (exhaustedRecovery && retry.exhaustedRecovery !== true) ||
+        (exhaustedRecovery && retry.currentCopy !== true) ||
         typeof retry.attemptId !== "string" || !isUuid(retry.attemptId) ||
         typeof retry.gmailThreadId !== "string" ||
         !isUuid(retry.gmailThreadId) ||
@@ -698,7 +711,9 @@ serve(async (req) => {
               subject: retrySubject,
               text: retryBody,
               html: buildBrandedRefundHtmlFromStoredText({
-                headline: "Your refund is on its way",
+                headline: exhaustedRecovery
+                  ? "Your refund is confirmed"
+                  : "Your refund is on its way",
                 text: retryBody,
               }),
             },
