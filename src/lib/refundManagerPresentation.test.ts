@@ -197,6 +197,22 @@ Deno.test('30-day rejection stays advisory until the current Manager makes the f
 });
 
 Deno.test('cash recommendations use Sunze proof and approved cash payment work stays active', () => {
+  const cashResearch = refundCase({
+    paymentMethod: 'cash',
+    lifecycle: {
+      ...refundCase().lifecycle,
+      decisionRecommendation: null,
+      nextWork: {
+        ...refundCase().lifecycle?.nextWork,
+        actor: 'agent',
+        actionCode: 'research_purchase',
+      },
+    },
+  });
+  assertEquals(refundNeedsDecision(cashResearch), false);
+  assertEquals(refundManagerView(cashResearch), 'all_open');
+  assertEquals(refundPlainStatus(cashResearch), 'Finding the purchase');
+
   const cashDecision = refundCase({
     paymentMethod: 'cash',
     zellePaymentContact: 'customer@example.test',
