@@ -179,9 +179,17 @@ insert into private.snapcase_extraction_evidence(
   'America/Los_Angeles', 'complete', 1, false, false, 2, 2, 50, 0,
   'unverified', 'source_time_semantics_unverified'
 );
+create temporary table mixed_finalize as
+select public.service_finalize_snapcase_import_run(
+  'completion-fixture', repeat('3',64)
+) result;
 select is(
-  public.service_finalize_snapcase_import_run('completion-fixture', repeat('3',64)) ->> 'completedWindowCount',
+  (select result ->> 'completedWindowCount' from mixed_finalize),
   '0', 'an unknown payment status cannot silently complete a money window'
+);
+select is(
+  (select result ->> 'publishedCashFactCount' from mixed_finalize),
+  '1', 'the incomplete mixed window truthfully reports its published valid cash'
 );
 select is((select count(*)::integer from private.snapcase_completed_import_windows
   where local_start_date='2026-09-21'), 0,

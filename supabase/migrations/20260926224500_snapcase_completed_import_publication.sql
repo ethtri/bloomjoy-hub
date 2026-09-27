@@ -1103,6 +1103,8 @@ begin
       payment_evidence.requested_start,
       payment_evidence.requested_end
     );
+    published_cash_fact_count := published_cash_fact_count
+      + coalesce((projection ->> 'cashPublishedCount')::integer, 0);
 
     if coalesce((projection ->> 'changedFactCount')::integer, 0) > 0 then
       perform private.refresh_snapcase_payout_snapshots(
@@ -1219,8 +1221,6 @@ begin
     if coalesce(changed_window, false) then
       changed_window_count := changed_window_count + 1;
     end if;
-    published_cash_fact_count := published_cash_fact_count
-      + coalesce((projection ->> 'cashPublishedCount')::integer, 0);
   end loop;
 
   return jsonb_build_object(
