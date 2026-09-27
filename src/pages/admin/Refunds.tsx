@@ -205,12 +205,18 @@ import { deriveRefundTransactionViewState } from '@/lib/refundTransactionViewSta
 import {
   findRefundDeepLinkedCase,
   getRefundManagerQueueBucket,
-  getRefundQueueFilterForCase,
   isRefundCaseOpen,
   isRefundWorkflowProjectionUnavailable,
   type RefundQueueFilter as QueueFilter,
 } from '@/lib/refundQueue';
 import { cn } from '@/lib/utils';
+import {
+  refundDecisionRecommendation,
+  refundIsWaitingOnCustomer,
+  refundManagerView,
+  refundNeedsDecision,
+  refundPlainStatus,
+} from '@/lib/refundManagerPresentation';
 import {
   canRequestRefundCustomerDetailsManually,
   getRefundCustomerOutreachPresentation,
@@ -1119,14 +1125,6 @@ const getOperationalSignals = (refundCase: RefundCaseRecord) => {
   return signals.slice(0, 3);
 };
 
-const intakeSourceLabel = (refundCase: RefundCaseRecord) =>
-  refundCase.intakeSource === 'gmail' ? 'Support email' : 'Website form';
-
-const intakeSourceBadgeClass = (refundCase: RefundCaseRecord) =>
-  refundCase.intakeSource === 'gmail'
-    ? 'border-sky-200 bg-sky-50 text-sky-800'
-    : 'border-violet-200 bg-violet-50 text-violet-800';
-
 const normalizeDisplayedCardNetwork = (value: string | null | undefined) => {
   const normalized = (value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   if (!normalized) return null;
@@ -1780,7 +1778,7 @@ const primaryActionConfig = (
   const nextWork = refundCase.lifecycle?.nextWork;
   const preparedFinalAction = nextWork
     ? nextWork.isOpen && nextWork.actor === 'manager' &&
-      (nextWork.actionCode === 'approve_or_deny_request' ||
+      (nextWork.actionCode === 'approve_or_deny_request' || nextWork.actionCode === 'reject_request' ||
         nextWork.actionCode === 'send_cash_refund_and_confirm')
     : refundCase.paymentMethod === 'cash' && refundCase.decision === 'approved' &&
       refundCase.lifecycle?.managerAction.action === 'mark_external_refund';
@@ -1855,6 +1853,35 @@ const primaryActionConfig = (
       targetDecision: 'denied',
       messageType: 'denied',
       mode: 'case_update',
+    };
+  }
+  const decisionRecommendation = refundDecisionRecommendation(refundCase);
+  if (
+    refundCase.paymentMethod === 'cash' &&
+    refundCase.decision == null &&
+    decisionRecommendation?.kind === 'refund'
+  ) {
+    if (!preparedFinalAction) return preparationHoldAction;
+    return {
+      label: `Approve ${formatProviderCurrency(
+        decisionRecommendation.purchase?.amountCents ?? cashCompletionAmountCents ?? 0,
+        decisionRecommendation.purchase?.currencyCode ?? 'USD',
+      )} refund`,
+      helper: 'Approve the matched cash purchase. The cash send remains a separate visible task until it is confirmed.',
+      targetStatus: 'cash_zelle_pending',
+      targetDecision: 'approved',
+      mode: 'case_update',
+    };
+  }
+  if (
+    refundCase.paymentMethod === 'cash' &&
+    refundCase.decision == null &&
+    decisionRecommendation?.kind === 'reject'
+  ) {
+    return {
+      label: 'Review rejection',
+      helper: 'Review the recommendation, then choose Deny to record the Manager’s final decision.',
+      disabled: true,
     };
   }
   if (
@@ -2736,7 +2763,7 @@ export default function AdminRefundsPage() {
   const autoLookupAttemptedRef = useRef(new Set<string>());
   const handledCaseQueryRef = useRef<string | null>(null);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<QueueFilter>('needs_action');
+  const [statusFilter, setStatusFilter] = useState<QueueFilter>('decisions');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectionRevision, setSelectionRevision] = useState(0);
   const [isMobileQueueExpanded, setIsMobileQueueExpanded] = useState(true);
@@ -3018,8 +3045,7 @@ export default function AdminRefundsPage() {
         const readyToRefund = isReadyToPayCase(refundCase);
         const inProgress = isRefundInProgressCase(refundCase);
         const needsManagerReview = isManagerReviewCase(refundCase);
-        const waiting = isWaitingCase(refundCase, refundOperationsAccess);
-        const done = isDoneCase(refundCase);
+        if (statusFilter === 'decisions' && !refundNeedsDecision(refundCase)) return false;
         if (statusFilter === 'all_open' && !isRefundCaseOpen(refundCase)) return false;
         if (
           statusFilter !== 'internal_test' &&
@@ -3030,20 +3056,20 @@ export default function AdminRefundsPage() {
         if (statusFilter === 'possible_duplicate' && !refundCase.possibleDuplicate && !refundCase.confirmedDuplicate) return false;
         if (statusFilter === 'aging' && !refundCase.aging) return false;
         if (statusFilter === 'provider_hold' && !needsManagerReview) return false;
-        if (statusFilter === 'waiting_on_customer' && !waiting) return false;
+        if (statusFilter === 'waiting_on_customer' && !refundIsWaitingOnCustomer(refundCase)) return false;
         if (
           statusFilter === 'ready_to_pay' &&
           !readyToRefund
         ) return false;
         if (statusFilter === 'in_progress' && !inProgress) return false;
         if (statusFilter === 'blocked' && !isBlockedCase(refundCase)) return false;
-        if (statusFilter === 'completed' && !done) return false;
+        if (statusFilter === 'completed' && isRefundCaseOpen(refundCase)) return false;
 
         return true;
       },
     }).sort((left, right) => {
       if (statusFilter === 'all_open') {
-        const decisionDelta = Number(isReadyToPayCase(right)) - Number(isReadyToPayCase(left));
+        const decisionDelta = Number(refundNeedsDecision(right) || right.lifecycle?.nextWork?.actionCode === 'send_cash_refund_and_confirm') - Number(refundNeedsDecision(left) || left.lifecycle?.nextWork?.actionCode === 'send_cash_refund_and_confirm');
         if (decisionDelta !== 0) return decisionDelta;
       }
       const rankDelta = caseUrgencyRank(left) - caseUrgencyRank(right);
@@ -3060,18 +3086,15 @@ export default function AdminRefundsPage() {
 
   const primaryQueueCounts = useMemo(() => ({
     all_open: overview.cases.filter(isRefundCaseOpen).length,
+    decisions: overview.cases.filter(refundNeedsDecision).length,
     needs_action: overview.cases.filter(isNeedsActionCase).length,
     ready_to_pay: overview.cases.filter(isReadyToPayCase).length,
     in_progress: overview.cases.filter(isRefundInProgressCase).length,
-    waiting_on_customer: overview.cases.filter((refundCase) =>
-      isWaitingCase(refundCase, refundOperationsAccess)
-    ).length,
+    waiting_on_customer: overview.cases.filter(refundIsWaitingOnCustomer).length,
     provider_hold: overview.cases.filter(isManagerReviewCase).length,
-    completed: overview.cases.filter(isDoneCase).length,
+    completed: overview.cases.filter((refundCase) => !isRefundCaseOpen(refundCase)).length,
     internal_test: refundOperationsAccess ? internalTestCases.length : 0,
-    ...(overview.cases.length === 0 && overview.managerWork
-      ? overview.managerWork.bucketCounts : {}),
-  }), [internalTestCases, overview.cases, overview.managerWork, refundOperationsAccess]);
+  }), [internalTestCases, overview.cases, refundOperationsAccess]);
 
   const hasAnyCases = overview.cases.length + internalTestCases.length > 0;
   const refundQueueTruthUnavailable = !isUsingDemoData &&
@@ -3118,7 +3141,7 @@ export default function AdminRefundsPage() {
       const selectedCase = [...overview.cases, ...internalTestCases]
         .find((refundCase) => refundCase.id === selectedId);
       if (selectedCase) {
-        setStatusFilter(getRefundQueueFilterForCase(selectedCase, refundOperationsAccess));
+        setStatusFilter(refundManagerView(selectedCase));
         toast.info('Finish or discard the unsaved case text before changing queues.');
       }
       return;
@@ -3661,7 +3684,6 @@ export default function AdminRefundsPage() {
             id: review.id,
             matchLabel: review.matchClass === 'exact' ? 'Strong possible match' : 'Possible match',
             publicReference: review.otherPublicReference,
-            sourceLabel: review.otherIntakeSource === 'gmail' ? 'Support email' : 'Website form',
             sharedSignals: review.reasonCodes.join(', ').replaceAll('_', ' '),
             otherCaseHref: `/refunds?case=${review.otherCaseId}`,
           })),
@@ -3954,7 +3976,7 @@ export default function AdminRefundsPage() {
       // Keep the detail mounted while the authoritative overview decides its
       // post-confirmation queue. Otherwise the old filter can clear selection
       // in the same render that receives the new server projection.
-      if (targetStillSelected) setStatusFilter('all');
+      if (targetStillSelected) setStatusFilter('all_open');
       await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
       const authoritativeCase = queryClient
         .getQueryData<RefundOperationsOverview>(['admin-refund-operations-overview'])
@@ -3963,7 +3985,7 @@ export default function AdminRefundsPage() {
         // A confirmed transaction can change queues. Keep the selected detail
         // attached to the server-owned queue instead of deriving readiness
         // from this mutation response or clearing it under the old filter.
-        setStatusFilter(getRefundQueueFilterForCase(authoritativeCase, refundOperationsAccess));
+        setStatusFilter(refundManagerView(authoritativeCase));
         setEditor(toEditorState(authoritativeCase));
       } else if (targetStillSelected) {
         setEditor(toEditorState(confirmedCase));
@@ -5158,7 +5180,7 @@ export default function AdminRefundsPage() {
     handledCaseQueryRef.current = caseIdFromUrl;
 
     if (!filteredCases.some((refundCase) => refundCase.id === caseFromUrl.id)) {
-      setStatusFilter(getRefundQueueFilterForCase(caseFromUrl, refundOperationsAccess));
+      setStatusFilter(refundManagerView(caseFromUrl));
       setSearch('');
     }
     handleSelectCase(caseFromUrl);
@@ -6171,9 +6193,7 @@ export default function AdminRefundsPage() {
     const selectableComparisonCandidate =
       effectiveCandidates.find(
         (candidate) => candidate.isRecommended === true && candidate.selectionAllowed !== false
-      ) ??
-      effectiveCandidates.find((candidate) => candidate.selectionAllowed !== false) ??
-      null;
+      ) ?? null;
     const hasSelectedMatch = selectedCaseNeedsLegacyPaymentReview
       ? false
       : hasSelectedCardEvidence(selectedCase, editor);
@@ -6191,8 +6211,6 @@ export default function AdminRefundsPage() {
           : null
         : activeCandidate ??
           selectableComparisonCandidate ??
-          effectiveCandidates.find((candidate) => candidate.isRecommended === true) ??
-          effectiveCandidates[0] ??
           null;
     const incidentTimezone = refundCaseTimezone(selectedCase);
     const comparisonTimeEvidence = comparisonCandidate?.timeEvidence ?? null;
@@ -6369,6 +6387,21 @@ export default function AdminRefundsPage() {
             tone: 'info',
           }
       : baseManagerState;
+    const recommendation = refundDecisionRecommendation(selectedCase);
+    const recommendedPurchase = recommendation?.purchase;
+    const plainManagerState = {
+      label: editor.decision === 'denied' ? 'Deny request'
+        : recommendation?.kind === 'refund'
+          ? `Refund ${formatProviderCurrency(recommendedPurchase?.amountCents ?? cardAmountCents, recommendedPurchase?.currencyCode ?? 'USD')}`
+          : recommendation?.kind === 'reject' ? 'Review rejection' : refundPlainStatus(selectedCase),
+      explanation: editor.decision === 'denied'
+        ? 'Choose a clear customer-facing reason, then save the Manager’s final decision.'
+        : recommendation?.summary ?? (waitingOnCustomer ? 'We have asked the customer for the details needed to find this purchase.'
+        : selectedCase.decision === 'approved' ? 'The refund is approved. Bloomjoy is completing the remaining work.'
+        : selectedCase.decision === 'denied' ? 'The decision is saved. Bloomjoy is notifying the customer.'
+        : selectedCase.lifecycle?.nextWork?.isOpen === false ? 'This case is closed.'
+        : 'Bloomjoy is checking the purchase. No decision is needed yet.'),
+    };
     const displayedManagerNextStep = getDisplayedRefundManagerNextStep(cardManagerState, primaryAction);
     const showDisabledActionStatus =
       primaryAction?.disabled === true &&
@@ -6422,7 +6455,9 @@ export default function AdminRefundsPage() {
                 : primaryAction.mode === 'selected_nayax_final_decision'
                   ? 'refund-approve-selected-purchase'
                 : hasReadyRefund ? 'refund-run-nayax-refund' : 'refund-save-case',
-              label: topActionLabel,
+              label: recommendation?.kind === 'refund'
+                ? `Approve ${formatProviderCurrency(recommendedPurchase?.amountCents ?? cardAmountCents, recommendedPurchase?.currencyCode ?? 'USD')} refund`
+                : topActionLabel,
               disabled: cardActionDisabled,
               pending: isSaving || isRunningNayaxRefund,
             }
@@ -6550,7 +6585,7 @@ export default function AdminRefundsPage() {
       requestCorrection: canAskForCustomerDetails && primaryAction?.messageType !== 'more_info'
         ? { disabled: isUsingDemoData }
         : null,
-      denial: primaryAction?.label !== 'Deny request'
+      denial: !recommendation && primaryAction?.label !== 'Deny request'
         ? {
             label: selectedCase.decision === 'approved' ? 'Change to denial' : 'Deny request',
             disabled: isUsingDemoData || (
@@ -6640,9 +6675,17 @@ export default function AdminRefundsPage() {
       <div data-testid="refund-card-workbench" className="space-y-4">
         <section className="overflow-hidden rounded-xl border border-border bg-card text-foreground">
           <RefundCardManagerDecisionPanel
-            managerState={cardManagerState}
+            managerState={plainManagerState}
             managerNextStep={displayedManagerNextStep}
-            action={cardManagerCapabilityAction}
+            action={recommendation?.kind === 'reject' && editor.decision !== 'denied' ? {kind: 'empty'} : recommendation || editor.decision === 'denied' ? cardManagerCapabilityAction : {kind: 'hidden'}}
+            purchase={recommendedPurchase ? {
+              amount: formatProviderCurrency(recommendedPurchase.amountCents, recommendedPurchase.currencyCode),
+              time: recommendedPurchase.transactionAt ? formatRefundDateTime(recommendedPurchase.transactionAt, incidentTimezone) : null,
+              timeLabel: recommendedPurchase.timeMeaning === 'purchase' ? 'Purchased' : 'Transaction time',
+              card: recommendedPurchase.cardLast4 ? `Ending ${recommendedPurchase.cardLast4}` : null,
+            } : null}
+            onDeny={recommendation && editor.decision !== 'denied' ? chooseDenial : undefined}
+            denialDisabled={isSaving || isSendingCustomerMessage || isUsingDemoData}
             onPrimaryAction={() => {
               if (hasReadyRefund) {
                 setNayaxExecutionNotice(null);
@@ -6673,7 +6716,8 @@ export default function AdminRefundsPage() {
                   {selectedCase.issueSummary || 'No customer comments were provided.'}
                 </p>
               </div>
-              <div className="mt-4 border-t border-border/70 pt-4">
+              <details className="mt-4 border-t border-border/70 pt-4">
+                <summary className="cursor-pointer text-sm font-medium">Customer purchase details</summary>
                 <dl data-testid="refund-customer-payment-details" className="grid grid-cols-1 gap-x-4 gap-y-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
                   <div>
                     <dt className="text-xs text-muted-foreground">Customer time</dt>
@@ -6755,9 +6799,10 @@ export default function AdminRefundsPage() {
                     </p>
                   </details>
                 )}
-              </div>
+              </details>
             </article>
 
+            <details className="bg-card px-4 py-3"><summary className="cursor-pointer text-sm font-medium">Purchase details and search history</summary>
             <article id="refund-machine-transaction" tabIndex={-1} data-testid="nayax-result-card" data-refund-section="match-summary" className="flex flex-col bg-muted/20 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -7113,6 +7158,7 @@ export default function AdminRefundsPage() {
                 </div>
               )}
             </article>
+            </details>
           </div>
           </>
           )}
@@ -7181,8 +7227,10 @@ export default function AdminRefundsPage() {
           )}
 
           {refundOperationsAccess && !forceDemoData && selectedCase.paymentMethod === 'card' && !selectedCase.decision && (
+            <details className="border-t border-border pt-3"><summary className="cursor-pointer text-sm text-muted-foreground">Administration</summary>
             <RefundOwnerNonrefundResolution key={`owner-nonrefund-${selectedCase.id}`} caseId={selectedCase.id}
               onSaved={() => void queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] })} />
+            </details>
           )}
 
           {refundOperationsAccess && selectedCase.paymentMethod === 'card' && selectedCase.hasMatchedNayaxTransaction && (
@@ -7303,13 +7351,42 @@ export default function AdminRefundsPage() {
       },
     );
     const displayedManagerNextStep = getDisplayedRefundManagerNextStep(managerState, primaryAction);
+    const recommendation = refundDecisionRecommendation(selectedCase);
+    const recommendedPurchase = recommendation?.purchase;
+    const cashManagerState: RefundManagerState = {
+      ...managerState,
+      label: editor.decision === 'denied' ? 'Deny request'
+        : recommendation?.kind === 'refund'
+          ? `Refund ${formatProviderCurrency(recommendedPurchase?.amountCents ?? cashCompletionAmountCents, recommendedPurchase?.currencyCode ?? 'USD')}`
+          : recommendation?.kind === 'reject'
+            ? 'Review rejection'
+            : refundPlainStatus(selectedCase),
+      explanation: editor.decision === 'denied'
+        ? 'Choose a clear customer-facing reason, then save the Manager’s final decision.'
+        : recommendation?.summary ?? managerState.explanation,
+      nextStep: recommendation?.summary ?? displayedManagerNextStep,
+    };
 
     return (
       <RefundCashDecisionWorkbench
         refundCase={selectedCase}
         editor={editor}
-        managerState={managerState}
+        managerState={cashManagerState}
         managerNextStep={displayedManagerNextStep}
+        recommendation={recommendation ? {
+          kind: recommendation.kind,
+          summary: recommendation.summary,
+          purchase: recommendedPurchase ? {
+            amount: formatProviderCurrency(recommendedPurchase.amountCents, recommendedPurchase.currencyCode),
+            time: recommendedPurchase.transactionAt
+              ? formatRefundDateTime(recommendedPurchase.transactionAt, incidentTimezone)
+              : null,
+            timeLabel: recommendedPurchase.timeMeaning === 'purchase' ? 'Purchased' : 'Transaction time',
+            destination: selectedCase.zellePaymentContact,
+          } : null,
+        } : null}
+        showPrimaryAction={Boolean(recommendation) || selectedCase.decision === 'approved' ||
+          editor.decision === 'denied' || cashCompletionRecorded}
         action={{
           label: actionLabel,
           isCompletion: isCashCompletion,
@@ -7326,7 +7403,7 @@ export default function AdminRefundsPage() {
             canAskForCustomerDetails && primaryAction?.messageType !== 'more_info'
               ? chooseCustomerFollowUp
               : undefined,
-          onDeny: primaryAction?.targetDecision !== 'denied' ? chooseDenial : undefined,
+          onDeny: !recommendation && primaryAction?.targetDecision !== 'denied' ? chooseDenial : undefined,
           denyDisabled: isUsingDemoData || selectedCaseIsReviewOnly,
         }}
         cashCompletionRecorded={cashCompletionRecorded}
@@ -7360,6 +7437,7 @@ export default function AdminRefundsPage() {
           }
           void handlePrimaryAction();
         }}
+        onDenyRecommendation={recommendation && editor.decision !== 'denied' ? chooseDenial : undefined}
         onDenialReasonChange={(reason) =>
           setEditor((current) => current ? { ...current, decisionReason: reason } : current)
         }
@@ -7480,27 +7558,23 @@ export default function AdminRefundsPage() {
           )}
 
           <div className="mt-3 border-b border-border pb-3">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <div className="flex min-w-0 flex-nowrap gap-1 overflow-x-auto pb-1" aria-label="Refund case views">
+            <div className="flex flex-col gap-3">
+              <div className="grid min-w-0 grid-cols-2 gap-2 sm:flex sm:flex-wrap" aria-label="Refund case views">
             {([
-              ['all_open', 'All open'],
-              ['needs_action', 'Action needed'],
-              ['ready_to_pay', 'Ready to approve'],
-              ['in_progress', 'Refund in progress'],
-              ['provider_hold', 'Bloomjoy follow-up'],
-              ['waiting_on_customer', 'Waiting for customer'],
-              ['completed', 'Done'],
+              ['decisions', 'Decision needed'],
+              ['waiting_on_customer', 'Waiting on customer'],
+              ['all_open', 'All active'],
+              ['completed', 'All closed'],
             ] as const)
-              .filter(([value]) => value !== 'provider_hold' || primaryQueueCounts.provider_hold > 0)
               .map(([value, label]) => (
               <Button
                 key={value}
                 type="button"
                 variant="outline"
                 className={cn(
-                  'min-h-10 shrink-0 border-transparent px-3 shadow-none',
+                  'min-h-11 min-w-0 justify-between whitespace-normal px-3 text-sm shadow-none sm:justify-center',
                   statusFilter === value
-                    ? 'border-border bg-foreground text-background hover:bg-foreground/90 hover:text-background'
+                    ? 'border-primary/20 bg-primary/5 text-foreground hover:bg-primary/10'
                     : 'bg-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground'
                 )}
                 aria-pressed={statusFilter === value}
@@ -7514,7 +7588,7 @@ export default function AdminRefundsPage() {
             ))}
               </div>
 
-              <div className="w-full xl:max-w-sm xl:shrink-0">
+              <div className="w-full">
                 <Label htmlFor="refund-case-search" className="sr-only">Search {searchScope}</Label>
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
@@ -7537,10 +7611,10 @@ export default function AdminRefundsPage() {
             </div>
           </div>
 
-          <div className="mt-4 grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(19rem,22rem)_minmax(0,1fr)]">
+          <div className="mt-4 grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(15rem,18rem)_minmax(0,1fr)]">
             <RefundCaseQueuePanel
               cases={filteredCases}
-              viewTitle={statusFilter === 'all_open' ? 'All open cases' : undefined}
+              viewTitle={statusFilter === 'decisions' ? 'Decision needed' : statusFilter === 'waiting_on_customer' ? 'Waiting on customer' : statusFilter === 'all_open' ? 'All active' : statusFilter === 'completed' ? 'All closed' : undefined}
               showWorkflowSummary={statusFilter === 'all_open' && !isSearching}
               selectedCaseId={selectedId}
               hasSelectedCase={Boolean(selectedCase)}
@@ -7552,10 +7626,8 @@ export default function AdminRefundsPage() {
               emptyDescription={emptyQueueDescription}
               onToggleMobile={() => setIsMobileQueueExpanded((current) => !current)}
               onSelectCase={handleSelectCase}
-              getTaskLabel={managerTaskLabel}
+              getTaskLabel={refundPlainStatus}
               getTaskBadgeClass={managerTaskBadgeClass}
-              getIntakeSourceLabel={intakeSourceLabel}
-              getIntakeSourceBadgeClass={intakeSourceBadgeClass}
               formatCaseAge={formatAge}
               formatCaseAmount={formatCurrency}
             />
@@ -7586,13 +7658,7 @@ export default function AdminRefundsPage() {
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <h2 className="text-xl font-semibold text-foreground">{selectedCase.publicReference}</h2>
-                          <Badge
-                            variant="outline"
-                            data-testid="refund-selected-case-source"
-                            className={intakeSourceBadgeClass(selectedCase)}
-                          >
-                            {intakeSourceLabel(selectedCase)}
-                          </Badge>
+
                         </div>
                         <p className="mt-1 break-words text-sm text-muted-foreground">
                           {formatRefundMachineLocation(selectedCase.locationName, selectedCase.machineLabel)} ·{' '}

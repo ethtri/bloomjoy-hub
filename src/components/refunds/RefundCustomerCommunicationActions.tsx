@@ -27,7 +27,7 @@ export function RefundCustomerCommunicationActions({
 }: RefundCustomerCommunicationActionsProps) {
   return (
     <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
-      <details className="text-sm">
+      {presentation.draft && <details className="text-sm">
         <summary className="cursor-pointer font-medium text-foreground">Preview customer email</summary>
         {presentation.draft ? (
           <div className="mt-3 max-w-xl rounded-md bg-muted/40 p-3">
@@ -39,8 +39,8 @@ export function RefundCustomerCommunicationActions({
         ) : (
           <p className="mt-2 text-muted-foreground">No automatic email is queued for this state.</p>
         )}
-      </details>
-      <details className="text-sm sm:text-right">
+      </details>}
+      {(presentation.requestCorrection || presentation.denial) && <details className="text-sm sm:text-right">
         <summary className="cursor-pointer font-medium text-muted-foreground">Other decisions</summary>
         <div className="mt-3 flex flex-wrap gap-2 sm:justify-end">
           {presentation.requestCorrection && (
@@ -67,7 +67,7 @@ export function RefundCustomerCommunicationActions({
             </Button>
           )}
         </div>
-      </details>
+      </details>}
     </div>
   );
 }

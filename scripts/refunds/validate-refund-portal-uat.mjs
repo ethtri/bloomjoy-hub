@@ -434,6 +434,39 @@ const preparedManagerNextWork = (paymentMethod) => ({
   payloadRedacted: true,
 });
 
+const decisionRecommendation = ({
+  paymentMethod,
+  amountCents,
+  transactionAt,
+  cardLast4 = null,
+  candidateToken = null,
+  officialActionVersion = 1,
+  deterministicFactVersion = 2,
+}) => ({
+  schemaVersion: 'refund_decision_recommendation_v1',
+  kind: 'refund',
+  reasonCode: 'clear_purchase_match',
+  summary: paymentMethod === 'cash'
+    ? 'One Sunze cash sale matches the machine, amount, and reported time.'
+    : 'One Nayax card transaction matches the machine, amount, card, and reported time.',
+  decisionReady: true,
+  officialActionVersion,
+  deterministicFactVersion,
+  purchase: {
+    source: paymentMethod === 'cash' ? 'sunze' : 'nayax',
+    amountCents,
+    currencyCode: 'USD',
+    transactionAt,
+    timeMeaning: paymentMethod === 'cash' ? 'purchase' : 'unknown',
+    ...(cardLast4 ? { cardLast4 } : {}),
+    ...(candidateToken ? { candidateToken } : {}),
+  },
+  waitingSince: null,
+  lastMeaningfulInputAt: isoHoursAgo(2),
+  eligibleAt: isoHoursAgo(1),
+  payloadRedacted: true,
+});
+
 const approvedCardSystemNextWork = () => ({
   schemaVersion: 'refund_next_work_v1',
   isOpen: true,
@@ -545,6 +578,7 @@ const CASH_CASE_IDS = {
   missingAmount: '41000000-0000-4000-8000-000000000303',
   legacyPending: '41000000-0000-4000-8000-000000000304',
   activeAmountCorrection: '41000000-0000-4000-8000-000000000305',
+  rejectReview: '41000000-0000-4000-8000-000000000306',
 };
 
 const longGeneratedNayaxMatchFactors = [
@@ -767,11 +801,25 @@ const buildMockRefundOverview = () => ({
       cardWalletUsed: false,
       hasMatchedSalesFact: false,
       hasMatchedNayaxTransaction: false,
-      lifecycle: buildLifecycleFixture(
-        'waiting_on_customer',
-        15,
-        'wait_for_customer_reply'
-      ),
+      lifecycle: {
+        ...buildLifecycleFixture('waiting_on_customer', 15, 'wait_for_customer_reply'),
+        nextWork: {
+          schemaVersion: 'refund_next_work_v1',
+          isOpen: true,
+          actor: 'customer',
+          actionCode: 'answer_question',
+          actionLabel: 'Waiting for the customer to answer the delivered question.',
+          lastProgressAt: isoHoursAgo(12.5),
+          dueAt: null,
+          blocker: null,
+          payloadRedacted: true,
+        },
+        customerOutreach: buildCustomerOutreachFixture({
+          state: 'waiting_for_customer',
+          owner: 'Customer',
+          nextAction: 'wait_for_customer',
+        }),
+      },
       matchedNayaxMachineAuthTime: null,
       matchedNayaxAmountCents: null,
       matchedNayaxCardLast4: null,
@@ -828,12 +876,28 @@ const buildManagerReadyRefundOverview = () => {
   overview.cases[0] = {
     ...refundCase,
     status: 'needs_review',
+    canPerformOfficialAction: true,
+    officialActionVersion: 1,
+    customerFactEvidence: {
+      source: 'current_case_record',
+      appliedAt: isoHoursAgo(2),
+      changedFields: [],
+      factVersion: 2,
+      payloadRedacted: true,
+    },
     decision: null,
     decisionReason: null,
     decidedAt: null,
     lifecycle: {
       ...refundCase.lifecycle,
       nextWork: preparedManagerNextWork('card'),
+      decisionRecommendation: decisionRecommendation({
+        paymentMethod: 'card',
+        amountCents: refundCase.selectedNayaxTransaction.saleAmountCents,
+        transactionAt: refundCase.selectedNayaxTransaction.providerTimestampAt,
+        cardLast4: refundCase.selectedNayaxTransaction.cardLast4,
+        candidateToken: refundCase.nayaxLookupCandidates[0].candidateToken,
+      }),
     },
     events: [
       refundCase.events[0],
@@ -934,6 +998,15 @@ const buildSystemPreparedCardRefundOverview = () => {
   overview.cases = [{
     ...refundCase,
     status: 'needs_review',
+    canPerformOfficialAction: true,
+    officialActionVersion: 1,
+    customerFactEvidence: {
+      source: 'current_case_record',
+      appliedAt: isoHoursAgo(2),
+      changedFields: [],
+      factVersion: 2,
+      payloadRedacted: true,
+    },
     paymentAmountCents: 1000,
     refundAmountCents: 1090,
     decision: null,
@@ -942,6 +1015,13 @@ const buildSystemPreparedCardRefundOverview = () => {
     lifecycle: {
       ...refundCase.lifecycle,
       nextWork: preparedManagerNextWork('card'),
+      decisionRecommendation: decisionRecommendation({
+        paymentMethod: 'card',
+        amountCents: 1090,
+        transactionAt: providerTime,
+        cardLast4: '4242',
+        candidateToken: '41000000-0000-4000-8000-000000000401',
+      }),
     },
     correlationSummary: 'System saved the exact $10.90 provider total for the $10.00 customer estimate.',
     matchedNayaxTransactionId: 'RF423906B2-SALE',
@@ -1471,6 +1551,15 @@ const buildCashRefundReviewOverview = () => ({
     {
       id: CASH_CASE_IDS.review,
       publicReference: 'RF-UAT-CASH-REVIEW',
+      canPerformOfficialAction: true,
+      officialActionVersion: 1,
+      customerFactEvidence: {
+        source: 'current_case_record',
+        appliedAt: isoHoursAgo(2),
+        changedFields: [],
+        factVersion: 2,
+        payloadRedacted: true,
+      },
       status: 'needs_review',
       priority: 'normal',
       correlationStatus: 'matched',
@@ -1529,7 +1618,14 @@ const buildCashRefundReviewOverview = () => ({
           createdAt: isoHoursAgo(4),
         },
       ],
-      lifecycle: buildCashRefundLifecycleFixture(),
+      lifecycle: {
+        ...buildCashRefundLifecycleFixture(),
+        decisionRecommendation: decisionRecommendation({
+          paymentMethod: 'cash',
+          amountCents: 800,
+          transactionAt: isoHoursAgo(3),
+        }),
+      },
     },
   ],
 });
@@ -1549,8 +1645,58 @@ const buildCashRefundVariantsOverview = () => {
       hasMatchedSalesFact: false,
       customerEmail: 'cash-no-match@example.test',
       zellePaymentContact: 'cash-no-match@example.test',
+      lifecycle: {
+        ...buildCashRefundLifecycleFixture(false),
+        nextWork: {
+          schemaVersion: 'refund_next_work_v1',
+          isOpen: true,
+          actor: 'agent',
+          actionCode: 'research_purchase',
+          actionLabel: 'Continue internal cash purchase research.',
+          lastProgressAt: isoHoursAgo(1),
+          dueAt: null,
+          blocker: null,
+          payloadRedacted: true,
+        },
+        decisionRecommendation: null,
+      },
     },
     matchedCase,
+    {
+      ...matchedCase,
+      id: CASH_CASE_IDS.rejectReview,
+      publicReference: 'RF-UAT-CASH-REJECT-REVIEW',
+      correlationStatus: 'no_match',
+      correlationSource: null,
+      correlationConfidence: 0,
+      correlationSummary: 'No purchase match was found after the customer input window.',
+      hasMatchedSalesFact: false,
+      customerEmail: 'cash-reject-review@example.test',
+      createdAt: isoHoursAgo(31 * 24),
+      updatedAt: isoHoursAgo(31 * 24),
+      lifecycle: {
+        ...buildCashRefundLifecycleFixture(false),
+        nextWork: {
+          ...preparedManagerNextWork('cash'),
+          actionCode: 'reject_request',
+          actionLabel: 'Review the no-match recommendation and make the final decision.',
+        },
+        decisionRecommendation: {
+          schemaVersion: 'refund_decision_recommendation_v1',
+          kind: 'reject',
+          reasonCode: 'no_match_after_30_days',
+          summary: 'No matching purchase was found after 30 days without meaningful customer input.',
+          decisionReady: true,
+          officialActionVersion: 1,
+          deterministicFactVersion: 2,
+          purchase: null,
+          waitingSince: isoHoursAgo(31 * 24),
+          lastMeaningfulInputAt: isoHoursAgo(31 * 24),
+          eligibleAt: isoHoursAgo(24),
+          payloadRedacted: true,
+        },
+      },
+    },
     {
       ...matchedCase,
       id: CASH_CASE_IDS.missingAmount,
@@ -1565,7 +1711,20 @@ const buildCashRefundVariantsOverview = () => {
       zellePaymentContact: null,
       locationName: 'Colorado Mills',
       machineLabel: 'Colorado Mills — Cotton Candy',
-      lifecycle: buildCashRefundLifecycleFixture(false),
+      lifecycle: {
+        ...buildCashRefundLifecycleFixture(false),
+        nextWork: {
+          schemaVersion: 'refund_next_work_v1',
+          isOpen: true,
+          actor: 'agent',
+          actionCode: 'deliver_customer_question',
+          actionLabel: 'Prepare and deliver the missing-amount question.',
+          lastProgressAt: isoHoursAgo(1),
+          dueAt: null,
+          blocker: null,
+          payloadRedacted: true,
+        },
+      },
     },
     {
       ...matchedCase,
@@ -1579,6 +1738,15 @@ const buildCashRefundVariantsOverview = () => {
       customerEmail: 'cash-legacy-pending@example.test',
       zellePaymentContact: 'legacy-contact@example.test',
       manualRefundReference: 'Legacy historical reference',
+      lifecycle: {
+        ...buildCashRefundLifecycleFixture(),
+        nextWork: {
+          ...preparedManagerNextWork('cash'),
+          actionCode: 'send_cash_refund_and_confirm',
+          actionLabel: 'Send the cash refund through Zelle and confirm it was sent.',
+        },
+        decisionRecommendation: null,
+      },
     },
     {
       ...matchedCase,
@@ -1628,11 +1796,22 @@ const buildCashRefundVariantsOverview = () => {
           label: 'Waiting for customer',
           nextAction: 'wait_for_customer_reply',
         },
+        nextWork: {
+          schemaVersion: 'refund_next_work_v1',
+          isOpen: true,
+          actor: 'customer',
+          actionCode: 'answer_question',
+          actionLabel: 'Waiting for the customer to answer the delivered question.',
+          lastProgressAt: isoHoursAgo(0.5),
+          dueAt: null,
+          blocker: null,
+          payloadRedacted: true,
+        },
         customerOutreach: buildCustomerOutreachFixture({
-          state: 'none',
-          owner: 'None',
-          nextAction: 'none',
-          requestedFields: [],
+          state: 'waiting_for_customer',
+          owner: 'Customer',
+          nextAction: 'wait_for_customer',
+          requestedFields: ['amount'],
         }),
       },
     },

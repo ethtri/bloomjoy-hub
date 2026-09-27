@@ -30,7 +30,7 @@ export const isRefundWorkflowProjectionUnavailable = (
 export type RefundQueueFilter =
   | Exclude<RefundManagerQueueBucket, 'accounting_review' | 'integrity_hold' | 'internal_archive'>
   | 'missing_information' | 'possible_duplicate' | 'aging' | 'blocked'
-  | 'internal_test' | 'all' | 'all_open';
+  | 'internal_test' | 'all' | 'all_open' | 'decisions';
 
 /** One authorized overview case belongs in either All open or history. */
 export const isRefundCaseOpen = (refundCase: RefundQueueCase): boolean => {

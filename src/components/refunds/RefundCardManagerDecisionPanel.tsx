@@ -28,6 +28,9 @@ type RefundCardManagerDecisionPanelProps = {
   managerNextStep: string;
   action: RefundCardManagerCapabilityAction;
   onPrimaryAction: () => void;
+  purchase?: { amount: string; time: string | null; timeLabel: string; card: string | null } | null;
+  onDeny?: (trigger: HTMLButtonElement) => void;
+  denialDisabled?: boolean;
 };
 
 export function RefundCardManagerDecisionPanel({
@@ -35,29 +38,32 @@ export function RefundCardManagerDecisionPanel({
   managerNextStep,
   action,
   onPrimaryAction,
+  purchase,
+  onDeny,
+  denialDisabled,
 }: RefundCardManagerDecisionPanelProps) {
   return (
     <div
       data-testid="refund-primary-action"
       aria-live="polite"
-      className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
+      className="space-y-4 border-b border-border px-4 py-5"
     >
       <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-          Current state
-        </p>
-        <h3 data-testid="refund-manager-state" className="mt-1 text-xl font-semibold">
+        <h3 data-testid="refund-manager-state" className="text-xl font-semibold">
           {managerState.label}
         </h3>
         <p className="mt-2 max-w-xl text-sm leading-5 text-muted-foreground">
           {managerState.explanation}
         </p>
-        <p data-testid="refund-manager-next-step" className="mt-1 max-w-xl text-sm font-medium leading-5 text-foreground">
-          Next: {managerNextStep}
-        </p>
+        <span data-testid="refund-manager-next-step" className="sr-only">{managerNextStep}</span>
       </div>
+      {purchase && <dl data-testid="refund-recommended-purchase" className="grid gap-3 text-sm sm:grid-cols-3">
+        <div><dt className="text-muted-foreground">Amount</dt><dd className="mt-1 font-semibold">{purchase.amount}</dd></div>
+        {purchase.time && <div><dt className="text-muted-foreground">{purchase.timeLabel}</dt><dd className="mt-1 font-medium">{purchase.time}</dd></div>}
+        {purchase.card && <div><dt className="text-muted-foreground">Nayax card</dt><dd className="mt-1 font-medium">{purchase.card}</dd></div>}
+      </dl>}
       {action.kind !== 'hidden' && (
-        <div className="flex flex-col gap-2 sm:items-end">
+        <div className="flex flex-wrap items-center gap-3">
           {action.kind === 'status' ? (
             <div
               data-testid="refund-action-status"
@@ -89,6 +95,8 @@ export function RefundCardManagerDecisionPanel({
               {action.label}
             </Button>
           ) : null}
+          {onDeny && <Button data-testid="refund-deny-instead" type="button" variant="outline"
+            className="min-h-11 px-5" disabled={denialDisabled} onClick={(event) => onDeny(event.currentTarget)}>Deny</Button>}
         </div>
       )}
     </div>

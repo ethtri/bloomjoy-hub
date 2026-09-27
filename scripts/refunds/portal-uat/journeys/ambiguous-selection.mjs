@@ -387,7 +387,7 @@ const runManagerClarityChecks = async ({
   );
 
   await clarityPage.setViewportSize({ width: 1440, height: 1000 });
-  await clarityPage.getByRole('button', { name: /^Waiting for customer 1$/ }).click();
+  await clarityPage.getByRole('button', { name: /^Waiting on customer 1$/ }).click();
   await waitForQueueCount(clarityPage, 1);
   await queueCase(clarityPage, 'RF-UAT-WAITING-AMBIGUOUS').click();
   const waitingStatus = clarityPage.getByTestId('refund-action-status');

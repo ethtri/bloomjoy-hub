@@ -127,7 +127,7 @@ export const createDuplicateIdempotencyChecks = ({
       'Email pilot queue keeps advanced operational filters out of the manager workflow',
       (await page.getByLabel('Filter refund cases by status').count()) === 0 &&
         await page.getByRole('button', { name: /Action needed/ }).isVisible() &&
-        await page.getByRole('button', { name: /^Waiting for customer \d+$/ }).isVisible() &&
+        await page.getByRole('button', { name: /^Waiting on customer \d+$/ }).isVisible() &&
         await page.getByRole('button', { name: /Done/ }).isVisible()
     );
     recorder.assert(

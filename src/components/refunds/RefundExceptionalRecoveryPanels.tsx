@@ -218,7 +218,6 @@ export type RefundDuplicateReconciliationPresentation = {
     id: string;
     matchLabel: 'Strong possible match' | 'Possible match';
     publicReference: string;
-    sourceLabel: 'Support email' | 'Website form';
     sharedSignals: string;
     otherCaseHref: string;
   }>;
@@ -254,9 +253,6 @@ export function RefundDuplicateReconciliationPanel({
                     {review.matchLabel}
                   </Badge>
                   <span className="font-semibold">{review.publicReference}</span>
-                  <Badge className="border-slate-200 bg-slate-50 text-slate-700">
-                    {review.sourceLabel}
-                  </Badge>
                 </div>
                 <p className="mt-2 text-xs leading-5 text-rose-900">
                   Shared signals: {review.sharedSignals}.

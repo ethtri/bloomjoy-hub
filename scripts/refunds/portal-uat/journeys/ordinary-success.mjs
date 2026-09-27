@@ -294,7 +294,7 @@ export const createOrdinarySuccessChecks = ({
         officialActionCallsAfterLinkNavigation,
       })
     );
-    const waitingFilter = page.getByRole('button', { name: /^Waiting for customer 1$/ });
+    const waitingFilter = page.getByRole('button', { name: /^Waiting on customer 1$/ });
     const waitingRow = queueCase(page, 'RF-UAT-WAIT');
     const waitingRowText = await waitingRow.innerText();
     const waitingDetailState = await page
@@ -343,7 +343,7 @@ export const createOrdinarySuccessChecks = ({
         await page.getByRole('button', { name: /^Action needed \d+$/ }).isVisible() &&
         await page.getByRole('button', { name: /^Ready to approve \d+$/ }).isVisible() &&
         await page.getByRole('button', { name: /^Refund in progress \d+$/ }).isVisible() &&
-        await page.getByRole('button', { name: /^Waiting for customer \d+$/ }).isVisible() &&
+        await page.getByRole('button', { name: /^Waiting on customer \d+$/ }).isVisible() &&
         await page.getByRole('button', { name: /^Done \d+$/ }).isVisible()
     );
 
@@ -1447,117 +1447,10 @@ export const createOrdinarySuccessChecks = ({
 
 
   const runManualExternalCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
-    const variantsContext = await browser.newContext({
-      viewport: { width: 1440, height: 1000 },
-    });
-    await installMockSupabaseRoutes(variantsContext, {
-      refundOverview: buildCashRefundVariantsOverview,
-    });
-    const variantsPage = await variantsContext.newPage();
-    await signInRefundUser(variantsPage, appUrl);
-    await variantsPage.getByRole('button', { name: /Ready to approve/ }).click();
-    await waitForQueueCount(variantsPage, 3);
-
-    await queueCase(variantsPage, 'RF-UAT-CASH-REVIEW').click();
-    await variantsPage.getByTestId('refund-cash-workbench').waitFor({ timeout: 10000 });
-    await variantsPage.getByTestId('refund-cash-evidence-state').getByText('Sale found').waitFor({ timeout: 10000 });
-    recorder.assert(
-      'Matched cash case exposes one direct external-refund completion action',
-      (await variantsPage.locator('[data-dominant-action="true"]:visible').count()) === 1 &&
-        await variantsPage.getByTestId('refund-cash-primary-action').getByText('Confirm refund sent via Zelle').isVisible()
-    );
-    recorder.assert(
-      'Cash sale evidence shows deterministic venue-time presentation',
-      await variantsPage.getByTestId('refund-cash-match-summary').getByText('Shown in venue time · America/New_York', { exact: true }).isVisible()
-    );
-
-    await variantsPage.getByText('Other decisions', { exact: true }).click();
-    recorder.assert(
-      'Cash completion keeps denial secondary and removes the separate approval step',
-      await variantsPage.getByRole('button', { name: 'Deny request', exact: true }).isVisible() &&
-        (await variantsPage.getByRole('button', { name: 'Approve refund', exact: true }).count()) === 0
-    );
-
-    await queueCase(variantsPage, 'RF-UAT-CASH-NO-MATCH').click();
-    await variantsPage.getByTestId('refund-cash-evidence-state').getByText('No sale found').waitFor();
-    await queueCase(variantsPage, 'RF-UAT-CASH-NO-MATCH')
-      .getByText('Ready to confirm refund', { exact: true })
-      .waitFor({ timeout: 10000 });
-    recorder.assert(
-      'Completed no-match cash evidence projects an authoritative ready-to-confirm queue state',
-      await queueCase(variantsPage, 'RF-UAT-CASH-NO-MATCH')
-        .getByText('Ready to confirm refund', { exact: true })
-        .isVisible()
-    );
-    recorder.assert(
-      'Unmatched cash case has the same direct completion action with no Nayax controls',
-      await variantsPage.getByTestId('refund-cash-primary-action').getByText('Confirm refund sent via Zelle').isVisible() &&
-        (await variantsPage.getByTestId('nayax-result-card').count()) === 0 &&
-        (await variantsPage.getByTestId('refund-run-nayax-refund').count()) === 0
-    );
-
-    await variantsPage.locator('[aria-label="Refund case views"]')
-      .getByRole('button', { name: /^Action needed \d+$/ }).click();
-    await waitForQueueCount(variantsPage, 1);
-    await queueCase(variantsPage, 'RF-UAT-CASH-MISSING-AMOUNT').click();
-    await variantsPage.getByTestId('refund-cash-evidence-state').getByText('No sale found').waitFor({ timeout: 10000 });
-    recorder.assert(
-      'Missing-amount cash case offers one actionable customer-detail path',
-      await variantsPage.getByTestId('refund-cash-primary-action').getByText(/Ask for missing details|Request details/).isVisible() &&
-        (await variantsPage.getByText(/Mark\s+\S+\s+as\s+refunded|\bVenmo\b/).count()) === 0 &&
-        !(await variantsPage.locator('body').innerText()).includes(
-          'Colorado Mills - Colorado Mills — Cotton Candy'
-        ),
-      (await variantsPage.getByTestId('refund-cash-primary-action').innerText()).slice(0, 240)
-    );
-    await variantsPage.setViewportSize({ width: 390, height: 844 });
-    const missingDetailsActionBox = await variantsPage.getByTestId('refund-cash-primary-action').boundingBox();
-    recorder.assert(
-      'Missing-detail action and matching next step remain practical at 390px',
-      await variantsPage.getByTestId('refund-cash-primary-action').isVisible() &&
-        Boolean(missingDetailsActionBox && missingDetailsActionBox.height >= 44) &&
-        await variantsPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
-      JSON.stringify(missingDetailsActionBox)
-    );
-    await variantsPage.setViewportSize({ width: 1440, height: 1000 });
-
-    await variantsPage.getByRole('button', { name: /Ready to approve/ }).click();
-    await waitForQueueCount(variantsPage, 3);
-    await queueCase(variantsPage, 'RF-UAT-CASH-LEGACY-PENDING').click();
-    await variantsPage.getByTestId('refund-cash-evidence-state').getByText('Sale found').waitFor({ timeout: 10000 });
-    recorder.assert(
-      'Legacy cash pending case resolves through the same direct completion action',
-      await variantsPage.getByTestId('refund-cash-primary-action').getByText('Confirm refund sent via Zelle').isVisible() &&
-        (await variantsPage.getByTestId('refund-cash-reference-input').count()) === 0 &&
-        (await variantsPage.getByTestId('refund-cash-payout-time-input').count()) === 0 &&
-        (await variantsPage.getByTestId('refund-cash-payment-confirmed').count()) === 0
-    );
-
-    await variantsPage.getByRole('button', { name: /^Waiting for customer 1$/ }).click();
-    await waitForQueueCount(variantsPage, 1);
-    await queueCase(variantsPage, 'RF-UAT-CASH-ACTIVE-AMOUNT-CORRECTION').click();
-    await variantsPage.getByTestId('refund-cash-workbench').waitFor({ timeout: 10000 });
-    recorder.assert(
-      'Active amount correction blocks the distinct payout request in the rendered cash workbench',
-      await variantsPage.getByTestId('refund-cash-primary-action').isDisabled() &&
-        await variantsPage.getByTestId('refund-cash-primary-action').getByText('Waiting for customer reply', { exact: true }).isVisible() &&
-        (await variantsPage.getByRole('button', { name: 'Request payout destination', exact: true }).count()) === 0 &&
-        (await variantsPage.getByRole('button', { name: 'Request customer correction', exact: true }).count()) === 0
-    );
-    await closeRefundPortalContext(variantsContext);
-
-    const context = await browser.newContext({
-      viewport: { width: 1440, height: 1000 },
-    });
-    const functionCalls = [];
-    const functionBodies = [];
+    const context = await browser.newContext({ viewport: { width: 1505, height: 1045 } });
     await installMockSupabaseRoutes(context, {
       refundOverview: buildCashRefundVariantsOverview,
-      functionCalls,
-      functionBodies,
-      adminUpdateDelayMs: 700,
     });
-
     const page = await context.newPage();
     const consoleErrors = [];
     page.on('console', (message) => {
@@ -1565,164 +1458,107 @@ export const createOrdinarySuccessChecks = ({
     });
     page.on('pageerror', (error) => consoleErrors.push(error.message));
     await signInRefundUser(page, appUrl);
-    await page.getByRole('button', { name: /Ready to approve/ }).click();
-    await waitForQueueCount(page, 3);
+    await page.getByText('Signed in. Redirecting...', { exact: true })
+      .waitFor({ state: 'hidden', timeout: 10000 });
+
+    await page.getByRole('button', { name: /^Decision needed 2$/ }).click();
+    await waitForQueueCount(page, 2);
+    recorder.assert(
+      'Cash Decision needed contains only the canonical Sunze recommendation',
+      (await queueCase(page, 'RF-UAT-CASH-REVIEW').count()) === 1 &&
+        (await queueCase(page, 'RF-UAT-CASH-REJECT-REVIEW').count()) === 1 &&
+        (await queueCase(page, 'RF-UAT-CASH-NO-MATCH').count()) === 0 &&
+        (await queueCase(page, 'RF-UAT-CASH-LEGACY-PENDING').count()) === 0
+    );
+
+    await queueCase(page, 'RF-UAT-CASH-REVIEW').click();
+    await page.getByTestId('refund-cash-workbench').waitFor({ timeout: 10000 });
+    const recommendationText = await page.getByTestId('refund-cash-primary-action-panel').innerText();
+    recorder.assert(
+      'Matched cash recommendation shows one purchase with Approve and Deny',
+      recommendationText.includes('Refund $8.00 USD') &&
+        recommendationText.includes('Amount') &&
+        recommendationText.includes('$8.00 USD') &&
+        recommendationText.includes('Purchased') &&
+        recommendationText.includes('Zelle destination') &&
+        await page.getByTestId('refund-cash-primary-action')
+          .getByText('Approve $8.00 USD refund', { exact: true }).isVisible() &&
+        await page.getByTestId('refund-deny-instead').getByText('Deny', { exact: true }).isVisible()
+    );
+    recorder.assert(
+      'Cash raw request stays visible and purchase research stays collapsed',
+      await page.getByTestId('refund-cash-request-summary')
+        .getByText('Customer request', { exact: true }).isVisible() &&
+        await page.getByTestId('refund-customer-comments').isVisible() &&
+        !(await page.getByTestId('refund-cash-evidence-state').isVisible())
+    );
+
+    await queueCase(page, 'RF-UAT-CASH-REJECT-REVIEW').click();
+    await page.getByTestId('refund-cash-workbench').waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Thirty-day no-match recommendation remains advisory until the Manager denies it',
+      (await page.getByTestId('refund-manager-state').innerText()) === 'Review rejection' &&
+        await page.getByTestId('refund-deny-instead').getByText('Deny', { exact: true }).isVisible() &&
+        (await page.getByTestId('refund-cash-primary-action').count()) === 0
+    );
+
+    await page.getByRole('button', { name: /^All active 6$/ }).click();
+    await waitForQueueCount(page, 6);
+    const activeRows = await page.getByTestId('refund-case-queue-item').allInnerTexts();
+    recorder.assert(
+      'All active keeps internal cash research and an approved cash send task visible',
+      ['RF-UAT-CASH-NO-MATCH', 'RF-UAT-CASH-REVIEW', 'RF-UAT-CASH-REJECT-REVIEW', 'RF-UAT-CASH-MISSING-AMOUNT',
+        'RF-UAT-CASH-LEGACY-PENDING', 'RF-UAT-CASH-ACTIVE-AMOUNT-CORRECTION']
+        .every((reference) => activeRows.some((row) => row.includes(reference))) &&
+        activeRows.some((row) => row.includes('RF-UAT-CASH-NO-MATCH') && row.includes('Finding the purchase')) &&
+        activeRows.some((row) => row.includes('RF-UAT-CASH-LEGACY-PENDING') && row.includes('Send cash refund')),
+      JSON.stringify(activeRows.map((row) => row.slice(0, 180)))
+    );
+
     await queueCase(page, 'RF-UAT-CASH-NO-MATCH').click();
     await page.getByTestId('refund-cash-workbench').waitFor({ timeout: 10000 });
-
     recorder.assert(
-      'Cash review keeps customer identity, refund path, and full comments visible',
-      await page.getByText('Cash Review Customer', { exact: false }).first().isVisible() &&
-        await page.getByTestId('refund-cash-request-summary').getByText('Cash payment · external reimbursement', { exact: true }).isVisible() &&
-        await page.getByTestId('refund-customer-comments').isVisible() &&
-        (await page.getByTestId('refund-customer-comments').innerText()).includes('machine stopped before dispensing')
+      'Internal cash research does not expose an approval, denial, or payment control',
+      (await page.getByTestId('refund-cash-primary-action').count()) === 0 &&
+        (await page.getByTestId('refund-deny-instead').count()) === 0 &&
+        (await page.getByTestId('nayax-result-card').count()) === 0
     );
 
-    await page.getByText('Preview customer email', { exact: true }).click();
+    await queueCase(page, 'RF-UAT-CASH-LEGACY-PENDING').click();
+    await page.getByTestId('refund-cash-workbench').waitFor({ timeout: 10000 });
     recorder.assert(
-      'Cash completion preview is channel-neutral and explicit',
-      await page.getByText('Your Bloomjoy refund of $8.00 is complete', { exact: true }).isVisible() &&
-        await page.getByText(/using the payment method arranged with you/).isVisible() &&
-        (await page.getByText(/Zelle payment has been sent/).count()) === 0
-    );
-    recorder.assert(
-      'Normal cash path has no editable payout amount, timestamp, reference, or checkbox',
-      await page.getByTestId('refund-cash-primary-action').isEnabled() &&
-        (await page.getByTestId('refund-cash-completion-panel').count()) === 0 &&
-        (await page.getByTestId('refund-cash-amount-input').count()) === 0 &&
-        (await page.getByTestId('refund-cash-reference-input').count()) === 0 &&
-        (await page.getByTestId('refund-cash-payout-time-input').count()) === 0 &&
-        (await page.getByTestId('refund-cash-payment-confirmed').count()) === 0
+      'Already-approved cash work remains a separate send-and-confirm task',
+      await page.getByTestId('refund-cash-primary-action')
+        .getByText('Confirm refund sent via Zelle', { exact: true }).isVisible()
     );
 
-    await page.waitForTimeout(4500);
-
+    await page.getByRole('button', { name: /^Waiting on customer 1$/ }).click();
+    await waitForQueueCount(page, 1);
+    recorder.assert(
+      'Cash waiting view requires the delivered unanswered question fixture',
+      (await queueCase(page, 'RF-UAT-CASH-ACTIVE-AMOUNT-CORRECTION').count()) === 1
+    );
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.getByTestId('refund-cash-workbench').scrollIntoViewIfNeeded();
-    const cashOverflow = await page.evaluate(() => ({
-      scrollWidth: document.documentElement.scrollWidth,
-      bodyScrollWidth: document.body.scrollWidth,
-      innerWidth: window.innerWidth,
-    }));
     recorder.assert(
-      'Cash workbench has no 390x844 horizontal overflow',
-      cashOverflow.scrollWidth <= cashOverflow.innerWidth + 1 &&
-        cashOverflow.bodyScrollWidth <= cashOverflow.innerWidth + 1,
-      JSON.stringify(cashOverflow)
+      'Cash four-view workspace has no horizontal overflow at 390px',
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)
     );
-    const cashPrimaryActionLayout = await page.getByTestId('refund-cash-primary-action').evaluate((element) => {
-      const style = window.getComputedStyle(element);
-      return {
-        clientWidth: element.clientWidth,
-        scrollWidth: element.scrollWidth,
-        clientHeight: element.clientHeight,
-        scrollHeight: element.scrollHeight,
-        whiteSpace: style.whiteSpace,
-      };
-    });
-    recorder.assert(
-      'Cash primary action wraps without clipping on 390x844',
-      cashPrimaryActionLayout.whiteSpace === 'normal' &&
-        cashPrimaryActionLayout.scrollWidth <= cashPrimaryActionLayout.clientWidth + 1 &&
-        cashPrimaryActionLayout.scrollHeight <= cashPrimaryActionLayout.clientHeight + 1,
-      JSON.stringify(cashPrimaryActionLayout)
-    );
-
-    await page.setViewportSize({ width: 1440, height: 1000 });
-    const completionResponse = page.waitForResponse((response) =>
-      new URL(response.url()).pathname.endsWith('/functions/v1/refund-case-admin-update')
-    );
-    await page.getByTestId('refund-cash-primary-action').evaluate((button) => {
-      button.click();
-      button.click();
-    });
-    await completionResponse;
-    recorder.assert(
-      'Cash single action submits after evidence review with no confirmation dialog',
-      (await page.getByTestId('refund-cash-confirmation-dialog').count()) === 0 &&
-        (await page.getByTestId('refund-cash-primary-action').isDisabled())
-    );
-    await page.getByTestId('refund-action-receipt').waitFor({ timeout: 10000 });
-
-    const completionBodies = functionBodies
-      .filter(
-        (entry) => entry.functionName === 'refund-case-admin-update' && entry.body?.status === 'completed'
-      )
-      .map((entry) => entry.body ?? {});
-    const completionBody = completionBodies[0] ?? {};
-    recorder.assert(
-      'Cash completion submits one confirmation without client-controlled payout fields',
-      completionBodies.length === 1 &&
-        !Object.prototype.hasOwnProperty.call(completionBody, 'refundAmountCents') &&
-        !Object.prototype.hasOwnProperty.call(completionBody, 'cashPayoutSentAt') &&
-        !Object.prototype.hasOwnProperty.call(completionBody, 'manualRefundReference') &&
-        completionBody.cashPaymentConfirmed === true &&
-        completionBody.customerMessageType === 'completed' &&
-        completionBody.expectedOfficialActionVersion === 1,
-      JSON.stringify(completionBodies)
-    );
-    recorder.assert(
-      'Cash completion makes no Nayax call and sends no standalone duplicate message request',
-      !functionCalls.includes('nayax-card-refund') &&
-        !functionCalls.includes('nayax-transaction-lookup') &&
-        !functionCalls.includes('refund-case-message-send') &&
-        completionBodies.length === 1,
-      functionCalls.join(', ')
-    );
-    recorder.assert(
-      'Cash completion shows a durable channel-neutral success receipt',
-      await page.getByText('Refund sent via Zelle confirmed', { exact: true }).isVisible() &&
-        await page.getByText(/external refund was recorded/).isVisible()
-    );
-    recorder.assert(
-      'Cash completion replaces the send instruction with a complete state',
-      await (async () => {
-        const managerState = page.getByTestId('refund-manager-state');
-        const terminalState = page.getByTestId('refund-terminal-primary-action');
-        const managerStateCount = await managerState.count();
-        const terminalStateCount = await terminalState.count();
-        const managerStateText = managerStateCount > 0 ? await managerState.innerText() : '';
-        const terminalStateText = terminalStateCount > 0 ? await terminalState.innerText() : '';
-        const nextStep = page.getByTestId('refund-manager-next-step');
-        const nextStepCount = await nextStep.count();
-        const nextStepText = nextStepCount > 0 ? await nextStep.innerText() : '';
-        const queueItem = queueCase(page, 'RF-UAT-CASH-NO-MATCH');
-        const queueItemCount = await queueItem.count();
-        const queueItemText = queueItemCount > 0 ? await queueItem.innerText() : '';
-        const checks = {
-          managerStateText,
-          terminalStateText,
-          nextStepText,
-          sendInstructionCount: await page.getByText(/Send the refund through Zelle outside Bloomjoy Hub/i).count(),
-          queueItemCount,
-          queueItemText,
-          updateDeliveredCount: await page.getByText(/Update delivered/i).count(),
-        };
-        const passed = (
-          /^(Case complete|Completed)$/.test(managerStateText.trim()) ||
-          /^Case complete/.test(terminalStateText.trim())
-        ) &&
-          nextStepCount === 0 &&
-          checks.sendInstructionCount === 0 &&
-          (queueItemCount === 0 || !/Ready to confirm refund/i.test(queueItemText)) &&
-          checks.updateDeliveredCount > 0;
-        return passed;
-      })(),
-    );
-    recorder.assert(
-      'No browser console or page errors during one-action cash UAT',
-      getUatPageFailures(page, consoleErrors).length === 0,
-      getUatPageFailures(page, consoleErrors).slice(0, 3).join(' | ')
-    );
+    await page.setViewportSize({ width: 1505, height: 1045 });
+    await page.getByRole('button', { name: /^Decision needed 2$/ }).click();
+    await queueCase(page, 'RF-UAT-CASH-REVIEW').click();
     await page.screenshot({
       path: path.join(artifactDir, 'refund-portal-uat-cash-success.png'),
       fullPage: true,
     });
 
+    recorder.assert(
+      'No browser console or page errors during cash recommendation UAT',
+      getUatPageFailures(page, consoleErrors).length === 0,
+      getUatPageFailures(page, consoleErrors).slice(0, 3).join(' | ')
+    );
     await closeRefundPortalContext(context);
   };
-
 
   const runDemoFallbackChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
     const consoleErrors = [];
@@ -1737,7 +1573,7 @@ export const createOrdinarySuccessChecks = ({
       });
     };
     const createDemoContext = () => browser.newContext({
-      viewport: { width: 1440, height: 1000 },
+      viewport: { width: 1505, height: 1045 },
       timezoneId: 'America/Los_Angeles',
     });
     const openSignedInDemoPage = async (context, rpcCalls, initialPath) => {
@@ -1751,124 +1587,92 @@ export const createOrdinarySuccessChecks = ({
       if (!accessReadBarrier) throw new Error('refund_portal_demo_access_read_barrier_missing');
       await accessReadBarrier;
       await waitForRefundPortalRouteCommitted(page);
+      await page.getByText('Signed in. Redirecting...', { exact: true })
+        .waitFor({ state: 'hidden', timeout: 10000 });
       return page;
     };
 
     await withRefundPortalContext(createDemoContext, async (context) => {
       const rpcCalls = [];
       const page = await openSignedInDemoPage(context, rpcCalls, '/refunds?demo=on');
-      await page.getByRole('button', { name: /^Action needed 1$/ })
+      await page.getByRole('button', { name: /^Decision needed 1$/ })
         .waitFor({ timeout: 10000 });
 
       recorder.assert(
-        'Refunds opens directly into one queue surface with shared server-owned counts',
+        'Refunds opens with exactly the four manager views and no legacy tabs',
         (await page.getByTestId('refund-manager-work-summary').count()) === 0 &&
           (await page.getByText('Daily focus', { exact: true }).count()) === 0 &&
           (await page.getByText('Prioritized work', { exact: true }).count()) === 0 &&
           (await page.getByText('Demo cases are for visual review only.', { exact: false }).count()) === 0 &&
-          await page.getByRole('button', { name: /^Action needed 1$/ }).isVisible() &&
-          await page.getByRole('button', { name: /^Ready to approve 1$/ }).isVisible() &&
-          await page.getByRole('button', { name: /^Waiting for customer 1$/ }).isVisible() &&
-          await page.getByRole('button', { name: /^Done 1$/ }).isVisible()
+          await page.getByRole('button', { name: /^Decision needed 1$/ }).isVisible() &&
+          await page.getByRole('button', { name: /^Waiting on customer 1$/ }).isVisible() &&
+          await page.getByRole('button', { name: /^All active 3$/ }).isVisible() &&
+          await page.getByRole('button', { name: /^All closed 1$/ }).isVisible() &&
+          (await page.getByLabel('Refund case views').getByRole('button').count()) === 4
       );
-      await page.getByRole('button', { name: /^All open 3$/ }).click();
+
+      await page.getByRole('button', { name: /^All active 3$/ }).click();
       await waitForQueueCount(page, 3);
       const allOpenRows = await page.getByTestId('refund-case-queue-item')
         .filter({ visible: true }).allInnerTexts();
       recorder.assert(
-        'All open shows each unresolved case once, decision first, and keeps history separate',
+        'All active shows each unresolved case once and keeps closed history separate',
         allOpenRows.length === 3 &&
           allOpenRows[0].includes('RF-UAT-CARD') &&
           ['RF-UAT-SETUP', 'RF-UAT-WAIT'].every((reference) =>
             allOpenRows.filter((row) => row.includes(reference)).length === 1) &&
-          allOpenRows.every((row) => !row.includes('RF-UAT-CASH')) &&
-          (await page.getByTestId('refund-case-next-work')
-            .filter({ visible: true }).count()) === 3,
+          allOpenRows.every((row) => !row.includes('RF-UAT-CASH')),
         JSON.stringify(allOpenRows.map((row) => row.slice(0, 160)))
       );
+
       await page.setViewportSize({ width: 390, height: 844 });
-      await page.evaluate(() => { document.documentElement.style.zoom = '2'; });
       const mobileAllOpenRows = page.getByTestId('refund-case-queue-item').filter({ visible: true });
       recorder.assert(
-        'All open remains discoverable and readable at 390px and 200 percent zoom',
-        await page.getByRole('button', { name: /^All open 3$/ }).isVisible() &&
+        'The four views wrap without horizontal scrolling at 390px',
+        await page.getByRole('button', { name: /^All active 3$/ }).isVisible() &&
           (await mobileAllOpenRows.count()) === 3 &&
-          (await page.getByTestId('refund-case-next-work').filter({ visible: true }).count()) === 3 &&
           !(await page.evaluate(() =>
             document.documentElement.scrollWidth > document.documentElement.clientWidth))
       );
-      await page.evaluate(() => { document.documentElement.style.zoom = ''; });
-      await page.setViewportSize({ width: 1440, height: 1000 });
-      await page.getByRole('button', { name: /^Action needed 1$/ }).click();
-      await waitForQueueCount(page, 1);
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.evaluate(() => { document.documentElement.style.zoom = '2'; });
-      const mobileActionNeededFilter = page.getByRole('button', { name: /^Action needed 1$/ });
-      await mobileActionNeededFilter.scrollIntoViewIfNeeded();
-      const mobileQueueSignals = {
-        summaryCount: await page.getByTestId('refund-manager-work-summary').count(),
-        actionNeededVisible: await mobileActionNeededFilter.isVisible(),
-        queuePanelCount: await page.locator('#refund-queue-panel').count(),
-        identityAndTaskVisible: await page.getByTestId('refund-case-queue-item').evaluateAll((items) =>
-          items.some((item) => {
-            const bounds = item.getBoundingClientRect();
-            const text = item.textContent ?? '';
-            return bounds.width > 0 && bounds.height > 0 &&
-              text.includes('RF-UAT-SETUP') &&
-              text.includes('Transaction search unavailable');
-          })
-        ),
-        horizontalOverflow: await page.evaluate(() =>
-          document.documentElement.scrollWidth > document.documentElement.clientWidth
-        ),
-      };
-      recorder.assert(
-        'The single refund queue remains operable at 390px and 200 percent zoom',
-          mobileQueueSignals.summaryCount === 0 &&
-          mobileQueueSignals.actionNeededVisible &&
-          mobileQueueSignals.queuePanelCount === 1 &&
-          mobileQueueSignals.identityAndTaskVisible &&
-          !mobileQueueSignals.horizontalOverflow,
-        JSON.stringify(mobileQueueSignals)
-      );
-      await page.evaluate(() => { document.documentElement.style.zoom = ''; });
-      await page.setViewportSize({ width: 1440, height: 1000 });
+      await page.screenshot({
+        path: path.join(artifactDir, 'refund-portal-uat-mobile.png'),
+        fullPage: true,
+      });
+      await page.setViewportSize({ width: 1505, height: 1045 });
 
-      recorder.assert(
-        'Explicit local demo mode starts with the one manager-owned setup case',
-        (await page.getByTestId('refund-queue-count').innerText()) === '1 case'
-      );
-      await page.getByRole('button', { name: /^Ready to approve \d+$/ }).click();
+      await page.getByRole('button', { name: /^Decision needed 1$/ }).click();
       await waitForQueueCount(page, 1);
       recorder.assert(
-        'Demo visual review keeps ready, waiting, and setup cases distinct',
+        'Decision needed contains only the canonical recommendation',
         (await queueCase(page, 'RF-UAT-CARD').count()) === 1 &&
           (await queueCase(page, 'RF-UAT-WAIT').count()) === 0 &&
           (await queueCase(page, 'RF-UAT-SETUP').count()) === 0
       );
 
-      await page.getByRole('button', { name: /^Waiting for customer \d+$/ }).click();
+      await page.getByRole('button', { name: /^Waiting on customer \d+$/ }).click();
       await waitForQueueCount(page, 1);
       recorder.assert(
         'Demo visual review shows waiting cases in their dedicated queue',
         (await queueCase(page, 'RF-UAT-WAIT').count()) === 1 &&
           (await queueCase(page, 'RF-UAT-CARD').count()) === 0
       );
-      await page.getByRole('button', { name: /^Ready to approve \d+$/ }).click();
+      await page.getByRole('button', { name: /^Decision needed \d+$/ }).click();
       await waitForQueueCount(page, 1);
 
       await queueCase(page, 'RF-UAT-CARD').click();
       await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
       const demoRefundAction = page.getByTestId('refund-run-nayax-refund');
       const demoPrimaryActionText = await page.getByTestId('refund-primary-action').innerText();
+      const purchaseDetails = page.getByText('Purchase details and search history', { exact: true });
       recorder.assert(
-        'Confirmed demo transaction has one clear refund action',
+        'The recommendation shows concise saved-purchase proof with Approve and Deny',
         (await demoRefundAction.count()) === 1 &&
           await demoRefundAction.isDisabled() &&
-          (await demoRefundAction.innerText()).includes('Refund $7.00') &&
-          (await page.getByTestId('refund-manager-state').innerText()) === 'Action needed' &&
-          demoPrimaryActionText.includes('The request is prepared for the assigned Manager') &&
-          demoPrimaryActionText.includes('Review the exact saved card purchase and make the final decision.'),
+          (await demoRefundAction.innerText()).includes('Approve $7.00 USD refund') &&
+          (await page.getByTestId('refund-manager-state').innerText()) === 'Refund $7.00 USD' &&
+          demoPrimaryActionText.includes('Transaction time') &&
+          demoPrimaryActionText.includes('Nayax card') &&
+          await page.getByTestId('refund-deny-instead').isVisible(),
         JSON.stringify({
           buttonCount: await demoRefundAction.count(),
           buttonDisabled: await demoRefundAction.isDisabled(),
@@ -1878,60 +1682,24 @@ export const createOrdinarySuccessChecks = ({
         })
       );
       recorder.assert(
-        'Demo exposes no advanced Nayax rerun action',
-        !(await page.getByRole('button', { name: /Refresh result/i }).isVisible())
+        'Raw customer request stays visible while technical purchase detail stays collapsed',
+        await page.getByTestId('refund-request-summary').getByText('Customer request', { exact: true }).isVisible() &&
+          await page.getByTestId('refund-customer-comments').isVisible() &&
+          (await page.getByTestId('nayax-result-card').count()) === 1 &&
+          !(await page.getByTestId('nayax-result-card').isVisible()) &&
+          await purchaseDetails.isVisible() &&
+          (await page.getByText('Website form', { exact: true }).count()) === 0 &&
+          (await page.getByText('Current state', { exact: true }).count()) === 0
       );
-      recorder.assert(
-        'Demo keeps the final refund action safely disabled',
-        (await demoRefundAction.count()) === 1 &&
-          await demoRefundAction.isDisabled() &&
-          (await page.getByTestId('refund-confirmation-dialog').count()) === 0
-      );
-      const demoComparison = page.getByTestId('refund-purchase-comparison');
-      const demoComparisonText = await demoComparison.innerText();
-      recorder.assert(
-        'Demo distinguishes customer, venue, and provider-machine time without treating supporting time as proof',
-        demoComparisonText.includes('Customer report · America/New_York') &&
-        demoComparisonText.includes('Nayax authorization time · shown in venue time') &&
-          demoComparisonText.includes('Provider machine clock:') &&
-          demoComparisonText.includes('America/Los_Angeles') &&
-          demoComparisonText.includes('Nayax GMT authorization · provider time exact · verified machine clock exact') &&
-          demoComparisonText.includes('EDT') &&
-          demoComparisonText.includes('PDT') &&
-          demoComparisonText.includes('does not prove when the purchase happened')
-      );
-      const demoProviderClockDiagnostic = page.getByTestId('refund-provider-clock-diagnostic');
-      await demoProviderClockDiagnostic.locator('summary').click();
-      recorder.assert(
-        'Demo exposes provider clock mismatch and request receipt semantics without using the Pacific browser clock',
-        (await demoProviderClockDiagnostic.innerText()).includes('not information the customer needs to repeat') &&
-          (await page.getByTestId('refund-request-summary').innerText()).includes(
-            'Request receipt · shown in venue time · America/New_York'
-          )
-      );
-      await page.getByText('Other decisions', { exact: true }).click();
-      recorder.assert(
-        'Confirmed demo transaction keeps Deny request visible as a secondary action',
-        await page.getByTestId('refund-deny-instead').isVisible()
-      );
-      const demoRequestSummary = page.getByTestId('refund-request-summary');
-      await demoRequestSummary.getByText('Case evidence source', { exact: true }).click();
-      const customerFactEvidence = page.getByTestId('refund-customer-fact-evidence');
-      recorder.assert(
-        'Customer correction evidence shows source, time, provenance, and one fact version',
-        await customerFactEvidence.isVisible() &&
-          (await customerFactEvidence.innerText()).includes('verified customer email reply') &&
-          (await customerFactEvidence.innerText()).includes('physical-card digits') &&
-          (await customerFactEvidence.innerText()).includes('fact version 2')
-      );
-      await page.setViewportSize({ width: 390, height: 844 });
-      await customerFactEvidence.scrollIntoViewIfNeeded();
-      await page.setViewportSize({ width: 1440, height: 1000 });
+      await page.screenshot({
+        path: path.join(artifactDir, 'refund-portal-uat-desktop.png'),
+        fullPage: true,
+      });
 
-      await page.getByRole('button', { name: /Done/ }).click();
+      await page.getByRole('button', { name: /^All closed 1$/ }).click();
       await waitForQueueCount(page, 1);
       recorder.assert(
-        'Demo visual review completed cash case appears under Done',
+        'All closed contains the completed cash case',
         (await page.getByText('RF-UAT-CASH').count()) > 0
       );
       recorder.assert(
@@ -1940,25 +1708,6 @@ export const createOrdinarySuccessChecks = ({
         rpcCalls.join(', ')
       );
 
-      await navigateRefundPortalPage(
-        page,
-        `${appUrl}/refunds?demo=on&time-case=dst-gap`,
-        { waitUntil: 'domcontentloaded' }
-      );
-      await waitForRefundPortalRouteCommitted(page);
-      await page.getByRole('button', { name: /^Ready to approve \d+$/ }).click();
-      await waitForQueueCount(page, 1);
-      await queueCase(page, 'RF-UAT-CARD').click();
-      await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
-      const dstGapComparisonText = await page.getByTestId('refund-purchase-comparison').innerText();
-      recorder.assert(
-        'DST-gap review preserves the customer-entered wall clock without inventing an instant',
-        dstGapComparisonText.includes('Mar 8, 2026, 2:30 AM') &&
-          dstGapComparisonText.includes('Customer-entered local time · no instant inferred · America/New_York') &&
-          dstGapComparisonText.includes('This local time falls in a DST gap') &&
-          !dstGapComparisonText.includes('2:30 AM EST') &&
-          !dstGapComparisonText.includes('2:30 AM EDT')
-      );
     });
 
     let demoOffPage;
@@ -1969,9 +1718,9 @@ export const createOrdinarySuccessChecks = ({
         'Demo mode off shows the true empty state',
         (await demoOffPage.getByTestId('refund-queue-count').innerText()) === '0 cases'
       );
-      await demoOffPage.getByRole('button', { name: /^All open 0$/ }).click();
+      await demoOffPage.getByRole('button', { name: /^All active 0$/ }).click();
       recorder.assert(
-        'All open gives the same honest empty state when there are no assigned cases',
+        'All active gives the same honest empty state when there are no assigned cases',
         (await demoOffPage.getByTestId('refund-queue-count').innerText()) === '0 cases' &&
           await demoOffPage.getByText('No refund cases are assigned here yet.').last().isVisible()
       );
