@@ -44,7 +44,7 @@ insert into public.refund_nayax_machine_inventory (
   account_key, nayax_machine_id, provider_is_active, refund_category,
   reporting_machine_id, reconciliation_state, setup_reason
 ) values (
-  'TGPACI_USA_DB', '700000001', true, 'sunze',
+  'TGPACI_USA_DB', '700000001', true, 'cotton_candy',
   'e3300000-0000-4000-8000-000000000001', 'published', 'test_fixture'
 );
 
