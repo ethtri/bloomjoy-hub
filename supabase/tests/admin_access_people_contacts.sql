@@ -87,21 +87,33 @@ select set_config('request.jwt.claim.sub', 'b2100000-0000-4000-8000-000000000002
 
 select is(
   (public.admin_list_access_people() ->> 'totalCount')::integer,
-  1,
-  'A Scoped Admin receives only people in the assigned machine scope'
+  2,
+  'A Scoped Admin receives the in-scope person plus their own scoped-admin entry'
 );
 select is(
-  public.admin_list_access_people() #>> '{items,0,contactEmail}',
+  (
+    select person ->> 'contactEmail'
+    from jsonb_array_elements(public.admin_list_access_people() -> 'items') person
+    where person ->> 'userId' = 'b2100000-0000-4000-8000-000000000003'
+  ),
   'visible.operations@example.invalid',
   'The protected operational email takes precedence over the access email'
 );
 select is(
-  public.admin_list_access_people() #>> '{items,0,contactPhone}',
+  (
+    select person ->> 'contactPhone'
+    from jsonb_array_elements(public.admin_list_access_people() -> 'items') person
+    where person ->> 'userId' = 'b2100000-0000-4000-8000-000000000003'
+  ),
   '+1 555 010 2199',
   'The protected operational phone is returned for an in-scope person'
 );
 select is(
-  public.admin_list_access_people() #>> '{items,0,mailingAddress}',
+  (
+    select person ->> 'mailingAddress'
+    from jsonb_array_elements(public.admin_list_access_people() -> 'items') person
+    where person ->> 'userId' = 'b2100000-0000-4000-8000-000000000003'
+  ),
   E'PO Box 99\nLos Angeles, CA 90001',
   'The protected operational address is returned for an in-scope person'
 );
