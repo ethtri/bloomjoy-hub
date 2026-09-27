@@ -378,54 +378,96 @@ end;$$;
 revoke all on function public.service_promote_nayax_pending_sales(integer) from public,anon,authenticated;
 grant execute on function public.service_promote_nayax_pending_sales(integer) to service_role;
 
--- If a later Hub case proves the same provider refund, the established case
--- projection becomes the one contributing adjustment. The original provider
--- fact remains as a zero-valued receipt target, so immutable DTM row links and
--- issued statement snapshots are never deleted or rewired.
-create function private.reuse_nayax_provider_adjustment_for_case()
-returns trigger language plpgsql security definer set search_path='' as $$
-declare event_row public.nayax_provider_refund_events%rowtype; receipt public.refund_authoritative_receipts%rowtype;
+-- Existing case completion writes its case adjustment before the immutable
+-- receipt. If a provider event arrived first, receipt insertion is the first
+-- point at which both exact identities exist. The receipt hook makes the case
+-- adjustment authoritative and retains the provider row as zero-valued audit
+-- evidence for immutable DTM row references.
+create function private.nayax_provider_refund_receipt_zero_allowed(
+  p_old jsonb,p_new jsonb
+) returns boolean language sql stable security definer set search_path='' as $$
+  select exists(
+    select 1
+    from public.nayax_provider_refund_events event
+    join public.refund_authoritative_receipts receipt
+      on receipt.refund_case_id=event.linked_refund_case_id
+     and receipt.account_scope=event.account_key
+     and receipt.provider_machine_id=event.provider_machine_id
+     and receipt.original_transaction_id=event.original_transaction_id
+     and receipt.refunded_amount_cents=event.amount_cents
+     and receipt.reporting_machine_id=event.reporting_machine_id
+    join public.sales_adjustment_facts case_adjustment
+      on case_adjustment.refund_case_id=receipt.refund_case_id
+     and case_adjustment.reporting_machine_id=receipt.reporting_machine_id
+     and case_adjustment.amount_cents=receipt.refunded_amount_cents
+     and case_adjustment.source='refund_case'
+    where event.adjustment_id=(p_old->>'id')::uuid
+      and p_old->>'source'='nayax_provider_refund'
+      and (p_old->>'amount_cents')::integer=event.amount_cents
+      and (p_new->>'amount_cents')::integer=0
+      and (p_new->>'complaint_count')::integer=0
+      and (p_new-array['amount_cents','complaint_count','notes','raw_payload','updated_at'])
+        is not distinct from (p_old-array['amount_cents','complaint_count','notes','raw_payload','updated_at'])
+      and p_new->'raw_payload' @> jsonb_build_object(
+        'supersededByRefundCaseId',receipt.refund_case_id,
+        'providerEventProvenanceRetained',true)
+  );
+$$;
+revoke all on function private.nayax_provider_refund_receipt_zero_allowed(jsonb,jsonb)
+  from public,anon,authenticated,service_role;
+
+do $guard$
+declare body text; anchor text; replacement text;
 begin
-  if new.source<>'refund_case' or new.refund_case_id is null then return new; end if;
-  select * into receipt from public.refund_authoritative_receipts r where r.refund_case_id=new.refund_case_id;
-  if receipt.id is null then return new; end if;
-  select * into event_row from public.nayax_provider_refund_events e
-  where e.account_key=receipt.account_scope and e.provider_machine_id=receipt.provider_machine_id
-    and e.original_transaction_id=receipt.original_transaction_id
-    and e.amount_cents=new.amount_cents and e.adjustment_id is not null
-    and e.linked_refund_case_id is null for update;
-  if event_row.refund_identity_hash is null then return new; end if;
-  if event_row.reporting_machine_id is distinct from new.reporting_machine_id then
-    raise exception 'Nayax refund case machine conflicts with provider event'; end if;
+  body:=replace(pg_get_functiondef('public.guard_refund_authoritative_receipt_effects()'::regprocedure),E'\r\n',E'\n');
+  anchor:=E'begin\n  if tg_table_name=';
+  replacement:=E'begin\n  if tg_table_name=''sales_adjustment_facts'' and tg_op=''UPDATE''\n'
+    ||E'    and private.nayax_provider_refund_receipt_zero_allowed(to_jsonb(old),to_jsonb(new)) then return new; end if;\n'
+    ||E'  if tg_table_name=';
+  if cardinality(string_to_array(body,anchor))<>2 then
+    raise exception 'Unexpected authoritative receipt guard shape for exact provider deduplication';
+  end if;
+  execute replace(body,anchor,replacement);
+end;
+$guard$;
+
+create function private.reconcile_nayax_provider_event_receipt()
+returns trigger language plpgsql security definer set search_path='' as $$
+declare event_row public.nayax_provider_refund_events%rowtype; case_adjustment uuid;
+  candidate_count integer; candidate_hash text;
+begin
+  select count(*),min(event.refund_identity_hash) into candidate_count,candidate_hash
+  from public.nayax_provider_refund_events event
+  where event.account_key=new.account_scope
+    and event.provider_machine_id=new.provider_machine_id
+    and event.original_transaction_id=new.original_transaction_id
+    and event.amount_cents=new.refunded_amount_cents
+    and event.reporting_machine_id=new.reporting_machine_id;
+  if candidate_count<>1 then return new; end if;
+  select * into event_row from public.nayax_provider_refund_events event
+  where event.refund_identity_hash=candidate_hash for update;
+  update public.nayax_provider_refund_events set linked_refund_case_id=new.refund_case_id
+    where refund_identity_hash=event_row.refund_identity_hash;
+  select adjustment.id into case_adjustment from public.sales_adjustment_facts adjustment
+  where adjustment.refund_case_id=new.refund_case_id
+    and adjustment.reporting_machine_id=new.reporting_machine_id
+    and adjustment.amount_cents=new.refunded_amount_cents
+    and adjustment.source='refund_case';
+  if case_adjustment is null or event_row.adjustment_id is null
+    or case_adjustment=event_row.adjustment_id then return new; end if;
   update public.sales_adjustment_facts set amount_cents=0,complaint_count=0,
     notes='Superseded by exact linked refund case adjustment',
     raw_payload=raw_payload||jsonb_build_object('supersededByRefundCaseId',new.refund_case_id,
       'providerEventProvenanceRetained',true),updated_at=statement_timestamp()
-  where id=event_row.adjustment_id;
-  update public.nayax_provider_refund_events set linked_refund_case_id=new.refund_case_id,
-    disposition='existing_case_adjustment' where refund_identity_hash=event_row.refund_identity_hash;
-  new.adjustment_date:=event_row.machine_event_at::date;
-  new.reporting_location_id:=event_row.reporting_location_id;
-  new.raw_payload:=new.raw_payload||jsonb_build_object('nayaxProviderRefundEventHash',event_row.refund_identity_hash,
-    'providerEventProvenanceRetained',true);
+  where id=event_row.adjustment_id and source='nayax_provider_refund';
+  update public.nayax_provider_refund_events set adjustment_id=case_adjustment,
+    disposition='existing_case_adjustment'
+  where refund_identity_hash=event_row.refund_identity_hash;
   return new;
 end;$$;
-create trigger sales_adjustment_reuse_nayax_provider_event
-before insert on public.sales_adjustment_facts for each row
-execute function private.reuse_nayax_provider_adjustment_for_case();
-
-create function private.attach_nayax_provider_adjustment_to_case()
-returns trigger language plpgsql security definer set search_path='' as $$
-begin
-  if new.source='refund_case' and new.refund_case_id is not null then
-    update public.nayax_provider_refund_events set adjustment_id=new.id
-    where linked_refund_case_id=new.refund_case_id;
-  end if;
-  return new;
-end;$$;
-create trigger sales_adjustment_attach_nayax_provider_event
-after insert on public.sales_adjustment_facts for each row
-execute function private.attach_nayax_provider_adjustment_to_case();
+create trigger refund_receipt_reconcile_nayax_provider_event
+after insert on public.refund_authoritative_receipts for each row
+execute function private.reconcile_nayax_provider_event_receipt();
 
 create function public.service_begin_nayax_dtm_history_import(p_receipt jsonb)
 returns jsonb language plpgsql security definer set search_path='' as $$

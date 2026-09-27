@@ -166,18 +166,18 @@ insert into public.refund_cases(id,public_reference,reporting_machine_id,reporti
 values('f1400000-0000-4000-8000-000000000002','RF-DTM-2','f1300000-0000-4000-8000-000000000001',
   'f1200000-0000-4000-8000-000000000001','event-first@example.invalid','Synthetic event-first refund',
   '2025-01-03T20:00:00Z','card',900,900,'completed');
-insert into public.refund_authoritative_receipts(refund_case_id,reporting_machine_id,account_scope,provider_machine_id,
-  original_transaction_id,original_amount_cents,refunded_amount_cents,currency_code,provider_status,
-  evidence_reference_digest,recorded_by,attempt_binding_kind,current_provider_observation_reviewed)
-values('f1400000-0000-4000-8000-000000000002','f1300000-0000-4000-8000-000000000001','TGPACI_USA_DB',
-  '900000001','920000002',900,900,'USD',62,repeat('4',64),'f1000000-0000-4000-8000-000000000001',
-  'no_attempt_integrity_hold',true);
 insert into public.sales_adjustment_facts(reporting_machine_id,reporting_location_id,adjustment_date,adjustment_type,
   amount_cents,complaint_count,source,source_row_hash,source_reference,source_row_reference,refund_case_id,
   match_status,match_confidence,raw_payload)
 values('f1300000-0000-4000-8000-000000000001','f1200000-0000-4000-8000-000000000001','2025-09-09',
   'refund',900,1,'refund_case','f1400000-0000-4000-8000-000000000002','refund_cases','RF-DTM-2',
   'f1400000-0000-4000-8000-000000000002','applied',1,'{"payload_redacted":true}');
+insert into public.refund_authoritative_receipts(refund_case_id,reporting_machine_id,account_scope,provider_machine_id,
+  original_transaction_id,original_amount_cents,refunded_amount_cents,currency_code,provider_status,
+  evidence_reference_digest,recorded_by,attempt_binding_kind,current_provider_observation_reviewed)
+values('f1400000-0000-4000-8000-000000000002','f1300000-0000-4000-8000-000000000001','TGPACI_USA_DB',
+  '900000001','920000002',900,900,'USD',62,repeat('4',64),'f1000000-0000-4000-8000-000000000001',
+  'no_attempt_integrity_hold',true);
 select is((select count(*) from public.sales_adjustment_facts where amount_cents=900),1::bigint,
   'Event-first then case completion still contributes one adjustment');
 select is((select adjustment_date from public.sales_adjustment_facts where amount_cents=900),date '2025-01-04',
