@@ -28,6 +28,7 @@ supersede conflicting proposals in this record:
   erase genuine upstream gaps. Current evidence and exceptions live on the epic.
 
 ## Original discovery and proposal
+
 Planning spike, 2026-09-26. No integration, migration, configuration, credential,
 machine assignment, production record, or deployment was changed by this spike.
 The architecture below is a proposal; it is not an activation authorization.
