@@ -100,10 +100,10 @@ export function RefundTransactionCandidateReview({
             : selectableCandidateCount === 0
               ? 'Every current result is listed here, but none can be selected.'
               : waitingOnCustomer
-              ? 'These are the current search results. Selection stays paused until the customer replies and the assistant runs the search again.'
-              : reviewedFinalDecision
-                ? `${selectableCandidateCount} ${selectableCandidateCount === 1 ? 'purchase is' : 'purchases are'} reviewed for this final decision. Choose the correct one only if approving; denial needs no purchase choice.`
-                : `${selectableCandidateCount} ${selectableCandidateCount === 1 ? 'result is' : 'results are'} selectable. Choose one only when the machine, amount, time, and payment evidence identify the same purchase.`}
+                ? 'These are the current search results. Selection stays paused until the customer replies and the assistant runs the search again.'
+                : reviewedFinalDecision
+                  ? `${selectableCandidateCount} ${selectableCandidateCount === 1 ? 'purchase is' : 'purchases are'} reviewed for this final decision. Choose the correct one only if approving; denial needs no purchase choice.`
+                  : `${selectableCandidateCount} ${selectableCandidateCount === 1 ? 'result is' : 'results are'} selectable. Choose one only when the machine, amount, time, and payment evidence identify the same purchase.`}
         </p>
       </div>
       <div
@@ -120,6 +120,8 @@ export function RefundTransactionCandidateReview({
             .filter((factor): factor is NayaxMatchFactor => Boolean(factor));
           const selectionMessage = candidate.selectionAllowed === false
             ? `Not selectable: ${describeUnavailableCandidate(candidate)}`
+            : selectionHoldReason
+              ? selectionHoldReason
             : waitingOnCustomer
               ? 'Selection is paused while waiting for the customer. The assistant will run a fresh search after the reply.'
               : !canAccessCandidateSelection

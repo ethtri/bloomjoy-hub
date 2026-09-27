@@ -1242,6 +1242,50 @@ const runNayaxLookupStatusMatrixChecks = async ({
   const uniqueQrScenario = scenarios.find(
     (scenario) => scenario.name === 'unique QR wallet recommendation'
   );
+  const roughCompetingScenario = scenarios.find(
+    (scenario) => scenario.name === 'rough same-card competing purchases'
+  );
+  scenarios.splice(scenarios.indexOf(roughCompetingScenario) + 1, 0, {
+    ...roughCompetingScenario,
+    name: 'unmatched wallet identifier research',
+    queueView: 'Bloomjoy follow-up',
+    expectedManagerEvidenceReview: false,
+    expectedWalletResearchPaused: true,
+    expectedAction: 'Investigate the wallet charge and provider identifier before a Manager decision.',
+    refundOverview: () => {
+      const overview = buildPendingNayaxRefundOverview();
+      overview.cases = overview.cases.map((refundCase) => ({
+        ...refundCase,
+        paymentAmountCents: 1090,
+        cardLast4: '2776',
+        cardWalletUsed: true,
+        incidentTimeConfidence: 'rough',
+        canSelectNayaxCandidate: true,
+        lifecycle: {
+          ...refundCase.lifecycle,
+          managerAction: { ...refundCase.lifecycle.managerAction, action: 'none', owner: 'System' },
+          managerQueue: {
+            ...refundCase.lifecycle.managerQueue,
+            bucket: 'in_progress',
+            label: 'Wallet purchase needs research',
+            nextAction: 'research_purchase',
+          },
+          nextWork: {
+            schemaVersion: 'refund_next_work_v1', isOpen: true, actor: 'agent',
+            actionCode: 'research_purchase',
+            actionLabel: 'Investigate the wallet charge and provider identifier before a Manager decision.',
+            lastProgressAt: now.toISOString(), dueAt: null,
+            blocker: {
+              code: 'wallet_identifier_unverified', owner: 'Agent',
+              nextStep: 'Compare current charge evidence with the provider read; do not choose an unrelated purchase.',
+            },
+            payloadRedacted: true,
+          },
+        },
+      }));
+      return overview;
+    },
+  });
   const preparedCandidate = {
     ...uniqueQrScenario.response.candidates[0],
     amountCents: 1090,
@@ -1642,6 +1686,30 @@ const runNayaxLookupStatusMatrixChecks = async ({
         `Nayax ${scenario.name} renders candidate choices`,
         (await page.getByTestId('nayax-candidate-option').count()) === scenario.expectedCandidateCount
       );
+      if (scenario.expectedWalletResearchPaused) {
+        const options = page.getByTestId('nayax-candidate-option');
+        recorder.assert(
+          'Unmatched wallet candidates are visible but cannot be selected or saved by a Manager',
+          (await options.count()) === 2 &&
+            await options.locator('input[type="radio"]').evaluateAll(
+              (inputs) => inputs.every((input) => {
+                const description = (input.getAttribute('aria-describedby') ?? '')
+                  .split(/\s+/).map((id) => document.getElementById(id)?.textContent ?? '').join(' ');
+                return input.disabled &&
+                  /wallet identifier has not been matched to a safe provider purchase/i.test(description);
+              })
+            ) &&
+            await page.getByTestId('nayax-candidate-availability')
+              .getByText(/wallet identifier has not been matched to a safe provider purchase/i).isVisible() &&
+            (await page.getByTestId('refund-save-transaction-for-review').count()) === 0 &&
+            (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0 &&
+            !functionCalls.some((name) => [
+              'nayax-card-refund', 'refund-case-admin-update', 'refund-case-message-send',
+            ].includes(name))
+        );
+        await closeRefundPortalContext(context);
+        continue;
+      }
       if (scenario.name === 'multiple candidates') {
         const managerNextStep = page.getByTestId('refund-manager-next-step');
         const transactionComparison = page.getByTestId('nayax-transaction-comparison');
