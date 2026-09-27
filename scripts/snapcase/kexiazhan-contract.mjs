@@ -235,9 +235,10 @@ export const normalizePayment = (record, context) => {
   const sourceTenderLabel = cleanText(record?.paymentInstrument, 160)
     ?? enumLabel(PAYMENT_METHOD_LABELS, record?.paymentMethod);
   const sourceTender = normalizedTender(sourceTenderCode, sourceTenderLabel);
+  const rowCurrency = cleanText(record?.currency, 20);
   const configuredUsdInterpretation = context.usdInterpretationPaymentSourceKeys?.has(identity.sourceKey) === true
     && sourceTender === 'cash'
-    && ['AUD', 'A$'].includes(currency.source?.toUpperCase());
+    && ['AUD', 'A$'].includes(rowCurrency?.toUpperCase());
   const currencyCode = configuredUsdInterpretation ? 'USD' : currency.code;
   const configuredNonfinancialTest = context.nonfinancialTestPaymentSourceKeys?.has(identity.sourceKey) === true
     && sourceTenderCode === '17'

@@ -145,6 +145,16 @@ test('only exact configured AUD or A$ cash payments use the owner-confirmed USD 
     ...context,
     usdInterpretationPaymentSourceKeys: new Set([eur.sourceKey]),
   });
+  const missingRowCurrency = normalizePayment({
+    ...base, outTradeNo: 'listed-missing-row-currency', currency: undefined,
+  }, { ...context, machineCurrency: 'AUD' });
+  const listedMissingRowCurrency = normalizePayment({
+    ...base, outTradeNo: 'listed-missing-row-currency', currency: undefined,
+  }, {
+    ...context,
+    machineCurrency: 'AUD',
+    usdInterpretationPaymentSourceKeys: new Set([missingRowCurrency.sourceKey]),
+  });
   const card = normalizePayment({
     ...base, outTradeNo: 'listed-card', paymentMethod: 0, paymentInstrument: 'credit card',
   }, context);
@@ -167,6 +177,9 @@ test('only exact configured AUD or A$ cash payments use the owner-confirmed USD 
   assert.equal(listedADollar.currencyCode, 'USD');
   assert.equal(listedEur.currencyCode, null);
   assert.ok(listedEur.exceptionCodes.includes('currency_unverified'));
+  assert.equal(listedMissingRowCurrency.sourceCurrency, 'AUD');
+  assert.equal(listedMissingRowCurrency.currencyCode, null);
+  assert.ok(listedMissingRowCurrency.exceptionCodes.includes('currency_unverified'));
   assert.equal(listedCard.normalizedTender, 'card');
   assert.equal(listedCard.currencyCode, null);
   assert.ok(listedCard.exceptionCodes.includes('currency_unverified'));
