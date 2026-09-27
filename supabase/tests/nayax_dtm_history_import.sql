@@ -172,6 +172,9 @@ insert into public.sales_adjustment_facts(reporting_machine_id,reporting_locatio
 values('f1300000-0000-4000-8000-000000000001','f1200000-0000-4000-8000-000000000001','2025-09-09',
   'refund',900,1,'refund_case','f1400000-0000-4000-8000-000000000002','refund_cases','RF-DTM-2',
   'f1400000-0000-4000-8000-000000000002','applied',1,'{"payload_redacted":true}');
+update public.refund_cases set reporting_adjustment_id=(select id from public.sales_adjustment_facts
+  where refund_case_id='f1400000-0000-4000-8000-000000000002')
+where id='f1400000-0000-4000-8000-000000000002';
 insert into public.refund_authoritative_receipts(refund_case_id,reporting_machine_id,account_scope,provider_machine_id,
   original_transaction_id,original_amount_cents,refunded_amount_cents,currency_code,provider_status,
   evidence_reference_digest,recorded_by,attempt_binding_kind,current_provider_observation_reviewed)
