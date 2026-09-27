@@ -124,14 +124,19 @@ orientation snapshot; it is not a backlog or release ledger.
   Unknown item quantity uses a marked zero storage fallback without hiding gross
   cash, and later unproved source revisions preserve known gross as review work.
 - Refund automation authenticates through the Info Gmail account and sends as
-  `refunds@bloomjoysweets.com`. P0 #1455 is correcting the deployed filter
-  that skipped new Info-only refund inquiries; the three identified customers
-  have already received individual form links. A later charged-without-sticks
-  inquiry exposed a narrower classifier miss; it received a verified same-thread
-  form link through the hourly manual fallback and the customer submitted the
-  form. The classifier is deployed, but a manager-sender synthetic test exposed
-  an intentional non-customer skip counted as a failed scan. A fresh non-manager
-  Info-mailbox reply journey and backlog proof remain release checks.
+  `refunds@bloomjoysweets.com`. P0 #1455's deployed Info filter and classifier
+  passed a controlled non-manager real-mailbox journey: the form link was sent
+  once in the original thread, no case was created from email, and five later
+  scheduled syncs recorded no duplicate reply or failure. A full Info To/Cc
+  backlog pass, including read, archived, and spam mail, found no unanswered new
+  refund inquiry; the hourly manual fallback is paused. Two older refund-status
+  conversations remain separate follow-up work, not new form-link candidates.
+- The merged #1443/#1445 workflow-health migrations are live. Their production
+  readback reports degraded delivery and workflow health for two unresolved
+  customer-status notices and eight current clarification-contact obligations.
+  Those exact delivery histories still need reconciliation; the health signal
+  does not establish that a customer reply or refund was completed. The first
+  two natural daily Manager digest cycles remain to be observed.
 - Technician wall-clock entries are interpreted in the selected machine
   location's IANA timezone. This keeps completed Eastern and Central work from
   being rejected as future merely because Bloomjoy's month-close policy and
