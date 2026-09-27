@@ -66,6 +66,20 @@ Deno.test("stale timing promises and silently trimmed copy are rejected", () => 
   }
 });
 
+Deno.test("negated or ambiguous completion claims are rejected", () => {
+  for (
+    const body of [
+      "Your refund is not confirmed. Reference: RF-TEST",
+      "We confirmed no refund. Reference: RF-TEST",
+      "Nayax confirmed your $27.00 refund was not processed. Reference: RF-TEST",
+    ]
+  ) {
+    if (reviewedCurrentCompletionCopy({ subject: "Re: Order failure", body })) {
+      throw new Error("A noncanonical or negated completion claim was accepted");
+    }
+  }
+});
+
 Deno.test("current original-thread history with no later send is accepted", () => {
   if (verifiedUnsentCompletionThreadHistory(input) !== "673955") {
     throw new Error("Expected original-thread evidence");

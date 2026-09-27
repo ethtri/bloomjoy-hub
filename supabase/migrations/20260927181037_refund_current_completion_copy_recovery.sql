@@ -15,6 +15,7 @@ as $$
 declare
   case_row public.refund_cases;
   greeting_break integer;
+  amount_token text;
   required_opening constant text :=
     'Good news—your refund request was approved, and your refund is on its way.';
 begin
@@ -35,10 +36,14 @@ begin
   end if;
 
   if new.template_key = 'refund_nayax_completed_current_v1' then
+    amount_token := '$' || to_char(
+      coalesce(case_row.refund_amount_cents, case_row.payment_amount_cents)::numeric / 100,
+      'FM999999990.00'
+    );
     if lower(new.body) like '%on its way%'
       or lower(new.body) ~ 'business[[:space:]]+days?'
-      or lower(new.body) not like '%confirmed%'
-      or lower(new.body) not like '%refund%'
+      or position('Nayax confirmed your ' || amount_token || ' refund on ' in new.body) = 0
+      or new.body !~ 'Nayax confirmed your [$][0-9]+[.][0-9]{2} refund on [A-Z][a-z]+ ([1-9]|[12][0-9]|3[01])[.]'
       or position(case_row.public_reference in new.body) = 0 then
       raise exception 'Current completion recovery copy is not safe';
     end if;
@@ -91,9 +96,7 @@ begin
     or normalized_body = ''
     or length(normalized_body) > 4000
     or lower(normalized_body) like '%on its way%'
-    or lower(normalized_body) ~ 'business[[:space:]]+days?'
-    or lower(normalized_body) not like '%confirmed%'
-    or lower(normalized_body) not like '%refund%' then
+    or lower(normalized_body) ~ 'business[[:space:]]+days?' then
     raise exception 'Exact completion, current reviewed copy, and original-thread history required';
   end if;
 
@@ -111,6 +114,11 @@ begin
     coalesce(case_row.refund_amount_cents, case_row.payment_amount_cents)::numeric / 100,
     'FM999999990.00'
   );
+
+  if position('Nayax confirmed your ' || amount_token || ' refund on ' in normalized_body) = 0
+    or normalized_body !~ 'Nayax confirmed your [$][0-9]+[.][0-9]{2} refund on [A-Z][a-z]+ ([1-9]|[12][0-9]|3[01])[.]' then
+    raise exception 'Reviewed copy must contain the canonical positive confirmation sentence';
+  end if;
 
   if message_row.id is null
     or message_row.message_type is distinct from 'completed'
