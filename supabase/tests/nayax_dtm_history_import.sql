@@ -23,12 +23,24 @@ values('TGPACI_USA_DB','900000001',false,'snapcase','f1300000-0000-4000-8000-000
 
 select set_config('request.jwt.claim.role','service_role',true);
 
+insert into public.refund_adjustment_review_rows(
+  id,source,source_reference,source_row_reference,source_row_hash,source_location,
+  refund_date,amount_cents,source_status,match_status,match_confidence,
+  matched_machine_id,matched_location_id,resolution_status,reviewed_by,reviewed_at
+) values(
+  'f1400000-0000-4000-8000-000000000001','sheet_export','fixture','annotation-overlap',repeat('7',64),
+  'Historical location','2025-01-03',1000,'closed','applied',1,
+  'f1300000-0000-4000-8000-000000000001','f1200000-0000-4000-8000-000000000001',
+  'approved','f1000000-0000-4000-8000-000000000001',now()
+);
+
 insert into public.sales_adjustment_facts(reporting_machine_id,reporting_location_id,adjustment_date,adjustment_type,
   amount_cents,complaint_count,source,source_row_hash,source_reference,source_row_reference,
-  match_status,match_confidence,raw_payload)
+  refund_review_row_id,match_status,match_confidence,raw_payload)
 values('f1300000-0000-4000-8000-000000000001','f1200000-0000-4000-8000-000000000001',
   '2025-01-03','refund',1000,0,'google_sheets',repeat('8',64),'fixture','annotation-overlap',
-  'applied',1,'{"payload_redacted":true}');
+  'f1400000-0000-4000-8000-000000000001','applied',1,
+  '{"source_location":"Historical location","refund_date":"2025-01-03","amount_source":"fixture","source_status":"closed","source_decision":"approved","payload_redacted":true}');
 
 create function pg_temp.history_row(
   p_transaction text,p_machine text,p_status integer,p_settlement integer,
