@@ -16,9 +16,10 @@ insert into public.reporting_machines(id,account_id,location_id,machine_label,na
 values('f1300000-0000-4000-8000-000000000001','f1100000-0000-4000-8000-000000000001',
   'f1200000-0000-4000-8000-000000000001','Inactive historical machine','900000001','TGPACI_USA_DB','inactive');
 insert into public.refund_nayax_machine_inventory(account_key,nayax_machine_id,provider_is_active,refund_category,
-  reporting_machine_id,reconciliation_state,setup_reason)
-values('TGPACI_USA_DB','900000001',false,'snapcase','f1300000-0000-4000-8000-000000000001','excluded','test_fixture'),
-  ('TGPACI_USA_DB','900000002',true,'snapcase',null,'needs_setup','test_fixture');
+  reporting_machine_id,reconciliation_state,setup_reason,exclusion_reason)
+values('TGPACI_USA_DB','900000001',false,'snapcase','f1300000-0000-4000-8000-000000000001','excluded',
+    'test_fixture','Historical inactive exact-link test fixture.'),
+  ('TGPACI_USA_DB','900000002',true,'snapcase',null,'needs_setup','test_fixture',null);
 
 select set_config('request.jwt.claim.role','service_role',true);
 
