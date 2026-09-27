@@ -1,5 +1,25 @@
 # Decisions
 
+## 2026-09-26 - SnapCase local time and simple reporting integration
+
+The owner confirms that Kexiaozhan sales timestamps use each machine's local
+timezone. Use its configured IANA zone for occurrence time and cash business
+date, retain raw timestamps, and test DST and month boundaries. This is no longer
+an open owner/vendor question. Preserve Nayax settlement dates and Sunze behavior.
+
+Reuse existing import, mapping, reporting and Pay Stub flows. Do not add a new
+approval workflow, readiness framework, blanket machine-type warning or
+error-heavy UI. Preserve authorization, correct amounts, duplicate prevention and
+existing statement-version checks. Optional product/quantity data, naming
+cleanup and missing shared provider payment IDs do not hold known cash revenue.
+
+An actual incomplete closed-month import affecting commission must not silently
+produce a complete-looking statement. Scope the existing completion check to the
+affected statement; show one useful action only where needed. Keep month-to-date
+totals visible and use the existing manager-led corrected Pay Stub flow for late
+changes. Technical diagnostics belong in existing admin/log views. These
+decisions supersede broader speculative restrictions in earlier SnapCase plans.
+
 ## 2026-09-26 - Nayax scheduled reports feed revenue for Nayax-only machines
 
 Authenticated Nayax transaction-report emails are an authoritative sales source

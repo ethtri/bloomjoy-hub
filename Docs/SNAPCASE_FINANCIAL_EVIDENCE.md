@@ -17,8 +17,9 @@ was changed. No raw transaction or payment identifier is recorded here.
   effective Hub tax rule with derived provenance when reporting requires tax.
 - Keep existing Nayax settlement-local sale dates for card facts. A future
   occurrence-time comparison may create a timing exception, but must not
-  silently redate existing card history. Cash business dates remain blocked
-  until the Kexiaozhan clock basis is proved.
+  silently redate existing card history. The owner has confirmed that Kexiaozhan
+  sales timestamps use each machine's local timezone; use that IANA zone for
+  cash occurrence times and business dates.
 - Deduct a refund once through the canonical Hub/Nayax adjustment lineage.
   Kexiaozhan refund fields are corroboration only until their cumulative,
   partial and reversal behavior is documented.
@@ -105,20 +106,21 @@ orders are context.
 
 All 22 per-machine payment and order requests returned their declared totals
 without truncation. Eight machines returned zero orders and zero payments. This
-proves eight complete source-query zero windows, but not eight business-day zero
-windows until the source clock is proved.
+proves eight complete source-query zero windows. Implementation must bind the
+requested local-day bounds to the mapped machine before recording business-day
+coverage; the owner has now confirmed the source clock interpretation.
 
-### Time basis remains the narrow blocker
+### Owner-confirmed machine-local time
 
 Payment timestamps are naive strings. Changing `X-App-TimeZone` from `UTC` to
 `America/Los_Angeles` changed neither returned rows nor values. Machine inventory
 does expose IANA zones: 7 Central, 5 Pacific and 10 Eastern.
 
-The owner's current working assumption is that `paymentTime` and its query bounds
-use each machine's local time zone from that inventory. The owner explicitly
-marked this as an open item to verify. It may guide inactive implementation and
-tests, but it is not provider proof and does not activate cash business-date
-publication.
+The owner has confirmed that sales timestamps use each machine's local timezone.
+This resolves the earlier open owner question. Retain the raw timestamp, convert
+with the machine's configured IANA zone, and test DST, month boundaries and query
+windows. No further owner or vendor timezone confirmation is required. This
+decision does not itself activate production jobs or publish financial records.
 
 The owner clarified that Nayax and Kexiaozhan are separate systems and are not
 expected to share IDs. The team intentionally aligns machine names across the
@@ -146,24 +148,11 @@ two Eastern machines. On a Central machine, each source had one row but they did
 not form a same-amount candidate within two minutes. That difference remains an
 unexplained aggregate discrepancy.
 
-This strongly corroborates the owner's machine-local working assumption, but it
-does not create exact transaction links and does not close the owner's requested
-clock verification. Amount-and-time proximity remains aggregate/candidate
-evidence only. Publication stays inactive pending the verification below.
-
-The remaining owner/provider verification item before assigning a cash business
-date is either:
-
-1. provider confirmation that `/v1/payments.paymentTime` is the machine-local
-   wall clock represented by `/v1/machines.timezone`, and that query bounds use
-   that same clock; or
-2. one supported read-only export/API observation containing the same payment's
-   naive `paymentTime` and an offset-aware occurrence timestamp, on an exactly
-   mapped machine.
-
-Until then, retain the raw time and machine timezone in private staging, leave
-`occurred_at`/business date unpublished, and keep
-`source_time_semantics_unverified`.
+These observations corroborate the subsequently owner-confirmed local-time
+interpretation. They do not create exact transaction links. Amount-and-time
+proximity remains aggregate/candidate evidence only. The unresolved Central
+machine discrepancy is a specific reconciliation item, not a reason to withhold
+unrelated cash sales or reopen the timezone decision.
 
 ## Direct Nayax and Hub observations
 
@@ -196,10 +185,10 @@ reinterpret `payment_time`.
 
 The short observed settlement lag makes a cross-month shift rare, not
 impossible. Card publication should preserve the existing settlement-local date.
-Reconciliation should compare occurrence windows separately and raise a timing
-exception when occurrence and settlement fall in different periods. Month-end
-readiness must wait for a complete post-boundary card source window rather than
-assuming that a last-day occurrence settled in the same month.
+Reconciliation should account for occurrence and settlement falling in different
+periods. An explained timing difference is not a new payroll approval step or a
+blanket hold. Investigate a genuinely missing required card import through the
+existing import/completion flow without changing canonical settlement dates.
 
 ## Refund evidence and policy
 
@@ -218,25 +207,29 @@ Kexiaozhan-marked evidence cannot deduct revenue. A later partial/refund-reversa
 shape stays blocked until its provider semantics and cumulative behavior are
 proved.
 
-## Readiness rule for implementation
+## Simple implementation and completion rules
 
-A Kexiaozhan machine/window is financially complete only when all of the
-following hold:
+The owner's latest direction supersedes the earlier broad readiness checklist:
+reuse existing flows, avoid unnecessary safeguards and keep normal reporting
+quiet. Do not add a parallel proof framework, approval process or error-heavy UI.
 
-- the exact source machine has an effective Hub mapping and source ownership;
-- that mapping was confirmed after fuzzy normalized-name and account/location
-  review, retains both providers' stable IDs, and has no unresolved ambiguity,
-  duplicate or naming exception;
-- `/v1/payments` pagination reaches the declared total with no rejected rows,
-  truncation or cursor remaining;
-- the half-open source bounds and source clock are verified;
-- every admitted cash row has the proved tender/status/currency/amount shape;
-- card population is covered by a complete Nayax source window for the same
-  mapped machine, while card money comes only from Nayax;
-- timing, unmapped, alternate-card-processor, amount and refund discrepancies
-  are either zero or explicitly held for review.
+- Attribute money through the existing effective machine mapping. Once mapped,
+  a naming difference does not invalidate the stored provider IDs or hold sales.
+- Record import success after all requested pages and ingest acknowledgements
+  complete. A correctly scoped complete empty response is a normal zero-sale
+  result; a failed or truncated request is not a zero.
+- Count Kexiaozhan cash and canonical Nayax card/refund money once. Missing
+  product labels, item quantities or shared payment IDs do not block known cash.
+- Keep importing valid records and retain specific rejected financial records
+  for existing admin review. Do not turn one optional-field issue or one machine
+  exception into a fleet-wide hold.
+- Reuse existing closed-period completion and statement-correction checks for
+  actual missing revenue affecting a commission statement. Explained settlement
+  timing differences and normal open-month progress do not require approval.
+- Show a concise actionable message only where an actual problem affects the
+  operation. Keep technical detail in existing admin/log views; do not show a
+  permanent warning merely because the selected machine is SnapCase.
 
-A verified zero requires the same conditions with a complete payment response
-whose declared total and observed count are both zero. An empty response without
-proved clock, machine and provider coverage remains an extraction zero, not a
-commission-ready business zero.
+The current source-window gaps are implementation work to resolve, not a new
+owner sign-off or requirement to upload evidence. Production activation remains
+separate from this evidence record and the implementation PRs.
