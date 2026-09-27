@@ -1,0 +1,63 @@
+name: SnapCase Sync
+run-name: >-
+  SnapCase Sync | event=${{ github.event_name }} | mode=${{ inputs.mode || 'scheduled-live' }} | start=${{ inputs.date_start || 'routine' }} | end=${{ inputs.date_end || 'routine' }}
+
+on:
+  schedule:
+    - cron: '17 5,17 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Fixture dry run is safe; live ingest also requires the disabled environment flag'
+        required: true
+        default: fixture-dry-run
+        type: choice
+        options:
+          - fixture-dry-run
+          - live-ingest
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snapcase-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SNAPCASE_SYNC_ENABLED: ${{ vars.SNAPCASE_SYNC_ENABLED || 'false' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+      - name: Keep scheduled sync disabled until production activation
+        if: github.event_name == 'schedule' && env.SNAPCASE_SYNC_ENABLED != 'true'
+        run: echo "SnapCase sync is disabled."
+      - name: Run synthetic fixture validation
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'fixture-dry-run'
+        run: node scripts/snapcase/sync-snapcase.mjs
+      - name: Run enabled private staging sync
+        if: >-
+          (github.event_name == 'schedule' && env.SNAPCASE_SYNC_ENABLED == 'true') ||
+          (github.event_name == 'workflow_dispatch' && inputs.mode == 'live-ingest' && env.SNAPCASE_SYNC_ENABLED == 'true')
+        env:
+          KEXIAOZHAN_REPORTING_USERNAME: ${{ secrets.KEXIAOZHAN_REPORTING_USERNAME }}
+          KEXIAOZHAN_REPORTING_PASSWORD: ${{ secrets.KEXIAOZHAN_REPORTING_PASSWORD }}
+          SNAPCASE_ACCOUNT_KEY: ${{ secrets.SNAPCASE_ACCOUNT_KEY }}
+          REPORTING_ROW_HASH_SALT: ${{ secrets.REPORTING_ROW_HASH_SALT }}
+          SNAPCASE_INGEST_URL: ${{ secrets.SNAPCASE_INGEST_URL }}
+          REPORTING_INGEST_TOKEN: ${{ secrets.REPORTING_INGEST_TOKEN }}
+        run: node scripts/snapcase/sync-snapcase.mjs --live-provider --ingest
+      - name: Reject live request while disabled
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'live-ingest' && env.SNAPCASE_SYNC_ENABLED != 'true'
+        run: |
+          echo "SnapCase live ingest remains disabled."
+          exit 1

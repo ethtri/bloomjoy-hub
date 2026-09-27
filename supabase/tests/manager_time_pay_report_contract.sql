@@ -9,7 +9,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(132);
+select plan(157);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -1960,6 +1960,727 @@ select is(
    join automatic_sales_statement_baseline baseline on baseline.id = statement.id),
   true,
   'automatic sales reconciliation never mutates the issued Pay Stub payload'
+);
+
+-- Finished-period SnapCase payroll waits only for completed payment-import
+-- coverage on positive-commission assignment dates. Open-month totals continue
+-- to use the shared freshness fields without a SnapCase-specific warning.
+reset role;
+-- Earlier cases deliberately inactivate this Technician, revoke the assignment,
+-- and make a refund allocation ambiguous. Restore an independently eligible and
+-- calculable payroll state so these safeguards do not inherit those mutations.
+update public.operator_payout_profiles
+set status = 'active'
+where id = 'a6000000-0000-0000-0000-000000000001';
+update public.operator_machine_assignments
+set
+  status = 'active',
+  revoked_by = null,
+  revoked_at = null,
+  revoke_reason = null
+where id = 'a6100000-0000-0000-0000-000000000001';
+update public.sales_adjustment_facts
+set amount_cents = 1000
+where id = 'a9200000-0000-0000-0000-000000000001';
+update public.payout_period_machine_revenue_snapshots
+set
+  refund_adjustment_cents = 1000,
+  tax_cents = 1000,
+  net_revenue_cents = 8000,
+  eligible_commission_revenue_cents = 8000
+where id = 'aa000000-0000-0000-0000-000000000001';
+update public.reporting_machines
+set machine_type = 'snapcase'
+where id = 'a4000000-0000-0000-0000-000000000001';
+
+insert into private.snapcase_provider_accounts (
+  id, source_account_key
+) values (
+  'a9300000-0000-0000-0000-000000000001', 'manager-payroll-coverage'
+);
+
+insert into private.snapcase_ingest_batches (
+  id, provider_account_id, contract_version, run_key, batch_key,
+  batch_digest, request_fingerprint, machine_count, order_count,
+  payment_count, evidence_count
+) values (
+  'a9310000-0000-0000-0000-000000000001',
+  'a9300000-0000-0000-0000-000000000001',
+  'snapcase.ingest.v1', repeat('1', 64), repeat('2', 64),
+  repeat('3', 64), repeat('4', 64), 1, 0, 3, 0
+);
+
+insert into private.snapcase_source_machines (
+  id, provider_account_id, source_machine_id, source_label,
+  source_timezone, source_currency
+) values (
+  'a9320000-0000-0000-0000-000000000001',
+  'a9300000-0000-0000-0000-000000000001',
+  'manager-payroll-machine', 'Manager Report Machine',
+  'America/Los_Angeles', 'USD'
+);
+
+insert into private.snapcase_machine_mappings (
+  id, provider_account_id, source_machine_id, reporting_machine_id,
+  effective_start_date, effective_end_date, mapping_reason
+) values (
+  'a9330000-0000-0000-0000-000000000001',
+  'a9300000-0000-0000-0000-000000000001',
+  'manager-payroll-machine',
+  'a4000000-0000-0000-0000-000000000001',
+  '2026-01-01', null, 'Payroll coverage contract fixture'
+);
+
+create temporary table snapcase_card_only_report as
+select private.calculate_technician_pay_report(
+  'a2000000-0000-0000-0000-000000000001',
+  'a6000000-0000-0000-0000-000000000001',
+  '2026-07-01',
+  '2026-07-31'
+) as payload;
+
+select is(
+  jsonb_build_array(
+    exists (
+      select 1
+      from snapcase_card_only_report report
+      cross join lateral jsonb_array_elements(report.payload -> 'blockers') blocker(item)
+      where blocker.item ->> 'code' = 'snapcase_sales_incomplete'
+    ),
+    coalesce((payload #>> '{machines,0,snapshotMatchesFacts}')::boolean, false),
+    coalesce((payload ->> 'publishable')::boolean, false),
+    payload #>> '{calculationMeta,snapcaseSalesReadiness}'
+  ),
+  '[true, true, false, "missing_import_coverage"]'::jsonb,
+  'a matching revenue snapshot does not replace missing completed import dates'
+)
+from snapcase_card_only_report;
+
+select is(
+  payload #>> '{machines,0,grossSalesCents}',
+  '10000',
+  'the missing closed-period import does not hide calculated sales'
+)
+from snapcase_card_only_report;
+
+select ok(
+  exists (
+    select 1
+    from snapcase_card_only_report report
+    cross join lateral jsonb_array_elements(
+      private.normalize_technician_pay_report_status(
+        report.payload,
+        '2026-07-01',
+        '2026-07-31',
+        '2026-08-10'
+      ) -> 'blockers'
+    ) blocker(item)
+    where blocker.item ->> 'code' = 'snapcase_sales_incomplete'
+  ),
+  'closed-month normalization cannot remove the distinct SnapCase completeness blocker'
+);
+
+select is(
+  jsonb_build_array(
+    exists (
+      select 1
+      from snapcase_card_only_report report
+      cross join lateral jsonb_array_elements(
+        private.normalize_technician_pay_report_status(
+          report.payload,
+          '2026-07-01',
+          '2026-07-31',
+          '2026-07-15'
+        ) -> 'blockers'
+      ) blocker(item)
+      where blocker.item ->> 'code' = 'snapcase_sales_incomplete'
+    ),
+    exists (
+      select 1
+      from snapcase_card_only_report report
+      cross join lateral jsonb_array_elements(
+        private.normalize_technician_pay_report_status(
+          report.payload,
+          '2026-07-01',
+          '2026-07-31',
+          '2026-07-15'
+        ) -> 'warnings'
+      ) warning(item)
+      where warning.item ->> 'code' = 'snapcase_sales_incomplete'
+    ),
+    coalesce((private.normalize_technician_pay_report_status(
+      payload,
+      '2026-07-01',
+      '2026-07-31',
+      '2026-07-15'
+    ) #>> '{machines,0,commissionEarningsCents}')::integer, 0),
+    coalesce((private.normalize_technician_pay_report_status(
+      payload,
+      '2026-07-01',
+      '2026-07-31',
+      '2026-07-15'
+    ) ->> 'publishable')::boolean, true),
+    exists (
+      select 1
+      from jsonb_array_elements(private.normalize_technician_pay_report_status(
+        payload,
+        '2026-07-01',
+        '2026-07-31',
+        '2026-07-15'
+      ) -> 'warnings') warning(item)
+      where warning.item ->> 'code' = 'current_period_sales_through'
+    )
+  ),
+  '[false, false, 1240, false, true]'::jsonb,
+  'an open month keeps normal totals and freshness with no SnapCase warning or early publication'
+)
+from snapcase_card_only_report;
+
+insert into private.snapcase_completed_import_windows (
+  id, provider_account_id, source_machine_id,
+  requested_start, requested_end, requested_timezone,
+  local_start_date, local_end_date_exclusive,
+  payment_observed_count, payment_expected_total,
+  import_revision_digest, completed_ingest_batch_id
+) values (
+  'a9340000-0000-0000-0000-000000000001',
+  'a9300000-0000-0000-0000-000000000001',
+  'manager-payroll-machine',
+  '2026-07-01 07:00:00+00', '2026-07-16 07:00:00+00',
+  'America/Los_Angeles', '2026-07-01', '2026-07-16',
+  3, 3, repeat('5', 64),
+  'a9310000-0000-0000-0000-000000000001'
+);
+
+select is(
+  (
+    select incomplete.assigned_start_date::text || ':' || incomplete.assigned_end_date::text
+    from private.operator_incomplete_snapcase_sales_machines(
+      'a2000000-0000-0000-0000-000000000001',
+      'a6000000-0000-0000-0000-000000000001',
+      '2026-07-01', '2026-07-31'
+    ) incomplete
+  ),
+  '2026-07-16:2026-07-31',
+  'coverage reports only the still-missing assigned commission dates'
+);
+
+insert into private.snapcase_ingest_batches (
+  id, provider_account_id, contract_version, run_key, batch_key,
+  batch_digest, request_fingerprint, machine_count, order_count,
+  payment_count, evidence_count
+) values (
+  'a9310000-0000-0000-0000-000000000002',
+  'a9300000-0000-0000-0000-000000000001',
+  'snapcase.ingest.v1', repeat('b', 64), repeat('c', 64),
+  repeat('d', 64), repeat('e', 64), 1, 0, 0, 1
+);
+
+insert into private.snapcase_extraction_evidence (
+  provider_account_id, ingest_batch_id, resource, source_machine_id,
+  requested_start, requested_end, requested_timezone, extraction_status,
+  page_count, next_cursor_present, response_truncated, observed_count,
+  expected_total, effective_page_size, rejected_count,
+  business_coverage_status, coverage_reason_code
+) values (
+  'a9300000-0000-0000-0000-000000000001',
+  'a9310000-0000-0000-0000-000000000002',
+  'payments', 'manager-payroll-machine',
+  '2026-07-16 07:00:00+00', '2026-08-01 07:00:00+00',
+  'America/Los_Angeles', 'complete', 1, false, false, 0, 0, 50, 0,
+  'unverified', 'source_time_semantics_unverified'
+);
+
+select set_config('request.jwt.claim.role', 'service_role', true);
+create temporary table snapcase_zero_finalize as
+select public.service_finalize_snapcase_import_run(
+  'manager-payroll-coverage', repeat('b', 64)
+) result;
+select set_config('request.jwt.claim.role', '', true);
+
+select is(
+  (select result ->> 'completedWindowCount' from snapcase_zero_finalize),
+  '1',
+  'the source finalizer records a completed zero-payment import after mapped projection'
+);
+
+select is(
+  (
+    select cardinality(revision.reporting_machine_ids)
+    from private.snapcase_financial_window_revisions revision
+    where revision.provider_account_id = 'a9300000-0000-0000-0000-000000000001'
+      and revision.source_machine_id = 'manager-payroll-machine'
+      and revision.requested_start = '2026-07-16 07:00:00+00'
+      and revision.requested_end = '2026-08-01 07:00:00+00'
+  ),
+  0,
+  'a genuine zero-payment projection has no fact-derived reporting-machine ids'
+);
+
+select ok(
+  not exists (
+    select 1
+    from private.operator_incomplete_snapcase_sales_machines(
+      'a2000000-0000-0000-0000-000000000001',
+      'a6000000-0000-0000-0000-000000000001',
+      '2026-07-01', '2026-07-31'
+    )
+  ),
+  'a completed zero-sale window counts as import coverage'
+);
+
+select ok(
+  not exists (
+    select 1
+    from jsonb_array_elements(private.calculate_technician_pay_report(
+      'a2000000-0000-0000-0000-000000000001',
+      'a6000000-0000-0000-0000-000000000001',
+      '2026-07-01', '2026-07-31'
+    ) -> 'blockers') blocker(item)
+    where blocker.item ->> 'code' = 'snapcase_sales_incomplete'
+  ),
+  'complete assigned-date coverage releases the existing closed-period blocker'
+);
+
+delete from private.snapcase_completed_import_windows
+where id = 'a9340000-0000-0000-0000-000000000001';
+update public.compensation_rules
+set commission_basis_points = 0
+where id = 'a8000000-0000-0000-0000-000000000003';
+
+select ok(
+  not exists (
+    select 1
+    from private.operator_incomplete_snapcase_sales_machines(
+      'a2000000-0000-0000-0000-000000000001',
+      'a6000000-0000-0000-0000-000000000001',
+      '2026-07-01', '2026-07-31'
+    )
+  ),
+  'dates with an effective zero commission rate do not require import coverage'
+);
+
+create temporary table snapcase_zero_sales_backup as
+select fact.*
+from public.machine_sales_facts fact
+where fact.reporting_machine_id = 'a4000000-0000-0000-0000-000000000001'
+  and fact.sale_date between '2026-07-01' and '2026-07-31';
+
+delete from public.machine_sales_facts fact
+where fact.reporting_machine_id = 'a4000000-0000-0000-0000-000000000001'
+  and fact.sale_date between '2026-07-01' and '2026-07-31';
+
+do $$
+begin
+  perform public.service_refresh_pay_stub_revenue_snapshot(
+    'a7000000-0000-0000-0000-000000000001',
+    'a4000000-0000-0000-0000-000000000001'
+  );
+end;
+$$;
+
+select ok(
+  not exists (
+    select 1
+    from jsonb_array_elements(private.calculate_technician_pay_report(
+      'a2000000-0000-0000-0000-000000000001',
+      'a6000000-0000-0000-0000-000000000001',
+      '2026-07-01', '2026-07-31'
+    ) -> 'blockers') blocker(item)
+    where blocker.item ->> 'code' in (
+      'snapcase_sales_incomplete',
+      'missing_commission_sales_facts',
+      'stale_commission_sales_facts',
+      'stale_sales_source'
+    )
+  ),
+  'projected zero-payment coverage releases the legacy no-sales source finding for the same dates'
+);
+
+insert into public.machine_sales_facts (
+  id, reporting_machine_id, reporting_location_id, sale_date, payment_method,
+  net_sales_cents, transaction_count, source, source_row_hash, source_order_hash
+) values (
+  'a9100000-0000-0000-0000-000000000099',
+  'a4000000-0000-0000-0000-000000000001',
+  'a3000000-0000-0000-0000-000000000001',
+  '2026-07-20', 'cash', 500, 1, 'snapcase_cash',
+  'manager-report-snapcase-cash', 'manager-report-snapcase-cash-order'
+);
+
+do $$
+begin
+  perform public.service_refresh_pay_stub_revenue_snapshot(
+    'a7000000-0000-0000-0000-000000000001',
+    'a4000000-0000-0000-0000-000000000001'
+  );
+end;
+$$;
+
+insert into private.snapcase_sales_observations (
+  id, provider_account_id, resource, source_key, source_key_version,
+  source_machine_id, source_status, source_tender_code, source_tender_label,
+  normalized_tender, occurred_time_raw, occurred_at, source_currency,
+  currency_code, source_amount_text, amount_minor, exception_codes,
+  revision_digest, first_seen_batch_id, last_seen_batch_id
+) values (
+  'a9360000-0000-0000-0000-000000000001',
+  'a9300000-0000-0000-0000-000000000001',
+  'payment', repeat('9', 64), 1, 'manager-payroll-machine',
+  'success', '0', 'card', 'card',
+  '2026-07-20 05:00:00', '2026-07-20 12:00:00+00',
+  'USD', 'USD', '5.00', 500,
+  array['financial_status_semantics_unverified'], repeat('a', 64),
+  'a9310000-0000-0000-0000-000000000001',
+  'a9310000-0000-0000-0000-000000000001'
+);
+
+-- The direct fixture insert above invalidates overlapping completion exactly as
+-- production does. Recreate the trusted finalizer output for this focused
+-- mixed-tender payroll check; the preceding test covers the real zero finalizer.
+insert into private.snapcase_completed_import_windows (
+  id, provider_account_id, source_machine_id,
+  requested_start, requested_end, requested_timezone,
+  local_start_date, local_end_date_exclusive,
+  payment_observed_count, payment_expected_total,
+  import_revision_digest, completed_ingest_batch_id
+) values (
+  'a9340000-0000-0000-0000-000000000002',
+  'a9300000-0000-0000-0000-000000000001',
+  'manager-payroll-machine',
+  '2026-07-16 07:00:00+00', '2026-08-01 07:00:00+00',
+  'America/Los_Angeles', '2026-07-16', '2026-08-01',
+  1, 1, repeat('6', 64),
+  'a9310000-0000-0000-0000-000000000001'
+);
+
+update public.compensation_rules
+set commission_basis_points = 0
+where id = 'a8000000-0000-0000-0000-000000000004';
+
+select ok(
+  not exists (
+    select 1
+    from jsonb_array_elements(private.calculate_technician_pay_report(
+      'a2000000-0000-0000-0000-000000000001',
+      'a6000000-0000-0000-0000-000000000001',
+      '2026-07-01', '2026-07-31'
+    ) -> 'blockers') blocker(item)
+    where blocker.item ->> 'code' = 'missing_commission_sales_facts'
+  ),
+  'a K card observed outside effective positive-commission dates does not create a missing-card finding'
+);
+
+update public.compensation_rules
+set commission_basis_points = 2000
+where id = 'a8000000-0000-0000-0000-000000000004';
+
+select ok(
+  exists (
+    select 1
+    from jsonb_array_elements(private.calculate_technician_pay_report(
+      'a2000000-0000-0000-0000-000000000001',
+      'a6000000-0000-0000-0000-000000000001',
+      '2026-07-01', '2026-07-31'
+    ) -> 'blockers') blocker(item)
+    where blocker.item ->> 'code' = 'missing_commission_sales_facts'
+  ),
+  'known K card observations without Nayax facts keep the existing missing-sales finding even when another sales fact exists'
+);
+
+update private.snapcase_completed_import_windows
+set payment_observed_count = 0,
+    payment_expected_total = 0
+where id = 'a9340000-0000-0000-0000-000000000002';
+
+delete from private.snapcase_sales_observations
+where id = 'a9360000-0000-0000-0000-000000000001';
+
+select set_config('request.jwt.claim.role', 'service_role', true);
+do $$
+begin
+  perform public.service_finalize_snapcase_import_run(
+    'manager-payroll-coverage', repeat('b', 64)
+  );
+end;
+$$;
+select set_config('request.jwt.claim.role', '', true);
+
+delete from public.machine_sales_facts
+where id = 'a9100000-0000-0000-0000-000000000099';
+
+insert into public.machine_sales_facts
+select * from snapcase_zero_sales_backup;
+
+do $$
+begin
+  perform public.service_refresh_pay_stub_revenue_snapshot(
+    'a7000000-0000-0000-0000-000000000001',
+    'a4000000-0000-0000-0000-000000000001'
+  );
+end;
+$$;
+
+update public.compensation_rules
+set commission_basis_points = 1000
+where id = 'a8000000-0000-0000-0000-000000000003';
+
+select is(
+  (
+    select incomplete.assigned_start_date::text || ':' || incomplete.assigned_end_date::text
+    from private.operator_incomplete_snapcase_sales_machines(
+      'a2000000-0000-0000-0000-000000000001',
+      'a6000000-0000-0000-0000-000000000001',
+      '2026-07-01', '2026-07-31'
+    ) incomplete
+  ),
+  '2026-07-01:2026-07-15',
+  'positive-commission dates become required without broadening the later covered dates'
+);
+
+select ok(
+  not exists (
+    select 1
+    from private.operator_incomplete_snapcase_sales_machines(
+      'a2000000-0000-0000-0000-000000000001',
+      'a6000000-0000-0000-0000-000000000001',
+      date_trunc('month', timezone('America/Los_Angeles', now()))::date,
+      (date_trunc('month', timezone('America/Los_Angeles', now()))
+        + interval '1 month - 1 day')::date
+    )
+  ),
+  'an unfinished current month does not expect future SnapCase import windows'
+);
+
+-- Current assignment status must not erase the effective-dated historical
+-- scope that the pay calculator still includes for this closed month.
+update public.operator_machine_assignments
+set
+  status = 'revoked',
+  revoked_by = 'a1000000-0000-0000-0000-000000000003',
+  revoked_at = '2026-08-15 00:00:00+00',
+  revoke_reason = 'Synthetic post-period revocation'
+where id = 'a6100000-0000-0000-0000-000000000001';
+
+select ok(
+  exists (
+    select 1
+    from jsonb_array_elements(private.calculate_technician_pay_report(
+      'a2000000-0000-0000-0000-000000000001',
+      'a6000000-0000-0000-0000-000000000001',
+      '2026-07-01',
+      '2026-07-31'
+    ) -> 'blockers') blocker(item)
+    where blocker.item ->> 'code' = 'snapcase_sales_incomplete'
+  ),
+  'a post-period assignment revocation cannot erase historical SnapCase commission scope'
+);
+
+insert into public.pay_stub_generation_requests (
+  id, account_id, operator_profile_id, payout_period_id, trigger_kind,
+  status, requested_by, attempt_count, started_at
+)
+values (
+  'ad000000-0000-0000-0000-000000000010',
+  'a2000000-0000-0000-0000-000000000001',
+  'a6000000-0000-0000-0000-000000000001',
+  'a7000000-0000-0000-0000-000000000001',
+  'manager_regeneration', 'processing',
+  'a1000000-0000-0000-0000-000000000003', 1, now()
+);
+
+with prepared as (
+  select public.service_prepare_pay_stub(
+    'ad000000-0000-0000-0000-000000000010'
+  ) as payload
+)
+select is(
+  jsonb_build_array(
+    payload ->> 'status',
+    exists (
+      select 1
+      from jsonb_array_elements(coalesce(payload -> 'blockers', '[]'::jsonb)) blocker(item)
+      where blocker.item ->> 'code' = 'snapcase_sales_incomplete'
+    )
+  ),
+  '["blocked", true]'::jsonb,
+  'Pay Stub preparation blocks incomplete SnapCase commission sales server-side'
+)
+from prepared;
+
+update public.payout_runs
+set status = 'review'
+where id = 'ac000000-0000-0000-0000-000000000001';
+set local role authenticated;
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
+
+select is(
+  pg_temp.capture_error($$
+    select public.admin_finalize_payout_run(
+      'ac000000-0000-0000-0000-000000000001',
+      'Synthetic SnapCase guard',
+      true,
+      'Synthetic override must not bypass source completeness'
+    )
+  $$),
+  'SnapCase sales coverage is incomplete; this payout run cannot be finalized',
+  'legacy finalization cannot override the SnapCase completeness safeguard'
+);
+
+reset role;
+delete from public.payout_run_item_machines
+where payout_run_item_id = 'ac100000-0000-0000-0000-000000000001'
+  and reporting_machine_id = 'a4000000-0000-0000-0000-000000000001';
+set local role authenticated;
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
+
+select is(
+  pg_temp.capture_error($$
+    select public.admin_finalize_payout_run(
+      'ac000000-0000-0000-0000-000000000001',
+      'Synthetic missing machine line guard',
+      true,
+      'Synthetic override must not bypass source completeness'
+    )
+  $$),
+  'SnapCase sales coverage is incomplete; this payout run cannot be finalized',
+  'legacy finalization checks current eligible assignments even when a draft machine line is missing'
+);
+
+reset role;
+update public.payout_runs
+set status = 'finalized'
+where id = 'ac000000-0000-0000-0000-000000000001';
+set local role authenticated;
+select set_config('request.jwt.claim.sub', 'a1000000-0000-0000-0000-000000000003', true);
+
+select is(
+  pg_temp.capture_error($$
+    select public.admin_issue_pay_statements(
+      'ac000000-0000-0000-0000-000000000001',
+      'Synthetic SnapCase guard',
+      'Synthetic SnapCase guard'
+    )
+  $$),
+  'SnapCase sales coverage is incomplete; pay statements cannot be issued',
+  'legacy statement issuance cannot bypass the SnapCase completeness safeguard'
+);
+
+reset role;
+update public.compensation_rules
+set commission_basis_points = 0
+where operator_profile_id = 'a6000000-0000-0000-0000-000000000001'
+  and commission_basis_points is not null;
+
+select ok(
+  not exists (
+    select 1
+    from jsonb_array_elements(private.calculate_technician_pay_report(
+      'a2000000-0000-0000-0000-000000000001',
+      'a6000000-0000-0000-0000-000000000001',
+      '2026-07-01',
+      '2026-07-31'
+    ) -> 'blockers') blocker(item)
+    where blocker.item ->> 'code' = 'snapcase_sales_incomplete'
+  ),
+  'an explicit zero-percent SnapCase rate stays outside the revenue-dependent safeguard'
+);
+
+update public.compensation_rules
+set commission_basis_points = case id
+  when 'a8000000-0000-0000-0000-000000000003'::uuid then 1000
+  when 'a8000000-0000-0000-0000-000000000004'::uuid then 2000
+  when 'a8000000-0000-0000-0000-000000000007'::uuid then 1200
+  else commission_basis_points
+end
+where id in (
+  'a8000000-0000-0000-0000-000000000003',
+  'a8000000-0000-0000-0000-000000000004',
+  'a8000000-0000-0000-0000-000000000007'
+);
+update public.reporting_machines
+set machine_type = 'commercial'
+where id = 'a4000000-0000-0000-0000-000000000001';
+
+select ok(
+  not exists (
+    select 1
+    from jsonb_array_elements(private.calculate_technician_pay_report(
+      'a2000000-0000-0000-0000-000000000001',
+      'a6000000-0000-0000-0000-000000000001',
+      '2026-07-01',
+      '2026-07-31'
+    ) -> 'blockers') blocker(item)
+    where blocker.item ->> 'code' = 'snapcase_sales_incomplete'
+  ),
+  'existing cotton-candy sales and commission behavior remains unchanged'
+);
+
+-- Recheck immediately before publication so a draft prepared before a
+-- SnapCase classification/rate change cannot become the current version.
+insert into public.pay_statements (
+  id, payout_run_id, payout_run_item_id, account_id, operator_profile_id,
+  statement_number, statement_label, status, version,
+  statement_payload, statement_generated_at, operator_notification_status
+)
+values (
+  'ac300000-0000-0000-0000-000000000010',
+  'ac000000-0000-0000-0000-000000000001',
+  'ac100000-0000-0000-0000-000000000001',
+  'a2000000-0000-0000-0000-000000000001',
+  'a6000000-0000-0000-0000-000000000001',
+  'BJ-STUB-SNAPCASE-RACE-V99', 'Pay Stub', 'draft', 99,
+  jsonb_build_object(
+    'schemaVersion', 'operator-pay-stub-v2',
+    'calculationMeta', jsonb_build_object(
+      'paySourceRevision', private.operator_pay_time_source_revision(
+        'a6000000-0000-0000-0000-000000000001',
+        '2026-07-31'
+      )
+    )
+  ),
+  now(), 'not_sent'
+);
+insert into public.pay_stub_generation_requests (
+  id, account_id, operator_profile_id, payout_period_id, trigger_kind,
+  status, requested_by, pay_statement_id, attempt_count, started_at
+)
+values (
+  'ad000000-0000-0000-0000-000000000011',
+  'a2000000-0000-0000-0000-000000000001',
+  'a6000000-0000-0000-0000-000000000001',
+  'a7000000-0000-0000-0000-000000000001',
+  'manager_regeneration', 'processing',
+  'a1000000-0000-0000-0000-000000000003',
+  'ac300000-0000-0000-0000-000000000010', 1, now()
+);
+
+update public.reporting_machines
+set machine_type = 'snapcase'
+where id = 'a4000000-0000-0000-0000-000000000001';
+
+select is(
+  public.service_complete_pay_stub(
+    'ad000000-0000-0000-0000-000000000011',
+    'ac300000-0000-0000-0000-000000000010',
+    'test/snapcase-race.pdf'
+  ) ->> 'status',
+  'blocked',
+  'completion rechecks SnapCase readiness after PDF preparation'
+);
+
+select is(
+  (select status from public.pay_statements
+   where id = 'ac300000-0000-0000-0000-000000000010'),
+  'draft',
+  'a completion-time SnapCase block leaves the prior immutable version current'
+);
+
+select is(
+  (select status from public.pay_stub_generation_requests
+   where id = 'ad000000-0000-0000-0000-000000000011'),
+  'blocked',
+  'the completion-time blocker remains actionable on the generation request'
 );
 
 select * from finish();

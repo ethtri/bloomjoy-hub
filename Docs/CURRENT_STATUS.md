@@ -103,6 +103,20 @@ orientation snapshot; it is not a backlog or release ledger.
 - Timekeeping, Technician Pay Reports, Pay Stubs, partner reporting, access
   management, training, commerce, and machine administration remain active
   product areas. Their current work belongs on the board, not in this snapshot.
+- Issue #1480 keeps normal open-month SnapCase sales and commission estimates
+  visible without a SnapCase-specific warning. Closed positive-commission dates
+  block only when their mapped machine lacks a completed payment import and
+  successful cash publication. Production behavior still requires the related
+  migrations to merge and deploy.
+- Issue #1478 now has a source-connected projection contract for Kexiaozhan cash only;
+  existing Nayax scheduled facts remain the sole card authority and existing
+  sales adjustments remain the sole refund deduction. Gross cash amount and
+  half-open payment query bounds are supported, and the owner confirmed provider
+  timestamps use each machine's IANA timezone. Complete acknowledged per-machine
+  payment windows, including zero rows, bind normalized cash publication before
+  they can release the matching closed payroll dates.
+  Unknown item quantity uses a marked zero storage fallback without hiding gross
+  cash, and later unproved source revisions preserve known gross as review work.
 - Refund automation authenticates through the Info Gmail account and sends as
   `refunds@bloomjoysweets.com`. P0 #1455 is correcting the deployed filter
   that skipped new Info-only refund inquiries; the three identified customers
