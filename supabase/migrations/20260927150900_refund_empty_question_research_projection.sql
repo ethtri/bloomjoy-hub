@@ -35,7 +35,7 @@ do $empty_question_outreach$
 declare body text; anchor text; replacement text; reason_anchor text; reason_replacement text;
 begin
   body := replace(pg_get_functiondef(
-    'public.refund_customer_outreach_contract(uuid)'::regprocedure),
+    'public.refund_customer_outreach_pre_verified_reply_continuation(uuid)'::regprocedure),
     E'\r\n', E'\n');
   anchor := $anchor$      'pre_message_suppressed:no_customer_correctable_fact'
     ) then$anchor$;
