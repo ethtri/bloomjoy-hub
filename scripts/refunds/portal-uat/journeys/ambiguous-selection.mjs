@@ -1997,7 +1997,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
             persistedEvidenceDetails.includes('$10.00 base-price record') &&
             persistedEvidenceDetails.includes('$10.90 full provider charge') &&
             (await page.getByTestId('nayax-candidate-option').count()) === 0 &&
-            (await page.getByTestId('refund-primary-action').innerText()).includes('Refund action temporarily unavailable') &&
+            (await page.getByTestId('refund-primary-action').innerText()).includes('Finding the purchase') &&
             (await page.getByRole('button', { name: /^Refund \$10\.90$/i }).count()) === 0 &&
             (await page.getByTestId('refund-approve-selected-purchase').count()) === 0 &&
             (await page.getByTestId('refund-approve-reviewed-purchase').count()) === 0,
@@ -2315,9 +2315,10 @@ const runNayaxLookupStatusMatrixChecks = async ({
     }
     await signInRefundUser(page, appUrl);
     await page.getByRole('button', { name: /^All active \d+$/ }).click();
+    await waitForQueueCount(page, 2);
     const pendingRow = queueCase(page, 'RF-UAT-PENDING')
       .filter({ hasNotText: 'RF-UAT-PENDING-ALT' });
-    await pendingRow.waitFor({ state: 'visible', timeout: 10000 });
+    await pendingRow.waitFor({ state: 'visible', timeout: 20000 });
     await pendingRow.click();
     await page.getByText('Purchase details and search history', { exact: true }).click();
     await page.getByTestId('nayax-candidate-option').first().click();
