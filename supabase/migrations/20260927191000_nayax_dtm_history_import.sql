@@ -385,54 +385,6 @@ grant execute on function public.service_promote_nayax_pending_sales(integer) to
 -- point at which both exact identities exist. The receipt hook makes the case
 -- adjustment authoritative and retains the provider row as zero-valued audit
 -- evidence for immutable DTM row references.
-create function private.nayax_provider_refund_receipt_zero_allowed(
-  p_old jsonb,p_new jsonb
-) returns boolean language sql stable security definer set search_path='' as $$
-  select exists(
-    select 1
-    from public.nayax_provider_refund_events event
-    join public.refund_authoritative_receipts receipt
-      on receipt.refund_case_id=event.linked_refund_case_id
-     and receipt.account_scope=event.account_key
-     and receipt.provider_machine_id=event.provider_machine_id
-     and receipt.original_transaction_id=event.original_transaction_id
-     and receipt.refunded_amount_cents=event.amount_cents
-     and receipt.reporting_machine_id=event.reporting_machine_id
-    join public.sales_adjustment_facts case_adjustment
-      on case_adjustment.refund_case_id=receipt.refund_case_id
-     and case_adjustment.reporting_machine_id=receipt.reporting_machine_id
-     and case_adjustment.amount_cents=receipt.refunded_amount_cents
-     and case_adjustment.source='refund_case'
-    where event.adjustment_id=(p_old->>'id')::uuid
-      and p_old->>'source'='nayax_provider_refund'
-      and (p_old->>'amount_cents')::integer=event.amount_cents
-      and (p_new->>'amount_cents')::integer=0
-      and (p_new->>'complaint_count')::integer=0
-      and (p_new-array['amount_cents','complaint_count','notes','raw_payload','updated_at'])
-        is not distinct from (p_old-array['amount_cents','complaint_count','notes','raw_payload','updated_at'])
-      and p_new->'raw_payload' @> jsonb_build_object(
-        'supersededByRefundCaseId',receipt.refund_case_id,
-        'providerEventProvenanceRetained',true)
-  );
-$$;
-revoke all on function private.nayax_provider_refund_receipt_zero_allowed(jsonb,jsonb)
-  from public,anon,authenticated,service_role;
-
-do $guard$
-declare body text; anchor text; replacement text;
-begin
-  body:=replace(pg_get_functiondef('public.guard_refund_authoritative_receipt_effects()'::regprocedure),E'\r\n',E'\n');
-  anchor:=E'begin\n  if tg_table_name=';
-  replacement:=E'begin\n  if tg_table_name=''sales_adjustment_facts'' and tg_op=''UPDATE''\n'
-    ||E'    and private.nayax_provider_refund_receipt_zero_allowed(to_jsonb(old),to_jsonb(new)) then return new; end if;\n'
-    ||E'  if tg_table_name=';
-  if cardinality(string_to_array(body,anchor))<>2 then
-    raise exception 'Unexpected authoritative receipt guard shape for exact provider deduplication';
-  end if;
-  execute replace(body,anchor,replacement);
-end;
-$guard$;
-
 create function private.reconcile_nayax_provider_event_receipt()
 returns trigger language plpgsql security definer set search_path='' as $$
 declare event_row public.nayax_provider_refund_events%rowtype; case_adjustment uuid;
@@ -457,6 +409,12 @@ begin
     and adjustment.source='refund_case';
   if case_adjustment is null or event_row.adjustment_id is null
     or case_adjustment=event_row.adjustment_id then return new; end if;
+  update public.sales_adjustment_facts set adjustment_date=event_row.machine_event_at::date,
+    reporting_location_id=event_row.reporting_location_id,
+    raw_payload=raw_payload||jsonb_build_object('nayaxProviderRefundEventHash',event_row.refund_identity_hash,
+      'providerEventDateApplied',true,'providerEventProvenanceRetained',true),
+    updated_at=statement_timestamp()
+  where id=case_adjustment and source='refund_case';
   update public.sales_adjustment_facts set amount_cents=0,complaint_count=0,
     notes='Superseded by exact linked refund case adjustment',
     raw_payload=raw_payload||jsonb_build_object('supersededByRefundCaseId',new.refund_case_id,
@@ -468,7 +426,7 @@ begin
   return new;
 end;$$;
 create trigger refund_receipt_reconcile_nayax_provider_event
-after insert on public.refund_authoritative_receipts for each row
+before insert on public.refund_authoritative_receipts for each row
 execute function private.reconcile_nayax_provider_event_receipt();
 
 create function public.service_begin_nayax_dtm_history_import(p_receipt jsonb)
