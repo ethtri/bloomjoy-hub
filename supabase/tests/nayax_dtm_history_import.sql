@@ -247,6 +247,12 @@ select is((select count(*) from public.sales_adjustment_facts where source='naya
   and source_row_hash=repeat('c',64)),0::bigint,'A sheet-overlap candidate is not deducted twice');
 
 select set_config('request.jwt.claim.role','authenticated',true);
+select ok(not has_function_privilege('service_role',
+  'public.service_promote_nayax_pending_sales_pre_refund_v1(integer)','execute'),
+  'Service callers cannot bypass canonical refund promotion');
+select ok(not has_function_privilege('service_role',
+  'public.service_record_nayax_scheduled_report_pre_provider_refund_v1(text,timestamptz,text,jsonb)','execute'),
+  'Service callers cannot bypass canonical scheduled refund projection');
 select throws_ok($$select public.service_begin_nayax_dtm_history_import('{}')$$,'P0001','Service DTM import required',
   'Customer sessions cannot import private history');
 select * from finish();

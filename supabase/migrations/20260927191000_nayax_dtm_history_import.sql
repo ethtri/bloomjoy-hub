@@ -367,6 +367,8 @@ grant execute on function private.promote_nayax_provider_refunds(integer) to ser
 
 alter function public.service_promote_nayax_pending_sales(integer)
   rename to service_promote_nayax_pending_sales_pre_refund_v1;
+revoke all on function public.service_promote_nayax_pending_sales_pre_refund_v1(integer)
+  from public,anon,authenticated,service_role;
 create function public.service_promote_nayax_pending_sales(p_limit integer default 10000)
 returns jsonb language plpgsql security definer set search_path='' as $$
 declare result jsonb; refund_count integer;
@@ -676,6 +678,9 @@ grant execute on function public.service_finalize_nayax_dtm_history_import(text)
 -- its native negative refund observations through the same financial writer.
 alter function public.service_record_nayax_scheduled_report(text,timestamptz,text,jsonb)
   rename to service_record_nayax_scheduled_report_pre_provider_refund_v1;
+revoke all on function public.service_record_nayax_scheduled_report_pre_provider_refund_v1(
+  text,timestamptz,text,jsonb
+) from public,anon,authenticated,service_role;
 create function public.service_record_nayax_scheduled_report(p_message_id text,p_received_at timestamptz,p_delivery_form text,p_report jsonb)
 returns jsonb language plpgsql security definer set search_path='' as $$
 declare result jsonb; row_data jsonb; refund_result jsonb; original_id text;
