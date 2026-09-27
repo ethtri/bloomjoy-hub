@@ -1314,6 +1314,7 @@ export const createOrdinarySuccessChecks = ({
 
     await page.setViewportSize({ width: 390, height: 844 });
     await navigateRefundPortalPage(page, `${appUrl}/refunds`, { waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: /^All open \d+$/ }).click();
     await page.getByRole('button', { name: /RF-UAT-GMAIL/ }).click();
     await page.getByTestId('refund-gmail-draft-workbench').waitFor({ timeout: 10000 });
     await settleRefundPortalPage(page);
