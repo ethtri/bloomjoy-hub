@@ -1,0 +1,40 @@
+name: SnapCase Import Health
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '47 5,17 * * *'
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: snapcase-import-health
+  cancel-in-progress: false
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SNAPCASE_SYNC_ENABLED: ${{ vars.SNAPCASE_SYNC_ENABLED || 'false' }}
+      SNAPCASE_SYNC_STALE_HOURS: '30'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Keep monitoring aligned with disabled sync
+        if: env.SNAPCASE_SYNC_ENABLED != 'true'
+        run: echo "SnapCase sync and monitoring are disabled."
+      - name: Checkout
+        if: env.SNAPCASE_SYNC_ENABLED == 'true'
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        if: env.SNAPCASE_SYNC_ENABLED == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+      - name: Check latest scheduled live import
+        if: env.SNAPCASE_SYNC_ENABLED == 'true'
+        run: node scripts/snapcase/check-sync-health.mjs
