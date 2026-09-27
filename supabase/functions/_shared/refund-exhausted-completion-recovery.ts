@@ -29,6 +29,7 @@ export const reviewedCurrentCompletionCopy = ({
     body.length === 0 || body.length > 4000 ||
     !/^re:\s+/i.test(subject) ||
     !/\bNayax confirmed your \$\d+\.\d{2} refund on [A-Z][a-z]+ (?:[1-9]|[12]\d|3[01])\./.test(body) ||
+    /\b(?:not confirmed|no refund|not processed|did not process|refund failed|failed refund)\b/i.test(body) ||
     /\bon its way\b/i.test(body) || /\bbusiness\s+days?\b/i.test(body)
   ) return null;
   return { subject, body };

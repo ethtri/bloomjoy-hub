@@ -72,6 +72,7 @@ Deno.test("negated or ambiguous completion claims are rejected", () => {
       "Your refund is not confirmed. Reference: RF-TEST",
       "We confirmed no refund. Reference: RF-TEST",
       "Nayax confirmed your $27.00 refund was not processed. Reference: RF-TEST",
+      "Nayax confirmed your $27.00 refund on September 19. It was not processed. Reference: RF-TEST",
     ]
   ) {
     if (reviewedCurrentCompletionCopy({ subject: "Re: Order failure", body })) {

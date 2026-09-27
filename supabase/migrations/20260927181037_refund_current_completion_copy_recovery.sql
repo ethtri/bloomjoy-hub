@@ -40,8 +40,10 @@ begin
       coalesce(case_row.refund_amount_cents, case_row.payment_amount_cents)::numeric / 100,
       'FM999999990.00'
     );
-    if lower(new.body) like '%on its way%'
+    if amount_token is null
+      or lower(new.body) like '%on its way%'
       or lower(new.body) ~ 'business[[:space:]]+days?'
+      or lower(new.body) ~ '(not confirmed|no refund|not processed|did not process|refund failed|failed refund)'
       or position('Nayax confirmed your ' || amount_token || ' refund on ' in new.body) = 0
       or new.body !~ 'Nayax confirmed your [$][0-9]+[.][0-9]{2} refund on [A-Z][a-z]+ ([1-9]|[12][0-9]|3[01])[.]'
       or position(case_row.public_reference in new.body) = 0 then
@@ -115,7 +117,9 @@ begin
     'FM999999990.00'
   );
 
-  if position('Nayax confirmed your ' || amount_token || ' refund on ' in normalized_body) = 0
+  if amount_token is null
+    or lower(normalized_body) ~ '(not confirmed|no refund|not processed|did not process|refund failed|failed refund)'
+    or position('Nayax confirmed your ' || amount_token || ' refund on ' in normalized_body) = 0
     or normalized_body !~ 'Nayax confirmed your [$][0-9]+[.][0-9]{2} refund on [A-Z][a-z]+ ([1-9]|[12][0-9]|3[01])[.]' then
     raise exception 'Reviewed copy must contain the canonical positive confirmation sentence';
   end if;

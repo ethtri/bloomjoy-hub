@@ -201,6 +201,14 @@ Reference: RF-EXHAUSTED-3$copy$)$$),'P0001',
   'Negated confirmation wording cannot be rebound to the saved message');
 select is(pg_temp.capture_error($$select public.service_prepare_exhausted_nayax_completion_recovery(
   'synthetic-exhausted-recovery-executor',
+  'e5280000-0000-4000-8000-000000000003','673955',
+  'e5290000-0000-4000-8000-000000000001','Re: Recovery fixture',
+  $copy$Nayax confirmed your $5.00 refund on September 19. It was not processed.
+
+Reference: RF-EXHAUSTED-3$copy$)$$),'P0001',
+  'A canonical sentence followed by contradictory wording is rejected');
+select is(pg_temp.capture_error($$select public.service_prepare_exhausted_nayax_completion_recovery(
+  'synthetic-exhausted-recovery-executor',
   'e5280000-0000-4000-8000-000000000003','wrong-history',
   'e5290000-0000-4000-8000-000000000001','Re: Recovery fixture',
   $copy$Nayax confirmed your $5.00 refund on September 19.
