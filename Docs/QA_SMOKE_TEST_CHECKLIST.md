@@ -852,6 +852,8 @@ npm run refunds:validate-portal-uat-lifecycle
 - [ ] Edit access uses the existing source-specific permission checks, required reason fields, automatic readback, and audit entries; no manual Refresh action is shown.
 - [ ] Open Technician Pay Report deep-links to Chelsea's selected pay profile and retains the selected technician after reload.
 - [ ] A Scoped Admin sees only people whose account or machine access intersects their assigned machines; a non-admin cannot call the directory RPC.
+- [ ] Each visible person shows the best available contact email and phone in the roster; opening the person shows an immediately visible Contact section with email, phone, and mailing/shipping address, using “Not on file” for missing values.
+- [ ] A Scoped Admin can see contact details for people already inside their assigned account/machine scope but cannot retrieve contact details for an out-of-scope person through the directory RPC.
 - [ ] At 1440px desktop and 390px mobile, the list has no horizontal page overflow and the drawer becomes a usable full-width detail surface with 44px primary controls.
 
 ### People & Permissions detail workspace (`#1349`)

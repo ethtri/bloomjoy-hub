@@ -6,6 +6,9 @@ export type AdminAccessPerson = {
   personKey: string;
   userId: string | null;
   email: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  mailingAddress: string | null;
   displayName: string;
   roles: string[];
   accountNames: string[];
@@ -65,7 +68,14 @@ export async function fetchAdminPeopleDirectory(
 
   const directory = data as unknown as Partial<AdminPeopleDirectory>;
   return {
-    items: Array.isArray(directory.items) ? directory.items : [],
+    items: Array.isArray(directory.items)
+      ? directory.items.map((person) => ({
+          ...person,
+          contactEmail: person.contactEmail ?? person.email ?? null,
+          contactPhone: person.contactPhone ?? null,
+          mailingAddress: person.mailingAddress ?? null,
+        }))
+      : [],
     totalCount: typeof directory.totalCount === 'number' ? directory.totalCount : 0,
     roles: Array.isArray(directory.roles) ? directory.roles : [],
     accounts: Array.isArray(directory.accounts) ? directory.accounts : [],
