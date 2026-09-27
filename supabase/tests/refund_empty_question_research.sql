@@ -2,6 +2,9 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
 select plan(16);
+update public.refund_customer_contact_settings
+set automatic_customer_contact_enabled=true,correction_links_enabled=true
+where singleton;
 
 select is(public.refund_next_work_projection(jsonb_build_object(
   'payloadRedacted',true,'stage','matching','reasonCode','no_safe_match',
