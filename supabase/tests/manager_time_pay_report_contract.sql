@@ -9,7 +9,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(156);
+select plan(157);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -2025,7 +2025,7 @@ insert into private.snapcase_machine_mappings (
   effective_start_date, effective_end_date, mapping_reason
 ) values (
   'a9330000-0000-0000-0000-000000000001',
-  'a9300000-0000-0000-000000000001',
+  'a9300000-0000-0000-0000-000000000001',
   'manager-payroll-machine',
   'a4000000-0000-0000-0000-000000000001',
   '2026-01-01', null, 'Payroll coverage contract fixture'
@@ -2152,21 +2152,6 @@ insert into private.snapcase_completed_import_windows (
   'a9310000-0000-0000-0000-000000000001'
 );
 
-insert into private.snapcase_financial_window_revisions (
-  id, provider_account_id, source_machine_id,
-  requested_start, requested_end, contract_version, revision_digest,
-  reporting_machine_ids, status, reason_code, financial_ready, details
-) values (
-  'a9350000-0000-0000-0000-000000000001',
-  'a9300000-0000-0000-0000-000000000001',
-  'manager-payroll-machine',
-  '2026-07-01 07:00:00+00', '2026-07-16 07:00:00+00',
-  'snapcase.financial.machine-local.v1', repeat('7', 64),
-  array['a4000000-0000-0000-0000-000000000001'::uuid],
-  'unverified', 'coverage_binding_pending', true,
-  jsonb_build_object('mappingExceptionCount', 0, 'cashIntegrityIncompleteCount', 0)
-);
-
 select is(
   (
     select incomplete.assigned_start_date::text || ':' || incomplete.assigned_end_date::text
@@ -2180,48 +2165,56 @@ select is(
   'coverage reports only the still-missing assigned commission dates'
 );
 
-insert into private.snapcase_completed_import_windows (
-  id, provider_account_id, source_machine_id,
-  requested_start, requested_end, requested_timezone,
-  local_start_date, local_end_date_exclusive,
-  payment_observed_count, payment_expected_total,
-  import_revision_digest, completed_ingest_batch_id
+insert into private.snapcase_ingest_batches (
+  id, provider_account_id, contract_version, run_key, batch_key,
+  batch_digest, request_fingerprint, machine_count, order_count,
+  payment_count, evidence_count
 ) values (
-  'a9340000-0000-0000-0000-000000000002',
+  'a9310000-0000-0000-0000-000000000002',
   'a9300000-0000-0000-0000-000000000001',
-  'manager-payroll-machine',
+  'snapcase.ingest.v1', repeat('b', 64), repeat('c', 64),
+  repeat('d', 64), repeat('e', 64), 1, 0, 0, 1
+);
+
+insert into private.snapcase_extraction_evidence (
+  provider_account_id, ingest_batch_id, resource, source_machine_id,
+  requested_start, requested_end, requested_timezone, extraction_status,
+  page_count, next_cursor_present, response_truncated, observed_count,
+  expected_total, effective_page_size, rejected_count,
+  business_coverage_status, coverage_reason_code
+) values (
+  'a9300000-0000-0000-0000-000000000001',
+  'a9310000-0000-0000-0000-000000000002',
+  'payments', 'manager-payroll-machine',
   '2026-07-16 07:00:00+00', '2026-08-01 07:00:00+00',
-  'America/Los_Angeles', '2026-07-16', '2026-08-01',
-  0, 0, repeat('6', 64),
-  'a9310000-0000-0000-0000-000000000001'
+  'America/Los_Angeles', 'complete', 1, false, false, 0, 0, 50, 0,
+  'unverified', 'source_time_semantics_unverified'
+);
+
+select set_config('request.jwt.claim.role', 'service_role', true);
+create temporary table snapcase_zero_finalize as
+select public.service_finalize_snapcase_import_run(
+  'manager-payroll-coverage', repeat('b', 64)
+) result;
+select set_config('request.jwt.claim.role', '', true);
+
+select is(
+  (select result ->> 'completedWindowCount' from snapcase_zero_finalize),
+  '1',
+  'the source finalizer records a completed zero-payment import after mapped projection'
 );
 
 select is(
   (
-    select incomplete.assigned_start_date::text || ':' || incomplete.assigned_end_date::text
-    from private.operator_incomplete_snapcase_sales_machines(
-      'a2000000-0000-0000-0000-000000000001',
-      'a6000000-0000-0000-0000-000000000001',
-      '2026-07-01', '2026-07-31'
-    ) incomplete
+    select cardinality(revision.reporting_machine_ids)
+    from private.snapcase_financial_window_revisions revision
+    where revision.provider_account_id = 'a9300000-0000-0000-0000-000000000001'
+      and revision.source_machine_id = 'manager-payroll-machine'
+      and revision.requested_start = '2026-07-16 07:00:00+00'
+      and revision.requested_end = '2026-08-01 07:00:00+00'
   ),
-  '2026-07-16:2026-07-31',
-  'completed ingestion alone cannot release dates whose mapped cash projection has not succeeded'
-);
-
-insert into private.snapcase_financial_window_revisions (
-  id, provider_account_id, source_machine_id,
-  requested_start, requested_end, contract_version, revision_digest,
-  reporting_machine_ids, status, reason_code, financial_ready, details
-) values (
-  'a9350000-0000-0000-0000-000000000002',
-  'a9300000-0000-0000-0000-000000000001',
-  'manager-payroll-machine',
-  '2026-07-16 07:00:00+00', '2026-08-01 07:00:00+00',
-  'snapcase.financial.machine-local.v1', repeat('8', 64),
-  array['a4000000-0000-0000-0000-000000000001'::uuid],
-  'unverified', 'coverage_binding_pending', true,
-  jsonb_build_object('mappingExceptionCount', 0, 'cashIntegrityIncompleteCount', 0)
+  0,
+  'a genuine zero-payment projection has no fact-derived reporting-machine ids'
 );
 
 select ok(
@@ -2324,11 +2317,6 @@ begin
 end;
 $$;
 
-update private.snapcase_completed_import_windows
-set payment_observed_count = 1,
-    payment_expected_total = 1
-where id = 'a9340000-0000-0000-0000-000000000002';
-
 insert into private.snapcase_sales_observations (
   id, provider_account_id, resource, source_key, source_key_version,
   source_machine_id, source_status, source_tender_code, source_tender_label,
@@ -2347,11 +2335,24 @@ insert into private.snapcase_sales_observations (
   'a9310000-0000-0000-0000-000000000001'
 );
 
-update private.snapcase_financial_window_revisions
-set card_observation_count = 1,
-    nayax_card_fact_count = 0,
-    financial_ready = true
-where id = 'a9350000-0000-0000-0000-000000000002';
+-- The direct fixture insert above invalidates overlapping completion exactly as
+-- production does. Recreate the trusted finalizer output for this focused
+-- mixed-tender payroll check; the preceding test covers the real zero finalizer.
+insert into private.snapcase_completed_import_windows (
+  id, provider_account_id, source_machine_id,
+  requested_start, requested_end, requested_timezone,
+  local_start_date, local_end_date_exclusive,
+  payment_observed_count, payment_expected_total,
+  import_revision_digest, completed_ingest_batch_id
+) values (
+  'a9340000-0000-0000-0000-000000000002',
+  'a9300000-0000-0000-0000-000000000001',
+  'manager-payroll-machine',
+  '2026-07-16 07:00:00+00', '2026-08-01 07:00:00+00',
+  'America/Los_Angeles', '2026-07-16', '2026-08-01',
+  1, 1, repeat('6', 64),
+  'a9310000-0000-0000-0000-000000000001'
+);
 
 update public.compensation_rules
 set commission_basis_points = 0
@@ -2391,12 +2392,19 @@ update private.snapcase_completed_import_windows
 set payment_observed_count = 0,
     payment_expected_total = 0
 where id = 'a9340000-0000-0000-0000-000000000002';
-update private.snapcase_financial_window_revisions
-set card_observation_count = 0
-where id = 'a9350000-0000-0000-0000-000000000002';
 
 delete from private.snapcase_sales_observations
 where id = 'a9360000-0000-0000-0000-000000000001';
+
+select set_config('request.jwt.claim.role', 'service_role', true);
+do $$
+begin
+  perform public.service_finalize_snapcase_import_run(
+    'manager-payroll-coverage', repeat('b', 64)
+  );
+end;
+$$;
+select set_config('request.jwt.claim.role', '', true);
 
 delete from public.machine_sales_facts
 where id = 'a9100000-0000-0000-0000-000000000099';

@@ -67,13 +67,6 @@ as $$
         and completed.source_machine_id = mapping.source_machine_id
         and completed.local_start_date <= required.assigned_date
         and completed.local_end_date_exclusive > required.assigned_date
-      join private.snapcase_financial_window_revisions projection
-        on projection.provider_account_id = completed.provider_account_id
-        and projection.source_machine_id = completed.source_machine_id
-        and projection.requested_start = completed.requested_start
-        and projection.requested_end = completed.requested_end
-        and projection.financial_ready
-        and required.machine_id = any(projection.reporting_machine_ids)
       where mapping.reporting_machine_id = required.machine_id
         and mapping.effective_start_date <= required.assigned_date
         and coalesce(mapping.effective_end_date, 'infinity'::date)
@@ -95,7 +88,7 @@ grant execute on function private.operator_incomplete_snapcase_sales_machines(uu
   to service_role;
 
 comment on function private.operator_incomplete_snapcase_sales_machines(uuid, uuid, date, date) is
-  'Lists finished-period SnapCase machines with positive-commission assignment dates not covered by completed payment imports whose mapped cash projection succeeded. Completed zero-payment windows count as coverage.';
+  'Lists finished-period SnapCase machines with positive-commission assignment dates not covered by finalized payment imports. The private finalizer records completion only after mapped cash projection succeeds; completed zero-payment windows count as coverage.';
 
 create function private.operator_snapcase_zero_import_covers_commission_days(
   p_account_id uuid,
@@ -155,13 +148,6 @@ as $$
           and completed.local_start_date <= required.assigned_date
           and completed.local_end_date_exclusive > required.assigned_date
           and completed.payment_observed_count = 0
-        join private.snapcase_financial_window_revisions projection
-          on projection.provider_account_id = completed.provider_account_id
-          and projection.source_machine_id = completed.source_machine_id
-          and projection.requested_start = completed.requested_start
-          and projection.requested_end = completed.requested_end
-          and projection.financial_ready
-          and p_machine_id = any(projection.reporting_machine_ids)
         where mapping.reporting_machine_id = p_machine_id
           and mapping.effective_start_date <= required.assigned_date
           and coalesce(mapping.effective_end_date, 'infinity'::date)
@@ -215,13 +201,6 @@ as $$
     and completed.source_machine_id = mapping.source_machine_id
     and completed.local_start_date <= assigned_day.value::date
     and completed.local_end_date_exclusive > assigned_day.value::date
-  join private.snapcase_financial_window_revisions projection
-    on projection.provider_account_id = completed.provider_account_id
-    and projection.source_machine_id = completed.source_machine_id
-    and projection.requested_start = completed.requested_start
-    and projection.requested_end = completed.requested_end
-    and projection.financial_ready
-    and machine.id = any(projection.reporting_machine_ids)
   join private.snapcase_sales_observations card_observation
     on card_observation.provider_account_id = completed.provider_account_id
     and card_observation.source_machine_id = completed.source_machine_id
@@ -240,7 +219,6 @@ as $$
     and machine.machine_type = 'snapcase'
     and p_period_end < (pg_catalog.statement_timestamp()
       at time zone 'America/Los_Angeles')::date
-    and projection.card_observation_count > 0
     and not exists (
       select 1
       from public.machine_sales_facts nayax_fact
