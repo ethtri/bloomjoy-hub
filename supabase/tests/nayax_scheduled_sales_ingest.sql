@@ -181,8 +181,8 @@ select is(
     from public.nayax_scheduled_sales_ingestions
     where file_digest = repeat('d', 64)
   ),
-  1,
-  'Sunze-backed sales are skipped to prevent double-counting'
+  0,
+  'Sunze-backed card sales are staged for an explicit source boundary'
 );
 
 select is(
@@ -191,8 +191,19 @@ select is(
     from public.machine_sales_facts
     where source = 'nayax_scheduled_report'
   ),
-  1::bigint,
-  'The overlap did not create a second fact'
+  2::bigint,
+  'The overlap fact is retained for a reversible authority transition'
+);
+
+select is(
+  (
+    select net_sales_cents
+    from public.machine_sales_facts
+    where source = 'nayax_scheduled_report'
+      and reporting_machine_id = 'e2300000-0000-4000-8000-000000000002'
+  ),
+  0,
+  'A staged overlap fact contributes no revenue before its boundary'
 );
 
 select set_config('request.jwt.claim.role', 'authenticated', true);
