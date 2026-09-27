@@ -244,7 +244,8 @@
     "20260927020000_sunze_nayax_card_authority.sql",
     "20260927050000_sunze_nayax_card_authority_mapping_default.sql",
     "20260927143809_refund_exhausted_completion_recovery.sql",
-    "20260927150900_refund_empty_question_research_projection.sql"
+    "20260927150900_refund_empty_question_research_projection.sql",
+    "20260927172346_refund_no_question_health_truth.sql"
   ],
   "migrationFilesSha256": "fc1dd3c1e87f40b98a4f2b24d554132a0f41b6360204c98bce98148733d6e480",
   "migrationVersionSetSha256": "5faf7c82e0f1c0b6d340f2541005877f730fecfd3a401957c7fd674c6ac3a50c",
