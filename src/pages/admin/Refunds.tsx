@@ -2240,6 +2240,13 @@ const primaryActionConfig = (
   }
 
   if (refundCase.paymentMethod === 'card') {
+    if (nextWork?.blocker?.code === 'wallet_identifier_unverified') {
+      return {
+        label: 'Purchase research pending',
+        helper: 'Bloomjoy is checking the wallet charge and provider identifier before a Manager decision. No transaction selection or refund is due.',
+        disabled: true,
+      };
+    }
     const selectedCandidate = activeNayaxCandidate(refundCase, editor, candidates);
     if (editor.clearNayaxMatch) {
       return {

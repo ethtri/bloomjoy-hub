@@ -1707,6 +1707,25 @@ const runNayaxLookupStatusMatrixChecks = async ({
               'nayax-card-refund', 'refund-case-admin-update', 'refund-case-message-send',
             ].includes(name))
         );
+        recorder.assert(
+          'Unmatched wallet detail names internal research instead of asking for a transaction selection',
+          (await page.getByText('Purchase research pending', { exact: true }).count()) >= 1 &&
+            (await page.getByText(/Bloomjoy is checking the wallet charge and provider identifier before a Manager decision/i).count()) >= 1 &&
+            (await page.getByText('Choose a transaction', { exact: true }).count()) === 0 &&
+            (await page.getByText(/save the correct transaction/i).count()) === 0
+        );
+        await page.getByRole('textbox', { name: 'Search refund cases' }).fill('RF-UAT-PENDING');
+        await page.getByTestId('refund-case-queue-item')
+          .filter({ hasText: 'RF-UAT-PENDING', hasNotText: 'RF-UAT-PENDING-ALT' })
+          .getByText('Current view: Purchase research pending', { exact: true })
+          .waitFor({ state: 'visible', timeout: 10000 });
+        recorder.assert(
+          'Unmatched wallet search result names internal research',
+          await page.getByTestId('refund-case-queue-item')
+            .filter({ hasText: 'RF-UAT-PENDING', hasNotText: 'RF-UAT-PENDING-ALT' })
+            .getByText('Current view: Purchase research pending', { exact: true })
+            .isVisible()
+        );
         await closeRefundPortalContext(context);
         continue;
       }
