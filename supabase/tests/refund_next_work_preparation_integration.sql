@@ -87,20 +87,20 @@ select is(public.refund_manager_preparation_snapshot(
 set local role service_role;
 select is(public.refund_lifecycle_contract(
   'd8660000-0000-4000-8000-000000000001'
-)->'nextWork'->>'actionCode', 'send_cash_refund_and_confirm',
-  'service projection exposes the one final cash action after unavailable research');
+)->'nextWork'->>'actionCode', 'research_purchase',
+  'unavailable cash coverage remains Agent research without a purchase recommendation');
 select is(public.refund_lifecycle_contract(
   'd8660000-0000-4000-8000-000000000002'
-)->'nextWork'->>'actionCode', 'send_cash_refund_and_confirm',
-  'service projection does not require a matched sale after completed no-sale research');
+)->'nextWork'->>'actionCode', 'research_purchase',
+  'completed no-sale research cannot become unapproved payout work');
 reset role;
 set local role authenticated;
 select set_config('request.jwt.claims',
   '{"sub":"d8610000-0000-4000-8000-000000000001","role":"authenticated"}', true);
 select is(public.get_refund_lifecycle_for_manager(
   'd8660000-0000-4000-8000-000000000002'
-)->'nextWork'->>'actionCode', 'send_cash_refund_and_confirm',
-  'the currently mapped Manager sees the same prepared final action');
+)->'nextWork'->>'actionCode', 'research_purchase',
+  'the Manager projection preserves Agent research without a clear sale');
 reset role;
 select set_config('request.jwt.claims', '{}', true);
 
@@ -138,8 +138,8 @@ select is((public.service_prepare_due_refund_cash_cases(10)->>'evaluated')::inte
 set local role service_role;
 select is(public.refund_lifecycle_contract(
   'd8660000-0000-4000-8000-000000000002'
-)->'nextWork'->>'actionCode', 'send_cash_refund_and_confirm',
-  'completed current-source research restores the final Manager action');
+)->'nextWork'->>'actionCode', 'research_purchase',
+  'current no-sale research does not authorize a payout');
 reset role;
 
 create temporary table refund_prior_preparation on commit drop as
@@ -168,8 +168,8 @@ select ok((select proof_row.proof ->> 'proofId' is distinct from prior.proof_id
 set local role service_role;
 select is(public.refund_lifecycle_contract(
   'd8660000-0000-4000-8000-000000000002'
-)->'nextWork'->>'actionCode', 'send_cash_refund_and_confirm',
-  'the corrected amount remains actionable only after immediate fresh research');
+)->'nextWork'->>'actionCode', 'research_purchase',
+  'fresh unmatched research after an amount correction remains Agent work');
 reset role;
 
 -- Destination edits are versioned facts but do not trigger the immediate
@@ -194,8 +194,8 @@ select is((public.service_prepare_due_refund_cash_cases(10)->>'evaluated')::inte
 set local role service_role;
 select is(public.refund_lifecycle_contract(
   'd8660000-0000-4000-8000-000000000002'
-)->'nextWork'->>'actionCode', 'send_cash_refund_and_confirm',
-  'the current corrected proof restores the same single decision path');
+)->'nextWork'->>'actionCode', 'research_purchase',
+  'current unmatched proof cannot create a Manager payout task');
 reset role;
 
 update public.refund_cases set decision = 'approved', status = 'cash_zelle_pending'
