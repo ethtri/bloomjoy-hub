@@ -2379,7 +2379,7 @@ function MachineDialog({
   const [refundIntakeEnabled, setRefundIntakeEnabled] = useState(false);
   const [refundPublicDisplayLabel, setRefundPublicDisplayLabel] = useState('');
   const [nayaxMachineId, setNayaxMachineId] = useState('');
-  const [nayaxAccountKey, setNayaxAccountKey] = useState('TGPACI_USA_DB');
+  const [nayaxAccountKey, setNayaxAccountKey] = useState('');
   const [isSavingRefundReadiness, setIsSavingRefundReadiness] = useState(false);
   const [refundReadinessSaveState, setRefundReadinessSaveState] = useState<'idle' | 'saved' | 'error'>('idle');
   const [isActivatingCardRefunds, setIsActivatingCardRefunds] = useState(false);
@@ -2447,7 +2447,7 @@ function MachineDialog({
   const buildRefundReadinessDraft = (): RefundReadinessDraft | null => {
     const displayLabel = refundPublicDisplayLabel.trim();
     const normalizedNayaxMachineId = nayaxMachineId.trim();
-    const normalizedNayaxAccountKey = nayaxAccountKey.trim() || 'TGPACI_USA_DB';
+    const normalizedNayaxAccountKey = nayaxAccountKey.trim();
 
     if (displayLabel.length > 120) {
       toast.error('Refund display label must be 120 characters or fewer.');
@@ -2469,6 +2469,11 @@ function MachineDialog({
       return null;
     }
 
+    if (normalizedNayaxMachineId && !normalizedNayaxAccountKey) {
+      toast.error('Add the exact Nayax account key for this machine.');
+      return null;
+    }
+
     return {
       displayLabel,
       normalizedNayaxMachineId,
@@ -2478,13 +2483,14 @@ function MachineDialog({
 
   const savedRefundPublicDisplayLabel = refundManagerSetup?.refundPublicDisplayLabel ?? '';
   const savedNayaxMachineId = refundManagerSetup?.nayaxMachineId ?? '';
-  const savedNayaxAccountKey = refundManagerSetup?.nayaxAccountKey ?? 'TGPACI_USA_DB';
+  const savedNayaxAccountKey =
+    refundManagerSetup?.nayaxAccountKey ?? (savedNayaxMachineId ? 'TGPACI_USA_DB' : '');
   const refundReadinessHasChanges = Boolean(form.machineId) && (
     refundIntakeEnabled !== (refundManagerSetup?.refundIntakeEnabled ?? false) ||
     refundPublicDisplayLabel.trim() !== savedRefundPublicDisplayLabel ||
     nayaxMachineId.trim() !== savedNayaxMachineId ||
-    (nayaxMachineId.trim() ? nayaxAccountKey.trim() || 'TGPACI_USA_DB' : '') !==
-      (savedNayaxMachineId ? savedNayaxAccountKey || 'TGPACI_USA_DB' : '')
+    (nayaxMachineId.trim() ? nayaxAccountKey.trim() : '') !==
+      (savedNayaxMachineId ? savedNayaxAccountKey : '')
   );
 
   const persistRefundReadinessDraft = async (draft: RefundReadinessDraft) => {
@@ -2569,7 +2575,10 @@ function MachineDialog({
     setRefundIntakeEnabled(refundManagerSetup?.refundIntakeEnabled ?? false);
     setRefundPublicDisplayLabel(refundManagerSetup?.refundPublicDisplayLabel ?? '');
     setNayaxMachineId(refundManagerSetup?.nayaxMachineId ?? '');
-    setNayaxAccountKey(refundManagerSetup?.nayaxAccountKey ?? 'TGPACI_USA_DB');
+    setNayaxAccountKey(
+      refundManagerSetup?.nayaxAccountKey ??
+        (refundManagerSetup?.nayaxMachineId ? 'TGPACI_USA_DB' : '')
+    );
     setRefundReadinessSaveState('idle');
   }, [
     form.machineId,
@@ -2899,7 +2908,10 @@ function MachineDialog({
     setRefundIntakeEnabled(refundManagerSetup?.refundIntakeEnabled ?? false);
     setRefundPublicDisplayLabel(refundManagerSetup?.refundPublicDisplayLabel ?? '');
     setNayaxMachineId(refundManagerSetup?.nayaxMachineId ?? '');
-    setNayaxAccountKey(refundManagerSetup?.nayaxAccountKey ?? 'TGPACI_USA_DB');
+    setNayaxAccountKey(
+      refundManagerSetup?.nayaxAccountKey ??
+        (refundManagerSetup?.nayaxMachineId ? 'TGPACI_USA_DB' : '')
+    );
     setRefundReadinessSaveState('idle');
   }, [refundManagerSetup]);
 
@@ -3255,8 +3267,8 @@ function MachineDialog({
               </div>
               <div className="sm:col-span-2">
                 <Label htmlFor="page-nayax-account">Nayax account key</Label>
-                <Input id="page-nayax-account" value={nayaxAccountKey} onChange={(event) => setNayaxAccountKey(event.target.value)} placeholder="Account used for transaction lookup" />
-                <p className="mt-1 text-xs text-muted-foreground">Internal provider routing detail. Confirm it against the reviewed Nayax mapping.</p>
+                <Input id="page-nayax-account" value={nayaxAccountKey} onChange={(event) => setNayaxAccountKey(event.target.value)} placeholder="Exact account from the reviewed Nayax mapping" />
+                <p className="mt-1 text-xs text-muted-foreground">Required with a machine ID. Use the provider account that actually contains this machine.</p>
               </div>
               <div className="flex items-start justify-between gap-4 rounded-md border border-border px-4 py-3 sm:col-span-2">
                 <div><Label htmlFor="page-refund-intake">Transaction matching</Label><p className="mt-1 text-xs text-muted-foreground">Allow managers to match requests to Nayax transactions.</p></div>
@@ -3786,11 +3798,11 @@ function MachineDialog({
                     id="nayax-account-key"
                     value={nayaxAccountKey}
                     onChange={(event) => setNayaxAccountKey(event.target.value)}
-                    placeholder="TGPACI_USA_DB"
+                    placeholder="Exact provider account key"
                     disabled={isSavingMachineChanges || !nayaxMachineId.trim()}
                   />
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Defaults to the Bloomjoy USA account key.
+                    Required with a machine ID. Use the provider account that actually contains this machine.
                   </p>
                 </div>
               </div>

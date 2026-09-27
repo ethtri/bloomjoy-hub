@@ -959,9 +959,21 @@ const run = async () => {
       await machineDialog.getByText('Setup needed', { exact: true }).first().isVisible()
         && await machineDialog.getByText('Customer requests', { exact: true }).isVisible()
     );
+    recorder.assert(
+      'An unmapped machine does not assume a Nayax provider account',
+      await page.locator('#page-nayax-account').inputValue() === ''
+    );
     await machineDialog.getByLabel('Transaction matching').click();
     await page.fill('#page-refund-label', 'Mall Atrium Cotton Candy');
     await page.fill('#page-nayax-id', 'NAYAX-UAT-001');
+    await machineDialog.getByRole('button', { name: 'Save refund setup' }).click();
+    await page.getByText('Add the exact Nayax account key for this machine.').waitFor({ timeout: 10000 });
+    recorder.assert(
+      'A new Nayax ID cannot silently inherit another provider account',
+      state.nayaxPayload === null && state.refundIntakePayload === null,
+      JSON.stringify({ nayaxPayload: state.nayaxPayload, refundIntakePayload: state.refundIntakePayload })
+    );
+    await page.fill('#page-nayax-account', 'TGPACI_USA_DB');
     recorder.assert(
       'Refund setup has one explicit section save action',
       (await machineDialog.getByRole('button', { name: 'Save refund setup' }).count()) === 1
