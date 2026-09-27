@@ -1449,6 +1449,35 @@ export const createOrdinarySuccessChecks = ({
 
 
   const runManualExternalCashWorkflowChecks = async ({ browser, appUrl, artifactDir, recorder }) => {
+    const combinedContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    await installMockSupabaseRoutes(combinedContext, {
+      refundOverview: () => {
+        const overview = buildManagerReadyRefundOverview();
+        const cashOverview = buildCashRefundVariantsOverview();
+        overview.machines.push(...cashOverview.machines);
+        overview.managerAssignments.push(...cashOverview.managerAssignments);
+        overview.cases.push(cashOverview.cases.find((refundCase) =>
+          refundCase.publicReference === 'RF-UAT-CASH-LEGACY-PENDING'));
+        return overview;
+      },
+    });
+    const combinedPage = await combinedContext.newPage();
+    await signInRefundUser(combinedPage, appUrl, '/refunds', undefined, true);
+    await combinedPage.getByRole('button', { name: /^Decisions & cash 2$/ })
+      .waitFor({ timeout: 10000 });
+    await waitForQueueCount(combinedPage, 2);
+    recorder.assert(
+      'Card decision and approved unpaid cash are together in Decisions & cash on mobile',
+      await queueCase(combinedPage, 'RF-UAT-CARD').isVisible() &&
+        await queueCase(combinedPage, 'RF-UAT-CASH-LEGACY-PENDING').isVisible() &&
+        (await queueCase(combinedPage, 'RF-UAT-CASH-MISSING-AMOUNT').count()) === 0 &&
+        (await combinedPage.getByTestId('refund-case-next-work')
+          .filter({ visible: true }).count()) === 2 &&
+        !(await combinedPage.evaluate(() =>
+          document.documentElement.scrollWidth > document.documentElement.clientWidth))
+    );
+    await closeRefundPortalContext(combinedContext);
+
     const variantsContext = await browser.newContext({
       viewport: { width: 1440, height: 1000 },
     });
@@ -1456,7 +1485,22 @@ export const createOrdinarySuccessChecks = ({
       refundOverview: buildCashRefundVariantsOverview,
     });
     const variantsPage = await variantsContext.newPage();
-    await signInRefundUser(variantsPage, appUrl);
+    await signInRefundUser(variantsPage, appUrl, '/refunds', undefined, true);
+    const decisionsTab = variantsPage.getByRole('button', { name: /^Decisions & cash [1-9]/ });
+    await decisionsTab.waitFor({ timeout: 10000 });
+    recorder.assert('Approved cash payment joins the prepared cash decisions',
+      (await decisionsTab.innerText()).includes('3'),
+      await decisionsTab.innerText());
+    await waitForQueueCount(variantsPage, 3);
+    const approvedCashQueue = queueCase(variantsPage, 'RF-UAT-CASH-LEGACY-PENDING');
+    recorder.assert(
+      'Approved unpaid cash is in Decisions & cash, while customer and System work are not',
+      await approvedCashQueue.isVisible() &&
+        (await approvedCashQueue.innerText()).includes('Send the cash refund through Zelle and confirm it was sent.') &&
+        (await queueCase(variantsPage, 'RF-UAT-CASH-MISSING-AMOUNT').count()) === 0 &&
+        (await queueCase(variantsPage, 'RF-UAT-CASH-ACTIVE-AMOUNT-CORRECTION').count()) === 0
+    );
+    await variantsPage.locator('summary').filter({ hasText: 'More views' }).click();
     await variantsPage.getByRole('button', { name: /Ready to approve/ }).click();
     await waitForQueueCount(variantsPage, 3);
 
@@ -1498,8 +1542,7 @@ export const createOrdinarySuccessChecks = ({
         (await variantsPage.getByTestId('refund-run-nayax-refund').count()) === 0
     );
 
-    await variantsPage.locator('[aria-label="Refund case views"]')
-      .getByRole('button', { name: /^Action needed \d+$/ }).click();
+    await variantsPage.getByRole('button', { name: /^Action needed \d+$/ }).click();
     await waitForQueueCount(variantsPage, 1);
     await queueCase(variantsPage, 'RF-UAT-CASH-MISSING-AMOUNT').click();
     await variantsPage.getByTestId('refund-cash-evidence-state').getByText('No sale found').waitFor({ timeout: 10000 });

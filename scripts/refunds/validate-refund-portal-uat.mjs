@@ -1579,6 +1579,16 @@ const buildCashRefundVariantsOverview = () => {
       customerEmail: 'cash-legacy-pending@example.test',
       zellePaymentContact: 'legacy-contact@example.test',
       manualRefundReference: 'Legacy historical reference',
+      canPerformOfficialAction: true,
+      officialActionVersion: 2,
+      lifecycle: {
+        ...buildCashRefundLifecycleFixture(),
+        nextWork: {
+          ...preparedManagerNextWork('cash'),
+          actionCode: 'send_cash_refund_and_confirm',
+          actionLabel: 'Send the cash refund through Zelle and confirm it was sent.',
+        },
+      },
     },
     {
       ...matchedCase,
@@ -4447,6 +4457,7 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
         !reviewedFunctionCalls.includes('refund-case-admin-update') &&
         !reviewedFunctionCalls.includes('refund-case-message-send'));
     await reloadRefundPortalPage(reviewedPage);
+    await reviewedPage.locator('summary').filter({ hasText: 'More views' }).click();
     await reviewedPage.getByRole('button', { name: /Bloomjoy follow-up 1/i }).click();
     await queueCase(reviewedPage, reviewedSeed.publicReference).click();
     recorder.assert('Reload keeps the approved reviewed purchase in System continuation, without reapproval',
