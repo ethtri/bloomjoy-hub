@@ -654,6 +654,7 @@ serve(async (req) => {
             p_executor_assertion: nayaxExecutorAssertion,
             p_refund_case_message_id: completionMessageId,
             p_original_thread_history_id: originalThreadHistoryId,
+            p_actor_user_id: user.id,
           }
           : {
             p_executor_assertion: nayaxExecutorAssertion,

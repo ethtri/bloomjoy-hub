@@ -4,7 +4,8 @@
 create function public.service_prepare_exhausted_nayax_completion_recovery(
   p_executor_assertion text,
   p_refund_case_message_id uuid,
-  p_original_thread_history_id text
+  p_original_thread_history_id text,
+  p_actor_user_id uuid
 )
 returns jsonb
 language plpgsql
@@ -55,6 +56,7 @@ begin
     or attempt_row.case_finalization_committed_at is null
     or case_row.status is distinct from 'completed'
     or case_row.reporting_adjustment_id is distinct from attempt_row.reporting_adjustment_id
+    or not public.can_manage_refund_case(p_actor_user_id, case_row.id)
     or lower(btrim(message_row.recipient_email)) is distinct from
       lower(btrim(case_row.customer_email))
     or thread_row.id is null
@@ -92,7 +94,7 @@ begin
   insert into public.refund_case_events (
     refund_case_id, actor_user_id, event_type, message, metadata
   ) values (
-    case_row.id, attempt_row.actor_user_id,
+    case_row.id, p_actor_user_id,
     'nayax_customer_completion_exhausted_recovery_prepared',
     'The original completion message was prepared once after exact unsent evidence and original-thread review. No refund or email was sent by preparation.',
     jsonb_build_object(
@@ -123,7 +125,7 @@ begin
 end;
 $$;
 
-revoke all on function public.service_prepare_exhausted_nayax_completion_recovery(text,uuid,text)
+revoke all on function public.service_prepare_exhausted_nayax_completion_recovery(text,uuid,text,uuid)
   from public, anon, authenticated;
-grant execute on function public.service_prepare_exhausted_nayax_completion_recovery(text,uuid,text)
+grant execute on function public.service_prepare_exhausted_nayax_completion_recovery(text,uuid,text,uuid)
   to service_role;

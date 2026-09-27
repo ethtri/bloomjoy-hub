@@ -7,6 +7,13 @@ insert into public.refund_nayax_provider_callers(caller_id,assertion_digest,stat
 values('nayax-card-refund',encode(extensions.digest(convert_to(
   'synthetic-exhausted-recovery-executor','UTF8'),'sha256'),'hex'),'active')
 on conflict(caller_id) do update set assertion_digest=excluded.assertion_digest,status='active';
+insert into auth.users(instance_id,id,aud,role,email,encrypted_password,
+  email_confirmed_at,raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
+values('00000000-0000-0000-0000-000000000000',
+  'e5290000-0000-4000-8000-000000000001','authenticated','authenticated',
+  'recovery-operator@example.invalid','',now(),'{}','{}',now(),now());
+insert into public.admin_roles(user_id,role,active)
+values('e5290000-0000-4000-8000-000000000001','super_admin',true);
 
 insert into public.customer_accounts(id,name,account_type)
 values('e5240000-0000-4000-8000-000000000001','Exhausted completion recovery','internal');
@@ -16,6 +23,11 @@ values('e5240000-0000-4000-8000-000000000002','e5240000-0000-4000-8000-000000000
 insert into public.reporting_machines(id,account_id,location_id,machine_label,status)
 values('e5240000-0000-4000-8000-000000000003','e5240000-0000-4000-8000-000000000001',
   'e5240000-0000-4000-8000-000000000002','Recovery fixture','active');
+insert into public.reporting_machine_refund_managers(reporting_machine_id,
+  manager_user_id,manager_email,grant_reason)
+values('e5240000-0000-4000-8000-000000000003',
+  'e5290000-0000-4000-8000-000000000001',
+  'recovery-operator@example.invalid','Synthetic recovery operator');
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
   customer_email,issue_summary,incident_at,payment_method,payment_amount_cents,
   refund_amount_cents,status,decision,refund_completed_at,correlation_status,
@@ -107,14 +119,20 @@ create function pg_temp.capture_error(statement text) returns text
 language plpgsql as $$ begin execute statement; return null;
 exception when others then return sqlstate; end $$;
 select ok(has_function_privilege('service_role',
-  'public.service_prepare_exhausted_nayax_completion_recovery(text,uuid,text)',
+  'public.service_prepare_exhausted_nayax_completion_recovery(text,uuid,text,uuid)',
   'execute') and not has_function_privilege('authenticated',
-  'public.service_prepare_exhausted_nayax_completion_recovery(text,uuid,text)',
+  'public.service_prepare_exhausted_nayax_completion_recovery(text,uuid,text,uuid)',
   'execute'),'Only the service executor can prepare an exhausted recovery');
 select is(public.service_prepare_exhausted_nayax_completion_recovery(
   'synthetic-exhausted-recovery-executor',
-  'e5280000-0000-4000-8000-000000000001','673955')->>'prepared','true',
+  'e5280000-0000-4000-8000-000000000001','673955',
+  'e5290000-0000-4000-8000-000000000001')->>'prepared','true',
   'Exact unsent completion prepares once');
+select is((select actor_user_id from public.refund_case_events where
+  event_type='nayax_customer_completion_exhausted_recovery_prepared'
+  and refund_case_id='e5240000-0000-4000-8000-000000000001'),
+  'e5290000-0000-4000-8000-000000000001'::uuid,
+  'Recovery event names the current operator, not the original approver');
 select is((select status from public.refund_case_messages where id=
   'e5280000-0000-4000-8000-000000000001'),'pending',
   'Original saved message is the only message prepared');
@@ -123,18 +141,26 @@ select is((select completion_delivery_retry_count from public.refund_case_nayax_
   'Recovery does not reset the bounded retry count');
 select is(pg_temp.capture_error($$select public.service_prepare_exhausted_nayax_completion_recovery(
   'synthetic-exhausted-recovery-executor',
-  'e5280000-0000-4000-8000-000000000001','673955')$$),'P0001',
+  'e5280000-0000-4000-8000-000000000001','673955',
+  'e5290000-0000-4000-8000-000000000001')$$),'P0001',
   'A second preparation fails closed');
 update public.refund_case_messages set provider_message_id='possible-provider-effect'
 where id='e5280000-0000-4000-8000-000000000002';
 select is(pg_temp.capture_error($$select public.service_prepare_exhausted_nayax_completion_recovery(
   'synthetic-exhausted-recovery-executor',
-  'e5280000-0000-4000-8000-000000000002','673955')$$),'P0001',
+  'e5280000-0000-4000-8000-000000000002','673955',
+  'e5290000-0000-4000-8000-000000000001')$$),'P0001',
   'Possible provider effect cannot be retried');
 select is(pg_temp.capture_error($$select public.service_prepare_exhausted_nayax_completion_recovery(
   'synthetic-exhausted-recovery-executor',
-  'e5280000-0000-4000-8000-000000000003','wrong-history')$$),'P0001',
+  'e5280000-0000-4000-8000-000000000003','wrong-history',
+  'e5290000-0000-4000-8000-000000000001')$$),'P0001',
   'Unreviewed history shape is rejected');
+select is(pg_temp.capture_error($$select public.service_prepare_exhausted_nayax_completion_recovery(
+  'synthetic-exhausted-recovery-executor',
+  'e5280000-0000-4000-8000-000000000003','673955',
+  'e5290000-0000-4000-8000-000000000002')$$),'P0001',
+  'An unauthorized recovery actor cannot be attributed to the event');
 select is((select count(*)::integer from public.refund_case_nayax_refund_attempts
   where refund_case_id::text like 'e5240000%'),3,
   'Recovery creates no payment attempt');
