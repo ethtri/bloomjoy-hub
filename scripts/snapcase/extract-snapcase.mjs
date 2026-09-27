@@ -100,6 +100,7 @@ export const extractSnapcaseWindow = async ({
   maxPages = 1_000,
   accountWideSales = false,
   nonfinancialTestPaymentSourceKeys = new Set(),
+  usdInterpretationPaymentSourceKeys = new Set(),
 }) => {
   if (!client) throw new Error('client is required');
   const account = String(sourceAccountKey ?? '').trim();
@@ -114,6 +115,7 @@ export const extractSnapcaseWindow = async ({
     keyVersion,
     sourceAccountKey: account,
     nonfinancialTestPaymentSourceKeys,
+    usdInterpretationPaymentSourceKeys,
   };
   const inventory = await client.getAll('/v1/machines', {}, { pageSize, maxPages });
   const machines = normalizeBatch(inventory.rows, normalizeMachine);
@@ -191,6 +193,11 @@ export const extractSnapcaseWindow = async ({
       && row.sourceTenderCode === '17'
       && row.sourceTenderLabel?.trim().toLowerCase() === 'webhook'
       && row.normalizedTender === 'other').length;
+  result.usdInterpretedPaymentCount = result.payments
+    .filter((row) => usdInterpretationPaymentSourceKeys.has(row.sourceKey)
+      && row.normalizedTender === 'cash'
+      && ['AUD', 'A$'].includes(row.sourceCurrency?.toUpperCase())
+      && row.currencyCode === 'USD').length;
   return result;
 };
 

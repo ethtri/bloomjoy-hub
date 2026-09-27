@@ -235,6 +235,10 @@ export const normalizePayment = (record, context) => {
   const sourceTenderLabel = cleanText(record?.paymentInstrument, 160)
     ?? enumLabel(PAYMENT_METHOD_LABELS, record?.paymentMethod);
   const sourceTender = normalizedTender(sourceTenderCode, sourceTenderLabel);
+  const configuredUsdInterpretation = context.usdInterpretationPaymentSourceKeys?.has(identity.sourceKey) === true
+    && sourceTender === 'cash'
+    && ['AUD', 'A$'].includes(currency.source?.toUpperCase());
+  const currencyCode = configuredUsdInterpretation ? 'USD' : currency.code;
   const configuredNonfinancialTest = context.nonfinancialTestPaymentSourceKeys?.has(identity.sourceKey) === true
     && sourceTenderCode === '17'
     && sourceTenderLabel?.trim().toLowerCase() === 'webhook';
@@ -243,7 +247,7 @@ export const normalizePayment = (record, context) => {
   if (!paid.utc) exceptionCodes.push('source_time_semantics_unverified');
   if (!amount.valid || amount.minor === null) exceptionCodes.push('amount_unit_unverified');
   if (!amount.valid) exceptionCodes.push('invalid_amount_text');
-  if (!currency.code) exceptionCodes.push('currency_unverified');
+  if (!currencyCode) exceptionCodes.push('currency_unverified');
   if (rawScalar(record?.status ?? record?.paymentStatus) !== null) {
     exceptionCodes.push('financial_status_semantics_unverified');
   }
@@ -264,7 +268,7 @@ export const normalizePayment = (record, context) => {
     occurredTimeRaw: paid.raw,
     occurredAt: paid.utc,
     sourceCurrency: currency.source,
-    currencyCode: currency.code,
+    currencyCode,
     sourceAmountText: amount.raw,
     amountMinor: amount.minor,
     sourceRefundAmountText: refund.raw,
