@@ -1053,7 +1053,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
       },
       expectedHeading: '1 transaction found',
       expectedStatus: '1 result',
-      expectedAction: "Next: Review Machine transaction once. Select it only if the machine, amount comparison, and available customer and payment evidence identify the same purchase. The refund uses the selected provider transaction's full amount.",
+      expectedAction: "Review Machine transaction once. Select it only if the machine, amount comparison, and available customer and payment evidence identify the same purchase. The refund uses the selected provider transaction's full amount.",
       expectedCandidateCount: 1,
       expectedReviewableMismatch: true,
     },
@@ -1851,6 +1851,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
       if (scenario.expectedReviewableMismatch) {
         const candidateOption = page.getByTestId('nayax-candidate-option').first();
         const requestSummary = page.getByTestId('refund-request-summary');
+        await requestSummary.getByText('Customer purchase details', { exact: true }).click();
         const physicalCardSource = requestSummary.getByText('physical card', { exact: true });
         const mismatchExplanation = candidateOption.getByText(
           /Card ending differs; wallet, contactless, or source differences may explain it/
@@ -1858,7 +1859,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
         await physicalCardSource.waitFor({ state: 'visible' });
         recorder.assert(
           'A close contactless suffix mismatch gives one manager review action without claiming identifier equivalence',
-          await page.getByTestId('nayax-candidate-availability').getByText('1 current transaction result', { exact: true }).isVisible() &&
+          await page.getByTestId('nayax-candidate-availability').getByText('1 available transaction result', { exact: true }).isVisible() &&
             await candidateOption.isVisible() &&
             await candidateOption.getByText('Review this', { exact: true }).isVisible() &&
             await candidateOption.locator('input[type="radio"]').isEnabled() &&
@@ -2179,7 +2180,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
     } else if (scenario.prepareCandidateOnly) {
       recorder.assert(
         'Legacy selection alone does not expose a final money decision after reopen',
-        (await page.getByTestId('refund-primary-action').innerText()).includes('Refund action temporarily unavailable') &&
+        (await page.getByTestId('refund-primary-action').innerText()).includes('Finding the purchase') &&
           (await page.getByRole('button', { name: /^Refund \$10\.90$/i }).count()) === 0 &&
           (await page.getByTestId('refund-approve-selected-purchase').count()) === 0 &&
           (await page.getByTestId('refund-approve-reviewed-purchase').count()) === 0,
@@ -2222,7 +2223,7 @@ const runNayaxLookupStatusMatrixChecks = async ({
             (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0
           : scenario.prepareCandidateOnly
             ? (await page.getByTestId('nayax-candidate-option').count()) === 0 &&
-              (await page.getByTestId('refund-primary-action').innerText()).includes('Refund action temporarily unavailable') &&
+              (await page.getByTestId('refund-primary-action').innerText()).includes('Finding the purchase') &&
               (await page.getByRole('button', { name: /^Refund \$10\.90$/i }).count()) === 0
           : scenario.expectedCandidateCount
             ? (await page.getByTestId('nayax-candidate-option').count()) === scenario.expectedCandidateCount &&
