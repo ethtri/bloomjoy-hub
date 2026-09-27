@@ -2736,7 +2736,7 @@ export default function AdminRefundsPage() {
   const autoLookupAttemptedRef = useRef(new Set<string>());
   const handledCaseQueryRef = useRef<string | null>(null);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<QueueFilter>('needs_action');
+  const [statusFilter, setStatusFilter] = useState<QueueFilter>('decisions');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectionRevision, setSelectionRevision] = useState(0);
   const [isMobileQueueExpanded, setIsMobileQueueExpanded] = useState(true);
@@ -3020,6 +3020,7 @@ export default function AdminRefundsPage() {
         const needsManagerReview = isManagerReviewCase(refundCase);
         const waiting = isWaitingCase(refundCase, refundOperationsAccess);
         const done = isDoneCase(refundCase);
+        if (statusFilter === 'decisions' && !readyToRefund) return false;
         if (statusFilter === 'all_open' && !isRefundCaseOpen(refundCase)) return false;
         if (
           statusFilter !== 'internal_test' &&
@@ -3042,7 +3043,7 @@ export default function AdminRefundsPage() {
         return true;
       },
     }).sort((left, right) => {
-      if (statusFilter === 'all_open') {
+      if (statusFilter === 'all_open' || statusFilter === 'decisions') {
         const decisionDelta = Number(isReadyToPayCase(right)) - Number(isReadyToPayCase(left));
         if (decisionDelta !== 0) return decisionDelta;
       }
@@ -3059,6 +3060,7 @@ export default function AdminRefundsPage() {
   ]);
 
   const primaryQueueCounts = useMemo(() => ({
+    decisions: overview.cases.filter(isReadyToPayCase).length,
     all_open: overview.cases.filter(isRefundCaseOpen).length,
     needs_action: overview.cases.filter(isNeedsActionCase).length,
     ready_to_pay: overview.cases.filter(isReadyToPayCase).length,
@@ -3079,13 +3081,16 @@ export default function AdminRefundsPage() {
   const isSearching = search.trim().length > 0;
   const searchScope = statusFilter === 'internal_test' ? 'the internal/test archive' : 'all your customer case views';
   const emptyQueueTitle = refundQueueTruthUnavailable ? 'Refund case list temporarily unavailable.'
-    : isSearching ? 'No matching cases.' : hasAnyCases ? 'No refund cases match this filter.' : 'No refund cases are assigned here yet.';
+    : isSearching ? 'No matching cases.'
+    : statusFilter === 'decisions' && hasAnyCases ? 'No decisions due right now.'
+    : statusFilter === 'completed' && hasAnyCases ? 'No completed cases yet.'
+    : hasAnyCases ? 'No refund cases in this view.' : 'No refund cases are assigned here yet.';
   const emptyQueueDescription = refundQueueTruthUnavailable
     ? 'The current case list could not be loaded. Refresh to check the latest work before taking action.'
     : isSearching
     ? `No results in ${searchScope}. Check the reference or try a customer, machine, or location.`
     : hasAnyCases
-    ? 'Try another status filter or search term.'
+    ? 'Choose All open to see other unresolved work, or search for a case.'
     : 'New assigned refund requests will appear here.';
 
   useEffect(() => {
@@ -6059,6 +6064,17 @@ export default function AdminRefundsPage() {
         )}
         {(!selectedCase.hasMatchedNayaxTransaction || editor.clearNayaxMatch) &&
           (transactionView.showCandidates || reviewedFinalDecisionReady) && (
+          <details
+            key={`${selectedCase.id}-${walletResearchPending ? 'research' : 'review'}`}
+            data-testid="refund-provider-results-detail"
+            open={!walletResearchPending || undefined}
+            className={walletResearchPending ? 'rounded-lg border border-border bg-muted/20 p-3' : ''}
+          >
+            <summary className={walletResearchPending
+              ? 'flex min-h-11 cursor-pointer items-center text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+              : 'hidden'}>
+              View provider search results ({effectiveCandidates.length})
+            </summary>
           <RefundTransactionCandidateReview
             candidates={effectiveCandidates}
             selectedCandidate={selectedCandidate}
@@ -6093,6 +6109,7 @@ export default function AdminRefundsPage() {
             }
             onSaveForReview={() => void handlePrepareNayaxSelection()}
           />
+          </details>
         )}
 
         {systemSelectedClearMatch && (
@@ -7481,9 +7498,42 @@ export default function AdminRefundsPage() {
 
           <div className="mt-3 border-b border-border pb-3">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <div className="flex min-w-0 flex-nowrap gap-1 overflow-x-auto pb-1" aria-label="Refund case views">
+              <div className="flex min-w-0 flex-col gap-2">
+                <div className="flex min-w-0 flex-wrap gap-2" aria-label="Refund case views">
+                  {([
+                    ['decisions', 'Decisions & cash'],
+                    ['all_open', 'All open'],
+                    ['completed', 'History'],
+                  ] as const).map(([value, label]) => (
+                    <Button
+                      key={value}
+                      type="button"
+                      variant={statusFilter === value ? 'default' : 'outline'}
+                      className="min-h-11"
+                      aria-pressed={statusFilter === value}
+                      onClick={() => setStatusFilter(value)}
+                    >
+                      {label}
+                      <span className={cn(
+                        'ml-2 rounded-full px-2 py-0.5 text-xs tabular-nums',
+                        statusFilter === value ? 'bg-primary-foreground/15 text-primary-foreground' : 'bg-muted text-foreground'
+                      )}>
+                        {refundQueueTruthUnavailable ? '—' : primaryQueueCounts[value]}
+                      </span>
+                    </Button>
+                  ))}
+                </div>
+                <details
+                  key={['decisions', 'all_open', 'completed'].includes(statusFilter) ? 'primary' : 'detailed'}
+                  open={!['decisions', 'all_open', 'completed'].includes(statusFilter) || undefined}
+                  className="group min-w-0 max-w-full text-sm"
+                >
+                  <summary className="flex min-h-11 w-fit cursor-pointer list-none items-center gap-2 rounded-md px-2 text-muted-foreground hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    More views
+                    <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" aria-hidden="true" />
+                  </summary>
+                  <div className="flex min-w-0 flex-wrap gap-1 pt-1" aria-label="Status filters">
             {([
-              ['all_open', 'All open'],
               ['needs_action', 'Action needed'],
               ['ready_to_pay', 'Ready to approve'],
               ['in_progress', 'Refund in progress'],
@@ -7498,7 +7548,7 @@ export default function AdminRefundsPage() {
                 type="button"
                 variant="outline"
                 className={cn(
-                  'min-h-10 shrink-0 border-transparent px-3 shadow-none',
+                  'min-h-10 max-w-full whitespace-normal border-transparent px-2 text-center shadow-none',
                   statusFilter === value
                     ? 'border-border bg-foreground text-background hover:bg-foreground/90 hover:text-background'
                     : 'bg-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground'
@@ -7512,6 +7562,8 @@ export default function AdminRefundsPage() {
                 </span>
               </Button>
             ))}
+                  </div>
+                </details>
               </div>
 
               <div className="w-full xl:max-w-sm xl:shrink-0">
@@ -7540,8 +7592,10 @@ export default function AdminRefundsPage() {
           <div className="mt-4 grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(19rem,22rem)_minmax(0,1fr)]">
             <RefundCaseQueuePanel
               cases={filteredCases}
-              viewTitle={statusFilter === 'all_open' ? 'All open cases' : undefined}
-              showWorkflowSummary={statusFilter === 'all_open' && !isSearching}
+              viewTitle={statusFilter === 'all_open' ? 'All open cases'
+                : statusFilter === 'decisions' ? 'Decisions to make'
+                : statusFilter === 'completed' ? 'History' : undefined}
+              showWorkflowSummary={['all_open', 'decisions'].includes(statusFilter) && !isSearching}
               selectedCaseId={selectedId}
               hasSelectedCase={Boolean(selectedCase)}
               isMobileExpanded={isMobileQueueExpanded}

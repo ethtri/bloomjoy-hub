@@ -745,6 +745,7 @@ export const createOrdinarySuccessChecks = ({
     );
 
     await navigateRefundPortalPage(page, `${appUrl}/refunds`, { waitUntil: 'networkidle' });
+    await page.locator('summary').filter({ hasText: 'More views' }).click();
     await page.getByRole('button', { name: /^Ready to approve \d+$/ }).click();
     await queueCase(page, 'RF-UAT-CARD').click();
     await page.getByTestId('refund-run-nayax-refund').waitFor({ state: 'visible' });
@@ -777,6 +778,7 @@ export const createOrdinarySuccessChecks = ({
 
     await page.setViewportSize({ width: 390, height: 844 });
     await navigateRefundPortalPage(page, `${appUrl}/refunds`, { waitUntil: 'networkidle' });
+    await page.locator('summary').filter({ hasText: 'More views' }).click();
     await page.getByRole('button', { name: /^Ready to approve \d+$/ }).click();
     await page.getByRole('button', { name: /RF-UAT-CARD/ }).click();
     await page.getByRole('heading', { name: 'RF-UAT-CARD' }).waitFor({ timeout: 10000 });
@@ -1740,19 +1742,42 @@ export const createOrdinarySuccessChecks = ({
       viewport: { width: 1440, height: 1000 },
       timezoneId: 'America/Los_Angeles',
     });
-    const openSignedInDemoPage = async (context, rpcCalls, initialPath) => {
+    const openSignedInDemoPage = async (context, rpcCalls, initialPath, preservePrimaryView = false) => {
       await installMockSupabaseRoutes(context, { refundOverview: buildEmptyRefundOverview, rpcCalls });
       const page = await context.newPage();
       trackErrors(page);
       let accessReadBarrier;
       await signInRefundUser(page, appUrl, initialPath, () => {
         accessReadBarrier = waitForRefundPortalDemoAccessReads(page);
-      });
+      }, preservePrimaryView);
       if (!accessReadBarrier) throw new Error('refund_portal_demo_access_read_barrier_missing');
       await accessReadBarrier;
       await waitForRefundPortalRouteCommitted(page);
       return page;
     };
+
+    await withRefundPortalContext(createDemoContext, async (context) => {
+      const page = await openSignedInDemoPage(context, [], '/refunds?demo=on', true);
+      await page.getByRole('button', { name: /^Decisions & cash 1$/ }).waitFor({ timeout: 10000 });
+      const primaryRows = await page.getByTestId('refund-case-queue-item')
+        .filter({ visible: true }).allInnerTexts();
+      recorder.assert(
+        'Manager landing view has only final decisions, All open, and History as primary destinations',
+        primaryRows.length === 1 &&
+          primaryRows.some((row) => row.includes('RF-UAT-CARD')) &&
+          primaryRows.every((row) => !row.includes('RF-UAT-SETUP')) &&
+          await page.getByRole('button', { name: /^All open 3$/ }).isVisible() &&
+          await page.getByRole('button', { name: /^History 1$/ }).isVisible() &&
+          (await page.getByRole('button', { name: /^Action needed 1$/ }).count()) === 0
+      );
+      await page.getByRole('button', { name: /^History 1$/ }).click();
+      await waitForQueueCount(page, 1);
+      recorder.assert(
+        'History keeps the completed refund outside the decision and open views',
+        (await page.getByTestId('refund-case-queue-item').filter({ visible: true }).first().innerText())
+          .includes('RF-UAT-CASH')
+      );
+    });
 
     await withRefundPortalContext(createDemoContext, async (context) => {
       const rpcCalls = [];
@@ -1799,6 +1824,7 @@ export const createOrdinarySuccessChecks = ({
       );
       await page.evaluate(() => { document.documentElement.style.zoom = ''; });
       await page.setViewportSize({ width: 1440, height: 1000 });
+      await page.locator('summary').filter({ hasText: 'More views' }).click();
       await page.getByRole('button', { name: /^Action needed 1$/ }).click();
       await waitForQueueCount(page, 1);
       await page.setViewportSize({ width: 390, height: 844 });
@@ -1946,6 +1972,7 @@ export const createOrdinarySuccessChecks = ({
         { waitUntil: 'domcontentloaded' }
       );
       await waitForRefundPortalRouteCommitted(page);
+      await page.locator('summary').filter({ hasText: 'More views' }).click();
       await page.getByRole('button', { name: /^Ready to approve \d+$/ }).click();
       await waitForQueueCount(page, 1);
       await queueCase(page, 'RF-UAT-CARD').click();

@@ -1688,6 +1688,14 @@ const runNayaxLookupStatusMatrixChecks = async ({
       );
       if (scenario.expectedWalletResearchPaused) {
         const options = page.getByTestId('nayax-candidate-option');
+        const providerResults = page.getByTestId('refund-provider-results-detail');
+        recorder.assert(
+          'Internal purchase research keeps technical provider rows optional by default',
+          await providerResults.locator('summary').isVisible() &&
+            !(await options.first().isVisible()) &&
+            (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0
+        );
+        await providerResults.locator('summary').click();
         recorder.assert(
           'Unmatched wallet candidates are visible but cannot be selected or saved by a Manager',
           (await options.count()) === 2 &&

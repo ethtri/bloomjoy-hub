@@ -3768,7 +3768,7 @@ const installMockSupabaseRoutes = async (
   });
 };
 
-const signInRefundUser = async (page, appUrl, initialPath = '/refunds', beforeSubmit) => {
+const signInRefundUser = async (page, appUrl, initialPath = '/refunds', beforeSubmit, preservePrimaryView = false) => {
   await navigateRefundPortalPage(page, `${appUrl}${initialPath}`, { waitUntil: 'domcontentloaded' });
   await page.waitForURL('**/login', { timeout: 10000 }).catch(() => undefined);
   try {
@@ -3793,6 +3793,18 @@ const signInRefundUser = async (page, appUrl, initialPath = '/refunds', beforeSu
     page.waitForURL('**/refunds*', { timeout: 20000 }),
     page.getByRole('button', { name: /sign in/i }).click(),
   ]);
+  // The older journey fixtures exercise detailed status slices. Keep their
+  // setup explicit while a separate journey verifies the simpler landing view.
+  if (!preservePrimaryView && (initialPath === '/refunds' || initialPath.includes('demo=on'))) {
+    const moreViews = page.locator('summary').filter({ hasText: 'More views' });
+    await moreViews.waitFor({ timeout: 10000 }).catch(() => undefined);
+    if (await moreViews.isVisible().catch(() => false)) {
+      await moreViews.click();
+      const legacyLandingView = page.getByRole('button', { name: /^Action needed \d+$/ });
+      await legacyLandingView.waitFor({ timeout: 10000 }).catch(() => undefined);
+      if (await legacyLandingView.count()) await legacyLandingView.click();
+    }
+  }
 };
 
 const waitForServer = async (appUrl) => {

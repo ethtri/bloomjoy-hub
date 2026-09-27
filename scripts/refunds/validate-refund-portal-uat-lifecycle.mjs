@@ -215,7 +215,11 @@ assert.doesNotMatch(portalSource, /await\s+(?!browser\b)[A-Za-z_$][\w$]*\.close\
 assert.match(demoSource, /const createDemoContext = \(\) => browser\.newContext/);
 assert.equal(
   [...demoSource.matchAll(/await withRefundPortalContext\(createDemoContext/g)].length,
-  2
+  3
+);
+assert.match(
+  demoSource,
+  /openSignedInDemoPage\(context, \[\], '\/refunds\?demo=on', true\)[\s\S]*?Manager landing view has only final decisions, All open, and History/
 );
 assert.match(
   demoSource,

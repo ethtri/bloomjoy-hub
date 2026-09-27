@@ -113,6 +113,12 @@ historical fixtures cannot add product gates that the workflow does not contain.
   owner/action and latest known progress. Waiting customer and Bloomjoy work
   remain visible; completed refunds with only accounting work stay in Done.
   A missing workflow projection says status unavailable instead of disappearing.
+- [ ] `/refunds` opens with Decisions & cash, All open, and History as the
+  three primary destinations. Decisions & cash contains only prepared Manager
+  approval/denial or cash work; status-specific queues are in More views.
+  At 390px and 200% zoom, the navigation remains usable. Internal purchase
+  research hides the provider result list until it is requested, while a
+  prepared final decision keeps its one approval action and no separate Save.
 - [ ] A rough-time wallet request whose completed provider read contains no
   hard-safe exact device suffix or uniquely verified same-machine QR purchase
   remains internal purchase research with a named
