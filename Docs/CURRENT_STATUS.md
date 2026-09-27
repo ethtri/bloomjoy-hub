@@ -85,11 +85,17 @@ orientation snapshot; it is not a backlog or release ledger.
 
 - Bloomjoy Hub remains a Vite, React, TypeScript, Tailwind, shadcn/ui application
   backed by Supabase.
-- Nayax scheduled transaction reports now have a reviewed ingestion path for
-  settled sales on active, published Nayax-only machine mappings. Sunze-backed
-  machines stay excluded from this path to prevent double-counting. Production
-  behavior still requires the matching migration and `refund-gmail-sync`
-  function release plus a verified report replay.
+- Nayax scheduled transaction reports have a reviewed ingestion path for exact
+  settled card sales on active, published mappings. The next authority migration
+  stages those rows for Sunze-backed machines too, while one nullable machine-local
+  date keeps legacy Sunze card revenue in place until actual Nayax replacement
+  history is available. On and after that date, Nayax supplies card money and
+  Sunze supplies cash; one daily card-authority fact combines the Nayax amount
+  with paid Sunze order/item/tax metrics while zero-value operational rows stay
+  separate. Original values remain reversible. Production behavior still requires the migration and
+  `refund-gmail-sync` release plus a verified bounded replay. Current stored Nayax
+  facts do not cover the older Sunze card history, so no overlap-machine cutover
+  has been authorized or performed.
 - Sunze cash-sale evidence now has a private, server-owned timestamp, freshness,
   coverage, and five-state match contract. Timezone-less `Payment time` values
   remain an explicitly unvalidated compatibility assumption and cannot prove a

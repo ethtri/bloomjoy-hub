@@ -1,17 +1,30 @@
 # Decisions
 
-## 2026-09-26 - Nayax scheduled reports feed revenue for Nayax-only machines
+## 2026-09-26 - Nayax is the card-sales authority; machine platforms supply cash
 
-Authenticated Nayax transaction-report emails are an authoritative sales source
-for active, published Nayax machine mappings that do not have a Sunze machine ID.
-Only exact positive rows reported as `Settled` are imported. Each provider
-transaction and each report file is idempotent, location timezones determine the
-reporting date, and stored payloads exclude payment-method identifiers.
+Nayax is the financial source for card sales and card refunds. Sunze and
+Kexiaozhan supply cash sales only. A platform card observation may retain order,
+item, tax, and reconciliation context, but it must not add card revenue a second
+time. Refund adjustments remain canonical once per actual refund.
 
-Machines with a Sunze ID remain on Sunze sales ingestion. Nayax rows for those
-machines are counted as overlap and skipped, so enabling this source cannot count
-the same sale twice. Unmapped and overlap counts remain visible in the import-run
-ledger instead of being presented as zero sales.
+Authenticated Nayax transaction-report emails import exact positive rows reported
+as `Settled` for active, published mappings. Each provider transaction and report
+file is idempotent, and the reporting location timezone determines the local sale
+date. A nullable per-machine local-date boundary supports the transition from
+legacy Sunze card history: Sunze card revenue remains intact before the boundary;
+on and after it, one explicit machine-local daily fact combines Nayax card money
+with the paid Sunze order, item, and imported-tax totals. The provider rows remain
+as zero-contribution provenance. Zero-value Sunze operational rows remain separate
+so they do not acquire fees or item costs from unrelated card revenue. Original
+provider values remain in the fact payload so clearing or moving the boundary
+restores the prior facts.
+
+Do not set a boundary until the machine's working Nayax feed covers that date.
+Missing historical Nayax input remains an explicit backfill gap; it does not
+authorize deleting legacy Sunze revenue. Previously authenticated report files
+whose Sunze overlap was skipped may be downloaded and replayed once through the
+service-owned idempotent receipt path. No transaction-level identity is inferred
+between separate providers.
 
 ## 2026-09-13 - One simple customer-first refund workflow (`#1364`)
 
