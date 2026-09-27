@@ -4519,7 +4519,10 @@ const runMixedVersionWorkflowChecks = async ({ browser, appUrl, recorder, realPr
           (functionName === 'nayax-card-refund' &&
             body?.operation === 'availability' && body?.caseId === realProjectionSeed.caseId &&
             Object.keys(body).sort().join(',') === 'caseId,operation')) &&
-        functionCalls.every((functionName) => functionName === 'refund-case-sunze-correlation'),
+        functionCalls.every((functionName) => [
+          'refund-case-sunze-correlation',
+          'nayax-card-refund',
+        ].includes(functionName)),
       JSON.stringify({
         renderedState,
         renderedSummary,
