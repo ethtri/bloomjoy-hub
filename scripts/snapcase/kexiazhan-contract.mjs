@@ -70,7 +70,7 @@ const decimalAmount = (value) => {
 };
 
 const normalizedCurrency = (recordCurrency, machineCurrency) => {
-  const source = cleanText(recordCurrency ?? machineCurrency, 20);
+  const source = cleanText(recordCurrency, 20) ?? cleanText(machineCurrency, 20);
   return { source, code: source?.toUpperCase() === 'USD' ? 'USD' : null };
 };
 

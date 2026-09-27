@@ -104,17 +104,21 @@ test('proved Kexiaozhan cash normalizes without product or quantity requirements
   assert.deepEqual(payment.exceptionCodes, ['financial_status_semantics_unverified']);
 });
 
-test('machine inventory USD fills an omitted row currency but never overrides a conflict', () => {
+test('machine inventory USD fills an omitted or blank row currency but never overrides a conflict', () => {
   const base = {
     outTradeNo: 'currency-payment', machineId: 'machine-filter-key-901',
     paymentTime: '2026-11-02 10:15:30', paymentMethod: 1,
     paymentInstrument: 'cash', status: 1, paymentAmount: '10.05',
   };
   const inherited = normalizePayment(base, context);
+  const inheritedFromBlank = normalizePayment({ ...base, outTradeNo: 'currency-blank', currency: '  ' }, context);
   const conflicting = normalizePayment({ ...base, outTradeNo: 'currency-conflict', currency: 'EUR' }, context);
   assert.equal(inherited.sourceCurrency, 'USD');
   assert.equal(inherited.currencyCode, 'USD');
   assert.equal(inherited.exceptionCodes.includes('currency_unverified'), false);
+  assert.equal(inheritedFromBlank.sourceCurrency, 'USD');
+  assert.equal(inheritedFromBlank.currencyCode, 'USD');
+  assert.equal(inheritedFromBlank.exceptionCodes.includes('currency_unverified'), false);
   assert.equal(conflicting.sourceCurrency, 'EUR');
   assert.equal(conflicting.currencyCode, null);
   assert.ok(conflicting.exceptionCodes.includes('currency_unverified'));
