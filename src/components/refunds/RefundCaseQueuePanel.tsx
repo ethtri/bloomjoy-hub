@@ -26,17 +26,22 @@ type RefundCaseQueuePanelProps = {
   formatCaseAmount: (cents: number | null) => string;
 };
 
-const refundSearchViewLabel = (refundCase: RefundCaseRecord) => ({
-  needs_action: 'Action needed',
-  ready_to_pay: 'Ready to approve',
-  in_progress: 'Refund in progress',
-  waiting_on_customer: 'Waiting for customer',
-  provider_hold: 'Check Nayax refund status',
-  accounting_review: 'Fix refund accounting',
-  integrity_hold: 'Fix payment record',
-  completed: 'Done',
-  internal_archive: 'Internal/test archive',
-})[getRefundManagerQueueBucket(refundCase)];
+const refundSearchViewLabel = (refundCase: RefundCaseRecord) => {
+  if (refundCase.lifecycle?.nextWork?.blocker?.code === 'wallet_identifier_unverified') {
+    return 'Purchase research pending';
+  }
+  return ({
+    needs_action: 'Action needed',
+    ready_to_pay: 'Ready to approve',
+    in_progress: 'Refund in progress',
+    waiting_on_customer: 'Waiting for customer',
+    provider_hold: 'Check Nayax refund status',
+    accounting_review: 'Fix refund accounting',
+    integrity_hold: 'Fix payment record',
+    completed: 'Done',
+    internal_archive: 'Internal/test archive',
+  })[getRefundManagerQueueBucket(refundCase)];
+};
 
 type RefundCaseQueueItemProps = {
   refundCase: RefundCaseRecord;
