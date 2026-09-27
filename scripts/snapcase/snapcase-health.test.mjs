@@ -72,6 +72,60 @@ test('only a newer full live rerun clears a failed scheduled import', () => {
   }).status, 'failed');
 });
 
+test('a fresh full routine manual import is healthy before the first scheduled run', () => {
+  const recovery = run({
+    id: 43,
+    createdAt: '2026-09-26T17:40:00Z',
+    url: 'https://github.example/actions/runs/43',
+  });
+  assert.deepEqual(evaluateSnapcaseSyncHealth({ run: null, recoveryRun: recovery, now }), {
+    ok: true,
+    status: 'recovered',
+    runId: '43',
+    runUrl: 'https://github.example/actions/runs/43',
+    startedAt: '2026-09-26T17:40:00.000Z',
+  });
+  assert.equal(evaluateSnapcaseSyncHealth({
+    run: null,
+    recoveryRun: { ...recovery, importStepConclusion: 'skipped' },
+    now,
+  }).reason, 'no_scheduled_run');
+});
+
+test('GitHub reader recognizes only a full routine manual import during startup', async () => {
+  const requests = [];
+  const fetchImpl = async (url) => {
+    requests.push(String(url));
+    const body = requests.length === 1
+      ? { workflow_runs: [{
+        id: 101, html_url: 'https://github.example/actions/runs/101',
+        created_at: '2026-09-26T17:50:00Z', status: 'completed', conclusion: 'success',
+        event: 'workflow_dispatch',
+        display_title: 'SnapCase Sync | event=workflow_dispatch | mode=history-backfill | start=2026-09-01 | end=2026-09-26',
+      }, {
+        id: 102, html_url: 'https://github.example/actions/runs/102',
+        created_at: '2026-09-26T17:40:00Z', status: 'completed', conclusion: 'success',
+        event: 'workflow_dispatch',
+        display_title: 'SnapCase Sync | event=workflow_dispatch | mode=live-ingest | start=routine | end=routine',
+      }] }
+      : { jobs: [{ steps: [{ name: 'Run enabled private staging sync', conclusion: 'success' }] }] };
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+  const latest = await readRelevantSyncRuns({
+    repository: 'example/repo', token: 'fixture-token', apiUrl: 'https://api.example', fetchImpl,
+  });
+  const result = evaluateSnapcaseSyncHealth({
+    run: latest.scheduledRun, recoveryRun: latest.recoveryRun, now,
+  });
+  assert.equal(latest.scheduledRun, null);
+  assert.equal(latest.recoveryRun.id, 102);
+  assert.equal(result.status, 'recovered');
+  assert.match(requests[1], /runs\/102\/jobs/);
+});
+
 test('GitHub reader requires the live import step rather than workflow success alone', async () => {
   const requests = [];
   const fetchImpl = async (url) => {
