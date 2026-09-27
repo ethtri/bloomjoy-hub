@@ -107,8 +107,10 @@ historical fixtures cannot add product gates that the workflow does not contain.
 - [ ] A rough-time wallet request whose completed provider read contains no
   hard-safe exact device suffix remains internal purchase research with a named
   identifier blocker, even if many provider rows are individually hard-safe.
-  No reviewed-set approval proof or Manager ready notice is created; a later
-  completed read with a safe exact identifier can prepare the final decision.
+  The displayed candidates explain why selection is paused, with disabled
+  keyboard and screen-reader controls. No reviewed-set approval proof or
+  Manager ready notice is created; a later completed read with a safe exact
+  identifier can prepare the final decision.
 - [ ] A completed, current-version preparation sends at most one immediate
   final-decision notice to each current Machine Manager. Cash copy says to send
   Zelle before confirming it was sent; an unresolved customer question or

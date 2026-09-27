@@ -5889,17 +5889,21 @@ export default function AdminRefundsPage() {
     const candidateSelectionAuthorized = reviewedFinalDecisionReady
       ? selectedCase.canPerformOfficialAction === true
       : (selectedCase.canSelectNayaxCandidate ?? selectedCase.canPerformOfficialAction) === true;
-    const caseAllowsCandidateSelection =
-      (reviewedFinalDecisionReady && candidateSelectionAuthorized &&
-        officialActionVersion > 0 && selectedCase.decision == null) ||
+    const walletResearchPending =
+      selectedCase.lifecycle?.nextWork?.blocker?.code === 'wallet_identifier_unverified';
+    const legacyCandidateSelection =
       ((canReviewSystemSelection ||
         ['ambiguous', 'manual_exception'].includes(selectedCase.nayaxRecommendationState ?? '')) &&
       canConfirmRefundCandidate({
-      persistedStatus: selectedCase.status,
-      editorStatus: editor.status,
-      decision: selectedCase.decision,
-      canSelectCandidate: candidateSelectionAuthorized,
+        persistedStatus: selectedCase.status,
+        editorStatus: editor.status,
+        decision: selectedCase.decision,
+        canSelectCandidate: candidateSelectionAuthorized,
       }));
+    const caseAllowsCandidateSelection = !walletResearchPending &&
+      ((reviewedFinalDecisionReady && candidateSelectionAuthorized &&
+        officialActionVersion > 0 && selectedCase.decision == null) ||
+      legacyCandidateSelection);
     const selectedCandidate = selectedNayaxCandidate(editor, effectiveCandidates);
     const transactionView = selectedTransactionView ?? deriveRefundTransactionViewState({
       summary: selectedNayaxSummary,
@@ -6057,6 +6061,9 @@ export default function AdminRefundsPage() {
             reviewedFinalDecision={reviewedFinalDecisionReady}
             canSelectCandidates={caseAllowsCandidateSelection}
             canAccessCandidateSelection={candidateSelectionAuthorized}
+            selectionHoldReason={walletResearchPending
+              ? 'The wallet identifier has not been matched to a safe provider purchase. Bloomjoy is researching it before a Manager decision.'
+              : undefined}
             disagreementReason={editor.nayaxDisagreementReason}
             canUseCloserTimeReason={supportsCloserTimeReason(selectedCandidate)}
             describeUnavailableCandidate={(candidate) =>

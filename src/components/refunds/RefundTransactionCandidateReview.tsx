@@ -29,6 +29,7 @@ type RefundTransactionCandidateReviewProps = {
   reviewedFinalDecision?: boolean;
   canSelectCandidates: boolean;
   canAccessCandidateSelection: boolean;
+  selectionHoldReason?: string;
   disagreementReason: NayaxDisagreementReason | '';
   canUseCloserTimeReason: boolean;
   describeUnavailableCandidate: (candidate: NayaxLookupCandidate) => string;
@@ -68,6 +69,7 @@ export function RefundTransactionCandidateReview({
   reviewedFinalDecision = false,
   canSelectCandidates,
   canAccessCandidateSelection,
+  selectionHoldReason,
   disagreementReason,
   canUseCloserTimeReason,
   describeUnavailableCandidate,
@@ -93,9 +95,11 @@ export function RefundTransactionCandidateReview({
           {candidates.length} current transaction result{candidates.length === 1 ? '' : 's'}
         </p>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          {selectableCandidateCount === 0
-            ? 'Every current result is listed here, but none can be selected.'
-            : waitingOnCustomer
+          {selectionHoldReason
+            ? selectionHoldReason
+            : selectableCandidateCount === 0
+              ? 'Every current result is listed here, but none can be selected.'
+              : waitingOnCustomer
               ? 'These are the current search results. Selection stays paused until the customer replies and the assistant runs the search again.'
               : reviewedFinalDecision
                 ? `${selectableCandidateCount} ${selectableCandidateCount === 1 ? 'purchase is' : 'purchases are'} reviewed for this final decision. Choose the correct one only if approving; denial needs no purchase choice.`
