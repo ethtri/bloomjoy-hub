@@ -54,6 +54,8 @@ GitHub run/job metadata and counts a run as successful only when the private
 staging sync step completed. A successful import with no provider rows is healthy;
 a disabled no-op schedule is not an import. While `SNAPCASE_SYNC_ENABLED` is
 false, both sync and health stay inert.
+The existing 30-hour freshness allowance avoids noisy failures for ordinary
+GitHub schedule delays; an explicitly failed import still fails health immediately.
 
 Health failures appear as failed GitHub Actions checks and workflow summaries.
 Whether a person receives a GitHub notification depends on their repository
@@ -64,6 +66,9 @@ For a bounded recovery after activation, manually run `SnapCase Sync`, choose
 ACK-checked, idempotent runner is used. A partial delivery fails the run; rerunning
 the same window safely upserts the same source observations with a new run key.
 The result remains private and business coverage remains unverified.
+A successful full routine `live-ingest` rerun clears a prior scheduled failure in
+the next health check. A smaller date-scoped rerun does not, because GitHub run
+metadata cannot prove that it covered the entire failed routine window.
 
 ## Historical backfill
 

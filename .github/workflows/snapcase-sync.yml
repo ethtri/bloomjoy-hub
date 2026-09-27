@@ -1,4 +1,6 @@
 name: SnapCase Sync
+run-name: >-
+  SnapCase Sync | event=${{ github.event_name }} | mode=${{ inputs.mode || 'scheduled-live' }} | start=${{ inputs.date_start || 'routine' }} | end=${{ inputs.date_end || 'routine' }}
 
 on:
   schedule:
