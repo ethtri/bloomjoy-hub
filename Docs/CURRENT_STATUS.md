@@ -149,9 +149,10 @@ orientation snapshot; it is not a backlog or release ledger.
   customer question, one was correctly policy-suppressed, and one historical
   Resend effect remains unknown. None should be blindly resent.
 - Historical no-safe-match follow-up cycles that stopped before creating any
-  customer question can be reclassified only after current facts and absent
-  send evidence are checked. They remain open Agent purchase-research work;
-  the task no longer suggests recovering delivery of a nonexistent question.
+  customer question project as internal purchase research only when current
+  facts still have no correctable field and no cycle-bound message exists.
+  Their historical failure evidence remains unchanged; the task no longer
+  suggests recovering delivery of a nonexistent question.
 - Technician wall-clock entries are interpreted in the selected machine
   location's IANA timezone. This keeps completed Eastern and Central work from
   being rejected as future merely because Bloomjoy's month-close policy and

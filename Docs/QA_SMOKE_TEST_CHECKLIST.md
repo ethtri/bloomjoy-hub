@@ -74,8 +74,8 @@ historical fixtures cannot add product gates that the workflow does not contain.
   without a useful response.
 - [ ] A historical no-safe-match follow-up with no customer-correctable field,
   message, or send evidence remains open Agent purchase research. It does not
-  imply a customer question exists or offer a resend; exact one-time
-  reclassification rejects stale facts, duplicate use, and any saved message.
+  imply a customer question exists or offer a resend. Stale facts and any
+  saved question stay on their actual workflow paths; the cycle is not changed.
 - [ ] A verified customer email reply with corrected Card type or
   wallet/device-token last-four provenance updates the same case and restarts
   matching without creating a duplicate request.

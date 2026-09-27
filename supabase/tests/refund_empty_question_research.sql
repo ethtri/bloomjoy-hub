@@ -1,16 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(15);
-
-create function pg_temp.capture_error(statement text) returns text language plpgsql as $$
-begin execute statement; return null; exception when others then return sqlstate||':'||sqlerrm; end; $$;
-
-select ok(has_function_privilege('service_role',
-  'public.service_reclassify_unsent_empty_refund_question(uuid,uuid)','execute')
-  and not has_function_privilege('authenticated',
-  'public.service_reclassify_unsent_empty_refund_question(uuid,uuid)','execute'),
-  'Only the service role can reclassify a historical cycle');
+select plan(16);
 
 select is(public.refund_next_work_projection(jsonb_build_object(
   'payloadRedacted',true,'stage','matching','reasonCode','no_safe_match',
@@ -124,7 +115,8 @@ where c.id='b9200000-0000-4000-8001-000000000003';
 
 create temp table rejected_evidence as
 select id,to_jsonb(cycle) as cycle_value from public.refund_follow_up_cycles cycle
-where id in ('b9200000-0000-4000-8002-000000000002',
+where id in ('b9200000-0000-4000-8002-000000000001',
+  'b9200000-0000-4000-8002-000000000002',
   'b9200000-0000-4000-8002-000000000003');
 create temp table rejected_message as
 select id,to_jsonb(message) as message_value from public.refund_case_messages message
@@ -133,43 +125,45 @@ where id='b9200000-0000-4000-8003-000000000003';
 select is(cardinality(public.refund_purchase_correction_request_fields(
   'b9200000-0000-4000-8001-000000000001')),0,
   'Current complete cash facts have no customer-correctable field');
-select is((public.service_reclassify_unsent_empty_refund_question(
-  'b9200000-0000-4000-8001-000000000001',
-  'b9200000-0000-4000-8002-000000000001')->>'reclassified')::boolean,true,
-  'Exact no-message cycle is reclassified once');
 select is(public.refund_customer_outreach_contract(
   'b9200000-0000-4000-8001-000000000001')->>'state','policy_suppressed',
-  'Outreach no longer falsely projects a delivery failure');
+  'Unsent legacy cycle projects no customer question without changing evidence');
+select is(public.refund_customer_outreach_contract(
+  'b9200000-0000-4000-8001-000000000001')->>'reasonCode','no_customer_correctable_fact',
+  'Legacy abandoned failure has the exact internal-work reason');
+select is(public.refund_customer_outreach_contract(
+  'b9200000-0000-4000-8001-000000000001')->>'failureCode','request_claim_abandoned',
+  'Immutable historical failure code is retained');
 select is(public.refund_lifecycle_contract(
   'b9200000-0000-4000-8001-000000000001')->'nextWork'->>'actionCode',
   'research_purchase','Canonical next work points to internal research');
-select ok(pg_temp.capture_error($q$select public.service_reclassify_unsent_empty_refund_question(
-  'b9200000-0000-4000-8001-000000000001',
-  'b9200000-0000-4000-8002-000000000001')$q$) like 'P0001:%',
-  'Second reclassification is refused');
+select ok((select to_jsonb(c) = e.cycle_value from public.refund_follow_up_cycles c
+  join rejected_evidence e on e.id=c.id
+  where c.id='b9200000-0000-4000-8002-000000000001'),
+  'Projection leaves the original abandoned cycle byte-for-byte unchanged');
+select is((select count(*) from public.refund_case_messages where refund_case_id=
+  'b9200000-0000-4000-8001-000000000001'),0::bigint,
+  'Projection creates no customer question or delivery message');
 select is((select count(*) from public.refund_case_events where refund_case_id=
-  'b9200000-0000-4000-8001-000000000001'
-  and event_type='refund_empty_question_reclassified'),1::bigint,
-  'Exactly one audit event records the no-send correction');
-select ok(pg_temp.capture_error($q$select public.service_reclassify_unsent_empty_refund_question(
-  'b9200000-0000-4000-8001-000000000002',
-  'b9200000-0000-4000-8002-000000000002')$q$) like 'P0001:%',
-  'A cycle from older customer facts is refused');
+  'b9200000-0000-4000-8001-000000000001'),0::bigint,
+  'Projection adds no audit or send event');
+select ok(public.refund_customer_outreach_contract(
+  'b9200000-0000-4000-8001-000000000002')->>'state' <> 'policy_suppressed',
+  'Stale customer facts are not reinterpreted as current no-question policy');
 select ok((select to_jsonb(c) = e.cycle_value from public.refund_follow_up_cycles c
   join rejected_evidence e on e.id=c.id
   where c.id='b9200000-0000-4000-8002-000000000002'),
-  'Stale-cycle rejection preserves the exact prior cycle');
-select ok(pg_temp.capture_error($q$select public.service_reclassify_unsent_empty_refund_question(
-  'b9200000-0000-4000-8001-000000000003',
-  'b9200000-0000-4000-8002-000000000003')$q$) like 'P0001:%',
-  'A cycle with a linked saved message is refused');
+  'Stale cycle evidence remains unchanged');
+select ok(public.refund_customer_outreach_contract(
+  'b9200000-0000-4000-8001-000000000003')->>'state' <> 'policy_suppressed',
+  'A linked saved customer question stays on the actual delivery path');
 select ok((select to_jsonb(c) = e.cycle_value from public.refund_follow_up_cycles c
   join rejected_evidence e on e.id=c.id
   where c.id='b9200000-0000-4000-8002-000000000003'),
-  'Saved-message rejection preserves the exact prior cycle');
+  'Linked-question cycle evidence remains unchanged');
 select ok((select to_jsonb(m) = e.message_value from public.refund_case_messages m
   join rejected_message e on e.id=m.id),
-  'Saved-message rejection preserves the message and delivery evidence');
+  'Linked saved question and its delivery evidence remain unchanged');
 
 select * from finish();
 rollback;
