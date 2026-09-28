@@ -153,8 +153,10 @@ select 'a9650000-0000-4000-8000-000000000001',
   md5('refund-overview-bench-case-11')::uuid,'more_info','sent',
   'overview-customer-11@example.invalid','Historical imported question',
   'Please reply with the amount.','deterministic_template','automatic',
-  'missing_information','refund_follow_up_v2',id,array['amount'],
-  statement_timestamp() from imported_cycle;
+  cycle.reason_code,cycle.template_version,cycle.id,cycle.requested_fields,
+  statement_timestamp()
+from imported_cycle imported
+join public.refund_follow_up_cycles cycle on cycle.id=imported.id;
 insert into public.refund_gmail_threads(
   id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,
   first_message_at,latest_message_at,retention_expires_at)
