@@ -16,6 +16,9 @@ const completionDelivery = read(
 const duplicateRecovery = read(
   'supabase/migrations/20260908221526_refund_same_source_duplicate_settlement_recovery.sql',
 );
+const messageSend = read(
+  'supabase/functions/refund-case-message-send/index.ts',
+);
 
 test('normal claimed v2 completion is dispatched with its stored manual kind', () => {
   const claimStart = orchestration.indexOf(
@@ -85,4 +88,54 @@ test('form completion uses the receipt-bound outbox claim instead of a Gmail thr
   assert.match(delivery, /drainRefundManualMessageOutbox\(\{/);
   assert.match(delivery, /messageId,/);
   assert.match(delivery, /limit: 1/);
+});
+
+test('exhausted completion inspection is authorized read-only evidence before every write or send', () => {
+  const completionStart = messageSend.indexOf(
+    'if (nayaxCompletionMessageId || nayaxExhaustedCompletionMessageId)',
+  );
+  const diagnosticStart = messageSend.indexOf(
+    'const threadDiagnostic = diagnoseUnsentCompletionThreadHistory',
+    completionStart,
+  );
+  const inspectionReturn = messageSend.indexOf(
+    'if (inspectExhaustedRecovery)',
+    diagnosticStart,
+  );
+  const strictWriteGuard = messageSend.indexOf(
+    'if (!verifiedUnsentCompletionThreadHistory',
+    inspectionReturn,
+  );
+  const prepare = messageSend.indexOf(
+    'service_prepare_exhausted_nayax_completion_recovery',
+    strictWriteGuard,
+  );
+  const dispatch = messageSend.indexOf(
+    'dispatchRefundCaseGmailReply',
+    prepare,
+  );
+  assert.ok(
+    completionStart >= 0 && diagnosticStart > completionStart &&
+      inspectionReturn > diagnosticStart && strictWriteGuard > inspectionReturn &&
+      prepare > strictWriteGuard && dispatch > prepare,
+  );
+
+  const validation = messageSend.slice(completionStart, diagnosticStart);
+  assert.match(
+    validation,
+    /exhaustedRecovery\s*\?\s*\["caseId", "nayaxExhaustedCompletionMessageId", "originalThreadHistoryId", "recoverySubject", "recoveryBody", "inspectExhaustedCompletionRecovery"\]\s*:\s*\["caseId", "nayaxCompletionMessageId"\]/,
+  );
+  assert.match(
+    validation,
+    /body\?\.inspectExhaustedCompletionRecovery !== undefined &&\s*!inspectExhaustedRecovery/,
+  );
+
+  const responseBranch = messageSend.slice(inspectionReturn, strictWriteGuard);
+  assert.match(responseBranch, /customerMessageSent: false/);
+  assert.match(responseBranch, /paymentActionTaken: false/);
+  assert.match(responseBranch, /payloadRedacted: true/);
+  assert.doesNotMatch(
+    responseBranch,
+    /recipientEmail|mailboxEmail|senderIdentities|providerThreadId|recoveryBody|recoverySubject/,
+  );
 });
