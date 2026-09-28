@@ -241,10 +241,19 @@ test('current card capability remains visible in the composed manager presentati
  const customerCommunicationActions=load('customerCommunicationActions',{
   nextCustomerDraft:null,canAskForCustomerDetails:false,primaryAction:{label:'Refund $7.00'},
   recommendation:null,
+  refundCanShowCandidateInventory:()=>true,
   isUsingDemoData:false,selectedCaseIsReviewOnly:true,selectedCaseHasCurrentCardDecisionAuthority,
   selectedCase:staleOptionalCase,
  });
  assert.equal(customerCommunicationActions.denial.disabled,false);
+ const agentResearchActions=load('customerCommunicationActions',{
+  nextCustomerDraft:null,canAskForCustomerDetails:false,primaryAction:{label:'Finding the purchase'},
+  recommendation:null,
+  refundCanShowCandidateInventory:()=>false,
+  isUsingDemoData:false,selectedCaseIsReviewOnly:true,selectedCaseHasCurrentCardDecisionAuthority:false,
+  selectedCase:staleOptionalCase,
+ });
+ assert.equal(agentResearchActions.denial,null);
 });
 test('current card capability lets an explicit denial reach the versioned server update',async()=>{
  const selectedCase={id:'case-current',status:'needs_review',paymentMethod:'card',...freshPersistedSelection};

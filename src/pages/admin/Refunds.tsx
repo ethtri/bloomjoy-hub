@@ -6591,7 +6591,8 @@ export default function AdminRefundsPage() {
       requestCorrection: canAskForCustomerDetails && primaryAction?.messageType !== 'more_info'
         ? { disabled: isUsingDemoData }
         : null,
-      denial: !recommendation && primaryAction?.label !== 'Deny request'
+      denial: refundCanShowCandidateInventory(selectedCase) &&
+        !recommendation && primaryAction?.label !== 'Deny request'
         ? {
             label: selectedCase.decision === 'approved' ? 'Change to denial' : 'Deny request',
             disabled: isUsingDemoData || (

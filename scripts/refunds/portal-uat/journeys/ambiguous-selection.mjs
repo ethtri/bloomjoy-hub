@@ -1663,56 +1663,51 @@ const runNayaxLookupStatusMatrixChecks = async ({
       statusTextContrast >= 4.5,
       `${statusTextContrast.toFixed(2)}:1`
     );
+    if (scenario.expectedWalletResearchPaused) {
+      const walletResearchCounts = {
+        candidates: await page.getByTestId('nayax-candidate-option').count(),
+        availability: await page.getByTestId('nayax-candidate-availability').count(),
+        comparison: await page.getByTestId('nayax-transaction-comparison').count(),
+        save: await page.getByTestId('refund-save-transaction-for-review').count(),
+        refund: await page.getByRole('button', { name: /^Refund \$/i }).count(),
+        approve: await page.getByRole('button', { name: /^Approve\b/i }).count(),
+        deny: await page.getByTestId('refund-deny-instead').count(),
+      };
+      recorder.assert(
+        'Unmatched wallet research hides candidate inventory and every Manager decision control',
+        Object.values(walletResearchCounts).every((count) => count === 0) &&
+          !functionCalls.some((name) => [
+            'nayax-card-refund', 'refund-case-admin-update', 'refund-case-message-send',
+          ].includes(name)),
+        JSON.stringify({ walletResearchCounts, functionCalls })
+      );
+      recorder.assert(
+        'Unmatched wallet detail names internal research instead of asking for a transaction selection',
+        await page.getByTestId('refund-manager-state').getByText('Finding the purchase', { exact: true }).isVisible() &&
+          (await page.getByTestId('refund-manager-next-step').innerText()).includes(
+            'Investigate the wallet charge and provider identifier before a Manager decision.'
+          )
+      );
+      await page.getByRole('textbox', { name: 'Search refund cases' }).fill('RF-UAT-PENDING');
+      await page.getByTestId('refund-case-queue-item')
+        .filter({ hasText: 'RF-UAT-PENDING', hasNotText: 'RF-UAT-PENDING-ALT' })
+        .getByText('Finding the purchase', { exact: true })
+        .waitFor({ state: 'visible', timeout: 10000 });
+      recorder.assert(
+        'Unmatched wallet search result names internal research',
+        await page.getByTestId('refund-case-queue-item')
+          .filter({ hasText: 'RF-UAT-PENDING', hasNotText: 'RF-UAT-PENDING-ALT' })
+          .getByText('Finding the purchase', { exact: true })
+          .isVisible()
+      );
+      await closeRefundPortalContext(context);
+      continue;
+    }
     if (scenario.expectedCandidateCount) {
       recorder.assert(
         `Nayax ${scenario.name} renders candidate choices`,
         (await page.getByTestId('nayax-candidate-option').count()) === scenario.expectedCandidateCount
       );
-      if (scenario.expectedWalletResearchPaused) {
-        const options = page.getByTestId('nayax-candidate-option');
-        recorder.assert(
-          'Unmatched wallet candidates are visible but cannot be selected or saved by a Manager',
-          (await options.count()) === 2 &&
-            await options.locator('input[type="radio"]').evaluateAll(
-              (inputs) => inputs.every((input) => {
-                const description = (input.getAttribute('aria-describedby') ?? '')
-                  .split(/\s+/).map((id) => document.getElementById(id)?.textContent ?? '').join(' ');
-                return input.disabled &&
-                  /wallet identifier has not been matched to a safe provider purchase/i.test(description);
-              })
-            ) &&
-            await page.getByTestId('nayax-candidate-availability')
-              .getByText(/wallet identifier has not been matched to a safe provider purchase/i).isVisible() &&
-            (await page.getByTestId('refund-save-transaction-for-review').count()) === 0 &&
-            (await page.getByRole('button', { name: /^Refund \$/i }).count()) === 0 &&
-            !functionCalls.some((name) => [
-              'nayax-card-refund', 'refund-case-admin-update', 'refund-case-message-send',
-            ].includes(name))
-        );
-        recorder.assert(
-          'Unmatched wallet detail names internal research instead of asking for a transaction selection',
-          await page.getByTestId('refund-manager-state').getByText('Finding the purchase', { exact: true }).isVisible() &&
-            (await page.getByTestId('nayax-candidate-availability').innerText()).includes(
-              'wallet identifier has not been matched to a safe provider purchase'
-            ) &&
-            (await page.getByTestId('refund-save-transaction-for-review').count()) === 0 &&
-            (await page.getByRole('button', { name: /^Approve\b/ }).count()) === 0
-        );
-        await page.getByRole('textbox', { name: 'Search refund cases' }).fill('RF-UAT-PENDING');
-        await page.getByTestId('refund-case-queue-item')
-          .filter({ hasText: 'RF-UAT-PENDING', hasNotText: 'RF-UAT-PENDING-ALT' })
-          .getByText('Finding the purchase', { exact: true })
-          .waitFor({ state: 'visible', timeout: 10000 });
-        recorder.assert(
-          'Unmatched wallet search result names internal research',
-          await page.getByTestId('refund-case-queue-item')
-            .filter({ hasText: 'RF-UAT-PENDING', hasNotText: 'RF-UAT-PENDING-ALT' })
-            .getByText('Finding the purchase', { exact: true })
-            .isVisible()
-        );
-        await closeRefundPortalContext(context);
-        continue;
-      }
       if (scenario.name === 'multiple candidates') {
         const managerNextStep = page.getByTestId('refund-manager-next-step');
         const transactionComparison = page.getByTestId('nayax-transaction-comparison');
