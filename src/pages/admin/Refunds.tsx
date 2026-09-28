@@ -1311,9 +1311,6 @@ const candidateUnavailableReason = (
 ) => {
   const exclusions = new Set(candidate.hardExclusions ?? []);
   const reasonCodes = new Set(candidate.reasonCodes ?? []);
-  if (exclusions.has('duplicate_transaction')) {
-    return 'This transaction is already linked to another refund case.';
-  }
   if (exclusions.has('already_refunded')) {
     return 'This transaction already has refund evidence.';
   }
@@ -1343,7 +1340,7 @@ const candidateUnavailableReason = (
   );
   return blockingFactor
     ? matchFactorDisplayLabel(blockingFactor, candidate, refundCase)
-    : 'This transaction conflicts with a required detail or is already in use.';
+    : 'This transaction conflicts with a required detail.';
 };
 
 const transactionSearchDescription = (summary: RefundNayaxLookupSummary | null) => {
@@ -2514,9 +2511,6 @@ const nayaxExecutionBlockLabel = (block: string) => {
 };
 
 const formatNayaxExecutionBlockedMessage = (result: NayaxCardRefundExecutionResponse) => {
-  if (result.conflictReason === 'exact_transaction_allocated') {
-    return 'This exact Nayax transaction is already reserved by another refund case. Review the original case before taking another payment action.';
-  }
   if (result.conflictReason === 'payment_already_confirmed') {
     return 'This payment is already confirmed. Review this case’s payment history; do not issue another refund.';
   }

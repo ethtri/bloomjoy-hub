@@ -5,6 +5,11 @@
 Use [REFUND_WORKFLOW.md](REFUND_WORKFLOW.md) as the expected behavior. Tests and
 historical fixtures cannot add product gates that the workflow does not contain.
 
+- [ ] With two safe fixture cases that reference the same approved Nayax purchase,
+  the second case can still select the purchase and reach the normal Manager
+  refund decision without an “already linked/reserved” blocker. Replaying the
+  same case still creates no second attempt, and an unknown provider result stays
+  held for reconciliation. Do not send a live refund during this check.
 - [ ] The 08:00 America/Los_Angeles manager refund digest lists every canonically
   open case on that manager's current machines, including unchanged cases on the
   next day and more than eight cases. Prepared approve/deny and cash-payment

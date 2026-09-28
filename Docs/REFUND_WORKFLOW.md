@@ -5,7 +5,8 @@ Last updated: 2026-09-14. Owner decision: #1364.
 ## What we are doing
 
 Bloomjoy makes a customer whole with the least work consistent with identifying
-the purchase and avoiding a duplicate payment.
+the purchase and preserving one replay-safe attempt per case. Nayax owns the
+authoritative limit that refund totals cannot exceed the original purchase.
 
 The ordinary flow is:
 
@@ -34,9 +35,10 @@ also may learn facts the System missed, so the recommendation must help their
 decision rather than prevent it.
 
 Bloomjoy needs only the controls that address real harm: the correct Manager,
-the exact transaction the Manager selected, protection against paying it twice,
-private handling of customer/payment data, and reconciliation before retrying an
-unknown payment result. Everything else should keep the case moving.
+the exact transaction the Manager selected, private handling of customer/payment
+data, same-case idempotency, and reconciliation before retrying an unknown payment
+result. A separate case's reference to the same purchase does not add another
+Bloomjoy approval or payment block; Nayax enforces the purchase-total limit.
 
 ## How transaction matching works
 
@@ -94,8 +96,8 @@ a heuristic score as a statistical probability.
 The recommendation is advisory. The Manager can select any reviewed candidate,
 including one the System does not call high confidence, when customer
 clarification or additional investigation identifies it. Execution still binds
-to that exact selected provider transaction and checks whether it was already
-used or refunded.
+to that exact selected provider transaction. Nayax decides whether the requested
+refund fits within the original purchase total.
 
 If several purchases remain genuinely plausible, show them rather than guessing.
 That is an appropriate clarification case; a single imperfect field is not.
@@ -172,9 +174,10 @@ owner decision:
 - an intermediate cash-payout status.
 
 Security, privacy, current Manager authority, exact selected-transaction binding,
-duplicate prevention, idempotency, and unknown-result reconciliation are
-implementation properties. They should normally be invisible to the customer
-and require no extra Manager decision.
+same-case idempotency, and unknown-result reconciliation are implementation
+properties. They should normally be invisible to the customer and require no
+extra Manager decision. Cross-case card duplicate detection is audit context,
+not an execution gate.
 
 ## Sources of truth
 

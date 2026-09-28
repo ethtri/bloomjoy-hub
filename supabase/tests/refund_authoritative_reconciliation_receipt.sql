@@ -221,9 +221,9 @@ values('ad400000-0000-4000-8000-000000000001','confirmation','sent','receipt-cus
   case when %L='claimed' then statement_timestamp() end)
 $fixture$,state,state,state),1),'P4661','Manual '||state||' remains blocked despite historical-shaped metadata')
 from (values ('queued'),('claimed'),('delivery_unknown')) manual(state);
-select throws_ok($$update public.refund_cases set matched_nayax_transaction_id='123456781'
-  where id='ad400000-0000-4000-8000-000000000004'$$,'23505',null,
-  'Existing unique-original guard prevents constructing a competing active claim');
+select lives_ok($$update public.refund_cases set matched_nayax_transaction_id='123456781'
+  where id='ad400000-0000-4000-8000-000000000004'$$,
+  'A second case may retain the same original as private audit context');
 select is(pg_temp.corrupt_and_record($$insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,provider_thread_id,thread_subject,first_message_at,latest_message_at,retention_expires_at)
 values('ad700000-0000-4000-8000-000000000009','ad400000-0000-4000-8000-000000000001',repeat('d',64),'inflight-thread','Synthetic pending send',now(),now(),now()+interval '30 days');
 insert into public.refund_gmail_messages(gmail_thread_id,refund_case_id,operation_key,direction,message_kind,status,sender_email,recipient_email,subject,plain_body,retention_expires_at,received_at)

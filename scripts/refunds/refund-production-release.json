@@ -257,6 +257,7 @@
     "20260928112052_refund_projection_timeout_repair.sql",
     "20260928122500_refund_overview_timeout_repair.sql",
     "20260928134500_refund_overview_contract_reuse.sql",
+    "20260928173542_remove_redundant_nayax_cross_case_guard.sql",
     "20260928181500_refund_overview_runtime_budget.sql"
   ],
   "migrationFilesSha256": "615530b5a1f217120b9aaa72fef400e62506a8333603be6ee552cec4d7cbda12",
