@@ -253,7 +253,8 @@
     "20260927191500_refund_recommendation_notification_consumers.sql",
     "20260927210000_nayax_historical_inactive_exact_link_recovery.sql",
     "20260927220000_nayax_wrong_venue_relocation_hold.sql",
-    "20260928050000_nayax_reader_replacement.sql"
+    "20260928050000_nayax_reader_replacement.sql",
+    "20260928112052_refund_projection_timeout_repair.sql"
   ],
   "migrationFilesSha256": "9d5daf63393d415793de6918f9223a2cc0ba5123bac9c8a7a68e2a8a56f2c2aa",
   "migrationVersionSetSha256": "91cbbc2615478bd12d1255ea34cb3bb697c12044dd9b751b673d8de78ddcfaff",
