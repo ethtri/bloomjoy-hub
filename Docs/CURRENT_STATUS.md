@@ -8,6 +8,10 @@ orientation snapshot; it is not a backlog or release ledger.
 
 ## Refund workflow (current)
 
+- The cross-case Nayax card blocker is removed: another refund case's
+  reference to the same purchase is audit context rather than a payment veto.
+  Nayax owns the original-purchase total limit; same-case replay protection,
+  exact purchase binding, unknown-result holds, and receipts remain.
 - A fresh read-only provider result exposed a broad, ambiguous wallet candidate
   set with no independently corroborated purchase. The current
   reviewed-set proof would otherwise route it to a Manager before internal

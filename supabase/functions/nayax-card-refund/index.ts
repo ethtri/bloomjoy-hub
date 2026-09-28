@@ -24,6 +24,7 @@ import {
   mergeRuntimeRefundReadiness,
   parseDatabaseRefundReadiness,
   type RefundReadiness,
+  type RefundReadinessBlockReason,
 } from "../_shared/refund-readiness.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -281,16 +282,13 @@ const resolveCaseRefundReadiness = async ({
   return readiness;
 };
 
-const safeNayaxReference = (value: string | null | undefined) =>
-  Boolean(value && /^[A-Za-z0-9][A-Za-z0-9._:-]{5,79}$/.test(value));
-
 type NayaxTransactionPreflight = {
-  blocks: string[];
+  blockReason: RefundReadinessBlockReason | null;
   reason: string | null;
   resolutionAction: string | null;
 };
 
-const getDuplicateTransactionBlocks = async ({
+const getTransactionPreflight = async ({
   refundCase,
   actorUserId,
   expectedCaseVersion,
@@ -301,10 +299,9 @@ const getDuplicateTransactionBlocks = async ({
   expectedCaseVersion: number;
   executorAssertion: string | null;
 }): Promise<NayaxTransactionPreflight> => {
-  if (
-    !supabase || !executorAssertion || !refundCase.executionContext ||
-    !safeNayaxReference(refundCase.matched_nayax_transaction_id)
-  ) return { blocks: [], reason: null, resolutionAction: null };
+  if (!supabase || !executorAssertion || !refundCase.executionContext) {
+    return { blockReason: null, reason: null, resolutionAction: null };
+  }
   const { data, error } = await supabase.rpc(
     "service_get_refund_nayax_transaction_preflight",
     {
@@ -315,13 +312,22 @@ const getDuplicateTransactionBlocks = async ({
       p_execution_context_hash: refundCase.executionContext.contextHash,
     },
   );
-  if (error || !data || typeof data !== "object") throw error ?? new Error("transaction_preflight_unavailable");
+  if (error || !data || typeof data !== "object") {
+    throw error ?? new Error("transaction_preflight_unavailable");
+  }
   const result = data as Record<string, unknown>;
   const reason = sanitizeText(result.reason, 80) || null;
+  const blockReason = result.blocked === true
+    ? reason === "payment_already_confirmed"
+      ? "already_refunded"
+      : reason === "official_action_unavailable"
+      ? "unauthorized"
+      : reason === "case_facts_changed"
+      ? "transaction_not_confirmed"
+      : "provider_unavailable"
+    : null;
   return {
-    blocks: result.blocked === true
-      ? [reason === "payment_already_confirmed" ? "already_refunded" : "duplicate_transaction"]
-      : [],
+    blockReason,
     reason,
     resolutionAction: sanitizeText(result.resolutionAction, 80) || null,
   };
@@ -647,24 +653,24 @@ serve(async (req) => {
         actorUserId: user.id,
         executionConfig: executionConfig,
       });
-      const transactionPreflight = await getDuplicateTransactionBlocks({
-        refundCase,
-        actorUserId: user.id,
-        expectedCaseVersion: refundCase.official_action_version,
-        executorAssertion: executionConfig.executorAssertion,
-      });
-      const exactTransactionBlocked = transactionPreflight.blocks.length > 0;
+      const transactionPreflight = readiness.canIssueCardRefund
+        ? await getTransactionPreflight({
+          refundCase,
+          actorUserId: user.id,
+          expectedCaseVersion: refundCase.official_action_version,
+          executorAssertion: executionConfig.executorAssertion,
+        })
+        : { blockReason: null, reason: null, resolutionAction: null };
+      const blockReason = transactionPreflight.blockReason ?? readiness.blockReason;
       return jsonResponse({
-        available: readiness.canIssueCardRefund && !exactTransactionBlocked,
-        status: readiness.canIssueCardRefund && !exactTransactionBlocked
+        available: readiness.canIssueCardRefund && blockReason === null,
+        status: readiness.canIssueCardRefund && blockReason === null
           ? "available"
           : "unavailable",
         caseId,
         ...readiness,
-        canIssueCardRefund: readiness.canIssueCardRefund && !exactTransactionBlocked,
-        blockReason: exactTransactionBlocked
-          ? transactionPreflight.blocks[0]
-          : readiness.blockReason,
+        canIssueCardRefund: readiness.canIssueCardRefund && blockReason === null,
+        blockReason,
         conflictReason: transactionPreflight.reason,
         resolutionAction: transactionPreflight.resolutionAction,
         payloadRedacted: true,
@@ -686,13 +692,15 @@ serve(async (req) => {
       actorUserId: user.id,
       executionConfig,
     });
-    const executionTransactionPreflight = await getDuplicateTransactionBlocks({
-      refundCase,
-      actorUserId: user.id,
-      expectedCaseVersion: expectedOfficialActionVersion,
-      executorAssertion: executionConfig.executorAssertion,
-    });
-    const executionBlockReason = executionTransactionPreflight.blocks[0] ??
+    const executionTransactionPreflight = executionReadiness.canIssueCardRefund
+      ? await getTransactionPreflight({
+        refundCase,
+        actorUserId: user.id,
+        expectedCaseVersion: expectedOfficialActionVersion,
+        executorAssertion: executionConfig.executorAssertion,
+      })
+      : { blockReason: null, reason: null, resolutionAction: null };
+    const executionBlockReason = executionTransactionPreflight.blockReason ??
       executionReadiness.blockReason;
     if (!executionReadiness.canIssueCardRefund || executionBlockReason) {
       return jsonResponse({

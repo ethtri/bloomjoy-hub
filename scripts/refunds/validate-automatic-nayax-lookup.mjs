@@ -22,10 +22,10 @@ const assert = (condition, message) => {
 };
 
 assert(
-  lookup.includes("result.preliminary.consideredTransactionIds") &&
-    lookup.includes("transactionIds: preliminary.consideredTransactionIds") &&
-    !lookup.includes("preliminary.candidates.map"),
-  "both single and grouped lookups must check local refund state for all considered originals before display limits",
+  !lookup.includes("loadNayaxTransactionStates") &&
+    !lookup.includes("transactionStates:") &&
+    !lookup.includes("refund_nayax_transaction_allocations"),
+  "provider discovery must not turn another Bloomjoy case or allocation into a card-refund blocker",
 );
 
 assert(automatic.includes("deriveRefundMissingFields"), "automatic trigger must reuse the canonical readiness helper");

@@ -424,11 +424,6 @@ const asNonNegativeCents = (value) => {
   return Number.isFinite(numeric) && numeric >= 0 ? Math.round(numeric) : null;
 };
 
-const transactionStateFor = (transactionStates, transactionId) => {
-  if (transactionStates instanceof Map) return transactionStates.get(transactionId) ?? "clear";
-  return transactionStates?.[transactionId] ?? "clear";
-};
-
 const factor = (key, outcome, label) => ({ key, outcome, label });
 
 const timePointsFor = (deltaMinutes, weights) => {
@@ -460,7 +455,7 @@ const qrTimeLabelFor = (deltaMinutes) => {
   return `The machine QR form opened ${deltaMinutes} minutes after the transaction`;
 };
 
-const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
+const scoreCandidate = ({ candidate, request, policy }) => {
   const weights = policy.weights;
   const matchFactors = [];
   const manualReviewReasons = [];
@@ -791,16 +786,11 @@ const scoreCandidate = ({ candidate, request, transactionState, policy }) => {
     matchFactors.push(factor("provider_status", "neutral", "Nayax returned a sale record without an explicit approval status"));
   }
 
-  if (candidate.providerRefundState === "already_refunded" || transactionState === "already_refunded") {
+  if (candidate.providerRefundState === "already_refunded") {
     hardExclusions.push("already_refunded");
     addReason(manualReviewReasons, "already_refunded");
     addReason(reasonCodes, "already_refunded");
-    matchFactors.push(factor("refund_state", "blocked", "This transaction already has refund evidence"));
-  } else if (transactionState === "duplicate") {
-    hardExclusions.push("duplicate_transaction");
-    addReason(manualReviewReasons, "duplicate_transaction");
-    addReason(reasonCodes, "duplicate_transaction");
-    matchFactors.push(factor("refund_state", "blocked", "This transaction is already linked to another refund case"));
+    matchFactors.push(factor("refund_state", "blocked", "Nayax marks this transaction as already refunded"));
   }
 
   if (Number.isFinite(candidate.timeDeltaMinutes) &&
@@ -992,7 +982,6 @@ export const extractNayaxRecords = (payload) => {
  *   machineContext?: unknown,
  *   qrClaimOpenedAt?: string | null,
  *   qrClaimEvidenceStatus?: "verified" | "missing" | "invalid" | "replayed",
- *   transactionStates?: Map<string, string> | Record<string, string>,
  *   providerContract?: "nayax_machine_last_sales_v1" | "unverified",
  *   purchaseOccurrenceProof?: {
  *     semantics: "online_purchase_occurrence",
@@ -1032,7 +1021,6 @@ export const buildNayaxRecommendation = ({
   machineContext = null,
   qrClaimOpenedAt = null,
   qrClaimEvidenceStatus,
-  transactionStates = {},
   providerContract = "unverified",
   purchaseOccurrenceProof = null,
   windowHours = NAYAX_RECOMMENDATION_POLICY.lookupWindowHours,
@@ -1259,7 +1247,6 @@ export const buildNayaxRecommendation = ({
       scoreCandidate({
         candidate,
         request,
-        transactionState: transactionStateFor(transactionStates, candidate.transactionId),
         policy,
       }))
     .sort((left, right) =>

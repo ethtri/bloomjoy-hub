@@ -398,43 +398,6 @@ export type NayaxLookupResult = {
   };
 };
 
-const loadNayaxTransactionStates = async ({
-  supabase,
-  caseId,
-  transactionIds,
-}: {
-  supabase: SupabaseServiceClient;
-  caseId: string;
-  transactionIds: string[];
-}) => {
-  if (transactionIds.length === 0) return {} as Record<string, "clear" | "duplicate" | "already_refunded">;
-
-  const { data, error } = await supabase
-    .from("refund_cases")
-    .select(
-      "id, status, matched_nayax_transaction_id, reporting_adjustment_id, nayax_refund_execution_status",
-    )
-    .in("matched_nayax_transaction_id", transactionIds);
-
-  if (error) throw error;
-
-  const states: Record<string, "clear" | "duplicate" | "already_refunded"> = {};
-  for (const row of data ?? []) {
-    const transactionId = sanitizeText(row?.matched_nayax_transaction_id, 80);
-    if (!transactionId) continue;
-    const hasRefundEvidence =
-      row?.status === "completed" ||
-      Boolean(row?.reporting_adjustment_id) ||
-      row?.nayax_refund_execution_status === "succeeded";
-    if (hasRefundEvidence) {
-      states[transactionId] = "already_refunded";
-    } else if (row?.id !== caseId && states[transactionId] !== "already_refunded") {
-      states[transactionId] = "duplicate";
-    }
-  }
-  return states;
-};
-
 export const persistNayaxLookupCandidates = async ({
   supabase,
   caseId,
@@ -546,7 +509,7 @@ export const persistNayaxLookupCandidates = async ({
         provider_payload_redacted: true,
       },
       // Lookup evidence is a durable result. Current case version, generation,
-      // duplicate, and payment safeguards still authorize any later selection.
+      // same-case payment safeguards still authorize any later selection.
       expires_at: durableCandidateExpiry,
     })),
   );
@@ -948,28 +911,15 @@ const lookupGroupedLivermoreCandidates = async ({
       providerContract: "nayax_machine_last_sales_v1" as const,
       windowHours,
     };
-    const preliminary = buildNayaxRecommendation(recommendationInput) as {
-      consideredTransactionIds: string[];
-    };
-    return { input, payload, recommendationInput, preliminary };
+    return { input, payload, recommendationInput };
   }));
   const providerRecordCount = assertProviderRecordLimit(
     providerResults.map((result) => result.payload),
   );
 
-  const transactionStates = await loadNayaxTransactionStates({
-    supabase,
-    caseId: refundCase.id,
-    transactionIds: providerResults.flatMap((result) =>
-      result.preliminary.consideredTransactionIds
-    ),
-  });
   const localRecommendations = providerResults.map((result) => ({
     ...result,
-    recommendation: buildNayaxRecommendation({
-      ...result.recommendationInput,
-      transactionStates,
-    }) as {
+    recommendation: buildNayaxRecommendation(result.recommendationInput) as {
       candidates: NayaxProviderCandidate[];
       providerParseableRecordCount: number;
       providerWindowRecordCount: number;
@@ -1387,18 +1337,7 @@ export const lookupNayaxCandidatesForRefundCase = async ({
     providerContract: "nayax_machine_last_sales_v1" as const,
     windowHours,
   };
-  const preliminary = buildNayaxRecommendation(commonRecommendationInput) as {
-    consideredTransactionIds: string[];
-  };
-  const transactionStates = await loadNayaxTransactionStates({
-    supabase,
-    caseId,
-    transactionIds: preliminary.consideredTransactionIds,
-  });
-  const recommendation = buildNayaxRecommendation({
-    ...commonRecommendationInput,
-    transactionStates,
-  }) as {
+  const recommendation = buildNayaxRecommendation(commonRecommendationInput) as {
     policyVersion: string;
     recommendationState: NayaxRecommendationState;
     confidenceClass: NayaxConfidenceClass;

@@ -116,10 +116,12 @@ provider state. Fix demonstrated differences and test them with synthetic
 responses before another authorized live operation.
 
 An uncertain response may already have created or completed a refund. Pending
-means continue that request; Refunded means no more payment calls. A changed
-request is eligible only after authoritative no-refund reconciliation through
-the existing supported flow. Keep duplicate prevention and existing manager
-authority intact; this guidance adds no new approvals, caps or rollout gates.
+means continue that same request; Refunded means that attempt needs no more
+payment calls. A changed request is eligible only after authoritative no-refund
+reconciliation through the existing supported flow. Keep same-attempt idempotency
+and existing manager authority intact. Do not add a cross-case card block: Nayax
+authoritatively rejects refund totals above the original purchase. This guidance
+adds no new approvals, caps or rollout gates.
 
 Reopen a permissions diagnosis only with new concrete evidence for the exact
 active account/stage credential, such as a verified revocation or provider log

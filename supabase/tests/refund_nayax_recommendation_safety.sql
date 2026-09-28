@@ -90,11 +90,11 @@ values
     '2026-07-21.v1'
   );
 
-select has_index(
+select hasnt_index(
   'public',
   'refund_cases',
   'refund_cases_unique_matched_nayax_transaction_id_idx',
-  'Matched Nayax transaction IDs have a race-safe unique index'
+  'Cross-case matched Nayax references are no longer a local payment veto'
 );
 
 select is(
@@ -128,13 +128,14 @@ select ok(
   'An ambiguous recommendation cannot become execution eligible'
 );
 
-select ok(
+select is(
   pg_temp.capture_error($sql$
     update public.refund_cases
     set matched_nayax_transaction_id = 'nayax-test-transaction-1'
     where id = '74000000-0000-4000-8000-000000000002'
-  $sql$) like '23505:%',
-  'A Nayax transaction cannot be linked to two refund cases'
+  $sql$),
+  null,
+  'Two refund cases may reference one Nayax purchase for provider enforcement'
 );
 
 select ok(
