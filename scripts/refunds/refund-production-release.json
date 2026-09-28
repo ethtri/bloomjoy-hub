@@ -256,7 +256,8 @@
     "20260928050000_nayax_reader_replacement.sql",
     "20260928112052_refund_projection_timeout_repair.sql",
     "20260928122500_refund_overview_timeout_repair.sql",
-    "20260928134500_refund_overview_contract_reuse.sql"
+    "20260928134500_refund_overview_contract_reuse.sql",
+    "20260928181500_refund_overview_runtime_budget.sql"
   ],
   "migrationFilesSha256": "1298e3fca31040773c4de2e5838f439b9df6241c767b60997c3168c8c71a5a68",
   "migrationVersionSetSha256": "f1d47af6832852c2d3cd4ba76a6165e27245943e93ba8072a40b1f71b84acfcd",

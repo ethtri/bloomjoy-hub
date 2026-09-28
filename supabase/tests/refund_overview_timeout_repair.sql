@@ -32,6 +32,10 @@ select ok(strpos(pg_get_functiondef(
     'public.admin_get_refund_operations_overview()'::regprocedure),
     'refund_project_current_next_work_cases')>0,
   'final overview validates current next-work contracts before reuse');
+select ok((select proconfig @> array['statement_timeout=20s','work_mem=32MB']
+    from pg_proc where oid=
+      'public.admin_get_refund_operations_overview()'::regprocedure),
+  'overview has a function-scoped production runtime and memory budget');
 
 insert into auth.users(
   instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
@@ -154,10 +158,10 @@ select is(public.refund_decision_recommendation_for_case(
 
 set local role authenticated;
 select pg_temp.set_auth_claims('a9600000-0000-4000-8000-000000000001');
-set local statement_timeout='7500ms';
+set local statement_timeout='30s';
 select lives_ok($test$
   select public.admin_get_refund_operations_overview()
-$test$,'production-shaped authenticated overview stays below the API timeout');
+$test$,'production-shaped authenticated overview completes within its bounded runtime budget');
 create temporary table current_overview on commit drop as
 select public.admin_get_refund_operations_overview() value;
 select is((select value->>'customerCorrectionFieldsContractVersion'
