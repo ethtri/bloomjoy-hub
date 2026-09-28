@@ -247,7 +247,12 @@
     "20260927150900_refund_empty_question_research_projection.sql",
     "20260927172346_refund_no_question_health_truth.sql",
     "20260927181037_refund_current_completion_copy_recovery.sql",
-    "20260927190000_nayax_pending_sales_recovery.sql"
+    "20260927190000_nayax_pending_sales_recovery.sql",
+    "20260927191000_nayax_dtm_history_import.sql",
+    "20260927191100_refund_decision_recommendation.sql",
+    "20260927191500_refund_recommendation_notification_consumers.sql",
+    "20260927210000_nayax_historical_inactive_exact_link_recovery.sql",
+    "20260927220000_nayax_wrong_venue_relocation_hold.sql"
   ],
   "migrationFilesSha256": "43359ebc62da39d0af62d40f4874ddd2e61ffd9a559d21232372e04522c46d41",
   "migrationVersionSetSha256": "140496b288911331f2d62d17aa9460b2725adfa0abd45fa8df2408063a988e81",
