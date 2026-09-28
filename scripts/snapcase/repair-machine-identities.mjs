@@ -40,10 +40,9 @@ export const normalizeRepairManifest = (value) => {
       expectedTargetAccountId: requireUuid(repair.expectedTargetAccountId, `${prefix}.expectedTargetAccountId`),
       expectedTargetLocationId: requireUuid(repair.expectedTargetLocationId, `${prefix}.expectedTargetLocationId`),
       expectedTargetMachineType: requireText(repair.expectedTargetMachineType, `${prefix}.expectedTargetMachineType`),
-      expectedTargetNayaxMachineId: requireText(
-        repair.expectedTargetNayaxMachineId,
-        `${prefix}.expectedTargetNayaxMachineId`
-      ),
+      expectedTargetNayaxMachineId: repair.expectedTargetNayaxMachineId === null
+        ? null
+        : requireText(repair.expectedTargetNayaxMachineId, `${prefix}.expectedTargetNayaxMachineId`),
       partnershipId: null,
       effectiveStartDate: requireText(repair.effectiveStartDate, `${prefix}.effectiveStartDate`),
       effectiveEndDate: repair.effectiveEndDate === null

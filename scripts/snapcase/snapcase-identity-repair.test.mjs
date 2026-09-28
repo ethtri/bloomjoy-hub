@@ -53,6 +53,32 @@ test('dry-run controls accept an exact legacy Nayax-bound target', () => {
   assert.equal(control.rollbackReportingMachineId, ids.duplicate);
 });
 
+test('rollback controls accept the exact native SnapCase target without a Nayax identity', () => {
+  const rollback = normalizeRepairManifest({
+    version: 1,
+    repairs: [{
+      ...repair,
+      expectedCurrentReportingMachineId: ids.target,
+      targetReportingMachineId: ids.duplicate,
+      expectedTargetMachineType: 'snapcase',
+      expectedTargetNayaxMachineId: null,
+      reason: 'Rollback exact SnapCase identity repair',
+    }],
+  });
+  const rollbackQueue = [{ ...queue[0], reportingMachineId: ids.target }];
+  const duplicate = {
+    ...canonical,
+    id: ids.duplicate,
+    machine_type: 'snapcase',
+    nayax_machine_id: null,
+  };
+
+  const [control] = buildRepairPreflight(rollback, rollbackQueue, [duplicate]);
+  assert.equal(control.beforeReportingMachineId, ids.target);
+  assert.equal(control.afterReportingMachineId, ids.duplicate);
+  assert.equal(control.targetNayaxMachineId, null);
+});
+
 test('one bounded dry run validates all six exact source and target identities', () => {
   const candidateKeys = [
     ['white-oaks', '1001298', '159'],

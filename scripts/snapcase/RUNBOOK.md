@@ -94,8 +94,10 @@ timestamps may therefore change. The source/window/timezone/count/digest/batch
 evidence must remain equal, along with fact IDs, hashes, amounts, mapping identity,
 and `mapped_at`. Re-run the preview afterward. For a rollback, swap the target
 controls to the printed rollback machine and keep the same effective mapping
-window. Do not manually delete source observations, sales facts, receipts,
-assignments, compensation, tax rows, or access grants.
+window. A native SnapCase rollback target may use a null expected Nayax ID; its
+exact account, location, type, and null Sunze/Nayax identities still have to pass
+the bounded preflight. Do not manually delete source observations, sales facts,
+receipts, assignments, compensation, tax rows, or access grants.
 
 ## Import health and recovery
 
