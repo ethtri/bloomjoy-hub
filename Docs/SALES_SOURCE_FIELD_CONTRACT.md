@@ -26,7 +26,7 @@ recorded replacement decision. It must not reinterpret history silently.
 
 | Source/surface | Imported fields | Amount and tax basis | Status and time basis | Current use |
 | --- | --- | --- | --- | --- |
-| Sunze Orders UI/export | `Order amount`, `Tax`, `Payment method`, `Payment time`, `Status`, `Machine code`, order ID | The exported `Order amount` is stored as `net_sales_cents`; `Tax` is stored separately as `tax_cents`. Finance reports that the online app view is tax-exclusive, but the existing sanitized evidence does not prove that every exported `Order amount` has that same basis. Blank/zero `Tax` is not proof of exemption. | Only `Payment success` publishes. Explicit offsets preserve their instant; timezone-less/Excel cells remain `unvalidated_utc_compatibility` until the account-wide clock is proved. Late rows arrive through overlapping exports. | Cash authority. Existing Sunze/Nayax prospective boundaries retain legacy Sunze card history but make Nayax authoritative for new card facts. Do not apply another tax subtraction to a value proved tax-exclusive. |
+| Sunze Orders UI/export | `Order amount`, `Tax`, `Payment method`, `Payment time`, `Status`, `Machine code`, order ID | The exported `Order amount` is stored as `net_sales_cents`. Finance confirms that Orders UI `Revenue` is tax-exclusive, and the bounded export proves that the sum of `Order amount` equals that UI value. Treat every published Sunze `Order amount` as tax-exclusive, regardless of tender. `Tax` remains a separate nullable source field; blank/zero `Tax` is not proof of exemption. | Only `Payment success` publishes. Explicit offsets preserve their instant; timezone-less/Excel cells remain `unvalidated_utc_compatibility` until the account-wide clock is proved. Late rows arrive through overlapping exports. | Cash authority. Existing Sunze/Nayax prospective boundaries retain legacy Sunze card history but make Nayax authoritative for new card facts. Amount basis does not grant source authority; do not add Sunze card to the corresponding Nayax card. |
 | Kexiaozhan merchant payment/API | payment `outTradeNo`, `orderNos`, `paymentAmount`, `refundAmount`, `paymentMethod`, `paymentInstrument`, `status`, `paymentTime`, `currency`; order fields are context | For the tested cash shape, the UI renders `paymentAmount` directly and it equals the API payment value and linked order value. Treat it as gross customer cash collected. Sampled order tax fields were empty, which means unknown, not zero; reporting currently derives tax downstream from the effective Hub machine rule. | Payment status: 0 pending, 1 success, 2 failed, 3 refunding, 4 refund success, 5 refund failed. Publish status 1 only. Use the machine IANA timezone confirmed by the owner and half-open `[start,end)` payment windows. Payment is the unit even when `orderNos` has multiple entries. | Cash authority. Card rows remain comparison context only. A later refund mutation must preserve the original gross sale for review instead of erasing it. |
 | Nayax scheduled report / DTM | provider transaction identity, settled amount/time, authorization amount/time where retained, currency, status and refund receipt/event | Finance uses Nayax tax-inclusive card charges for Livermore/Great Mall and Enterprise Merlin removes tax downstream. The current card fact is therefore a gross customer charge; normalize tax exactly once using the applicable report/contract rule. Authorization alone is not a sale. | Admit only the existing settled USD shape. Keep the existing settlement-local sale date; occurrence and settlement clocks remain separate evidence. Provider status/receipt proves paid refunds. | Card sale and paid card-refund authority. Nayax is not evidence that vendor cash is complete. |
 | Refund case | `id`, `duplicate_of_refund_case_id`, `customer_request_received_at`, `payment_amount_cents`, `refund_amount_cents`, matched sale/Nayax amount, decision/status, completion receipt/adjustment | Public intake requires a positive amount and currently writes it to both payment and refund amount fields. The UI describes it as the customer's requested amount/estimate. Exact selected Nayax or cash-sale evidence supersedes the estimate for review/execution. | Request time is server-owned. Case status describes workflow; financial payment requires an authoritative receipt/adjustment. A failed/ambiguous execution can still leave a valid request outstanding. | Canonical requested and paid refund components. Duplicate cases contribute zero independently. |
@@ -35,7 +35,7 @@ recorded replacement decision. It must not reinterpret history silently.
 
 | Sample | App/source comparison | Count/cent result | Conclusion or unresolved difference |
 | --- | --- | --- | --- |
-| Sunze Orders export used by the existing importer | For the inspected filter, export row count equalled the Orders UI record count and the sum of `Order amount` equalled UI `Revenue`. | Exact parity was observed; the dated sanitized discovery record intentionally retained no private count or cent total. | UI/export arithmetic parity is proved for that filter. Tax basis and timezone are not. White Oaks and Woodland refund figures remain bounded reference fixtures, not final request-adjusted totals. |
+| Sunze Orders export used by the existing importer | For the inspected filter, export row count equalled the Orders UI record count and the sum of `Order amount` equalled UI `Revenue`; Finance confirms that the online Orders values exclude tax. | Exact parity was observed; the dated sanitized discovery record intentionally retained no private count or cent total. | Published Sunze `Order amount` is tax-exclusive for cash and retained card history. This basis rule does not change the current cash/card authority split. The payment-time timezone remains unresolved. |
 | Kexiaozhan complete September 20 payment window | 26 payment rows, all status 1: 5 cash and 21 card-context rows. All 26 joined to one order in this sample; each payment amount/time equalled its linked order. The API also returned 30 paid/completed orders, four with payment times outside the requested window. | Five cash payment values matched the UI-rendered/API major-unit values and their linked order values exactly to the cent. | Payments, rather than orders, anchor financial count and window coverage. This proves the sampled cash shape, not universal card completeness or tax basis. |
 | Six mapped Kexiaozhan/Nayax cohorts, September 24-27 | Five successful Kex card observations and five positive-authorization Nayax observations; four unique same-amount candidates were within 3.74 seconds. | One Central-machine pair did not match by amount/time within two minutes. | Vendor card coverage is not proved. Machine-name mapping does not make two payments the same transaction. |
 | Kexiaozhan refunded payments | 18 sampled status-4 rows had `refundAmount = paymentAmount`; no pending, failed or partial refund was present. | Full mutation shape only. | Cumulative partials, reversals and omission behavior remain unproved. The current projection preserves previously published gross as `review_preserved`; it must not remove the original sale and then also deduct Hub's refund. |
@@ -127,8 +127,39 @@ named estimate basis, not an included-tax calculation. Preserve it only where an
 existing partner contract explicitly requires that legacy basis and expose its
 provenance; do not feed it into the new shared tax-inclusive normalization.
 
-Normalize each requested/paid refund component using the original sale's basis
-and tax attribution. Payment completion never creates another tax reversal.
+Normalize each requested/paid refund component only when its own amount basis is
+proved, while retaining the original sale's tax attribution as separate context.
+Payment completion never creates another tax reversal.
+
+The shared implementation in
+`private.machine_sales_calculation_candidates(uuid, date, date)` returns an
+evidence union of sale, outstanding-request and paid-refund candidates. Its date
+range finds candidates through sale, incident, request-receipt or paid-evidence
+dates; it is not a final additive accounting-period rollup. Request rows
+carry only their unpaid gross amount as the additive component; cumulative paid
+cents across the canonical case and its duplicate descendants are context,
+while each distinct positive adjustment remains its own paid component. Legacy
+adjustments linked only by `refund_cases.reporting_adjustment_id` retain their
+case and tender context. The function exposes incident, request-receipt and
+paid-evidence dates separately and does not select an effective refund date.
+
+Refund amount basis follows explicit adjustment metadata or exact Nayax
+card/refund provenance. The hosted public intake's required "amount you paid"
+is a tax-inclusive customer-charge estimate and remains usable before payment
+matching. A matched sale's basis alone does not prove whether a separately
+recorded request or adjustment amount includes tax. A legacy sheet/manual amount
+without that evidence remains `unknown`; its recorded cents stay visible and is
+not relabeled tax-inclusive. A positive imported `tax_cents` value also needs an
+explicit amount/tax-basis contract before it can prove separate-tax treatment.
+
+`private.normalize_financial_amount_cents(...)` keeps an unknown basis nullable
+instead of calling the recorded input tax-exclusive. Its per-fact normalized
+sale fields are diagnostic. A financial consumer must group recorded sale cents
+by machine-local day, effective amount basis and effective rate, then normalize
+and round once at that approved scope; summing transaction-level rounded tax can
+move pennies. `private.normalize_refund_cents(...)` instead normalizes the
+cumulative requested target and cumulative paid amount before subtracting them,
+which prevents partial-payment rounding drift.
 
 The remaining owner policy choice is period attribution for a request received
 after the sale period. Existing completed adjustments use completion/evidence
