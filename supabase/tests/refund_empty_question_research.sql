@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(19);
+select plan(23);
 update public.refund_customer_contact_settings
 set automatic_customer_contact_enabled=true,correction_links_enabled=true
 where singleton;
@@ -60,6 +60,42 @@ select 'b9200000-0000-4000-8002-000000000001',c.id,1,repeat('b',64),
   settings.reminder_delay_hours
 from public.refund_cases c cross join public.refund_customer_contact_settings settings
 where c.id='b9200000-0000-4000-8001-000000000001' and settings.singleton;
+
+savepoint obsolete_unknown_question;
+insert into public.refund_case_messages(id,refund_case_id,message_type,status,
+  recipient_email,subject,body,content_source,delivery_kind,reason_code,
+  template_version,follow_up_cycle_id,requested_fields)
+select 'b9200000-0000-4000-8003-000000000001',c.id,'no_safe_match','pending',
+  c.customer_email,'Purchase detail request','Fixture empty question body',
+  'deterministic_template','automatic','no_safe_match',cycle.template_version,
+  cycle.id,'{}'::text[]
+from public.refund_cases c join public.refund_follow_up_cycles cycle
+  on cycle.refund_case_id=c.id
+where c.id='b9200000-0000-4000-8001-000000000001';
+set local role service_role;
+select public.service_mark_refund_transactional_delivery_attempt(
+  'b9200000-0000-4000-8003-000000000001');
+select public.service_bind_refund_transactional_delivery(
+  'b9200000-0000-4000-8003-000000000001',
+  'obsolete-question-provider',statement_timestamp());
+select public.service_record_refund_transactional_delivery_event(
+  repeat('e',64),'obsolete-question-provider','deferred',statement_timestamp());
+reset role;
+select is(public.refund_customer_outreach_contract(
+  'b9200000-0000-4000-8001-000000000001')->>'state','delivery_unknown',
+  'The historical empty question keeps its unknown transport evidence');
+select is(public.service_get_refund_clarification_contact_obligation_health(
+  true,true,statement_timestamp())->>'unresolvedCount','0',
+  'An empty question with no current field is not a current obligation');
+select is(public.service_get_refund_clarification_contact_obligation_health(
+  true,true,statement_timestamp())->>'resolvedObsoleteCount','1',
+  'The obsolete unknown question has an explicit redacted disposition');
+select is((select status from public.refund_case_messages
+  where id='b9200000-0000-4000-8003-000000000001'),'pending',
+  'The health projection does not rewrite the historical parent message');
+rollback to savepoint obsolete_unknown_question;
+release savepoint obsolete_unknown_question;
+
 update public.refund_follow_up_cycles
 set status='manual_review',failed_at=statement_timestamp(),failure_code='request_claim_abandoned'
 where id='b9200000-0000-4000-8002-000000000001';
