@@ -6,6 +6,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { correctionLinkRequested, getCurrentRefundCorrectionFields, refundCorrectionLinksEnabled, STORED_CORRECTION_LINK_MARKER } from "../_shared/refund-correction-delivery.ts";
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import {
+  auditedPriorCompletionDeliverySet,
   reviewedCurrentCompletionCopy,
   verifiedUnsentCompletionThreadHistory,
 } from "../_shared/refund-exhausted-completion-recovery.ts";
@@ -626,8 +627,20 @@ serve(async (req) => {
           .eq("id", attemptEvidence?.completion_gmail_thread_id ?? "")
           .eq("refund_case_id", caseId)
           .maybeSingle();
+        const { data: priorDeliveryEvents, error: priorDeliveryEventsError } =
+          await supabase
+            .from("refund_case_events")
+            .select("event_type,created_at,metadata")
+            .eq("refund_case_id", caseId)
+            .eq("event_type", "refund_customer_completion_recovery_sent");
+        const auditedPriorDeliveries = auditedPriorCompletionDeliverySet({
+          events: priorDeliveryEvents ?? [],
+          completionMessageId,
+        });
         const gmailConfig = getRefundGmailConfig();
         if (messageEvidenceError || attemptEvidenceError || threadLinkError ||
+          priorDeliveryEventsError ||
+          !auditedPriorDeliveries ||
           !messageEvidence || !attemptEvidence || !threadLink || !gmailConfig ||
           threadLink.mailbox_hash !== await sha256Hex(gmailConfig.mailbox)) {
           return jsonResponse({ error: "Original completion thread evidence is unavailable." }, 409);
@@ -648,6 +661,7 @@ serve(async (req) => {
           recipientEmail: messageEvidence.recipient_email,
           completionCreatedAt: messageEvidence.created_at,
           completionMessageId,
+          auditedPriorDeliveryAt: auditedPriorDeliveries[0]?.deliveredAt ?? null,
         })) {
           return jsonResponse({
             error: "Original Gmail history changed or contains later sent mail. Reconcile delivery before recovery.",
