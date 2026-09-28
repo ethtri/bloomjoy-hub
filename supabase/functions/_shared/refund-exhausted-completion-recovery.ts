@@ -16,6 +16,50 @@ export type AuditedPriorCompletionDelivery = {
   managerCcCount: number;
 };
 
+export type GovernedCompletionThreadEvidence = {
+  gmailThreadId: string;
+};
+
+const isUuid = (value: unknown): value is string =>
+  typeof value === "string" &&
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    .test(value);
+
+// The privileged loader validates the settled payment and its exact completion
+// message inside Postgres. This parser binds that envelope back to the already
+// case-and-message-scoped row before Gmail evidence may be inspected.
+export const governedCompletionThreadEvidence = ({
+  loaded,
+  loadError,
+  caseId,
+  completionMessageId,
+  recipientEmail,
+}: {
+  loaded: unknown;
+  loadError: unknown;
+  caseId: string;
+  completionMessageId: string;
+  recipientEmail: string;
+}): GovernedCompletionThreadEvidence | null => {
+  if (loadError || !loaded || typeof loaded !== "object") return null;
+  const envelope = loaded as Record<string, unknown>;
+  const message = envelope.message && typeof envelope.message === "object"
+    ? envelope.message as Record<string, unknown>
+    : null;
+  if (
+    envelope.payloadRedacted !== true ||
+    envelope.transport !== "gmail_thread" ||
+    !isUuid(envelope.gmailThreadId) ||
+    !message ||
+    message.id !== completionMessageId ||
+    message.refundCaseId !== caseId ||
+    typeof message.recipientEmail !== "string" ||
+    message.recipientEmail.trim().toLowerCase() !==
+      recipientEmail.trim().toLowerCase()
+  ) return null;
+  return { gmailThreadId: envelope.gmailThreadId };
+};
+
 const auditedPriorDeliveryMetadataKeys = [
   "deliveryTransport",
   "managerCcCount",

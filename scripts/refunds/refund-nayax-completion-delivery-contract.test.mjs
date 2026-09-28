@@ -123,6 +123,18 @@ test('exhausted completion inspection is authorized read-only evidence before ev
   const validation = messageSend.slice(completionStart, diagnosticStart);
   assert.match(
     validation,
+    /\.rpc\("service_load_nayax_refund_completion",\s*\{\s*p_attempt_id: attemptId/,
+  );
+  assert.doesNotMatch(
+    validation,
+    /\.from\("refund_case_nayax_refund_attempts"\)/,
+  );
+  assert.match(
+    validation,
+    /governedCompletionThreadEvidence\(\{[\s\S]*?completionMessageId,[\s\S]*?recipientEmail: messageEvidence\.recipient_email/,
+  );
+  assert.match(
+    validation,
     /exhaustedRecovery\s*\?\s*\["caseId", "nayaxExhaustedCompletionMessageId", "originalThreadHistoryId", "recoverySubject", "recoveryBody", "inspectExhaustedCompletionRecovery"\]\s*:\s*\["caseId", "nayaxCompletionMessageId"\]/,
   );
   assert.match(

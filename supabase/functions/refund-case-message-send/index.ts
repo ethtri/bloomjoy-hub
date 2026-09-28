@@ -8,6 +8,7 @@ import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.
 import {
   auditedPriorCompletionDeliverySet,
   diagnoseUnsentCompletionThreadHistory,
+  governedCompletionThreadEvidence,
   reviewedCurrentCompletionCopy,
   verifiedUnsentCompletionThreadHistory,
 } from "../_shared/refund-exhausted-completion-recovery.ts";
@@ -620,16 +621,26 @@ serve(async (req) => {
           .eq("id", completionMessageId)
           .eq("refund_case_id", caseId)
           .maybeSingle();
-        const { data: attemptEvidence, error: attemptEvidenceError } = await supabase
-          .from("refund_case_nayax_refund_attempts")
-          .select("completion_gmail_thread_id")
-          .eq("id", messageEvidence?.nayax_refund_attempt_id ?? "")
-          .eq("refund_case_id", caseId)
-          .maybeSingle();
+        const attemptId = messageEvidence?.nayax_refund_attempt_id;
+        const { data: loadedCompletion, error: loadedCompletionError } =
+          isUuid(attemptId ?? "")
+            ? await supabase.rpc("service_load_nayax_refund_completion", {
+                p_attempt_id: attemptId,
+              })
+            : { data: null, error: { code: "invalid_attempt_id" } };
+        const attemptEvidence = messageEvidence
+          ? governedCompletionThreadEvidence({
+              loaded: loadedCompletion,
+              loadError: loadedCompletionError,
+              caseId,
+              completionMessageId,
+              recipientEmail: messageEvidence.recipient_email,
+            })
+          : null;
         const { data: threadLink, error: threadLinkError } = await supabase
           .from("refund_gmail_threads")
           .select("id,provider_thread_id,mailbox_hash")
-          .eq("id", attemptEvidence?.completion_gmail_thread_id ?? "")
+          .eq("id", attemptEvidence?.gmailThreadId ?? "")
           .eq("refund_case_id", caseId)
           .maybeSingle();
         const { data: priorDeliveryEvents, error: priorDeliveryEventsError } =
@@ -645,7 +656,8 @@ serve(async (req) => {
         const gmailConfig = getRefundGmailConfig();
         const evidenceDiagnostic = {
           databaseReadsSucceeded: !messageEvidenceError &&
-            !attemptEvidenceError && !threadLinkError &&
+            !loadedCompletionError && Boolean(attemptEvidence) &&
+            !threadLinkError &&
             !priorDeliveryEventsError,
           auditedPriorDeliveryValid: Boolean(auditedPriorDeliveries),
           messageEvidencePresent: Boolean(messageEvidence),
@@ -658,10 +670,11 @@ serve(async (req) => {
           ),
           payloadRedacted: true as const,
         };
-        if (messageEvidenceError || attemptEvidenceError || threadLinkError ||
+        if (messageEvidenceError || loadedCompletionError || !attemptEvidence ||
+          threadLinkError ||
           priorDeliveryEventsError ||
           !auditedPriorDeliveries ||
-          !messageEvidence || !attemptEvidence || !threadLink || !gmailConfig ||
+          !messageEvidence || !threadLink || !gmailConfig ||
           !evidenceDiagnostic.mailboxHashMatch) {
           if (inspectExhaustedRecovery) {
             return jsonResponse({
