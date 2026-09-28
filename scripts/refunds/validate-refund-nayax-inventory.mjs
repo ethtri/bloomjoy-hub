@@ -9,11 +9,14 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const read = (...parts) => fs.readFileSync(path.join(repoRoot, ...parts), 'utf8');
 const migration = read('supabase', 'migrations', '20260821091000_refund_nayax_inventory.sql');
 const recipientRouteV2 = read('supabase', 'migrations', '20260825231621_refund_manager_recipient_route_v2.sql');
+const readerReplacement = read('supabase', 'migrations', '20260928050000_nayax_reader_replacement.sql');
 const portfolioCorrection = read('supabase', 'migrations', '20260822190000_refund_portfolio_intake_inventory_correction.sql');
 const edge = read('supabase', 'functions', 'refund-nayax-inventory-sync', 'index.ts');
 const intake = read('supabase', 'functions', 'refund-case-intake', 'index.ts');
 const workflow = read('.github', 'workflows', 'refund-nayax-inventory-sync.yml');
 const runbook = read('Docs', 'REFUND_NAYAX_INVENTORY_RUNBOOK.md');
+const machinesPage = read('src', 'pages', 'admin', 'Machines.tsx');
+const refundOperations = read('src', 'lib', 'refundOperations.ts');
 
 const checks = [
   ['inventory is keyed by account plus immutable ID', /unique \(account_key, nayax_machine_id\)/i.test(migration)],
@@ -55,6 +58,36 @@ const checks = [
   ['runbook is subordinate to the canonical workflow', /subordinate to[\s\S]*REFUND_WORKFLOW\.md/i.test(runbook)],
   ['runbook keeps inventory from becoming a case gate', /cannot add a customer[\s\S]*Manager approval[\s\S]*account-wide payment gate/i.test(runbook)],
   ['runbook retires pilot and activation ceremony', /Do not create a pilot cohort, owner ceremony, live-refund canary, or separate\s+Manager approval/i.test(runbook)],
+  ['reader replacement is one audited atomic RPC',
+    /create or replace function public\.admin_replace_refund_nayax_machine/i.test(readerReplacement)
+      && /reporting_machine\.nayax_reader\.replaced/i.test(readerReplacement)],
+  ['replacement candidates are constrained to active current unlinked same-account inventory',
+    /candidate\.accountKey === inventoryMachine\.accountKey/i.test(machinesPage)
+      && /candidate\.providerActive/i.test(machinesPage)
+      && /candidate\.missingSuccessfulSnapshots === 0/i.test(machinesPage)
+      && /!candidate\.reportingMachineId/i.test(machinesPage)],
+  ['replacement preserves the existing authority boundary and historical rows',
+    /preserved_authority_start := machine\.nayax_card_sales_started_on/i.test(readerReplacement)
+      && /nayax_card_sales_started_on = preserved_authority_start/i.test(readerReplacement)
+      && !/delete from public\.refund_/i.test(readerReplacement)],
+  ['replacement preserves the existing customer intake setting',
+    !/refund_intake_enabled/i.test(readerReplacement)],
+  ['replacement validates ready state before commit',
+    /Replacement mapping did not pass readiness verification/i.test(readerReplacement)],
+  ['ordinary save timeout tells the operator that nothing was saved',
+    /The change took too long and was not saved/i.test(refundOperations)
+      && /role=\{saveNotice\.kind === 'error' \? 'alert' : 'status'\}/i.test(machinesPage)],
+  ['replacement UI explains historical linkage',
+    /old reader stays attached to its historical sales and refund records/i.test(machinesPage)],
+  ['replacement UI shows the exact old and selected Nayax IDs before save',
+    /Confirm Nayax ID change:[\s\S]*inventoryMachine\.nayaxMachineId[\s\S]*selectedReplacement\.nayaxMachineId/i.test(machinesPage)],
+  ['machine refund setup links existing readers directly to focused replacement review',
+    /Review reader replacement/i.test(machinesPage)
+      && /inventory\?externalMachineId=\$\{encodeURIComponent\(refundManagerSetup\.nayaxMachineId\)\}/i.test(machinesPage)
+      && /hardware swap that kept Nayax ID/i.test(machinesPage)],
+  ['mapped readers keep the replacement path visible when provider inventory has no candidate',
+    /No eligible replacement is in the latest inventory/i.test(machinesPage)
+      && /const canReplace = inventoryMachine\.state === 'published'\s*&& Boolean\(inventoryMachine\.reportingMachineId\)/i.test(machinesPage)],
 ];
 
 for (const [label, passed] of checks) {
