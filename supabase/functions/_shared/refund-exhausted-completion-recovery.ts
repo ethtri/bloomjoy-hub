@@ -13,6 +13,7 @@ export type ReviewedCurrentCompletionCopy = {
 
 export type AuditedPriorCompletionDelivery = {
   deliveredAt: string;
+  managerCcCount: number;
 };
 
 const auditedPriorDeliveryMetadataKeys = [
@@ -57,7 +58,10 @@ export const auditedPriorCompletionDelivery = ({
     !/^[a-f0-9]{64}$/.test(metadata.providerMessageIdDigest) ||
     !Number.isFinite(Date.parse(deliveredAt))
   ) return null;
-  return { deliveredAt };
+  return {
+    deliveredAt,
+    managerCcCount: metadata.managerCcCount as number,
+  };
 };
 
 export const auditedPriorCompletionDeliverySet = ({
@@ -112,7 +116,9 @@ export const verifiedUnsentCompletionThreadHistory = ({
   recipientEmail,
   completionCreatedAt,
   completionMessageId,
-  auditedPriorDeliveryAt = null,
+  auditedPriorDelivery = null,
+  mailboxEmail = null,
+  senderIdentities = [],
 }: {
   thread: GmailThread;
   providerThreadId: string;
@@ -120,13 +126,19 @@ export const verifiedUnsentCompletionThreadHistory = ({
   recipientEmail: string;
   completionCreatedAt: string;
   completionMessageId: string;
-  auditedPriorDeliveryAt?: string | null;
+  auditedPriorDelivery?: AuditedPriorCompletionDelivery | null;
+  mailboxEmail?: string | null;
+  senderIdentities?: string[];
 }): string | null => {
   const createdMs = Date.parse(completionCreatedAt);
-  const auditedPriorMs = auditedPriorDeliveryAt === null
+  const auditedPriorMs = auditedPriorDelivery === null
     ? null
-    : Date.parse(auditedPriorDeliveryAt);
+    : Date.parse(auditedPriorDelivery.deliveredAt);
   const recipient = recipientEmail.trim().toLowerCase();
+  const mailbox = mailboxEmail?.trim().toLowerCase() ?? "";
+  const senders = new Set(senderIdentities.map((value) =>
+    value.trim().toLowerCase()
+  ).filter(Boolean));
   if (
     thread.id !== providerThreadId ||
     !/^[0-9]{3,30}$/.test(reviewedHistoryId) ||
@@ -135,13 +147,18 @@ export const verifiedUnsentCompletionThreadHistory = ({
     !Number.isFinite(createdMs) ||
     (auditedPriorMs !== null && !Number.isFinite(auditedPriorMs)) ||
     (auditedPriorMs !== null && auditedPriorMs < createdMs) ||
+    (auditedPriorDelivery !== null &&
+      (!mailbox || senders.size === 0 ||
+        !Number.isInteger(auditedPriorDelivery.managerCcCount) ||
+        auditedPriorDelivery.managerCcCount < 1 ||
+        auditedPriorDelivery.managerCcCount > 4)) ||
     !recipient
   ) return null;
 
   const operationMarker = refundGmailOperationMarker(
     `refund-case-message:${completionMessageId}`,
   );
-  let auditedPriorSentCount = 0;
+  let auditedPriorDeliveryCount = 0;
   for (const message of thread.messages) {
     if (message.threadId !== providerThreadId) return null;
     const headers = message.payload?.headers;
@@ -153,24 +170,31 @@ export const verifiedUnsentCompletionThreadHistory = ({
     }
     const labels = message.labelIds ?? [];
     if (labels.includes("DRAFT")) return null;
-    if (!labels.includes("SENT")) continue;
-    const recipients = ["To", "Cc", "Bcc"].flatMap((header) =>
-      parseEmailAddressList(getGmailHeader(headers, header))
-    );
+    const toRecipients = parseEmailAddressList(getGmailHeader(headers, "To"));
+    const ccRecipients = parseEmailAddressList(getGmailHeader(headers, "Cc"));
+    const recipients = [...toRecipients, ...ccRecipients,
+      ...parseEmailAddressList(getGmailHeader(headers, "Bcc"))];
+    if (auditedPriorMs === null && !labels.includes("SENT")) continue;
     if (!recipients.includes(recipient)) continue;
     const sentMs = Number(message.internalDate);
     if (!Number.isFinite(sentMs)) return null;
     if (sentMs < createdMs) continue;
     if (
       auditedPriorMs !== null &&
-      Math.abs(sentMs - auditedPriorMs) <= 60 * 1000
+      Math.abs(sentMs - auditedPriorMs) <= 60 * 1000 &&
+      labels.includes("INBOX") && !labels.includes("SENT") &&
+      toRecipients.length === 1 && toRecipients[0] === recipient &&
+      ccRecipients.length === auditedPriorDelivery!.managerCcCount &&
+      ccRecipients.includes(mailbox) &&
+      parseEmailAddressList(getGmailHeader(headers, "From"))
+        .some((from) => senders.has(from))
     ) {
-      auditedPriorSentCount += 1;
-      if (auditedPriorSentCount > 1) return null;
+      auditedPriorDeliveryCount += 1;
+      if (auditedPriorDeliveryCount > 1) return null;
       continue;
     }
     return null;
   }
-  if (auditedPriorMs !== null && auditedPriorSentCount !== 1) return null;
+  if (auditedPriorMs !== null && auditedPriorDeliveryCount !== 1) return null;
   return reviewedHistoryId;
 };

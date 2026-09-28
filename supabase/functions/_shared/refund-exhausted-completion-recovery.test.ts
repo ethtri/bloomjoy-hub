@@ -41,6 +41,8 @@ const input = {
 };
 
 const priorDeliveryAt = "2026-09-19T14:47:22.399191Z";
+const mailboxEmail = "operator@example.test";
+const senderIdentities = ["info@example.test"];
 const auditedEvent = {
   event_type: "refund_customer_completion_recovery_sent",
   created_at: priorDeliveryAt,
@@ -111,20 +113,26 @@ Deno.test("an exact audited prior stale completion delivery is accepted once", (
     event: auditedEvent,
     completionMessageId: messageId,
   });
-  if (audited?.deliveredAt !== priorDeliveryAt) {
+  if (audited?.deliveredAt !== priorDeliveryAt || audited.managerCcCount !== 2) {
     throw new Error("Expected exact audited prior delivery");
   }
   const staleSent = {
     id: "stale-completion",
     threadId: original.id,
     internalDate: String(Date.parse("2026-09-19T14:47:20Z")),
-    labelIds: ["SENT"],
-    payload: { headers: [{ name: "To", value: "customer@example.test" }] },
+    labelIds: ["INBOX"],
+    payload: { headers: [
+      { name: "From", value: "Bloomjoy <info@example.test>" },
+      { name: "To", value: "customer@example.test" },
+      { name: "Cc", value: "manager@example.test, operator@example.test" },
+    ] },
   };
   if (
     verifiedUnsentCompletionThreadHistory({
       ...input,
-      auditedPriorDeliveryAt: audited.deliveredAt,
+      auditedPriorDelivery: audited,
+      mailboxEmail,
+      senderIdentities,
       thread: { ...original, messages: [...original.messages!, staleSent] },
     }) !== "673955"
   ) throw new Error("Exact audited prior delivery was rejected");
@@ -220,12 +228,22 @@ Deno.test("audited delivery requires one matching sent message and no draft or l
     id: "stale-completion",
     threadId: original.id,
     internalDate: String(Date.parse("2026-09-19T14:47:20Z")),
-    labelIds: ["SENT"],
-    payload: { headers: [{ name: "To", value: "customer@example.test" }] },
+    labelIds: ["INBOX"],
+    payload: { headers: [
+      { name: "From", value: "Bloomjoy <info@example.test>" },
+      { name: "To", value: "customer@example.test" },
+      { name: "Cc", value: "manager@example.test, operator@example.test" },
+    ] },
   };
+  const audited = auditedPriorCompletionDelivery({
+    event: auditedEvent,
+    completionMessageId: messageId,
+  })!;
   const base = {
     ...input,
-    auditedPriorDeliveryAt: priorDeliveryAt,
+    auditedPriorDelivery: audited,
+    mailboxEmail,
+    senderIdentities,
   };
   if (verifiedUnsentCompletionThreadHistory(base) !== null) {
     throw new Error("Missing audited sent message was accepted");
@@ -233,7 +251,10 @@ Deno.test("audited delivery requires one matching sent message and no draft or l
   if (
     verifiedUnsentCompletionThreadHistory({
       ...base,
-      auditedPriorDeliveryAt: "2026-09-19T14:29:30Z",
+      auditedPriorDelivery: {
+        ...audited,
+        deliveredAt: "2026-09-19T14:29:30Z",
+      },
       thread: {
         ...original,
         messages: [
@@ -292,6 +313,49 @@ Deno.test("audited delivery requires one matching sent message and no draft or l
       },
     }) !== null
   ) throw new Error("A current draft was accepted");
+  if (
+    verifiedUnsentCompletionThreadHistory({
+      ...base,
+      thread: {
+        ...original,
+        messages: [...original.messages!, {
+          ...staleSent,
+          payload: { headers: [
+            { name: "From", value: "attacker@example.test" },
+            { name: "To", value: "customer@example.test" },
+            { name: "Cc", value: "manager@example.test, operator@example.test" },
+          ] },
+        }],
+      },
+    }) !== null
+  ) throw new Error("An untrusted external sender was accepted");
+  for (const unsafe of [
+    { ...staleSent, labelIds: [] },
+    { ...staleSent, labelIds: ["SENT"] },
+    {
+      ...staleSent,
+      payload: { headers: [
+        { name: "From", value: "Bloomjoy <info@example.test>" },
+        { name: "To", value: "customer@example.test" },
+        { name: "Cc", value: "manager@example.test, other@example.test" },
+      ] },
+    },
+    {
+      ...staleSent,
+      payload: { headers: [
+        { name: "From", value: "Bloomjoy <info@example.test>" },
+        { name: "To", value: "customer@example.test" },
+        { name: "Cc", value: "operator@example.test" },
+      ] },
+    },
+  ]) {
+    if (
+      verifiedUnsentCompletionThreadHistory({
+        ...base,
+        thread: { ...original, messages: [...original.messages!, unsafe] },
+      }) !== null
+    ) throw new Error("A mismatched audited inbox envelope was accepted");
+  }
 });
 
 Deno.test("wrong numeric history or a different linked thread is rejected", () => {
