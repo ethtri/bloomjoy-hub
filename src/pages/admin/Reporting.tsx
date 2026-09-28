@@ -61,6 +61,12 @@ import { formatMachineType, machineTypes } from '@/pages/admin/reportingSetupUi'
 const sunzeStaleHours = 30;
 const importedMachineSetupReason = 'Imported source machine setup';
 
+const isEligibleExistingSnapCaseMachine = (
+  machine: Pick<AdminReportingMachine, 'machine_type' | 'sunze_machine_id' | 'nayax_machine_id'>
+) =>
+  !machine.sunze_machine_id &&
+  (machine.machine_type === 'snapcase' || Boolean(machine.nayax_machine_id?.trim()));
+
 type ImportedMachineSetupForm = {
   partnershipId: string;
   mappingMode: 'existing' | 'new';
@@ -1247,10 +1253,10 @@ function ImportedMachineSetupDialog({
                 >
                   <option value="">Choose machine</option>
                   {machines
-                    .filter((item) => item.machine_type === 'snapcase' && !item.sunze_machine_id)
+                    .filter(isEligibleExistingSnapCaseMachine)
                     .map((item) => (
                     <option key={item.id} value={item.id}>
-                      {item.machine_label} — {item.customer_accounts?.name ?? 'Unknown account'} / {item.reporting_locations?.name ?? 'Unknown location'}
+                      {item.machine_label} — {item.customer_accounts?.name ?? 'Unknown account'} / {item.reporting_locations?.name ?? 'Unknown location'} — {formatMachineType(item.machine_type)}{item.machine_type !== 'snapcase' ? ' · Nayax linked' : ''}
                     </option>
                   ))}
                 </select>

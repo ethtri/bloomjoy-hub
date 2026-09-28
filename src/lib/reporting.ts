@@ -68,6 +68,7 @@ export type AdminReportingMachine = {
   machine_type: ReportingMachineType;
   serial_number: string | null;
   sunze_machine_id: string | null;
+  nayax_machine_id: string | null;
   status: string;
   operational_phase: ReportingMachineOperationalPhase;
   created_at: string;
