@@ -31,7 +31,7 @@ orientation snapshot; it is not a backlog or release ledger.
 - The September 28 production timeout is recovered. The read-only admin overview
   has a bounded 20-second function budget, and fresh authenticated production
   checks returned all 71 operational cases plus 11 internal/test cases in
-  9.13-9.70 seconds. The Refunds page rendered 58 active and 13 closed cases
+  roughly 9-14 seconds. The Refunds page rendered 58 active and 13 closed cases
   without console errors. The long wrapper chain remains performance debt; this
   recovery does not widen any payment, refund, or customer-message timeout.
 - Production recovery on 2026-09-19 restored the System card-attempt queue for
