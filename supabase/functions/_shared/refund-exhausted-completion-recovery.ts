@@ -331,6 +331,7 @@ export const diagnoseExternalCompletionCopy = ({
   auditedPriorDelivery,
   mailboxEmail,
   senderEmail,
+  searchScope = "recipient",
 }: {
   messages: GmailMessage[];
   searchComplete: boolean;
@@ -345,6 +346,7 @@ export const diagnoseExternalCompletionCopy = ({
   auditedPriorDelivery: AuditedPriorCompletionDelivery;
   mailboxEmail: string;
   senderEmail: string;
+  searchScope?: "recipient" | "audit_window";
 }): ExternalCompletionCopyDiagnostic => {
   const createdMs = Date.parse(completionCreatedAt);
   const auditedMs = Date.parse(auditedPriorDelivery.deliveredAt);
@@ -418,7 +420,10 @@ export const diagnoseExternalCompletionCopy = ({
     ];
     if (internalMs < createdMs || internalMs > throughMs) continue;
     if (!recipients.includes(recipient)) {
-      diagnostic.blockingMessageCount += 1;
+      // A time-only Gmail search intentionally sees unrelated mailbox traffic.
+      // Ignore only well-formed non-target messages; malformed/unbound evidence
+      // was already rejected above. Recipient-scoped searches remain strict.
+      if (searchScope === "recipient") diagnostic.blockingMessageCount += 1;
       continue;
     }
     diagnostic.customerDirectedAfterCompletionCount += 1;

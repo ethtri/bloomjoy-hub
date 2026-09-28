@@ -303,6 +303,70 @@ Deno.test("one exact different-thread external completion copy is diagnosed", ()
   }
 });
 
+Deno.test("audit-window diagnosis ignores unrelated valid mail but blocks another target message", () => {
+  const audited = auditedPriorCompletionDelivery({
+    event: auditedEvent,
+    completionMessageId: messageId,
+  })!;
+  const base = {
+    searchComplete: true,
+    pageCount: 1,
+    throughAt: "2026-09-19T14:48:22Z",
+    originalProviderThreadId: original.id!,
+    recipientEmail: "customer@example.test",
+    completionCreatedAt: input.completionCreatedAt,
+    completionSubject: "Re: Order failure",
+    completionBody: "Stored completion",
+    auditedPriorDelivery: audited,
+    mailboxEmail,
+    senderEmail: "info@example.test",
+    searchScope: "audit_window" as const,
+  };
+  const unrelated = {
+    ...exactExternalCopy,
+    id: "unrelated-mailbox-message",
+    threadId: "unrelated-thread",
+    payload: {
+      ...exactExternalCopy.payload,
+      headers: exactExternalCopy.payload.headers.map((header) =>
+        header.name === "To"
+          ? { ...header, value: "someone-else@example.test" }
+          : header
+      ),
+      body: { data: encodeBody("Unrelated mailbox traffic") },
+    },
+  };
+  const exact = diagnoseExternalCompletionCopy({
+    ...base,
+    messages: [unrelated, exactExternalCopy],
+    candidateCount: 2,
+  });
+  if (!exact.valid || exact.blockingMessageCount !== 0 ||
+    exact.customerDirectedAfterCompletionCount !== 1 ||
+    exact.auditedMatchCount !== 1) {
+    throw new Error("Unrelated valid mailbox traffic blocked the audit-window proof");
+  }
+
+  const targetMismatch = {
+    ...exactExternalCopy,
+    id: "second-target-message",
+    threadId: "second-target-thread",
+    payload: {
+      ...exactExternalCopy.payload,
+      body: { data: encodeBody("Different customer-directed copy") },
+    },
+  };
+  const unsafe = diagnoseExternalCompletionCopy({
+    ...base,
+    messages: [unrelated, exactExternalCopy, targetMismatch],
+    candidateCount: 3,
+  });
+  if (unsafe.valid || unsafe.blockingMessageCount !== 1 ||
+    unsafe.customerDirectedAfterCompletionCount !== 2) {
+    throw new Error("A second target-directed message did not block the audit-window proof");
+  }
+});
+
 Deno.test("external completion copy diagnosis fails closed on any mismatch or incomplete scan", () => {
   const audited = auditedPriorCompletionDelivery({
     event: auditedEvent,

@@ -80,6 +80,7 @@ export type RefundGmailRecipientMessageInspection = {
 };
 
 export type RefundGmailRecipientQueryMode = "grouped" | "to" | "cc" | "bcc";
+type RefundGmailReferenceQueryMode = RefundGmailRecipientQueryMode | "audit_window";
 
 export type RefundGmailReadRequest = <T>(
   config: RefundGmailConfig,
@@ -896,18 +897,45 @@ export const refundGmailRecipientMessageQuery = ({
   return params;
 };
 
+export const refundGmailAuditWindowMessageQuery = ({
+  auditedDeliveredAt,
+  pageToken,
+}: {
+  auditedDeliveredAt: string;
+  pageToken?: string;
+}) => {
+  const auditedMs = Date.parse(auditedDeliveredAt);
+  if (!Number.isFinite(auditedMs)) {
+    throw new RefundGmailError(
+      "gmail_audit_window_search_invalid",
+      "Refund Gmail audit-window search is invalid.",
+    );
+  }
+  const after = Math.max(0, Math.floor(auditedMs / 1000) - 61);
+  const before = Math.floor(auditedMs / 1000) + 62;
+  const params = new URLSearchParams({
+    q: `in:anywhere after:${after} before:${before}`,
+    maxResults: String(REFUND_GMAIL_RECIPIENT_SEARCH_PAGE_SIZE),
+    includeSpamTrash: "true",
+  });
+  if (pageToken) params.set("pageToken", pageToken);
+  return params;
+};
+
 const listRefundGmailRecipientMessageReferences = async ({
   config,
   recipientEmail,
   completionCreatedAt,
   through,
   mode,
+  auditedDeliveredAt,
 }: {
   config: RefundGmailConfig;
   recipientEmail: string;
   completionCreatedAt: string;
   through: Date;
-  mode: RefundGmailRecipientQueryMode;
+  mode: RefundGmailReferenceQueryMode;
+  auditedDeliveredAt?: string;
 }, readRequest: RefundGmailReadRequest) => {
   const references: Array<{ id: string; threadId: string }> = [];
   const seenIds = new Set<string>();
@@ -921,13 +949,18 @@ const listRefundGmailRecipientMessageReferences = async ({
         "Refund Gmail recipient search exceeded its page bound.",
       );
     }
-    const params = refundGmailRecipientMessageQuery({
-      recipientEmail,
-      completionCreatedAt,
-      through,
-      mode,
-      pageToken,
-    });
+    const params = mode === "audit_window"
+      ? refundGmailAuditWindowMessageQuery({
+          auditedDeliveredAt: auditedDeliveredAt ?? "",
+          pageToken,
+        })
+      : refundGmailRecipientMessageQuery({
+          recipientEmail,
+          completionCreatedAt,
+          through,
+          mode,
+          pageToken,
+        });
     const page = await readRequest<{
       messages?: Array<{ id?: string; threadId?: string }>;
       nextPageToken?: string;
@@ -1113,6 +1146,50 @@ export const inspectRefundGmailMessagesDirectedToRecipient = async ({
       candidateCount: unionReferences.length,
       complete: true,
     },
+  };
+};
+
+// This separate inspection proves whether the authenticated Gmail API can see
+// any full message around the immutable delivery event without relying on a
+// recipient search operator. It remains bounded and cannot authorize a send.
+export const inspectRefundGmailMessagesAroundAudit = async ({
+  config,
+  recipientEmail,
+  completionCreatedAt,
+  auditedDeliveredAt,
+}: {
+  config: RefundGmailConfig;
+  recipientEmail: string;
+  completionCreatedAt: string;
+  auditedDeliveredAt: string;
+}, readRequest: RefundGmailReadRequest = gmailRequest): Promise<RefundGmailRecipientMessageSearch> => {
+  const auditedMs = Date.parse(auditedDeliveredAt);
+  if (!Number.isFinite(auditedMs)) {
+    throw new RefundGmailError(
+      "gmail_audit_window_search_invalid",
+      "Refund Gmail audit-window search is invalid.",
+    );
+  }
+  const through = new Date(auditedMs + 60_000);
+  const listed = await listRefundGmailRecipientMessageReferences({
+    config,
+    recipientEmail,
+    completionCreatedAt,
+    through,
+    mode: "audit_window",
+    auditedDeliveredAt,
+  }, readRequest);
+  const messages = await fetchBoundRefundGmailMessages(
+    config,
+    listed.references,
+    readRequest,
+  );
+  return {
+    messages,
+    pageCount: listed.pageCount,
+    candidateCount: listed.candidateCount,
+    throughAt: through.toISOString(),
+    complete: true,
   };
 };
 

@@ -1,6 +1,8 @@
 import {
+  inspectRefundGmailMessagesAroundAudit,
   inspectRefundGmailMessagesDirectedToRecipient,
   listRefundGmailMessagesDirectedToRecipient,
+  refundGmailAuditWindowMessageQuery,
   type RefundGmailConfig,
   type RefundGmailReadRequest,
 } from "./refund-gmail.ts";
@@ -166,6 +168,105 @@ Deno.test("inspection fetches grouped-only messages into the evaluated union", a
     result.union.candidateCount !== 1 || result.messages.length !== 1 ||
     fetched.length !== 1) {
     throw new Error("Grouped-only message was omitted from the evaluated union");
+  }
+});
+
+Deno.test("audit-window query uses a fixed padded sixty-second envelope and page token", () => {
+  const params = refundGmailAuditWindowMessageQuery({
+    auditedDeliveredAt: "2026-09-19T14:47:22.400Z",
+    pageToken: "page-2",
+  });
+  const auditedSeconds = Math.floor(
+    Date.parse("2026-09-19T14:47:22.400Z") / 1000,
+  );
+  if (
+    params.get("q") !==
+      `in:anywhere after:${auditedSeconds - 61} before:${auditedSeconds + 62}` ||
+    params.get("maxResults") !== "100" ||
+    params.get("includeSpamTrash") !== "true" ||
+    params.get("pageToken") !== "page-2"
+  ) {
+    throw new Error("Audit-window query did not preserve its fixed safe bounds");
+  }
+});
+
+Deno.test("audit-window inspection paginates completely and full-fetches each bound message", async () => {
+  const paths: string[] = [];
+  const result = await inspectRefundGmailMessagesAroundAudit({
+    config,
+    recipientEmail: input.recipientEmail,
+    completionCreatedAt: input.completionCreatedAt,
+    auditedDeliveredAt: "2026-09-19T14:47:22.400Z",
+  }, async <T>(_config: RefundGmailConfig, path: string) => {
+    paths.push(path);
+    if (path.startsWith("/messages?")) {
+      const url = new URL(`https://example.test${path}`);
+      const query = url.searchParams.get("q") ?? "";
+      if (query.includes("to:") || query.includes("cc:") || query.includes("bcc:")) {
+        throw new Error("Audit-window query unexpectedly depended on a recipient operator");
+      }
+      if (url.searchParams.get("pageToken") === "page-2") {
+        return {
+          messages: [{ id: "audit-2", threadId: "audit-thread-2" }],
+          resultSizeEstimate: 1,
+        } as T;
+      }
+      return {
+        messages: [{ id: "audit-1", threadId: "audit-thread-1" }],
+        nextPageToken: "page-2",
+        resultSizeEstimate: 2,
+      } as T;
+    }
+    const id = path.includes("audit-1") ? "audit-1" : "audit-2";
+    return {
+      id,
+      threadId: id === "audit-1" ? "audit-thread-1" : "audit-thread-2",
+      payload: { headers: [] },
+    } as T;
+  });
+  if (
+    result.pageCount !== 2 || result.candidateCount !== 2 ||
+    result.messages.length !== 2 || !result.complete ||
+    result.throughAt !== "2026-09-19T14:48:22.400Z" ||
+    paths.filter((path) => path.startsWith("/messages?")).length !== 2 ||
+    paths.filter((path) => path.includes("?format=full")).length !== 2
+  ) {
+    throw new Error("Audit-window inspection did not complete and bind its full result set");
+  }
+});
+
+Deno.test("audit-window inspection fails closed on repeated pages and mismatched full messages", async () => {
+  const auditInput = {
+    config,
+    recipientEmail: input.recipientEmail,
+    completionCreatedAt: input.completionCreatedAt,
+    auditedDeliveredAt: "2026-09-19T14:47:22.400Z",
+  };
+  for (const request of [
+    async <T>(_config: RefundGmailConfig, path: string) => {
+      if (!path.startsWith("/messages?")) throw new Error("unexpected full fetch");
+      return {
+        messages: [],
+        nextPageToken: "repeat",
+        resultSizeEstimate: 0,
+      } as T;
+    },
+    async <T>(_config: RefundGmailConfig, path: string) => {
+      if (path.startsWith("/messages?")) {
+        return {
+          messages: [{ id: "audit-1", threadId: "audit-thread-1" }],
+          resultSizeEstimate: 1,
+        } as T;
+      }
+      return { id: "audit-1", threadId: "wrong-thread" } as T;
+    },
+  ]) {
+    try {
+      await inspectRefundGmailMessagesAroundAudit(auditInput, request);
+    } catch {
+      continue;
+    }
+    throw new Error("Unsafe audit-window result did not fail closed");
   }
 });
 
