@@ -258,7 +258,9 @@
     "20260928122500_refund_overview_timeout_repair.sql",
     "20260928134500_refund_overview_contract_reuse.sql",
     "20260928173542_remove_redundant_nayax_cross_case_guard.sql",
-    "20260928181500_refund_overview_runtime_budget.sql"
+    "20260928181500_refund_overview_runtime_budget.sql",
+    "20260928181639_snapcase_legacy_nayax_mapping_eligibility.sql",
+    "20260928181716_correct_sales_report_refund_totals.sql"
   ],
   "migrationFilesSha256": "c0e4adc17018e52731108e5b86e4e3915f5e2a2dde6733725c4a8c1366b2df26",
   "migrationVersionSetSha256": "aef54a053bd0e7406fb8790a1fbb79a4fcf97411ba489506a857747d65cab877",
