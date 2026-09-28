@@ -16,6 +16,22 @@ select ok(strpos(pg_get_functiondef(
     'public.refund_decision_recommendation_for_case(uuid,timestamptz)'::regprocedure),
     'A rejection needs 30 elapsed days')>0,
   'recommendation projection has the guarded young-case rejection bound');
+select ok(strpos(pg_get_functiondef(
+    'public.admin_get_refund_operations_overview_pre_lookup_recovery_v1()'::regprocedure),
+    'refund_customer_correction_fields_v1')>0,
+  'correction parity emits its exact contract marker');
+select ok(strpos(pg_get_functiondef(
+    'public.refund_project_nayax_lookup_recovery_cases_for_manager(jsonb,boolean)'::regprocedure),
+    'nayaxLookupWork')>0,
+  'lookup recovery retains current case-owned work projection');
+select ok(strpos(pg_get_functiondef(
+    'public.refund_project_customer_outreach_cases_for_manager(jsonb,boolean)'::regprocedure),
+    'refund_project_outreach_pre_reuse_v1')>0,
+  'customer outreach retains its exact fail-closed delegate');
+select ok(strpos(pg_get_functiondef(
+    'public.admin_get_refund_operations_overview()'::regprocedure),
+    'refund_project_current_next_work_cases')>0,
+  'final overview validates current next-work contracts before reuse');
 
 insert into auth.users(
   instance_id,id,aud,role,email,encrypted_password,email_confirmed_at,
@@ -104,6 +120,14 @@ select md5('refund-overview-bench-case-'||n)::uuid,'nayax_lookup_started',
     'trigger_source','scheduled','provider_call_kind','read_only',
     'payload_redacted',true),statement_timestamp()-interval '1 day 1 minute'
 from generate_series(1,12) n;
+
+-- One current untouched card has enough exact evidence for the unchanged
+-- case-owned lookup helper to assign System work. Contract reuse must preserve
+-- its control suppression rather than treating it as an inert recovery row.
+update public.refund_cases
+set card_last4='1234',card_last4_provenance='physical_card',
+    incident_time_resolution='exact',incident_time_confidence='exact'
+where id=md5('refund-overview-bench-case-31')::uuid;
 insert into public.refund_case_events(refund_case_id,event_type,message,metadata,created_at)
 select md5('refund-overview-bench-case-'||n)::uuid,'nayax_lookup_completed',
   'Read-only benchmark lookup completed',jsonb_build_object(
@@ -134,7 +158,133 @@ set local statement_timeout='7500ms';
 select lives_ok($test$
   select public.admin_get_refund_operations_overview()
 $test$,'production-shaped authenticated overview stays below the API timeout');
+create temporary table current_overview on commit drop as
+select public.admin_get_refund_operations_overview() value;
+select is((select value->>'customerCorrectionFieldsContractVersion'
+    from current_overview),'refund_customer_correction_fields_v1',
+  'overview publishes the correction-field authority used by recovery reuse');
+select is((select count(*)::text
+    from current_overview o
+    cross join lateral jsonb_array_elements(
+      coalesce(o.value->'cases','[]'::jsonb)
+      ||coalesce(o.value->'internalTestCases','[]'::jsonb)) item
+    where jsonb_typeof(item->'customerCorrectionFields')='array'),
+  (select count(*)::text
+    from current_overview o
+    cross join lateral jsonb_array_elements(
+      coalesce(o.value->'cases','[]'::jsonb)
+      ||coalesce(o.value->'internalTestCases','[]'::jsonb)) item),
+  'ordinary and Internal/test items carry authoritative correction arrays');
 reset role;
+select ok((select
+    public.refund_project_current_next_work_cases(value->'cases')
+      is not distinct from value->'cases'
+    and public.refund_project_current_next_work_cases(value->'internalTestCases')
+      is not distinct from value->'internalTestCases'
+    from current_overview),
+  'current next-work and recommendation contracts are reused exactly in both collections');
+select ok((select item#>>'{nayaxLookupWork,state}'='system'
+      and item->>'canSelectNayaxCandidate'='false'
+      and item#>>'{lifecycle,managerAction,action}'='none'
+      and item#>>'{lifecycle,lookup,status}'='checking'
+    from current_overview o
+    cross join lateral jsonb_array_elements(
+      coalesce(o.value->'cases','[]'::jsonb)
+      ||coalesce(o.value->'internalTestCases','[]'::jsonb)) item
+    where item->>'id'=md5('refund-overview-bench-case-31')::uuid::text),
+  'non-complete lookup work retains the unchanged System/control-suppression projection');
+select ok((select
+    public.refund_project_customer_outreach_cases_for_manager(
+      jsonb_build_array(item),true)
+      is not distinct from public.refund_project_outreach_pre_reuse_v1(
+        jsonb_build_array(item),true)
+    from current_overview o
+    cross join lateral jsonb_array_elements(
+      coalesce(o.value->'cases','[]'::jsonb)
+      ||coalesce(o.value->'internalTestCases','[]'::jsonb)) item
+    where item#>>'{nayaxLookupWork,state}'='complete'
+    limit 1),
+  'reuse-eligible outreach is byte-for-byte equal to the retained prior projector');
+select ok((select
+    public.refund_project_customer_outreach_cases_for_manager(
+      jsonb_build_array(item),true)
+      is not distinct from public.refund_project_outreach_pre_reuse_v1(
+        jsonb_build_array(item),true)
+    from current_overview o
+    cross join lateral jsonb_array_elements(
+      coalesce(o.value->'cases','[]'::jsonb)
+      ||coalesce(o.value->'internalTestCases','[]'::jsonb)) item
+    where item#>>'{nayaxLookupWork,state}'='refund_operations'
+    limit 1),
+  'Refund Operations lookup ownership also preserves exact outreach projection');
+select ok((select
+    public.refund_project_current_next_work_cases(jsonb_build_array(item))->0
+      is not distinct from jsonb_set(item,'{lifecycle}',
+        public.refund_next_work_for_case((item->>'id')::uuid,
+          (item->'lifecycle')-'nextWork'-'decisionRecommendation'),true)
+    from current_overview o
+    cross join lateral jsonb_array_elements(
+      coalesce(o.value->'cases','[]'::jsonb)
+      ||coalesce(o.value->'internalTestCases','[]'::jsonb)) item
+    where item#>>'{nayaxLookupWork,state}'='complete'
+    limit 1),
+  'reuse-eligible next work is byte-for-byte equal to fresh canonical projection');
+select ok((select
+    public.refund_project_current_next_work_cases(jsonb_build_array(item))->0
+      is not distinct from jsonb_set(item,'{lifecycle}',
+        public.refund_next_work_for_case((item->>'id')::uuid,
+          (item->'lifecycle')-'nextWork'-'decisionRecommendation'),true)
+    from current_overview o
+    cross join lateral jsonb_array_elements(
+      coalesce(o.value->'cases','[]'::jsonb)
+      ||coalesce(o.value->'internalTestCases','[]'::jsonb)) item
+    where item#>>'{nayaxLookupWork,state}'='refund_operations'
+    limit 1),
+  'Refund Operations next work is byte-for-byte equal to fresh canonical projection');
+select ok((select
+    public.refund_project_current_next_work_cases(jsonb_build_array(
+      jsonb_set(item,'{lifecycle,nextWork,schemaVersion}',
+        '"stale_next_work"'::jsonb,true)))->0
+      ->'lifecycle'->'nextWork'->>'schemaVersion'='refund_next_work_v1'
+    from current_overview o
+    cross join lateral jsonb_array_elements(
+      coalesce(o.value->'cases','[]'::jsonb)
+      ||coalesce(o.value->'internalTestCases','[]'::jsonb)) item
+    limit 1),
+  'a stale next-work contract falls back to canonical recomputation');
+select ok((select
+    public.refund_project_current_next_work_cases(jsonb_build_array(
+      jsonb_set(jsonb_set(jsonb_set(item,
+        '{lifecycle,decisionRecommendation}',jsonb_build_object(
+          'schemaVersion','refund_decision_recommendation_v1',
+          'officialActionVersion',item->'officialActionVersion',
+          'deterministicFactVersion',
+            item#>'{lifecycle,customerOutreach,caseFactVersion}',
+          'kind','reject','reasonCode','no_match_after_30_days',
+          'purchase',null,'decisionReady',true,'payloadRedacted',true),true),
+        '{lifecycle,nextWork,actor}','"agent"'::jsonb,true),
+        '{lifecycle,nextWork,actionCode}',
+        '"resolve_manager_assignment"'::jsonb,true)))->0
+      ->'lifecycle'->'decisionRecommendation'='null'::jsonb
+    from current_overview o
+    cross join lateral jsonb_array_elements(
+      coalesce(o.value->'cases','[]'::jsonb)
+      ||coalesce(o.value->'internalTestCases','[]'::jsonb)) item
+    where item#>>'{nayaxLookupWork,state}'='complete'
+    limit 1),
+  'an inconsistent recommendation readiness and actor contract is recomputed');
+select ok((select
+    public.refund_project_customer_outreach_cases_for_manager(
+      jsonb_build_array(jsonb_set(item,
+        '{lifecycle,customerOutreach,caseFactVersion}','-1'::jsonb,true)),true)
+      ->0->'lifecycle'->'customerOutreach'->>'caseFactVersion'
+        is distinct from '-1'
+    from current_overview o
+    cross join lateral jsonb_array_elements(
+      coalesce(o.value->'cases','[]'::jsonb)
+      ||coalesce(o.value->'internalTestCases','[]'::jsonb)) item
+    limit 1),
+  'a stale outreach fact version falls back to canonical recomputation');
 
 -- Preserve an imported/anomalous historical cycle. Its message row is young,
 -- but its immutable cycle delivery time predates the case. The shortcut must
@@ -188,6 +338,25 @@ alter table public.refund_follow_up_cycles
 select is(public.refund_decision_recommendation_for_case(
     md5('refund-overview-bench-case-11')::uuid)->>'kind','reject',
   'an older imported cycle reaches the full causal 30-day rejection proof');
+select ok((select projected#>>'{lifecycle,nextWork,actor}'='manager'
+      and projected#>>'{lifecycle,nextWork,actionCode}'='reject_request'
+      and projected#>>'{lifecycle,decisionRecommendation,decisionReady}'='true'
+    from public.refund_cases c
+    cross join lateral (
+      select public.refund_next_work_for_case(c.id,
+        public.refund_lifecycle_contract(c.id)) lifecycle
+    ) canonical
+    cross join lateral (
+      select public.refund_project_current_next_work_cases(jsonb_build_array(
+        jsonb_build_object(
+          'id',c.id,'officialActionVersion',c.official_action_version,
+          'nayaxLookupWork',jsonb_build_object('state','complete'),
+          'lifecycle',jsonb_set(jsonb_set(canonical.lifecycle,
+            '{nextWork,actor}','"system"'::jsonb,true),
+            '{nextWork,actionCode}','"wait"'::jsonb,true))))->0 projected
+    ) repaired
+    where c.id=md5('refund-overview-bench-case-11')::uuid),
+  'a malformed valid-version rejection actor is recomputed from canonical truth');
 
 select * from finish();
 rollback;

@@ -255,7 +255,8 @@
     "20260927220000_nayax_wrong_venue_relocation_hold.sql",
     "20260928050000_nayax_reader_replacement.sql",
     "20260928112052_refund_projection_timeout_repair.sql",
-    "20260928122500_refund_overview_timeout_repair.sql"
+    "20260928122500_refund_overview_timeout_repair.sql",
+    "20260928134500_refund_overview_contract_reuse.sql"
   ],
   "migrationFilesSha256": "3ae36fef56d2b3286a926845bcbc5ef6e6cb5a23ba7df562cc17fad34979916a",
   "migrationVersionSetSha256": "f4e99c684a225c026e495a1d34f6c553ed8457746891a123d2d461a53bb2e5bf",
