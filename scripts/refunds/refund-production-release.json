@@ -260,7 +260,8 @@
     "20260928173542_remove_redundant_nayax_cross_case_guard.sql",
     "20260928181500_refund_overview_runtime_budget.sql",
     "20260928181639_snapcase_legacy_nayax_mapping_eligibility.sql",
-    "20260928181716_correct_sales_report_refund_totals.sql"
+    "20260928181716_correct_sales_report_refund_totals.sql",
+    "20260928214735_refund_obsolete_clarification_health.sql"
   ],
   "migrationFilesSha256": "61b4444d794fa5c68387827d46a98b985bc2f55166a56e1fae1a1ab5c003d6ed",
   "migrationVersionSetSha256": "29e317346d63e17e223a79d84700e6a9fef27f20146203778b8aef994939fa84",
