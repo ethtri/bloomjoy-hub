@@ -3,12 +3,40 @@ create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 select no_plan();
 
+insert into auth.users(
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+) values (
+  '00000000-0000-0000-0000-000000000000',
+  '15000000-0000-4000-8000-000000000001',
+  'authenticated', 'authenticated', 'snapcase-completion-admin@example.invalid', '', now(),
+  '{}'::jsonb, '{}'::jsonb, now(), now()
+);
+insert into public.admin_roles(user_id, role, active)
+values ('15000000-0000-4000-8000-000000000001', 'super_admin', true);
+
 insert into public.customer_accounts(id, name, account_type, status)
 values ('15010000-0000-4000-8000-000000000001', 'SnapCase completion fixture', 'internal', 'active');
 insert into public.reporting_locations(id, account_id, name, timezone, status)
 values ('15011000-0000-4000-8000-000000000001', '15010000-0000-4000-8000-000000000001', 'Completion location', 'America/Los_Angeles', 'active');
-insert into public.reporting_machines(id, account_id, location_id, machine_label, machine_type, status)
-values ('15012000-0000-4000-8000-000000000001', '15010000-0000-4000-8000-000000000001', '15011000-0000-4000-8000-000000000001', 'Completion SnapCase', 'snapcase', 'active');
+insert into public.reporting_machines(
+  id, account_id, location_id, machine_label, machine_type, status,
+  nayax_account_key, nayax_machine_id
+)
+values
+  (
+    '15012000-0000-4000-8000-000000000001',
+    '15010000-0000-4000-8000-000000000001',
+    '15011000-0000-4000-8000-000000000001',
+    'Legacy Nayax-bound SnapCase', 'commercial', 'active',
+    'TGPACI_USA_DB', '150120001'
+  ),
+  (
+    '15012000-0000-4000-8000-000000000002',
+    '15010000-0000-4000-8000-000000000001',
+    '15011000-0000-4000-8000-000000000001',
+    'Duplicate SnapCase record', 'snapcase', 'active', null, null
+  );
 insert into public.reporting_machine_tax_rates(id, machine_id, tax_rate_percent, effective_start_date, status)
 values ('15012500-0000-4000-8000-000000000001', '15012000-0000-4000-8000-000000000001', 0, '2025-01-01', 'active');
 
@@ -46,7 +74,7 @@ insert into private.snapcase_machine_mappings(
 ) values (
   '15015000-0000-4000-8000-000000000001',
   '15013000-0000-4000-8000-000000000001', 'completion-machine',
-  '15012000-0000-4000-8000-000000000001', '2025-01-01', 'Completion fixture'
+  '15012000-0000-4000-8000-000000000002', '2025-01-01', 'Completion fixture'
 );
 
 insert into private.snapcase_sales_observations(
@@ -96,7 +124,7 @@ select is((select count(*)::integer from private.snapcase_observation_ingest_mem
 select is((select count(*)::integer from private.snapcase_completed_import_windows), 1,
   'one durable machine-local completed window is recorded');
 select is((select net_sales_cents from public.machine_sales_facts where source='snapcase_cash'), 1000,
-  'cash uses the exact provider payment amount once');
+  'cash uses the exact provider payment amount once before identity repair');
 select ok((select financial_ready from private.snapcase_financial_window_revisions
   where source_machine_id='completion-machine'),
   'the exact window records successful canonical cash publication');
@@ -106,6 +134,81 @@ select is(
 );
 select is((select count(*)::integer from public.machine_sales_facts where source='snapcase_cash'), 1,
   'replay does not duplicate cash facts');
+
+create temporary table mapping_repair_baseline as
+select
+  fact.id as fact_id,
+  fact.source_order_hash,
+  fact.source_row_hash,
+  fact.net_sales_cents,
+  mapping.id as mapping_id,
+  mapping.mapped_at,
+  (
+    select to_jsonb(receipt)
+    from private.snapcase_completed_import_windows receipt
+    where receipt.provider_account_id = mapping.provider_account_id
+      and receipt.source_machine_id = mapping.source_machine_id
+  ) as completed_window_receipt
+from public.machine_sales_facts fact
+cross join private.snapcase_machine_mappings mapping
+where fact.source = 'snapcase_cash'
+  and mapping.provider_account_id = '15013000-0000-4000-8000-000000000001'
+  and mapping.source_machine_id = 'completion-machine';
+
+select set_config('request.jwt.claim.role', 'authenticated', true);
+select set_config('request.jwt.claim.sub', '15000000-0000-4000-8000-000000000001', true);
+select lives_ok(
+  $$select public.admin_map_snapcase_machine(
+    '15013000-0000-4000-8000-000000000001', 'completion-machine',
+    '15012000-0000-4000-8000-000000000001', null, null, null, null,
+    null, '2025-01-01', null, 'Exact legacy identity repair fixture'
+  )$$,
+  'the established mapping RPC repairs a source onto its legacy Nayax-bound canonical machine'
+);
+select is(
+  (select reporting_machine_id from public.machine_sales_facts where source='snapcase_cash'),
+  '15012000-0000-4000-8000-000000000001'::uuid,
+  'mapping replay moves existing cash attribution onto the canonical machine'
+);
+select is(
+  (select row(id, source_order_hash, source_row_hash, net_sales_cents)::text
+   from public.machine_sales_facts where source='snapcase_cash'),
+  (select row(fact_id, source_order_hash, source_row_hash, net_sales_cents)::text
+   from mapping_repair_baseline),
+  'mapping replay preserves the fact ID, source hashes, and immutable amount'
+);
+select is(
+  (select row(id, mapped_at)::text
+   from private.snapcase_machine_mappings
+   where provider_account_id='15013000-0000-4000-8000-000000000001'
+     and source_machine_id='completion-machine'),
+  (select row(mapping_id, mapped_at)::text from mapping_repair_baseline),
+  'repair preserves the mapping identity and original mapped timestamp used by receipt hashes'
+);
+select is(
+  (select to_jsonb(receipt)::text
+   from private.snapcase_completed_import_windows receipt
+   where receipt.provider_account_id='15013000-0000-4000-8000-000000000001'
+     and receipt.source_machine_id='completion-machine'),
+  (select completed_window_receipt::text from mapping_repair_baseline),
+  'mapping replay preserves the completed-window receipt'
+);
+select is(
+  (public.admin_map_snapcase_machine(
+    '15013000-0000-4000-8000-000000000001', 'completion-machine',
+    '15012000-0000-4000-8000-000000000001', null, null, null, null,
+    null, '2025-01-01', null, 'Exact legacy identity repair fixture'
+  ) ->> 'replayed')::boolean,
+  true,
+  'replaying the repaired mapping is idempotent'
+);
+select is(
+  (select row(count(*), sum(net_sales_cents))::text
+   from public.machine_sales_facts where source='snapcase_cash'),
+  '(1,1000)',
+  'repair and replay add no facts or sales'
+);
+select set_config('request.jwt.claim.role', 'service_role', true);
 
 -- A new staged revision invalidates old completion until that exact run has its
 -- own complete pagination receipt.

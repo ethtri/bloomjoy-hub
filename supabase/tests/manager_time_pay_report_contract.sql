@@ -1993,6 +1993,40 @@ update public.reporting_machines
 set machine_type = 'snapcase'
 where id = 'a4000000-0000-0000-0000-000000000001';
 
+insert into public.reporting_machines(
+  id, account_id, location_id, machine_label, machine_type, status,
+  nayax_account_key, nayax_machine_id
+) values (
+  'a4000000-0000-0000-0000-000000000099',
+  'a2000000-0000-0000-0000-000000000001',
+  'a3000000-0000-0000-0000-000000000001',
+  'Unmapped Nayax-only machine', 'commercial', 'active',
+  'TGPACI_USA_DB', '940000099'
+);
+insert into public.operator_machine_assignments(
+  id, operator_profile_id, account_id, reporting_machine_id,
+  effective_start_date, effective_end_date, grant_reason
+) values (
+  'a6100000-0000-0000-0000-000000000099',
+  'a6000000-0000-0000-0000-000000000001',
+  'a2000000-0000-0000-0000-000000000001',
+  'a4000000-0000-0000-0000-000000000099',
+  '2026-07-01', '2026-07-31', 'Nayax-only negative scope fixture'
+);
+
+select ok(
+  not exists (
+    select 1
+    from private.operator_incomplete_snapcase_sales_machines(
+      'a2000000-0000-0000-0000-000000000001',
+      'a6000000-0000-0000-0000-000000000001',
+      '2026-07-01', '2026-07-31'
+    ) incomplete
+    where incomplete.machine_id = 'a4000000-0000-0000-0000-000000000099'
+  ),
+  'a Nayax-bound non-SnapCase machine without an effective Kex mapping stays outside SnapCase payroll readiness'
+);
+
 insert into private.snapcase_provider_accounts (
   id, source_account_key
 ) values (

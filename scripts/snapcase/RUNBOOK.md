@@ -62,6 +62,37 @@ then re-enable the schedule. Do not rotate `REPORTING_ROW_HASH_SALT` as ordinary
 password maintenance, because it defines stable source identities. Do not change
 the shared `REPORTING_INGEST_TOKEN` in only one consumer.
 
+## Exact machine identity repair
+
+Use `repair-machine-identities.mjs` only after read-only evidence proves an exact
+SnapCase source and canonical Hub machine pair. Keep the manifest in an ignored
+`*.local` file. Each entry records the composite source identity, current mapping,
+canonical target, account, location, machine type, Nayax ID, effective window,
+and the current machine ID needed for rollback. The runner accepts no more than
+six unique pairs and requires a null partnership so it cannot create or extend a
+reporting assignment.
+
+Configure a short-lived super-admin session privately as
+`SUPABASE_ADMIN_ACCESS_TOKEN`, together with `SUPABASE_URL` and
+`SUPABASE_ANON_KEY`. Preview the complete manifest first; this performs no writes:
+
+```powershell
+node scripts/snapcase/repair-machine-identities.mjs --manifest scripts/snapcase/snapcase-machine-identity-repair.local
+```
+
+Review the printed before, after, and rollback machine IDs. After the migration
+is released and the dry run still passes, apply that same manifest explicitly:
+
+```powershell
+node scripts/snapcase/repair-machine-identities.mjs --manifest scripts/snapcase/snapcase-machine-identity-repair.local --apply
+```
+
+The runner reuses `admin_map_snapcase_machine`; its existing mapping trigger
+reprojects completed imports in place. Re-run the preview afterward. For a
+rollback, swap the target controls to the printed rollback machine and keep the
+same effective mapping window. Do not delete source observations, sales facts,
+receipts, assignments, compensation, tax rows, or access grants.
+
 ## Import health and recovery
 
 `SnapCase Import Health` runs independently after each expected sync. It checks

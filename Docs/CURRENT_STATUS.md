@@ -119,6 +119,11 @@ orientation snapshot; it is not a backlog or release ledger.
   block only when their mapped machine lacks a completed payment import and
   successful cash publication. Production behavior still requires the related
   migrations to merge and deploy.
+- Issue #1569 tracks six exact SnapCase source identities that currently point
+  at duplicate Hub machines instead of their existing Nayax-linked records. Its
+  repair must pass the private bounded dry run after release before any mapping
+  changes; assignments, compensation, tax rules, access grants, and receipts
+  remain on the canonical machines.
 - Issue #1478 now has a source-connected projection contract for Kexiaozhan cash only;
   existing Nayax scheduled facts remain the sole card authority and existing
   sales adjustments remain the sole refund deduction. Gross cash amount and

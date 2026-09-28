@@ -847,6 +847,7 @@ npm run refunds:validate-portal-uat-lifecycle
 - [ ] Admin Reporting > Sync shows the latest live refund sync run after the scheduled workflow runs, and open/denied rows remain review-only
 - [ ] Admin reporting does not mark sales import freshness as failed solely because an unrelated historical backfill failed when a recent daily import is fresh
 - [ ] Admin Reporting > Sync lists imported machines needing setup with source name, read-only external machine ID, queued rows/revenue, latest sale, and last-seen time
+- [ ] SnapCase existing-machine setup lists non-Sunze Snapcase machines and legacy Nayax-linked machines with account, location, and type context; a legacy target saves through the normal mapping action, while Sunze-bound machines remain absent.
 - [ ] Admin can set up an imported machine from `/admin/reporting` by choosing the report/partnership, confirming machine label, location, machine type, and reporting tax rate without editing the external machine ID
 - [ ] Imported machine setup creates/updates the reporting machine, assigns it to the selected partnership, applies tax setup, promotes queued sales rows, and shows the promoted row count/revenue in the success message
 - [ ] Admin can ignore an imported machine and reopen it later without changing already configured reporting machines
