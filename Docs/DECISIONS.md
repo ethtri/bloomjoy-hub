@@ -1,5 +1,24 @@
 # Decisions
 
+## 2026-09-28 — Retain split sales authority and count canonical refund requests once
+
+- Keep Nayax authoritative for card sale amounts and paid card-refund evidence;
+  keep Sunze and Kexiaozhan authoritative for cash observations. Do not add a
+  vendor card amount to Nayax card revenue.
+- Hub owns the canonical refund request and paid-refund components. Deduct the
+  positive outstanding request before payment, move value from outstanding to
+  paid without a second deduction, and exclude duplicate cases. Denial or an
+  explicit withdrawal reverses only the unpaid remainder; generic closure and
+  payment failure do not erase a valid request.
+- Normalize sales and refund components to tax-exclusive values exactly once.
+  Blank/zero source tax does not prove exemption, and a value already proved
+  tax-exclusive receives no additional tax subtraction.
+- The bounded app/API evidence does not support a vendor-only source switch.
+  Keep current effective source boundaries until a later recorded decision has
+  comparable vendor card coverage, amount, tax, timing and refund evidence.
+- The detailed field matrix, calculation contract, fixture handoff and remaining
+  late-request period choice are in `Docs/SALES_SOURCE_FIELD_CONTRACT.md`.
+
 ## 2026-09-26 - Nayax is the card-sales authority; machine platforms supply cash
 
 Nayax is the financial source for card sales and card refunds. Sunze and
