@@ -303,7 +303,15 @@ test('one malformed lifecycle cannot discard the queue or revoke server capabili
   );
   assert.match(
     pageSource,
-    /const candidateSelectionAuthorized\s*=\s*reviewedFinalDecisionReady\s*\? selectedCase\.canPerformOfficialAction === true\s*: \(selectedCase\.canSelectNayaxCandidate \?\? selectedCase\.canPerformOfficialAction\) === true/,
+    /const managerCandidateInventoryVisible\s*=\s*refundCanShowCandidateInventory\(selectedCase\)/,
+  );
+  assert.match(
+    pageSource,
+    /const candidateSelectionAuthorized\s*=\s*managerCandidateInventoryVisible\s*&&\s*\(reviewedFinalDecisionReady\s*\? selectedCase\.canPerformOfficialAction === true\s*: \(selectedCase\.canSelectNayaxCandidate \?\? selectedCase\.canPerformOfficialAction\) === true\)/,
+  );
+  assert.match(
+    pageSource,
+    /\{managerCandidateInventoryVisible\s*&&[\s\S]*<RefundTransactionCandidateReview/,
   );
   assert.match(pageSource, /canSelectCandidate:\s*candidateSelectionAuthorized/);
   assert.match(
