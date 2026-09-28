@@ -103,16 +103,24 @@ historical fixtures cannot add product gates that the workflow does not contain.
 - [ ] System, mapping, timezone, provider, and delivery defects route to an
   internal issue without asking the customer to troubleshoot or repeat known
   facts.
-- [ ] In `/refunds`, Action needed includes only a prepared final Manager
-  decision or cash send/confirm. A delivered unanswered question appears in
-  Waiting for customer; a verified reply, unknown Nayax outcome, missing Zelle
-  destination, failed customer delivery, and accounting-only follow-up do not
-  become Manager tasks. Refresh preserves the same tabs, counts, and case badge.
-- [ ] `/refunds` has a one-click All open view. It contains each authorized
-  unresolved customer case once, with final Manager decisions first, the next
-  owner/action and latest known progress. Waiting customer and Bloomjoy work
-  remain visible; completed refunds with only accounting work stay in Done.
-  A missing workflow projection says status unavailable instead of disappearing.
+- [ ] `/refunds` shows exactly four wrapping views: Decision needed, Waiting on
+  customer, All active, and All closed. At 390px there is no horizontal page or
+  tab scrolling. Search remains available below the views.
+- [ ] Decision needed contains only a fresh current-version server recommendation:
+  a clear Nayax card or Sunze cash purchase match, or the advisory 30-day
+  no-meaningful-input rejection recommendation. Zero, one, ten, or 198 raw
+  candidates never create a recommendation. Stale action or fact versions fail
+  closed. The Manager still makes the final Approve or Deny decision.
+- [ ] Waiting on customer contains only an open case with proof that a real
+  question was sent and has no reply. Draft, queued, failed, or internal research
+  work remains in All active. Approved cash send/confirm work also remains in All
+  active. All closed is the complement of all open work.
+- [ ] The selected decision presents one recommendation, concise matched purchase
+  proof, and Approve/Deny controls. Raw Customer request text remains visible.
+  Customer purchase details, provider search evidence, case history, technical
+  diagnostics, Gmail identifiers, and administration controls are collapsed by
+  default. Nonselectable transaction inventory is absent from the default Manager
+  view. A provider authorization timestamp is labeled Transaction time.
 - [ ] A rough-time wallet request whose completed provider read contains no
   hard-safe exact device suffix or uniquely verified same-machine QR purchase
   remains internal purchase research with a named

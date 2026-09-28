@@ -82,6 +82,7 @@ export function RefundTransactionCandidateReview({
     !reviewedFinalDecision && selectedCandidate && selectedCandidate.isRecommended !== true,
   );
 
+  const availableCandidates = candidates.filter((candidate) => candidate.selectionAllowed !== false);
   return (
     <div className="border-t border-border pt-3">
       {isDemoData && (
@@ -92,13 +93,13 @@ export function RefundTransactionCandidateReview({
       )}
       <div data-testid="nayax-candidate-availability" className="mb-3">
         <p className="text-sm font-semibold text-foreground">
-          {candidates.length} current transaction result{candidates.length === 1 ? '' : 's'}
+          {availableCandidates.length} available transaction result{availableCandidates.length === 1 ? '' : 's'}
         </p>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">
           {selectionHoldReason
             ? selectionHoldReason
             : selectableCandidateCount === 0
-              ? 'Every current result is listed here, but none can be selected.'
+              ? 'Bloomjoy is still identifying this purchase.'
               : waitingOnCustomer
                 ? 'These are the current search results. Selection stays paused until the customer replies and the assistant runs the search again.'
                 : reviewedFinalDecision
@@ -109,10 +110,10 @@ export function RefundTransactionCandidateReview({
       <div
         data-testid="nayax-transaction-comparison"
         role="radiogroup"
-        aria-label={`${candidates.length} current transaction result${candidates.length === 1 ? '' : 's'}`}
+        aria-label={`${availableCandidates.length} available transaction result${availableCandidates.length === 1 ? '' : 's'}`}
         className="space-y-2"
       >
-        {candidates.map((candidate, index) => {
+        {availableCandidates.map((candidate, index) => {
           const selectionDisabled =
             isDemoData || !canSelectCandidates || candidate.selectionAllowed === false;
           const visibleFactors = ['amount', 'provider_total', 'card', 'incident_time', 'request_time']

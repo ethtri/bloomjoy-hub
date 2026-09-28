@@ -37,7 +37,7 @@ export type RefundManagerQueueBucket = typeof refundManagerQueueBuckets[number];
 export const refundNextWorkActors = ["system", "agent", "customer", "manager"] as const;
 export type RefundNextWorkActor = typeof refundNextWorkActors[number];
 export const refundNextWorkActionCodes = [
-  "none", "approve_or_deny_request", "send_cash_refund_and_confirm", "answer_question",
+  "none", "approve_or_deny_request", "reject_request", "send_cash_refund_and_confirm", "answer_question",
   "deliver_customer_question", "review_customer_reply", "recover_customer_delivery",
   "reconcile_provider_outcome", "reconcile_integrity", "continue_refund",
   "resolve_manager_assignment", "obtain_payout_destination", "repair_provider_setup",
@@ -175,10 +175,34 @@ export type RefundCustomerOutreachContract = {
   payloadRedacted: true;
 };
 
+export type RefundDecisionRecommendation = {
+  schemaVersion: 'refund_decision_recommendation_v1';
+  kind: 'refund' | 'reject';
+  reasonCode: 'clear_purchase_match' | 'no_match_after_30_days';
+  summary: string;
+  decisionReady: boolean;
+  officialActionVersion: number;
+  deterministicFactVersion: number;
+  purchase: {
+    source: 'nayax' | 'sunze';
+    amountCents: number;
+    currencyCode: string;
+    transactionAt: string | null;
+    timeMeaning: 'purchase' | 'unknown';
+    cardLast4?: string | null;
+    candidateToken?: string | null;
+  } | null;
+  waitingSince: string | null;
+  lastMeaningfulInputAt: string | null;
+  eligibleAt: string | null;
+  payloadRedacted: true;
+};
+
 export type RefundLifecycleContract = {
   schemaVersion: typeof REFUND_LIFECYCLE_SCHEMA_VERSION;
   /** Additive rollout field. Legacy v2 payloads remain readable. */
   nextWork?: RefundNextWork;
+  decisionRecommendation?: RefundDecisionRecommendation | null;
   version: number;
   stage: RefundLifecycleStage;
   stageRank: number;
@@ -273,6 +297,34 @@ const exactObjectKeys = (value: Record<string, unknown>, expected: string[]) => 
     actual.every((key, index) => key === sortedExpected[index]);
 };
 
+export const isRefundDecisionRecommendation = (value: unknown): value is RefundDecisionRecommendation => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const item = value as Record<string, unknown>;
+  const date = (input: unknown) => input === null || (typeof input === 'string' && Number.isFinite(Date.parse(input)));
+  const purchase = item.purchase as Record<string, unknown> | null;
+  return exactObjectKeys(item, ['schemaVersion', 'kind', 'reasonCode', 'summary', 'decisionReady',
+    'officialActionVersion', 'deterministicFactVersion', 'purchase', 'waitingSince', 'lastMeaningfulInputAt', 'eligibleAt', 'payloadRedacted']) &&
+    item.schemaVersion === 'refund_decision_recommendation_v1' && ['refund', 'reject'].includes(String(item.kind)) &&
+    typeof item.summary === 'string' && item.summary.length > 0 && typeof item.reasonCode === 'string' &&
+    typeof item.decisionReady === 'boolean' && Number.isSafeInteger(item.officialActionVersion) &&
+    Number(item.officialActionVersion) > 0 && Number.isSafeInteger(item.deterministicFactVersion) &&
+    date(item.waitingSince) && date(item.lastMeaningfulInputAt) && date(item.eligibleAt) && item.payloadRedacted === true &&
+    (item.kind === 'reject' ? purchase === null : Boolean(purchase &&
+      exactObjectKeys(purchase, ['source', 'amountCents', 'currencyCode', 'transactionAt', 'timeMeaning',
+        ...(purchase.cardLast4 === undefined ? [] : ['cardLast4']), ...(purchase.candidateToken === undefined ? [] : ['candidateToken'])]) &&
+      ['nayax', 'sunze'].includes(String(purchase.source)) &&
+      typeof purchase.currencyCode === 'string' && /^[A-Z]{3}$/.test(purchase.currencyCode) &&
+      Number.isSafeInteger(purchase.amountCents) && Number(purchase.amountCents) > 0 && date(purchase.transactionAt) &&
+      ['purchase', 'unknown'].includes(String(purchase.timeMeaning)) &&
+      (purchase.cardLast4 === undefined || purchase.cardLast4 === null ||
+        (typeof purchase.cardLast4 === 'string' && /^\d{4}$/.test(purchase.cardLast4))) &&
+      (purchase.candidateToken === undefined || purchase.candidateToken === null ||
+        (typeof purchase.candidateToken === 'string' && purchase.candidateToken.trim().length > 0))) &&
+    (item.kind === 'refund'
+      ? item.reasonCode === 'clear_purchase_match'
+      : item.reasonCode === 'no_match_after_30_days'));
+};
+
 export const isRefundLifecycleContract = (
   value: unknown,
 ): value is RefundLifecycleContract => {
@@ -334,7 +386,7 @@ export const isRefundLifecycleContract = (
       nextWork.preparationProofId !== undefined
     )) &&
     (nextWork.actor !== "manager" ||
-      ["approve_or_deny_request", "send_cash_refund_and_confirm"].includes(String(nextWork.actionCode))) &&
+      ["approve_or_deny_request", "reject_request", "send_cash_refund_and_confirm"].includes(String(nextWork.actionCode))) &&
     (nextWork.actor !== "customer" || nextWork.actionCode === "answer_question")
   );
   const nullableString = (candidate: unknown) => candidate === null || typeof candidate === "string";
@@ -549,6 +601,7 @@ export const isRefundLifecycleContract = (
           ? operations?.nextStep === null
           : appliedPendingNextSteps.includes(operations?.nextStep as string | null)));
   return contract.schemaVersion === REFUND_LIFECYCLE_SCHEMA_VERSION &&
+    (contract.decisionRecommendation == null || isRefundDecisionRecommendation(contract.decisionRecommendation)) &&
     validNextWork &&
     typeof contract.version === "number" && Number.isSafeInteger(contract.version) &&
     contract.version >= 1 &&

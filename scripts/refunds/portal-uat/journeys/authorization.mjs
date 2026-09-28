@@ -97,7 +97,7 @@ export const createAuthorizationChecks = ({
       });
       page.on('pageerror', (error) => consoleErrors.push(error.message));
       await signInRefundUser(page, appUrl);
-      await page.getByRole('button', { name: /^Ready to approve \d+$/ }).click();
+      await page.getByRole('button', { name: /^Decision needed \d+$/ }).click();
       await waitForQueueCount(page, 2);
       await openQueueCase(page, 'RF-UAT-CARD').catch(async (error) => {
         throw new Error(`${error.message} Queue: ${JSON.stringify(
@@ -111,7 +111,7 @@ export const createAuthorizationChecks = ({
       const approvalActionDiagnostics = {
         primaryRefundCount: await page.getByTestId('refund-run-nayax-refund').count(),
         primaryRefundLabel: await page.getByTestId('refund-run-nayax-refund').allInnerTexts(),
-        namedRefundCount: await page.getByRole('button', { name: /^Refund \$/i }).count(),
+        namedRefundCount: await page.getByRole('button', { name: /^Approve \$.* refund$/i }).count(),
         legacyRefundCount: await page.getByTestId('legacy-refund-run-nayax-refund').count(),
         confirmationCount: await page.getByTestId('refund-confirm-nayax-refund').count(),
         stepUpDialogCount: await page.getByTestId('refund-manager-step-up-dialog').count(),
@@ -141,7 +141,6 @@ export const createAuthorizationChecks = ({
         JSON.stringify({ functionCalls, functionBodies })
       );
 
-      await page.getByText('Other decisions', { exact: true }).click();
       recorder.assert(
         `${scenario.name} can choose denial after exact transaction confirmation`,
         await page.getByTestId('refund-deny-instead').isVisible() &&
@@ -251,14 +250,14 @@ export const createAuthorizationChecks = ({
         (await page.getByTestId('refund-unsaved-text-dialog').count()) === 0
       );
 
-      await page.getByRole('button', { name: /^Action needed \d+$/ }).click();
+      await page.getByRole('button', { name: /^All active \d+$/ }).click();
       await openQueueCase(page, 'RF-UAT-CORRECTION');
       recorder.assert(
         `${scenario.name} cannot manually send a correction without server-owned fallback authority`,
         (await page.getByTestId('refund-save-case').count()) === 0 &&
           (await page.getByRole('button', { name: 'Request details', exact: true }).count()) === 0
       );
-      await page.getByRole('button', { name: /^Ready to approve \d+$/ }).click();
+      await page.getByRole('button', { name: /^Decision needed \d+$/ }).click();
       await openQueueCase(page, 'RF-UAT-ALT-CARD');
       const correctionCalls = functionBodies.filter((entry) =>
         entry.functionName === 'refund-case-message-send' &&
@@ -346,7 +345,7 @@ export const createAuthorizationChecks = ({
 
     const page = await context.newPage();
     await signInRefundUser(page, appUrl);
-    await page.getByRole('button', { name: /^Action needed \d+$/ }).click();
+    await page.getByRole('button', { name: /^All active \d+$/ }).click();
     await waitForQueueCount(page, 1);
     await queueCase(page, 'RF-UAT-CARD').click();
 
@@ -402,7 +401,7 @@ export const createAuthorizationChecks = ({
       'The manager view clears the warning only after the disposition is recorded',
       (await page.getByTestId('refund-acknowledgement-delivery-exception').count()) === 0 &&
         !(await page.locator('body').innerText()).includes('Acknowledgement needs review') &&
-        (await page.locator('body').innerText()).includes('Checking transactions')
+        (await page.locator('body').innerText()).includes('Finding the purchase')
     );
 
     await closeRefundPortalContext(context);
@@ -435,7 +434,7 @@ export const createAuthorizationChecks = ({
 
     const page = await context.newPage();
     await signInRefundUser(page, appUrl);
-    await page.getByRole('button', { name: /^Action needed \d+$/ }).click();
+    await page.getByRole('button', { name: /^All active \d+$/ }).click();
     await waitForQueueCount(page, 1);
     await queueCase(page, 'RF-UAT-CARD').click();
 
@@ -445,7 +444,8 @@ export const createAuthorizationChecks = ({
       'Decision content stays ahead of optional case administration',
       !(await administration.evaluate((element) => element.open)) &&
         !(await localeSection.isVisible()) &&
-        await page.getByText('Current state', { exact: true }).isVisible() &&
+        (await page.getByText('Current state', { exact: true }).count()) === 0 &&
+        await page.getByTestId('refund-primary-action').isVisible() &&
         await page.getByTestId('refund-request-summary').isVisible() &&
         await administration.evaluate((element) => {
           const requestSummary = document.querySelector('[data-testid="refund-request-summary"]');
@@ -552,7 +552,7 @@ export const createAuthorizationChecks = ({
 
     const page = await context.newPage();
     await signInRefundUser(page, appUrl);
-    await page.getByRole('button', { name: /^Action needed \d+$/ }).click();
+    await page.getByRole('button', { name: /^All active \d+$/ }).click();
     await waitForQueueCount(page, 1);
     await queueCase(page, 'RF-UAT-CARD').click();
 
@@ -562,7 +562,8 @@ export const createAuthorizationChecks = ({
       'Internal/test controls stay on demand behind the case decision',
       !(await administration.evaluate((element) => element.open)) &&
         !(await disposition.isVisible()) &&
-        await page.getByText('Current state', { exact: true }).isVisible()
+        (await page.getByText('Current state', { exact: true }).count()) === 0 &&
+        await page.getByTestId('refund-primary-action').isVisible()
     );
     await administration.locator(':scope > summary').click();
     recorder.assert(
@@ -702,7 +703,7 @@ export const createAuthorizationChecks = ({
     recorder.assert(
       'Classified records leave customer counts and remain visible in the restricted audit archive',
       await archiveSummary.isVisible() &&
-        (await page.getByRole('button', { name: /^Action needed 0$/ }).count()) === 1 &&
+        (await page.getByRole('button', { name: /^All active 0$/ }).count()) === 1 &&
         (await archiveSummary.innerText()).includes('Employee or technician test') &&
         (await archiveSummary.innerText()).includes('excluded from customer queue counts')
     );

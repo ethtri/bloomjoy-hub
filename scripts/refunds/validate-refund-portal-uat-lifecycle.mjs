@@ -103,7 +103,7 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /manualFallbackEligible === true[\s\S]*?requestDetails\.count\(\)[\s\S]*?document\.documentElement\.style\.fontSize = '200%'/
+  /cannot create a Manager action from outreach metadata alone[\s\S]*?requestDetails\.count\(\)\) === 0[\s\S]*?refund-case-message-send[\s\S]*?document\.documentElement\.style\.fontSize = '200%'/
 );
 assert.match(
   portalSource,
@@ -135,11 +135,11 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /const buildCashRefundReviewOverview = [\s\S]*?managerQueueContractVersion: 'refund_manager_queue_v2'[\s\S]*?lifecycle: buildCashRefundLifecycleFixture\(\)/
+  /const buildCashRefundReviewOverview = [\s\S]*?managerQueueContractVersion: 'refund_manager_queue_v2'[\s\S]*?decisionRecommendation: decisionRecommendation\(\{[\s\S]*?paymentMethod: 'cash'/
 );
 assert.match(
   portalSource,
-  /publicReference: 'RF-UAT-CASH-MISSING-AMOUNT'[\s\S]*?lifecycle: buildCashRefundLifecycleFixture\(false\)/
+  /publicReference: 'RF-UAT-CASH-MISSING-AMOUNT'[\s\S]*?buildCashRefundLifecycleFixture\(false\)[\s\S]*?actionCode: 'deliver_customer_question'/
 );
 assert.match(
   portalSource,
@@ -147,11 +147,15 @@ assert.match(
 );
 assert.match(
   portalSource,
-  /availabilityResponse = page\.waitForResponse[\s\S]*?\(error\) => \(\{ response: null, error \}\)[\s\S]*?name: \/\^Ready to approve \\d\+\$\/[\s\S]*?refund_uat_availability_response_missing:\$\{scenario\.name\}/
+  /availabilityResponse = page\.waitForResponse[\s\S]*?\(error\) => \(\{ response: null, error \}\)[\s\S]*?refund_uat_availability_response_missing:\$\{scenario\.name\}/
 );
 assert.match(
   portalSource,
-  /scenario\.queueView === 'Waiting for customer'[\s\S]*?preserves the customer wait without exposing transaction-search controls[\s\S]*?continue;[\s\S]*?else \{[\s\S]*?renders durable server lookup evidence without a browser lookup/
+  /Refunds opens with exactly the four manager views and no legacy tabs[\s\S]*?Decision needed 1[\s\S]*?Waiting on customer 1[\s\S]*?All active 3[\s\S]*?All closed 1/
+);
+assert.match(
+  portalSource,
+  /scenario\.queueView === 'Waiting on customer'[\s\S]*?preserves the customer wait without exposing transaction-search controls[\s\S]*?continue;[\s\S]*?else \{[\s\S]*?renders durable server lookup evidence without a browser lookup/
 );
 assert.equal(
   [...portalSource.matchAll(/url\.includes\('\/admin_get_refund_operations_overview'\)/g)].length,
@@ -267,7 +271,7 @@ assert.match(
 );
 assert.match(
   refundsSource,
-  /setStatusFilter\('all'\);[\s\S]*?invalidateQueries\(\{ queryKey: \['admin-refund-operations-overview'\] \}\)[\s\S]*?setStatusFilter\(getRefundQueueFilterForCase\(authoritativeCase, refundOperationsAccess\)\)/
+  /setStatusFilter\('all_open'\);[\s\S]*?invalidateQueries\(\{ queryKey: \['admin-refund-operations-overview'\] \}\)[\s\S]*?setStatusFilter\(refundManagerView\(authoritativeCase\)\)/
 );
 assert.match(
   refundsSource,

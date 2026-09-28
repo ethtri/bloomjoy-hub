@@ -3,7 +3,6 @@ import { ArrowLeft } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { formatRefundMachineLocation } from '@/lib/refundMachineLabel';
 import type { RefundCaseRecord } from '@/lib/refundOperations';
-import { getRefundManagerQueueBucket } from '@/lib/refundQueue';
 import { cn } from '@/lib/utils';
 
 type RefundCaseQueuePanelProps = {
@@ -22,39 +21,17 @@ type RefundCaseQueuePanelProps = {
   onSelectCase: (refundCase: RefundCaseRecord) => void;
   getTaskLabel: (refundCase: RefundCaseRecord) => string;
   getTaskBadgeClass: (refundCase: RefundCaseRecord) => string;
-  getIntakeSourceLabel: (refundCase: RefundCaseRecord) => string;
-  getIntakeSourceBadgeClass: (refundCase: RefundCaseRecord) => string;
   formatCaseAge: (createdAt: string | null) => string;
   formatCaseAmount: (cents: number | null) => string;
-};
-
-const refundSearchViewLabel = (refundCase: RefundCaseRecord) => {
-  if (refundCase.lifecycle?.nextWork?.blocker?.code === 'wallet_identifier_unverified') {
-    return 'Purchase research pending';
-  }
-  return ({
-    needs_action: 'Action needed',
-    ready_to_pay: 'Ready to approve',
-    in_progress: 'Refund in progress',
-    waiting_on_customer: 'Waiting for customer',
-    provider_hold: 'Check Nayax refund status',
-    accounting_review: 'Fix refund accounting',
-    integrity_hold: 'Fix payment record',
-    completed: 'Done',
-    internal_archive: 'Internal/test archive',
-  })[getRefundManagerQueueBucket(refundCase)];
 };
 
 type RefundCaseQueueItemProps = {
   refundCase: RefundCaseRecord;
   showWorkflowSummary: boolean;
   isSelected: boolean;
-  isSearching: boolean;
   onSelect: () => void;
   taskLabel: string;
   taskBadgeClass: string;
-  intakeSourceLabel: string;
-  intakeSourceBadgeClass: string;
   amountLabel: string;
   ageLabel: string;
 };
@@ -63,20 +40,13 @@ function RefundCaseQueueItem({
   refundCase,
   showWorkflowSummary,
   isSelected,
-  isSearching,
   onSelect,
   taskLabel,
   taskBadgeClass,
-  intakeSourceLabel,
-  intakeSourceBadgeClass,
   amountLabel,
   ageLabel,
 }: RefundCaseQueueItemProps) {
   const nextWork = refundCase.lifecycle?.nextWork;
-  const progressAt = nextWork?.lastProgressAt ? new Date(nextWork.lastProgressAt) : null;
-  const progressLabel = progressAt && !Number.isNaN(progressAt.getTime())
-    ? progressAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-    : 'unavailable';
   const nextOwner = nextWork?.actor === 'manager' ? 'Manager'
     : nextWork?.actor === 'customer' ? 'Customer' : 'Bloomjoy';
   return (
@@ -96,16 +66,7 @@ function RefundCaseQueueItem({
             <span className="break-words text-sm font-semibold text-foreground lg:truncate">
               {refundCase.publicReference}
             </span>
-            <Badge
-              variant="outline"
-              data-testid="refund-case-source"
-              className={cn(
-                'shrink-0 px-1.5 py-0 text-[10px] font-semibold',
-                intakeSourceBadgeClass
-              )}
-            >
-              {intakeSourceLabel}
-            </Badge>
+
           </div>
           <p className="order-3 text-xs text-muted-foreground lg:mt-1 lg:truncate">
             {formatRefundMachineLocation(refundCase.locationName, refundCase.machineLabel)}
@@ -120,11 +81,6 @@ function RefundCaseQueueItem({
           {taskLabel}
         </Badge>
       </div>
-      {isSearching && (
-        <p className="mt-2 text-xs text-muted-foreground">
-          Current view: {refundSearchViewLabel(refundCase)}
-        </p>
-      )}
       {showWorkflowSummary && (
         <div data-testid="refund-case-next-work" className="mt-2 space-y-1 text-xs leading-relaxed text-muted-foreground">
           {refundCase.workflowProjectionUnavailable || !nextWork ? (
@@ -132,7 +88,7 @@ function RefundCaseQueueItem({
           ) : (
             <p><span className="font-semibold text-foreground">{nextOwner} next:</span> {nextWork.actionLabel}</p>
           )}
-          <p>Last meaningful update: {progressLabel}</p>
+
         </div>
       )}
       <div className="mt-3 flex items-center justify-between gap-3 text-xs">
@@ -161,8 +117,6 @@ export function RefundCaseQueuePanel({
   onSelectCase,
   getTaskLabel,
   getTaskBadgeClass,
-  getIntakeSourceLabel,
-  getIntakeSourceBadgeClass,
   formatCaseAge,
   formatCaseAmount,
 }: RefundCaseQueuePanelProps) {
@@ -191,12 +145,9 @@ export function RefundCaseQueuePanel({
         refundCase={refundCase}
         showWorkflowSummary={showWorkflowSummary}
         isSelected={refundCase.id === selectedCaseId}
-        isSearching={isSearching}
         onSelect={() => onSelectCase(refundCase)}
         taskLabel={getTaskLabel(refundCase)}
         taskBadgeClass={getTaskBadgeClass(refundCase)}
-        intakeSourceLabel={getIntakeSourceLabel(refundCase)}
-        intakeSourceBadgeClass={getIntakeSourceBadgeClass(refundCase)}
         amountLabel={formatCaseAmount(
           refundCase.refundAmountCents ?? refundCase.paymentAmountCents
         )}

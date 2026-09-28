@@ -1848,6 +1848,7 @@ const demoLifecycle = (
 ): RefundLifecycleContract => ({
   schemaVersion: REFUND_LIFECYCLE_SCHEMA_VERSION,
   ...(typeof window !== 'undefined' && (stage === 'transaction_confirmed' ||
+    stage === 'waiting_on_customer' || stage === 'matching' ||
     new URLSearchParams(window.location.search).get('next-work') === 'on')
     ? { nextWork: {
       schemaVersion: 'refund_next_work_v1' as const,
@@ -2471,7 +2472,31 @@ export const buildLocalRefundDemoOverview = (): RefundOperationsOverview => {
             createdAt: demoIsoHoursAgo(4.5),
           },
         ],
-        lifecycle: demoLifecycle('transaction_confirmed', 30, 'issue_refund'),
+        lifecycle: {
+          ...demoLifecycle('transaction_confirmed', 30, 'issue_refund'),
+          decisionRecommendation: {
+            schemaVersion: 'refund_decision_recommendation_v1',
+            kind: 'refund',
+            reasonCode: 'clear_purchase_match',
+            summary: 'One Nayax card transaction matches the machine, amount, card, and reported time.',
+            decisionReady: true,
+            officialActionVersion: 1,
+            deterministicFactVersion: 2,
+            purchase: {
+              source: 'nayax',
+              amountCents: 700,
+              currencyCode: 'USD',
+              transactionAt: demoCardAuthorizationAt,
+              timeMeaning: 'unknown',
+              cardLast4: '4242',
+              candidateToken: '41000000-0000-4000-8000-000000000031',
+            },
+            waitingSince: null,
+            lastMeaningfulInputAt: demoIsoHoursAgo(4.75),
+            eligibleAt: demoIsoHoursAgo(4.5),
+            payloadRedacted: true,
+          },
+        },
         assignedManagerEmail: managerEmail,
         decision: null,
         decisionReason: null,

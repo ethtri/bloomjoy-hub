@@ -35,11 +35,24 @@ type CustomerUpdatePresentation = {
   denyDisabled?: boolean;
 };
 
+type CashDecisionRecommendationPresentation = {
+  kind: 'refund' | 'reject';
+  summary: string;
+  purchase: {
+    amount: string;
+    time: string | null;
+    timeLabel: string;
+    destination: string | null;
+  } | null;
+} | null;
+
 export type RefundCashDecisionWorkbenchProps = {
   refundCase: RefundCaseRecord;
   editor: CashDecisionEditor;
   managerState: RefundManagerState;
   managerNextStep: string;
+  recommendation: CashDecisionRecommendationPresentation;
+  showPrimaryAction: boolean;
   action: CashPrimaryActionPresentation;
   customerUpdate: CustomerUpdatePresentation;
   cashCompletionRecorded: boolean;
@@ -52,6 +65,7 @@ export type RefundCashDecisionWorkbenchProps = {
   revisionDeliveryReview?: ReactNode;
   denialReasons: readonly string[];
   onPrimaryAction: () => void;
+  onDenyRecommendation?: () => void;
   onDenialReasonChange: (reason: string) => void;
 };
 
@@ -65,6 +79,8 @@ export function RefundCashDecisionWorkbench({
   editor,
   managerState,
   managerNextStep,
+  recommendation,
+  showPrimaryAction,
   action,
   customerUpdate,
   cashCompletionRecorded,
@@ -77,35 +93,39 @@ export function RefundCashDecisionWorkbench({
   revisionDeliveryReview,
   denialReasons,
   onPrimaryAction,
+  onDenyRecommendation,
   onDenialReasonChange,
 }: RefundCashDecisionWorkbenchProps) {
+  const showActionButton = showPrimaryAction &&
+    (recommendation?.kind !== 'reject' || editor.decision === 'denied');
+  const internalWorkHasNoManagerAction = refundCase.lifecycle?.nextWork?.isOpen === true &&
+    ['agent', 'system'].includes(refundCase.lifecycle.nextWork.actor);
+
   return (
     <div data-testid="refund-cash-workbench" className="space-y-4">
       <section className="overflow-hidden rounded-xl border border-border bg-card">
         <div
           data-testid="refund-cash-primary-action-panel"
           aria-live="polite"
-          className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
+          className="space-y-4 border-b border-border px-4 py-5"
         >
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Current state</p>
-            <h3 data-testid="refund-manager-state" className="mt-1 text-xl font-semibold text-foreground">
+            <h3 data-testid="refund-manager-state" className="text-xl font-semibold text-foreground">
               {managerState.label}
             </h3>
-            <p className="mt-2 max-w-xl text-sm leading-5 text-muted-foreground">{managerState.explanation}</p>
             <p
               data-testid="refund-manager-next-step"
-              className={action.isCompletion
-                ? 'mt-2 max-w-xl text-sm font-medium leading-5 text-foreground'
-                : 'mt-1 max-w-xl text-sm font-medium leading-5 text-foreground'}
+              className="mt-2 max-w-xl text-sm leading-5 text-muted-foreground"
             >
-              {isCashSaleSelectionPending
+              {recommendation?.summary ?? (isCashSaleSelectionPending
                 ? 'Confirming the selected sale amount. Do not send the external payment yet.'
                 : action.isCompletion
                 ? 'Send the refund through Zelle outside Bloomjoy Hub. After sending it, confirm it here.'
-                : `Next: ${managerNextStep}`}
+                : internalWorkHasNoManagerAction
+                ? managerState.explanation
+                : managerNextStep)}
             </p>
-            {action.isCompletion && typeof action.amountCents === 'number' && (
+            {!recommendation && action.isCompletion && typeof action.amountCents === 'number' && (
               <div
                 data-testid="refund-cash-confirmation-amount"
                 className="mt-3 max-w-xl rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm"
@@ -119,7 +139,29 @@ export function RefundCashDecisionWorkbench({
               </div>
             )}
           </div>
-          <div className="flex flex-col gap-2 sm:items-end">
+          {recommendation?.purchase && (
+            <dl data-testid="refund-recommended-purchase" className="grid gap-3 text-sm sm:grid-cols-3">
+              <div>
+                <dt className="text-muted-foreground">Amount</dt>
+                <dd className="mt-1 font-semibold text-foreground">{recommendation.purchase.amount}</dd>
+              </div>
+              {recommendation.purchase.time && (
+                <div>
+                  <dt className="text-muted-foreground">{recommendation.purchase.timeLabel}</dt>
+                  <dd className="mt-1 font-medium text-foreground">{recommendation.purchase.time}</dd>
+                </div>
+              )}
+              {recommendation.purchase.destination && (
+                <div>
+                  <dt className="text-muted-foreground">Zelle destination</dt>
+                  <dd className="mt-1 break-words font-medium text-foreground">{recommendation.purchase.destination}</dd>
+                </div>
+              )}
+            </dl>
+          )}
+          {(showActionButton || onDenyRecommendation) && (
+          <div className="flex flex-wrap items-center gap-3">
+            {showActionButton && (
             <Button
               data-testid="refund-cash-primary-action"
               data-dominant-action="true"
@@ -135,12 +177,26 @@ export function RefundCashDecisionWorkbench({
               )}
               {action.label}
             </Button>
+            )}
+            {onDenyRecommendation && editor.decision !== 'denied' && (
+              <Button
+                data-testid="refund-deny-instead"
+                type="button"
+                variant="outline"
+                className="min-h-11 px-5"
+                disabled={customerUpdate.denyDisabled}
+                onClick={onDenyRecommendation}
+              >
+                Deny
+              </Button>
+            )}
           </div>
+          )}
         </div>
 
         {correctionSummary}
         {revisionDeliveryReview}
-        <div className="grid border-t border-border lg:grid-cols-2 lg:divide-x lg:divide-border">
+        <div className="border-t border-border">
           <article data-testid="refund-cash-request-summary" className="p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Customer request</p>
             <h4 className="mt-1 text-base font-semibold text-foreground">What happened</h4>
@@ -149,7 +205,9 @@ export function RefundCashDecisionWorkbench({
                 {refundCase.issueSummary || 'No customer comments were provided.'}
               </p>
             </div>
-            <div className="mt-4 grid grid-cols-1 gap-3 border-t border-border/70 pt-4 text-sm sm:grid-cols-2">
+            <details className="mt-4 border-t border-border/70 pt-4">
+              <summary className="cursor-pointer text-sm font-medium text-foreground">Customer purchase details</summary>
+              <div className="mt-3 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
               <div>
                 <p className="text-xs text-muted-foreground">Location</p>
                 <p className="mt-1 font-medium text-foreground">{refundCase.locationName}</p>
@@ -173,15 +231,20 @@ export function RefundCashDecisionWorkbench({
                   <p className="mt-1 break-words text-xs text-muted-foreground">Destination: {refundCase.zellePaymentContact}</p>
                 )}
               </div>
-            </div>
+              </div>
+            </details>
           </article>
-
-          <CashRefundEvidencePanel
-            refundCase={refundCase}
-            isUsingDemoData={isUsingDemoData}
-            venueTimezone={venueTimezone}
-            isCompleted={cashCompletionRecorded}
-          />
+          <details className="border-t border-border px-4 py-3">
+            <summary className="cursor-pointer text-sm font-medium text-foreground">Purchase details and search history</summary>
+            <div className="mt-3 overflow-hidden rounded-lg border border-border">
+              <CashRefundEvidencePanel
+                refundCase={refundCase}
+                isUsingDemoData={isUsingDemoData}
+                venueTimezone={venueTimezone}
+                isCompleted={cashCompletionRecorded}
+              />
+            </div>
+          </details>
         </div>
       </section>
 
@@ -204,7 +267,9 @@ export function RefundCashDecisionWorkbench({
         </section>
       )}
 
-      <section className="rounded-xl border border-border bg-background p-4">
+      <details className="rounded-xl border border-border bg-background p-4">
+        <summary className="cursor-pointer text-sm font-medium text-foreground">Customer update and options</summary>
+        <div className="mt-4">
         {customerUpdate.hasPendingDenialAppeal && (
           <div
             data-testid="refund-appeal-needs-review"
@@ -254,7 +319,8 @@ export function RefundCashDecisionWorkbench({
               </div>
             </details>
           )}
-      </section>
+        </div>
+      </details>
     </div>
   );
 }
