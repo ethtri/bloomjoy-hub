@@ -575,21 +575,38 @@ export const createUnknownProviderOutcomeChecks = ({
     await page.getByRole('button', { name: /^Decision needed \d+$/ }).click();
     await waitForQueueCount(page, 1);
     await queueCase(page, 'RF-UAT-CARD').click();
+    await page.getByTestId('refund-run-nayax-refund').waitFor({
+      state: 'visible',
+      timeout: 10000,
+    });
     const disputeCalls = rpcBodies.filter((entry) =>
       entry.name === 'admin_dispute_refund_nayax_preselection_current_user_v1'
     );
+    const alternativeReviewVisible = await page
+      .getByTestId('refund-review-other-transactions')
+      .isVisible();
+    const candidateCount = await page.getByTestId('nayax-candidate-option').count();
+    const refundActionCount = await page.getByTestId('refund-run-nayax-refund').count();
     recorder.assert(
       'A clear recommendation keeps alternative transaction inventory out of the Manager decision',
-      (await page.getByTestId('refund-review-other-transactions').isVisible()) === false &&
-        (await page.getByTestId('nayax-candidate-option').count()) === 0 &&
-        (await page.getByTestId('refund-run-nayax-refund').count()) === 1 &&
+      alternativeReviewVisible === false &&
+        candidateCount === 0 &&
+        refundActionCount === 1 &&
         disputeCalls.length === 0 &&
         rpcCalls.filter((name) => name === 'admin_dispute_refund_nayax_preselection_current_user_v1').length === 0 &&
         functionCalls.filter((name) => !NAVIGATION_READ_ONLY_RPCS.has(name)).length === 0 &&
         !functionCalls.some((name) => [
           'nayax-card-refund', 'refund-case-admin-update', 'refund-case-message-send',
         ].includes(name)),
-      JSON.stringify({ functionCalls, functionBodies, rpcCalls, rpcBodies })
+      JSON.stringify({
+        alternativeReviewVisible,
+        candidateCount,
+        refundActionCount,
+        functionCalls,
+        functionBodies,
+        rpcCalls,
+        rpcBodies,
+      })
     );
     await closeRefundPortalContext(context);
   };
