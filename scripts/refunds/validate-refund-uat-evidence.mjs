@@ -325,7 +325,7 @@ try {
     /--run-token/,
     'The per-run HMAC token must remain environment-only and masked'
   );
-  assert.equal(EXPECTED_SCREENSHOTS.length, 29, 'Evidence keeps only 29 human-review screenshots');
+  assert.equal(EXPECTED_SCREENSHOTS.length, 31, 'Evidence keeps only 31 human-review screenshots');
   assert.deepEqual(
     EXPECTED_SCREENSHOTS.filter((name) => REFUND_PORTAL_HUMAN_REVIEW_SCREENSHOTS.includes(name)),
     REFUND_PORTAL_HUMAN_REVIEW_SCREENSHOTS,
@@ -333,7 +333,7 @@ try {
   );
   assert.equal(
     EXPECTED_SCREENSHOTS.filter((name) => name.startsWith('machine-') || name.startsWith('admin-machines-')).length,
-    11,
+    13,
     'Evidence must retain the machine setup review states produced by the separate manager UAT'
   );
   assert.equal(

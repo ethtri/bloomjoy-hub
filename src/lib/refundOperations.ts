@@ -3395,8 +3395,49 @@ export const reconcileRefundNayaxMachineAdmin = async ({
     p_exclusion_reason: exclusionReason,
     p_reason: reason,
   });
-  if (error || !data) throw new Error(error?.message || 'Unable to reconcile the Nayax machine.');
+  if (error || !data) {
+    const message = error?.message || 'Unable to reconcile the Nayax machine.';
+    throw new Error(
+      error?.code === '57014' || /statement timeout/i.test(message)
+        ? 'The change took too long and was not saved. Refresh the inventory and try again. If it repeats, contact support with the machine name and Nayax ID.'
+        : message
+    );
+  }
   return data as { ok: boolean; inventoryId: string; state: RefundNayaxInventoryState };
+};
+
+export type ReplaceRefundNayaxMachineResult = {
+  ok: boolean;
+  reportingMachineId: string;
+  retiredInventoryId: string;
+  replacementInventoryId: string;
+  replacementNayaxMachineId: string;
+  readiness: 'ready';
+};
+
+export const replaceRefundNayaxMachineAdmin = async ({
+  reportingMachineId,
+  replacementInventoryId,
+  reason,
+}: {
+  reportingMachineId: string;
+  replacementInventoryId: string;
+  reason: string;
+}): Promise<ReplaceRefundNayaxMachineResult> => {
+  const { data, error } = await supabaseClient.rpc('admin_replace_refund_nayax_machine', {
+    p_reporting_machine_id: reportingMachineId,
+    p_replacement_inventory_id: replacementInventoryId,
+    p_reason: reason,
+  });
+  if (error || !data) {
+    const message = error?.message || 'Unable to replace the Nayax reader.';
+    throw new Error(
+      error?.code === '57014' || /statement timeout/i.test(message)
+        ? 'The replacement took too long and was not saved. Refresh the inventory and try again. If it repeats, contact support with both Nayax IDs.'
+        : message
+    );
+  }
+  return data as ReplaceRefundNayaxMachineResult;
 };
 
 export type UpdateRefundCaseResponse = {

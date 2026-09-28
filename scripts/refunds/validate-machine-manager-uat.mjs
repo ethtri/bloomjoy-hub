@@ -396,8 +396,7 @@ const installMockSupabaseRoutes = async (context, state) => {
     }
 
     if (url.includes('/admin_get_refund_nayax_inventory')) {
-      return route.fulfill(jsonResponse({
-        summary: { active: 4, published: 2, needsSetup: 1, excluded: 1, stalePublished: 0 },
+      if (!state.nayaxInventory) state.nayaxInventory = {
         lastRun: {
           status: 'completed',
           completedAt: now.toISOString(),
@@ -472,7 +471,63 @@ const installMockSupabaseRoutes = async (context, state) => {
             lastSuccessfulSyncAt: now.toISOString(),
           },
         ],
+      };
+      const machines = state.nayaxInventory.machines;
+      return route.fulfill(jsonResponse({
+        ...state.nayaxInventory,
+        summary: {
+          active: machines.filter((machine) => machine.providerActive).length,
+          published: machines.filter((machine) => machine.providerActive && machine.state === 'published').length,
+          needsSetup: machines.filter((machine) => machine.providerActive && machine.state === 'needs_setup').length,
+          excluded: machines.filter((machine) => machine.providerActive && machine.state === 'excluded').length,
+          stalePublished: machines.filter((machine) => machine.providerActive && machine.state === 'published' && machine.missingSuccessfulSnapshots > 0).length,
+        },
       }));
+    }
+
+    if (url.includes('/admin_replace_refund_nayax_machine')) {
+      const body = route.request().postDataJSON();
+      state.readerReplacementPayload = body;
+      const current = state.nayaxInventory?.machines.find((machine) => machine.reportingMachineId === body?.p_reporting_machine_id && machine.state === 'published');
+      const replacement = state.nayaxInventory?.machines.find((machine) => machine.id === body?.p_replacement_inventory_id);
+      if (!current || !replacement) {
+        return route.fulfill({ status: 400, contentType: 'application/json', headers: corsHeaders, body: JSON.stringify({ code: 'P0001', message: 'Verified replacement reader not found' }) });
+      }
+      current.state = 'excluded';
+      current.reportingMachineId = null;
+      current.setupReason = 'explicitly_excluded';
+      current.exclusionReason = 'Retired reader after verified replacement';
+      replacement.state = 'published';
+      replacement.reportingMachineId = body.p_reporting_machine_id;
+      replacement.category ??= current.category;
+      replacement.setupReason = 'ready';
+      replacement.exclusionReason = null;
+      state.refundSetup.nayaxMachineId = replacement.nayaxMachineId;
+      state.refundSetup.nayaxAccountKey = replacement.accountKey;
+      return route.fulfill(jsonResponse({
+        ok: true,
+        reportingMachineId: body.p_reporting_machine_id,
+        retiredInventoryId: current.id,
+        replacementInventoryId: replacement.id,
+        replacementNayaxMachineId: replacement.nayaxMachineId,
+        readiness: 'ready',
+      }));
+    }
+
+    if (url.includes('/admin_reconcile_refund_nayax_machine')) {
+      const body = route.request().postDataJSON();
+      state.inventoryReconcilePayload = body;
+      if (body?.p_reason === 'Force synthetic timeout') {
+        return route.fulfill({ status: 500, contentType: 'application/json', headers: corsHeaders, body: JSON.stringify({ code: '57014', message: 'canceling statement due to statement timeout' }) });
+      }
+      const machine = state.nayaxInventory?.machines.find((candidate) => candidate.id === body?.p_inventory_id);
+      if (machine) {
+        machine.state = body.p_reconciliation_state;
+        machine.category = body.p_refund_category;
+        machine.reportingMachineId = body.p_reporting_machine_id;
+        machine.exclusionReason = body.p_exclusion_reason;
+      }
+      return route.fulfill(jsonResponse({ ok: true, inventoryId: body.p_inventory_id, state: body.p_reconciliation_state }));
     }
 
     if (url.includes('/admin_upsert_reporting_machine')) {
@@ -624,6 +679,11 @@ const run = async () => {
     nayaxPayload: null,
     activationPayload: null,
     bulkActivationPayload: null,
+    readerReplacementPayload: null,
+    inventoryReconcilePayload: null,
+    nayaxInventory: null,
+    expectSyntheticInventoryTimeout: false,
+    expectSyntheticInventoryTimeoutConsole: false,
     accessInviteBodies: [],
     inviteDeliveries: [],
     refundSetup: {
@@ -650,7 +710,21 @@ const run = async () => {
   const networkFailures = [];
   const browser = createTrackedUatBrowser(
     await chromium.launch({ headless: !args.headed }),
-    { appUrl: args.appUrl, failures: networkFailures }
+    {
+      appUrl: args.appUrl,
+      failures: networkFailures,
+      isExpectedResponse: (response) => {
+        if (!state.expectSyntheticInventoryTimeout) return false;
+        const expected = response.status() === 500
+          && response.request().method() === 'POST'
+          && new URL(response.url()).pathname.endsWith('/rest/v1/rpc/admin_reconcile_refund_nayax_machine');
+        if (expected) {
+          state.expectSyntheticInventoryTimeout = false;
+          state.expectSyntheticInventoryTimeoutConsole = true;
+        }
+        return expected;
+      },
+    }
   );
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   await installMockSupabaseRoutes(context, state);
@@ -661,6 +735,13 @@ const run = async () => {
 
   page.on('console', (message) => {
     if (message.type() === 'error') {
+      if (
+        state.expectSyntheticInventoryTimeoutConsole
+        && message.text() === 'Failed to load resource: the server responded with a status of 500 (Internal Server Error)'
+      ) {
+        state.expectSyntheticInventoryTimeoutConsole = false;
+        return;
+      }
       consoleErrors.push(message.text());
     }
   });
@@ -733,13 +814,19 @@ const run = async () => {
     const valleyInventoryRow = page.getByText('Preit1085-Valley mall', { exact: true })
       .locator('xpath=ancestor::div[contains(@class,"p-4")][1]');
     await valleyInventoryRow.getByRole('button', { name: 'Review' }).click();
+    recorder.assert(
+      'Mapped readers keep replacement guidance visible when no eligible candidate is available',
+      await valleyInventoryRow.getByText('No eligible replacement is in the latest inventory.', { exact: false }).isVisible()
+        && await valleyInventoryRow.getByLabel('Replacement reader').isVisible()
+    );
+    await valleyInventoryRow.getByRole('button', { name: 'Other setup change' }).click();
     const valleyCategory = page.locator('#inventory-category-55555555-5555-4555-8555-555555555553');
     const valleyState = page.locator('#inventory-state-55555555-5555-4555-8555-555555555553');
     const valleyMapping = page.locator('#inventory-link-55555555-5555-4555-8555-555555555553');
     recorder.assert(
       'The exact published and mapped Valley Mall product truth is visible on desktop',
       await inventoryCategoryFilter.locator('option[value="unknown"]').textContent() === 'Product unverified'
-        && await page.getByText(/TGPACI_USA_DB · Nayax ID 224560057 · machine 434334924111783AutoI&IBl/).isVisible()
+        && await page.getByText(/Nayax ID 224560057 · TGPACI_USA_DB · provider record 434334924111783AutoI&IBl/).isVisible()
         && await valleyState.inputValue() === 'published'
         && await valleyCategory.inputValue() === 'unknown'
         && await valleyCategory.locator('option:checked').textContent() === 'Product unverified'
@@ -768,6 +855,80 @@ const run = async () => {
     });
     await page.setViewportSize({ width: 1440, height: 1000 });
     await inventoryCategoryFilter.selectOption('all');
+
+    const cottonInventoryRow = page.getByText('Cotton Candy 01', { exact: true }).first()
+      .locator('xpath=ancestor::div[contains(@class,"p-4")][1]');
+    await cottonInventoryRow.getByRole('button', { name: 'Review' }).click();
+    await cottonInventoryRow.getByLabel('Replacement reader').selectOption('55555555-5555-4555-8555-555555555554');
+    recorder.assert(
+      'Published readers open the streamlined replacement flow by default',
+      await cottonInventoryRow.getByRole('button', { name: 'Replace reader' }).first().getAttribute('aria-pressed') === 'true'
+        && await cottonInventoryRow.getByText('The old reader stays attached to its historical sales and refund records.').isVisible()
+        && !(await cottonInventoryRow.textContent())?.includes('UAT_ACCOUNT')
+        && !(await cottonInventoryRow.textContent())?.includes('provider record 001')
+    );
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'machine-refunds-reader-replacement-desktop.png'),
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    const readerReplacementMobileLayout = await page.evaluate(() => ({
+      viewportWidth: window.innerWidth,
+      documentWidth: document.documentElement.scrollWidth,
+    }));
+    recorder.assert(
+      'Reader replacement review remains readable at 390x844',
+      readerReplacementMobileLayout.documentWidth <= readerReplacementMobileLayout.viewportWidth
+        && await cottonInventoryRow.getByLabel('Replacement reader').isVisible()
+    );
+    await page.screenshot({
+      path: path.join(args.artifactDir, 'machine-refunds-reader-replacement-mobile.png'),
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    recorder.assert(
+      'An excluded candidate requires conscious review of its prior exclusion',
+      await cottonInventoryRow.getByText(/This reader was excluded: Synthetic test machine/).isVisible()
+        && await cottonInventoryRow.getByText('Confirm Nayax ID change: UAT-NAYAX-001 → UAT-NAYAX-TEST.', { exact: true }).isVisible()
+    );
+    await cottonInventoryRow.getByLabel('Why is this reader being replaced?').fill('Synthetic failed reader replacement');
+    await cottonInventoryRow.getByRole('button', { name: 'Replace reader', exact: true }).last().click();
+    await page.getByRole('status').filter({ hasText: 'Reader replaced and verified ready with Nayax ID UAT-NAYAX-TEST.' }).first().waitFor({ timeout: 10000 });
+    await page.getByText('Synthetic provider test', { exact: true }).waitFor({ timeout: 10000 });
+    recorder.assert(
+      'Reader replacement persists through inventory refresh and reports verified readiness',
+      state.readerReplacementPayload?.p_reporting_machine_id === machineId
+        && state.readerReplacementPayload?.p_replacement_inventory_id === '55555555-5555-4555-8555-555555555554'
+        && await page.getByText('Synthetic provider test', { exact: true }).isVisible()
+    );
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByRole('heading', { name: 'Inventory review' }).waitFor({ timeout: 10000 });
+    await page.getByRole('button', { name: /Published/ }).click();
+    recorder.assert(
+      'Replacement mapping remains after a full page reload',
+      await page.getByText('Synthetic provider test', { exact: true }).isVisible()
+        && await page.getByText(/Nayax ID UAT-NAYAX-TEST · UAT_ACCOUNT/).isVisible()
+        && state.nayaxInventory.machines.find((machine) => machine.nayaxMachineId === 'UAT-NAYAX-001')?.state === 'excluded'
+    );
+
+    await page.getByRole('button', { name: /Needs review/ }).click();
+    const rejectedInventoryRow = page.getByText('SnapCase setup needed', { exact: true })
+      .locator('xpath=ancestor::div[contains(@class,"p-4")][1]');
+    await rejectedInventoryRow.getByRole('button', { name: 'Review' }).click();
+    await rejectedInventoryRow.getByLabel('Exact Bloomjoy machine').selectOption(machineId);
+    await rejectedInventoryRow.getByLabel('Audit reason').fill('Force synthetic timeout');
+    state.expectSyntheticInventoryTimeout = true;
+    await rejectedInventoryRow.getByRole('button', { name: 'Save', exact: true }).click();
+    await rejectedInventoryRow.getByRole('alert').waitFor({ timeout: 10000 });
+    recorder.assert(
+      'A backend timeout stays visible and explains that the change was not saved',
+      (await rejectedInventoryRow.getByRole('alert').textContent())?.includes('The change took too long and was not saved.')
+        && state.nayaxInventory.machines.find((machine) => machine.id === '55555555-5555-4555-8555-555555555552')?.state === 'needs_setup'
+    );
+
+    state.refundSetup.nayaxMachineId = null;
+    state.refundSetup.nayaxAccountKey = null;
+
     await page.getByRole('main').getByRole('link', { name: 'Machines', exact: true }).click();
     await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10000 });
 

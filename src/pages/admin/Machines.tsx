@@ -2,6 +2,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import {
   Activity,
   AlertTriangle,
+  ArrowRightLeft,
   ArrowLeft,
   CalendarClock,
   CheckCircle2,
@@ -70,6 +71,7 @@ import {
   fetchRefundNayaxInventory,
   isLocalUatDemoForced,
   reconcileRefundNayaxMachineAdmin,
+  replaceRefundNayaxMachineAdmin,
   setMachineNayaxConfigAdmin,
   setMachineRefundIntakeConfigAdmin,
   setMachineRefundManagersAdmin,
@@ -1832,6 +1834,7 @@ function RefundNayaxInventoryPanel({
   const [inventorySearch, setInventorySearch] = useState('');
   const [inventoryCategory, setInventoryCategory] = useState<'all' | 'cotton_candy' | 'snapcase' | 'unknown' | 'unclassified'>('all');
   const [inventoryMapping, setInventoryMapping] = useState<'all' | 'linked' | 'unlinked'>('all');
+  const [operationNotice, setOperationNotice] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
   const activeMachines = inventory?.machines.filter((machine) => machine.providerActive) ?? [];
   const normalizedSearch = inventorySearch.trim().toLowerCase();
   const visibleMachines = activeMachines
@@ -1969,6 +1972,11 @@ function RefundNayaxInventoryPanel({
               </div>
             </div>
           )}
+          {operationNotice && (
+            <div role={operationNotice.kind === 'error' ? 'alert' : 'status'} className={cn('border-b px-4 py-3 text-sm', operationNotice.kind === 'error' ? 'border-destructive/30 bg-destructive/10 text-destructive' : 'border-emerald-200 bg-emerald-50 text-emerald-900')}>
+              {operationNotice.message}
+            </div>
+          )}
           {visibleMachines.length === 0 ? (
             <div className="p-8 text-center">
               <CheckCircle2 className="mx-auto h-6 w-6 text-emerald-600" />
@@ -1989,9 +1997,11 @@ function RefundNayaxInventoryPanel({
                 <RefundNayaxInventoryRow
                   key={machine.id}
                   inventoryMachine={machine}
+                  inventoryMachines={activeMachines}
                   reportingMachines={machines}
                    canReconcile={canReconcile}
-                   onSaved={onSaved}
+                  onSaved={onSaved}
+                  onOperationNotice={setOperationNotice}
                    initiallyOpen={[machine.id, machine.nayaxMachineId].includes(focusedInventoryId ?? '')}
                  />
               ))}
@@ -2005,15 +2015,19 @@ function RefundNayaxInventoryPanel({
 
 function RefundNayaxInventoryRow({
   inventoryMachine,
+  inventoryMachines,
   reportingMachines,
   canReconcile,
   onSaved,
+  onOperationNotice,
   initiallyOpen,
 }: {
   inventoryMachine: RefundNayaxInventoryMachine;
+  inventoryMachines: RefundNayaxInventoryMachine[];
   reportingMachines: PartnershipSetupMachine[];
   canReconcile: boolean;
   onSaved: () => Promise<void>;
+  onOperationNotice: (notice: { kind: 'success' | 'error'; message: string }) => void;
   initiallyOpen: boolean;
 }) {
   const [isReviewing, setIsReviewing] = useState(initiallyOpen);
@@ -2022,24 +2036,55 @@ function RefundNayaxInventoryRow({
   const [reportingMachineId, setReportingMachineId] = useState(inventoryMachine.reportingMachineId ?? '');
   const [exclusionReason, setExclusionReason] = useState(inventoryMachine.exclusionReason ?? '');
   const [auditReason, setAuditReason] = useState('');
+  const [mode, setMode] = useState<'replace' | 'reconcile'>('reconcile');
+  const [replacementInventoryId, setReplacementInventoryId] = useState('');
+  const [saveNotice, setSaveNotice] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  const replacementCandidates = inventoryMachines.filter((candidate) =>
+    candidate.id !== inventoryMachine.id
+      && candidate.accountKey === inventoryMachine.accountKey
+      && candidate.providerActive
+      && candidate.missingSuccessfulSnapshots === 0
+      && !candidate.reportingMachineId
+  );
+  const canReplace = inventoryMachine.state === 'published'
+    && Boolean(inventoryMachine.reportingMachineId);
+  const soleReplacementInventoryId = replacementCandidates.length === 1
+    && replacementCandidates[0].state !== 'excluded'
+    ? replacementCandidates[0].id
+    : '';
+  const selectedReplacement = replacementCandidates.find((candidate) => candidate.id === replacementInventoryId);
 
   useEffect(() => {
     setState(inventoryMachine.state);
     setCategory(inventoryMachine.category);
     setReportingMachineId(inventoryMachine.reportingMachineId ?? '');
     setExclusionReason(inventoryMachine.exclusionReason ?? '');
+    setSaveNotice(null);
   }, [inventoryMachine]);
+
+  useEffect(() => {
+    setMode(canReplace ? 'replace' : 'reconcile');
+    setReplacementInventoryId(soleReplacementInventoryId);
+  }, [canReplace, inventoryMachine.id, soleReplacementInventoryId]);
+
+  const reportError = (error: unknown, fallback: string) => {
+    const message = error instanceof Error ? error.message : fallback;
+    setSaveNotice({ kind: 'error', message });
+    toast.error(message);
+  };
 
   const save = async () => {
     if (auditReason.trim().length < 8) {
-      toast.error('Add a short audit reason before saving.');
+      reportError(null, 'Add a short audit reason before saving.');
       return;
     }
     if (state === 'excluded' && !exclusionReason.trim()) {
-      toast.error('An explicit exclusion reason is required.');
+      reportError(null, 'An explicit exclusion reason is required.');
       return;
     }
+    setSaveNotice(null);
     setIsSaving(true);
     try {
       await reconcileRefundNayaxMachineAdmin({
@@ -2050,12 +2095,58 @@ function RefundNayaxInventoryRow({
         exclusionReason: state === 'excluded' ? exclusionReason.trim() : null,
         reason: auditReason.trim(),
       });
-      toast.success(`${inventoryMachine.machineName || 'Nayax machine'} reconciliation saved.`);
+      const successMessage = `${inventoryMachine.machineName || 'Nayax machine'} was saved and verified.`;
+      setSaveNotice({ kind: 'success', message: successMessage });
+      onOperationNotice({ kind: 'success', message: successMessage });
+      toast.success(successMessage);
       setAuditReason('');
-      await onSaved();
-      setIsReviewing(false);
+      try {
+        await onSaved();
+      } catch {
+        setSaveNotice({ kind: 'success', message: `${successMessage} Refresh the page to reload the latest inventory.` });
+        onOperationNotice({ kind: 'success', message: `${successMessage} Refresh the page to reload the latest inventory.` });
+      }
     } catch (saveError) {
-      toast.error(saveError instanceof Error ? saveError.message : 'Unable to save the inventory decision.');
+      reportError(saveError, 'Unable to save the inventory decision.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const replaceReader = async () => {
+    if (!inventoryMachine.reportingMachineId) {
+      reportError(null, 'The current reader must be linked before it can be replaced.');
+      return;
+    }
+    if (!replacementInventoryId) {
+      reportError(null, 'Choose the verified replacement reader.');
+      return;
+    }
+    if (auditReason.trim().length < 8) {
+      reportError(null, 'Add a short audit reason before replacing the reader.');
+      return;
+    }
+    setSaveNotice(null);
+    setIsSaving(true);
+    try {
+      const result = await replaceRefundNayaxMachineAdmin({
+        reportingMachineId: inventoryMachine.reportingMachineId,
+        replacementInventoryId,
+        reason: auditReason.trim(),
+      });
+      const successMessage = `Reader replaced and verified ready with Nayax ID ${result.replacementNayaxMachineId}.`;
+      setSaveNotice({ kind: 'success', message: successMessage });
+      onOperationNotice({ kind: 'success', message: successMessage });
+      toast.success(successMessage);
+      setAuditReason('');
+      try {
+        await onSaved();
+      } catch {
+        setSaveNotice({ kind: 'success', message: `${successMessage} Refresh the page to reload the latest inventory.` });
+        onOperationNotice({ kind: 'success', message: `${successMessage} Refresh the page to reload the latest inventory.` });
+      }
+    } catch (saveError) {
+      reportError(saveError, 'Unable to replace the Nayax reader.');
     } finally {
       setIsSaving(false);
     }
@@ -2072,8 +2163,10 @@ function RefundNayaxInventoryRow({
             </Badge>
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
-            {inventoryMachine.accountKey} · Nayax ID {inventoryMachine.nayaxMachineId}
-            {inventoryMachine.machineNumber ? ` · machine ${inventoryMachine.machineNumber}` : ''}
+            Nayax ID {inventoryMachine.nayaxMachineId}
+            {(!isReviewing || mode === 'reconcile' || !canReplace) && (
+              <> · {inventoryMachine.accountKey}{inventoryMachine.machineNumber ? ` · provider record ${inventoryMachine.machineNumber}` : ''}</>
+            )}
           </div>
           <div className="mt-1 text-xs text-muted-foreground">Current reason: {formatLabel(inventoryMachine.setupReason)}</div>
         </div>
@@ -2084,14 +2177,75 @@ function RefundNayaxInventoryRow({
       </div>
 
       {isReviewing && (
-      <div className="mt-4 grid gap-4 border-t border-border pt-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_auto] xl:items-end">
+      <div className="mt-4 border-t border-border pt-4">
+        {canReconcile && canReplace && (
+          <div className="mb-4 flex flex-wrap gap-2" aria-label="Nayax setup action">
+            <Button type="button" size="sm" variant={mode === 'replace' ? 'secondary' : 'ghost'} aria-pressed={mode === 'replace'} onClick={() => { setMode('replace'); setSaveNotice(null); }}>
+              <ArrowRightLeft className="mr-2 h-4 w-4" /> Replace reader
+            </Button>
+            <Button type="button" size="sm" variant={mode === 'reconcile' ? 'secondary' : 'ghost'} aria-pressed={mode === 'reconcile'} onClick={() => { setMode('reconcile'); setSaveNotice(null); }}>
+              Other setup change
+            </Button>
+          </div>
+        )}
+
+        {mode === 'replace' && canReplace ? (
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:items-start">
+            <div className="rounded-md border border-border bg-background p-3">
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Current reader</div>
+              <div className="mt-1 font-medium">{inventoryMachine.machineName || 'Unnamed Nayax machine'}</div>
+              <div className="mt-1 text-sm text-muted-foreground">Nayax ID {inventoryMachine.nayaxMachineId}</div>
+              <div className="mt-2 text-sm">Bloomjoy machine: {reportingMachines.find((machine) => machine.id === inventoryMachine.reportingMachineId)?.machine_label ?? 'Linked machine'}</div>
+            </div>
+            <ArrowRightLeft className="hidden h-5 w-5 text-muted-foreground lg:mt-10 lg:block" aria-hidden="true" />
+            <div>
+              <Label htmlFor={`inventory-replacement-${inventoryMachine.id}`}>Replacement reader</Label>
+              <select id={`inventory-replacement-${inventoryMachine.id}`} value={replacementInventoryId} onChange={(event) => { setReplacementInventoryId(event.target.value); setSaveNotice(null); }} disabled={isSaving} className="mt-1 h-10 w-full rounded-md border border-input bg-background px-2 text-sm">
+                <option value="">Choose replacement</option>
+                {replacementCandidates.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.machineName || 'Unnamed Nayax machine'} — ID {candidate.nayaxMachineId}{candidate.state === 'excluded' ? ' — excluded' : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">Only active, current, unlinked readers from the same provider account are listed. Verify the physical reader's printed Nayax ID before saving.</p>
+              {replacementCandidates.length === 0 && (
+                <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950">
+                  No eligible replacement is in the latest inventory. Refresh after the new reader appears in Nayax, then verify its ID here.
+                </div>
+              )}
+              {selectedReplacement?.state === 'excluded' && (
+                <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950">
+                  This reader was excluded: {selectedReplacement.exclusionReason || 'no exclusion reason available'}. Confirm it is the physical replacement before continuing.
+                </div>
+              )}
+              {selectedReplacement && (
+                <div className="mt-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium">
+                  Confirm Nayax ID change: {inventoryMachine.nayaxMachineId} &rarr; {selectedReplacement.nayaxMachineId}.
+                </div>
+              )}
+            </div>
+            <div className="lg:col-span-3 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950">
+              The old reader stays attached to its historical sales and refund records. New lookups switch to the selected reader after this verified save.
+            </div>
+            <div className="lg:col-span-2">
+              <Label htmlFor={`inventory-replacement-reason-${inventoryMachine.id}`}>Why is this reader being replaced?</Label>
+              <Input id={`inventory-replacement-reason-${inventoryMachine.id}`} value={auditReason} onChange={(event) => { setAuditReason(event.target.value); setSaveNotice(null); }} placeholder="Failed reader replaced at the same machine" disabled={isSaving} />
+            </div>
+            <Button className="min-h-10 lg:self-end" onClick={() => void replaceReader()} disabled={isSaving}>
+              {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Replace reader
+            </Button>
+          </div>
+        ) : (
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_auto] xl:items-end">
         <div className="grid grid-cols-2 gap-2">
           <div>
             <Label htmlFor={`inventory-state-${inventoryMachine.id}`}>Status</Label>
             <select
               id={`inventory-state-${inventoryMachine.id}`}
               value={state}
-              onChange={(event) => setState(event.target.value as RefundNayaxInventoryState)}
+              onChange={(event) => { setState(event.target.value as RefundNayaxInventoryState); setSaveNotice(null); }}
               disabled={!canReconcile || isSaving}
               className="h-10 w-full rounded-md border border-input bg-background px-2 text-sm"
             >
@@ -2105,7 +2259,7 @@ function RefundNayaxInventoryRow({
             <select
               id={`inventory-category-${inventoryMachine.id}`}
               value={category ?? ''}
-              onChange={(event) => setCategory((event.target.value || null) as RefundNayaxInventoryCategory)}
+              onChange={(event) => { setCategory((event.target.value || null) as RefundNayaxInventoryCategory); setSaveNotice(null); }}
               disabled={!canReconcile || isSaving}
               className="h-10 w-full rounded-md border border-input bg-background px-2 text-sm"
             >
@@ -2123,7 +2277,7 @@ function RefundNayaxInventoryRow({
             <select
               id={`inventory-link-${inventoryMachine.id}`}
               value={reportingMachineId}
-              onChange={(event) => setReportingMachineId(event.target.value)}
+              onChange={(event) => { setReportingMachineId(event.target.value); setSaveNotice(null); }}
               disabled={!canReconcile || isSaving}
               className="h-10 w-full rounded-md border border-input bg-background px-2 text-sm"
             >
@@ -2140,7 +2294,11 @@ function RefundNayaxInventoryRow({
             <Input
               id={`inventory-reason-${inventoryMachine.id}`}
               value={state === 'excluded' ? exclusionReason : auditReason}
-              onChange={(event) => state === 'excluded' ? setExclusionReason(event.target.value) : setAuditReason(event.target.value)}
+              onChange={(event) => {
+                if (state === 'excluded') setExclusionReason(event.target.value);
+                else setAuditReason(event.target.value);
+                setSaveNotice(null);
+              }}
               placeholder={state === 'excluded' ? 'Test or internal machine' : 'Why this decision is safe'}
               disabled={!canReconcile || isSaving}
             />
@@ -2148,7 +2306,7 @@ function RefundNayaxInventoryRow({
               <Input
                 className="mt-2"
                 value={auditReason}
-                onChange={(event) => setAuditReason(event.target.value)}
+                onChange={(event) => { setAuditReason(event.target.value); setSaveNotice(null); }}
                 placeholder="Audit note"
                 aria-label="Exclusion audit note"
                 disabled={!canReconcile || isSaving}
@@ -2164,6 +2322,13 @@ function RefundNayaxInventoryRow({
           </Button>
         ) : (
           <Badge variant="outline">View only</Badge>
+        )}
+        </div>
+        )}
+        {saveNotice && (
+          <div role={saveNotice.kind === 'error' ? 'alert' : 'status'} className={cn('mt-4 rounded-md border px-3 py-2 text-sm', saveNotice.kind === 'error' ? 'border-destructive/30 bg-destructive/10 text-destructive' : 'border-emerald-200 bg-emerald-50 text-emerald-900')}>
+            {saveNotice.message}
+          </div>
         )}
       </div>
       )}
@@ -3270,6 +3435,19 @@ function MachineDialog({
                 <Input id="page-nayax-account" value={nayaxAccountKey} onChange={(event) => setNayaxAccountKey(event.target.value)} placeholder="Exact account from the reviewed Nayax mapping" />
                 <p className="mt-1 text-xs text-muted-foreground">Required with a machine ID. Use the provider account that actually contains this machine.</p>
               </div>
+              {canEditMachineIdentity && refundManagerSetup?.nayaxMachineId && (
+                <div className="rounded-md border border-border bg-muted/20 p-3 sm:col-span-2">
+                  <p className="text-sm font-medium">Was the card reader replaced?</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    A provider rename or hardware swap that kept Nayax ID {refundManagerSetup.nayaxMachineId} needs no mapping change. If Nayax assigned a new ID, use the verified replacement flow.
+                  </p>
+                  <Button asChild type="button" variant="outline" size="sm" className="mt-3">
+                    <Link to={`/admin/machines/inventory?externalMachineId=${encodeURIComponent(refundManagerSetup.nayaxMachineId)}`}>
+                      <ArrowRightLeft className="mr-2 h-4 w-4" /> Review reader replacement
+                    </Link>
+                  </Button>
+                </div>
+              )}
               <div className="flex items-start justify-between gap-4 rounded-md border border-border px-4 py-3 sm:col-span-2">
                 <div><Label htmlFor="page-refund-intake">Transaction matching</Label><p className="mt-1 text-xs text-muted-foreground">Allow managers to match requests to Nayax transactions.</p></div>
                 <Switch id="page-refund-intake" checked={refundIntakeEnabled} onCheckedChange={setRefundIntakeEnabled} />
@@ -3806,6 +3984,19 @@ function MachineDialog({
                   </p>
                 </div>
               </div>
+              {canEditMachineIdentity && refundManagerSetup?.nayaxMachineId && (
+                <div className="rounded-md border border-border bg-muted/20 p-3">
+                  <p className="text-sm font-medium">Was the card reader replaced?</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    A provider rename or hardware swap that kept Nayax ID {refundManagerSetup.nayaxMachineId} needs no mapping change. If Nayax assigned a new ID, use the verified replacement flow.
+                  </p>
+                  <Button asChild type="button" variant="outline" size="sm" className="mt-3">
+                    <Link to={`/admin/machines/inventory?externalMachineId=${encodeURIComponent(refundManagerSetup.nayaxMachineId)}`}>
+                      <ArrowRightLeft className="mr-2 h-4 w-4" /> Review reader replacement
+                    </Link>
+                  </Button>
+                </div>
+              )}
               <p className="text-xs text-muted-foreground">
                 Requests from machines without this setup still reach Bloomjoy operations for
                 review. The status above is the source of truth for live card refunds.
