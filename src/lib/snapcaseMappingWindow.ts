@@ -27,3 +27,7 @@ export const getSnapCaseMappingEffectiveWindow = (
     effectiveEndDate: partnership?.effective_end_date ?? null,
   };
 };
+
+export const getOptionalSnapCasePartnershipId = (
+  partnershipId: string | null | undefined
+): string | null => partnershipId?.trim() || null;

@@ -340,7 +340,7 @@ export default function AdminReportingPage() {
           locationId: form.mappingMode === 'new' ? form.locationId : null,
           locationName: form.mappingMode === 'new' ? form.locationName.trim() : null,
           machineLabel: form.mappingMode === 'new' ? form.machineLabel.trim() : null,
-          partnershipId: selectedPartnership?.id ?? '',
+          partnershipId: selectedPartnership?.id ?? null,
           effectiveStartDate: effectiveWindow.effectiveStartDate,
           effectiveEndDate: effectiveWindow.effectiveEndDate,
           reason: importedMachineSetupReason,
