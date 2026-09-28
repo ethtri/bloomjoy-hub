@@ -1,7 +1,10 @@
 /// <reference lib="deno.ns" />
 
 import { assertEquals } from 'jsr:@std/assert';
-import { getSnapCaseMappingEffectiveWindow } from './snapcaseMappingWindow.ts';
+import {
+  getOptionalSnapCasePartnershipId,
+  getSnapCaseMappingEffectiveWindow,
+} from './snapcaseMappingWindow.ts';
 
 Deno.test('existing SnapCase mappings retain their exact effective window', () => {
   assertEquals(
@@ -77,5 +80,14 @@ Deno.test('new SnapCase mappings retain the existing partnership and discovery d
       effectiveStartDate: '2026-09-27',
       effectiveEndDate: null,
     }
+  );
+});
+
+Deno.test('SnapCase mapping sends no UUID when the optional partnership is blank', () => {
+  assertEquals(getOptionalSnapCasePartnershipId(''), null);
+  assertEquals(getOptionalSnapCasePartnershipId('   '), null);
+  assertEquals(
+    getOptionalSnapCasePartnershipId('096ca52a-444a-4d4f-9a2b-8844ddd16a95'),
+    '096ca52a-444a-4d4f-9a2b-8844ddd16a95'
   );
 });
