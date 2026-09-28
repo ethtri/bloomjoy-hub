@@ -1,5 +1,39 @@
 # Decisions
 
+## 2026-09-28 — Interim authority is Nayax card plus machine-app cash; tax basis is field and location specific
+
+This refines the amount-basis part of the September 28 source decision below;
+the canonical requested/paid refund rules remain unchanged.
+
+- The owner confirmed the interim source split: Nayax is card-sale and paid
+  card-refund authority, while Sunze and Kexiaozhan machine apps supply cash.
+  This is the selected interim approach, not a vendor-only source switch.
+- Finance confirms that Kexiaozhan/SnapCase `Order amount` excludes tax while
+  `Payment amount` includes tax. The current cash projection uses the successful
+  payment amount. Amount-basis logic must name the surface and field instead of
+  treating every provider value alike.
+- Finance also reports that Nayax data at two Oklahoma locations excludes sales
+  tax. Until the reporting SOP supplies the exact location/machine identities,
+  effective local dates, relevant Nayax report/customer-payment field, rates and
+  treatment, this remains attributed evidence. It does not mean a zero rate or
+  exemption and must not be generalized to all Nayax facts.
+- The unused #1571 candidate helper's provider-wide Nayax-inclusive fallbacks
+  must be revised before consumer activation. Preserve raw values with unknown
+  basis where the location/field/date rule is absent; do not invent a rule or
+  drop otherwise known sales.
+- A complete app/API export can still omit physical cash sales that an offline
+  machine has not uploaded. Existing Sunze overlap/monthly recovery and the
+  twice-daily SnapCase 34-day overlap plus bounded manual backfill handle later
+  arrivals idempotently. They do not prove zero cash during an offline period.
+  Late corrections reuse the targeted Pay Stub stale notification and manager
+  regeneration/version flow.
+- The owner and finance team will provide the reporting SOP. Each exception must
+  name location/machine scope, source surface and field, amount basis, rate,
+  effective dates, and offline recovery procedure. This dependency does not add
+  a global payroll gate, warning dashboard or speculative schedule change.
+- Original-sale-period versus request-period attribution for a late refund
+  remains a separate unanswered owner choice.
+
 ## 2026-09-28 — Retain split sales authority and count canonical refund requests once
 
 - Keep Nayax authoritative for card sale amounts and paid card-refund evidence;

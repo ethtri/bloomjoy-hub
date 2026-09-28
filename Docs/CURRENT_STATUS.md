@@ -101,6 +101,19 @@ orientation snapshot; it is not a backlog or release ledger.
   machines still lack an exact published Nayax mapping, including ten with recent
   Sunze card sales, so they remain on Sunze until their provider identities are
   mapped rather than guessed.
+- The owner confirmed the interim reporting source split: Nayax supplies card
+  money and machine apps supply cash. Finance also confirmed that SnapCase
+  `Order amount` excludes tax while `Payment amount` includes tax, and reported
+  two unnamed Oklahoma locations whose relevant Nayax data excludes sales tax.
+  Exact location/machine identities, report field, rates and effective dates are
+  still needed from the finance reporting SOP before that exception can drive a
+  consumer calculation. It is not a zero-tax assumption.
+- Machine-app cash can remain incomplete while a machine is offline. Sunze's
+  daily seven-day overlap and monthly prior-month sweep, plus SnapCase's
+  twice-daily 34-day overlap and bounded manual recovery, can ingest late rows
+  idempotently. Complete pagination does not prove every offline sale uploaded,
+  and an empty response is not proved zero cash. Existing targeted Pay Stub
+  regeneration handles later corrections without replacing issued versions.
 - Sunze cash-sale evidence now has a private, server-owned timestamp, freshness,
   coverage, and five-state match contract. Timezone-less `Payment time` values
   remain an explicitly unvalidated compatibility assumption and cannot prove a
