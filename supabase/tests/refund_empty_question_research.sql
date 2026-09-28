@@ -75,10 +75,12 @@ where c.id='b9200000-0000-4000-8001-000000000001';
 set local role service_role;
 select public.service_mark_refund_transactional_delivery_attempt(
   'b9200000-0000-4000-8003-000000000001');
+select public.service_bind_refund_transactional_delivery(
+  'b9200000-0000-4000-8003-000000000001',
+  'obsolete-question-provider',statement_timestamp());
+select public.service_record_refund_transactional_delivery_event(
+  repeat('e',64),'obsolete-question-provider','deferred',statement_timestamp());
 reset role;
-update public.refund_case_messages
-set status='failed',error_message='delivery_unknown'
-where id='b9200000-0000-4000-8003-000000000001';
 select is(public.refund_customer_outreach_contract(
   'b9200000-0000-4000-8001-000000000001')->>'state','delivery_unknown',
   'The historical empty question keeps its unknown transport evidence');
@@ -89,7 +91,7 @@ select is(public.service_get_refund_clarification_contact_obligation_health(
   true,true,statement_timestamp())->>'resolvedObsoleteCount','1',
   'The obsolete unknown question has an explicit redacted disposition');
 select is((select status from public.refund_case_messages
-  where id='b9200000-0000-4000-8003-000000000001'),'failed',
+  where id='b9200000-0000-4000-8003-000000000001'),'pending',
   'The health projection does not rewrite the historical parent message');
 rollback to savepoint obsolete_unknown_question;
 release savepoint obsolete_unknown_question;
