@@ -284,9 +284,6 @@ export const diagnoseCleanOriginalCompletionThread = ({
       diagnostic.allHeadersPresent = false;
       continue;
     }
-    if (getGmailHeader(headers, REFUND_GMAIL_OPERATION_HEADER)) {
-      diagnostic.hasOperationMarker = true;
-    }
     const labels = message.labelIds ?? [];
     if (labels.includes("DRAFT")) diagnostic.hasDraft = true;
     const internalMs = Number(message.internalDate);
@@ -295,6 +292,9 @@ export const diagnoseCleanOriginalCompletionThread = ({
       continue;
     }
     if (internalMs < createdMs) continue;
+    if (getGmailHeader(headers, REFUND_GMAIL_OPERATION_HEADER)) {
+      diagnostic.hasOperationMarker = true;
+    }
     const recipients = [
       ...parseEmailAddressList(getGmailHeader(headers, "To")),
       ...parseEmailAddressList(getGmailHeader(headers, "Cc")),

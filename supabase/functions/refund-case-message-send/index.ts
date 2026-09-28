@@ -19,7 +19,7 @@ import {
   getRefundGmailMailboxIdentities,
   getRefundGmailConfig,
   getRefundGmailThread,
-  listRefundGmailMessagesDirectedToRecipient,
+  inspectRefundGmailMessagesDirectedToRecipient,
   REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE,
   RefundGmailError,
 } from "../_shared/refund-gmail.ts";
@@ -726,14 +726,17 @@ serve(async (req) => {
               });
             try {
               const mailboxSearch =
-                await listRefundGmailMessagesDirectedToRecipient({
+                await inspectRefundGmailMessagesDirectedToRecipient({
                   config: gmailConfig,
                   recipientEmail: messageEvidence.recipient_email,
                   completionCreatedAt: messageEvidence.created_at,
                 });
               const externalCopyDiagnostic = diagnoseExternalCompletionCopy({
-                ...mailboxSearch,
-                searchComplete: mailboxSearch.complete,
+                messages: mailboxSearch.messages,
+                throughAt: mailboxSearch.throughAt,
+                pageCount: mailboxSearch.union.pageCount,
+                candidateCount: mailboxSearch.union.candidateCount,
+                searchComplete: mailboxSearch.union.complete,
                 originalProviderThreadId: threadLink.provider_thread_id,
                 recipientEmail: messageEvidence.recipient_email,
                 completionCreatedAt: messageEvidence.created_at,
@@ -750,6 +753,14 @@ serve(async (req) => {
                   thread: threadDiagnostic,
                   originalThread: originalThreadDiagnostic,
                   externalCopy: externalCopyDiagnostic,
+                  mailboxQueries: {
+                    grouped: mailboxSearch.grouped,
+                    to: mailboxSearch.to,
+                    cc: mailboxSearch.cc,
+                    bcc: mailboxSearch.bcc,
+                    union: mailboxSearch.union,
+                    payloadRedacted: true,
+                  },
                   customerMessageSent: false,
                   paymentActionTaken: false,
                   payloadRedacted: true,

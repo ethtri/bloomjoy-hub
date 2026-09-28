@@ -233,6 +233,48 @@ Deno.test("the immutable original thread is independently clean and current", ()
   if (changed.valid || changed.customerDirectedAfterCompletionCount !== 1) {
     throw new Error("Later original-thread customer mail was accepted");
   }
+
+  const preCompletionMarker = diagnoseCleanOriginalCompletionThread({
+    ...input,
+    thread: {
+      ...original,
+      messages: original.messages!.map((message, index) => index === 0
+        ? {
+            ...message,
+            payload: {
+              ...message.payload,
+              headers: [
+                ...(message.payload?.headers ?? []),
+                { name: REFUND_GMAIL_OPERATION_HEADER, value: "prior-operation" },
+              ],
+            },
+          }
+        : message),
+    },
+  });
+  if (!preCompletionMarker.valid || preCompletionMarker.hasOperationMarker) {
+    throw new Error("Pre-completion operation marker created a false block");
+  }
+
+  const postCompletionMarker = diagnoseCleanOriginalCompletionThread({
+    ...input,
+    thread: {
+      ...original,
+      messages: [...original.messages!, {
+        id: "post-completion-marker",
+        threadId: original.id,
+        internalDate: String(Date.parse("2026-09-19T14:31:00Z")),
+        labelIds: ["INBOX"],
+        payload: { headers: [
+          { name: "From", value: "other@example.test" },
+          { name: REFUND_GMAIL_OPERATION_HEADER, value: "later-operation" },
+        ] },
+      }],
+    },
+  });
+  if (postCompletionMarker.valid || !postCompletionMarker.hasOperationMarker) {
+    throw new Error("Post-completion operation marker was accepted");
+  }
 });
 
 Deno.test("one exact different-thread external completion copy is diagnosed", () => {

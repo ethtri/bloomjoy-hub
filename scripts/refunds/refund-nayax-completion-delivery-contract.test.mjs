@@ -146,9 +146,10 @@ test('exhausted completion inspection is authorized read-only evidence before ev
   assert.match(responseBranch, /customerMessageSent: false/);
   assert.match(responseBranch, /paymentActionTaken: false/);
   assert.match(responseBranch, /payloadRedacted: true/);
-  assert.match(responseBranch, /listRefundGmailMessagesDirectedToRecipient/);
+  assert.match(responseBranch, /inspectRefundGmailMessagesDirectedToRecipient/);
   assert.match(responseBranch, /diagnoseCleanOriginalCompletionThread/);
   assert.match(responseBranch, /diagnoseExternalCompletionCopy/);
+  assert.match(responseBranch, /mailboxQueries:\s*\{[\s\S]*?grouped:[\s\S]*?to:[\s\S]*?cc:[\s\S]*?bcc:[\s\S]*?union:[\s\S]*?payloadRedacted: true/);
   assert.match(responseBranch, /catch \{[\s\S]*?externalCopy: \{[\s\S]*?available: false/);
   const serializedResponseValues = [...responseBranch.matchAll(
     /return jsonResponse\(\{([\s\S]*?)\n\s*\}\);/g,

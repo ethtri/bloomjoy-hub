@@ -1,4 +1,5 @@
 import {
+  inspectRefundGmailMessagesDirectedToRecipient,
   listRefundGmailMessagesDirectedToRecipient,
   type RefundGmailConfig,
   type RefundGmailReadRequest,
@@ -77,6 +78,94 @@ Deno.test("recipient message search quotes plus-addresses and completes every pa
     !paths[1].startsWith("/messages?") ||
     !paths[2].includes("message-1") || !paths[3].includes("message-2")) {
     throw new Error("Recipient search did not finish before full-message reads");
+  }
+});
+
+Deno.test("inspection compares grouped and separate recipient queries and binds the union once", async () => {
+  const paths: string[] = [];
+  const request: RefundGmailReadRequest = async <T>(
+    _config: RefundGmailConfig,
+    path: string,
+  ) => {
+    paths.push(path);
+    if (!path.startsWith("/messages?")) {
+      return {
+        id: "message-1",
+        threadId: "thread-1",
+        payload: { headers: [] },
+      } as T;
+    }
+    const query = new URL(`https://example.test${path}`).searchParams.get("q") ?? "";
+    const message = [{ id: "message-1", threadId: "thread-1" }];
+    if (query.includes('{to:"customer+refund@example.test"')) {
+      return { messages: [], resultSizeEstimate: 0 } as T;
+    }
+    if (query.endsWith(' to:"customer+refund@example.test"') ||
+      query.endsWith(' cc:"customer+refund@example.test"')) {
+      return { messages: message, resultSizeEstimate: 1 } as T;
+    }
+    if (query.endsWith(' bcc:"customer+refund@example.test"')) {
+      return { messages: [], resultSizeEstimate: 0 } as T;
+    }
+    throw new Error("Unexpected recipient query mode");
+  };
+  const result = await inspectRefundGmailMessagesDirectedToRecipient(input, request);
+  if (result.grouped.candidateCount !== 0 || result.to.candidateCount !== 1 ||
+    result.cc.candidateCount !== 1 || result.bcc.candidateCount !== 0 ||
+    result.union.candidateCount !== 1 || result.union.pageCount !== 4 ||
+    result.messages.length !== 1 ||
+    paths.filter((path) => path.includes("/messages/message-1?")).length !== 1) {
+    throw new Error("Variant inspection did not preserve redacted counts and one bound union");
+  }
+});
+
+Deno.test("inspection fails closed on conflicting union references", async () => {
+  try {
+    await inspectRefundGmailMessagesDirectedToRecipient(
+      input,
+      async <T>(_config: RefundGmailConfig, path: string) => {
+        const query = new URL(`https://example.test${path}`).searchParams.get("q") ?? "";
+        if (query.includes('{to:"')) {
+          return { messages: [{ id: "same", threadId: "thread-1" }], resultSizeEstimate: 1 } as T;
+        }
+        if (query.endsWith(' to:"customer+refund@example.test"')) {
+          return { messages: [{ id: "same", threadId: "thread-2" }], resultSizeEstimate: 1 } as T;
+        }
+        return { messages: [], resultSizeEstimate: 0 } as T;
+      },
+    );
+  } catch {
+    return;
+  }
+  throw new Error("Conflicting union reference did not fail closed");
+});
+
+Deno.test("inspection fetches grouped-only messages into the evaluated union", async () => {
+  const fetched: string[] = [];
+  const result = await inspectRefundGmailMessagesDirectedToRecipient(
+    input,
+    async <T>(_config: RefundGmailConfig, path: string) => {
+      if (!path.startsWith("/messages?")) {
+        fetched.push(path);
+        return {
+          id: "grouped-only",
+          threadId: "thread-grouped",
+          payload: { headers: [] },
+        } as T;
+      }
+      const query = new URL(`https://example.test${path}`).searchParams.get("q") ?? "";
+      return (query.includes('{to:"')
+        ? {
+            messages: [{ id: "grouped-only", threadId: "thread-grouped" }],
+            resultSizeEstimate: 1,
+          }
+        : { messages: [], resultSizeEstimate: 0 }) as T;
+    },
+  );
+  if (result.grouped.candidateCount !== 1 ||
+    result.union.candidateCount !== 1 || result.messages.length !== 1 ||
+    fetched.length !== 1) {
+    throw new Error("Grouped-only message was omitted from the evaluated union");
   }
 });
 
