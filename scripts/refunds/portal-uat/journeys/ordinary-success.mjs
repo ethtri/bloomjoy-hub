@@ -1515,11 +1515,14 @@ export const createOrdinarySuccessChecks = ({
 
     await queueCase(page, 'RF-UAT-CASH-NO-MATCH').click();
     await page.getByTestId('refund-cash-workbench').waitFor({ timeout: 10000 });
+    const cashResearchSummary = await page.getByTestId('refund-cash-primary-action-panel').innerText();
     recorder.assert(
       'Internal cash research does not expose an approval, denial, or payment control',
-      (await page.getByTestId('refund-cash-primary-action').count()) === 0 &&
+      cashResearchSummary.includes('No Manager action is due') &&
+        (await page.getByTestId('refund-cash-primary-action').count()) === 0 &&
         (await page.getByTestId('refund-deny-instead').count()) === 0 &&
-        (await page.getByTestId('nayax-result-card').count()) === 0
+        (await page.getByTestId('nayax-result-card').count()) === 0,
+      cashResearchSummary
     );
 
     await queueCase(page, 'RF-UAT-CASH-LEGACY-PENDING').click();

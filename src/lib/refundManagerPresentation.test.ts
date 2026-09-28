@@ -6,6 +6,7 @@ import {
   type RefundDecisionRecommendation,
 } from './refundLifecycle.ts';
 import {
+  refundCanShowCandidateInventory,
   refundDecisionRecommendation,
   refundIsWaitingOnCustomer,
   refundManagerView,
@@ -247,6 +248,45 @@ Deno.test('cash recommendations use Sunze proof and approved cash payment work s
   });
   assertEquals(refundManagerView(approvedCash), 'all_open');
   assertEquals(refundPlainStatus(approvedCash), 'Send cash refund');
+});
+
+Deno.test('canonical internal work keeps provider candidate inventory out of the Manager view', () => {
+  const research = refundCase({
+    lifecycle: {
+      ...refundCase().lifecycle,
+      decisionRecommendation: null,
+      nextWork: {
+        ...refundCase().lifecycle?.nextWork,
+        actor: 'agent',
+        actionCode: 'research_purchase',
+      },
+    },
+  });
+  assertEquals(refundCanShowCandidateInventory(research), false);
+
+  const systemLookup = refundCase({
+    lifecycle: {
+      ...research.lifecycle,
+      nextWork: {
+        ...research.lifecycle?.nextWork,
+        actor: 'system',
+        actionCode: 'run_lookup',
+      },
+    },
+  });
+  assertEquals(refundCanShowCandidateInventory(systemLookup), false);
+
+  const customerWait = refundCase({
+    lifecycle: {
+      ...research.lifecycle,
+      nextWork: {
+        ...research.lifecycle?.nextWork,
+        actor: 'customer',
+        actionCode: 'answer_question',
+      },
+    },
+  });
+  assertEquals(refundCanShowCandidateInventory(customerWait), false);
 });
 
 Deno.test('Waiting on customer requires sent-question proof and the four views form complete unions', () => {

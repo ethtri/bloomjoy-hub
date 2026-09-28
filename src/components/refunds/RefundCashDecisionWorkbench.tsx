@@ -98,6 +98,8 @@ export function RefundCashDecisionWorkbench({
 }: RefundCashDecisionWorkbenchProps) {
   const showActionButton = showPrimaryAction &&
     (recommendation?.kind !== 'reject' || editor.decision === 'denied');
+  const internalWorkHasNoManagerAction = refundCase.lifecycle?.nextWork?.isOpen === true &&
+    ['agent', 'system'].includes(refundCase.lifecycle.nextWork.actor);
 
   return (
     <div data-testid="refund-cash-workbench" className="space-y-4">
@@ -119,6 +121,8 @@ export function RefundCashDecisionWorkbench({
                 ? 'Confirming the selected sale amount. Do not send the external payment yet.'
                 : action.isCompletion
                 ? 'Send the refund through Zelle outside Bloomjoy Hub. After sending it, confirm it here.'
+                : internalWorkHasNoManagerAction
+                ? managerState.explanation
                 : managerNextStep)}
             </p>
             {!recommendation && action.isCompletion && typeof action.amountCents === 'number' && (

@@ -211,6 +211,7 @@ import {
 } from '@/lib/refundQueue';
 import { cn } from '@/lib/utils';
 import {
+  refundCanShowCandidateInventory,
   refundDecisionRecommendation,
   refundIsWaitingOnCustomer,
   refundManagerView,
@@ -5896,6 +5897,7 @@ export default function AdminRefundsPage() {
     // captured before the repair. The database removes that cache as well;
     // this UI boundary keeps a stale response from hiding the fresh-check CTA.
     const reviewedFinalDecisionReady = primaryAction?.mode === 'reviewed_nayax_final_decision';
+    const managerCandidateInventoryVisible = refundCanShowCandidateInventory(selectedCase);
     const eligibleReviewedTokens = new Set(selectedCase.lifecycle?.nextWork?.eligibleCandidateTokens ?? []);
     const effectiveCandidates = selectedCaseNeedsLegacyPaymentReview ? [] :
       reviewedFinalDecisionReady
@@ -5919,9 +5921,9 @@ export default function AdminRefundsPage() {
     );
     const selectableCandidateCount = selectableCandidates.length;
     const waitingOnCustomer = isWaitingCase(selectedCase, refundOperationsAccess);
-    const candidateSelectionAuthorized = reviewedFinalDecisionReady
+    const candidateSelectionAuthorized = managerCandidateInventoryVisible && (reviewedFinalDecisionReady
       ? selectedCase.canPerformOfficialAction === true
-      : (selectedCase.canSelectNayaxCandidate ?? selectedCase.canPerformOfficialAction) === true;
+      : (selectedCase.canSelectNayaxCandidate ?? selectedCase.canPerformOfficialAction) === true);
     const walletResearchPending =
       selectedCase.lifecycle?.nextWork?.blocker?.code === 'wallet_identifier_unverified';
     const legacyCandidateSelection =
@@ -6079,7 +6081,8 @@ export default function AdminRefundsPage() {
             onRefresh={() => void handleNayaxLookup()}
           />
         )}
-        {(!selectedCase.hasMatchedNayaxTransaction || editor.clearNayaxMatch) &&
+        {managerCandidateInventoryVisible &&
+          (!selectedCase.hasMatchedNayaxTransaction || editor.clearNayaxMatch) &&
           (transactionView.showCandidates || reviewedFinalDecisionReady) && (
           <RefundTransactionCandidateReview
             candidates={effectiveCandidates}

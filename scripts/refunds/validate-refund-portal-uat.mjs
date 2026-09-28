@@ -4404,9 +4404,19 @@ const runCanonicalNextWorkQueueChecks = async ({ browser, appUrl, recorder }) =>
     refundOverview: () => {
       const overview = buildPendingNayaxRefundOverview();
       const refundCase = overview.cases[0];
+      const retainedCandidate = buildMockRefundOverview().cases[0].nayaxLookupCandidates[0];
       overview.cases = [{
         ...refundCase,
         publicReference: 'RF-UAT-NEXT-WORK',
+        canSelectNayaxCandidate: true,
+        nayaxRecommendationState: 'ambiguous',
+        nayaxLookupCandidates: [
+          retainedCandidate,
+          {
+            ...retainedCandidate,
+            candidateToken: '91000000-0000-4000-8000-000000000002',
+          },
+        ],
         lifecycle: {
           ...buildLifecycleFixture('needs_transaction_selection', 20, 'select_transaction'),
           nextWork: {
@@ -4430,7 +4440,10 @@ const runCanonicalNextWorkQueueChecks = async ({ browser, appUrl, recorder }) =>
     'Unclaimed canonical research stays in All active on mobile',
     await managerState.getByText('Finding the purchase', { exact: true }).isVisible() &&
       primaryActionText.includes('Compare the purchase evidence') &&
-      (await page.getByRole('button', { name: /All active/i }).count()) === 1,
+      (await page.getByRole('button', { name: /All active/i }).count()) === 1 &&
+      (await page.getByTestId('nayax-candidate-option').count()) === 0 &&
+      (await page.getByTestId('refund-save-transaction-for-review').count()) === 0 &&
+      (await page.getByTestId('refund-approve-reviewed-purchase').count()) === 0,
     primaryActionText
   );
   await closeRefundPortalContext(context);

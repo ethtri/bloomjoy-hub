@@ -54,6 +54,12 @@ export const refundDecisionRecommendation = (
 export const refundNeedsDecision = (item: RefundManagerPresentationCase) =>
   Boolean(refundDecisionRecommendation(item));
 
+/** Canonical Agent/System work can retain provider evidence without exposing Manager inventory. */
+export const refundCanShowCandidateInventory = (item: RefundManagerPresentationCase) => {
+  const work = item.lifecycle?.nextWork;
+  return !work || work.isOpen !== true || work.actor === 'manager';
+};
+
 /** Customer wait requires proof that one real question was sent and is still unanswered. */
 export const refundIsWaitingOnCustomer = (item: RefundManagerPresentationCase) => {
   const work = item.lifecycle?.nextWork;
