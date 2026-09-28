@@ -2,6 +2,7 @@ import {
   auditedPriorCompletionDelivery,
   auditedPriorCompletionDeliverySet,
   diagnoseUnsentCompletionThreadHistory,
+  governedCompletionThreadEvidence,
   reviewedCurrentCompletionCopy,
   verifiedUnsentCompletionThreadHistory,
 } from "./refund-exhausted-completion-recovery.ts";
@@ -57,6 +58,59 @@ const auditedEvent = {
     originalGmailThreadPreserved: true,
   },
 };
+
+const caseId = "4649e28d-38a3-418b-9452-e3d62254b044";
+const gmailThreadId = "aa49e28d-38a3-418b-9452-e3d62254b044";
+const governedEnvelope = {
+  message: {
+    id: messageId,
+    refundCaseId: caseId,
+    recipientEmail: "customer@example.test",
+    subject: "Re: Order failure",
+    body: "Stored completion",
+  },
+  gmailThreadId,
+  transport: "gmail_thread",
+  payloadRedacted: true,
+};
+
+Deno.test("governed completion loader evidence binds the exact message, case, recipient, and Gmail thread", () => {
+  const exact = governedCompletionThreadEvidence({
+    loaded: governedEnvelope,
+    loadError: null,
+    caseId,
+    completionMessageId: messageId,
+    recipientEmail: "CUSTOMER@example.test ",
+  });
+  if (exact?.gmailThreadId !== gmailThreadId) {
+    throw new Error("Exact governed completion envelope was rejected");
+  }
+
+  const mismatches = [
+    { ...governedEnvelope, message: { ...governedEnvelope.message, id: crypto.randomUUID() } },
+    { ...governedEnvelope, message: { ...governedEnvelope.message, refundCaseId: crypto.randomUUID() } },
+    { ...governedEnvelope, message: { ...governedEnvelope.message, recipientEmail: "other@example.test" } },
+    { ...governedEnvelope, gmailThreadId: "not-a-uuid" },
+    { ...governedEnvelope, transport: "transactional_email" },
+    { ...governedEnvelope, payloadRedacted: false },
+  ];
+  for (const loaded of mismatches) {
+    if (governedCompletionThreadEvidence({
+      loaded,
+      loadError: null,
+      caseId,
+      completionMessageId: messageId,
+      recipientEmail: "customer@example.test",
+    }) !== null) throw new Error("Mismatched governed envelope was accepted");
+  }
+  if (governedCompletionThreadEvidence({
+    loaded: governedEnvelope,
+    loadError: { code: "42501" },
+    caseId,
+    completionMessageId: messageId,
+    recipientEmail: "customer@example.test",
+  }) !== null) throw new Error("RPC error was accepted");
+});
 
 Deno.test("reviewed current completion copy keeps exact confirmed wording", () => {
   const copy = reviewedCurrentCompletionCopy({
