@@ -157,12 +157,21 @@ insert into public.technician_machine_assignments(
   '14763000-0000-4000-8000-000000000003', 'active', 'Legacy fixture assignment',
   '14760000-0000-4000-8000-000000000001'
 );
+insert into public.operator_payout_profiles(
+  id, account_id, user_id, display_name, worker_type
+) values (
+  '14768500-0000-4000-8000-000000000001',
+  '14761000-0000-4000-8000-000000000001',
+  '14760000-0000-4000-8000-000000000001',
+  'Legacy fixture operator', 'contractor_1099'
+);
 insert into public.compensation_rules(
-  id, account_id, reporting_machine_id, commission_basis_points,
+  id, account_id, operator_profile_id, reporting_machine_id, commission_basis_points,
   effective_start_date, status, notes
 ) values (
   '14769500-0000-4000-8000-000000000001',
   '14761000-0000-4000-8000-000000000001',
+  '14768500-0000-4000-8000-000000000001',
   '14763000-0000-4000-8000-000000000003', 1000, '2025-01-01', 'active',
   'Legacy fixture compensation'
 );

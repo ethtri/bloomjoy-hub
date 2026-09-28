@@ -106,4 +106,47 @@ begin
 end;
 $$;
 
+-- Mapping repair replays every completed import through the existing finalizer.
+-- Keep the durable completion receipt in place so an unchanged import retains
+-- its receipt id and completion timestamps; the finalizer already updates the
+-- receipt when its import digest or completed batch actually changes.
+create or replace function private.reproject_snapcase_imports_after_mapping()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  import_run record;
+begin
+  for import_run in
+    select account.source_account_key, batch.run_key,
+      max(evidence.recorded_at) as latest_evidence_at
+    from private.snapcase_extraction_evidence evidence
+    join private.snapcase_ingest_batches batch on batch.id = evidence.ingest_batch_id
+    join private.snapcase_provider_accounts account on account.id = evidence.provider_account_id
+    where evidence.provider_account_id = new.provider_account_id
+      and evidence.source_machine_id = new.source_machine_id
+      and evidence.resource = 'payments'
+      and evidence.extraction_status = 'complete'
+      and evidence.expected_total = evidence.observed_count
+      and evidence.rejected_count = 0
+      and not evidence.next_cursor_present
+      and not evidence.response_truncated
+    group by account.source_account_key, batch.run_key
+    order by max(evidence.recorded_at), batch.run_key
+  loop
+    perform private.finalize_snapcase_import_run(
+      import_run.source_account_key,
+      import_run.run_key,
+      new.source_machine_id
+    );
+  end loop;
+  return new;
+end;
+$$;
+
+revoke all on function private.reproject_snapcase_imports_after_mapping()
+  from public, anon, authenticated, service_role;
+
 select pg_notify('pgrst', 'reload schema');

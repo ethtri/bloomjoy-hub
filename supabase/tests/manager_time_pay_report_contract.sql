@@ -9,7 +9,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(157);
+select plan(158);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -2027,6 +2027,11 @@ select ok(
   'a Nayax-bound non-SnapCase machine without an effective Kex mapping stays outside SnapCase payroll readiness'
 );
 
+delete from public.operator_machine_assignments
+where id = 'a6100000-0000-0000-0000-000000000099';
+delete from public.reporting_machines
+where id = 'a4000000-0000-0000-0000-000000000099';
+
 insert into private.snapcase_provider_accounts (
   id, source_account_key
 ) values (
@@ -2636,6 +2641,10 @@ update public.reporting_machines
 set machine_type = 'commercial'
 where id = 'a4000000-0000-0000-0000-000000000001';
 
+savepoint cotton_unmapped_scope;
+delete from private.snapcase_machine_mappings
+where reporting_machine_id = 'a4000000-0000-0000-0000-000000000001';
+
 select ok(
   not exists (
     select 1
@@ -2647,8 +2656,11 @@ select ok(
     ) -> 'blockers') blocker(item)
     where blocker.item ->> 'code' = 'snapcase_sales_incomplete'
   ),
-  'existing cotton-candy sales and commission behavior remains unchanged'
+  'unmapped cotton-candy sales and commission behavior remains unchanged'
 );
+
+rollback to savepoint cotton_unmapped_scope;
+release savepoint cotton_unmapped_scope;
 
 -- Recheck immediately before publication so a draft prepared before a
 -- SnapCase classification/rate change cannot become the current version.
