@@ -63,6 +63,24 @@ export type RefundGmailRecipientMessageSearch = {
   complete: true;
 };
 
+export type RefundGmailRecipientSearchSummary = {
+  pageCount: number;
+  candidateCount: number;
+  complete: true;
+};
+
+export type RefundGmailRecipientMessageInspection = {
+  messages: GmailMessage[];
+  throughAt: string;
+  grouped: RefundGmailRecipientSearchSummary;
+  to: RefundGmailRecipientSearchSummary;
+  cc: RefundGmailRecipientSearchSummary;
+  bcc: RefundGmailRecipientSearchSummary;
+  union: RefundGmailRecipientSearchSummary;
+};
+
+export type RefundGmailRecipientQueryMode = "grouped" | "to" | "cc" | "bcc";
+
 export type RefundGmailReadRequest = <T>(
   config: RefundGmailConfig,
   path: string,
@@ -843,11 +861,13 @@ export const refundGmailRecipientMessageQuery = ({
   recipientEmail,
   completionCreatedAt,
   through,
+  mode = "grouped",
   pageToken,
 }: {
   recipientEmail: string;
   completionCreatedAt: string;
   through: Date;
+  mode?: RefundGmailRecipientQueryMode;
   pageToken?: string;
 }) => {
   const recipient = recipientEmail.trim().toLowerCase();
@@ -864,8 +884,11 @@ export const refundGmailRecipientMessageQuery = ({
   }
   const after = Math.max(0, Math.floor(createdMs / 1000) - 1);
   const before = Math.floor(throughMs / 1000) + 2;
+  const recipientQuery = mode === "grouped"
+    ? `{to:"${recipient}" cc:"${recipient}" bcc:"${recipient}"}`
+    : `${mode}:"${recipient}"`;
   const params = new URLSearchParams({
-    q: `in:anywhere after:${after} before:${before} {to:"${recipient}" cc:"${recipient}" bcc:"${recipient}"}`,
+    q: `in:anywhere after:${after} before:${before} ${recipientQuery}`,
     maxResults: String(REFUND_GMAIL_RECIPIENT_SEARCH_PAGE_SIZE),
     includeSpamTrash: "true",
   });
@@ -873,21 +896,20 @@ export const refundGmailRecipientMessageQuery = ({
   return params;
 };
 
-// Exhausted completion recovery needs a mailbox-wide, read-only proof. List
-// every Gmail candidate through one fixed instant, fail closed on pagination
-// bounds, then fetch each full message so callers never trust search metadata.
-export const listRefundGmailMessagesDirectedToRecipient = async ({
+const listRefundGmailRecipientMessageReferences = async ({
   config,
   recipientEmail,
   completionCreatedAt,
-  through = new Date(),
+  through,
+  mode,
 }: {
   config: RefundGmailConfig;
   recipientEmail: string;
   completionCreatedAt: string;
-  through?: Date;
-}, readRequest: RefundGmailReadRequest = gmailRequest): Promise<RefundGmailRecipientMessageSearch> => {
-  const references: Array<{ id?: string; threadId?: string }> = [];
+  through: Date;
+  mode: RefundGmailRecipientQueryMode;
+}, readRequest: RefundGmailReadRequest) => {
+  const references: Array<{ id: string; threadId: string }> = [];
   const seenIds = new Set<string>();
   const seenPageTokens = new Set<string>();
   let pageToken: string | undefined;
@@ -903,6 +925,7 @@ export const listRefundGmailMessagesDirectedToRecipient = async ({
       recipientEmail,
       completionCreatedAt,
       through,
+      mode,
       pageToken,
     });
     const page = await readRequest<{
@@ -925,16 +948,14 @@ export const listRefundGmailMessagesDirectedToRecipient = async ({
     }
     pageCount += 1;
     for (const reference of page.messages ?? []) {
-      if (
-        !reference.id || !reference.threadId || seenIds.has(reference.id)
-      ) {
+      if (!reference.id || !reference.threadId || seenIds.has(reference.id)) {
         throw new RefundGmailError(
           "gmail_recipient_search_invalid",
           "Refund Gmail recipient search returned invalid results.",
         );
       }
       seenIds.add(reference.id);
-      references.push(reference);
+      references.push({ id: reference.id, threadId: reference.threadId });
       if (references.length > REFUND_GMAIL_RECIPIENT_SEARCH_MAX_MESSAGES) {
         throw new RefundGmailError(
           "gmail_recipient_search_incomplete",
@@ -953,18 +974,23 @@ export const listRefundGmailMessagesDirectedToRecipient = async ({
       seenPageTokens.add(pageToken);
     }
   } while (pageToken);
+  return { references, pageCount, candidateCount: references.length, complete: true as const };
+};
 
+const fetchBoundRefundGmailMessages = async (
+  config: RefundGmailConfig,
+  references: Array<{ id: string; threadId: string }>,
+  readRequest: RefundGmailReadRequest,
+) => {
   const messages: GmailMessage[] = [];
   for (let offset = 0; offset < references.length; offset += 10) {
     const batch = references.slice(offset, offset + 10);
     const fetched = await Promise.all(batch.map(async (reference) => {
       const message = await readRequest<GmailMessage>(
         config,
-        `/messages/${encodeURIComponent(reference.id!)}?format=full`,
+        `/messages/${encodeURIComponent(reference.id)}?format=full`,
       );
-      if (
-        message.id !== reference.id || message.threadId !== reference.threadId
-      ) {
+      if (message.id !== reference.id || message.threadId !== reference.threadId) {
         throw new RefundGmailError(
           "gmail_recipient_search_invalid",
           "Refund Gmail recipient search could not bind a full message.",
@@ -974,12 +1000,119 @@ export const listRefundGmailMessagesDirectedToRecipient = async ({
     }));
     messages.push(...fetched);
   }
+  return messages;
+};
+
+// Exhausted completion recovery needs a mailbox-wide, read-only proof. List
+// every Gmail candidate through one fixed instant, fail closed on pagination
+// bounds, then fetch each full message so callers never trust search metadata.
+export const listRefundGmailMessagesDirectedToRecipient = async ({
+  config,
+  recipientEmail,
+  completionCreatedAt,
+  through = new Date(),
+}: {
+  config: RefundGmailConfig;
+  recipientEmail: string;
+  completionCreatedAt: string;
+  through?: Date;
+}, readRequest: RefundGmailReadRequest = gmailRequest): Promise<RefundGmailRecipientMessageSearch> => {
+  const listed = await listRefundGmailRecipientMessageReferences({
+    config,
+    recipientEmail,
+    completionCreatedAt,
+    through,
+    mode: "grouped",
+  }, readRequest);
+  const messages = await fetchBoundRefundGmailMessages(
+    config,
+    listed.references,
+    readRequest,
+  );
   return {
     messages,
-    pageCount,
-    candidateCount: references.length,
+    pageCount: listed.pageCount,
+    candidateCount: listed.candidateCount,
     throughAt: through.toISOString(),
     complete: true,
+  };
+};
+
+// Inspection-only comparison used to isolate Gmail API query behavior. Each
+// variant is completely paginated. All four result sets are then unioned and
+// full-fetched once so no search reference becomes trusted proof.
+export const inspectRefundGmailMessagesDirectedToRecipient = async ({
+  config,
+  recipientEmail,
+  completionCreatedAt,
+  through = new Date(),
+}: {
+  config: RefundGmailConfig;
+  recipientEmail: string;
+  completionCreatedAt: string;
+  through?: Date;
+}, readRequest: RefundGmailReadRequest = gmailRequest): Promise<RefundGmailRecipientMessageInspection> => {
+  const grouped = await listRefundGmailRecipientMessageReferences({
+    config, recipientEmail, completionCreatedAt, through, mode: "grouped",
+  }, readRequest);
+  const separate = await Promise.all((["to", "cc", "bcc"] as const).map(
+    async (mode) => ({
+      mode,
+      result: await listRefundGmailRecipientMessageReferences({
+        config, recipientEmail, completionCreatedAt, through, mode,
+      }, readRequest),
+    }),
+  ));
+  const unionById = new Map<string, { id: string; threadId: string }>();
+  for (const result of [grouped, ...separate.map((entry) => entry.result)]) {
+    for (const reference of result.references) {
+      const existing = unionById.get(reference.id);
+      if (existing && existing.threadId !== reference.threadId) {
+        throw new RefundGmailError(
+          "gmail_recipient_search_invalid",
+          "Refund Gmail recipient search returned conflicting results.",
+        );
+      }
+      unionById.set(reference.id, reference);
+      if (unionById.size > REFUND_GMAIL_RECIPIENT_SEARCH_MAX_MESSAGES) {
+        throw new RefundGmailError(
+          "gmail_recipient_search_incomplete",
+          "Refund Gmail recipient search union exceeded its message bound.",
+        );
+      }
+    }
+  }
+  const unionReferences = [...unionById.values()];
+  const messages = await fetchBoundRefundGmailMessages(
+    config,
+    unionReferences,
+    readRequest,
+  );
+  const summary = (mode: "to" | "cc" | "bcc") => {
+    const result = separate.find((entry) => entry.mode === mode)!.result;
+    return {
+      pageCount: result.pageCount,
+      candidateCount: result.candidateCount,
+      complete: true as const,
+    };
+  };
+  return {
+    messages,
+    throughAt: through.toISOString(),
+    grouped: {
+      pageCount: grouped.pageCount,
+      candidateCount: grouped.candidateCount,
+      complete: true,
+    },
+    to: summary("to"),
+    cc: summary("cc"),
+    bcc: summary("bcc"),
+    union: {
+      pageCount: grouped.pageCount +
+        separate.reduce((total, entry) => total + entry.result.pageCount, 0),
+      candidateCount: unionReferences.length,
+      complete: true,
+    },
   };
 };
 
