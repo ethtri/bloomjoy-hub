@@ -660,7 +660,7 @@ const drawDashboardPage = (
   const periodLabel = `${formatDateLong(context.dateFrom)} - ${formatDateLong(context.dateTo)}`;
   const generatedLabel = formatGeneratedAt(context.generatedAt);
   const averageOrderCents = summary.transactionCount > 0
-    ? Math.round(summary.netSalesCents / summary.transactionCount)
+    ? Math.round(summary.grossSalesCents / summary.transactionCount)
     : 0;
 
   let y = PAGE_HEIGHT - 222;
@@ -670,8 +670,8 @@ const drawDashboardPage = (
     x: MARGIN,
     y,
     width: metricWidth,
-    label: "Net sales",
-    value: formatCurrency(summary.netSalesCents),
+    label: "Recorded sales",
+    value: formatCurrency(summary.grossSalesCents),
     detail: `${formatCurrency(averageOrderCents)} avg order`,
     emphasis: true,
   });
@@ -679,17 +679,17 @@ const drawDashboardPage = (
     x: MARGIN + (metricWidth + metricGap),
     y,
     width: metricWidth,
-    label: "Gross sales",
-    value: formatCurrency(summary.grossSalesCents),
-    detail: "Before refund impact",
+    label: "Reported refunds",
+    value: formatDeductionCurrency(summary.refundAmountCents),
+    detail: "Deducted from recorded sales",
   });
   drawMetricCard(page, fonts, {
     x: MARGIN + (metricWidth + metricGap) * 2,
     y,
     width: metricWidth,
-    label: "Refund impact",
-    value: formatDeductionCurrency(summary.refundAmountCents),
-    detail: "Approved adjustments",
+    label: "Sales after refunds",
+    value: formatCurrency(summary.netSalesCents),
+    detail: "Recorded sales minus refunds",
   });
   drawMetricCard(page, fonts, {
     x: MARGIN + (metricWidth + metricGap) * 3,
@@ -713,7 +713,7 @@ const drawDashboardPage = (
   drawText(
     page,
     fonts,
-    "This report summarizes the selected operator machine scope from Bloomjoy Hub reporting data. Totals include approved refund adjustments and are prepared for management or partner review without raw payment identifiers, source-order rows, or provider workbooks.",
+    "This report summarizes the selected operator machine scope from Bloomjoy Hub reporting data. Totals include reported refund adjustments and are prepared for management or partner review without raw payment identifiers, source-order rows, or provider workbooks.",
     {
       x: MARGIN + 18,
       y: y + storyHeight - 50,
@@ -778,7 +778,7 @@ const drawDashboardPage = (
     font: fonts.bold,
     color: COLORS.ink,
   });
-  page.drawText("Top machines by net sales for the selected period.", {
+  page.drawText("Top machines by sales after reported refunds for the selected period.", {
     x: MARGIN + 18,
     y: y + rollupCardHeight - 44,
     size: 8.5,
@@ -789,9 +789,9 @@ const drawDashboardPage = (
   const tableTop = y + rollupCardHeight - 70;
   const columns = [
     { label: "Machine", x: MARGIN + 18, width: 220, align: "left" as const },
-    { label: "Gross", x: MARGIN + 260, width: 64, align: "right" as const },
+    { label: "Recorded", x: MARGIN + 260, width: 64, align: "right" as const },
     { label: "Refunds", x: MARGIN + 332, width: 64, align: "right" as const },
-    { label: "Net", x: MARGIN + 404, width: 64, align: "right" as const },
+    { label: "After", x: MARGIN + 404, width: 64, align: "right" as const },
     { label: "Txns", x: MARGIN + 474, width: 28, align: "right" as const },
   ];
   page.drawRectangle({
@@ -972,9 +972,9 @@ const drawReportRowsPage = (
       { label: "Period", x: MARGIN, width: 58, align: "left" as const },
       { label: "Machine", x: MARGIN + 70, width: 172, align: "left" as const },
       { label: "Payment", x: MARGIN + 250, width: 52, align: "left" as const },
-      { label: "Net", x: MARGIN + 304, width: 66, align: "right" as const },
+      { label: "Recorded", x: MARGIN + 304, width: 66, align: "right" as const },
       { label: "Refunds", x: MARGIN + 374, width: 66, align: "right" as const },
-      { label: "Gross", x: MARGIN + 444, width: 66, align: "right" as const },
+      { label: "After", x: MARGIN + 444, width: 66, align: "right" as const },
       { label: "Txns", x: MARGIN + 514, width: 28, align: "right" as const },
     ];
     columns.forEach((column) =>
@@ -1027,7 +1027,7 @@ const drawReportRowsPage = (
         columns[2].width,
         { size: 7.8, color: COLORS.muted },
       );
-      drawTableText(page, fonts, formatCurrency(readNetSalesCents(row)), columns[3].x, y, columns[3].width, {
+      drawTableText(page, fonts, formatCurrency(readGrossSalesCents(row)), columns[3].x, y, columns[3].width, {
         size: 7.8,
         align: "right",
         bold: true,
@@ -1041,7 +1041,7 @@ const drawReportRowsPage = (
         columns[4].width,
         { size: 7.8, align: "right", color: COLORS.muted },
       );
-      drawTableText(page, fonts, formatCurrency(readGrossSalesCents(row)), columns[5].x, y, columns[5].width, {
+      drawTableText(page, fonts, formatCurrency(readNetSalesCents(row)), columns[5].x, y, columns[5].width, {
         size: 7.8,
         align: "right",
       });
@@ -1093,7 +1093,7 @@ const normalizeContext = (
         ? `${locationLabels.length} reporting locations`
         : "All accessible locations"),
     paymentScopeLabel: context.paymentScopeLabel ||
-      (paymentLabels.length > 0 ? paymentLabels.join(", ") : "All payment methods"),
+      (paymentLabels.length > 0 ? paymentLabels.join(", ") : "All: Cash, Card, Other, Unknown"),
   };
 };
 
