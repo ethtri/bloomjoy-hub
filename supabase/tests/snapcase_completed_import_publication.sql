@@ -148,7 +148,7 @@ select
     from private.snapcase_completed_import_windows receipt
     where receipt.provider_account_id = mapping.provider_account_id
       and receipt.source_machine_id = mapping.source_machine_id
-  ) as completed_window_receipt
+  ) - array['id', 'completed_at', 'updated_at'] as completed_window_evidence
 from public.machine_sales_facts fact
 cross join private.snapcase_machine_mappings mapping
 where fact.source = 'snapcase_cash'
@@ -183,15 +183,15 @@ select is(
    where provider_account_id='15013000-0000-4000-8000-000000000001'
      and source_machine_id='completion-machine'),
   (select row(mapping_id, mapped_at)::text from mapping_repair_baseline),
-  'repair preserves the mapping identity and original mapped timestamp used by receipt hashes'
+  'repair preserves the mapping identity and original mapped timestamp used by publication hashes'
 );
 select is(
-  (select to_jsonb(receipt)::text
+  (select (to_jsonb(receipt) - array['id', 'completed_at', 'updated_at'])::text
    from private.snapcase_completed_import_windows receipt
    where receipt.provider_account_id='15013000-0000-4000-8000-000000000001'
      and receipt.source_machine_id='completion-machine'),
-  (select completed_window_receipt::text from mapping_repair_baseline),
-  'mapping replay preserves the completed-window receipt'
+  (select completed_window_evidence::text from mapping_repair_baseline),
+  'mapping replay preserves completed-window business evidence while reissuing its receipt'
 );
 select is(
   (public.admin_map_snapcase_machine(
