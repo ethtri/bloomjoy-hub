@@ -411,22 +411,6 @@ const getNayaxLookupCandidate = async (
   return data as NayaxLookupCandidateRow | null;
 };
 
-const nayaxTransactionIsLinkedElsewhere = async (
-  caseId: string,
-  providerTransactionId: string,
-): Promise<boolean> => {
-  if (!supabase || !providerTransactionId) return false;
-  const { data, error } = await supabase
-    .from("refund_cases")
-    .select("id")
-    .eq("matched_nayax_transaction_id", providerTransactionId)
-    .neq("id", caseId)
-    .limit(1)
-    .maybeSingle();
-  if (error) throw error;
-  return Boolean(data?.id);
-};
-
 const resolveMessageType = (
   beforeRow: RefundCaseRow,
   afterRow: RefundCaseRow,
@@ -953,19 +937,6 @@ serve(async (req) => {
         }, 409);
       }
     }
-    if (
-      nayaxCandidate &&
-      await nayaxTransactionIsLinkedElsewhere(
-        caseId,
-        nayaxCandidate.provider_transaction_id,
-      )
-    ) {
-      return jsonResponse({
-        error:
-          "This Nayax transaction is already linked to another refund case.",
-      }, 409);
-    }
-
     const nayaxEvidence = nayaxCandidate?.evidence_summary ?? {};
     let nayaxDisagreementReason = sanitizeText(
       body?.nayaxDisagreementReason,
@@ -980,7 +951,7 @@ serve(async (req) => {
     if (nayaxCandidate && !selectionAllowed) {
       return jsonResponse({
         error:
-          "This Nayax transaction conflicts with required details or is already in use, so it cannot be selected.",
+          "This Nayax transaction conflicts with required details, so it cannot be selected.",
       }, 400);
     }
     const customerAndCandidateTimesAreComparable = Boolean(
@@ -1295,7 +1266,7 @@ serve(async (req) => {
         string,
         { errorCode: string; status: number }
       > = {
-        "23505": { errorCode: "duplicate_transaction", status: 409 },
+        "23505": { errorCode: "selection_conflict", status: 409 },
         P4600: { errorCode: "invalid_request", status: 400 },
         P4601: { errorCode: "stale_review_evidence", status: 409 },
         P4602: { errorCode: "stale_review_evidence", status: 409 },

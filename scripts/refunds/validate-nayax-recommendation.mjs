@@ -435,16 +435,16 @@ assert.equal(distantMismatch.candidates[0].selectionAllowed, true);
 assert.equal(distantMismatch.candidates[0].identifierReviewState, "reviewable_uncertainty");
 assert.deepEqual(distantMismatch.candidates[0].customerCorrectionFields, []);
 
-const duplicateContactlessMismatch = recommend([
-  sale({ id: "duplicate-contactless-mismatch", at: "2026-07-21T19:15:00.000Z", amount: 10.9,
+const crossCaseContactlessMismatch = recommend([
+  sale({ id: "cross-case-contactless-mismatch", at: "2026-07-21T19:15:00.000Z", amount: 10.9,
     last4: "3760", recognitionMethod: "Contactless" }),
 ], { requestAmountCents: 1090, requestCardLast4: "6768", requestCardNetwork: null,
   paymentInteraction: "tap_card", requestCardLast4Source: null,
   incidentTimeSource: null, nearbyAttemptCount: null, incidentTimeConfidence: "exact",
-  transactionStates: { "duplicate-contactless-mismatch": "duplicate" } });
-assert.equal(duplicateContactlessMismatch.candidates[0].selectionAllowed, false);
-assert.equal(duplicateContactlessMismatch.candidates[0].identifierReviewState, "blocked_safety");
-assert.ok(duplicateContactlessMismatch.candidates[0].hardExclusions.includes("duplicate_transaction"));
+  transactionStates: { "cross-case-contactless-mismatch": "duplicate" } });
+assert.equal(crossCaseContactlessMismatch.candidates[0].selectionAllowed, true);
+assert.equal(crossCaseContactlessMismatch.candidates[0].identifierReviewState, "reviewable_uncertainty");
+assert.equal(crossCaseContactlessMismatch.candidates[0].hardExclusions.includes("duplicate_transaction"), false);
 
 const walletNetworkMismatch = recommend(
   [sale({ id: "wallet-network-mismatch", cardBrand: "Amex", recognitionMethod: "Apple Pay" })],
@@ -1104,15 +1104,22 @@ assert.equal(duplicateProviderRecord.oneClickEligible, false);
 const duplicate = recommend([sale({ id: "duplicate" })], {
   transactionStates: { duplicate: "duplicate" },
 });
-assert.equal(duplicate.recommendationState, "manual_exception");
-assert.equal(duplicate.candidates[0].oneClickEligible, false);
-assert.equal(duplicate.candidates[0].selectionAllowed, false);
+assert.equal(duplicate.recommendationState, "high_confidence");
+assert.equal(duplicate.candidates[0].oneClickEligible, true);
+assert.equal(duplicate.candidates[0].selectionAllowed, true);
 
 const alreadyRefunded = recommend([sale({ id: "already-refunded" })], {
   transactionStates: { "already-refunded": "already_refunded" },
 });
-assert.equal(alreadyRefunded.recommendationState, "manual_exception");
-assert.equal(alreadyRefunded.candidates[0].oneClickEligible, false);
+assert.equal(alreadyRefunded.recommendationState, "high_confidence");
+assert.equal(alreadyRefunded.candidates[0].oneClickEligible, true);
+
+const providerAlreadyRefunded = recommend([
+  sale({ id: "provider-already-refunded", extra: { IsRefunded: true } }),
+]);
+assert.equal(providerAlreadyRefunded.recommendationState, "manual_exception");
+assert.equal(providerAlreadyRefunded.candidates[0].selectionAllowed, false);
+assert.ok(providerAlreadyRefunded.candidates[0].hardExclusions.includes("already_refunded"));
 
 const noMatch = recommend([sale({ id: "outside", at: "2026-07-22T08:00:00.000Z" })]);
 assert.equal(noMatch.recommendationState, "no_safe_match");
@@ -1300,22 +1307,23 @@ for (const missing of [null, undefined, "", false, 0]) {
 }
 assert.equal(recommend([sale({ id: "zero-sale", amount: 0 })], { requestAmountCents: 300 }).oneClickEligible, false);
 
-const blockedRows = Array.from({ length: 10 }, (_, i) => sale({ id: `blocked-${i}` }));
-const blockedStates = Object.fromEntries(blockedRows.map((row) => [row.TransactionID, "already_refunded"]));
-const hiddenRows = [...blockedRows, sale({ id: "hidden-original", amount: 7.1, at: "2026-07-21T19:25:00Z" })];
+const crossCaseRows = Array.from({ length: 10 }, (_, i) => sale({ id: `cross-case-${i}` }));
+const crossCaseStates = Object.fromEntries(crossCaseRows.map((row) => [row.TransactionID, "already_refunded"]));
+const hiddenRows = [...crossCaseRows, sale({ id: "hidden-original", amount: 7.1, at: "2026-07-21T19:25:00Z" })];
 const preliminary = recommend(hiddenRows);
 assert.equal(preliminary.candidates.length, 11,
   "the display cap cannot hide a sale that is safe for manager review");
-assert.equal(preliminary.consideredTransactionIds.length, 11, "private state lookup must include originals outside the display limit");
-const checkedStates = Object.fromEntries(preliminary.consideredTransactionIds.map((id) => [id, "already_refunded"]));
-assert.equal(recommend(hiddenRows, { transactionStates: checkedStates }).oneClickEligible, false,
-  "second-pass ranking cannot expose an unchecked refunded original");
+assert.equal(preliminary.consideredTransactionIds.length, 11, "all provider originals remain available for review");
+assert.equal(recommend(hiddenRows, { transactionStates: crossCaseStates }).candidates.every(
+  (candidate) => candidate.hardExclusions.includes("already_refunded") === false
+), true, "other Bloomjoy cases do not manufacture provider refund state");
 const visibleAlternatives = recommend([...hiddenRows, sale({ id: "second-alternative", amount: 7.2, at: "2026-07-21T19:26:00Z" })], {
-  transactionStates: blockedStates,
+  transactionStates: crossCaseStates,
 });
 assert.equal(visibleAlternatives.recommendationState, "ambiguous");
-assert.equal(visibleAlternatives.candidates.filter((row) => row.matchStrength === "compare").length, 2,
-  "blocked higher-scoring rows cannot hide the transactions managers need to compare");
+assert.equal(visibleAlternatives.candidates.some((candidate) =>
+  candidate.hardExclusions.includes("duplicate_transaction")
+), false, "cross-case history cannot block any provider candidate");
 const publicJson = JSON.stringify(publicCandidate);
 assert.equal("transactionId" in publicCandidate, false, "raw transaction ID must not reach the browser");
 assert.equal(publicJson.includes("rankingPoints"), false, "internal points must not look like probability");

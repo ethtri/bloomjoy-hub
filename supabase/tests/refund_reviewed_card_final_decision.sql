@@ -29,7 +29,7 @@ begin
         perform public.admin_approve_reviewed_nayax_candidate_v1(
           p_case_id,p_expected_version,p_proof_id,p_token
         );
-        outcome := 'UNEXPECTED_APPROVAL';
+        outcome := 'APPROVED';
       exception when others then
         outcome := sqlstate || ':' || sqlerrm;
       end;
@@ -358,7 +358,7 @@ select matches(pg_temp.capture_error($$
     where token='e1460000-0000-4000-8000-000000000001'$$),
   '^P0001:Nayax candidate evidence is immutable',
   'persisted refundability evidence cannot be rewritten');
-select matches(pg_temp.probe_rolled_back_decision(
+select is(pg_temp.probe_rolled_back_decision(
   $$insert into public.refund_nayax_transaction_allocations(
       account_scope,provider_machine_id,original_transaction_id,refund_case_id)
     values('REVIEWED-ACCOUNT','PUNCT-MACHINE','REVIEWED-PUNCT-SALE-1',
@@ -371,7 +371,7 @@ select matches(pg_temp.probe_rolled_back_decision(
     (select official_action_version from public.refund_cases
       where id='e1450000-0000-4000-8000-000000000004'))->>'proofId')::uuid,
   'e1460000-0000-4000-8000-000000000006'
-), '^P4620:', 'raw punctuated execution account allocation blocks the exact reviewed sale');
+), 'APPROVED', 'another case allocation does not block the exact reviewed sale');
 -- Unsafe evidence must be seeded as new immutable rows, never made reachable by
 -- rewriting a completed provider candidate. Case D is not a payment case.
 insert into public.refund_nayax_lookup_candidates(
@@ -427,7 +427,7 @@ select is(public.refund_manager_preparation_snapshot(
   (select official_action_version from public.refund_cases
    where id='e1450000-0000-4000-8000-000000000004')),null::jsonb,
   'new unsafe evidence invalidates the previously completed candidate set');
-select matches(pg_temp.probe_rolled_back_decision(
+select is(pg_temp.probe_rolled_back_decision(
   $$insert into public.refund_nayax_transaction_allocations(
       account_scope,provider_machine_id,original_transaction_id,refund_case_id)
     values('REVIEWED_ACCOUNT','REVIEWED-MACHINE','REVIEWED-A-SALE-1',
@@ -436,10 +436,10 @@ select matches(pg_temp.probe_rolled_back_decision(
   (select action_version from reviewed_initial where case_id='e1450000-0000-4000-8000-000000000001'),
   (select proof_id from reviewed_initial where case_id='e1450000-0000-4000-8000-000000000001'),
   'e1460000-0000-4000-8000-000000000001'
-), '^P4620:', 'another case reserving the exact sale atomically blocks final approval');
+), 'APPROVED', 'another case reservation does not veto final approval');
 select is((select count(*)::integer from public.refund_nayax_transaction_allocations
   where original_transaction_id='REVIEWED-A-SALE-1'),0,
-  'failed overlapping allocation probe rolled back its reservation');
+  'cross-case allocation approval probe rolls back both case allocations');
 select matches(pg_temp.probe_rolled_back_decision(
   $$update public.refund_cases set nayax_refund_execution_status='ambiguous'
     where id='e1450000-0000-4000-8000-000000000001'$$,
@@ -477,8 +477,6 @@ declare
   target_id constant uuid := 'e1450000-0000-4000-8000-000000000001';
   original record;
   current_proof jsonb;
-  stale_error text;
-  blocked_error text;
   safe_approval jsonb;
   outcome jsonb;
 begin
@@ -491,53 +489,39 @@ begin
       'e1450000-0000-4000-8000-000000000003');
     current_proof := public.refund_reviewed_card_candidate_set_snapshot_v1(
       target_id,original.action_version);
-    begin
-      perform public.admin_approve_reviewed_nayax_candidate_v1(
-        target_id,original.action_version,original.proof_id,
-        'e1460000-0000-4000-8000-000000000001');
-      stale_error := 'UNEXPECTED_APPROVAL';
-    exception when others then stale_error := sqlstate || ':' || sqlerrm;
-    end;
-    begin
-      perform public.admin_approve_reviewed_nayax_candidate_v1(
-        target_id,original.action_version,(current_proof->>'proofId')::uuid,
-        'e1460000-0000-4000-8000-000000000002');
-      blocked_error := 'UNEXPECTED_APPROVAL';
-    exception when others then blocked_error := sqlstate || ':' || sqlerrm;
-    end;
     safe_approval := public.admin_approve_reviewed_nayax_candidate_v1(
-      target_id,original.action_version,(current_proof->>'proofId')::uuid,
-      'e1460000-0000-4000-8000-000000000001');
+      target_id,original.action_version,original.proof_id,
+      'e1460000-0000-4000-8000-000000000002');
     outcome := jsonb_build_object(
       'oldProofChanged',current_proof->>'proofId'<>original.proof_id::text,
       'eligibleTokens',current_proof->'eligibleCandidateTokens',
       'candidateCount',current_proof->'candidateCount',
-      'staleError',stale_error,'blockedError',blocked_error,
       'safeApproved',safe_approval->>'approved',
       'attemptCount',(select count(*) from public.refund_case_nayax_refund_attempts
-        where refund_case_id=target_id));
+        where refund_case_id=target_id),
+      'caseAllocationCount',(select count(*) from public.refund_nayax_transaction_allocations
+        where refund_case_id=target_id and original_transaction_id='REVIEWED-A-SALE-2'));
     raise exception 'rollback mixed allocation probe' using errcode='P0001';
   exception when sqlstate 'P0001' then return outcome;
   end;
 end $$;
 create temp table reviewed_mixed_probe(result jsonb) on commit drop;
 insert into reviewed_mixed_probe select pg_temp.probe_mixed_allocation();
-select is((select result->>'oldProofChanged' from reviewed_mixed_probe),'true',
-  'new exact allocation changes the completed-set proof without changing research provenance');
+select is((select result->>'oldProofChanged' from reviewed_mixed_probe),'false',
+  'another case allocation does not change this case completed-set proof');
 select is((select result->'eligibleTokens' from reviewed_mixed_probe),
-  '["e1460000-0000-4000-8000-000000000001"]'::jsonb,
-  'remaining safe purchase alone is exposed as eligible in the completed set');
-select is((select (result->>'candidateCount')::integer from reviewed_mixed_probe),1,
-  'prepared candidate count reflects currently safe choices');
-select matches((select result->>'staleError' from reviewed_mixed_probe),'^P4620:',
-  'old proof cannot approve even the safe purchase after allocation changes');
-select matches((select result->>'blockedError' from reviewed_mixed_probe),'^P4620:',
-  'currently allocated purchase cannot be approved using the fresh proof');
-select ok((select result->>'safeApproved'='true'
-    and (result->>'attemptCount')::integer=1 from reviewed_mixed_probe)
+  '["e1460000-0000-4000-8000-000000000001", "e1460000-0000-4000-8000-000000000002"]'::jsonb,
+  'both reviewed purchases remain eligible despite another case allocation');
+select is((select (result->>'candidateCount')::integer from reviewed_mixed_probe),2,
+  'prepared candidate count ignores allocations owned by another case');
+select is((select result->>'safeApproved' from reviewed_mixed_probe),'true',
+  'the cross-case allocated purchase can receive this case decision');
+select is((select (result->>'attemptCount')::integer from reviewed_mixed_probe),1,
+  'the allowed decision still creates exactly one attempt for this case');
+select ok((select (result->>'caseAllocationCount')::integer=1 from reviewed_mixed_probe)
     and not exists(select 1 from public.refund_nayax_transaction_allocations
       where original_transaction_id='REVIEWED-A-SALE-2'),
-  'remaining safe purchase approves once in probe while allocation and attempt roll back');
+  'the per-case allocation and attempt are both rolled back by the probe');
 
 set local role authenticated;
 insert into reviewed_approval_a

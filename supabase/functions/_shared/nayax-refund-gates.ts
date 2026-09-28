@@ -42,7 +42,7 @@ export type NayaxRefundAvailability = {
 };
 
 // Nayax enforces the original transaction total. Local authority, original
-// identity, amount, duplicate, claim and outcome checks remain mandatory.
+// identity, amount, same-case claim and outcome checks remain mandatory.
 export const NAYAX_REFUND_OFFICIAL_ACTIONS_ENABLED = true;
 
 export type NayaxRefundIdempotencyEvidence = {

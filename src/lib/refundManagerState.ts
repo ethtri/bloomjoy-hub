@@ -345,8 +345,6 @@ export const refundReadinessBlockMessage = (blockReason: string | null | undefin
       return 'This transaction has already been refunded. Do not refund it again.';
     case 'reconciliation_hold':
       return 'A previous refund result still needs to be confirmed. Do not refund again.';
-    case 'duplicate_transaction':
-      return 'This transaction is linked to another refund case. Review the original case first.';
     case 'case_not_refundable':
       return 'This case is not currently eligible for a refund. Review the case status.';
     case 'machine_not_enabled':
