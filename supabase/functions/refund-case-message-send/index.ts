@@ -7,6 +7,7 @@ import { correctionLinkRequested, getCurrentRefundCorrectionFields, refundCorrec
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import {
   auditedPriorCompletionDeliverySet,
+  diagnoseUnsentCompletionThreadHistory,
   reviewedCurrentCompletionCopy,
   verifiedUnsentCompletionThreadHistory,
 } from "../_shared/refund-exhausted-completion-recovery.ts";
@@ -578,6 +579,8 @@ serve(async (req) => {
       const completionMessageId = nayaxExhaustedCompletionMessageId ||
         nayaxCompletionMessageId;
       const exhaustedRecovery = Boolean(nayaxExhaustedCompletionMessageId);
+      const inspectExhaustedRecovery =
+        body?.inspectExhaustedCompletionRecovery === true;
       const originalThreadHistoryId = sanitizeText(
         body?.originalThreadHistoryId,
         30,
@@ -592,9 +595,11 @@ serve(async (req) => {
         !isUuid(completionMessageId) ||
         (exhaustedRecovery && !/^[0-9]{3,30}$/.test(originalThreadHistoryId)) ||
         (exhaustedRecovery && !currentCompletionCopy) ||
+        (body?.inspectExhaustedCompletionRecovery !== undefined &&
+          !inspectExhaustedRecovery) ||
         Object.keys(body ?? {}).some((key) =>
           !(exhaustedRecovery
-            ? ["caseId", "nayaxExhaustedCompletionMessageId", "originalThreadHistoryId", "recoverySubject", "recoveryBody"]
+            ? ["caseId", "nayaxExhaustedCompletionMessageId", "originalThreadHistoryId", "recoverySubject", "recoveryBody", "inspectExhaustedCompletionRecovery"]
             : ["caseId", "nayaxCompletionMessageId"]).includes(key)
         )
       ) {
@@ -638,11 +643,38 @@ serve(async (req) => {
           completionMessageId,
         });
         const gmailConfig = getRefundGmailConfig();
+        const evidenceDiagnostic = {
+          databaseReadsSucceeded: !messageEvidenceError &&
+            !attemptEvidenceError && !threadLinkError &&
+            !priorDeliveryEventsError,
+          auditedPriorDeliveryValid: Boolean(auditedPriorDeliveries),
+          messageEvidencePresent: Boolean(messageEvidence),
+          attemptEvidencePresent: Boolean(attemptEvidence),
+          threadLinkPresent: Boolean(threadLink),
+          gmailConfigPresent: Boolean(gmailConfig),
+          mailboxHashMatch: Boolean(
+            threadLink && gmailConfig &&
+              threadLink.mailbox_hash === await sha256Hex(gmailConfig.mailbox),
+          ),
+          payloadRedacted: true as const,
+        };
         if (messageEvidenceError || attemptEvidenceError || threadLinkError ||
           priorDeliveryEventsError ||
           !auditedPriorDeliveries ||
           !messageEvidence || !attemptEvidence || !threadLink || !gmailConfig ||
-          threadLink.mailbox_hash !== await sha256Hex(gmailConfig.mailbox)) {
+          !evidenceDiagnostic.mailboxHashMatch) {
+          if (inspectExhaustedRecovery) {
+            return jsonResponse({
+              exhaustedCompletionRecoveryInspection: {
+                stage: "evidence",
+                evidence: evidenceDiagnostic,
+                thread: null,
+                customerMessageSent: false,
+                paymentActionTaken: false,
+                payloadRedacted: true,
+              },
+            });
+          }
           return jsonResponse({ error: "Original completion thread evidence is unavailable." }, 409);
         }
         let providerThread;
@@ -653,6 +685,29 @@ serve(async (req) => {
           );
         } catch {
           return jsonResponse({ error: "Original Gmail history could not be checked." }, 502);
+        }
+        const threadDiagnostic = diagnoseUnsentCompletionThreadHistory({
+          thread: providerThread,
+          providerThreadId: threadLink.provider_thread_id,
+          reviewedHistoryId: originalThreadHistoryId,
+          recipientEmail: messageEvidence.recipient_email,
+          completionCreatedAt: messageEvidence.created_at,
+          completionMessageId,
+          auditedPriorDelivery: auditedPriorDeliveries[0] ?? null,
+          mailboxEmail: gmailConfig.mailbox,
+          senderIdentities: getRefundGmailMailboxIdentities(),
+        });
+        if (inspectExhaustedRecovery) {
+          return jsonResponse({
+            exhaustedCompletionRecoveryInspection: {
+              stage: "thread",
+              evidence: evidenceDiagnostic,
+              thread: threadDiagnostic,
+              customerMessageSent: false,
+              paymentActionTaken: false,
+              payloadRedacted: true,
+            },
+          });
         }
         if (!verifiedUnsentCompletionThreadHistory({
           thread: providerThread,

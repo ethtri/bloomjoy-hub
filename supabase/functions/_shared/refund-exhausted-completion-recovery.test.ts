@@ -1,6 +1,7 @@
 import {
   auditedPriorCompletionDelivery,
   auditedPriorCompletionDeliverySet,
+  diagnoseUnsentCompletionThreadHistory,
   reviewedCurrentCompletionCopy,
   verifiedUnsentCompletionThreadHistory,
 } from "./refund-exhausted-completion-recovery.ts";
@@ -136,6 +137,97 @@ Deno.test("an exact audited prior stale completion delivery is accepted once", (
       thread: { ...original, messages: [...original.messages!, staleSent] },
     }) !== "673955"
   ) throw new Error("Exact audited prior delivery was rejected");
+});
+
+Deno.test("bounded diagnostic exposes a safe fresh history token only for the exact audited envelope", () => {
+  const audited = auditedPriorCompletionDelivery({
+    event: auditedEvent,
+    completionMessageId: messageId,
+  })!;
+  const staleSent = {
+    id: "stale-completion",
+    threadId: original.id,
+    internalDate: String(Date.parse("2026-09-19T14:47:20Z")),
+    labelIds: ["INBOX"],
+    payload: { headers: [
+      { name: "From", value: "Bloomjoy <info@example.test>" },
+      { name: "To", value: "customer@example.test" },
+      { name: "Cc", value: "manager@example.test, operator@example.test" },
+    ] },
+  };
+  const exact = diagnoseUnsentCompletionThreadHistory({
+    ...input,
+    auditedPriorDelivery: audited,
+    mailboxEmail,
+    senderIdentities,
+    thread: { ...original, messages: [...original.messages!, staleSent] },
+  });
+  if (!exact.valid || exact.safeCurrentHistoryId !== "673955" ||
+    exact.auditedMatchCount !== 1 || exact.payloadRedacted !== true) {
+    throw new Error("Exact audited envelope diagnostic was not valid");
+  }
+  const staleHistory = diagnoseUnsentCompletionThreadHistory({
+    ...input,
+    auditedPriorDelivery: audited,
+    mailboxEmail,
+    senderIdentities,
+    thread: {
+      ...original,
+      historyId: "673956",
+      messages: [...original.messages!, staleSent],
+    },
+  });
+  if (staleHistory.valid || staleHistory.historyIdMatch ||
+    staleHistory.safeCurrentHistoryId !== "673956" ||
+    staleHistory.auditedMatchCount !== 1 ||
+    staleHistory.unexpectedCustomerDirectedCount !== 0) {
+    throw new Error("Safe history-only mismatch was not isolated");
+  }
+  const wrongLabel = diagnoseUnsentCompletionThreadHistory({
+    ...input,
+    auditedPriorDelivery: audited,
+    mailboxEmail,
+    senderIdentities,
+    thread: {
+      ...original,
+      historyId: "673956",
+      messages: [...original.messages!, { ...staleSent, labelIds: [] }],
+    },
+  });
+  if (wrongLabel.safeCurrentHistoryId !== null ||
+    wrongLabel.unexpectedCustomerDirectedCount !== 1) {
+    throw new Error("Unsafe envelope exposed a fresh history token");
+  }
+  const unsafeMessageSets = [
+    [...original.messages!, staleSent, {
+      ...staleSent,
+      id: "draft",
+      labelIds: ["DRAFT"],
+    }],
+    [...original.messages!, {
+      ...staleSent,
+      payload: { headers: [
+        ...staleSent.payload.headers,
+        {
+          name: REFUND_GMAIL_OPERATION_HEADER,
+          value: refundGmailOperationMarker(`refund-case-message:${messageId}`),
+        },
+      ] },
+    }],
+    [...original.messages!, staleSent, { ...staleSent, id: "duplicate" }],
+  ];
+  for (const messages of unsafeMessageSets) {
+    const unsafe = diagnoseUnsentCompletionThreadHistory({
+      ...input,
+      auditedPriorDelivery: audited,
+      mailboxEmail,
+      senderIdentities,
+      thread: { ...original, historyId: "673956", messages },
+    });
+    if (unsafe.safeCurrentHistoryId !== null || unsafe.valid) {
+      throw new Error("Draft, marker, or duplicate exposed a history token");
+    }
+  }
 });
 
 Deno.test("malformed prior delivery audit evidence is rejected", () => {
