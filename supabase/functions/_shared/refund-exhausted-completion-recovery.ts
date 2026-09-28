@@ -15,6 +15,16 @@ export type AuditedPriorCompletionDelivery = {
   deliveredAt: string;
 };
 
+const auditedPriorDeliveryMetadataKeys = [
+  "deliveryTransport",
+  "managerCcCount",
+  "originalGmailThreadPreserved",
+  "paymentOperationPerformed",
+  "providerLastEvent",
+  "providerMessageIdDigest",
+  "sourceMessageId",
+];
+
 export const auditedPriorCompletionDelivery = ({
   event,
   completionMessageId,
@@ -28,14 +38,18 @@ export const auditedPriorCompletionDelivery = ({
     ? row.metadata as Record<string, unknown>
     : null;
   const deliveredAt = typeof row.created_at === "string" ? row.created_at : "";
+  const metadataKeys = metadata ? Object.keys(metadata).sort() : [];
   if (
     row.event_type !== "refund_customer_completion_recovery_sent" ||
     !metadata || metadata.sourceMessageId !== completionMessageId ||
+    metadataKeys.length !== auditedPriorDeliveryMetadataKeys.length ||
+    metadataKeys.some((key, index) =>
+      key !== auditedPriorDeliveryMetadataKeys[index]
+    ) ||
     metadata.deliveryTransport !== "resend" ||
     metadata.providerLastEvent !== "delivered" ||
     metadata.originalGmailThreadPreserved !== true ||
     metadata.paymentOperationPerformed !== false ||
-    metadata.payloadRedacted !== true ||
     typeof metadata.managerCcCount !== "number" ||
     !Number.isInteger(metadata.managerCcCount) ||
     metadata.managerCcCount < 1 || metadata.managerCcCount > 4 ||

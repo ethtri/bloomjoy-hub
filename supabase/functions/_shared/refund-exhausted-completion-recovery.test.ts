@@ -52,7 +52,6 @@ const auditedEvent = {
     providerMessageIdDigest: "a".repeat(64),
     paymentOperationPerformed: false,
     originalGmailThreadPreserved: true,
-    payloadRedacted: true,
   },
 };
 
@@ -156,7 +155,7 @@ Deno.test("malformed prior delivery audit evidence is rejected", () => {
       },
       {
         ...auditedEvent,
-        metadata: { ...auditedEvent.metadata, payloadRedacted: false },
+        metadata: { ...auditedEvent.metadata, unexpectedPayload: "blocked" },
       },
     ]
   ) {
@@ -178,7 +177,7 @@ Deno.test("the prior delivery audit set fails closed on any ambiguity", () => {
   };
   const malformedEvent = {
     ...auditedEvent,
-    metadata: { ...auditedEvent.metadata, payloadRedacted: false },
+    metadata: { ...auditedEvent.metadata, unexpectedPayload: "blocked" },
   };
   for (
     const events of [
