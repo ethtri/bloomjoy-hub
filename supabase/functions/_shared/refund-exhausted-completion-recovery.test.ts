@@ -1,6 +1,8 @@
 import {
   auditedPriorCompletionDelivery,
   auditedPriorCompletionDeliverySet,
+  diagnoseCleanOriginalCompletionThread,
+  diagnoseExternalCompletionCopy,
   diagnoseUnsentCompletionThreadHistory,
   governedCompletionThreadEvidence,
   reviewedCurrentCompletionCopy,
@@ -9,6 +11,7 @@ import {
 import {
   type GmailThread,
   REFUND_GMAIL_OPERATION_HEADER,
+  refundGmailRecipientMessageQuery,
   refundGmailOperationMarker,
 } from "./refund-gmail.ts";
 
@@ -56,6 +59,29 @@ const auditedEvent = {
     providerMessageIdDigest: "a".repeat(64),
     paymentOperationPerformed: false,
     originalGmailThreadPreserved: true,
+  },
+};
+
+const encodeBody = (value: string) =>
+  btoa(unescape(encodeURIComponent(value)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+const exactExternalCopy = {
+  id: "external-copy",
+  threadId: "external-thread",
+  internalDate: String(Date.parse("2026-09-19T14:47:20Z")),
+  labelIds: ["INBOX"],
+  payload: {
+    mimeType: "text/plain",
+    body: { data: encodeBody("Stored completion") },
+    headers: [
+      { name: "From", value: "Bloomjoy <info@example.test>" },
+      { name: "To", value: "customer@example.test" },
+      { name: "Cc", value: "manager@example.test, operator@example.test" },
+      { name: "Subject", value: "Re: Order failure" },
+    ],
   },
 };
 
@@ -160,6 +186,183 @@ Deno.test("negated or ambiguous completion claims are rejected", () => {
 Deno.test("current original-thread history with no later send is accepted", () => {
   if (verifiedUnsentCompletionThreadHistory(input) !== "673955") {
     throw new Error("Expected original-thread evidence");
+  }
+});
+
+Deno.test("mailbox-wide recipient search quotes the address and fixes both time bounds", () => {
+  const params = refundGmailRecipientMessageQuery({
+    recipientEmail: "customer+refund@example.test",
+    completionCreatedAt: "2026-09-19T14:30:00Z",
+    through: new Date("2026-09-28T08:00:00Z"),
+    pageToken: "next-page",
+  });
+  const query = params.get("q") ?? "";
+  for (const atom of [
+    'to:"customer+refund@example.test"',
+    'cc:"customer+refund@example.test"',
+    'bcc:"customer+refund@example.test"',
+    "in:anywhere",
+    "after:1789828199",
+    "before:1790582402",
+  ]) {
+    if (!query.includes(atom)) throw new Error(`Missing query atom ${atom}`);
+  }
+  if (params.get("includeSpamTrash") !== "true" ||
+    params.get("maxResults") !== "100" ||
+    params.get("pageToken") !== "next-page") {
+    throw new Error("Recipient search bounds were not preserved");
+  }
+});
+
+Deno.test("the immutable original thread is independently clean and current", () => {
+  const exact = diagnoseCleanOriginalCompletionThread({
+    ...input,
+  });
+  if (!exact.valid || exact.customerDirectedAfterCompletionCount !== 0) {
+    throw new Error("Clean original completion thread was rejected");
+  }
+  const later = {
+    ...exactExternalCopy,
+    id: "later-in-original",
+    threadId: original.id,
+  };
+  const changed = diagnoseCleanOriginalCompletionThread({
+    ...input,
+    thread: { ...original, messages: [...original.messages!, later] },
+  });
+  if (changed.valid || changed.customerDirectedAfterCompletionCount !== 1) {
+    throw new Error("Later original-thread customer mail was accepted");
+  }
+});
+
+Deno.test("one exact different-thread external completion copy is diagnosed", () => {
+  const audited = auditedPriorCompletionDelivery({
+    event: auditedEvent,
+    completionMessageId: messageId,
+  })!;
+  const exact = diagnoseExternalCompletionCopy({
+    messages: [exactExternalCopy],
+    searchComplete: true,
+    pageCount: 1,
+    candidateCount: 1,
+    throughAt: "2026-09-28T08:00:00Z",
+    originalProviderThreadId: original.id!,
+    recipientEmail: "customer@example.test",
+    completionCreatedAt: input.completionCreatedAt,
+    completionSubject: "Re: Order failure",
+    completionBody: "Stored completion",
+    auditedPriorDelivery: audited,
+    mailboxEmail,
+    senderEmail: "info@example.test",
+  });
+  if (!exact.valid || exact.auditedMatchCount !== 1 ||
+    exact.blockingMessageCount !== 0 || exact.payloadRedacted !== true) {
+    throw new Error("Exact external completion copy was rejected");
+  }
+});
+
+Deno.test("external completion copy diagnosis fails closed on any mismatch or incomplete scan", () => {
+  const audited = auditedPriorCompletionDelivery({
+    event: auditedEvent,
+    completionMessageId: messageId,
+  })!;
+  const base = {
+    messages: [exactExternalCopy],
+    searchComplete: true,
+    pageCount: 1,
+    candidateCount: 1,
+    throughAt: "2026-09-28T08:00:00Z",
+    originalProviderThreadId: original.id!,
+    recipientEmail: "customer@example.test",
+    completionCreatedAt: input.completionCreatedAt,
+    completionSubject: "Re: Order failure",
+    completionBody: "Stored completion",
+    auditedPriorDelivery: audited,
+    mailboxEmail,
+    senderEmail: "info@example.test",
+  };
+  const changedMessage = (changes: Record<string, unknown>) => ({
+    ...exactExternalCopy,
+    ...changes,
+  });
+  const changedHeaders = (headers: Array<{ name: string; value: string }>) =>
+    changedMessage({
+      payload: { ...exactExternalCopy.payload, headers },
+    });
+  const exactHeaders = exactExternalCopy.payload.headers;
+  const unsafe = [
+    { ...base, searchComplete: false },
+    { ...base, pageCount: 0 },
+    { ...base, candidateCount: 2 },
+    { ...base, throughAt: "2026-09-19T14:40:00Z" },
+    { ...base, messages: [changedMessage({ threadId: original.id })] },
+    { ...base, messages: [changedMessage({
+      internalDate: String(Date.parse("2026-09-19T14:49:00Z")),
+    })] },
+    { ...base, messages: [changedMessage({ labelIds: [] })] },
+    { ...base, messages: [changedMessage({ labelIds: ["INBOX", "DRAFT"] })] },
+    { ...base, messages: [changedMessage({ labelIds: ["INBOX", "SENT"] })] },
+    { ...base, messages: [changedMessage({ internalDate: "not-a-time" })] },
+    { ...base, messages: [{
+      ...exactExternalCopy,
+      payload: undefined,
+    }] },
+    { ...base, messages: [changedHeaders(exactHeaders.map((header) =>
+      header.name === "To" ? { ...header, value: "other@example.test" } : header
+    ))] },
+    { ...base, messages: [changedHeaders(exactHeaders.map((header) =>
+      header.name === "Cc" ? { ...header, value: "manager@example.test" } : header
+    ))] },
+    { ...base, messages: [changedHeaders(exactHeaders.map((header) =>
+      header.name === "Cc"
+        ? { ...header, value: "manager@example.test, other@example.test" }
+        : header
+    ))] },
+    { ...base, messages: [changedHeaders(exactHeaders.map((header) =>
+      header.name === "From" ? { ...header, value: "other@example.test" } : header
+    ))] },
+    { ...base, messages: [changedHeaders(exactHeaders.map((header) =>
+      header.name === "Subject" ? { ...header, value: "Other" } : header
+    ))] },
+    { ...base, messages: [changedMessage({
+      payload: {
+        ...exactExternalCopy.payload,
+        body: { data: encodeBody("Different body") },
+      },
+    })] },
+    { ...base, messages: [changedHeaders([
+      ...exactHeaders,
+      { name: REFUND_GMAIL_OPERATION_HEADER, value: "unexpected" },
+    ])] },
+    { ...base, messages: [exactExternalCopy, {
+      ...exactExternalCopy,
+      id: "unrelated-later-message",
+      internalDate: String(Date.parse("2026-09-20T14:47:20Z")),
+      payload: {
+        ...exactExternalCopy.payload,
+        body: { data: encodeBody("Another message") },
+      },
+    }], candidateCount: 2 },
+  ];
+  for (const input of unsafe) {
+    if (diagnoseExternalCompletionCopy(input).valid) {
+      throw new Error("Unsafe external completion copy evidence was accepted");
+    }
+  }
+
+  const paddedBeforeCompletion = {
+    ...exactExternalCopy,
+    id: "padding-only",
+    internalDate: String(Date.parse("2026-09-19T14:29:59.500Z")),
+  };
+  const padded = diagnoseExternalCompletionCopy({
+    ...base,
+    messages: [paddedBeforeCompletion, exactExternalCopy],
+    candidateCount: 2,
+  });
+  if (!padded.valid || padded.blockingMessageCount !== 0 ||
+    padded.customerDirectedAfterCompletionCount !== 1) {
+    throw new Error("Retrieval-padding message created a false block");
   }
 });
 

@@ -55,6 +55,19 @@ export type GmailThread = {
   messages?: GmailMessage[];
 };
 
+export type RefundGmailRecipientMessageSearch = {
+  messages: GmailMessage[];
+  pageCount: number;
+  candidateCount: number;
+  throughAt: string;
+  complete: true;
+};
+
+export type RefundGmailReadRequest = <T>(
+  config: RefundGmailConfig,
+  path: string,
+) => Promise<T>;
+
 export class RefundGmailError extends Error {
   code: string;
   deliveryUncertain: boolean;
@@ -105,6 +118,10 @@ const cleanEnv = (name: string, maxLength: number) =>
 
 const isEmail = (value: string) =>
   /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(value) && value.length <= 320;
+
+const isGmailQueryEmail = (value: string) =>
+  /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(value) &&
+  value.length <= 320;
 
 export const parseEmailAddressList = (headerValue: string) => {
   const matches = headerValue.match(
@@ -817,6 +834,154 @@ export const getRefundGmailThread = async (
     config,
     `/threads/${encodeURIComponent(threadId)}?format=full`,
   );
+
+const REFUND_GMAIL_RECIPIENT_SEARCH_PAGE_SIZE = 100;
+const REFUND_GMAIL_RECIPIENT_SEARCH_MAX_PAGES = 10;
+const REFUND_GMAIL_RECIPIENT_SEARCH_MAX_MESSAGES = 100;
+
+export const refundGmailRecipientMessageQuery = ({
+  recipientEmail,
+  completionCreatedAt,
+  through,
+  pageToken,
+}: {
+  recipientEmail: string;
+  completionCreatedAt: string;
+  through: Date;
+  pageToken?: string;
+}) => {
+  const recipient = recipientEmail.trim().toLowerCase();
+  const createdMs = Date.parse(completionCreatedAt);
+  const throughMs = through.getTime();
+  if (
+    !isGmailQueryEmail(recipient) || !Number.isFinite(createdMs) ||
+    !Number.isFinite(throughMs) || throughMs < createdMs
+  ) {
+    throw new RefundGmailError(
+      "gmail_recipient_search_invalid",
+      "Refund Gmail recipient search is invalid.",
+    );
+  }
+  const after = Math.max(0, Math.floor(createdMs / 1000) - 1);
+  const before = Math.floor(throughMs / 1000) + 2;
+  const params = new URLSearchParams({
+    q: `in:anywhere after:${after} before:${before} {to:"${recipient}" cc:"${recipient}" bcc:"${recipient}"}`,
+    maxResults: String(REFUND_GMAIL_RECIPIENT_SEARCH_PAGE_SIZE),
+    includeSpamTrash: "true",
+  });
+  if (pageToken) params.set("pageToken", pageToken);
+  return params;
+};
+
+// Exhausted completion recovery needs a mailbox-wide, read-only proof. List
+// every Gmail candidate through one fixed instant, fail closed on pagination
+// bounds, then fetch each full message so callers never trust search metadata.
+export const listRefundGmailMessagesDirectedToRecipient = async ({
+  config,
+  recipientEmail,
+  completionCreatedAt,
+  through = new Date(),
+}: {
+  config: RefundGmailConfig;
+  recipientEmail: string;
+  completionCreatedAt: string;
+  through?: Date;
+}, readRequest: RefundGmailReadRequest = gmailRequest): Promise<RefundGmailRecipientMessageSearch> => {
+  const references: Array<{ id?: string; threadId?: string }> = [];
+  const seenIds = new Set<string>();
+  const seenPageTokens = new Set<string>();
+  let pageToken: string | undefined;
+  let pageCount = 0;
+  do {
+    if (pageCount >= REFUND_GMAIL_RECIPIENT_SEARCH_MAX_PAGES) {
+      throw new RefundGmailError(
+        "gmail_recipient_search_incomplete",
+        "Refund Gmail recipient search exceeded its page bound.",
+      );
+    }
+    const params = refundGmailRecipientMessageQuery({
+      recipientEmail,
+      completionCreatedAt,
+      through,
+      pageToken,
+    });
+    const page = await readRequest<{
+      messages?: Array<{ id?: string; threadId?: string }>;
+      nextPageToken?: string;
+      resultSizeEstimate?: number;
+    }>(config, `/messages?${params.toString()}`);
+    if (
+      !page || typeof page !== "object" ||
+      !Number.isInteger(page.resultSizeEstimate) ||
+      page.resultSizeEstimate! < 0 ||
+      (page.messages !== undefined && !Array.isArray(page.messages)) ||
+      (page.nextPageToken !== undefined &&
+        (typeof page.nextPageToken !== "string" || !page.nextPageToken))
+    ) {
+      throw new RefundGmailError(
+        "gmail_recipient_search_invalid",
+        "Refund Gmail recipient search returned an invalid page.",
+      );
+    }
+    pageCount += 1;
+    for (const reference of page.messages ?? []) {
+      if (
+        !reference.id || !reference.threadId || seenIds.has(reference.id)
+      ) {
+        throw new RefundGmailError(
+          "gmail_recipient_search_invalid",
+          "Refund Gmail recipient search returned invalid results.",
+        );
+      }
+      seenIds.add(reference.id);
+      references.push(reference);
+      if (references.length > REFUND_GMAIL_RECIPIENT_SEARCH_MAX_MESSAGES) {
+        throw new RefundGmailError(
+          "gmail_recipient_search_incomplete",
+          "Refund Gmail recipient search exceeded its message bound.",
+        );
+      }
+    }
+    pageToken = page.nextPageToken;
+    if (pageToken) {
+      if (seenPageTokens.has(pageToken)) {
+        throw new RefundGmailError(
+          "gmail_recipient_search_incomplete",
+          "Refund Gmail recipient search repeated a page token.",
+        );
+      }
+      seenPageTokens.add(pageToken);
+    }
+  } while (pageToken);
+
+  const messages: GmailMessage[] = [];
+  for (let offset = 0; offset < references.length; offset += 10) {
+    const batch = references.slice(offset, offset + 10);
+    const fetched = await Promise.all(batch.map(async (reference) => {
+      const message = await readRequest<GmailMessage>(
+        config,
+        `/messages/${encodeURIComponent(reference.id!)}?format=full`,
+      );
+      if (
+        message.id !== reference.id || message.threadId !== reference.threadId
+      ) {
+        throw new RefundGmailError(
+          "gmail_recipient_search_invalid",
+          "Refund Gmail recipient search could not bind a full message.",
+        );
+      }
+      return message;
+    }));
+    messages.push(...fetched);
+  }
+  return {
+    messages,
+    pageCount,
+    candidateCount: references.length,
+    throughAt: through.toISOString(),
+    complete: true,
+  };
+};
 
 export const getRefundGmailAttachment = async (
   config: RefundGmailConfig,

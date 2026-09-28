@@ -146,8 +146,22 @@ test('exhausted completion inspection is authorized read-only evidence before ev
   assert.match(responseBranch, /customerMessageSent: false/);
   assert.match(responseBranch, /paymentActionTaken: false/);
   assert.match(responseBranch, /payloadRedacted: true/);
+  assert.match(responseBranch, /listRefundGmailMessagesDirectedToRecipient/);
+  assert.match(responseBranch, /diagnoseCleanOriginalCompletionThread/);
+  assert.match(responseBranch, /diagnoseExternalCompletionCopy/);
+  assert.match(responseBranch, /catch \{[\s\S]*?externalCopy: \{[\s\S]*?available: false/);
+  const serializedResponseValues = [...responseBranch.matchAll(
+    /return jsonResponse\(\{([\s\S]*?)\n\s*\}\);/g,
+  )].map((match) => match[1]);
+  assert.ok(serializedResponseValues.length >= 2);
+  for (const response of serializedResponseValues) {
+    assert.doesNotMatch(
+      response,
+      /recipient_email|gmailConfig\.(?:mailbox|senderEmail)|threadLink\.provider_thread_id|attemptEvidence\.(?:subject|body)|recoveryBody|recoverySubject/,
+    );
+  }
   assert.doesNotMatch(
-    responseBranch,
-    /recipientEmail|mailboxEmail|senderIdentities|providerThreadId|recoveryBody|recoverySubject/,
+    messageSend.slice(inspectionReturn, prepare),
+    /(?:externalCopyDiagnostic|originalThreadDiagnostic)\.valid/,
   );
 });

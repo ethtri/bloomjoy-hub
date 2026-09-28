@@ -7,6 +7,8 @@ import { correctionLinkRequested, getCurrentRefundCorrectionFields, refundCorrec
 import { dispatchRefundCaseGmailReply } from "../_shared/refund-gmail-transport.ts";
 import {
   auditedPriorCompletionDeliverySet,
+  diagnoseCleanOriginalCompletionThread,
+  diagnoseExternalCompletionCopy,
   diagnoseUnsentCompletionThreadHistory,
   governedCompletionThreadEvidence,
   reviewedCurrentCompletionCopy,
@@ -17,6 +19,7 @@ import {
   getRefundGmailMailboxIdentities,
   getRefundGmailConfig,
   getRefundGmailThread,
+  listRefundGmailMessagesDirectedToRecipient,
   REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE,
   RefundGmailError,
 } from "../_shared/refund-gmail.ts";
@@ -711,6 +714,67 @@ serve(async (req) => {
           senderIdentities: getRefundGmailMailboxIdentities(),
         });
         if (inspectExhaustedRecovery) {
+          const auditedPriorDelivery = auditedPriorDeliveries[0] ?? null;
+          if (auditedPriorDelivery) {
+            const originalThreadDiagnostic =
+              diagnoseCleanOriginalCompletionThread({
+                thread: providerThread,
+                providerThreadId: threadLink.provider_thread_id,
+                reviewedHistoryId: originalThreadHistoryId,
+                recipientEmail: messageEvidence.recipient_email,
+                completionCreatedAt: messageEvidence.created_at,
+              });
+            try {
+              const mailboxSearch =
+                await listRefundGmailMessagesDirectedToRecipient({
+                  config: gmailConfig,
+                  recipientEmail: messageEvidence.recipient_email,
+                  completionCreatedAt: messageEvidence.created_at,
+                });
+              const externalCopyDiagnostic = diagnoseExternalCompletionCopy({
+                ...mailboxSearch,
+                searchComplete: mailboxSearch.complete,
+                originalProviderThreadId: threadLink.provider_thread_id,
+                recipientEmail: messageEvidence.recipient_email,
+                completionCreatedAt: messageEvidence.created_at,
+                completionSubject: attemptEvidence.subject,
+                completionBody: attemptEvidence.body,
+                auditedPriorDelivery,
+                mailboxEmail: gmailConfig.mailbox,
+                senderEmail: gmailConfig.senderEmail,
+              });
+              return jsonResponse({
+                exhaustedCompletionRecoveryInspection: {
+                  stage: "mailbox",
+                  evidence: evidenceDiagnostic,
+                  thread: threadDiagnostic,
+                  originalThread: originalThreadDiagnostic,
+                  externalCopy: externalCopyDiagnostic,
+                  customerMessageSent: false,
+                  paymentActionTaken: false,
+                  payloadRedacted: true,
+                },
+              });
+            } catch {
+              return jsonResponse({
+                exhaustedCompletionRecoveryInspection: {
+                  stage: "mailbox",
+                  evidence: evidenceDiagnostic,
+                  thread: threadDiagnostic,
+                  originalThread: originalThreadDiagnostic,
+                  externalCopy: {
+                    available: false,
+                    customerMessageSent: false,
+                    paymentActionTaken: false,
+                    payloadRedacted: true,
+                  },
+                  customerMessageSent: false,
+                  paymentActionTaken: false,
+                  payloadRedacted: true,
+                },
+              });
+            }
+          }
           return jsonResponse({
             exhaustedCompletionRecoveryInspection: {
               stage: "thread",
