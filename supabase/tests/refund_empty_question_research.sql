@@ -60,9 +60,6 @@ select 'b9200000-0000-4000-8002-000000000001',c.id,1,repeat('b',64),
   settings.reminder_delay_hours
 from public.refund_cases c cross join public.refund_customer_contact_settings settings
 where c.id='b9200000-0000-4000-8001-000000000001' and settings.singleton;
-update public.refund_follow_up_cycles
-set status='manual_review',failed_at=statement_timestamp(),failure_code='request_claim_abandoned'
-where id='b9200000-0000-4000-8002-000000000001';
 
 savepoint obsolete_unknown_question;
 insert into public.refund_case_messages(id,refund_case_id,message_type,status,
@@ -93,6 +90,10 @@ select is((select status from public.refund_case_messages
   'The health projection does not rewrite the historical parent message');
 rollback to savepoint obsolete_unknown_question;
 release savepoint obsolete_unknown_question;
+
+update public.refund_follow_up_cycles
+set status='manual_review',failed_at=statement_timestamp(),failure_code='request_claim_abandoned'
+where id='b9200000-0000-4000-8002-000000000001';
 
 select is(public.service_get_refund_clarification_contact_obligation_health(
   true,true,statement_timestamp())->>'unresolvedCount','0',
