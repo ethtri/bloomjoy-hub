@@ -923,7 +923,7 @@ function OperatorReportingView({
   const operatorChartConfig = useMemo(
     () =>
       ({
-        netSales: { label: t('reports.netSales'), color: 'hsl(var(--primary))' },
+        netSales: { label: t('reports.salesAfterRefunds'), color: 'hsl(var(--primary))' },
       }) satisfies ChartConfig,
     [t]
   );
@@ -981,7 +981,7 @@ function OperatorReportingView({
 
   const summary = useMemo(() => summarizeSalesReport(reportRows), [reportRows]);
   const averageOrderCents =
-    summary.transactionCount > 0 ? Math.round(summary.netSalesCents / summary.transactionCount) : 0;
+    summary.transactionCount > 0 ? Math.round(summary.grossSalesCents / summary.transactionCount) : 0;
 
   const periodSummaryRows = useMemo(
     () => buildOperatorPeriodSummaryRows(reportRows, dateFrom, dateTo, grain),
@@ -1268,13 +1268,14 @@ function OperatorReportingView({
                 </div>
 
                 <div className="flex flex-col gap-2">
-                  <Label>{t('reports.payment')}</Label>
+                  <Label>{t('reports.paymentScope')}</Label>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button
                         variant="outline"
                         className="min-h-11 justify-between gap-3 font-normal"
                         data-reporting-operator-payment
+                        aria-describedby="operator-payment-scope-help"
                       >
                         <span className="truncate">{selectedPaymentLabel}</span>
                         <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -1311,6 +1312,12 @@ function OperatorReportingView({
                       ))}
                     </DropdownMenuContent>
                   </DropdownMenu>
+                  <p
+                    id="operator-payment-scope-help"
+                    className="text-xs leading-relaxed text-muted-foreground"
+                  >
+                    {t('reports.paymentScopeHelp')}
+                  </p>
                 </div>
               </div>
             </CollapsibleContent>
@@ -1332,19 +1339,19 @@ function OperatorReportingView({
         ) : (
           <>
             <MetricCard
-              label={t('reports.netSales')}
-              value={formatCurrency(summary.netSalesCents, true)}
+              label={t('reports.recordedSales')}
+              value={formatCurrency(summary.grossSalesCents, true)}
               context={t('reports.averageOrder', { value: formatCurrency(averageOrderCents, true) })}
             />
             <MetricCard
-              label={t('reports.grossSales')}
-              value={formatCurrency(summary.grossSalesCents, true)}
-              context={t('reports.netPlusRefunds')}
+              label={t('reports.reportedRefunds')}
+              value={formatCurrency(summary.refundAmountCents, true)}
+              context={t('reports.deductedFromRecordedSales')}
             />
             <MetricCard
-              label={t('reports.refundImpact')}
-              value={formatCurrency(summary.refundAmountCents, true)}
-              context={t('reports.addedBackGross')}
+              label={t('reports.salesAfterRefunds')}
+              value={formatCurrency(summary.netSalesCents, true)}
+              context={t('reports.recordedSalesMinusRefunds')}
             />
             <MetricCard
               label={t('reports.transactions')}
@@ -1445,9 +1452,9 @@ function OperatorReportingView({
                           {grain === 'day' ? t('reports.date') : t('reports.period')}
                         </TableHead>
                         {grain === 'day' && <TableHead>{t('reports.status')}</TableHead>}
-                        <TableHead className="text-right">{t('reports.netSales')}</TableHead>
-                        <TableHead className="text-right">{t('reports.grossSales')}</TableHead>
-                        <TableHead className="text-right">{t('reports.refundImpact')}</TableHead>
+                        <TableHead className="text-right">{t('reports.recordedSales')}</TableHead>
+                        <TableHead className="text-right">{t('reports.reportedRefunds')}</TableHead>
+                        <TableHead className="text-right">{t('reports.salesAfterRefunds')}</TableHead>
                         <TableHead className="text-right">{t('reports.transactions')}</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -1470,13 +1477,13 @@ function OperatorReportingView({
                             </TableCell>
                           )}
                           <TableCell className="text-right tabular-nums">
-                            {formatCurrency(row.netSalesCents, true)}
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums">
                             {formatCurrency(row.grossSalesCents, true)}
                           </TableCell>
                           <TableCell className="text-right tabular-nums">
                             {formatCurrency(row.refundAmountCents, true)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {formatCurrency(row.netSalesCents, true)}
                           </TableCell>
                           <TableCell className="text-right tabular-nums">
                             {numberFormatter.format(row.transactionCount)}
@@ -1544,7 +1551,7 @@ function OperatorReportingView({
                     label={row.label}
                     context={`${row.transactionCount.toLocaleString()} ${t('reports.transactions').toLowerCase()}`}
                     primary={formatCurrency(row.netSalesCents, true)}
-                    secondary={`${t('reports.grossSales')} ${formatCurrency(row.grossSalesCents, true)}`}
+                    secondary={`${t('reports.recordedSales')} ${formatCurrency(row.grossSalesCents, true)}`}
                   />
                 ))}
               </div>
@@ -1609,9 +1616,9 @@ function OperatorReportingView({
                       <TableHead>{t('reports.period')}</TableHead>
                       <TableHead>{t('reports.machine')}</TableHead>
                       <TableHead>{t('reports.payment')}</TableHead>
-                      <TableHead className="text-right">{t('reports.netSales')}</TableHead>
-                      <TableHead className="text-right">{t('reports.grossSales')}</TableHead>
-                      <TableHead className="text-right">{t('reports.refundImpact')}</TableHead>
+                      <TableHead className="text-right">{t('reports.recordedSales')}</TableHead>
+                      <TableHead className="text-right">{t('reports.reportedRefunds')}</TableHead>
+                      <TableHead className="text-right">{t('reports.salesAfterRefunds')}</TableHead>
                       <TableHead className="text-right">{t('reports.transactions')}</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1631,13 +1638,13 @@ function OperatorReportingView({
                           {t(paymentMethodLabelKeys[row.paymentMethod])}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
-                          {formatCurrency(row.netSalesCents, true)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
                           {formatCurrency(row.grossSalesCents, true)}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {formatCurrency(row.refundAmountCents, true)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatCurrency(row.netSalesCents, true)}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {numberFormatter.format(row.transactionCount)}
@@ -3581,19 +3588,19 @@ function OperatorPeriodSummaryMobileCard({
       </div>
       <div className="mt-4 grid grid-cols-1 gap-x-4 gap-y-3 text-sm min-[390px]:grid-cols-2">
         <MobileProofItem
-          label={t('reports.netSales')}
-          value={formatCurrency(row.netSalesCents, true)}
-          detail={t('reports.afterRefundAdjustments')}
-        />
-        <MobileProofItem
-          label={t('reports.grossSales')}
+          label={t('reports.recordedSales')}
           value={formatCurrency(row.grossSalesCents, true)}
           detail={t('reports.beforeRefundAdjustments')}
         />
         <MobileProofItem
-          label={t('reports.refundImpact')}
+          label={t('reports.reportedRefunds')}
           value={formatCurrency(row.refundAmountCents, true)}
           detail={t('reports.appliedToDate')}
+        />
+        <MobileProofItem
+          label={t('reports.salesAfterRefunds')}
+          value={formatCurrency(row.netSalesCents, true)}
+          detail={t('reports.afterRefundAdjustments')}
         />
         <MobileProofItem
           label={t('reports.transactions')}
@@ -3634,14 +3641,14 @@ function OperatorReportRowMobileCard({
       </div>
       <div className="mt-4 grid grid-cols-1 gap-3 text-sm min-[390px]:grid-cols-2">
         <MobileProofItem
-          label={t('reports.netSales')}
+          label={t('reports.salesAfterRefunds')}
           value={formatCurrency(row.netSalesCents, true)}
           detail={`${numberFormatter.format(row.transactionCount)} ${t('reports.transactions').toLowerCase()}`}
         />
         <MobileProofItem
-          label={t('reports.grossSales')}
+          label={t('reports.recordedSales')}
           value={formatCurrency(row.grossSalesCents, true)}
-          detail={`${t('reports.refundImpact')} ${formatCurrency(row.refundAmountCents, true)}`}
+          detail={`${t('reports.reportedRefunds')} ${formatCurrency(row.refundAmountCents, true)}`}
         />
       </div>
     </div>

@@ -8,6 +8,11 @@ import {
   summarizeSalesReportPdfRows,
   type SalesReportPdfRow,
 } from "../_shared/sales-report-pdf.ts";
+import {
+  calculateScheduledSalesReportRows,
+  chunkSalesReportQueryValues,
+  type SalesReportRefundCaseTender,
+} from "../_shared/sales-report-calculation.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -42,7 +47,6 @@ type MachineRow = {
   id: string;
   machine_label: string;
   location_id: string;
-  reporting_locations?: { name: string } | Array<{ name: string }> | null;
 };
 
 type SalesFactRow = {
@@ -55,10 +59,20 @@ type SalesFactRow = {
 };
 
 type AdjustmentFactRow = {
+  id: string;
   reporting_machine_id: string;
   reporting_location_id: string;
   adjustment_date: string;
+  adjustment_type: string;
   amount_cents: number;
+  source: string;
+  refund_case_id: string | null;
+  raw_payload: Record<string, unknown> | null;
+};
+
+type LocationRow = {
+  id: string;
+  name: string;
 };
 
 const jsonResponse = (body: Record<string, unknown>, status = 200) =>
@@ -153,7 +167,7 @@ const uniqueLabels = (values: unknown[]): string[] =>
   );
 
 const formatPaymentScopeLabel = (paymentMethods: string[]): string => {
-  if (!paymentMethods.length) return "All payment methods";
+  if (!paymentMethods.length) return "All: Cash, Card, Other, Unknown";
 
   return paymentMethods.map((method) => {
     if (method === "credit") return "Card";
@@ -186,30 +200,6 @@ const toBlobPart = (bytes: Uint8Array): ArrayBuffer => {
   const buffer = new ArrayBuffer(bytes.byteLength);
   new Uint8Array(buffer).set(bytes);
   return buffer;
-};
-
-const getLocationName = (machine: MachineRow | undefined) => {
-  const location = machine?.reporting_locations;
-  if (Array.isArray(location)) {
-    return location[0]?.name ?? "Location";
-  }
-  return location?.name ?? "Location";
-};
-
-const startOfPeriod = (dateValue: string, grain: string) => {
-  const [year, month, day] = dateValue.split("-").map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day));
-
-  if (grain === "month") {
-    return `${year}-${String(month).padStart(2, "0")}-01`;
-  }
-
-  if (grain === "day") {
-    return dateValue;
-  }
-
-  const daysSinceMonday = (date.getUTCDay() + 6) % 7;
-  return dateInput(addDays(date, -daysSinceMonday));
 };
 
 const scheduleIsDue = (schedule: ReportSchedule, now: Date, force: boolean) => {
@@ -263,17 +253,14 @@ const buildScheduledReportRows = async (
   }
 
   const filters = resolveReportFilters(schedule, now);
+  // Schedule creation and reads are super-admin-only. Match the interactive RPC by
+  // keeping historical/inactive machines eligible and applying location scope to facts.
   let machineQuery = supabase
     .from("reporting_machines")
-    .select("id, machine_label, location_id, reporting_locations(name)")
-    .eq("status", "active");
+    .select("id, machine_label, location_id");
 
   if (filters.machineIds.length > 0) {
     machineQuery = machineQuery.in("id", filters.machineIds);
-  }
-
-  if (filters.locationIds.length > 0) {
-    machineQuery = machineQuery.in("location_id", filters.locationIds);
   }
 
   const { data: machineData, error: machineError } = await machineQuery;
@@ -303,76 +290,98 @@ const buildScheduledReportRows = async (
   if (filters.paymentMethods.length > 0) {
     salesQuery = salesQuery.in("payment_method", filters.paymentMethods);
   }
+  if (filters.locationIds.length > 0) {
+    salesQuery = salesQuery.in("reporting_location_id", filters.locationIds);
+  }
 
   const { data: salesData, error: salesError } = await salesQuery;
   if (salesError) {
     throw new Error(salesError.message);
   }
 
-  const { data: adjustmentData, error: adjustmentError } = await supabase
+  let adjustmentQuery = supabase
     .from("sales_adjustment_facts")
-    .select("reporting_machine_id, reporting_location_id, adjustment_date, amount_cents")
+    .select(
+      "id, reporting_machine_id, reporting_location_id, adjustment_date, adjustment_type, amount_cents, source, refund_case_id, raw_payload"
+    )
     .gte("adjustment_date", filters.dateFrom)
     .lte("adjustment_date", filters.dateTo)
-    .in("reporting_machine_id", machineIds);
+    .in("reporting_machine_id", machineIds)
+    .in("adjustment_type", ["refund", "complaint_refund"]);
+
+  if (filters.locationIds.length > 0) {
+    adjustmentQuery = adjustmentQuery.in("reporting_location_id", filters.locationIds);
+  }
+
+  const { data: adjustmentData, error: adjustmentError } = await adjustmentQuery;
 
   if (adjustmentError) {
     throw new Error(adjustmentError.message);
   }
 
-  const grouped = new Map<string, SalesReportPdfRow>();
-  const totals = new Map<string, number>();
-  const adjustments = new Map<string, number>();
+  const adjustmentFacts = (adjustmentData ?? []) as AdjustmentFactRow[];
+  const directRefundCaseIds = [
+    ...new Set(adjustmentFacts.map((adjustment) => adjustment.refund_case_id).filter(Boolean)),
+  ] as string[];
+  const refundCasesById = new Map<string, SalesReportRefundCaseTender>();
+  const refundCasesByAdjustmentId = new Map<string, SalesReportRefundCaseTender>();
 
-  ((salesData ?? []) as SalesFactRow[]).forEach((fact) => {
-    const periodStart = startOfPeriod(fact.sale_date, filters.grain);
-    const totalKey = `${periodStart}:${fact.reporting_machine_id}:${fact.reporting_location_id}`;
-    const rowKey = `${totalKey}:${fact.payment_method}`;
-    const current =
-      grouped.get(rowKey) ??
-      ({
-        period_start: periodStart,
-        machine_label: machineById.get(fact.reporting_machine_id)?.machine_label ?? "Machine",
-        location_name: getLocationName(machineById.get(fact.reporting_machine_id)),
-        payment_method: fact.payment_method,
-        net_sales_cents: 0,
-        refund_amount_cents: 0,
-        gross_sales_cents: 0,
-        transaction_count: 0,
-      } satisfies SalesReportPdfRow);
+  for (const ids of chunkSalesReportQueryValues(directRefundCaseIds)) {
+    const { data, error } = await supabase
+      .from("refund_cases")
+      .select("id, reporting_adjustment_id, payment_method")
+      .in("id", ids)
+      .order("id");
+    if (error) throw new Error(error.message);
+    ((data ?? []) as SalesReportRefundCaseTender[]).forEach((refundCase) => {
+      refundCasesById.set(refundCase.id, refundCase);
+    });
+  }
 
-    current.net_sales_cents =
-      Number(current.net_sales_cents ?? 0) + Number(fact.net_sales_cents ?? 0);
-    current.transaction_count =
-      Number(current.transaction_count ?? 0) + Number(fact.transaction_count ?? 0);
-    grouped.set(rowKey, current);
-    totals.set(totalKey, Number(totals.get(totalKey) ?? 0) + Number(fact.net_sales_cents ?? 0));
+  for (const ids of chunkSalesReportQueryValues(adjustmentFacts.map((adjustment) => adjustment.id))) {
+    const { data, error } = await supabase
+      .from("refund_cases")
+      .select("id, reporting_adjustment_id, payment_method")
+      .in("reporting_adjustment_id", ids)
+      .order("id");
+    if (error) throw new Error(error.message);
+    ((data ?? []) as SalesReportRefundCaseTender[]).forEach((refundCase) => {
+      if (
+        refundCase.reporting_adjustment_id &&
+        !refundCasesByAdjustmentId.has(refundCase.reporting_adjustment_id)
+      ) {
+        refundCasesByAdjustmentId.set(refundCase.reporting_adjustment_id, refundCase);
+      }
+    });
+  }
+
+  const salesFacts = (salesData ?? []) as SalesFactRow[];
+  const reportedLocationIds = [...new Set([
+    ...salesFacts.map((fact) => fact.reporting_location_id),
+    ...adjustmentFacts.map((adjustment) => adjustment.reporting_location_id),
+  ])];
+  const locationNamesById = new Map<string, string>();
+  for (const ids of chunkSalesReportQueryValues(reportedLocationIds)) {
+    const { data, error } = await supabase
+      .from("reporting_locations")
+      .select("id, name")
+      .in("id", ids);
+    if (error) throw new Error(error.message);
+    ((data ?? []) as LocationRow[]).forEach((location) => {
+      locationNamesById.set(location.id, location.name);
+    });
+  }
+
+  const rows = calculateScheduledSalesReportRows({
+    salesFacts,
+    adjustments: adjustmentFacts,
+    machinesById: machineById,
+    locationNamesById,
+    refundCasesById,
+    refundCasesByAdjustmentId,
+    grain: filters.grain,
+    paymentMethods: filters.paymentMethods,
   });
-
-  ((adjustmentData ?? []) as AdjustmentFactRow[]).forEach((adjustment) => {
-    const periodStart = startOfPeriod(adjustment.adjustment_date, filters.grain);
-    const totalKey = `${periodStart}:${adjustment.reporting_machine_id}:${adjustment.reporting_location_id}`;
-    adjustments.set(totalKey, Number(adjustments.get(totalKey) ?? 0) + Number(adjustment.amount_cents ?? 0));
-  });
-
-  const rows = [...grouped.entries()].map(([rowKey, row]) => {
-    const totalKey = rowKey.split(":").slice(0, 3).join(":");
-    const netSales = Number(row.net_sales_cents ?? 0);
-    const totalNetSales = Number(totals.get(totalKey) ?? 0);
-    const totalAdjustments = Number(adjustments.get(totalKey) ?? 0);
-    const allocatedRefunds =
-      totalNetSales > 0 ? Math.round((totalAdjustments * netSales) / totalNetSales) : 0;
-
-    return {
-      ...row,
-      refund_amount_cents: allocatedRefunds,
-      gross_sales_cents: netSales + allocatedRefunds,
-    };
-  });
-
-  rows.sort((left, right) =>
-    String(left.period_start ?? "").localeCompare(String(right.period_start ?? ""))
-  );
 
   return { rows, filters };
 };
@@ -479,8 +488,9 @@ const processSchedule = async (schedule: ReportSchedule, now: Date) => {
     "",
     `Date range: ${filters.dateFrom} through ${filters.dateTo}`,
     `Rows: ${rows.length}`,
-    `Net sales: ${summary.netSalesCents / 100}`,
-    `Gross sales: ${summary.grossSalesCents / 100}`,
+    `Recorded sales: ${summary.grossSalesCents / 100}`,
+    `Reported refunds: ${summary.refundAmountCents / 100}`,
+    `Sales after refunds: ${summary.netSalesCents / 100}`,
     "",
     "Download the PDF:",
     signedUrlData.signedUrl,

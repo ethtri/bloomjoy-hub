@@ -75,7 +75,7 @@ const uniqueLabels = (values: unknown[]): string[] =>
   );
 
 const formatPaymentScopeLabel = (paymentMethods: string[]): string => {
-  if (!paymentMethods.length) return "All payment methods";
+  if (!paymentMethods.length) return "All: Cash, Card, Other, Unknown";
 
   const labels = paymentMethods.map((method) => {
     if (method === "credit") return "Card";

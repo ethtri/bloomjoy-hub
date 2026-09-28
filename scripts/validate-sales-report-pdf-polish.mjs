@@ -2,7 +2,9 @@ import { readFileSync } from 'node:fs';
 
 const files = {
   sharedBuilder: 'supabase/functions/_shared/sales-report-pdf.ts',
+  calculation: 'supabase/functions/_shared/sales-report-calculation.ts',
   exportFunction: 'supabase/functions/sales-report-export/index.ts',
+  schedulerFunction: 'supabase/functions/sales-report-scheduler/index.ts',
   reportingClient: 'src/lib/reporting.ts',
   signedExportWindow: 'src/lib/signedExportWindow.ts',
   portalReports: 'src/pages/portal/Reports.tsx',
@@ -18,7 +20,9 @@ const assert = (condition, message) => {
 };
 
 const sharedBuilder = read(files.sharedBuilder);
+const calculation = read(files.calculation);
 const exportFunction = read(files.exportFunction);
+const schedulerFunction = read(files.schedulerFunction);
 const reportingClient = read(files.reportingClient);
 const signedExportWindow = read(files.signedExportWindow);
 const portalReports = read(files.portalReports);
@@ -61,6 +65,31 @@ assert(
 );
 
 assert(
+  sharedBuilder.includes('label: "Recorded sales"') &&
+    sharedBuilder.includes('label: "Reported refunds"') &&
+    sharedBuilder.includes('label: "Sales after refunds"') &&
+    !sharedBuilder.includes('label: "Gross sales"') &&
+    !sharedBuilder.includes('label: "Net sales"'),
+  'Operator PDF totals must describe recorded sales, reported refunds, and sales after refunds.',
+);
+
+assert(
+  exportFunction.includes('All: Cash, Card, Other, Unknown') &&
+    schedulerFunction.includes('All: Cash, Card, Other, Unknown'),
+  'Interactive and scheduled PDF exports must identify the complete default payment scope.',
+);
+
+assert(
+  calculation.includes('adjustment.source === "nayax_provider_refund"') &&
+    calculation.includes('refundCase?.payment_method === "card"') &&
+    calculation.includes('return "unknown"') &&
+    calculation.includes('net_sales_cents: Number(row.gross_sales_cents ?? 0) -') &&
+    schedulerFunction.includes('calculateScheduledSalesReportRows({') &&
+    !schedulerFunction.includes('allocatedRefunds'),
+  'Scheduled exports must use evidence-based refund tender and subtract refunds exactly once.',
+);
+
+assert(
   reportingClient.includes("expectedSalesReportPdfGeneratorVersion = 'sales-report-pdf/polished-v1'") &&
     reportingClient.includes('response.pdfGeneratorVersion !== expectedSalesReportPdfGeneratorVersion') &&
     reportingClient.includes('outdated PDF generator'),
@@ -79,6 +108,14 @@ assert(
     portalReports.includes('openSignedExportUrl(exportResult.signedUrl, exportWindow)') &&
     portalReports.includes('closeReservedSignedExportWindow(exportWindow)'),
   'Portal report exports must use the reserved signed export window helper.',
+);
+
+assert(
+  portalReports.includes("t('reports.paymentScopeHelp')") &&
+    portalReports.includes("t('reports.recordedSales')") &&
+    portalReports.includes("t('reports.reportedRefunds')") &&
+    portalReports.includes("t('reports.salesAfterRefunds')"),
+  'Portal reporting must keep one payment filter and use the corrected sales labels.',
 );
 
 assert(
