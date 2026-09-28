@@ -102,9 +102,12 @@ orientation snapshot; it is not a backlog or release ledger.
   Sunze card sales, so they remain on Sunze until their provider identities are
   mapped rather than guessed.
 - The owner confirmed the interim reporting source split: Nayax supplies card
-  money and machine apps supply cash. Finance also confirmed that SnapCase
-  `Order amount` excludes tax while `Payment amount` includes tax, and reported
-  two unnamed Oklahoma locations whose relevant Nayax data excludes sales tax.
+  money and machine apps supply cash. Finance screenshots show that SnapCase app
+  `Order amount` excludes tax while app `Payment amount` includes tax. The
+  importer uses API `paymentAmount`, with the current mapping supported by
+  inspected UI parity rather than a claim about every API field or location.
+  Finance also reported two unnamed Oklahoma locations whose relevant Nayax data
+  excludes sales tax.
   Exact location/machine identities, report field, rates and effective dates are
   still needed from the finance reporting SOP before that exception can drive a
   consumer calculation. It is not a zero-tax assumption.

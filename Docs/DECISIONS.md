@@ -8,10 +8,12 @@ the canonical requested/paid refund rules remain unchanged.
 - The owner confirmed the interim source split: Nayax is card-sale and paid
   card-refund authority, while Sunze and Kexiaozhan machine apps supply cash.
   This is the selected interim approach, not a vendor-only source switch.
-- Finance confirms that Kexiaozhan/SnapCase `Order amount` excludes tax while
-  `Payment amount` includes tax. The current cash projection uses the successful
-  payment amount. Amount-basis logic must name the surface and field instead of
-  treating every provider value alike.
+- Finance screenshots show that the Kexiaozhan/SnapCase app `Order amount`
+  excludes tax while app `Payment amount` includes tax. The current cash
+  projection uses API `paymentAmount`; inspected UI/API parity supports that
+  mapping for the tested cash shape. This does not establish every API field or
+  location's tax semantics. Amount-basis logic must name the surface and field
+  instead of treating every provider value alike.
 - Finance also reports that Nayax data at two Oklahoma locations excludes sales
   tax. Until the reporting SOP supplies the exact location/machine identities,
   effective local dates, relevant Nayax report/customer-payment field, rates and
