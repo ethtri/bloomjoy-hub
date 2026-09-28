@@ -229,6 +229,8 @@ $$;
 select ok(
   position('admin_get_refund_operations_overview_pre_next_work_v1' in pg_get_functiondef(
     'public.admin_get_refund_operations_overview()'::regprocedure))>0
+  and position('refund_project_current_next_work_cases' in pg_get_functiondef(
+    'public.admin_get_refund_operations_overview()'::regprocedure))>0
   and position('admin_get_refund_operations_overview_pre_cash_verification_ux_v1' in pg_get_functiondef(
     'public.admin_get_refund_operations_overview_pre_next_work_v1()'::regprocedure))>0
   and position('refund_project_candidate_time_evidence_v1' in pg_get_functiondef(
@@ -237,10 +239,14 @@ select ok(
     'public.admin_get_refund_operations_overview_pre_cash_verification_ux_v1()'::regprocedure))>0
   and position('refund_project_customer_outreach_cases_for_manager' in pg_get_functiondef(
     'public.admin_get_refund_operations_overview_pre_candidate_time_v1()'::regprocedure))>0
-  and position('refund_purchase_correction_request_fields' in pg_get_functiondef(
+  and position('admin_get_refund_operations_overview_pre_lookup_recovery_v1' in pg_get_functiondef(
     'public.admin_get_refund_operations_overview_pre_customer_outreach_v1()'::regprocedure))>0
+  and position('refund_project_nayax_lookup_recovery_cases_for_manager' in pg_get_functiondef(
+    'public.admin_get_refund_operations_overview_pre_customer_outreach_v1()'::regprocedure))>0
+  and position('refund_purchase_correction_request_fields' in pg_get_functiondef(
+    'public.admin_get_refund_operations_overview_pre_lookup_recovery_v1()'::regprocedure))>0
   and position('internalTestCases' in pg_get_functiondef(
-    'public.admin_get_refund_operations_overview_pre_customer_outreach_v1()'::regprocedure))>0,
+    'public.admin_get_refund_operations_overview_pre_lookup_recovery_v1()'::regprocedure))>0,
   'The composed outer overview binds outreach after correction scope for both case arrays');
 
 select ok(
@@ -277,7 +283,8 @@ select is((select item->'customerCorrectionFields'
   'The Internal/test case also exposes the direct current-helper result');
 
 select is((select value-'cases'-'internalTestCases'-'customerOutreachContractVersion'
-    -'candidateTimeContractVersion'-'payoutDestinationRequestContractVersion' from current_overview),
+    -'candidateTimeContractVersion'-'payoutDestinationRequestContractVersion'
+    -'customerCorrectionFieldsContractVersion' from current_overview),
   (select value-'cases'-'internalTestCases' from predecessor_overview),
   'The outer wrapper preserves every preceding top-level overview value');
 
