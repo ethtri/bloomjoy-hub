@@ -147,8 +147,12 @@ test('exhausted completion inspection is authorized read-only evidence before ev
   assert.match(responseBranch, /paymentActionTaken: false/);
   assert.match(responseBranch, /payloadRedacted: true/);
   assert.match(responseBranch, /inspectRefundGmailMessagesDirectedToRecipient/);
+  assert.match(responseBranch, /verifyRefundGmailMailbox/);
+  assert.match(responseBranch, /inspectRefundGmailMessagesAroundAudit/);
   assert.match(responseBranch, /diagnoseCleanOriginalCompletionThread/);
   assert.match(responseBranch, /diagnoseExternalCompletionCopy/);
+  assert.match(responseBranch, /mailboxVerification/);
+  assert.match(responseBranch, /auditWindowCopy/);
   assert.match(responseBranch, /mailboxQueries:\s*\{[\s\S]*?grouped:[\s\S]*?to:[\s\S]*?cc:[\s\S]*?bcc:[\s\S]*?union:[\s\S]*?payloadRedacted: true/);
   assert.match(responseBranch, /catch \{[\s\S]*?externalCopy: \{[\s\S]*?available: false/);
   const serializedResponseValues = [...responseBranch.matchAll(
@@ -163,6 +167,10 @@ test('exhausted completion inspection is authorized read-only evidence before ev
   }
   assert.doesNotMatch(
     messageSend.slice(inspectionReturn, prepare),
-    /(?:externalCopyDiagnostic|originalThreadDiagnostic)\.valid/,
+    /(?:externalCopyDiagnostic|auditWindowCopyDiagnostic|originalThreadDiagnostic|mailboxVerification)\.valid/,
+  );
+  assert.doesNotMatch(
+    messageSend.slice(inspectionReturn, prepare),
+    /(?:externalCopyDiagnostic|auditWindowCopyDiagnostic|mailboxVerification)\.(?:mailboxMatch|available)/,
   );
 });

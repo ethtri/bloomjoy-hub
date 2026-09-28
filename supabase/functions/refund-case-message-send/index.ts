@@ -19,9 +19,11 @@ import {
   getRefundGmailMailboxIdentities,
   getRefundGmailConfig,
   getRefundGmailThread,
+  inspectRefundGmailMessagesAroundAudit,
   inspectRefundGmailMessagesDirectedToRecipient,
   REFUND_GMAIL_DELIVERY_UNCERTAIN_MESSAGE,
   RefundGmailError,
+  verifyRefundGmailMailbox,
 } from "../_shared/refund-gmail.ts";
 import {
   buildBrandedRefundHtmlFromStoredText,
@@ -725,11 +727,33 @@ serve(async (req) => {
                 completionCreatedAt: messageEvidence.created_at,
               });
             try {
+              let mailboxVerification = {
+                available: false,
+                mailboxMatch: false,
+                payloadRedacted: true as const,
+              };
+              try {
+                await verifyRefundGmailMailbox(gmailConfig);
+                mailboxVerification = {
+                  available: true,
+                  mailboxMatch: true,
+                  payloadRedacted: true,
+                };
+              } catch {
+                // Keep identity failures redacted and diagnostic-only.
+              }
               const mailboxSearch =
                 await inspectRefundGmailMessagesDirectedToRecipient({
                   config: gmailConfig,
                   recipientEmail: messageEvidence.recipient_email,
                   completionCreatedAt: messageEvidence.created_at,
+                });
+              const auditWindowSearch =
+                await inspectRefundGmailMessagesAroundAudit({
+                  config: gmailConfig,
+                  recipientEmail: messageEvidence.recipient_email,
+                  completionCreatedAt: messageEvidence.created_at,
+                  auditedDeliveredAt: auditedPriorDelivery.deliveredAt,
                 });
               const externalCopyDiagnostic = diagnoseExternalCompletionCopy({
                 messages: mailboxSearch.messages,
@@ -746,13 +770,28 @@ serve(async (req) => {
                 mailboxEmail: gmailConfig.mailbox,
                 senderEmail: gmailConfig.senderEmail,
               });
+              const auditWindowCopyDiagnostic = diagnoseExternalCompletionCopy({
+                ...auditWindowSearch,
+                searchComplete: auditWindowSearch.complete,
+                originalProviderThreadId: threadLink.provider_thread_id,
+                recipientEmail: messageEvidence.recipient_email,
+                completionCreatedAt: messageEvidence.created_at,
+                completionSubject: attemptEvidence.subject,
+                completionBody: attemptEvidence.body,
+                auditedPriorDelivery,
+                mailboxEmail: gmailConfig.mailbox,
+                senderEmail: gmailConfig.senderEmail,
+                searchScope: "audit_window",
+              });
               return jsonResponse({
                 exhaustedCompletionRecoveryInspection: {
                   stage: "mailbox",
                   evidence: evidenceDiagnostic,
                   thread: threadDiagnostic,
                   originalThread: originalThreadDiagnostic,
+                  mailboxVerification,
                   externalCopy: externalCopyDiagnostic,
+                  auditWindowCopy: auditWindowCopyDiagnostic,
                   mailboxQueries: {
                     grouped: mailboxSearch.grouped,
                     to: mailboxSearch.to,
