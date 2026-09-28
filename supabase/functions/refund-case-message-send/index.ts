@@ -661,7 +661,9 @@ serve(async (req) => {
           recipientEmail: messageEvidence.recipient_email,
           completionCreatedAt: messageEvidence.created_at,
           completionMessageId,
-          auditedPriorDeliveryAt: auditedPriorDeliveries[0]?.deliveredAt ?? null,
+          auditedPriorDelivery: auditedPriorDeliveries[0] ?? null,
+          mailboxEmail: gmailConfig.mailbox,
+          senderIdentities: getRefundGmailMailboxIdentities(),
         })) {
           return jsonResponse({
             error: "Original Gmail history changed or contains later sent mail. Reconcile delivery before recovery.",
