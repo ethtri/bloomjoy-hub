@@ -672,6 +672,10 @@ export const createOrdinarySuccessChecks = ({
         (await confirmationDialog.innerText()).includes('does not prove when the purchase happened') &&
         (await confirmationDialog.innerText()).includes('Provider machine clock:')
     );
+    await page.screenshot({
+      path: path.join(artifactDir, 'refund-one-manager-decision-desktop.png'),
+      fullPage: false,
+    });
     recorder.assert(
       'Keyboard focus is trapped inside the payment confirmation',
       await confirmationDialog.evaluate((dialog) => dialog.contains(document.activeElement))

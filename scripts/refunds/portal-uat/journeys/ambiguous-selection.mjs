@@ -2108,11 +2108,6 @@ const runNayaxLookupStatusMatrixChecks = async ({
               functionCalls.filter((name) => name === 'refund-case-admin-update').length === 1 &&
               !functionCalls.includes('nayax-card-refund')
           );
-          await page.screenshot({
-            path: path.join(artifactDir, 'refund-one-manager-decision-desktop.png'),
-            fullPage: false,
-          });
-
           await page.setViewportSize({ width: 390, height: 844 });
           recorder.assert(
             'The single refund confirmation remains usable without mobile overflow',
