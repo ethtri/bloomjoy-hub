@@ -46,6 +46,18 @@ export const chunkSalesReportQueryValues = <T>(
   return chunks;
 };
 
+export const fetchAllSalesReportRows = async <T>(
+  fetchPage: (from: number, to: number) => Promise<T[]>,
+  pageSize = SALES_REPORT_QUERY_PAGE_SIZE,
+): Promise<T[]> => {
+  const rows: T[] = [];
+  for (let from = 0;; from += pageSize) {
+    const page = await fetchPage(from, from + pageSize - 1);
+    rows.push(...page);
+    if (page.length < pageSize) return rows;
+  }
+};
+
 export const startOfSalesReportPeriod = (dateValue: string, grain: string) => {
   const [year, month, day] = dateValue.split("-").map(Number);
   const date = new Date(Date.UTC(year, month - 1, day));

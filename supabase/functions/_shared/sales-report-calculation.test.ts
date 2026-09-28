@@ -2,6 +2,7 @@ import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   calculateScheduledSalesReportRows,
   chunkSalesReportQueryValues,
+  fetchAllSalesReportRows,
   type SalesReportAdjustment,
 } from "./sales-report-calculation.ts";
 
@@ -138,4 +139,20 @@ Deno.test("scheduler query ids are split into bounded chunks", () => {
     chunkSalesReportQueryValues(values).map((chunk) => chunk.length),
     [100, 100, 5],
   );
+});
+
+Deno.test("scheduler reads every stable page beyond the PostgREST row cap", async () => {
+  const source = Array.from({ length: 2_205 }, (_, index) => ({
+    id: String(index).padStart(4, "0"),
+  }));
+  const ranges: Array<[number, number]> = [];
+
+  const rows = await fetchAllSalesReportRows(async (from, to) => {
+    ranges.push([from, to]);
+    return source.slice(from, to + 1);
+  });
+
+  assertEquals(ranges, [[0, 999], [1_000, 1_999], [2_000, 2_999]]);
+  assertEquals(rows.length, 2_205);
+  assertEquals(rows.at(-1)?.id, "2204");
 });

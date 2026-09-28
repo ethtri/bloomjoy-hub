@@ -11,6 +11,7 @@ import {
 import {
   calculateScheduledSalesReportRows,
   chunkSalesReportQueryValues,
+  fetchAllSalesReportRows,
   type SalesReportRefundCaseTender,
 } from "../_shared/sales-report-calculation.ts";
 
@@ -50,6 +51,7 @@ type MachineRow = {
 };
 
 type SalesFactRow = {
+  id: string;
   reporting_machine_id: string;
   reporting_location_id: string;
   sale_date: string;
@@ -278,48 +280,47 @@ const buildScheduledReportRows = async (
     return { rows: [], filters };
   }
 
-  let salesQuery = supabase
-    .from("machine_sales_facts")
-    .select(
-      "reporting_machine_id, reporting_location_id, sale_date, payment_method, net_sales_cents, transaction_count"
-    )
-    .gte("sale_date", filters.dateFrom)
-    .lte("sale_date", filters.dateTo)
-    .in("reporting_machine_id", machineIds);
+  const salesFacts = await fetchAllSalesReportRows<SalesFactRow>(async (from, to) => {
+    let query = supabase
+      .from("machine_sales_facts")
+      .select(
+        "id, reporting_machine_id, reporting_location_id, sale_date, payment_method, net_sales_cents, transaction_count"
+      )
+      .gte("sale_date", filters.dateFrom)
+      .lte("sale_date", filters.dateTo)
+      .in("reporting_machine_id", machineIds)
+      .order("id")
+      .range(from, to);
+    if (filters.paymentMethods.length > 0) {
+      query = query.in("payment_method", filters.paymentMethods);
+    }
+    if (filters.locationIds.length > 0) {
+      query = query.in("reporting_location_id", filters.locationIds);
+    }
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+    return (data ?? []) as SalesFactRow[];
+  });
 
-  if (filters.paymentMethods.length > 0) {
-    salesQuery = salesQuery.in("payment_method", filters.paymentMethods);
-  }
-  if (filters.locationIds.length > 0) {
-    salesQuery = salesQuery.in("reporting_location_id", filters.locationIds);
-  }
-
-  const { data: salesData, error: salesError } = await salesQuery;
-  if (salesError) {
-    throw new Error(salesError.message);
-  }
-
-  let adjustmentQuery = supabase
-    .from("sales_adjustment_facts")
-    .select(
-      "id, reporting_machine_id, reporting_location_id, adjustment_date, adjustment_type, amount_cents, source, refund_case_id, raw_payload"
-    )
-    .gte("adjustment_date", filters.dateFrom)
-    .lte("adjustment_date", filters.dateTo)
-    .in("reporting_machine_id", machineIds)
-    .in("adjustment_type", ["refund", "complaint_refund"]);
-
-  if (filters.locationIds.length > 0) {
-    adjustmentQuery = adjustmentQuery.in("reporting_location_id", filters.locationIds);
-  }
-
-  const { data: adjustmentData, error: adjustmentError } = await adjustmentQuery;
-
-  if (adjustmentError) {
-    throw new Error(adjustmentError.message);
-  }
-
-  const adjustmentFacts = (adjustmentData ?? []) as AdjustmentFactRow[];
+  const adjustmentFacts = await fetchAllSalesReportRows<AdjustmentFactRow>(async (from, to) => {
+    let query = supabase
+      .from("sales_adjustment_facts")
+      .select(
+        "id, reporting_machine_id, reporting_location_id, adjustment_date, adjustment_type, amount_cents, source, refund_case_id, raw_payload"
+      )
+      .gte("adjustment_date", filters.dateFrom)
+      .lte("adjustment_date", filters.dateTo)
+      .in("reporting_machine_id", machineIds)
+      .in("adjustment_type", ["refund", "complaint_refund"])
+      .order("id")
+      .range(from, to);
+    if (filters.locationIds.length > 0) {
+      query = query.in("reporting_location_id", filters.locationIds);
+    }
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+    return (data ?? []) as AdjustmentFactRow[];
+  });
   const directRefundCaseIds = [
     ...new Set(adjustmentFacts.map((adjustment) => adjustment.refund_case_id).filter(Boolean)),
   ] as string[];
@@ -355,7 +356,6 @@ const buildScheduledReportRows = async (
     });
   }
 
-  const salesFacts = (salesData ?? []) as SalesFactRow[];
   const reportedLocationIds = [...new Set([
     ...salesFacts.map((fact) => fact.reporting_location_id),
     ...adjustmentFacts.map((adjustment) => adjustment.reporting_location_id),

@@ -85,6 +85,9 @@ assert(
     calculation.includes('return "unknown"') &&
     calculation.includes('net_sales_cents: Number(row.gross_sales_cents ?? 0) -') &&
     schedulerFunction.includes('calculateScheduledSalesReportRows({') &&
+    schedulerFunction.includes('fetchAllSalesReportRows<') &&
+    schedulerFunction.includes('.order("id")') &&
+    schedulerFunction.includes('.range(from, to)') &&
     !schedulerFunction.includes('allocatedRefunds'),
   'Scheduled exports must use evidence-based refund tender and subtract refunds exactly once.',
 );
