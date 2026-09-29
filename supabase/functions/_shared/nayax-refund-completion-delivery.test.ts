@@ -72,6 +72,7 @@ Deno.test("PR #1310 regression: completion validates its immutable body before s
     const rpcCalls: string[] = [];
     const claimedIdentityBodies: unknown[] = [];
     const requestedThreadIds: unknown[] = [];
+    const finishArguments: Record<string, unknown>[] = [];
     let providerRequest: Record<string, unknown> = {};
     let oauthCalls = 0;
     let gmailSendCalls = 0;
@@ -172,6 +173,7 @@ Deno.test("PR #1310 regression: completion validates its immutable body before s
           return { data: true, error: null };
         }
         if (name === "service_finish_nayax_refund_completion") {
+          finishArguments.push(args);
           return {
             data: {
               status: args.p_delivery_status,
@@ -255,6 +257,13 @@ Deno.test("PR #1310 regression: completion validates its immutable body before s
         ).length,
         1,
       );
+      assertEquals(finishArguments, [{
+        p_executor_assertion: "synthetic-executor-assertion",
+        p_attempt_id: ATTEMPT_ID,
+        p_delivery_status: "sent",
+        p_manager_cc_count: 0,
+        p_manager_recipient_overlap: false,
+      }]);
 
       const raw = typeof providerRequest.raw === "string"
         ? providerRequest.raw
@@ -268,6 +277,7 @@ Deno.test("PR #1310 regression: completion validates its immutable body before s
         `References: <synthetic-prior@example.test> ${SOURCE_MESSAGE_HEADER}`,
       );
       assertStringIncludes(mime, "X-Bloomjoy-Refund-Operation:");
+      assert(!/^Cc:/im.test(mime));
       assertStringIncludes(plainBody, CANONICAL_BODY);
       assertStringIncludes(plainBody, "/refunds/status#token=");
       assertStringIncludes(htmlBody, CANONICAL_BODY);

@@ -39,6 +39,32 @@ Deno.test("portal-only automatic transactional mail rejects manager CC before pr
   }
 });
 
+Deno.test("customer-thread-only clarification rejects manager CC before provider access", async () => {
+  const originalFetch = globalThis.fetch;
+  let providerCalls = 0;
+  globalThis.fetch = (() => {
+    providerCalls += 1;
+    throw new Error("Customer-only clarification CC must not reach the provider");
+  }) as typeof fetch;
+  try {
+    await assertRejects(
+      () =>
+        sendRefundTransactionalEmail({
+          to: ["customer@example.test"],
+          cc: ["manager@example.test"],
+          managerCopyPolicy: "customer_thread_only",
+          subject: "Synthetic clarification",
+          text: "Synthetic body.",
+        }),
+      Error,
+      "cannot include manager CC",
+    );
+    assertEquals(providerCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test("bounced original request mark rejection stops actual Resend transport before provider access", async () => {
   const originalFetch = globalThis.fetch;
   let markCalls = 0;
