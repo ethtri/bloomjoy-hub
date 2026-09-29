@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "4ab53ca4479675458f78a01c6e3d4d364633575f",
+  "sourceGitCommit": "cee3625606eb31f1e4a11e1f76f4107d9b289345",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -273,10 +273,11 @@
     "20260929093000_refund_correction_eligibility_short_circuit.sql",
     "20260929113000_refund_reviewed_selection_preparation.sql",
     "20260929134500_refund_technical_incident_agent_routing.sql",
-    "20260929144500_refund_approved_cash_ready_projection.sql"
+    "20260929144500_refund_approved_cash_ready_projection.sql",
+    "20260929155500_refund_payout_reply_cannot_use.sql"
   ],
-  "migrationFilesSha256": "d6b9f2ba1563a27179a737dea5cf8f8cd793f7ce5cfbb7a1895e25ab7fa1de59",
-  "migrationVersionSetSha256": "8a19994351663aa4ae573c9cedf0e0a98caf06c39dc5b4e0ae0b8cad4a8ceeb7",
+  "migrationFilesSha256": "07c3f0ebca964513d9944d7ce2970040d966c92a553aeb390349e198fe240abd",
+  "migrationVersionSetSha256": "e2b690aab156d6afd6e04b5adbd8fd5b5eda987e8b5c9a88dfc5e09d588c23a9",
   "preMigrationCompatibility": {
     "releaseId": "refund-ops-2026-08-14-pre-controlled-nayax-pilot",
     "sourceGitCommit": "71eb076bc3ad95ccabd0c591b8140820bed6c393",
@@ -386,9 +387,9 @@
       "verifyJwt": false,
       "sourceSha256": "a30c0252478090e276813e232856bc2b868710baa5219e6382c57eb25aa7c696",
       "production": {
-          "version": 167,
-          "ezbrSha256": "89701d0c59193d2a0e65384a6ad03e82b9a0b93ab329e094cd5d37a9db7a3220",
-          "sourceSha256": "a30c0252478090e276813e232856bc2b868710baa5219e6382c57eb25aa7c696",
+        "version": 167,
+        "ezbrSha256": "89701d0c59193d2a0e65384a6ad03e82b9a0b93ab329e094cd5d37a9db7a3220",
+        "sourceSha256": "a30c0252478090e276813e232856bc2b868710baa5219e6382c57eb25aa7c696",
         "entrypointIdentity": "supabase/functions/refund-case-automation-sweep/index.ts"
       }
     },

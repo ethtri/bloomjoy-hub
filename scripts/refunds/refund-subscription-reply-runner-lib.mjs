@@ -286,10 +286,21 @@ export const validateNoFactReview = (input, proposal) => {
     throw new Error('unsupported_no_fact_review');
   }
   findSource(input, proposal.messageId, proposal.quote);
+  const payoutDestinationRequest = Array.isArray(input.requestedFields) &&
+    input.requestedFields.length === 1 && input.requestedFields[0] === 'zelle_payment_contact';
+  const payoutDestinationLimitation = proposal.reasonCode === 'customer_cannot_provide' &&
+    payoutDestinationRequest &&
+    /(?:cannot|can't|do not|don't|unable to|not able to)\s+(?:use|provide)\s+(?:my\s+)?zelle\b/iu.test(proposal.quote);
+  if (payoutDestinationLimitation && input.replyMessages.some((entry) =>
+    supportedFieldsIn(entry.body ?? '').length > 0)) {
+    throw new Error('supported_fact_requires_fact_review');
+  }
   if (hasAmbiguousSupportedValues(input.replyMessages.map((entry) => entry.body ?? '').join('\n')))
     throw new Error('supported_fact_requires_fact_review');
   if (proposal.reasonCode === 'customer_cannot_provide' &&
-    !/(?:cannot|can't|could not|couldn't|unable to|not able to|do not have|don't have|no longer have|do not remember|don't remember|no tengo|no puedo)/iu.test(proposal.quote)) {
+    ((payoutDestinationRequest && !payoutDestinationLimitation) ||
+      (!payoutDestinationRequest &&
+        !/(?:cannot|can't|could not|couldn't|unable to|not able to|do not have|don't have|no longer have|do not remember|don't remember|no tengo|no puedo)/iu.test(proposal.quote)))) {
     throw new Error('cannot_provide_source_not_supported');
   }
   if (proposal.reasonCode === 'no_supported_new_fact' &&
