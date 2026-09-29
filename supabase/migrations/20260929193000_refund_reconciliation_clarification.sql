@@ -724,7 +724,7 @@ begin
     'clarificationReminderDueAt',r.clarification_reminder_due_at,
     'clarificationRequestMessageId',r.clarification_request_message_id,
     'clarificationReplyMessageId',r.clarification_reply_message_id,
-    'payloadRedacted',true)) order by ord)
+    'payloadRedacted',true) order by ord)
     from jsonb_array_elements(result->'reviews') with ordinality j(item,ord)
     join public.refund_case_reconciliation_reviews r on r.id=(item->>'id')::uuid),'[]'::jsonb),true);
 end;
