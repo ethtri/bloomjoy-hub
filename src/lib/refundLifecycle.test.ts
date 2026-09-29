@@ -551,6 +551,71 @@ Deno.test("the lifecycle parser accepts exact applied accounting delivery states
   };
   assert(isRefundLifecycleContract(appliedFailed), "a failed applied receipt should parse");
 
+  const resolvedExistingThread = {
+    ...appliedFailed,
+    stage: "refund_confirmed",
+    stageRank: 70,
+    messageState: {
+      ...appliedFailed.messageState,
+      currentObligationState: "resolved_by_existing_thread_copy",
+      currentObligationResolvedAt: "2026-09-28T23:50:00.000Z",
+      historicalDeliveryStatePreserved: true,
+      customerMessageSent: false,
+      paymentAction: false,
+    },
+    managerNextAction: "none",
+    managerAction: {
+      ...appliedFailed.managerAction,
+      action: "none",
+      owner: "System",
+    },
+    managerQueue: {
+      ...appliedFailed.managerQueue,
+      bucket: "completed",
+      label: "Done",
+      nextAction: "none",
+    },
+    operations: {
+      ...appliedFailed.operations,
+      required: false,
+      ageMinutes: null,
+      dueAt: null,
+      slaBreached: false,
+      failureClass: null,
+      nextStep: null,
+    },
+    terminal: true,
+    refreshAfterSeconds: null,
+  };
+  assert(isRefundLifecycleContract(resolvedExistingThread),
+    "an exact existing-thread resolution should close current work without changing failed delivery truth");
+  assert(!isRefundLifecycleContract({
+    ...resolvedExistingThread,
+    messageState: { ...resolvedExistingThread.messageState, customerMessageSent: true },
+  }), "an existing-thread resolution cannot claim that it sent a customer message");
+
+  const {
+    paymentWorkComplete: _resolvedPaymentWorkComplete,
+    accountingState: _resolvedAccountingState,
+    ...resolvedWithoutInternalAccounting
+  } = resolvedExistingThread;
+  const restrictedResolvedExistingThread = {
+    ...resolvedWithoutInternalAccounting,
+    managerVisibility: "restricted",
+    managerQueue: {
+      ...resolvedExistingThread.managerQueue,
+      label: "Refund confirmed · no action due",
+    },
+    operations: {
+      ...resolvedExistingThread.operations,
+      queue: "System",
+      owner: "System",
+      safeStage: "customer_notice_obligation_resolved",
+    },
+  };
+  assert(isRefundLifecycleContract(restrictedResolvedExistingThread),
+    "a restricted manager should see the reconciled current obligation as closed");
+
   const liveDeliveryReview = {
     ...appliedFailed,
     operations: {
