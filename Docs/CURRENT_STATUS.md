@@ -32,8 +32,12 @@ orientation snapshot; it is not a backlog or release ledger.
   has a bounded 20-second function budget, and fresh authenticated production
   checks returned all 71 operational cases plus 11 internal/test cases in
   roughly 9-14 seconds. The Refunds page rendered 58 active and 13 closed cases
-  without console errors. The long wrapper chain remains performance debt; this
-  recovery does not widen any payment, refund, or customer-message timeout.
+  without console errors. The next bounded performance migration reuses current
+  lifecycle work and aggregates the case arrays once; a rolled-back production
+  probe preserved the exact 3.4 MB payload and reduced database time to roughly
+  6.4 seconds. That source is not production behavior until its PR checks,
+  migration deployment, and authenticated readback pass. This work does not
+  widen any payment, refund, or customer-message timeout.
 - Production recovery on 2026-09-19 restored the System card-attempt queue for
   the TGPaci enterprise account. Approval and processing now use the same queue
   readiness contract, and deterministic completion delivery claims the database
