@@ -30,7 +30,9 @@ insert into public.refund_nayax_machine_inventory(account_key,nayax_machine_id,r
 values('SINGLE_GATE_ACCOUNT','SINGLE-GATE-MACHINE','a3440000-0000-4000-8000-000000000001');
 insert into public.reporting_machine_refund_managers(id,reporting_machine_id,manager_user_id,manager_email,grant_reason)
 values('a3450000-0000-4000-8000-000000000001','a3440000-0000-4000-8000-000000000001',
-  'a3410000-0000-4000-8000-000000000002','manager-b@example.invalid','Fixture');
+  'a3410000-0000-4000-8000-000000000002','manager-b@example.invalid','Fixture'),
+('a3450000-0000-4000-8000-000000000002','a3440000-0000-4000-8000-000000000001',
+  'a3410000-0000-4000-8000-000000000003','manager-c@example.invalid','Fixture');
 insert into public.admin_scoped_access_grants(id,user_id,grant_reason)
 values('a3460000-0000-4000-8000-000000000001','a3410000-0000-4000-8000-000000000001','Triage fixture');
 insert into public.admin_scoped_access_scopes(grant_id,scope_type,machine_id,grant_reason)
@@ -413,8 +415,6 @@ where id='a3440000-0000-4000-8000-000000000001';
 update public.reporting_machine_refund_managers set status='revoked',revoked_at=now(),
   revoke_reason='Fixture manager reassignment'
 where id='a3450000-0000-4000-8000-000000000001';
-insert into public.reporting_machine_refund_managers(reporting_machine_id,manager_user_id,manager_email,grant_reason)
-values('a3440000-0000-4000-8000-000000000001','a3410000-0000-4000-8000-000000000003','manager-c@example.invalid','Reassignment fixture');
 select pg_temp.set_actor('a3410000-0000-4000-8000-000000000003');
 select is((public.admin_get_refund_nayax_resolution_readiness('a3470000-0000-4000-8000-000000000001')->>'visible'),'true',
   'manager reassignment preserves case status visibility after approval');
