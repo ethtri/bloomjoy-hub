@@ -171,6 +171,7 @@ select ok((select case_population='customer' and payment_method='card'
   'The fixture case has the exact settled customer facts');
 select ok((select message_type='completed'
     and template_version='refund_nayax_completion_v2' and status='failed'
+    and lower(recipient_email)='completion-customer@example.invalid'
     and error_message='gmail_completion_retry_exhausted' and delivery_state='unknown'
     and provider_message_id is null and sent_at is null
     and manual_delivery_attempt_count=0 and manual_delivery_provider_attempted_at is null
@@ -182,6 +183,7 @@ select ok((select status='succeeded' and provider_outcome='success'
     and reporting_adjustment_id='ce500000-0000-4000-8000-000000000001'
     and case_finalization_committed_at is not null
     and completion_message_id='ce800000-0000-4000-8000-000000000001'
+    and completion_gmail_thread_id='ce600000-0000-4000-8000-000000000001'
     and completion_delivery_status='failed'
   from public.refund_case_nayax_refund_attempts
   where id='ce700000-0000-4000-8000-000000000001'),
@@ -210,7 +212,12 @@ select ok(
       and status='in_progress')
   and not exists(select 1 from public.refund_nayax_resolution_intents
     where nayax_refund_attempt_id='ce700000-0000-4000-8000-000000000001'
-      and status='pending'),
+      and status='pending')
+  and not exists(select 1 from public.refund_gmail_messages
+    where refund_case_id='ce400000-0000-4000-8000-000000000001'
+      and direction='inbound'
+      and received_at>(select created_at from public.refund_case_messages
+        where id='ce800000-0000-4000-8000-000000000001')),
   'The fixture has one exact receipt/thread and no pending financial work');
 set local role authenticated;
 
