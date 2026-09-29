@@ -23,6 +23,9 @@ PINK = "F672A2"
 PALE_PINK = "FDEAF1"
 WHITE = "FFFFFF"
 VERSION = "Template version: September 2026"
+SELLER_LEGAL_NAME = "TGPACI LLC dba Bloomjoy Sweets"
+BLOOMJOY_NOTICE_ADDRESS = "266 Thompson Ave, Mountain View, CA 94043"
+BLOOMJOY_LEGAL_EMAIL = "legal@bloomjoysweets.com"
 
 
 def set_cell_shading(cell, fill: str) -> None:
@@ -208,7 +211,7 @@ def configure_document(doc: Document, title: str) -> None:
 
     doc.core_properties.title = title
     doc.core_properties.subject = "Bloomjoy reusable commercial machine agreement template"
-    doc.core_properties.author = "TGPACI LLC dba Bloomjoy Sweets"
+    doc.core_properties.author = SELLER_LEGAL_NAME
     doc.core_properties.keywords = "Bloomjoy, commercial machine, agreement, template"
 
 
@@ -333,9 +336,9 @@ def build_sale_agreement() -> Path:
 
     add_paragraph(
         doc,
-        "This Commercial Machine Sale Agreement (the “Agreement”) is entered into as of the Effective Date in the Order Form by TGPACI LLC, doing business as Bloomjoy Sweets (“Bloomjoy”), and the buyer identified in the Order Form (“Buyer”). The Order Form, these Standard Terms, and all attached exhibits are one agreement. If they conflict, the Order Form controls for that transaction, followed by the exhibits and then the Standard Terms.",
+        f"This Commercial Machine Sale Agreement (the “Agreement”) is entered into as of the Effective Date in the Order Form by {SELLER_LEGAL_NAME} (“Bloomjoy”), and the buyer identified in the Order Form (“Buyer”). The Order Form, these Standard Terms, and all attached exhibits are one agreement. If they conflict, the Order Form controls for that transaction, followed by the exhibits and then the Standard Terms.",
     )
-    p = add_paragraph(doc, "Complete every bracketed field before signature. Delete any option that does not apply.")
+    p = add_paragraph(doc, "Complete every applicable unfilled field before signature. Delete any option that does not apply.")
     for run in p.runs:
         run.bold = True
         run.font.color.rgb = RGBColor.from_string(PINK)
@@ -346,9 +349,9 @@ def build_sale_agreement() -> Path:
         [
             ("Agreement / Quote No.", "[Insert]"),
             ("Effective Date", "[Month Day, Year]"),
-            ("Seller", "TGPACI LLC dba Bloomjoy Sweets (“Bloomjoy”)"),
-            ("Bloomjoy notice address", "[Insert street address, city, state, ZIP]"),
-            ("Bloomjoy notice email", "[Insert legal notice email]"),
+            ("Seller", f"{SELLER_LEGAL_NAME} (“Bloomjoy”)"),
+            ("Bloomjoy notice address", BLOOMJOY_NOTICE_ADDRESS),
+            ("Bloomjoy notice email", BLOOMJOY_LEGAL_EMAIL),
             ("Buyer legal name", "[Insert exact legal name and entity type]"),
             ("Buyer notice address", "[Insert street address, city, state, ZIP]"),
             ("Buyer notice email", "[Insert]"),
@@ -377,8 +380,8 @@ def build_sale_agreement() -> Path:
         doc,
         ["Payment", "Amount", "Due"],
         [
-            ["Order deposit", "50% of Total Purchase Price: $[ ]", "At signing / purchase"],
-            ["Delivery balance", "Remaining 50%, plus approved adjustments: $[ ]", "Within [3] business days after Confirmed Delivery"],
+            ["Order deposit", "50%: $[Amount]", "At signing / purchase"],
+            ["Delivery balance", "50% plus approved adjustments: $[Amount]", "Within [3] business days after Confirmed Delivery"],
         ],
         [1.35, 2.35, 3.0],
         font_size=9.1,
@@ -425,7 +428,7 @@ def build_sale_agreement() -> Path:
 
     add_heading(doc, "6. Signatures", level=2)
     add_paragraph(doc, "Each signer represents that the signer is authorized to bind the identified party. Electronic signatures and counterparts are effective.")
-    add_signature_table(doc, "TGPACI LLC dba Bloomjoy Sweets", "BUYER: [Legal name]")
+    add_signature_table(doc, SELLER_LEGAL_NAME, "BUYER: [Legal name]")
 
     add_page_break(doc)
     add_heading(doc, "PART II — STANDARD TERMS", level=1)
@@ -727,7 +730,7 @@ def build_permitted_operations_agreement() -> Path:
 
     add_paragraph(
         doc,
-        "This Permitted Operations and Commissary Agreement (the “Program Agreement”) is entered into as of [Month Day, Year] by TGPACI LLC, doing business as Bloomjoy Sweets (“Bloomjoy”), and [Operator legal name] (“Operator”). It is separate from any equipment sale and from Bloomjoy Plus. It does not sell, lease, transfer, or sublicense a health permit. Each site may operate under this Program Agreement only when the applicable authority permits the proposed structure and the parties sign a complete Site Activation Schedule.",
+        f"This Permitted Operations and Commissary Agreement (the “Program Agreement”) is entered into as of the Effective Date stated below by {SELLER_LEGAL_NAME} (“Bloomjoy”) and the operator identified below (“Operator”). It is separate from any equipment sale and from Bloomjoy Plus. It does not sell, lease, transfer, or sublicense a health permit. Each site may operate under this Program Agreement only when the applicable authority permits the proposed structure and the parties sign a complete Site Activation Schedule.",
     )
     p = add_paragraph(doc, "Do not activate a site until every activation condition in Section 3 and Exhibit A is complete.")
     for run in p.runs:
@@ -739,8 +742,8 @@ def build_permitted_operations_agreement() -> Path:
         doc,
         [
             ("Effective Date", "[Insert]"),
-            ("Bloomjoy notice address", "[Insert street address, city, state, ZIP]"),
-            ("Bloomjoy notice email", "[Insert legal notice email]"),
+            ("Bloomjoy notice address", BLOOMJOY_NOTICE_ADDRESS),
+            ("Bloomjoy notice email", BLOOMJOY_LEGAL_EMAIL),
             ("Operator legal name", "[Insert exact legal name and entity type]"),
             ("Operator notice address", "[Insert street address, city, state, ZIP]"),
             ("Operator notice email", "[Insert]"),
@@ -832,7 +835,7 @@ def build_permitted_operations_agreement() -> Path:
     add_numbered_terms(doc, terms)
 
     add_heading(doc, "SIGNATURES", level=1)
-    add_signature_table(doc, "TGPACI LLC dba Bloomjoy Sweets", "OPERATOR: [Legal name]")
+    add_signature_table(doc, SELLER_LEGAL_NAME, "OPERATOR: [Legal name]")
 
     add_page_break(doc)
     add_heading(doc, "EXHIBIT A — SITE ACTIVATION SCHEDULE", level=1)
@@ -893,7 +896,7 @@ def build_permitted_operations_agreement() -> Path:
     add_field_table(
         doc,
         [
-            ("General liability", "$[ ] per occurrence / $[ ] aggregate"),
+            ("General liability", "Occurrence $[Amount] | Aggregate $[Amount]"),
             ("Product / completed operations", "[Included / separate limit]"),
             ("Workers’ compensation", "[Statutory / exemption evidence]"),
             ("Automobile / property", "[Insert]"),

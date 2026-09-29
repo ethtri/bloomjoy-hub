@@ -8,9 +8,11 @@ This package is structured for repeat use with Commercial Machine sales.
 
 The sale template intentionally treats Bloomjoy Plus as an optional online subscription rather than a machine license fee. The permitted-operations template intentionally does not transfer or “rent” a health permit; activation depends on the local agency, commissary, venue, insurance, and site documents identified in the schedule.
 
+The Word templates and interactive PDFs prefill Bloomjoy's legal name, notice address, and legal email. Pink-outlined areas in the PDFs are fillable; square controls are clickable checkboxes.
+
 Before sending a document for signature:
 
-- Replace every bracketed field and delete unused options.
+- Complete every applicable field and delete unused options.
 - Attach the final quote, confirmed equipment specifications, wrap proof, and freight scope.
 - Confirm the warranty term and included support for that order.
 - For the 6% program, confirm the legal permit holder, merchant of record, settlement flow, tax responsibility, insurance, and written local-agency/commissary approvals for the exact site and operator.
@@ -19,3 +21,7 @@ Before sending a document for signature:
 Regenerate the Word files after editing the source script with:
 
 `python scripts/generate-commercial-sale-docs.py`
+
+After rendering the Word files to PDF under `tmp/pdfs/base`, regenerate the interactive PDFs with:
+
+`python scripts/generate-commercial-sale-pdfs.py`
