@@ -275,7 +275,8 @@
     "20260929134500_refund_technical_incident_agent_routing.sql",
     "20260929144500_refund_approved_cash_ready_projection.sql",
     "20260929155500_refund_payout_reply_cannot_use.sql",
-    "20260929164000_refund_completion_customer_only.sql"
+    "20260929164000_refund_completion_customer_only.sql",
+    "20260929175500_refund_manager_route_consistency.sql"
   ],
   "migrationFilesSha256": "570e26d73f10e81338c733a6da30821076c3c6fb6aa53c31abdf353b425a8705",
   "migrationVersionSetSha256": "77c8cc5aea948d303af1b1faaaf31b42dcc6b6262a9c92c1511411713c32fef7",
