@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(76);
+select plan(79);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -214,6 +214,19 @@ select ok((select matched_nayax_transaction_id='LOOKUP-000000000015'
       and metadata->>'provider_call_made'='false'),
   'System evidence selection remains actor-attributed and makes no provider call');
 reset role;
+select is(public.can_perform_refund_official_action(
+    'a3410000-0000-4000-8000-000000000002',
+    'a3470000-0000-4000-8000-000000000015'),true,
+  'the selecting machine Manager retains current official-action authority');
+select is(public.refund_case_nayax_manager_readiness(
+    null,'a3470000-0000-4000-8000-000000000015')->>'transactionConfirmed','true',
+  'the exact selected System candidate satisfies transaction preparation truth');
+select is(public.refund_manager_preparation_snapshot(
+    'a3470000-0000-4000-8000-000000000015',
+    (select official_action_version from public.refund_cases
+      where id='a3470000-0000-4000-8000-000000000015'))->>'evidenceBasis',
+  'card_exact_selected',
+  'the current exact selection event is the Manager preparation proof');
 select ok((select assigned_manager_id is null
       from public.refund_cases
       where id='a3470000-0000-4000-8000-000000000015')
