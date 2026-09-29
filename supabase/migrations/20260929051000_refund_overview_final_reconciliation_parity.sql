@@ -4,9 +4,9 @@
 -- only that final, already-visible nextWork object. No hidden field is added.
 
 alter function public.admin_get_refund_operations_overview()
-  rename to admin_get_refund_operations_overview_pre_final_reconciliation_v1;
+  rename to admin_refund_overview_pre_reconcile_v1;
 revoke all on function
-  public.admin_get_refund_operations_overview_pre_final_reconciliation_v1()
+  public.admin_refund_overview_pre_reconcile_v1()
   from public,anon,authenticated,service_role;
 
 create function public.admin_get_refund_operations_overview()
@@ -19,7 +19,7 @@ set work_mem='32MB'
 set search_path=''
 as $$
 declare
-  base jsonb:=public.admin_get_refund_operations_overview_pre_final_reconciliation_v1();
+  base jsonb:=public.admin_refund_overview_pre_reconcile_v1();
   field_name text;
   repaired jsonb;
 begin
