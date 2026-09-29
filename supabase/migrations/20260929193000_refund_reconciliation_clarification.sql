@@ -296,7 +296,7 @@ alter table public.refund_case_messages
             or (message_type='reminder'
               and template_version='refund_reconciliation_clarification_v1'
               and reconciliation_review_id is not null
-              and reconciliation_message_role='reminder'))))));
+              and reconciliation_message_role='reminder')))))));
 
 -- Preserve immutable clarification history when the mutable review is rebound
 -- to new case facts. Old evidence becomes stale and can never authorize a
