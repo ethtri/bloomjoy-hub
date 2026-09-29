@@ -43,11 +43,14 @@ orientation snapshot; it is not a backlog or release ledger.
   planning regression in that response. The SQL eligibility predicate may run
   receipt and attempt research before rejecting a closed or unrelated case;
   fresh authenticated reads took 21-74 seconds and two of three timed out.
-  A rollback-only candidate preserves both eligibility results for all 83
-  current cases and reduces the 83-case correction-field pass from 24.663
-  seconds to 0.770 seconds. This is measured repair evidence, not production
-  acceptance; the release still needs the normal migration gates and fresh
-  authenticated portal readback.
+  Migration `20260929093000` preserves both eligibility results for all 83
+  current cases and reduced the 83-case correction-field pass from 24.663
+  seconds to 0.770 seconds in the rollback rehearsal. After production deploy,
+  three serial authenticated overview reads returned all 72 customer cases plus
+  11 internal/test cases in 6.352-7.173 seconds. A fresh portal session needed
+  one retry, then rendered 57 active, 15 closed, and one waiting-on-customer case
+  as up to date. The database regression is repaired; the large response and
+  transient first-load failure remain reliability and responsiveness debt.
 - Production recovery on 2026-09-19 restored the System card-attempt queue for
   the TGPaci enterprise account. Approval and processing now use the same queue
   readiness contract, and deterministic completion delivery claims the database
