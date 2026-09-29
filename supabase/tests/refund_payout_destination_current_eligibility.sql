@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(14);
+select plan(15);
 
 create function pg_temp.capture_error(statement text)
 returns text language plpgsql as $$
@@ -107,6 +107,18 @@ select is(
   ),
   false,
   'Incomplete undecided cash case fails closed'
+);
+
+select ok(
+  strpos(pg_get_functiondef(
+    'public.refund_purchase_correction_eligible(public.refund_cases)'
+      ::regprocedure),
+    'if not coalesce(p_case.status in')>0
+  and strpos(pg_get_functiondef(
+    'public.refund_payout_destination_case_current(public.refund_cases)'
+      ::regprocedure),
+    'if p_case.payment_method is distinct from ''cash''')>0,
+  'Correction and payout predicates reject unrelated states before research'
 );
 
 set local role service_role;

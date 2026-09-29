@@ -39,6 +39,15 @@ orientation snapshot; it is not a backlog or release ledger.
   visible error, and the scoped test session was revoked. Exact payload parity
   and lifecycle v2 remained intact. Availability and timeout margin are
   improved, but the unchanged 3.4 MB response remains responsiveness debt.
+- The September 29 cash payout-destination release exposed a new database
+  planning regression in that response. The SQL eligibility predicate may run
+  receipt and attempt research before rejecting a closed or unrelated case;
+  fresh authenticated reads took 21-74 seconds and two of three timed out.
+  A rollback-only candidate preserves both eligibility results for all 83
+  current cases and reduces the 83-case correction-field pass from 24.663
+  seconds to 0.770 seconds. This is measured repair evidence, not production
+  acceptance; the release still needs the normal migration gates and fresh
+  authenticated portal readback.
 - Production recovery on 2026-09-19 restored the System card-attempt queue for
   the TGPaci enterprise account. Approval and processing now use the same queue
   readiness contract, and deterministic completion delivery claims the database
