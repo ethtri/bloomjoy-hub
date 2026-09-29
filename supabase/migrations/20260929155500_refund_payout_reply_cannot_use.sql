@@ -74,8 +74,7 @@ begin
   ) then
     raise exception 'A supported reply fact must be applied before directional research';
   end if;
-  if not payout_destination_limitation
-    and p_reason_code in ('customer_cannot_provide','no_supported_new_fact',
+  if p_reason_code in ('customer_cannot_provide','no_supported_new_fact',
       'conflicting_reply_evidence') and exists (
     select 1 from jsonb_array_elements(
       public.refund_scoped_verified_reply_set(ctx.id)->'messages') item

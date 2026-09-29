@@ -1497,21 +1497,30 @@ select ok(not has_function_privilege('authenticated',
   'public.service_apply_refund_scoped_reply_incident_time(uuid,uuid,uuid,bigint,text,uuid,text)','execute'),
   'The browser cannot call the protected reply-time writer');
 select pg_temp.make_scope(61);
+savepoint payout_limitation_mixed_fact;
 update public.refund_gmail_messages set plain_body=
   'I cannot use Cash App; I can use Zelle. I do not use Zelle. The amount should be $12.00.' where id=pg_temp.gid(61);
 select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(61),pg_temp.gid(61))
   ->>'outcome','received','Payout-only Zelle limitation binds to the exact request');
-create temp table payout_limitation_task on commit drop as
+create temp table payout_mixed_fact_task on commit drop as
   select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(100)->'tasks') task
   where task->>'refundCaseId'=pg_temp.cid(61)::text;
 select throws_like($$select public.service_complete_refund_scoped_reply_no_fact(
-    (select (task->>'requestId')::uuid from payout_limitation_task),
-    (select (task->>'claimToken')::uuid from payout_limitation_task),pg_temp.gid(61),
-    (select (task->>'factVersion')::bigint from payout_limitation_task),
-    (select task->>'bodySha256' from payout_limitation_task),pg_temp.gid(61),
-    'I cannot use Cash App; I can use Zelle.','customer_cannot_provide')$$,
-  '%Cannot-provide disposition needs a source-backed limitation%',
-  'A negated alternate method cannot cross a clause into affirmative Zelle availability');
+    (select (task->>'requestId')::uuid from payout_mixed_fact_task),
+    (select (task->>'claimToken')::uuid from payout_mixed_fact_task),pg_temp.gid(61),
+    (select (task->>'factVersion')::bigint from payout_mixed_fact_task),
+    (select task->>'bodySha256' from payout_mixed_fact_task),pg_temp.gid(61),
+    'I do not use Zelle.','customer_cannot_provide')$$,
+  '%supported reply fact cannot be discarded%',
+  'A payout limitation cannot silently discard a supported amount correction');
+rollback to savepoint payout_limitation_mixed_fact;
+update public.refund_gmail_messages set plain_body='I do not use Zelle.'
+  where id=pg_temp.gid(61);
+select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(61),pg_temp.gid(61))
+  ->>'outcome','received','A clean payout-only Zelle limitation binds to the exact request');
+create temp table payout_limitation_task on commit drop as
+  select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(100)->'tasks') task
+  where task->>'refundCaseId'=pg_temp.cid(61)::text;
 select is(public.service_complete_refund_scoped_reply_no_fact(
     (select (task->>'requestId')::uuid from payout_limitation_task),
     (select (task->>'claimToken')::uuid from payout_limitation_task),pg_temp.gid(61),

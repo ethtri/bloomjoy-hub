@@ -120,7 +120,7 @@ test('ordinary cannot-provide reply is a source-bound System result, not a Manag
   }), /unsupported_no_fact_review/);
 });
 
-test('payout-only reply can decline Zelle without changing an unrelated amount', () => {
+test('payout-only reply can decline Zelle only when no other supported fact is discarded', () => {
   const payoutInput = {
     ...input,
     requestedFields: ['zelle_payment_contact'],
@@ -130,13 +130,21 @@ test('payout-only reply can decline Zelle without changing an unrelated amount',
       body: 'I do not use Zelle. The amount should be $12.00.',
     }],
   };
-  const review = validateNoFactReview(payoutInput, {
+  assert.throws(() => validateNoFactReview(payoutInput, {
+    kind: 'reviewed_no_fact', reasonCode: 'customer_cannot_provide',
+    messageId, quote: 'I do not use Zelle',
+  }), /supported_fact_requires_fact_review/);
+  const cleanPayoutInput = {
+    ...payoutInput,
+    replyMessages: [{ messageId, body: 'I do not use Zelle.' }],
+  };
+  const review = validateNoFactReview(cleanPayoutInput, {
     kind: 'reviewed_no_fact', reasonCode: 'customer_cannot_provide',
     messageId, quote: 'I do not use Zelle',
   });
   assert.equal(review.reasonCode, 'customer_cannot_provide');
   assert.throws(() => validateNoFactReview({
-    ...payoutInput,
+    ...cleanPayoutInput,
     requestedFields: ['amount'],
   }, {
     kind: 'reviewed_no_fact', reasonCode: 'customer_cannot_provide',

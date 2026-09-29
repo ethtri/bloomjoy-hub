@@ -291,6 +291,10 @@ export const validateNoFactReview = (input, proposal) => {
   const payoutDestinationLimitation = proposal.reasonCode === 'customer_cannot_provide' &&
     payoutDestinationRequest &&
     /(?:cannot|can't|do not|don't|unable to|not able to)\s+(?:use|provide)\s+(?:my\s+)?zelle\b/iu.test(proposal.quote);
+  if (payoutDestinationLimitation && input.replyMessages.some((entry) =>
+    supportedFieldsIn(entry.body ?? '').length > 0)) {
+    throw new Error('supported_fact_requires_fact_review');
+  }
   if (hasAmbiguousSupportedValues(input.replyMessages.map((entry) => entry.body ?? '').join('\n')))
     throw new Error('supported_fact_requires_fact_review');
   if (proposal.reasonCode === 'customer_cannot_provide' &&
