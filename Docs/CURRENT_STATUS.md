@@ -28,16 +28,14 @@ orientation snapshot; it is not a backlog or release ledger.
   any provider read, and one case has confirmed payment that must not reopen
   transaction search. Track the other two fallbacks separately under #628;
   a loading list alone is not completion of the final-decision workflow.
-- The September 28 production timeout is recovered. The read-only admin overview
-  has a bounded 20-second function budget, and fresh authenticated production
-  checks returned all 71 operational cases plus 11 internal/test cases in
-  roughly 9-14 seconds. The Refunds page rendered 58 active and 13 closed cases
-  without console errors. The next bounded performance migration reuses current
-  lifecycle work and aggregates the case arrays once; a rolled-back production
-  probe preserved the exact 3.4 MB payload and reduced database time to roughly
-  6.4 seconds. That source is not production behavior until its PR checks,
-  migration deployment, and authenticated readback pass. This work does not
-  widen any payment, refund, or customer-message timeout.
+- The September 28 production timeout is recovered. Migration
+  `20260928234730` now reuses current lifecycle work and aggregates the case
+  arrays once without widening any payment, refund, or customer-message timeout.
+  On September 29, three authenticated production reads returned all 71
+  operational cases plus 11 internal/test cases in 6.748-7.537 seconds, down
+  from 9.202-9.333 seconds before deployment. The Refunds page rendered 58
+  active and 13 closed cases without a visible error. Availability and timeout
+  margin are improved, but the 3.4 MB response remains responsiveness debt.
 - Production recovery on 2026-09-19 restored the System card-attempt queue for
   the TGPaci enterprise account. Approval and processing now use the same queue
   readiness contract, and deterministic completion delivery claims the database
