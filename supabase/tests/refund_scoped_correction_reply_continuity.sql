@@ -1497,12 +1497,20 @@ select ok(not has_function_privilege('authenticated',
   'The browser cannot call the protected reply-time writer');
 select pg_temp.make_scope(61);
 update public.refund_gmail_messages set plain_body=
-  'I do not use Zelle. The amount should be $12.00.' where id=pg_temp.gid(61);
+  'I cannot use Cash App; I can use Zelle. I do not use Zelle. The amount should be $12.00.' where id=pg_temp.gid(61);
 select is(public.service_receive_refund_scoped_email_reply(pg_temp.cid(61),pg_temp.gid(61))
   ->>'outcome','received','Payout-only Zelle limitation binds to the exact request');
 create temp table payout_limitation_task on commit drop as
   select task from jsonb_array_elements(public.service_claim_refund_scoped_reply_reviews(100)->'tasks') task
   where task->>'refundCaseId'=pg_temp.cid(61)::text;
+select throws_like($$select public.service_complete_refund_scoped_reply_no_fact(
+    (select (task->>'requestId')::uuid from payout_limitation_task),
+    (select (task->>'claimToken')::uuid from payout_limitation_task),pg_temp.gid(61),
+    (select (task->>'factVersion')::bigint from payout_limitation_task),
+    (select task->>'bodySha256' from payout_limitation_task),pg_temp.gid(61),
+    'I cannot use Cash App; I can use Zelle.','customer_cannot_provide')$$,
+  '%Cannot-provide disposition needs a source-backed limitation%',
+  'A negated alternate method cannot cross a clause into affirmative Zelle availability');
 select is(public.service_complete_refund_scoped_reply_no_fact(
     (select (task->>'requestId')::uuid from payout_limitation_task),
     (select (task->>'claimToken')::uuid from payout_limitation_task),pg_temp.gid(61),
@@ -1521,6 +1529,11 @@ select ok((select reply_review_state='resolved'
   and (select count(*)=0 from public.refund_customer_fact_applications
     where refund_case_id=pg_temp.cid(61)),
   'Payout limitation is durable while financial truth and completion stay unchanged');
+select ok(public.refund_lifecycle_contract(pg_temp.cid(61))->'nextWork'->>'actionCode'
+    <> 'review_customer_reply'
+  and public.refund_lifecycle_contract(pg_temp.cid(61))->'nextWork'->>'actor'
+    in ('agent','manager'),
+  'Completed payout reply review exposes the next internal work instead of re-reviewing the same reply');
 select pg_temp.make_scope(62);
 update public.refund_gmail_messages set plain_body='I do not use Zelle.'
   where id=pg_temp.gid(62);

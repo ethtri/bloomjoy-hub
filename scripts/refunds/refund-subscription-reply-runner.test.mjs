@@ -142,6 +142,14 @@ test('payout-only reply can decline Zelle without changing an unrelated amount',
     kind: 'reviewed_no_fact', reasonCode: 'customer_cannot_provide',
     messageId, quote: 'I do not use Zelle',
   }), /cannot_provide_source_not_supported/);
+  const clauseCrossingInput = {
+    ...payoutInput,
+    replyMessages: [{ messageId, body: 'I cannot use Cash App; I can use Zelle.' }],
+  };
+  assert.throws(() => validateNoFactReview(clauseCrossingInput, {
+    kind: 'reviewed_no_fact', reasonCode: 'customer_cannot_provide',
+    messageId, quote: 'I cannot use Cash App; I can use Zelle',
+  }), /cannot_provide_source_not_supported/);
 });
 
 test('a single guarded batch binds separate verified replies to separate field spans', () => {

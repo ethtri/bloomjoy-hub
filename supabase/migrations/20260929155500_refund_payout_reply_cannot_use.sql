@@ -11,6 +11,7 @@ declare ctx public.refund_wallet_correction_contexts;
   evidence public.refund_gmail_messages;
   token_match text[];
   directional_evidence jsonb := '{}'::jsonb;
+  payout_destination_request boolean := false;
   payout_destination_limitation boolean := false;
 begin
   select * into c from public.refund_cases
@@ -54,11 +55,11 @@ begin
     return jsonb_build_object('outcome','stale_or_unsupported_source',
       'payloadRedacted',true);
   end if;
-  payout_destination_limitation :=
-    p_reason_code='customer_cannot_provide'
-    and ctx.correction_requested_fields is not distinct from
-      array['zelle_payment_contact']::text[]
-    and p_source_quote ~* '(cannot|can''t|do not|don''t|unable to|not able to)[[:space:]]+(use|provide)([^.!?]{0,80})zelle';
+  payout_destination_request := ctx.correction_requested_fields is not distinct
+    from array['zelle_payment_contact']::text[];
+  payout_destination_limitation := p_reason_code='customer_cannot_provide'
+    and payout_destination_request
+    and p_source_quote ~* '(cannot|can''t|do not|don''t|unable to|not able to)[[:space:]]+(use|provide)[[:space:]]+(my[[:space:]]+)?zelle';
   if p_reason_code in ('inexact_purchase_time_requires_research',
       'wallet_token_requires_research') and exists (
     select 1 from jsonb_array_elements(
@@ -103,8 +104,9 @@ begin
     directional_evidence:=jsonb_build_object('timeConfidence','rough',
       'timeSource','customer_memory');
   elsif p_reason_code='customer_cannot_provide' then
-    if not payout_destination_limitation and
-        p_source_quote !~* '(cannot|can''t|could not|couldn''t|unable to|not able to|do not have|don''t have|no longer have|do not remember|don''t remember|no tengo|no puedo)'
+    if (payout_destination_request and not payout_destination_limitation)
+      or (not payout_destination_request and
+        p_source_quote !~* '(cannot|can''t|could not|couldn''t|unable to|not able to|do not have|don''t have|no longer have|do not remember|don''t remember|no tengo|no puedo)')
       or public.refund_verified_reply_quote_has_fact(p_source_quote) then
       raise exception 'Cannot-provide disposition needs a source-backed limitation without an unanswered supported fact';
     end if;
