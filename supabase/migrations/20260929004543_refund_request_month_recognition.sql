@@ -1258,6 +1258,15 @@ begin
       select case
         when event.amount_basis is not null and event.amount_basis <> 'unknown'
           then event.amount_basis
+        when lower(coalesce(adjustment.raw_payload ->> 'amountBasis', '')) in (
+          'tax_exclusive', 'tax_exclusive_minor'
+        ) then 'tax_exclusive'
+        when lower(coalesce(adjustment.raw_payload ->> 'amountBasis', '')) in (
+          'tax_inclusive', 'gross_customer_charge_minor'
+        ) then 'tax_inclusive'
+        when lower(coalesce(adjustment.raw_payload ->> 'amountBasis', '')) in (
+          'separate_tax', 'separately_imported_tax'
+        ) then 'separate_tax'
         when adjustment.source = 'nayax_provider_refund' then 'tax_inclusive'
         when linked_case.customer_request_received_source = 'hosted_refund_intake'
           and adjustment.amount_cents = linked_case.payment_amount_cents

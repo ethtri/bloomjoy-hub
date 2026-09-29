@@ -36,6 +36,17 @@ insert into public.sales_adjustment_facts (
   ('fd500000-0000-4000-8000-000000000002', 'fd300000-0000-4000-8000-000000000001', 'fd200000-0000-4000-8000-000000000001', current_date-29, 'refund', 440, 1, 'manual', repeat('2',64), 'fd400000-0000-4000-8000-000000000003', '{"payment_method":"card"}', clock_timestamp()),
   ('fd500000-0000-4000-8000-000000000009', 'fd300000-0000-4000-8000-000000000001', 'fd200000-0000-4000-8000-000000000001', current_date-49, 'refund', 330, 1, 'manual', repeat('9',64), 'fd400000-0000-4000-8000-000000000009', '{"payment_method":"card"}', clock_timestamp());
 
+insert into public.sales_adjustment_facts (
+  id, reporting_machine_id, reporting_location_id, adjustment_date,
+  adjustment_type, amount_cents, complaint_count, source, source_row_hash,
+  raw_payload, created_at
+) values (
+  'fd500000-0000-4000-8000-000000000011', 'fd300000-0000-4000-8000-000000000001',
+  'fd200000-0000-4000-8000-000000000001', current_date-70, 'refund', 500, 1,
+  'manual', repeat('b',64),
+  '{"payment_method":"cash","amountBasis":"tax_exclusive"}', clock_timestamp()
+);
+
 -- Simulate rows that predate this migration and therefore have no raw event.
 set local session_replication_role = replica;
 insert into public.refund_cases (
@@ -101,6 +112,50 @@ select results_eq($$
   ) where source='manual'
 $$, $$values (1000::bigint,0::bigint)$$,
   'Linked case evidence proves a pre-migration paid deduction basis');
+select results_eq($$
+  select purchase_attribution_date, legacy_paid_deduction_ex_tax_cents,
+    unresolved_refund_count
+  from private.machine_sales_daily_components(
+    'fd300000-0000-4000-8000-000000000001', current_date-70, current_date-70
+  ) where source='manual' and tender='cash'
+$$, $$values (null::date,500::bigint,0::bigint)$$,
+  'Explicit paid-adjustment basis preserves an unlinked pre-cutover deduction');
+
+insert into public.sales_adjustment_facts (
+  id, reporting_machine_id, reporting_location_id, adjustment_date,
+  adjustment_type, amount_cents, complaint_count, source, source_row_hash,
+  raw_payload, created_at
+) values
+  (
+    'fd500000-0000-4000-8000-000000000012', 'fd300000-0000-4000-8000-000000000001',
+    'fd200000-0000-4000-8000-000000000001', current_date-69, 'refund', 700, 1,
+    'manual', repeat('c',64),
+    '{"payment_method":"other","amountBasis":"tax_exclusive"}', clock_timestamp()
+  ),
+  (
+    'fd500000-0000-4000-8000-000000000013', 'fd300000-0000-4000-8000-000000000001',
+    'fd200000-0000-4000-8000-000000000001', current_date-68, 'refund', 900, 1,
+    'manual', repeat('d',64),
+    '{"payment_method":"cash","amountBasis":"separate_tax"}', clock_timestamp()
+  );
+select results_eq($$
+  select purchase_attribution_date, legacy_paid_deduction_ex_tax_cents,
+    paid_context_ex_tax_cents, unresolved_paid_context_count,
+    commissionable_sales_ex_tax_cents
+  from private.machine_sales_daily_components(
+    'fd300000-0000-4000-8000-000000000001', current_date-69, current_date-69
+  ) where source='manual' and tender='other'
+$$, $$values (null::date,0::bigint,700::bigint,0::bigint,0::bigint)$$,
+  'Explicit paid-adjustment basis keeps post-cutover payment as known zero-impact context');
+select results_eq($$
+  select paid_context_ex_tax_cents, unresolved_paid_context_count,
+    unresolved_paid_context_cents, commissionable_sales_ex_tax_cents,
+    normalization_status
+  from private.machine_sales_daily_components(
+    'fd300000-0000-4000-8000-000000000001', current_date-68, current_date-68
+  ) where source='manual' and tender='cash'
+$$, $$values (0::bigint,1::bigint,900::bigint,0::bigint,'context_unresolved'::text)$$,
+  'Separate-tax paid metadata stays unresolved without a proved tax component');
 
 update public.refund_cases set
   customer_request_received_at=now()-interval '50 days',
