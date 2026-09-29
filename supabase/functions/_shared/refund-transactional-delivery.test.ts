@@ -13,16 +13,23 @@ Deno.test("refund transactional delivery parser normalizes supported provider ev
   assertEquals(parseRefundTransactionalDeliveryWebhook({
     type: "email.delivered",
     created_at: "2026-08-31T12:00:00Z",
-    data: { email_id: "synthetic_delivery_123" },
+    data: {
+      email_id: "synthetic_delivery_123",
+      message_id: "<synthetic-delivery-123@resend.example>",
+    },
   }), {
     providerMessageId: "synthetic_delivery_123",
+    providerMessageHeader: "<synthetic-delivery-123@resend.example>",
     state: "delivered",
     eventAt: "2026-08-31T12:00:00.000Z",
   });
   assertEquals(parseRefundTransactionalDeliveryWebhook({
     type: "email.clicked",
     created_at: "2026-08-31T12:00:00Z",
-    data: { email_id: "synthetic_delivery_123" },
+    data: {
+      email_id: "synthetic_delivery_123",
+      message_id: "<synthetic-delivery-123@resend.example>",
+    },
   }), null);
 });
 
@@ -48,21 +55,25 @@ Deno.test("refund transactional delivery event keys are hashed before persistenc
 Deno.test("refund transactional delivery refresh maps exact provider state without returning message content", () => {
   assertEquals(parseRefundTransactionalDeliveryRefresh({
     id: "synthetic_delivery_123",
+    message_id: "<synthetic-delivery-123@resend.example>",
     last_event: "opened",
     to: ["private@example.test"],
     subject: "private subject",
     html: "private body",
   }, "synthetic_delivery_123"), {
     providerMessageId: "synthetic_delivery_123",
+    providerMessageHeader: "<synthetic-delivery-123@resend.example>",
     state: "delivered",
     terminal: true,
     payloadRedacted: true,
   });
   assertEquals(parseRefundTransactionalDeliveryRefresh({
     id: "synthetic_delivery_123",
+    message_id: "<synthetic-delivery-123@resend.example>",
     last_event: "sent",
   }, "synthetic_delivery_123"), {
     providerMessageId: "synthetic_delivery_123",
+    providerMessageHeader: "<synthetic-delivery-123@resend.example>",
     state: "accepted",
     terminal: false,
     payloadRedacted: true,
@@ -80,6 +91,7 @@ Deno.test("refund transactional delivery refresh uses one GET and rejects mismat
       requestMethod = (init as { method?: string } | undefined)?.method ?? "";
       return Promise.resolve(new Response(JSON.stringify({
         id: "synthetic_delivery_123",
+        message_id: "<synthetic-delivery-123@resend.example>",
         last_event: "bounced",
         to: ["private@example.test"],
       }), { status: 200, headers: { "content-type": "application/json" } }));
@@ -89,6 +101,7 @@ Deno.test("refund transactional delivery refresh uses one GET and rejects mismat
   assertEquals(requestUrl, "https://api.resend.com/emails/synthetic_delivery_123");
   assertEquals(result, {
     providerMessageId: "synthetic_delivery_123",
+    providerMessageHeader: "<synthetic-delivery-123@resend.example>",
     state: "bounced",
     terminal: true,
     payloadRedacted: true,
@@ -97,6 +110,7 @@ Deno.test("refund transactional delivery refresh uses one GET and rejects mismat
   await assertRejects(
     async () => parseRefundTransactionalDeliveryRefresh({
       id: "different_delivery_456",
+      message_id: "<different-delivery-456@resend.example>",
       last_event: "delivered",
     }, "synthetic_delivery_123"),
     Error,

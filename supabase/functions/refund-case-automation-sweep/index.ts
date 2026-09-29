@@ -254,6 +254,7 @@ type RefundSweepCase = {
   correlation_source: string | null;
   automation_state: string;
   automation_follow_up_due_at: string | null;
+  official_action_version: number;
   deterministic_fact_version: number;
   intake_meta: Record<string, unknown> | null;
   customer_last_contacted_at: string | null;
@@ -678,6 +679,7 @@ const caseSelect = `
   correlation_source,
   automation_state,
   automation_follow_up_due_at,
+  official_action_version,
   deterministic_fact_version,
   intake_meta,
   customer_last_contacted_at,
@@ -3536,6 +3538,73 @@ const runReminderSweep = async (
   }
 };
 
+const runReconciliationClarificationReminderSweep = async (
+  runId: string,
+  counters: SweepCounters,
+  policyWindowStart: string,
+) => {
+  if (!supabase || !(await automaticCustomerContactAllowed())) return;
+  const { data, error } = await supabase
+    .from("refund_case_reconciliation_reviews")
+    .select("id,clarification_anchor_case_id,clarification_reminder_due_at")
+    .eq("status", "pending")
+    .is("clarification_stale_at", null)
+    .not("clarification_request_sent_at", "is", null)
+    .lte("clarification_reminder_due_at", new Date().toISOString())
+    .is("clarification_reminder_message_id", null)
+    .is("clarification_reply_message_id", null)
+    .order("clarification_reminder_due_at", { ascending: true })
+    .limit(10);
+  if (error) throw error;
+  for (const review of data ?? []) {
+    const reviewId = textValue(review.id);
+    const anchorCaseId = textValue(review.clarification_anchor_case_id);
+    if (!reviewId || !anchorCaseId) continue;
+    const refundCase = await getSweepCase(anchorCaseId);
+    if (!refundCase) continue;
+    counters.evaluatedCaseIds.add(refundCase.id);
+    const action = await claimAction(
+      runId,
+      refundCase.id,
+      `reconciliation-clarification-reminder:${reviewId}`,
+      "customer_reminder",
+      refundCase.status,
+      policyWindowStart,
+      counters,
+    );
+    if (!action.claimed) continue;
+    const { data: queued, error: queueError } = await supabase.rpc(
+      "service_enqueue_refund_reconciliation_clarification",
+      {
+        p_review_id: reviewId,
+        p_anchor_case_id: anchorCaseId,
+        p_expected_case_version: refundCase.official_action_version,
+        p_intent_id: crypto.randomUUID(),
+        p_role: "reminder",
+      },
+    );
+    if (queueError) throw queueError;
+    const messageId = textValue(queued?.messageId);
+    if (queued?.enqueued !== true || !messageId) {
+      throw new Error("Reconciliation clarification reminder was not durably queued.");
+    }
+    await runManualMessageOutboxSweep(counters, messageId, 1);
+    const { data: settled, error: settledError } = await supabase
+      .from("refund_case_messages")
+      .select("status,manual_delivery_state")
+      .eq("id", messageId)
+      .single();
+    if (settledError) throw settledError;
+    if (settled?.status === "sent") {
+      await finishAction(action, "completed", "reminder_sent", messageId, counters);
+    } else if (["failed", "delivery_unknown"].includes(textValue(settled?.manual_delivery_state))) {
+      await finishAction(action, "failed", "customer_email_failed", messageId, counters);
+    } else {
+      await finishAction(action, "suppressed", "delivery_deferred", messageId, counters);
+    }
+  }
+};
+
 const sendPayoutDestinationReminder = async (
   refundCase: RefundSweepCase,
   job: {
@@ -4986,6 +5055,8 @@ serve(async (req) => {
     );
     failureStage = "customer_reminder";
     await runReminderSweep(runId, counters, policyWindowStart);
+    failureStage = "reconciliation_clarification_reminder";
+    await runReconciliationClarificationReminderSweep(runId, counters, policyWindowStart);
     failureStage = "payout_destination_reminder";
     await runPayoutDestinationReminderSweep(runId, counters, policyWindowStart);
     failureStage = "provider_delay_status";

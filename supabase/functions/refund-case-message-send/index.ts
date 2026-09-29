@@ -223,6 +223,7 @@ const handleTransactionalDeliveryWebhook = async (req: Request) => {
       p_provider_message_id: event.providerMessageId,
       p_delivery_state: event.state,
       p_event_at: event.eventAt,
+      p_provider_message_header: event.providerMessageHeader,
     },
   );
   const result = data && typeof data === "object"
@@ -366,25 +367,24 @@ serve(async (req) => {
         }, 502);
       }
 
-      if (delivery.state !== "accepted") {
-        const eventAt = new Date().toISOString();
-        const { data: recorded, error: recordError } = await supabase.rpc(
-          "service_record_refund_transactional_delivery_event",
-          {
-            p_event_key_digest: await sha256Hex(
-              `resend-refresh|${delivery.providerMessageId}|${delivery.state}`,
-            ),
-            p_provider_message_id: delivery.providerMessageId,
-            p_delivery_state: delivery.state,
-            p_event_at: eventAt,
-          },
-        );
-        const result = recorded && typeof recorded === "object"
-          ? recorded as Record<string, unknown>
-          : null;
-        if (recordError || result?.payloadRedacted !== true) {
-          throw new Error("Transactional delivery refresh could not be recorded.");
-        }
+      const eventAt = new Date().toISOString();
+      const { data: recorded, error: recordError } = await supabase.rpc(
+        "service_record_refund_transactional_delivery_event",
+        {
+          p_event_key_digest: await sha256Hex(
+            `resend-refresh|${delivery.providerMessageId}|${delivery.state}`,
+          ),
+          p_provider_message_id: delivery.providerMessageId,
+          p_delivery_state: delivery.state,
+          p_event_at: eventAt,
+          p_provider_message_header: delivery.providerMessageHeader,
+        },
+      );
+      const result = recorded && typeof recorded === "object"
+        ? recorded as Record<string, unknown>
+        : null;
+      if (recordError || result?.payloadRedacted !== true) {
+        throw new Error("Transactional delivery refresh could not be recorded.");
       }
 
       return jsonResponse({

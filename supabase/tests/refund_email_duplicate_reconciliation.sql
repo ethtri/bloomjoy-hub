@@ -4,7 +4,7 @@ create extension if not exists pgtap with schema extensions;
 create extension if not exists dblink with schema extensions;
 set local search_path = public, extensions;
 
-select plan(48);
+select plan(76);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -261,6 +261,193 @@ select ok(
   ),
   'The comparison contract omits email, complaint text, and card digits'
 );
+
+select has_column('public','refund_case_messages','reconciliation_review_id',
+  'Customer messages can bind to the exact reconciliation review');
+select has_column('public','refund_case_messages','transactional_provider_message_header',
+  'Transactional questions retain the provider Message-ID needed for exact replies');
+select has_column('public','refund_case_reconciliation_reviews','clarification_reply_message_id',
+  'The existing review retains one immutable clarification reply');
+select ok(not exists (
+    select 1 from pg_catalog.pg_constraint c
+    where c.conrelid in ('public.refund_case_messages'::regclass,
+        'public.refund_transactional_delivery_events'::regclass)
+      and pg_catalog.pg_get_constraintdef(c.oid)
+        like '%is_refund_gmail_canonical_message_header%'
+  ),'Message-ID shape checks do not require callers to execute a private helper');
+select has_function('public','service_enqueue_refund_reconciliation_clarification',
+  array['uuid','uuid','bigint','uuid','text'],
+  'The existing outbox has one purpose-bound clarification entry point');
+select has_function('public','admin_resolve_refund_case_reconciliation_from_reply',
+  array['uuid','text','uuid','uuid','text'],
+  'A source-bound reply resolution boundary exists');
+
+savepoint reconciliation_clarification_contract;
+
+select is(
+  public.service_enqueue_refund_reconciliation_clarification(
+    (select id from public.refund_case_reconciliation_reviews),
+    '94000000-0000-4000-8000-000000000001',
+    (select official_action_version from public.refund_cases
+      where id='94000000-0000-4000-8000-000000000001'),
+    '94500000-0000-4000-8000-000000000001','request')->>'enqueued',
+  'true','One fixed clarification enters the existing durable outbox');
+select is((select reconciliation_message_role from public.refund_case_messages
+    where reconciliation_review_id=(select id from public.refund_case_reconciliation_reviews)),
+  'request','The question is purpose-bound on the message row');
+select is((select cardinality(requested_fields) from public.refund_case_messages
+    where reconciliation_review_id=(select id from public.refund_case_reconciliation_reviews)),
+  0,'The duplicate question does not masquerade as a structured fact correction');
+select is((select content_source from public.refund_case_messages
+    where reconciliation_review_id=(select id from public.refund_case_reconciliation_reviews)),
+  'deterministic_template','The customer question uses fixed server-built copy');
+select is((select count(*)::integer from public.refund_case_messages
+    where reconciliation_review_id=(select id from public.refund_case_reconciliation_reviews)),
+  1,'Intent replay cannot create a second question');
+select ok(pg_temp.capture_error(format(
+  'select public.admin_resolve_refund_case_reconciliation_from_reply(%L,%L,%L,%L,%L)',
+  (select id from public.refund_case_reconciliation_reviews),'duplicate',
+  '94000000-0000-4000-8000-000000000001',gen_random_uuid(),'same purchase'))
+  like '%Exact current clarification reply evidence required%',
+  'No review can resolve from an unbound or missing customer reply');
+select ok(pg_get_functiondef('public.service_receive_refund_scoped_email_reply(uuid,uuid)'::regprocedure)
+    like '%provider_message_header=any(regexp_split_to_array%'
+    and pg_get_functiondef('public.service_receive_refund_scoped_email_reply(uuid,uuid)'::regprocedure)
+      like '%clarification_reply_binding=''exact_thread''%',
+  'Reply binding requires the exact outbound thread and provider Message-ID');
+select ok(pg_get_functiondef('public.service_enqueue_refund_reconciliation_clarification(uuid,uuid,bigint,uuid,text)'::regprocedure)
+    like '%clarification_reminder_message_id is not null%'
+    and pg_get_functiondef('public.service_enqueue_refund_reconciliation_clarification(uuid,uuid,bigint,uuid,text)'::regprocedure)
+      like '%clarification_reply_message_id is not null%',
+  'The existing review permits at most one reminder and stops after a reply');
+
+select ok(pg_temp.capture_error(format(
+  'select public.admin_resolve_refund_case_reconciliation(%L,%L,%L,%L)',
+  (select id from public.refund_case_reconciliation_reviews),'distinct',null,'different_purchase'))
+  like '%exact verified customer reply%',
+  'Once the question is queued, generic evidence cannot bypass its bound reply');
+select ok(pg_temp.capture_error(format(
+  'select public.admin_resolve_refund_case_reconciliation(%L,%L,%L,%L)',
+  (select id from public.refund_case_reconciliation_reviews),'distinct',null,'customer_confirmed'))
+  like '%exact verified customer reply%',
+  'A caller cannot spoof customer_confirmed through the generic resolver');
+
+update public.refund_case_messages set status='sent',manual_delivery_state='sent',
+  sent_at=statement_timestamp()-interval '2 hours',
+  delivery_transport='resend',provider_message_id='reconciliation-request-provider',
+  delivery_state='accepted',delivery_state_updated_at=statement_timestamp()-interval '2 hours'
+where reconciliation_review_id=(select id from public.refund_case_reconciliation_reviews);
+select is(public.service_record_refund_transactional_delivery_event(
+  repeat('a',64),'reconciliation-request-provider','delivered',
+  statement_timestamp()-interval '2 hours','<reconciliation-question@example.test>')->>'applied',
+  'true','The existing delivery ledger binds a transactional RFC Message-ID');
+select ok((select transactional_provider_message_header='<reconciliation-question@example.test>'
+    from public.refund_case_messages where reconciliation_message_role='request')
+    and (select clarification_reminder_due_at is not null
+      from public.refund_case_reconciliation_reviews),
+  'Definitive transactional delivery starts the single reminder clock');
+update public.refund_case_reconciliation_reviews set
+  clarification_reminder_due_at=statement_timestamp()-interval '1 minute';
+update public.refund_customer_contact_settings
+set automatic_customer_contact_enabled=false
+where singleton;
+select ok(pg_temp.capture_error(format(
+  'select public.service_enqueue_refund_reconciliation_clarification(%L,%L,%L,%L,%L)',
+  (select id from public.refund_case_reconciliation_reviews),
+  '94000000-0000-4000-8000-000000000002',
+  (select official_action_version from public.refund_cases
+    where id='94000000-0000-4000-8000-000000000002'),
+  '94500000-0000-4000-8000-000000000099','reminder'))
+  like '%Automatic customer contact is disabled%',
+  'The single automatic reminder respects the shared customer-contact switch');
+update public.refund_customer_contact_settings
+set automatic_customer_contact_enabled=true
+where singleton;
+select is(public.service_enqueue_refund_reconciliation_clarification(
+  (select id from public.refund_case_reconciliation_reviews),
+  '94000000-0000-4000-8000-000000000002',
+  (select official_action_version from public.refund_cases
+    where id='94000000-0000-4000-8000-000000000002'),
+  '94500000-0000-4000-8000-000000000002','reminder')->>'enqueued',
+  'true','The one reminder reuses the same bound review and outbox');
+select is((select delivery_kind from public.refund_case_messages
+    where reconciliation_message_role='reminder'),
+  'automatic','The reminder is explicitly governed as automatic customer contact');
+update public.refund_case_messages set status='sent',manual_delivery_state='sent',
+  sent_at=statement_timestamp()-interval '1 hour',
+  delivery_transport='resend',provider_message_id='reconciliation-reminder-provider',
+  delivery_state='accepted',delivery_state_updated_at=statement_timestamp()-interval '1 hour'
+where reconciliation_message_role='reminder';
+select is(public.service_record_refund_transactional_delivery_event(
+  repeat('b',64),'reconciliation-reminder-provider','delivered',
+  statement_timestamp()-interval '1 hour','<reconciliation-reminder@example.test>')->>'applied',
+  'true','The reminder keeps its own exact provider reply identity');
+
+insert into public.refund_gmail_threads(id,refund_case_id,mailbox_hash,provider_thread_id,
+  thread_subject,first_message_at,latest_message_at,retention_expires_at)
+values('94600000-0000-4000-8000-000000000001','94000000-0000-4000-8000-000000000001',
+  repeat('9',64),'reconciliation-clarification-thread','Reconciliation clarification',
+  statement_timestamp()-interval '2 hours',statement_timestamp()-interval '1 hour',
+  statement_timestamp()+interval '30 days');
+insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,provider_message_id,
+  direction,message_kind,status,sender_email,recipient_email,participant_role,participant_trust,
+  subject,plain_body,references_header,received_at,retention_expires_at)
+values('94700000-0000-4000-8000-000000000002','94600000-0000-4000-8000-000000000001',
+  '94000000-0000-4000-8000-000000000001','reconciliation-customer-reply','inbound',
+  'message','received','same-email-customer@example.test','info@bloomjoysweets.com','customer',
+  'verified','Re: Reconciliation clarification','These were two separate purchases.',
+  '<reconciliation-reminder@example.test>',statement_timestamp(),
+  statement_timestamp()+interval '30 days');
+
+select is(public.service_receive_refund_scoped_email_reply(
+  '94000000-0000-4000-8000-000000000001','94700000-0000-4000-8000-000000000002')->>'outcome',
+  'received','A reply to the separate reminder binds to the same exact review');
+select is((select clarification_reply_binding from public.refund_case_reconciliation_reviews),
+  'exact_thread','Only the exact outbound Message-ID and thread authorize resolution');
+select is(public.admin_resolve_refund_case_reconciliation_from_reply(
+  (select id from public.refund_case_reconciliation_reviews),'distinct',null,
+  '94700000-0000-4000-8000-000000000002','two separate purchases')->>'actionBlocked',
+  'false','An operator can record the customer-supported distinct-purchase answer');
+select is((select status from public.refund_case_reconciliation_reviews),
+  'confirmed_distinct','The reply path uses the existing reconciliation result state');
+
+insert into public.refund_cases(id,reporting_machine_id,reporting_location_id,
+  customer_email,customer_name,issue_summary,incident_at,payment_method,
+  payment_amount_cents,card_last4,card_wallet_used,status,correlation_status,intake_source)
+values('94000000-0000-4000-8000-000000000011',
+  '93300000-0000-4000-8000-000000000001','93200000-0000-4000-8000-000000000001',
+  'same-email-customer@example.test','Synthetic Customer','Third related fixture',
+  '2026-08-05 18:12:00+00','card',700,'4242',false,'needs_review','manual_review','form');
+select public.service_enqueue_refund_reconciliation_clarification(
+  (select id from public.refund_case_reconciliation_reviews where
+    '94000000-0000-4000-8000-000000000011' in (left_refund_case_id,right_refund_case_id)
+    and '94000000-0000-4000-8000-000000000001' in (left_refund_case_id,right_refund_case_id)),
+  '94000000-0000-4000-8000-000000000011',
+  (select official_action_version from public.refund_cases
+    where id='94000000-0000-4000-8000-000000000011'),
+  '94500000-0000-4000-8000-000000000003','request');
+update public.refund_case_reconciliation_reviews set status='pending',resolved_at=null,
+  resolution_reason_code=null where
+  '94000000-0000-4000-8000-000000000001' in (left_refund_case_id,right_refund_case_id)
+  and '94000000-0000-4000-8000-000000000002' in (left_refund_case_id,right_refund_case_id);
+insert into public.refund_gmail_messages(id,gmail_thread_id,refund_case_id,provider_message_id,
+  direction,message_kind,status,sender_email,recipient_email,participant_role,participant_trust,
+  subject,plain_body,references_header,received_at,retention_expires_at)
+values('94700000-0000-4000-8000-000000000003','94600000-0000-4000-8000-000000000001',
+  '94000000-0000-4000-8000-000000000001','reconciliation-second-customer-reply','inbound',
+  'message','received','same-email-customer@example.test','info@bloomjoysweets.com','customer',
+  'verified','Re: Reconciliation clarification','Following up on the earlier answer.',
+  '<reconciliation-reminder@example.test>',statement_timestamp(),
+  statement_timestamp()+interval '30 days');
+select is(public.service_receive_refund_scoped_email_reply(
+  '94000000-0000-4000-8000-000000000001','94700000-0000-4000-8000-000000000003')->>'outcome',
+  'review_required','A referenced older review wins over a newer unrelated pair review');
+select is((select clarification_reply_message_id from public.refund_case_reconciliation_reviews where
+    '94000000-0000-4000-8000-000000000011' in (left_refund_case_id,right_refund_case_id)
+    and '94000000-0000-4000-8000-000000000001' in (left_refund_case_id,right_refund_case_id)),
+  null::uuid,'The same inbound cannot be misbound to the newer pair review');
+
+rollback to savepoint reconciliation_clarification_contract;
 
 select public.admin_resolve_refund_case_reconciliation(
   (select id from public.refund_case_reconciliation_reviews),

@@ -220,15 +220,20 @@ export type RefundDuplicateReconciliationPresentation = {
     publicReference: string;
     sharedSignals: string;
     otherCaseHref: string;
+    clarificationState: 'available' | 'question_queued' | 'waiting_for_customer' |
+      'reminder_queued' | 'reply_received' | 'stale';
+    clarificationReplyBinding: 'exact_thread' | 'review_required' | null;
   }>;
 };
 
 export function RefundDuplicateReconciliationPanel({
   presentation,
   onResolve,
+  onAskCustomer,
 }: {
   presentation: RefundDuplicateReconciliationPresentation;
   onResolve: (reviewId: string, resolution: 'duplicate' | 'distinct') => void;
+  onAskCustomer: (reviewId: string) => void;
 }) {
   return (
     <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-950">
@@ -257,27 +262,61 @@ export function RefundDuplicateReconciliationPanel({
                 <p className="mt-2 text-xs leading-5 text-rose-900">
                   Shared signals: {review.sharedSignals}.
                 </p>
+                {review.clarificationState === 'waiting_for_customer' ||
+                review.clarificationState === 'question_queued' ||
+                review.clarificationState === 'reminder_queued' ? (
+                  <p className="mt-2 text-xs leading-5 text-rose-900">
+                    The customer question is in progress. Keep both requests under review until a verified reply arrives.
+                  </p>
+                ) : review.clarificationState === 'reply_received' ? (
+                  <p className="mt-2 text-xs font-medium leading-5 text-rose-900">
+                    {review.clarificationReplyBinding === 'exact_thread'
+                      ? 'A verified reply is ready for Bloomjoy review. Use the customer’s answer before recording the result.'
+                      : 'The reply needs source verification before it can resolve this review.'}
+                  </p>
+                ) : review.clarificationState === 'stale' ? (
+                  <p className="mt-2 text-xs leading-5 text-rose-900">
+                    The earlier question no longer matches the current case facts. Review the current evidence before recording a result.
+                  </p>
+                ) : null}
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={() => onResolve(review.id, 'duplicate')}
-                    disabled={presentation.disabled}
-                  >
-                    Same incident — keep this case
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => onResolve(review.id, 'distinct')}
-                    disabled={presentation.disabled}
-                  >
-                    Different purchases
-                  </Button>
+                  {(review.clarificationState === 'available' || review.clarificationState === 'stale' ||
+                    (review.clarificationState === 'reply_received' &&
+                      review.clarificationReplyBinding === 'exact_thread')) && (
+                    <>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => onResolve(review.id, 'duplicate')}
+                        disabled={presentation.disabled}
+                      >
+                        Same incident — keep this case
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => onResolve(review.id, 'distinct')}
+                        disabled={presentation.disabled}
+                      >
+                        Different purchases
+                      </Button>
+                    </>
+                  )}
                   <Button asChild type="button" size="sm" variant="ghost">
                     <a href={review.otherCaseHref}>Open other case</a>
                   </Button>
+                  {review.clarificationState === 'available' && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onAskCustomer(review.id)}
+                      disabled={presentation.disabled}
+                    >
+                      Ask which purchase these requests describe
+                    </Button>
+                  )}
                 </div>
               </div>
             ))}

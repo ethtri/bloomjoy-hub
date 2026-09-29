@@ -160,6 +160,8 @@ import {
   resolveRefundGmailDeliveryNotFound,
   resolveRefundGmailCaseLinkReview,
   resolveRefundCaseReconciliation,
+  resolveRefundCaseReconciliationFromReply,
+  requestRefundReconciliationClarification,
   sendRefundCaseMessage,
   updateRefundCaseAdmin,
   isNayaxCardRefundExecutionError,
@@ -2823,6 +2825,8 @@ export default function AdminRefundsPage() {
   const [gmailRecoveryVerified, setGmailRecoveryVerified] = useState(false);
   const [isRecoveringGmailContact, setIsRecoveringGmailContact] = useState(false);
   const [isResolvingReconciliation, setIsResolvingReconciliation] = useState(false);
+  const [isRequestingReconciliationClarification, setIsRequestingReconciliationClarification] =
+    useState(false);
   const [isResolvingInboundLink, setIsResolvingInboundLink] = useState(false);
   caseSelectionSafetyRef.current = {
     hasUnsavedCaseText,
@@ -2840,6 +2844,7 @@ export default function AdminRefundsPage() {
       isRejectingTriage ||
       isRecoveringGmailContact ||
       isResolvingReconciliation ||
+      isRequestingReconciliationClarification ||
       isResolvingInboundLink,
   };
   const forceDemoData = isLocalUatDemoForced();
@@ -3674,13 +3679,15 @@ export default function AdminRefundsPage() {
       ? {
           loading: reconciliationIsLoading,
           error: Boolean(reconciliationError),
-          disabled: isResolvingReconciliation,
+          disabled: isResolvingReconciliation || isRequestingReconciliationClarification,
           reviews: pendingReconciliationReviews.map((review) => ({
             id: review.id,
             matchLabel: review.matchClass === 'exact' ? 'Strong possible match' : 'Possible match',
             publicReference: review.otherPublicReference,
             sharedSignals: review.reasonCodes.join(', ').replaceAll('_', ' '),
             otherCaseHref: `/refunds?case=${review.otherCaseId}`,
+            clarificationState: review.clarificationState ?? 'available',
+            clarificationReplyBinding: review.clarificationReplyBinding ?? null,
           })),
         }
       : null;
@@ -3692,12 +3699,36 @@ export default function AdminRefundsPage() {
     if (!selectedCase) return;
     setIsResolvingReconciliation(true);
     try {
-      await resolveRefundCaseReconciliation({
-        reviewId,
-        resolution,
-        canonicalRefundCaseId: resolution === 'duplicate' ? selectedCase.id : null,
-        reasonCode: resolution === 'duplicate' ? 'same_incident' : 'different_purchase',
-      });
+      const review = pendingReconciliationReviews.find((candidate) => candidate.id === reviewId);
+      if (review?.clarificationState === 'reply_received') {
+        if (review.clarificationReplyBinding !== 'exact_thread' ||
+          !review.clarificationReplyMessageId) {
+          throw new Error('Verify the customer reply source before resolving this review.');
+        }
+        const sourceMessage = gmailContext?.messages.find(
+          (message) => message.id === review.clarificationReplyMessageId
+        );
+        const sourceQuote = sourceMessage?.body.trim().slice(0, 240) ?? '';
+        if (sourceQuote.length < 3 || sourceMessage?.direction !== 'inbound' ||
+          sourceMessage.participantRole !== 'customer' ||
+          sourceMessage.participantTrust !== 'verified') {
+          throw new Error('Open the verified customer reply before resolving this review.');
+        }
+        await resolveRefundCaseReconciliationFromReply({
+          reviewId,
+          resolution,
+          canonicalRefundCaseId: resolution === 'duplicate' ? selectedCase.id : null,
+          sourceMessageId: review.clarificationReplyMessageId,
+          sourceQuote,
+        });
+      } else {
+        await resolveRefundCaseReconciliation({
+          reviewId,
+          resolution,
+          canonicalRefundCaseId: resolution === 'duplicate' ? selectedCase.id : null,
+          reasonCode: resolution === 'duplicate' ? 'same_incident' : 'different_purchase',
+        });
+      }
       toast.success(
         resolution === 'duplicate'
           ? 'The duplicate is linked. Decisions and refunds stay on the original case.'
@@ -3715,6 +3746,32 @@ export default function AdminRefundsPage() {
       );
     } finally {
       setIsResolvingReconciliation(false);
+    }
+  };
+
+  const askCustomerAboutReconciliation = async (reviewId: string) => {
+    if (!selectedCase || officialActionVersion <= 0 || isUsingDemoData) return;
+    setIsRequestingReconciliationClarification(true);
+    try {
+      await requestRefundReconciliationClarification({
+        reviewId,
+        anchorCaseId: selectedCase.id,
+        expectedCaseVersion: officialActionVersion,
+        messageIntentId: crypto.randomUUID(),
+      });
+      toast.success('The one customer question was queued in the existing delivery path.');
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] }),
+        queryClient.invalidateQueries({ queryKey: ['refund-case-reconciliation'] }),
+      ]);
+    } catch (clarificationError) {
+      toast.error(
+        clarificationError instanceof Error
+          ? clarificationError.message
+          : 'Unable to queue the customer question.'
+      );
+    } finally {
+      setIsRequestingReconciliationClarification(false);
     }
   };
 
@@ -7803,6 +7860,9 @@ export default function AdminRefundsPage() {
                         presentation={duplicateReconciliationPresentation}
                         onResolve={(reviewId, resolution) =>
                           void resolveReconciliation(reviewId, resolution)
+                        }
+                        onAskCustomer={(reviewId) =>
+                          void askCustomerAboutReconciliation(reviewId)
                         }
                       />
                     )}

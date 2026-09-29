@@ -82,6 +82,13 @@ historical fixtures cannot add product gates that the workflow does not contain.
   in the existing thread; it does not CC Managers. An undecided cash case says
   the destination is needed to continue review and never calls the refund
   approved. Manager decision alerts and digests remain separate.
+- [ ] A purchase-relationship clarification is available only for one current
+  pending reconciliation pair. It queues one fixed customer-thread question,
+  permits one reminder after proven delivery and no reply, and becomes stale if
+  either fact fingerprint changes. Only an exact verified reply in the bound
+  Gmail thread may support the existing operator duplicate/distinct action;
+  ambiguous or source-unverified replies remain internal review and do not
+  merge cases, block separate legitimate refunds, send money, or make a decision.
 - [ ] A historical no-safe-match follow-up with no customer-correctable field,
   message, or send evidence remains open Agent purchase research. It does not
   imply a customer question exists or offer a resend. Stale facts and any
@@ -923,7 +930,7 @@ npm run refunds:validate-portal-uat-lifecycle
   message ID as the idempotency key; they do not fail with
   `gmail_source_thread_required` or attach to unrelated Gmail history.
 - [ ] Automatic messages created from a Gmail request retain the exact original
-  Gmail thread binding and never fall back to a different linked conversation.
+  bound customer conversation and exact outbound provider Message-ID, and never fall back to a different conversation.
 - [ ] An exhausted completion with a confirmed payment and no exact provider or
   Gmail send record can prepare one exceptional recovery of its original saved
   message after original-thread review. The reviewed current copy is bound to

@@ -117,7 +117,10 @@ const signedRequest = (body, { at = new Date(), mutate = (value) => value, heade
 };
 const deliveredBody = JSON.stringify({
   type: 'email.delivered', created_at: '2026-09-03T00:00:00Z',
-  data: { email_id: 'synthetic_delivery_123' },
+  data: {
+    email_id: 'synthetic_delivery_123',
+    message_id: '<synthetic-delivery-123@resend.example>',
+  },
 });
 for (const options of [
   { headers: { 'svix-signature': '' } },
@@ -143,6 +146,7 @@ assert.deepEqual(JSON.parse(JSON.stringify(rpcCalls[0].args)), {
   p_provider_message_id: 'synthetic_delivery_123',
   p_delivery_state: 'delivered',
   p_event_at: '2026-09-03T00:00:00.000Z',
+  p_provider_message_header: '<synthetic-delivery-123@resend.example>',
 });
 
 assert.ok(operations.includes("transactionalDeliveryContractVersion?: 'refund_transactional_delivery_v1'"));

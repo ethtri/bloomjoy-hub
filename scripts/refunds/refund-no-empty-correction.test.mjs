@@ -4,6 +4,10 @@ import test from 'node:test';
 import ts from 'typescript';
 
 const source = await readFile(new URL('../../supabase/functions/refund-case-automation-sweep/index.ts', import.meta.url), 'utf8');
+const reconciliationMigration = await readFile(
+  new URL('../../supabase/migrations/20260929193000_refund_reconciliation_clarification.sql', import.meta.url),
+  'utf8',
+);
 const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const functionSource = (name, next) => {
   const start = compiled.indexOf(`const ${name} =`);
@@ -11,6 +15,21 @@ const functionSource = (name, next) => {
   assert(start >= 0 && end > start, `Missing function boundary for ${name}`);
   return compiled.slice(start, end);
 };
+
+test('an exact reconciliation reply is selected before the older correction lane', () => {
+  const receiverStart = reconciliationMigration.indexOf(
+    'create or replace function public.service_receive_refund_scoped_email_reply',
+  );
+  const receiverEnd = reconciliationMigration.indexOf(
+    '-- Once Bloomjoy asks this pair-specific question',
+    receiverStart,
+  );
+  const receiver = reconciliationMigration.slice(receiverStart, receiverEnd);
+  assert(receiverStart >= 0 && receiverEnd > receiverStart);
+  assert(receiver.indexOf('matched_review_count') >= 0);
+  assert.match(receiver, /matched_review_count=0 then[\s\S]*service_receive_refund_reply_pre_recon_v1/);
+  assert.match(receiver, /clarification_reminder_message_id/);
+});
 
 test('actual persisted-result sweep routes an empty no-match internally without claiming customer contact', async () => {
   const calls = [];
@@ -238,4 +257,60 @@ test('actual due-reminder sweep stops empty correction and returns waiting case 
   assert(calls.some(([table, op, value]) => table === 'refund_follow_up_cycles' && op === 'update' && value.status === 'manual_review'));
   assert(calls.some(([table, op, value]) => table === 'refund_cases' && op === 'update' && value.status === 'needs_review' && value.automation_follow_up_due_at === null));
   assert(calls.some(([kind, , status, reason]) => kind === 'finish' && status === 'suppressed' && reason === 'no_customer_correctable_fact'));
+});
+
+test('pair clarification reminder reuses one claimed customer-reminder action and the existing outbox', async () => {
+  const calls = [];
+  const review = {
+    id: 'review-fixture',
+    clarification_anchor_case_id: 'case-fixture',
+    clarification_reminder_due_at: '2026-09-20T00:00:00Z',
+  };
+  const query = (table) => {
+    const chain = {
+      then: (resolve) => resolve({
+        data: table === 'refund_case_reconciliation_reviews' ? [review] : null,
+        error: null,
+      }),
+      single: async () => ({ data: { status: 'sent', manual_delivery_state: 'sent' }, error: null }),
+    };
+    for (const key of ['select', 'eq', 'is', 'not', 'lte', 'order', 'limit']) {
+      chain[key] = (...args) => { calls.push([table, key, ...args]); return chain; };
+    }
+    return chain;
+  };
+  const run = new Function(
+    'supabase',
+    'automaticCustomerContactAllowed',
+    'textValue',
+    'getSweepCase',
+    'claimAction',
+    'runManualMessageOutboxSweep',
+    'finishAction',
+    `${functionSource('runReconciliationClarificationReminderSweep', 'sendPayoutDestinationReminder')}
+    return runReconciliationClarificationReminderSweep;`,
+  )(
+    {
+      from: query,
+      rpc: async (name, input) => {
+        calls.push(['rpc', name, input]);
+        return { data: { enqueued: true, messageId: 'message-fixture' }, error: null };
+      },
+    },
+    async () => true,
+    (value) => typeof value === 'string' ? value : '',
+    async () => ({ id: 'case-fixture', status: 'needs_review', official_action_version: 3 }),
+    async (...args) => { calls.push(['claim', ...args]); return { claimed: true, id: 'action-fixture' }; },
+    async (...args) => { calls.push(['outbox', ...args]); },
+    async (...args) => { calls.push(['finish', ...args]); },
+  );
+  await run('run-fixture', { evaluatedCaseIds: new Set() }, '2026-09-29T00:00:00Z');
+  assert(calls.some(([kind, , , actionKey, actionType]) =>
+    kind === 'claim' && actionKey === 'reconciliation-clarification-reminder:review-fixture' &&
+      actionType === 'customer_reminder'));
+  assert(calls.some(([kind, name]) =>
+    kind === 'rpc' && name === 'service_enqueue_refund_reconciliation_clarification'));
+  assert(calls.some(([kind, , outcome, reason, messageId]) =>
+    kind === 'finish' && outcome === 'completed' && reason === 'reminder_sent' &&
+      messageId === 'message-fixture'));
 });
