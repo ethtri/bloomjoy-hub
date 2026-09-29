@@ -50,11 +50,18 @@ orientation snapshot; it is not a backlog or release ledger.
   money.
 - Two current cases share one pending exact duplicate-reconciliation review.
   The protected transaction-check writer correctly stops before a provider read
-  until the existing duplicate-or-distinct review is resolved, but the Edge
-  endpoint reported that expected precondition as HTTP 500 and the portal told
-  the operator to retry. The bounded correction reports a stable conflict,
-  refreshes the case's authoritative next step, and leaves duplicate resolution,
-  lookup eligibility, provider calls, decisions, messages, and money unchanged.
+  until the existing duplicate-or-distinct review is resolved. The deployed
+  Edge correction now reports that expected precondition as HTTP 409 instead of
+  HTTP 500, and the portal shows the current-case instruction without retry
+  guidance before refreshing the authoritative next step. A bounded production
+  call returned the stable conflict in 1.446 seconds; its before/after snapshot
+  retained `not_started`, generation zero, zero candidates, the same event
+  count, and the unresolved review. Duplicate resolution, provider calls,
+  decisions, messages, and money were unchanged, and the scoped session was
+  revoked. Current evidence cannot safely establish whether the pair is a
+  corrected repeat form or two purchases, so the review remains pending; #628
+  tracks one governed same-thread clarification when internal research is
+  exhausted.
 - On 2026-09-26 the authenticated refund list loaded again, but five case
   workflow details were still unavailable. Three traced to a stale Nayax lookup
   projection: two searches need internal machine/duplicate-scope repair before
