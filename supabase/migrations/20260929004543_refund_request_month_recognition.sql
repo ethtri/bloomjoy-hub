@@ -13,7 +13,10 @@ create table private.refund_request_recognition_rollout (
 create table private.refund_request_recognition_events (
   id uuid primary key default gen_random_uuid(),
   event_key text not null unique,
-  refund_case_id uuid not null references public.refund_cases (id) on delete restrict,
+  -- Snapshot identifiers intentionally have no cascading/restricting FKs: the
+  -- append-only evidence must survive source cleanup without changing existing
+  -- refund, machine, or location deletion behavior.
+  refund_case_id uuid not null,
   event_kind text not null check (event_kind in (
     'request_received',
     'amount_changed',
@@ -30,8 +33,8 @@ create table private.refund_request_recognition_events (
   effective_at timestamptz not null,
   recorded_at timestamptz not null default statement_timestamp(),
   booking_date date,
-  reporting_machine_id uuid references public.reporting_machines (id) on delete restrict,
-  reporting_location_id uuid references public.reporting_locations (id) on delete restrict,
+  reporting_machine_id uuid,
+  reporting_location_id uuid,
   tender text not null check (tender in ('cash', 'card', 'other', 'unknown')),
   source text not null,
   -- Immutable evidence must not receive an implicit UPDATE during source cleanup.
