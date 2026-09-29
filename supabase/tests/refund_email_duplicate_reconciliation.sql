@@ -4,7 +4,7 @@ create extension if not exists pgtap with schema extensions;
 create extension if not exists dblink with schema extensions;
 set local search_path = public, extensions;
 
-select plan(75);
+select plan(76);
 
 create function pg_temp.capture_error(statement text)
 returns text
@@ -441,7 +441,7 @@ values('94700000-0000-4000-8000-000000000003','94600000-0000-4000-8000-000000000
   statement_timestamp()+interval '30 days');
 select is(public.service_receive_refund_scoped_email_reply(
   '94000000-0000-4000-8000-000000000001','94700000-0000-4000-8000-000000000003')->>'outcome',
-  'already_received','A referenced older review wins over a newer unrelated pair review');
+  'review_required','A referenced older review wins over a newer unrelated pair review');
 select is((select clarification_reply_message_id from public.refund_case_reconciliation_reviews where
     '94000000-0000-4000-8000-000000000011' in (left_refund_case_id,right_refund_case_id)
     and '94000000-0000-4000-8000-000000000001' in (left_refund_case_id,right_refund_case_id)),
