@@ -8,6 +8,7 @@ const sweep = read("supabase/functions/refund-case-automation-sweep/index.ts");
 const portal = `${read("src/pages/admin/Refunds.tsx")}\n${read("src/components/refunds/RefundExceptionalRecoveryPanels.tsx")}`;
 const transactionViewState = read("src/lib/refundTransactionViewState.ts");
 const lookupEndpoint = read("supabase/functions/nayax-transaction-lookup/index.ts");
+const lookupBeginError = read("supabase/functions/_shared/nayax-lookup-begin-error.ts");
 const recoveryMigration = read("supabase/migrations/20260911210036_simplify_refund_nayax_lookup.sql");
 const gapRecoveryMigration = read("supabase/migrations/20260912205646_refund_gap_recovery_paths.sql");
 const managerSystemCutover = read("supabase/migrations/20260914100000_refund_manager_system_cutover.sql");
@@ -172,6 +173,36 @@ assert(
     managerSystemCutover.includes('refund_authoritative_receipts') &&
     managerSystemCutover.includes('refund_case_nayax_refund_attempts'),
   "the narrow endpoint must defer to exact current case authority and preserve payment guards",
+);
+const beginRpcErrorBranch = lookupEndpoint.indexOf(
+  "const beginFailure = classifyNayaxLookupBeginError(beginError);",
+);
+const providerLookupCall = lookupEndpoint.indexOf(
+  "const result = await lookupNayaxCandidatesForRefundCase",
+);
+const lookupGenerationAudit = lookupEndpoint.indexOf(
+  "lookupGenerationForAudit = lookupGeneration;",
+);
+const persistedLookupCall = lookupEndpoint.indexOf(
+  "await persistNayaxLookupResult",
+);
+assert(
+  beginRpcErrorBranch > lookupEndpoint.indexOf('"service_begin_refund_nayax_operations_lookup"') &&
+    providerLookupCall > beginRpcErrorBranch &&
+    lookupGenerationAudit > beginRpcErrorBranch &&
+    persistedLookupCall > beginRpcErrorBranch &&
+    lookupEndpoint.includes("lookupGenerationForAudit !== null") &&
+    lookupBeginError.includes('code === "P4622"') &&
+    lookupBeginError.includes('status: 409') &&
+    lookupBeginError.includes('errorCode: "lookup_precondition_conflict"') &&
+    lookupBeginError.includes('code === "42501"') &&
+    lookupBeginError.includes('status: 403') &&
+    lookupBeginError.includes('errorCode: "lookup_access_required"') &&
+    lookupBeginError.includes("return null;") &&
+    portal.includes("'lookup_precondition_conflict', 'lookup_access_required'") &&
+    portal.includes("lookupError.data?.error || lookupError.message") &&
+    portal.includes("await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] })"),
+  "guarded lookup conflicts must stop before provider work and refresh the authoritative next step without unsafe retry guidance",
 );
 assert(
   portal.includes('const legacyManagerLookupAuthorized = false') &&

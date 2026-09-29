@@ -10,6 +10,7 @@ import {
   failNayaxLookup,
   persistNayaxLookupResult,
 } from "../_shared/nayax-lookup-persistence.ts";
+import { classifyNayaxLookupBeginError } from "../_shared/nayax-lookup-begin-error.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -97,7 +98,13 @@ serve(async (req) => {
         p_actor_user_id: user.id,
       },
     );
-    if (beginError) throw beginError;
+    if (beginError) {
+      const beginFailure = classifyNayaxLookupBeginError(beginError);
+      if (beginFailure) {
+        return jsonResponse(beginFailure.body, beginFailure.status);
+      }
+      throw beginError;
+    }
     const lookupGeneration = Number(beginResult?.lookupGeneration);
     if (!Number.isInteger(lookupGeneration) || lookupGeneration < 1) {
       throw new Error("The read-only transaction check could not be started.");
