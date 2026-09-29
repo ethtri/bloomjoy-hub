@@ -51,6 +51,17 @@ orientation snapshot; it is not a backlog or release ledger.
   one retry, then rendered 57 active, 15 closed, and one waiting-on-customer case
   as up to date. The database regression is repaired; the large response and
   transient first-load failure remain reliability and responsiveness debt.
+- The September 29 reviewed-selection preparation release closes one concrete
+  case-worker gap without adding another queue or decision step. Migration
+  `20260929113000` lets the existing selection action refresh current proof for
+  one unchanged, actor-reviewed, exact Nayax transaction and exposes an advisory
+  recommendation to the existing Manager decision path. In production,
+  RF-423906B2 advanced from case-worker preparation to Manager approve-or-deny;
+  its decision remained empty, and its counts remained zero payment attempts,
+  zero receipts, zero action authorizations, and two unchanged customer messages.
+  The proof records no provider call or customer message. This proves one real
+  nonfinancial case advance; it does not claim that the remaining active case
+  portfolio is complete.
 - Production recovery on 2026-09-19 restored the System card-attempt queue for
   the TGPaci enterprise account. Approval and processing now use the same queue
   readiness contract, and deterministic completion delivery claims the database
