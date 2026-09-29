@@ -262,7 +262,8 @@
     "20260928181639_snapcase_legacy_nayax_mapping_eligibility.sql",
     "20260928181716_correct_sales_report_refund_totals.sql",
     "20260928214735_refund_obsolete_clarification_health.sql",
-    "20260928234730_refund_overview_setwise_reuse.sql"
+    "20260928234730_refund_overview_setwise_reuse.sql",
+    "20260928235000_refund_completion_existing_thread_resolution.sql"
   ],
   "migrationFilesSha256": "4e57384193065e5c46abb5efcaa61f90614696dc4dc2253911a9907b02095a27",
   "migrationVersionSetSha256": "b8d76a8310b341858320005d2e5bb9352d92e9b7bb7a92068faec7f3be3bc9fd",
