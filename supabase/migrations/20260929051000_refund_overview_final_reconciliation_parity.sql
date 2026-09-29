@@ -14,6 +14,8 @@ returns jsonb
 language plpgsql
 stable
 security definer
+set statement_timeout='20s'
+set work_mem='32MB'
 set search_path=''
 as $$
 declare

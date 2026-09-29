@@ -43,7 +43,10 @@ select ok(strpos(pg_get_functiondef(
   'durable overview stage reuses its retained lifecycle before v2 projection');
 select ok(strpos(pg_get_functiondef(
     'public.admin_get_refund_operations_overview()'::regprocedure),
-    'refund_project_current_next_work_cases')>0,
+    'admin_get_refund_operations_overview_pre_final_reconciliation_v1')>0
+  and strpos(pg_get_functiondef(
+    'public.admin_get_refund_operations_overview()'::regprocedure),
+    'refund_case_has_unresolved_reconciliation')>0,
   'final overview validates current next-work contracts before reuse');
 select ok(strpos(pg_get_functiondef(
     'public.refund_project_current_next_work_cases(jsonb)'::regprocedure),

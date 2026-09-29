@@ -227,10 +227,12 @@ end;
 $$;
 
 select ok(
-  position('admin_get_refund_operations_overview_pre_next_work_v1' in pg_get_functiondef(
+  position('admin_get_refund_operations_overview_pre_final_reconciliation_v1' in pg_get_functiondef(
     'public.admin_get_refund_operations_overview()'::regprocedure))>0
-  and position('refund_project_current_next_work_cases' in pg_get_functiondef(
+  and position('refund_case_has_unresolved_reconciliation' in pg_get_functiondef(
     'public.admin_get_refund_operations_overview()'::regprocedure))>0
+  and position('refund_project_next_work_pre_identity_repair_v1' in pg_get_functiondef(
+    'public.admin_get_refund_operations_overview_pre_final_reconciliation_v1()'::regprocedure))>0
   and position('admin_get_refund_operations_overview_pre_cash_verification_ux_v1' in pg_get_functiondef(
     'public.admin_get_refund_operations_overview_pre_next_work_v1()'::regprocedure))>0
   and position('refund_project_candidate_time_evidence_v1' in pg_get_functiondef(
