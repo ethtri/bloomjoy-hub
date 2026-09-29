@@ -47,7 +47,7 @@ jobs:
       CONFIRM_LIVE: ${{ inputs.confirm_live || 'false' }}
       GITHUB_EVENT_NAME: ${{ github.event_name }}
       SOURCE_RUN_URL: ${{ github.event.workflow_run.html_url || '' }}
-      PROVIDER_INGEST_CHUNK_SIZE: ${{ vars.SUNZE_INGEST_CHUNK_SIZE || '1000' }}
+      PROVIDER_INGEST_CHUNK_SIZE: ${{ vars.SUNZE_INGEST_CHUNK_SIZE || '250' }}
       PROVIDER_EXPECTED_MACHINE_COUNT: ${{ vars.SUNZE_EXPECTED_MACHINE_COUNT || '' }}
       SUNZE_EXPORT_TASK_TIMEOUT_MS: ${{ vars.SUNZE_EXPORT_TASK_TIMEOUT_MS || '' }}
       SUNZE_EXPORT_DOWNLOAD_TIMEOUT_MS: ${{ vars.SUNZE_EXPORT_DOWNLOAD_TIMEOUT_MS || '' }}

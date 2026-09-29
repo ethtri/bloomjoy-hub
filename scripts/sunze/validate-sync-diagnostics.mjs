@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   buildExportTaskDownloadDiagnostic,
   buildExportTaskWaitDiagnostic,
@@ -196,6 +197,20 @@ assert.deepEqual(
 );
 assert.equal(buildExportTaskDownloadDiagnostic({ timeoutMs: 120000 }).taskCreatedAt, null);
 
+const syncWorker = readFileSync(new URL('./sync-orders.mjs', import.meta.url), 'utf8');
+const syncWorkflow = readFileSync(
+  new URL('../../.github/workflows/sales-import-sync.yml', import.meta.url),
+  'utf8'
+);
+const recoveryWorkflow = readFileSync(
+  new URL('../../.github/workflows/sales-import-recovery.yml', import.meta.url),
+  'utf8'
+);
+assert.match(syncWorker, /const DEFAULT_INGEST_CHUNK_SIZE = 250;/u);
+assert.match(syncWorker, /const MAX_INGEST_CHUNK_SIZE = 250;/u);
+assert.match(syncWorkflow, /SUNZE_INGEST_CHUNK_SIZE \|\| '250'/u);
+assert.match(recoveryWorkflow, /SUNZE_INGEST_CHUNK_SIZE \|\| '250'/u);
+
 console.log(
   JSON.stringify(
     {
@@ -207,6 +222,7 @@ console.log(
         'summary machine log redaction',
         'export task timeout retry classification',
         'export task diagnostic field shape',
+        'bounded ingest chunk policy',
       ],
     },
     null,
