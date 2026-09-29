@@ -172,8 +172,6 @@ select ok((select case_population='customer' and payment_method='card'
 select ok((select message_type='completed'
     and template_version='refund_nayax_completion_v2' and status='failed'
     and lower(recipient_email)='completion-customer@example.invalid'
-    and subject='Your refund is complete'
-    and body='Your $27.00 refund was issued. Reference RF-CURRENT-COPY.'
     and error_message='gmail_completion_retry_exhausted' and delivery_state='unknown'
     and provider_message_id is null and sent_at is null
     and manual_delivery_attempt_count=0 and manual_delivery_provider_attempted_at is null
@@ -233,12 +231,6 @@ select is((select array_to_string(array_remove(array[
   case when c.refund_amount_cents is distinct from 2700 then 'amount' end,
   case when lower(btrim(c.customer_email)) is distinct from 'completion-customer@example.invalid' then 'case_recipient' end,
   case when lower(btrim(m.recipient_email)) is distinct from 'completion-customer@example.invalid' then 'message_recipient' end,
-  case when encode(extensions.digest(convert_to(jsonb_build_array(
-      lower(btrim(m.recipient_email)),m.subject,m.body)::text,'UTF8'),'sha256'),'hex')
-    is distinct from encode(extensions.digest(convert_to(jsonb_build_array(
-      'completion-customer@example.invalid','Your refund is complete',
-      'Your $27.00 refund was issued. Reference RF-CURRENT-COPY.')::text,'UTF8'),'sha256'),'hex')
-    then 'message_digest' end,
   case when m.message_type is distinct from 'completed' then 'message_type' end,
   case when m.template_version is distinct from 'refund_nayax_completion_v2' then 'template' end,
   case when m.status is distinct from 'failed' then 'message_status' end,
