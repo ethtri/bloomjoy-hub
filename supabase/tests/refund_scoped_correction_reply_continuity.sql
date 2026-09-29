@@ -23,6 +23,13 @@ begin
   values(cid,'df000000-0000-4000-8000-000000000003','df000000-0000-4000-8000-000000000002','reply-customer@example.invalid','Scoped reply test',
     now()-interval '2 hours'-n*interval '7 hours',to_char((now()-interval '2 hours'-n*interval '7 hours') at time zone 'America/Los_Angeles','YYYY-MM-DD"T"HH24:MI'),
     'America/Los_Angeles',case when n=60 then 'ambiguous' else 'exact' end,case when n=60 then 'rough' else 'exact' end,case when n=61 then 'cash' else 'card' end,case when n=61 then 'cash' when n in (27,28,29,38,42,45) then 'phone_watch_wallet' else 'tap_card' end,case when n in (34,43,45,48) then 1090 when n in (44,60,61) then 1000 when n in (27,28,29,30) then 700 else null end,case when n=45 then '4932' when n in (8,15,27,28,29,30,34,38,42,43,44,48,61) then null else '1234' end,case when n=45 then 'wallet_device_token' when n in (8,15,27,28,29,30,34,38,42,43,44,48,61) then null else 'physical_card' end,case when n=61 then null when n=26 then 'mastercard' else 'visa' end,n in (27,28,29,38,42,45),'needs_review','manual_review','form');
+  if n=61 then
+    -- The protected payout request is fail closed unless its execution state
+    -- is explicitly safe. Do not rely on a nullable fixture default.
+    update public.refund_cases
+    set nayax_refund_execution_status='not_requested'
+    where id=cid;
+  end if;
   if n in (27,28) then
     -- The earlier provider read precedes the delivered wallet question. A
     -- waiting-on-customer case cannot start an ordinary lookup afterward.
