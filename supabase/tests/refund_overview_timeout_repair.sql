@@ -300,6 +300,8 @@ select ok((select exists(
       and item#>>'{lifecycle,nextWork,actionCode}'='research_purchase'
       and item#>>'{lifecycle,nextWork,actionLabel}'=
         'Research the purchase and prepare the next safe step.'
+      and item#>'{lifecycle,nextWork,lastProgressAt}'='null'::jsonb
+      and item#>'{lifecycle,nextWork,dueAt}'='null'::jsonb
       and item#>'{lifecycle,nextWork,blocker}'='null'::jsonb)
   from (select public.admin_get_refund_operations_overview() value) overview),
   'final overview cannot reintroduce System lookup after reconciliation exclusion');

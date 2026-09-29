@@ -175,9 +175,14 @@ orientation snapshot; it is not a backlog or release ledger.
   System work because a later lookup compatibility stage overlaid that result.
   Follow-up migration `20260929051000` repairs only the already-visible
   next-work object in the final actor-scoped overview when duplicate
-  reconciliation remains open; this remains prospective until deployed
-  readback. These migrations add no queue, run ledger, decision, message,
-  refund, or payment authority.
+  reconciliation remains open. Authenticated database readback then returned
+  Agent purchase research for both rows, but the browser rejected those two
+  lifecycle objects because the replacement omitted the required nullable
+  `lastProgressAt` and `dueAt` keys. Migration `20260929060136` restores that
+  exact public next-work shape; browser acceptance and the first real casework
+  outcome remain required before the heartbeat is resumed or progression is
+  called operational. These migrations add no queue, run ledger, decision,
+  message, refund, or payment authority.
 - Historical no-safe-match follow-up cycles that stopped before creating any
   customer question project as internal purchase research only when current
   facts still have no correctable field and no cycle-bound message exists.
