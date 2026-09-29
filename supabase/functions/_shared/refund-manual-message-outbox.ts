@@ -84,7 +84,8 @@ type RefundManualMessageRow = {
 export const refundManualMessageManagerCopyPolicy = (
   message: Pick<RefundManualMessageRow, "message_type" | "delivery_kind">,
 ) =>
-  message.message_type === "more_info" && message.delivery_kind === "manual"
+  ["more_info", "completed"].includes(message.message_type) &&
+      message.delivery_kind === "manual"
     ? "customer_thread_only" as const
     : message.delivery_kind === "automatic"
     ? "automatic_portal_only" as const
