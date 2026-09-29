@@ -3,7 +3,7 @@
   "environment": "production",
   "projectRef": "ygbzkgxktzqsiygjlqyg",
   "releaseId": "refund-ops-2026-08-11-production-readiness",
-  "sourceGitCommit": "1fe4f701f37ad1bf7280fb633af178d4406eb098",
+  "sourceGitCommit": "f7c5d34061ad9654404c68dcf253cc6fe9c2d0c7",
   "requiredMigrations": [
     "202604270001_refund_adjustment_review_matching.sql",
     "202604270002_live_refund_sheet_ingestion.sql",
@@ -356,9 +356,9 @@
       "verifyJwt": false,
       "sourceSha256": "a589b444b39ec9a697906ef49e6a93b259cd550239186075de839f52e136e4f0",
       "production": {
-        "version": 148,
-        "ezbrSha256": "55d85ce923cfff9cb98d4059582c9db655bfe8c3764ae4113c28eaded2762706",
-        "sourceSha256": "4366c5953b5aa3d883fcd9f7c11b971718b4708daa1530c257c80057ab96f281",
+        "version": 153,
+        "ezbrSha256": "c58d3f587080b39a2738ff034c3799618aed0f656dd83f8f7a41085d49d2f889",
+        "sourceSha256": "a589b444b39ec9a697906ef49e6a93b259cd550239186075de839f52e136e4f0",
         "entrypointIdentity": "supabase/functions/nayax-transaction-lookup/index.ts"
       }
     },
