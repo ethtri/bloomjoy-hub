@@ -189,6 +189,12 @@ orientation snapshot; it is not a backlog or release ledger.
   production case then sent exactly one payout-destination question: the provider
   recorded delivered, the bounded reminder row is waiting, and the portal moved
   the case to customer wait without a decision, payment, approval, or refund.
+  That first live question also exposed two policy defects: the manual route
+  copied two mapped Managers and the payout copy called the undecided request
+  approved. Preserve that delivered message as immutable history and do not
+  resend it. The follow-up source repair keeps `more_info` messages in the
+  customer thread without Manager CC and describes payout-destination collection
+  as review work; decision alerts and Manager digests remain separate.
   Candidate research and linked-case loading remain the next operational slice.
   These migrations add no queue, run ledger, decision, refund, or payment authority.
 - Historical no-safe-match follow-up cycles that stopped before creating any

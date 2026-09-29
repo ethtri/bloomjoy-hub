@@ -81,6 +81,15 @@ type RefundManualMessageRow = {
   created_by: string;
 };
 
+export const refundManualMessageManagerCopyPolicy = (
+  message: Pick<RefundManualMessageRow, "message_type" | "delivery_kind">,
+) =>
+  message.message_type === "more_info" && message.delivery_kind === "manual"
+    ? "customer_thread_only" as const
+    : message.delivery_kind === "automatic"
+    ? "automatic_portal_only" as const
+    : "manager_cc_required" as const;
+
 const PROVIDER_MESSAGE_ID_PATTERN = /^[A-Za-z0-9_-]{8,255}$/;
 const automaticTransactionalRecovery = (
   message: RefundManualMessageRow,
@@ -396,6 +405,7 @@ export const deliverRefundManualMessageClaim = async ({
   }
 
   const transactionalRecovery = automaticTransactionalRecovery(message);
+  const managerCopyPolicy = refundManualMessageManagerCopyPolicy(message);
 
   const baseBody = message.body.replaceAll(STORED_STATUS_LINK_MARKER, "")
     .trim();
@@ -474,6 +484,7 @@ export const deliverRefundManualMessageClaim = async ({
       recipientEmail: message.recipient_email,
       email,
       deliveryKind: message.delivery_kind,
+      managerCopyPolicy,
       syntheticProofAuthorizationId:
         message.synthetic_gmail_proof_authorization_id,
     });
@@ -490,9 +501,7 @@ export const deliverRefundManualMessageClaim = async ({
       const receipt = await sendRefundTransactionalEmail({
         to: [message.recipient_email],
         cc: gmailDelivery.managerCcEmails,
-        managerCopyPolicy: message.delivery_kind === "automatic"
-          ? "automatic_portal_only"
-          : "manager_cc_required",
+        managerCopyPolicy,
         subject: email.subject,
         text: email.text,
         html: email.html,

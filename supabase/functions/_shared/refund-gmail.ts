@@ -1412,6 +1412,7 @@ export const sendRefundGmailReply = async ({
   recipientPolicy?:
     | "manager_cc_required"
     | "automatic_portal_only"
+    | "customer_thread_only"
     | "premapping_acknowledgement";
 }) => {
   requireRefundGmailEnabled();
@@ -1454,12 +1455,22 @@ export const sendRefundGmailReply = async ({
     Number.isSafeInteger(managerRecipientCount) &&
     managerRecipientCount! >= 1 &&
     managerRecipientCount! <= 4;
+  const customerThreadOnly =
+    recipientPolicy === "customer_thread_only" &&
+    effectiveDeliveryKind === "manual" &&
+    operationKey.startsWith("refund-case-message:") &&
+    normalizedCc.length === 0 &&
+    ccEmails.length === 0 &&
+    managerRecipientOverlap === false &&
+    Number.isSafeInteger(managerRecipientCount) &&
+    managerRecipientCount! >= 1 &&
+    managerRecipientCount! <= 4;
   const automaticManagerCopyBlocked =
     effectiveDeliveryKind === "automatic" &&
     recipientPolicy === "manager_cc_required";
   if (
     automaticManagerCopyBlocked ||
-    (!premappingNoCcAllowed && !automaticPortalOnly && (
+    (!premappingNoCcAllowed && !automaticPortalOnly && !customerThreadOnly && (
       !Number.isSafeInteger(managerRecipientCount) ||
       managerRecipientCount! < 1 ||
       managerRecipientCount! > 4 ||

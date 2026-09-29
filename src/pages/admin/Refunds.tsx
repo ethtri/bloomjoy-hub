@@ -8347,10 +8347,10 @@ export default function AdminRefundsPage() {
           >
             <p className="font-medium">From {refundCustomerSenderIdentity}</p>
             <p>
-              To this customer · CC every current assigned Machine Manager · saved in Activity and messages.
+              To this customer only · saved in the customer thread, Activity, and messages.
             </p>
             <p className="mt-1 text-xs">
-              If this official sender or the exact recipients cannot be verified, Bloomjoy stops before delivery.
+              Managers receive decision alerts and digests separately. If the official sender or customer recipient cannot be verified, Bloomjoy stops before delivery.
             </p>
           </div>
           <fieldset className="space-y-1">
