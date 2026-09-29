@@ -3,7 +3,10 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8').replaceAll('\r\n', '\n');
-const migration = read('supabase/migrations/20260910163735_refund_completion_outbox_priority_health.sql');
+const migration = [
+  read('supabase/migrations/20260910163735_refund_completion_outbox_priority_health.sql'),
+  read('supabase/migrations/20260929134500_refund_technical_incident_agent_routing.sql'),
+].join('\n');
 const sweep = read('supabase/functions/refund-case-automation-sweep/index.ts');
 const outbox = read('supabase/functions/_shared/refund-manual-message-outbox.ts');
 const pgTap = read('supabase/tests/refund_completion_outbox_priority_health.sql');
@@ -66,20 +69,27 @@ test('health is aggregate-only, permission-restricted, and covers every actionab
 
 test('incident contract coalesces, reminds, and requires stable recovery', () => {
   assert.match(migration, /pg_advisory_xact_lock\(628,1266\)/);
-  assert.match(migration, /last_notification_sent_at<=now_at-interval '24 hours'/);
+  assert.match(
+    migration,
+    /coalesce\(incident\.last_agent_routed_at,\s*incident\.last_notification_sent_at,incident\.opened_at\)<=now_at-interval '24 hours'/,
+  );
   assert.match(migration, /last_notified_signature is distinct from signature/);
   assert.match(migration, /notification_claimed_at>now_at-interval '5 minutes'/);
   assert.match(migration, /healthy_since>now_at-interval '60 minutes'/);
-  assert.match(migration, /when incident\.initial_notification_sent_at is null then 'initial'/);
+  assert.match(
+    migration,
+    /coalesce\(incident\.initial_agent_routed_at,\s*incident\.initial_notification_sent_at\) is null then 'initial'/,
+  );
   assert.match(migration, /then 'changed'/);
   assert.match(migration, /then 'reminder'/);
   assert.match(migration, /next_type:='recovery'/);
   assert.match(migration, /service_settle_refund_completion_outbox_notification/);
-  assert.match(sweep, /sendInternalEmail\(/);
-  assert.match(sweep, /p_outcome: "sent"/);
+  assert.doesNotMatch(sweep, /sendInternalEmail\(/);
+  assert.match(sweep, /p_outcome: "routed_for_agent"/);
   assert.match(sweep, /p_outcome: "failed"/);
-  assert.match(sweep, /providerIdempotencyKey/);
-  assert.match(sweep, /No customer names, email addresses, payment details, message IDs, case IDs/);
+  assert.match(sweep, /completion_outbox_\$\{notificationType\}_routed_for_agent/);
+  assert.match(migration, /initial_agent_routed_at/);
+  assert.match(migration, /recovery_agent_routed_at/);
 });
 
 test('database tests cover replay, priority, crash semantics, privacy, and races', () => {
