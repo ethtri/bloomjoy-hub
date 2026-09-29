@@ -41,6 +41,13 @@ orientation snapshot; it is not a backlog or release ledger.
   current mapped-manager governance check. Manager approval/denial alerts and
   digests keep their existing routes. The earlier delivery remains immutable
   and is not resent.
+- A reviewed card purchase with two valid current machine Managers exposed a
+  stale generic queue instruction to restore Manager access even though the
+  canonical work correctly required a Manager decision. The bounded projection
+  repair keeps that queue aligned with the existing approve-or-deny action while
+  retaining the normal any-current-machine-Manager or Super-admin authority.
+  It does not assign one Manager, authorize a decision, send a message, or move
+  money.
 - On 2026-09-26 the authenticated refund list loaded again, but five case
   workflow details were still unavailable. Three traced to a stale Nayax lookup
   projection: two searches need internal machine/duplicate-scope repair before
