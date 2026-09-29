@@ -590,6 +590,14 @@ begin
         coalesce(source.references_header,''),'[[:space:]]+'))
       or reminder.transactional_provider_message_header=any(regexp_split_to_array(
         coalesce(source.references_header,''),'[[:space:]]+'))
+      or exists (select 1
+        from public.refund_transactional_delivery_events delivery_event
+        where delivery_event.matched_refund_case_message_id in (
+            r.clarification_request_message_id,r.clarification_reminder_message_id)
+          and delivery_event.applied_at is not null
+          and delivery_event.delivery_state in ('accepted','delivered')
+          and delivery_event.provider_message_header=any(regexp_split_to_array(
+            coalesce(source.references_header,''),'[[:space:]]+')))
     );
   if matched_review_count=0 then
     return public.service_receive_refund_reply_pre_recon_v1(
@@ -676,7 +684,16 @@ begin
         or (reminder.delivery_transport='resend'
           and reminder.transactional_provider_message_header is not null
           and reminder.transactional_provider_message_header=any(
-            regexp_split_to_array(coalesce(source.references_header,''),'[[:space:]]+')))) then
+            regexp_split_to_array(coalesce(source.references_header,''),'[[:space:]]+')))
+        or exists (select 1
+          from public.refund_transactional_delivery_events delivery_event
+          where delivery_event.matched_refund_case_message_id in (
+              review.clarification_request_message_id,
+              review.clarification_reminder_message_id)
+            and delivery_event.applied_at is not null
+            and delivery_event.delivery_state in ('accepted','delivered')
+            and delivery_event.provider_message_header=any(regexp_split_to_array(
+              coalesce(source.references_header,''),'[[:space:]]+')))) then
     update public.refund_case_reconciliation_reviews set
       clarification_reply_binding='exact_thread'
     where id=review.id and clarification_reply_message_id=source.id;
