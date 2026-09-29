@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(24);
+select plan(29);
 
 create function pg_temp.set_completion_auth(p_user_id uuid,p_session_id uuid)
 returns void language plpgsql as $$ begin
@@ -158,6 +158,59 @@ select ok(pg_temp.capture_error(format($sql$select public.admin_resolve_refund_c
   (select created_at from public.refund_case_events where id='cea00000-0000-4000-8000-000000000001')))
   like 'P4681:Review the exact settled case%',
   'An arbitrary message digest cannot close the current obligation');
+
+select ok((select case_population='customer' and payment_method='card'
+    and status='completed' and decision='approved' and refund_completed_at is not null
+    and reporting_adjustment_id='ce500000-0000-4000-8000-000000000001'
+    and public_reference='RF-CURRENT-COPY'
+    and matched_nayax_transaction_id='COMPLETION-TXN-1'
+    and refund_amount_cents=2700
+    and lower(customer_email)='completion-customer@example.invalid'
+  from public.refund_cases where id='ce400000-0000-4000-8000-000000000001'),
+  'The fixture case has the exact settled customer facts');
+select ok((select message_type='completed'
+    and template_version='refund_nayax_completion_v2' and status='failed'
+    and error_message='gmail_completion_retry_exhausted' and delivery_state='unknown'
+    and provider_message_id is null and sent_at is null
+    and manual_delivery_attempt_count=0 and manual_delivery_provider_attempted_at is null
+    and manual_delivery_state is null
+  from public.refund_case_messages where id='ce800000-0000-4000-8000-000000000001'),
+  'The fixture message has the exact immutable failed and unknown history');
+select ok((select status='succeeded' and provider_outcome='success'
+    and reconciliation_required=false
+    and reporting_adjustment_id='ce500000-0000-4000-8000-000000000001'
+    and case_finalization_committed_at is not null
+    and completion_message_id='ce800000-0000-4000-8000-000000000001'
+    and completion_delivery_status='failed'
+  from public.refund_case_nayax_refund_attempts
+  where id='ce700000-0000-4000-8000-000000000001'),
+  'The fixture attempt is final and bound to the failed completion message');
+select ok((select event_type='refund_customer_completion_recovery_sent'
+    and metadata->>'sourceMessageId'='ce800000-0000-4000-8000-000000000001'
+    and metadata->>'deliveryTransport'='resend'
+    and metadata->>'providerLastEvent'='delivered'
+    and metadata->>'paymentOperationPerformed'='false'
+    and metadata->>'originalGmailThreadPreserved'='true'
+    and metadata->>'providerMessageIdDigest'=repeat('a',64)
+  from public.refund_case_events where id='cea00000-0000-4000-8000-000000000001'),
+  'The fixture recovery event retains exact nonreversible provider evidence');
+select ok(
+  exists(select 1 from public.refund_authoritative_receipts
+    where refund_case_id='ce400000-0000-4000-8000-000000000001'
+      and nayax_refund_attempt_id='ce700000-0000-4000-8000-000000000001'
+      and original_transaction_id='COMPLETION-TXN-1'
+      and refunded_amount_cents=original_amount_cents)
+  and exists(select 1 from public.refund_gmail_threads
+    where refund_case_id='ce400000-0000-4000-8000-000000000001'
+      and id='ce600000-0000-4000-8000-000000000001'
+      and provider_thread_id='completion-thread-1')
+  and not exists(select 1 from public.refund_nayax_pending_approval_recoveries
+    where nayax_refund_attempt_id='ce700000-0000-4000-8000-000000000001'
+      and status='in_progress')
+  and not exists(select 1 from public.refund_nayax_resolution_intents
+    where nayax_refund_attempt_id='ce700000-0000-4000-8000-000000000001'
+      and status='pending'),
+  'The fixture has one exact receipt/thread and no pending financial work');
 
 select is((public.admin_resolve_refund_completion_existing_thread(
   'ce400000-0000-4000-8000-000000000001','ce800000-0000-4000-8000-000000000001',
