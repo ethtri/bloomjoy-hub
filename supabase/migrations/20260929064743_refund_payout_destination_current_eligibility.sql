@@ -19,6 +19,14 @@ as $$
         and p_case.status in ('needs_review', 'waiting_on_customer')
         and coalesce(p_case.payment_amount_cents, 0) > 0
         and public.refund_purchase_correction_eligible(p_case)
+        and not exists (
+          select 1
+          from public.refund_follow_up_cycles cycle
+          where cycle.refund_case_id = p_case.id
+            and cycle.case_fact_version = p_case.deterministic_fact_version
+            and cycle.reason_code = 'no_safe_match'
+            and cardinality(cycle.requested_fields) = 0
+        )
       )
     ), false);
 $$;
