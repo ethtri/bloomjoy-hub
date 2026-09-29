@@ -35,7 +35,11 @@ orientation snapshot; it is not a backlog or release ledger.
   operational cases plus 11 internal/test cases in 6.748-7.537 seconds, down
   from 9.202-9.333 seconds before deployment. The Refunds page rendered 58
   active and 13 closed cases without a visible error. Availability and timeout
-  margin are improved, but the 3.4 MB response remains responsiveness debt.
+  margin are improved, but the 3.4 MB response remains responsiveness debt. A
+  second exact-output candidate restores the lifecycle version that an older
+  overview stage originally consumed; a rolled-back production probe reduced
+  database time to about 5.3 seconds. That candidate remains prospective until
+  its hosted checks, deployment, and authenticated readback pass.
 - Production recovery on 2026-09-19 restored the System card-attempt queue for
   the TGPaci enterprise account. Approval and processing now use the same queue
   readiness contract, and deterministic completion delivery claims the database
