@@ -1,6 +1,6 @@
 # Current Status
 
-Last compacted: 2026-09-28.
+Last compacted: 2026-09-29.
 
 GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short
@@ -179,10 +179,18 @@ orientation snapshot; it is not a backlog or release ledger.
   Agent purchase research for both rows, but the browser rejected those two
   lifecycle objects because the replacement omitted the required nullable
   `lastProgressAt` and `dueAt` keys. Migration `20260929060136` restores that
-  exact public next-work shape; browser acceptance and the first real casework
-  outcome remain required before the heartbeat is resumed or progression is
-  called operational. These migrations add no queue, run ledger, decision,
-  message, refund, or payment authority.
+  exact public next-work shape. Authenticated browser readback then showed both
+  rows as Agent purchase research with no unavailable-workflow fallback. The
+  first hourly caseworker run examined seven cases and made no semantic advance;
+  it exposed hidden transaction inventory and slow linked-case detail as real
+  research blockers rather than counting inspection or a locale save as progress.
+  Migration `20260929064743` separately restored the current undecided-cash path
+  to the existing protected payout-destination request machinery. One controlled
+  production case then sent exactly one payout-destination question: the provider
+  recorded delivered, the bounded reminder row is waiting, and the portal moved
+  the case to customer wait without a decision, payment, approval, or refund.
+  Candidate research and linked-case loading remain the next operational slice.
+  These migrations add no queue, run ledger, decision, refund, or payment authority.
 - Historical no-safe-match follow-up cycles that stopped before creating any
   customer question project as internal purchase research only when current
   facts still have no correctable field and no cycle-bound message exists.
