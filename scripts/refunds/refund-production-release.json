@@ -268,7 +268,8 @@
     "20260929033000_refund_overview_next_work_identity.sql",
     "20260929043000_refund_overview_lookup_claim_parity.sql",
     "20260929051000_refund_overview_final_reconciliation_parity.sql",
-    "20260929060136_refund_overview_next_work_schema_parity.sql"
+    "20260929060136_refund_overview_next_work_schema_parity.sql",
+    "20260929064743_refund_payout_destination_current_eligibility.sql"
   ],
   "migrationFilesSha256": "dc7f64f3873d716e697268bd74bc47b8e5a4806561e84ebcd2285990708a072e",
   "migrationVersionSetSha256": "97546c08a50c3351246f569b8f5807ec8d7fda8e28cf6fc9d4421c5c1e7ea064",
