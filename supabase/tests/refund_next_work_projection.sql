@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(46);
+select plan(51);
 
 with fixture as (
   select jsonb_build_object(
@@ -306,6 +306,20 @@ insert into public.refund_cases (
 insert into public.refund_cases (
   id, public_reference, reporting_machine_id, reporting_location_id,
   customer_email, issue_summary, incident_at, payment_method,
+  payment_amount_cents, refund_amount_cents, zelle_payment_contact,
+  status, decision, correlation_status, correlation_source, automation_state
+) values (
+  'd8560000-0000-4000-8000-000000000004', 'RF-NEXT-WORK-CASH-REPLY-REVIEW',
+  'd8540000-0000-4000-8000-000000000001',
+  'd8530000-0000-4000-8000-000000000001',
+  'cash-reply-review@example.invalid', 'Approved cash destination reply awaiting review',
+  statement_timestamp() - interval '1 hour', 'cash', 700, 700,
+  'cash-reply-zelle@example.invalid', 'needs_review', 'approved',
+  'matched', 'manual', 'customer_replied'
+);
+insert into public.refund_cases (
+  id, public_reference, reporting_machine_id, reporting_location_id,
+  customer_email, issue_summary, incident_at, payment_method,
   payment_amount_cents, refund_amount_cents, card_last4,
   status, decision, correlation_status, correlation_source, automation_state,
   nayax_refund_execution_status, nayax_match_execution_eligible,
@@ -342,8 +356,28 @@ select is(public.refund_lifecycle_contract(
 )->>'stage', 'awaiting_payout', 'prior approved cash retains its payout stage');
 select is(public.refund_lifecycle_contract(
   'd8560000-0000-4000-8000-000000000002'
-)->'nextWork'->>'actionCode', 'send_cash_refund_and_confirm',
-  'prior approved cash keeps only the existing Manager payout confirmation');
+)->'nextWork'->>'actionCode', 'resolve_manager_assignment',
+  'service projection requires exact Manager authority before cash payout work');
+select is(public.refund_lifecycle_contract(
+  'd8560000-0000-4000-8000-000000000002'
+)->'nextWork'->>'actor', 'agent',
+  'cash payout remains internal while the projected Manager action is unresolved');
+select is(public.refund_lifecycle_contract(
+  'd8560000-0000-4000-8000-000000000004'
+)->'nextWork'->>'actor', 'agent',
+  'approved cash outside the protected payout state remains Agent work');
+select is(public.refund_lifecycle_contract(
+  'd8560000-0000-4000-8000-000000000004'
+)->'nextWork'->>'actionCode', 'review_customer_reply',
+  'a newly applied payout destination is reviewed before any payment action');
+select is(public.refund_lifecycle_contract(
+  'd8560000-0000-4000-8000-000000000004'
+)->'managerAction'->>'action', 'none',
+  'the intermediate cash reply state exposes no Manager payment action');
+select is(public.service_refund_manager_ready_notice_snapshot(
+  'd8560000-0000-4000-8000-000000000004',
+  'd8510000-0000-4000-8000-000000000002',statement_timestamp()), null,
+  'the intermediate cash reply state cannot create a Manager-ready notice');
 select is(public.refund_lifecycle_contract(
   'd8560000-0000-4000-8000-000000000003'
 )->>'stage', 'confirming_with_nayax', 'prior approved card retains its original provider attempt');

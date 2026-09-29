@@ -208,8 +208,8 @@ select is(public.refund_manager_preparation_snapshot(
 set local role service_role;
 select is(public.refund_lifecycle_contract(
   'd8660000-0000-4000-8000-000000000002'
-)->'nextWork'->>'actionCode', 'send_cash_refund_and_confirm',
-  'a prior valid cash approval still permits only payout and confirmation');
+)->'nextWork'->>'actionCode', 'resolve_manager_assignment',
+  'a service projection requires exact Manager authority before payout');
 reset role;
 
 select * from finish();

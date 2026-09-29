@@ -194,6 +194,17 @@ orientation snapshot; it is not a backlog or release ledger.
   consumer instead of emailing executives; their action result is recorded as
   `routed_for_agent`, never as delivered email. Manager decision alerts, Manager
   digests, Sunze mapping alerts, and customer messages keep their existing routes.
+- The first production health check after that routing release failed closed on
+  an actual cash-case projection mismatch and sent no technical email. A saved
+  payout-destination reply left the approved case in Agent review, while the
+  broad cash stage incorrectly exposed a Manager payout action that the exact
+  ready-notice contract rejected. Migration `20260929144500` keeps approved cash
+  payout work with the Agent until the protected `cash_zelle_pending` state and
+  an exact authorized Manager action are both present; the saved approval is
+  unchanged and no payment is attempted. A
+  production rollback rehearsal changed that case to `review_customer_reply`,
+  removed the premature Manager action, and let the full workflow-health
+  projection complete with zero customer-status delivery obligations.
 - A September 29 audit found 55 independent open case-work identities after
   excluding one open duplicate. The existing scheduled sweep and reply worker
   do not perform the broader purchase research, provider setup, reply review,
