@@ -305,6 +305,27 @@ select results_eq($$
 $$, $$values (0::bigint,400::bigint,0::bigint)$$,
   'A post-cutover payment is context with zero financial effect');
 
+insert into public.sales_adjustment_facts (
+  id, reporting_machine_id, reporting_location_id, adjustment_date,
+  adjustment_type, amount_cents, complaint_count, source, source_row_hash,
+  raw_payload, created_at
+) values (
+  'fd500000-0000-4000-8000-000000000012', 'fd300000-0000-4000-8000-000000000001',
+  'fd200000-0000-4000-8000-000000000001',
+  (now() at time zone 'America/Los_Angeles')::date, 'refund', 123, 1, 'manual',
+  repeat('c',64), '{"payment_method":"card"}', clock_timestamp()
+);
+select results_eq($$
+  select purchase_attribution_date, commissionable_sales_ex_tax_cents,
+    unresolved_paid_context_count
+  from private.machine_sales_daily_components(
+    'fd300000-0000-4000-8000-000000000001',
+    (now() at time zone 'America/Los_Angeles')::date,
+    (now() at time zone 'America/Los_Angeles')::date
+  ) where source='manual' and purchase_attribution_date is null
+$$, $$values (null::date,0::bigint,1::bigint)$$,
+  'Unlinked paid context never fabricates purchase attribution from payment date');
+
 update public.refund_cases set status='denied', decision='denied'
 where id='fd400000-0000-4000-8000-000000000004';
 select is((select sum(refund_reversal_ex_tax_cents)::bigint

@@ -1175,8 +1175,7 @@ begin
         event.purchase_attribution_date,
         matched_fact.sale_date,
         case when linked_location.timezone is not null
-          then (linked_case.incident_at at time zone linked_location.timezone)::date end,
-        adjustment.adjustment_date
+          then (linked_case.incident_at at time zone linked_location.timezone)::date end
       )
         as purchase_attribution_date,
       case
@@ -1288,15 +1287,13 @@ begin
           event.purchase_attribution_date,
           matched_fact.sale_date,
           case when linked_location.timezone is not null
-            then (linked_case.incident_at at time zone linked_location.timezone)::date end,
-          adjustment.adjustment_date
+            then (linked_case.incident_at at time zone linked_location.timezone)::date end
         )
         and coalesce(rate.effective_end_date, 'infinity'::date) >= coalesce(
           event.purchase_attribution_date,
           matched_fact.sale_date,
           case when linked_location.timezone is not null
-            then (linked_case.incident_at at time zone linked_location.timezone)::date end,
-          adjustment.adjustment_date
+            then (linked_case.incident_at at time zone linked_location.timezone)::date end
         )
       order by rate.effective_start_date desc, rate.created_at desc, rate.id
       limit 1
@@ -1378,4 +1375,4 @@ grant execute on function private.machine_sales_daily_components(uuid, date, dat
   to service_role;
 
 comment on function private.machine_sales_daily_components(uuid, date, date) is
-  'Private daily sales and dated refund-recognition components. booking_date controls period recognition; purchase_attribution_date preserves original tax, assignment, and partner scope. Paid context never changes commissionable sales. Unknown bases remain explicit and contribute no fabricated normalized amount.';
+  'Private daily sales and dated refund-recognition components. booking_date controls period recognition; purchase_attribution_date preserves original tax, assignment, and partner scope and is null when no purchase evidence exists. Paid context never changes commissionable sales. Unknown bases remain explicit and contribute no fabricated normalized amount.';
