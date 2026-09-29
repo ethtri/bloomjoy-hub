@@ -280,12 +280,8 @@ serve(async (req) => {
           p_executor_assertion: nayaxExecutorAssertion,
           p_attempt_id: attemptId,
           p_delivery_status: status,
-          ...(completionTransport === "transactional_email"
-            ? {
-              p_manager_cc_count: formManagerCcCount,
-              p_manager_recipient_overlap: formManagerRecipientOverlap,
-            }
-            : {}),
+          p_manager_cc_count: formManagerCcCount,
+          p_manager_recipient_overlap: formManagerRecipientOverlap,
         },
       );
       if (finishError || !finished || typeof finished !== "object") {
@@ -376,8 +372,12 @@ serve(async (req) => {
             recipientEmail,
             email,
             deliveryKind: "manual",
+            managerCopyPolicy: "customer_thread_only",
             gmailThreadId,
           });
+          formManagerCcCount = gmailDelivery.managerCcCount;
+          formManagerRecipientOverlap =
+            gmailDelivery.managerRecipientOverlap;
           return gmailDelivery.usedGmail;
         }
 
@@ -416,6 +416,11 @@ serve(async (req) => {
         ) {
           throw new Error("form_completion_route_invalid");
         }
+        // The mapped-manager route still proves this is a governed refund
+        // completion. The customer receipt itself is customer-thread-only;
+        // Managers receive the existing decision alerts and digest instead.
+        formManagerCcCount = 0;
+        formManagerRecipientOverlap = false;
 
         try {
           await markRefundTransactionalDeliveryAttempt({
@@ -424,7 +429,7 @@ serve(async (req) => {
           });
           const receipt = await sendRefundTransactionalEmail({
             to: [recipientEmail],
-            cc: managerCcEmails,
+            cc: [],
             subject: email.subject,
             text: email.text,
             html: email.html,

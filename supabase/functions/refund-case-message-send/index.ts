@@ -419,6 +419,11 @@ serve(async (req) => {
       }, 400);
     }
     if (nayaxCompletionRecoveryMessageId) {
+      if (!/^[A-Za-z0-9_-]{32,200}$/.test(nayaxExecutorAssertion)) {
+        return jsonResponse({
+          error: "Customer completion delivery is not configured.",
+        }, 503);
+      }
       if (
         !isUuid(nayaxCompletionRecoveryMessageId) ||
         Object.keys(body ?? {}).some((key) =>
@@ -495,7 +500,7 @@ serve(async (req) => {
             });
             const receipt = await sendRefundTransactionalEmail({
               to: [recipientEmail],
-              cc: managerCcEmails,
+              cc: [],
               subject,
               text: messageBody,
               html: buildBrandedRefundHtmlFromStoredText({
@@ -516,11 +521,11 @@ serve(async (req) => {
             const { data: finished, error: finishError } = await supabase.rpc(
               "service_finish_nayax_refund_form_completion",
               {
-                p_executor_assertion: "",
+                p_executor_assertion: nayaxExecutorAssertion,
                 p_attempt_id: attemptId,
                 p_delivery_status: status,
-                p_manager_cc_count: managerCcCount,
-                p_manager_recipient_overlap: managerRecipientOverlap,
+                p_manager_cc_count: 0,
+                p_manager_recipient_overlap: false,
               },
             );
             if (finishError || !finished || typeof finished !== "object") {
@@ -898,6 +903,8 @@ serve(async (req) => {
       const retrySubject = retry.subject as string;
       const retryBody = retry.body as string;
 
+      let completionManagerCcCount = -1;
+      let completionManagerRecipientOverlap = true;
       const customerCompletion = await deliverNayaxCompletionOnce({
         deliver: async () => {
           const gmailDelivery = await dispatchRefundCaseGmailReply({
@@ -916,8 +923,12 @@ serve(async (req) => {
               }),
             },
             deliveryKind: "manual",
+            managerCopyPolicy: "customer_thread_only",
             gmailThreadId: retryGmailThreadId,
           });
+          completionManagerCcCount = gmailDelivery.managerCcCount;
+          completionManagerRecipientOverlap =
+            gmailDelivery.managerRecipientOverlap;
           return gmailDelivery.usedGmail;
         },
         finish: async (status) => {
@@ -927,6 +938,9 @@ serve(async (req) => {
               p_executor_assertion: nayaxExecutorAssertion,
               p_attempt_id: retryAttemptId,
               p_delivery_status: status,
+              p_manager_cc_count: completionManagerCcCount,
+              p_manager_recipient_overlap:
+                completionManagerRecipientOverlap,
             },
           );
           if (finishError || !finished || typeof finished !== "object") {

@@ -27,8 +27,12 @@ orientation snapshot; it is not a backlog or release ledger.
   `completed` outbox rows still inherited the general Manager-copy policy. A
   second eligible receipt is held rather than repeat that route. The bounded
   correction sends manual customer questions and completion receipts to the
-  customer thread only; Manager approval/denial alerts and digests keep their
-  existing routes. The earlier delivery remains immutable and is not resent.
+  customer thread only. The same recipient rule covers direct Gmail, bounded
+  same-message retry, provider-outcome resolution, and transactional fallback;
+  their settlement records the physical zero-CC result while retaining the
+  current mapped-manager governance check. Manager approval/denial alerts and
+  digests keep their existing routes. The earlier delivery remains immutable
+  and is not resent.
 - On 2026-09-26 the authenticated refund list loaded again, but five case
   workflow details were still unavailable. Three traced to a stale Nayax lookup
   projection: two searches need internal machine/duplicate-scope repair before

@@ -50,6 +50,8 @@ export const deliverNayaxRefundCustomerCompletion = async ({
     typeof claim.subject !== "string" || typeof claim.body !== "string"
   ) throw new Error("nayax_completion_claim_invalid");
 
+  let deliveredManagerCcCount = -1;
+  let deliveredManagerRecipientOverlap = true;
   return await deliverNayaxCompletionWithDefiniteRetry({
     deliver: async () => {
       const statusCapability = await tryIssueRefundStatusCapabilityForMessage({
@@ -74,8 +76,12 @@ export const deliverNayaxRefundCustomerCompletion = async ({
         },
         claimPlainBody: claim.body as string,
         deliveryKind: "manual",
+        managerCopyPolicy: "customer_thread_only",
         gmailThreadId: claim.gmailThreadId as string,
       });
+      deliveredManagerCcCount = gmailDelivery.managerCcCount;
+      deliveredManagerRecipientOverlap =
+        gmailDelivery.managerRecipientOverlap;
       return gmailDelivery.usedGmail;
     },
     finish: async (status) => {
@@ -85,6 +91,8 @@ export const deliverNayaxRefundCustomerCompletion = async ({
           p_executor_assertion: executorAssertion,
           p_attempt_id: attemptId,
           p_delivery_status: status,
+          p_manager_cc_count: deliveredManagerCcCount,
+          p_manager_recipient_overlap: deliveredManagerRecipientOverlap,
         },
       );
       if (error || !data || typeof data !== "object") {
