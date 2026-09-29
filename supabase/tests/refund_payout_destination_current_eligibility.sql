@@ -109,15 +109,20 @@ select is(
   'Incomplete undecided cash case fails closed'
 );
 
-select ok(
-  strpos(pg_get_functiondef(
+select ok((select
+  strpos(correction_source,'p_case.status in')>0
+  and strpos(correction_source,'p_case.status in')
+    < strpos(correction_source,'public.refund_authoritative_receipts')
+  and strpos(payout_source,'p_case.payment_method is distinct from ''cash''')>0
+  and strpos(payout_source,'p_case.payment_method is distinct from ''cash''')
+    < strpos(payout_source,'public.refund_purchase_correction_eligible')
+from (select
+  lower(pg_get_functiondef(
     'public.refund_purchase_correction_eligible(public.refund_cases)'
-      ::regprocedure),
-    'if not coalesce(p_case.status in')>0
-  and strpos(pg_get_functiondef(
+      ::regprocedure)) correction_source,
+  lower(pg_get_functiondef(
     'public.refund_payout_destination_case_current(public.refund_cases)'
-      ::regprocedure),
-    'if p_case.payment_method is distinct from ''cash''')>0,
+      ::regprocedure)) payout_source) sources),
   'Correction and payout predicates reject unrelated states before research'
 );
 
