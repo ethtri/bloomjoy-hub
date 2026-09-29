@@ -165,7 +165,7 @@ check(
     schedulerCadenceMigration.includes("'13,43 * * * *'")
 );
 check(
-  'Scheduler incidents limit noise to one opening alert, daily reminders, and stable recovery',
+  'Scheduler incidents coalesce initial, reminder, and recovery state for the technical agent',
   schedulerReliabilityMigration.includes('create table if not exists public.refund_automation_alert_incidents') &&
     schedulerReliabilityMigration.includes('refund_automation_alert_incidents_one_open_idx') &&
     schedulerReliabilityMigration.includes("default interval '24 hours'") &&
@@ -174,7 +174,9 @@ check(
     schedulerReliabilityMigration.includes("'notificationType', 'reminder'") &&
     schedulerReliabilityMigration.includes("'notificationType', 'recovery'") &&
     sweep.includes('service_claim_refund_automation_health_notification') &&
-    sweep.includes('[Recovered] Refund automation scheduler healthy')
+    sweep.includes('technical_incident_recovery_recorded') &&
+    sweep.includes('_routed_for_agent') &&
+    !sweep.includes('sendAutomationHealthAlert')
 );
 check(
   'Provider-delay status uses a service-only projection instead of direct protected-table access',
