@@ -227,6 +227,11 @@ export type RefundLifecycleContract = {
     state: string;
     messageType: string | null;
     lastUpdatedAt: string | null;
+    currentObligationState?: "resolved_by_existing_thread_copy";
+    currentObligationResolvedAt?: string;
+    historicalDeliveryStatePreserved?: true;
+    customerMessageSent?: false;
+    paymentAction?: false;
     payloadRedacted: true;
   };
   customerOutreach?: RefundCustomerOutreachContract;
@@ -429,17 +434,31 @@ export const isRefundLifecycleContract = (
     nullableString(customerOutreach.failureCode) &&
     customerOutreach.payloadRedacted === true
   );
-  const noticeComplete = ["sent", "delivered"].includes(String(messageState?.state));
+  const currentObligationResolved =
+    messageState?.currentObligationState === "resolved_by_existing_thread_copy" &&
+    typeof messageState?.currentObligationResolvedAt === "string" &&
+    !Number.isNaN(Date.parse(messageState.currentObligationResolvedAt)) &&
+    messageState?.historicalDeliveryStatePreserved === true &&
+    messageState?.customerMessageSent === false &&
+    messageState?.paymentAction === false;
+  const noticeComplete = ["sent", "delivered"].includes(String(messageState?.state)) ||
+    currentObligationResolved;
   const projectedAction = noticeComplete ? "none" : "wait";
   const projectedBucket = noticeComplete ? "completed" : "in_progress";
-  const projectedLabel = noticeComplete
+  const projectedLabel = currentObligationResolved
+    ? "Refund confirmed · no action due"
+    : noticeComplete
     ? "Refund confirmed · customer notified"
     : messageState?.state === "pending"
     ? "Refund confirmed · customer notice queued"
     : ["failed", "delivery_unconfirmed"].includes(String(messageState?.state))
     ? "Refund confirmed · customer notice delivery pending"
     : "Refund confirmed · customer notice pending";
-  const projectedReason = noticeComplete
+  const projectedReason = currentObligationResolved
+    ? messageState?.state === "delivery_unconfirmed"
+      ? "completion_delivery_unconfirmed"
+      : "completion_delivery_failed"
+    : noticeComplete
     ? "completion_sent"
     : messageState?.state === "delivery_unconfirmed"
     ? "completion_delivery_unconfirmed"
@@ -501,28 +520,36 @@ export const isRefundLifecycleContract = (
     accountingState?.blocksCustomerNotice === false &&
     accountingState?.payloadRedacted === true;
   const appliedNoticeState = String(messageState?.state);
+  const appliedObligationResolved = currentObligationResolved;
   const appliedNoticeComplete = ["sent", "delivered"].includes(appliedNoticeState);
-  const appliedNoticeReview = ["failed", "delivery_unconfirmed", "bounced", "complained"].includes(appliedNoticeState);
+  const appliedNoticeReview = !appliedObligationResolved &&
+    ["failed", "delivery_unconfirmed", "bounced", "complained"].includes(appliedNoticeState);
   const appliedNoticePending = appliedNoticeState === "pending";
-  const appliedExpectedReason = appliedNoticeComplete
+  const appliedExpectedReason = appliedObligationResolved
+    ? appliedNoticeState === "delivery_unconfirmed"
+      ? "completion_delivery_unconfirmed"
+      : "completion_delivery_failed"
+    : appliedNoticeComplete
     ? "completion_sent"
     : ["failed", "bounced", "complained"].includes(appliedNoticeState)
     ? "completion_delivery_failed"
     : appliedNoticeState === "delivery_unconfirmed"
     ? "completion_delivery_unconfirmed"
     : "customer_notification_pending";
-  const appliedExpectedAction = appliedNoticeComplete
+  const appliedExpectedAction = appliedObligationResolved || appliedNoticeComplete
     ? "none"
     : appliedNoticeReview
     ? "review_delivery_no_resend"
     : "wait_for_customer_notification";
-  const appliedExpectedOwner = appliedNoticeReview ? "Refund Operations" : "Machine Manager";
-  const appliedExpectedBucket = appliedNoticeComplete
+  const appliedExpectedOwner = appliedObligationResolved
+    ? "System"
+    : appliedNoticeReview ? "Refund Operations" : "Machine Manager";
+  const appliedExpectedBucket = appliedObligationResolved || appliedNoticeComplete
     ? "completed"
     : appliedNoticeReview
     ? "provider_hold"
     : "in_progress";
-  const appliedExpectedLabel = appliedNoticeComplete
+  const appliedExpectedLabel = appliedObligationResolved || appliedNoticeComplete
     ? "Done"
     : appliedNoticeReview
     ? "Needs Refund Operations"
@@ -554,14 +581,16 @@ export const isRefundLifecycleContract = (
     contract.paymentState === "confirmed" &&
     contract.safeRetryEligible === false &&
     lookup?.safeRetryEligible === false &&
-    (appliedNoticeComplete || appliedNoticeReview || appliedNoticePending) &&
-    contract.stage === (appliedNoticeComplete || ["delivery_unconfirmed", "bounced", "complained"].includes(appliedNoticeState)
+    (appliedObligationResolved || appliedNoticeComplete || appliedNoticeReview || appliedNoticePending) &&
+    contract.stage === (appliedObligationResolved
+      ? "refund_confirmed"
+      : appliedNoticeComplete || ["delivery_unconfirmed", "bounced", "complained"].includes(appliedNoticeState)
       ? "customer_notified"
       : "refund_confirmed") &&
     contract.reasonCode === appliedExpectedReason &&
     contract.managerNextAction === appliedExpectedAction &&
-    contract.terminal === appliedNoticeComplete &&
-    contract.refreshAfterSeconds === (appliedNoticeComplete ? null : 5) &&
+    contract.terminal === (appliedObligationResolved || appliedNoticeComplete) &&
+    contract.refreshAfterSeconds === (appliedObligationResolved || appliedNoticeComplete ? null : 5) &&
     Boolean(managerAction) &&
     exactObjectKeys(managerAction!, managerActionKeys) &&
     managerAction?.action === appliedExpectedAction &&
@@ -663,7 +692,9 @@ export const isRefundLifecycleContract = (
         operations?.ageMinutes === null &&
         operations?.dueAt === null &&
         operations?.slaBreached === false &&
-        operations?.safeStage === (noticeComplete
+        operations?.safeStage === (currentObligationResolved
+          ? "customer_notice_obligation_resolved"
+          : noticeComplete
           ? "customer_notice_complete"
           : "customer_notice_pending") &&
         operations?.failureClass === null &&
