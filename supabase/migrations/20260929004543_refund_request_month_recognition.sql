@@ -889,6 +889,7 @@ begin
         else 'unknown'
       end::text as tender,
       fact.source,
+      fact.transaction_count::bigint as transaction_count,
       fact.net_sales_cents::bigint as amount_cents,
       fact.tax_cents::bigint as separate_tax_cents,
       case
@@ -939,7 +940,7 @@ begin
       scoped.source,
       scoped.amount_basis,
       scoped.tax_rate_percent,
-      count(*)::bigint as transaction_count,
+      sum(scoped.transaction_count)::bigint as transaction_count,
       sum(scoped.amount_cents)::bigint as recorded_cents,
       sum(case when scoped.amount_basis = 'separate_tax'
         then scoped.separate_tax_cents else 0 end)::bigint as separate_tax_cents

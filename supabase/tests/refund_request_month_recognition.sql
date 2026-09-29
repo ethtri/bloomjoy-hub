@@ -397,17 +397,23 @@ insert into public.machine_sales_facts (
   net_sales_cents, transaction_count, source, source_order_hash,
   source_row_hash, tax_cents, raw_payload
 ) values
-  ('fd600000-0000-4000-8000-000000000001', 'fd300000-0000-4000-8000-000000000001', 'fd200000-0000-4000-8000-000000000001', current_date-2, 'credit', 1100, 1, 'nayax_scheduled_report', repeat('b',32), repeat('b',64), 0, '{"amountBasis":"gross_customer_charge_minor"}'),
+  ('fd600000-0000-4000-8000-000000000001', 'fd300000-0000-4000-8000-000000000001', 'fd200000-0000-4000-8000-000000000001', current_date-2, 'credit', 1100, 3, 'nayax_scheduled_report', repeat('b',32), repeat('b',64), 0, '{"amountBasis":"gross_customer_charge_minor"}'),
   ('fd600000-0000-4000-8000-000000000002', 'fd300000-0000-4000-8000-000000000001', 'fd200000-0000-4000-8000-000000000001', current_date-2, 'credit', 2200, 1, 'snapcase_cash', repeat('c',32), repeat('c',64), 0, '{"amountBasis":"gross_customer_charge_minor"}'),
   ('fd600000-0000-4000-8000-000000000003', 'fd300000-0000-4000-8000-000000000001', 'fd200000-0000-4000-8000-000000000001', current_date-2, 'cash', 550, 1, 'snapcase_cash', repeat('d',32), repeat('d',64), 0, '{"amountBasis":"gross_customer_charge_minor"}'),
   ('fd600000-0000-4000-8000-000000000004', 'fd300000-0000-4000-8000-000000000001', 'fd200000-0000-4000-8000-000000000001', current_date-3, 'other', 1100, 1, 'manual_csv', null, repeat('e',64), 0, '{"amountBasis":"gross_customer_charge_minor"}'),
-  ('fd600000-0000-4000-8000-000000000005', 'fd300000-0000-4000-8000-000000000001', 'fd200000-0000-4000-8000-000000000001', current_date-3, 'other', 700, 1, 'manual_csv', null, repeat('f',64), 0, '{}');
+  ('fd600000-0000-4000-8000-000000000005', 'fd300000-0000-4000-8000-000000000001', 'fd200000-0000-4000-8000-000000000001', current_date-3, 'other', 700, 1, 'manual_csv', null, repeat('f',64), 0, '{}'),
+  ('fd600000-0000-4000-8000-000000000006', 'fd300000-0000-4000-8000-000000000001', 'fd200000-0000-4000-8000-000000000001', current_date-2, 'credit', 0, 9, 'nayax_scheduled_report', repeat('6',32), repeat('6',64), 0, '{"amountBasis":"gross_customer_charge_minor"}');
 
 select is((select sum(recorded_sales_cents)::bigint
   from private.machine_sales_daily_components(
     'fd300000-0000-4000-8000-000000000001', current_date-2, current_date-2
   ) where tender='card'), 1100::bigint,
   'Nayax card authority is included without adding vendor card observations');
+select is((select sum(sales_transaction_count)::bigint
+  from private.machine_sales_daily_components(
+    'fd300000-0000-4000-8000-000000000001', current_date-2, current_date-2
+  ) where tender='card'), 3::bigint,
+  'Published aggregate transaction counts are summed without zero-money operational rows');
 select is((select sum(recorded_sales_cents)::bigint
   from private.machine_sales_daily_components(
     'fd300000-0000-4000-8000-000000000001', current_date-2, current_date-2
