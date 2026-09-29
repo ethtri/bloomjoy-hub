@@ -43,7 +43,10 @@ select ok(strpos(pg_get_functiondef(
   'durable overview stage reuses its retained lifecycle before v2 projection');
 select ok(strpos(pg_get_functiondef(
     'public.admin_get_refund_operations_overview()'::regprocedure),
-    'refund_project_current_next_work_cases')>0,
+    'admin_refund_overview_pre_reconcile_v1')>0
+  and strpos(pg_get_functiondef(
+    'public.admin_get_refund_operations_overview()'::regprocedure),
+    'refund_case_has_unresolved_reconciliation')>0,
   'final overview validates current next-work contracts before reuse');
 select ok(strpos(pg_get_functiondef(
     'public.refund_project_current_next_work_cases(jsonb)'::regprocedure),
@@ -287,6 +290,19 @@ select ok((with projected_system as (
       is distinct from 'run_lookup'
     from projected_system),
   'unresolved reconciliation cannot be presented as executable System lookup work');
+select ok((select exists(
+    select 1
+    from jsonb_array_elements(
+      coalesce(value->'cases','[]'::jsonb)
+      ||coalesce(value->'internalTestCases','[]'::jsonb)) item
+    where item->>'id'=md5('refund-overview-bench-case-31')::uuid::text
+      and item#>>'{lifecycle,nextWork,actor}'='agent'
+      and item#>>'{lifecycle,nextWork,actionCode}'='research_purchase'
+      and item#>>'{lifecycle,nextWork,actionLabel}'=
+        'Research the purchase and prepare the next safe step.'
+      and item#>'{lifecycle,nextWork,blocker}'='null'::jsonb)
+  from (select public.admin_get_refund_operations_overview() value) overview),
+  'final overview cannot reintroduce System lookup after reconciliation exclusion');
 rollback to savepoint overview_lookup_claim_parity;
 select is(public.refund_project_current_next_work_cases('{}'::jsonb),
   '{}'::jsonb,
