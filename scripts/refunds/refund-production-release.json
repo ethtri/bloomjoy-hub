@@ -264,6 +264,7 @@
     "20260928214735_refund_obsolete_clarification_health.sql",
     "20260928234730_refund_overview_setwise_reuse.sql",
     "20260928235000_refund_completion_existing_thread_resolution.sql",
+    "20260929004543_refund_request_month_recognition.sql",
     "20260929010530_refund_overview_lifecycle_stage_reuse.sql",
     "20260929033000_refund_overview_next_work_identity.sql",
     "20260929043000_refund_overview_lookup_claim_parity.sql",
