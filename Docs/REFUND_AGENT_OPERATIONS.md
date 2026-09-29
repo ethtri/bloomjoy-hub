@@ -213,7 +213,7 @@ Engineering issue: <issue number or none>
 ```
 
 End an unattended run with one compact summary: cases reviewed, cases ready for
-a Manager, customer requests/follow-ups sent, 30-day closures, System issues,
+a Manager, customer requests/follow-ups sent, 30-day recommendations, System issues,
 and whether any genuine owner decision is required. Use public references only;
 do not copy customer or payment details into the summary.
 
