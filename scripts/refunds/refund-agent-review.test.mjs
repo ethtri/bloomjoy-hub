@@ -131,11 +131,12 @@ test('refund procedure follows the lean assistant-manager flow', async () => {
     'A case worker may select a lower-ranked or lower-confidence candidate',
     'full charged amount', 'including tax',
     'Confirm refund sent via Zelle', 'no waiting-for-payment state',
-    'send one follow-up', 'Close after 30 days',
+    'send one follow-up', 'prepare the reject recommendation',
+    'Do not close or deny the request automatically',
     'friendly, targeted question', 'GitHub issues',
     'Never repeat an unknown payment',
     'Autonomous operating mandate', 'Do not wait for the owner',
-    'continue to the next case', 'administrative 30-day no-response closure',
+    'continue to the next case',
     'Never impersonate the owner or another Manager',
   ]) {
     const flexiblePhrase = required
