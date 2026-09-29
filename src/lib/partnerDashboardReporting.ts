@@ -15,15 +15,15 @@ export type PartnerDashboardPartnershipOption = {
 export type PartnerDashboardTotals = {
   orderCount: number;
   itemQuantity: number;
-  grossSalesCents: number;
-  refundAmountCents: number;
-  taxCents: number;
-  feeCents: number;
-  costCents: number;
-  netSalesCents: number;
-  splitBaseCents: number;
-  amountOwedCents: number;
-  bloomjoyRetainedCents: number;
+  grossSalesCents: number | null;
+  refundAmountCents: number | null;
+  taxCents: number | null;
+  feeCents: number | null;
+  costCents: number | null;
+  netSalesCents: number | null;
+  splitBaseCents: number | null;
+  amountOwedCents: number | null;
+  bloomjoyRetainedCents: number | null;
 };
 
 export type PartnerDashboardPeriod = PartnerDashboardTotals & {
@@ -53,6 +53,7 @@ export type PartnerDashboardPeriodPreview = {
   periodGrain: PartnerDashboardPeriodGrain;
   dateFrom: string;
   dateTo: string;
+  calculationVersion?: string;
   summary: PartnerDashboardTotals;
   periods: PartnerDashboardPeriod[];
   machinePeriods: PartnerDashboardMachinePeriod[];
@@ -88,15 +89,15 @@ type PartnershipSetupRpc = {
 type PartnerDashboardTotalsRpc = {
   order_count?: number;
   item_quantity?: number;
-  gross_sales_cents?: number;
-  refund_amount_cents?: number;
-  tax_cents?: number;
-  fee_cents?: number;
-  cost_cents?: number;
-  net_sales_cents?: number;
-  split_base_cents?: number;
-  amount_owed_cents?: number;
-  bloomjoy_retained_cents?: number;
+  gross_sales_cents?: number | null;
+  refund_amount_cents?: number | null;
+  tax_cents?: number | null;
+  fee_cents?: number | null;
+  cost_cents?: number | null;
+  net_sales_cents?: number | null;
+  split_base_cents?: number | null;
+  amount_owed_cents?: number | null;
+  bloomjoy_retained_cents?: number | null;
 };
 
 type PartnerDashboardPeriodRpc = PartnerDashboardTotalsRpc & {
@@ -124,6 +125,7 @@ type PartnerDashboardPeriodPreviewRpc = {
   period_grain?: PartnerDashboardPeriodGrain;
   date_from?: string;
   date_to?: string;
+  calculation_version?: string;
   summary?: PartnerDashboardTotalsRpc;
   periods?: PartnerDashboardPeriodRpc[];
   machine_periods?: PartnerDashboardMachinePeriodRpc[];
@@ -134,6 +136,9 @@ const numberValue = (value: unknown): number => {
   const normalized = Number(value ?? 0);
   return Number.isFinite(normalized) ? normalized : 0;
 };
+
+const nullableNumberValue = (value: unknown): number | null =>
+  value == null ? null : numberValue(value);
 
 const neutralizeProviderCopy = (value: unknown, fallback = '') =>
   String(value ?? fallback)
@@ -148,15 +153,15 @@ const neutralizeProviderCopy = (value: unknown, fallback = '') =>
 const mapTotals = (record: PartnerDashboardTotalsRpc | undefined): PartnerDashboardTotals => ({
   orderCount: numberValue(record?.order_count),
   itemQuantity: numberValue(record?.item_quantity),
-  grossSalesCents: numberValue(record?.gross_sales_cents),
-  refundAmountCents: numberValue(record?.refund_amount_cents),
-  taxCents: numberValue(record?.tax_cents),
-  feeCents: numberValue(record?.fee_cents),
-  costCents: numberValue(record?.cost_cents),
-  netSalesCents: numberValue(record?.net_sales_cents),
-  splitBaseCents: numberValue(record?.split_base_cents),
-  amountOwedCents: numberValue(record?.amount_owed_cents),
-  bloomjoyRetainedCents: numberValue(record?.bloomjoy_retained_cents),
+  grossSalesCents: nullableNumberValue(record?.gross_sales_cents),
+  refundAmountCents: nullableNumberValue(record?.refund_amount_cents),
+  taxCents: nullableNumberValue(record?.tax_cents),
+  feeCents: nullableNumberValue(record?.fee_cents),
+  costCents: nullableNumberValue(record?.cost_cents),
+  netSalesCents: nullableNumberValue(record?.net_sales_cents),
+  splitBaseCents: nullableNumberValue(record?.split_base_cents),
+  amountOwedCents: nullableNumberValue(record?.amount_owed_cents),
+  bloomjoyRetainedCents: nullableNumberValue(record?.bloomjoy_retained_cents),
 });
 
 const mapPeriod = (record: PartnerDashboardPeriodRpc): PartnerDashboardPeriod => ({
@@ -237,6 +242,7 @@ export const fetchPartnerDashboardPeriodPreview = async ({
     periodGrain: record.period_grain ?? periodGrain,
     dateFrom: String(record.date_from ?? dateFrom),
     dateTo: String(record.date_to ?? dateTo),
+    calculationVersion: record.calculation_version,
     summary: mapTotals(record.summary),
     periods: (record.periods ?? []).map(mapPeriod),
     machinePeriods: (record.machine_periods ?? []).map(mapMachinePeriod),

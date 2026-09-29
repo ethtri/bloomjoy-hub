@@ -7,6 +7,7 @@ export type { ReportingMachineType } from '@/lib/machineTypes';
 
 export type ReportGrain = 'day' | 'week' | 'month';
 export type PaymentMethod = 'cash' | 'credit' | 'other' | 'unknown';
+export type SalesReportCalculationVersion = 'legacy-sales-basis-v0' | 'shared-sales-basis-v1';
 export type ReportingAccessLevel = 'viewer' | 'report_manager';
 export type ReportingMachineOperationalPhase = 'setup' | 'live';
 
@@ -42,22 +43,47 @@ export type SalesReportFilters = {
 };
 
 export type SalesReportRow = {
+  calculationVersion: SalesReportCalculationVersion;
   periodStart: string;
   machineId: string;
   machineLabel: string;
   locationId: string;
   locationName: string;
   paymentMethod: PaymentMethod;
-  netSalesCents: number;
-  refundAmountCents: number;
-  grossSalesCents: number;
+  netSalesCents: number | null;
+  refundAmountCents: number | null;
+  grossSalesCents: number | null;
+  taxCents: number | null;
+  refundRequestDeductionCents: number;
+  refundReversalCents: number;
+  refundLegacyPaidDeductionCents: number;
+  refundPaidContextCents: number;
+  refundOutstandingContextCents: number;
+  unresolvedSalesCount: number;
+  unresolvedSalesCents: number;
+  unresolvedRefundCount: number;
+  unresolvedRefundCents: number;
+  unresolvedPaidContextCount: number;
+  unresolvedPaidContextCents: number;
   transactionCount: number;
 };
 
 export type SalesReportSummary = {
-  netSalesCents: number;
-  refundAmountCents: number;
-  grossSalesCents: number;
+  netSalesCents: number | null;
+  refundAmountCents: number | null;
+  grossSalesCents: number | null;
+  taxCents: number | null;
+  refundRequestDeductionCents: number;
+  refundReversalCents: number;
+  refundLegacyPaidDeductionCents: number;
+  refundPaidContextCents: number;
+  refundOutstandingContextCents: number;
+  unresolvedSalesCount: number;
+  unresolvedSalesCents: number;
+  unresolvedRefundCount: number;
+  unresolvedRefundCents: number;
+  unresolvedPaidContextCount: number;
+  unresolvedPaidContextCents: number;
   transactionCount: number;
 };
 
@@ -347,15 +373,28 @@ type ReportingDimensionRpc = {
 };
 
 type SalesReportRpcRow = {
+  calculation_version?: string | null;
   period_start: string;
   machine_id: string;
   machine_label: string;
   location_id: string;
   location_name: string;
   payment_method: PaymentMethod;
-  net_sales_cents: number;
-  refund_amount_cents: number;
-  gross_sales_cents: number;
+  net_sales_cents: number | null;
+  refund_amount_cents: number | null;
+  gross_sales_cents: number | null;
+  tax_cents: number | null;
+  refund_request_deduction_cents: number;
+  refund_reversal_cents: number;
+  refund_legacy_paid_deduction_cents: number;
+  refund_paid_context_cents: number;
+  refund_outstanding_context_cents: number;
+  unresolved_sales_count: number;
+  unresolved_sales_cents: number;
+  unresolved_refund_count: number;
+  unresolved_refund_cents: number;
+  unresolved_paid_context_count: number;
+  unresolved_paid_context_cents: number;
   transaction_count: number;
 };
 
@@ -368,7 +407,7 @@ type ExportSalesReportResponse = {
   rowCount?: number;
 };
 
-const expectedSalesReportPdfGeneratorVersion = 'sales-report-pdf/polished-v1';
+const expectedSalesReportPdfGeneratorVersion = 'sales-report-pdf/shared-basis-v2';
 const reportExportBucket = 'sales-report-exports';
 
 const exportFormatOrder: Record<AdminReportExportFormat, number> = {
@@ -654,16 +693,34 @@ const mapDimension = (record: ReportingDimensionRpc): ReportingDimension => ({
   status: record.status,
 });
 
+const normalizeSalesReportCalculationVersion = (
+  value: string | null | undefined
+): SalesReportCalculationVersion =>
+  value === 'shared-sales-basis-v1' ? 'shared-sales-basis-v1' : 'legacy-sales-basis-v0';
+
 const mapSalesReportRow = (record: SalesReportRpcRow): SalesReportRow => ({
+  calculationVersion: normalizeSalesReportCalculationVersion(record.calculation_version),
   periodStart: record.period_start,
   machineId: record.machine_id,
   machineLabel: record.machine_label,
   locationId: record.location_id,
   locationName: record.location_name,
   paymentMethod: record.payment_method,
-  netSalesCents: Number(record.net_sales_cents ?? 0),
-  refundAmountCents: Number(record.refund_amount_cents ?? 0),
-  grossSalesCents: Number(record.gross_sales_cents ?? 0),
+  netSalesCents: record.net_sales_cents == null ? null : Number(record.net_sales_cents),
+  refundAmountCents: record.refund_amount_cents == null ? null : Number(record.refund_amount_cents),
+  grossSalesCents: record.gross_sales_cents == null ? null : Number(record.gross_sales_cents),
+  taxCents: record.tax_cents == null ? null : Number(record.tax_cents),
+  refundRequestDeductionCents: Number(record.refund_request_deduction_cents ?? 0),
+  refundReversalCents: Number(record.refund_reversal_cents ?? 0),
+  refundLegacyPaidDeductionCents: Number(record.refund_legacy_paid_deduction_cents ?? 0),
+  refundPaidContextCents: Number(record.refund_paid_context_cents ?? 0),
+  refundOutstandingContextCents: Number(record.refund_outstanding_context_cents ?? 0),
+  unresolvedSalesCount: Number(record.unresolved_sales_count ?? 0),
+  unresolvedSalesCents: Number(record.unresolved_sales_cents ?? 0),
+  unresolvedRefundCount: Number(record.unresolved_refund_count ?? 0),
+  unresolvedRefundCents: Number(record.unresolved_refund_cents ?? 0),
+  unresolvedPaidContextCount: Number(record.unresolved_paid_context_count ?? 0),
+  unresolvedPaidContextCents: Number(record.unresolved_paid_context_cents ?? 0),
   transactionCount: Number(record.transaction_count ?? 0),
 });
 
@@ -710,21 +767,63 @@ const mapSnapCaseMachineQueue = (records: unknown): AdminSnapCaseMachineQueueIte
     }))
     .filter((record) => record.providerAccountId && record.sourceMachineId);
 
-export const summarizeSalesReport = (rows: SalesReportRow[]): SalesReportSummary =>
-  rows.reduce<SalesReportSummary>(
+export const summarizeSalesReport = (rows: SalesReportRow[]): SalesReportSummary => {
+  const summary = rows.reduce<SalesReportSummary>(
     (summary, row) => ({
-      netSalesCents: summary.netSalesCents + row.netSalesCents,
-      refundAmountCents: summary.refundAmountCents + row.refundAmountCents,
-      grossSalesCents: summary.grossSalesCents + row.grossSalesCents,
+      netSalesCents: (summary.netSalesCents ?? 0) + (row.netSalesCents ?? 0),
+      refundAmountCents: (summary.refundAmountCents ?? 0) + (row.refundAmountCents ?? 0),
+      grossSalesCents: (summary.grossSalesCents ?? 0) + (row.grossSalesCents ?? 0),
+      taxCents: (summary.taxCents ?? 0) + (row.taxCents ?? 0),
+      refundRequestDeductionCents:
+        summary.refundRequestDeductionCents + row.refundRequestDeductionCents,
+      refundReversalCents: summary.refundReversalCents + row.refundReversalCents,
+      refundLegacyPaidDeductionCents:
+        summary.refundLegacyPaidDeductionCents + row.refundLegacyPaidDeductionCents,
+      refundPaidContextCents: summary.refundPaidContextCents + row.refundPaidContextCents,
+      refundOutstandingContextCents:
+        summary.refundOutstandingContextCents + row.refundOutstandingContextCents,
+      unresolvedSalesCount: summary.unresolvedSalesCount + row.unresolvedSalesCount,
+      unresolvedSalesCents: summary.unresolvedSalesCents + row.unresolvedSalesCents,
+      unresolvedRefundCount: summary.unresolvedRefundCount + row.unresolvedRefundCount,
+      unresolvedRefundCents: summary.unresolvedRefundCents + row.unresolvedRefundCents,
+      unresolvedPaidContextCount:
+        summary.unresolvedPaidContextCount + row.unresolvedPaidContextCount,
+      unresolvedPaidContextCents:
+        summary.unresolvedPaidContextCents + row.unresolvedPaidContextCents,
       transactionCount: summary.transactionCount + row.transactionCount,
     }),
     {
       netSalesCents: 0,
       refundAmountCents: 0,
       grossSalesCents: 0,
+      taxCents: 0,
+      refundRequestDeductionCents: 0,
+      refundReversalCents: 0,
+      refundLegacyPaidDeductionCents: 0,
+      refundPaidContextCents: 0,
+      refundOutstandingContextCents: 0,
+      unresolvedSalesCount: 0,
+      unresolvedSalesCents: 0,
+      unresolvedRefundCount: 0,
+      unresolvedRefundCents: 0,
+      unresolvedPaidContextCount: 0,
+      unresolvedPaidContextCents: 0,
       transactionCount: 0,
     }
   );
+
+  return {
+    ...summary,
+    netSalesCents: rows.some((row) => row.netSalesCents == null)
+      ? null : summary.netSalesCents,
+    refundAmountCents: rows.some((row) => row.refundAmountCents == null)
+      ? null : summary.refundAmountCents,
+    grossSalesCents: rows.some((row) => row.grossSalesCents == null)
+      ? null : summary.grossSalesCents,
+    taxCents: rows.some((row) => row.taxCents == null)
+      ? null : summary.taxCents,
+  };
+};
 
 export const fetchReportingAccessContext = async (): Promise<ReportingAccessContext> => {
   const { data, error } = await supabaseClient.rpc('get_my_reporting_access_context');
@@ -764,7 +863,18 @@ export const fetchSalesReport = async (filters: SalesReportFilters): Promise<Sal
     throw new Error(error.message || 'Unable to load sales report.');
   }
 
-  return ((data as SalesReportRpcRow[] | null) ?? []).map(mapSalesReportRow);
+  const rows = (data as SalesReportRpcRow[] | null) ?? [];
+  const versions = new Set(rows.map((row) => normalizeSalesReportCalculationVersion(row.calculation_version)));
+  const hasUnsupportedVersion = rows.some((row) =>
+    row.calculation_version != null &&
+    row.calculation_version !== 'legacy-sales-basis-v0' &&
+    row.calculation_version !== 'shared-sales-basis-v1'
+  );
+  if (hasUnsupportedVersion || versions.size > 1) {
+    throw new Error('Sales report rows use inconsistent calculation versions. Refresh the report and try again.');
+  }
+
+  return rows.map(mapSalesReportRow);
 };
 
 export const exportSalesReportPdf = async (

@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 
 const files = {
   sharedBuilder: 'supabase/functions/_shared/sales-report-pdf.ts',
-  calculation: 'supabase/functions/_shared/sales-report-calculation.ts',
   exportFunction: 'supabase/functions/sales-report-export/index.ts',
   schedulerFunction: 'supabase/functions/sales-report-scheduler/index.ts',
   reportingClient: 'src/lib/reporting.ts',
@@ -20,7 +19,6 @@ const assert = (condition, message) => {
 };
 
 const sharedBuilder = read(files.sharedBuilder);
-const calculation = read(files.calculation);
 const exportFunction = read(files.exportFunction);
 const schedulerFunction = read(files.schedulerFunction);
 const reportingClient = read(files.reportingClient);
@@ -30,8 +28,8 @@ const adminReporting = read(files.adminReporting);
 const smokeChecklist = read(files.smokeChecklist);
 
 assert(
-  sharedBuilder.includes('SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/polished-v1"'),
-  'Operator PDF builder must expose the polished generator version.',
+  sharedBuilder.includes('SALES_REPORT_PDF_GENERATOR_VERSION = "sales-report-pdf/shared-basis-v2"'),
+  'Operator PDF builder must expose the shared-basis generator version.',
 );
 
 assert(
@@ -65,12 +63,19 @@ assert(
 );
 
 assert(
-  sharedBuilder.includes('label: "Recorded sales"') &&
-    sharedBuilder.includes('label: "Reported refunds"') &&
-    sharedBuilder.includes('label: "Sales after refunds"') &&
-    !sharedBuilder.includes('label: "Gross sales"') &&
-    !sharedBuilder.includes('label: "Net sales"'),
-  'Operator PDF totals must describe recorded sales, reported refunds, and sales after refunds.',
+  sharedBuilder.includes('summary.grossSalesCents == null') &&
+    sharedBuilder.includes('? "Unavailable"') &&
+    sharedBuilder.includes('paid in period') &&
+    sharedBuilder.includes('outstanding') &&
+    sharedBuilder.includes('usesSharedSalesBasis ? "Sales ex tax" : "Gross sales"'),
+  'Operator PDF totals must separate tax, recognized refund impact, paid context, and outstanding context.',
+);
+
+assert(
+  sharedBuilder.includes('formatRefundImpactCurrency') &&
+    sharedBuilder.includes('value > 0 ? "-" : "+"') &&
+    !sharedBuilder.includes('formatDeductionCurrency'),
+  'Operator PDFs must display negative signed refund impact as a positive reversal.',
 );
 
 assert(
@@ -80,20 +85,17 @@ assert(
 );
 
 assert(
-  calculation.includes('adjustment.source === "nayax_provider_refund"') &&
-    calculation.includes('refundCase?.payment_method === "card"') &&
-    calculation.includes('return "unknown"') &&
-    calculation.includes('net_sales_cents: Number(row.gross_sales_cents ?? 0) -') &&
-    schedulerFunction.includes('calculateScheduledSalesReportRows({') &&
-    schedulerFunction.includes('fetchAllSalesReportRows<') &&
-    schedulerFunction.includes('.order("id")') &&
-    schedulerFunction.includes('.range(from, to)') &&
-    !schedulerFunction.includes('allocatedRefunds'),
-  'Scheduled exports must use evidence-based refund tender and subtract refunds exactly once.',
+  schedulerFunction.includes('sales_report_scheduler_get_sales_report') &&
+    schedulerFunction.includes('p_actor_user_id: schedule.created_by') &&
+    !schedulerFunction.includes('.from("machine_sales_facts")') &&
+    !schedulerFunction.includes('.from("sales_adjustment_facts")'),
+  'Scheduled exports must use the explicit-actor shared report RPC instead of duplicating calculation logic.',
 );
 
 assert(
-  reportingClient.includes("expectedSalesReportPdfGeneratorVersion = 'sales-report-pdf/polished-v1'") &&
+  reportingClient.includes("expectedSalesReportPdfGeneratorVersion = 'sales-report-pdf/shared-basis-v2'") &&
+    reportingClient.includes('normalizeSalesReportCalculationVersion(row.calculation_version)') &&
+    reportingClient.includes("'legacy-sales-basis-v0' | 'shared-sales-basis-v1'") &&
     reportingClient.includes('response.pdfGeneratorVersion !== expectedSalesReportPdfGeneratorVersion') &&
     reportingClient.includes('outdated PDF generator'),
   'Portal report exports must block stale sales-report-export responses instead of opening them.',
@@ -115,10 +117,11 @@ assert(
 
 assert(
   portalReports.includes("t('reports.paymentScopeHelp')") &&
-    portalReports.includes("t('reports.recordedSales')") &&
-    portalReports.includes("t('reports.reportedRefunds')") &&
-    portalReports.includes("t('reports.salesAfterRefunds')"),
-  'Portal reporting must keep one payment filter and use the corrected sales labels.',
+    portalReports.includes("'reports.taxExclusiveSales'") &&
+    portalReports.includes("'reports.periodRefundImpact'") &&
+    portalReports.includes("'reports.salesAfterPeriodRefunds'") &&
+    !portalReports.includes("? 'reports.taxRemovedWithUnresolved'"),
+  'Portal reporting must keep one payment filter and use the shared-basis labels.',
 );
 
 assert(
