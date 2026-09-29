@@ -22,6 +22,14 @@ orientation snapshot; it is not a backlog or release ledger.
   both a stale reply-review step and a contradictory customer-wait warning.
   The next safe step is the existing scheduled read-only purchase recheck;
   issue #1361 tracks the owner/state correction and live case readback.
+- On September 29 the same reply worker safely deferred a payout-only reply
+  because the customer said they do not use Zelle and also mentioned a different
+  amount. The payout question does not authorize changing financial truth.
+  Migration `20260929155500` narrowly recognizes a clean, verified,
+  request-bound Zelle limitation as `customer_cannot_provide`. A reply that also
+  contains an amount, method, card, network, or wallet fact stays in ordinary
+  fact review; the amount, decision, completion state, and alternate payment
+  policy remain unchanged until that review finishes.
 - On September 29 a governed confirmed-refund receipt reached the customer in
   the existing Gmail thread but also copied two mapped Managers because manual
   `completed` outbox rows still inherited the general Manager-copy policy. A

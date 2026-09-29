@@ -274,7 +274,8 @@
     "20260929113000_refund_reviewed_selection_preparation.sql",
     "20260929134500_refund_technical_incident_agent_routing.sql",
     "20260929144500_refund_approved_cash_ready_projection.sql",
-    "20260929155500_refund_payout_reply_cannot_use.sql"
+    "20260929155500_refund_payout_reply_cannot_use.sql",
+    "20260929164000_refund_completion_customer_only.sql"
   ],
   "migrationFilesSha256": "07c3f0ebca964513d9944d7ce2970040d966c92a553aeb390349e198fe240abd",
   "migrationVersionSetSha256": "e2b690aab156d6afd6e04b5adbd8fd5b5eda987e8b5c9a88dfc5e09d588c23a9",
