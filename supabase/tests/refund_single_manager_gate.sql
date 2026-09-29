@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(69);
+select plan(72);
 
 create function pg_temp.set_actor(p_user_id uuid) returns void language plpgsql as $$
 begin
@@ -188,6 +188,31 @@ select ok((select actor_user_id='a3410000-0000-4000-8000-000000000001'
 select ok((select matched_nayax_transaction_id is null from public.refund_cases
     where id='a3470000-0000-4000-8000-000000000013'),
   'ambiguous lookup never saves a transaction before human review');
+
+insert into pg_temp.lookup_fixture_results(result_key,result) values
+  ('scheduled-ambiguous',pg_temp.commit_lookup_fixture(
+    'a3470000-0000-4000-8000-000000000015','a3480000-0000-4000-8000-000000000015',
+    'scheduled',null,'multiple_matches','ambiguous'));
+select ok((select actor_user_id is null and lookup_generation=1
+    from public.refund_nayax_lookup_candidates
+    where token='a3480000-0000-4000-8000-000000000015'),
+  'scheduled ambiguous lookup keeps its exact current candidate as System evidence');
+select pg_temp.set_actor('a3410000-0000-4000-8000-000000000002');
+select is((public.admin_select_refund_nayax_candidate_current_user_v1(
+    'a3470000-0000-4000-8000-000000000015',
+    (select official_action_version from public.refund_cases
+      where id='a3470000-0000-4000-8000-000000000015'),
+    'a3480000-0000-4000-8000-000000000015',null)->>'selectionApplied'),'true',
+  'a current mapped Manager can review and select exact System-generated ambiguous evidence');
+select ok((select matched_nayax_transaction_id='LOOKUP-000000000015'
+      and nayax_lookup_generation=1
+    from public.refund_cases where id='a3470000-0000-4000-8000-000000000015')
+  and exists(select 1 from public.refund_case_events
+    where refund_case_id='a3470000-0000-4000-8000-000000000015'
+      and event_type='nayax_match_selected'
+      and actor_user_id='a3410000-0000-4000-8000-000000000002'
+      and metadata->>'provider_call_made'='false'),
+  'System evidence selection remains actor-attributed and makes no provider call');
 
 insert into public.refund_cases(id,public_reference,reporting_machine_id,reporting_location_id,
   customer_email,issue_summary,incident_at,incident_timezone,incident_time_resolution,

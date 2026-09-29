@@ -2738,25 +2738,11 @@ const runCardNayaxLookupSweep = async (
         customerCorrectionFields.length === 0
       ) {
         counters.nayaxCandidatesFound += lookupResult.candidates.length;
-        const correlationStatus = lookupResult.recommendationState === "ambiguous"
-          ? "multiple_candidates"
-          : "manual_review";
-        const { error: updateError } = await supabase.from("refund_cases")
-          .update({
-            status: "needs_review",
-            correlation_status: correlationStatus,
-            correlation_source: "nayax",
-            correlation_confidence: 0,
-            correlation_summary: lookupResult.summary,
-            automation_state: "under_review",
-            nayax_recommendation_state: lookupResult.recommendationState,
-            nayax_recommendation_policy_version: lookupResult.policyVersion,
-            nayax_recommendation_evaluated_at: lookupResult.lastCheckedAt,
-            nayax_match_execution_eligible: false,
-          })
-          .eq("id", refundCase.id);
-        if (updateError) throw updateError;
-
+        // persistNayaxLookupResult already committed these case fields and the
+        // exact candidate generation atomically. A second case update can trip
+        // current-state guards after the durable provider result is saved,
+        // leaving the scheduler action falsely failed even though review work
+        // is ready.
         const { error: eventError } = await supabase.from("refund_case_events").insert({
           refund_case_id: refundCase.id,
           event_type: "nayax_auto_recommendation_evaluated",
