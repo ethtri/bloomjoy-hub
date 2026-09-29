@@ -5137,15 +5137,27 @@ export default function AdminRefundsPage() {
         }
       }
       await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
-    } catch {
+    } catch (lookupError) {
       if (lookupRequestSequenceRef.current !== requestSequence) return;
-      const message = 'The transaction search could not be completed.';
+      const guardedFailure = isEdgeFunctionError(lookupError) &&
+        ['lookup_precondition_conflict', 'lookup_access_required'].includes(
+          String(lookupError.data?.errorCode),
+        );
+      const message = guardedFailure
+        ? String(lookupError.data?.error || lookupError.message).trim()
+        : 'The transaction search could not be completed.';
       setNayaxLookupNotice({
-        tone: 'error',
-        message: `${message} Keep the case open and try the transaction check again later.`,
+        tone: guardedFailure ? 'warning' : 'error',
+        message: guardedFailure
+          ? message
+          : `${message} Keep the case open and try the transaction check again later.`,
       });
       if (!silent) {
-        toast.error(message);
+        if (guardedFailure) {
+          toast.info(message);
+        } else {
+          toast.error(message);
+        }
       }
       await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
       if (lookupRequestSequenceRef.current !== requestSequence) return;

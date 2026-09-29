@@ -48,6 +48,13 @@ orientation snapshot; it is not a backlog or release ledger.
   retaining the normal any-current-machine-Manager or Super-admin authority.
   It does not assign one Manager, authorize a decision, send a message, or move
   money.
+- Two current cases share one pending exact duplicate-reconciliation review.
+  The protected transaction-check writer correctly stops before a provider read
+  until the existing duplicate-or-distinct review is resolved, but the Edge
+  endpoint reported that expected precondition as HTTP 500 and the portal told
+  the operator to retry. The bounded correction reports a stable conflict,
+  refreshes the case's authoritative next step, and leaves duplicate resolution,
+  lookup eligibility, provider calls, decisions, messages, and money unchanged.
 - On 2026-09-26 the authenticated refund list loaded again, but five case
   workflow details were still unavailable. Three traced to a stale Nayax lookup
   projection: two searches need internal machine/duplicate-scope repair before
