@@ -1,6 +1,6 @@
 -- A verified reply to the payout-only question may say that the customer does
--- not use Zelle. Treat that exact limitation as reviewed without adopting
--- unrelated amount text or changing any financial fact.
+-- not use Zelle. Treat that clean limitation as reviewed only when the verified
+-- reply contains no other supported fact; mixed replies stay in fact review.
 create or replace function public.service_complete_refund_scoped_reply_no_fact(
   p_request_id uuid,p_claim_token uuid,p_source_message_id uuid,
   p_expected_fact_version bigint,p_body_sha256 text,

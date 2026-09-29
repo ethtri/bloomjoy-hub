@@ -25,9 +25,11 @@ orientation snapshot; it is not a backlog or release ledger.
 - On September 29 the same reply worker safely deferred a payout-only reply
   because the customer said they do not use Zelle and also mentioned a different
   amount. The payout question does not authorize changing financial truth.
-  Migration `20260929155500` narrowly recognizes the verified, request-bound
-  Zelle limitation as `customer_cannot_provide`; it leaves the amount, decision,
-  completion state, and alternate payment policy unchanged.
+  Migration `20260929155500` narrowly recognizes a clean, verified,
+  request-bound Zelle limitation as `customer_cannot_provide`. A reply that also
+  contains an amount, method, card, network, or wallet fact stays in ordinary
+  fact review; the amount, decision, completion state, and alternate payment
+  policy remain unchanged until that review finishes.
 - On 2026-09-26 the authenticated refund list loaded again, but five case
   workflow details were still unavailable. Three traced to a stale Nayax lookup
   projection: two searches need internal machine/duplicate-scope repair before
