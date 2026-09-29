@@ -168,6 +168,15 @@ insert into public.refund_cases (
 select is((select count(*) from private.refund_request_recognition_events
   where refund_case_id='fd400000-0000-4000-8000-000000000006'), 1::bigint,
   'Unknown request initially has one immutable raw event');
+insert into public.refund_nayax_lookup_candidates (
+  refund_case_id, reporting_machine_id, provider_transaction_id,
+  machine_authorization_time, amount_cents, currency_code, evidence_summary
+)
+select
+  c.id, c.reporting_machine_id, 'exact-1100', c.incident_at,
+  1100, 'USD', jsonb_build_object('source','manual_nayax_portal')
+from public.refund_cases c
+where c.id='fd400000-0000-4000-8000-000000000006';
 update public.refund_cases set
   correlation_status='matched', correlation_source='nayax',
   matched_nayax_transaction_id='exact-1100', matched_nayax_amount_cents=1100,
@@ -199,6 +208,15 @@ insert into public.refund_cases (
   clock_timestamp(), 'card', 1100, 1100, 'needs_review', clock_timestamp(),
   'gmail_contact_ingested'
 );
+insert into public.refund_nayax_lookup_candidates (
+  refund_case_id, reporting_machine_id, provider_transaction_id,
+  machine_authorization_time, amount_cents, currency_code, evidence_summary
+)
+select
+  c.id, c.reporting_machine_id, 'exact-880', c.incident_at,
+  880, 'USD', jsonb_build_object('source','manual_nayax_portal')
+from public.refund_cases c
+where c.id='fd400000-0000-4000-8000-000000000007';
 update public.refund_cases set
   refund_amount_cents=880, correlation_status='matched', correlation_source='nayax',
   matched_nayax_transaction_id='exact-880', matched_nayax_amount_cents=880,
@@ -238,6 +256,15 @@ insert into public.refund_cases (
   now()-interval '10 days', 'card', 1100, 1100, 'needs_review',
   clock_timestamp(), 'gmail_contact_ingested'
 );
+insert into public.refund_nayax_lookup_candidates (
+  refund_case_id, reporting_machine_id, provider_transaction_id,
+  machine_authorization_time, amount_cents, currency_code, evidence_summary
+)
+select
+  c.id, c.reporting_machine_id, 'scope-exact-1100', c.incident_at,
+  1100, 'USD', jsonb_build_object('source','manual_nayax_portal')
+from public.refund_cases c
+where c.id='fd400000-0000-4000-8000-000000000008';
 update public.refund_cases set
   matched_sales_fact_id='fd600000-0000-4000-8000-000000000008',
   correlation_status='matched', correlation_source='nayax',
