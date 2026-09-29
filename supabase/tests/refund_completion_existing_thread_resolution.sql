@@ -1,7 +1,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path=public,extensions;
-select plan(29);
+select plan(30);
 
 create function pg_temp.set_completion_auth(p_user_id uuid,p_session_id uuid)
 returns void language plpgsql as $$ begin
@@ -172,6 +172,8 @@ select ok((select case_population='customer' and payment_method='card'
 select ok((select message_type='completed'
     and template_version='refund_nayax_completion_v2' and status='failed'
     and lower(recipient_email)='completion-customer@example.invalid'
+    and subject='Your refund is complete'
+    and body='Your $27.00 refund was issued. Reference RF-CURRENT-COPY.'
     and error_message='gmail_completion_retry_exhausted' and delivery_state='unknown'
     and provider_message_id is null and sent_at is null
     and manual_delivery_attempt_count=0 and manual_delivery_provider_attempted_at is null
@@ -219,6 +221,74 @@ select ok(
       and received_at>(select created_at from public.refund_case_messages
         where id='ce800000-0000-4000-8000-000000000001')),
   'The fixture has one exact receipt/thread and no pending financial work');
+select is((select array_to_string(array_remove(array[
+  case when c.case_population is distinct from 'customer' then 'case_population' end,
+  case when c.payment_method is distinct from 'card' then 'payment_method' end,
+  case when c.status is distinct from 'completed' then 'case_status' end,
+  case when c.decision is distinct from 'approved' then 'decision' end,
+  case when c.refund_completed_at is null then 'refund_completed_at' end,
+  case when c.reporting_adjustment_id is null then 'case_adjustment' end,
+  case when c.public_reference is distinct from 'RF-CURRENT-COPY' then 'reference' end,
+  case when c.matched_nayax_transaction_id is distinct from 'COMPLETION-TXN-1' then 'transaction' end,
+  case when c.refund_amount_cents is distinct from 2700 then 'amount' end,
+  case when lower(btrim(c.customer_email)) is distinct from 'completion-customer@example.invalid' then 'case_recipient' end,
+  case when lower(btrim(m.recipient_email)) is distinct from 'completion-customer@example.invalid' then 'message_recipient' end,
+  case when encode(extensions.digest(convert_to(jsonb_build_array(
+      lower(btrim(m.recipient_email)),m.subject,m.body)::text,'UTF8'),'sha256'),'hex')
+    is distinct from encode(extensions.digest(convert_to(jsonb_build_array(
+      'completion-customer@example.invalid','Your refund is complete',
+      'Your $27.00 refund was issued. Reference RF-CURRENT-COPY.')::text,'UTF8'),'sha256'),'hex')
+    then 'message_digest' end,
+  case when m.message_type is distinct from 'completed' then 'message_type' end,
+  case when m.template_version is distinct from 'refund_nayax_completion_v2' then 'template' end,
+  case when m.status is distinct from 'failed' then 'message_status' end,
+  case when m.error_message is distinct from 'gmail_completion_retry_exhausted' then 'message_error' end,
+  case when m.delivery_state is distinct from 'unknown' then 'delivery_state' end,
+  case when m.provider_message_id is not null then 'provider_message_id' end,
+  case when m.sent_at is not null then 'sent_at' end,
+  case when coalesce(m.manual_delivery_attempt_count,0)<>0 then 'manual_attempts' end,
+  case when m.manual_delivery_provider_attempted_at is not null then 'manual_provider_attempt' end,
+  case when m.manual_delivery_state is not null then 'manual_state' end,
+  case when a.status is distinct from 'succeeded' then 'attempt_status' end,
+  case when a.provider_outcome is distinct from 'success' then 'provider_outcome' end,
+  case when a.reconciliation_required is distinct from false then 'reconciliation' end,
+  case when a.reporting_adjustment_id is distinct from c.reporting_adjustment_id then 'attempt_adjustment' end,
+  case when a.case_finalization_committed_at is null then 'finalization' end,
+  case when a.completion_message_id is distinct from m.id then 'attempt_message' end,
+  case when a.completion_delivery_status is distinct from 'failed' then 'attempt_delivery' end,
+  case when source_recovery.event_type is distinct from 'refund_customer_completion_recovery_sent' then 'source_type' end,
+  case when source_recovery.metadata->>'sourceMessageId' is distinct from m.id::text then 'source_message' end,
+  case when source_recovery.metadata->>'deliveryTransport' is distinct from 'resend' then 'transport' end,
+  case when source_recovery.metadata->>'providerLastEvent' is distinct from 'delivered' then 'provider_event' end,
+  case when source_recovery.metadata->>'paymentOperationPerformed' is distinct from 'false' then 'payment_flag' end,
+  case when source_recovery.metadata->>'originalGmailThreadPreserved' is distinct from 'true' then 'thread_flag' end,
+  case when source_recovery.metadata->>'providerMessageIdDigest'!~'^[a-f0-9]{64}$' then 'provider_digest' end,
+  case when not exists(select 1 from public.refund_authoritative_receipts receipt
+      where receipt.refund_case_id=c.id and receipt.nayax_refund_attempt_id=a.id
+        and receipt.original_transaction_id=c.matched_nayax_transaction_id
+        and receipt.refunded_amount_cents=receipt.original_amount_cents) then 'receipt' end,
+  case when not exists(select 1 from public.refund_gmail_threads thread
+      where thread.refund_case_id=c.id and thread.provider_thread_id='completion-thread-1'
+        and (a.completion_gmail_thread_id is null or a.completion_gmail_thread_id=thread.id)) then 'thread' end,
+  case when exists(select 1 from public.refund_gmail_messages gmail
+      where gmail.refund_case_id=c.id and gmail.direction='inbound'
+        and gmail.received_at>m.created_at) then 'later_reply' end,
+  case when exists(select 1 from public.refund_nayax_pending_approval_recoveries recovery
+      where recovery.nayax_refund_attempt_id=a.id and recovery.status='in_progress') then 'pending_recovery' end,
+  case when exists(select 1 from public.refund_nayax_resolution_intents intent
+      where intent.nayax_refund_attempt_id=a.id and intent.status='pending') then 'pending_resolution' end
+],null),',')
+  from public.refund_cases c
+  join public.refund_case_messages m on m.refund_case_id=c.id
+  join public.refund_case_nayax_refund_attempts a
+    on a.id=m.nayax_refund_attempt_id and a.refund_case_id=c.id
+  join public.refund_case_events source_recovery
+    on source_recovery.id='cea00000-0000-4000-8000-000000000001'
+    and source_recovery.refund_case_id=c.id
+  where c.id='ce400000-0000-4000-8000-000000000001'
+    and m.id='ce800000-0000-4000-8000-000000000001'
+),''::text,
+  'Every atomic persisted evidence predicate matches the production resolution guard');
 set local role authenticated;
 
 select is((public.admin_resolve_refund_completion_existing_thread(
@@ -227,9 +297,10 @@ select is((public.admin_resolve_refund_completion_existing_thread(
   (select official_action_version from public.refund_cases where id='ce400000-0000-4000-8000-000000000001'),
   'RF-CURRENT-COPY','COMPLETION-TXN-1',2700,'completion-customer@example.invalid',
   (select created_at from public.refund_case_events where id='cea00000-0000-4000-8000-000000000001'),
-  encode(extensions.digest(convert_to(jsonb_build_array(
-    'completion-customer@example.invalid','Your refund is complete',
-    'Your $27.00 refund was issued. Reference RF-CURRENT-COPY.')::text,'UTF8'),'sha256'),'hex'),
+  (select encode(extensions.digest(convert_to(jsonb_build_array(
+      lower(btrim(recipient_email)),subject,body)::text,'UTF8'),'sha256'),'hex')
+    from public.refund_case_messages
+    where id='ce800000-0000-4000-8000-000000000001'),
   true,true,true,true)->>'status'),'resolved',
   'The mapped operator resolves the exact current obligation from reviewed evidence');
 select is((select count(*)::integer from public.refund_case_events
@@ -241,9 +312,10 @@ select is((public.admin_resolve_refund_completion_existing_thread(
   (select official_action_version from public.refund_cases where id='ce400000-0000-4000-8000-000000000001'),
   'RF-CURRENT-COPY','COMPLETION-TXN-1',2700,'completion-customer@example.invalid',
   (select created_at from public.refund_case_events where id='cea00000-0000-4000-8000-000000000001'),
-  encode(extensions.digest(convert_to(jsonb_build_array(
-    'completion-customer@example.invalid','Your refund is complete',
-    'Your $27.00 refund was issued. Reference RF-CURRENT-COPY.')::text,'UTF8'),'sha256'),'hex'),
+  (select encode(extensions.digest(convert_to(jsonb_build_array(
+      lower(btrim(recipient_email)),subject,body)::text,'UTF8'),'sha256'),'hex')
+    from public.refund_case_messages
+    where id='ce800000-0000-4000-8000-000000000001'),
   true,true,true,true)->>'status'),'resolved','Exact replay is idempotent');
 reset role;
 
