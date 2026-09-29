@@ -366,6 +366,13 @@ begin
         and new_target = new.payment_amount_cents then
         new_basis := 'tax_inclusive';
         new_basis_provenance := 'cash_completion_exact_customer_charge';
+      elsif new.payment_method = 'card'
+        and new.correlation_source = 'nayax'
+        and new.matched_nayax_amount_cents = new_target
+        and new.matched_nayax_currency_code = 'USD'
+        and nullif(new.matched_nayax_transaction_id, '') is not null then
+        new_basis := 'tax_inclusive';
+        new_basis_provenance := 'nayax_exact_matched_customer_charge';
       elsif exists (
         select 1
         from public.refund_authoritative_receipts receipt
@@ -739,6 +746,12 @@ begin
           scoped.customer_request_received_source = 'hosted_refund_intake'
             and scoped.payment_amount_cents is not null
             and scoped.target_cents = scoped.payment_amount_cents
+        ) or (
+          scoped.payment_method = 'card'
+            and scoped.correlation_source = 'nayax'
+            and scoped.matched_nayax_amount_cents = scoped.target_cents
+            and scoped.matched_nayax_currency_code = 'USD'
+            and nullif(scoped.matched_nayax_transaction_id, '') is not null
         ) or exists (
           select 1 from public.refund_authoritative_receipts receipt
           where receipt.refund_case_id = scoped.id
@@ -751,6 +764,12 @@ begin
           and scoped.payment_amount_cents is not null
           and scoped.target_cents = scoped.payment_amount_cents
         then 'hosted_intake_unchanged_customer_charge_estimate'
+        when scoped.payment_method = 'card'
+          and scoped.correlation_source = 'nayax'
+          and scoped.matched_nayax_amount_cents = scoped.target_cents
+          and scoped.matched_nayax_currency_code = 'USD'
+          and nullif(scoped.matched_nayax_transaction_id, '') is not null
+          then 'nayax_exact_matched_customer_charge'
         when exists (
           select 1 from public.refund_authoritative_receipts receipt
           where receipt.refund_case_id = scoped.id
@@ -879,6 +898,11 @@ begin
     where fact.reporting_machine_id = p_reporting_machine_id
       and fact.sale_date between p_date_from and p_date_to
       and fact.net_sales_cents > 0
+      -- SnapCase/Kex card observations are comparison evidence only. Nayax is
+      -- the card-money publisher; existing Sunze card facts remain intentional
+      -- legacy history at the ingestion boundary.
+      and (fact.source <> 'snapcase_cash' or fact.payment_method = 'cash')
+      and (fact.source <> 'nayax_scheduled_report' or fact.payment_method = 'credit')
   ), sales_grouped as materialized (
     select
       scoped.reporting_machine_id,
@@ -1007,14 +1031,20 @@ begin
       0::bigint as recorded_sales_cents,
       0::bigint as sales_ex_tax_cents,
       0::bigint as sales_tax_cents,
-      coalesce(sum(greatest(
+      case when bool_or(
+        ranked.before_ex_tax_cents is null
+          or ranked.after_ex_tax_cents is null
+      ) then null else coalesce(sum(greatest(
         ranked.after_ex_tax_cents - ranked.before_ex_tax_cents,
         0
-      )), 0)::bigint as request_deduction_ex_tax_cents,
-      coalesce(sum(greatest(
+      )), 0)::bigint end as request_deduction_ex_tax_cents,
+      case when bool_or(
+        ranked.before_ex_tax_cents is null
+          or ranked.after_ex_tax_cents is null
+      ) then null else coalesce(sum(greatest(
         ranked.before_ex_tax_cents - ranked.after_ex_tax_cents,
         0
-      )), 0)::bigint as refund_reversal_ex_tax_cents,
+      )), 0)::bigint end as refund_reversal_ex_tax_cents,
       0::bigint as legacy_paid_deduction_ex_tax_cents,
       0::bigint as paid_context_ex_tax_cents,
       coalesce(sum(case when ranked.latest_in_group = 1
@@ -1065,11 +1095,19 @@ begin
       adjustment.reporting_machine_id,
       adjustment.reporting_location_id,
       adjustment.adjustment_date as booking_date,
-      coalesce(event.purchase_attribution_date, adjustment.adjustment_date)
+      coalesce(
+        event.purchase_attribution_date,
+        matched_fact.sale_date,
+        case when linked_location.timezone is not null
+          then (linked_case.incident_at at time zone linked_location.timezone)::date end,
+        adjustment.adjustment_date
+      )
         as purchase_attribution_date,
       case
         when adjustment.source = 'nayax_provider_refund' then 'card'
         when event.tender is not null then event.tender
+        when linked_case.payment_method in ('cash', 'card')
+          then linked_case.payment_method
         when lower(coalesce(adjustment.raw_payload ->> 'payment_method', ''))
           in ('card', 'credit') then 'card'
         when lower(coalesce(adjustment.raw_payload ->> 'payment_method', '')) = 'cash'
@@ -1128,16 +1166,59 @@ begin
       limit 1
     ) event on true
     left join lateral (
+      select refund_case.*
+      from public.refund_cases refund_case
+      where refund_case.id = adjustment.refund_case_id
+        or refund_case.reporting_adjustment_id = adjustment.id
+      order by (refund_case.id = adjustment.refund_case_id) desc,
+        refund_case.created_at,
+        refund_case.id
+      limit 1
+    ) linked_case on true
+    left join public.machine_sales_facts matched_fact
+      on matched_fact.id = linked_case.matched_sales_fact_id
+    left join public.reporting_locations linked_location
+      on linked_location.id = linked_case.reporting_location_id
+    cross join lateral (
+      select case
+        when event.amount_basis is not null then event.amount_basis
+        when adjustment.source = 'nayax_provider_refund' then 'tax_inclusive'
+        when linked_case.customer_request_received_source = 'hosted_refund_intake'
+          and adjustment.amount_cents = linked_case.payment_amount_cents
+          and adjustment.amount_cents = linked_case.refund_amount_cents
+          then 'tax_inclusive'
+        when linked_case.payment_method = 'cash'
+          and linked_case.status = 'completed'
+          and linked_case.refund_completed_at is not null
+          and adjustment.amount_cents = linked_case.payment_amount_cents
+          and adjustment.amount_cents = linked_case.refund_amount_cents
+          then 'tax_inclusive'
+        when linked_case.payment_method = 'card'
+          and linked_case.correlation_source = 'nayax'
+          and adjustment.amount_cents = linked_case.matched_nayax_amount_cents
+          and linked_case.matched_nayax_currency_code = 'USD'
+          and nullif(linked_case.matched_nayax_transaction_id, '') is not null
+          then 'tax_inclusive'
+        else 'unknown'
+      end::text as amount_basis
+    ) paid_basis
+    left join lateral (
       select rate.tax_rate_percent
       from public.reporting_machine_tax_rates rate
       where rate.machine_id = adjustment.reporting_machine_id
         and rate.status = 'active'
         and rate.effective_start_date <= coalesce(
           event.purchase_attribution_date,
+          matched_fact.sale_date,
+          case when linked_location.timezone is not null
+            then (linked_case.incident_at at time zone linked_location.timezone)::date end,
           adjustment.adjustment_date
         )
         and coalesce(rate.effective_end_date, 'infinity'::date) >= coalesce(
           event.purchase_attribution_date,
+          matched_fact.sale_date,
+          case when linked_location.timezone is not null
+            then (linked_case.incident_at at time zone linked_location.timezone)::date end,
           adjustment.adjustment_date
         )
       order by rate.effective_start_date desc, rate.created_at desc, rate.id
@@ -1145,7 +1226,7 @@ begin
     ) tax_rate on true
     cross join lateral private.normalize_financial_amount_cents(
       adjustment.amount_cents,
-      coalesce(event.amount_basis, 'unknown'),
+      paid_basis.amount_basis,
       tax_rate.tax_rate_percent,
       null
     ) normalized
@@ -1169,11 +1250,16 @@ begin
     component.source,
     sum(component.sales_transaction_count)::bigint,
     sum(component.recorded_sales_cents)::bigint,
-    sum(component.sales_ex_tax_cents)::bigint,
-    sum(component.sales_tax_cents)::bigint,
-    sum(component.request_deduction_ex_tax_cents)::bigint,
-    sum(component.refund_reversal_ex_tax_cents)::bigint,
-    sum(component.legacy_paid_deduction_ex_tax_cents)::bigint,
+    case when bool_or(component.unresolved_sales_count > 0) then null
+      else sum(component.sales_ex_tax_cents)::bigint end,
+    case when bool_or(component.unresolved_sales_count > 0) then null
+      else sum(component.sales_tax_cents)::bigint end,
+    case when bool_or(component.unresolved_refund_count > 0) then null
+      else sum(component.request_deduction_ex_tax_cents)::bigint end,
+    case when bool_or(component.unresolved_refund_count > 0) then null
+      else sum(component.refund_reversal_ex_tax_cents)::bigint end,
+    case when bool_or(component.unresolved_refund_count > 0) then null
+      else sum(component.legacy_paid_deduction_ex_tax_cents)::bigint end,
     sum(component.paid_context_ex_tax_cents)::bigint,
     max(component.outstanding_context_ex_tax_cents)::bigint,
     sum(component.unresolved_sales_count)::bigint,
@@ -1182,7 +1268,10 @@ begin
     sum(component.unresolved_refund_cents)::bigint,
     sum(component.unresolved_paid_context_count)::bigint,
     sum(component.unresolved_paid_context_cents)::bigint,
-    sum(component.commissionable_sales_ex_tax_cents)::bigint,
+    case when bool_or(
+      component.unresolved_sales_count > 0
+        or component.unresolved_refund_count > 0
+    ) then null else sum(component.commissionable_sales_ex_tax_cents)::bigint end,
     case
       when bool_or(component.normalization_status = 'unresolved') then 'unresolved'
       when bool_or(component.normalization_status = 'estimated') then 'estimated'
