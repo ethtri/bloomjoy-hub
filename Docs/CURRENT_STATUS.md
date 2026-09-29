@@ -62,6 +62,20 @@ orientation snapshot; it is not a backlog or release ledger.
   corrected repeat form or two purchases, so the review remains pending; #628
   tracks one governed same-thread clarification when internal research is
   exhausted.
+- The September 29 scheduled transaction check for one case durably saved a
+  current generation with 10 ambiguous Nayax candidates and the normal
+  completion/diagnostic events, then its scheduler action was incorrectly
+  recorded as `database_failure`. The provider search must not be replayed. The
+  bounded repair removes the redundant case write that ran after the
+  authoritative result commit and keeps the recommendation event and action
+  settlement. It also lets a currently mapped Machine Manager select an
+  unexpired, exact-generation System candidate from an ambiguous
+  scheduled result through the existing reviewed-selection action. Manual-portal
+  candidates remain actor-bound, and the existing case version, generation,
+  evidence, safety, and authority checks remain. This change does not select a
+  purchase, rerun the provider lookup, make a decision, send a message, or move
+  money; production acceptance still requires hosted replay checks and a live
+  readback of the already-saved candidates.
 - On 2026-09-26 the authenticated refund list loaded again, but five case
   workflow details were still unavailable. Three traced to a stale Nayax lookup
   projection: two searches need internal machine/duplicate-scope repair before
