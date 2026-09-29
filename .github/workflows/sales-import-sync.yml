@@ -57,7 +57,7 @@ jobs:
       GITHUB_EVENT_NAME: ${{ github.event_name }}
       GITHUB_EVENT_SCHEDULE: ${{ github.event.schedule || '' }}
       SUNZE_SUMMARY_MACHINE_CODES: ${{ secrets.SUNZE_SUMMARY_MACHINE_CODES || '' }}
-      PROVIDER_INGEST_CHUNK_SIZE: ${{ inputs.ingest_chunk_size || vars.SUNZE_INGEST_CHUNK_SIZE || '1000' }}
+      PROVIDER_INGEST_CHUNK_SIZE: ${{ inputs.ingest_chunk_size || vars.SUNZE_INGEST_CHUNK_SIZE || '250' }}
       PROVIDER_EXPECTED_MACHINE_COUNT: ${{ vars.SUNZE_EXPECTED_MACHINE_COUNT || '' }}
       SUNZE_EXPORT_TASK_TIMEOUT_MS: ${{ vars.SUNZE_EXPORT_TASK_TIMEOUT_MS || '' }}
       SUNZE_EXPORT_DOWNLOAD_TIMEOUT_MS: ${{ vars.SUNZE_EXPORT_DOWNLOAD_TIMEOUT_MS || '' }}

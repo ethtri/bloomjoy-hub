@@ -4,7 +4,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 import { reconcileApprovedCardResearchFailure } from "../_shared/refund-approved-card-research-failure.ts";
 import { correctionLinkRequested, getCurrentRefundCorrectionFields, issueRefundCorrectionForMessage, refundCorrectionLinksEnabled, STORED_CORRECTION_LINK_MARKER } from "../_shared/refund-correction-delivery.ts";
 import { recheckSavedPurchaseCorrection } from "../_shared/refund-purchase-correction-handler.ts";
-import { sendInternalEmail, sendTransactionalEmail } from "../_shared/internal-email.ts";
+import { sendTransactionalEmail } from "../_shared/internal-email.ts";
 import { buildRefundManagerDigestEmail, parseRefundManagerDailyDigestProjection } from "../_shared/refund-manager-digest.ts";
 import { deliverRefundManagerReadyClaim } from "../_shared/refund-manager-ready-delivery.ts";
 import {
@@ -603,45 +603,6 @@ const completionOutboxHealth = async (): Promise<CompletionOutboxHealth> => {
   return value as unknown as CompletionOutboxHealth;
 };
 
-const sendCompletionOutboxHealthAlert = async (
-  health: CompletionOutboxHealth,
-  notificationType: "initial" | "changed" | "reminder" | "recovery",
-  idempotencyKey: string,
-) => {
-  const recovered = notificationType === "recovery";
-  await sendInternalEmail({
-    subject: recovered
-      ? "[Recovered] Refund completion outbox healthy"
-      : notificationType === "reminder"
-      ? "[Reminder] Refund completion outbox needs attention"
-      : notificationType === "changed"
-      ? "[Updated] Refund completion outbox needs attention"
-      : "[Action needed] Refund completion outbox needs attention",
-    text: [
-      recovered
-        ? "Bloomjoy refund completion delivery has remained healthy for one hour."
-        : "Bloomjoy refund completion delivery needs the assigned Manager's attention.",
-      "",
-      `Aging queued: ${health.agingQueuedCount}`,
-      `Stale claimed: ${health.staleClaimedCount}`,
-      `Definite failures: ${health.definiteFailedCount}`,
-      `Delivery unknown: ${health.deliveryUnknownCount}`,
-      `Disabled-contact deferrals: ${health.disabledContactDeferralCount}`,
-      `Missing routes: ${health.missingRouteCount}`,
-      `Database automatic contact enabled: ${health.databaseAutomaticContactEnabled}`,
-      `Runtime automation enabled: ${health.runtimeAutomationEnabled}`,
-      `Runtime automatic contact enabled: ${health.runtimeAutomaticContactEnabled}`,
-      `Runtime manual outbox enabled: ${health.runtimeManualOutboxEnabled}`,
-      `Latency samples: ${health.sampleCount}`,
-      `Queue-to-provider median seconds: ${health.queueToFirstProviderAttemptMedianSeconds ?? "not available"}`,
-      `Queue-to-provider p95 seconds: ${health.queueToFirstProviderAttemptP95Seconds ?? "not available"}`,
-      "",
-      "No customer names, email addresses, payment details, message IDs, case IDs, or provider payloads are included.",
-    ].join("\n"),
-    idempotencyKey,
-  });
-};
-
 const runCompletionOutboxHealthNotification = async (
   counters: SweepCounters,
 ) => {
@@ -672,22 +633,19 @@ const runCompletionOutboxHealthNotification = async (
   if (!notificationType || !actionKey || !incidentId || !claimToken) return;
   counters.actionsAttempted += 1;
   try {
-    const providerIdempotencyKey = actionKey.replaceAll(":", "_")
-      .replaceAll("-", "");
-    await sendCompletionOutboxHealthAlert(
-      health,
-      notificationType,
-      providerIdempotencyKey,
-    );
     const { data: settled, error: settleError } = await supabase.rpc(
       "service_settle_refund_completion_outbox_notification",
-      { p_incident_id: incidentId, p_claim_token: claimToken, p_outcome: "sent" },
+      {
+        p_incident_id: incidentId,
+        p_claim_token: claimToken,
+        p_outcome: "routed_for_agent",
+      },
     );
     if (settleError || settled?.settled !== true) {
       throw new Error("Completion outbox alert settlement failed.");
     }
     counters.actionsSucceeded += 1;
-    addReason(counters, `completion_outbox_${notificationType}_sent`);
+    addReason(counters, `completion_outbox_${notificationType}_routed_for_agent`);
   } catch (error) {
     await supabase.rpc("service_settle_refund_completion_outbox_notification", {
       p_incident_id: incidentId,
@@ -695,7 +653,7 @@ const runCompletionOutboxHealthNotification = async (
       p_outcome: "failed",
     });
     counters.actionsFailed += 1;
-    addReason(counters, "completion_outbox_alert_delivery_failed");
+    addReason(counters, "completion_outbox_agent_route_failed");
     throw error;
   }
 };
@@ -2014,60 +1972,6 @@ const sendWalletCorrectionMessage = async (
     });
     return { status: "failed" as const, messageId };
   }
-};
-
-const sendAutomationHealthAlert = async (
-  alertKind: "stale" | "repeated_failure" | "workflow_degraded" | "failure_test",
-  health: RefundAutomationHealth,
-  notificationType: "initial" | "reminder" | "recovery" = "initial",
-) => {
-  const label = alertKind === "failure_test"
-    ? "failure-test alert"
-    : alertKind === "workflow_degraded"
-      ? "blocked refund workflow delivery"
-    : alertKind === "stale"
-      ? "stale scheduler"
-      : "repeated scheduler failures";
-  const subject = alertKind === "failure_test"
-    ? `[Action needed] Refund automation ${label}`
-    : notificationType === "recovery"
-      ? alertKind === "workflow_degraded"
-        ? "[Recovered] Refund workflow delivery restored"
-        : "[Recovered] Refund automation scheduler healthy"
-      : notificationType === "reminder"
-        ? `[Reminder] Refund automation ${label}`
-        : `[Action needed] Refund automation ${label}`;
-  const opening = notificationType === "recovery"
-    ? alertKind === "workflow_degraded"
-      ? "Observed refund delivery obligations have remained resolved for one hour. Workflow progression may still need separate monitoring."
-      : "Bloomjoy refund automation scheduler has remained healthy for one hour."
-    : notificationType === "reminder"
-      ? "Bloomjoy refund automation still needs an operations owner to resolve a technical blocker."
-      : "Bloomjoy refund automation needs an operations owner to resolve a technical blocker.";
-  const closing = notificationType === "recovery"
-    ? alertKind === "workflow_degraded" &&
-        health.workflowStatus === "instrumentation_unavailable"
-      ? "The delivery incident is resolved. Continue tracking the separately reported progression instrumentation gap."
-      : "No action is needed for this incident. A future distinct scheduler incident can alert again."
-    : "The core refund case workflow remains available. Check the Refunds health banner and the primary Supabase schedule.";
-  await sendInternalEmail({
-    subject,
-    text: [
-      opening,
-      "",
-      `Alert category: ${label}`,
-      `Health state: ${health.status ?? "unknown"}`,
-      `Scheduler state: ${health.schedulerStatus ?? "unavailable"}`,
-      `Workflow state: ${health.workflowStatus ?? "unavailable"}`,
-      `Blocked lanes: ${(health.blockedReasons ?? []).join(", ") || "none recorded"}`,
-      `Last run: ${health.lastRunAt ?? "not recorded"}`,
-      `Last successful run: ${health.lastSuccessAt ?? "not recorded"}`,
-      `Consecutive failures: ${health.consecutiveFailures ?? 0}`,
-      "",
-      "No customer names, email addresses, payment details, complaint text, or provider payloads are included.",
-      closing,
-    ].join("\n"),
-  });
 };
 
 const getFollowUpCycle = async (cycleId: string) => {
@@ -4429,26 +4333,22 @@ const runHealthCheck = async (
   }
 
   try {
-    await sendAutomationHealthAlert(
-      notification.alertKind,
-      health,
-      notification.notificationType,
-    );
     await finishAction(
       action,
       "completed",
       notification.notificationType === "recovery"
-        ? "scheduler_recovery_alert_sent"
-        : notification.notificationType === "reminder"
-          ? `${notification.alertKind}_reminder_sent`
-          : `${notification.alertKind}_alert_sent`,
+        ? "technical_incident_recovery_recorded"
+        : `${notification.alertKind}_${notification.notificationType}_routed_for_agent`,
       null,
       counters,
     );
-    await finishRun(runId, "succeeded", counters, null, "sent");
+    const alertStatus = notification.notificationType === "recovery"
+      ? "not_needed"
+      : "pending";
+    await finishRun(runId, "succeeded", counters, null, alertStatus);
     return {
       health,
-      alertStatus: "sent",
+      alertStatus,
       notificationType: notification.notificationType,
     };
   } catch (error) {
@@ -4456,8 +4356,8 @@ const runHealthCheck = async (
       errorType: error instanceof Error ? error.name : typeof error,
       runKey,
     });
-    await finishAction(action, "failed", "ops_alert_delivery_failed", null, counters);
-    await finishRun(runId, "failed", counters, "ops_alert_delivery_failed", "failed");
+    await finishAction(action, "failed", "technical_incident_route_failed", null, counters);
+    await finishRun(runId, "failed", counters, "technical_incident_route_failed", "failed");
     return {
       health,
       alertStatus: "failed",
@@ -4481,19 +4381,17 @@ const runFailureTest = async (
     policyWindowStart,
     counters,
   );
-  const health = await getAutomationHealth();
-  let alertStatus: "sent" | "failed" | "suppressed" = "suppressed";
+  let alertStatus: "pending" | "failed" | "suppressed" = "suppressed";
 
   if (action.claimed) {
     try {
-      await sendAutomationHealthAlert("failure_test", health);
-      await finishAction(action, "completed", "failure_test_alert_sent", null, counters);
-      alertStatus = "sent";
+      await finishAction(action, "completed", "failure_test_routed_for_agent", null, counters);
+      alertStatus = "pending";
     } catch (error) {
       console.error("refund-case-automation-sweep failure-test alert failed", {
         errorType: error instanceof Error ? error.name : typeof error,
       });
-      await finishAction(action, "failed", "ops_alert_delivery_failed", null, counters);
+      await finishAction(action, "failed", "technical_incident_route_failed", null, counters);
       alertStatus = "failed";
     }
   }
@@ -4938,11 +4836,13 @@ serve(async (req) => {
       failureStage = "failure_test";
       const alertStatus = await runFailureTest(runId, runKey, counters, policyWindowStart);
       return jsonResponse({
-        status: alertStatus === "sent" ? "failure_test_recorded" : "failure_test_alert_failed",
+        status: alertStatus === "pending"
+          ? "failure_test_routed_for_agent"
+          : "failure_test_agent_route_failed",
         runKey,
         alertStatus,
         ...redactedSummary(counters),
-      }, alertStatus === "sent" ? 200 : 502);
+      }, alertStatus === "pending" ? 200 : 502);
     }
 
     // System first finishes an exact saved approval that has not reached the
@@ -5149,33 +5049,27 @@ serve(async (req) => {
 
         if (alertAction?.claimed && notification?.alertKind) {
           try {
-            await sendAutomationHealthAlert(
-              notification.alertKind,
-              {
-                ...priorHealth,
-                status: "failing",
-                consecutiveFailures: (priorHealth.consecutiveFailures ?? 0) + 1,
-                lastRunAt: new Date().toISOString(),
-              },
-              notification.notificationType === "none"
-                ? "initial"
-                : notification.notificationType,
-            );
             await finishAction(
               alertAction,
               "completed",
               notification.notificationType === "reminder"
-                ? "repeated_failure_reminder_sent"
-                : "repeated_failure_alert_sent",
+                ? "repeated_failure_reminder_routed_for_agent"
+                : "repeated_failure_initial_routed_for_agent",
               null,
               counters,
             );
-            alertStatus = "sent";
+            alertStatus = "pending";
           } catch (alertError) {
-            console.error("refund-case-automation-sweep repeated-failure alert failed", {
+            console.error("refund-case-automation-sweep technical incident route failed", {
               errorType: alertError instanceof Error ? alertError.name : typeof alertError,
             });
-            await finishAction(alertAction, "failed", "ops_alert_delivery_failed", null, counters);
+            await finishAction(
+              alertAction,
+              "failed",
+              "technical_incident_route_failed",
+              null,
+              counters,
+            );
             alertStatus = "failed";
           }
         }

@@ -5137,15 +5137,27 @@ export default function AdminRefundsPage() {
         }
       }
       await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
-    } catch {
+    } catch (lookupError) {
       if (lookupRequestSequenceRef.current !== requestSequence) return;
-      const message = 'The transaction search could not be completed.';
+      const guardedFailure = isEdgeFunctionError(lookupError) &&
+        ['lookup_precondition_conflict', 'lookup_access_required'].includes(
+          String(lookupError.data?.errorCode),
+        );
+      const message = guardedFailure
+        ? String(lookupError.data?.error || lookupError.message).trim()
+        : 'The transaction search could not be completed.';
       setNayaxLookupNotice({
-        tone: 'error',
-        message: `${message} Keep the case open and try the transaction check again later.`,
+        tone: guardedFailure ? 'warning' : 'error',
+        message: guardedFailure
+          ? message
+          : `${message} Keep the case open and try the transaction check again later.`,
       });
       if (!silent) {
-        toast.error(message);
+        if (guardedFailure) {
+          toast.info(message);
+        } else {
+          toast.error(message);
+        }
       }
       await queryClient.invalidateQueries({ queryKey: ['admin-refund-operations-overview'] });
       if (lookupRequestSequenceRef.current !== requestSequence) return;
@@ -8347,10 +8359,10 @@ export default function AdminRefundsPage() {
           >
             <p className="font-medium">From {refundCustomerSenderIdentity}</p>
             <p>
-              To this customer · CC every current assigned Machine Manager · saved in Activity and messages.
+              To this customer only · saved in the customer thread, Activity, and messages.
             </p>
             <p className="mt-1 text-xs">
-              If this official sender or the exact recipients cannot be verified, Bloomjoy stops before delivery.
+              Managers receive decision alerts and digests separately. If the official sender or customer recipient cannot be verified, Bloomjoy stops before delivery.
             </p>
           </div>
           <fieldset className="space-y-1">

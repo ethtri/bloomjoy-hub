@@ -120,6 +120,46 @@ test('ordinary cannot-provide reply is a source-bound System result, not a Manag
   }), /unsupported_no_fact_review/);
 });
 
+test('payout-only reply can decline Zelle only when no other supported fact is discarded', () => {
+  const payoutInput = {
+    ...input,
+    requestedFields: ['zelle_payment_contact'],
+    currentFacts: { paymentAmountCents: 1000, paymentMethod: 'cash' },
+    replyMessages: [{
+      messageId,
+      body: 'I do not use Zelle. The amount should be $12.00.',
+    }],
+  };
+  assert.throws(() => validateNoFactReview(payoutInput, {
+    kind: 'reviewed_no_fact', reasonCode: 'customer_cannot_provide',
+    messageId, quote: 'I do not use Zelle',
+  }), /supported_fact_requires_fact_review/);
+  const cleanPayoutInput = {
+    ...payoutInput,
+    replyMessages: [{ messageId, body: 'I do not use Zelle.' }],
+  };
+  const review = validateNoFactReview(cleanPayoutInput, {
+    kind: 'reviewed_no_fact', reasonCode: 'customer_cannot_provide',
+    messageId, quote: 'I do not use Zelle',
+  });
+  assert.equal(review.reasonCode, 'customer_cannot_provide');
+  assert.throws(() => validateNoFactReview({
+    ...cleanPayoutInput,
+    requestedFields: ['amount'],
+  }, {
+    kind: 'reviewed_no_fact', reasonCode: 'customer_cannot_provide',
+    messageId, quote: 'I do not use Zelle',
+  }), /cannot_provide_source_not_supported/);
+  const clauseCrossingInput = {
+    ...payoutInput,
+    replyMessages: [{ messageId, body: 'I cannot use Cash App; I can use Zelle.' }],
+  };
+  assert.throws(() => validateNoFactReview(clauseCrossingInput, {
+    kind: 'reviewed_no_fact', reasonCode: 'customer_cannot_provide',
+    messageId, quote: 'I cannot use Cash App; I can use Zelle',
+  }), /cannot_provide_source_not_supported/);
+});
+
 test('a single guarded batch binds separate verified replies to separate field spans', () => {
   const laterMessageId = 'ae000000-0000-4000-8000-000000000006';
   const twoReplies = { ...input, replyMessages: [

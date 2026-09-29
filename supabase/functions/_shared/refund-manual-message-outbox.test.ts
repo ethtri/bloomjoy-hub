@@ -6,6 +6,7 @@ import {
   claimRefundManualMessageDeliveries,
   deliverRefundManualMessageClaim,
   drainRefundManualMessageOutbox,
+  refundManualMessageManagerCopyPolicy,
   refundOutboxAutomaticSendGate,
 } from "./refund-manual-message-outbox.ts";
 import { RefundGmailError, sha256Hex } from "./refund-gmail.ts";
@@ -113,6 +114,29 @@ const withGmailEnvironment = async (run: () => Promise<void>) => {
     }
   }
 };
+
+Deno.test("customer questions and completions stay in the customer thread without changing decision routes", () => {
+  assertEquals(refundManualMessageManagerCopyPolicy({
+    message_type: "more_info",
+    delivery_kind: "automatic",
+  }), "automatic_portal_only");
+  assertEquals(refundManualMessageManagerCopyPolicy({
+    message_type: "more_info",
+    delivery_kind: "manual",
+  }), "customer_thread_only");
+  assertEquals(refundManualMessageManagerCopyPolicy({
+    message_type: "completed",
+    delivery_kind: "manual",
+  }), "customer_thread_only");
+  assertEquals(refundManualMessageManagerCopyPolicy({
+    message_type: "completed",
+    delivery_kind: "automatic",
+  }), "automatic_portal_only");
+  assertEquals(refundManualMessageManagerCopyPolicy({
+    message_type: "approved",
+    delivery_kind: "manual",
+  }), "manager_cc_required");
+});
 
 Deno.test("manual-message outbox claims a bounded exact message contract", async () => {
   const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
@@ -776,6 +800,99 @@ Deno.test("PR #1051 regression: portal completion with a later Gmail thread uses
       }
     }
   });
+});
+
+Deno.test("manual question and completion delivery sends only to the customer and records zero manager copies", async () => {
+  const values: Record<string, string> = {
+    REFUND_GMAIL_ENABLED: "false",
+    REFUND_CUSTOMER_FROM_EMAIL: "refunds@bloomjoysweets.com",
+    REFUND_REPLY_TO_EMAIL: "refunds@bloomjoysweets.com",
+    RESEND_API_KEY: "synthetic-resend-key",
+  };
+  const before = new Map<string, string | undefined>();
+  for (const [name, value] of Object.entries(values)) {
+    before.set(name, Deno.env.get(name));
+    Deno.env.set(name, value);
+  }
+  const originalFetch = globalThis.fetch;
+  let providerPayload: Record<string, unknown> = {};
+  let settledManagerCcCount: unknown = null;
+  globalThis.fetch = ((_input, init) => {
+    providerPayload = JSON.parse(String(init?.body ?? "{}"));
+    return Promise.resolve(new Response(
+      JSON.stringify({ id: "resend_provider_more_info_001" }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    ));
+  }) as typeof fetch;
+  try {
+    for (const messageType of ["more_info", "completed"]) {
+      providerPayload = {};
+      settledManagerCcCount = null;
+      const supabase = {
+        from: (table: string) => {
+          if (table === "refund_case_messages") {
+            return singleRowQuery(claimedMessage(null, {
+              message_type: messageType,
+              delivery_kind: "manual",
+              subject: "Update your refund request",
+              body: "Please share the one missing detail.",
+            }));
+          }
+          if (table === "refund_cases") return singleRowQuery(currentCase);
+          if (table === "refund_gmail_threads") return singleRowQuery(null);
+          throw new Error(`unexpected clarification table: ${table}`);
+        },
+        rpc: (name: string, args: Record<string, unknown>) => {
+          if (name === "service_mark_refund_manual_message_provider_attempt") {
+            return Promise.resolve({ data: { marked: true, payloadRedacted: true }, error: null });
+          }
+          if (name === "service_verify_refund_synthetic_gmail_proof_transport") {
+            return Promise.resolve({ data: { required: false, allowed: true }, error: null });
+          }
+          if (name === "service_authorize_refund_customer_outbound") {
+            return Promise.resolve({
+              data: {
+                allowed: true,
+                recipientResolutionStatus: "resolved",
+                managerCcEmails: ["manager-a@example.test", "manager-b@example.test"],
+                managerRecipientOverlap: false,
+                managerRecipientCount: 2,
+              },
+              error: null,
+            });
+          }
+          if (name === "service_mark_refund_transactional_delivery_attempt") {
+            return Promise.resolve({ data: { marked: true, payloadRedacted: true }, error: null });
+          }
+          if (name === "service_bind_refund_transactional_delivery") {
+            return Promise.resolve({ data: { bound: true, payloadRedacted: true }, error: null });
+          }
+          if (name === "service_finish_refund_manual_message_delivery") {
+            settledManagerCcCount = args.p_manager_cc_count;
+            return Promise.resolve({ data: { finished: true, payloadRedacted: true }, error: null });
+          }
+          throw new Error(`unexpected clarification RPC: ${name}`);
+        },
+      } as never;
+
+      const result = await deliverRefundManualMessageClaim({
+        supabase,
+        reference: { messageId, claimToken },
+      });
+
+      assertEquals(result.outcome, "sent");
+      assertEquals(result.managerCcCount, 0);
+      assertEquals(settledManagerCcCount, 0);
+      assertEquals(providerPayload.to, ["customer@example.invalid"]);
+      assertEquals(providerPayload.cc, undefined);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [name, value] of before) {
+      if (value === undefined) Deno.env.delete(name);
+      else Deno.env.set(name, value);
+    }
+  }
 });
 
 Deno.test("mark-only automatic fallback cannot start transactional provider access after shutdown", async () => {

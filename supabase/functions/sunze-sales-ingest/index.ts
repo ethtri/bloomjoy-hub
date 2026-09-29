@@ -282,6 +282,32 @@ const finishRun = async (
     .eq("id", importRunId);
 };
 
+const routeTechnicalIncidentToAgent = async (importRunId: string) => {
+  if (!supabase) return;
+  const { data, error } = await supabase
+    .from("sales_import_runs")
+    .select("meta")
+    .eq("id", importRunId)
+    .single();
+  if (error) throw new Error(error.message || "Unable to read Sunze incident route.");
+  const meta = data?.meta && typeof data.meta === "object" && !Array.isArray(data.meta)
+    ? data.meta as Record<string, unknown>
+    : {};
+  const { error: updateError } = await supabase
+    .from("sales_import_runs")
+    .update({
+      meta: {
+        ...meta,
+        technical_agent_route: "bloomjoy-technical-incident-repair",
+        technical_agent_routed_at: new Date().toISOString(),
+      },
+    })
+    .eq("id", importRunId);
+  if (updateError) {
+    throw new Error(updateError.message || "Unable to route Sunze incident to the technical agent.");
+  }
+};
+
 const recordCashSourceWatermarks = async ({
   importRunId,
   machineCodes,
@@ -791,18 +817,13 @@ const handleHealthCheck = async (body: Record<string, unknown>) => {
         latest_completed_at: latestCompletedAt,
         github_run_id: githubRunId,
         github_run_url: githubRunUrl,
+        technical_agent_route: "bloomjoy-technical-incident-repair",
+        technical_agent_routed_at: new Date().toISOString(),
       },
     });
-
-    await sendReportingAlert({
-      title: isFailureEvent ? "Sunze sales sync failed" : "Sunze sales data is stale",
-      lines: [
-        errorMessage,
-        latestCompletedAt ? `Latest completed import: ${latestCompletedAt}` : "No completed Sunze import found.",
-        githubRunUrl ? `GitHub run: ${githubRunUrl}` : "",
-        healthRunId ? `Health run id: ${healthRunId}` : "",
-      ],
-    });
+    if (!healthRunId) {
+      return jsonResponse({ error: "Unable to record Sunze technical incident." }, 503);
+    }
   }
 
   return jsonResponse({
@@ -1053,11 +1074,16 @@ serve(async (req) => {
         rowsSkipped: 0,
         errorMessage: message,
       });
-
-      await sendReportingAlert({
-        title: "Sunze sales ingest failed",
-        lines: [`Import run id: ${importRunId}`, message],
-      });
+      try {
+        await routeTechnicalIncidentToAgent(importRunId);
+      } catch (routeError) {
+        // The failed import row remains the durable incident even if its agent
+        // routing annotation cannot be written during this invocation.
+        console.error("Sunze technical incident routing failed", {
+          importRunId,
+          errorType: routeError instanceof Error ? routeError.name : typeof routeError,
+        });
+      }
     }
 
     console.error("sunze-sales-ingest error", message);

@@ -1,6 +1,6 @@
 # Current Status
 
-Last compacted: 2026-09-28.
+Last compacted: 2026-09-29.
 
 GitHub Issues and the Bloomjoy Project board own active priority, status,
 blockers, acceptance criteria, and closeout evidence. This file is only a short
@@ -22,6 +22,46 @@ orientation snapshot; it is not a backlog or release ledger.
   both a stale reply-review step and a contradictory customer-wait warning.
   The next safe step is the existing scheduled read-only purchase recheck;
   issue #1361 tracks the owner/state correction and live case readback.
+- On September 29 the same reply worker safely deferred a payout-only reply
+  because the customer said they do not use Zelle and also mentioned a different
+  amount. The payout question does not authorize changing financial truth.
+  Migration `20260929155500` narrowly recognizes a clean, verified,
+  request-bound Zelle limitation as `customer_cannot_provide`. A reply that also
+  contains an amount, method, card, network, or wallet fact stays in ordinary
+  fact review; the amount, decision, completion state, and alternate payment
+  policy remain unchanged until that review finishes.
+- On September 29 a governed confirmed-refund receipt reached the customer in
+  the existing Gmail thread but also copied two mapped Managers because manual
+  `completed` outbox rows still inherited the general Manager-copy policy. A
+  second eligible receipt is held rather than repeat that route. The bounded
+  correction sends manual customer questions and completion receipts to the
+  customer thread only. The same recipient rule covers direct Gmail, bounded
+  same-message retry, provider-outcome resolution, and transactional fallback;
+  their settlement records the physical zero-CC result while retaining the
+  current mapped-manager governance check. Manager approval/denial alerts and
+  digests keep their existing routes. The earlier delivery remains immutable
+  and is not resent.
+- A reviewed card purchase with two valid current machine Managers exposed a
+  stale generic queue instruction to restore Manager access even though the
+  canonical work correctly required a Manager decision. The bounded projection
+  repair keeps that queue aligned with the existing approve-or-deny action while
+  retaining the normal any-current-machine-Manager or Super-admin authority.
+  It does not assign one Manager, authorize a decision, send a message, or move
+  money.
+- Two current cases share one pending exact duplicate-reconciliation review.
+  The protected transaction-check writer correctly stops before a provider read
+  until the existing duplicate-or-distinct review is resolved. The deployed
+  Edge correction now reports that expected precondition as HTTP 409 instead of
+  HTTP 500, and the portal shows the current-case instruction without retry
+  guidance before refreshing the authoritative next step. A bounded production
+  call returned the stable conflict in 1.446 seconds; its before/after snapshot
+  retained `not_started`, generation zero, zero candidates, the same event
+  count, and the unresolved review. Duplicate resolution, provider calls,
+  decisions, messages, and money were unchanged, and the scoped session was
+  revoked. Current evidence cannot safely establish whether the pair is a
+  corrected repeat form or two purchases, so the review remains pending; #628
+  tracks one governed same-thread clarification when internal research is
+  exhausted.
 - On 2026-09-26 the authenticated refund list loaded again, but five case
   workflow details were still unavailable. Three traced to a stale Nayax lookup
   projection: two searches need internal machine/duplicate-scope repair before
@@ -39,6 +79,29 @@ orientation snapshot; it is not a backlog or release ledger.
   visible error, and the scoped test session was revoked. Exact payload parity
   and lifecycle v2 remained intact. Availability and timeout margin are
   improved, but the unchanged 3.4 MB response remains responsiveness debt.
+- The September 29 cash payout-destination release exposed a new database
+  planning regression in that response. The SQL eligibility predicate may run
+  receipt and attempt research before rejecting a closed or unrelated case;
+  fresh authenticated reads took 21-74 seconds and two of three timed out.
+  Migration `20260929093000` preserves both eligibility results for all 83
+  current cases and reduced the 83-case correction-field pass from 24.663
+  seconds to 0.770 seconds in the rollback rehearsal. After production deploy,
+  three serial authenticated overview reads returned all 72 customer cases plus
+  11 internal/test cases in 6.352-7.173 seconds. A fresh portal session needed
+  one retry, then rendered 57 active, 15 closed, and one waiting-on-customer case
+  as up to date. The database regression is repaired; the large response and
+  transient first-load failure remain reliability and responsiveness debt.
+- The September 29 reviewed-selection preparation release closes one concrete
+  case-worker gap without adding another queue or decision step. Migration
+  `20260929113000` lets the existing selection action refresh current proof for
+  one unchanged, actor-reviewed, exact Nayax transaction and exposes an advisory
+  recommendation to the existing Manager decision path. In production,
+  RF-423906B2 advanced from case-worker preparation to Manager approve-or-deny;
+  its decision remained empty, and its counts remained zero payment attempts,
+  zero receipts, zero action authorizations, and two unchanged customer messages.
+  The proof records no provider call or customer message. This proves one real
+  nonfinancial case advance; it does not claim that the remaining active case
+  portfolio is complete.
 - Production recovery on 2026-09-19 restored the System card-attempt queue for
   the TGPaci enterprise account. Approval and processing now use the same queue
   readiness contract, and deterministic completion delivery claims the database
@@ -160,6 +223,70 @@ orientation snapshot; it is not a backlog or release ledger.
   scheduler runs are healthy and suppress ineligible duplicate work, but a
   no-op run is not evidence that a case progressed; real action outcomes remain
   separately visible in the action ledger.
+- A September 29 technical reminder was generated by a real, still-open refund
+  workflow incident even though its scheduler was healthy. The remaining two
+  failures were old automatic status notices on completed cases whose exact
+  completion obligations were later resolved through existing customer-thread
+  copies. Migration `20260929134500` recognizes only that case-bound, redacted,
+  terminal resolution evidence and leaves every other failed or unknown notice
+  visible. Refund workflow, completion-outbox, and Sunze sync technical incidents
+  now stay on their existing durable records for the active GPT technical
+  consumer instead of emailing executives; their action result is recorded as
+  `routed_for_agent`, never as delivered email. Manager decision alerts, Manager
+  digests, Sunze mapping alerts, and customer messages keep their existing routes.
+- The first production health check after that routing release failed closed on
+  an actual cash-case projection mismatch and sent no technical email. A saved
+  payout-destination reply left the approved case in Agent review, while the
+  broad cash stage incorrectly exposed a Manager payout action that the exact
+  ready-notice contract rejected. Migration `20260929144500` keeps approved cash
+  payout work with the Agent until the protected `cash_zelle_pending` state and
+  an exact authorized Manager action are both present; the saved approval is
+  unchanged and no payment is attempted. The production migration is live. A
+  September 29 15:30 UTC health run completed successfully with no notification,
+  set the existing workflow incident's stable-recovery timer, and created no new
+  operations alert. Production now projects the affected case as
+  `review_customer_reply` with no Manager payout action; customer-status delivery
+  obligations remain zero. After the full 60-minute healthy window, the 16:30
+  UTC health run resolved the durable workflow incident with
+  `stable_recovery`; its one recovery action was recorded for the technical
+  agent and did not create another raw executive email.
+- A September 29 audit found 55 independent open case-work identities after
+  excluding one open duplicate. The existing scheduled sweep and reply worker
+  do not perform the broader purchase research, provider setup, reply review,
+  delivery reconciliation, or assignment repair. The existing Codex caseworker
+  heartbeat is the single broad consumer; it must work the portal and produce a
+  real case transition or delivered customer question before this gap is called
+  fixed. Production readback after migration `20260929033000` found its first
+  repair incomplete: two unresolved duplicate-review cases still displayed
+  System lookup work even though the real lookup claimant excludes them. The
+  caseworker heartbeat was paused again before it ran. Migration
+  `20260929043000` applied the claimant exclusions inside the current-work
+  projector, but authenticated production readback still showed both rows as
+  System work because a later lookup compatibility stage overlaid that result.
+  Follow-up migration `20260929051000` repairs only the already-visible
+  next-work object in the final actor-scoped overview when duplicate
+  reconciliation remains open. Authenticated database readback then returned
+  Agent purchase research for both rows, but the browser rejected those two
+  lifecycle objects because the replacement omitted the required nullable
+  `lastProgressAt` and `dueAt` keys. Migration `20260929060136` restores that
+  exact public next-work shape. Authenticated browser readback then showed both
+  rows as Agent purchase research with no unavailable-workflow fallback. The
+  first hourly caseworker run examined seven cases and made no semantic advance;
+  it exposed hidden transaction inventory and slow linked-case detail as real
+  research blockers rather than counting inspection or a locale save as progress.
+  Migration `20260929064743` separately restored the current undecided-cash path
+  to the existing protected payout-destination request machinery. One controlled
+  production case then sent exactly one payout-destination question: the provider
+  recorded delivered, the bounded reminder row is waiting, and the portal moved
+  the case to customer wait without a decision, payment, approval, or refund.
+  That first live question also exposed two policy defects: the manual route
+  copied two mapped Managers and the payout copy called the undecided request
+  approved. Preserve that delivered message as immutable history and do not
+  resend it. The follow-up source repair keeps `more_info` messages in the
+  customer thread without Manager CC and describes payout-destination collection
+  as review work; decision alerts and Manager digests remain separate.
+  Candidate research and linked-case loading remain the next operational slice.
+  These migrations add no queue, run ledger, decision, refund, or payment authority.
 - Historical no-safe-match follow-up cycles that stopped before creating any
   customer question project as internal purchase research only when current
   facts still have no correctable field and no cycle-bound message exists.

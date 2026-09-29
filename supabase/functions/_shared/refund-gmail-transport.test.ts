@@ -403,6 +403,50 @@ Deno.test("disabled Gmail leaves the non-Gmail customer-delivery route available
   );
 });
 
+Deno.test("manual clarification keeps manager authorization but returns a customer-only route", async () => {
+  await withEnvironment(
+    { ...SYNTHETIC_ENV, REFUND_GMAIL_ENABLED: "false" },
+    async () => {
+      const supabase = fakeSupabase({
+        link: null,
+        rpc: async (name) => {
+          if (name !== "service_authorize_refund_customer_outbound") {
+            throw new Error(`unexpected synthetic RPC: ${name}`);
+          }
+          return {
+            data: {
+              allowed: true,
+              recipientResolutionStatus: "resolved",
+              managerCcEmails: [
+                "manager-a@example.test",
+                "manager-b@example.test",
+              ],
+              managerRecipientOverlap: false,
+              managerRecipientCount: 2,
+            },
+            error: null,
+          };
+        },
+      });
+
+      const result = await dispatchRefundCaseGmailReply({
+        supabase: supabase as never,
+        refundCaseId: "79850000-0000-4000-8000-000000000007",
+        refundCaseMessageId: "79860000-0000-4000-8000-000000000007",
+        recipientEmail: "customer@example.test",
+        email,
+        deliveryKind: "manual",
+        managerCopyPolicy: "customer_thread_only",
+      });
+
+      assertEquals(result.usedGmail, false);
+      assertEquals(result.managerCcEmails, []);
+      assertEquals(result.managerCcCount, 0);
+      assertEquals(result.managerRecipientCount, 2);
+    },
+  );
+});
+
 for (
   const linkage of [
     {

@@ -80,8 +80,8 @@ const summaryMachineCodesArg =
   process.env.PROVIDER_SUMMARY_MACHINE_CODES ||
   process.env.SUNZE_SUMMARY_MACHINE_CODES ||
   '';
-const DEFAULT_INGEST_CHUNK_SIZE = 1000;
-const MAX_INGEST_CHUNK_SIZE = 10000;
+const DEFAULT_INGEST_CHUNK_SIZE = 250;
+const MAX_INGEST_CHUNK_SIZE = 250;
 const parsePositiveInteger = (value, fallback) => {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;

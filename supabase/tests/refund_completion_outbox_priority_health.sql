@@ -93,6 +93,41 @@ select is(public.service_settle_refund_completion_outbox_notification(
 select is((select status from public.refund_completion_outbox_incidents),'resolved',
   'recovery preserves the closed incident ledger');
 
+delete from public.refund_completion_outbox_incidents;
+insert into completion_health_claims values('agent_initial',
+  public.service_claim_refund_completion_outbox_notification(
+    '{"status":"action_needed","sampleCount":1,"agingQueuedCount":1,"staleClaimedCount":0,"definiteFailedCount":0,"deliveryUnknownCount":0,"disabledContactDeferralCount":0,"missingRouteCount":0,"payloadRedacted":true}'::jsonb));
+select is(public.service_settle_refund_completion_outbox_notification(
+  (select (payload->>'incidentId')::uuid from completion_health_claims where kind='agent_initial'),
+  (select (payload->>'claimToken')::uuid from completion_health_claims where kind='agent_initial'),
+  'routed_for_agent')->>'outcome','routed_for_agent',
+  'Technical completion health can settle truthfully as routed to the GPT agent');
+select ok((select initial_agent_routed_at is not null
+    and last_agent_routed_at is not null
+    and initial_notification_sent_at is null
+    and last_notification_sent_at is null
+  from public.refund_completion_outbox_incidents),
+  'Agent routing never masquerades as an executive email send');
+select is(public.service_claim_refund_completion_outbox_notification(
+  '{"status":"action_needed","sampleCount":1,"agingQueuedCount":1,"staleClaimedCount":0,"definiteFailedCount":0,"deliveryUnknownCount":0,"disabledContactDeferralCount":0,"missingRouteCount":0,"payloadRedacted":true}'::jsonb)->>'notificationType','none',
+  'Unchanged agent-routed completion health remains coalesced');
+select is(public.service_claim_refund_completion_outbox_notification(
+  '{"status":"healthy","sampleCount":1,"agingQueuedCount":0,"staleClaimedCount":0,"definiteFailedCount":0,"deliveryUnknownCount":0,"disabledContactDeferralCount":0,"missingRouteCount":0,"payloadRedacted":true}'::jsonb)->>'notificationType','none',
+  'First healthy agent observation starts the stable recovery window');
+update public.refund_completion_outbox_incidents set healthy_since=now()-interval '61 minutes';
+insert into completion_health_claims values('agent_recovery',
+  public.service_claim_refund_completion_outbox_notification(
+    '{"status":"healthy","sampleCount":1,"agingQueuedCount":0,"staleClaimedCount":0,"definiteFailedCount":0,"deliveryUnknownCount":0,"disabledContactDeferralCount":0,"missingRouteCount":0,"payloadRedacted":true}'::jsonb));
+select is(public.service_settle_refund_completion_outbox_notification(
+  (select (payload->>'incidentId')::uuid from completion_health_claims where kind='agent_recovery'),
+  (select (payload->>'claimToken')::uuid from completion_health_claims where kind='agent_recovery'),
+  'routed_for_agent')->>'outcome','routed_for_agent',
+  'Stable recovery is recorded for the agent without a recovery email');
+select ok((select status='resolved' and recovery_agent_routed_at is not null
+    and recovery_notification_sent_at is null
+  from public.refund_completion_outbox_incidents),
+  'Agent-observed recovery closes the incident without false email metadata');
+
 set local role authenticated;
 select throws_ok('select * from public.refund_completion_outbox_incidents','42501',null,
   'incident ledger is private from authenticated callers');

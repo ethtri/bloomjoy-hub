@@ -605,11 +605,17 @@ select set_config('request.jwt.claim.sub', 'c1000000-0000-4000-8000-000000000001
 select ok(
   (public.refund_lifecycle_contract(
     'c1400000-0000-4000-8000-000000000001'
-  ) #>> '{managerAction,action}') = 'mark_external_refund'
+  ) #>> '{managerAction,action}') = 'none'
+  and (public.refund_lifecycle_contract(
+    'c1400000-0000-4000-8000-000000000001'
+  ) #>> '{nextWork,actor}') = 'agent'
+  and (public.refund_lifecycle_contract(
+    'c1400000-0000-4000-8000-000000000001'
+  ) #>> '{nextWork,actionCode}') = 'review_customer_reply'
   and (public.refund_lifecycle_contract(
     'c1400000-0000-4000-8000-000000000001'
   ) ->> 'reasonCode') = 'external_payment_ready',
-  'The manager queue becomes payout-ready immediately after the verified reply'
+  'The verified payout reply remains Agent review until protected payout state'
 );
 
 set local role service_role;

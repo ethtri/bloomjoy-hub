@@ -7,6 +7,7 @@ import {
   REFUND_DETERMINISTIC_FOLLOW_UP_VERSION,
   sanitizeRefundMissingFields,
 } from "./refund-email.ts";
+import { STORED_CORRECTION_LINK_MARKER } from "./refund-correction-delivery.ts";
 
 const assert = (condition: unknown, message: string) => {
   if (!condition) throw new Error(message);
@@ -109,6 +110,25 @@ Deno.test("cash payout request asks for one protected destination in English and
   );
   assertNotIncludes(email.text, "Approximate purchase time", "no purchase-time request");
   assertNotIncludes(email.text, "Card last four", "no card request");
+  const correctionEmail = buildRefundCustomerEmail({
+    messageType: "more_info",
+    publicReference: "RF-PAYOUT1",
+    customerEmail: "customer@example.com",
+    paymentMethod: "cash",
+    customerLocale: "es",
+    missingFields: ["zelle_payment_contact"],
+    correctionUrl: STORED_CORRECTION_LINK_MARKER,
+  });
+  assertIncludes(
+    correctionEmail.text,
+    "continue reviewing how a cash reimbursement could be sent",
+    "decision-neutral review purpose",
+  );
+  assertNotIncludes(
+    correctionEmail.text,
+    "approved cash reimbursement",
+    "no approval claim",
+  );
 });
 
 Deno.test("missing-information templates fail closed without an exact field list", () => {
