@@ -202,13 +202,15 @@ move pennies. `private.normalize_refund_cents(...)` instead normalizes the
 cumulative requested target and cumulative paid amount before subtracting them,
 which prevents partial-payment rounding drift.
 
-The unused candidate helper currently has provider-wide fallbacks that label
-`nayax_scheduled_report`, `card_authority_daily`, Nayax-correlated card requests,
-and `nayax_provider_refund` amounts as tax-inclusive. The Oklahoma finance
-evidence proves that fallback is not universal. Revise those branches to use the
-recorded location/machine, relevant imported field and effective-date basis
-before binding any financial consumer. Do not guess the missing rules, change
-an unknown basis to zero tax, or activate a partial speculative policy.
+The reviewed helper does not treat a provider name as proof that every amount is
+tax-inclusive. A sale uses explicit `amountBasis` or `taxBasis` metadata, or the
+documented Sunze order basis; an otherwise unknown Nayax sale remains unknown.
+Separately, a refund request amount remains unknown unless exact cash completion,
+exact matched Nayax customer-charge evidence, an authoritative receipt, or
+inherited explicit paid metadata proves that amount's basis. The Oklahoma finance
+evidence still requires an explicit location/machine, imported field and
+effective-date rule before activation. Do not guess the missing rule or change
+an unknown basis to zero tax.
 
 The approved period policy recognizes a request in its machine-local receipt
 month. A later payment contributes zero; a later unpaid denial, withdrawal or
@@ -286,8 +288,9 @@ and do not create a location identity, date, rate or zero-tax rule.
 
 No additional owner choice is needed for the interim mixed source authority.
 Consumer activation still needs the finance SOP details above for the reported
-Nayax location exceptions and a revision of the unused provider-wide inclusive
-fallback. A future vendor-card switch would be a separate recorded decision.
+Nayax location exceptions. The reviewed implementation and documentation may
+merge while activation remains dormant; merging does not select a missing tax
+rule. A future vendor-card switch would be a separate recorded decision.
 Sunze still needs an independently known timestamp pair for its account-wide
 timezone rule.
 

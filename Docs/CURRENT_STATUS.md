@@ -188,6 +188,13 @@ orientation snapshot; it is not a backlog or release ledger.
   already posted paid deductions, recognize eligible opening unpaid requests
   once at cutover, and leave issued Pay Stubs unchanged for ordinary later
   refund events.
+- The owner authorized merging the independently reviewed request-month helper,
+  consumer bindings, and contract documentation. That authorization does not
+  activate the dormant calculation or supply the missing location-specific tax
+  facts: production keeps the legacy calculation until the ordered database,
+  report/export, scheduler, and frontend release is deployed and the one-shot
+  activation is deliberately recorded. Finance issue #1592 remains an
+  activation dependency rather than a merge permission gate.
 - Machine-app cash can remain incomplete while a machine is offline. Sunze's
   daily seven-day overlap and monthly prior-month sweep, plus SnapCase's
   twice-daily 34-day overlap and bounded manual recovery, can ingest late rows
