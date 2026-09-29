@@ -332,7 +332,8 @@ select ok(pg_temp.capture_error(format(
   like '%exact verified customer reply%',
   'A caller cannot spoof customer_confirmed through the generic resolver');
 
-update public.refund_case_messages set status='sent',sent_at=statement_timestamp()-interval '2 hours',
+update public.refund_case_messages set status='sent',manual_delivery_state='sent',
+  sent_at=statement_timestamp()-interval '2 hours',
   delivery_transport='resend',provider_message_id='reconciliation-request-provider',
   delivery_state='accepted',delivery_state_updated_at=statement_timestamp()-interval '2 hours'
 where reconciliation_review_id=(select id from public.refund_case_reconciliation_reviews);
@@ -372,7 +373,8 @@ select is(public.service_enqueue_refund_reconciliation_clarification(
 select is((select delivery_kind from public.refund_case_messages
     where reconciliation_message_role='reminder'),
   'automatic','The reminder is explicitly governed as automatic customer contact');
-update public.refund_case_messages set status='sent',sent_at=statement_timestamp()-interval '1 hour',
+update public.refund_case_messages set status='sent',manual_delivery_state='sent',
+  sent_at=statement_timestamp()-interval '1 hour',
   delivery_transport='resend',provider_message_id='reconciliation-reminder-provider',
   delivery_state='accepted',delivery_state_updated_at=statement_timestamp()-interval '1 hour'
 where reconciliation_message_role='reminder';
