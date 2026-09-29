@@ -213,7 +213,10 @@ orientation snapshot; it is not a backlog or release ledger.
   set the existing workflow incident's stable-recovery timer, and created no new
   operations alert. Production now projects the affected case as
   `review_customer_reply` with no Manager payout action; customer-status delivery
-  obligations remain zero.
+  obligations remain zero. After the full 60-minute healthy window, the 16:30
+  UTC health run resolved the durable workflow incident with
+  `stable_recovery`; its one recovery action was recorded for the technical
+  agent and did not create another raw executive email.
 - A September 29 audit found 55 independent open case-work identities after
   excluding one open duplicate. The existing scheduled sweep and reply worker
   do not perform the broader purchase research, provider setup, reply review,
