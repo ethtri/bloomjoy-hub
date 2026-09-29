@@ -115,8 +115,11 @@ request estimate remains outstanding with `customer_estimate` provenance.
 
 Lifecycle rules:
 
-- Exclude a row with `duplicate_of_refund_case_id`; its canonical case owns the
-  components.
+- A case already identified by `duplicate_of_refund_case_id` before recognition
+  contributes zero independently; its canonical case owns the components. If a
+  duplicate is identified only after an earlier period recognized it, preserve
+  that period and post the dated reversal or reallocation in the change month.
+  Never delete or retroactively exclude the original recognition history.
 - Recognize a financially valued request in the machine-local month in which
   the request was received. Keep the request's proved original purchase machine,
   location, account and sale tax basis even if the machine later moves.
